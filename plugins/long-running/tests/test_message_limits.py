@@ -3191,13 +3191,14 @@ def test_a_file_posted_to_his_dm_outside_say_is_refused_naming_say_visuals(talke
     assert say(transcript, text="The recording of the fix.", visuals=[{"kind": "image", "source": recording, "caption": "The fix (90 s)"}]) is None
 
 
-def test_a_switch_command_names_the_terminal_drive_status_prints(talker: str, transcript: Path) -> None:
-    with state.edit("demo") as data:
-        data["roles"]["communicator"]["terminal"] = "term_live"
+def test_a_switch_command_names_a_terminal_a_session_of_the_drive_runs_in(talker: str, transcript: Path, runs_in: dict[str, list[dict]]) -> None:
+    runs_in[state.load("demo")["roles"]["communicator"]["session"]] = [{"handle": "term_live", "orphaned": False}]
+    runs_in["iris-1"] = [{"handle": "term_iris", "orphaned": False}]
     reason = posted(transcript, text="Open it with `orca terminal switch --terminal term_old`.")
     assert reason.startswith("refused: `orca terminal switch --terminal term_old` names a terminal no session of this drive runs in")
     assert "as the role's line `drive status` prints it" in reason
     assert posted(transcript, text="Open it with `orca terminal switch --terminal term_live`.") is None
+    assert posted(transcript, text="Open Iris's coordinator with `orca terminal switch --terminal term_iris`.").startswith("refused: `orca terminal switch --terminal term_iris`")
     with state.edit("demo") as data:
-        data["subcoordinators"]["Iris"] = {"session": "iris-1", "terminal": "term_iris"}
+        data["subcoordinators"]["Iris"] = {"session": "iris-1", "cwd": "/work"}
     assert posted(transcript, text="Open Iris's coordinator with `orca terminal switch --terminal term_iris`.") is None

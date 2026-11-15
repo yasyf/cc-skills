@@ -15,7 +15,7 @@ from pathlib import Path
 import drive
 import pytest
 import spawnllm
-from conftest import ACME_CUT, CAP_RULING, CARD_BODY, CUT_LINK, CUT_PICK, CUT_TAP, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SAND_NEXT_NOTE, SANDSQL_NOTE, SETTLED_LINE_ANSWERS, SETTLED_LISTED, SETTLED_MATCHED, SETTLED_NOTE, SETTLED_RECORDED, SHORT_ASK, WRITTEN_AT, answered_cut, carrying, cloned, drawn_card, git_in, kept_research, Answers, explained, Checked, Chrome, Draws, Drawing, Heard, Images, Jev, Judge, MetaLaunches, Redraws, Thread, WatchProcess, Withdrawals
+from conftest import ACME_CUT, CAP_RULING, CARD_BODY, CUT_LINK, CUT_PICK, CUT_TAP, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SAND_NEXT_NOTE, SANDSQL_NOTE, SETTLED_LINE_ANSWERS, SETTLED_LISTED, SETTLED_MATCHED, SETTLED_NOTE, SETTLED_RECORDED, SHORT_ASK, REAL_SESSION_TERMINALS, WRITTEN_AT, answered_cut, carrying, cloned, drawn_card, git_in, kept_research, Answers, explained, Checked, Chrome, Draws, Drawing, Heard, Images, Jev, Judge, MetaLaunches, Redraws, Thread, WatchProcess, Withdrawals
 from drive import (
     agents,
     brief,
@@ -146,7 +146,6 @@ def test_start_creates_the_drive_and_prints_the_roles_context(run: Run, tmp_path
     assert data["roles"] == {
         "communicator": {
             "session": os.environ["CLAUDE_CODE_SESSION_ID"],
-            "terminal": None,
             "cwd": str(tmp_path),
             "started": data["roles"]["communicator"]["started"],
             "rules": render.rules_digest(data, "communicator"),
@@ -472,29 +471,27 @@ def test_status_with_no_ids_prints_a_coordinator_one_line_per_open_order_it_runs
     assert shown()[0] == ["o1", "o2", "o3"]
 
 
-def test_an_orphaned_terminal_gets_the_repository_setting_and_a_shown_one_the_switch_command(
-    run: Run, monkeypatch: pytest.MonkeyPatch, tmux_shown: dict[str, str]
+def test_a_session_only_orphaned_terminals_run_gets_the_repository_setting_and_a_shown_one_the_switch_command(
+    run: Run, monkeypatch: pytest.MonkeyPatch, runs_in: dict[str, list[dict]]
 ) -> None:
     session = os.environ["CLAUDE_CODE_SESSION_ID"]
-    shown = {"orphaned": True, "holds": True}
+    runs_in[session] = [{"handle": "term_old", "orphaned": True, "worktreePath": "/repos/acme/.worktrees/demo"}]
     settings: list[tuple[str, ...]] = []
 
     def orca_calls(*args: str) -> dict:
         if args[:2] == ("repo", "set"):
             settings.append(args)
-            return {}
-        return {"terminal": {"ptyId": "pty-1", "orphaned": shown["orphaned"], "worktreePath": "/repos/acme/.worktrees/demo"}}
+        return {}
 
     monkeypatch.setattr(orca, "request", orca_calls)
     monkeypatch.setattr(orca, "main_checkout", lambda worktree: Path("/repos/acme"))
-    monkeypatch.setattr(orca, "holds_session", lambda terminal, held: shown["holds"] and held == session)
     monkeypatch.setenv("ORCA_TERMINAL_HANDLE", "term_abc")
     monkeypatch.delenv("TMUX")
     setting = "orca repo set --repo path:/repos/acme --external-worktree-visibility show"
     hidden = "not visible in Orca, which hides the worktrees it did not make for this repository"
 
     started = run("start", "demo", "--role", "coordinator")[1].splitlines()[-1]
-    assert state.load("demo")["roles"]["coordinator"]["terminal"] == "term_abc"
+    assert "terminal" not in state.load("demo")["roles"]["coordinator"]
     assert started.startswith(f"coordinator: session {session}, {hidden}, so drive start ran {setting} ")
     assert settings == [("repo", "set", "--repo", "path:/repos/acme", "--external-worktree-visibility", "show")]
     assert run("status")[1].splitlines()[2] == (
@@ -503,27 +500,28 @@ def test_an_orphaned_terminal_gets_the_repository_setting_and_a_shown_one_the_sw
     )
     assert len(settings) == 1
 
-    shown["orphaned"] = False
+    runs_in[session].append({"handle": "term_abc", "orphaned": False, "worktreePath": "/repos/acme/.worktrees/demo"})
     switch = f"coordinator: session {session}, open it with: orca terminal switch --terminal term_abc"
     assert run("start", "demo", "--role", "coordinator")[1].splitlines()[-1] == switch
     assert run("status")[1].splitlines()[2] == f"{switch}; Hold no Slack channel."
-    shown["holds"] = False
-    assert run("status")[1].splitlines()[2] == (
-        f"coordinator: session {session}, not visible in Orca until restarted into a terminal; Hold no Slack channel."
-    )
+    runs_in[session].clear()
+    assert run("status")[1].splitlines()[2] == f"coordinator: session {session}, in no Orca terminal; Hold no Slack channel."
     assert len(settings) == 1
 
-    monkeypatch.setenv("TMUX", "/private/tmp/tmux-501/default,1,0")
-    run("start", "demo", "--role", "coordinator")
-    assert state.load("demo")["roles"]["coordinator"]["terminal"] is None
-    assert run("status")[1].splitlines()[2] == f"coordinator: session {session}, in no Orca terminal; Hold no Slack channel."
-    tmux_shown["show-environment"] = "ORCA_TERMINAL_HANDLE=term_attached\n"
-    run("start", "demo", "--role", "coordinator")
-    assert state.load("demo")["roles"]["coordinator"]["terminal"] == "term_attached"
+
+def listing(terminals: list[dict], ptys: list[dict]) -> Callable[..., dict]:
+    """An `orca` that lists these terminals and these ptys."""
+
+    def request(*args: str) -> dict:
+        if args[:2] == ("terminal", "list"):
+            return {"terminals": terminals, "totalCount": len(terminals), "truncated": False}
+        return {"worktrees": [{"sessions": ptys}]}
+
+    return request
 
 
-def test_a_terminal_holds_a_session_only_when_its_process_tree_does_with_or_without_a_pane_key(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_a_session_runs_in_each_terminal_whose_pty_process_tree_holds_it_shown_or_orphaned(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tmux_shown: dict[str, str]
 ) -> None:
     sessions = tmp_path / "config" / "sessions"
     sessions.mkdir(parents=True)
@@ -531,16 +529,15 @@ def test_a_terminal_holds_a_session_only_when_its_process_tree_does_with_or_with
     (sessions / "9102.json").write_text(json.dumps({"pid": 9102, "sessionId": "s-coord"}))
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
     monkeypatch.setattr(orca, "parents", lambda: {7807: 7333, 7333: 7330, 7330: 1, 9102: 99962, 99962: 1})
-    pane = {"sessionId": "pty-1", "pid": 7330, "paneKey": "tab:leaf"}
-    monkeypatch.setattr(orca, "request", lambda *args: {"worktrees": [{"sessions": [pane]}]})
-    assert orca.holds_session({"ptyId": "pty-1"}, "s-comm")
-    assert not orca.holds_session({"ptyId": "pty-1"}, "s-coord")
-    assert not orca.holds_session({"ptyId": "pty-2"}, "s-comm")
-    pane["paneKey"] = None
-    assert orca.holds_session({"ptyId": "pty-1"}, "s-comm")
+    shown = {"handle": "term_1", "ptyId": "pty-1", "orphaned": False}
+    orphaned = {"handle": "term_2", "ptyId": "pty-2", "orphaned": True}
+    unlisted = {"handle": "term_3", "ptyId": "pty-3", "orphaned": False}
+    ptys = [{"sessionId": "pty-1", "pid": 7330, "paneKey": "tab:leaf"}, {"sessionId": "pty-2", "pid": 7333, "paneKey": None}]
+    monkeypatch.setattr(orca, "request", listing([shown, orphaned, unlisted], ptys))
+    assert REAL_SESSION_TERMINALS(["s-comm", "s-coord", "s-gone"]) == {"s-comm": [shown, orphaned], "s-coord": [], "s-gone": []}
 
 
-def test_a_terminal_holds_a_session_when_it_attaches_the_tmux_session_whose_pane_runs_it(
+def test_a_session_runs_in_the_terminal_that_attaches_the_tmux_session_whose_pane_runs_it(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tmux_shown: dict[str, str]
 ) -> None:
     sessions = tmp_path / "config" / "sessions"
@@ -548,13 +545,20 @@ def test_a_terminal_holds_a_session_when_it_attaches_the_tmux_session_whose_pane
     (sessions / "8100.json").write_text(json.dumps({"pid": 8100, "sessionId": "s-coord"}))
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
     monkeypatch.setattr(orca, "parents", lambda: {5001: 5000, 5000: 1, 8100: 8000, 8000: 7999, 7999: 1})
-    monkeypatch.setattr(orca, "request", lambda *args: {"worktrees": [{"sessions": [{"sessionId": "pty-1", "pid": 5000}]}]})
-    assert not orca.holds_session({"ptyId": "pty-1"}, "s-coord")
+    terminal = {"handle": "term_1", "ptyId": "pty-1", "orphaned": False}
+    monkeypatch.setattr(orca, "request", listing([terminal], [{"sessionId": "pty-1", "pid": 5000}]))
+    assert REAL_SESSION_TERMINALS(["s-coord"]) == {"s-coord": []}
     tmux_shown["list-panes"] = "8000 demo-coordinator\n8200 demo-meta\n"
     tmux_shown["list-clients"] = "5001 demo-meta\n"
-    assert not orca.holds_session({"ptyId": "pty-1"}, "s-coord")
+    assert REAL_SESSION_TERMINALS(["s-coord"]) == {"s-coord": []}
     tmux_shown["list-clients"] = "5001 demo-coordinator\n"
-    assert orca.holds_session({"ptyId": "pty-1"}, "s-coord")
+    assert REAL_SESSION_TERMINALS(["s-coord"]) == {"s-coord": [terminal]}
+
+
+def test_terminals_orca_lists_only_some_of_are_never_read_as_all_it_shows(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(orca, "request", lambda *args: {"terminals": [], "totalCount": 90, "truncated": True})
+    with pytest.raises(orca.OrcaError, match="it listed 0 of its 90 terminals"):
+        REAL_SESSION_TERMINALS(["s-coord"])
 
 
 def test_status_places_a_session_while_claude_code_removes_a_session_file_it_listed(
@@ -569,8 +573,8 @@ def test_status_places_a_session_while_claude_code_removes_a_session_file_it_lis
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
     monkeypatch.setenv("ORCA_TERMINAL_HANDLE", "term_abc")
     monkeypatch.delenv("TMUX")
-    pane = {"sessionId": "pty-1", "pid": 7330}
-    monkeypatch.setattr(orca, "request", lambda *args: {"terminal": {"ptyId": "pty-1", "orphaned": False}, "worktrees": [{"sessions": [pane]}]})
+    monkeypatch.setattr(orca, "session_terminals", REAL_SESSION_TERMINALS)
+    monkeypatch.setattr(orca, "request", listing([{"handle": "term_abc", "ptyId": "pty-1", "orphaned": False}], [{"sessionId": "pty-1", "pid": 7330}]))
     monkeypatch.setattr(orca, "parents", lambda: {7807: 7330, 7330: 1})
     run("start", "demo", "--role", "coordinator")
     listed = Path.glob
@@ -9395,7 +9399,7 @@ def test_heard_takes_a_part_a_done_jobs_card_still_open_waits_on(run: Run, demo:
 
 
 def test_drive_move_takes_his_word_records_it_on_the_role_and_prints_steps_two_to_four(
-    run: Run, demo: str, slack_thread: "Thread", monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    run: Run, demo: str, slack_thread: "Thread", monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], runs_in: dict[str, list[dict]]
 ) -> None:
     monkeypatch.setattr(orca, "claude_pids", lambda session: [4242])
     assert cli.main(["move", "coordinator"]) == 2
@@ -9407,7 +9411,7 @@ def test_drive_move_takes_his_word_records_it_on_the_role_and_prints_steps_two_t
     run("order", "add", "--title", "Short title", "--project", "Billing", "--workstream", "Invoices", "the invoice run fails")
     with state.edit("demo") as data:
         data["orders"]["o1"]["incident"] = True
-        data["roles"]["coordinator"]["terminal"] = "term_coordinator"
+    runs_in[state.load("demo")["roles"]["coordinator"]["session"]] = [{"handle": "term_coordinator", "orphaned": False}]
     assert cli.main(["move", "coordinator", "--his-word", his]) == 2
     assert "refused, incident o1 is open and a move ends the coordinator's session: move it once the fix is live" in capsys.readouterr().err
     assert "move_word" not in state.load("demo")["roles"]["coordinator"]
@@ -9448,13 +9452,11 @@ def test_drive_start_and_drive_move_bind_a_role_to_the_drives_checkout_at_its_de
     assert (state.load(demo)["roles"]["coordinator"]["cwd"], registered[-1]) == (str(kept), ("demo-coordinator", str(kept), session))
 
 
-def test_drive_move_reads_a_role_recorded_before_roles_kept_a_terminal_as_in_none(
+def test_drive_move_of_a_session_no_orca_terminal_runs_ends_it_through_tmux_or_claude_stop(
     run: Run, demo: str, slack_thread: "Thread", monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(orca, "claude_pids", lambda session: [])
     his = slack_thread.post(state.now() - timedelta(minutes=1), from_user=True)
-    with state.edit("demo") as data:
-        del data["roles"]["coordinator"]["terminal"]
     code, out = run("move", "coordinator", "--his-word", his)
     session = state.load("demo")["roles"]["coordinator"]["session"]
     assert code == 0

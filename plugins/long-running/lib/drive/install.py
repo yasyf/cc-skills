@@ -1234,13 +1234,14 @@ def proof_kept(name: str, job_id: str, result: dict) -> str:
     return f"{job_id}: {change}"
 
 
-def reload_session(drive: str, seat: str, force: bool) -> str:
-    """Hand one drive session's reload to the one process typing into its Orca terminal, `drive reload --seat` detached from this verb, so no install, lander or verb waits on its turn: unless it already reloaded onto the newest plugin install, as reloads.json keeps it, and not forced, as a bare drive reload is; a terminal whose reload lock another process holds is left to it, since that process reloads it again once its reload shows when a newer install landed meanwhile. A seat is a role, or `sub-coordinator <project>`."""
+def reload_session(drive: str, seat: str, terminals: list[dict], force: bool) -> str:
+    """Hand one drive session's reload to the one process typing into the first Orca terminal it runs in, of the terminals given, `drive reload --seat` detached from this verb, so no install, lander or verb waits on its turn: unless it already reloaded onto the newest plugin install, as reloads.json keeps it, and not forced, as a bare drive reload is; a terminal whose reload lock another process holds is left to it, since that process reloads it again once its reload shows when a newer install landed meanwhile. A seat is a role, or `sub-coordinator <project>`."""
     from drive import orca
 
     who = f"{drive} {seat}"
-    if not (terminal := state.bound_sessions(state.saved(drive)).get(seat, {}).get("terminal")):
-        return f"{who}: no terminal recorded, skipped"
+    if not terminals:
+        return f"{who}: in no Orca terminal, skipped"
+    terminal = terminals[0]["handle"]
     onto, plugin = newest_update()
     if not force and reloaded_onto(drive, seat) >= onto:
         return f"{who}: already reloaded onto {plugin}"
@@ -1265,23 +1266,31 @@ def reload_seat(drive: str, seat: str, force: bool) -> None:
 
 
 def held_reload(drive: str, seat: str, force: bool) -> tuple[str, bool] | None:
-    """Under the reload lock of the seat's terminal, reload its session onto the newest plugin install, unless it already reloaded onto it and not forced; what it did and whether the session is reloaded, or None when another process holds the lock."""
+    """Under the reload lock of the first Orca terminal the seat's session runs in, as one read of Orca and the process tree finds it, reload its session onto the newest plugin install, unless it already reloaded onto it and not forced; what it did and whether the session is reloaded, or None when another process holds the lock."""
+    from drive import orca
+
     held = state.bound_sessions(state.saved(drive))[seat]
-    path = reload_lock(held["terminal"])
+    try:
+        terminals = orca.session_terminals([held["session"]])[held["session"]]
+    except orca.OrcaError as error:
+        return f"not reloaded, since Orca could not show the terminals it runs in ({error})", False
+    if not terminals:
+        return "in no Orca terminal, so nothing was typed", False
+    terminal = terminals[0]["handle"]
+    path = reload_lock(terminal)
     with open(path, "a") as handle:
         if not state.taken(handle, 0):
             return None
         onto, plugin = newest_update()
         if not force and reloaded_onto(drive, seat) >= onto:
             return f"already reloaded onto {plugin}", True
-        return typed_reload(drive, seat, held, onto, plugin)
+        return typed_reload(drive, seat, held, terminal, onto, plugin)
 
 
-def typed_reload(drive: str, seat: str, held: dict, onto: str, plugin: str) -> tuple[str, bool]:
-    """Type /reload-plugins once into the terminal of the seat's session once Claude Code reads its turn over, never into a busy prompt, which loads the install's skills, agents and new hooks with nothing restarted, then wait for its transcript to show it ran; a session homed ends there types /exit instead, which cci resumes in the drive's checkout on the newest install. Stamped in reloads.json as reloaded onto that install once it shows; what it did and whether the session reloaded."""
+def typed_reload(drive: str, seat: str, held: dict, terminal: str, onto: str, plugin: str) -> tuple[str, bool]:
+    """Type /reload-plugins once into the terminal the seat's session runs in once Claude Code reads its turn over, never into a busy prompt, which loads the install's skills, agents and new hooks with nothing restarted, then wait for its transcript to show it ran; a session homed ends there types /exit instead, which cci resumes in the drive's checkout on the newest install. Stamped in reloads.json as reloaded onto that install once it shows; what it did and whether the session reloaded."""
     from drive import orca, watch
 
-    terminal = held["terminal"]
     moved = homed(drive, seat, held)
     typed = orca.EXIT if moved else orca.RELOAD
     if not (pid := idle_pid(held["session"])):
@@ -1407,7 +1416,7 @@ def homed(drive: str, seat: str, held: dict) -> Callable[[], str] | None:
 
 
 def attached(drive: str, alias: str, session: str, show: str, resumed: str) -> str:
-    """Once cci session run resumes the session in the tmux session of its alias, which cci's channel starts as the /exit ends its Claude Code process, or once RELOAD_WAIT_SECONDS pass, run Start or resume's `orca terminal create` line, whose `cci session attach` shows that tmux session in Orca, starting it when it is down, so he opens the seat from Orca's sidebar, and record that terminal as the seat's, since the one it ran in is left at a shell prompt; what its reload line adds."""
+    """Once cci session run resumes the session in the tmux session of its alias, which cci's channel starts as the /exit ends its Claude Code process, or once RELOAD_WAIT_SECONDS pass, run Start or resume's `orca terminal create` line, whose `cci session attach` shows that tmux session in Orca, starting it when it is down, so he opens the seat from Orca's sidebar, since the one it ran in is left at a shell prompt; what its reload line adds."""
     from drive import orca
 
     until = clock() + RELOAD_WAIT_SECONDS
@@ -1417,14 +1426,19 @@ def attached(drive: str, alias: str, session: str, show: str, resumed: str) -> s
         handle = orca.opened(shlex.split(show))
     except orca.OrcaError as error:
         return f", so {resumed} under tmux session {alias}, which no Orca terminal shows ({error}): show it with {show}"
-    with state.edit(drive) as data:
-        state.seat(data, session)["terminal"] = handle
     return f", so {resumed} under tmux session {alias}, shown in Orca terminal {handle}"
 
 
 def reload_sessions(drives: list[str], force: bool) -> list[str]:
-    """Reload every session bound to each drive: the communicator, the top coordinator, the meta session and each sub-coordinator, read from each drive's saved bindings alone, since a newer install than this code may have saved the drive since its update."""
-    return [reload_session(name, seat, force) for name in drives for seat in state.bound_sessions(state.saved(name))]
+    """Reload every session bound to each drive: the communicator, the top coordinator, the meta session and each sub-coordinator, read from each drive's saved bindings alone, since a newer install than this code may have saved the drive since its update, each in an Orca terminal one read of Orca and the process tree finds it runs in."""
+    from drive import orca
+
+    seats = [(name, seat, held) for name in drives for seat, held in state.bound_sessions(state.saved(name)).items()]
+    try:
+        found = orca.session_terminals([held["session"] for _, _, held in seats])
+    except orca.OrcaError as error:
+        return [f"{name} {seat}: not reloaded, since Orca could not show the terminals it runs in ({error})" for name, seat, _ in seats]
+    return [reload_session(name, seat, found[held["session"]], force) for name, seat, held in seats]
 
 
 def reload_main(drive: str | None, seat: str | None, force: bool) -> int:

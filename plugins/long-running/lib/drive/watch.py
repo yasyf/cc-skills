@@ -2155,8 +2155,7 @@ def context_tokens(entry: dict) -> int:
 
 def compact_due(data: dict, moment: datetime) -> str | None:
     """Why the communicator should compact now: past the mark, and both it and he quiet, so no message lands mid-compaction."""
-    held = data["roles"].get("communicator")
-    if not held or not held.get("terminal"):
+    if not (held := data["roles"].get("communicator")):
         return None
     path = session_transcript(held)
     if not path.exists() or moment - datetime.fromtimestamp(path.stat().st_mtime).astimezone() < COMPACT_WHEN_QUIET:
@@ -2172,13 +2171,15 @@ def compact_due(data: dict, moment: datetime) -> str | None:
 
 
 def compact_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Type /compact into the communicator's Orca terminal at a quiet moment, never at its context limit mid-conversation; the drive's own watch alone does."""
+    """Type /compact into the first Orca terminal the communicator runs in at a quiet moment, never at its context limit mid-conversation, and into none while no terminal shows it; the drive's own watch alone does."""
     data = state.load(watcher.name)
     if watcher.project or not (why := compact_due(data, moment)):
         return []
     try:
-        terminal = data["roles"]["communicator"]["terminal"]
-        orca.request("terminal", "send", "--terminal", terminal, "--text", "/compact", "--enter")
+        session = data["roles"]["communicator"]["session"]
+        if not (terminals := orca.session_terminals([session])[session]):
+            return []
+        orca.request("terminal", "send", "--terminal", terminals[0]["handle"], "--text", "/compact", "--enter")
     except orca.OrcaError as error:
         return read_failed(watcher, "communicator compaction", error, moment)
     watcher.failures.pop("communicator compaction", None)

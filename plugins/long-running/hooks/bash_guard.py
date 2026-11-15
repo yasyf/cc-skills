@@ -659,20 +659,23 @@ def datadog_cli(command: str, cwd: str) -> str | None:
 
 
 def role_of(session: str | None = None, terminal: str | None = None, alias: str | None = None) -> tuple[dict, str] | None:
-    """The drive and role whose recorded session, terminal or cci alias this is."""
-    for name in state.names():
-        data = state.load(name)
-        for role, held in state.bound_sessions(data).items():
-            project = role.removeprefix("sub-coordinator ") if role.startswith("sub-coordinator ") else None
-            if (session and held["session"] == session) or (terminal and held["terminal"] == terminal) or (alias and state.alias(name, role, project) == alias):
-                return data, role
+    """The drive and role whose recorded session or cci alias this is, or whose session runs in this Orca terminal, as one read of Orca and the process tree finds it."""
+    seats = [(data, role, held) for data in map(state.load, state.names()) for role, held in state.bound_sessions(data).items()]
+    if terminal:
+        found = orca.session_terminals([held["session"] for _, _, held in seats])
+        session = next((held["session"] for _, _, held in seats if any(row["handle"] == terminal for row in found[held["session"]])), None)
+    for data, role, held in seats:
+        project = role.removeprefix("sub-coordinator ") if role.startswith("sub-coordinator ") else None
+        if (session and held["session"] == session) or (alias and state.alias(data["name"], role, project) == alias):
+            return data, role
     return None
 
 
 def hidden(held: dict) -> str | None:
-    """The command that shows a role's terminal Orca only hides, None when it shows or is gone."""
+    """The command that shows a role's session when every Orca terminal it runs in is one Orca only hides, None when one shows, none runs it or Orca cannot say."""
     try:
-        if not held["terminal"] or not orca.terminal(held["terminal"])["orphaned"]:
+        terminals = orca.session_terminals([held["session"]])[held["session"]]
+        if not terminals or not all(terminal["orphaned"] for terminal in terminals):
             return None
         checkout = orca.main_checkout(held["cwd"])
     except OrcaError:

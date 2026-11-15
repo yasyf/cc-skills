@@ -130,7 +130,7 @@ def start(args: argparse.Namespace) -> int:
     if args.project and args.role != "coordinator":
         raise DriveError(f"--project binds a sub-coordinator, which holds the coordinator role; the {state.title(args.role)} holds no project")
     session = os.environ.get("CLAUDE_CODE_SESSION_ID")
-    fresh = state.new_drive(args.name, args.role, session, str(kept), orca.own_terminal())
+    fresh = state.new_drive(args.name, args.role, session, str(kept))
     fresh["roles"][args.role]["rules"] = render.rules_digest(fresh, args.role)
     with state.edit_or_create(args.name, fresh) as data:
         if args.project:
@@ -147,7 +147,7 @@ def start(args: argparse.Namespace) -> int:
     state.migrate(args.name)
     held = fresh["roles"][args.role]
     registered = "" if state.scratch() else f"{agents.register(args.name, args.role, args.project, held['cwd'], held['session'])}\n"
-    seen = orca_place(held, run_show)
+    seen = orca_places({args.role: held}, run_show)[args.role]
     meta = "" if "meta" in data["roles"] else meta_started(args.name, held["cwd"], data["launched"].get("meta"))
     watched = f"{watch.ensure(args.name, args.project)}\n" if args.role == "coordinator" else ""
     seat = f"sub-coordinator for {args.project}" if args.project else args.role
@@ -4659,20 +4659,21 @@ def refuse_an_unheld_repeat(name: str, data: dict, order_id: str | None, named: 
         )
 
 
-def orca_place(held: dict, hidden: Callable[[Path], str]) -> str:
-    """Where he opens a role's session in Orca: a switch command only once Orca proves it lands on that session."""
-    if not (handle := held.get("terminal")):
-        return "in no Orca terminal"
+def orca_places(seats: dict[str, dict], hidden: Callable[[Path], str]) -> dict[str, str]:
+    """Where he opens each seat's session in Orca, by one read of the terminals Orca shows: a switch command only for a terminal Orca shows whose process tree holds that session."""
     try:
-        terminal = orca.terminal(handle)
-        if terminal["orphaned"]:
-            return hidden(orca.main_checkout(terminal["worktreePath"]))
-        shown = orca.holds_session(terminal, held["session"])
+        found = orca.session_terminals([held["session"] for held in seats.values()])
+        return {seat: orca_place(found[held["session"]], hidden) for seat, held in seats.items()}
     except orca.OrcaError as error:
-        return f"Orca terminal {handle} unproven: {error}"
-    if shown:
-        return f"open it with: orca terminal switch --terminal {handle}"
-    return "not visible in Orca until restarted into a terminal"
+        return {seat: f"Orca terminals unproven: {error}" for seat in seats}
+
+
+def orca_place(terminals: list[dict], hidden: Callable[[Path], str]) -> str:
+    if shown := next((terminal for terminal in terminals if not terminal["orphaned"]), None):
+        return f"open it with: orca terminal switch --terminal {shown['handle']}"
+    if terminals:
+        return hidden(orca.main_checkout(terminals[0]["worktreePath"]))
+    return "in no Orca terminal"
 
 
 def show_command(checkout: Path) -> str:
@@ -4729,8 +4730,9 @@ def status(args: argparse.Namespace) -> int:
     seen = {}
     if shown is None:
         bound = state.bound_sessions(data)
+        places = orca_places(bound, name_show)
         with ThreadPoolExecutor() as pool:
-            seen = dict(zip(bound, pool.map(lambda held: with_build(orca_place(held, name_show), held), bound.values()), strict=True))
+            seen = dict(zip(bound, pool.map(lambda seat: with_build(places[seat], bound[seat]), bound), strict=True))
     session = os.environ.get("CLAUDE_CODE_SESSION_ID")
     project = state.session_project(data, session)
     runs = (lambda order: state.runs(data, order, project)) if state.session_role(data, session) == "coordinator" else None
@@ -4990,10 +4992,11 @@ def move(args: argparse.Namespace) -> int:
     registered = "" if state.scratch() else f"; {agents.register(name, args.role, None, held['cwd'], held['session'])}"
     lanes = {role: lane for lane, role in state.LANE_ROLES.items()}
     mover = lanes[next(role for role in state.ROLES if role != args.role)]
-    session, terminal = held["session"], held["terminal"]
+    session = held["session"]
+    terminals = orca.session_terminals([session])[session]
     ended = (
-        f"orca terminal send --terminal {terminal} --text /exit --enter"
-        if terminal
+        f"orca terminal send --terminal {terminals[0]['handle']} --text /exit --enter"
+        if terminals
         else f"tmux send-keys -t <pane> /exit Enter under tmux, its pane the one tmux list-panes -a lists with its claude line, or claude stop {session} for a claude --bg session"
     )
     pids = orca.claude_pids(session)

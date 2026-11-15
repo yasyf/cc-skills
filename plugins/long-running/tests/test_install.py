@@ -15,7 +15,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from conftest import REAL_PLUGIN_COPIES_FIRST, carrying, commit_files, git_in, Jev
-from drive import card, cli, dashboard, github, install, reads, receiver, settled, state, view, watch
+from drive import card, cli, dashboard, github, install, orca, reads, receiver, settled, state, view, watch
 
 SHA = "abc123def4567890"
 REPO = "yasyf/cc-skills"
@@ -210,7 +210,7 @@ class FakeGit:
             self.exited()
         if reply["ok"] and "/reload-plugins" in cmd and cmd[4] not in self.unreloaded:
             self.reloading()
-            path = watch.session_transcript(next(held for name in state.names() for held in state.bound_sessions(state.saved(name)).values() if held["terminal"] == cmd[4]))
+            path = watch.session_transcript(next(held for name in state.names() for held in state.bound_sessions(state.saved(name)).values() if any(shown["handle"] == cmd[4] for shown in orca.session_terminals([held["session"]])[held["session"]])))
             path.parent.mkdir(parents=True, exist_ok=True)
             with path.open("a") as transcript:
                 transcript.write(json.dumps({"type": "user", "message": {"role": "user", "content": "<command-name>/reload-plugins</command-name>"}}) + "\n" + json.dumps(RELOADED) + "\n")
@@ -375,9 +375,9 @@ def test_a_scope_the_update_left_without_the_sha_is_refused_naming_its_folder(
 
 
 def test_an_update_left_at_a_commit_without_the_sha_is_refused_naming_both(
-    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]
+    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str], runs_in: dict[str, list[dict]]
 ) -> None:
-    start_drive("demo", communicator="term_comm")
+    start_drive(runs_in, "demo", communicator="term_comm")
     git = fake(["long-running--v1.0.3"], {"long-running--v1.0.3"})
     git.installed_sha = "0ldc0mm1t5ha99"
     assert install.main("long-running@skills", SHA, None, 900, None) == 1
@@ -781,9 +781,9 @@ def test_long_running_runs_only_its_new_installs_drive_migrate_after_the_update(
 
 
 def test_a_failed_drive_migrate_fails_the_install_before_any_session_reloads_onto_the_new_code(
-    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch, runs_in: dict[str, list[dict]]
 ) -> None:
-    start_drive("demo", communicator="term_comm")
+    start_drive(runs_in, "demo", communicator="term_comm")
     git = fake(["unused"], set())
 
     def migrate_fails(cmd: list[str], **options: object) -> subprocess.CompletedProcess:
@@ -822,11 +822,12 @@ def test_installs_run_at_once_take_turns_on_the_plugin_updates(fake: Callable[..
     assert max(most_at_once) == 1
 
 
-def start_drive(name: str, **terminals: str | None) -> None:
-    (first, terminal), *rest = terminals.items()
-    data = state.new_drive(name, first, f"{name}-{first}", "/work", terminal)
-    for role, held in rest:
-        data["roles"][role] = {**data["roles"][first], "session": f"{name}-{role}", "terminal": held}
+def start_drive(runs_in: dict[str, list[dict]], name: str, **terminals: str | None) -> None:
+    first = next(iter(terminals))
+    data = state.new_drive(name, first, f"{name}-{first}", "/work")
+    for role, terminal in terminals.items():
+        data["roles"][role] = {**data["roles"][first], "session": f"{name}-{role}"}
+        runs_in[f"{name}-{role}"] = [{"handle": terminal, "orphaned": False}] if terminal else []
     state.create(data)
 
 
@@ -865,9 +866,9 @@ def stamps(drive: str) -> dict[str, str]:
 
 
 def test_an_install_hands_each_drive_session_to_one_process_that_types_reload_plugins_once_its_turn_ends(
-    fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str]
+    fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str], runs_in: dict[str, list[dict]]
 ) -> None:
-    start_drive("demo", communicator="term_comm", coordinator="term_coord")
+    start_drive(runs_in, "demo", communicator="term_comm", coordinator="term_coord")
     running("demo-communicator", "demo-coordinator")
     git = fake(["unused"], set())
     assert install.main("long-running@skills", None, None, 900, None) == 0
@@ -887,8 +888,8 @@ def test_an_install_hands_each_drive_session_to_one_process_that_types_reload_pl
     assert stamps("demo") == {"communicator": UPDATED, "coordinator": UPDATED}
 
 
-def test_an_install_reloads_the_sessions_of_a_drive_a_newer_install_saved_after_its_update(fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str]) -> None:
-    start_drive("demo", communicator="term_comm", coordinator="term_coord")
+def test_an_install_reloads_the_sessions_of_a_drive_a_newer_install_saved_after_its_update(fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str], runs_in: dict[str, list[dict]]) -> None:
+    start_drive(runs_in, "demo", communicator="term_comm", coordinator="term_coord")
     state.store("demo", state.stored("demo") | {"saved_by": "9.9.9"})
     running("demo-communicator", "demo-coordinator")
     git = fake(["unused"], set())
@@ -900,8 +901,8 @@ def test_an_install_reloads_the_sessions_of_a_drive_a_newer_install_saved_after_
     ]
 
 
-def test_an_install_that_changed_nothing_a_session_loads_types_nothing(fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str]) -> None:
-    start_drive("demo", communicator="term_comm")
+def test_an_install_that_changed_nothing_a_session_loads_types_nothing(fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str], runs_in: dict[str, list[dict]]) -> None:
+    start_drive(runs_in, "demo", communicator="term_comm")
     running("demo-communicator")
     git = fake(["unused"], set())
     assert install.main("long-running@skills", None, None, 900, None) == 0
@@ -915,9 +916,9 @@ def test_an_install_that_changed_nothing_a_session_loads_types_nothing(fake: Cal
 
 @pytest.mark.parametrize("status", ["busy", "waiting"])
 def test_the_process_holding_a_terminal_types_reload_plugins_only_once_claude_code_reads_its_turn_over(
-    fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch, status: str
+    fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch, status: str, runs_in: dict[str, list[dict]]
 ) -> None:
-    start_drive("demo", communicator="term_comm")
+    start_drive(runs_in, "demo", communicator="term_comm")
     running("demo-communicator", status=status)
     git = fake(["unused"], set())
     assert install.main("long-running@skills", None, None, 900, None) == 0
@@ -935,8 +936,8 @@ def test_the_process_holding_a_terminal_types_reload_plugins_only_once_claude_co
     assert sends(git, "term_comm") == [sent("term_comm")]
 
 
-def test_an_install_finding_a_terminals_reload_lock_held_leaves_its_reload_to_that_process(fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str]) -> None:
-    start_drive("demo", communicator="term_comm")
+def test_an_install_finding_a_terminals_reload_lock_held_leaves_its_reload_to_that_process(fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str], runs_in: dict[str, list[dict]]) -> None:
+    start_drive(runs_in, "demo", communicator="term_comm")
     running("demo-communicator")
     git = fake(["unused"], set())
     with open(install.reload_lock("term_comm"), "a") as lock:
@@ -951,8 +952,8 @@ def test_an_install_finding_a_terminals_reload_lock_held_leaves_its_reload_to_th
     ]
 
 
-def test_an_install_landing_while_a_reload_runs_is_reloaded_once_more_after_that_reload_shows(fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str]) -> None:
-    start_drive("demo", communicator="term_comm")
+def test_an_install_landing_while_a_reload_runs_is_reloaded_once_more_after_that_reload_shows(fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str], runs_in: dict[str, list[dict]]) -> None:
+    start_drive(runs_in, "demo", communicator="term_comm")
     running("demo-communicator")
     git = fake(["unused"], set())
     assert install.main("long-running@skills", None, None, 900, None) == 0
@@ -965,7 +966,7 @@ def test_an_install_landing_while_a_reload_runs_is_reloaded_once_more_after_that
         plugins = json.loads((git.config / "plugins" / "installed_plugins.json").read_text())["plugins"]
         plugins["codex@skills"][1] |= {"version": "1.0.4", "lastUpdated": "2026-11-10T10:00:00.000Z"}
         git.write_installed(plugins)
-        pending.append(install.reload_session("demo", "communicator", False))
+        pending.append(install.reload_session("demo", "communicator", [{"handle": "term_comm", "orphaned": False}], False))
 
     git.reloading = newer_install_lands
     assert held(git, capsys) == [
@@ -978,9 +979,9 @@ def test_an_install_landing_while_a_reload_runs_is_reloaded_once_more_after_that
 
 
 def test_an_install_finding_the_lock_held_while_its_holder_finds_nothing_left_is_reloaded_once_the_holder_lets_go(
-    fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+    fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch, runs_in: dict[str, list[dict]]
 ) -> None:
-    start_drive("demo", communicator="term_comm")
+    start_drive(runs_in, "demo", communicator="term_comm")
     running("demo-communicator")
     git = fake(["unused"], set())
     assert install.main("long-running@skills", None, None, 900, None) == 0
@@ -996,7 +997,7 @@ def test_an_install_finding_the_lock_held_while_its_holder_finds_nothing_left_is
         plugins = json.loads((git.config / "plugins" / "installed_plugins.json").read_text())["plugins"]
         plugins["codex@skills"][1] |= {"version": "1.0.4", "lastUpdated": "2026-11-10T10:00:00.000Z"}
         git.write_installed(plugins)
-        pending.append(install.reload_session("demo", "communicator", False))
+        pending.append(install.reload_session("demo", "communicator", [{"handle": "term_comm", "orphaned": False}], False))
         return UPDATED
 
     monkeypatch.setattr(install, "reloaded_onto", another_holder_reloaded_then_an_install_landed)
@@ -1009,8 +1010,8 @@ def test_an_install_finding_the_lock_held_while_its_holder_finds_nothing_left_is
     assert stamps("demo") == {"communicator": "2026-11-10T10:00:00.000Z"}
 
 
-def test_a_send_orca_never_answered_is_reissued_under_its_retry_request_id_so_it_is_typed_once(fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str]) -> None:
-    start_drive("demo", communicator="term_comm")
+def test_a_send_orca_never_answered_is_reissued_under_its_retry_request_id_so_it_is_typed_once(fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str], runs_in: dict[str, list[dict]]) -> None:
+    start_drive(runs_in, "demo", communicator="term_comm")
     running("demo-communicator")
     git = fake(["unused"], set())
     git.sends["term_comm"] = [UNANSWERED, UNANSWERED, SENT]
@@ -1022,8 +1023,8 @@ def test_a_send_orca_never_answered_is_reissued_under_its_retry_request_id_so_it
     assert git.sleeps == [1, 1]
 
 
-def test_a_send_orca_never_answers_names_the_retry_request_id_that_reissues_it_and_is_left_unstamped(fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str]) -> None:
-    start_drive("demo", communicator="term_comm")
+def test_a_send_orca_never_answers_names_the_retry_request_id_that_reissues_it_and_is_left_unstamped(fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str], runs_in: dict[str, list[dict]]) -> None:
+    start_drive(runs_in, "demo", communicator="term_comm")
     running("demo-communicator")
     git = fake(["unused"], set())
     git.sends["term_comm"] = [UNANSWERED]
@@ -1049,9 +1050,9 @@ def test_a_send_orca_never_answers_names_the_retry_request_id_that_reissues_it_a
     ids=["a terminal Orca cannot find", "a send Orca refuses"],
 )
 def test_a_send_orca_refuses_names_the_send_that_types_it_and_is_left_unstamped(
-    fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str], reply: dict, why: str
+    fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str], reply: dict, why: str, runs_in: dict[str, list[dict]]
 ) -> None:
-    start_drive("demo", communicator="term_comm")
+    start_drive(runs_in, "demo", communicator="term_comm")
     running("demo-communicator")
     git = fake(["unused"], set())
     git.sends["term_comm"] = [reply]
@@ -1062,8 +1063,8 @@ def test_a_send_orca_refuses_names_the_send_that_types_it_and_is_left_unstamped(
     assert not (state.drive_dir("demo") / install.RELOADS).exists()
 
 
-def test_a_reload_whose_line_never_shows_while_its_session_sits_idle_is_left_unstamped_for_the_next_install(fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str]) -> None:
-    start_drive("demo", communicator="term_comm")
+def test_a_reload_whose_line_never_shows_while_its_session_sits_idle_is_left_unstamped_for_the_next_install(fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str], runs_in: dict[str, list[dict]]) -> None:
+    start_drive(runs_in, "demo", communicator="term_comm")
     running("demo-communicator")
     git = fake(["unused"], set())
     git.unreloaded = {"term_comm"}
@@ -1076,8 +1077,8 @@ def test_a_reload_whose_line_never_shows_while_its_session_sits_idle_is_left_uns
     assert capsys.readouterr().out.splitlines()[1:] == [f"demo communicator: {handed('demo', 'term_comm')}"]
 
 
-def test_a_session_whose_claude_code_process_exited_is_typed_nothing_and_left_unstamped(fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]) -> None:
-    start_drive("demo", communicator="term_comm")
+def test_a_session_whose_claude_code_process_exited_is_typed_nothing_and_left_unstamped(fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str], runs_in: dict[str, list[dict]]) -> None:
+    start_drive(runs_in, "demo", communicator="term_comm")
     git = fake(["unused"], set())
     assert install.main("long-running@skills", None, None, 900, None) == 0
     capsys.readouterr()
@@ -1088,9 +1089,9 @@ def test_a_session_whose_claude_code_process_exited_is_typed_nothing_and_left_un
 
 @pytest.mark.parametrize("incident", [False, True])
 def test_an_install_types_exit_into_a_session_cci_runs_outside_the_drives_checkout_once_registered_there_so_cci_resumes_it_there(
-    fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str], registered: list[tuple[str, str, str]], tmux_shown: dict[str, str], incident: bool
+    fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str], registered: list[tuple[str, str, str]], tmux_shown: dict[str, str], incident: bool, runs_in: dict[str, list[dict]]
 ) -> None:
-    start_drive("demo", communicator="term_comm")
+    start_drive(runs_in, "demo", communicator="term_comm")
     running("demo-communicator", folder="/old/durable-agents")
     tmux_shown["list-panes"] = f"{os.getppid()} demo-communicator\n"
     if incident:
@@ -1110,9 +1111,9 @@ def shown_in_orca(alias: str) -> list[str]:
 
 
 def test_an_idle_session_outside_the_drives_checkout_and_outside_cci_is_typed_exit_then_shown_in_the_orca_terminal_attaching_ccis_tmux_session(
-    fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str], registered: list[tuple[str, str, str]], tmux_shown: dict[str, str]
+    fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str], registered: list[tuple[str, str, str]], tmux_shown: dict[str, str], runs_in: dict[str, list[dict]]
 ) -> None:
-    start_drive("demo", communicator="term_comm")
+    start_drive(runs_in, "demo", communicator="term_comm")
     running("demo-communicator", folder="/old/durable-agents")
     git = fake(["unused"], set())
     git.exited = lambda: tmux_shown.update({"list-panes": f"{os.getppid()} demo-communicator\n"})
@@ -1124,13 +1125,12 @@ def test_an_idle_session_outside_the_drives_checkout_and_outside_cci_is_typed_ex
     assert sends(git, "term_comm") == [sent("term_comm", "/exit")]
     assert git.orca_calls[1:] == [shown_in_orca("demo-communicator")]
     assert registered == [("demo-communicator", "/work", "demo-communicator")]
-    assert state.saved("demo")["roles"]["communicator"]["terminal"] == "term_shown"
 
 
 def test_a_session_outside_cci_that_cci_has_not_resumed_in_tmux_after_the_wait_is_shown_by_the_attach_that_starts_its_tmux_session(
-    fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str], tmux_shown: dict[str, str]
+    fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str], tmux_shown: dict[str, str], runs_in: dict[str, list[dict]]
 ) -> None:
-    start_drive("demo", communicator="term_comm")
+    start_drive(runs_in, "demo", communicator="term_comm")
     running("demo-communicator", folder="/old/durable-agents")
     git = fake(["unused"], set())
     assert install.main("long-running@skills", None, None, 900, None) == 0
@@ -1140,13 +1140,12 @@ def test_a_session_outside_cci_that_cci_has_not_resumed_in_tmux_after_the_wait_i
     ]
     assert git.sleeps == [1] * install.RELOAD_WAIT_SECONDS
     assert git.orca_calls[1:] == [shown_in_orca("demo-communicator")]
-    assert state.saved("demo")["roles"]["communicator"]["terminal"] == "term_shown"
 
 
 def test_a_session_already_in_the_drives_checkout_is_only_reloaded(
-    fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str], registered: list[tuple[str, str, str]], tmux_shown: dict[str, str]
+    fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str], registered: list[tuple[str, str, str]], tmux_shown: dict[str, str], runs_in: dict[str, list[dict]]
 ) -> None:
-    start_drive("demo", communicator="term_comm")
+    start_drive(runs_in, "demo", communicator="term_comm")
     running("demo-communicator")
     tmux_shown["list-panes"] = f"{os.getppid()} demo-communicator\n"
     git = fake(["unused"], set())
@@ -1157,8 +1156,8 @@ def test_a_session_already_in_the_drives_checkout_is_only_reloaded(
     assert registered == []
 
 
-def test_drive_reload_types_reload_plugins_into_every_drive_session_an_install_already_reloaded(fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str]) -> None:
-    start_drive("demo", communicator="term_comm", coordinator="term_coord")
+def test_drive_reload_types_reload_plugins_into_every_drive_session_an_install_already_reloaded(fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str], runs_in: dict[str, list[dict]]) -> None:
+    start_drive(runs_in, "demo", communicator="term_comm", coordinator="term_coord")
     running("demo-communicator", "demo-coordinator")
     (state.drive_dir("demo") / install.RELOADS).write_text(json.dumps({seat: {"onto": SEEDED_UPDATE, "at": state.stamp()} for seat in ("communicator", "coordinator")}))
     git = fake(["unused"], set())
@@ -1174,24 +1173,24 @@ def test_drive_reload_types_reload_plugins_into_every_drive_session_an_install_a
     assert git.calls == []
 
 
-def test_a_drive_session_with_no_terminal_recorded_is_skipped_with_a_line(
-    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]
+def test_a_drive_session_no_orca_terminal_runs_is_skipped_with_a_line(
+    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str], runs_in: dict[str, list[dict]]
 ) -> None:
-    start_drive("solo", coordinator=None)
+    start_drive(runs_in, "solo", coordinator=None)
     git = fake(["unused"], set())
     assert install.main("long-running@skills", None, None, 900, None) == 0
     assert git.orca_calls == []
     assert git.detached == []
     assert capsys.readouterr().out.splitlines() == [
         "installed long-running@skills 1.0.3",
-        "solo coordinator: no terminal recorded, skipped",
+        "solo coordinator: in no Orca terminal, skipped",
     ]
 
 
 def test_a_session_already_reloaded_onto_the_newest_install_is_not_reloaded_again(
-    fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str]
+    fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str], runs_in: dict[str, list[dict]]
 ) -> None:
-    start_drive("demo", communicator="term_comm", coordinator="term_coord")
+    start_drive(runs_in, "demo", communicator="term_comm", coordinator="term_coord")
     running("demo-communicator", "demo-coordinator")
     reloads = state.drive_dir("demo") / install.RELOADS
     reloads.write_text(json.dumps({"communicator": {"onto": UPDATED, "at": state.stamp()}, "coordinator": {"onto": SEEDED_UPDATE, "at": state.stamp()}}))
@@ -1208,11 +1207,12 @@ def test_a_session_already_reloaded_onto_the_newest_install_is_not_reloaded_agai
 
 
 def test_an_install_reloads_each_sub_coordinator_beside_both_roles_stamping_each_session(
-    fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str]
+    fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str], runs_in: dict[str, list[dict]]
 ) -> None:
-    start_drive("demo", communicator="term_comm", coordinator="term_coord")
+    start_drive(runs_in, "demo", communicator="term_comm", coordinator="term_coord")
     with state.edit("demo") as data:
-        data["subcoordinators"]["Iris"] = {"session": "demo-iris", "terminal": "term_iris", "cwd": "/work", "started": state.stamp()}
+        data["subcoordinators"]["Iris"] = {"session": "demo-iris", "cwd": "/work", "started": state.stamp()}
+    runs_in["demo-iris"] = [{"handle": "term_iris", "orphaned": False}]
     running("demo-communicator", "demo-coordinator", "demo-iris")
     git = fake(["unused"], set())
     assert install.main("long-running@skills", None, None, 900, None) == 0
@@ -1228,9 +1228,9 @@ def test_an_install_reloads_each_sub_coordinator_beside_both_roles_stamping_each
 
 
 def test_a_long_running_release_whose_own_drive_status_fails_on_a_copy_of_a_drive_is_refused_before_any_scope_updates(
-    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]
+    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str], runs_in: dict[str, list[dict]]
 ) -> None:
-    start_drive("demo", communicator="term_comm")
+    start_drive(runs_in, "demo", communicator="term_comm")
     git = fake(["long-running--v1.0.3"], {"long-running--v1.0.3"})
     git.drive_status = subprocess.CompletedProcess([], 1, "", "NameError: name 'report_path' is not defined")
     assert install.main("long-running@skills", SHA, None, 900, None) == 1
@@ -1246,9 +1246,9 @@ UNBOUND = "Traceback (most recent call last):\nUnboundLocalError: cannot access 
 
 @pytest.mark.parametrize(("code", "stderr"), [(1, UNBOUND), (0, "")], ids=["a traceback and exit 1", "no refusal and exit 0"])
 def test_a_long_running_release_whose_own_refusal_is_not_its_drive_line_and_exit_2_is_refused_before_any_scope_updates(
-    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str], code: int, stderr: str
+    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str], code: int, stderr: str, runs_in: dict[str, list[dict]]
 ) -> None:
-    start_drive("demo", communicator="term_comm")
+    start_drive(runs_in, "demo", communicator="term_comm")
     git = fake(["long-running--v1.0.3"], {"long-running--v1.0.3"})
     git.refusal = subprocess.CompletedProcess([], code, "", stderr)
     assert install.main("long-running@skills", SHA, None, 900, None) == 1
@@ -1262,9 +1262,9 @@ def test_a_long_running_release_whose_own_refusal_is_not_its_drive_line_and_exit
     assert stderr.strip() in err
 
 
-def test_a_long_running_release_reads_a_copy_of_every_drive_with_its_own_drive_status_before_it_installs(fake: Callable[..., FakeGit]) -> None:
-    start_drive("demo", communicator="term_comm")
-    start_drive("other", communicator="term_other")
+def test_a_long_running_release_reads_a_copy_of_every_drive_with_its_own_drive_status_before_it_installs(fake: Callable[..., FakeGit], runs_in: dict[str, list[dict]]) -> None:
+    start_drive(runs_in, "demo", communicator="term_comm")
+    start_drive(runs_in, "other", communicator="term_other")
     git = fake(["long-running--v1.0.3"], {"long-running--v1.0.3"})
     assert install.main("long-running@skills", SHA, None, 900, None) == 0
     copies = {Path(cmd[1].partition("=")[2]) for cmd, _ in git.tried}
@@ -1278,8 +1278,8 @@ def test_a_long_running_release_reads_a_copy_of_every_drive_with_its_own_drive_s
     assert checkout[1:] == ["checkout", "long-running--v1.0.3", "--", FOLDER]
 
 
-def test_a_plugin_other_than_long_running_runs_no_drive_status(fake: Callable[..., FakeGit]) -> None:
-    start_drive("demo", communicator="term_comm")
+def test_a_plugin_other_than_long_running_runs_no_drive_status(fake: Callable[..., FakeGit], runs_in: dict[str, list[dict]]) -> None:
+    start_drive(runs_in, "demo", communicator="term_comm")
     git = fake(["codex--v1.0.3"], {"codex--v1.0.3", "v1.0.3"})
     git.bare = ["v1.0.3"]
     assert install.main("codex@skills", SHA, None, 900, None) == 0
@@ -1287,7 +1287,7 @@ def test_a_plugin_other_than_long_running_runs_no_drive_status(fake: Callable[..
 
 
 def needing_the_app(fake: Callable[..., FakeGit], monkeypatch: pytest.MonkeyPatch, answers: list[dict]) -> FakeGit:
-    start_drive("demo", coordinator=None)
+    state.create(state.new_drive("demo", "coordinator", "demo-coordinator", "/work"))
     git = fake(["long-running--v1.0.3"], {"long-running--v1.0.3"})
     git.needs = {"long-running": [HOOKS_FLOOR]}
     git.versions = {"captain-hook": "12.121.70"}
@@ -1394,7 +1394,7 @@ def proving(config: Path, tmp_path: Path, git: FakeGit, exits: int) -> Path:
     script = tmp_path / "proof.sh"
     script.write_text(f'#!/bin/sh\necho "ran on ${{PATH%%:*}}"\nexit {exits}\n')
     script.chmod(0o755)
-    start_drive("demo", coordinator=None)
+    state.create(state.new_drive("demo", "coordinator", "demo-coordinator", "/work"))
     with state.edit("demo") as data:
         part = "Drive tooling: prove each install"
         data["orders"]["o1"] = state.new_order(part, f"slack:D123/{HIS_THREAD}", ("D123", HIS_THREAD), {part: state.new_part()}, state.stamp()) | {"jobs": ["j1"]}
@@ -1550,11 +1550,11 @@ def test_a_proof_keeps_the_close_report_of_drive_tooling_a_session_opened_for_a_
 
 @pytest.mark.parametrize("session", [None, "other-coordinator"])
 def test_a_proof_files_drive_calls_naming_no_drive_act_on_the_drive_it_proves_whatever_drives_and_session_this_mac_holds(
-    config: Path, tmp_path: Path, fake: Callable[..., FakeGit], monkeypatch: pytest.MonkeyPatch, session: str | None
+    config: Path, tmp_path: Path, fake: Callable[..., FakeGit], monkeypatch: pytest.MonkeyPatch, session: str | None, runs_in: dict[str, list[dict]]
 ) -> None:
     git = fake([BUILD], {BUILD})
     script = proving(config, tmp_path, git, 0)
-    start_drive("other", coordinator=None)
+    start_drive(runs_in, "other", coordinator=None)
     if session:
         monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", session)
     else:
@@ -2549,7 +2549,7 @@ def test_a_proof_refused_on_a_job_that_took_blocked_leaves_it_as_it_was(
 def test_an_install_holding_a_merged_jobs_fix_proves_nothing_since_the_watch_does(config: Path, tmp_path: Path, fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]) -> None:
     proving(config, tmp_path, fake([BUILD], {BUILD}), 0)
     assert install.main("long-running@skills", None, None, 900, None) == 0
-    assert capsys.readouterr().out.splitlines() == ["installed long-running@skills 1.0.3", "demo coordinator: no terminal recorded, skipped"]
+    assert capsys.readouterr().out.splitlines() == ["installed long-running@skills 1.0.3", "demo coordinator: in no Orca terminal, skipped"]
     assert (state.load("demo")["jobs"]["j1"]["state"], proof_events()) == ("waiting", [])
 
 

@@ -71,8 +71,8 @@ are the meta session's already, whoever held them before.
 ## Into an Orca terminal
 
 A session moves under cci and into a fresh Orca terminal, resuming the same session, when its
-`drive status` line reads `in no Orca terminal`, as under `nohup` or `claude --bg`, or
-`not visible in Orca until restarted into a terminal`. [Start or resume](start.md) sends one here
+`drive status` line reads `in no Orca terminal`, as under `nohup` or `claude --bg`.
+[Start or resume](start.md) sends one here
 for a model or build change too: cci starts it again with the command its last `drive start`
 registered. A session cci already runs in its tmux session that Orca does not show needs no move:
 step 5's command shows it, with no restart and no word from him.

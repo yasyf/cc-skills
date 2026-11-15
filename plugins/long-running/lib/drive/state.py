@@ -201,8 +201,8 @@ AFTER_SAVE: dict[str, list[Callable[[], list[str]]]] = {}
 REHEARSING: set[str] = set()
 WROTE: set[str] = set()
 READ_ONLY = {
-    "tmux": ("show-environment", "list-clients"),
-    "orca": ("orchestration task-list", "orchestration worker-show", "orchestration request-show", "terminal show", "repo show", "diagnostics memory"),
+    "tmux": ("show-environment", "list-clients", "list-panes"),
+    "orca": ("orchestration task-list", "orchestration worker-show", "orchestration request-show", "terminal show", "terminal list", "repo show", "diagnostics memory"),
     "cc-slack": ("thread", "history", "users", "whoami", "check-post", "card render", "drive-cards"),
     "cci": ("show", "grep", "find", "digest", "state"),
     "ccn": ("answer show", "answer list", "answer match", "answer search", "note list"),
@@ -609,10 +609,10 @@ def pr_url(key: str) -> str:
     return f"https://github.com/{repo}/pull/{number}"
 
 
-def new_drive(name: str, role: str, session: str | None, cwd: str, terminal: str | None = None) -> dict:
+def new_drive(name: str, role: str, session: str | None, cwd: str) -> dict:
     return {
         "name": name,
-        "roles": {role: {"session": session, "terminal": terminal, "cwd": cwd, "started": stamp()}},
+        "roles": {role: {"session": session, "cwd": cwd, "started": stamp()}},
         "subcoordinators": {},
         "handlers": {},
         "slack": {"page": None, "watch": []},
@@ -744,8 +744,8 @@ def bound(data: dict) -> dict:
         handler["handed"] = [*handler.get("handed", []), *handler.pop("held_back", [])]
         handler.setdefault("took", [])
         handler.setdefault("posted", [])
-    for held in data["roles"].values():
-        held.setdefault("terminal", None)
+    for held in [*data["roles"].values(), *data["subcoordinators"].values()]:
+        held.pop("terminal", None)
     return data
 
 

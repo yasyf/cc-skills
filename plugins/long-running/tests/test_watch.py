@@ -2162,8 +2162,6 @@ def test_stale_pid_file_is_claimed_and_released(demo: str, monkeypatch: pytest.M
 
 def test_a_watch_speaks_to_orca_as_the_drives_own_terminal_whatever_pane_started_it(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("ORCA_PANE_KEY", "tab:starter")
-    with state.edit(demo) as data:
-        data["roles"]["coordinator"]["terminal"] = "term_coordinator"
     watch.run_pass(watcher(demo), T0)
     assert (os.environ["ORCA_TERMINAL_HANDLE"], os.environ.get("ORCA_PANE_KEY")) == (DRIVE_TERMINAL, None)
 
@@ -3909,7 +3907,7 @@ def talking(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, entries:
     stamp = (state.now() - quiet).timestamp()
     os.utime(path, (stamp, stamp))
     with state.edit(demo) as data:
-        data["roles"]["communicator"] = {"session": "talker", "terminal": "term-7", "cwd": "/work", "started": state.stamp(T0)}
+        data["roles"]["communicator"] = {"session": "talker", "cwd": "/work", "started": state.stamp(T0)}
         data["owner"] = {"heard": state.stamp(state.now() - heard), "away": state.stamp(state.now() - heard + state.AWAY_AFTER)}
 
 
@@ -3939,11 +3937,12 @@ def test_the_communicator_compacts_only_past_the_mark_when_it_and_he_are_quiet(
     assert watch.compact_due(state.load(demo), state.now()) == why
 
 
-def test_a_quiet_communicator_past_the_mark_gets_compact_typed_into_its_terminal(
-    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_a_quiet_communicator_past_the_mark_gets_compact_typed_into_the_terminal_it_runs_in(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, runs_in: dict[str, list[dict]]
 ) -> None:
     talking(demo, tmp_path, monkeypatch, [answered(130_000)], timedelta(minutes=12), timedelta(minutes=20))
     sent: list[tuple[str, ...]] = []
+    runs_in["talker"] = [{"handle": "term-7", "orphaned": False}]
     monkeypatch.setattr(watch.orca, "request", lambda *args: sent.append(args) or {})
     assert watch.compact_lines(watcher(demo), state.now()) == [
         "WATCH compacted the communicator at 130000 tokens of context, quiet 10 minutes"
@@ -3951,11 +3950,12 @@ def test_a_quiet_communicator_past_the_mark_gets_compact_typed_into_its_terminal
     assert sent == [("terminal", "send", "--terminal", "term-7", "--text", "/compact", "--enter")]
 
 
-def test_a_communicator_outside_orca_is_never_compacted(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_communicator_no_orca_terminal_runs_is_never_compacted(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     talking(demo, tmp_path, monkeypatch, [answered(130_000)], timedelta(minutes=12), timedelta(minutes=20))
-    with state.edit(demo) as data:
-        data["roles"]["communicator"]["terminal"] = None
-    assert watch.compact_due(state.load(demo), state.now()) is None
+    sent: list[tuple[str, ...]] = []
+    monkeypatch.setattr(watch.orca, "request", lambda *args: sent.append(args) or {})
+    assert watch.compact_lines(watcher(demo), state.now()) == []
+    assert sent == []
 
 
 def worker(

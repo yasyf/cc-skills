@@ -245,17 +245,24 @@ def terminal(handle: str) -> dict:
     return request("terminal", "show", "--terminal", handle)["terminal"]
 
 
-def holds_session(terminal: dict, session: str) -> bool:
-    """Whether the terminal's process tree holds the session's Claude Code process, or a tmux client attached to the tmux session holding it, so switching to it lands there."""
-    sweep = request("diagnostics", "memory")["worktrees"]
-    pty = next((pty for worktree in sweep for pty in worktree["sessions"] if pty["sessionId"] == terminal["ptyId"]), None)
-    if not pty:
-        return False
+def session_terminals(sessions: list[str]) -> dict[str, list[dict]]:
+    """The Orca terminals each session runs in, by one read of every terminal `orca terminal list` and every pty `orca diagnostics memory` return: each terminal row, an orphaned one included, whose pty's process tree holds the session's Claude Code process, or a tmux client attached to the tmux session holding it, so switching to it lands there; none for a session no terminal shows. Never a record, which goes stale the moment a session changes terminals."""
+    listed = request("terminal", "list")
+    if listed["truncated"]:
+        raise OrcaError(f"orca terminal list: it listed {len(listed['terminals'])} of its {listed['totalCount']} terminals")
+    ptys = {pty["sessionId"]: pty["pid"] for worktree in request("diagnostics", "memory")["worktrees"] for pty in worktree["sessions"]}
     tree = parents()
-    pids = claude_pids(session)
-    held = {name for pane, name in tmux_rows("list-panes", "-a", "-F", "#{pane_pid} #{session_name}") if any(holds(tree, pane, pid) for pid in pids)}
-    clients = [client for client, name in tmux_rows("list-clients", "-F", "#{client_pid} #{session_name}") if name in held]
-    return any(holds(tree, pty["pid"], pid) for pid in [*pids, *clients])
+    records = agents.session_records()
+    panes = tmux_rows("list-panes", "-a", "-F", "#{pane_pid} #{session_name}")
+    clients = tmux_rows("list-clients", "-F", "#{client_pid} #{session_name}")
+
+    def runs_in(session: str) -> list[dict]:
+        pids = [pid for pid, record in records if record.get("sessionId") == session]
+        held = {name for pane, name in panes if any(holds(tree, pane, pid) for pid in pids)}
+        reached = [*pids, *(client for client, name in clients if name in held)]
+        return [row for row in listed["terminals"] if row["ptyId"] in ptys and any(holds(tree, ptys[row["ptyId"]], pid) for pid in reached)]
+
+    return {session: runs_in(session) for session in sessions}
 
 
 def tmux_rows(*args: str) -> list[tuple[int, str]]:
