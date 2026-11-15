@@ -1758,7 +1758,7 @@ def due_lines(watcher: Watcher, moment: datetime) -> list[str]:
         source = f"due {order_id}"
         order = data["orders"][order_id]
         group = [order_id, *state.joined_orders(data).get(order_id, [])]
-        facts = line_facts(data, group, registered, moment)
+        facts = line_facts(data, group, registered, watcher.cards, moment)
         working = [job_id for job_id, job in state.orders_jobs(data, group).items() if job["state"] == "running"]
         try:
             seq = quiet_report(watcher, data, {order_id: group}, quiet_since(data, group), moment, untold(order, facts) if order["quiet"] else list(facts), working, state.owed_at(order))
@@ -1863,15 +1863,15 @@ def quiet_since(data: dict, group: list[str]) -> datetime:
     return max([last_line(data, group), *([state.parse_time(owed["at"])] if owed and owed["at"] else [])])
 
 
-def line_facts(data: dict, group: list[str], registered: dict[str, list[str]], moment: datetime) -> dict[str, list]:
-    """What a line on an open order or incident tells him, by the order, job, PR or handoff it is about: each order of it, each job whose own order it is, never one only carrying it, by heard_job's rule that one watch alone makes every line about a job, with the facts state.job_news names once it is not running, so one wait of several ending is no news while the job still waits, each PR registered on those jobs or named in its orders' words, by its state, checks, Trunk ejection and tap as the watch last read them, so a new commit is news only through its checks or state, and each handoff of the communicator's side state.owed_handoffs names, once five quiet minutes passed since it went out, so the post promising its job takes it in as told no sooner than the watch owes its line, which stays owed whatever the session it went to answered until a job of its order is made or started, and each card of his on those jobs and PRs open past CARD_WAIT, by waited_cards, told once; never a PR's head, which a push moves while the same checks fail, a stamp or the time of a read, which move with nothing changed, nor the stage stage.of names from those, which relabels a PR with nothing of its own changed, such as red to behind once a PR below it in its stack goes red."""
+def line_facts(data: dict, group: list[str], registered: dict[str, list[str]], cards: dict | None, moment: datetime) -> dict[str, list]:
+    """What a line on an open order or incident tells him, by the order, job, PR or handoff it is about: each order of it, each job whose own order it is, never one only carrying it, by heard_job's rule that one watch alone makes every line about a job, with the facts state.job_news names once it is not running, so one wait of several ending is no news while the job still waits, each PR registered on those jobs or named in its orders' words, by its state, checks, Trunk ejection and tap as the watch last read them, so a new commit is news only through its checks or state, and each handoff of the communicator's side state.owed_handoffs names, once five quiet minutes passed since it went out, so the post promising its job takes it in as told no sooner than the watch owes its line, which stays owed whatever the session it went to answered until a job of its order is made or started, and each card of his on those jobs and PRs open past CARD_WAIT among his cards as cc-slack's store last held them, by waited_cards, told once; never a PR's head, which a push moves while the same checks fail, a stamp or the time of a read, which move with nothing changed, nor the stage stage.of names from those, which relabels a PR with nothing of its own changed, such as red to behind once a PR below it in its stack goes red."""
     jobs, prs = subjects(data, group, registered)
     return {
         **{order_id: [data["orders"][order_id]["state"]] for order_id in group},
         **{job_id: state.job_news(job["state"], job["waits"], view.open_cards(job), job["said"]) for job_id, job in jobs.items() if job["state"] != "running"},
         **{key: [pr["state"], pr["checks"], pr["ejected"], pr["tap"] and pr["tap"]["label"]] for key, pr in prs.items()},
         **{f"{HANDOFF_FACT} {handoff['seq']}": ["owed"] for handoff in quiet_handoffs(data, group, moment)},
-        **{fact: ["waits"] for fact in waited_cards(data, jobs, prs, moment)},
+        **{fact: ["waits"] for fact in waited_cards(data, cards, jobs, prs, moment)},
     }
 
 
@@ -1881,8 +1881,8 @@ def subjects(data: dict, group: list[str], registered: dict[str, list[str]]) -> 
     return jobs, {key: data["prs"][key] for key in incident_prs(data, group, jobs, registered) if key in data["prs"]}
 
 
-def waited_cards(data: dict, jobs: dict[str, dict], prs: dict[str, dict], moment: datetime) -> dict[str, str]:
-    """Each card of his on these jobs and PRs still open past CARD_WAIT, by its news fact, with what a line says of it: a job's open question drawn on a card, holding what its `Holds:` line names, and his card asking his Approve on a PR since drive pr add drew it, holding that PR's landing, so its order's next line tells him once that it still waits and what it holds, by his words 6cd6aa2 "stuff I assume is done is jsut sitting around for a week"."""
+def waited_cards(data: dict, cards: dict | None, jobs: dict[str, dict], prs: dict[str, dict], moment: datetime) -> dict[str, str]:
+    """Each card of his on these jobs and PRs still open past CARD_WAIT, by its news fact, with what a line says of it: a job's open question drawn on a card, holding what its `Holds:` line names, and his open card carrying a PR that asks his Approve, by view.card_for in cc-slack's store, timed from when that card was asked, as the dashboard's queue times it, holding that PR's landing, a PR no open card carries, or with his cards unread, having none, so its order's next line tells him once that it still waits and what it holds, by his words 6cd6aa2 "stuff I assume is done is jsut sitting around for a week"."""
     asked = {
         drawn: f'{job_id}\'s card {drawn}, "{cut(question["title"] or "", 120)}", asked {when(question["asked"])}, holding '
         + ("every change of its job, its question kept with no Holds: line" if question["holds"] is None else question["holds"] or "nothing, its Holds: line reading none")
@@ -1891,9 +1891,9 @@ def waited_cards(data: dict, jobs: dict[str, dict], prs: dict[str, dict], moment
         if (drawn := question["card"]) and moment - state.parse_time(question["asked"]) > CARD_WAIT
     }
     tapped = {
-        pr["url"]: f'his card on {key}, "{cut(pr["title"], 120)}", asking his Approve since {when(pr["added"])}, holding {key} from landing'
+        pr["url"]: f'his card on {key}, "{cut(pr["title"], 120)}", asking his Approve since {when(shown["asked"])}, holding {key} from landing'
         for key, pr in prs.items()
-        if moment - state.parse_time(pr["added"]) > CARD_WAIT and not pr["rework"] and state.asks_tap(data, pr)
+        if cards and (shown := view.card_for(cards["pr_cards"], pr["url"])) and moment - state.parse_time(shown["asked"]) > CARD_WAIT and not pr["rework"] and state.asks_tap(data, pr)
     }
     return {f"{WAITED_FACT} {link}": said for link, said in (asked | tapped).items()}
 
@@ -1912,7 +1912,7 @@ def quiet_lines(watcher: Watcher, moment: datetime) -> list[str]:
     threads: dict[tuple[str, str] | str, list[str]] = {}
     for head in groups:
         threads.setdefault(state.promise_thread(data["orders"][head]) or head, []).append(head)
-    facts = {head: line_facts(data, group, registered, moment) for head, group in groups.items()}
+    facts = {head: line_facts(data, group, registered, watcher.cards, moment) for head, group in groups.items()}
     heard = {head: state.stamp(max(last_line(data, groups[other]) for other in heads)) for heads in threads.values() for head in heads}
     if stale := [head for head in groups if not data["orders"][head]["quiet"] or data["orders"][head]["quiet"]["heard"] != heard[head]]:
         with state.edit(watcher.name) as data:
@@ -1986,7 +1986,7 @@ def quiet_report(watcher: Watcher, data: dict, groups: dict[str, list[str]], sin
     orders = [order_id for group in groups.values() for order_id in group]
     jobs = [f"- {render.job_line(data, job_id, job)}" for job_id, job in state.orders_jobs(data, orders).items()]
     handoffs = quiet_handoffs(data, orders, moment)
-    waited = [said for fact, said in waited_cards(data, *subjects(data, orders, render.prs_by_job(data)), moment).items() if fact in moved]
+    waited = [said for fact, said in waited_cards(data, watcher.cards, *subjects(data, orders, render.prs_by_job(data)), moment).items() if fact in moved]
     if due:
         opening = (
             ", opening with that line being late"
@@ -3866,9 +3866,9 @@ def hear(name: str, moment: datetime, away: bool = False) -> dict:
         news = []
         held = list(data["held"]) if back and since else []
         if back and since:
-            registered = render.prs_by_job(data)
+            registered, cards = render.prs_by_job(data), view.live_cards(name)
             for head, group in news_groups(data, state.open_orders(data)).items():
-                order, facts = data["orders"][head], line_facts(data, group, registered, moment)
+                order, facts = data["orders"][head], line_facts(data, group, registered, cards, moment)
                 if order["quiet"] and untold(order, facts):
                     order["quiet"]["news"] = facts
                     news += group

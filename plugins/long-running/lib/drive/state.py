@@ -933,10 +933,9 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         pr.setdefault("conflict", False)
         pr.setdefault("failed_checks", [])
         pr.setdefault("hold_label", False)
-        for gone in ("ready_said", "stuck", "unchecked", "card"):
+        for gone in ("ready_said", "stuck", "unchecked", "card", "added"):
             pr.pop(gone, None)
         pr.setdefault("stage", None)
-        pr.setdefault("added", None)
         pr.setdefault("native", [])
         pr.setdefault("trunk", None)
         pr.setdefault("reviews_required", 1)
@@ -5032,7 +5031,6 @@ def new_pr(url: str, job_id: str, order_id: str) -> dict:
         "draft": False,
         "merged_sha": None,
         "stage": None,
-        "added": stamp(),
         "waits": [],
         "lander": None,
         "checker": None,
