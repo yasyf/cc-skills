@@ -9,10 +9,8 @@ from pathlib import Path
 
 import agent_brief
 import handed_records
-import handler_bind
 import one_line_result
 import pytest
-import session_start
 from conftest import LANE_SPEC, Thread
 from drive import agents, orca, reads, slack, state, talk, tools, watch
 
@@ -21,6 +19,7 @@ HIS_BRIEF = "Message (his words): why is this card asking again?\nThread: D123 1
 LINE = "POSTED https://acme.slack.com/archives/D123/p1794380463481960"
 BACKGROUND_JOB = "b7f2e0aa"
 GONE = agents.gone
+LAUNCHED = agents.launched
 ALERT_THREAD = "1794625385.692939"
 
 
@@ -44,10 +43,10 @@ def start(run: Run, tmp_path: Path) -> str:
     return out.removeprefix("started ")
 
 
-def bind(monkeypatch: pytest.MonkeyPatch, handler: str, session: str, transcript: Path) -> None:
+def bind(monkeypatch: pytest.MonkeyPatch, handler: str, session: str) -> None:
     monkeypatch.setenv(state.HANDLER_ENV, f"demo/{handler}")
-    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"session_id": session, "transcript_path": str(transcript), "cwd": str(transcript.parent), "hook_event_name": "UserPromptSubmit"})))
-    handler_bind.main()
+    with state.edit("demo") as data:
+        data["handlers"][handler]["session"] = session
 
 
 def stop(
@@ -77,11 +76,11 @@ def stop(
 
 
 def test_drive_handler_starts_its_own_claude_bg_session_and_records_that_he_wrote(
-    communicator: str, run: Run, tmp_path: Path, started: list[list[str]]
+    communicator: str, run: Run, tmp_path: Path, started: list[list[str]], launched_sessions: list[str]
 ) -> None:
     handler = start(run, tmp_path)
     data = state.load("demo")
-    assert data["handlers"][handler]["session"] is None
+    assert data["handlers"][handler]["session"] == launched_sessions[0]
     assert data["owner"]["heard"] is not None
     assert (tmp_path / "scratch" / "h1").is_dir()
     [argv] = started
@@ -142,6 +141,25 @@ def test_a_handler_claude_bg_could_not_start_leaves_nothing_behind_and_tells_the
     assert (data["handlers"], data["orders"], data["jobs"]) == ({}, {}, {})
 
 
+def test_a_handler_is_keyed_at_launch_by_the_session_of_the_job_claude_bg_prints_and_a_launch_naming_no_job_claude_code_keeps_leaves_nothing_behind(
+    communicator: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = tmp_path / "claude"
+    (config / "jobs" / "a81dc737").mkdir(parents=True)
+    (config / "jobs" / "a81dc737" / "state.json").write_text(json.dumps({"sessionId": "a81dc737-4f1e-4883-b14e-3c520f1f2737", "state": "working", "tempo": "active"}))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config))
+    monkeypatch.setattr(agents, "launched", LAUNCHED)
+    printed = iter(["backgrounded · a81dc737 · demo handler 1a2b3c4d\n  claude agents             list sessions\n", "backgrounded · 0badf00d · demo handler 2b3c4d5e\n"])
+    posted: list[list[str]] = []
+    monkeypatch.setattr(reads, "run", lambda argv, checkout, env=None: next(printed) if argv[:2] == ["claude", "--bg"] else posted.append(argv) or "")
+    handler = start(run, tmp_path)
+    assert state.load("demo")["handlers"][handler]["session"] == "a81dc737-4f1e-4883-b14e-3c520f1f2737"
+    assert state.session_drives("a81dc737-4f1e-4883-b14e-3c520f1f2737") == ["demo"]
+    code, out = run("handler", f"Record: 663488 Drive: demo Scratch: {tmp_path / 'h2'}")
+    assert (code, list(state.load("demo")["handlers"])) == (0, [handler])
+    assert posted[-1][-1].startswith(f"BLOCKED handler {out.removeprefix('started ')} did not start: claude --bg named no background job Claude Code keeps: backgrounded · 0badf00d")
+
+
 THREAD = "1794200000.000100"
 QUESTION_LINK = f"https://acme.slack.com/archives/D123/p1794200100000100?thread_ts={THREAD}&cid=D123"
 QUESTION_BRIEF = f"Message (his words): did the copy fix ship?\nLink: {QUESTION_LINK}\nThread: D123 {THREAD}\nDrive: demo\nScratch: {{scratch}}"
@@ -166,7 +184,7 @@ def test_his_read_only_questions_handler_starts_on_its_answer_order_and_one_say_
     assert "  - j1 " in prompt and "o2" not in prompt and agents.beyond_brief(prompt) is None
 
     transcript = tmp_path / "h-session.jsonl"
-    bind(monkeypatch, handler, "h-session", transcript)
+    bind(monkeypatch, handler, "h-session")
     answer = slack_thread.post(state.now(), from_claude=True)
     monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": answer, "thread_ts": THREAD})
     report = {"seq": 700001, "kind": "report", "lane": "communicator", "at": state.stamp(), "fields": {"attrs": {"close": "o3"}}}
@@ -195,10 +213,10 @@ def test_a_handlers_own_session_reads_as_an_agent_of_the_communicators(
 ) -> None:
     handler = start(run, tmp_path)
     transcript = tmp_path / "h-session.jsonl"
-    bind(monkeypatch, handler, "h-session", transcript)
+    bind(monkeypatch, handler, "h-session")
     data = state.load("demo")
     holds = {"message": None, "link": None, "thread": "1794380463.481959", "record": None, "re": []}
-    assert data["handlers"][handler] | {"started": None} == {"session": "h-session", "transcript": str(transcript), "started": None, "holds": holds, "handed": [], "took": [], "posted": []}
+    assert data["handlers"][handler] | {"started": None} == {"session": "h-session", "started": None, "holds": holds, "handed": [], "took": [], "posted": []}
     assert state.session_drives("h-session") == ["demo"]
     assert state.session_role(data, "h-session") == "communicator"
     step = {"session_id": "h-session", "agent_type": agents.HANDLER, "transcript_path": str(transcript), "tool_name": "Bash"}
@@ -211,6 +229,11 @@ def test_a_handlers_own_session_reads_as_an_agent_of_the_communicators(
     assert agents.seen(step | {"session_id": "someone-else"})["session_id"] == "someone-else"
     assert agents.transcript(agents.seen(step)) == transcript
     assert agent_brief.deny_reason(agents.seen(step | {"tool_input": {"subagent_type": agents.HANDLER, "prompt": "Record: 1"}})) is None
+    kept = tmp_path / "claude" / "projects" / "-src-demo" / "h-session.jsonl"
+    kept.parent.mkdir(parents=True)
+    kept.touch()
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "claude"))
+    assert state.own_transcript(data, {"agent": handler}) == str(kept)
 
 
 def test_drive_handler_starts_the_handler_in_the_drives_checkout_while_the_communicator_still_runs_in_an_older_one(
@@ -239,7 +262,7 @@ def test_on_a_drive_with_no_communicator_drive_handler_starts_the_handler_beside
     assert (argv[:4], checkout) == (["claude", "--bg", "--agent", agents.HANDLER], Path(coordinator["cwd"]))
     assert json.loads(argv[argv.index("--settings") + 1])["env"]["CCI_PARENT_SESSION"] == coordinator["session"]
     transcript = tmp_path / "h-session.jsonl"
-    bind(monkeypatch, handler, "h-session", transcript)
+    bind(monkeypatch, handler, "h-session")
     step = {"session_id": "h-session", "agent_type": agents.HANDLER, "transcript_path": str(transcript), "tool_name": "Bash"}
     assert agents.seen(step) == step | {"agent_id": handler, "agent_transcript_path": str(transcript), "handler_session": "h-session"}
     assert state.session_role(state.load("demo"), "h-session") == "communicator"
@@ -274,7 +297,7 @@ def test_a_handler_ending_hands_its_line_to_the_communicator_and_removes_its_ses
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Answers", "why is this card asking again?", "--kind", "answer")
     run("job", "add", "reader", "--order", "o1", "--goal", "answer him", "--agent", handler)
     transcript = tmp_path / "h-session.jsonl"
-    bind(monkeypatch, handler, "h-session", transcript)
+    bind(monkeypatch, handler, "h-session")
     removed: list[list[str]] = []
     monkeypatch.setattr(agents.subprocess, "Popen", lambda argv, **kwargs: removed.append(argv))
     refused = stop(monkeypatch, capsys, "h-session", transcript, "I answered him in his thread")
@@ -301,7 +324,7 @@ def test_a_handler_whose_session_still_runs_a_background_task_or_wakeup_may_not_
 ) -> None:
     handler = start(run, tmp_path)
     transcript = tmp_path / "h-session.jsonl"
-    bind(monkeypatch, handler, "h-session", transcript)
+    bind(monkeypatch, handler, "h-session")
     removed: list[list[str]] = []
     monkeypatch.setattr(agents.subprocess, "Popen", lambda argv, **kwargs: removed.append(argv))
     monkeypatch.setattr(agents, "background_job", lambda session: (BACKGROUND_JOB, {"sessionId": session}))
@@ -322,7 +345,7 @@ def test_a_handlers_done_record_carries_each_post_as_say_returned_it_whatever_th
 ) -> None:
     handler = start(run, tmp_path)
     transcript = tmp_path / "h-session.jsonl"
-    bind(monkeypatch, handler, "h-session", transcript)
+    bind(monkeypatch, handler, "h-session")
     reply = "https://acme.slack.com/archives/D123/p1794479609881679?thread_ts=1794478810.620779&cid=D123"
     monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": reply, "thread_ts": "1794478810.620779"})
     with monkeypatch.context() as scoped:
@@ -368,7 +391,7 @@ def test_a_record_for_a_busy_handlers_thread_reaches_that_handler_at_its_next_st
     assert len([argv for argv in started if argv[:2] == ["claude", "--bg"]]) == 2
 
     transcript = tmp_path / "h-session.jsonl"
-    bind(monkeypatch, handler, "h-session", transcript)
+    bind(monkeypatch, handler, "h-session")
     capsys.readouterr()
     handed_records.main()
     context = json.loads(capsys.readouterr().out)["hookSpecificOutput"]["additionalContext"]
@@ -515,57 +538,46 @@ def test_a_brief_in_a_live_handlers_thread_or_on_its_re_chain_is_handed_to_it_wh
     assert handlers[handler]["handed"] == ([then.format(scratch=tmp_path)] if met == "handed" else [])
 
 
-def test_a_handler_is_gone_once_no_running_process_claude_code_keeps_names_its_session_at_work_whatever_its_job_says_and_one_never_bound_once_its_launchs_job_failed_or_its_first_terminal_time_is_set(
+def test_a_handler_is_gone_once_no_running_process_names_its_session_at_work_and_its_job_ended_a_turn_rests_or_was_removed_and_one_its_launch_has_not_keyed_never_is(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     config = tmp_path / "claude"
     (config / "sessions").mkdir(parents=True)
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config))
-    spares = {status: subprocess.Popen(["sleep", "60"]) for status in ("idle", "unbound-idle", "unbound-busy", "unbound-starting")}
-    for pid, session, status in (
-        (os.getpid(), "busy", "busy"),
-        (spares["idle"].pid, "idle", "idle"),
-        (1, "died", "busy"),
-        (spares["unbound-idle"].pid, "s-idle", "idle"),
-        (spares["unbound-busy"].pid, "s-busy", "busy"),
-        (spares["unbound-starting"].pid, "s-starting", "idle"),
-    ):
+    spare = subprocess.Popen(["sleep", "60"])
+    for pid, session, status in ((os.getpid(), "busy", "busy"), (spare.pid, "idle", "idle"), (1, "died", "busy")):
         (config / "sessions" / f"{pid}.json").write_text(json.dumps({"sessionId": session, "kind": "bg", "status": status}))
-    started = state.now()
     jobs = {
+        "e5f6a7b8": {"sessionId": "busy", "state": "done", "tempo": "idle"},
         "a1b2c3d4": {"sessionId": "idle", "state": "working", "tempo": "idle"},
-        "c3d4e5f6": {"sessionId": "blocked", "state": "blocked", "tempo": "blocked"},
-        "14548b14": {"name": "demo handler h-failed", "sessionId": "s-failed", "createdAt": state.stamp(started), "state": "failed"},
-        "a7b8c9d0": {"name": "demo handler h-starting", "sessionId": "s-starting", "createdAt": state.stamp(started), "state": "working", "firstTerminalAt": None},
-        "260762ba": {"name": "demo handler h-idle", "sessionId": "s-idle", "createdAt": state.stamp(started), "state": "working", "firstTerminalAt": state.stamp(started)},
-        "d4e5f6a7": {"name": "demo handler h-launching", "sessionId": "s-launching", "createdAt": state.stamp(started), "state": "working", "firstTerminalAt": None},
-        "b8c9d0e1": {"name": "demo handler h-refused", "sessionId": "s-refused", "createdAt": state.stamp(started), "state": "stopped", "firstTerminalAt": state.stamp(started)},
-        "e5f6a7b8": {"name": "demo handler h-busy", "sessionId": "s-busy", "createdAt": state.stamp(started), "state": "working", "firstTerminalAt": state.stamp(started)},
-        "f6a7b8c9": {"name": "demo handler h-restarted", "sessionId": "s-replaced", "createdAt": state.stamp(started - timedelta(minutes=16)), "state": "failed"},
+        "b8c9d0e1": {"sessionId": "died", "state": "stopped", "tempo": "idle"},
+        "2a74ab93": {"sessionId": "blocked", "state": "blocked", "tempo": "blocked", "firstTerminalAt": None},
+        "e8ee9c52": {"sessionId": "dialog", "state": "working", "tempo": "blocked", "firstTerminalAt": None},
+        "14548b14": {"sessionId": "failed", "state": "failed"},
+        "260762ba": {"sessionId": "done", "state": "done", "tempo": "idle"},
+        "a81dc737": {"sessionId": "launching", "state": "working", "tempo": "active", "firstTerminalAt": None},
     }
     for short, kept in jobs.items():
         (config / "jobs" / short).mkdir(parents=True)
         (config / "jobs" / short / "state.json").write_text(json.dumps(kept))
-    bound = {session: {"session": session, "started": state.stamp(started)} for session in ("busy", "idle", "died", "blocked", "unknown")}
-    unbound = {handler: {"session": None, "started": state.stamp(started)} for handler in ("h-failed", "h-refused", "h-idle", "h-launching", "h-starting", "h-busy", "h-restarted", "h-unlaunched")}
-    waking = {"session": "idle", "started": state.stamp(started), "wakes": state.stamp(started + timedelta(minutes=1))}
+    entries = {session: {"session": session, "started": state.stamp()} for session in [*(kept["sessionId"] for kept in jobs.values()), "removed"]}
     try:
-        assert {session: GONE("demo", "h1", entry) for session, entry in bound.items()} == {"busy": False, "idle": True, "died": True, "blocked": True, "unknown": True}
-        assert {handler: GONE("demo", handler, entry) for handler, entry in unbound.items()} == {
-            "h-failed": True,
-            "h-refused": True,
-            "h-idle": True,
-            "h-launching": False,
-            "h-starting": False,
-            "h-busy": False,
-            "h-restarted": False,
-            "h-unlaunched": False,
+        assert {session: GONE(entry) for session, entry in entries.items()} == {
+            "busy": False,
+            "idle": True,
+            "died": True,
+            "blocked": True,
+            "dialog": True,
+            "failed": True,
+            "done": True,
+            "launching": False,
+            "removed": True,
         }
-        assert GONE("demo", "h1", waking) is False
+        assert GONE({"session": None, "started": state.stamp()}) is False
+        assert GONE(entries["done"] | {"wakes": state.stamp(state.now() + timedelta(minutes=1))}) is False
     finally:
-        for spare in spares.values():
-            spare.kill()
-    assert agents.background_job("blocked") == ("c3d4e5f6", jobs["c3d4e5f6"])
+        spare.kill()
+    assert agents.background_job("blocked") == ("2a74ab93", jobs["2a74ab93"])
 
 
 def test_a_handler_whose_stop_hook_meets_a_drive_a_newer_install_saved_still_ends_and_the_next_brief_in_its_thread_starts_a_fresh_handler_handed_what_it_never_took(
@@ -582,7 +594,7 @@ def test_a_handler_whose_stop_hook_meets_a_drive_a_newer_install_saved_still_end
     handler = tools.run("handler", "demo", {"brief": briefs["684116"]}).removeprefix("started ")
     assert [tools.run("handler", "demo", {"brief": briefs[seq]}) for seq in ("684835", "684840")] == [f"handed to {handler}"] * 2
     transcript = tmp_path / "h-session.jsonl"
-    bind(monkeypatch, handler, "h-session", transcript)
+    bind(monkeypatch, handler, "h-session")
     major, minor, patch = state.VERSION.split(".")
     state.store("demo", state.stored("demo") | {"saved_by": f"{major}.{minor}.{int(patch) + 1}"})
     monkeypatch.setattr(agents, "hold", lambda payload: pytest.fail("a handler's Stop hook holds no job"))
@@ -601,26 +613,47 @@ def test_a_handler_whose_stop_hook_meets_a_drive_a_newer_install_saved_still_end
 
 
 @pytest.mark.parametrize(
-    ("job_state", "ended", "process", "fresh"),
-    [("failed", True, None, True), ("stopped", True, None, True), ("working", True, "idle", True), ("working", False, None, False)],
-    ids=["14548b14-failed-before-init", "31957310-its-bind-failed-and-stopped-it", "260762ba-idle-after-its-turn", "launching"],
+    ("job", "process", "fresh"),
+    [
+        ({"state": "blocked", "tempo": "blocked", "firstTerminalAt": None}, None, True),
+        ({"state": "working", "tempo": "blocked", "firstTerminalAt": None}, None, True),
+        ({"state": "failed", "tempo": "idle"}, None, True),
+        ({"state": "done", "tempo": "idle"}, "idle", True),
+        (None, None, True),
+        ({"state": "working", "tempo": "active", "firstTerminalAt": None}, None, False),
+        ({"state": "done", "tempo": "idle"}, "busy", False),
+    ],
+    ids=["2a74ab93-blocked-on-its-last-words", "e8ee9c52-stuck-on-a-startup-dialog", "14548b14-failed-before-init", "260762ba-idle-after-its-turn", "removed", "launching", "at-work"],
 )
-def test_a_handler_its_prompt_hook_never_bound_holds_its_thread_only_until_its_launchs_job_failed_stopped_or_ended_its_turn_and_his_next_message_there_starts_a_fresh_handler_handed_what_it_never_took(
-    communicator: str, tmp_path: Path, started: list[list[str]], cci_records: dict[str, dict], monkeypatch: pytest.MonkeyPatch, job_state: str, ended: bool, process: str | None, fresh: bool
+def test_a_handler_holds_its_thread_only_while_its_launchs_session_or_job_is_at_work_and_his_next_message_there_starts_a_fresh_handler_handed_what_it_never_took(
+    communicator: str,
+    tmp_path: Path,
+    started: list[list[str]],
+    cci_records: dict[str, dict],
+    launched_sessions: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+    job: dict | None,
+    process: str | None,
+    fresh: bool,
 ) -> None:
     config = tmp_path / "claude"
     (config / "sessions").mkdir(parents=True)
+    (config / "jobs" / "2a74ab93").mkdir(parents=True)
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config))
     monkeypatch.setattr(agents, "gone", GONE)
     cci_records |= {seq: {"seq": int(seq), "kind": "report", "lane": "root", "fields": {"attrs": {"thread": "1794600871.442519"}}} for seq in ("704420", "704431", "704447")}
     briefs = {seq: f"Record: {seq} Drive: demo Scratch: {tmp_path / seq}" for seq in cci_records}
     handler = tools.run("handler", "demo", {"brief": briefs["704420"]}).removeprefix("started ")
+    kept = config / "jobs" / "2a74ab93" / "state.json"
+    kept.write_text(json.dumps({"sessionId": launched_sessions[0], "state": "working", "tempo": "active", "firstTerminalAt": None}))
     assert tools.run("handler", "demo", {"brief": briefs["704431"]}) == f"handed to {handler}"
-    (config / "jobs" / "14548b14").mkdir(parents=True)
-    (config / "jobs" / "14548b14" / "state.json").write_text(json.dumps({"name": f"demo handler {handler}", "sessionId": "s-launch", "createdAt": state.stamp(), "state": job_state, "firstTerminalAt": state.stamp() if ended else None}))
+    if job:
+        kept.write_text(json.dumps({"sessionId": launched_sessions[0]} | job))
+    else:
+        kept.unlink()
     spare = subprocess.Popen(["sleep", "60"])
     if process:
-        (config / "sessions" / f"{spare.pid}.json").write_text(json.dumps({"sessionId": "s-launch", "kind": "bg", "status": process}))
+        (config / "sessions" / f"{spare.pid}.json").write_text(json.dumps({"sessionId": launched_sessions[0], "kind": "bg", "status": process}))
     try:
         then = tools.run("handler", "demo", {"brief": briefs["704447"]})
     finally:
@@ -630,25 +663,6 @@ def test_a_handler_its_prompt_hook_never_bound_holds_its_thread_only_until_its_l
         assert (then, handlers[handler]["handed"]) == (f"handed to {handler}", [briefs["704431"], briefs["704447"]])
         return
     assert {key: entry["handed"] for key, entry in handlers.items()} == {then.removeprefix("started "): [briefs["704431"]]}
-
-
-def test_a_handler_binds_at_its_brief_not_its_session_start_and_one_the_drive_no_longer_holds_has_its_brief_refused_and_its_session_stopped(
-    communicator: str, run: Run, tmp_path: Path, started: list[list[str]], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    handler = start(run, tmp_path)
-    monkeypatch.setenv(state.HANDLER_ENV, f"demo/{handler}")
-    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"session_id": "h-session", "transcript_path": str(tmp_path / "h-session.jsonl"), "source": "startup"})))
-    session_start.main()
-    assert (capsys.readouterr().out, state.load("demo")["handlers"][handler]["session"]) == ("", None)
-
-    with state.edit("demo") as data:
-        del data["handlers"][handler]
-    stopped: list[list[str]] = []
-    monkeypatch.setattr(agents.subprocess, "Popen", lambda argv, **kwargs: stopped.append(argv))
-    monkeypatch.setattr(agents, "background_job", lambda session: (BACKGROUND_JOB, {"sessionId": session}))
-    with pytest.raises(KeyError, match=handler):
-        bind(monkeypatch, handler, "h-session", tmp_path / "h-session.jsonl")
-    assert (stopped, state.session_drives("h-session")) == ([["claude", "stop", BACKGROUND_JOB]], [])
 
 
 API_ERROR ="Please run /login · API Error: 403 Attention Required! | Cloudflare"
@@ -724,7 +738,14 @@ DIED_ON_THE_403 = [
 
 @pytest.mark.parametrize(("brief", "posted_first"), DIED_ON_THE_403)
 def test_a_handler_whose_four_resumes_an_api_error_ended_too_starts_again_as_itself_on_its_brief_and_posts_one_done_once_a_turn_answers(
-    communicator: str, tmp_path: Path, started: list[list[str]], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], brief: str, posted_first: bool
+    communicator: str,
+    tmp_path: Path,
+    started: list[list[str]],
+    launched_sessions: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    brief: str,
+    posted_first: bool,
 ) -> None:
     brief = brief.format(scratch=tmp_path / "h")
     handler = tools.run("handler", "demo", {"brief": brief}).removeprefix("started ")
@@ -735,7 +756,7 @@ def test_a_handler_whose_four_resumes_an_api_error_ended_too_starts_again_as_its
     posts: list[str] = []
     for attempt, session in enumerate(("h-403", "h-503"), start=1):
         transcript = tmp_path / f"{session}.jsonl"
-        bind(monkeypatch, handler, session, transcript)
+        bind(monkeypatch, handler, session)
         if posted_first and attempt == 1:
             posts.append(said(monkeypatch, session, f"{HIS_DM}/p1794565600000200?thread_ts={ANSWER_THREAD}&cid=D0C4HQWPLCC"))
         assert stop(monkeypatch, capsys, session, transcript, API_ERROR, brief, "StopFailure", outage(len(agents.OUTAGE_WAITS))) == ""
@@ -743,13 +764,13 @@ def test_a_handler_whose_four_resumes_an_api_error_ended_too_starts_again_as_its
         assert [argv[-1] for argv in starts] == [brief] * (attempt + 1)
         assert json.loads(starts[-1][starts[-1].index("--settings") + 1])["env"][state.HANDLER_ENV] == f"demo/{handler}"
         entry = state.load("demo")["handlers"][handler]
-        assert (entry["session"], entry["holds"], entry["posted"]) == (None, held, posts)
+        assert (entry["session"], entry["holds"], entry["posted"]) == (launched_sessions[attempt], held, posts)
         assert removed == [["claude", "rm", BACKGROUND_JOB]] * attempt
     assert agents.brief_path("demo", handler).read_text() == brief
     assert not [argv for argv in started if "done" in argv]
 
     transcript = tmp_path / "h-answered.jsonl"
-    bind(monkeypatch, handler, "h-answered", transcript)
+    bind(monkeypatch, handler, "h-answered")
     posts.append(said(monkeypatch, "h-answered", f"{HIS_DM}/p1794565600000300?thread_ts={ANSWER_THREAD}&cid=D0C4HQWPLCC"))
     assert stop(monkeypatch, capsys, "h-answered", transcript, posts[-1], brief) == ""
     [done] = [argv for argv in started if "done" in argv]
@@ -765,7 +786,7 @@ def test_a_handler_an_api_error_ended_past_its_four_resumes_is_handed_again_each
     handler = tools.run("handler", "demo", {"brief": briefs["690458"]}).removeprefix("started ")
     assert tools.run("handler", "demo", {"brief": briefs["690461"]}) == f"handed to {handler}"
     transcript = tmp_path / "h-session.jsonl"
-    bind(monkeypatch, handler, "h-session", transcript)
+    bind(monkeypatch, handler, "h-session")
     capsys.readouterr()
     handed_records.main()
     assert briefs["690461"] in capsys.readouterr().out
@@ -784,7 +805,7 @@ def test_a_handler_whose_turn_an_api_error_ended_resumes_in_its_own_session_afte
 ) -> None:
     handler = start(run, tmp_path)
     transcript = tmp_path / "h-session.jsonl"
-    bind(monkeypatch, handler, "h-session", transcript)
+    bind(monkeypatch, handler, "h-session")
     capsys.readouterr()
     removed: list[list[str]] = []
     monkeypatch.setattr(agents.subprocess, "Popen", lambda argv, **kwargs: removed.append(argv))
@@ -793,7 +814,7 @@ def test_a_handler_whose_turn_an_api_error_ended_resumes_in_its_own_session_afte
 
     def slept(seconds: float) -> None:
         entry = state.load("demo")["handlers"][handler]
-        waits.append((seconds, entry["session"], GONE("demo", handler, entry)))
+        waits.append((seconds, entry["session"], GONE(entry)))
 
     monkeypatch.setattr(agents.time, "sleep", slept)
     for resumes in range(len(agents.OUTAGE_WAITS)):
@@ -840,7 +861,7 @@ def test_a_handler_a_models_safeguards_stopped_is_never_resumed_and_posts_one_do
 ) -> None:
     handler = start(run, tmp_path)
     transcript = tmp_path / "h-session.jsonl"
-    bind(monkeypatch, handler, "h-session", transcript)
+    bind(monkeypatch, handler, "h-session")
     removed: list[list[str]] = []
     monkeypatch.setattr(agents.subprocess, "Popen", lambda argv, **kwargs: removed.append(argv))
     monkeypatch.setattr(agents, "background_job", lambda session: (BACKGROUND_JOB, {"sessionId": session}))
@@ -863,7 +884,7 @@ def test_a_handler_whose_stop_check_raises_posts_its_done_before_the_error_goes_
 ) -> None:
     handler = start(run, tmp_path)
     transcript = tmp_path / "h-session.jsonl"
-    bind(monkeypatch, handler, "h-session", transcript)
+    bind(monkeypatch, handler, "h-session")
     removed: list[list[str]] = []
     monkeypatch.setattr(agents.subprocess, "Popen", lambda argv, **kwargs: removed.append(argv))
     monkeypatch.setattr(agents, "background_job", lambda session: (BACKGROUND_JOB, {"sessionId": session}))

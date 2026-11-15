@@ -2774,13 +2774,16 @@ def held_since(held: list[dict]) -> str:
 
 
 def handler_id(data: dict, session: str | None) -> str | None:
-    """The handler a `claude --bg` session runs for the communicator, as its UserPromptSubmit hook bound it."""
+    """The handler a `claude --bg` session runs for the communicator, by the session its launch named."""
     return next((handler for handler, held in data["handlers"].items() if session and held["session"] == session), None)
 
 
 def own_transcript(data: dict, job: dict) -> str | None:
-    """The transcript of a job a handler holds, its own claude --bg session's rather than one beside the communicator's: the bound handler's while it runs, the job's own once it ended."""
-    return job.get("transcript") or (data["handlers"].get(job.get("agent")) or {}).get("transcript")
+    """The transcript of a job a handler holds, its own claude --bg session's rather than one beside the communicator's: the handler's session's while it runs, once Claude Code has written it, the job's own once it ended."""
+    from drive import install
+
+    session = (data["handlers"].get(job.get("agent")) or {}).get("session")
+    return job.get("transcript") or (session and next(map(str, (install.config_dir() / "projects").glob(f"*/{session}.jsonl")), None))
 
 
 def session_project(data: dict, session: str | None) -> str | None:

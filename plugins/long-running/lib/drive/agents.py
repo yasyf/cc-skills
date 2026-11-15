@@ -405,16 +405,14 @@ def holder(data: dict, held: dict) -> str | None:
     return None
 
 
-def gone(name: str, handler: str, entry: dict) -> bool:
-    """Whether a handler's turn is over, whatever its Stop hook did, read from the records Claude Code keeps: once no running process's `sessions/<pid>.json`, the record Claude Code keeps of each session's process, names its session with a status but idle, so an idle `claude --bg` session that outlived its turn, as one does until `claude rm` takes it, holds nothing; its background job's state is no test of a session that ran, since Claude Code sets it from the words of its last message. A handler its UserPromptSubmit hook never bound, as a bind that failed or a launch that died before its first prompt leaves one, is judged by the background job its launch started: gone once Claude Code failed that job, or once that job's first terminal time is set, as the end of its first turn or the stop a failed bind makes sets it, and no process runs its session but idle; in flight until then, since Claude Code keeps that time on every job from its launch, null until it is set. A handler whose turn an API error ended is not gone until the resume that wakes it."""
+def gone(entry: dict) -> bool:
+    """Whether a handler's turn is over, whatever its Stop hook did, read from the records Claude Code keeps of the session its launch named: no running process's `sessions/<pid>.json`, the record Claude Code keeps of each session's process, names that session with a status but idle, and its background job, which `claude --bg` writes `working` before it returns, ended a turn done, blocked, failed or stopped, rests idle or blocked, as one stuck on a startup dialog does, or `claude rm` took it; so a launch whose job ended blocked before it ran a turn holds nothing. A handler whose launch has not named its session yet is in flight, and one whose turn an API error ended is not gone until the resume that wakes it."""
     if (wakes := entry.get("wakes")) and state.parse_time(wakes) > state.now():
         return False
-    records = session_records()
-    if entry["session"]:
-        return not busy(entry["session"], records)
-    if (job := launched(name, handler, entry)) is None or busy(job["sessionId"], records):
+    if not entry["session"] or busy(entry["session"], session_records()):
         return False
-    return job.get("state") == "failed" or job.get("firstTerminalAt") is not None
+    found = background_job(entry["session"])
+    return found is None or found[1]["state"] in ("done", "blocked", "failed", "stopped") or found[1].get("tempo") in ("idle", "blocked")
 
 
 def busy(session: str, records: list[tuple[int, dict]]) -> bool:
@@ -422,14 +420,12 @@ def busy(session: str, records: list[tuple[int, dict]]) -> bool:
     return bool(running([(pid, record.get("procStartFt") or record.get("procStart")) for pid, record in records if record.get("sessionId") == session and record.get("status") != "idle"]))
 
 
-def launched(name: str, handler: str, entry: dict) -> dict | None:
-    """The background job `claude --bg` wrote for the handler's launch, which Claude Code keeps with its session from the launch's first moment: the job of the handler's name created since its entry's start, so a restart's launch never reads the job of the session it replaces."""
-    since = state.parse_time(entry["started"])
-    return next((kept for _, kept in background_jobs() if kept.get("name") == job_name(name, handler) and state.parse_time(kept["createdAt"]) >= since), None)
-
-
-def job_name(name: str, handler: str) -> str:
-    return f"{name} handler {handler}"
+def launched(out: str) -> str:
+    """The session `claude --bg` started, by the id it prints, `backgrounded · <id> · <name>`, which names the background job Claude Code writes for that session before it returns."""
+    printed = re.search(r"\b[0-9a-f]{8}\b", out)
+    if not (printed and (job := registry_record(install.config_dir() / "jobs" / printed[0] / "state.json"))):
+        raise state.DriveError(f"claude --bg named no background job Claude Code keeps: {out.strip() or 'no output'}")
+    return job["sessionId"]
 
 
 def registry_record(path: Path) -> dict | None:
@@ -487,7 +483,7 @@ def handle(name: str, brief: str, detached: bool = False, briefed: Callable[[str
         if not held_now["thread"] and (order_id := state.report_order(data, attrs)):
             held_now |= state.thread_attr(data["orders"][order_id])
         left: list[str] = []
-        while (held := holder(data, held_now)) and gone(name, held, data["handlers"][held]):
+        while (held := holder(data, held_now)) and gone(data["handlers"][held]):
             left += data["handlers"].pop(held)["handed"]
         left = [one for one in dict.fromkeys(left) if not (named := RECORD.search(one)) or named[1] != held_now["record"]]
         if held:
@@ -556,14 +552,16 @@ def beside(data: dict) -> tuple[str, dict]:
 
 
 def start_handler(name: str, handler: str, prompt: str) -> None:
-    """Start a handler as its own `claude --bg` session on its agent definition, which sets its model, in the drive's checkout at the head of its default branch, wherever the session it runs beside, the communicator's or on a drive with none the coordinator's, still runs, whether that session or the drive's watch starts it, its UserPromptSubmit hook binding it to the drive at its brief by the id in its environment, `CCI_PARENT_SESSION` naming that session, so cci binds the handler's session to no lane and it posts as the communicator's lanes, and `CLAUDE_LONG_RUNNING_DRIVE` naming the drive, so each cci call that names no drive resolves this one, and `CAPT_HOOK_CLIENT_TIMEOUT` at Claude Code's own hook timeout, so Jev's check of a say post Slack already has runs as long as that check needs rather than capt-hook's 30 s; the watch's own lane stays out of its environment."""
+    """Start a handler as its own `claude --bg` session on its agent definition, which sets its model, in the drive's checkout at the head of its default branch, wherever the session it runs beside, the communicator's or on a drive with none the coordinator's, still runs, whether that session or the drive's watch starts it, its entry keeping the session `claude --bg` names, so every check on the communicator's handlers finds it from its first step, `CCI_PARENT_SESSION` naming that session, so cci binds the handler's session to no lane and it posts as the communicator's lanes, and `CLAUDE_LONG_RUNNING_DRIVE` naming the drive, so each cci call that names no drive resolves this one, and `CAPT_HOOK_CLIENT_TIMEOUT` at Claude Code's own hook timeout, so Jev's check of a say post Slack already has runs as long as that check needs rather than capt-hook's 30 s; the watch's own lane stays out of its environment."""
     from drive import orca
 
     _, held = beside(state.saved(name))
     env = {state.HANDLER_ENV: f"{name}/{handler}", "CCI_PARENT_SESSION": held["session"], state.DRIVE_ENV: name, "CAPT_HOOK_CLIENT_TIMEOUT": CLAUDE_HOOK_SECONDS}
     settings = session_settings(env)
-    argv = ["claude", "--bg", "--agent", HANDLER, "--permission-mode", "bypassPermissions", "--settings", json.dumps(settings), "-n", job_name(name, handler), prompt]
-    reads.run(argv, orca.checkout(name, held["cwd"]), {key: value for key, value in os.environ.items() if key != "CLAUDE_LONG_RUNNING_LANE"} | settings["env"])
+    argv = ["claude", "--bg", "--agent", HANDLER, "--permission-mode", "bypassPermissions", "--settings", json.dumps(settings), "-n", f"{name} handler {handler}", prompt]
+    session = launched(reads.run(argv, orca.checkout(name, held["cwd"]), {key: value for key, value in os.environ.items() if key != "CLAUDE_LONG_RUNNING_LANE"} | settings["env"]))
+    with state.edit(name) as data:
+        data["handlers"][handler]["session"] = session
 
 
 def watchdog(name: str, brief: str, cwd: str, out: Path) -> int:
@@ -641,18 +639,6 @@ def register(name: str, role: str, project: str | None, worktree: str, session: 
         return reads.run(words, Path(worktree)).strip()
     except reads.ReadError as error:
         raise state.DriveError(f"cci did not register session {session} as the {role}'s, so nothing keeps it running or hearing its records: {error}") from None
-
-
-def bind_handler(payload: dict, handler: str) -> None:
-    """Bind a handler's session to the drive at each prompt it is given, its brief first, before its first step, so every check on the communicator's handlers finds it. A bind that fails, as it does once the drive no longer holds the handler, stops the session's background job before the error goes on, which the hook's `onFailure` turns into a refusal of the prompt: the handler runs no turn bound to nothing, and Claude Code records its job stopped, which gone reads as over, so it holds no thread."""
-    name, _, handler_id = handler.partition("/")
-    try:
-        with state.edit(name) as data:
-            data["handlers"][handler_id].update(session=payload["session_id"], transcript=payload["transcript_path"])
-    except Exception:
-        own, _ = background_job(payload["session_id"])
-        subprocess.Popen(["claude", "stop", own], cwd=Path(payload["cwd"]), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
-        raise
 
 
 def handed(briefs: list[str]) -> str:
@@ -760,7 +746,7 @@ def resumes(rows: list[dict]) -> int:
 
 
 def restart_handler(name: str, payload: dict) -> None:
-    """Start a handler whose turn an API error ended again once its four resumes met the error too, as the same handler on the brief its transcript opens with, kept for `drive handler-start`, so what it holds, its job, each post it made and each brief it was handed stay with it, those it took handed again, until a turn that answers posts its done; it reads as in flight until its new launch's session runs, started anew so the job of the session it replaces never counts, and no brief meanwhile takes what it holds. A restart the error meets again resumes and starts again the same way."""
+    """Start a handler whose turn an API error ended again once its four resumes met the error too, as the same handler on the brief its transcript opens with, kept for `drive handler-start`, so what it holds, its job, each post it made and each brief it was handed stay with it, those it took handed again, until a turn that answers posts its done; it reads as in flight until its new launch names its session, so the session it replaces, whose job `claude rm` takes, never frees what it holds and no brief meanwhile takes it. A restart the error meets again resumes and starts again the same way."""
     kept = brief_path(name, payload["agent_id"])
     kept.parent.mkdir(parents=True, exist_ok=True)
     kept.write_text(opening(Path(payload["agent_transcript_path"])))

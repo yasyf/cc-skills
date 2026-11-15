@@ -518,8 +518,16 @@ def posts_to_communicator(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 @pytest.fixture(autouse=True)
 def ended_sessions(monkeypatch: pytest.MonkeyPatch) -> set[str]:
     ended: set[str] = set()
-    monkeypatch.setattr(agents, "gone", lambda name, handler, entry: entry["session"] in ended)
+    monkeypatch.setattr(agents, "gone", lambda entry: entry["session"] in ended)
     return ended
+
+
+@pytest.fixture(autouse=True)
+def launched_sessions(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """The session each `claude --bg` a test runs names, one of its own for each launch."""
+    named: list[str] = []
+    monkeypatch.setattr(agents, "launched", lambda out: named.append(f"launched-{len(named) + 1}") or named[-1])
+    return named
 
 
 @dataclass
