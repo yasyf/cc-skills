@@ -43,7 +43,7 @@ def test_a_job_call_whose_inline_tooling_order_repeats_an_open_one_adds_no_job_a
     tools.run("job", meta, {"ops": [{"add": {"kind": "reader", "order": filed | {"words": LOCK_STALL}, "goal": "research: the install lock"}}]})
     jev.picks("o1")
     said = tools.run("job", meta, {"ops": [{"add": {"kind": "reader", "order": filed | {"words": LOCK_STALL_AGAIN}, "goal": "research: the install stall"}}]})
-    assert said.splitlines() == ["1 order add: o2; joins o1: no record; carried by j1, j2, so no job starts on it", "1 job add: none, since o2 joins o1"]
+    assert said.splitlines() == ["1 order add: o2; joins o1: no record; carried by j1, j2, each holding these words for its worker, so no job starts on it", "1 job add: none, since o2 joins o1"]
     assert (list(state.load(meta)["jobs"]), len([request for request in jev.asked if any(key.startswith("repeats.") for key in request["questions"])])) == (["j1", "j2"], 1)
 
 

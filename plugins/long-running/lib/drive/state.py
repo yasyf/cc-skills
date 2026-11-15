@@ -1611,7 +1611,7 @@ def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
             if {INCIDENT_STOP, INCIDENT_ROLLBACK} & set(job_parts(job, order_id)) and not data["orders"][order_id]["proof"]:
                 data["orders"][order_id].update(proof=line.removeprefix("DONE").strip(), proof_by=job_id)
         if seen := " ".join(found for check in brief.CHECK.findall(report) for found in brief.proofs(check) if brief.SEEN_PROOF.search(found)):
-            for order_id in open_incidents(data, list(dict.fromkeys(other for held in [job["order"], *job["carries"]] for other in incident_orders(data, held)))):
+            for order_id in open_incidents(data, list(dict.fromkeys(other for held in [job["order"], *job["carries"]] for other in feature_orders(data, held)))):
                 if brief.unseen(data, order := data["orders"][order_id], order["proof"]):
                     order.update(proof="; ".join(filter(None, [order["proof"], seen])), proof_by=order["proof_by"] if order["proof"] else job_id)
     if (bug := traced(data, job_id, line)) and (fixes := FIX_LINE.findall(report)):
@@ -2862,10 +2862,15 @@ def slack_message(source: str) -> tuple[str, str, str | None] | None:
     return None
 
 
-def incident_orders(data: dict, order_id: str) -> list[str]:
-    """The orders of the order's incident, the one an alert's order joined with --joins first, then every alert joined to it; an order nothing joined and joining none alone."""
+def feature_orders(data: dict, order_id: str) -> list[str]:
+    """The orders of the order's feature, an incident's included: the order the others joined with --joins first, then every order joined to it; an order nothing joined and joining none alone."""
     head = data["orders"][order_id]["joins"] or order_id
     return [head, *joined_orders(data).get(head, [])]
+
+
+def job_feature(data: dict, job: dict) -> list[str]:
+    """The orders of every feature the job's order and each order it carries belong to, so the feature's rulings bind each job on it."""
+    return list(dict.fromkeys(feature_id for order_id in [job["order"], *job["carries"]] for feature_id in feature_orders(data, order_id)))
 
 
 def orders_jobs(data: dict, orders: list[str]) -> dict[str, dict]:

@@ -939,7 +939,7 @@ def test_a_tooling_order_jev_reads_as_repeating_an_open_one_joins_it_and_rides_o
     run(*filed, LOCK_STALL, "--kind", "build")
     run("job", "add", "reader", "--order", "o1", "--goal", "research: the install lock")
     jev.picks("o1")
-    assert run(*filed, LOCK_STALL_AGAIN) == (0, "o2\njoins o1: no record; carried by j1, j2, so no job starts on it")
+    assert run(*filed, LOCK_STALL_AGAIN) == (0, "o2\njoins o1: no record; carried by j1, j2, each holding these words for its worker, so no job starts on it")
     [asked] = [request for request in jev.asked if any(key.startswith("repeats.") for key in request["questions"])]
     assert (asked["state"], list(asked["questions"])) == ({"order": LOCK_STALL_AGAIN, "open": {"o1": f"Install lock stall — {LOCK_STALL}"}}, ["repeats.o1"])
     data = state.load("demo")
@@ -958,6 +958,37 @@ def test_a_tooling_order_jev_reads_as_repeating_an_open_one_joins_it_and_rides_o
     assert state.load("demo")["orders"]["o3"]["joins"] is None
 
 
+def test_his_words_jev_reads_as_on_an_open_feature_join_it_under_its_coordinator_and_every_job_on_it_binds_its_rulings(run: Run, demo: str, jev: Jev) -> None:
+    run("order", "add", "--title", "Stuck jobs", "--project", "The drive", "--workstream", "Releases", "watch for stuck jobs")
+    run("job", "add", "builder", "--order", "o1", "--goal", "build the watchdog")
+    run("job", "brief", "j1", "--serves", "his order", "--ruling", "5abdd1a")
+    jev.picks("o1")
+    lanes = "and watch for stuck lanes the same way"
+    assert run("order", "add", "--title", "Stuck lanes", "--project", "Iris", "--workstream", "Agents", lanes) == (
+        0,
+        "o2\njoins o1: no record; carried by j1, each holding these words for its worker, so no job starts on it",
+    )
+    [asked] = [request for request in jev.asked if any(key.startswith("repeats.") for key in request["questions"])]
+    assert list(asked["questions"]) == ["repeats.o1"]
+    data = state.load("demo")
+    assert (data["orders"]["o2"]["joins"], data["orders"]["o2"]["project"], data["orders"]["o2"]["workstream"], state.feature_orders(data, "o2")) == (
+        "o1", "The drive", "Releases", ["o1", "o2"]
+    )
+    assert [held["words"] for held in data["jobs"]["j1"]["undelivered"]] == [f'His words, kept as o2 on the feature of o1 this job carries: "{lanes}"']
+    reader = run("job", "add", "reader", "--order", "o2", "--goal", "research: stuck lanes")[1].splitlines()[0]
+    assert run("job", "brief", reader, "--serves", "his order")[0] == 0
+    assert state.load("demo")["jobs"][reader]["brief_flags"]["ruling"] == ["5abdd1a"]
+
+
+def test_an_answer_order_and_one_he_limits_to_options_join_no_feature(run: Run, demo: str, jev: Jev) -> None:
+    run("order", "add", "--title", "Stuck jobs", "--project", "The drive", "--workstream", "Releases", "watch for stuck jobs")
+    jev.picks("o1")
+    run("order", "add", "--title", "Stuck jobs count", "--project", "The drive", "--workstream", "Releases", "--kind", "answer", "how many jobs are stuck?")
+    run("order", "add", "--title", "Stuck jobs options", "--project", "The drive", "--workstream", "Releases", "--options-only", "bring me options for stuck jobs")
+    assert not [request for request in jev.asked if any(key.startswith("repeats.") for key in request["questions"])]
+    assert [state.load("demo")["orders"][order_id]["joins"] for order_id in ("o2", "o3")] == [None, None]
+
+
 def test_an_order_joining_any_order_of_a_joined_group_rides_on_each_unfinished_job_the_groups_orders_list(run: Run, meta: str) -> None:
     filed = ("order", "add", "--title", "Install lock stall", "--project", "The drive", "--workstream", "Drive tooling", "--kind", "build")
     run(*filed, LOCK_STALL)
@@ -969,14 +1000,14 @@ def test_an_order_joining_any_order_of_a_joined_group_rides_on_each_unfinished_j
     run("job", "add", "reader", "--order", "o2", "--goal", "research: the install stall")
     assert run(*filed, "Drive tooling: a break-glass on an older install still holds every newer verb", "--joins", "o2") == (
         0,
-        "o3\njoins o2: no record; carried by j3, j4, so no job starts on it",
+        "o3\njoins o2: no record; carried by j3, j4, each holding these words for its worker, so no job starts on it",
     )
-    assert run(*filed, "Drive tooling: the older install's lock still stalls new jobs", "--joins", "o1") == (0, "o4\njoins o1: no record; carried by j3, j4, so no job starts on it")
+    assert run(*filed, "Drive tooling: the older install's lock still stalls new jobs", "--joins", "o1") == (0, "o4\njoins o1: no record; carried by j3, j4, each holding these words for its worker, so no job starts on it")
     run(*filed, "Drive tooling: cards say why")
     run("job", "add", "reader", "--order", "o5", "--goal", "research: why cards say why")
     run(*filed, "Drive tooling: cards say why twice")
     run("job", "set", "j6", "--carries", "o6")
-    assert run(*filed, "Drive tooling: cards say why again", "--joins", "o6") == (0, "o7\njoins o6: no record; carried by j6, so no job starts on it")
+    assert run(*filed, "Drive tooling: cards say why again", "--joins", "o6") == (0, "o7\njoins o6: no record; carried by j6, each holding these words for its worker, so no job starts on it")
     data = state.load("demo")
     assert [(order_id, data["orders"][order_id]["joins"], data["orders"][order_id]["jobs"]) for order_id in ("o3", "o4", "o7")] == [
         ("o3", "o1", ["j3", "j4"]),
@@ -4919,7 +4950,7 @@ def test_a_cause_report_names_its_fix_whose_order_reads_live_from_it(
     assert keep(monkeypatch, capsys, "j3", traced + "FIX o2\n") == (0, "")
     orders = state.load("demo")["orders"]
     assert [(orders[order_id]["joins"], state.hurts_now(state.load("demo"), orders[order_id])) for order_id in ("o2", "o3")] == [("o1", True), (None, False)]
-    assert state.incident_orders(state.load("demo"), "o1") == ["o1", "o2"]
+    assert state.feature_orders(state.load("demo"), "o1") == ["o1", "o2"]
 
 
 @pytest.mark.parametrize(
@@ -7946,7 +7977,7 @@ def test_an_alert_saved_before_joins_was_kept_loads_joined_to_the_incident_its_o
         state.store("demo", saved)
     data = state.load("demo")
     assert [data["orders"][order_id]["joins"] for order_id in ("o1", "o2", "o3")] == [None, "o1", None]
-    assert state.incident_orders(data, "o2") == ["o1", "o2"]
+    assert state.feature_orders(data, "o2") == ["o1", "o2"]
 
 
 def test_only_his_own_message_withdraws_a_promised_line(run: Run, demo: str, slack_thread: "Thread") -> None:

@@ -663,7 +663,7 @@ def unbacked_start(payload: dict, drive: dict, said: str, order_id: str | None) 
     if not payload.get("agent_id") or not (found := PROMISED_START.search(said)) or any(match[1] == "started" for match in limits.REF.finditer(said)):
         return None
     posted = posted_order(drive, payload["tool_input"], order_id)
-    if posted and state.owed_handoffs(drive, state.incident_orders(drive, posted)):
+    if posted and state.owed_handoffs(drive, state.feature_orders(drive, posted)):
         return None
     unstarted = (
         f'"{found[0]}" says a job is being started, and the line names no job as {{started:<j>}} and no handoff asking for one is kept on'

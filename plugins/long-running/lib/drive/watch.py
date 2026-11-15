@@ -406,7 +406,7 @@ def exited_text(name: str, job_id: str, exited: list[str]) -> str:
 
 def monitors(data: dict, order_id: str) -> dict[str, str]:
     """The link of each Datadog monitor recorded on the orders of an order's incident, by its id."""
-    links = (link for other in state.incident_orders(data, order_id) for link in data["orders"][other]["alerts"])
+    links = (link for other in state.feature_orders(data, order_id) for link in data["orders"][other]["alerts"])
     return {found[1]: link for link in links if (found := state.DATADOG_MONITOR.fullmatch(link))}
 
 
@@ -471,7 +471,7 @@ def incident_fixes(watcher: Watcher, data: dict) -> dict[str, list[str]]:
     for head in state.open_incidents(data, list(data["orders"])):
         if data["orders"][head]["joins"] or data["orders"][head]["recovered"] or not hears(watcher, data, head):
             continue
-        jobs = {job_id: job for order_id in state.incident_orders(data, head) for job_id, job in state.part_jobs(data, order_id, state.INCIDENT_FIX)}
+        jobs = {job_id: job for order_id in state.feature_orders(data, head) for job_id, job in state.part_jobs(data, order_id, state.INCIDENT_FIX)}
         prs = [key for key, pr in data["prs"].items() if pr["job"] in jobs and pr["state"] != "closed"]
         if (
             prs
@@ -503,7 +503,7 @@ def recovered_lines(watcher: Watcher, moment: datetime) -> list[str]:
         if not found.keys() <= ok:
             continue
         fix = f"{', '.join(map(state.pr_url, fixes[head]))} live in production"
-        group = state.open_incidents(data, state.incident_orders(data, head))
+        group = state.open_incidents(data, state.feature_orders(data, head))
         if unseen := {order_id: surface for order_id in group if (surface := brief.unseen(data, data["orders"][order_id], data["orders"][order_id]["proof"]))}:
             lines += proof_owed(watcher, head, unseen, fix, moment)
             continue
@@ -560,7 +560,7 @@ def closed(watcher: Watcher, head: str, links: list[str], fix: str, moment: date
     """Close an incident that is over: its live work moves to a plain order and each of its orders keeps the recovery of its monitors, when it has any, and its fix live as its proof, then a POST report, naming each PR of the incident as the watch last read it from GitHub, names each order for the communicator's handler to post in its thread and close; a post that fails goes again next read."""
     read_ok = f"{', '.join(links)} read OK"
     with state.edit(watcher.name) as data:
-        group = state.open_incidents(data, state.incident_orders(data, head))
+        group = state.open_incidents(data, state.feature_orders(data, head))
         incident = data["orders"][head]
         prs = incident_pr_lines(watcher.name, group)
         follow = follow_up(data, head, group, state.stamp(moment))
@@ -1366,7 +1366,7 @@ def claim_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def last_line(data: dict, group: list[str]) -> datetime:
-    """When he last had a line on an open order or incident, by the orders state.incident_orders names for it: the newest drive post on any of them, else when the first was opened."""
+    """When he last had a line on an open order or incident, by the orders state.feature_orders names for it: the newest drive post on any of them, else when the first was opened."""
     lined = [data["orders"][order_id]["last_line"] for order_id in group if data["orders"][order_id]["last_line"]]
     return max(map(state.parse_time, lined or [data["orders"][group[0]]["created"]]))
 
@@ -1468,7 +1468,7 @@ def untold(order: dict, facts: dict[str, list]) -> list[str]:
 
 
 def quiet_report(watcher: Watcher, data: dict, groups: dict[str, list[str]], since: datetime, moment: datetime, moved: list[str], working: list[str], due: str | None = None) -> str:
-    """Write the report owing him a line in one thread, for the handler that posts it there: on the orders and incidents with news in it, each by its head and the orders state.incident_orders names for it, then each job and PR of them once, however many of those orders list or name it, or, given due, on the one order owing him the line it promised by that time, which the report calls late once he read present ten minutes past it, never counting the minutes of his absence, and which says when he went away of a line that waited for his return; its seq."""
+    """Write the report owing him a line in one thread, for the handler that posts it there: on the orders and incidents with news in it, each by its head and the orders state.feature_orders names for it, then each job and PR of them once, however many of those orders list or name it, or, given due, on the one order owing him the line it promised by that time, which the report calls late once he read present ten minutes past it, never counting the minutes of his absence, and which says when he went away of a line that waited for his return; its seq."""
     heads = list(groups)
     minutes = int((moment - since).total_seconds() // 60)
     one = len(heads) == 1

@@ -89,7 +89,10 @@ CHANGES = Noul(
     no="It leaves every choice that card asks open; a standing rule for a kind of work, worded with always, every or never, changes each card about work of that kind whatever its subject.",
 )
 SUPERSEDES = Noul("Does `answer.said`, his answer to a newer question of the same job, settle everything `open.{slot}` asks him?")
-REPEATS = Noul("Does `order` ask for what `open.{slot}` asks: the same fault or the same change in other words?", no="It asks for something that order does not, even about the same code.")
+REPEATS = Noul(
+    "Is `order` on the feature `open.{slot}` holds: the same fault or change in other words, or more of that piece of work, such as another slice of it, a correction to it or a step after it?",
+    no="It asks for work that order is not about, even in the same code.",
+)
 ORDERS = Noul(
     "Do `answer.said`, read with `card`, have the release in `action` run?",
     yes="His order to ship or release that work, or his pick on a card about it reaching production whose option has that release run; a condition such as once tests pass orders it once it holds.",
@@ -558,10 +561,14 @@ def changed(title: str, words: str, asked: dict[str, dict], question: Noul = CHA
     return {cards[key.partition(".")[2]] for key, sure in read.items() if (found := reading(sure)) or unsure and found is None}
 
 
-def repeats(data: dict, words: str) -> str | None:
-    """The open drive tooling order these new tooling words ask for again, as Jev reads them in one request against the REPEATS_ASKED open tooling orders whose title and words share the most rare words with them, one Noul an order, the orders filled whole in that order: the one Jev reads surest, at YES or more; None when no tooling order is open or Jev reads none at YES, an order in the band between NO and YES named on stderr for --joins, refused when Jev gives no answer."""
+def repeats(data: dict, words: str, tooling: bool) -> str | None:
+    """The open order whose feature these new words are on, as Jev reads them in one request against the REPEATS_ASKED open build orders on their side, drive tooling's or his work's, whose title and words share the most rare words with them, one Noul an order, the orders filled whole in that order: the one Jev reads surest, at YES or more; an incident joins only by its --joins, and an answer order is no feature. None when no such order is open or Jev reads none at YES, an order in the band between NO and YES named on stderr for --joins, refused when Jev gives no answer."""
     said = rare(words)
-    orders = [(order_id, order) for order_id, order in state.open_orders(data).items() if order["text"].startswith(state.TOOLING)]
+    orders = [
+        (order_id, order)
+        for order_id, order in state.open_orders(data).items()
+        if order["text"].startswith(state.TOOLING) == tooling and order["kind"] == "build" and not order["incident"]
+    ]
     closest = sorted(orders, key=lambda item: len(said & rare(f'{item[1]["title"] or ""} {item[1]["text"]}')), reverse=True)[:REPEATS_ASKED]
     items = (({"open": {order_id: " — ".join(filter(None, [order["title"], order["text"]]))}}, {f"repeats.{order_id}": asking(REPEATS, slot=order_id)}) for order_id, order in closest)
     state_read, questions, _ = fill({"order": words[:BODY_CHARS]}, {}, items)
@@ -571,13 +578,13 @@ def repeats(data: dict, words: str) -> str | None:
         read = jev(state_read, questions)
     except Unheard as failure:
         raise DriveError(
-            f"no order added: Jev did not read these words against the {len(questions)} open drive tooling orders sharing the most words with them ({failure}),"
-            " so a repeat of one would start a second order, builder and card on it; run it again, or name the order it repeats with --joins <o>"
+            f"no order added: Jev did not read these words against the {len(questions)} open orders sharing the most words with them ({failure}),"
+            " so words on one's feature would start a second order, reader and builder beside it; run it again, or name the order it joins with --joins <o>"
         ) from None
     surest = max(read, key=read.__getitem__)
     order_id = surest.partition(".")[2]
     if reading(read[surest]) is None:
-        print(f"drive order add: Jev is unsure whether these words repeat {order_id}; name it with --joins {order_id} when they do", file=sys.stderr)
+        print(f"drive order add: Jev is unsure whether these words are on the feature of {order_id}; name it with --joins {order_id} when they are", file=sys.stderr)
     return order_id if read[surest] >= YES else None
 
 

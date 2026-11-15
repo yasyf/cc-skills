@@ -134,7 +134,7 @@ def redraw_pr_cards(url: str) -> int:
 
 def order_threads(data: dict, order_id: str, order: dict) -> list[tuple[str, str]]:
     """The threads of an order: its own, then on an incident the own thread of each other order of it, the incident an alert's order joined and every alert joined to it, both ways, then each thread one of them keeps: each a post naming it went in, each card its jobs drew and each PR card drawn at his DM root for a PR it serves."""
-    orders = [order, *(data["orders"][other] for other in state.incident_orders(data, order_id) if other != order_id)]
+    orders = [order, *(data["orders"][other] for other in state.feature_orders(data, order_id) if other != order_id)]
     own = filter(None, map(state.own_thread, orders))
     kept = ((channel, ts) for each in orders for channel, ts, _, _ in each["threads"])
     return list(dict.fromkeys([*own, *kept]))
@@ -146,7 +146,7 @@ def order_posts(data: dict, order_id: str, order: dict) -> tuple[list[datetime],
 
     if not (threads := [where for where in order_threads(data, order_id, order) if talk.to_him(data, *where)]):
         return [], "it has no thread to read; give it one with drive order set --thread"
-    cards = {(channel, ts) for other in state.incident_orders(data, order_id) for channel, ts, _, kind in data["orders"][other]["threads"] if kind != "posted"}
+    cards = {(channel, ts) for other in state.feature_orders(data, order_id) for channel, ts, _, kind in data["orders"][other]["threads"] if kind != "posted"}
     since = str(int(state.parse_time(order["promised"]).timestamp()))
     posts: list[datetime] = []
     unread = None
