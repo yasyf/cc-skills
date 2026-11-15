@@ -3532,6 +3532,47 @@ def test_a_part_whose_codex_job_finished_with_no_open_pr_sorts_as_an_answer_whil
     assert state.load(demo)["orders"]["o2"]["parts"][asked]["answer"]
 
 
+def test_sorting_as_an_answer_a_part_the_done_codex_job_that_posted_its_answer_holds_takes_it_off_that_job_and_delivers_it_so_its_orphan_heals(
+    demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    serve(monkeypatch, {})
+    monkeypatch.setattr(state, "now", lambda: T0)
+    earlier = state.stamp(T0 - timedelta(minutes=10))
+    asked = "why do old runs fail?"
+    with state.edit(demo) as data:
+        proven(data, updated=earlier)
+        data["orders"]["o2"] = order(text=asked, jobs=["j2"], kind="build", parts={asked: state.new_part()}, updated=earlier)
+        data["jobs"]["j2"] = job(order="o2", kind="codex", state="done", said=f"POSTED {REPORTED}", parts=[asked], updated=earlier)
+    watching = watcher(demo)
+    [line] = [line for line in watch.run_pass(watching, T0) if line.startswith("ORPHAN ")]
+    assert line.endswith(f"when it asks only for an answer, drive order set o2 --kind answer --part '{asked}'")
+    assert cli.main(["order", "set", "o2", "--kind", "answer", "--part", asked, "--drive", demo]) == 0
+    assert f'o2 "{asked}": sorted as an answer, taken off codex j2, done, whose hold kept it work he ordered; delivered' in capsys.readouterr().out.splitlines()
+    data = state.load(demo)
+    assert (data["jobs"]["j2"]["parts"], data["orders"]["o2"]["parts"][asked]["posted"], state.work(data, "o2", asked)) == ([], REPORTED, False)
+    assert [line for line in watch.run_pass(watching, T0 + timedelta(seconds=5)) if line.startswith("ORPHAN ")] == []
+
+
+def test_sorting_as_an_answer_a_part_a_done_codex_job_answered_by_its_done_takes_it_off_that_job_and_names_the_drive_order_posted_that_delivers_it(
+    demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    serve(monkeypatch, {})
+    monkeypatch.setattr(state, "now", lambda: T0)
+    asked = "why do old runs fail?"
+    with state.edit(demo) as data:
+        data["orders"]["o2"] = order(text=asked, jobs=["j2"], kind="build", parts={asked: state.new_part()})
+        data["jobs"]["j2"] = job(order="o2", kind="codex", state="done", said="DONE: old runs fail on a stale cache", parts=[asked])
+    assert cli.main(["order", "posted", "o2", REPORTED, "--part", asked, "--drive", demo]) == 2
+    assert state.UNPOSTED_WORK.format(order="o2", part=asked) in capsys.readouterr().err
+    assert cli.main(["order", "set", "o2", "--kind", "answer", "--part", asked, "--drive", demo]) == 0
+    assert (
+        f"o2 \"{asked}\": sorted as an answer, taken off codex j2, done, whose hold kept it work he ordered; no job carries it,"
+        f" so drive order posted o2 <the drive's post that answered it> --part '{asked}' delivers it"
+    ) in capsys.readouterr().out.splitlines()
+    data = state.load(demo)
+    assert (data["jobs"]["j2"]["parts"], state.work(data, "o2", asked), state.delivered(data, "o2", asked)) == ([], False, False)
+
+
 def test_only_the_session_an_orders_orphan_lines_reach_runs_drive_order_posted_and_each_refusal_names_that_session(
     demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

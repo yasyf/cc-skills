@@ -1684,12 +1684,9 @@ def drop_part(data: dict, order_id: str, part: str, why: str) -> tuple[list[str]
     data["orders"][order_id]["updated"] = stamp()
     trimmed, stopped = [], {}
     for job_id, job in data["jobs"].items():
-        if part not in (held := job_parts(job, order_id)):
+        if part not in job_parts(job, order_id):
             continue
-        held.remove(part)
-        if job["order"] != order_id and not held:
-            del job["carries"][order_id]
-        job["updated"] = stamp()
+        take_part_off(job, order_id, part)
         trimmed.append(job_id)
         if job["state"] not in FINISHED_JOB_STATES and not job["parts"] and not job["carries"]:
             stopped[job_id] = stop_job(job, why)
@@ -1697,6 +1694,15 @@ def drop_part(data: dict, order_id: str, part: str, why: str) -> tuple[list[str]
         if pr["order"] == order_id and part in pr["parts"]:
             pr["parts"].remove(part)
     return trimmed, stopped
+
+
+def take_part_off(job: dict, order_id: str, part: str) -> None:
+    """Take a part of an order off a job holding it, its own order's or one it carries, dropping a carried order it is left no part of."""
+    held = job_parts(job, order_id)
+    held.remove(part)
+    if job["order"] != order_id and not held:
+        del job["carries"][order_id]
+    job["updated"] = stamp()
 
 
 def stop_job(job: dict, said: str) -> list[str]:
@@ -2674,7 +2680,7 @@ def unshipped(data: dict, job_id: str) -> str:
 
 
 def work(data: dict, order_id: str, part: str) -> bool:
-    """Whether a part is work he ordered, which only a builder carries: every part of a build order, an incident's included, and a part sorted as an answer, by drive order set --kind answer --part or as the question only research held on an order an older install kept with no kind, once a builder, codex or design job that neither failed nor stopped holds it, one done or built counting, so the PR or DONE that delivered it still does; never a part of an answer order, of one limited to options, a part sorted as an answer no such job holds, or an incident's first check or cause, the answers its diagnosis finds, which the report telling him delivers."""
+    """Whether a part is work he ordered, which only a builder carries: every part of a build order, an incident's included, and a part sorted as an answer, by drive order set --kind answer --part or as the question only research held on an order an older install kept with no kind, once a builder, codex or design job that neither failed nor stopped holds it, one done or built counting, so the PR or DONE that delivered it still does, while the sort takes the part off each such job done before it; never a part of an answer order, of one limited to options, a part sorted as an answer no such job holds, or an incident's first check or cause, the answers its diagnosis finds, which the report telling him delivers."""
     order = data["orders"][order_id]
     if order["kind"] == "answer" or order["options_only"] or order["incident"] and part in INCIDENT_DIAGNOSIS:
         return False
