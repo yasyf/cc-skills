@@ -218,17 +218,31 @@ def binds(name: str, data: dict, pr: dict) -> list[str]:
 
 
 def start(name: str, keys: list[str]) -> None:
-    """Start one check of each stack, or PR in none, that a PR in keys sits in, as its own process, marking each of its PRs under the drive's lock with that process and its head, so no second check starts on that head while it runs."""
+    """Start one check of each stack, or PR in none, that a PR in keys sits in and no check runs on, as its own process: each of its PRs is marked under the drive's lock as checked at its head by this process, so no second check starts there, the checks' processes start once that lock is let go, however many there are, and a second hold of it gives each mark its own check's process, but a mark a check already replaced with its outcome, which stands, and a mark whose process never started goes back to the check it replaced."""
     from drive import land
 
     with state.edit(name) as data:
-        stacks = land.landing_stacks(data)
+        stacks, at, marked = land.landing_stacks(data), state.stamp(), {}
         for key in keys:
-            prs = [data["prs"][member] for member in stacks.get(key, (key,))]
+            unit = stacks.get(key, (key,))
+            prs = [data["prs"][member] for member in unit]
             if not any(pr["checker"] and pr["checker"]["outcome"] is None and state.alive(pr["checker"]["pid"]) for pr in prs):
-                pid, at = spawn(name, key), state.stamp()
+                marked[unit] = (key, [pr["checker"] for pr in prs])
                 for pr in prs:
-                    pr["checker"] = {"head": pr["head"], "pid": pid, "at": at, "orders": None, "answers": None, "outcome": None, "against": "", "faulted": [], "carried": None}
+                    pr["checker"] = {"head": pr["head"], "pid": os.getpid(), "at": at, "orders": None, "answers": None, "outcome": None, "against": "", "faulted": [], "carried": None}
+    if not marked:
+        return
+    started: dict[tuple[str, ...], int] = {}
+    try:
+        for unit, (key, _) in marked.items():
+            started[unit] = spawn(name, key)
+    finally:
+        with state.edit(name) as data:
+            for unit, (_, replaced) in marked.items():
+                for member, before in zip(unit, replaced, strict=True):
+                    pr = data["prs"][member]
+                    if pr["checker"] and pr["checker"]["pid"] == os.getpid() and pr["checker"]["at"] == at and pr["checker"]["outcome"] is None:
+                        pr["checker"] = pr["checker"] | {"pid": started[unit]} if unit in started else before
 
 
 def merge_due(pr: dict) -> bool:
