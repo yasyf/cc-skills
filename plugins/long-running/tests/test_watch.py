@@ -4449,6 +4449,47 @@ def test_the_watch_tells_the_coordinator_of_a_codex_run_that_died_before_its_fir
     assert state.load(demo)["jobs"]["j1"]["state"] == "failed"
 
 
+def test_a_codex_job_running_with_no_run_of_its_own_left_to_take_is_taken_as_blocked_by_the_relay_never_left_running(
+    demo: str, monkeypatch: pytest.MonkeyPatch, codex_ask: CodexAsk
+) -> None:
+    monkeypatch.setattr(watch, "codex_gap", REAL_CODEX_GAP)
+    folder = codex_ask.run("completed", codex_reply("DONE", "reviewed"))
+    codex_running(demo, folder)
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["returned"] = state.stamp(datetime.fromtimestamp((folder / "status").stat().st_mtime).astimezone() + timedelta(seconds=1))
+    gone = "BLOCKED j1's codex-ask run ended before its last return: drive job launch j1 starts its next"
+    assert codex_taken(watcher(demo)) == [f"JOB j1 o1 {gone}"]
+    job = state.load(demo)["jobs"]["j1"]
+    assert (job["state"], job["said"]) == ("failed", gone)
+
+
+def test_a_codex_run_that_died_with_no_reply_after_its_jobs_last_return_is_taken_as_its_failure(demo: str, monkeypatch: pytest.MonkeyPatch, codex_ask: CodexAsk) -> None:
+    monkeypatch.setattr(watch, "codex_gap", REAL_CODEX_GAP)
+    folder = codex_ask.run("died", log="Reading prompt from stdin...\nkilled\n")
+    (folder / "codex-r-1").unlink()
+    codex_running(demo, folder)
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["returned"] = state.stamp(state.now() - timedelta(hours=1))
+    assert codex_taken(watcher(demo)) == ["JOB j1 o1 BLOCKED codex-ask died: killed"]
+    assert state.load(demo)["jobs"]["j1"]["state"] == "failed"
+
+
+def test_a_codex_job_whose_run_codex_ask_cannot_read_counts_lost_from_the_first_pass_that_finds_it_so_and_fails_once_reaped(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, codex_ask: CodexAsk
+) -> None:
+    monkeypatch.setattr(watch, "codex_gap", REAL_CODEX_GAP)
+    codex_running(demo, codex_ask.run("completed", codex_reply("DONE", "reviewed")))
+    (tmp_path / "codex-plugin" / "bin" / "codex-ask").write_text("#!/bin/sh\necho 'codex-ask: no run at that folder' >&2\nexit 2\n")
+    moment = state.now()
+    watch.run_pass(watcher(demo), moment)
+    job = state.load(demo)["jobs"]["j1"]
+    assert (job["state"], job["lost_since"]) == ("running", state.stamp(moment))
+    watch.run_pass(watcher(demo), moment + watch.REAP_AFTER)
+    job = state.load(demo)["jobs"]["j1"]
+    assert job["state"] == "failed"
+    assert job["said"].endswith("(j1's codex-ask run could not be read: codex-ask: no run at that folder)")
+
+
 def test_a_codex_lane_that_built_its_recommended_option_has_the_ask_block_it_named_kept_as_its_run_is_taken_so_his_card_goes_up_as_it_returns(
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, codex_ask: CodexAsk
 ) -> None:

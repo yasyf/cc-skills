@@ -222,7 +222,10 @@ is kept, and the same pass starts the job's next codex-ask run, its brief carryi
 `From the watch since:` the refusal and the refused reply; once the run carrying a refusal is
 refused again, the job sets failed on `BLOCKED codex-ask completed, its reply refused:` and why,
 with that reply kept as its report; a failed or dead run sets failed on `BLOCKED codex-ask <state>:` and its log's last line; a run still
-going sets nothing. Codex leaves its edits uncommitted, so a codex job that changed code returns
+going sets nothing. A running job with no run left to take, none recorded or its run's reply taken
+before its last return, sets failed on `BLOCKED` and why as the relay reads it, and one whose run
+`codex-ask --collect` cannot read counts as lost, as a lane Orca cannot read does, so the watch fails it
+once every read for six hours found it so. Codex leaves its edits uncommitted, so a codex job that changed code returns
 `HANDOFF`, and the builder that ships it is briefed `Handoff: drive job report <the codex job>`.
 A codex job waiting on a long run it started on this Mac, such as a pass-box command's observer,
 returns `WAITING … waits on pid:<n>`, naming that process; the drive keeps the wait as

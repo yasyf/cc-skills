@@ -5901,19 +5901,51 @@ def test_a_builders_report_opens_with_a_result_word_and_a_handoff_stops_its_job(
     assert state.load("demo")["jobs"]["j2"]["state"] == "stopped"
 
 
-def test_a_report_naming_a_repro_file_keeps_it_on_the_job_first(
+def test_a_report_naming_a_repro_file_keeps_it_on_the_job_in_the_same_step_and_is_refused_naming_one_not_here_while_the_job_keeps_none(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why does the copy stall?")
     run("job", "add", "reader", "--order", "o1", "--goal", "reproduce the stall")
+    run("job", "add", "reader", "--order", "o1", "--goal", "reproduce it again")
+    started("demo", "j1", "j3")
     script = tmp_path / "r.sh"
-    script.write_text("echo stall\n")
-    report = f"The copy stalls on the second store\nREPRO: {script}\n"
-    code, err = keep(monkeypatch, capsys, "j1", report)
+    code, err = keep(monkeypatch, capsys, "j1", f"The copy stalls on the second store\nREPRO: {script}\n")
     assert code == 2
-    assert "j1: refused, nothing kept: it names a REPRO: file, but j1 keeps none in the drive: run drive job set j1 --repro <path> first" in err
-    run("job", "set", "j1", "--repro", str(script))
-    assert keep(monkeypatch, capsys, "j1", report) == (0, "")
+    assert f"j1: refused, nothing kept: its REPRO: line names {script}, no file here, and j1 keeps no proof file" in err
+    assert (state.load("demo")["jobs"]["j1"]["state"], state.load("demo")["jobs"]["j1"].get("repro")) == ("running", None)
+    script.write_text("echo stall\n")
+    assert keep(monkeypatch, capsys, "j1", f"The copy stalls on the second store\nREPRO: {script}\n") == (0, "")
+    kept = state.drive_dir("demo") / "repro" / "j1.sh"
+    assert (state.load("demo")["jobs"]["j1"]["repro"], kept.read_text()) == (str(kept), "echo stall\n")
+    run("job", "set", "j3", "--repro", str(script))
+    script.unlink()
+    assert keep(monkeypatch, capsys, "j3", f"The copy stalls again\nREPRO: {script}\n") == (0, "")
+    assert state.load("demo")["jobs"]["j3"]["repro"] == str(state.drive_dir("demo") / "repro" / "j3.sh")
+
+
+def test_replaying_j6371_a_codex_jobs_done_naming_a_proof_file_the_drive_never_kept_is_kept_with_it_in_one_call_as_is_a_builders_ready_on_a_yasyf_pr(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "give me the updates on the work")
+    run("order", "add", "--title", "Ship it", "--project", "The drive", "--workstream", "Drive tooling", "ship the updates page")
+    run("job", "add", "codex", "--order", "o1", "--goal", "page: Updates on the work")
+    builder = run("job", "add", "builder", "--order", "o2", "--goal", "ship")[1].splitlines()[0]
+    started("demo", "j1", builder)
+    run("pr", "add", "https://github.com/yasyf/cc-skills/pull/7", "--job", builder, *LEAD)
+    proof = tmp_path / "repro.py"
+    proof.write_text("#!/usr/bin/env python3\nprint('page opens')\n")
+    proof.chmod(0o755)
+    done = f"DONE work-updates. [Open Work updates](https://studio.example/#/pages/work-updates).\nREPRO: {proof}\n"
+    assert keep(monkeypatch, capsys, "j1", done) == (0, "")
+    ready = f"READY https://github.com/yasyf/cc-skills/pull/7\nREPRO: {proof}\n"
+    assert keep(monkeypatch, capsys, builder, ready) == (0, "")
+    jobs = state.load("demo")["jobs"]
+    assert (jobs["j1"]["state"], jobs["j1"]["repro"], jobs[builder]["repro"]) == (
+        "done",
+        str(state.drive_dir("demo") / "repro" / "j1.py"),
+        str(state.drive_dir("demo") / "repro" / f"{builder}.py"),
+    )
+    assert "print('page opens')" in Path(jobs[builder]["repro"]).read_text()
 
 
 def test_a_design_lanes_report_is_the_design_in_its_shape_unless_it_stops_short(
