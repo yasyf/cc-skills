@@ -89,7 +89,7 @@ def hook_output(module: object, monkeypatch: pytest.MonkeyPatch, capsys: pytest.
     return capsys.readouterr().out
 
 
-def test_session_start_gives_each_role_its_own_context(
+def test_session_start_gives_each_role_its_own_context_and_registers_its_session_by_its_line(
     demo: str, run: Run, monkeypatch: pytest.MonkeyPatch, watch_process: WatchProcess, registered: list[tuple[str, str, str]]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
@@ -108,7 +108,7 @@ def test_session_start_gives_each_role_its_own_context(
     context = session_start.respond({"session_id": "talker", "source": "compact"})["hookSpecificOutput"]["additionalContext"]
     assert context.startswith("You are the communicator of drive demo: you talk to him.")
     assert watch_process.ensured == ["demo"]
-    assert registered == []
+    assert registered == [("demo-communicator", state.load("demo")["roles"]["communicator"]["cwd"], "talker")]
 
 
 def test_session_start_gives_a_sub_coordinator_its_projects_context_and_starts_its_projects_watch(
