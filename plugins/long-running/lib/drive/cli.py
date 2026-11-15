@@ -3143,7 +3143,7 @@ def codex_launch(name: str, job_id: str, brief_file: str | None) -> Path:
 
 
 def job_resume(args: argparse.Namespace) -> int:
-    """Send a job its next event by the one relaunch launch and resume share: to its lane while its worker takes messages, else in the handoff of its next worker, or in the brief of the first worker of a builder waiting its turn for a slot on this Mac that none started, or a codex job's by codex_resume. With no text, send the texts a resume Orca could not deliver holds on the job, as the watch does once Orca reads its lane alive again. A finished pass of a standing part is refused by unrun, holding nothing."""
+    """Send a job its next event by the one relaunch launch and resume share: to its lane while its worker takes messages, else in the handoff of its next worker, or in the brief of the first worker of a builder waiting its turn for a slot on this Mac that none started, or a codex job's by codex_resume. With no text, send the texts the job holds: to an agent on this Mac whose starter reaches it, by starters_lane given those texts, each whole by held_to_starter, else to its lane, as the watch does once Orca reads its lane alive again. A finished pass of a standing part is refused by unrun, holding nothing."""
     name = state.resolve(args.drive)
     if unrun(state.load(name), args.id)["kind"] == "codex":
         return codex_resume(args, name)
@@ -3151,7 +3151,12 @@ def job_resume(args: argparse.Namespace) -> int:
     if args.text is not None:
         return relaunch(args, name, args.text)
     with state.job_locked(name, args.id, orca.LAUNCH_SECONDS):
-        unstopped(args.id, started_job(state.load(name), args.id))
+        data = state.load(name)
+        job = data["jobs"][args.id]
+        if lane := starters_lane(data, args.id, job, "\n\n".join(kept["words"] for kept in job["undelivered"])):
+            unstopped(args.id, job)
+            return held_to_starter(args, name, job, lane)
+        unstopped(args.id, started_job(data, args.id))
         return deliver(args, name)
 
 
@@ -3275,22 +3280,41 @@ def relaunch(args: argparse.Namespace, name: str, text: str | None) -> int:
 
 
 def to_starter(args: argparse.Namespace, name: str, job: dict, lane: str) -> int:
-    """Give a resume's text to an agent on this Mac that a session of the drive started and still holds, by his pick "Keep with the starter: the agent finishes its job, your answers reach it at once", once superseded.fresh_builder sends no PR event to a builder that returned: posted whole, at once, from the resuming session's lane as one handoff record to the agent's own cci address, peer:<session>/<agent>, kept by sent_kept so each answer of his it carries reads sent, then one line under 120 characters to the starter's lane naming the SendMessage that points the agent at that record, since only the starter's SendMessage reaches the agent and a starter that may not read cci, such as the communicator, relays that line as it stands; a starter resuming its own agent gets the line as this verb's output. Nothing held, handed over or started."""
+    """Give a resume's text to an agent on this Mac that a session of the drive started and still holds, by his pick "Keep with the starter: the agent finishes its job, your answers reach it at once", as starter_post posts it. Nothing held, handed over or started."""
+    seq, line = starter_post(name, args.id, job, lane, args.text, state.stamp())
+    return emit(args, line, {"id": args.id, "how": f"handoff to {lane}", "seq": seq})
+
+
+def held_to_starter(args: argparse.Namespace, name: str, job: dict, lane: str) -> int:
+    """Give each text the job holds, oldest first, to its agent on this Mac that a session of the drive started and still holds, each as its own record by starter_post, so a resume with no text sends the words the drive holds whole and the session that runs it types none, by its own SendMessage line per record; a text an earlier record of this resume took off the job is not posted again, and the job's question is closed by the first record alone, as messaged closes it. A job holding none says so. Nothing held, handed over or started."""
+    held = job["undelivered"]
+    if not held:
+        return emit(args, f"{args.id} holds no message to send", {"id": args.id, "how": None})
+    sent = []
+    for kept in held:
+        if any(left["request"] == kept["request"] for left in state.load(name)["jobs"][args.id]["undelivered"]):
+            sent.append(starter_post(name, args.id, job, lane, kept["words"], kept["at"]))
+            job = {**job, "ask": None}
+    return emit(args, "\n".join(line for _, line in sent), {"id": args.id, "how": f"handoff to {lane}", "seqs": [seq for seq, _ in sent]})
+
+
+def starter_post(name: str, job_id: str, job: dict, lane: str, text: str, at: str) -> tuple[str, str]:
+    """Post a text to an agent on this Mac that a session of the drive started and still holds, once superseded.fresh_builder sends no PR event to a builder that returned: whole, at once, from the resuming session's lane as one handoff record to the agent's own cci address, peer:<session>/<agent>, kept by sent_kept dated `at`, when it was held, so each answer of his it carries reads sent and each text the job holds that it carries leaves the job, then one line under 120 characters to the starter's lane naming the SendMessage that points the agent at that record, since only the starter's SendMessage reaches the agent and a starter that may not read cci, such as the communicator, relays that line as it stands; a starter resuming its own agent gets the line as the verb's output. The record's seq and the line the verb prints."""
     from drive import tools
 
     data = state.load(name)
-    if fresh := superseded.fresh_builder(data, args.id, job, args.text, "this text"):
-        raise DriveError(f"{args.id}: refused, nothing posted: {fresh[1]}")
-    sender = state.session_lane(data, os.environ.get("CLAUDE_CODE_SESSION_ID")) or args.id
-    attrs = {"order": job["order"], "job": args.id}
-    record = {"kind": "handoff", "to": [f"peer:{job['session']}/{job['agent']}"], "attr": attrs, "text": args.text}
+    if fresh := superseded.fresh_builder(data, job_id, job, text, "this text"):
+        raise DriveError(f"{job_id}: refused, nothing posted: {fresh[1]}")
+    sender = state.session_lane(data, os.environ.get("CLAUDE_CODE_SESSION_ID")) or job_id
+    attrs = {"order": job["order"], "job": job_id}
+    record = {"kind": "handoff", "to": [f"peer:{job['session']}/{job['agent']}"], "attr": attrs, "text": text}
     [seq] = tools.sent(name, sender, [limits.shortened(record) or record])
-    sent_kept(name, args.id, {"words": args.text, "request": seq, "at": state.stamp(), "ask": job.get("ask")})
-    line = f'{args.id}: SendMessage {job["agent"]} "{superseded.POINTER.format(seq)}"'
-    if lane != sender:
-        tools.sent(name, sender, [{"kind": "handoff", "to": [f"{lane}@{name}"], "attr": attrs, "text": line}])
-        line = f"{args.id}: posted to agent {job['agent']}'s cci address as handoff record {seq}, and to {lane}@{name}, whose SendMessage alone reaches it: {line}"
-    return emit(args, line, {"id": args.id, "how": f"handoff to {lane}", "seq": seq})
+    sent_kept(name, job_id, {"words": text, "request": seq, "at": at, "ask": job.get("ask")})
+    line = f'{job_id}: SendMessage {job["agent"]} "{superseded.POINTER.format(seq)}"'
+    if lane == sender:
+        return seq, line
+    tools.sent(name, sender, [{"kind": "handoff", "to": [f"{lane}@{name}"], "attr": attrs, "text": line}])
+    return seq, f"{job_id}: posted to agent {job['agent']}'s cci address as handoff record {seq}, and to {lane}@{name}, whose SendMessage alone reaches it: {line}"
 
 
 def returned(job: dict) -> str | None:
@@ -6129,7 +6153,7 @@ def parser() -> argparse.ArgumentParser:
             "Orca call: when Orca cannot tell whether the lane lives, or refuses the send, it stays held and the resume exits 0 saying so, "
             "the watch sends it once Orca reads that worker alive, under the same id so Orca never applies it twice, and a "
             "relaunch meanwhile carries every held text in its handoff; a relaunch Orca refuses exits 2 with Orca's refusal, "
-            "the text still held. With no text, it sends what the job holds now. A job held by an Agent another session started, which this session cannot "
+            "the text still held. With no text, it sends what the job holds now: to an agent on this Mac that a session of the drive started and still holds, each held text whole, oldest first, as its own handoff record, printing one SendMessage line per record, or that it holds none. A job held by an Agent another session started, which this session cannot "
             "SendMessage, gets a handoff brief instead, carrying the same, and prints its `Read your brief first:` line: an agent "
             "this session starts on it takes the job as this session's. A builder no worker has started that waits its turn for a slot on this Mac holds the text for its first worker,"
             " starting nothing, and the watch starts that worker as its turn comes, its brief carrying the text. A codex job takes the text under the heading naming its sender: held while a codex-ask run "

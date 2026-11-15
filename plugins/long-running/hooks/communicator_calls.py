@@ -102,8 +102,8 @@ def resumed_builder(payload: dict, data: dict, job_id: str, said: str) -> str | 
     lane, step = fresh
     return (
         f"Refused on purpose: {step}. Only {lane}@{data['name']}, the session holding {job['order']}, adds its jobs, so another session sends it"
-        f" this step as a handoff record. His answers it holds reach it by `drive job resume {job_id}` with his words verbatim, which the watch's"
-        " ANSWER undelivered line names: it posts them to the agent's cci address and prints the SendMessage pointing the agent at that record."
+        f" this step as a handoff record. Each text it holds, his answers included, reaches it by `drive job resume {job_id}` with no text, which the watch's"
+        " ANSWER undelivered line names: it posts each whole to the agent's cci address and prints one SendMessage a record pointing the agent at it."
     )
 
 
