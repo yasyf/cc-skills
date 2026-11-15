@@ -8353,9 +8353,9 @@ def test_drive_move_takes_his_word_records_it_on_the_role_and_prints_steps_two_t
     assert out.splitlines() == [
         f"1. his word {his} recorded on the coordinator; demo-coordinator registered: cci session run keeps session {held['session']} running in tmux",
         (
-            '2. cci post --lane communicator --kind ask --to root@demo --text "Moving you into an Orca terminal on his word: run cc-slack'
-            " unfollow for each of your Slack watches, cci unsubscribe, stop your drive watch Monitor if you run one, reply released, and"
-            ' take no more work." and wait for its reply'
+            "2. on the cci `post` tool, `kind: ask`, `lane: communicator`, `to: [root@demo]`, `text: Moving you into an Orca terminal on his"
+            " word: run cc-slack unfollow for each of your Slack watches, cci unsubscribe, stop your drive watch Monitor if you run one, reply"
+            " released, and take no more work.`, and wait for its reply"
         ),
         "3. orca terminal send --terminal term_coordinator --text /exit --enter",
         "4. wait until ps -p 4242 lists nothing",

@@ -3,7 +3,7 @@ import re
 from collections.abc import Iterator
 from datetime import datetime
 
-from drive import agents, limits, refs, slack, state
+from drive import agents, limits, refs, settled, slack, state
 
 CALL_FIELDS = ("records", "lane", "drive", "id")
 OPENING = re.compile(r"(?:POST|FYI)\b")
@@ -84,6 +84,12 @@ def relayed_time(record: dict, drive: dict) -> str | None:
     if kind(record) not in ("report", "ready") or not addressed(record, "communicator") or (kind(record) == "report" and not text.startswith("POST")):
         return None
     return agents.typed_time(f"{text}\n{record.get('body') or ''}", drive)
+
+
+def hand_ask(record: dict) -> str | None:
+    """Why an ask record does not go out, whether the cci `post` tool or `cci post` in Bash sends it, decided by its shape alone so every call gets the same verdict: it carries his card's ASK block, its stored first line opening `ASK ` or an `ask` or `waits` attr, which only `drive job ask` keeps and draws; any other ask is a question to another session's lane, whatever lane it names, and goes out."""
+    carded = limits.opening_line(record.get("text") or "").startswith("ASK ") or {"ask", "waits"} & attrs(record).keys()
+    return agents.Unjudged(settled.HAND_ASK) if kind(record) == "ask" and carded else None
 
 
 def report_refusals(payload: dict, drive: dict, records: list[dict], index: int) -> Iterator[str | None]:

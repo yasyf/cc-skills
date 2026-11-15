@@ -2105,7 +2105,7 @@ def asked_from_bash(command: str, session: str) -> dict:
     return bash(command) | {"session_id": session}
 
 
-def test_bash_posts_no_drive_ask_since_drive_job_ask_posts_it(run: Run, demo: str, no_calls: list[list[str]]) -> None:
+def test_bash_posts_no_ask_carrying_his_cards_ask_block_since_drive_job_ask_posts_it_and_a_lane_question_goes_out(run: Run, demo: str, no_calls: list[list[str]]) -> None:
     session = os.environ["CLAUDE_CODE_SESSION_ID"]
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "close the idle sessions")
     kept = state.drive_dir(demo) / "asks" / "j1-0.md"
@@ -2114,16 +2114,23 @@ def test_bash_posts_no_drive_ask_since_drive_job_ask_posts_it(run: Run, demo: st
     with state.edit(demo) as data:
         data["jobs"]["j1"] = state.new_job("o1", "builder", "close them", [], state.stamp())
         data["jobs"]["j1"]["questions"] = [state.new_question(str(kept), "Close these sessions?", state.stamp())]
+        data["subcoordinators"]["SandSQL"] = {"session": "sandsql-1", "terminal": None, "cwd": "/work", "started": state.stamp(), "from": 0}
     for command in (
-        "cci post --kind ask --lane root --to communicator@demo 'Close these sessions?'",
-        "cd /work && cci post --lane root --kind=ASK --attr job=j1 'Close these sessions?'",
-        "zsh -c \"cci post --kind ask 'Close these sessions?'\"",
+        "cci post --kind ask --lane root --to communicator@demo 'ASK Close these sessions?'",
+        "cd /work && cci post --lane root --kind=ASK --attr job=j1 'ASK Close these sessions?'",
+        "zsh -c \"cci post --kind ask 'ASK Close these sessions?'\"",
         f"cci post --kind ask --attr ask={kept} --attr job=j1 --path {kept}",
         f"cci post --kind ask --attr ask={kept} --attr job=j1 --attr incident=true 'Close these sessions?'",
+        "cci post --kind ask --lane root --to communicator@demo --attr waits=demo:j1-0 'Close these sessions?'",
     ):
         assert landing_guard.deny_reason(asked_from_bash(command, session)) == settled.HAND_ASK
+    for command in (
+        "cci post --kind ask --lane root --to sandsql@demo --attr job=j1 'Is the migration live on staging?'",
+        "cci post --kind ask --lane root --to communicator@demo 'Is he present right now?'",
+    ):
+        assert landing_guard.deny_reason(asked_from_bash(command, session)) is None, command
     assert landing_guard.deny_reason(asked_from_bash("cci post --kind report 'merged'", session)) is None
-    assert landing_guard.deny_reason(asked_from_bash("cci post --kind ask 'Close these sessions?'", "another-session")) is None
+    assert landing_guard.deny_reason(asked_from_bash("cci post --kind ask 'ASK Close these sessions?'", "another-session")) is None
 
 
 def test_a_bash_report_naming_an_attr_a_separator_or_one_letter_from_one_the_drive_reads_is_refused_naming_it(demo: str, no_calls: list[list[str]]) -> None:

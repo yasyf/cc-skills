@@ -16,10 +16,11 @@ from drive.render import cut
 from drive.state import DriveError
 
 HAND_ASK = (
-    "refused: `drive job ask <j> <file>` keeps a job's question and draws his card on it in the same call, under the"
-    " waits id it mints, so no session posts an ask record: keep the question with it, a remote lane's ASK"
+    "refused: this ask carries his card's ASK block, a first line opening `ASK ` or an `ask` or `waits` attr, and"
+    " `drive job ask <j> <file>` keeps a job's question and draws his card on it in the same call, under the"
+    " waits id it mints, so no session posts one: keep the question with it, a remote lane's ASK"
     " the watch did not keep with `drive job ask <j>`, and ask an open card of the job's again in new words with"
-    " `--redraws <that card's waits id>`"
+    " `--redraws <that card's waits id>`. A question to another session's lane is a cci `ask` with neither, which goes out"
 )
 BODY_CHARS = 1500
 TITLE_BYTES = 256

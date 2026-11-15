@@ -97,11 +97,11 @@ step 5's command shows it, with no restart and no word from him.
    in; it stops and starts nothing. Under tmux,
    `tmux list-panes -a -F '#{session_name}:#{window_index}.#{pane_index} #{pane_start_command}'`
    lists each pane with the `claude` line that started it.
-2. Ask the old session to let go, and wait for its reply: `cci post --lane <your lane> --kind ask
-   --to <root or communicator>@<drive> --text "Moving you into an Orca terminal on his word: run
-   cc-slack unfollow for each of your Slack watches, cci unsubscribe, stop your drive watch Monitor
-   if you run one, reply released, and take no more work."` His messages in the gap wait in
-   `cc-slack dm-owed`, and records on the role's cci cursor.
+2. Ask the old session to let go on the cci `post` tool, and wait for its reply: `kind: ask`,
+   `lane: <your lane>`, `to: [<root or communicator>@<drive>]`, `text: Moving you into an Orca
+   terminal on his word: run cc-slack unfollow for each of your Slack watches, cci unsubscribe, stop
+   your drive watch Monitor if you run one, reply released, and take no more work.` His messages in
+   the gap wait in `cc-slack dm-owed`, and records on the role's cci cursor.
 3. End the old session, which his word for the move covers: `cci session type <drive>-<role> /exit`
    for one cci runs, `tmux send-keys -t <pane> /exit Enter` under another tmux,
    `orca terminal send --terminal <old handle> --text /exit --enter` for an Orca terminal, or
@@ -186,10 +186,10 @@ His rulings already live in cc-notes answers.
   the same turn. On Nov 9 a builder stopped at 3:04 AM with a review finding open, its adopting job
   had no agent, and nothing touched it for two days. Otherwise start a builder only when an event
   needs action: failed checks, requested changes, a new head, or his tap.
-- Ask an implementation session that is mid-change to push and stop: `cci post --drive <old> --lane
-  root --kind ask --to <its lane> --text "Push your branch and PR now, reply with the branch and
-  head, then stop work: drive <new> adopts it."` When it replies, carry its PR by
-  [Carry](#carry) step 4.
+- Ask an implementation session that is mid-change to push and stop on the cci `post` tool:
+  `drive: <old>`, `kind: ask`, `lane: root`, `to: [<its lane>]`, `text: Push your branch and PR now,
+  reply with the branch and head, then stop work: drive <new> adopts it.` When it replies, carry its
+  PR by [Carry](#carry) step 4.
 
 ## Cards, stand-downs and what stays behind
 

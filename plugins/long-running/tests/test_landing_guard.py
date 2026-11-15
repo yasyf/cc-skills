@@ -450,8 +450,12 @@ def test_a_drive_sessions_cci_post_in_bash_is_refused_for_the_cci_tools_while_it
     report = "cci post --kind report 'merged'"
     cci_delta(session, "addedNames", ["mcp__plugin_cc-inbox_cci__post", "mcp__plugin_cc-inbox_cci__close"])
     assert landing_guard.deny_reason(bash(report, transcript_path=str(session))) == landing_guard.CLI_POST
-    unkept_ask = "cci post --kind ask --to communicator@demo 'Close these sessions?'"
+    unkept_ask = "cci post --kind ask --to communicator@demo 'ASK Close these sessions?'"
     assert landing_guard.deny_reason(bash(unkept_ask)) == settled.HAND_ASK
+    with state.edit(demo) as data:
+        data["subcoordinators"]["SandSQL"] = {"session": "sandsql-1", "terminal": None, "cwd": "/work", "started": state.stamp(), "from": 0}
+    for lane_ask in ("--to sandsql@demo 'Is the migration live on staging?'", "--to communicator@demo 'Is he present right now?'"):
+        assert landing_guard.deny_reason(bash(f"cci post --kind ask --lane root {lane_ask}")) is None, lane_ask
     assert landing_guard.deny_reason(bash(unkept_ask, transcript_path=str(session))) == landing_guard.CLI_POST
     for help_asked in ("cci post --help", "cci post -h", "cci post --kind report -h", "cci post --help | head -40"):
         assert landing_guard.deny_reason(bash(help_asked, transcript_path=str(session))) is None, help_asked
