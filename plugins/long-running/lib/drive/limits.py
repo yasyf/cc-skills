@@ -57,6 +57,7 @@ LOOKS_RULING = 'his ruling 0d2b7df, "this should have included images; you inclu
 CODE_TERM = re.compile(r"\w+(?:(?:::|[-./])\w+)*")
 CODE_MARK = re.compile(r"[_.-]|::|[a-z][A-Z]")
 LETTER = re.compile(r"[A-Za-z]")
+CAPITALISED = re.compile(r"(?<=[\w,;)'’] )[A-Z][A-Za-z]{2,}")
 PLAIN = "plain"
 EXPLAIN_RULING = 'his ruling e405d69, "Explain what this is what do you mean check"'
 GLOSS_RULING = 'his words on a card naming the run_claims table bare, "also what is run claims"'
@@ -65,7 +66,16 @@ GLOSSED = (
     " proper term and add a clause saying what it is the first time the card names it, as \"the run_claims table, which records"
     " the runner holding each run\" does ({explain}; {gloss}). {advisory}"
 )
+WHOLE = "whole"
+COINED_RULING = 'his words on a card asking whether a release-order rule should be a Forbids line the drive\'s gate reads or a note Jev reads, "Explain this I don\'t get it"'
+UNPLAIN = (
+    "drive job ask: kept, but Jev, reading his card cold, finds it naming a thing it never says in plain words,"
+    " the names the drive finds there being {names}: say what it asks in the words he would use, and name each thing by its proper term with a clause"
+    " saying what it is the first time it appears, never by a name the drive coined for a rule, check, gate, line or judge"
+    " ({coined}; {explain}). {advisory}"
+)
 RAW_IDS = ("commit-sha", "ruling-id", "ulid")
+NAMED_IDS = ("internal-id", "drive-term", "codename")
 CHECKED = re.compile(r"^\d+:\d+ ([\w-]+) '([^'\n]*)'")
 RAW = (
     "drive job ask: kept, but his card shows {found}, raw ids he cannot open: write a recorded answer of his as {{answer:<id>}},"
@@ -555,8 +565,18 @@ def code_names(text: str) -> list[str]:
 
 def code_terms(text: str) -> list[str]:
     """Each name a text writes as code, with a hyphen, underscore, dot, :: or inner capital, such as check-run-args, insertProjectRun or llm::x_chat, then each other `code_names` finds, such as a name in backticks or a call, its drive references, links, Slack tokens and pictures' paths aside: the names Jev reads for one his card leaves unexplained."""
-    plain = URL.sub(" ", TOKEN.sub(" ", PICTURE.sub(r" \1 ", REF.sub(" ", text))))
+    plain = unmarked(text)
     return list(dict.fromkeys([*(found for found in CODE_TERM.findall(plain) if CODE_MARK.search(found) and LETTER.search(found)), *code_names(plain)]))
+
+
+def coined_terms(text: str) -> list[str]:
+    """Each capitalised word a text writes where no sentence opens, such as Jev or Forbids, its drive references, links, Slack tokens and pictures' paths aside: the words Jev reads the whole card for as names its writer may have coined."""
+    return list(dict.fromkeys(CAPITALISED.findall(unmarked(text))))
+
+
+def unmarked(text: str) -> str:
+    """The text with its drive references, links and Slack tokens blanked and each picture down to its caption."""
+    return URL.sub(" ", TOKEN.sub(" ", PICTURE.sub(r" \1 ", REF.sub(" ", text))))
 
 
 def block_text(node: object) -> str:
@@ -882,18 +902,22 @@ def replaced(text: str) -> tuple[str, ...]:
     """The earlier questions a block's `Replaces:` lines name, comma-separated, each by the ASK file it is kept in or its card's waits id, in the order named."""
     return tuple(dict.fromkeys(ref.strip() for line in REPLACES.findall(text) for ref in line.split(",") if ref.strip()))
 
-def unread(asked: Question) -> str | None:
-    """Why a question goes to him without a picture of each option, by his ruling 0d2b7df: Jev reads its options as differing in how a screen looks, at settled.YES or more, so he picks by seeing each, and an option has no picture line captioned with its number, `![N · …](path)`. In the same request Jev reads each code name `code_terms` finds anywhere on his card, its question, summary, options, their descriptions and its Show me outside its fences, one Noul a name, and each one it reads at settled.YES or more as never said in plain words on the card is printed on stderr, refusing nothing, by his pick 320b7a7. The options, then the Show me, then each name fill the request whole; a reading in the band between settled.NO and settled.YES is said on stderr as unsure, and a name the request has no room for, or Jev giving no reading, lets the question up unread."""
+def unread(asked: Question, findings: list[str]) -> str | None:
+    """Why a question goes to him without a picture of each option, by his ruling 0d2b7df: Jev reads its options as differing in how a screen looks, at settled.YES or more, so he picks by seeing each, and an option has no picture line captioned with its number, `![N · …](path)`. In the same request Jev reads each code name `code_terms` finds anywhere on his card, its question, summary, options, their descriptions and its Show me outside its fences, and each run id, word the drive coined or one-letter name for work the findings `cc-slack check-post` gave over it name, one Noul a name, and each one it reads at settled.YES or more as never said in plain words on the card is printed on stderr; one more Noul, settled.COINED, reads the whole card cold with those names and each word `coined_terms` finds, since a name the drive coined, such as a Forbids line, reads as said when Jev reads it alone, and a card it reads at settled.YES or more as using one as if he knew it is printed with them, each refusing nothing, by his pick 320b7a7. The options, then the Show me, then each name fill the request whole; a reading in the band between settled.NO and settled.YES is said on stderr as unsure, and a name the request has no room for, or Jev giving no reading, lets the question up unread."""
     from drive import settled
 
     shot = {int(number[1]) for line in captions(asked.show_me) if (found := PICTURE.fullmatch(line)) and (number := OPTION_CAPTION.match(found[1]))}
     unshown = [index for index in range(1, len(asked.options) + 1) if index not in shot]
-    named = code_terms("\n".join([asked.title, *asked.summary, *asked.options, *asked.hints.values(), *captions(asked.show_me)]))
-    if not unshown and not named:
+    text = "\n".join([asked.title, *asked.summary, *asked.options, *asked.hints.values(), *captions(asked.show_me)])
+    named = list(dict.fromkeys([*code_terms(text), *checked(findings, NAMED_IDS)]))
+    coined = [word for word in coined_terms(text) if word not in named]
+    if not unshown and not named and not coined:
         return None
     options = (({"options": {f"o{number}": {"option": option, "description": asked.hints.get(option, "")}}}, {}) for number, option in enumerate(asked.options, 1))
     names = (({"names": {f"n{number}": name}}, {f"{PLAIN}{number}": settled.asking(settled.UNEXPLAINED, name=f"n{number}")}) for number, name in enumerate(named, 1))
-    seen, questions, _ = settled.fill({"question": asked.title, "summary": "\n".join(asked.summary), "options": {}}, {"looks": settled.LOOKS} if unshown else {}, [*options, ({"show_me": "\n".join(asked.show_me)}, {}), *names])
+    words = (({"coined": {f"c{number}": word}}, {}) for number, word in enumerate(coined, 1))
+    asks = ({"looks": settled.LOOKS} if unshown else {}) | ({WHOLE: settled.COINED} if named or coined else {})
+    seen, questions, _ = settled.fill({"question": asked.title, "summary": "\n".join(asked.summary), "options": {}}, asks, [*options, ({"show_me": "\n".join(asked.show_me)}, {}), *names, *words])
     try:
         read = settled.jev(seen, questions)
     except settled.Unheard as failure:
@@ -905,6 +929,8 @@ def unread(asked: Question) -> str | None:
         print(GLOSSED.format(names=", ".join(unglossed), each=each, explain=EXPLAIN_RULING, gloss=GLOSS_RULING, advisory=ADVISORY), file=sys.stderr)
     if unsure := [name for name, unexplained in glossed.items() if unexplained is None]:
         print(f"drive job ask: kept, and Jev is unsure whether his card says in plain words what {', '.join(unsure)} is for: add a clause saying what each is the first time the card names it when it does not. {ADVISORY}", file=sys.stderr)
+    if settled.reading(read.get(WHOLE)):
+        print(UNPLAIN.format(names=", ".join([*named, *coined]), coined=COINED_RULING, explain=EXPLAIN_RULING, advisory=ADVISORY), file=sys.stderr)
     if not unshown:
         return None
     if (looks := settled.reading(read["looks"])) is None:
@@ -919,9 +945,9 @@ def unread(asked: Question) -> str | None:
     )
 
 
-def raw_ids(findings: list[str]) -> list[str]:
-    """Each token `cc-slack check-post` finds on a question card as a raw id he cannot open, a commit sha or cc-notes id, a ruling id or an object ULID, from its findings' lines, `<line>:<column> <kind> '<token>': <fix>`; its internal-id finding is left out, since its `run_` pattern also matches a table such as run_claims."""
-    return list(dict.fromkeys(found[2] for finding in findings if (found := CHECKED.match(finding)) and found[1] in RAW_IDS))
+def checked(findings: list[str], kinds: tuple[str, ...]) -> list[str]:
+    """Each token `cc-slack check-post` finds on a question card as one of these kinds, from its findings' lines, `<line>:<column> <kind> '<token>': <fix>`: RAW_IDS, a commit sha or cc-notes id, a ruling id or an object ULID, are raw ids he cannot open whatever the card says of them, while NAMED_IDS, a run id, a word the drive coined or a one-letter name for work, are names Jev reads, since the internal-id `run_` pattern also matches a table such as run_claims, which a clause explains."""
+    return list(dict.fromkeys(found[2] for finding in findings if (found := CHECKED.match(finding)) and found[1] in kinds))
 
 
 def option_problems(options: list[str], unsettled: str | None) -> list[str]:

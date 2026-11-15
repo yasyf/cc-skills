@@ -181,6 +181,11 @@ UNEXPLAINED = Noul(
     ),
     no="Such a clause is there, even a short one, or the name is a word or product anyone reads.",
 )
+COINED = Noul(
+    "He owns the product but has read none of its code and none of the names the drive's agents coin among themselves, and reads the question card in `question`, `summary`, `options` and `show_me` cold. Does it use any of `names` or `coined`, or another name its writer coined for a rule, check, gate, line, judge or kind of thing, as if he already knew it, so that he would have to ask what it is before he could answer?",
+    yes="One is never said in everyday words on the card, or is said only through other code or coined names, its own name or kind, or one example.",
+    no="Each is said so, even briefly, or is an everyday word in its ordinary sense, a product's name or a teammate's name.",
+)
 ILLUSTRATES = Noul(
     "Does `code`, a fence in `language` about to be drawn as a picture of code on his Slack card, illustrate something the card's words cannot say as well, such as the shape of a function, a type, a query or several statements working together?",
     no="It is trivial: a value flipped, such as write = 0 becoming write = 1, an argument or list item added or dropped, a name or path changed, or one declaration, which a sentence says as well.",

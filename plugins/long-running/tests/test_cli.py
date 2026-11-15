@@ -1846,7 +1846,7 @@ Holds: none: no job builds the migration
 
 def test_unread_prints_each_code_name_his_card_never_says_in_plain_words_and_each_jev_is_unsure_of_and_keeps_it(jev: Jev, capsys: pytest.CaptureFixture[str]) -> None:
     jev.unexplained = {"0002_run_claims_chain_journal": 0.9, "run_claims": 0.95, "sandsql-restore": 0.5}
-    assert limits.unread(limits.question(RUN_CLAIMS_ASK, kept=True)) is None
+    assert limits.unread(limits.question(RUN_CLAIMS_ASK, kept=True), []) is None
     assert jev.terms == ["0002_run_claims_chain_journal", "run_claims", "lib/drive/cli.py", "sandsql-restore"]
     printed = capsys.readouterr().err
     assert printed.startswith(
@@ -1855,6 +1855,41 @@ def test_unread_prints_each_code_name_his_card_never_says_in_plain_words_and_eac
     assert 'his words on a card naming the run_claims table bare, "also what is run claims"' in printed
     assert "This finding refuses no card, by his pick 320b7a7" in printed
     assert "drive job ask: kept, and Jev is unsure whether his card says in plain words what sandsql-restore is for" in printed
+
+
+FORBIDS_ASK = explained("""ASK Should a release-order rule be a Forbids line the gate reads, or a note Jev reads?
+Drive tooling: your pick decides where a rule like no SandSQL cut to production before its staging run lives, and what it stops.
+Show me:
+What each choice keeps from going out
+```text
+Forbids: sandsql before staging
+```
+- A Forbids line the gate reads (recommended)
+- A note Jev reads
+Findings:
+Root cause: none: a pick between two places for a rule
+Holds: none: no job builds the rule
+""")
+
+
+def test_unread_prints_a_card_jev_reads_cold_as_using_a_name_it_never_says_in_plain_words_with_each_coined_word_and_check_post_name_and_keeps_it(
+    jev: Jev, capsys: pytest.CaptureFixture[str]
+) -> None:
+    jev.whole = 0.75
+    findings = ["2:1 drive-term 'the drive': say what happens to the reader's work instead", "1:52 commit-sha 'cf78807': link the commit"]
+    assert limits.unread(limits.question(FORBIDS_ASK, kept=True), findings) is None
+    assert jev.terms == ["release-order", "SandSQL", "lib/drive/cli.py", "the drive"]
+    assert list(jev.looked[-1]["coined"].values()) == ["Forbids", "Jev"]
+    printed = capsys.readouterr().err
+    assert printed.startswith(
+        "drive job ask: kept, but Jev, reading his card cold, finds it naming a thing it never says in plain words,"
+        " the names the drive finds there being release-order, SandSQL, lib/drive/cli.py, the drive, Forbids, Jev: say what it asks"
+    )
+    assert '"Explain this I don\'t get it"' in printed
+    assert "This finding refuses no card, by his pick 320b7a7" in printed
+    jev.whole = 0.5
+    assert limits.unread(limits.question(FORBIDS_ASK, kept=True), findings) is None
+    assert capsys.readouterr().err == ""
 
 
 def test_job_ask_keeps_a_card_naming_code_it_never_explains_and_prints_the_name_even_when_every_option_carries_its_screenshot(
@@ -1868,8 +1903,8 @@ def test_job_ask_keeps_a_card_naming_code_it_never_explains_and_prints_the_name_
     assert (jev.looked, jev.terms) == ([], ["lib/drive/cli.py"])
 
 
-def test_job_ask_keeps_a_card_showing_a_raw_id_and_prints_each_one_check_post_finds(
-    run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], checked: Checked
+def test_job_ask_keeps_a_card_showing_a_raw_id_prints_each_one_check_post_finds_and_has_jev_read_its_run_ids_and_drive_words(
+    run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], checked: Checked, jev: Jev
 ) -> None:
     block = tmp_path / "ask.md"
     block.write_text(SHORT_ASK)
@@ -1882,6 +1917,7 @@ def test_job_ask_keeps_a_card_showing_a_raw_id_and_prints_each_one_check_post_fi
     assert cli.main(["job", "ask", asking, str(block)]) == 0
     [raw] = [line for line in capsys.readouterr().err.splitlines() if "raw ids he cannot open" in line]
     assert raw.startswith("drive job ask: kept, but his card shows cf78807, 01JBQZ8V7K3M5N2P4R6S8T0VWX, raw ids he cannot open: write a recorded answer of his as {answer:<id>}")
+    assert jev.terms[-2:] == ["the drive", "run_claims"]
 
 
 def test_job_ask_keeps_a_choice_he_reads_about_with_no_screenshot(run: Run, asking: str, tmp_path: Path, jev: Jev) -> None:
