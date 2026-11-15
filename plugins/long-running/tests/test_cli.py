@@ -1,4 +1,5 @@
 import argparse
+import fcntl
 import hashlib
 import io
 import json
@@ -6721,7 +6722,9 @@ def test_a_staging_testers_brief_runs_a_dashboard_prs_cases_on_a_mac_box_at_the_
         assert (f"`tools/ci mac-box prove <box> --commit {live}`" in staging, "--commit <its head's full sha>" in staging) == (boxed, own)
     assert len(asked) == 4
     monkeypatch.setattr(github, "run", lambda cmd, cwd=None, **_: listed.splitlines()[0])
-    assert (cli.main(["job", "brief", tester_id]), "lists no passed sand-next release" in capsys.readouterr().err) == (2, True)
+    assert run("job", "brief", tester_id)[0] == 0
+    staging = next(line for line in Path(state.load("demo")["jobs"][tester_id]["brief"]).read_text().splitlines() if line.startswith("Staging: "))
+    assert ("`tools/ci mac-box prove <box> --commit <that commit>`" in staging, "lists no passed sand-next release" in staging) == (True, True)
 
 
 def test_pr_set_staging_stages_a_monorepo_pr_in_one_save_as_its_builders_staging_line_does_and_a_wait_on_its_unlisted_staging_part_names_it(
@@ -7351,6 +7354,22 @@ def test_job_set_refuses_any_state_but_stopped_changing_nothing(run: Run, demo: 
     assert (job["state"], job["said"]) == ("running", "DONE The lane comes from bookkeeping")
     assert run("job", "set", "j1", "--state", "stopped")[0] == 0
     assert state.load("demo")["jobs"]["j1"]["state"] == "stopped"
+
+
+def test_a_job_set_whose_save_waits_past_the_drive_lock_exits_2_and_keeps_no_proof_file(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship", "--agent", "a-1")
+    proof = tmp_path / "proof.sh"
+    proof.write_text("#!/bin/sh\necho PASS kept\n")
+    proof.chmod(0o755)
+    monkeypatch.setattr(state, "DRIVE_LOCK_SECONDS", 0.3)
+    with open(state.drive_dir(demo) / ".lock", "a") as held:
+        fcntl.flock(held, fcntl.LOCK_EX)
+        assert cli.main(["job", "set", "j1", "--repro", str(proof)]) == 2
+    assert "drive lock is still held after 0.3s, so this changed nothing" in capsys.readouterr().err
+    assert not state.load(demo)["jobs"]["j1"].get("repro")
 
 
 def test_job_set_refuses_a_said_line_whose_result_sets_another_state_than_the_job_keeps(run: Run, demo: str, capsys: pytest.CaptureFixture[str]) -> None:

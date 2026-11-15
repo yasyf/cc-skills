@@ -34,7 +34,8 @@ OPS_HELP = (
 ONE_SAVE = ("order", "job", "pr")
 SAVED_ONCE = (
     "The call checks them with no lock on the drive, then runs them once, in order, under one save of the drive, each read the check"
-    " made answered as it was then, so a refusal anywhere writes nothing."
+    " made answered as it was then, so a refusal anywhere writes nothing, as does another write changing a field the call changed"
+    " while it ran."
 )
 KEPT_BEFORE = (
     "It runs them once all pass; a refusal while they run keeps each op before it, since open and freeze start an evidence record and a"
