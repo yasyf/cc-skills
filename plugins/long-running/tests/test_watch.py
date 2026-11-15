@@ -7677,17 +7677,24 @@ def test_a_forge_ai_pr_he_approved_changing_sandsql_waits_for_his_next_word_whil
     assert stage.of(state.load(demo), EJECTED, NO_CARDS).name == "ready"
 
 
-def test_replayed_717646_an_approved_dangerous_pr_whose_last_wait_ended_on_a_posts_delivery_of_its_staging_part_while_its_tester_returned_waiting_lands_only_at_his_next_word(
-    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    ("part", "posted", "said"),
+    [
+        (state.STAGING_TEST.format(number=42), "https://poetic.slack.com/archives/C0STAGING/p1794600000000100", f"WAITING {state.pr_url(KEY)} to merge: DONE it soaked twice on staging"),
+        ("Has this been tested on staging? It's approved once it is", state.pr_url(KEY), f"WAITING {state.pr_url(KEY)} to merge: then it soaks on staging"),
+    ],
+    ids=["its staging test part holds its tester's proof", "a post delivered his question part"],
+)
+def test_replayed_717646_an_approved_dangerous_pr_whose_last_wait_ended_on_a_delivered_part_while_its_tester_returned_waiting_lands_only_at_his_next_word(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, part: str, posted: str, said: str
 ) -> None:
-    part = state.STAGING_TEST.format(number=42)
     monkeypatch.setattr(github, "files", {KEY: ["go/sand/internal/sandsql/write.go"]}.__getitem__)
     enqueue_exiting(tmp_path, demo, 0)
     with state.edit(demo) as data:
         data["owner"]["heard"] = state.stamp(T0)
-        data["orders"]["o1"]["parts"][part] = state.new_part() | {"posted": "https://poetic.slack.com/archives/C0STAGING/p1794600000000100", "posted_by": "j5420"}
+        data["orders"]["o1"]["parts"][part] = state.new_part() | {"posted": posted, "posted_by": "j5420" if state.STAGING_PART.fullmatch(part) else None}
         data["orders"]["o1"]["jobs"].append("j5420")
-        data["jobs"]["j5420"] = job(goal="soak #42 on staging", parts=[part], builds_nothing=True, state="waiting", said=f"WAITING {state.pr_url(KEY)} to merge: DONE it soaked twice on staging")
+        data["jobs"]["j5420"] = job(goal="soak #42 on staging", parts=[part], builds_nothing=True, state="waiting", said=said)
         data["prs"][KEY] |= {"checks": "pass", "review": "approved", "waits": [f"o1:{part}"]}
     approve(demo, KEY)
     away = T0 + timedelta(minutes=20)
