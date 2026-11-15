@@ -155,11 +155,11 @@ def ends(data: dict, waits: list[str], cards: dict | None, seen: set[str]) -> li
 
 
 def onward(data: dict, subject: str, cards: dict | None) -> list[str]:
-    """What a job, part of an order or PR waits on that still holds, which ends() and stall.chain walk: a job waiting or built its waits but each PR waiting on it, by state.unlooped, as a tester over several PRs waits on none of them, and the cards of its own questions open on him, by view.open_cards, a part of an order each job carrying it whose work is still to come, by state.part_jobs, as a staging test part leads to its tester, and a PR its waits and his open cards holding it from landing, by land.pr_cards, since no wait names a card a job asked after its READY, PUSHED or WAITING or a builder asked mid-build, so a walk ends at his card wherever the drive keeps it; nothing for a job in any other state."""
+    """What a job, part of an order or PR waits on that still holds, which ends() and stall.chain walk: a job waiting or built its waits but each PR waiting on it, by state.unlooped, as a tester over several PRs waits on none of them, and the cards of its own questions open on him, by view.open_cards, a part of an order each job carrying it whose work is still to come, by state.part_jobs, as a staging test part leads to its tester, by state.part_testers, never a job following a release it started, and a PR its waits and his open cards holding it from landing, by land.pr_cards, since no wait names a card a job asked after its READY, PUSHED or WAITING or a builder asked mid-build, so a walk ends at his card wherever the drive keeps it; nothing for a job in any other state."""
     if job := data["jobs"].get(subject):
         waits = [*state.unlooped(data, subject, job["waits"]), *view.open_cards(job)] if job["state"] in ("waiting", "built") else []
     elif part := state.part_wait(data, subject):
-        waits = [job_id for job_id, _ in state.part_jobs(data, *part)]
+        waits = [job_id for job_id, _ in (state.part_testers if state.STAGING_PART.fullmatch(part[1]) else state.part_jobs)(data, *part)]
     else:
         waits = [*pr_waits(data, data["prs"][subject]), *land.pr_cards(data, data["prs"][subject])]
     return view.holding(data, view.stored_waits(data, waits, cards), cards)
