@@ -1626,7 +1626,7 @@ def test_his_typed_approve_of_one_pr_and_hold_of_the_other_redraw_their_stack_ca
         data["prs"]["Forge-AI/monorepo#41"]["checks"] = "fail"
     typed(41, "Approve")
     typed(42, "Hold")
-    assert (redrawn_by_the_watch(moment), redraws.asked) == ([], [stack_url(41), stack_url(42)])
+    assert (redrawn_by_the_watch(moment), redraws.asked, redraws.drawn) == ([], [stack_url(41), stack_url(42)], [stack_url(41), stack_url(42)])
     [redrawn] = ask(asks(41, 42) | {"redraw": True})["cards"]
     assert (redrawn["card"]["status"], "options" in redrawn["card"], "waits" in redrawn["card"]) == ("info", False, False)
     assert [row["blocks"] for row in redrawn["card"]["prs"]] == ["Approved by you. CI failed; the agent is fixing it", "Held by you"]
@@ -1634,10 +1634,10 @@ def test_his_typed_approve_of_one_pr_and_hold_of_the_other_redraw_their_stack_ca
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [], "closed": [collapsed | {"card": redrawn["card"]}]})
     assert (redrawn_by_the_watch(moment), redraws.asked) == ([], [stack_url(41), stack_url(42)])
     typed(42, "Approve")
-    assert (redrawn_by_the_watch(moment), redraws.asked) == ([], [stack_url(41), stack_url(42), stack_url(42)])
+    assert (redrawn_by_the_watch(moment), redraws.asked, redraws.drawn) == ([], [stack_url(41), stack_url(42)], [stack_url(41), stack_url(42), stack_url(42)])
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [], "closed": [collapsed | {"replaced_by": "https://acme.slack.com/archives/D123/p1794515999000000"}]})
     typed(42, "Hold")
-    assert (redrawn_by_the_watch(moment), redraws.asked) == ([], [stack_url(41), stack_url(42), stack_url(42)])
+    assert (redrawn_by_the_watch(moment), redraws.asked, redraws.drawn) == ([], [stack_url(41), stack_url(42)], [stack_url(41), stack_url(42), stack_url(42)])
 
 
 def test_a_tap_on_his_stack_card_after_his_typed_approve_of_one_pr_keeps_that_approve_and_taps_the_rest(

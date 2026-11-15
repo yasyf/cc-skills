@@ -743,6 +743,7 @@ def withdrawals(monkeypatch: pytest.MonkeyPatch) -> Withdrawals:
 @dataclass
 class Redraws:
     asked: list[str] = field(default_factory=list)
+    drawn: list[str] = field(default_factory=list)
     failure: str | None = None
     rows: dict[str, dict[str, str]] = field(default_factory=dict)
 
@@ -761,6 +762,13 @@ def redraws(monkeypatch: pytest.MonkeyPatch) -> Redraws:
             redrawn.rows[url] = card.drawn_lines(known[0], state.load(known[0]), key)
         return 1
 
+    def draw(lines: dict[str, dict[str, str]]) -> int:
+        redrawn.drawn.extend(lines)
+        if redrawn.failure:
+            raise slack.SlackError(redrawn.failure)
+        redrawn.rows |= lines
+        return len(lines)
+
     def redrawn_cards(name: str) -> tuple[dict, str]:
         found, source = stored(name)
         for shown in [*found["pr_cards"], *found["closed"]]:
@@ -769,6 +777,7 @@ def redraws(monkeypatch: pytest.MonkeyPatch) -> Redraws:
         return found, source
 
     monkeypatch.setattr(slack, "redraw_pr_cards", redraw)
+    monkeypatch.setattr(slack, "draw_pr_lines", draw)
     monkeypatch.setattr(view, "stored_cards", redrawn_cards)
     return redrawn
 
