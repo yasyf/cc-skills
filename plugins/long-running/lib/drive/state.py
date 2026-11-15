@@ -1749,9 +1749,14 @@ def orphan_stands(data: dict, order_id: str, part: str) -> bool:
     return bool(said) and all(parse_time(job["updated"]) <= parse_time(said) for _, job in part_jobs(data, order_id, part))
 
 
+def passes(jobs: list[tuple[str, dict]]) -> list[tuple[str, dict]]:
+    """The passes among a standing part's jobs, each a codex job as the watch adds them, so the reader or design whose research its first pass waits on is no pass."""
+    return [(job_id, job) for job_id, job in jobs if job["kind"] == "codex"]
+
+
 def standing_passes(data: dict, order_id: str, part: str) -> tuple[tuple[str, dict] | None, tuple[str, dict] | None]:
-    """A standing part's live pass, its newest unfinished job, and its last pass, its newest finished one, each beside its id, or None."""
-    jobs = part_jobs(data, order_id, part)
+    """A standing part's live pass, its newest unfinished one, and its last pass, its newest finished one, each beside its id, or None."""
+    jobs = passes(part_jobs(data, order_id, part))
     live = next(((job_id, job) for job_id, job in reversed(jobs) if job["state"] not in FINISHED_JOB_STATES), None)
     return live, next(((job_id, job) for job_id, job in reversed(jobs) if job["state"] in FINISHED_JOB_STATES), None)
 
@@ -1762,7 +1767,9 @@ def pass_due(jobs: list[tuple[str, dict]]) -> datetime | None:
 
 
 def standing_part(data: dict, job: dict) -> tuple[str, str] | None:
-    """The standing part a job is a pass of, as its order and part, by the parts it delivers of its own order or carries of another; None for a job on no standing part."""
+    """The standing part a codex job is a pass of, as its order and part, by the parts it delivers of its own order or carries of another; None for a job on no standing part or of another kind, which is no pass."""
+    if job["kind"] != "codex":
+        return None
     return next(((order_id, part) for order_id in [job["order"], *job["carries"]] for part in job_parts(job, order_id) if data["orders"][order_id]["parts"][part]["standing"]), None)
 
 

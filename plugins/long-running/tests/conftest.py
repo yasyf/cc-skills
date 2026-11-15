@@ -293,7 +293,7 @@ def run(state_root: Path, capsys: pytest.CaptureFixture[str]) -> Callable[..., t
                 order = state.load(name)["orders"][order_id]
                 parts = flag_values(argv, "--part") or list(order["parts"])
                 at_once = bool({"--lands", "--release", "--builds-nothing"} & set(argv)) or argv[2] == "builder" and "--branch" in argv
-                if brief.waits_on_research(order, argv[2], parts, at_once):
+                if brief.waits_on_research(order, "design" if argv[2] == "designer" else argv[2], parts, at_once):
                     kept_research(name, order_id, parts)
         code = cli.main(list(argv))
         out = capsys.readouterr().out.strip()

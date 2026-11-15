@@ -259,14 +259,14 @@ def test_place_counts_a_builder_here_only_while_its_agent_is_in_its_turn(
 ) -> None:
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
     monkeypatch.setattr(watch, "last_write", REAL_LAST_WRITE)
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "three")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "three", "--parts", "a1", "a2", "a3")
     turns = {
         "a1": {"type": "assistant", "message": {"stop_reason": "tool_use", "content": [{"type": "tool_use", "name": "Bash"}]}},
         "a2": {"type": "assistant", "message": {"stop_reason": "end_turn", "content": [{"type": "text", "text": "WAITING on Forge-AI/monorepo#7"}]}},
         "a3": {"type": "assistant", "message": {"stop_reason": "end_turn", "content": [{"type": "text", "text": "Should the old flag stay?"}]}},
     }
     for agent in turns:
-        run("job", "add", "builder", "--order", "o1", "--goal", agent, "--agent", agent)
+        run("job", "add", "builder", "--order", "o1", "--part", agent, "--goal", agent, "--agent", agent)
     data = state.load(demo)
     for job in (data["jobs"][job_id] for job_id in ("j1", "j2", "j3")):
         path = watch.transcript(watch.session_of(job, data), job["agent"])
@@ -486,6 +486,7 @@ def test_a_lane_whose_brief_names_a_report_holding_his_words_still_owes_them_onc
     with state.edit(demo) as data:
         data["answers"]["a1"] = {"words": words, "link": "https://acme.slack.com/archives/D123/p1794300000000300", "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {}}
     state.keep_report(demo, "j1", "DONE the reader's findings", f"DONE the reader's findings\nResearched:\nrulings: none on the area\nexists: none\nopen: none\nHis answer, verbatim: \"{words}\"\n")
+    run("job", "set", "j1", "--state", "done")
     (tmp_path / "brief.md").write_text("Order (his words): ship it\nResearched: j1\nDrive: demo, order o1, job j2\n")
     monkeypatch.setattr(orca, "new_run", lambda drive, objective: RUN)
     fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
@@ -706,6 +707,7 @@ def test_launch_of_a_brief_naming_a_finished_jobs_report_file_as_j2722s_named_j2
     run("job", "add", "reader", "--order", "o1", "--goal", "read it back")
     run("job", "add", "builder", "--order", "o1", "--goal", "read it back again", "--remote")
     state.keep_report(demo, "j1", "DONE the read-back", "DONE the read-back\n- the delete half NOT PROVEN\n")
+    run("job", "set", "j1", "--state", "done")
     (tmp_path / "brief.md").write_text(
         "Order (his words): ship it\n"
         "Goal: rerun the read-back to prove what reports/j1.md left unproven\n"
@@ -733,6 +735,7 @@ def test_launch_of_a_brief_naming_a_jobs_repro_by_a_suffix_glob_as_j2817s_named_
     run("job", "add", "reader", "--order", "o1", "--goal", "research it")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it", "--remote")
     state.keep_report(demo, "j1", "DONE the cause", "DONE the cause\nResearched:\nrulings: none on the area\nexists: none\nopen: none\nREPRO: repro/j1.py\n")
+    run("job", "set", "j1", "--state", "done")
     (tmp_path / "steps.py").write_text("raise SystemExit(1)\n")
     assert run("job", "set", "j1", "--repro", str(tmp_path / "steps.py"))[0] == 0
     (tmp_path / "brief.md").write_text(

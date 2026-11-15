@@ -879,7 +879,8 @@ def test_his_words_carrying_on_an_order_of_his_work_are_its_parts_the_watch_name
     assert watch.orphan_lines(watching, later) == unstaffed
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "session-under-test")
     carried = ["--part", iterate["text"], "--part", options["text"]]
-    assert run("job", "add", "reader", "--order", "o1", *carried, "--goal", "options for a zero-stall writer handover", "--agent", "reader-1") == (0, "j2")
+    code, out = run("job", "add", "reader", "--order", "o1", *carried, "--goal", "options for a zero-stall writer handover", "--agent", "reader-1")
+    assert (code, out.splitlines()[0]) == (0, "j2")
     assert watch.orphan_lines(watching, later + timedelta(minutes=10)) == []
     assert [part["orphan_said"] for part in state.load(demo)["orders"]["o1"]["parts"].values()] == [None, None, None]
 

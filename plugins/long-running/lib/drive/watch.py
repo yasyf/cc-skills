@@ -2792,12 +2792,13 @@ class Restart(str):
 
 
 def standing_gap(jobs: list[tuple[str, dict]], gaps: dict[str, str | None], moment: datetime) -> str | None:
-    """Who holds a standing part: each unfinished job on it, read as any part's carriers are, else no one, its Restart once state.pass_due lets its next pass start, and SETTLING until then."""
+    """Who holds a standing part: each unfinished job on it, read as any part's carriers are, else no one, its Restart after its last pass once state.pass_due lets its next pass start, and SETTLING until then."""
     if held := [gaps[job_id] for job_id, job in jobs if job["state"] not in state.FINISHED_JOB_STATES]:
         return None if None in held else SETTLING if SETTLING in held else held[-1]
-    if (due := state.pass_due(jobs)) and moment < due:
+    passes = state.passes(jobs)
+    if (due := state.pass_due(passes)) and moment < due:
         return SETTLING
-    return Restart(jobs[-1][0] if jobs else None)
+    return Restart(passes[-1][0] if passes else None)
 
 
 def standing_lines(watcher: Watcher, moment: datetime) -> list[str]:
