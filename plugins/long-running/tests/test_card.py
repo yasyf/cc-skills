@@ -14,6 +14,7 @@ URL = "https://github.com/Forge-AI/monorepo/pull/42"
 HEAD = "0123456789abcdef0123456789abcdef01234567"
 MOVED = "fedcba9876543210fedcba9876543210fedcba98"
 HIS_TAPS = "https://acme.slack.com/archives/D123/p1794515484282799"
+STAGING = "Not on staging: no staging test is set for it"
 SUMMARY = "`upload.Retry` retries a failed upload up to five times instead of dropping the file."
 FIX_BODY = f"""## Summary
 {SUMMARY}
@@ -88,6 +89,7 @@ def entry(wants_tap: bool = True, tap: str | None = None, exempt: str | None = N
         "checker": None,
         "updated": "2026-11-09T08:00:00-08:00",
         "now": stage.Stage(named, "", ""),
+        "staging": STAGING,
     }
 
 
@@ -119,6 +121,7 @@ def row(**fields: str) -> dict:
         "url": URL,
         "title": "retry flaky uploads",
         "head": HEAD,
+        "staging": STAGING,
         "changed": "",
         "review": "",
         "summary": SUMMARY,

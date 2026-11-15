@@ -172,7 +172,7 @@ def pr_read(name: str, key: str) -> dict | None:
     if not (pr := card.read(key, entry)):
         return None
     now = stage.on_card(data, key, view.live_cards(name))
-    return pr | {"show_me": sections(body_of(pr)).get("show me", ""), "row": card.render(pr, entry | {"now": now})["prs"][0]}
+    return pr | {"show_me": sections(body_of(pr)).get("show me", ""), "row": card.render(pr, entry | {"now": now, "staging": view.staging(data, key)})["prs"][0]}
 
 
 @functools.cache

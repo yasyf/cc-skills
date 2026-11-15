@@ -3308,7 +3308,7 @@ def carried_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def stage_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Keep each heard unmerged PR's stage, as stage.of names it from the approval, checks and head GitHub last answered for it, and act once on each open one that entered a stage or passed its deadline, leaving a PR never read, or whose last read failed, as it stands until a read answers for it: draw his card on each PR that entered uncarded, one card for the PRs of one card unit as drive card draws them, and never again while it stays there, since a draw cc-slack answers by linking a card he already answered leaves it uncarded, or redraw in place the card cc-slack keeps closed on one, so it offers Approve again and no second card shares its waits id, redraw his card in place on every other change of stage so its line shows it, and on a held PR whose cards of his holding it changed, so it names only those still open, wake the builder answering for a PR rework or red owe, ask forge-pr-reviewer once for a review of a head grading an hour and then wake its builder, wake the session holding its order on one unlanded, or landing or ready past its deadline, and post his card again, once per card unit, on the PRs that wait on him while they fix a live bug and whose card asks his tap, by state.asks_tap, under a line saying why it asks. A draw that fails clears the PR's stage, so the next read enters uncarded again and draws, and is said to the meta session from its third failure in a row."""
+    """Keep each heard unmerged PR's stage, as stage.of names it from the approval, checks and head GitHub last answered for it, and act once on each open one that entered a stage or passed its deadline, leaving a PR never read, or whose last read failed, as it stands until a read answers for it: draw his card on each PR that entered uncarded, one card for the PRs of one card unit as drive card draws them, and never again while it stays there, since a draw cc-slack answers by linking a card he already answered leaves it uncarded, or redraw in place the card cc-slack keeps closed on one, so it offers Approve again and no second card shares its waits id, redraw his card in place on every other change of stage so its line shows it, on a held PR whose cards of his holding it changed, so it names only those still open, and on a PR whose staging words view.staging reads changed, so his card says its staging result as it stands, wake the builder answering for a PR rework or red owe, ask forge-pr-reviewer once for a review of a head grading an hour and then wake its builder, wake the session holding its order on one unlanded, or landing or ready past its deadline, and post his card again, once per card unit, on the PRs that wait on him while they fix a live bug and whose card asks his tap, by state.asks_tap, under a line saying why it asks. A draw that fails clears the PR's stage, so the next read enters uncarded again and draws, and is said to the meta session from its third failure in a row."""
     if watcher.cards is None:
         return []
     with state.edit(watcher.name) as data:
@@ -3319,19 +3319,20 @@ def stage_lines(watcher: Watcher, moment: datetime) -> list[str]:
             pr = data["prs"][key]
             if key in watcher.stale or pr["required"] is None or not hears(watcher, data, pr["order"]):
                 continue
-            now = stage.of(data, key, watcher.cards)
+            now, tested = stage.of(data, key, watcher.cards), view.staging(data, key)
             if stage.entered(pr["stage"], now):
                 stage.stamp(pr, now, moment)
                 if pr["state"] == "open":
                     acts.append((key, now, True, stage.line(key, pr, now) + f" {ids(pr)}"))
-            elif stage.overdue(data, pr, now, moment):
-                stage.kept(pr, now)
-                pr["stage"]["woke"] = state.stamp(moment)
-                acts.append((key, now, False, stage.line(key, pr, now) + f" {ids(pr)}"))
             else:
-                if now.name == "held" and pr["stage"]["why"] != now.why and view.standing_card(pr, watcher.cards):
+                late = stage.overdue(data, pr, now, moment)
+                if (now.name == "held" and pr["stage"]["why"] != now.why or pr["stage"]["staging"] != tested) and view.standing_card(pr, watcher.cards):
                     reheld.append(key)
                 stage.kept(pr, now)
+                if late:
+                    pr["stage"]["woke"] = state.stamp(moment)
+                    acts.append((key, now, False, stage.line(key, pr, now) + f" {ids(pr)}"))
+            pr["stage"]["staging"] = tested
     lines: list[str] = []
     for key in reheld:
         try:

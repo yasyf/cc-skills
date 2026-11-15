@@ -332,6 +332,7 @@ def render(pr: dict, entry: dict, shown: tuple[str, ...] = (), held: tuple[str, 
         "url": pr["url"],
         "title": plain,
         "head": pr["headRefOid"],
+        "staging": entry["staging"],
         "changed": entry.get("fundamental") or "",
         "review": f"Commit {entry['head'][:7]} goes against your words: {named}. {'Your Approve still lands it' if tap_label(entry) == 'Approve' else 'Its agent is told; your Approve still lands it'}" if pr["state"] == "OPEN" and (named := state.against(entry)) else "",
         "summary": section_words(found, "summary"),
@@ -665,7 +666,8 @@ def cards(asked: list[dict], redraw: bool = False) -> dict:
             skipped += refusals
             members = members[:lowest]
         fresh = not redraw and not on_his_card(known, reads, members)
-        picked = {key: picks(state.load(known[key][0]), known[key][1]) for key in members}
+        drives = {name: state.load(name) for name in {known[key][0] for key in members}}
+        picked = {key: picks(drives[known[key][0]], known[key][1]) for key in members}
         if fresh and not reason and (off := untapped(known, reads, members, picked)):
             skipped += [skip(key, off) for key in members]
             continue
@@ -681,7 +683,7 @@ def cards(asked: list[dict], redraw: bool = False) -> dict:
             [
                 (
                     reads[key],
-                    known[key][1] | {"now": standing(known, key)},
+                    known[key][1] | {"now": standing(known, key), "staging": view.staging(drives[known[key][0]], key)},
                     drawings[key][0],
                     tuple(words for wait, words in held[key].items() if wait not in picked[key]),
                     drawings[key][1],

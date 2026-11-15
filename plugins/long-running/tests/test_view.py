@@ -1228,3 +1228,32 @@ def test_where_it_is_takes_out_sentences_naming_record_ids_and_reads_a_line_whos
         "DONE reader j2027 done, 1 of 3 parts delivered",
         "DONE yasyf/cc-notes#278 merged as 9219fa636f",
     ]
+
+
+SOAK = "staging:sandsql/plat-usw2-staging@f3a6f23059917549d64ca2fdbdb5034f34289019"
+PROOF = "https://buildkite.com/forge/staging/builds/9"
+
+
+@pytest.mark.parametrize(
+    ("part", "tester", "words"),
+    [
+        (None, None, "Not on staging: no staging test is set for it"),
+        ({}, None, "Not on staging: its staging test has not started"),
+        ({"soak": SOAK}, {"state": "waiting", "waits": [SOAK]}, "Not on staging yet: waiting for plat-usw2-staging to run f3a6f23"),
+        ({"soak": SOAK}, {"state": "running"}, "Testing on staging: plat-usw2-staging at f3a6f23, running"),
+        ({"soak": SOAK, "posted": PROOF}, {"state": "waiting"}, f"Tested on staging: plat-usw2-staging at f3a6f23, passed, [proof]({PROOF})"),
+        ({"soak": SOAK, "posted": "/Users/me/soak.txt"}, {"state": "done"}, "Tested on staging: plat-usw2-staging at f3a6f23, passed, its proof a file on the Mac"),
+        ({"soak": SOAK}, {"state": "failed", "said": "FAILED open p99 rose to 4s"}, "Tested on staging: plat-usw2-staging at f3a6f23, no pass: FAILED open p99 rose to 4s"),
+        ({}, {"state": "stopped"}, "Not on staging: its test ended, stopped with no result"),
+    ],
+)
+def test_a_monorepo_prs_staging_words_name_its_env_commit_and_result_or_why_it_is_not_on_staging(part: dict | None, tester: dict | None, words: str) -> None:
+    staging = state.STAGING_TEST.format(number=7)
+    parts = {"ship it": state.new_part()} | ({staging: state.new_part() | part} if part is not None else {})
+    jobs = {"j1": job("o1", "running", parts=[staging], created=at(-20)) | tester} if tester else {}
+    drive = drive_of({"o1": order("ship it", list(jobs), parts=parts)}, jobs, [])
+    assert view.staging(drive, "Forge-AI/monorepo#7") == words
+
+
+def test_a_pr_outside_the_monorepo_says_its_repo_has_no_staging_env() -> None:
+    assert view.staging(drive_of({}, {}, []), "yasyf/cc-skills#7") == "Not on staging: yasyf/cc-skills has no staging env"
