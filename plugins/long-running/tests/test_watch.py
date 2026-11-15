@@ -3871,17 +3871,32 @@ def test_a_running_job_whose_agent_is_gone_is_an_orphan_naming_its_open_pr(demo:
     ]
 
 
-def test_a_running_job_with_no_live_worker_fails_once_its_row_sat_unmoved_past_the_reap_bound(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_running_job_fails_only_once_every_read_for_the_reap_bound_found_no_live_worker(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {})
     monkeypatch.setattr(watch, "local_gap", lambda job_id, job, data, moment: f"{job_id}'s agent ended with an earlier session")
     with state.edit(demo) as data:
         data["jobs"]["j1"].update(session="old", agent="a1")
-    assert staged(watch.agent_lines, watcher(demo), T0 + watch.REAP_AFTER - timedelta(minutes=1)) == []
+    lost = T0 + timedelta(hours=7)
+    assert staged(watch.agent_lines, watcher(demo), lost) == []
+    assert state.load(demo)["jobs"]["j1"]["lost_since"] == state.stamp(lost)
+    assert staged(watch.agent_lines, watcher(demo), lost + watch.REAP_AFTER - timedelta(minutes=1)) == []
     assert state.load(demo)["jobs"]["j1"]["state"] == "running"
-    lines = staged(watch.agent_lines, watcher(demo), T0 + watch.REAP_AFTER)
-    said = "failed: the watch found no live worker and no move since " + watch.when(state.stamp(T0)) + " (no bound session holds its agent a1)"
+    lines = staged(watch.agent_lines, watcher(demo), lost + watch.REAP_AFTER)
+    said = "failed: the watch found no live worker on every read since " + watch.when(state.stamp(lost)) + " (no bound session holds its agent a1)"
     assert lines == [f"LANE j1 o1 {said}; its part's ORPHAN line names who starts its next worker"]
-    assert (state.load(demo)["jobs"]["j1"]["state"], state.load(demo)["jobs"]["j1"]["said"]) == ("failed", said)
+    assert (state.load(demo)["jobs"]["j1"]["state"], state.load(demo)["jobs"]["j1"]["said"], state.load(demo)["jobs"]["j1"]["lost_since"]) == ("failed", said, None)
+
+
+def test_a_live_read_clears_the_loss_a_running_job_was_stamped_with(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    serve(monkeypatch, {})
+    monkeypatch.setattr(watch, "local_gap", lambda job_id, job, data, moment: None)
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(session="old", agent="a1")
+    assert staged(watch.agent_lines, watcher(demo), T0) == []
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["session"] = "session-under-test"
+    assert staged(watch.agent_lines, watcher(demo), T0 + watch.REAP_AFTER) == []
+    assert (state.load(demo)["jobs"]["j1"]["state"], state.load(demo)["jobs"]["j1"]["lost_since"]) == ("running", None)
 
 
 def write_transcript(config: Path, entries: list[dict], quiet: timedelta) -> None:
