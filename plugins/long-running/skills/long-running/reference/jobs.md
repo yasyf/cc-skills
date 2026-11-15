@@ -223,8 +223,10 @@ session makes its parts `ORPHAN`s.
 2. It starts the builder through the `orca` skill's launcher as an Orca worker on a Sprite, on an
    Orca Run of its own that only this drive's watch reads, and its notification says where it
    started or why it could not.
-3. When no worker started, start the job here with the Agent tool on its brief and say so in the
-   order's next report, never silently. When the failure came after worker-start ran, the lane may
+3. A first try on a fresh Sprite that started no worker, its prepare failing or its Sprite refusing
+   the tools a worker needs, launches once more. When no worker started on that try either, start
+   the job here with the Agent tool on its brief and say so in the order's next report, never
+   silently. When the failure came after worker-start ran, the lane may
    be live, so a reader checks that attempt before anything starts the job again, unless Orca's
    Run holds no task for its lane, when the attempt counts as one that sent nothing and the next
    launch reuses its Sprite, or Orca answers `Unknown environment` for its Sprite, when nothing it
@@ -415,8 +417,9 @@ before it sends or starts.
   relaunch whose earlier try prepared a Sprite and started no worker on it reuses that Sprite, and
   the launcher copies the new handoff onto it, unless that Sprite's own install refused the tools
   a worker needs, a full disk or a toolchain directory it cannot write: the launcher then destroys
-  it and exits 76, and the relaunch prepares one fresh Sprite, failing with his answer unsent when
-  that one refuses them too, his answer still held.
+  it and exits 76. A launch or relaunch on a fresh Sprite that started no worker tries once more,
+  the launcher preparing another Sprite or retrying worker-start on the one it prepared, and fails
+  with his answer unsent when that try starts none either, his answer still held.
 - A delivered message marks the job sent each answer of his given by then whose words it holds
   verbatim: a text `drive job resume` sent its live worker, kept as `jobs/<j>.sent-<request>.md`
   dated when it was held, or any launch, relaunch, resume or handoff text in `jobs/` a worker of the

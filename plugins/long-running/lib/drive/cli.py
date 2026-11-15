@@ -3355,7 +3355,7 @@ def launch_kept(name: str, job_id: str, started: dict | None, handoff: str | Non
 
 
 def launch_attempt(name: str, job: dict, attempt: str, kept: Path, brief: str, root: Path, workspace: str | None, session: str | None) -> dict:
-    """Launch one attempt of a job's lane on a Run the drive's own terminal makes, since Orca binds a Run only to the terminal that made it: on a fresh Sprite, or on the workspace's own Sprite in the checkout it holds, there resuming the Claude session given; a fresh Sprite's receipt records the SHA-256 of the cc-remote config the checkout holds, which it is made from, and one on the workspace's own Sprite keeps the job's; a try whose worker-start sent nothing reuses the Sprite it prepared, a Run Orca cannot make starts nothing, and the launcher copies this brief onto it. When a newer install saved the drive while the launcher ran, record_start hands the receipt to that install. A fresh Sprite that refuses the tools a worker needs is destroyed by the launcher, and the attempt launches once more on another; Unfit when that one refuses them too, or when the workspace's own Sprite does."""
+    """Launch one attempt of a job's lane on a Run the drive's own terminal makes, since Orca binds a Run only to the terminal that made it: on a fresh Sprite, or on the workspace's own Sprite in the checkout it holds, there resuming the Claude session given; a fresh Sprite's receipt records the SHA-256 of the cc-remote config the checkout holds, which it is made from, and one on the workspace's own Sprite keeps the job's; a try whose worker-start sent nothing reuses the Sprite it prepared, a Run Orca cannot make starts nothing, and the launcher copies this brief onto it. When a newer install saved the drive while the launcher ran, record_start hands the receipt to that install. An attempt on a fresh Sprite that started no worker, since its prepare failed or its Sprite refused the tools a worker needs, launches once more, the launcher preparing another Sprite or retrying worker-start on the one it prepared; Unstarted when that one starts none either, or when the workspace's own Sprite or the Mac does."""
     kept.write_text(brief)
     try:
         run = orca.new_run(name, f"drive {name} {attempt}: {job['goal']}")
@@ -3365,8 +3365,8 @@ def launch_attempt(name: str, job: dict, attempt: str, kept: Path, brief: str, r
     made = None if state.on_mac(job) else job.get("sprite_config") if workspace else orca.sprite_config(root)
     try:
         receipt = orca.launch(name, lane, kept, root, run, job["route"], workspace, session)
-    except orca.Unfit:
-        if workspace:
+    except orca.Unstarted:
+        if workspace or state.on_mac(job):
             raise
         receipt = orca.launch(name, lane, kept, root, run, job["route"], None, None)
     return {**receipt, "run": run, "sprite_config": made}
