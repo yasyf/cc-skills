@@ -8,10 +8,9 @@ import subprocess
 import sys
 import tempfile
 import time
-from collections.abc import Iterator
-from concurrent.futures import ThreadPoolExecutor
+import uuid
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from datetime import datetime
 from functools import partial
 from pathlib import Path, PurePosixPath
 
@@ -32,6 +31,9 @@ RELEASE_SUBJECT = re.compile(r"^chore\((release|plugins)\)")
 WORKFLOWS = ".github/workflows/"
 RELEASE_TAG_JOB = re.compile(r" *uses: *\S*/plugin-release-tag\.yml(?:@\S+)?\s*")
 RELOADS = "reloads.json"
+RELOAD_LOCKS = "reloads"
+RELOADS_LOG = "reloads.log"
+RELOADED = "<local-command-stdout>Reloaded:"
 UPDATE_LOCK = ".update.lock"
 RELOAD_WAIT_SECONDS = 30
 DRIVE = Path(__file__).resolve().parents[2] / "bin" / "drive"
@@ -1138,56 +1140,183 @@ def proof_kept(name: str, job_id: str, result: dict) -> str:
     return f"{job_id}: {change}"
 
 
-def reload_session(drive: str, seat: str, version: str, updated: datetime, deadline: float) -> str:
-    """Type /reload-plugins into one drive session's Orca terminal once it is idle, or after RELOAD_WAIT_SECONDS into its busy prompt, which loads an install's skills, agents and new hooks with nothing restarted, unless another install sent it one after this install's update, which loaded this one too; a session homed ends there types /exit instead, which cci resumes in the drive's checkout on the newest install, and one no tmux session of cci's runs gets it only once idle, then the Orca terminal that shows the tmux session cci resumes it in. A seat is a role, or `sub-coordinator <project>`."""
+def reload_session(drive: str, seat: str, force: bool) -> str:
+    """Hand one drive session's reload to the one process typing into its Orca terminal, `drive reload --seat` detached from this verb, so no install, lander or verb waits on its turn: unless it already reloaded onto the newest plugin install, as reloads.json keeps it, and not forced, as a bare drive reload is; a terminal whose reload lock another process holds is left to it, since that process reloads it again once its reload shows when a newer install landed meanwhile. A seat is a role, or `sub-coordinator <project>`."""
     from drive import orca
 
     who = f"{drive} {seat}"
-    held = state.bound_sessions(state.saved(drive)).get(seat, {})
-    if not (terminal := held.get("terminal")):
+    if not (terminal := state.bound_sessions(state.saved(drive)).get(seat, {}).get("terminal")):
         return f"{who}: no terminal recorded, skipped"
-    if sent := claim_reload(drive, seat, version, updated):
-        return f"{who}: already reloaded onto {sent['version']}"
-    wait = max(0.001, min(RELOAD_WAIT_SECONDS, deadline - clock() - orca.SUBMIT_SECONDS))
-    typed, shown = orca.RELOAD, None
+    onto, plugin = newest_update()
+    if not force and reloaded_onto(drive, seat) >= onto:
+        return f"{who}: already reloaded onto {plugin}"
+    path = reload_lock(terminal)
+    with open(path, "a") as handle:
+        if not state.taken(handle, 0):
+            return f"{who}: pending, as the process holding its reload lock ({state.holders(path)}) types {orca.RELOAD} into {terminal} once its turn ends"
+    pid = state.detach(drive, ["reload", "--seat", seat, *(["--force"] if force else [])], RELOADS_LOG)
+    return f"{who}: pid {pid} types {orca.RELOAD} into {terminal} once its turn ends, said in {state.drive_dir(drive) / RELOADS_LOG}"
+
+
+def reload_seat(drive: str, seat: str, force: bool) -> None:
+    """`drive reload --seat`: reload the seat's session onto the newest plugin install as the one process typing into its terminal, then again for each install that landed before that reload showed, printing a line for each; nothing once another process holds the terminal's reload lock, which does the same, or once a reload fails, which the next install tries again. What is left to load is read again each time the lock is let go, so an install that found it held while this process found nothing left is still reloaded."""
+    while force or reloaded_onto(drive, seat) < newest_update()[0]:
+        if not (said := held_reload(drive, seat, force)):
+            return
+        line, reloaded = said
+        print(f"{state.stamp()} {drive} {seat}: {line}", flush=True)
+        if not reloaded:
+            return
+        force = False
+
+
+def held_reload(drive: str, seat: str, force: bool) -> tuple[str, bool] | None:
+    """Under the reload lock of the seat's terminal, reload its session onto the newest plugin install, unless it already reloaded onto it and not forced; what it did and whether the session is reloaded, or None when another process holds the lock."""
+    held = state.bound_sessions(state.saved(drive))[seat]
+    path = reload_lock(held["terminal"])
+    with open(path, "a") as handle:
+        if not state.taken(handle, 0):
+            return None
+        onto, plugin = newest_update()
+        if not force and reloaded_onto(drive, seat) >= onto:
+            return f"already reloaded onto {plugin}", True
+        return typed_reload(drive, seat, held, onto, plugin)
+
+
+def typed_reload(drive: str, seat: str, held: dict, onto: str, plugin: str) -> tuple[str, bool]:
+    """Type /reload-plugins once into the terminal of the seat's session once Claude Code reads its turn over, never into a busy prompt, which loads the install's skills, agents and new hooks with nothing restarted, then wait for its transcript to show it ran; a session homed ends there types /exit instead, which cci resumes in the drive's checkout on the newest install. Stamped in reloads.json as reloaded onto that install once it shows; what it did and whether the session reloaded."""
+    from drive import orca, watch
+
+    terminal = held["terminal"]
+    moved = homed(drive, seat, held)
+    typed = orca.EXIT if moved else orca.RELOAD
+    if not (pid := idle_pid(held["session"])):
+        return f"its Claude Code process exited, so it loads {plugin} once it starts again", False
+    transcript = watch.session_transcript(held)
+    start = transcript.stat().st_size if transcript.exists() else 0
+    if failed := sent_once(terminal, typed):
+        return f"not reloaded ({failed})", False
+    if not moved and not reload_shown(pid, held["session"], transcript, start):
+        return f"{typed} typed in {terminal}, but no {RELOADED.removeprefix('<local-command-stdout>')} line showed in {transcript} while it sat idle {RELOAD_WAIT_SECONDS}s", False
+    with state.locked(drive):
+        path = state.drive_dir(drive) / RELOADS
+        sent = json.loads(path.read_text()) if path.exists() else {}
+        path.write_text(json.dumps(sent | {seat: {"onto": onto, "at": state.stamp()}}))
+    return f"reloaded onto {plugin} in {terminal}" if not moved else f"{typed} typed in {terminal}{moved()}", True
+
+
+def idle_pid(session: str) -> int | None:
+    """The pid of the Claude Code process running the session once its turn is over, waiting each second until the status Claude Code keeps in its sessions/<pid>.json reads idle, which it writes as the turn ends, never while it runs or shows a menu or permission prompt the command would answer; None once the process exits or runs another session."""
+    from drive import orca
+
+    if not (pid := orca.live_pid(session)):
+        return None
+    while (status := session_status(pid, session)) != "idle":
+        if status is None:
+            return None
+        sleep(1)
+    return pid
+
+
+def session_status(pid: int, session: str) -> str | None:
+    """The status Claude Code keeps for its process running the session, empty while its record is half written; None once the process exits or runs another session."""
+    from drive import agents
+
+    record = agents.registry_record(config_dir() / "sessions" / f"{pid}.json")
+    if not state.alive(pid) or (record and record["sessionId"] != session):
+        return None
+    return record["status"] if record else ""
+
+
+def sent_once(terminal: str, text: str) -> str | None:
+    """Send text to the terminal under one --retry-request id, reissued each second for up to RELOAD_WAIT_SECONDS while Orca's failure leaves open whether it took it, so it is typed at most once; None once Orca takes it, else why not and the command that types it, naming that id when Orca never answered."""
+    from drive import orca
+
+    request_id = str(uuid.uuid4())
+    until = clock() + RELOAD_WAIT_SECONDS
+    while True:
+        try:
+            orca.send_command(terminal, text, request_id)
+            return None
+        except orca.OrcaError as error:
+            if error.code not in orca.UNANSWERED:
+                return f"{error}; send it with: {orca.reload_command(terminal, text)}"
+            if clock() >= until:
+                return f"{error}; reissue it with: {orca.reload_command(terminal, text, request_id)}"
+        sleep(1)
+
+
+def reload_shown(pid: int, session: str, transcript: Path, start: int) -> bool:
+    """Whether /reload-plugins ran, as Claude Code's Reloaded: line in the session's transcript past start shows it, read forward each second from the last whole line read, through any turn that began before it ran, which it queues behind; False once the process exits, or once the session has read idle RELOAD_WAIT_SECONDS with no such line."""
+    idle = 0
+    while True:
+        if transcript.exists():
+            with open(transcript, "rb") as handle:
+                handle.seek(start)
+                read = handle.read()
+            whole = read[: read.rfind(b"\n") + 1]
+            if any(reloaded_row(line) for line in whole.splitlines()):
+                return True
+            start += len(whole)
+        if (status := session_status(pid, session)) is None or idle >= RELOAD_WAIT_SECONDS:
+            return False
+        idle = idle + 1 if status == "idle" else 0
+        sleep(1)
+
+
+def reloaded_row(line: bytes) -> bool:
     try:
-        moved, ends, shown = homed(drive, seat, held)
-        typed = orca.EXIT if ends else orca.RELOAD
-        idle = orca.typed_when_idle(terminal, typed, int(wait * 1000), orca.RELOAD if shown else None)
-    except state.DriveError as error:
-        unclaim_reload(drive, seat, version)
-        then = f", then once it exits: {shown.keywords['show']}" if shown else ""
-        return f"{who}: not reloaded ({error}); send it with: {orca.reload_command(terminal, typed)}{then}"
-    if not idle:
-        return f"{who}: busy for {wait:.0f}s, so {orca.RELOAD if shown else typed} is queued in {terminal} and runs when its turn ends{moved}"
-    if shown:
-        moved = shown(deadline=deadline)
-    return f"{who}: {'reloaded' if typed == orca.RELOAD else f'{typed} typed'} in {terminal}{moved}"
+        row = json.loads(line)
+    except ValueError:
+        return False
+    return row.get("type") == "system" and row.get("subtype") == "local_command" and row.get("content", "").startswith(RELOADED)
 
 
-def homed(drive: str, seat: str, held: dict) -> tuple[str, bool, partial[str] | None]:
-    """Move a seat whose session's Claude Code process runs outside the drive's checkout into it, by his pick "Sessions run in the drive's dev-head checkout; every job inherits it", whose option restarts each role once, so the agents it starts and the tools/ci it runs read the default branch head: the session registered with cci in the checkout, where cci session run resumes it in the tmux session of its alias once it exits, and ended now, an open incident order included; one no tmux session of cci's runs ends only once idle, since an /exit queued behind its turn ends it after this reload, when nothing opens the Orca terminal that shows it; what its reload line adds, whether it ends now, and for one outside cci's tmux what opens that terminal once the /exit lands."""
+def newest_update() -> tuple[str, str]:
+    """When a session last had a plugin install to load: the newest lastUpdated in installed_plugins.json of an install a session can load, one whose project folder is still on this Mac, which moves only when an install changes, and that plugin and version."""
+    plugins = json.loads((config_dir() / "plugins" / "installed_plugins.json").read_text())["plugins"]
+    key, entry = max(
+        ((key, entry) for key, entries in plugins.items() for entry in entries if "projectPath" not in entry or Path(entry["projectPath"]).is_dir()),
+        key=lambda pair: pair[1]["lastUpdated"],
+    )
+    return entry["lastUpdated"], f"{key} {entry['version']}"
+
+
+def reloaded_onto(drive: str, seat: str) -> str:
+    """The lastUpdated of the plugin install the seat's session last reloaded onto, empty before its first."""
+    path = state.drive_dir(drive) / RELOADS
+    return (json.loads(path.read_text()).get(seat) or {}).get("onto", "") if path.exists() else ""
+
+
+def reload_lock(terminal: str) -> Path:
+    """The file whose lock the one process typing a reload into the Orca terminal holds, whichever drive binds it."""
+    path = state.root() / RELOAD_LOCKS / f"{terminal}.lock"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def homed(drive: str, seat: str, held: dict) -> Callable[[], str] | None:
+    """Move a seat whose session's Claude Code process runs outside the drive's checkout into it, by his pick "Sessions run in the drive's dev-head checkout; every job inherits it", whose option restarts each role once, so the agents it starts and the tools/ci it runs read the default branch head: the session registered with cci in the checkout, where cci session run resumes it in the tmux session of its alias once the /exit typed in place of its reload ends it, an open incident order included; None for a session already there, else what runs once the /exit lands and says what its reload line adds, for one no tmux session of cci's runs the Orca terminal that shows the one cci resumes it in."""
     from drive import agents, orca
 
     if not (ran := orca.launch_dir(held["session"])):
-        return "", False, None
+        return None
     if ran.resolve() == (kept := orca.checkout(drive, held["cwd"])).resolve():
-        return "", False, None
+        return None
     project = seat.removeprefix("sub-coordinator ") if seat.startswith("sub-coordinator ") else None
     role = "coordinator" if project else seat
     agents.register(drive, role, project, str(kept), held["session"])
     resumed = f"cci session run resumes it in the drive's checkout {kept}"
     if orca.in_tmux(alias := state.alias(drive, seat, project), held["session"]):
-        return f", so {resumed}", True, None
-    later = f"; it runs in {ran} until a reload finds it idle, when it is typed /exit and {resumed}, since no tmux session of cci's runs it"
-    return later, True, partial(attached, drive=drive, alias=alias, session=held["session"], show=agents.launch(drive, role, project, str(kept))[1], resumed=resumed)
+        return lambda: f", so {resumed}"
+    return partial(attached, drive=drive, alias=alias, session=held["session"], show=agents.launch(drive, role, project, str(kept))[1], resumed=resumed)
 
 
-def attached(drive: str, alias: str, session: str, show: str, resumed: str, deadline: float) -> str:
+def attached(drive: str, alias: str, session: str, show: str, resumed: str) -> str:
     """Once cci session run resumes the session in the tmux session of its alias, which cci's channel starts as the /exit ends its Claude Code process, or once RELOAD_WAIT_SECONDS pass, run Start or resume's `orca terminal create` line, whose `cci session attach` shows that tmux session in Orca, starting it when it is down, so he opens the seat from Orca's sidebar, and record that terminal as the seat's, since the one it ran in is left at a shell prompt; what its reload line adds."""
     from drive import orca
 
-    until = min(deadline, clock() + RELOAD_WAIT_SECONDS)
+    until = clock() + RELOAD_WAIT_SECONDS
     while not orca.in_tmux(alias, session) and clock() < until:
         sleep(1)
     try:
@@ -1199,44 +1328,23 @@ def attached(drive: str, alias: str, session: str, show: str, resumed: str, dead
     return f", so {resumed} under tmux session {alias}, shown in Orca terminal {handle}"
 
 
-def claim_reload(drive: str, role: str, version: str, updated: datetime) -> dict | None:
-    """Under the drive's lock, the reload another install already sent the session at or after this install's update, or none, this install's then stamped as sent."""
-    path = state.drive_dir(drive) / RELOADS
-    with state.locked(drive):
-        sent = json.loads(path.read_text()) if path.exists() else {}
-        if (last := sent.get(role)) and state.parse_time(last["at"]) >= updated:
-            return last
-        path.write_text(json.dumps(sent | {role: {"at": state.stamp(), "version": version}}))
-    return None
+def reload_sessions(drives: list[str], force: bool) -> list[str]:
+    """Reload every session bound to each drive: the communicator, the top coordinator, the meta session and each sub-coordinator, read from each drive's saved bindings alone, since a newer install than this code may have saved the drive since its update."""
+    return [reload_session(name, seat, force) for name in drives for seat in state.bound_sessions(state.saved(name))]
 
 
-def unclaim_reload(drive: str, role: str, version: str) -> None:
-    """Drop this install's stamp for a reload that was never sent, so the next install sends one."""
-    path = state.drive_dir(drive) / RELOADS
-    with state.locked(drive):
-        sent = json.loads(path.read_text())
-        if sent.get(role, {}).get("version") == version:
-            path.write_text(json.dumps({other: last for other, last in sent.items() if other != role}))
-
-
-def reload_sessions(version: str, updated: datetime, deadline: float) -> list[str]:
-    """Reload every session bound to every drive: the communicator, the top coordinator, the meta session and each sub-coordinator, read from each drive's saved bindings alone, since a newer install than this code may have saved the drive since its update."""
-    sessions = [(name, seat) for name in state.names() for seat in state.bound_sessions(state.saved(name))]
-    with ThreadPoolExecutor() as pool:
-        return list(pool.map(lambda session: reload_session(*session, version, updated, deadline), sessions))
-
-
-def reload_main() -> int:
-    """Reload every drive session on this Mac now, as an install does after its update, whatever installs reloaded them before."""
-    from drive import orca
-
-    for line in reload_sessions(state.VERSION, state.now(), clock() + RELOAD_WAIT_SECONDS + orca.SUBMIT_SECONDS):
+def reload_main(drive: str | None, seat: str | None, force: bool) -> int:
+    """`drive reload`: with --seat, the one process typing that seat's reload into its terminal; otherwise every session of the drive, or of every drive on this Mac, handed to that process now whatever installs reloaded it before."""
+    if seat:
+        reload_seat(drive, seat, force)
+        return 0
+    for line in reload_sessions([drive] if drive else state.names(), True):
         print(line)
     return 0
 
 
 def main(plugin_at_marketplace: str, sha: str | None, repo: str | None, timeout: int, drive: str | None) -> int:
-    """Wait for a release holding sha, its commit and each binary it pins, bring each sibling its manifest there needs up to that release first, Captain Hook.app only once he tapped Install now on the drive's card for it, update the plugin and its Homebrew twin until the bare binary holds sha, print the installed version, then reload every drive session on this Mac. A sha no release will hold prints why and installs nothing."""
+    """Wait for a release holding sha, its commit and each binary it pins, bring each sibling its manifest there needs up to that release first, Captain Hook.app only once he tapped Install now on the drive's card for it, update the plugin and its Homebrew twin until the bare binary holds sha, print the installed version, then reload each drive session on this Mac that has not reloaded onto the newest plugin install, as reload_session hands it on. A sha no release will hold prints why and installs nothing."""
     deadline = clock() + timeout
     try:
         version = install(plugin_at_marketplace, sha, repo, deadline, timeout, drive)
@@ -1246,8 +1354,7 @@ def main(plugin_at_marketplace: str, sha: str | None, repo: str | None, timeout:
     except InstallError as error:
         print(f"drive install: {error}", file=sys.stderr)
         return 1
-    updated = state.now()
     print(f"installed {plugin_at_marketplace} {version}")
-    for line in reload_sessions(version, updated, deadline):
+    for line in reload_sessions(state.names(), False):
         print(line)
     return 0

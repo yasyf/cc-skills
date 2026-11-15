@@ -61,8 +61,7 @@ UNPUSHED = f"work it had not committed and pushed is not carried over. {PUSH_FIR
 RELOAD = "/reload-plugins"
 EXIT = "/exit"
 MAIL = "You have orchestration messages: read them with `orca orchestration check`, then continue."
-SUBMIT_SECONDS = 10
-TIMEOUT = "timeout"
+UNANSWERED = ("runtime_busy", "runtime_timeout", "runtime_unavailable", None)
 ANSWERED_ELSEWHERE = "answer_conflict"
 DISPATCH_CLOSED = "dispatch_inactive"
 UNSTARTED = 75
@@ -197,23 +196,15 @@ def drive_terminal(drive: str) -> str:
         return data["terminal"]
 
 
-def reload_command(terminal: str, text: str) -> str:
-    return f"orca terminal send --terminal {terminal} --text {text} --enter"
+def reload_command(terminal: str, text: str, request_id: str | None = None) -> str:
+    return f"orca terminal send --terminal {terminal} --text {text} --enter" + (f" --retry-request {request_id}" if request_id else "")
 
 
-def typed_when_idle(terminal: str, text: str, wait_ms: int, busy: str | None = None) -> bool:
-    """Type a slash command, /reload-plugins or /exit, into a Claude Code session's terminal once its turn is over, or once wait_ms pass, busy in its place when given, into its busy prompt, where Claude Code holds it until the turn ends; whether the session was idle, or OrcaError when it shows a prompt the text would answer."""
-    waiting = ("terminal", "wait", "--terminal", terminal, "--for", "tui-idle", "--timeout-ms", str(wait_ms))
-    try:
-        waited = request(*waiting, seconds=wait_ms / 1000 + CALL_SECONDS)["wait"]
-    except OrcaError as error:
-        if error.code != TIMEOUT:
-            raise
-        waited = None
-    if waited and not waited["satisfied"]:
-        raise OrcaError(f"orca terminal wait: it shows {waited['blockedReason']}")
-    request("terminal", "send", "--terminal", terminal, "--text", text if waited else busy or text, "--enter", "--wait-submit", str(SUBMIT_SECONDS))
-    return waited is not None
+def send_command(terminal: str, text: str, request_id: str) -> None:
+    """Type a slash command, /reload-plugins or /exit, into a Claude Code session's terminal and submit it under request_id, which Orca binds to that text and that terminal's process, so the same send reissued after a failure that leaves open whether Orca took it replays Orca's receipt rather than typing the command twice; OrcaError when it fails, its code one of UNANSWERED when Orca never said whether it took it."""
+    sent = request("terminal", "send", "--terminal", terminal, "--text", text, "--enter", "--retry-request", request_id)["send"]
+    if not sent["accepted"]:
+        raise OrcaError(f"orca terminal send: refused: {sent.get('refusedReason')}", "refused")
 
 
 def type_prompt(terminal: str, text: str) -> None:
