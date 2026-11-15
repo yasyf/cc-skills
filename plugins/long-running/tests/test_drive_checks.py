@@ -57,7 +57,7 @@ def test_a_refusal_jev_gives_no_verdict_on_only_warns_so_the_call_goes_ahead(jev
     }
 
 
-def test_a_handlers_claim_goes_to_jev_beside_its_reads_whole_call_and_holds_only_under_no_warning_in_the_band(jev: Jev) -> None:
+def test_a_handlers_claim_goes_to_jev_beside_its_reads_whole_call_and_holds_under_backs_and_stands_at_it_never_only_warning(jev: Jev) -> None:
     output = handled(CLAIM["claim"])
     held = settled.post_verdict(output, "")
     assert held == {
@@ -72,9 +72,9 @@ def test_a_handlers_claim_goes_to_jev_beside_its_reads_whole_call_and_holds_only
         },
         "questions": {"c1.backed": settled.asking(settled.BACKED, read="read:1", claim="c1")},
     }
-    jev.breaks("c1", "backed", 0.5)
-    assert settled.post_verdict(output, "") == {"verdict": "warn", "note": f'message_limits: Jev is unsure of claim "{CLAIM["claim"]}", so the post goes out as written: if one is wrong, reword the post in place.'}
-    jev.breaks("c1", "backed", 0.9)
+    jev.breaks("c1", "backed", settled.BACKS - 0.01)
+    assert settled.post_verdict(output, "")["verdict"] == "hold"
+    jev.breaks("c1", "backed", settled.BACKS)
     assert settled.post_verdict(output, "") == {"verdict": "pass", "note": ""}
     assert settled.post_verdict(output, SENT)["verdict"] == "pass"
     jev.breaks("c1", "backed", 0.1)

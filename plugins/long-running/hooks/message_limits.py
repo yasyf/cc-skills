@@ -278,7 +278,7 @@ def result_text(part: dict) -> str:
 
 
 def unread(payload: dict, dm: str) -> str | None:
-    """Why a handler's new line in a thread, his or one another channel's members read, such as a staging claim's, waits for a read of that thread, which its own transcript must show in the last 10 minutes; a card is drawn from a record, not written from the thread."""
+    """Why a handler's new line in a thread, his or one another channel's members read, such as a staging claim's, waits for a read of that thread, which its own transcript must show in the last 10 minutes, refused unjudged since the transcript's read times Jev never sees decide it; a card is drawn from a record, not written from the thread."""
     tool_input = payload["tool_input"]
     if not payload.get("agent_id") or edited(payload) or tool_input.get("card") or not (thread := tool_input.get("thread_ts")):
         return None
@@ -292,7 +292,7 @@ def unread(payload: dict, dm: str) -> str | None:
         why = OLD_READ.format(thread=thread, minutes=int((datetime.now(UTC) - read) / timedelta(minutes=1)))
     else:
         why = (FAILED_READ if failed else NO_READ).format(thread=thread)
-    return UNREAD.format(why=why, channel=channel, thread=thread)
+    return agents.Unjudged(UNREAD.format(why=why, channel=channel, thread=thread))
 
 
 def unchecked(tool_input: dict, messages: list[dict], linked: dict[str, dict], drive: dict, report: dict, order_id: str | None) -> list[str]:

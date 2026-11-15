@@ -769,8 +769,9 @@ restating it.
   checks each claim against that read, whole, and holds only unbacked claims". Jev answers one
   yes-or-no question a claim, whether its read backs it, and one a line no claim covers, whether it
   states a fact that stands only on a read, each as a probability of yes, and code decides: a claim
-  Jev answers under 0.3 holds the post, a line answered 0.7 or more holds it, and an answer in the
-  band between only warns, naming the claim or line. The fix is that read,
+  Jev answers under 0.45 holds the post and one at 0.45 or more stands, the cut every unbacked claim
+  of the drive's recorded posts drew under, so no claim only warns; a line answered 0.7 or more holds
+  it, and a line's answer between 0.3 and 0.7 only warns, naming the line. The fix is that read,
   or the line cut to what the reads show, never a line posted marked unread.
 - A card's title and options draw no links, so link whatever they name in its summary or a Show me
   caption. `drive job ask` refuses an `ASK`, and the post hook a post, that names such a thing with no
