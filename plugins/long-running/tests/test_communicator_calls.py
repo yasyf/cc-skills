@@ -1,6 +1,7 @@
 import io
 import json
 import os
+import shlex
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -175,7 +176,7 @@ def test_each_step_a_watch_line_names_to_reach_a_builder_on_this_mac_is_one_the_
     [wake] = [line.partition("to wake it: ")[2] for line in brief.splitlines() if line.startswith("Holder:")]
     lines = [*answers, *(record["text"] for record in posted), *idle, wake]
     assert len(lines) == (4 if returned == "running" else 3 if returned == "built" else 2)
-    resumes = [line for line in lines if "drive job resume j1 with " in line]
+    resumes = [line for line in lines if "drive job resume j1 " in line]
     for line in lines:
         if line in resumes:
             continue
@@ -183,10 +184,11 @@ def test_each_step_a_watch_line_names_to_reach_a_builder_on_this_mac_is_one_the_
         assert communicator_calls.deny_reason(call("SendMessage", transcript(tmp_path), to="a-7", message=line)).startswith(f"Refused on purpose: j1's builder already returned ({returned})"), line
         assert communicator_calls.deny_reason(call("Bash", transcript(tmp_path), command="drive job add builder --order o1 --goal 'fix the red check'")) is None
     for line in resumes:
-        assert communicator_calls.deny_reason(call("Bash", transcript(tmp_path), command=f"drive job resume j1 {json.dumps(line)}")) is None, line
-        assert run("job", "resume", "j1", words if line.startswith("ANSWER undelivered") else line) == (0, f'j1: SendMessage a-7 "{superseded.POINTER.format(9)}"'), line
+        resume = ["job", "resume", "j1"] if line in answers else ["job", "resume", "j1", line]
+        assert communicator_calls.deny_reason(call("Bash", transcript(tmp_path), command=shlex.join(["drive", *resume]))) is None, line
+        assert run(*resume) == (0, f'j1: SendMessage a-7 "{superseded.POINTER.format(9)}"'), line
         assert communicator_calls.deny_reason(call("SendMessage", transcript(tmp_path), to="a-7", message=superseded.POINTER.format(9))) is None, line
-    assert [line.startswith("ANSWER undelivered") and "drive job resume j1 with his words verbatim" in line for line in answers] == ([True] if returned != "done" else [])
+    assert [line.endswith("drive job resume j1 delivers it now [o1 j1]") for line in answers] == ([True] if returned != "done" else [])
     with state.edit(demo) as data:
         superseded.hear(data, "j1", words, state.now())
         assert data["jobs"]["j1"]["undelivered"] == []

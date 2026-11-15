@@ -516,7 +516,7 @@ def test_an_agent_on_this_mac_set_on_a_job_whose_sprite_lane_asked_ends_that_que
     assert handed_on(remote) == ("running", None, [] if quoted else [(LANE_QUESTION, None, state.stamp(T0))])
     undelivered = (
         f'ANSWER undelivered j1: "{LANE_QUESTION}", held at {render.when(state.stamp(T0))}, has not reached j1; the watch sends it to a worker that takes messages,'
-        " hands it to the next worker of one that returned and launches a builder never started with it; drive job resume j1 with his words verbatim [o1 j1]"
+        " hands it to the next worker of one that returned and launches a builder never started with it, and drive job resume j1 delivers it now [o1 j1]"
     )
     assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == ([] if quoted else [undelivered])
 
@@ -1326,7 +1326,65 @@ def test_a_resume_of_an_agent_the_communicator_started_posts_his_words_whole_to_
     assert posted == []
 
 
-STOPPED_TEXT = "API Error: Opus 5.5's safeguards flagged this message (https://www.anthropic.com/legal/aup). This sometimes happens with safe, normal conversations."
+def test_a_resume_with_no_text_posts_each_text_an_agent_its_session_started_holds_whole_oldest_first_one_sendmessage_a_record_as_j232s_cut_line_needed(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    order = "Drive tooling: the watch's undelivered-words line asks the session to resume a job with the held words verbatim but cuts them off"
+    joined = state.joined_words("o2", "o1", order)
+    merged = "From the coordinator: PR #7 merged, so the red check it waited on is gone"
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the watch")
+    run("job", "add", "builder", "--order", "o1", "--goal", "watch")
+    held = [
+        {"seq": None, "words": joined, "at": state.stamp(T0), "said": None, "request": "req-joined", "sender": state.HIM},
+        {"seq": None, "words": merged, "at": state.stamp(T0 + timedelta(minutes=1)), "said": None, "request": "req-merged", "sender": "coordinator"},
+    ]
+    with state.edit(demo) as data:
+        top = data["roles"]["coordinator"]["session"]
+        data["jobs"]["j1"].update(agent="a4e953525ff2a4e17", session=top, where="local", undelivered=held)
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", top)
+    monkeypatch.setattr(orca, "launch", lambda *args: pytest.fail("a live agent's job starts no second worker"))
+    posted = []
+    seqs = iter(["720371", "720372"])
+    monkeypatch.setattr(tools, "sent", lambda name, lane, posts: posted.extend((lane, post) for post in posts) or [next(seqs)])
+    assert run("job", "resume", "j1") == (
+        0,
+        'j1: SendMessage a4e953525ff2a4e17 "Read cci record 720371 whole and act on it"\nj1: SendMessage a4e953525ff2a4e17 "Read cci record 720372 whole and act on it"',
+    )
+    assert [(lane, post["kind"], post["to"], post.get("body", post["text"])) for lane, post in posted] == [
+        ("root", "handoff", [f"peer:{top}/a4e953525ff2a4e17"], joined),
+        ("root", "handoff", [f"peer:{top}/a4e953525ff2a4e17"], merged),
+    ]
+    jobs = state.drive_dir(demo) / "jobs"
+    assert ((jobs / "j1.sent-720371.md").read_text(), (jobs / "j1.sent-720372.md").read_text(), state.load(demo)["jobs"]["j1"]["undelivered"]) == (joined, merged, [])
+    assert run("job", "resume", "j1") == (0, "j1 holds no message to send")
+    assert len(posted) == 2
+
+
+def test_a_resume_with_no_text_from_another_session_posts_the_held_text_to_the_agent_and_its_starter_the_sendmessage_pointing_there(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    words = 'His answer on card demo:j1-7, verbatim: "Ring: ship the lighter card, and keep the heavy one for the release notes"'
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the watch")
+    run("job", "add", "builder", "--order", "o1", "--goal", "watch")
+    held = {"seq": None, "words": words, "at": state.stamp(T0), "said": None, "request": "req-held", "sender": state.HIM}
+    with state.edit(demo) as data:
+        data["roles"]["communicator"] = {"session": "talker", "terminal": None, "cwd": "/talk", "started": state.stamp()}
+        data["jobs"]["j1"].update(agent="a3c1d2e4f5a6b7c8d", session="talker", where="local", undelivered=[held])
+        top = data["roles"]["coordinator"]["session"]
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", top)
+    monkeypatch.setattr(orca, "launch", lambda *args: pytest.fail("a live agent's job starts no second worker"))
+    posted = []
+    monkeypatch.setattr(tools, "sent", lambda name, lane, posts: posted.extend((lane, post) for post in posts) or ["8"])
+    pointer = 'j1: SendMessage a3c1d2e4f5a6b7c8d "Read cci record 8 whole and act on it"'
+    assert run("job", "resume", "j1") == (
+        0,
+        f"j1: posted to agent a3c1d2e4f5a6b7c8d's cci address as handoff record 8, and to communicator@{demo}, whose SendMessage alone reaches it: {pointer}",
+    )
+    assert [(lane, post["to"], post["text"]) for lane, post in posted] == [("root", ["peer:talker/a3c1d2e4f5a6b7c8d"], words), ("root", [f"communicator@{demo}"], pointer)]
+    assert state.load(demo)["jobs"]["j1"]["undelivered"] == []
+
+
+STOPPED_TEXT ="API Error: Opus 5.5's safeguards flagged this message (https://www.anthropic.com/legal/aup). This sometimes happens with safe, normal conversations."
 STOPPED = {
     "type": "assistant",
     "timestamp": "2026-11-12T20:44:05.907Z",

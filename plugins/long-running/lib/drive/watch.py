@@ -2214,14 +2214,14 @@ def undelivered_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def unreached(job_id: str, job: dict, data: dict, answer: dict, locked: str | None) -> str:
-    """A text the job holds that has not reached it, what the watch does with such texts, and the delivery that reaches the job now: for a lane on Orca, drive job resume, which sends it what it holds, or, while orca.locked_out names why that resume is refused, the local launch orca.moved_here names; else the step superseded.delivery names from the session holding the job."""
+    """A text the job holds that has not reached it, what the watch does with such texts, and the delivery that reaches the job now: for a lane on Orca, drive job resume with no text, which sends it what it holds, or, while orca.locked_out names why that resume is refused, the local launch orca.moved_here names; for an agent on this Mac whose starter state.agent_lane names, the session this line goes to, the same resume, which posts each text the job holds whole to the agent and prints the SendMessage pointing it at each, so the line's cut quote is never the text anyone sends; else the step superseded.delivery names from the session holding the job."""
     held = (
         f'"{cut(answer["words"], 80)}", held at {when(answer["at"])}, has not reached {job_id}; the watch sends it to a worker that takes messages,'
         " hands it to the next worker of one that returned and launches a builder never started with it"
     )
     if locked:
         return f"{held}; drive job resume {job_id} is refused now: {locked}, so {orca.moved_here(job_id)}"
-    if job.get("where") == "remote" and job.get("dispatch"):
+    if job.get("where") == "remote" and job.get("dispatch") or state.agent_lane(data, job):
         return f"{held}, and drive job resume {job_id} delivers it now"
     return f"{held}; {superseded.delivery(data, job_id, job, answer['words'])[1]}"
 
@@ -3316,7 +3316,7 @@ def carry_held(watcher: Watcher, moment: datetime) -> None:
 
 
 def carrier(job_id: str, job: dict, data: dict, cards: dict | None) -> list[str] | None:
-    """The drive command that carries a job's held texts, by carry_held; None while its worker runs, which agent_lines sends them to, while the session that started its agent on this Mac reaches it, by state.agent_lane, whose SendMessage the ANSWER undelivered line names, by his pick "Keep with the starter: the agent finishes its job, your answers reach it at once", while its codex-ask run goes, whose next launch carries them in its brief, while a wait holds it, builder-slot included for a lane started, whose move here the watch's turn starts with them in its handoff, or for an adopted PR's job no builder started, which starts only on a PR event."""
+    """The drive command that carries a job's held texts, by carry_held; None while its worker runs, which agent_lines sends them to, while the session that started its agent on this Mac reaches it, by state.agent_lane, whose ANSWER undelivered line names the drive job resume that posts each held text to that agent and prints the SendMessage pointing it there, by his pick "Keep with the starter: the agent finishes its job, your answers reach it at once", while its codex-ask run goes, whose next launch carries them in its brief, while a wait holds it, builder-slot included for a lane started, whose move here the watch's turn starts with them in its handoff, or for an adopted PR's job no builder started, which starts only on a PR event."""
     started = job.get("agent") or job.get("dispatch") or job.get("codex_run")
     if job["state"] == "running" and started or job["prs"] and not started or state.agent_lane(data, job):
         return None

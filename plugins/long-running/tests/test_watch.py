@@ -2949,7 +2949,7 @@ def test_a_text_held_on_an_agent_on_this_mac_names_its_resume_and_none_is_said_o
         data["jobs"]["j3"] = job(state="waiting", waits=["demo:j1-7", "j2"], undelivered=held)
     assert watch.undelivered_lines(watcher(demo), T0 + timedelta(minutes=10)) == [
         f'ANSWER undelivered j1: "drift only in a window you pick", held at {render.when(state.stamp(T0))}, has not reached j1; the watch sends it to a worker that'
-        " takes messages, hands it to the next worker of one that returned and launches a builder never started with it; drive job resume j1 with his words verbatim [o1 j1]"
+        " takes messages, hands it to the next worker of one that returned and launches a builder never started with it, and drive job resume j1 delivers it now [o1 j1]"
     ]
 
 
