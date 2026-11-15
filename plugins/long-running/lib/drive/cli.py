@@ -2711,7 +2711,8 @@ def job_report(args: argparse.Namespace) -> int:
         fixes = []
         for key in state.untracked_fixes(data, args.id, line, whole):
             try:
-                fixes.append(f"FIX kept, {key}: tracked under {add_pr(name, key, args.id, github_pr(key))['order']}")
+                pr, testers = add_pr(name, key, args.id, github_pr(key))
+                fixes += [f"FIX kept, {key}: tracked under {pr['order']}", *render.builder_lines(state.load(name), testers)]
             except DriveError as error:
                 fixes.append(f"FIX kept, {error}")
         with state.edit(name) as data:
@@ -2747,8 +2748,8 @@ def register_named(name: str, job_id: str, line: str) -> list[str]:
     for key in dict.fromkeys(state.pr_key(found[0]) for found in state.PR_URL.finditer(line)):
         if key.casefold() in tracked:
             continue
-        pr = add_pr(name, key, job_id, github_pr(key), lead={})
-        added.append(f"{key}: registered on {job_id}{drawn_card(name, key, pr)}")
+        pr, testers = add_pr(name, key, job_id, github_pr(key), lead={})
+        added += [f"{key}: registered on {job_id}{drawn_card(name, key, pr)}", *render.builder_lines(state.load(name), testers)]
     return added
 
 
@@ -3853,10 +3854,11 @@ def pr_add(args: argparse.Namespace) -> int:
         raise DriveError(UNLANDABLE.format(key=key, done="added"))
     lead = {line: given for line, flag in limits.LEAD_LINES if (given := getattr(args, flag.removeprefix("--")))}
     kept = state.load(name)["prs"].get(key, {}).get("lead")
-    pr = add_pr(name, key, args.job, github_pr(key), args.port_of, args.exempt, args.no_tap, lead, args.part)
+    pr, testers = add_pr(name, key, args.job, github_pr(key), args.port_of, args.exempt, args.no_tap, lead, args.part)
     shown = view.card_for((view.live_cards(name) or view.NO_CARDS)["pr_cards"], pr["url"])
     drawn = state.after_save(name, lambda: [releaded(pr) if pr["lead"] != kept else ""] if shown else [drawn_card(name, key, pr)])
-    return emit(args, f"{key}{''.join(drawn)}", {"key": key, **state.load(name)["prs"][key]})
+    data = state.load(name)
+    return emit(args, "\n".join([f"{key}{''.join(drawn)}", *render.builder_lines(data, testers)]), {"key": key, **data["prs"][key]})
 
 
 def drawn_card(name: str, key: str, pr: dict) -> str:
@@ -3917,8 +3919,8 @@ def pr_wake(args: argparse.Namespace) -> int:
     return emit(args, f"{key}: sent to {lane}@{name} for {target}", {"key": key, "job": job_id, "how": f"handoff to {lane}"})
 
 
-def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = None, exempt: str | None = None, no_tap: bool = False, lead: dict | None = None, parts: list[str] | None = None) -> dict:
-    """Register a PR on its job from its GitHub read, refused as `drive pr add` refuses, keeping the title and branch it read, so a PR merged and proved before the watch's next read is named by it and a card naming its branch holds it at once, and the parts of its job's orders it names as delivering, so its first check judges it on those; the PR as registered, the job's first in place of each wait on its change. `drive pr add` runs it, and `drive job report` for each PR a builder's READY or PUSHED names that no `drive pr add` registered, so every PR a result names lands as one its builder added does, and for each GitHub PR the drive does not track that the FIX line of a report tracing a live bug's cause links. Someone else's PR his words on its order do not name is refused before any check that would have its title or body edited. The lead lines given are kept over those kept before. A PR is refused once, nothing written, naming every one of these it has, so one relayed call or dry run names them all: a title his card cannot name the kind of, a Show me picture that does not draw, and, on a PR his card asks his tap on, a lead that does not tell him why it is made, what it does and what it changes downstream, by limits.lead_problems; a FIX line's PR, given no lead, is someone else's and kept as it reads."""
+def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = None, exempt: str | None = None, no_tap: bool = False, lead: dict | None = None, parts: list[str] | None = None) -> tuple[dict, list[str]]:
+    """Register a PR on its job from its GitHub read, refused as `drive pr add` refuses, keeping the title and branch it read, so a PR merged and proved before the watch's next read is named by it and a card naming its branch holds it at once, and the parts of its job's orders it names as delivering, so its first check judges it on those, and, for an open one whose head changes a dangerous class of file, its staging test with a tester, by state.mark_dangerous, before his card draws; the PR as registered, the job's first in place of each wait on its change, and the tester added. `drive pr add` runs it, and `drive job report` for each PR a builder's READY or PUSHED names that no `drive pr add` registered, so every PR a result names lands as one its builder added does, and for each GitHub PR the drive does not track that the FIX line of a report tracing a live bug's cause links. Someone else's PR his words on its order do not name is refused before any check that would have its title or body edited. The lead lines given are kept over those kept before. A PR is refused once, nothing written, naming every one of these it has, so one relayed call or dry run names them all: a title his card cannot name the kind of, a Show me picture that does not draw, and, on a PR his card asks his tap on, a lead that does not tell him why it is made, what it does and what it changes downstream, by limits.lead_problems; a FIX line's PR, given no lead, is someone else's and kept as it reads."""
     from drive import stage
 
     url = state.pr_url(key)
@@ -3978,8 +3980,9 @@ def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = N
         if parts:
             refuse_a_part_its_job_lacks(data, key, parts, False, "added")
             pr["parts"] = list(dict.fromkeys(parts))
+        tester = state.mark_dangerous(data, key, read["headRefOid"], [changed["path"] for changed in read["files"]]) if read["state"] == "OPEN" and read["files"] else None
     note_third_person(key, read)
-    return pr
+    return pr, [tester] if tester else []
 
 
 def design_basis(text: str) -> str:

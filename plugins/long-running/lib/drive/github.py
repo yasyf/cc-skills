@@ -40,6 +40,7 @@ FAILED_TEST = re.compile(r"^\S+ (?:FAILED|ERROR) (?P<pytest>\S+\.py(?:::[^\r\n]+
 PRS_PER_QUERY = 25
 MERGEABILITY = "state headRefOid mergeable"
 MERGEABILITY_PER_QUERY = 100
+PATHS = "headRefOid changedFiles files(first: 100) { nodes { path } }"
 STACKS_AGE = "60s"
 STACK = "stack { baseRefName entries(first: 100) { nodes { position pullRequest { number state } } } }"
 UNDER = "baseRef { associatedPullRequests(states: OPEN, first: 2) { nodes { number } } }"
@@ -487,6 +488,16 @@ def mergeability(keys: list[str]) -> tuple[dict[str, dict], GithubError | None]:
         except GithubError as error:
             refused.append(str(error))
     return found, GithubError("; ".join(refused)) if refused else None
+
+
+def paths(keys: list[str]) -> dict[str, tuple[str, list[str]]]:
+    """Each PR's head and the path of each file it changes, PRS_PER_QUERY PRs of one repository to a `gh api graphql` call, the files of one changing more than the 100 a query lists read over REST, by files(); a PR GitHub answered none for left out."""
+    found = {}
+    for chunk in by_repository(keys, PRS_PER_QUERY):
+        for key, node in nodes(graphql(query(chunk, PATHS), f"the changed files of {len(chunk)} PRs of {repo_of(chunk[0])}"), chunk).items():
+            listed = [changed["path"] for changed in node["files"]["nodes"]]
+            found[key] = (node["headRefOid"], listed if node["changedFiles"] <= len(listed) else files(key))
+    return found
 
 
 def merged_off_default(read: dict) -> bool:

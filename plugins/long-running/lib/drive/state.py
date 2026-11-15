@@ -18,6 +18,7 @@ from collections.abc import Callable, Iterable, Iterator
 from contextlib import AbstractContextManager, closing, contextmanager, nullcontext, suppress
 from contextvars import ContextVar
 from datetime import date, datetime, timedelta
+from fnmatch import fnmatchcase
 from pathlib import Path
 from typing import IO
 
@@ -159,6 +160,11 @@ PROVER_GOAL = re.compile(r"prove (?P<keys>.+) live")
 STAGING_LINE = re.compile(r"^[*_`]*STAGING[*_`]*:?[*_`]*[ \t]+(?P<staging>\S.*?)[ \t]*$", re.MULTILINE)
 STAGED = re.compile(r"#(?P<number>\d+)[ \t]+(?P<cases>\S.*)")
 UNSTAGED = re.compile(rf"{NO_FIX}:[ \t]*\S")
+DANGEROUS_SHOWN = 5
+DANGEROUS_GOAL = (
+    "test {key} on staging before it lands, since its head changes {changes}, each a dangerous change by AGENTS.md as the repository's {rules} lists its paths:"
+    " run the cases its builder's `STAGING: #{number}` line names, which reach you as it returns them, beside those its body and these files call for"
+)
 STAGING_RULE = (
     "end your report with a line `STAGING: #N <the cases its staging test runs>` for each, which puts it on its `staging test of #N before it lands` part with a tester"
     " on this Mac running those cases, or one line `STAGING: none: <why AGENTS.md's dangerous rule misses it>`, by his words"
@@ -944,6 +950,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         pr.setdefault("undrawn", None)
         pr.setdefault("design", None)
         pr.setdefault("answers", None)
+        pr.setdefault("paths_at", None)
+        pr.setdefault("unstaged", None)
         pr.pop("stall", None)
         pr.setdefault("graded", pr["state"] == "merged")
         if checked := pr["checked"]:
@@ -2026,28 +2034,79 @@ def renamed_change(name: str, data: dict, order_id: str, named: list[str], desig
 
 
 def staging_testers(data: dict, job_id: str, report: str) -> list[str]:
-    """Stage each PR the drive tracks that a builder's READY or PUSHED names on a `STAGING: #N <cases>` line, by stage_pr, its tester in the builder's session; the testers added."""
+    """Stage each PR the drive tracks that a builder's READY or PUSHED names on a `STAGING: #N <cases>` line, by stage_pr, those cases its tester's goal, or held on the unended tester already on it, so a tester the drive gave a PR from its changed files hears them, and lift by unstage each Forge-AI/monorepo PR its first line names that no such line stages once a `STAGING: none: <why>` line says AGENTS.md's dangerous rule misses it; the testers added."""
+    job = data["jobs"][job_id]
     if not REPORTED_LINE.match(report.lstrip()):
         return []
-    session = data["jobs"][job_id].get("session")
-    staged = [(key, found["cases"]) for staging in STAGING_LINE.findall(report) if (found := STAGED.fullmatch(staging)) and (key := f"{MONOREPO}#{found['number']}") in data["prs"]]
-    return [tester_id for key, cases in staged if (tester_id := stage_pr(data, key, cases, session))]
+    added, staged = [], set()
+    keys = {key.casefold(): key for key in data["prs"]}
+    stagings = STAGING_LINE.findall(report)
+    for staging in stagings:
+        if not (found := STAGED.fullmatch(staging)) or not (key := keys.get(f"{MONOREPO}#{found['number']}".casefold())):
+            continue
+        staged.add(key)
+        if tester_id := stage_pr(data, key, found["cases"], job.get("session")):
+            added.append(tester_id)
+    if why := next((staging.partition(":")[2].strip() for staging in stagings if UNSTAGED.match(staging)), None):
+        named = (keys.get(f"{found[1]}/{found[2]}#{found[3]}".casefold()) for found in PR_URL.finditer(report.lstrip().partition("\n")[0]) if f"{found[1]}/{found[2]}".casefold() == MONOREPO.casefold())
+        for key in dict.fromkeys(named):
+            if key and key not in staged:
+                unstage(data, key, why, job_id)
+    return added
 
 
-def stage_pr(data: dict, key: str, cases: str, session: str | None) -> str | None:
-    """Put a Forge-AI/monorepo PR the drive tracks on the `staging test of #N before it lands` part of the order tracking it, waiting on that part, and give the part, when no unended job carries it, a tester of its own, a builder building nothing on this Mac in the session given, its goal the cases, as install.add_prover adds a prover; the tester added, else None."""
+def stage_pr(data: dict, key: str, goal: str, session: str | None) -> str | None:
+    """Put a Forge-AI/monorepo PR the drive tracks on the `staging test of #N before it lands` part of the order tracking it, waiting on that part, and give the part a tester when no unended job carries it, a builder building nothing on this Mac in the session given, its goal the one given, as install.add_prover adds a prover; else hold that goal on the unended job carrying it, unless it is that job's goal, so its next worker hears it, or, when that job is a tester mark_dangerous gave it that finished before its builder named these cases, give the part a tester of these; staging it ends any lift unstage kept; the tester added, or None."""
     from drive import view
 
     pr = data["prs"][key]
-    order, part = data["orders"][pr["order"]], STAGING_TEST.format(number=key.rpartition("#")[2])
+    pr["unstaged"] = None
+    order, part = data["orders"][pr["order"]], STAGING_TEST.format(number=key.split("#")[1])
     order["parts"].setdefault(part, new_part())
     pr["waits"] = view.stored_waits(data, [*pr["waits"], f"{pr['order']}:{part}"])
-    if any(other["state"] not in ENDED_JOB_STATES for _, other in part_jobs(data, pr["order"], part)):
+    testing = next((other for _, other in reversed(part_jobs(data, pr["order"], part)) if other["state"] not in ENDED_JOB_STATES), None)
+    if testing and not (testing["state"] == "done" and testing["goal"] != goal and testing["goal"].startswith(DANGEROUS_GOAL.partition("{changes}")[0].format(key=key))):
+        if testing["goal"] != goal:
+            hold_text(testing, f"The staging test of {key} also runs: {goal}", None)
         return None
     tester_id = next_id(data["jobs"], "j")
-    data["jobs"][tester_id] = new_job(pr["order"], "builder", cases, [part], stamp()) | {"session": session, "builds_nothing": True}
+    data["jobs"][tester_id] = new_job(pr["order"], "builder", goal, [part], stamp()) | {"session": session, "builds_nothing": True}
     order["jobs"].append(tester_id)
     return tester_id
+
+
+def unstage(data: dict, key: str, why: str, job_id: str) -> None:
+    """Lift a Forge-AI/monorepo PR off its staging test once its builder's `STAGING: none: <why>` says AGENTS.md's dangerous rule misses it, keeping why for his card with the head it spoke of, the one whose files were read last, so that head's changed files mark it no more, by markable, while a new head's are read again: the part leaves each order on which no job took it up, by drop_part, with the PR's wait on it, while a test a job took up stays to finish, by his ruling 0048b14."""
+    pr = data["prs"][key]
+    pr["unstaged"] = {"why": why, "head": pr["paths_at"] or pr["head"]}
+    part = STAGING_TEST.format(number=key.split("#")[1])
+    for order_id in [order_id for order_id, order in data["orders"].items() if part in order["parts"]]:
+        if all(untaken(job) for _, job in part_jobs(data, order_id, part)):
+            drop_part(data, order_id, part, f"{job_id} says {key} needs no staging test: {why}")
+            rewait(pr, [wait for wait in pr["waits"] if wait != f"{order_id}:{part}"])
+
+
+def markable(data: dict, key: str, head: str) -> bool:
+    """Whether mark_dangerous may stage a PR at a head from its changed files: an open Forge-AI/monorepo PR no order holds the staging test part of whose builder's `STAGING: none` lifted no test at that head."""
+    pr, part = data["prs"][key], STAGING_TEST.format(number=key.split("#")[1])
+    return pr["state"] == "open" and github.repo_of(key).casefold() == MONOREPO.casefold() and not (pr["unstaged"] and pr["unstaged"]["head"] == head) and not any(part in order["parts"] for order in data["orders"].values())
+
+
+def unmarked(data: dict) -> list[str]:
+    """Each PR the drive tracks whose head no read of its changed files saw and that mark_dangerous may stage, by markable: those the watch reads the files of."""
+    return [key for key, pr in data["prs"].items() if pr["head"] and pr["paths_at"] != pr["head"] and markable(data, key, pr["head"])]
+
+
+def mark_dangerous(data: dict, key: str, head: str, paths: list[str]) -> str | None:
+    """Stage a PR whose head changes a dangerous class of file, by dangerous(), as its builder's `STAGING: #N` line would, by stage_pr, in the session of its job, its tester's goal naming each class and its files, while markable, keeping the head read so each head is read once: the check of a PR's changed files that `drive pr add` and the watch make, so the staging test AGENTS.md asks never rests on its builder's word alone, the tooling only helping the builder keep the prose rule, by his words 17f763e; the tester added, or None."""
+    pr = data["prs"][key]
+    if pr["paths_at"] == head:
+        return None
+    pr["paths_at"] = head
+    if not markable(data, key, head) or not (classes := dangerous(data, paths)):
+        return None
+    changes = "; ".join(f"{kind}: {', '.join(made[:DANGEROUS_SHOWN])}{f' and {len(made) - DANGEROUS_SHOWN} more' if len(made) > DANGEROUS_SHOWN else ''}" for kind, made in classes.items())
+    return stage_pr(data, key, DANGEROUS_GOAL.format(key=key, number=key.split("#")[1], changes=changes, rules=REPO_RULES), data["jobs"][pr["job"]].get("session"))
 
 
 def left_changes(data: dict, builder_id: str, found: list[tuple[str, list[int]]]) -> list[str]:
@@ -3357,10 +3416,26 @@ def bound_sessions(data: dict) -> dict[str, dict]:
     return data["roles"] | {f"sub-coordinator {project}": held for project, held in data["subcoordinators"].items()}
 
 
-def repo_rules(data: dict) -> list[str]:
-    """Each rule the repository the drive works in sets for every drive working in it, as `<id>: <text>`, from the .claude/long-running.toml in the drive's checkout, which the drive moves to its default branch's head before each launch; none when the repository holds no such file."""
+def repo_config(data: dict) -> dict:
+    """The tables of the .claude/long-running.toml in the drive's checkout, which the drive moves to its default branch's head before each launch, through which the repository the drive works in customizes every drive working in it; none when the repository holds no such file."""
     path = Path(next(iter(bound_sessions(data).values()))["cwd"], REPO_RULES)
-    return [f"{rule['id']}: {rule['text']}" for rule in tomllib.loads(path.read_text())["rule"]] if path.is_file() else []
+    return tomllib.loads(path.read_text()) if path.is_file() else {}
+
+
+def repo_rules(data: dict) -> list[str]:
+    """Each rule the repository the drive works in sets for every drive working in it, as `<id>: <text>`, from its [[rule]] tables."""
+    return [f"{rule['id']}: {rule['text']}" for rule in repo_config(data).get("rule", [])]
+
+
+def dangerous(data: dict, paths: list[str]) -> dict[str, list[str]]:
+    """Each class of dangerous change a [[dangerous]] table of the repository's .claude/long-running.toml names, with the paths of these that make it: each its globs match, as fnmatch reads a glob, whose `*` crosses a `/`, that is no test file, as served.TESTS reads one, and that no glob of its [skip] table matches."""
+    from drive import served
+
+    config = repo_config(data)
+    skipped = config.get("skip", {}).get("paths", [])
+    counted = [path for path in paths if not served.TESTS.search(path) and not any(fnmatchcase(path, glob) for glob in skipped)]
+    found = {table["class"]: [path for path in counted if any(fnmatchcase(path, glob) for glob in table["paths"])] for table in config.get("dangerous", [])}
+    return {kind: made for kind, made in found.items() if made}
 
 
 def seat(data: dict, session: str) -> dict | None:
@@ -4459,5 +4534,7 @@ def new_pr(url: str, job_id: str, order_id: str) -> dict:
         "lead": None,
         "design": None,
         "answers": None,
+        "paths_at": None,
+        "unstaged": None,
         "updated": stamp(),
     }

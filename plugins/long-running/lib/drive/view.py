@@ -368,14 +368,15 @@ def coming(drive: dict, job_id: str) -> bool:
 
 
 def staging(drive: dict, key: str) -> str:
-    """What a PR's cards say of its staging test, read from the `staging test of #N before it lands` part an order holds for it, the soak its tester last waited on and the newest job on it: tested on staging with its env, commit and result, testing while its job runs, or not on staging and why."""
+    """What a PR's cards say of its staging test, read from the `staging test of #N before it lands` part an order holds for it, the soak its tester last waited on and the newest job on it: tested on staging with its env, commit and result, testing while its job runs, or not on staging and why, the why of its builder's `STAGING: none` among them."""
     repo, _, number = key.rpartition("#")
     if repo.lower() != state.MONOREPO.lower():
         return f"Not on staging: {repo} has no staging env"
     part = state.STAGING_TEST.format(number=number)
     held = [order_id for order_id, order in drive["orders"].items() if part in order["parts"]]
     if not held:
-        return "Not on staging: no staging test is set for it"
+        lifted = drive["prs"][key]["unstaged"]
+        return f"Not on staging: its builder says AGENTS.md's dangerous rule misses it: {cut(lifted['why'], NOW_CHARS)}" if lifted else "Not on staging: no staging test is set for it"
     parts = [drive["orders"][order_id]["parts"][part] for order_id in held]
     soak = next((state.STAGING_WAIT.fullmatch(each["soak"]) for each in parts if each["soak"]), None)
     where = f"{soak['env']} at {soak['commit'][:7]}, " if soak else ""

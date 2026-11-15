@@ -1275,8 +1275,17 @@ def test_a_monorepo_prs_staging_words_name_its_env_commit_and_result_or_why_it_i
     staging = state.STAGING_TEST.format(number=7)
     parts = {"ship it": state.new_part()} | ({staging: state.new_part() | part} if part is not None else {})
     jobs = {"j1": job("o1", "running", parts=[staging], created=at(-20)) | tester} if tester else {}
-    drive = drive_of({"o1": order("ship it", list(jobs), parts=parts)}, jobs, [])
+    drive = drive_of({"o1": order("ship it", list(jobs), parts=parts)}, jobs, [tracked(7)])
     assert view.staging(drive, "Forge-AI/monorepo#7") == words
+
+
+def tracked(number: int, **overrides: object) -> tuple[str, dict]:
+    return f"Forge-AI/monorepo#{number}", state.new_pr(f"https://github.com/Forge-AI/monorepo/pull/{number}", "j1", "o1") | overrides
+
+
+def test_a_monorepo_pr_its_builder_lifted_off_staging_says_why_on_its_cards() -> None:
+    lifted = drive_of({"o1": order("ship it", [])}, {}, [tracked(7, unstaged={"why": "it changes only the docs", "head": "abc"})])
+    assert view.staging(lifted, "Forge-AI/monorepo#7") == "Not on staging: its builder says AGENTS.md's dangerous rule misses it: it changes only the docs"
 
 
 def test_a_pr_outside_the_monorepo_says_its_repo_has_no_staging_env() -> None:

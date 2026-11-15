@@ -6310,6 +6310,72 @@ def test_pr_set_staging_stages_a_monorepo_pr_in_one_save_as_its_builders_staging
     assert "yasyf/cc-skills#7: refused, nothing set: --staging runs a Forge-AI/monorepo PR's cases on plat-usw2-staging" in capsys.readouterr().err
 
 
+DANGEROUS_TOML = (
+    '[[dangerous]]\nclass = "a database migration"\npaths = ["api/migrations/*"]\n'
+    '[[dangerous]]\nclass = "the parser, checker or VM"\npaths = ["go/sand/internal/checker/*"]\n'
+    '[skip]\npaths = ["*.md", "go/*test/*"]\n'
+)
+
+
+def dangerous_repo(tmp_path: Path, on_github: dict, changed: list[str]) -> None:
+    """The drive's checkout naming two dangerous classes of the monorepo's AGENTS.md in its .claude/long-running.toml, and its PR changing these files."""
+    (tmp_path / ".claude").mkdir(exist_ok=True)
+    (tmp_path / state.REPO_RULES).write_text(DANGEROUS_TOML)
+    on_github |= {"changedFiles": len(changed), "files": [{"path": path} for path in changed]}
+
+
+def test_pr_add_stages_a_monorepo_pr_whose_head_changes_a_dangerous_class_of_file_with_a_tester_naming_each_class_and_its_files_and_none_that_changes_only_tests_docs_and_skipped_paths(
+    run: Run, demo: str, on_github: dict, tmp_path: Path
+) -> None:
+    changed = ["api/migrations/1700_add_runs.sql", "go/sand/internal/checker/check.go", "go/sand/internal/checker/check_test.go", "go/sand/internal/sandsqltest/fake.go", "docs/runs.md", "api/src/run.ts"]
+    dangerous_repo(tmp_path, on_github, changed)
+    run("order", "add", "--title", "land it", "--project", "The drive", "--workstream", "Drive tooling", "land it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "land")
+    code, out = run("pr", "add", PR, "--job", "j1", *LEAD)
+    data, part = state.load("demo"), state.STAGING_TEST.format(number=42)
+    (tester_id, tester), = [(job_id, job) for job_id, job in data["jobs"].items() if job.get("builds_nothing")]
+    assert (code, data["prs"]["Forge-AI/monorepo#42"]["waits"], data["prs"]["Forge-AI/monorepo#42"]["paths_at"], tester["parts"], tester["kind"]) == (0, [f"o1:{part}"], "abc", [part], "builder")
+    assert "changes a database migration: api/migrations/1700_add_runs.sql; the parser, checker or VM: go/sand/internal/checker/check.go, each a dangerous change" in tester["goal"]
+    assert f'{tester_id} builder on "{part}"' in out
+    dangerous_repo(tmp_path, on_github, changed[2:])
+    assert run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/43", "--job", "j1", *LEAD)[0] == 0
+    data = state.load("demo")
+    assert (data["prs"]["Forge-AI/monorepo#43"]["waits"], data["prs"]["Forge-AI/monorepo#43"]["paths_at"], [job_id for job_id, job in data["jobs"].items() if job.get("builds_nothing")]) == ([], "abc", [tester_id])
+
+
+def test_a_builders_staging_line_reaches_the_tester_its_prs_changed_files_gave_it_and_its_none_lifts_a_test_no_job_took_up_but_keeps_one_a_job_took_up(
+    run: Run, demo: str, on_github: dict, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    dangerous_repo(tmp_path, on_github, ["api/migrations/1700_add_runs.sql"])
+    run("order", "add", "--title", "land it", "--project", "The drive", "--workstream", "Drive tooling", "land it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "land")
+    run("pr", "add", PR, "--job", "j1", *LEAD)
+    key, part, cases = "Forge-AI/monorepo#42", state.STAGING_TEST.format(number=42), "run the migration twice and roll it back on plat-usw2-staging"
+    (tester_id,) = [job_id for job_id, job in state.load("demo")["jobs"].items() if job.get("builds_nothing")]
+    assert keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\nSTAGING: #42 {cases}\n") == (0, "")
+    data = state.load("demo")
+    testers = [job_id for job_id, job in data["jobs"].items() if job.get("builds_nothing")]
+    assert (testers, [held["words"] for held in data["jobs"][tester_id]["undelivered"]]) == ([tester_id], [f"The staging test of {key} also runs: {cases}"])
+    with state.edit("demo") as data:
+        data["jobs"][tester_id]["agent"] = "a1"
+    assert keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\n{UNSTAGED}") == (0, "")
+    data = state.load("demo")
+    assert (part in data["orders"]["o1"]["parts"], data["prs"][key]["waits"], data["prs"][key]["unstaged"]) == (True, [f"o1:{part}"], {"why": "it changes no path AGENTS.md calls dangerous", "head": "abc"})
+    with state.edit("demo") as data:
+        data["jobs"][tester_id]["agent"] = None
+    assert keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\n{UNSTAGED}") == (0, "")
+    data = state.load("demo")
+    assert (part in data["orders"]["o1"]["parts"], data["prs"][key]["waits"], data["jobs"][tester_id]["state"]) == (False, [], "stopped")
+    assert view.staging(data, key) == "Not on staging: its builder says AGENTS.md's dangerous rule misses it: it changes no path AGENTS.md calls dangerous"
+    with state.edit("demo") as data:
+        data["prs"][key]["paths_at"] = None
+        lifted = state.mark_dangerous(data, key, "abc", ["api/migrations/1700_add_runs.sql"])
+        marked = state.mark_dangerous(data, key, "def", ["api/migrations/1700_add_runs.sql"])
+        data["jobs"][marked]["state"] = "done"
+        restaged = state.staging_testers(data, "j1", f"PUSHED {PR}\nSTAGING: #42 {cases}\n")
+    assert (lifted, bool(marked), [state.load("demo")["jobs"][job_id]["goal"] for job_id in restaged]) == (None, True, [cases])
+
+
 def test_a_builders_ready_counts_only_on_a_green_required_check_and_one_still_running_or_red_returns_pushed(
     run: Run, with_pr: str, on_github: dict, pr_reads: dict[str, dict], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
