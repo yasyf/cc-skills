@@ -370,7 +370,7 @@ def overdue(data: dict, pr: dict, now: Stage, moment: datetime) -> bool:
 
 
 def stamp(pr: dict, now: Stage, moment: datetime) -> None:
-    pr["stage"] = {"name": now.name, "owner": now.owner, "why": now.why, "since": state.stamp(moment), "woke": None, "staging": None}
+    pr["stage"] = {"name": now.name, "owner": now.owner, "why": now.why, "since": state.stamp(moment), "woke": None}
 
 
 def kept(pr: dict, now: Stage) -> None:

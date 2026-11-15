@@ -919,8 +919,6 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         pr["parts"] = [part.strip() for part in pr.get("parts", [])]
         pr.setdefault("required", None)
         pr.setdefault("lead", None)
-        if pr["stage"]:
-            pr["stage"].setdefault("staging", None)
         if (verdict := pr.pop("verdict", None)) and verdict.get("answer") and not verdict["ready"]:
             pr["rework"] = verdict
         if (rework := pr.get("rework")) and "answer" in rework:

@@ -3027,6 +3027,24 @@ def test_cards_redraw_prints_each_open_cards_card_in_one_pass_and_names_each_it_
     assert posts == [{"card": json.loads(printed[1]) | {"replaces": shown[1]["url"]}}]
 
 
+def test_cards_redraw_waits_on_a_pr_cards_merge_id_redraws_that_card_in_place_open_or_answered_but_never_one_retired(
+    demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], redraws: Redraws
+) -> None:
+    def pr_card(n: int) -> dict:
+        url = f"https://github.com/Forge-AI/monorepo/pull/{n}"
+        return {"url": f"https://acme.slack.com/archives/D123/p17943000000002{n}", "prs": [url], "asked": state.stamp(), "card": {"title": "Fix: approve it?", "waits": f"merge:{n}:{state.ask_hash(str(n))}", "prs": [{"url": url}]}}
+
+    answered = pr_card(43) | {"waits": f"merge:43:{state.ask_hash('43')}", "answer": {"label": "Approve"}, "replaced_by": ""}
+    retired = {field: value for field, value in pr_card(44).items() if field != "card"} | {"waits": f"merge:44:{state.ask_hash('44')}", "answer": None, "replaced_by": "https://acme.slack.com/archives/D123/p1794300000000300"}
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [pr_card(42)], "closed": [answered, retired]})
+    assert cli.main(["cards", "redraw", "--waits", f"merge:42:{state.ask_hash('42')}", "--waits", f"merge:43:{state.ask_hash('43')}", "--drive", demo]) == 0
+    out, err = capsys.readouterr()
+    assert (out, redraws.asked) == ("", ["https://github.com/Forge-AI/monorepo/pull/42", "https://github.com/Forge-AI/monorepo/pull/43"])
+    assert f"merge:43:{state.ask_hash('43')}: redrawing in place the 1 card(s) of his carrying https://github.com/Forge-AI/monorepo/pull/43" in err
+    assert cli.main(["cards", "redraw", "--waits", f"merge:44:{state.ask_hash('44')}", "--drive", demo]) == 2
+    assert f"merge:44:{state.ask_hash('44')}: not one of his open cards, nor a PR card of his still drawn" in capsys.readouterr().err
+
+
 def test_cards_redraw_draws_a_card_from_the_ask_a_question_linked_to_it_keeps_when_it_asks_the_cards_question(
     run: Run, asking: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -6688,7 +6706,7 @@ def test_pr_set_no_tapped_drops_a_hold_the_drive_gave_itself_with_its_why(run: R
     assert state.load("demo")["prs"][with_pr]["tap"] is not None
     code, out = run("pr", "set", PR, "--no-tapped", "--why", "the release carrying its reader is live")
     assert code == 0
-    assert out.endswith(f"\ndropped the Hold the drive gave itself ({source}): the release carrying its reader is live\nredrawing in place the 1 open card(s) of his carrying it, to drop the Hold the drive gave itself")
+    assert out.endswith(f"\ndropped the Hold the drive gave itself ({source}): the release carrying its reader is live")
     pr = state.load("demo")["prs"][with_pr]
     assert (pr["tap"], pr["fundamental"]) == (None, None)
     assert run("pr", "tapped", PR) == (1, f"{with_pr}: no tap from him yet")

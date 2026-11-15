@@ -678,19 +678,32 @@ def withdrawals(monkeypatch: pytest.MonkeyPatch) -> Withdrawals:
 class Redraws:
     asked: list[str] = field(default_factory=list)
     failure: str | None = None
+    rows: dict[str, dict[str, str]] = field(default_factory=dict)
 
 
 @pytest.fixture(autouse=True)
 def redraws(monkeypatch: pytest.MonkeyPatch) -> Redraws:
     redrawn = Redraws()
+    stored = view.stored_cards
 
     def redraw(url: str) -> int:
         redrawn.asked.append(url)
         if redrawn.failure:
             raise slack.SlackError(redrawn.failure)
+        key = state.pr_key(url)
+        if (known := card.drive_prs().get(key)) and known[1]["head"]:
+            redrawn.rows[url] = card.drawn_lines(known[0], state.load(known[0]), key)
         return 1
 
+    def redrawn_cards(name: str) -> tuple[dict, str]:
+        found, source = stored(name)
+        for shown in [*found["pr_cards"], *found["closed"]]:
+            for row in shown.get("card", {}).get("prs", []):
+                row.update(redrawn.rows.get(row["url"], {}))
+        return found, source
+
     monkeypatch.setattr(slack, "redraw_pr_cards", redraw)
+    monkeypatch.setattr(view, "stored_cards", redrawn_cards)
     return redrawn
 
 
@@ -711,10 +724,11 @@ def draws(monkeypatch: pytest.MonkeyPatch) -> Draws:
         drew.again.append(again)
         if drew.failure:
             raise slack.SlackError(drew.failure)
-        prs = [state.load(name)["prs"][key] for key in keys]
-        card = {"prs": [pr["url"] for pr in prs], "asked": state.stamp(), "url": drew.link, "card": {"title": "Fix: approve it?", "waits": f"merge:{keys[0]}", "prs": [{"url": pr["url"], "head": pr["head"]} for pr in prs]}}
+        data = state.load(name)
+        rows = [{"url": data["prs"][key]["url"], **(card.drawn_lines(name, data, key) if data["prs"][key]["head"] else {"head": None})} for key in keys]
+        posted = {"prs": [row["url"] for row in rows], "asked": state.stamp(), "url": drew.link, "card": {"title": "Fix: approve it?", "waits": f"merge:{keys[0]}", "prs": rows}}
         listed = view.cards
-        monkeypatch.setattr(view, "cards", lambda name: (shown := listed(name)) | {"pr_cards": [*shown["pr_cards"], card]})
+        monkeypatch.setattr(view, "cards", lambda name: (shown := listed(name)) | {"pr_cards": [*shown["pr_cards"], posted]})
         view.refresh_cards(name)
         return drew.link
 

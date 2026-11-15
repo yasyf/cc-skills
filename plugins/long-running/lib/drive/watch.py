@@ -125,6 +125,7 @@ class Watcher:
     resumed: dict[str, str] = field(default_factory=dict)
     ci_marks: dict[str, str | None] = field(default_factory=dict)
     carried: dict[str, tuple[set[str], datetime]] = field(default_factory=dict)
+    redrawn: dict[str, tuple[dict[str, str], datetime]] = field(default_factory=dict)
     untracked: dict[str, str] = field(default_factory=dict)
     relayed: collections.deque[str] = field(default_factory=collections.deque)
     relay_error: Exception | None = None
@@ -405,7 +406,7 @@ def bare(wait: str) -> str:
 
 
 def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Drop each wait of a job or PR that ended, his card answered, the job finished, the release out by the watch's release live read or its PR closed unmerged, the Buildkite build finished or stopped at an approve step by the watch's Buildkite read, a process on this Mac ended, or a builder slot on this Mac given to the earliest due builder waiting its turn, one per slot no builder holds, and say once, as its last wait ends, that nothing holds it, holding back the job's ORPHAN for 30 minutes, but for a builder's READY or PUSHED whose PRs all merged, which the watch finishes next in the same pass, or else says once as an ORPHAN naming who finishes it; a builder given its slot waits on nothing with no agent yet, its slot stamped with when its turn came, and holds that slot until its agent starts, and one moving here from its Sprite keeps its other waits, its slot stamped, while drive job launch <j> --local, run by start_verb, moves it, a refusal of that launch reaching the watch's lines as its relaunch_refused event; a Sprite job busy reads another drive verb acting on takes its turn on a pass after that verb ends. The cards a job asked him on hold it too, so it keeps its waits until he answers them. A codex job whose process ended holds the text exited_text writes, which carry_held's launch of its next codex-ask run carries, so its FREE line asks nobody to launch it. His open card for a PR whose waits ended is redrawn in place, so it names only the waits that still hold. A release wait is a wake the job set, freed by out_because once one cluster, or the env it names, serves the PR's merge, and never comes back."""
+    """Drop each wait of a job or PR that ended, his card answered, the job finished, the release out by the watch's release live read or its PR closed unmerged, the Buildkite build finished or stopped at an approve step by the watch's Buildkite read, a process on this Mac ended, or a builder slot on this Mac given to the earliest due builder waiting its turn, one per slot no builder holds, and say once, as its last wait ends, that nothing holds it, holding back the job's ORPHAN for 30 minutes, but for a builder's READY or PUSHED whose PRs all merged, which the watch finishes next in the same pass, or else says once as an ORPHAN naming who finishes it; a builder given its slot waits on nothing with no agent yet, its slot stamped with when its turn came, and holds that slot until its agent starts, and one moving here from its Sprite keeps its other waits, its slot stamped, while drive job launch <j> --local, run by start_verb, moves it, a refusal of that launch reaching the watch's lines as its relaunch_refused event; a Sprite job busy reads another drive verb acting on takes its turn on a pass after that verb ends. The cards a job asked him on hold it too, so it keeps its waits until he answers them. A codex job whose process ended holds the text exited_text writes, which carry_held's launch of its next codex-ask run carries, so its FREE line asks nobody to launch it. A release wait is a wake the job set, freed by out_because once one cluster, or the env it names, serves the PR's merge, and never comes back."""
     data = state.load(watcher.name)
     out, lines = shipped(watcher, data), []
     turns, held = place.turns(data, moment)
@@ -455,22 +456,11 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
                     his = ", his answers among them" if any(held["sender"] == state.HIM for held in job["undelivered"]) else ""
                     unlaunched, unstarted = ", and the watch now starts its next codex-ask run carrying its last report" if exited else f", and the watch now carries it the texts it holds{his}", ""
                 lines.append(f"FREE {job_id} {job['order']}: {ended}, nothing else holds it{built}{unlaunched}{unstarted}")
-        redraws = []
         for key, pr in data["prs"].items():
-            if not hears(watcher, data, pr["order"]):
-                continue
-            waited = pr["waits"]
-            if (ended := released(data, pr, pr["job"], watcher.cards, out)) and pr["state"] == "open":
+            if hears(watcher, data, pr["order"]) and (ended := released(data, pr, pr["job"], watcher.cards, out)) and pr["state"] == "open":
                 lines.append(f"FREE {key} {pr['job']} {pr['order']}: {ended}, nothing else holds it")
-            if pr["waits"] != waited and pr["state"] == "open":
-                redraws.append(pr["url"])
     for job_id in moves:
         start_verb(watcher, job_id, ["job", "launch", job_id, "--local"], moment)
-    for url in redraws:
-        try:
-            slack.redraw_pr_cards(url)
-        except slack.SlackError as error:
-            lines.append(f"WATCH his open card for {url} still names the waits that ended, since its redraw failed: {error}")
     return lines
 
 
@@ -814,7 +804,7 @@ def follow_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def checks(watcher: Watcher, moment: datetime) -> None:
-    """Start the check against his words of each PR the watch hears that owes one, within one GitHub read of finding it unchecked and with no coordinator turn: its CHECKED line redraws his card in place, so his Approve of a changed patch lands it once it is green, and its NOT READY line goes to its builder unless he approved the PR."""
+    """Start the check against his words of each PR the watch hears that owes one, within one GitHub read of finding it unchecked and with no coordinator turn: redraw_lines draws its verdict on his card in place, so his Approve of a changed patch lands it once it is green, and its NOT READY line goes to its builder unless he approved the PR."""
     if watcher.cards is None:
         return
     data = state.load(watcher.name)
@@ -3471,7 +3461,7 @@ def passed(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
 
 
 def stages(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
-    """The lines of each stage of one loop of the watch, as it returns: first the lines its relay made since the last pass, then the answer kept for each lane's read, so a pass a newer install ends while it reads every live lane's mail holds back none it already had, and new events, so a return `drive job report` took in another process is said in the pass its event wakes, then the drive's own Orca terminal every Orca call speaks as, his cards, the GitHub reads it owes, his card on each kept question none drew yet, a lander on each PR his Approve covers that qualifies, the finish of each builder whose READY's PRs all merged, DONE at the merge of a product change or the proof of a yasyf/* one, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, where each merged PR a release wait or an incident fix names runs, each Buildkite build a wait names that is newly held or a delivery of Buildkite's named, the waits his answers, a job's end, that read or the Buildkite read release or hold again, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, each builder's PUSHED GitHub's read settles, agents, the chains of waits that stood unmoved, the texts jobs hold that no worker taking messages gets, the communicator's compaction, the status page, a coordinator whose process exited, a dashboard whose server exited, the receiver and each teammate thread an order watches every 60 s, and GitHub again next poll after a failure, events written since, its own stages' among them, then the GitHub reads they and the rest owe while its last read answered, so a delivery is read in the pass it wakes, the catch-up owed him, claims whose end passed, the line owed in each thread whose order or incident has news, job clocks run out, his answers no resume has carried to their jobs, fixes proven live whose bug report has not heard, the next pass of each standing part no job holds, parts nothing carries, and a handler on each POST report to the communicator. A stage that keeps working after its save joins the lines it made by then to the watcher's made lines itself."""
+    """The lines of each stage of one loop of the watch, as it returns: first the lines its relay made since the last pass, then the answer kept for each lane's read, so a pass a newer install ends while it reads every live lane's mail holds back none it already had, and new events, so a return `drive job report` took in another process is said in the pass its event wakes, then the drive's own Orca terminal every Orca call speaks as, his cards, the GitHub reads it owes, his card on each kept question none drew yet, a lander on each PR his Approve covers that qualifies, the finish of each builder whose READY's PRs all merged, DONE at the merge of a product change or the proof of a yasyf/* one, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, where each merged PR a release wait or an incident fix names runs, each Buildkite build a wait names that is newly held or a delivery of Buildkite's named, the waits his answers, a job's end, that read or the Buildkite read release or hold again, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, each builder's PUSHED GitHub's read settles, agents, the chains of waits that stood unmoved, the texts jobs hold that no worker taking messages gets, the communicator's compaction, the status page, a coordinator whose process exited, a dashboard whose server exited, the receiver and each teammate thread an order watches every 60 s, his PR cards whose rows went stale, and GitHub again next poll after a failure, events written since, its own stages' among them, then the GitHub reads they and the rest owe while its last read answered, so a delivery is read in the pass it wakes, the catch-up owed him, claims whose end passed, the line owed in each thread whose order or incident has news, job clocks run out, his answers no resume has carried to their jobs, fixes proven live whose bug report has not heard, the next pass of each standing part no job holds, parts nothing carries, and a handler on each POST report to the communicator. A stage that keeps working after its save joins the lines it made by then to the watcher's made lines itself."""
     yield drained(watcher.relayed)
     yield read_lines(watcher, moment)
     yield event_lines(watcher)
@@ -3517,6 +3507,7 @@ def stages(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
         yield dashboard_lines(watcher)
         yield receiver_lines(watcher, moment)
         yield watched_lines(watcher, moment)
+        yield redraw_lines(watcher, moment)
     yield event_lines(watcher)
     if "github" not in watcher.failures:
         yield github_lines(watcher, moment)
@@ -3546,57 +3537,72 @@ def post_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def carried_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Carry each heard PR's check against his words to a head a restack moved, its change the one judged, so no second judge runs on it, then redraw in place his open card carrying it; a diff read that fails is retried and said as any GitHub read is."""
+    """Carry each heard PR's check against his words to a head a restack moved, its change the one judged, so no second judge runs on it; a diff read that fails is retried and said as any GitHub read is."""
     data = state.load(watcher.name)
     try:
-        carried = served.carry(watcher.name, [key for key in state.open_pr_keys(data) if hears(watcher, data, data["prs"][key]["order"])])
+        served.carry(watcher.name, [key for key in state.open_pr_keys(data) if hears(watcher, data, data["prs"][key]["order"])])
     except state.DriveError as error:
         return read_failed(watcher, "moved heads' diffs", error, moment)
     watcher.failures.pop("moved heads' diffs", None)
+    return []
+
+
+def redraw_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Redraw in place each card of his on a heard open PR, open or answered and neither replaced nor withdrawn, whose row cc-slack last drew differs from the card.REDRAWN lines drive card draws on it now, so its head, Where it stands, Waits on and staging line never stay stale; the same lines are asked again only served.RETRY on, since cc-slack redraws in the background and draws none for a PR changed since he answered."""
+    from drive import card
+
+    if watcher.cards is None:
+        return []
+    data = state.load(watcher.name)
+    rows: dict[str, list[dict]] = {}
+    for shown in [*watcher.cards["pr_cards"], *(closed for closed in watcher.cards["closed"] if "card" in closed)]:
+        for row in shown["card"]["prs"]:
+            rows.setdefault(state.pr_key(row["url"]), []).append(row)
     lines = []
-    prs = state.load(watcher.name)["prs"]
-    for key in carried:
-        if prs[key]["rework"]:
+    for key, drawn in rows.items():
+        pr = data["prs"].get(key)
+        if not pr or pr["state"] != "open" or not pr["head"] or pr["rework"] or key in watcher.stale or not hears(watcher, data, pr["order"]):
+            continue
+        now = card.drawn_lines(watcher.name, data, key)
+        if all({line: row.get(line, "") for line in card.REDRAWN} == now for row in drawn):
+            watcher.redrawn.pop(key, None)
+            continue
+        if (asked := watcher.redrawn.get(key)) and asked[0] == now and moment - asked[1] < served.RETRY:
             continue
         try:
-            slack.redraw_pr_cards(state.pr_url(key))
+            slack.redraw_pr_cards(pr["url"])
         except slack.SlackError as error:
-            lines.append(f"WATCH his open card for {key} still shows its old head, since its redraw failed: {error}")
+            lines += failed(watcher, "card redraw", f"redraw of his card on {key}", error, moment)
+            continue
+        watcher.failures.pop("card redraw", None)
+        watcher.redrawn[key] = (now, moment)
     return lines
 
 
 def stage_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Keep each heard unmerged PR's stage, as stage.of names it from the approval, checks and head GitHub last answered for it, and act once on each open one that entered a stage or passed its deadline, leaving a PR never read, or whose last read failed, as it stands until a read answers for it: draw his card on each PR that entered uncarded, one card for the PRs of one card unit as drive card draws them, and never again while it stays there, or redraw in place the card cc-slack keeps closed on one, so it offers Approve again and no second card shares its waits id, or, once a card of the unit leaves off a PR of its native stack, draw one fresh card for the unit and those PRs, which cc-slack marks each older card of theirs replaced by, redraw his card in place on every other change of stage so its line shows it, on a held PR whose cards of his holding it changed, so it names only those still open, and on a PR whose staging words view.staging reads changed, so his card says its staging result as it stands, wake the builder answering for a PR rework or red owe, ask forge-pr-reviewer once for a review of a head grading an hour and then wake its builder, wake past its deadline the job a waiting or blocked PR names as owing it and the builder of one its author lands, wake the session holding its order on one unlanded and on any other past its deadline, uncarded included, and draw his card again, once per card unit, on the PRs that wait on him while they fix a live bug and whose card asks his tap, by state.asks_tap, with a line in its thread saying why it asks. A draw that fails, or leaves a PR that asks his tap with no card of his offering Approve at its head, as one cc-slack answers by linking a card he already answered does, clears the PR's stage, so the next read enters uncarded again and draws, and is said to the meta session from its third failure in a row."""
+    """Keep each heard unmerged PR's stage, as stage.of names it from the approval, checks and head GitHub last answered for it, and act once on each open one that entered a stage or passed its deadline, leaving a PR never read, or whose last read failed, as it stands until a read answers for it: draw his card on each PR that entered uncarded, one card for the PRs of one card unit as drive card draws them, and never again while it stays there, or redraw in place the card cc-slack keeps closed on one, so it offers Approve again and no second card shares its waits id, which redraw_lines then asks no second time on the same lines, or, once a card of the unit leaves off a PR of its native stack, draw one fresh card for the unit and those PRs, which cc-slack marks each older card of theirs replaced by, wake the builder answering for a PR rework or red owe, ask forge-pr-reviewer once for a review of a head grading an hour and then wake its builder, wake past its deadline the job a waiting or blocked PR names as owing it and the builder of one its author lands, wake the session holding its order on one unlanded and on any other past its deadline, uncarded included, and draw his card again, once per card unit, on the PRs that wait on him while they fix a live bug and whose card asks his tap, by state.asks_tap, with a line in its thread saying why it asks. A draw that fails, or leaves a PR that asks his tap with no card of his offering Approve at its head, as one cc-slack answers by linking a card he already answered does, clears the PR's stage, so the next read enters uncarded again and draws, and is said to the meta session from its third failure in a row."""
     if watcher.cards is None:
         return []
     with state.edit(watcher.name) as data:
         stacks = land.landing_stacks(data)
         units = {key: state.card_unit(key, stacks.get(key, ()), pr) for key, pr in data["prs"].items()}
-        acts, reheld = [], []
+        acts = []
         for key in state.unmerged_pr_keys(data):
             pr = data["prs"][key]
             if key in watcher.stale or pr["required"] is None or not hears(watcher, data, pr["order"]):
                 continue
-            now, tested = stage.of(data, key, watcher.cards), view.staging(data, key)
+            now = stage.of(data, key, watcher.cards)
             if stage.entered(pr["stage"], now):
                 stage.stamp(pr, now, moment)
                 if pr["state"] == "open":
                     acts.append((key, now, True, stage.line(key, pr, now) + f" {ids(pr)}"))
-            else:
-                late = stage.overdue(data, pr, now, moment)
-                if (now.name == "held" and pr["stage"]["why"] != now.why or pr["stage"]["staging"] != tested) and view.standing_card(pr, watcher.cards):
-                    reheld.append(key)
+            elif stage.overdue(data, pr, now, moment):
                 stage.kept(pr, now)
-                if late:
-                    pr["stage"]["woke"] = state.stamp(moment)
-                    acts.append((key, now, False, stage.line(key, pr, now) + f" {ids(pr)}"))
-            pr["stage"]["staging"] = tested
+                pr["stage"]["woke"] = state.stamp(moment)
+                acts.append((key, now, False, stage.line(key, pr, now) + f" {ids(pr)}"))
+            else:
+                stage.kept(pr, now)
     lines: list[str] = []
-    for key in reheld:
-        try:
-            slack.redraw_pr_cards(state.pr_url(key))
-        except slack.SlackError as error:
-            lines += failed(watcher, "card redraw", f"redraw of his card on {key}", error, moment)
     uncarded = {}
     asked = {}
     for key, now, entered, line in acts:
@@ -3608,7 +3614,7 @@ def stage_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 asked.setdefault(units[key], []).append(key)
             continue
         lines += acted(watcher, key, now, entered, line, moment)
-    from drive import talk
+    from drive import card, talk
 
     for keys in uncarded.values():
         standing = [key for key in keys if view.standing_card(data["prs"][key], watcher.cards)]
@@ -3619,6 +3625,7 @@ def stage_lines(watcher: Watcher, moment: datetime) -> list[str]:
             else:
                 for key in standing:
                     slack.redraw_pr_cards(state.pr_url(key))
+                    watcher.redrawn[key] = (card.drawn_lines(watcher.name, state.load(watcher.name), key), moment)
                 fresh = [key for key in keys if key not in standing]
             if fresh:
                 link = talk.draw(watcher.name, fresh)
@@ -3670,24 +3677,17 @@ def draw_questions(watcher: Watcher, moment: datetime) -> None:
 
 
 def acted(watcher: Watcher, key: str, now: stage.Stage, entered: bool, line: str, moment: datetime) -> list[str]:
-    """What the watch does for a PR that entered its stage, entered, or passed that stage's deadline, and the lines it says: his card, when one is drawn, redrawn on entry, or withdrawn from a PR reworked to his words that still has one, then the act its stage owes, none for a PR behind another, whose owner that PR's stage wakes."""
+    """What the watch does for a PR that entered its stage, entered, or passed that stage's deadline, and the lines it says: his card withdrawn from a PR reworked to his words that still has one, then the act its stage owes, none for a PR behind another, whose owner that PR's stage wakes."""
     from drive import talk
 
     said = []
     data = state.load(watcher.name)
     pr = data["prs"][key]
-    card = view.standing_card(pr, view.live_cards(watcher.name) or view.NO_CARDS)
-    if pr["rework"]:
-        if card:
-            try:
-                talk.withdraw(watcher.name, key)
-            except slack.SlackError as error:
-                said += failed(watcher, "rework withdraw", f"withdrawal of his card on {key}, reworked to his words", error, moment)
-    elif entered and card:
+    if pr["rework"] and view.standing_card(pr, view.live_cards(watcher.name) or view.NO_CARDS):
         try:
-            slack.redraw_pr_cards(state.pr_url(key))
+            talk.withdraw(watcher.name, key)
         except slack.SlackError as error:
-            said += failed(watcher, "card redraw", f"redraw of his card on {key}", error, moment)
+            said += failed(watcher, "rework withdraw", f"withdrawal of his card on {key}, reworked to his words", error, moment)
     if now.name == "behind":
         return said
     job_id = now.owner if now.owner in data["jobs"] else None
