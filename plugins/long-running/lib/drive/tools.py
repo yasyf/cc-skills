@@ -107,7 +107,6 @@ RECORD = {
                 " ruling removes is marked --dropped on the drive answer the call keeps for the ruling"
             ),
         },
-        "undone": {"type": "boolean", "description": "an Undo tap: attr undone=<text> and the text undone: <text>"},
         "ruling": {
             "type": "string",
             "description": (
@@ -222,8 +221,8 @@ def verb_tools() -> list[dict]:
                 " about the drive, a ruling on how it works included, reaches the meta session alone holding its order, which"
                 " the call adds first, a new order the meta session holds or his words as a part of the open one they carry on, as its"
                 " order field says, and one about his work the coordinator hearing its order."
-                " A question card he answered takes waits, which fills re with the ask's seq and attr job; an"
-                " Undo tap sets undone. His words under a card of another drive, its waits or thread_card naming that drive,"
+                " A question card he answered takes waits, which fills re with the ask's seq and attr job; his"
+                " Undo is cc-slack card-reopen's, never a record's. His words under a card of another drive, its waits or thread_card naming that drive,"
                 " go out on that drive as its communicator lane, whatever session calls, as his tap on it does, so every"
                 " order, job and seq the call names is that drive's, and a call mixing two drives' records is refused. Once the records go out, each open card his words close is closed: a question card his"
                 " answer answers settles showing his words, and one his owner words under it change is withdrawn showing them;"
@@ -554,6 +553,12 @@ def record(name: str, records: list[dict], dry_run: bool) -> str:
     session = os.environ.get("CLAUDE_CODE_SESSION_ID") if held == name else (data["roles"].get("communicator") or {}).get("session")
     role = state.session_role(data, session) if held == name else "communicator"
     name = held
+    if undoing := [index for index, item in enumerate(records, start=1) if "undone" in item]:
+        raise DriveError(
+            f"{undoing[0]}: refused, nothing posted: no record undoes his answer; run cc-slack card-reopen --card <the card's"
+            " permalink>, with --reply <his message's permalink> for an answer of his words, whose card command reopens every"
+            " question closed on the answer it takes back and redraws the card"
+        )
     if role is None:
         raise DriveError(f"this session holds no role in drive {name}, so no lane to post as")
     if role == "meta" and any(item["kind"] == "defect" for item in records):
@@ -610,7 +615,7 @@ def record(name: str, records: list[dict], dry_run: bool) -> str:
     ended = stamped(name, posts, seqs)
     if lane == "communicator":
         handed(name, posts, seqs)
-    his = [index for index, made in enumerate(posts) if superseded.said_at(data, made.get("url")) or "undone" in (made.get("attr") or {})]
+    his = [index for index, made in enumerate(posts) if superseded.said_at(data, made.get("url"))]
     keep_undelivered(name, [posts[index] for index in his], [seqs[index] for index in his], [closes[index] for index in his], found)
     said += [f"{index} {job_id}'s question \"{render.cut(question['title'] or '', 80)}\" ended {question['closed']['how']} by {seqs[index - 1]}" for index, job_id, question in ended]
     said += superseded.follow(name, [(job_id, question) for _, job_id, question in ended])
@@ -746,8 +751,8 @@ def unheard(data: dict, found: dict, made: dict, ruled: list[dict]) -> str | Non
 
 
 def asks_only(found: dict, made: dict, questions: list[tuple[str, dict]]) -> str | None:
-    """Why an answer or owner record of his words that would end a card's question answers nothing: Jev reads them, beside the card's question and options, as only asking it for facts, tradeoffs, details or options, or remarking on it, so the card keeps asking him, its waits kept, and no session records them as his answer; refused too when Jev gives no reading, since a question ended on such words costs a redrawn card. None for words that pick an option or direct, "why not just X?" included, and for any record ending no question."""
-    if made["kind"] not in ("answer", "owner") or not made.get("url") or not questions or "undone" in (made.get("attr") or {}):
+    """Why an answer or owner record of his words that would end a card's question answers nothing: Jev reads them, beside the card's question and options, as only asking it questions, one proposing a way included, or remarking on it, so the card keeps asking him, its waits kept, and no session records them as his answer; refused too when Jev gives no reading, since a question ended on such words costs a redrawn card. None for words that pick an option or order the work, and for any record ending no question."""
+    if made["kind"] not in ("answer", "owner") or not made.get("url") or not questions:
         return None
     _, question = questions[0]
     card = view.asked_card(found, named) if (named := question["waits"] or question["card"]) else None
@@ -757,9 +762,11 @@ def asks_only(found: dict, made: dict, questions: list[tuple[str, dict]]) -> str
     except settled.Unheard as failure:
         return f"Jev did not read whether his words pick or direct ({failure}), so they could end a card he only asked about; run this again"
     return (
-        "Jev reads his words as only asking the card for facts, tradeoffs, details or options, or remarking on it, so they answer"
-        " nothing: answer them in the card's thread and send no record of them, and the card keeps asking him, its waits kept;"
-        ' words that pick an option or direct, "why not just X?" included, are his answer'
+        "Jev reads his words as only asking the card questions, one proposing a way included, or remarking on it, so they answer"
+        " nothing: answer them in the card's thread and send no record of them, and the card keeps asking him, its waits kept,"
+        " a way they propose going to the job's session to redraw the card offering it, by his words 2a27048, \"Why does the card"
+        ' say answered? I wanted you to answer my Qs so I could then make a choice"; words that pick an option or order the work'
+        " are his answer"
     )
 
 
@@ -867,7 +874,7 @@ def closed_by(data: dict, index: int, made: dict, order: str | dict | None) -> l
     answering = made.get("url") if made["kind"] == "answer" else None
     if questions := [(job_id, question) for job_id, question in named if view.answerable(question, answering) or ended_by(question["closed"], made)]:
         return questions
-    if made["kind"] != "answer" or "undone" in attrs or not (attrs.get("job") or attrs.get("thread_card")) or not superseded.said_at(data, made.get("url")):
+    if made["kind"] != "answer" or not (attrs.get("job") or attrs.get("thread_card")) or not superseded.said_at(data, made.get("url")):
         return []
     if not named:
         raise DriveError(

@@ -77,13 +77,13 @@ OVERRULED_RULE = (
 )
 DECIDING = Noul(
     "Does `answers.{answer}.said`, his answer to `answers.{answer}.asked`, choose one of `card.options` or make `card.question` moot, so the card asks him nothing his answer leaves open?",
-    no="The card still asks something his answer does not settle. " + UNSAID_HERE,
+    no='The card still asks something his answer does not settle. A bare option number answers only the card it was typed on, and a question of his answers no card, one proposing a way such as "could we X?" or "why not just X?" included.',
 )
 AGAIN = Noul("Does `card.text` ask him again, in other words, what `open.{slot}` asks, so one answer of his settles both?", no="It asks something that card leaves open, or a choice that card does not offer.")
 ANSWERS_NOTHING = Noul(
-    "Do `his_words`, written under `card`, only ask it for facts, tradeoffs, details or more options, or only remark on it, so they pick none of `card.options` and direct no work?",
-    yes='His words "Expand on 1 and 2 and how does the replica fit in?" and "Like how does 1 do it without those acks, and why can\'t we do 1 but the other is a replica" only ask.',
-    no='They pick an option, order or direct the work, or propose a way as a question, as "why not just X?" orders X built.',
+    "Do `his_words`, written under `card`, only ask it questions or only remark on it, so they pick none of `card.options` and order no work?",
+    yes='His words "Expand on 1 and 2 and how does the replica fit in?", "Why is 1 recommended over 2?" and "could we do 1 without re-uploading?" only ask, a way proposed as a question such as "why not just X?" included.',
+    no="They pick an option, approve the recommended one, rule one out, or order the work in words that ask nothing.",
 )
 ADVISED = (
     "drive job ask: Jev reads {part} as breaking {id}, {asked}, \"{said}\".{rule} This finding refuses no card, by his pick"
@@ -721,7 +721,7 @@ def unordered(answer: dict, release: str, data: dict) -> str | None:
 
 
 def only_asks(title: str, options: list[str], words: str) -> bool:
-    """Whether his words under a card only ask it for facts, tradeoffs, details or options, or remark on it, as Jev reads them beside its question and options at YES or more, so they answer nothing; Unheard when Jev gave no answer."""
+    """Whether his words under a card only ask it questions, one proposing a way included, or remark on it, as Jev reads them beside its question and options at YES or more, so they answer nothing; Unheard when Jev gave no answer."""
     return reading(jev({"card": {"question": title, "options": options}, "his_words": words[:BODY_CHARS]}, {"answers_nothing": ANSWERS_NOTHING})["answers_nothing"]) is True
 
 

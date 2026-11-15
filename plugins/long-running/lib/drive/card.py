@@ -15,6 +15,10 @@ KEPT_READS = "pr-reads"
 REVIEW_DECISIONS = {"approved": "APPROVED", "stale": "REVIEW_REQUIRED", "changes": "CHANGES_REQUESTED", "none": ""}
 TAP_LABELS = ("Approve", "Hold")
 UNDONE = "Undone: {label}. Never given; the card waits for his answer."
+UNREOPENED = (
+    "his Undo on {card} reopens nothing: no question drawn on that card ended answered on his tap there or his words at or"
+    " under it, so no answer of his stands there to take back; nothing recorded"
+)
 TITLE_CHARS = 140
 FIELD_CHARS = 400
 CAPTION_CHARS = 160
@@ -793,7 +797,7 @@ def answered(ask: dict) -> dict:
 
 
 def question_answered(ask: dict) -> dict:
-    """End the question his tap on a drive's question card answers, by a button, its number typed in its thread or his words in its Other box, in the tap's first write, dated by his tap as its record id carries it however late the drive takes the tap, with each older open question of its job his answer decides, as Jev reads it, superseded, so nothing refused after it leaves his answered card holding the builders waiting on it; then post it as the one answer record the coordinator gets for it, its topic `card:<thread_ts>`, idempotent by his Slack action, so cc-slack runs this again until the record stores and shows the tap recorded only then, and stamp the record's seq on each question the tap ended; each other card drawn for an ended question follows, and cc-slack closes the tapped card itself. A tap on Already answered answers it with the words of each recorded answer of his the card drew under that option, so its job builds them. His answer, unless it is the Already answered tap, whose words cc-notes holds already, is recorded in cc-notes as `drive answer` records one, the card's question as its title and his words as its body, once, its id kept on each question it ended and on the answer record, so `settled.matched` ranks it beside every answer he gave and a card asking it again in other words is told. Recording it supersedes each answer of the drive's still standing under that question, so his changed pick leaves one. An Undo reopens each question on the card his tap answered, which cc-slack redraws, records the card's question answered UNDONE, which supersedes the answer it takes back, and takes the answer that ended it off every job holding it, by its record's seq, since the card may have let go of the jobs that waited on it. Held verbatim on every job it frees that was made by his tap until the watch carries it there; History keeps it, or its undo, as his decision, once: a run again after one the card command's two minutes cut short finds his answer recorded by its record and adds nothing. A waits id naming no drive is not the drive's to record: `ok` false, so cc-slack hands the tap to the session it reached."""
+    """End the question his tap on a drive's question card answers, by a button, its number typed in its thread or his words in its Other box, in the tap's first write, dated by his tap as its record id carries it however late the drive takes the tap, with each older open question of its job his answer decides, as Jev reads it, superseded, so nothing refused after it leaves his answered card holding the builders waiting on it; then post it as the one answer record the coordinator gets for it, its topic `card:<thread_ts>`, idempotent by his Slack action, so cc-slack runs this again until the record stores and shows the tap recorded only then, and stamp the record's seq on each question the tap ended; each other card drawn for an ended question follows, and cc-slack closes the tapped card itself. A tap on Already answered answers it with the words of each recorded answer of his the card drew under that option, so its job builds them. His answer, unless it is the Already answered tap, whose words cc-notes holds already, is recorded in cc-notes as `drive answer` records one, the card's question as its title and his words as its body, once, its id kept on each question it ended and on the answer record, so `settled.matched` ranks it beside every answer he gave and a card asking it again in other words is told. Recording it supersedes each answer of the drive's still standing under that question, so his changed pick leaves one. An Undo reopens each question his answer on the card ended, by answered_at, his tap there or his words at or under it, which cc-slack redraws, records the card's question answered UNDONE, which supersedes the answer it takes back, and takes the answer that ended it off every job holding it, by its record's seq, since the card may have let go of the jobs that waited on it; an Undo reopening none is refused and records nothing. Held verbatim on every job it frees that was made by his tap until the watch carries it there; History keeps it, or its undo, as his decision, once: a run again after one the card command's two minutes cut short finds his answer recorded by its record and adds nothing. A waits id naming no drive is not the drive's to record: `ok` false, so cc-slack hands the tap to the session it reached."""
     name, _, _ = ask["waits"].partition(":")
     if name not in state.names():
         return {"ok": False, "why": f"{ask['waits']} is no drive's question card, so his tap on it stays with the session it reached"}
@@ -814,12 +818,14 @@ def answer_question(name: str, ask: dict) -> dict:
     item |= {"attrs": {"maps": "none"}} if ask.get("other") else {}
     item |= {"id": f"tap:{ask['waits']}:{ask['action_ts']}{':undone' if undone else ''}"} if ask.get("action_ts") else {}
     closed = state.new_close("answered", said, ask["url"], at=state.tap_time(item.get("id")), tap=ask.get("action_ts"))
-    if undone and (taken := answered_at(view.drawn_on(data, ask["waits"], ask["url"]), ask["url"])):
+    if undone and (drawn := view.drawn_on(data, ask["waits"], ask["url"])):
+        if not (taken := answered_at(data, drawn, ask["url"])):
+            raise state.DriveError(UNREOPENED.format(card=ask["url"]))
         settled.recorded(name, card_question(taken, ask["waits"])["title"], UNDONE.format(label=ask["label"]), [], ask["url"], data["roles"]["coordinator"]["cwd"])
     with state.edit(name) as data:
         on_card = view.drawn_on(data, ask["waits"], ask["url"])
         if undone:
-            fresh = answered_at(on_card, ask["url"])
+            fresh = answered_at(data, on_card, ask["url"])
             given = {question["closed"]["seq"] for _, question in fresh}
             for job in data["jobs"].values():
                 job["undelivered"] = [held for held in job["undelivered"] if held["seq"] not in given]
@@ -860,9 +866,25 @@ def answer_question(name: str, ask: dict) -> dict:
     return {"ok": True, "seq": seq}
 
 
-def answered_at(drawn: list[tuple[str, dict]], url: str) -> list[tuple[str, dict]]:
-    """Each question drawn on a card that his answer at this link ended, the ones his Undo there takes back."""
-    return [(job_id, question) for job_id, question in drawn if (question["closed"] or {}).get("how") == "answered" and question["closed"]["link"] == url]
+def answered_at(data: dict, drawn: list[tuple[str, dict]], url: str) -> list[tuple[str, dict]]:
+    """Each question his answer on the card at this link ended, the ones his Undo there takes back: each drawn on it that ended answered by his tap on it or his words at or under it, whichever link the close stored, and each question of any job answered on the same record, by its seq, such as a twin or a copy `drive job ask` settled on it, while an older question it superseded keeps the card that closed showing his words."""
+    from drive import view
+
+    taken = [
+        (job_id, question)
+        for job_id, question in drawn
+        if (closed := question["closed"]) and closed["how"] == "answered" and closed["link"] and (view.message_key(closed["link"]) == view.message_key(url) or view.under(closed["link"], url))
+    ]
+    seqs = {question["closed"]["seq"] for _, question in taken} - {None}
+    return [
+        *taken,
+        *(
+            (job_id, question)
+            for job_id, job in data["jobs"].items()
+            for question in job["questions"]
+            if (closed := question["closed"]) and closed["how"] == "answered" and closed["seq"] in seqs and not any(question is each for _, each in taken)
+        ),
+    ]
 
 
 def card_question(drawn: list[tuple[str, dict]], waits: str) -> dict:

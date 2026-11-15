@@ -404,9 +404,10 @@ Posting it:
 
 When it is answered, replaced or redone:
 
-- His words written under a card answer it, a question proposing a way such as "why not just X?"
-  included, which X answers: the card closes showing them, and the work goes ahead on them. Only a
-  question asking for facts or options is answered in its thread while the card waits. `drive job card` refuses to redraw that card with another question, so put a question his
+- His words written under a card answer it when they pick an option or say what to build: the card
+  closes showing them, and the work goes ahead on them. A question of his answers nothing, one
+  proposing a way such as "could we X?" or "why not just X?" included: it is answered in its thread
+  while the card waits, and a way it proposes is offered on the card, redrawn with `--redraws`. `drive job card` refuses to redraw that card with another question, so put a question his
   words leave open on a new card.
 - When an answer or ruling he gave elsewhere decides a card, mark it on that answer's `drive answer`,
   which lists only the cards of the answered card's job and order, those of an order a lifted pick

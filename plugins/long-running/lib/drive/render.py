@@ -68,7 +68,8 @@ COMMUNICATOR_RULES = (
         ' "why not just X?" included, the call\'s records carry his owner record, the record tool\'s fields, so a card'
         " his words withdraw or change ends in that call, the handler posts a ruling's, and none goes for a read-only"
         " question, which asks for facts,"
-        " since the coordinator answers any question it hears. For a read-only question the call also passes answer:"
+        " since the coordinator answers any question it hears, nor for any question of his under a question card, which"
+        " answers nothing and leaves the card asking him. For a read-only question the call also passes answer:"
         ' "<a few words naming it>" alone and adds his answer order and the handler\'s reader job itself, so the watch'
         " holds his answer, and the handler files that order under its project and workstream. Then the turn ends."
     ),

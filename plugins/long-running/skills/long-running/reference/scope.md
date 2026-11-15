@@ -239,9 +239,10 @@ on the card posts the one section he asks about, never a findings post of its ow
 
 ## His answer
 
-His answer is the option he tapped, or his own words under or about the card, a direction included,
-and so is a question proposing a way, such as "why not just X?", before or after his tap: X is
-built in place of any option he tapped.
+His answer is the option he tapped, or his own words under or about the card that pick an option
+or say what to build. A question of his answers nothing, one proposing a way such as "could we X?"
+or "why not just X?" included, before or after his tap: it is answered in the card's thread, X
+worked out and offered on the card redrawn, and he chooses.
 They settle the card, which closes showing them, and the work goes ahead on them, never mapped to
 the closest option. Only a reply that leaves the question open, such as "neither of these" with no
 other way named, gets a follow-up question, on a new card; the card he answered is never redrawn.
