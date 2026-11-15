@@ -119,13 +119,14 @@ TOOLING_SAID = (
     "This is getting too in the weeds for me use your fucking Brain and act like a frontier model when it comes to Meta tooling"
     " don't ask me every little thing ask my high level preferences (different than non-tooling changes); apply this everywhere now"
 )
-DETAIL = Noul(
-    "Does `card.text`, asked on a drive tooling order, ask him only a detail of how the tooling does its work, such as which file,"
-    " function, store, hook, verb, flag, check, judge, process or wait does it, or which branch, pin or commit holds a change, so by"
-    " `ruling.said` its job decides it and builds the option it recommends?",
-    no="Its options differ in what he gets: whether, where or when a post or card reaches him or what it looks like, a tap, gate or"
-    " presence he owes, a cost he pays in money or in waiting on his work, a ruling of his the recommended option lifts, or the scope"
-    " of work the drive takes on.",
+PREFERENCE = Noul(
+    "Do the options of `card.text`, asked on a drive tooling order, differ in what he gets: whether, where or when a post or card"
+    " reaches him or what it looks like, a tap, gate or presence he owes, a cost he pays in money or in waiting on his work, a ruling"
+    " of his the recommended option lifts, or the scope of work the drive takes on?",
+    yes="A high-level preference of his, which by `ruling.said` he answers.",
+    no="The options differ only in how the tooling does its work, such as which file, function, store, hook, verb, flag, check, judge,"
+    " process or wait does it, what an agent, hook or verb is refused or made to do, how many requests or processes it makes, or which"
+    " branch, pin or commit holds a change, which by `ruling.said` its job decides.",
 )
 DECIDED = "{option}: decided without you under your ruling on tooling details"
 DECIDED_LINE = (
@@ -708,15 +709,15 @@ def deciding(asked: limits.Question, answers: list[dict]) -> list[dict]:
 
 
 def detail(case: str, words: list[dict]) -> bool:
-    """Whether a card on a drive tooling order asks him only a detail its job decides, by his ruling state.TOOLING_DETAILS_RULING, as Jev reads it at YES or more in one request holding the card, the ruling and, filled by whole items, his words; one Jev reads in the band between NO and YES, or gives no reading of, goes to him, the latter said on stderr."""
+    """Whether a card on a drive tooling order asks him only a detail its job decides, by his ruling state.TOOLING_DETAILS_RULING: Jev reads its options under NO as differing in what he gets, by PREFERENCE, in one request holding the card, the ruling and, filled by whole items, his words; one Jev reads in the band between NO and YES, or gives no reading of, goes to him, the latter said on stderr."""
     items = (({"words": {f"w{number}": {field: word[field] for field in ("asked", "said", "rule") if field in word}}}, {}) for number, word in enumerate(words, 1))
-    request, questions, _ = fill({"card": {"text": case}, "ruling": {"id": state.TOOLING_DETAILS_RULING, "said": TOOLING_SAID}}, {"detail": DETAIL}, items)
+    request, questions, _ = fill({"card": {"text": case}, "ruling": {"id": state.TOOLING_DETAILS_RULING, "said": TOOLING_SAID}}, {"preference": PREFERENCE}, items)
     try:
         read = jev(request, questions)
     except Unheard as failure:
         print(f"drive job ask: Jev gave no reading of whether this tooling card asks him only a detail, so it goes to him: {failure}", file=sys.stderr)
         return False
-    return reading(read["detail"]) is True
+    return reading(read["preference"]) is False
 
 
 def tooling_decided(option: str, link: str | None) -> dict:

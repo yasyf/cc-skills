@@ -120,7 +120,8 @@ past the question it was given under and names the subject only in his words.
 
 `drive job ask` keeps a question settled with no card on his answer to that same question,
 asked in the same words, case, spacing and punctuation aside, and, on a drive tooling order, on Jev's reading,
-at least 0.7 sure, that it asks him only a detail: it keeps that one decided on its recommended
+under 0.3 sure, that its options differ in what he gets, such as a post, tap, cost, ruling of his or
+scope of work, so it asks him only a detail: it keeps that one decided on its recommended
 option under his ruling 43aa665 and prints so, and the job builds it and opens its PR. A card
 already drawn on the question, kept unsettled, or read as going against his words still goes to
 him, and Jev never reads a drawn one again. When the meta session or the card's job reads a drawn

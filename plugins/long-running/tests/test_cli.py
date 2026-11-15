@@ -3546,7 +3546,7 @@ def test_a_tooling_question_jev_reads_as_only_a_detail_is_kept_decided_on_its_re
     run("job", "add", "builder", "--order", "o2", "--goal", "lay them out")
     with state.edit("demo") as data:
         state.start(data["jobs"]["j2"])
-    jev.detail = 0.95
+    jev.preference = 0.05
     monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK))
     kept = str(state.drive_dir("demo") / "asks" / f"j2-{state.ask_hash(SHORT_ASK)}.md")
     option = "One snapshot file per finished run, written when it ends, old runs backfilled: opens in 3 requests"
@@ -3560,7 +3560,7 @@ def test_a_tooling_question_jev_reads_as_only_a_detail_is_kept_decided_on_its_re
         f"{option}: decided without you under your ruling on tooling details",
     )
     assert state.load("demo")["jobs"]["j2"]["state"] == "running"
-    jev.detail = 0.5
+    jev.preference = 0.5
     preference = SHORT_ASK.replace("ASK How should", "ASK When should")
     monkeypatch.setattr("sys.stdin", io.StringIO(preference))
     run("job", "ask", "j2", "-")
