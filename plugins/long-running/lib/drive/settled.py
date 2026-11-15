@@ -170,7 +170,7 @@ ASKS_RELEASE = Noul(
     yes="It asks for that step, whatever words of his it quotes.",
     no=(
         "It only reports a release that ran, is running or a teammate says they will run, states that an approval or answer of his is pending, his Approve on a"
-        " pull request included, says nothing starts, quotes a command, plan or refusal, asks for a plan, a dry run or a card redrawn, or asks that session to"
+        " pull request included, says nothing starts, withdraws a READY or calls one stale, tells that session not to start a cut, quotes a command, plan or refusal, asks for a plan, a dry run or a card redrawn, or asks that session to"
         " put the release to him and start nothing until he answers. A step of drive work, such as resuming a job, rebasing a pull request or redrawing a card,"
         " is no release step, nor is a `tools/ci cluster-job` start or the unblock of the gate of the forge/release build it starts, which runs one suspended"
         " CronJob in a team's cluster and ships no change."
@@ -259,8 +259,8 @@ ORDERED = (
     " release; the card is kept unsettled on none of his words it carries out."
 )
 LEADING_NUMBER = re.compile(r"\s*(\d+)\b(?![.,]\d)")
-UNCHANGED = frozenset({"env", "without", "from", "commit", "order"})
-SOAKED = frozenset({"targets", "only", "stack"})
+UNCHANGED = frozenset({"env", "without", "from", "order"})
+SOAKED = frozenset({"targets", "only"})
 STARTS = frozenset({"emergency", "manual", "rollback"})
 PROSE_FLAGS = frozenset({"targets", *UNCHANGED, "emergency"})
 TENANTS = re.compile(r"^tenants:\n((?:[ -].*(?:\n|$))*)", re.MULTILINE)
@@ -768,19 +768,19 @@ def asks_page(words: str) -> bool:
 
 
 def unordered(answer: dict, release: str, data: dict) -> str | None:
-    """Why his answer does not order this release, one `ci release start` or `hotfix`; None when it does, the one reading the release gates and `drive job ask` share. When the card his answer answers is kept, found through the link `drive answer` kept for it, and his leading option number or tap picks an option whose words name a release in backticks, code decides: his answer orders a release shipping the change one of those ships, every flag the same but its places, `--from` or `--commit` and `--order`, and on staging alone under one on staging alone, as placed() reads it, its targets, `--only`, `--stack` and how it starts, on no place beyond that option's but those his words past the number name, by env id or by the name or displayName its infra/envs file gives that place's team. A picked option naming no release in backticks orders, in code too, a release its words name whole, as named() reads it. Any other answer Jev reads in one request, his words beside that card and the places the release runs on with their stages, one Noul whether his words have that release run and one whether it ships more than they order: it orders the release at YES on the first and under NO on the second, either in the band between refusing it as unsure; Unheard when Jev gave no answer."""
+    """Why his answer does not order this release, one `ci release start` or `hotfix`; None when it does, the one reading the release gates and `drive job ask` share. When the card his answer answers is kept, found through the link `drive answer` kept for it, and his leading option number or tap picks an option whose words name a release in backticks, code decides: each release read by shipped(), his answer orders a release shipping the change one of those ships, every flag the same but its places, `--from` and `--order`, and on staging alone under one on staging alone, as placed() reads it, its targets, `--only` and how it starts, on no place beyond that option's but those his words past the number name, by env id or by the name or displayName its infra/envs file gives that place's team. A picked option naming no release in backticks orders, in code too, a release its words name whole, as named() reads it. Any other answer Jev reads in one request, his words beside that card and the places the release runs on with their stages, one Noul whether his words have that release run and one whether it ships more than they order: it orders the release at YES on the first and under NO on the second, either in the band between refusing it as unsure; Unheard when Jev gave no answer."""
     from drive import brief
 
     said = his(answer["body"])
     asked = answered_card(data, answer)
-    [flags] = brief.started(release)
+    [flags] = map(shipped, brief.started(release))
     cwd = data["roles"]["coordinator"]["cwd"]
     if asked and (pick := picked_option(asked, said)):
         number, rest = pick
         option = asked.options[number - 1]
         words = f"{option}\n{asked.hints.get(option, '')}"
         if commands := brief.card_releases(words):
-            whys = [placed(flags, brief.started(command)[0], rest, cwd) for command in commands]
+            whys = [placed(flags, shipped(brief.started(command)[0]), rest, cwd) for command in commands]
             if None in whys:
                 return None
             return f"it picks option {number} of the card it answers, {', '.join(f'`{command}`' for command in commands)}, {whys[0]}"
@@ -819,7 +819,7 @@ def picked_option(asked: limits.Question, said: str) -> tuple[int, str] | None:
 
 
 def placed(release: dict, option: dict, rest: str, cwd: str) -> str | None:
-    """Why a release does not ship what a card option's release ships, on the option's places and those his words past its number name; None when it does. A release on staging alone under an option's release on staging alone ships it with targets, `--only` and `--stack` of its own wherever the option's names none, started with `--emergency`, `--manual` or `--rollback` or not, so his standing yes 23eefb9, whose option starts `tools/ci release start --emergency --env plat-usw2-staging`, orders each soak's start and the `--manual --stack` restore or rollback that returns staging after it: "A standing yes: the drive soaks any dangerous branch on staging alone, while production keeps waiting for your word"."""
+    """Why a release does not ship what a card option's release ships, each read by shipped(), on the option's places and those his words past its number name; None when it does. A release on staging alone under an option's release on staging alone ships it with targets and `--only` of its own wherever the option's names none, started with `--emergency`, `--manual` or `--rollback` or not, so his standing yes 23eefb9, whose option starts `tools/ci release start --emergency --env plat-usw2-staging`, orders each soak's start and the restore or rollback that returns staging after it: "A standing yes: the drive soaks any dangerous branch on staging alone, while production keeps waiting for your word"."""
     free = UNCHANGED | (SOAKED - set(option) | STARTS if staging_only(release, cwd) and staging_only(option, cwd) else frozenset())
     if {name: values for name, values in release.items() if name not in free} != {name: values for name, values in option.items() if name not in free}:
         return "and this release ships another change"
@@ -832,8 +832,8 @@ def placed(release: dict, option: dict, rest: str, cwd: str) -> str | None:
 
 
 def named(release: dict, words: str, rest: str, cwd: str) -> bool:
-    """Whether a card option's words, naming no release in backticks, name this release whole: it carries only targets, places, `--from` or `--commit`, `--order` and `--emergency`, at least one target and one place it runs on, each target a word of the option's and each place one of the option's or of his words past its number, by env id or its team's name."""
-    places = set(release_places(release)) - set(release.get("without", ()))
+    """Whether a card option's words, naming no release in backticks, name this release whole, as shipped() reads it: it carries only targets, places, `--from`, `--order` and `--emergency`, at least one target and one place it runs on, each target a word of the option's and each place one of the option's or of his words past its number, by env id or its team's name."""
+    places = set(release.get("env", ())) - set(release.get("without", ()))
     if set(release) - PROSE_FLAGS or not release.get("targets") or not places:
         return False
     option, both = f" {plain(words)} ", f" {plain(f'{words} {rest}')} "
@@ -843,11 +843,11 @@ def named(release: dict, words: str, rest: str, cwd: str) -> bool:
 
 
 def beyond(release: dict, option: dict) -> set[str] | None:
-    """The places a release runs on that a card option's does not, each by its env id as release_places() reads it; None when the release runs on every place but those it leaves out and the option names its own."""
-    if not (named := release_places(release)):
-        return None if release_places(option) else set(option.get("without", ())) - set(release.get("without", ()))
-    runs = set(named) - set(release.get("without", ()))
-    return runs - (set(places) - set(option.get("without", ()))) if (places := release_places(option)) else runs & set(option.get("without", ()))
+    """The places a release runs on that a card option's does not, each by its env id as shipped() reads it; None when the release runs on every place but those it leaves out and the option names its own."""
+    if not release.get("env"):
+        return None if option.get("env") else set(option.get("without", ())) - set(release.get("without", ()))
+    runs = set(release["env"]) - set(release.get("without", ()))
+    return runs - (set(option["env"]) - set(option.get("without", ()))) if option.get("env") else runs & set(option.get("without", ()))
 
 
 def team_names(place: str, cwd: str) -> list[str]:
@@ -873,26 +873,29 @@ def env_file(place: str, cwd: str) -> str:
     return env.read_text() if env.is_file() else ""
 
 
-def release_places(release: dict) -> tuple[str, ...]:
-    """Each place a release names to run on, by env id: the env of each `--stack <component>/<env>`, as go/ci's ParseStack splits it, since a --stack release runs on no --env place, else each --env place; none for a release naming neither, which runs on production."""
-    if stacks := release.get("stack"):
-        return tuple(dict.fromkeys(stack.partition("/")[2] for stack in stacks))
-    return release.get("env", ())
+def shipped(release: dict) -> dict[str, tuple[str, ...]]:
+    """A release's flags as the gate reads what it ships and where: each `--stack <project>/<env>`, as go/ci's ParseStack splits it, names its project among the targets and its env among the `--env` places, and `--commit`, the commit a `--manual` deploy ships, reads as `--from`; a release naming no place runs on production."""
+    stacks = [stack.partition("/") for stack in release.get("stack", ())]
+    read = {name: values for name, values in release.items() if name not in ("stack", "commit")}
+    for name, values in (("targets", [project for project, _, _ in stacks]), ("env", [env for _, _, env in stacks]), ("from", release.get("commit", ()))):
+        if values:
+            read[name] = tuple(sorted({*read.get(name, ()), *values}))
+    return read
 
 
 def staging_only(release: dict, cwd: str) -> bool:
-    """Whether a release runs on staging alone, by go/ci's StagingOnly: it names places, by release_places(), and each one's infra/envs file marks it `stage: staging`."""
-    return bool(places := release_places(release)) and all(stage(place, cwd) == STAGING for place in places)
+    """Whether a release, as shipped() reads it, runs on staging alone, by go/ci's StagingOnly: it names places, and each one's infra/envs file marks it `stage: staging`."""
+    return bool(places := release.get("env")) and all(stage(place, cwd) == STAGING for place in places)
 
 
 def off_production(release: dict, cwd: str) -> bool:
-    """Whether a release runs on no production place, by go/ci's Model.Prod: it names places, by release_places(), and each one's infra/envs file gives it a stage and no `prod: true`, as staging, sandbox and dev are marked."""
-    return bool(places := release_places(release)) and all(stage(place, cwd) and not prod(place, cwd) for place in places)
+    """Whether a release, as shipped() reads it, runs on no production place, by go/ci's Model.Prod: it names places and each one's infra/envs file gives it a stage and no `prod: true`, as staging, sandbox and dev are marked."""
+    return bool(places := release.get("env")) and all(stage(place, cwd) and not prod(place, cwd) for place in places)
 
 
 def runs_on(release: dict, cwd: str) -> str:
-    """Where a release runs, as go/ci's release wizard says it: each place it names, by release_places(), beside the stage its infra/envs file gives it, else production, every environment except staging, and each place its --without leaves out."""
-    places = ", ".join(f"{place} (stage {found})" if (found := stage(place, cwd)) else place for place in release_places(release)) or PRODUCTION
+    """Where a release, as shipped() reads it, runs, as go/ci's release wizard says it: each place it names beside the stage its infra/envs file gives it, else production, every environment except staging, and each place its --without leaves out."""
+    places = ", ".join(f"{place} (stage {found})" if (found := stage(place, cwd)) else place for place in release.get("env", ())) or PRODUCTION
     return f"{places}, leaving out {', '.join(release['without'])}" if release.get("without") else places
 
 
