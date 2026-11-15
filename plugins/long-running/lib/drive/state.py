@@ -924,6 +924,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         job.setdefault("where", "remote" if job.get("dispatch") else "local")
         job.setdefault("returned", job["updated"])
         job.pop("stall", None)
+        for held in ("reads", "read_answers", "readers"):
+            job.pop(held, None)
         if job.pop("checks", None):
             job["parts"] = []
         if job.get("ask") and any(reported(text.lstrip()) for text in (job["said"] or "", job["report"] or "")):

@@ -51,7 +51,8 @@ READS_LOG = "reads.log"
 CONFLICTS = "conflicts with its base"
 NEWEST_MAIL = "newest lane mail"
 LANE_MAIL = "lane mail"
-RELAYING = threading.RLock()
+ANSWERS = "answers"
+LANE_WAIT = timedelta(seconds=reads.DRIVE_SECONDS)
 RELAUNCHES_LOG = "relaunches.log"
 PASS_DONE = (
     "this pass's round is done: it returns DONE naming what the round did and where the next round starts, which the watch quotes to the next"
@@ -1267,12 +1268,12 @@ def mail_line(name: str, data: dict, job_id: str, message: dict, moment: datetim
 
 
 def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Remote lanes' mail while a lane the watch hears is live, read in one call of Orca's whole mailbox and given by senders to the job whose worker sent it, whatever Run Orca filed it on and whatever that job's state, from every worker of its job and not only the newest, and kept in its job's history, where the mail of a worker a relaunch replaced, and Orca's word on a permission prompt, which Claude Code's timer or the bash_guard hook answers while the lane carries on, only stays: reports and statuses become JOB lines, Orca's notice that its mail did not reach a finished worker ends that worker's turn with no STOPPED and says nothing, read and `DRIVE` questions the relay has not taken queue on their job to be answered here, an open question kept before the watch read it as a read included. A follow-up Orca started to carry a recorded worker's unread mail is that job's mail delivery and never its worker: each turn it ends, settles the texts its job keeps queued by that Dispatch's mailbox, by deliveries and state.take_mail, and a follow-up's failed start posts no STOPPED but holds on the job each text its mailbox still shows unread, runs `drive job resume` on the job, which carries them to its worker or relaunches a finished one with them, and says so on one JOB line. The read starts past the newest sequence the watch's last read reached, and a watch's first read past the newest mark of the jobs it hears, each job keeping the sequence of the newest of its messages taken, judged and moved under the lock, so a pass reads only the mail that came since, never Orca's whole history, and a job's mail no watch has taken waits for whichever watch hears it next. A message its job's history already keeps, read again under the lock, is never taken again, so a watch whose mark another install's save lost replays nothing and a question the relay took meanwhile never runs twice."""
+    """Remote lanes' mail while a lane the watch hears is live, read in one call of Orca's whole mailbox and given by senders to the job whose worker sent it, whatever Run Orca filed it on and whatever that job's state, from every worker of its job and not only the newest, and kept in its job's history, where the mail of a worker a relaunch replaced, and Orca's word on a permission prompt, which Claude Code's timer or the bash_guard hook answers while the lane carries on, only stays: reports and statuses become JOB lines, Orca's notice that its mail did not reach a finished worker ends that worker's turn with no STOPPED and says nothing, each read and `DRIVE` question the relay has not taken gets a reader started here, by spawn_reader, an open question kept before the watch read it as a read included. A follow-up Orca started to carry a recorded worker's unread mail is that job's mail delivery and never its worker: each turn it ends, settles the texts its job keeps queued by that Dispatch's mailbox, by deliveries and state.take_mail, and a follow-up's failed start posts no STOPPED but holds on the job each text its mailbox still shows unread, runs `drive job resume` on the job, which carries them to its worker or relaunches a finished one with them, and says so on one JOB line. The read starts past the newest sequence the watch's last read reached, and a watch's first read past the newest mark of the jobs it hears, each job keeping the sequence of the newest of its messages taken, judged and moved under the lock, so a pass reads only the mail that came since, never Orca's whole history, and a job's mail no watch has taken waits for whichever watch hears it next. A message its job's history already keeps, read again under the lock, is never taken again, so a watch whose mark another install's save lost replays nothing and a question the relay took meanwhile never runs twice."""
     queue_kept_reads(watcher)
     data = state.load(watcher.name)
     if not live_lanes(watcher, data):
-        return [line for line in read_lines(watcher, moment) if line]
-    lines, messages, delivered, undelivered, owed = [], [], {}, [], []
+        return []
+    lines, messages, delivered, undelivered, owed, asked = [], [], {}, [], [], []
     after = watcher.mailbox_seen or max((job["mail_seen"] for job in data["jobs"].values() if heard_job(watcher, data, job)), default=0)
     try:
         mail = orca.mail(after or None)
@@ -1299,8 +1300,8 @@ def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 job = data["jobs"][job_id]
                 if sending(message) in replaced(job) or state.prompted(message):
                     continue
-                if message["type"] == "question" and (question := reads.request(message["body"] or "")):
-                    job.setdefault("reads", {})[message["id"]] = question
+                if message["type"] == "question" and reads.request(message["body"] or ""):
+                    asked.append((job_id, message["id"]))
                     continue
                 if message["type"] in state.TURN_ENDS and message["from_handle"] == f"dispatch:{job['dispatch']}":
                     job["turn_open"] = False
@@ -1323,7 +1324,9 @@ def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
             send_held(watcher, job_id, moment)
         lines.append(f"JOB {job_id} {order_id} {render.unread(held, failed)}{carried}")
     watcher.made += [line for line in lines if line]
-    return [line for line in read_lines(watcher, moment) if line]
+    for job_id, message_id in asked:
+        spawn_reader(watcher.name, job_id, message_id)
+    return []
 
 
 class Delivery(NamedTuple):
@@ -1367,15 +1370,18 @@ def kept_asks(data: dict, sender: Callable[[dict], str | None], messages: list[d
 
 
 def queue_kept_reads(watcher: Watcher) -> None:
-    """Queue each live lane's open question that asks a read, so a question kept as the coordinator's, such as one kept before the watch read it as a read, is answered here and its lane runs again."""
+    """Start a reader on each live lane's open question that asks a read, so a question kept as the coordinator's, such as one kept before the watch read it as a read, is answered here and its lane runs again."""
     data = state.load(watcher.name)
     if not any(kept_read(job) for job in live_lanes(watcher, data).values()):
         return
+    asked = []
     with state.edit(watcher.name) as data:
-        for job in live_lanes(watcher, data).values():
-            if question := kept_read(job):
-                job.setdefault("reads", {})[job["ask"]] = question
+        for job_id, job in live_lanes(watcher, data).items():
+            if kept_read(job):
+                asked.append((job_id, job["ask"]))
                 job.update(ask=None, state="running")
+    for job_id, message_id in asked:
+        spawn_reader(watcher.name, job_id, message_id)
 
 
 def kept_read(job: dict) -> str | None:
@@ -1454,187 +1460,143 @@ def relay(watcher: Watcher, stop: threading.Event) -> None:
 
 
 def relay_pass(watcher: Watcher, moment: datetime) -> list[str]:
-    """Queue each new read or `DRIVE` question a live lane asked, then send each queued read the answer its reader kept, starting a reader on each that has none, then start the handler on each line promised him by a time this pass's own clock has passed, by due_lines. Its first pass, and one after a failed read, first has this process's Orca calls speak as the drive's own terminal; a failed read goes again next pass, said as the watch says its reads."""
+    """Start a reader on each new read or `DRIVE` question a live lane asked, then send again each answer a reader kept that no reply took, by resend_lines, then start the handler on each line promised him by a time this pass's own clock has passed, by due_lines. Its first pass, and one after a failed read, first has this process's Orca calls speak as the drive's own terminal; a failed read goes again next pass, said as the watch says its reads."""
     lines = []
     try:
         if watcher.read_at is None:
             orca.speak_as_drive(watcher.name)
             watcher.read_at = moment
-        queue_questions(watcher)
+        start_reads(watcher)
     except orca.OrcaError as error:
         lines = read_failed(watcher, NEWEST_MAIL, error, moment)
     else:
         watcher.failures.pop(NEWEST_MAIL, None)
-    return lines + read_lines(watcher, moment) + due_lines(watcher, moment)
+    return lines + resend_lines(watcher, moment) + due_lines(watcher, moment)
 
 
-def queue_questions(watcher: Watcher) -> None:
-    """Queue on its job each read or `DRIVE` question in Orca's newest mail that a lane's worker asked, by senders, keeping it in its job's history as lane_lines keeps lane mail, so lane_lines, which reads past its own mark, finds it kept and never queues it again; each message is judged once in the process, and no mail is read while no lane is live."""
+def start_reads(watcher: Watcher) -> None:
+    """Start `drive job read` on each read or `DRIVE` question in Orca's newest mail that a lane's worker asked, by senders, keeping it in its job's history as lane_lines keeps lane mail, so lane_lines, which reads past its own mark, finds it kept and starts no reader on it; each message is judged once in the process, no mail is read while no lane is live, and no drive lock is taken, since the reader's own claim keeps a question that two starts race on to one reader."""
     data = state.load(watcher.name)
     if not live_lanes(watcher, data):
         return
     sender = senders(watcher, data, {})
-    asked = [
-        (message, question)
-        for message in orca.newest_mail()
-        if message["type"] == "question"
-        and message["id"] not in watcher.questions_taken
-        and sender(message)
-        and (question := reads.request(message["body"] or ""))
-    ]
-    if not asked:
-        return
-    with state.edit(watcher.name) as data:
-        sender = senders(watcher, data, {})
-        for message, question in asked:
-            watcher.questions_taken.add(message["id"])
-            job_id = sender(message)
-            if not job_id or message["sequence"] <= data["jobs"][job_id]["mail_seen"] or message["id"] in {reply["id"] for reply in state.replies(watcher.name, job_id)}:
-                continue
-            state.keep_reply(watcher.name, job_id, message)
-            if sending(message) not in replaced(job := data["jobs"][job_id]) and not state.prompted(message):
-                job.setdefault("reads", {})[message["id"]] = question
+    for message in orca.newest_mail():
+        if message["type"] != "question" or message["id"] in watcher.questions_taken or not (job_id := sender(message)) or not reads.request(message["body"] or ""):
+            continue
+        watcher.questions_taken.add(message["id"])
+        if message["sequence"] <= data["jobs"][job_id]["mail_seen"] or message["id"] in {reply["id"] for reply in state.replies(watcher.name, job_id)}:
+            continue
+        state.keep_reply(watcher.name, job_id, message)
+        if sending(message) not in replaced(data["jobs"][job_id]) and not state.prompted(message):
+            spawn_reader(watcher.name, job_id, message["id"])
 
 
 def drained(lines: collections.deque[str]) -> list[str]:
     return [lines.popleft() for _ in range(len(lines))]
 
 
-def read_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Start `drive job read` here as its own process on each `READ`, `LOG` or `DRIVE` question a lane queued, since a Sprite holds no copy of the drive's records, which sends the answer it keeps, by send_answers, for each question with neither an answer nor a reader still running whose lane may wait on it, a live lane's or one whose worker's turn is open whatever its job's state, as when the lane's own `drive job report` took its job done while its next question waited, so a drive command that runs for minutes holds up no pass; one the read cannot answer gets why as its answer and a `JOB` line saying so. A question no worker waits on leaves its queue with no line, never read and any answer kept for it never sent, so no write a lane asked runs after its lane gave up on it, even once a later move of its job makes it live again, by gone_reads, which send_answers reads too. A lane's `drive job report` wrote its returned event as it took the return, so the answer carries no line of its own, and the return may have moved its job out of the live states, so a kept answer goes whatever its job's state. A reader starts only on what drive.json held once its reader was seen ended, so no reader that finished since the watch last read drive.json starts again; then each Run holding an answer kept for a job this watch hears gets every answer a refused reply left by send_answers, which sends them again and never reruns the read, each refusal said once as read_failed says it. The relay's thread and the pass take turns here under RELAYING, each reading the drive afresh, so no question gets two readers."""
-    with RELAYING:
-        running, data = ended_reads(watcher.name, state.load(watcher.name))
-        unowed = {}
-        for job_id, job in data["jobs"].items():
-            idle = [message_id for message_id in job.get("reads", {}) if (job_id, message_id) not in running]
-            if not idle or not heard_job(watcher, data, job):
-                continue
-            gone = gone_reads(watcher.name, job_id, job, idle)
-            if dropped := [message_id for message_id in idle if message_id in gone]:
-                unowed[job_id] = dropped
-            for message_id in idle:
-                if message_id in gone or message_id in job.get("read_answers", {}):
-                    continue
-                reader = job.setdefault("readers", {})[message_id] = spawn_reader(watcher.name, job_id, message_id)
-                with state.edit(watcher.name) as fresh:
-                    if message_id in fresh["jobs"][job_id].get("reads", {}):
-                        fresh["jobs"][job_id].setdefault("readers", {})[message_id] = reader
-        if unowed:
-            with state.edit(watcher.name) as fresh:
-                for job_id, message_ids in unowed.items():
-                    for message_id in message_ids:
-                        for held in ("reads", "read_answers", "readers"):
-                            fresh["jobs"][job_id].get(held, {}).pop(message_id, None)
-        lines = []
-        running, data = ended_reads(watcher.name, data)
-        for run in dict.fromkeys(job["run"] for job_id, job in data["jobs"].items() if heard_job(watcher, data, job) and unsent_answers(watcher.name, job_id, job, running)):
-            for job_id, error in send_answers(watcher.name, run):
-                source = f"the answer to {job_id}'s"
-                if error:
-                    lines += read_failed(watcher, source, error, moment)
-                else:
-                    watcher.failures.pop(source, None)
-        return lines
-
-
-def unsent_answers(name: str, job_id: str, job: dict, running: set[tuple[str, str]]) -> list[str]:
-    """The questions of the job whose answer is kept, whose reader no longer runs and that a worker still waits on, by gone_reads."""
-    kept = [message_id for message_id in job.get("reads", {}) if (job_id, message_id) not in running and job.get("read_answers", {}).get(message_id)]
-    if not kept:
+def resend_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Send again each answer a reader kept for a job this watch hears that no reply took yet, as its file under the drive's answers folder marks it unsent, since a lane whose wait ends waits again on the same question: none while its reader still runs, which sends it the moment it ends, and none to a question no worker waits on any more, by still_asked, whose mark goes with no line; any other goes by send_answer and never reruns the read, each refusal said once as read_failed says it."""
+    marks = sorted((state.drive_dir(watcher.name) / ANSWERS).glob("*.unsent"))
+    if not marks:
         return []
-    gone = gone_reads(name, job_id, job, kept)
-    return [message_id for message_id in kept if message_id not in gone]
+    data, lines = state.load(watcher.name), []
+    for mark in marks:
+        kept = json.loads(mark.with_suffix(".json").read_text())
+        job = data["jobs"][kept["job"]]
+        if not heard_job(watcher, data, job):
+            continue
+        if not still_asked(job, kept_question(watcher.name, kept["job"], mark.stem), moment):
+            mark.unlink(missing_ok=True)
+            continue
+        if kept["reader"] and state.alive(kept["reader"]):
+            continue
+        source = f"the answer to {kept['job']}'s"
+        if error := send_answer(watcher.name, kept["job"], mark.stem, kept):
+            lines += read_failed(watcher, source, error, moment)
+        else:
+            watcher.failures.pop(source, None)
+    return lines
 
 
-def gone_reads(name: str, job_id: str, job: dict, idle: list[str]) -> set[str]:
-    """The reads among these no worker waits on: each of a job whose lane no watch reads, by read_lane, once its worker ended its turn, since that worker's wait ended with its turn, and each its job's live worker did not ask, by foreign_reads."""
-    return set(idle) if not read_lane(job) and not job["turn_open"] else foreign_reads(job, state.replies(name, job_id))
+def still_asked(job: dict, message: dict, moment: datetime) -> bool:
+    """Whether the job's worker still waits on its question: asked within LANE_WAIT, past which the lane's Sprite drive gave up on it, by a lane a watch reads, by read_lane, or whose worker's turn is open, as when the lane's own `drive job report` took its job done while its next question waited, never by one `drive job end` ended, and by the job's live worker, its message naming that worker's dispatch or none, as sender takes it."""
+    return (
+        moment - state.parse_time(message["created_at"]) <= LANE_WAIT
+        and (read_lane(job) or job["turn_open"])
+        and not state.lane_ended(job)
+        and json.loads(message.get("payload") or "{}").get("dispatchId", job["dispatch"]) == job["dispatch"]
+    )
 
 
-def send_answers(name: str, run: str) -> list[tuple[str, orca.OrcaError | None]]:
-    """Send every answer kept on the Run's questions, each in its own orca.reply as the drive's own terminal, which needs no bind of the Run, whether the watch or the reader that just kept one sends them, so a lane gets its answer the moment its read ends, never once a pass of the watch reaches it, and no answer waits on another lane's. Each answer is read from what drive.json held once its reader was seen ended, so the cut-off answer a reader keeps before it runs never goes ahead of the one it finishes with; answer_read wrote any answer past one Orca relay message onto the lane's Sprite before it kept it, so only Orca calls run here. Two senders sending one answer at once send the same text, which Orca takes as the answer it already holds, and only the one whose save takes the question off its job's queue writes its event. A question leaves that queue once its answer goes through, or once Orca says it already holds another answer, since a lane whose wait ends waits again on the same question, or that the question's dispatch closed, since no lane waits on it then; any other refusal leaves it for the watch's next pass. A sent answer whose read failed writes the event the watch hearing its job says as a `JOB` line. What came of each answer, by its job: the refusal, or None."""
-    running, data = ended_reads(name, state.load(name))
-    sent, refused, told = [], [], []
-    for job_id, message_id in run_answers(name, data, run, running):
-        said, why = data["jobs"][job_id]["read_answers"][message_id]
-        try:
-            orca.reply(name, run, message_id, said)
-        except orca.OrcaError as error:
-            if error.code not in (orca.ANSWERED_ELSEWHERE, orca.DISPATCH_CLOSED):
-                refused.append((job_id, error))
-                continue
-            why = None
-        sent.append((job_id, message_id, why))
-    if sent:
-        with state.edit(name) as data:
-            for job_id, message_id, why in sent:
-                job = data["jobs"][job_id]
-                if job.get("reads", {}).pop(message_id, None) is not None and why:
-                    told.append((job_id, why))
-                for held in ("read_answers", "readers"):
-                    job.get(held, {}).pop(message_id, None)
-    for job_id, why in told:
-        state.append_event(name, READ_UNANSWERED, job=job_id, order=data["jobs"][job_id]["order"], why=why, lane=state.heard_job_lane(data, data["jobs"][job_id]))
-    return [(job_id, None) for job_id, _, _ in sent] + refused
+def kept_question(name: str, job_id: str, message_id: str) -> dict:
+    """The question with this message id in the job's kept history, which every reader's starter kept before it started the reader."""
+    return {reply["id"]: reply for reply in state.replies(name, job_id)}[message_id]
 
 
-def run_answers(name: str, data: dict, run: str, running: set[tuple[str, str]]) -> list[tuple[str, str]]:
-    return [(job_id, message_id) for job_id, job in data["jobs"].items() if job.get("run") == run for message_id in unsent_answers(name, job_id, job, running)]
+def answer_file(name: str, message_id: str) -> Path:
+    """The file holding the answer to one lane question, one per question in the drive's answers folder, the unsent mark beside it."""
+    return state.drive_dir(name) / ANSWERS / f"{message_id}.json"
 
 
-def foreign_reads(job: dict, kept: list[dict]) -> set[str]:
-    """The reads a lane queued on the job that its live worker did not ask, by the job's kept messages: every one once `drive job end` ended its lane, else each whose message Orca stamped with a dispatch other than the job's; a message naming no dispatch is its job's, as sender takes it."""
-    if state.lane_ended(job):
-        return set(job["reads"])
-    return {reply["id"] for reply in kept if reply["id"] in job["reads"] and json.loads(reply.get("payload") or "{}").get("dispatchId", job["dispatch"]) != job["dispatch"]}
+def spawn_reader(name: str, job_id: str, message_id: str) -> None:
+    """Run `drive job read` on one question a lane asked as its own process, outliving the pass that started it, its output appended to the drive's reads log."""
+    state.detach(name, ["job", "read", job_id, message_id], READS_LOG)
 
 
-def ended_reads(name: str, data: dict) -> tuple[set[tuple[str, str]], dict]:
-    """The reads in data a reader still runs on, by job and message id, then the drive read again after that check, so each other read's answer there is the one its reader finished with, since a reader keeps its final answer before it exits; data names every reader started so far."""
-    return running_reads(data), state.load(name)
-
-
-def running_reads(data: dict) -> set[tuple[str, str]]:
-    return {(job_id, message_id) for job_id, job in data["jobs"].items() for message_id in job.get("reads", {}) if reading(job, message_id)}
-
-
-def reading(job: dict, message_id: str) -> bool:
-    """Whether a reader still runs on this question: its answer is not final yet and its process lives, so a reader the watch has not reaped yet holds no answer it already kept."""
-    kept = job.get("read_answers", {}).get(message_id)
-    return (not kept or kept[1] == CUT_OFF) and bool((reader := job.get("readers", {}).get(message_id)) and state.alive(reader))
-
-
-def spawn_reader(name: str, job_id: str, message_id: str) -> int:
-    """Run `drive job read` on one question a lane queued as its own process, outliving the pass that started it, its output appended to the drive's reads log."""
-    return state.detach(name, ["job", "read", job_id, message_id], READS_LOG)
-
-
-def answer_read(name: str, job_id: str, message_id: str) -> list[str | None]:
-    """Run a lane's queued read here, keep its answer, and why it is no answer when it failed, under its message id, then send it with every other answer kept on its job's Run by send_answers, which leaves one Orca refuses for the watch's next pass. It first keeps the answer a reader stopped mid-run leaves, so no read runs twice, a `drive break-glass` in production included, and none that crashes starts again, with this reader's process id in the same save. An answer past one Orca relay message is written onto the lane's Sprite here, before any lock, and kept as the line naming that file; one the Sprite cannot take is answered with why, as a failed read is, so its question leaves the queue at its first reply and Orca, not a Sprite, says whether its lane still waits."""
+def answer_read(name: str, job_id: str, message_id: str, moment: datetime) -> tuple[str | None, str | None]:
+    """Run a lane's read here and send its answer in one orca.reply, with why it is no answer when it failed, and why none ran: no worker waits on it, by still_asked, so no write a lane asked runs after its lane gave up on it, or another reader took it. A reader takes its question by creating its answer file exclusively, holding the answer a reader stopped mid-run leaves and this process's id, then marking it unsent, so no read runs twice, a `drive break-glass` in production included, and none that crashes starts again; it writes its own answer over that file before it sends it, and the relay sends again one Orca refused. An answer past one Orca relay message is written onto the lane's Sprite first and sent as the line naming that file; one the Sprite cannot take is answered with why, as a failed read is."""
     data = state.load(name)
-    question = data["jobs"][job_id]["reads"][message_id]
-    keep_answer(name, job_id, message_id, [reads.lane_exit(1, CUT_OFF) if reads.DRIVE.match(question) else f"{question}: {CUT_OFF}", CUT_OFF], reader=os.getpid())
+    job, message = data["jobs"][job_id], kept_question(name, job_id, message_id)
+    if not still_asked(job, message, moment):
+        return None, f"{job_id}'s worker no longer waits on {message_id}, asked {message['created_at']}, so it is not run"
+    question = reads.request(message["body"] or "")
+    path = answer_file(name, message_id)
+    path.parent.mkdir(exist_ok=True)
+    claim = path.with_name(f"{message_id}.{os.getpid()}.claim")
+    claim.write_text(json.dumps({"job": job_id, "reader": os.getpid(), "answer": reads.lane_exit(1, CUT_OFF) if reads.DRIVE.match(question) else f"{question}: {CUT_OFF}", "why": CUT_OFF}))
+    try:
+        os.link(claim, path)
+    except FileExistsError:
+        return None, f"another reader took {job_id}'s {message_id}"
+    finally:
+        claim.unlink()
+    path.with_suffix(".unsent").touch()
     try:
         said = reads.answer(question, Path(data["roles"]["coordinator"]["cwd"]), name, job_id)
     except reads.ReadError as error:
-        kept = [f"{question}: {error}"] * 2
+        answer = why = f"{question}: {error}"
     else:
         try:
-            kept = [orca.sprite_answer(said, data["jobs"][job_id], message_id), None]
+            answer, why = orca.sprite_answer(said, job, message_id), None
         except orca.OrcaError as error:
             why = f"{question.partition("\n")[0]}: its {len(said.encode())}-byte answer, past one Orca relay message, could not go to its Sprite: {error}"
-            kept = [orca.exit_line(said) + why, why]
-    keep_answer(name, job_id, message_id, kept)
-    send_answers(name, state.load(name)["jobs"][job_id]["run"])
-    return kept
+            answer = orca.exit_line(said) + why
+    kept = {"job": job_id, "reader": None, "answer": answer, "why": why}
+    written = path.with_name(f"{message_id}.{os.getpid()}.answer")
+    written.write_text(json.dumps(kept))
+    os.replace(written, path)
+    send_answer(name, job_id, message_id, kept)
+    return answer, why
 
 
-def keep_answer(name: str, job_id: str, message_id: str, kept: list[str | None], reader: int | None = None) -> None:
-    with state.edit(name) as data:
-        job = data["jobs"][job_id]
-        job.setdefault("read_answers", {})[message_id] = kept
-        if reader:
-            job.setdefault("readers", {})[message_id] = reader
+def send_answer(name: str, job_id: str, message_id: str, kept: dict) -> orca.OrcaError | None:
+    """Send the answer kept for a lane's question in one orca.reply on its job's Run as the drive's own terminal, which needs no bind of the Run, so a lane gets its answer the moment its read ends and no answer waits on another lane's. It goes through, or Orca says it already holds another answer, since a lane whose wait ends waits again on the same question, or that the question's dispatch closed, since no lane waits on it then: its unsent mark goes, and the sender that takes the mark off one whose read failed writes the event the watch hearing its job says as a `JOB` line, so two senders sending one answer at once send the same text, which Orca takes as the answer it already holds, and write one event. Any other refusal is returned, the mark left for the relay to send again."""
+    data = state.load(name)
+    job, why = data["jobs"][job_id], kept["why"]
+    try:
+        orca.reply(name, job["run"], message_id, kept["answer"])
+    except orca.OrcaError as error:
+        if error.code not in (orca.ANSWERED_ELSEWHERE, orca.DISPATCH_CLOSED):
+            return error
+        why = None
+    try:
+        answer_file(name, message_id).with_suffix(".unsent").unlink()
+    except FileNotFoundError:
+        return None
+    if why:
+        state.append_event(name, READ_UNANSWERED, job=job_id, order=job["order"], why=why, lane=state.heard_job_lane(data, job))
+    return None
 
 
 def page_lines(watcher: Watcher, moment: datetime) -> list[str]:
@@ -3340,9 +3302,9 @@ def can_wake(watcher: Watcher, job_id: str, job: dict, data: dict, moment: datet
 
 
 def unanswered(name: str, job_id: str, job: dict, data: dict, moment: datetime) -> str | None:
-    """A lane's question no resume has answered for 30 minutes, whatever PR it has, that his cards do not carry; his answer since it came that no resume carried leads the line, and an `ASK` no `drive job ask` kept says that keeps it, as mail_line does, since no resume answers his question. A running lane asking no such question may wait on a read it queued, which unread ages; a waiting or built job's waits carry its part whatever read its lane left."""
+    """A lane's question no resume has answered for 30 minutes, whatever PR it has, that his cards do not carry; his answer since it came that no resume carried leads the line, and an `ASK` no `drive job ask` kept says that keeps it, as mail_line does, since no resume answers his question. A waiting or built job's waits carry its part whatever read its lane left."""
     if not job.get("ask"):
-        return unread(name, job_id, job, moment) if job["state"] == "running" else None
+        return None
     asked = state.parse_time(job["ask_at"])
     if moment - asked < QUIET_FOR or carded(job, asked):
         return None
@@ -3352,27 +3314,6 @@ def unanswered(name: str, job_id: str, job: dict, data: dict, moment: datetime) 
     if reads.asks(job["report"] or "") and not state.asked_in(job, reads.opening(job["report"])):
         return f"{job_id}'s lane asked {question}, an ASK only his card answers: {UNKEPT_ASK.format(job=job_id)}"
     return f'{job_id}\'s lane asked {question} and nothing answered it: drive job resume {job_id} "<the answer>" answers it'
-
-
-def unread(name: str, job_id: str, job: dict, moment: datetime) -> str | None:
-    """The oldest `READ`, `LOG` or `DRIVE` question the job's live worker queued that no answer reached for 30 minutes, timed from when the lane asked it, as Orca stamped its message in the job's history, with what holds it: its reader still running, its answer kept for a reply Orca has not taken, or no reader on it, which `drive job read` runs and answers here. A read foreign_reads names waits on nobody, since read_lines drops it."""
-    if not job.get("reads"):
-        return None
-    kept = state.replies(name, job_id)
-    foreign = foreign_reads(job, kept)
-    asked = {reply["id"]: state.parse_time(reply["created_at"]) for reply in kept if reply["id"] in job["reads"] and reply["id"] not in foreign}
-    if not asked:
-        return None
-    message_id = min(asked, key=asked.__getitem__)
-    if (waited := moment - asked[message_id]) < QUIET_FOR:
-        return None
-    if reading(job, message_id):
-        held = "its reader still runs"
-    elif message_id in job.get("read_answers", {}):
-        held = "its answer is kept and Orca has not taken the reply"
-    else:
-        held = f"no reader runs on it, and drive job read {job_id} {message_id} runs and answers it here"
-    return f'{job_id}\'s lane asked "{cut(first_line(job["reads"][message_id]), 80)}" {minutes(waited)} minutes ago and no answer reached it: {held}, each reader\'s output in the drive\'s {READS_LOG}'
 
 
 def carded(job: dict, asked: datetime) -> bool:
@@ -4031,9 +3972,8 @@ def passed(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
 
 
 def stages(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
-    """The lines of each stage of one loop of the watch, as it returns: first the lines its relay made since the last pass, then the answer kept for each lane's read, so a pass that crashes while it reads every live lane's mail holds back none it already had, and new events, so a return `drive job report` took in another process is said in the pass its event wakes, then each part a job drive job add recorded not started leaves with no one, on every pass after the watch's first, so its ORPHAN comes on time whatever the length of a pass, then the drive's own Orca terminal every Orca call speaks as, his cards, the GitHub reads it owes, the staging test of each PR whose new head changes a dangerous class of file, his card on each kept question none drew yet, a lander on each PR his Approve covers that qualifies, the finish of each builder whose READY's PRs all merged, DONE at the merge of a product change or the proof of a yasyf/* one, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, where each merged PR a release wait or an incident fix names runs, each Buildkite build a wait names or a part follows that is newly held or a delivery of Buildkite's named, the status message of each build a part follows, the waits his answers, a job's end, that read or the Buildkite read release or hold again, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, each builder's PUSHED GitHub's read settles, agents, the chains of waits that stood unmoved, the texts jobs hold that no worker taking messages gets, the communicator's compaction, the status page, a coordinator whose process exited, a dashboard whose server exited, the receiver and each teammate thread an order watches every 60 s, his PR cards whose rows went stale, and GitHub again next poll after a failure, events written since, its own stages' among them, then the GitHub reads they and the rest owe while its last read answered, so a delivery is read in the pass it wakes, the catch-up owed him, the daily Slack sweep's drive tooling orders, claims whose end passed, the line owed in each thread whose order or incident has news, job clocks run out, his answers no resume has carried to their jobs, fixes proven live whose bug report has not heard, the next pass of each standing part no job holds, parts nothing carries, and a handler on each POST report to the communicator. A stage that keeps working after its save joins the lines it made by then to the watcher's made lines itself."""
+    """The lines of each stage of one loop of the watch, as it returns: first the lines its relay made since the last pass, so a pass that crashes while it reads every live lane's mail holds back none it already had, and new events, so a return `drive job report` took in another process is said in the pass its event wakes, then each part a job drive job add recorded not started leaves with no one, on every pass after the watch's first, so its ORPHAN comes on time whatever the length of a pass, then the drive's own Orca terminal every Orca call speaks as, his cards, the GitHub reads it owes, the staging test of each PR whose new head changes a dangerous class of file, his card on each kept question none drew yet, a lander on each PR his Approve covers that qualifies, the finish of each builder whose READY's PRs all merged, DONE at the merge of a product change or the proof of a yasyf/* one, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, where each merged PR a release wait or an incident fix names runs, each Buildkite build a wait names or a part follows that is newly held or a delivery of Buildkite's named, the status message of each build a part follows, the waits his answers, a job's end, that read or the Buildkite read release or hold again, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, each builder's PUSHED GitHub's read settles, agents, the chains of waits that stood unmoved, the texts jobs hold that no worker taking messages gets, the communicator's compaction, the status page, a coordinator whose process exited, a dashboard whose server exited, the receiver and each teammate thread an order watches every 60 s, his PR cards whose rows went stale, and GitHub again next poll after a failure, events written since, its own stages' among them, then the GitHub reads they and the rest owe while its last read answered, so a delivery is read in the pass it wakes, the catch-up owed him, the daily Slack sweep's drive tooling orders, claims whose end passed, the line owed in each thread whose order or incident has news, job clocks run out, his answers no resume has carried to their jobs, fixes proven live whose bug report has not heard, the next pass of each standing part no job holds, parts nothing carries, and a handler on each POST report to the communicator. A stage that keeps working after its save joins the lines it made by then to the watcher's made lines itself."""
     yield drained(watcher.relayed)
-    yield read_lines(watcher, moment)
     yield event_lines(watcher)
     if watcher.read_at is not None:
         yield orphan_lines(watcher, moment, NotStarted)
