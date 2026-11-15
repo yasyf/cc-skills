@@ -876,10 +876,15 @@ def order_set(args: argparse.Namespace) -> int:
             order["closed_on"] = report.get("seq")
         elif args.state and order["state"] in state.CLOSED_ORDER_STATES:
             order["closed_on"] = None
+        was_open = order["state"] not in state.CLOSED_ORDER_STATES
         if args.state:
             order["state"] = args.state
         order["alerts"] = list(dict.fromkeys([*order["alerts"], *alerts]))
         stopped = change_parts(name, data, args.id, list(dict.fromkeys(args.add_part)), list(dict.fromkeys(args.drop_part)))
+        if was_open and args.state in state.CLOSED_ORDER_STATES:
+            uncarried, ended = state.close_order_jobs(data, args.id, f"stopped: drive order set {args.id} --state {args.state} closed its order")
+            stopped += [f"{job_id} carries {args.id} no more and keeps working on its own order" for job_id in uncarried]
+            stopped += [superseded.stopped_line(f"{job_id} stopped with its order: end its agent, or its lane with drive job end {job_id}", held) for job_id, held in ended.items()]
         for part in standing:
             order["parts"][part]["standing"] = args.standing.strip() or None
         turning = args.incident and not order["incident"]

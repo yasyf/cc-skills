@@ -768,19 +768,13 @@ def drop_order(data: dict, answer_id: str, order_id: str) -> list[str]:
     kept = data["answers"][answer_id]
     order = data["orders"][order_id]
     order.update(state="dropped", withdrawn=kept["link"], updated=state.stamp())
-    done = [f"{order_id} dropped by his answer {answer_id}"]
-    for job_id in order["jobs"]:
-        job = data["jobs"][job_id]
-        if job["state"] in state.FINISHED_JOB_STATES:
-            continue
-        if job["order"] != order_id:
-            if order_id in job["carries"]:
-                del job["carries"][order_id]
-                job["updated"] = state.stamp()
-                owe(data, answer_id, job_id)
-            continue
-        done.append(stopped_line(f"{job_id} stopped with its order: end its agent, or its lane with drive job end {job_id}", state.stop_job(job, f"his answer {answer_id} dropped its order {order_id}")))
-    return done
+    uncarried, stopped = state.close_order_jobs(data, order_id, f"his answer {answer_id} dropped its order {order_id}")
+    for job_id in uncarried:
+        owe(data, answer_id, job_id)
+    return [
+        f"{order_id} dropped by his answer {answer_id}",
+        *(stopped_line(f"{job_id} stopped with its order: end its agent, or its lane with drive job end {job_id}", held) for job_id, held in stopped.items()),
+    ]
 
 
 def close(key: str) -> None:

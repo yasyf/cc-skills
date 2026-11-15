@@ -1660,6 +1660,23 @@ def stop_job(job: dict, said: str) -> list[str]:
     return held
 
 
+def close_order_jobs(data: dict, order_id: str, said: str) -> tuple[list[str], dict[str, list[str]]]:
+    """End the unfinished jobs of an order that closes, done or dropped, so none waits, runs or holds its Sprite for an order nobody serves: a live job carrying it takes it off its carries and keeps working on its own order, and a live job of its own that carries no other open order is stopped by stop_job, said so. The jobs it took the order off, and those it stopped, each with the words of each text it dropped."""
+    uncarried, stopped = [], {}
+    for job_id in data["orders"][order_id]["jobs"]:
+        job = data["jobs"][job_id]
+        if job["state"] in FINISHED_JOB_STATES:
+            continue
+        if job["order"] != order_id:
+            if job["carries"].pop(order_id, None) is not None:
+                job["updated"] = stamp()
+                uncarried.append(job_id)
+            continue
+        if not any(data["orders"][other]["state"] not in CLOSED_ORDER_STATES for other in job["carries"]):
+            stopped[job_id] = stop_job(job, said)
+    return uncarried, stopped
+
+
 def agent_job(data: dict, agent: str | None) -> str | None:
     return next((job_id for job_id, job in data["jobs"].items() if agent and job.get("agent") == agent), None)
 
