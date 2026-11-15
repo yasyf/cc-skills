@@ -1341,7 +1341,8 @@ def test_his_words_under_a_card_of_another_drive_holding_no_communicator_are_kep
         run("start", "other", "--role", "coordinator")
         run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page", "--drive", "other")
         run("job", "add", "builder", "--order", "o1", "--goal", "build it", "--drive", "other")
-        run("job", "add", "builder", "--order", "o1", "--goal", "build the page", "--drive", "other")
+        run("order", "add", "--title", "Other title", "--project", "Iris", "--workstream", "Run list", "ship the run list", "--drive", "other")
+        run("job", "add", "builder", "--order", "o2", "--goal", "build the list", "--drive", "other")
     cards = (("j1", "other:j1-7", CARD), ("j2", "other:j2-8", f"{CARD[:-2]}01"))
     with state.edit("other") as data:
         for job_id, wait, url in cards:
