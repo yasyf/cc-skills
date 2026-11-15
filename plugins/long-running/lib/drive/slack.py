@@ -54,6 +54,27 @@ def dm() -> str:
     return whoami()["dm_channel_id"]
 
 
+def operator_channels() -> list[dict]:
+    """Each operator channel cc-slack keeps, its id and name, as `cc-slack whoami` names them: a private channel of his and the bot's that cc-slack reads as it reads his DM, where dm-status draws cards and status."""
+    return whoami().get("operator_channels") or []
+
+
+def operators() -> set[str]:
+    """His DM and each operator channel, the places dm-status posts."""
+    return {dm(), *(channel["id"] for channel in operator_channels())}
+
+
+def channel_name(name: str, project: str) -> str:
+    """The name of the operator channel a drive's project posts in: the drive's name, then the project's words but a leading article, lowercased and joined by hyphens."""
+    return "-".join([name, *re.findall(r"[a-z0-9]+", re.sub(r"^(the|an?)\s+", "", project.casefold()))])
+
+
+def project_channel(name: str, project: str | None) -> str:
+    """The operator channel a drive's project posts in, his DM for no project or a project with no channel yet."""
+    named = project and channel_name(name, project)
+    return next((channel["id"] for channel in operator_channels() if channel["name"] == named), dm())
+
+
 def workspace() -> str:
     """His Slack workspace's host, from the team_url `cc-slack whoami` names, such as poetic-technology.slack.com."""
     return urlparse(whoami()["team_url"]).hostname

@@ -466,7 +466,7 @@ FEED_SUBSCRIPTION = "cc-slack subscribe --kind alerts,releases,posts --channel <
 
 def held_channels(drive: dict, role: str) -> list[str]:
     if role == "communicator":
-        return [f"his DM {slack.dm()}"]
+        return [f"his DM {slack.dm()}", *(f"#{channel['name']} {channel['id']}" for channel in slack.operator_channels() if channel["name"].startswith(f"{drive['name']}-"))]
     return drive["slack"].get("watch", []) if role == "coordinator" else []
 
 

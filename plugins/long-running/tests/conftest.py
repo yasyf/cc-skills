@@ -593,8 +593,9 @@ def unwritten_stories(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture(autouse=True)
 def his_dm(monkeypatch: pytest.MonkeyPatch) -> str:
-    """Every drive reads his DM as cc-slack whoami names it, D123, never this Mac's."""
+    """Every drive reads his DM as cc-slack whoami names it, D123, and no operator channel, never this Mac's."""
     monkeypatch.setattr(slack, "dm", lambda: "D123")
+    monkeypatch.setattr(slack, "operator_channels", lambda: [])
     return "D123"
 
 
