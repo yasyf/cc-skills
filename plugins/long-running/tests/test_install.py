@@ -1398,7 +1398,13 @@ def proving(config: Path, tmp_path: Path, git: FakeGit, exits: int) -> Path:
     with state.edit("demo") as data:
         part = "Drive tooling: prove each install"
         data["orders"]["o1"] = state.new_order(part, f"slack:D123/{HIS_THREAD}", ("D123", HIS_THREAD), {part: state.new_part()}, state.stamp()) | {"jobs": ["j1"]}
-        data["jobs"]["j1"] = state.new_job("o1", "builder", "prove", [part], state.stamp()) | {"state": "waiting", "said": f"PUSHED {URL}", "prs": [URL], "repro": str(script)}
+        data["jobs"]["j1"] = state.new_job("o1", "builder", "prove", [part], state.stamp()) | {
+            "state": "waiting",
+            "said": f"PUSHED {URL}",
+            "prs": [URL],
+            "repro": str(script),
+            "proof": {"pid": os.getpid(), "at": state.stamp(), "said": f"PUSHED {URL}", "version": state.VERSION},
+        }
         data["prs"]["yasyf/cc-skills#7"] = state.new_pr(URL, "j1", "o1") | {"state": "merged", "merged_sha": SHA, "title": "Fix: prove each install", "checker": carrying("", {"o1": [part]})}
     return script
 
@@ -1411,7 +1417,7 @@ def repairing(config: Path, tmp_path: Path, git: FakeGit, exits: int, job: dict)
     script = proving(config, tmp_path, git, exits)
     with state.edit("demo") as data:
         del data["prs"]["yasyf/cc-skills#7"]
-        data["jobs"]["j1"].update(prs=[], **job)
+        data["jobs"]["j1"].update({"prs": [], "proof": None} | job)
     return script
 
 
@@ -1448,7 +1454,8 @@ def test_a_jobs_own_done_on_work_delivers_its_part_only_once_drive_job_prove_run
     config: Path, tmp_path: Path, fake: Callable[..., FakeGit], exits: int, delivered: bool
 ) -> None:
     git = fake([BUILD], {BUILD})
-    script = repairing(config, tmp_path, git, exits, {"state": "done", "said": "DONE checked it by hand"})
+    watched = {"pid": os.getpid(), "at": state.stamp(), "said": "DONE checked it by hand", "version": state.VERSION}
+    script = repairing(config, tmp_path, git, exits, {"state": "done", "said": "DONE checked it by hand", "proof": watched})
     part = "Drive tooling: prove each install"
     assert (install.done_unproven(state.load("demo"), "j1"), state.delivered(state.load("demo"), "o1", part)) == (True, False)
     install.prove("demo", "j1", 900)
@@ -2675,6 +2682,47 @@ def test_a_proof_that_failed_runs_again_on_the_job_that_owns_it_once_its_cause_i
     job = state.load("demo")["jobs"]["j1"]
     assert (job["state"], job["said"], job["proof"]["pid"], due) == ("done", f"DONE {URL} live: {script} exits 0 on long-running@skills 1.0.3", os.getpid(), [False])
     assert [change.startswith(install.PROVEN) for _, change in proof_events()] == [False, True]
+
+
+@pytest.mark.parametrize("taken", [{}, {"state": "failed", "said": f"BLOCKED {URL}: the watch's proof failed"}])
+def test_a_failing_proof_a_session_runs_keeps_its_output_and_says_it_on_its_prs_lines_but_leaves_its_job_and_mac_box_as_it_found_them(
+    config: Path, tmp_path: Path, fake: Callable[..., FakeGit], monkeypatch: pytest.MonkeyPatch, taken: dict
+) -> None:
+    script = proving(config, tmp_path, fake([BUILD], {BUILD}), 1)
+    script.write_text("#!/bin/sh\necho 'FAIL C1: the relay timed out'\nexit 1\n")
+    state.keep_report("demo", "j1", f"PUSHED {URL}", f"PUSHED {URL}\nPR: {URL}\n")
+    with state.edit("demo") as data:
+        data["jobs"]["j1"].update(proof={"pid": 4242, "at": state.stamp(), "said": f"PUSHED {URL}", "version": state.VERSION}, **taken)
+    before = state.load("demo")["jobs"]["j1"]
+    downs: list[str] = []
+    monkeypatch.setattr(state, "down_mac_boxes", lambda name, data, finished: downs.extend(finished))
+    kept = state.proof_path("demo", "j1")
+    failed = (
+        f"{install.PROOF_FAILED}: {URL}: {script} exits 1 on long-running@skills 1.0.3, its output {kept}: FAIL C1: the relay timed out;"
+        f" j1 stays {before['state']} on its line, since only a proof the watch starts takes its failure as the job's result"
+    )
+    assert install.prove("demo", "j1", 900) == f"j1: {failed}"
+    job = state.load("demo")["jobs"]["j1"]
+    assert [job[field] for field in ("state", "said", "updated", "proof")] == [before[field] for field in ("state", "said", "updated", "proof")]
+    assert (downs, kept.read_text(), proof_events()) == ([], "FAIL C1: the relay timed out\n", [("yasyf/cc-skills#7", failed)])
+
+
+def test_a_failing_proof_a_provers_own_agent_runs_again_keeps_the_job_waiting_on_his_next_word(config: Path, tmp_path: Path, fake: Callable[..., FakeGit]) -> None:
+    said = f"WAITING {install.PROOF_WAITS}: WAIT he opens the run page"
+    marked = {"pid": 4242, "at": state.stamp(), "said": said, "version": state.VERSION, "waits": "WAIT he opens the run page"}
+    script = handing(config, tmp_path, fake([BUILD], {BUILD}), 1, {"state": "waiting", "said": said, "proof": marked})
+    script.write_text("#!/bin/sh\necho 'FAIL C1: curl: (35) Recv failure: Operation timed out'\nexit 1\n")
+    assert install.prove("demo", "j1", 900).endswith("; j1 stays waiting on its line, since only a proof the watch starts takes its failure as the job's result")
+    job = state.load("demo")["jobs"]["j1"]
+    assert (job["state"], job["said"], job["proof"]) == ("waiting", said, marked)
+    assert install.watch_proves(state.load("demo"), "j1")
+
+
+def test_a_failed_provers_proof_runs_again_though_its_blocked_line_names_its_merges_outside_yasyf(config: Path, tmp_path: Path, fake: Callable[..., FakeGit]) -> None:
+    script = handing(config, tmp_path, fake([BUILD], {BUILD}), 0, {"state": "failed", "said": f"BLOCKED {PRODUCT}: its proof file exits 1 on its merge commits"})
+    install.prove("demo", "j1", 900)
+    job = state.load("demo")["jobs"]["j1"]
+    assert (job["state"], job["said"]) == ("done", f"DONE {PRODUCT} live: {script} exits 0 on its merge commits")
 
 
 @pytest.mark.parametrize(
