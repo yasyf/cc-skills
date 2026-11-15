@@ -987,12 +987,10 @@ def test_a_tooling_builders_brief_whose_goal_names_a_step_after_the_install_star
     assert brief.brief_refusal("demo", state.load("demo"), "j1", planned.format("")) is None
 
 
-def test_a_build_orders_codex_lane_is_added_and_started_only_on_its_readers_research_and_its_immediate_fix_at_once(
+def test_a_build_orders_codex_lane_is_added_at_once_and_started_only_on_its_readers_research_and_its_immediate_fix_at_once(
     meta: str, run: Run, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build", "--parts", "the copy", "immediate fix")
-    assert cli.main(["job", "add", "codex", "--order", "o1", "--part", "the copy", "--goal", "build it"]) == 2
-    assert "o1 is a build order, so its codex starts only once an Opus reader or a design of its part" in capsys.readouterr().err
     assert run("job", "add", "codex", "--order", "o1", "--part", "immediate fix", "--goal", "stop it") == (0, "j1")
     run("job", "add", "reader", "--order", "o1", "--part", "the copy", "--goal", "research: the copy")
     assert run("job", "add", "codex", "--order", "o1", "--part", "the copy", "--goal", "build it", "--waits", "j2") == (
@@ -1007,9 +1005,9 @@ def test_a_build_orders_codex_lane_is_added_and_started_only_on_its_readers_rese
         " its reply's state a field codex cannot leave out, so no agent relays it"
     )
     assert brief.brief_refusal("demo", state.load("demo"), "j1", bare.format("j1")) is None
-    assert brief.brief_refusal("demo", state.load("demo"), "j3", bare.format("j3")).startswith(
-        "j3 builds on o1, a build order: its brief carries the line Researched: <its reader's or design's job>"
-    )
+    unread = brief.brief_refusal("demo", state.load("demo"), "j3", bare.format("j3"))
+    assert unread.startswith("j3 builds on o1, a build order: its brief carries the line Researched: <its reader's or design's job>")
+    assert 'none has: o1 is a build order, so its codex starts only once an Opus reader or a design of its part, a change a design listed counting as that design\'s part, has kept' in unread
     monkeypatch.setattr("sys.stdin", io.StringIO(RESEARCH))
     run("job", "report", "j2", "-")
     assert brief.brief_refusal("demo", state.load("demo"), "j3", f"Researched: j2\n{bare.format('j3')}") is None

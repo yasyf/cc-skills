@@ -886,12 +886,12 @@ def order_set(args: argparse.Namespace) -> int:
 
 
 def standing_parts(name: str, data: dict, order_id: str, added: list[str], dropped: list[str], named: list[str], goal: str) -> list[str]:
-    """The parts --standing keeps standing on its goal, or takes out with an empty one: each --part names among the order's parts as --add-part and --drop-part leave them, refused without --part and, kept standing, wherever brief.job_refusal refuses the codex job each pass of it is."""
+    """The parts --standing keeps standing on its goal, or takes out with an empty one: each --part names among the order's parts as --add-part and --drop-part leave them, refused without --part and, kept standing, wherever brief.job_refusal refuses the codex job each pass of it is or the part has no research, by brief.unresearched, since each pass starts on a handoff, which the start check passes."""
     if not named:
         raise DriveError(f"--standing: refused, name each part of {order_id} it keeps standing with --part")
     order = data["orders"][order_id]
     picked = pick_parts(order_id, order | {"parts": {part: None for part in order["parts"] if part not in dropped} | dict.fromkeys(added)}, named)
-    if goal.strip() and (refused := brief.job_refusal(name, data, order_id, "codex", picked)):
+    if goal.strip() and (refused := brief.job_refusal(data, order_id, "codex", picked) or brief.unresearched(name, data, order_id, "codex", picked)):
         raise DriveError(f"--standing: refused, no part kept standing, since each pass of a standing part is a codex job: {refused}")
     return picked
 
@@ -1323,7 +1323,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
             or proven_again(data, args.order, args.kind, args.goal)
             or unlandable(data, lands)
             or state.job_wait_refusal(data, args.waits)
-            or brief.job_refusal(name, data, args.order, args.kind, parts, bool(lands or args.release or args.builds_nothing or args.kind == "builder" and args.branch), args.waits)
+            or brief.job_refusal(data, args.order, args.kind, parts, bool(lands or args.release or args.builds_nothing or args.kind == "builder" and args.branch), args.waits)
             or (held and one_change_job(data, args.order, args.kind, parts, held, waits))
         ):
             raise DriveError(f"refused, no job added: {refused}")
@@ -1371,7 +1371,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         state.hold_unstarted(job)
         if crowd := args.kind == "builder" and not args.remote and not job["agent"] and not job["waits"] and place.crowded(data, job_id, state.now()):
             job["where"] = "remote"
-        builder_id = waiting_builder(name, data, job_id, created)
+        builder_id = waiting_builder(data, job_id, created)
         order["updated"] = created
         if not args.release:
             state.end_carried_designs(data, args.order, created)
@@ -1458,14 +1458,12 @@ def proven_again(data: dict, order_id: str, kind: str, goal: str) -> str | None:
     return f"{order_id} is done and {held}, so no builder proves {named} live on it again"
 
 
-def waiting_builder(name: str, data: dict, reader_id: str, created: str) -> str | None:
+def waiting_builder(data: dict, reader_id: str, created: str) -> str | None:
     """The builder a build order's reader is added with, waiting on it, for each of the reader's parts no builder, codex or design job carries, its goal building those parts and never the reader's question, wherever a builder there starts only on research and job_refusal lets it wait on that reader, so its work is never research's alone while it reads."""
     reader = data["jobs"][reader_id]
     if reader["kind"] != "reader" or not (uncarried := [part for part in reader["parts"] if not state.carriers(data, reader["order"], part)]):
         return None
-    if not brief.waits_on_research(data["orders"][reader["order"]], "builder", uncarried) or brief.job_refusal(
-        name, data, reader["order"], "builder", uncarried, False, [reader_id]
-    ):
+    if not brief.waits_on_research(data["orders"][reader["order"]], "builder", uncarried) or brief.job_refusal(data, reader["order"], "builder", uncarried, False, [reader_id]):
         return None
     builder_id = state.next_id(data["jobs"], "j")
     builder = data["jobs"][builder_id] = state.new_job(reader["order"], "builder", state.parts_goal(uncarried), uncarried, created) | {"waits": [reader_id]}

@@ -23,8 +23,8 @@ stop doing the bare minimum", so no builder waits on a job holding its design.
 1. **One design job, first.** The part's first job is a read-only design job, worked out before
    he is asked; a builder writes the code later.
    - Add it with `drive job add design --order <o> --part "<part>" --goal "<one line>"`. On a build
-     order outside an incident it refuses until a reader kept its `Researched:` block, by
-     [Jobs](jobs.md), so while the reader is at work add it with `--waits <the reader's job>`,
+     order outside an incident its agent starts only on a brief carrying the `Researched:` line of a
+     reader that kept its block, by [Jobs](jobs.md), so while the reader is at work add it with `--waits <the reader's job>`,
      recorded waiting, and start it on its `FREE` line; the order's `immediate fix` job never waits
      on it. A follow-up he orders to a PR, as in "just land this then do a follow up", is its own
      `follow-up` part, and its design job starts in the turn he orders it, beside the builder landing
