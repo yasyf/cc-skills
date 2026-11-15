@@ -774,7 +774,7 @@ def weighed(request: dict) -> dict:
     left = request.get("seconds")
     if "refusal" in request:
         return refusal_verdict(request["refusal"]["rule"], request["refusal"]["call"], REFUSAL_SECONDS if left is None else min(REFUSAL_SECONDS, left))
-    return post_verdict(request["post"], request["sent"], DECIDE_SECONDS if left is None else min(DECIDE_SECONDS, left))
+    return post_verdict(request["post"], DECIDE_SECONDS if left is None else min(DECIDE_SECONDS, left))
 
 
 def refusal_verdict(rule: str, call: dict, seconds: float = REFUSAL_SECONDS) -> dict:
@@ -790,8 +790,8 @@ def refusal_verdict(rule: str, call: dict, seconds: float = REFUSAL_SECONDS) -> 
     return {"verdict": "hold" if protects else "pass", "note": ""}
 
 
-def post_verdict(output: dict, sent: str, seconds: float = DECIDE_SECONDS) -> dict:
-    """Whether a post the drive's checks hand with his words holds, by one request filled by whole items: each claim beside the read it names, whole, one Noul whether that read backs it; each finding beside the rule it stands for, one Noul whether the rule holds against it and one whether his words lift it; each sentence of a handler's post no claim's words cover, one Noul whether it states a fact that stands only on a read; and his words, the checks' own picks first, then newest first. It holds for a claim whose read is under BACKS or matched none of the handler's calls, a finding that holds at YES with no lift at NO or more, or an uncovered fact at YES, by his pick f9e9302 "The handler names the read behind each claim; Jev checks each claim against that read, whole, and holds only unbacked claims"; a claim at BACKS or more stands, since every unbacked claim of the drive's recorded posts drew under it and no claim's answer only warns; a finding's or sentence's Noul in the band between, or an item with no room left, only warns, naming it. When Jev cannot finish, a finding a count or a mark decides still holds, since no judgment lifts it, and every other only warns, by his pick b80a8b1 "Refusals only warn when the judge cannot finish: no post ever waits, but it goes out unchecked, as twice this morning". With sent naming the post Slack already has, by his pick 7bd6634, a held post stays in his DM and its note says to reword it in place."""
+def post_verdict(output: dict, seconds: float = DECIDE_SECONDS) -> dict:
+    """Whether a post the drive's checks hand with his words holds, by one request filled by whole items: each claim beside the read it names, whole, one Noul whether that read backs it; each finding beside the rule it stands for, one Noul whether the rule holds against it and one whether his words lift it; each sentence of a handler's post no claim's words cover, one Noul whether it states a fact that stands only on a read; and his words, the checks' own picks first, then newest first. It holds for a claim whose read is under BACKS or matched none of the handler's calls, a finding that holds at YES with no lift at NO or more, or an uncovered fact at YES, by his pick f9e9302 "The handler names the read behind each claim; Jev checks each claim against that read, whole, and holds only unbacked claims"; a claim at BACKS or more stands, since every unbacked claim of the drive's recorded posts drew under it and no claim's answer only warns; a finding's or sentence's Noul in the band between, or an item with no room left, only warns, naming it. When Jev cannot finish, a finding a count or a mark decides still holds, since no judgment lifts it, and every other only warns, by his pick b80a8b1 "Refusals only warn when the judge cannot finish: no post ever waits, but it goes out unchecked, as twice this morning"."""
     post = output["post"]
     reason = (output.get("hookSpecificOutput") or {}).get("permissionDecisionReason") or ""
     findings = output.get("findings") or ([{"rule": reason, "found": reason.removeprefix("refused: ")}] if reason else [])
@@ -811,7 +811,7 @@ def post_verdict(output: dict, sent: str, seconds: float = DECIDE_SECONDS) -> di
     try:
         read = jev(told, questions, seconds) if questions else {}
     except Unheard as failure:
-        return unheard_post(output, reason, sent, str(failure))
+        return unheard_post(output, reason, str(failure))
     held = [f'claim "{claim["claim"]}" names the read {json.dumps(claim["read"], ensure_ascii=False)}, which matches none of your calls' for claim in unread]
     unsure: list[str] = []
     for number, claim in enumerate(claims, 1):
@@ -836,12 +836,10 @@ def post_verdict(output: dict, sent: str, seconds: float = DECIDE_SECONDS) -> di
             unsure.append(f'sentence "{sentences[index]}"')
     shown = f"\n```\n{reason}\n```" if reason else ""
     if held:
-        fix = f"reword the sent post in place with say(edit={sent}, text=…) until Jev passes it" if sent else "fix each, then call say again"
-        return {"verdict": "hold", "note": f"Jev {'holds' if sent else 'held back'} this post: {'; '.join(held)}. So {fix}.{shown}"}
-    stands = "stays as say sent it" if sent else "goes out as written"
+        return {"verdict": "hold", "note": f"Jev held back this post: {'; '.join(held)}. So fix each, then call say again.{shown}"}
     if unsure:
-        return {"verdict": "warn", "note": f"message_limits: Jev is unsure of {'; '.join(unsure)}, so the post {stands}: if one is wrong, reword the post in place.{shown}"}
-    return {"verdict": "warn" if reason else "pass", "note": f"message_limits: Jev read no finding's rule as holding against this post, so it {stands}." if reason else ""}
+        return {"verdict": "warn", "note": f"message_limits: Jev is unsure of {'; '.join(unsure)}, so the post goes out as written: if one is wrong, reword the post in place.{shown}"}
+    return {"verdict": "warn" if reason else "pass", "note": f"message_limits: Jev read no finding's rule as holding against this post, so it goes out as written." if reason else ""}
 
 
 def post_base(post: dict, sentences: list[str]) -> dict:
@@ -873,15 +871,13 @@ def unfit_reads(output: dict) -> list[tuple[str, int]]:
     return sorted(sized.items(), key=lambda pair: -pair[1])
 
 
-def unheard_post(output: dict, reason: str, sent: str, failure: str) -> dict:
+def unheard_post(output: dict, reason: str, failure: str) -> dict:
     """The verdict on a post Jev gave no answer on: held for a finding a count or a mark decides, since no judgment lifts it, and a warning naming every other finding otherwise, so the post goes out, by his pick b80a8b1."""
     if counted := output.get("counted"):
         return {"verdict": "hold", "note": f"message_limits: Jev gave no verdict ({failure}), and a finding a count or a mark decides refuses without one: fix it, then call say again.\n```\n{counted}\n```"}
-    stands = "stays as say sent it" if sent else "goes out as written"
-    inplace = f" with say(edit={sent}, text=…)" if sent else ""
     if reason:
-        return {"verdict": "warn", "note": f"message_limits: Jev gave no verdict ({failure}), so each finding below only warns and the post {stands}: if one holds, reword the post in place{inplace}.\n```\n{reason}\n```"}
-    return {"verdict": "warn", "note": f"message_limits: Jev gave no verdict ({failure}) on whether each claim of this post stands on the read it names, so the post {stands}."}
+        return {"verdict": "warn", "note": f"message_limits: Jev gave no verdict ({failure}), so each finding below only warns and the post goes out as written: if one holds, reword the post in place.\n```\n{reason}\n```"}
+    return {"verdict": "warn", "note": f"message_limits: Jev gave no verdict ({failure}) on whether each claim of this post stands on the read it names, so the post goes out as written."}
 
 
 def covers(claim: str, sentence: str) -> bool:

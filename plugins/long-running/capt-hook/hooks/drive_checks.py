@@ -26,9 +26,7 @@ from captain_hook import (
     Rewrite,
     Tool,
     Warn,
-    WorkflowState,
     on,
-    workflow_state,
 )
 from captain_hook.dispatch import SYNC_DEADLINE_MARGIN_SECONDS, collect_budget
 from cc_transcript.tools import tool_name_matches
@@ -69,9 +67,7 @@ QUOTING = re.compile(r"[\"'\\]")
 EXPANSION = re.compile(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?")
 LANDING_WORDS = re.compile(r"(?<![\w.-])(?:gh|ccx|ci|cci|stack-enqueue)(?![\w.-])")
 HELPER_WORDS = re.compile(r"(?<![\w.-])(?:helper|brew)(?![\w.-])")
-SENT = re.compile(r"\b(?:POSTED|EDITED) (https://[^\s'\"\\;]+)")
 BATCHES_KEPT = 64
-SAYS_KEPT = 64
 RUNNER = """
 import contextlib, io, json, runpy, sys, traceback
 payload, scripts = sys.stdin.read(), sys.argv[1:]
@@ -102,8 +98,6 @@ HIS_DM_HOME = FileFixture(
 HANDLER_SESSION = "handler-fixture"
 THREAD = "1794378983.440769"
 ACK = "You set the staging-claim rule and want the fuzzing box back; both orders are handed off."
-SAID_LINK = "https://acme.slack.com/archives/D123/p1794288799976279"
-SAID_CALL = "toolu_said"
 RESUMED = "drive job resume now works from a session that did not start the job's agent."
 AWAY = "Refused on purpose: he is away, since he said so or has written nothing for an hour."
 ASKED = (
@@ -122,19 +116,11 @@ CLOUD_READ = 'ccx_code_read {"path": "go/sand/next/internal/cloudrunner/inbox.go
 NOT_READ = 'none: no call of the handler\'s own holds "cloudrunner/inbox.go"'
 HELD_BACK = "Jev held back this post: claim \"The cloud's inbox reader queries Postgres straight.\" does not stand on its read."
 UNSURE = "message_limits: Jev is unsure of finding he is away, so the post goes out as written: if one is wrong, reword the post in place."
-SENT_HELD = f"Jev holds this post: it states a fact no claim names. So reword the sent post in place with say(edit={SAID_LINK}, text=…) until Jev passes it."
 
 
 def verdict(kind: str, note: str) -> dict[str, str]:
     """An inline test's stub of the verdict `weighed` reads from settled.weighed: hold, warn or pass, beside its note."""
     return {WEIGHS: json.dumps({"verdict": kind, "note": note})}
-
-
-@workflow_state("drive-say")
-class SentPosts(WorkflowState):
-    """What the drive's checks found in each say post of this session, under the call that posts it, kept from its PreToolUse check until `sent_post` hands it Jev once Slack has the post."""
-
-    found: dict[str, dict] = {}
 
 
 def handler_reads(read: str) -> str:
@@ -148,11 +134,6 @@ def refused_post(text: str, reason: str, counted: str = "") -> dict:
     denied = {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": reason}
     findings = [{"rule": reason, "found": reason}]
     return {"hookSpecificOutput": denied, "rule": reason, "findings": findings, "his_words": [], "reads": [], "post": {"text": text}} | ({"counted": counted} if counted else {})
-
-
-def sent_found(output: dict) -> list[WorkflowState]:
-    """The session state a say call's PreToolUse check leaves for `sent_post`: what message_limits.py found in the post, under its call."""
-    return [SentPosts(found={SAID_CALL: output})]
 
 
 def state_root() -> Path:
@@ -334,7 +315,7 @@ def ran_alone(payload: dict, script: str) -> dict:
 
 
 def checked(evt: BaseHookEvent, script: str) -> HookResult | None:
-    """Run the drive's own check for this call from the newest installed long-running, since capt-hook keeps this pack loaded from the install it first found while an install leaves the pack's files unchanged, and let Jev weigh each refusal it makes by the rule the check names, else by its words, so a check that matched a call its rule never meant lets the call through, and every post the check hands with his words: a say post goes out at once and Jev weighs it once Slack has it, unless a finding a count or a mark decides is in it or it is a dry run, which Jev weighs before say runs; a merge, release or public-body guard, or a refusal decided by the call's shape alone, the check marks unjudged and it blocks outright, and a check that exits non-zero raises with its own stderr, so capt-hook's log names why it failed."""
+    """Run the drive's own check for this call from the newest installed long-running, since capt-hook keeps this pack loaded from the install it first found while an install leaves the pack's files unchanged, and let Jev weigh each refusal it makes by the rule the check names, else by its words, so a check that matched a call its rule never meant lets the call through, and every post the check hands with his words before it goes out; a merge, release or public-body guard, or a refusal decided by the call's shape alone, the check marks unjudged and it blocks outright, and a check that exits non-zero raises with its own stderr, so capt-hook's log names why it failed."""
     payload = evt._raw
     due = checks_due(evt, script)
     if script not in due:
@@ -347,8 +328,6 @@ def checked(evt: BaseHookEvent, script: str) -> HookResult | None:
     output = json.loads(said)
     found = output.get("hookSpecificOutput") or {}
     reason = found.get("permissionDecisionReason") or (output.get("decision") == "block" and output["reason"]) or ""
-    if "his_words" in output and payload["tool_name"] == SAY and not output.get("counted") and not payload["tool_input"].get("dry_run"):
-        return sent_first(evt, output)
     if "his_words" in output:
         return judged(evt, output)
     if reason and output.get("judged", True):
@@ -388,20 +367,12 @@ def refused(evt: BaseHookEvent, reason: str, verdict: dict) -> HookResult | None
     return None
 
 
-def sent_first(evt: BaseHookEvent, output: dict) -> None:
-    """Keep what the drive's checks found in a say post under the call that posts it, for `sent_post` to hand Jev once Slack has the post, so say posts at once and Jev checks afterwards, by his pick "Say posts at once and Jev checks afterwards: say stays fast, but a held line sits in your DM until its handler edits it"; the session keeps its newest SAYS_KEPT such calls."""
-    with SentPosts.mutate(evt) as sent:
-        sent.found[evt.tool_use_id] = output
-        while len(sent.found) > SAYS_KEPT:
-            del sent.found[next(iter(sent.found))]
-
-
-def judged(evt: BaseHookEvent, output: dict, sent: str = "") -> HookResult | None:
-    """Jev's verdict on a post the drive's checks hand with his words, as settled.post_verdict weighs it, before the post goes out, or with sent naming the say post Slack already has: a held post not yet sent stays back, and a sent one stands in his DM while its session hears to reword it in place; a warning, such as a verdict Jev could not finish, goes out beside the post with what the checks heard."""
+def judged(evt: BaseHookEvent, output: dict) -> HookResult | None:
+    """Jev's verdict on a post the drive's checks hand with his words, as settled.post_verdict weighs it, before the post goes out: a held post stays back; a warning, such as a verdict Jev could not finish, goes out beside the post with what the checks heard."""
     heard = (output.get("hookSpecificOutput") or {}).get("additionalContext") or ""
-    verdict = weighed(evt, {"post": output, "sent": sent})
+    verdict = weighed(evt, {"post": output})
     if verdict["verdict"] == "hold":
-        return evt.context(verdict["note"]) if sent else evt.block(verdict["note"])
+        return evt.block(verdict["note"])
     if told := "\n\n".join(filter(None, [heard, verdict["note"]])):
         return evt.context(told)
     return None
@@ -561,15 +532,6 @@ def scratch_folder(evt: BaseHookEvent) -> HookResult | None:
             agent_type=HANDLER,
             transcript=COMMUNICATOR_TURN,
             commands={"python3 -I": handler_reads(NOT_READ), **verdict("hold", HELD_BACK)},
-        ): Allow(),
-        Input(
-            tool=SAY,
-            tool_input={"text": GUESSED, "thread_ts": THREAD, "claims": GUESSED_CLAIMS, "dry_run": True},
-            session_id=COMMUNICATOR,
-            agent_id="a1",
-            agent_type=HANDLER,
-            transcript=COMMUNICATOR_TURN,
-            commands={"python3 -I": handler_reads(NOT_READ), **verdict("hold", HELD_BACK)},
         ): Block(pattern="Jev held back this post"),
         Input(
             tool=SAY,
@@ -591,71 +553,6 @@ def scratch_folder(evt: BaseHookEvent) -> HookResult | None:
 )
 def message_limits(evt: BaseHookEvent) -> HookResult | None:
     return checked(evt, "message_limits.py")
-
-
-@on(
-    Event.PostToolUse,
-    only_if=[Tool(SAY)],
-    tests={
-        Input(tool=SAY, tool_input={"text": GUESSED}, output=f"POSTED {SAID_LINK}", tool_use_id=SAID_CALL, session_id=NO_DRIVE): Allow(),
-        Input(
-            tool=SAY,
-            tool_input={"text": GUESSED, "thread_ts": THREAD, "claims": GUESSED_CLAIMS},
-            output="nothing posted: report 1 is a catch-up, and the drive owes him none",
-            tool_use_id=SAID_CALL,
-            state=sent_found(json.loads(handler_reads(CLOUD_READ))),
-            session_id=COMMUNICATOR,
-            agent_id="a1",
-            agent_type=HANDLER,
-            transcript=COMMUNICATOR_TURN,
-            commands=verdict("hold", SENT_HELD),
-        ): Allow(),
-        Input(
-            tool=SAY,
-            tool_input={"text": RESUMED},
-            output=f"POSTED {SAID_LINK}; o1 progress line, no part delivered: {SAID_LINK}",
-            tool_use_id=SAID_CALL,
-            state=sent_found(refused_post(RESUMED, "refused: a line telling him the drive failed names no {order:} or {pr:} carrying how that is prevented")),
-            session_id=HANDLER_SESSION,
-            agent_type=HANDLER,
-            transcript=HANDLER_TURN,
-            commands=verdict("hold", SENT_HELD),
-        ): Warn(pattern=f"(?s)Jev holds this post.*say\\(edit={SAID_LINK}, text=…\\)"),
-        Input(
-            tool=SAY,
-            tool_input={"text": GUESSED, "thread_ts": THREAD, "claims": GUESSED_CLAIMS},
-            output=f"POSTED {SAID_LINK}",
-            tool_use_id=SAID_CALL,
-            state=sent_found(json.loads(handler_reads(CLOUD_READ))),
-            session_id=COMMUNICATOR,
-            agent_id="a1",
-            agent_type=HANDLER,
-            transcript=COMMUNICATOR_TURN,
-            commands=PASSED,
-        ): Allow(),
-        Input(
-            tool=SAY,
-            tool_input={"edit": SAID_LINK, "text": GUESSED, "thread_ts": THREAD, "claims": GUESSED_CLAIMS},
-            output=f"EDITED {SAID_LINK}",
-            tool_use_id=SAID_CALL,
-            state=sent_found(json.loads(handler_reads(CLOUD_READ))),
-            session_id=HANDLER_SESSION,
-            agent_type=HANDLER,
-            transcript=HANDLER_TURN,
-            commands=verdict("warn", UNSURE),
-        ): Warn(pattern="Jev is unsure of finding he is away"),
-    },
-)
-def sent_post(evt: BaseHookEvent) -> HookResult | None:
-    """Jev's verdict on a say post Slack already has, from what the drive's checks found in it before say ran, so say posts at once and Jev checks afterwards, by his pick "Say posts at once and Jev checks afterwards: say stays fast, but a held line sits in your DM until its handler edits it": a post Jev holds stays in his DM as written, and its session hears to reword it in place, its turn waiting on the verdict; a say call that posted nothing, its POSTED or EDITED link missing, hears nothing more."""
-    if (output := SentPosts.load(evt).found.get(evt.tool_use_id)) is None:
-        return None
-    with SentPosts.mutate(evt) as sent:
-        del sent.found[evt.tool_use_id]
-    response = evt.tool_response
-    if not (link := SENT.search(response if isinstance(response, str) else json.dumps(response))):
-        return None
-    return judged(evt, output, link[1])
 
 
 @on(

@@ -965,8 +965,8 @@ line keeps its bold line and two sentences, as the status lines above show.
   `cc-slack check-post` and counts them as they go out. A `say` post counts the words of each
   `{card:}`, `{pr:}`, `{order:}` and `{record:}` title it draws, and its length refusal says how many
   of them those titles are.
-- A finding refuses nothing on its own. Once `say` has posted the post, so `say` stays fast, the hook
-  hands it and every finding, check-post's and the drive's own, to Jev with the rule each finding
+- A finding refuses nothing on its own. Before `say` posts the post, since an edit takes back neither
+  the buzz on his phone nor a line a reporter already read, the hook hands it and every finding, check-post's and the drive's own, to Jev with the rule each finding
   stands for, in this skill's and cc-slack's words, and the words of his it answers: his messages in
   the thread it went to since the bot's last post there, his answers on the card that thread is under,
   each message of his its asked links, each older word of his there its asked or a quote in it holds,
@@ -982,18 +982,14 @@ line keeps its bold line and two sentences, as the status lines above show.
   his message asked, nor as unpermitted, since no post in his DM or
   its threads needs words of his permitting it and cc-slack's Slack permission hook judges each post
   anywhere else: an allow rests on the reads and rules it cites as fully as on his words. A held post
-  stays in his DM as written, and the
-  session that posted it hears Jev's reason, rewords it in place with `say(edit=<its permalink>,
-  text=…)`, which Jev checks again, and ends its turn only once Jev passes the new words. His pick:
-  "Say posts at once and Jev checks afterwards: say stays fast, but a held line sits in your DM until
-  its handler edits it". Jev gets 20 seconds on a post, or what is left of capt-hook's deadline
+  comes back unposted, and the session that called `say` hears Jev's reason, fixes those words and
+  calls `say` again. Jev gets 20 seconds on a post, or what is left of capt-hook's deadline
   when that is less, and 3 seconds on a drive check's refusal of a call.
 - A post with a finding a count or a mark decides, the post's word count, his reading as away or a
-  line out of turn in the thread a bug report or question came from, and a dry run, Jev judges before
-  `say` runs, since an edit takes back neither the buzz on his phone nor a line a reporter already
-  read: it goes out only when Jev lifts that finding, and when Jev cannot finish, because it errs,
+  line out of turn in the thread a bug report or question came from goes out only when Jev lifts
+  that finding, and when Jev cannot finish, because it errs,
   times out or declines a question, it still refuses, since no judgment lifts it. On any other post a Jev that cannot finish leaves each finding as a warning: the post
-  stays as written, and the session that posted it hears every finding beside it and rewords the post
+  goes out as written, and the session that posted it hears every finding beside it and rewords the post
   in place when one holds. His pick: "Refusals only warn when the judge cannot finish: no post ever
   waits, but it goes out unchecked, as twice this morning". A session's account of its own act or
   mistake names no cause the cause rule asks a record for. An order or job id, such as o643 or j1700,
