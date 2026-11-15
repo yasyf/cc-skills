@@ -115,6 +115,7 @@ class Watcher:
     released: set[str] = field(default_factory=set)
     serving: dict[str, dict[str, bool]] | None = None
     fix_waits: dict[str, list[str]] | None = None
+    production: set[str] = field(default_factory=set)
     live_at: datetime | None = None
     staged: set[str] | None = None
     builds: dict[str, dict | None] = field(default_factory=dict)
@@ -533,7 +534,7 @@ def followed(watcher: Watcher, data: dict) -> list[str]:
 
 
 def serving_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Read which clusters serve the merged Forge-AI/monorepo PR of each release wait the watch follows and the soak commit of each staging wait, for waits_lines, and of each component in the releases release_reach names for each fix PR of an open incident, for recovered_lines: one `tools/ci release live --json`, run in the drive's checkout as orca.checkout moves it, at most once every LIVE_EVERY, since it takes most of a minute, prints the commit each cluster of every service serves, production or not, a stack whose switch never passed serving its older build. Kept on the watcher as serving until the next read, each wait's clusters by whether each serves a commit carrying the PR's merge, by github.carrier's read of the checkout's own history, or, for a staging wait, the soak commit itself or a build carrying it by the same read, so a promotion of dev holding a merge frees a wait on that merge commit while a soak commit off dev's line still frees only at itself, a service no cluster runs reading none, and each fix PR's waits as fix_waits, both None while the read fails."""
+    """Read which clusters serve the merged Forge-AI/monorepo PR of each release wait the watch follows and the soak commit of each staging wait, for waits_lines, and of each component in the releases release_reach names for each fix PR of an open incident, for recovered_lines: one `tools/ci release live --json`, run in the drive's checkout as orca.checkout moves it, at most once every LIVE_EVERY, since it takes most of a minute, prints the commit each cluster of every service serves, production or not, a stack whose switch never passed serving its older build. Kept on the watcher as serving until the next read, each wait's clusters by whether each serves a commit carrying the PR's merge, by github.carrier's read of the checkout's own history, or, for a staging wait, the soak commit itself or a build carrying it by the same read, so a promotion of dev holding a merge frees a wait on that merge commit while a soak commit off dev's line still frees only at itself, a service no cluster runs reading none, each fix PR's waits as fix_waits, both None while the read fails, and as production the clusters it read that go/ci counts as production, by settled.prod."""
     from drive import cli
 
     data = state.load(watcher.name)
@@ -555,6 +556,7 @@ def serving_lines(watcher: Watcher, moment: datetime) -> list[str]:
         reach = cli.release_reach(watcher.name, data, fixes) if fixes else {}
         fix_waits = {key: [f"release:{component}:{key}" for component in reach[key]["releases"]] for key in fixes}
         carries = github.carrier(str(checkout))
+        production = {env for env in {row["env"] for row in live} if settled.prod(env, str(checkout))}
         serving = {
             wait: {row["env"]: carries(row["commit"], data["prs"][found["pr"]]["merged_sha"], github.split(data["prs"][found["pr"]]["into"] or found["pr"])[2]) for row in live if row["target"] == found["service"]}
             for wait in dict.fromkeys([*merged, *(wait for waits in fix_waits.values() for wait in waits)])
@@ -566,7 +568,7 @@ def serving_lines(watcher: Watcher, moment: datetime) -> list[str]:
     except (state.DriveError, reads.ReadError, github.GithubError) as error:
         return read_failed(watcher, "release live", error, moment)
     watcher.serving = serving
-    watcher.fix_waits, watcher.live_at = fix_waits, moment
+    watcher.fix_waits, watcher.production, watcher.live_at = fix_waits, production, moment
     watcher.failures.pop("release live", None)
     return []
 
@@ -597,12 +599,12 @@ def incident_fixes(watcher: Watcher, data: dict) -> dict[str, list[str]]:
 
 
 def recovered_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Close each open incident the watch hears once its fix is live, every Datadog monitor recorded on it reads OK, one with no monitor on its fix alone, and each of its orders that builds something he uses keeps a proof from there, by brief.unseen, or else say so once by proof_owed: what is left of it moves to a plain order, and a POST report hands the communicator the Live line for its thread, whose handler closes each order of it. Its fix is live when incident_fixes names its PRs and the watch's last release live read, by serving_lines, has every cluster of each component each one touches serving it, one touching none live at its merge; a fix PR outside Forge-AI/monorepo has no such read, so the coordinator closes its incident. The monitors of the incidents whose fix is live are read in one search."""
+    """Close each open incident the watch hears once its fix is live, every Datadog monitor recorded on it reads OK, one with no monitor on its fix alone, and each of its orders that builds something he uses keeps a proof from there, by brief.unseen, or else say so once by proof_owed: what is left of it moves to a plain order, and a POST report hands the communicator the Live line for its thread, whose handler closes each order of it. Its fix is live when incident_fixes names its PRs and the watch's last release live read, by serving_lines, has it in production for each component it touches, by in_production, one touching none live at its merge; a fix PR outside Forge-AI/monorepo has no such read, so the coordinator closes its incident. The monitors of the incidents whose fix is live are read in one search."""
     if not watcher.fix_waits:
         return []
     data = state.load(watcher.name)
     fixes = incident_fixes(watcher, data)
-    landed = {head: monitors(data, head) for head, keys in fixes.items() if all(key in watcher.fix_waits and all(behind(watcher, wait) == [] for wait in watcher.fix_waits[key]) for key in keys)}
+    landed = {head: monitors(data, head) for head, keys in fixes.items() if all(key in watcher.fix_waits and all(in_production(watcher, wait) for wait in watcher.fix_waits[key]) for key in keys)}
     lines, ok = [], set()
     if ids := sorted({monitor for found in landed.values() for monitor in found}):
         argv = ["pup", "--no-agent", "monitors", "search", "--query", f"id:({' OR '.join(ids)})", "--per-page", str(len(ids)), "--jq", ".monitors | map({id, status})"]
@@ -623,6 +625,13 @@ def recovered_lines(watcher: Watcher, moment: datetime) -> list[str]:
             continue
         lines += closed(watcher, head, list(found.values()), fix, moment)
     return lines
+
+
+
+def in_production(watcher: Watcher, wait: str) -> bool:
+    """Whether a fix PR runs in production for one component, by his pick "Read each fix PR's production landing each pass, no latch": the watch's last release live read has the component on a cluster, and each of its clusters go/ci counts as production serves the merge, whatever staging, dev and sandbox run, as go/ci's liveInProduction reads it."""
+    clusters = watcher.serving.get(wait)
+    return bool(clusters) and all(serves for env, serves in clusters.items() if env in watcher.production)
 
 
 def proof_owed(watcher: Watcher, head: str, unseen: dict[str, str], fix: str, moment: datetime) -> list[str]:
@@ -899,13 +908,6 @@ def out_because(watcher: Watcher, data: dict, wait: str) -> str | None:
     if github.BUILD.fullmatch(wait) and wait in watcher.builds:
         return build_said(wait, watcher.builds[wait])
     return None
-
-
-def behind(watcher: Watcher, wait: str) -> list[str] | None:
-    """The clusters of a release wait's service not serving its PR yet, each release live reads, production or not, running a build without the PR's merge; None when the read failed or holds nothing for the wait, its PR unmerged or outside Forge-AI/monorepo, or release live reads its service on no cluster, so an incident's fix reads live, by recovered_lines, only once one cluster at least serves it and every one does."""
-    if not watcher.serving or not (clusters := watcher.serving.get(wait)):
-        return None
-    return sorted(env for env, serves in clusters.items() if not serves)
 
 
 def release_owners(data: dict) -> list[tuple[str, dict]]:
@@ -2676,9 +2678,9 @@ def release_line(watcher: Watcher, data: dict, wait: str) -> str:
         return f"{wait}: {said}"
     if not pr["merged_sha"]:
         return f"{wait}: {key} is {github.fold_line(pr) if pr['state'] == github.FOLDED else pr['state'] + ' and unmerged'}, so no release holds it yet"
-    if (clusters := behind(watcher, wait)) is None:
+    if not watcher.serving or not (clusters := watcher.serving.get(wait)):
         return f"{wait}: the watch's tools/ci release live read holds no line for {key}, as it failed or has not run since the wait was added"
-    return f"{wait}: {service} on {found['env'] or ', '.join(clusters)} is behind {key}'s merge commit {pr['merged_sha'][:12]}, running an older build"
+    return f"{wait}: {service} on {found['env'] or ', '.join(sorted(env for env, serves in clusters.items() if not serves))} is behind {key}'s merge commit {pr['merged_sha'][:12]}, running an older build"
 
 
 def stall_cards(data: dict, chain: dict[str, str], cards: dict) -> list[str]:
