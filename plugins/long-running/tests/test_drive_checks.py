@@ -65,7 +65,7 @@ def test_a_handlers_claim_goes_to_jev_beside_its_reads_whole_call_and_holds_unde
     }
     assert jev.asked[-1] == {
         "state": {
-            "post": {"text": CLAIM["claim"], "sentences": [CLAIM["claim"]]},
+            "post": {"text": CLAIM["claim"], "written": CLAIM["claim"], "sentences": [CLAIM["claim"]]},
             "claims": {"c1": {"claim": CLAIM["claim"], "read": "read:1"}},
             "reads": {"read:1": {"call": CALL_READ, "lines": 1, "result": {"1": RESULT}}},
         },
@@ -88,6 +88,16 @@ def test_a_claim_whose_read_matched_none_of_the_handlers_calls_holds_unasked_and
     jev.picks("fact", 0.9)
     jev.breaks("c1", "backed", 0.9)
     assert '"The fix ships tonight." states a fact no claim names: name the read behind it in claims' in settled.post_verdict(handled(text))["note"]
+
+
+def test_jev_reads_the_typed_words_beside_slacks_and_asks_no_fact_of_a_sentence_that_is_a_reference_alone(jev: Jev) -> None:
+    card = "{card:demo:j1-1}"
+    drawn = "<https://example.slack.com/archives/D1/p1|Release the inbox fix to staging now?>"
+    post = {"text": f"{CLAIM['claim']}\n{drawn}", "written": f"{CLAIM['claim']}\n{card}", "claims": [CLAIM]}
+    jev.picks("backed", 0.9)
+    assert settled.post_verdict({"post": post, "reads": [READ], "his_words": []}) == {"verdict": "pass", "note": ""}
+    assert jev.asked[-1]["state"]["post"] == {"text": post["text"], "written": post["written"], "sentences": [CLAIM["claim"]]}
+    assert list(jev.asked[-1]["questions"]) == ["c1.backed"]
 
 
 def test_a_finding_holds_at_yes_unless_his_words_lift_it_and_jev_reads_his_words_beside_it(jev: Jev) -> None:

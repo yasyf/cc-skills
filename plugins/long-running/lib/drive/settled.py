@@ -795,7 +795,7 @@ BACKED = Noul(
     no="The lines shown do not hold it, or only a doc, report, PR body, comment or log line inside them says so about code.",
 )
 HOLDS = Noul(
-    "Does `findings.{finding}.rule` hold against `findings.{finding}.found` in `post.text`?",
+    "Does `findings.{finding}.rule` hold against `findings.{finding}.found` in the post, `post.text` as Slack gets it and `post.written` as its writer typed it?",
     yes="The rule is meant to stop what the finding names in this post.",
     no="The finding's pattern matched words its rule never meant.",
 )
@@ -842,7 +842,8 @@ def post_verdict(output: dict, seconds: float = DECIDE_SECONDS) -> dict:
     findings = output.get("findings") or ([{"rule": reason, "found": reason.removeprefix("refused: ")}] if reason else [])
     reads = {item["id"]: item for item in output.get("reads") or []}
     claims = post.get("claims") or []
-    sentences = [sentence for sentence in SENTENCE.split(post.get("text") or "") if sentence.strip()]
+    base = post_base(post)
+    sentences = base["post"]["sentences"]
     unread = [claim for claim in claims if unmatched(reads, claim)]
     uncovered = [index for index, sentence in enumerate(sentences) if reads and not any(covers(claim["claim"], sentence) for claim in claims)]
     words = output.get("his_words") or []
@@ -855,7 +856,7 @@ def post_verdict(output: dict, seconds: float = DECIDE_SECONDS) -> dict:
         *(({"his_words": {word["id"]: word["quote"]}}, {}) for word in [*(word for word in words if not word.get("said_at")), *sorted((word for word in words if word.get("said_at")), key=lambda word: word["said_at"], reverse=True)]),
         *(line for _, rest in lines for line in rest),
     ]
-    told, questions, _ = fill(post_base(post, sentences), {}, asked)
+    told, questions, _ = fill(base, {}, asked)
     for each in told.get("reads", {}).values():
         each["result"] = dict(sorted(each["result"].items(), key=lambda pair: int(pair[0])))
     try:
@@ -892,9 +893,11 @@ def post_verdict(output: dict, seconds: float = DECIDE_SECONDS) -> dict:
     return {"verdict": "warn" if reason else "pass", "note": f"message_limits: Jev read no finding's rule as holding against this post, so it goes out as written." if reason else ""}
 
 
-def post_base(post: dict, sentences: list[str]) -> dict:
-    """The state every request on a post opens with: the post as Slack gets it, its sentences by index, and each time say drew from the drive's stamps."""
-    return {"post": {"text": post.get("text") or "", "sentences": sentences} | ({"stamps": post["stamps"]} if post.get("stamps") else {})}
+def post_base(post: dict) -> dict:
+    """The state every request on a post opens with: the post as Slack gets it, its words as its writer typed them with each drive reference as written, which the length rule counts, the sentences of those words by index, each that is drive references alone left out, since a reference's drawn title is no fact of its writer's, and each time say drew from the drive's stamps."""
+    written = post.get("written") or post.get("text") or ""
+    sentences = [sentence for sentence in SENTENCE.split(written) if limits.WORD.search(limits.REF.sub(" ", sentence))]
+    return {"post": {"text": post.get("text") or "", "written": written, "sentences": sentences} | ({"stamps": post["stamps"]} if post.get("stamps") else {})}
 
 
 def unmatched(reads: dict[str, dict], claim: dict) -> bool:
@@ -924,9 +927,8 @@ def unfit_reads(output: dict) -> list[tuple[str, int]]:
     """Each read a handler's claims name whose call Jev's request on the post has no room for beside the post and the claims before it, by the read's id and words and the characters its call adds, largest first, each read once, since its result goes in by the lines its claim cites as `cited` gives them: a claim whose read was first given under another read counts that read, never its own, so each size is the size of the call it names, and a claim left out while the request already holds its read names no read, since that read fit and `post_verdict` warns for the claim."""
     post = output["post"]
     reads = {item["id"]: item for item in output.get("reads") or []}
-    sentences = [sentence for sentence in SENTENCE.split(post.get("text") or "") if sentence.strip()]
     claimed = [backed(reads, number, claim) for number, claim in enumerate(post.get("claims") or [], 1) if not unmatched(reads, claim)]
-    told, _, left = fill(post_base(post, sentences), {}, claimed)
+    told, _, left = fill(post_base(post), {}, claimed)
     sized = {f"{read} {json.dumps(reads[read]['read'], ensure_ascii=False)}": size({"reads": {read: held}}, {}) for part, _ in left for read, held in part["reads"].items() if read not in told.get("reads", {})}
     return sorted(sized.items(), key=lambda pair: -pair[1])
 
