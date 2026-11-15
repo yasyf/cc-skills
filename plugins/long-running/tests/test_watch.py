@@ -667,7 +667,7 @@ def test_the_watch_hooks_each_repository_of_a_pr_it_hears_and_reads_its_prs_sinc
     receiving.unhooked.add("Forge-AI/monorepo")
     watch.run_pass(watching, T0 + timedelta(seconds=60))
     watch.run_pass(watching, T0 + timedelta(seconds=120))
-    assert (receiving.hooked, calls) == (["Forge-AI/monorepo"], [[KEY], [KEY]])
+    assert (receiving.hooked, calls) == (["Forge-AI/monorepo"], [[KEY], [KEY], [KEY]])
 
 
 def test_a_repository_this_account_does_not_administer_is_asked_once_and_a_hook_that_fails_is_said_without_holding_back_the_next_while_each_open_pr_no_hook_delivers_is_read_each_minute(
