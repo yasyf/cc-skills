@@ -7,7 +7,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from conftest import LEAD, Answers, Judge
+from conftest import LEAD, Answers, Judge, git_in
 from drive import cli, github, land, limits, refs, served, settled, slack, stage, state
 from drive.state import DriveError
 
@@ -47,7 +47,7 @@ def test_a_pr_past_githubs_300_file_diff_reads_whole_as_bytes_from_the_compare_o
 
 
 def test_the_judge_sees_source_before_fixtures_a_byte_utf8_cannot_read_and_a_capped_count_of_the_files_left_out() -> None:
-    prompt = served.shown({KEY: {"title": "Cleanup: move the fixtures", "head": "head1", "diff": MOVE}})
+    prompt = served.shown({KEY: {"title": "Cleanup: move the fixtures", "head": "head1", "diff": MOVE}}, {KEY: "/judging/Forge-AI-monorepo-42"})
     left_out = prompt.rpartition("\n")[2]
     assert all(f"+++ b/{path}" in prompt for path in SOURCE) and "+\ufffdxxx" in prompt
     assert left_out.startswith(f"{1_571 - prompt.count('diff --git a/')} files left out for length: {KEY} app/testdata/fixtures/")
@@ -434,19 +434,44 @@ def test_an_objection_to_a_file_faults_only_the_prs_of_the_stack_changing_it(
     assert [state.load(demo)["prs"][key]["checker"]["faulted"] for key in keys] == [[keys[1]]] * 3
 
 
-def test_a_judge_refused_a_command_fails_the_check_naming_it_and_reads_the_clone_it_was_given(demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_the_judge_reads_each_prs_files_at_its_head_from_a_tree_of_its_own_deleted_once_it_answers_and_a_read_claude_code_refused_keeps_its_verdict(
+    demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    clone, other = tmp_path / "clone", "yasyf/cc-skills#7"
+    clone.mkdir()
+    git_in(clone, "init", "-q")
+    (clone / "api").mkdir()
+    heads = {}
+    for key, text in ((KEY, "export function run() { return !staff(); }\n"), (other, "def run(): return True\n")):
+        (clone / "api" / "run.ts").write_text(text)
+        git_in(clone, "add", "-A")
+        git_in(clone, "commit", "-q", "-m", key)
+        heads[key] = git_in(clone, "rev-parse", "HEAD")
     with state.edit(demo) as data:
-        data["roles"]["coordinator"]["cwd"] = str(tmp_path)
-    ran: list[list[str]] = []
+        data["roles"]["coordinator"]["cwd"] = str(clone)
     met = {"changed": [], "against": [], "carried": []}
-    denied = {"structured_output": met, "permission_denials": [{"tool_name": "Bash", "tool_use_id": "t1", "tool_input": {"command": f"git -C {tmp_path} grep -n alarm head42"}}]}
-    monkeypatch.setattr(served, "fetched", lambda clone, key, head: None)
-    monkeypatch.setattr(served.subprocess, "run", lambda argv, **_: ran.append(argv) or subprocess.CompletedProcess(argv, 0, json.dumps(denied), ""))
-    with pytest.raises(DriveError, match=f"refused git -C {tmp_path} grep -n alarm head42; run this again"):
-        JUDGE(demo, "his words", {KEY: {"title": "Fix", "body": "", "head": "head42", "diff": SMALL}}, 0)
-    assert ran[0][ran[0].index("--add-dir") + 1] == str(tmp_path)
-    denied["permission_denials"] = []
-    assert JUDGE(demo, "his words", {KEY: {"title": "Fix", "body": "", "head": "head42", "diff": SMALL}}, 0) == met
+    seen: dict[str, object] = {}
+    real = subprocess.run
+
+    def claude(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+        if argv[0] != "claude":
+            return real(argv, **kwargs)
+        root = Path(str(kwargs["cwd"]))
+        seen.update({"root": root, "dirs": [argv[at + 1] for at, flag in enumerate(argv) if flag == "--add-dir"], "tools": argv[argv.index("--tools") + 1], "prompt": kwargs["input"]})
+        seen["files"] = {tree.name: (tree / "api" / "run.ts").read_text() for tree in root.iterdir()}
+        denied = {"tool_name": "Read", "tool_use_id": "t1", "tool_input": {"file_path": f"{state.drive_dir(demo)}/drive.json"}}
+        return subprocess.CompletedProcess(argv, 0, json.dumps({"structured_output": met, "permission_denials": [denied]}), "")
+
+    fetched: list[tuple[str, str, str]] = []
+    monkeypatch.setattr(served, "fetched", lambda clone, key, head: fetched.append((clone, key, head)))
+    monkeypatch.setattr(served.subprocess, "run", claude)
+    changes = {key: {"title": "Fix", "body": "", "head": head, "diff": SMALL} for key, head in heads.items()}
+    assert JUDGE(demo, "his words", changes, 0) == met
+    root = seen["root"]
+    assert fetched == [(str(clone), key, head) for key, head in heads.items()]
+    assert seen["dirs"] == [str(root)] and seen["tools"] == "Read,Grep,Glob" and not root.exists()
+    assert seen["files"] == {"Forge-AI-monorepo-42": "export function run() { return !staff(); }\n", "yasyf-cc-skills-7": "def run(): return True\n"}
+    assert f'### {KEY} "Fix" at {heads[KEY]}, its tree {root}/Forge-AI-monorepo-42' in str(seen["prompt"])
 
 
 def test_a_stack_whose_middle_pr_writes_the_ruling_into_agents_md_passes_in_its_first_check_since_each_other_pr_counts_that_write_from_the_diff_the_check_just_read(
