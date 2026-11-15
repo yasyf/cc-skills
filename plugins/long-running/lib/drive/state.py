@@ -16,7 +16,7 @@ import tomllib
 import traceback
 import uuid
 from calendar import monthrange
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Collection, Iterable, Iterator
 from contextlib import AbstractContextManager, closing, contextmanager, suppress
 from contextvars import ContextVar
 from datetime import date, datetime, timedelta
@@ -114,6 +114,8 @@ UNSCHEDULED_RULING = '785e260, "unacceptable", on a card for cutover work while 
 TOOLING = "Drive tooling:"
 TOOLING_DETAILS_RULING = "43aa665"
 REHEARSAL_RULING = "716e70d"
+FRESH_DETAILS_RULING = "ff17121"
+AREA_LABEL = "area:"
 POST_FEEDBACK = f"{TOOLING} post feedback:"
 DRIVE_TOOLING = (
     "how the drive itself works: a tool it runs on (the drive CLI and its MCP tools, a hook, the watch, the dashboard,"
@@ -1000,6 +1002,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         order.setdefault("title", None)
         order.setdefault("complex", False)
         order.setdefault("options_only", False)
+        order.setdefault("fresh", None)
         order.setdefault("once", False)
         order.setdefault("every", 0)
         order.pop("releases", None)
@@ -2661,20 +2664,21 @@ def unread_since_take(data: dict, job_id: str) -> list[str]:
     return [key for key, pr in named.items() if pr["state"] == "open" and not (pr["required"] and parse_time(pr["required"]["read"]) > taken)]
 
 
-def add_changes(name: str, data: dict, job_id: str, report: str) -> list[str]:
-    """Make each change a design job's DESIGN return lists on its `Change:` lines, when it lists more than one, a part of the design's order under the line's words before its `(waits on …)`, naming the design, a part already under those words included, a design of one change being its own parts, each change an earlier DESIGN of several made that it no longer lists and on which no work began dropped, its builders no agent or lane took stopped, by unlisted_changes and drop_part, and each piece of its plan a builder's return leaves to a follow-up on its `UNBUILT:` lines, never its `CHANGE:` or `Change:` lines, which name its own change, a part of its order by left_changes; then give each change no builder or codex job builds a builder of its own, by change_builders, each PR a builder's report stages a tester by staging_testers, and return the builders added."""
+def add_changes(name: str, data: dict, job_id: str, report: str, removed: Collection[str] = ()) -> list[str]:
+    """Make each change a design job's DESIGN return lists on its `Change:` lines, when it lists more than one, a part of the design's order under the line's words before its `(waits on …)`, naming the design, a part already under those words included, a design of one change being its own parts, each change an earlier DESIGN of several made that it no longer lists and on which no work began dropped, its builders no agent or lane took stopped, by unlisted_changes and drop_part, and each piece of its plan a builder's return leaves to a follow-up on its `UNBUILT:` lines, never its `CHANGE:` or `Change:` lines, which name its own change, a part of its order by left_changes; then give each change no builder or codex job builds a builder of its own, by change_builders, each PR a builder's report stages a tester by staging_testers, and return the builders added; a change in removed, which a ruling of his on its whole area removes by brief.removed_parts, becomes no part and gets no builder."""
     job = data["jobs"][job_id]
     found = [(whole_order(line["change"]), change_waits(line)) for line in change_lines(job["kind"], report)]
     if job["kind"] == "builder":
-        return [*(left_changes(data, job_id, found) if found else []), *staging_testers(data, job_id, report)]
+        return [*(left_changes(data, job_id, found, removed) if found else []), *staging_testers(data, job_id, report)]
     if job["kind"] != "design" or not report.lstrip().startswith("DESIGN") or not found:
         return []
     order = data["orders"][job["order"]]
     for part in unlisted_changes(name, data, job_id):
         drop_part(data, job["order"], part, f"its design {job_id} no longer lists it")
     for change, _ in found if len(found) > 1 else []:
-        order["parts"].setdefault(change, new_part()).update(design=job_id)
-    added = change_builders(data, job_id, job_id, [([change], waits) for change, waits in found] if len(found) > 1 else [(job["parts"], [])])
+        if change not in removed:
+            order["parts"].setdefault(change, new_part()).update(design=job_id)
+    added = change_builders(data, job_id, job_id, [([change], waits) for change, waits in found] if len(found) > 1 else [(job["parts"], [])], removed)
     if len(found) > 1 or added:
         order["updated"] = stamp()
         end_carried_designs(data, job["order"], order["updated"])
@@ -2839,16 +2843,17 @@ def unreach(data: dict, key: str) -> list[str]:
     return stopped
 
 
-def left_changes(data: dict, builder_id: str, found: list[tuple[str, list[int]]]) -> list[str]:
+def left_changes(data: dict, builder_id: str, found: list[tuple[str, list[int]]], removed: Collection[str]) -> list[str]:
     """Make each piece a builder's return lists on its `UNBUILT:` lines, each a piece of its plan it left to a follow-up, a part of its order, a part already under those words included, under the design of the builder's parts, or, where its parts have none, listed by the builder, so brief.researches starts a builder of the part on that design's research, or else on the research of the builder's parts and, with none, on the builder's return; then add a builder for each by change_builders, from that design, or else from the builder, whose return its Plan: line names."""
     builder = data["jobs"][builder_id]
     order = data["orders"][builder["order"]]
     design = next((lister for part, held in order["parts"].items() if part in builder["parts"] and (lister := held["design"]) and data["jobs"][lister]["kind"] == "design"), None)
     for change, _ in found:
-        held = order["parts"].setdefault(change, new_part())
-        held["design"] = held["design"] or design or builder_id
+        if change not in removed:
+            held = order["parts"].setdefault(change, new_part())
+            held["design"] = held["design"] or design or builder_id
     order["updated"] = stamp()
-    return change_builders(data, design or builder_id, builder_id, [([change], waits) for change, waits in found])
+    return change_builders(data, design or builder_id, builder_id, [([change], waits) for change, waits in found], removed)
 
 
 def change_lines(kind: str, text: str) -> list[re.Match]:
@@ -2856,7 +2861,7 @@ def change_lines(kind: str, text: str) -> list[re.Match]:
     return list((UNBUILT_LINE if kind == "builder" else CHANGE_LINE).finditer(text))
 
 
-def change_builders(data: dict, design_id: str, source_id: str, changes: list[tuple[list[str], list[int]]]) -> list[str]:
+def change_builders(data: dict, design_id: str, source_id: str, changes: list[tuple[list[str], list[int]]], removed: Collection[str] = ()) -> list[str]:
     """Add a builder for each change of a design, or of a builder's return, its parts and the number of each earlier change it waits on, that no builder or codex job builds, by part_builders, in its list's order, each builder of a change no agent or lane took, one added earlier included, waiting on each job building an earlier change it waits on, by wait_on_earlier, by his pick "A builder for every listed change, added the moment the design returns: no change can sit unbuilt; idle jobs appear early", its plan brief flag naming the design's report, or that builder's return, and, for a change a builder's return left unbuilt, that builder's report and what to stack on, by stack_on, so every brief written for it, the watch's launch included, carries the design and its parent as its Plan:; none where brief.job_refusal refuses a builder, as on an order limited to options until drive order set --no-options-only records his pick. His open cards on the design join no wait, since a wait says only when a job starts: each card holds the PR of the change its Holds line names by part_cards, while its builder builds his recommended option meanwhile, so each change added goes, with its builder's id, onto the kept Holds words of every open card part_cards finds holding the work of source_id, the job whose return listed it, but a design's own cards, whose Holds lines in that same return already name the changes each holds, by his pick "Each question names the changes it holds, kept with it"; a card kept with no Holds line already holds every change."""
     from drive import brief, view
 
@@ -2868,7 +2873,7 @@ def change_builders(data: dict, design_id: str, source_id: str, changes: list[tu
     created = stamp()
     added = []
     for parts, _ in changes:
-        if not (uncarried := [part for part in parts if not part_builders(data, order_id, part)]) or brief.job_refusal(data, order_id, "builder", uncarried):
+        if not (uncarried := [part for part in parts if part not in removed and not part_builders(data, order_id, part)]) or brief.job_refusal(data, order_id, "builder", uncarried):
             continue
         builder_id = next_id(data["jobs"], "j")
         change = "; ".join(uncarried)
@@ -3729,6 +3734,7 @@ def new_order(text: str, source: str, thread: tuple[str, str] | None, parts: dic
         "kind": "build",
         "complex": False,
         "options_only": False,
+        "fresh": None,
         "once": False,
         "priority": None,
         "every": 0,
@@ -4490,6 +4496,28 @@ def feature_orders(data: dict, order_id: str) -> list[str]:
 def job_feature(data: dict, job: dict) -> list[str]:
     """The orders of every feature the job's order and each order it carries belong to, so the feature's rulings bind each job on it."""
     return list(dict.fromkeys(feature_id for order_id in [job["order"], *job["carries"]] for feature_id in feature_orders(data, order_id)))
+
+
+def fresh(data: dict, job: dict) -> dict | None:
+    """His newest words ordering the design of the job's feature started over from scratch, kept on an order of it as its `fresh` mark with when and where he said them; None while no order of the feature holds one."""
+    marks = [mark for order_id in job_feature(data, job) if (mark := data["orders"][order_id]["fresh"])]
+    return max(marks, key=lambda mark: parse_time(mark["at"]), default=None)
+
+
+def area_labels(data: dict, order_ids: list[str]) -> list[str]:
+    """The cc-notes labels naming where these orders are filed, `area:<project>` and `area:<project>/<workstream>`, which a ruling of his on that whole project or workstream carries, so it binds every order filed there whatever feature each is on."""
+    filed = [(order["project"], order["workstream"]) for order_id in order_ids if (order := data["orders"][order_id])["project"]]
+    return list(dict.fromkeys(label for project, workstream in filed for label in [f"{AREA_LABEL}{project}", *([f"{AREA_LABEL}{project}/{workstream}"] if workstream else [])]))
+
+
+def area_orders(data: dict, labels: list[str]) -> list[str]:
+    """The open orders filed in each area these cc-notes labels name, as area_labels writes them."""
+    areas = [label.removeprefix(AREA_LABEL).partition("/") for label in labels if label.startswith(AREA_LABEL)]
+    return [
+        order_id
+        for order_id, order in data["orders"].items()
+        if order["state"] not in CLOSED_ORDER_STATES and any(order["project"] == project and workstream in ("", order["workstream"]) for project, _, workstream in areas)
+    ]
 
 
 def orders_jobs(data: dict, orders: list[str]) -> dict[str, dict]:

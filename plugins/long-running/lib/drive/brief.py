@@ -657,12 +657,13 @@ def binding(name: str, data: dict, job: dict) -> tuple[list[str], list[str], lis
 
 
 def spec(name: str, data: dict, job: dict) -> list[dict]:
-    """His words on the job's feature, newest first, the one list every brief's Decisions that bind and drive job ask's judge read beside the words of the job's own orders: each answer of his binding names, each one `drive answer` kept whose marks or heard jobs name an order of the feature or a job on one, his words on each question of its readers and designs he answered with no answer recorded, and each other order of the feature, each whole with when and where he gave it. An answer cc-notes marks superseded keeps its place with the newer answers replacing it under `by`, so no brief or judge reads it as standing; an id a brief's rulings name that cc-notes keeps no answer under refuses the brief, any other is left out."""
+    """His words on the job's feature, newest first, the one list every brief's Decisions that bind and drive job ask's judge read beside the words of the job's own orders: each answer of his binding names, each one `drive answer` kept whose marks or heard jobs name an order of the feature or a job on one, each standing ruling of his on the whole project or workstream an order of the feature is filed under, by settled.area_rulings, his words on each question of its readers and designs he answered with no answer recorded, and each other order of the feature, each whole with when and where he gave it. An answer cc-notes marks superseded keeps its place with the newer answers replacing it under `by`, so no brief or judge reads it as standing; an id a brief's rulings name that cc-notes keeps no answer under refuses the brief, any other is left out."""
     orders = state.job_feature(data, job)
     ruled, cited, heard = binding(name, data, job)
+    areal = [ruling["id"] for ruling in settled.area_rulings(data, orders)]
     cwd = data["roles"]["coordinator"]["cwd"]
     found: dict[str, dict] = {}
-    for answer_id in dict.fromkeys([*ruled, *cited]):
+    for answer_id in dict.fromkeys([*ruled, *cited, *areal]):
         try:
             answer = settled.shown(answer_id, cwd)
         except state.DriveError:
@@ -780,6 +781,12 @@ def job_refusal(data: dict, order_id: str, kind: str, parts: list[str], lands: b
             f" lands or a reader returns, by his words {FOLLOW_UP_RULING}: add it with no --waits, and its designer does its own research"
         )
     return None
+
+
+def removed_parts(data: dict, order_id: str, parts: list[str]) -> dict[str, str]:
+    """Why no job starts on each of these parts that a standing ruling of his on the whole project or workstream the order is filed under removes, as Jev reads it by settled.removed, so work his ruling on an area stopped never starts on an order outside the feature it was said on."""
+    rulings = settled.area_rulings(data, [order_id]) if parts else []
+    return {part: settled.REMOVED.format(id=ruling["id"], area=ruling["area"], said=cut(ruling["said"], 200), part=part) for part, ruling in (settled.removed(parts, rulings) if rulings else {}).items()}
 
 
 def part_flags(parts: list[str]) -> str:

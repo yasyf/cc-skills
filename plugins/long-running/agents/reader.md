@@ -116,12 +116,10 @@ check or drawing code in `lib/drive/card.py`, `picture.py` or `site/visuals.js` 
 the post he faulted, and the class of posts the same fault reaches, since he ruled the fix goes to
 them, never to the one post.
 `open:` gives each choice between readings of his words he has not answered, never a reach past them, which stays as it is, with any open card's link:
-the `asks him:` lines of `drive status <the order>` name each card its jobs asked, open or
-answered, with its link and waits id whether or not cc-slack still keeps it, and
-`cc-slack drive-cards --drive <drive> | grep -i '<words of the area>'` each open card of his on
-the area, a line each with its waits id, link and question, both in under a second.
-`drive cards redraw` is no list: it rebuilds every open card, writing the drive under its lock for
-each, and prints nothing until the last.
+`drive cards list --order <the order>` lists each open card on its feature with its waits id and
+link. On a fresh order, which its brief's `Fresh:` line names, the cards asked before his words
+were withdrawn on them, so `open:` gives only the choices his words leave open for the design from
+the ground up, never one from the old design.
 Each says `none` when empty. `build:` names in one line the change your research recommends its
 builder make, the deliverable rather than the order's subject, since your kept report makes it that
 builder's `Goal: build <that line>`; when it finds no change to make, `build: none: <why>` names

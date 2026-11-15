@@ -12428,12 +12428,12 @@ def test_the_daily_sweep_ends_his_open_drive_tooling_cards_jev_reads_as_details_
         data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"head": "bbbbbbb222", "exempt": state.FLAKE_FIX}
     changed = {KEY: ["rust/crates/sandsql-server/src/admin/tests.rs"], OTHER: ["api/src/run.ts", "api/src/run.test.ts"]}
     monkeypatch.setattr(github, "files", lambda key: changed[key])
-    monkeypatch.setattr(settled, "detail", lambda case, words: "Where should" in case)
+    monkeypatch.setattr(settled, "detail", lambda case, words, leave: "Where should" in case)
     monkeypatch.setattr(slack, "owed", lambda session: [])
     watching = watcher(demo)
     watching.cards = NO_CARDS | {"questions": [{"question": text.splitlines()[0], "url": card, "card": {"waits": waits}, "asked": state.stamp(T0)} for text, card, waits in ((SHORT_ASK, CARD, "demo:j1-1"), (detail, POSTED, "demo:j1-2"))]}
     option = "One snapshot file per finished run, written when it ends, old runs backfilled: opens in 3 requests"
-    decided = settled.DECIDED.format(option=option)
+    decided = settled.TOOLING_DETAILS.decided.format(option=option)
     lines = REAL_SWEEP(watching, T0)
     swept = state.load(demo)
     assert (lines[0], lines[-1]) == (
