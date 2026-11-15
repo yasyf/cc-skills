@@ -64,10 +64,13 @@ def uncarded(pr: dict, cards: dict) -> str:
 
 
 def alone(data: dict, key: str, cards: dict) -> Stage:
-    """Every rule of own past the draw of his card; an unlanded PR whose own job's waits end at his open question cards, by asked(), reads blocked on him, naming them, so a lander's try made before that job waited wakes no session while he decides and reads unlanded again once he answers."""
+    """Every rule of own past the draw of his card; a PR its lander's try merged reads merged, owed by nobody, by land.merged_try, while the watch's last GitHub read still reads it open, so that try wakes no session; an unlanded PR whose own job's waits end at his open question cards, by asked(), reads blocked on him, naming them, so a lander's try made before that job waited wakes no session while he decides and reads unlanded again once he answers."""
     pr = data["prs"][key]
     if pr["state"] != "open":
         return Stage(pr["state"], NOBODY, github.fold_line(pr) if pr["state"] == github.FOLDED else f"it is {pr['state']}")
+    if land.merged_try(pr):
+        lander = pr["lander"]
+        return Stage("merged", NOBODY, f"its lander's try at {lander['head'][:7]}, started {lander['at']}, ended {lander['outcome']}")
     if land.landing(pr):
         return Stage("landing", LANDER, landing_why(pr))
     if ended := unlanded(data, key, cards):

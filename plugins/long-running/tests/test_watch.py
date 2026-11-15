@@ -4727,6 +4727,46 @@ def test_an_exempt_pr_whose_landers_try_ended_unlanded_wakes_the_session_holding
     assert landers == []
 
 
+def test_replayed_design_docs_363_a_lander_try_that_merged_the_pr_reads_merged_owed_by_nobody_and_wakes_no_one_while_the_watchs_last_github_read_says_open(
+    demo: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]
+) -> None:
+    monkeypatch.setattr(watch, "run_pass", REAL_RUN_PASS)
+    docs, old, new = "Forge-AI/design-docs#363", "0c14eb34a1", "febb6084f2"
+    behind = f"not landed: gh pr merge --rebase --match-head-commit {old} refused it: X Pull request {docs} is not mergeable: the head branch is not up to date with the base branch."
+    merged = "merged at 967f1e30740f; it changes no plugin installed on this Mac"
+    waiting_job(demo)
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["prs"].append(state.pr_url(docs))
+        data["prs"][docs] = state.new_pr(state.pr_url(docs), "j1", "o1") | {
+            "head": old,
+            "merge_method": "rebase",
+            "tap": state.new_tap("Approve", old, "pressed the button", at=state.stamp(T0 - timedelta(minutes=1))),
+            "lander": {"head": old, "pid": 1, "at": state.stamp(T0), "outcome": behind, "below": []},
+        }
+    serve(monkeypatch, {docs: read(headRefOid=old, checks=GREEN, required_reviews=0, merge_method="rebase")})
+    unlanded = f"STAGE {docs} unlanded since {state.stamp(T0)}, owed by the session holding its order: its lander's try at 0c14eb3, started {state.stamp(T0)}, ended {behind} [o1 j1]"
+    assert unlanded in watch.run_pass(watcher(demo), T0)
+    assert watch.wakes(unlanded, state.load(demo), NO_CARDS)
+    calls = serve(monkeypatch, {docs: read(headRefOid=new, checks=GREEN, required_reviews=0, merge_method="rebase")})
+    watching = watcher(demo)
+    watch.run_pass(watching, T0 + timedelta(minutes=1))
+    assert landers == [(docs,)]
+    with monkeypatch.context() as merging:
+        merging.setattr(land.subprocess, "run", lambda argv, **kwargs: land.subprocess.CompletedProcess(argv, 0, "", ""))
+        merging.setattr(github, "run", lambda cmd, **_: "967f1e30740f\n" if cmd[2] == "view" else "README.md\n")
+        merging.setattr(install, "touched", lambda repo, files: [])
+        assert land.run(demo, [docs]) == merged
+    fetched = len(calls)
+    lines = watch.run_pass(watching, T0 + timedelta(minutes=2))
+    assert (any(docs in keys for keys in calls[fetched:]), state.load(demo)["prs"][docs]["state"]) == (False, "open")
+    assert not [line for line in lines if line.startswith(f"STAGE {docs}")]
+    now = stage.of(state.load(demo), docs, NO_CARDS)
+    assert (now.name, now.owner, now.why.endswith(f"ended {merged}")) == ("merged", stage.NOBODY, True)
+    assert {key: value for key, value in state.load(demo)["prs"][docs]["stage"].items() if key in ("name", "owner")} == {"name": "merged", "owner": stage.NOBODY}
+    assert not watch.wakes(unlanded, state.load(demo), NO_CARDS)
+    assert landers == [(docs,)]
+
+
 @pytest.mark.parametrize(
     ("exempt", "path", "refused", "remedy"),
     [
