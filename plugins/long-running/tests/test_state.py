@@ -1582,6 +1582,16 @@ def test_a_staging_tests_done_frees_the_prs_held_on_it_only_by_a_check_build_tha
     data["jobs"]["j2"]["parts"] = [part]
     data["jobs"]["j2"]["goal"] = "read the layout's key ranges"
     assert done("j2", "16203") is None
+    data["jobs"]["j1"]["prs"] = [state.pr_url(key) for key in keys]
+    data["prs"][keys[0]]["waits"] = [f"o1:{tested[keys[0]]}"]
+
+    def own(*lines: str) -> str | None:
+        report = "\n".join([f"WAITING his review of {state.pr_url(keys[0])}", *lines, ""])
+        return state.unstaged(data, "j1", report.splitlines()[0], report)
+
+    soaked = own("CHECK: https://buildkite.com/forge/release/builds/16203", "CASE a layout reads its key ranges: pass")
+    assert soaked.startswith("j1's WAITING frees Forge-AI/monorepo#4201 from waiting on its staging test") and "16203 deployed nothing to staging" in soaked
+    assert [own("CHECK: https://buildkite.com/forge/release/builds/16086", "CASE a layout reads its key ranges: pass"), own("CHECK: https://buildkite.com/forge/release/builds/16203")] == [None, None]
 
 
 def test_a_staging_tests_done_frees_a_pr_changing_only_tools_ci_and_go_ci_by_a_check_linking_a_commit_carrying_its_head_as_j212s_pass_of_56826_was_not(
@@ -1642,6 +1652,35 @@ def test_a_full_pass_by_the_builder_of_the_pr_it_tests_delivers_its_staging_part
     data["prs"]["Forge-AI/monorepo#42"] |= {"state": "merged", "merged_sha": "fedcba9876543210"}
     state.take_result(data, "j1", f"DONE {url} merged: Forge-AI/monorepo#42 at fedcba987654")
     assert [held, (data["jobs"]["j1"]["state"], staging_reads(data))] == [("waiting", (True, PROOF, "j1")), ("done", (True, PROOF, "j1"))]
+
+
+def test_a_builders_own_staging_run_in_a_waiting_delivers_the_staging_part_its_pr_waits_on_while_its_work_parts_stay_its_own_as_j5372s_pass_at_f4b45ce1_did_not(state_root: Path) -> None:
+    data = staging_drive("j2")
+    work, url = "ship the writer", state.pr_url(f"{MONOREPO}#42")
+    data["orders"]["o1"]["parts"][work] = state.new_part()
+    data["orders"]["o1"]["jobs"].insert(0, "j1")
+    data["jobs"]["j1"] = state.new_job("o1", "builder", work, [work], "2026-11-14T09:00:00-08:00") | {"prs": [url]}
+    data["prs"] = {f"{MONOREPO}#42": state.new_pr(url, "j1", "o1") | {"waits": [f"o1:{STAGING}"]}}
+    waiting = f"WAITING his review of {url}"
+    staging_return(data, "j1", waiting, "CASE a rollback refused: pass\nCASE a write lands: pass\n")
+    passed = (staging_reads(data), state.delivered(data, "o1", work), state.part_tester(data, "o1", STAGING))
+    state.take_result(data, "j1", f"PUSHED {url}")
+    pushed = staging_reads(data)
+    later = state.stamp(state.parse_time(data["orders"]["o1"]["parts"][STAGING]["passed_at"]) + timedelta(minutes=1))
+    data["jobs"]["j3"] = state.new_job("o1", "builder", "rerun the staging test of #42", [STAGING], later)
+    data["orders"]["o1"]["jobs"].append("j3")
+    rerun = staging_reads(data)
+    data["jobs"]["j3"]["state"] = "stopped"
+    data["jobs"]["j2"]["state"] = "stopped"
+    stopped = (staging_reads(data), state.part_tester(data, "o1", STAGING))
+    staging_return(data, "j1", waiting, "CASE a rollback refused: fail: the rollback went through\n")
+    assert [passed, pushed, rerun, stopped, staging_reads(data)] == [
+        ((True, PROOF, "j1"), False, "j2"),
+        (True, PROOF, "j1"),
+        (False, PROOF, "j1"),
+        ((True, PROOF, "j1"), "j1"),
+        (False, None, "j1"),
+    ]
 
 
 def test_a_job_following_a_release_it_started_on_a_staging_test_part_is_no_staging_run_and_its_done_naming_no_case_leaves_the_testers_pass_as_j5978s_did_not(state_root: Path) -> None:
