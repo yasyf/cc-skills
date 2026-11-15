@@ -81,10 +81,10 @@ An empty `against` says the change meets his words, and an empty `carried` that 
 
 
 class Against(DriveError):
-    """A change judged to go against his words, a change to what already exists that they do not need included, which its builder fixes unless he approved the PR, as against a read or judge that failed, which runs again; named holds each of his words it goes against or beyond and what in the change does, before and after, and the line carries whole each answer of his the PR cites for its design and each other answer the check read that named names by the id or link its line opens with, so the builder reconciles the objection with them and its own read of the code rather than with a reading relayed beside the line; every other answer it read is one its job's brief already carries, or one cc-notes ranked near the words of a card it cites that no objection rests on, so the line stays one a relay carries whole."""
+    """A change judged to go against his words, a change to what already exists that they do not need included, which the builders of the PRs it faults, keys, fix unless he approved the PR, as against a read or judge that failed, which runs again; named holds each of his words it goes against or beyond and what in the change does, before and after, and the line carries whole each answer of his the PR cites for its design and each other answer the check read that named names by the id or link its line opens with, so the builder reconciles the objection with them and its own read of the code rather than with a reading relayed beside the line; every other answer it read is one its job's brief already carries, or one cc-notes ranked near the words of a card it cites that no objection rests on, so the line stays one a relay carries whole."""
 
     def __init__(self, keys: list[str], named: str, cited: list[str], others: list[str], carried: dict[str, list[str]] | None = None):
-        self.named, self.carried = named, carried
+        self.keys, self.named, self.carried = keys, named, carried
         held = list(dict.fromkeys([*cited, *(line for line in others if line.partition(", ")[0] in named)]))
         read = f" His answers its design cites, and each other one an objection names, each whole: {'; '.join(held)}." if held else ""
         super().__init__(
@@ -97,7 +97,7 @@ class Against(DriveError):
 
 
 def check(name: str, unit: tuple[str, ...], bound: list[str]) -> dict[str, dict]:
-    """Judge the change of one stack's PRs together, the unit his card draws and his Approve lands, or of one PR in none, each read whole from GitHub at its head, title and diff and never the body, against the words of the orders they serve, for the parts they carry, naming those of them their diffs do, kept on each PR, and against each answer of his kept on them for the design they make and each bound names, read by answers with the options of each card of the drive's it answers, and his durable answers cc-notes ranks near that card's words, which the judge binds only where one speaks to what the change builds, a flake fix against his ruling FLAKE_RULING in place of any order, and each ruling write each PR owes, by owed, read beside his ruling WRITES_RULING as his words, one its diff lacks refused with no judge run while it is open, and the code under the directory each of those rulings is labelled with, by coded(), read once for owed and the judge, which reads it whole at the head and judges it as it stands there, and return for each PR the head it checked beside the heads of the others, or the stamp its head already holds, for verdict to keep; every other PR their jobs carry, and each job they were handed from, is named as delivering its own share, the merged ones marked merged and the closed ones left out, so neither a sibling's diff nor a part an earlier PR already landed refuses them, and a part a PR above another in the stack delivers is delivered by the change judged. The judge first lists each change the diffs make to what already exists, before and after, then refuses each his words do not need, by his words "stop overrecahing and changing things people didnt ask you when you are asked to make a change". Refuse, naming each of his words the change goes against or beyond, so his card draws only on a change checked against his words, leaving out each objection to a file whose added and removed lines in every PR changing it are those of the head the check last passed, while it serves no order that head was not checked against, so a verdict holds for the same change after a restack."""
+    """Judge the change of one stack's PRs together, the unit his card draws and his Approve lands, or of one PR in none, each read whole from GitHub at its head, title and diff and never the body, against the words of the orders they serve, for the parts they carry, naming those of them their diffs do, kept on each PR, and against each answer of his kept on them for the design they make and each bound names, read by answers with the options of each card of the drive's it answers, and his durable answers cc-notes ranks near that card's words, which the judge binds only where one speaks to what the change builds, a flake fix against his ruling FLAKE_RULING in place of any order, and each ruling write each PR owes, by owed, read beside his ruling WRITES_RULING as his words, one its diff lacks refused with no judge run while it is open, and the code under the directory each of those rulings is labelled with, by coded(), read once for owed and the judge, which reads it whole at the head and judges it as it stands there, and return for each PR the head it checked beside the heads of the others, or the stamp its head already holds, for verdict to keep; every other PR their jobs carry, and each job they were handed from, is named as delivering its own share, the merged ones marked merged and the closed ones left out, so neither a sibling's diff nor a part an earlier PR already landed refuses them, and a part a PR above another in the stack delivers is delivered by the change judged. The judge first lists each change the diffs make to what already exists, before and after, then refuses each his words do not need, by his words "stop overrecahing and changing things people didnt ask you when you are asked to make a change". Refuse, naming each of his words the change goes against or beyond and faulting each PR whose diff changes the file an objection names, every PR for one naming a file none of them changes or none, so his card draws only on a change checked against his words, leaving out each objection to a file whose added and removed lines in every PR changing it are those of the head the check last passed, while it serves no order that head was not checked against, so a verdict holds for the same change after a restack."""
     data = state.load(name)
     prs = {key: data["prs"][key] for key in unit}
     if all(stands(data, key, unit) and prs[key]["checked"]["carried"] is not None for key in unit):
@@ -124,8 +124,9 @@ def check(name: str, unit: tuple[str, ...], bound: list[str]) -> dict[str, dict]
     for number in dict.fromkeys(found["carried"]):
         order_id, part = numbered[number - 1]
         carries.setdefault(order_id, []).append(part)
-    if against := [item for item in found["against"] if not (changing := [key for key in unit if item["file"] in lines[key]]) or any(passed[key].get(item["file"]) != lines[key][item["file"]] for key in changing)]:
-        raise Against(list(unit), "; ".join(f'{item["order"]} "{item["words"]}": {item["change"]}' for item in against), cited, [*binding["cited"], *near], carries)
+    if against := [(item, changing) for item in found["against"] if not (changing := [key for key in unit if item["file"] in lines[key]]) or any(passed[key].get(item["file"]) != lines[key][item["file"]] for key in changing)]:
+        faulted = [key for key in unit if any(not changing or key in changing for _, changing in against)]
+        raise Against(faulted, "; ".join(f'{item["order"]} "{item["words"]}": {item["change"]}' for item, _ in against), cited, [*binding["cited"], *near], carries)
     heads = {key: read["head"] for key, read in reads.items()}
     return {key: {"head": heads[key], "read": heads[key], "orders": orders, "lines": lines[key], "beside": {other: heads[other] for other in unit if other != key}, "carried": carries} for key in unit}
 
@@ -137,19 +138,19 @@ def stands(data: dict, key: str, unit: tuple[str, ...]) -> bool:
 
 
 def verdict(name: str, key: str) -> str:
-    """Judge one PR at its head against his words, one his card waits on or one merged, together with the other PRs of its stack, by land.landing_stacks, the one place a PR is judged, with the answers kept on them for their design and each answer of his binding their jobs, by brief.bound, and keep the outcome on each PR of the stack with the orders and binding answers it was judged against and the parts their diffs carry, so tried keeps it for that head while they stand: CHECKED with what each PR waits on now, as his card draws it, and its staging result, and NOT READY, also as a check event, which the watch says on the PR's line, and a refusal is a line on his card that wakes the builder of an open PR through drive pr wake unless he approved the PR, holding neither his Approve nor its landing, and his card shows the verdict once the watch redraws it; the outcome for key. A judge or GitHub read that failed is kept alone, naming no parts, and the watch tries it again RETRY on."""
+    """Judge one PR at its head against his words, one his card waits on or one merged, together with the other PRs of its stack, by land.landing_stacks, the one place a PR is judged, with the answers kept on them for their design and each answer of his binding their jobs, by brief.bound, and keep the outcome on each PR of the stack with the orders and binding answers it was judged against and the parts their diffs carry, so tried keeps it for that head while they stand: CHECKED with what each PR waits on now, as his card draws it, and its staging result, also as a check event, which the watch says on the PR's line, and NOT READY with the PRs it faults, a line on his card that the watch's pass tells the builders of those of them still open once a head, by watch.objections, holding neither his Approve nor its landing, and his card shows the verdict once the watch redraws it; the outcome for key. A judge or GitHub read that failed is kept alone, naming no parts, and the watch tries it again RETRY on."""
     from drive import land, stage
 
     data = state.load(name)
     unit = land.landing_stacks(data).get(key, (key,))
     prs = {member: data["prs"][member] for member in unit}
-    heads, at, named, checked, carried = {member: pr["head"] for member, pr in prs.items()}, state.stamp(), "", {}, None
+    heads, at, named, faulted, checked, carried = {member: pr["head"] for member, pr in prs.items()}, state.stamp(), "", [], {}, None
     orders, answers = {member: state.served_orders(data, pr) for member, pr in prs.items()}, {member: binds(name, data, pr) for member, pr in prs.items()}
     bound = list(dict.fromkeys(answer for job in dict.fromkeys(pr["job"] for pr in prs.values()) for answer in brief.bound(name, data, data["jobs"][job])[0]))
     try:
         checked = check(name, unit, bound)
     except Against as error:
-        outcomes, named, carried = dict.fromkeys(unit, f"{NOT_READY}: {error}"), error.named, error.carried
+        outcomes, named, faulted, carried = dict.fromkeys(unit, f"{NOT_READY}: {error}"), error.named, error.keys, error.carried
     except DriveError as error:
         outcomes = dict.fromkeys(unit, f"{FAILED}: {error}")
     else:
@@ -157,11 +158,11 @@ def verdict(name: str, key: str) -> str:
         carried = checked[key]["carried"]
         cards = view.live_cards(name)
         outcomes = {member: f"{CHECKED} against {basis} at {stamp['head'][:10]}; {stage.on_card(data, member, cards).why}; {view.staging(data, member)}" for member, stamp in checked.items()}
-    return install.finished(f"{key}: {outcomes[key]}", JUDGE_SECONDS, kept, name, key, {"heads": heads, "at": at, "orders": orders, "answers": answers, "outcomes": outcomes, "against": named, "checked": checked, "carried": carried, "pid": os.getpid()})
+    return install.finished(f"{key}: {outcomes[key]}", JUDGE_SECONDS, kept, name, key, {"heads": heads, "at": at, "orders": orders, "answers": answers, "outcomes": outcomes, "against": named, "faulted": faulted, "checked": checked, "carried": carried, "pid": os.getpid()})
 
 
 def kept(name: str, key: str, result: dict) -> str:
-    """Keep a check's outcome on each PR it judged, with the head, orders and binding answers it checked, but on a PR another check started on after this one, whose outcome is the one kept there; one objection to a stack makes one check event for each job its PRs belong to, so each builder is woken once; verdict runs it through install.finished, since a newer install may save the drive while the judge runs, so no judgment runs twice; on a merged PR, each done job that opened or proves it delivers the parts its diff carries, by state.post_carried, as its DONE would have had the check landed first; the outcome for key."""
+    """Keep a check's outcome on each PR it judged, with the head, orders and binding answers it checked, but on a PR another check started on after this one, whose outcome is the one kept there; a pass makes a check event on each PR, a refusal none, since the watch's pass reads it from the PR's checker; verdict runs it through install.finished, since a newer install may save the drive while the judge runs, so no judgment runs twice; on a merged PR, each done job that opened or proves it delivers the parts its diff carries, by state.post_carried, as its DONE would have had the check landed first; the outcome for key."""
     outcome = result["outcomes"][key]
     with state.edit(name) as data:
         fresh = [
@@ -171,22 +172,20 @@ def kept(name: str, key: str, result: dict) -> str:
         ]
         if key not in fresh:
             return f"{outcome}; not kept, since another check of {key} started while this one judged"
-        woken = set()
         for member in fresh:
             pr, said = data["prs"][member], result["outcomes"][member]
             if result["checked"]:
                 pr["checked"] = result["checked"][member]
             pr["checker"] = {
                 "head": result["heads"][member], "pid": result["pid"], "at": result["at"], "orders": result["orders"][member], "answers": result["answers"][member], "outcome": said, "against": result["against"],
-                "carried": result.get("carried"),
+                "faulted": result.get("faulted", []), "carried": result.get("carried"),
             }
             if pr["merged_sha"] and result.get("carried"):
                 for job_id, job in data["jobs"].items():
                     if job["state"] == "done" and job["kind"] in state.CHANGE_KINDS and not state.done_at_merge(job) and member in state.opened_or_proven(data, job_id):
                         state.post_carried(data, job_id, job["said"] or "")
-            if said.startswith(FAILED) or said.startswith(NOT_READY) and pr["job"] in woken:
+            if not said.startswith(CHECKED):
                 continue
-            woken.add(pr["job"])
             repo, number = member.split("#")
             state.append_event(name, "check", repo=repo, number=int(number), change=said, lane=state.heard_lane(data, pr["order"]))
     return outcome
@@ -227,7 +226,7 @@ def start(name: str, keys: list[str]) -> None:
             if not any(pr["checker"] and pr["checker"]["outcome"] is None and state.alive(pr["checker"]["pid"]) for pr in prs):
                 pid, at = spawn(name, key), state.stamp()
                 for pr in prs:
-                    pr["checker"] = {"head": pr["head"], "pid": pid, "at": at, "orders": None, "answers": None, "outcome": None, "against": "", "carried": None}
+                    pr["checker"] = {"head": pr["head"], "pid": pid, "at": at, "orders": None, "answers": None, "outcome": None, "against": "", "faulted": [], "carried": None}
 
 
 def merge_due(pr: dict, moment: datetime) -> bool:
@@ -562,21 +561,21 @@ def shown(changes: dict[str, dict]) -> str:
 
 
 def judged(name: str, said: str, changes: dict[str, dict], parts: int) -> dict:
-    """Where a Claude session allowed only git show and git grep in the coordinator's clone, at each change's head fetched there, judges of the change, by RULES, once it has listed each change to what already exists, before and after, reading at the head the code a hunk relies on that its diff does not show, such as a parent PR's lines under a stacked child: `against`, each place it goes against his words, empty when it meets them, and `carried`, the number of each of the parts numbered 1 to parts that its diff does."""
+    """Where a Claude session allowed only git show and git grep in the coordinator's clone, which --add-dir opens to them under --restricted, at each change's head fetched there, judges of the change, by RULES, once it has listed each change to what already exists, before and after, reading at the head the code a hunk relies on that its diff does not show, such as a parent PR's lines under a stacked child: `against`, each place it goes against his words, empty when it meets them, and `carried`, the number of each of the parts numbered 1 to parts that its diff does. A session Claude Code refused any command judged without what it meant to read, so it fails, naming each command, and runs again."""
     clone = state.load(name)["roles"]["coordinator"]["cwd"]
     for key, read in changes.items():
         fetched(clone, key, read["head"])
     prompt = f"<his_words>\n{said}\n</his_words>\n\n<change>\n{shown(changes)}\n</change>"
     schema = VERDICT | {"properties": VERDICT["properties"] | {"carried": {"type": "array", "items": {"type": "integer", "minimum": 1, "maximum": max(parts, 1)}, "maxItems": parts}}}
-    return structured(name, RULES.format(clone=clone), prompt, schema, JUDGE_SECONDS, f"judging {', '.join(changes)} against his words", [f"Bash(git -C {clone} show:*)", f"Bash(git -C {clone} grep:*)"])
+    return structured(name, RULES.format(clone=clone), prompt, schema, JUDGE_SECONDS, f"judging {', '.join(changes)} against his words", clone)
 
 
-def structured(name: str, rules: str, prompt: str, schema: dict, seconds: int, doing: str, reads: list[str] | None = None) -> dict:
-    """What a Claude session given no tools but the Bash commands reads allows answers the prompt with under the rules, in the schema's shape; refused, naming what it was doing, past the seconds or with no structured answer."""
+def structured(name: str, rules: str, prompt: str, schema: dict, seconds: int, doing: str, clone: str | None = None) -> dict:
+    """What a Claude session given no tools, or only git show and git grep in clone, which --add-dir opens to it under --restricted, answers the prompt with under the rules, in the schema's shape; refused, naming what it was doing, past the seconds, with no structured answer, or once Claude Code refused it a command, since it then answered without what it meant to read, naming each command."""
     argv = [
-        "claude", "-p", "--model", MODEL, "--effort", EFFORT, "--restricted", "--strict-mcp-config", "--tools", "Bash" if reads else "", "--disable-slash-commands",
+        "claude", "-p", "--model", MODEL, "--effort", EFFORT, "--restricted", *(["--add-dir", clone] if clone else []), "--strict-mcp-config", "--tools", "Bash" if clone else "", "--disable-slash-commands",
         "--no-session-persistence", "--system-prompt", rules, "--output-format", "json", "--json-schema", json.dumps(schema),
-        *(["--permission-mode", "dontAsk", "--allowedTools", *reads] if reads else []),
+        *(["--permission-mode", "dontAsk", "--allowedTools", f"Bash(git -C {clone} show:*)", f"Bash(git -C {clone} grep:*)"] if clone else []),
     ]
     try:
         ran = subprocess.run(argv, input=prompt, cwd=state.drive_dir(name), env=os.environ | {"DISABLE_AUTOUPDATER": "1"}, capture_output=True, text=True, timeout=seconds, check=False)
@@ -588,6 +587,8 @@ def structured(name: str, rules: str, prompt: str, schema: dict, seconds: int, d
         result = {"result": ran.stderr or ran.stdout}
     if ran.returncode or result.get("is_error") or "structured_output" not in result:
         raise DriveError(f"{doing} failed: {cut(str(result.get('result')), 300)}; run this again")
+    if denied := result["permission_denials"]:
+        raise DriveError(f"{doing} was refused {'; '.join(denial['tool_input']['command'] for denial in denied)}; run this again")
     return result["structured_output"]
 
 

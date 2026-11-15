@@ -323,7 +323,35 @@ def test_one_check_judges_a_whole_stack_and_keeps_its_verdict_on_each_pr_so_a_re
     data = state.load(demo)
     assert list(judge.asked[-1][1]) == list(joined)
     assert [state.against(data["prs"][key]) for key in joined] == ['o1 "each alarm is its own clock timer": no PR here builds the alarm rows'] * 4
-    assert [event["number"] for event, _ in state.read_events(demo) if event["kind"] == "check" and event["change"].startswith(served.NOT_READY)] == [42]
+    assert [data["prs"][key]["checker"]["faulted"] for key in joined] == [list(joined)] * 4
+    assert not [event for event, _ in state.read_events(demo) if event["kind"] == "check" and event["change"].startswith(served.NOT_READY)]
+
+
+def test_an_objection_to_a_file_faults_only_the_prs_of_the_stack_changing_it(
+    run: Callable[..., tuple[int, str]], demo: str, judge: Judge, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    clocks(run)
+    keys = stacked(run, demo, [42, 43, 44], "main")
+    heads = {key: data["head"] for key, data in state.load(demo)["prs"].items()}
+    monkeypatch.setattr(served, "change", lambda key: {"title": f"Fix: {key}", "body": "", "head": heads[key], "diff": added(f"{key[-2:]}.py", b"x")})
+    judge.against = [{"order": "o1", "words": "each alarm is its own clock timer", "file": "43.py", "change": "one timer serves every alarm"}]
+    assert served.verdict(demo, keys[0]).startswith(f"{served.NOT_READY}: {keys[1]} go against his words")
+    assert [state.load(demo)["prs"][key]["checker"]["faulted"] for key in keys] == [[keys[1]]] * 3
+
+
+def test_a_judge_refused_a_command_fails_the_check_naming_it_and_reads_the_clone_it_was_given(demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    with state.edit(demo) as data:
+        data["roles"]["coordinator"]["cwd"] = str(tmp_path)
+    ran: list[list[str]] = []
+    met = {"changed": [], "against": [], "carried": []}
+    denied = {"structured_output": met, "permission_denials": [{"tool_name": "Bash", "tool_use_id": "t1", "tool_input": {"command": f"git -C {tmp_path} grep -n alarm head42"}}]}
+    monkeypatch.setattr(served, "fetched", lambda clone, key, head: None)
+    monkeypatch.setattr(served.subprocess, "run", lambda argv, **_: ran.append(argv) or subprocess.CompletedProcess(argv, 0, json.dumps(denied), ""))
+    with pytest.raises(DriveError, match=f"refused git -C {tmp_path} grep -n alarm head42; run this again"):
+        JUDGE(demo, "his words", {KEY: {"title": "Fix", "body": "", "head": "head42", "diff": SMALL}}, 0)
+    assert ran[0][ran[0].index("--add-dir") + 1] == str(tmp_path)
+    denied["permission_denials"] = []
+    assert JUDGE(demo, "his words", {KEY: {"title": "Fix", "body": "", "head": "head42", "diff": SMALL}}, 0) == met
 
 
 def test_a_stack_whose_middle_pr_writes_the_ruling_into_agents_md_passes_in_its_first_check_since_each_other_pr_counts_that_write_from_the_diff_the_check_just_read(
