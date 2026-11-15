@@ -17,7 +17,7 @@ from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from drive import agents, artifacts, brief, codex, github, install, land, limits, orca, pages, picture, place, reads, refs, render, served, settled, slack, state, superseded, watch
+from drive import agents, artifacts, brief, children, codex, github, install, land, limits, orca, pages, picture, place, reads, refs, render, served, settled, slack, state, superseded, watch
 from drive.shell import simple_commands
 from drive.state import DriveError
 
@@ -3987,6 +3987,7 @@ def releaded(pr: dict) -> str:
     return ", his card redrawn with its new lead"
 
 
+@children.capped
 def pr_wake(args: argparse.Namespace) -> int:
     """Send a PR's stage line, or the text given, to the builder answering for it, or to the job given, as a PR waiting on that job's work owes it: to a lane Orca holds as a message to its Dispatch, which neither answers its question nor touches its job's ask or state; to a fresh worker on its job when that lane finished or died, as drive job resume relaunches one, and for a lane on a Sprite whose declared_step reads a step only this Mac runs, to a fresh worker on this Mac whatever its Sprite worker is doing; to an adopted PR's job, by state.adopted_pr_job, a drive job launch it detaches with the PR, its head and the line as the brief's handoff, so the event starts its first builder with no hand step; and to any other builder as a handoff record naming superseded.delivery's step that reaches the builder, to the session that step names as the one that may take it: the session holding its order for a fresh builder, the coordinator session that started its agent on this Mac for a SendMessage, else the session state.job_lane names. A PR whose own job is stopped, as his superseding answer stops one, or whose job stopped while the wake waited on its lock, goes the same way to the session holding that job, by state.holding_job_lane, which closes the PR or moves it, so no wake starts work he called off. A lane's send or relaunch runs under the job's own lock, as drive job resume's does, so a second wake arriving while the first starts the job's next worker waits for it and sends that worker its line."""
     from drive import stage, tools, view
@@ -4609,6 +4610,7 @@ def pr_ci(args: argparse.Namespace) -> int:
     return 1 if unpassed else 0
 
 
+@children.capped
 def pr_check(args: argparse.Namespace) -> int:
     """Judge one PR against his words as the watch's check."""
     key, name = state.pr_key(args.url), state.resolve(args.drive)
