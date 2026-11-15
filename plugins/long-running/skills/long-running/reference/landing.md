@@ -188,7 +188,7 @@ commit the PR's run of it merged its head onto; one `main` fails there too merge
    It keeps its output beside the job's report, then runs each drive command the brief's `After install:` line names, takes `DONE` on exit 0 with output and each of those exiting 0, or `BLOCKED` otherwise,
    an exit 0 printing nothing among them, quoting the run's last `FAIL` line, else saying it printed none, and a
    nonzero exit ending on a `WAIT` line with no `FAIL` line takes no result and runs again once he is next heard,
-   and on a `DONE` that finishes the order sends the communicator its close report. The lander writes its output to the drive's `landings.log`, ending in one line of the PR's
+   and on a `DONE` that finishes the order sends the communicator its close report, but closes a drive tooling order a session opened, which has no thread of his, on its proof with no line to him. The lander writes its output to the drive's `landings.log`, ending in one line of the PR's
    key and its outcome, such as `yasyf/cc-skills#7: merged at <sha>; …`. Its outcome reaches the
    job's holder as `PR … merged at <sha>; <each install's version line or no release: line>` or
    `PR … not landed: gh pr merge --<method> --admin refused it: <its answer>`, such as a conflict git
