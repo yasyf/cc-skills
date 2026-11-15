@@ -344,6 +344,23 @@ def test_say_posts_no_word_that_a_release_may_start_unless_it_names_each_freeze_
     assert [argv[-1] for argv in posts] == [named]
 
 
+def test_a_hold_cc_notes_cannot_read_stands_under_no_id_so_a_brief_still_says_what_stands_and_no_release_claim_passes(
+    demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def unread(label: str, cwd: str) -> list[dict]:
+        raise DriveError(f"could not read his answers labelled {label}: error: open git repository at {cwd}")
+
+    monkeypatch.setattr(settled, "listed", unread)
+    cwd = state.load(demo)["roles"]["coordinator"]["cwd"]
+    assert brief.releases(demo, state.load(demo)) == (
+        f"his hold on every release could not be read (could not read his answers labelled release-hold: error: open git repository at {cwd}), "
+        "so read `ccn answer list --label release-hold` before saying a release may start"
+    )
+    with pytest.raises(DriveError, match=r"these stand now: his hold on every release could not be read"):
+        talk.say(demo, {"text": "Releases can go again."})
+    assert posts == []
+
+
 @pytest.mark.parametrize(
     "ended",
     [

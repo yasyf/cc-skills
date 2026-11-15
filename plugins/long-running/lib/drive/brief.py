@@ -448,8 +448,11 @@ def freezes(name: str, data: dict) -> list[dict]:
 
 
 def standing(name: str, data: dict) -> list[tuple[str | None, str]]:
-    """Each release freeze the release ledger holds standing now and his hold on every release, by id with its line, read at each use and never kept, so no brief or wait states a freeze that lifted or misses one set since, and no post says a release may start past one; a ledger that could not be read stands under no id, which no words name."""
-    held = [(hold["id"][:7], f'his hold {hold["id"][:7]} on every release stands: "{hold_words(hold)}"')] if (hold := settled.hold(data["roles"]["coordinator"]["cwd"])) else []
+    """Each release freeze the release ledger holds standing now and his hold on every release, by id with its line, read at each use and never kept, so no brief or wait states a freeze that lifted or misses one set since, and no post says a release may start past one; a ledger or a hold that could not be read, as cc-notes reads none in a coordinator folder no git repository holds, stands under no id, which no words name."""
+    try:
+        held = [(hold["id"][:7], f'his hold {hold["id"][:7]} on every release stands: "{hold_words(hold)}"')] if (hold := settled.hold(data["roles"]["coordinator"]["cwd"])) else []
+    except state.DriveError as error:
+        held = [(None, f"his hold on every release could not be read ({error}), so read `ccn answer list --label {settled.RELEASE_HOLD}` before saying a release may start")]
     try:
         return [*((each["freeze"]["id"], each["text"]) for each in freezes(name, data)), *held]
     except (reads.ReadError, state.DriveError) as error:
