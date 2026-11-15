@@ -1362,8 +1362,7 @@ def due_lines(watcher: Watcher, moment: datetime) -> list[str]:
             continue
         handler = None
         try:
-            with contextlib.suppress(agents.Busy):
-                handler, _ = agents.handle_report(watcher.name, seq, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'due-{seq}'}")
+            handler, _ = agents.handle_report(watcher.name, seq, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'due-{seq}'}")
             watcher.failures.pop(source, None)
         except state.DriveError as error:
             lines += failed(watcher, source, f"handler on report {seq} owing the line {order_id} promised him", error, moment)
@@ -1519,10 +1518,7 @@ def quiet_lines(watcher: Watcher, moment: datetime) -> list[str]:
             with state.edit(watcher.name) as data:
                 for head in heads:
                     data["orders"][head]["quiet"] |= {"record": seq, "at": None, "handler": None}
-            try:
-                handler, _ = agents.handle_report(watcher.name, seq, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'quiet-{seq}'}")
-            except agents.Busy:
-                handler = None
+            handler, _ = agents.handle_report(watcher.name, seq, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'quiet-{seq}'}")
         except (reads.ReadError, state.DriveError) as error:
             lines += failed(watcher, source, f"line owed in the thread of {', '.join(heads)}", error, moment)
             continue
@@ -1652,8 +1648,7 @@ def watched_lines(watcher: Watcher, moment: datetime) -> list[str]:
         source = f"watch {order_id}"
         try:
             if seq := watch["record"] or watched_report(watcher, order_id, order):
-                with contextlib.suppress(agents.Busy):
-                    agents.handle_report(watcher.name, seq, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'watch-{seq}'}")
+                agents.handle_report(watcher.name, seq, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'watch-{seq}'}")
         except (slack.SlackError, reads.ReadError, state.DriveError) as error:
             lines += failed(watcher, source, f"answer of {order_id}'s watched thread {watch['channel']}/{watch['thread']}", error, moment)
             continue
@@ -2469,8 +2464,7 @@ def stall_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 continue
             settle(watcher.name, thing, held, {"told": state.stamp(moment)})
             watcher.failures.pop(f"stall {thing}", None)
-            with contextlib.suppress(agents.Busy):
-                agents.handle_report(watcher.name, seq, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'stall-{seq}'}")
+            agents.handle_report(watcher.name, seq, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'stall-{seq}'}")
     return lines
 
 

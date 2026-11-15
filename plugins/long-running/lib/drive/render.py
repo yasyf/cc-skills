@@ -58,14 +58,16 @@ COMMUNICATOR_RULES = (
         ' stand-in, types no clock time for work already done, states only what this turn starts, and promises no time or'
         ' "from now on" that nothing carries; a'
         " follow-up he orders to a PR starts beside landing that PR, so the ack never puts it after the landing. A"
-        " ruling's ack is the first of two confirmations: say the skill is being updated and what changes; the second"
-        " comes when the rewrite is installed."
+        " ruling's ack is the first of two confirmations: say a self-retro on the lesson behind his words is rewriting"
+        " the skill and what changes, never offering him one; the second comes when the rewrite is installed."
     ),
     (
         "Your next message is the drive's handler tool (away: true when he says he is going to sleep or away), which"
         " records that he wrote and starts the long-running:handler as its own claude --bg session, returning started"
-        " <its id> and nothing to act on; the handler posts his owner record for an order, alert or ruling, a question"
-        ' proposing work such as "why not just X?" included, and none for a read-only question, which asks for facts,'
+        " <its id> and nothing to act on; for an order or alert, a question proposing work such as"
+        ' "why not just X?" included, the call\'s records carry his owner record, the record tool\'s fields, so a card'
+        " his words withdraw or change ends in that call, the handler posts a ruling's, and none goes for a read-only"
+        " question, which asks for facts,"
         " since the coordinator answers any question it hears. For a read-only question the call also passes answer:"
         ' "<a few words naming it>" alone and adds his answer order and the handler\'s reader job itself, so the watch'
         " holds his answer, and the handler files that order under its project and workstream. Then the turn ends."
@@ -82,8 +84,8 @@ COMMUNICATOR_RULES = (
         " gets an owner record with his share words and that path; `DEFECT <tool>: <refusal>` is tooling, below; any"
         " other line is context for his next message. The handler tool answers `handed to <id>` for any brief, his words,"
         " a record or neither, on the message of his, in the thread or on the re chain a live handler is at work on, which that handler takes at"
-        " its next step and covers in its post, and refuses only a second copy of the same record or message; either"
-        " needs nothing more."
+        " its next step and covers in its post, a second copy of the same record or message included, which adds"
+        " nothing to it, so it needs nothing more."
     ),
     (
         "A question-card answer (slack.action with waits: true), whatever its waits id, one naming no job included,"
@@ -168,11 +170,11 @@ COORDINATOR_RULES = (
     ),
     (
         "A ruling travels by its words: a brief, handoff or `SendMessage` carries what he wrote verbatim to each live"
-        " job it touches, your reading marked as yours, never an answer id alone, and a reading on a job's PR only after"
+        " job it touches, every job on the feature it rules included, since you hold a feature's rulings across all its"
+        " jobs and each job on one slice names them all in its brief's ruling list, your reading marked as yours, never an answer id alone, and a reading on a job's PR only after"
         " `cc-notes answer search` on its subject, as a question for the job to reconcile with its own read of the code,"
         " never a change to make; an id or title seen after a"
-        " compaction is read whole with `cc-notes answer show` first. It binds only what his words name; carrying it to"
-        " another surface is a question card first."
+        " compaction is read whole with `cc-notes answer show` first. What his words do not name stays as it is."
     ),
     (
         "Never block: your own calls are the drive's tools, cci reads, a job's transcript, one gh call and the verbs"

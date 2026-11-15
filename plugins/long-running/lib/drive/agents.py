@@ -1,4 +1,3 @@
-import contextlib
 import json
 import os
 import re
@@ -389,8 +388,7 @@ def start_posts(name: str, own: str | None = None, detached: bool = False) -> bo
         if seq == own:
             continue
         try:
-            with contextlib.suppress(Busy):
-                handle(name, f"Record: {seq} Drive: {name} Scratch: {state.drive_dir(name) / 'scratch' / f'post-{seq}'}", detached=detached)
+            handle(name, f"Record: {seq} Drive: {name} Scratch: {state.drive_dir(name) / 'scratch' / f'post-{seq}'}", detached=detached)
         except state.DriveError as error:
             unread(name, min(seq, own, key=int) if own in seqs else seq)
             raise state.DriveError(f"the handler on POST report {seq} did not start: {error}") from None
@@ -398,15 +396,15 @@ def start_posts(name: str, own: str | None = None, detached: bool = False) -> bo
 
 
 def handle_report(name: str, seq: str, brief: str, once: bool = False, detached: bool = False, briefed: Callable[[str], str] | None = None) -> tuple[str, bool]:
-    """Start or hand over the handler on report seq as handle does, in one hold of the drive's POSTS_LOCK after start_posts passes seq, so the watch's read never starts a second handler on it, and a start that fails sets the cursor back to seq for that read to start. Once, as the handler tool starts one on a POST report, a report the cursor had passed is refused, since whichever starter read it first started its handler; a stage of the watch starts its own report's again, as it does for a report whose handler never took it."""
+    """Start or hand over the handler on report seq as handle does, in one hold of the drive's POSTS_LOCK after start_posts passes seq, so the watch's read never starts a second handler on it, and a start that fails sets the cursor back to seq for that read to start. Once, as the handler tool starts one on a POST report, a report the cursor had passed goes to the handler whichever starter read it first started, still at work on it, and is refused once that handler ended, since it posted the report; a stage of the watch starts its own report's again, as it does for a report whose handler never took it."""
     with state.flocked(state.drive_dir(name) / POSTS_LOCK):
         read = start_posts(name, seq, detached)
         if once and not read:
-            raise Busy(f"refused, no handler started: the drive read POST report {seq} before this call and started its handler then; this copy needs no handler of its own")
+            if held := holder(state.load(name), holds(brief)):
+                return held, True
+            raise state.DriveError(f"refused, no handler started: the drive read POST report {seq} before this call, and the handler it started then has ended on it")
         try:
             return handle(name, brief, detached=detached, briefed=briefed)
-        except Busy:
-            raise
         except state.DriveError:
             if read:
                 unread(name, seq)
@@ -499,12 +497,8 @@ def signalled(pid: int) -> bool:
     return True
 
 
-class Busy(state.DriveError):
-    """A live handler holds the same record or message of his a brief holds, so the brief is a copy that needs no handler of its own."""
-
-
 def handle(name: str, brief: str, detached: bool = False, briefed: Callable[[str], str] | None = None) -> tuple[str, bool]:
-    """Start a handler on its brief, unless a live one already holds what the brief holds, since a message of his or a thread has one handler at a time: a brief for another record or another message of his, on that message, in that thread or on its record's re chain, is handed to that handler, which takes it at its next step, and only a copy, the same record or the same message of his, is refused; the id of the handler at work on the brief, and whether it was handed. A record whose brief, attrs and re chain name no thread and reach no message of his is in the thread its order's lines go in, as the thread attr the drive stamps on its own records names it. A handler whose turn is over holds nothing, however it ended: it leaves the drive, and each brief handed to it that it never took goes to the handler this brief reaches, but one for the record this brief names. briefed writes the brief a new handler starts on from its id, recording what it adds; a handler that does not start leaves no entry, and no job it was given nor the order made for that job. Detached, as the handler tool runs it, the handler's session starts after the call returns, from the brief kept for `drive handler-start`; the watch starts it in the call, since nothing waits on the watch."""
+    """Start a handler on its brief, unless a live one already holds what the brief holds, since a message of his or a thread has one handler at a time: a brief for another record or another message of his, on that message, in that thread or on its record's re chain, is handed to that handler, which takes it at its next step, and a copy, the same record or the same message of his, is handed to it with nothing added, since that handler already holds it; the id of the handler at work on the brief, and whether it was handed. A record whose brief, attrs and re chain name no thread and reach no message of his is in the thread its order's lines go in, as the thread attr the drive stamps on its own records names it. A handler whose turn is over holds nothing, however it ended: it leaves the drive, and each brief handed to it that it never took goes to the handler this brief reaches, but one for the record this brief names. briefed writes the brief a new handler starts on from its id, recording what it adds; a handler that does not start leaves no entry, and no job it was given nor the order made for that job. Detached, as the handler tool runs it, the handler's session starts after the call returns, from the brief kept for `drive handler-start`; the watch starts it in the call, since nothing waits on the watch."""
     held_now = holds(brief)
     attrs = held_now.pop("attrs", {})
     handler_id = uuid.uuid4().hex[:8]
@@ -517,16 +511,13 @@ def handle(name: str, brief: str, detached: bool = False, briefed: Callable[[str
         left = [one for one in dict.fromkeys(left) if not (named := RECORD.search(one)) or named[1] != held_now["record"]]
         if held:
             entry = data["handlers"][held]
-            his = entry["holds"]["link"] or f"record {entry['holds']['record']}"
             same = "record" if held_now["record"] else "message"
             kept = not held_now[same] or held_now[same] != entry["holds"][same]
             entry["handed"] += [one for one in [*left, *([brief.strip()] if kept else [])] if one not in entry["handed"]]
         else:
             data["handlers"][handler_id] = {"session": None, "started": state.stamp(), "holds": held_now, "handed": left, "took": [], "posted": []}
-    if held and kept:
-        return held, True
     if held:
-        raise Busy(f"refused, no handler started: handler {held} is at work on {his}; this copy needs no handler of its own")
+        return held, True
     try:
         prompt = briefed(handler_id) if briefed else brief
         state.after_save(name, lambda: started(name, handler_id, brief, prompt, detached))

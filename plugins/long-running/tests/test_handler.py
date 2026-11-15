@@ -1,7 +1,6 @@
 import io
 import json
 import os
-import re
 import subprocess
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -389,13 +388,11 @@ def test_a_record_for_a_busy_handlers_thread_reaches_that_handler_at_its_next_st
     }
     message = HIS_MESSAGE.format(scratch=tmp_path / "h1")
     handler = tools.run("handler", "demo", {"brief": message}).removeprefix("started ")
-    with pytest.raises(state.DriveError, match=f"handler {handler} is at work on {re.escape(HIS_LINK)}.*; this copy needs no handler of its own"):
-        tools.run("handler", "demo", {"brief": message})
+    assert tools.run("handler", "demo", {"brief": message}) == f"handed to {handler}"
     handed = [f"Record: {seq} Drive: demo Scratch: {tmp_path / seq}" for seq in ("668291", "668300", "668288")]
     assert [tools.run("handler", "demo", {"brief": brief}) for brief in handed] == [f"handed to {handler}"] * 3
     other = tools.run("handler", "demo", {"brief": f"Record: 668400 Drive: demo Scratch: {tmp_path / '668400'}"}).removeprefix("started ")
-    with pytest.raises(state.DriveError, match=f"handler {other} is at work on record 668400.*; this copy needs no handler of its own"):
-        tools.run("handler", "demo", {"brief": f"Record: 668400 Drive: demo Scratch: {tmp_path / '668400'}"})
+    assert tools.run("handler", "demo", {"brief": f"Record: 668400 Drive: demo Scratch: {tmp_path / '668400'}"}) == f"handed to {other}"
     assert len([argv for argv in started if argv[:2] == ["claude", "--bg"]]) == 2
 
     transcript = tmp_path / "h-session.jsonl"
@@ -433,8 +430,8 @@ def test_the_watchs_brief_names_its_record_by_the_bare_seq_the_communicators_bri
 ) -> None:
     handler = tools.run("handler", "demo", {"brief": f"Record: 680562 Drive: demo Scratch: {tmp_path / 'quiet-680562'}"}).removeprefix("started ")
     assert state.load("demo")["handlers"][handler]["holds"]["record"] == "680562"
-    with pytest.raises(state.DriveError, match=f"handler {handler} is at work on record 680562.*; this copy needs no handler of its own"):
-        tools.run("handler", "demo", {"brief": f"Record: 680562 Drive: demo Scratch: {tmp_path / 'handler'}"})
+    assert tools.run("handler", "demo", {"brief": f"Record: 680562 Drive: demo Scratch: {tmp_path / 'handler'}"}) == f"handed to {handler}"
+    assert state.load("demo")["handlers"][handler]["handed"] == []
     assert len([argv for argv in started if argv[:2] == ["claude", "--bg"]]) == 1
 
 
@@ -450,10 +447,12 @@ def test_a_post_report_gets_one_handler_whichever_of_the_handler_tool_and_the_wa
         data["handlers"].clear()
     posts_to_communicator.append("706845")
     assert watch.post_lines(watching, state.now()) == []
+    [live] = state.load("demo")["handlers"]
+    assert tools.run("handler", "demo", {"brief": f"Record: 706845 Drive: demo Scratch: {tmp_path / 'handler-706845'}"}) == f"handed to {live}"
     with state.edit("demo") as data:
         data["handlers"].clear()
     assert watch.post_lines(watching, state.now()) == []
-    with pytest.raises(state.DriveError, match="the drive read POST report 706845 before this call and started its handler then"):
+    with pytest.raises(state.DriveError, match="the drive read POST report 706845 before this call, and the handler it started then has ended on it"):
         tools.run("handler", "demo", {"brief": f"Record: 706845 Drive: demo Scratch: {tmp_path / 'handler-706845'}"})
     assert [argv[-1].split()[1] for argv in started if argv[:2] == ["claude", "--bg"]] == ["706844", "706845"]
 
@@ -528,7 +527,7 @@ def watch_quiet(seq: str) -> str:
         pytest.param(brief_of("701054"), watch_quiet("701042"), "handed", id="o1433-the-watchs-701042-while-a-handler-held-threadless-701054"),
     ],
 )
-def test_a_brief_in_a_live_handlers_thread_or_on_its_re_chain_is_handed_to_it_whichever_session_briefed_either_and_a_copy_is_refused(
+def test_a_brief_in_a_live_handlers_thread_or_on_its_re_chain_is_handed_to_it_whichever_session_briefed_either_and_a_copy_adds_nothing(
     communicator: str, tmp_path: Path, started: list[list[str]], cci_records: dict[str, dict], first: str, then: str, met: str
 ) -> None:
     cci_records |= {seq: {"seq": int(seq), "kind": kept["kind"], "lane": "root", "re": kept.get("re"), "fields": {"attrs": kept["attrs"]}} for seq, kept in LIVE_RECORDS.items()}
@@ -536,11 +535,7 @@ def test_a_brief_in_a_live_handlers_thread_or_on_its_re_chain_is_handed_to_it_wh
         alert = state.new_order("an alert's runs are refused", f"https://acme.slack.com/archives/C0ALERT1/p{ALERT_THREAD.replace('.', '')}", ("C0ALERT1", ALERT_THREAD), {}, state.stamp())
         data["orders"]["o1433"] = alert | {"incident": True}
     handler = tools.run("handler", "demo", {"brief": first.format(scratch=tmp_path)}).removeprefix("started ")
-    if met == "copy":
-        with pytest.raises(state.DriveError, match=f"handler {handler} is at work on record 678142; this copy needs no handler of its own"):
-            tools.run("handler", "demo", {"brief": then.format(scratch=tmp_path)})
-    else:
-        assert tools.run("handler", "demo", {"brief": then.format(scratch=tmp_path)}).startswith(f"handed to {handler}" if met == "handed" else "started ")
+    assert tools.run("handler", "demo", {"brief": then.format(scratch=tmp_path)}).startswith("started " if met == "started" else f"handed to {handler}")
     handlers = state.load("demo")["handlers"]
     assert len(handlers) == len([argv for argv in started if argv[:2] == ["claude", "--bg"]]) == (2 if met == "started" else 1)
     assert handlers[handler]["handed"] == ([then.format(scratch=tmp_path)] if met == "handed" else [])
@@ -804,8 +799,8 @@ def test_a_handler_an_api_error_ended_past_its_four_resumes_is_handed_again_each
     assert stop(monkeypatch, capsys, "h-session", transcript, API_ERROR, briefs["690458"], "StopFailure", outage(len(agents.OUTAGE_WAITS))) == ""
     entry = state.load("demo")["handlers"][handler]
     assert (entry["handed"], entry["took"]) == ([briefs["690461"], briefs["690475"]], [])
-    with pytest.raises(state.DriveError, match=f"handler {handler} is at work on record 690458"):
-        tools.run("handler", "demo", {"brief": briefs["690458"]})
+    assert tools.run("handler", "demo", {"brief": briefs["690458"]}) == f"handed to {handler}"
+    assert state.load("demo")["handlers"][handler]["handed"] == [briefs["690461"], briefs["690475"]]
 
 
 def test_a_handler_whose_turn_an_api_error_ended_resumes_in_its_own_session_after_1_2_4_and_8_minutes_holding_its_thread_and_counts_again_after_a_turn_that_ends(

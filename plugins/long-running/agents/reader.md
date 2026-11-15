@@ -104,7 +104,7 @@ a `Drive tooling: post feedback:` order, also the `cc-slack check-post` rule, `l
 check or drawing code in `lib/drive/card.py`, `picture.py` or `site/visuals.js` that passed or drew
 the post he faulted, and the class of posts the same fault reaches, since he ruled the fix goes to
 them, never to the one post.
-`open:` gives each question the order implies that he has not answered, with any open card's link:
+`open:` gives each choice between readings of his words he has not answered, never a reach past them, which stays as it is, with any open card's link:
 the `asks him:` lines of `drive status <the order>` name each card its jobs asked, open or
 answered, with its link and waits id whether or not cc-slack still keeps it, and
 `cc-slack drive-cards --drive <drive> | grep -i '<words of the area>'` each open card of his on

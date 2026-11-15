@@ -1338,14 +1338,14 @@ def test_a_quiet_incident_whose_thread_a_handler_holds_restarts_its_clock_with_n
     calls = catching_up(monkeypatch, demo)
 
     def busy(name: str, brief: str, **_: object) -> tuple[str, bool]:
-        raise watch.agents.Busy("refused, no handler started: handler h1 is at work on his message")
+        return "h1", True
 
     monkeypatch.setattr(watch.agents, "handle", busy)
     watching = watcher(demo)
     assert watch.due_lines(watching, T0 + timedelta(minutes=30)) == []
     assert watch.quiet_lines(watching, T0 + timedelta(minutes=7)) == []
     assert [call["topic"] for call, _ in calls] == ["watch-quiet-o1"]
-    assert {key: state.load(demo)["orders"]["o1"]["quiet"][key] for key in ("record", "at", "handler")} == {"record": "901", "at": state.stamp(T0 + timedelta(minutes=7)), "handler": None}
+    assert {key: state.load(demo)["orders"]["o1"]["quiet"][key] for key in ("record", "at", "handler")} == {"record": "901", "at": state.stamp(T0 + timedelta(minutes=7)), "handler": "h1"}
     with state.edit(demo) as data:
         data["orders"]["o2"]["last_line"] = state.stamp(T0 + timedelta(minutes=9))
     assert watch.quiet_lines(watching, T0 + timedelta(minutes=13, seconds=59)) == []

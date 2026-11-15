@@ -421,7 +421,7 @@ def job_refusal(name: str, data: dict, order_id: str, kind: str, parts: list[str
             f" as that design's part, has kept {BLOCK} in its report: drive job add reader --order {order_id} {named}"
             ' --goal "research: <what>", then a long-running:reader whose brief'
             " asks for that block; its rulings line holds his recorded answers on the order's words and area, its exists"
-            f" line what already does part of it, and its open line each question the order implies{meanwhile}; {immediate}"
+            f" line what already does part of it, and its open line each choice between readings of his words{meanwhile}; {immediate}"
         )
     return None
 
