@@ -1041,12 +1041,47 @@ def test_a_claim_whose_end_passed_owes_its_thread_a_closing_line_every_ten_minut
     assert len(watch.claim_lines(watching, T0 + timedelta(minutes=10))) == 1
     with state.edit(demo) as data:
         state.claim(data, data["orders"]["o2"], ("C0STAGING1", claim), link, state.stamp(T0 + timedelta(hours=1)), moved)
-    assert state.load(demo)["orders"]["o1"]["claims"] == {claim: {"channel": "C0STAGING1", "link": link, "until": state.stamp(T0 + timedelta(hours=1)), "since": moved, "said": None}}
+    assert state.load(demo)["orders"]["o1"]["claims"] == {claim: {"channel": "C0STAGING1", "link": link, "until": state.stamp(T0 + timedelta(hours=1)), "since": moved, "said": None, "replies_read": None}}
     assert watch.claim_lines(watching, T0 + timedelta(minutes=30)) == []
     slack_thread.post(T0 + timedelta(minutes=70), from_claude=True)
     assert watch.claim_lines(watching, T0 + timedelta(minutes=71)) == []
     assert state.load(demo)["orders"]["o1"]["claims"] == {}
     assert slack_thread.reads == [("--channel", "C0STAGING1", "--thread", claim, "--since-ts", since, "--limit", "1000") for since in (claim, claim, moved)]
+
+
+def test_a_claim_5_minutes_old_tells_its_order_once_that_its_work_may_start_or_quotes_each_reply_but_the_drives_and_a_bots(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    quiet, replied = (f"{(T0 + timedelta(minutes=minute)).timestamp():.6f}" for minute in (0, 1))
+    link = {ts: f"https://acme.slack.com/archives/C0STAGING1/p{ts.replace('.', '')}" for ts in (quiet, replied)}
+    threads = {
+        quiet: [{"ts": quiet, "from_claude": True}],
+        replied: [
+            {"ts": replied, "from_claude": True},
+            {"ts": f"{(T0 + timedelta(minutes=2)).timestamp():.6f}", "from_claude": True, "text": "Running until 11:30 now."},
+            {"ts": f"{(T0 + timedelta(minutes=3)).timestamp():.6f}", "from_bot": True, "text": "Deploy started."},
+            {"ts": f"{(T0 + timedelta(minutes=4)).timestamp():.6f}", "user_name": "demo-user", "text": "I'm soaking the router there until noon"},
+        ],
+    }
+    monkeypatch.setattr(slack, "thread", lambda *where: list(threads[where[3]]))
+    with state.edit(demo) as data:
+        data["orders"]["o2"] = order(text="test the batch writer on staging", jobs=[])
+    with state.edit(demo) as data:
+        for order_id, ts in (("o1", quiet), ("o2", replied)):
+            state.claim(data, data["orders"][order_id], ("C0STAGING1", ts), link[ts], state.stamp(T0 + timedelta(hours=1)), ts)
+    watching = watcher(demo)
+    assert watch.claim_reply_lines(watching, T0 + timedelta(minutes=4, seconds=59)) == []
+    [line] = watch.claim_reply_lines(watching, T0 + timedelta(minutes=5))
+    assert line == f"DUE o1 claim {link[quiet]} is 5 minutes old with no reply in its thread: the work it claims may start, as the repository's staging-claim rule says"
+    assert watch.ABOUT.match(line)["named"] == "o1"
+    [line] = watch.claim_reply_lines(watching, T0 + timedelta(minutes=6))
+    assert line == (
+        f'DUE o2 claim {link[replied]} is 5 minutes old with 1 reply in its thread, demo-user: "I\'m soaking the router there until noon":'
+        f" start nothing it claims until a POST report with --attr thread={replied} answers it there and nobody objects, as the repository's staging-claim rule says"
+    )
+    assert watch.claim_reply_lines(watching, T0 + timedelta(minutes=30)) == []
+    claims = {ts: held for each in state.load(demo)["orders"].values() for ts, held in each["claims"].items()}
+    assert {ts: held["replies_read"] for ts, held in claims.items()} == {quiet: state.stamp(T0 + timedelta(minutes=5)), replied: state.stamp(T0 + timedelta(minutes=6))}
 
 
 def test_a_drive_line_keeps_its_promised_time_however_many_of_his_messages_follow_it_in_the_thread(

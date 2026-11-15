@@ -802,6 +802,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
             order["reporters"] = [held] if held else []
         order.setdefault("watch", None)
         order.setdefault("claims", {})
+        for held in order["claims"].values():
+            held.setdefault("replies_read", stamp())
         order["closed_on"] = bare_seq(order["closed_on"])
         for watched in filter(None, (order["quiet"], order["watch"])):
             watched["record"] = bare_seq(watched["record"])
@@ -2841,9 +2843,9 @@ def join_thread(order: dict, where: tuple[str, str], at: str, kind: str) -> None
 
 
 def claim(data: dict, order: dict, where: tuple[str, str], link: str, until: str, ts: str) -> None:
-    """Keep the end a post at the root of a channel outside his DM names, such as a staging claim's, or a line in its thread moving it names, from which the watch owes that thread its closing line until a drive post lands there after the post at ts: on the order already holding the claim of that thread, else on this order, linking the post that opened it."""
+    """Keep the end a post at the root of a channel outside his DM names, such as a staging claim's, or a line in its thread moving it names, from which the watch owes that thread its closing line until a drive post lands there after the post at ts: on the order already holding the claim of that thread, else on this order, linking the post that opened it. A new claim also owes its thread the watch's one read of the replies its first 5 minutes brought, replies_read None until then."""
     holder = next((each for each in data["orders"].values() if where[1] in each["claims"]), order)
-    held = holder["claims"].get(where[1]) or {"channel": where[0], "link": link}
+    held = holder["claims"].get(where[1]) or {"channel": where[0], "link": link, "replies_read": None}
     holder["claims"][where[1]] = held | {"until": until, "since": ts, "said": None}
 
 

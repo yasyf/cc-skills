@@ -29,6 +29,7 @@ FAILURES_BEFORE_SAYING = 3
 FAILURE_EVERY = timedelta(minutes=10)
 DUE_EVERY = timedelta(minutes=10)
 QUIET_THREAD = timedelta(minutes=5)
+CLAIM_REPLIES = timedelta(minutes=5)
 HANDOFF_FACT = "handoff"
 FREED_AGAIN = timedelta(minutes=30)
 LIVE_EVERY = timedelta(minutes=5)
@@ -1414,6 +1415,42 @@ def claim_lines(watcher: Watcher, moment: datetime) -> list[str]:
             f"DUE {order_id} claim {held['link']} ended {when(held['until'])} with no closing line in its thread: once the work ends, free what it"
             f" claimed and send a POST report with --attr thread={ts} saying it is done, what is free again and the result, as the repository's"
             " staging-claim rule says, or one with --attr until=<the new end> while it runs on"
+        )
+    return lines
+
+
+def claim_reply_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Read once the thread of each claim posted 5 minutes ago, such as a staging claim's in #platform-internal, by his words "You then need to watch the thread for responses and if none within 5 mins you can proceed": the order's lane gets a DUE line saying the work it claims may start, or quoting each reply there from anyone but the drive and a bot for it to answer before that work starts. A thread that could not be read is said as a failed read is and tried again next pass."""
+    data = state.load(watcher.name)
+    due = [
+        (order_id, ts, held)
+        for order_id, order in data["orders"].items()
+        if order["claims"] and hears(watcher, data, order_id)
+        for ts, held in order["claims"].items()
+        if held["replies_read"] is None and moment - datetime.fromtimestamp(float(ts)).astimezone() >= CLAIM_REPLIES
+    ]
+    lines = []
+    for order_id, ts, held in due:
+        source = f"claim replies read {ts}"
+        try:
+            messages = slack.thread("--channel", held["channel"], "--thread", ts, "--since-ts", ts, "--limit", str(slack.WHOLE_THREAD))
+        except slack.SlackError as error:
+            lines += failed(watcher, source, f"read of the replies to claim {held['link']}", error, moment)
+            continue
+        watcher.failures.pop(source, None)
+        replies = [message for message in messages if float(message["ts"]) > float(ts) and not (message.get("from_claude") or message.get("from_bot"))]
+        with state.edit(watcher.name) as data:
+            if ts not in (claims := data["orders"][order_id]["claims"]):
+                continue
+            claims[ts]["replies_read"] = state.stamp(moment)
+        if not replies:
+            lines.append(f"DUE {order_id} claim {held['link']} is 5 minutes old with no reply in its thread: the work it claims may start, as the repository's staging-claim rule says")
+            continue
+        quoted = "; ".join(f'{message.get("user_name") or message.get("user")}: "{cut(message.get("text") or "", 200)}"' for message in replies)
+        lines.append(
+            f"DUE {order_id} claim {held['link']} is 5 minutes old with {len(replies)} {'reply' if len(replies) == 1 else 'replies'} in its thread, {quoted}:"
+            f" start nothing it claims until a POST report with --attr thread={ts} answers {'it' if len(replies) == 1 else 'each'} there and nobody objects,"
+            " as the repository's staging-claim rule says"
         )
     return lines
 
@@ -3367,6 +3404,7 @@ def stages(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
         yield github_lines(watcher, moment)
     yield catch_up_lines(watcher, moment)
     yield due_lines(watcher, moment)
+    yield claim_reply_lines(watcher, moment)
     yield claim_lines(watcher, moment)
     yield quiet_lines(watcher, moment)
     yield clock_lines(watcher, moment)
