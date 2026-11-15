@@ -1000,6 +1000,29 @@ def test_a_task_lists_the_prs_of_each_job_carrying_it_and_each_pr_serving_it() -
     assert prs == {"o1": ["1", "2"], "o2": ["1"], "o3": ["2"]}
 
 
+def test_board_edges_join_each_order_to_each_other_order_its_jobs_carry_or_still_wait_on() -> None:
+    data = drive_of(
+        {f"o{n}": order(f"task {n}", jobs) for n, jobs in ((1, ["j1", "j2"]), (2, ["j3"]), (3, ["j4"]), (4, []), (5, ["j5"]))},
+        {
+            "j1": job("o1", "waiting", waits=["o2:task 2", "j4", "yasyf/cc-skills#5", "j2", "https://acme.slack.com/archives/D123/p1"], carries={"o4": ["task 4"]}),
+            "j2": job("o1", "done", waits=["o4:task 4"]),
+            "j3": job("o2", "running"),
+            "j4": job("o3", "running"),
+            "j5": job("o5", "waiting", waits=["yasyf/cc-skills#6", "release:api:yasyf/cc-skills#6"]),
+        },
+        [pr(5, "o5"), pr(6, "o2", state="merged")],
+    )
+    model = view.board(data, found(), "live", [], T0, set(), {})
+    assert model["edges"] == [
+        {"from": "o1", "to": "o4", "kind": "carries"},
+        {"from": "o1", "to": "o2", "kind": "waits"},
+        {"from": "o1", "to": "o3", "kind": "waits"},
+        {"from": "o1", "to": "o5", "kind": "waits"},
+        {"from": "o5", "to": "o2", "kind": "waits"},
+    ]
+    assert "edges" not in view.summary(model)
+
+
 def test_the_nav_counts_running_jobs_lanes_at_work_and_prs_merged_today() -> None:
     data = drive_of(
         {"o1": order("ship it", ["j1", "j2", "j3"])},

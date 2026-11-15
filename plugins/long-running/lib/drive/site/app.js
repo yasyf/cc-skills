@@ -932,7 +932,8 @@ function pageScreen(page) {
 function pageSlice(page) {
   const all = model.status.flatMap((group) => group.features);
   const scope = page.scope;
-  const matches = (entry) => scope && ((scope.projects ?? []).includes(entry.project) || (scope.workstreams ?? []).includes(entry.workstream) || (scope.words ?? []).some((word) => entry.title.toLowerCase().includes(word.toLowerCase())));
+  const every = scope === 'drive';
+  const matches = (entry) => every || (scope && ((scope.projects ?? []).includes(entry.project) || (scope.workstreams ?? []).includes(entry.workstream) || (scope.words ?? []).some((word) => entry.title.toLowerCase().includes(word.toLowerCase()))));
   const orders = new Set([...page.orders, ...all.filter(matches).map((entry) => entry.id)]);
   const prs = new Set(page.prs);
   const detailed = slice(`/api/page?${new URLSearchParams({ slug: page.slug })}`)?.slice;
@@ -942,9 +943,10 @@ function pageSlice(page) {
     page,
     at: model.at,
     features: all.filter((entry) => orders.has(entry.id)),
-    prs: model.review.filter((entry) => orders.has(entry.feature) || prs.has(entry.key)).map((entry) => actable(entry, entry.answer ?? `tap:${entry.key}`, entry.card?.options ?? ['Approve', 'Hold'])),
-    questions: model.queue.filter((item) => item.kind === 'question' && item.tasks.some((id) => orders.has(id))).map((item) => ({ ...actable(item, item.answer, item.card.options), href: queueHref('all', item) })),
-    story: slice(`/api/story?${new URLSearchParams({ ids: [...orders].join(',') })}`)?.moments ?? [],
+    edges: detailed?.edges ?? [],
+    prs: model.review.filter((entry) => every || orders.has(entry.feature) || prs.has(entry.key)).map((entry) => actable(entry, entry.answer ?? `tap:${entry.key}`, entry.card?.options ?? ['Approve', 'Hold'])),
+    questions: model.queue.filter((item) => item.kind === 'question' && (every || item.tasks.some((id) => orders.has(id)))).map((item) => ({ ...actable(item, item.answer, item.card.options), href: queueHref('all', item) })),
+    story: slice(every ? '/api/story' : `/api/story?${new URLSearchParams({ ids: [...orders].join(',') })}`)?.moments ?? [],
     asked: sent.get(`page:${page.slug}`) ?? null,
   };
 }
