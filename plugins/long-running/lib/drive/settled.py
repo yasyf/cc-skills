@@ -33,6 +33,12 @@ YES = 0.7
 NO = 0.3
 BACKS = 0.45
 REQUEST_CHARS = 10_000
+UNWEIGHED = (
+    "Jev cannot weigh {count:,} Noul(s) of this check, {named}: the largest needs {need:,} characters beside the {shared:,} every request of it"
+    " repeats, past the {chars:,} one request holds, so the check stops rather than read them as weighed: shorten what every request repeats,"
+    " such as a card's Show me or the pages it links"
+)
+NAMED_UNWEIGHED = 5
 DECIDE_SECONDS = 20
 REFUSAL_SECONDS = 3
 REPEATS_ASKED = 30
@@ -48,7 +54,7 @@ class Noul(NamedTuple):
 
 UNSAID_HERE = 'A bare option number answers only the card it was typed on, and a question of his rules nothing out unless it proposes a way, as "why not just X?" orders X.'
 BREAKS = Noul("Do `words.{slot}.said` rule out `card.options[{index}]`, so building it goes against what he said?", no=UNSAID_HERE)
-WORKED = Noul("Does `card.show_me` leave `card.options[{index}]` unworked, showing none of its real calls, the rows it writes, its flow or what a caller gets?")
+WORKED = Noul("Does the Show me in `card.text` leave `card.options[{index}]` unworked, showing none of its real calls, the rows it writes, its flow or what a caller gets?")
 RELEASES_ONLY = Noul("Does `card.text` ask only whether or when to release, land, run or hold something, offering no design to build?")
 UNTAPPED = Noul(
     "Do `words.{slot}.said` name an amount or a choice for what `card.text` asks, such as 30 days or 64 rows, that no option or question of the card gives him a tap for?",
@@ -582,10 +588,10 @@ def line_answers(lines: list[str], data: dict, besides: frozenset[str] = frozens
 
 
 def line_items(lined: Sequence[tuple[str, list[dict]]]) -> Iterator[tuple[dict, dict[str, Noul]]]:
-    """Each line beside each recorded answer of his found for it as an item of `fill`, every line's nearest answer before any line's next, the line and the answer whole with one LINE Noul keyed by the line's number and the answer's id, beside AGAINST, which the request holds once, so a request with no room for every answer still reads each line against its nearest."""
-    pairs = sorted(((rank, number, line, answer) for number, (line, found) in enumerate(lined, 1) for rank, answer in enumerate(found)), key=lambda pair: pair[:2])
-    for _, number, line, answer in pairs:
-        yield {"against": AGAINST, "lines": {f"l{number}": line}, "answers": {answer["id"]: {"asked": answer["asked"], "said": answer["said"]}}}, {f"{LINE_KEY}{number}.{answer['id']}": asking(LINE, line=f"l{number}", answer=answer["id"])}
+    """Each line beside each recorded answer of his found for it as an item of `batched`, the line and the answer whole with one LINE Noul keyed by the line's number and the answer's id, beside AGAINST, which the request holds once."""
+    for number, (line, found) in enumerate(lined, 1):
+        for answer in found:
+            yield {"against": AGAINST, "lines": {f"l{number}": line}, "answers": {answer["id"]: {"asked": answer["asked"], "said": answer["said"]}}}, {f"{LINE_KEY}{number}.{answer['id']}": asking(LINE, line=f"l{number}", answer=answer["id"])}
 
 
 def line_read(lined: Sequence[tuple[str, list[dict]]]) -> list[tuple[str, dict, float]]:
@@ -593,7 +599,7 @@ def line_read(lined: Sequence[tuple[str, list[dict]]]) -> list[tuple[str, dict, 
     read = jev_all(batched({}, {}, line_items(lined)))
     picks = []
     for number, (line, found) in enumerate(lined, 1):
-        sure = {answer["id"]: read[key] for answer in found if (key := f"{LINE_KEY}{number}.{answer['id']}") in read}
+        sure = {answer["id"]: read[f"{LINE_KEY}{number}.{answer['id']}"] for answer in found}
         if not sure:
             continue
         best = max(sure, key=sure.__getitem__)
@@ -635,7 +641,7 @@ def judged(
     settling: frozenset[str] = frozenset(),
     lines: Sequence[tuple[str, list[dict]]] = (),
 ) -> tuple[tuple[dict, str] | None, list[str], dict | None]:
-    """Print on stderr each part of a card Jev reads as going against his words, in as many requests as batched needs to hold the card beside every item whole, the recorded answers the card cites, his rulings `limits.rule_words` names beside them, then his other words, his spec on the feature newest first among them, by brief.spec: one Noul for each option and each of his words or rulings that could rule it out, each cited answer the card could say it goes against, each of his words or rulings the card itself, apart from any one option, could go against, since a card asking in the terms of a design his words set aside asks him to lift them, each of his words naming an amount or choice the card could leave untapped, each option the card could leave unworked, and each open card of his among `cards` it could ask again, and beside it `line_read` of each line of the card `lines` holds against the recorded answers of his `line_answers` found for it, a request of its own so the card's words never crowd its lines out. A Noul at YES or more is a finding and one in the band between NO and YES is printed as unsure, and each refuses nothing, by his pick 320b7a7 "Advisory judge: drive job ask keeps every well-shaped card and prints Jev's finding to the agent; no card is refused on merits". His ruling on root causes is weighed on the card alone, never per option, since it speaks only to the option the card recommends and its Root cause line, and an option left unworked is no finding on a card asking only whether or when to release something. Return the recorded answer or ruling of his the card asks him to lift, beside the option that breaks it, at YES or more: the cited answer the card says its recommended option goes against first, else one his words show the recommended option breaks, else the first that rules out any other option, since offering an option his words rule out asks him to lift them too, but never by another option alone an answer that already answers the card, one of `settling`, which its Already answered tap carries, or one Jev reads at YES or more as already ordering or keeping what a line of the card asks, since an option his answer did not choose asks him to lift nothing; None when Jev reads none, and when Jev gives no reading, which leaves the card to him, said on stderr. Beside it come the waits ids of the open cards Jev reads at YES or more as asked again, and last the answer of his Jev reads likeliest for a line of the card, at YES or more, as already ordering or keeping what the line asks, with where he gave it, for `drive job ask` to print with its exits, one read in the band between NO and YES printed once as unsure, refusing and skipping nothing, by his picks 320b7a7, 679484 and 692284."""
+    """Print on stderr each part of a card Jev reads as going against his words, in as many requests as batched needs to hold the card, its Show me once inside its text, beside every item, an item with no room whole beside it one Noul at a time, and refused as Unweighed when even one Noul has no room beside it, so a long card never leaves an answer of his unread: the recorded answers the card cites, his rulings `limits.rule_words` names beside them, then his other words, his spec on the feature newest first among them, by brief.spec: one Noul for each option and each of his words or rulings that could rule it out, each cited answer the card could say it goes against, each of his words or rulings the card itself, apart from any one option, could go against, since a card asking in the terms of a design his words set aside asks him to lift them, each of his words naming an amount or choice the card could leave untapped, each option the card could leave unworked, and each open card of his among `cards` it could ask again, and beside it `line_read` of each line of the card `lines` holds against the recorded answers of his `line_answers` found for it, a request of its own so the card's words never crowd its lines out. A Noul at YES or more is a finding and one in the band between NO and YES is printed as unsure, and each refuses nothing, by his pick 320b7a7 "Advisory judge: drive job ask keeps every well-shaped card and prints Jev's finding to the agent; no card is refused on merits". His ruling on root causes is weighed on the card alone, never per option, since it speaks only to the option the card recommends and its Root cause line, and an option left unworked is no finding on a card asking only whether or when to release something. Return the recorded answer or ruling of his the card asks him to lift, beside the option that breaks it, at YES or more: the cited answer the card says its recommended option goes against first, else one his words show the recommended option breaks, else the first that rules out any other option, since offering an option his words rule out asks him to lift them too, but never by another option alone an answer that already answers the card, one of `settling`, which its Already answered tap carries, or one Jev reads at YES or more as already ordering or keeping what a line of the card asks, since an option his answer did not choose asks him to lift nothing; None when Jev reads none, and when Jev gives no reading, which leaves the card to him, said on stderr. Beside it come the waits ids of the open cards Jev reads at YES or more as asked again, and last the answer of his Jev reads likeliest for a line of the card, at YES or more, as already ordering or keeping what the line asks, with where he gave it, for `drive job ask` to print with its exits, one read in the band between NO and YES printed once as unsure, refusing and skipping nothing, by his picks 320b7a7, 679484 and 692284."""
     rules = limits.rule_words(case)
     near = {word["id"] for word in words}
     cited_ids = {answer["id"] for answer in cited}
@@ -644,7 +650,7 @@ def judged(
     slots = {key: f"w{number}" for number, key in enumerate(items, 1)}
     options = asked.options
     parts = {f"{kind}{number}": f'option "{option}"' for kind in ("breaks", "worked") for number, option in enumerate(options, 1)} | {"says": f'option "{asked.recommended}"', "untapped": "the card", "card": "the card"}
-    base = {"card": {"text": case, "options": options, "recommended": asked.recommended, "show_me": asked.show_me}, "open": {f"a{number}": title for number, title in enumerate(cards.values(), 1)}}
+    base = {"card": {"text": case, "options": options, "recommended": asked.recommended}, "open": {f"a{number}": title for number, title in enumerate(cards.values(), 1)}}
     fixed = (
         {"releases": RELEASES_ONLY}
         | {f"worked{number}.{limits.WORKED_WORDS['id']}": asking(WORKED, index=number - 1) for number in range(1, len(options) + 1)}
@@ -692,18 +698,17 @@ def judged(
 
 
 def deciding(asked: limits.Question, answers: list[dict]) -> list[dict]:
-    """The recorded answers of his Jev reads, at YES or more, as deciding the card's question or making it moot, read in one request against the card's question and options, one Noul an answer keyed by its id, each answer's words filled whole in the order given; none when Jev gives no reading, said on stderr, and an answer in the band between NO and YES, or one the request has no room for, decides nothing."""
+    """The recorded answers of his Jev reads, at YES or more, as deciding the card's question or making it moot, read against the card's question and options in as many requests as batched needs to weigh every answer, one Noul an answer keyed by its id, each answer's words whole; none when Jev gives no reading, said on stderr, and an answer in the band between NO and YES decides nothing."""
     if not answers:
         return []
     card = {"question": asked.title, "options": [option for option in asked.options if option != limits.ALREADY_ANSWERED]}
     items = (({"answers": {answer["answer"]: {"asked": answer["asked"], "said": answer["words"]}}}, {f"decides.{answer['answer']}": asking(DECIDING, answer=answer["answer"])}) for answer in answers)
-    told, questions, _ = fill({"card": card}, {}, items)
     try:
-        read = jev(told, questions) if questions else {}
+        read = jev_all(batched({"card": card}, {}, items))
     except Unheard as failure:
         print(f"drive: Jev gave no reading of which recorded answers of his decide this question, so its card draws no {limits.ALREADY_ANSWERED} option: {failure}", file=sys.stderr)
         return []
-    return [answer for answer in answers if reading(read.get(f"decides.{answer['answer']}", 0.0))]
+    return [answer for answer in answers if reading(read[f"decides.{answer['answer']}"])]
 
 
 def detail(case: str, words: list[dict]) -> bool:
@@ -900,6 +905,10 @@ class Unheard(Exception):
     """Jev gave no answer: no key, a timeout, a request Jev rejected, or Jev declining a question."""
 
 
+class Unweighed(DriveError):
+    """A check that cannot weigh an item in any request: one Noul of it beside its state, and the state every request of the check opens with, run past the characters a request holds, so the check refuses rather than read the item as weighed."""
+
+
 @cache
 def jev_key() -> str:
     """Jev's API key, from TYPESAFE_API_KEY or else the Keychain item `spawnllm key set jev` wrote, read once per process, so no question after the first starts a process."""
@@ -948,14 +957,33 @@ def fill(state: dict, questions: dict[str, Noul], items: Iterable[tuple[dict, di
 
 
 def batched(state: dict, questions: dict[str, Noul], items: Iterable[tuple[dict, dict[str, Noul]]], chars: int = REQUEST_CHARS) -> list[tuple[dict, dict[str, Noul]]]:
-    """Requests holding every item whole, as many as they need within the characters given each: the first holds the state and questions given, as fill fills it, and each after it the state alone beside the items still left, so none goes unread for want of room; an item too big for a request of its own is said on stderr, never dropped unsaid."""
-    requests = [fill(state, questions, items, chars)]
-    while left := requests[-1][2]:
-        if len(left) == len((request := fill(state, {}, left, chars))[2]):
-            print(f"drive: {len(left)} item(s) too big for one Jev request of {chars} characters go unread: {', '.join(key for _, asked in left for key in asked) or 'context alone'}", file=sys.stderr)
-            break
-        requests.append(request)
-    return [(request, asked) for request, asked, _ in requests]
+    """Requests asking the questions given and every item's, as many as they need within the characters given each, each opening with the state given, as fill fills them with the items' `pieces`, so however much of a request the state takes, no item goes unread for want of room; Unweighed naming every piece `unweighed` finds with no room even alone."""
+    whole = [({}, questions), *items]
+    if unfit := unweighed(state, whole, chars):
+        shared = size(state, {})
+        keys = [", ".join(asked) or json.dumps(part, ensure_ascii=False)[:QUOTED_CHARS] for part, asked in unfit]
+        named = ", ".join(keys[:NAMED_UNWEIGHED]) + (f" and {len(keys) - NAMED_UNWEIGHED:,} more" if len(keys) > NAMED_UNWEIGHED else "")
+        raise Unweighed(UNWEIGHED.format(count=len(keys), named=named, need=max(size(joined(state, part), asked) for part, asked in unfit) - shared, shared=shared, chars=chars))
+    left = list(pieces(state, whole, chars))
+    requests: list[tuple[dict, dict[str, Noul]]] = []
+    while left or not requests:
+        told, asked, left = fill(state, {}, left, chars)
+        requests.append((told, asked))
+    return requests
+
+
+def pieces(state: dict, items: Iterable[tuple[dict, dict[str, Noul]]], chars: int = REQUEST_CHARS) -> Iterator[tuple[dict, dict[str, Noul]]]:
+    """Each item whole when it fits beside the state given, else one item a Noul, each beside the item's state, which fill merges once into a request holding several of them."""
+    for part, asked in items:
+        if len(asked) > 1 and size(joined(state, part), asked) > chars:
+            yield from ((part, {key: noul}) for key, noul in asked.items())
+        else:
+            yield part, asked
+
+
+def unweighed(state: dict, items: Iterable[tuple[dict, dict[str, Noul]]], chars: int = REQUEST_CHARS) -> list[tuple[dict, dict[str, Noul]]]:
+    """The `pieces` of the items with no room beside the state given even alone, within the characters given a request."""
+    return [(part, asked) for part, asked in pieces(state, items, chars) if size(joined(state, part), asked) > chars]
 
 
 def jev_all(requests: list[tuple[dict, dict[str, Noul]]]) -> dict[str, float]:

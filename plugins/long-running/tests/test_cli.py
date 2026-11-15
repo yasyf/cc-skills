@@ -4302,6 +4302,37 @@ def test_job_ask_and_its_check_print_his_recorded_answer_jev_reads_as_already_an
     ]
 
 
+def test_job_ask_check_weighs_every_recorded_answer_beside_a_card_whose_pages_leave_no_room_for_one_whole_and_refuses_a_card_too_long_to_weigh_one(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], jev: Jev, recorded: Answers
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "chat turns run out of memory on plat")
+    run("job", "add", "builder", "--order", "o1", "--goal", "move js_func into its own helper process")
+    monkeypatch.setattr(picture, "page_text", lambda url: " ".join(f"row{number} of the run page" for number in range(400)))
+    recorded.matched = [{"id": f"77{number:05d}", "asked": f"How should part {number} of a finished run's page load?", "said": f"Part {number} loads on its own. " * 60} for number in range(12)]
+    recorded.lined = [WAIT_RULING | {"link": PICK}]
+    jev.breaks(f"{settled.LINE_KEY}2", WAIT_RULING["id"])
+    block = tmp_path / "ask.md"
+
+    def linking(pages: int) -> str:
+        links = ", ".join(f"https://runs.example.com/r/{number}" for number in range(1, pages + 1))
+        return SHORT_ASK.replace("so the browser guesses where each map starts.", f"so the browser guesses where each map starts, as {links} show.")
+
+    block.write_text(linking(3))
+    assert cli.main(["job", "ask", "j1", "--check", str(block)]) == 0
+    checked = capsys.readouterr()
+    assert (checked.out, f"Jev reads his answer {WAIT_RULING['id']}" in checked.err, "go unread" in checked.err) == ("ready\n", True, False)
+    judged = [request for request in jev.asked if "recommended" in request["state"].get("card", {})]
+    asked = [key for request in judged for key in request["questions"]]
+    assert len(asked) == len(set(asked))
+    assert {f"{kind}.{answer['id']}" for answer in recorded.matched for kind in ("breaks1", "breaks2", "breaks3", "untapped", "card")} <= set(asked)
+    assert all(settled.size(request["state"], request["questions"]) <= settled.REQUEST_CHARS for request in judged)
+    block.write_text(linking(4))
+    assert cli.main(["job", "ask", "j1", "--check", str(block)]) == 2
+    refused = capsys.readouterr()
+    assert (refused.out, "drive: Jev cannot weigh " in refused.err) == ("", True)
+    assert state.load("demo")["jobs"]["j1"]["questions"] == []
+
+
 def test_his_thread_words_reach_only_the_order_they_are_about_never_another_order_sharing_its_thread(run: Run, demo: str, slack_thread: Thread) -> None:
     words = "ok so for 1, lrts mske eveyhting standard on signal or 30 seconds"
     slack_thread.post(state.now() - timedelta(minutes=1), from_user=True, text=words)
@@ -10634,7 +10665,7 @@ def test_jev_reads_every_option_of_a_card_in_one_request_one_noul_an_option_and_
     ]
     assert questions[f"breaks2.{NOT_SPECIAL['id']}"] == settled.asking(settled.BREAKS, slot="w4", index=1)
     assert questions[f"worked3.{worked}"] == settled.asking(settled.WORKED, index=2)
-    assert request["state"]["card"] == {"text": case, "options": asked.options, "recommended": asked.recommended, "show_me": asked.show_me}
+    assert request["state"]["card"] == {"text": case, "options": asked.options, "recommended": asked.recommended}
     assert handed(request) == {
         cause: {"asked": limits.ROOT_CAUSE_WORDS["asked"], "said": limits.ROOT_CAUSE_QUOTE, "rule": limits.ROOT_CAUSE_RULES["found"]},
         team: {"asked": limits.TEAM_DATA_WORDS["asked"], "said": limits.TEAM_DATA_WORDS["said"]},

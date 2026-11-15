@@ -351,11 +351,13 @@ def release_notes(releases: list[str], data: dict) -> list[str]:
         ({"notes": {slots[note["id"]]: {"id": note["id"][:7], "title": note["title"], "body": note["body"]}}}, {f"speaks.{slots[note['id']]}.{start}": settled.asking(settled.SPEAKS_TO_START, note=slots[note["id"]], start=start) for start in starts})
         for note in notes
     ]
+    told = {"starts": starts, "notes": {}}
+    unfit = {key for _, asked in settled.unweighed(told, items) for key in asked}
     try:
-        read = settled.jev_all(settled.batched({"starts": starts, "notes": {}}, {}, items))
+        read = settled.jev_all(settled.batched(told, {}, [item for item in items if not item[1].keys() & unfit]))
     except settled.Unheard as failure:
         return [UNNOTED.format(starts=named, why=f"Jev gave no reading: {failure}", name=data["name"])]
-    left = [note["id"][:7] for note, (_, asked) in zip(notes, items) if not asked.keys() <= read.keys()]
+    left = [note["id"][:7] for note, (_, asked) in zip(notes, items) if asked.keys() & unfit]
     skipped = [UNNOTED.format(starts=named, why="no room in a Jev request for " + ", ".join(left), name=data["name"])] if left else []
     speaking: dict[str, list[str]] = {}
     for note in notes:
