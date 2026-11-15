@@ -2005,23 +2005,27 @@ def undelivered_lines(watcher: Watcher, moment: datetime) -> list[str]:
     """Each text a job an agent or lane started holds, his answers among them, ten minutes after it came and every ten minutes until the watch, a resume or a SendMessage carries it, as its agent's transcript shows each SendMessage by hear_sent."""
     if not (owed := owed_answers(watcher, state.load(watcher.name), moment)):
         return []
-    if not owed_answers(watcher, hear_sent(watcher.name, {job_id for job_id, _ in owed}), moment):
+    heard = hear_sent(watcher.name, {job_id for job_id, _ in owed})
+    if not (still := owed_answers(watcher, heard, moment)):
         return []
+    locked = {job_id: why for job_id in {job_id for job_id, _ in still} if (why := orca.locked_out(watcher.name, job_id, heard["jobs"][job_id]))}
     lines = []
     with state.edit(watcher.name) as data:
         for job_id, answer in owed_answers(watcher, data, moment):
             answer["said"] = state.stamp(moment)
             job = data["jobs"][job_id]
-            lines.append(f'ANSWER undelivered {job_id}: {unreached(job_id, job, data, answer)} [{job["order"]} {job_id}]')
+            lines.append(f'ANSWER undelivered {job_id}: {unreached(job_id, job, data, answer, locked.get(job_id))} [{job["order"]} {job_id}]')
     return lines
 
 
-def unreached(job_id: str, job: dict, data: dict, answer: dict) -> str:
-    """A text the job holds that has not reached it, what the watch does with such texts, and the delivery that reaches the job now: drive job resume for a lane on Orca, which sends it what it holds, else the step superseded.delivery names from the session holding the job."""
+def unreached(job_id: str, job: dict, data: dict, answer: dict, locked: str | None) -> str:
+    """A text the job holds that has not reached it, what the watch does with such texts, and the delivery that reaches the job now: for a lane on Orca, drive job resume, which sends it what it holds, or, while orca.locked_out names why that resume is refused, the local launch orca.moved_here names; else the step superseded.delivery names from the session holding the job."""
     held = (
         f'"{cut(answer["words"], 80)}", held at {when(answer["at"])}, has not reached {job_id}; the watch sends it to a worker that takes messages,'
         " hands it to the next worker of one that returned and launches a builder never started with it"
     )
+    if locked:
+        return f"{held}; drive job resume {job_id} is refused now: {locked}, so {orca.moved_here(job_id)}"
     if job.get("where") == "remote" and job.get("dispatch"):
         return f"{held}, and drive job resume {job_id} delivers it now"
     return f"{held}; {superseded.delivery(data, job_id, job, answer['words'])[1]}"
@@ -3038,7 +3042,7 @@ def unanswered(name: str, job_id: str, job: dict, data: dict, moment: datetime) 
         return None
     question = f'"{cut(job["said"] or "", 80)}" {minutes(moment - asked)} minutes ago'
     if answers := [answer for answer in job["undelivered"] if state.parse_time(answer["at"]) >= asked]:
-        return f"{unreached(job_id, job, data, answers[-1])}, answering its lane's question {question}"
+        return f"{unreached(job_id, job, data, answers[-1], orca.locked_out(name, job_id, job))}, answering its lane's question {question}"
     if reads.asks(job["report"] or "") and not state.asked_in(job, reads.opening(job["report"])):
         return f"{job_id}'s lane asked {question}, an ASK only his card answers: {UNKEPT_ASK.format(job=job_id)}"
     return f'{job_id}\'s lane asked {question} and nothing answered it: drive job resume {job_id} "<the answer>" answers it'

@@ -1,3 +1,4 @@
+import fcntl
 import io
 import json
 import os
@@ -2749,6 +2750,33 @@ def test_a_text_held_on_a_lane_is_said_undelivered_ten_minutes_on_and_every_ten_
     assert watch.undelivered_lines(watching, T0 + timedelta(minutes=10)) == [line]
     assert watch.undelivered_lines(watching, T0 + timedelta(minutes=15)) == []
     assert watch.undelivered_lines(watching, T0 + timedelta(minutes=20)) == [line]
+
+
+def test_a_text_held_on_a_lane_orca_cannot_reach_while_another_verb_holds_its_lock_names_the_local_launch_that_reaches_it_until_the_lock_frees(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(where="remote", dispatch="ctx_99318cf15be2")
+        data["jobs"]["j1"]["undelivered"] = [{"seq": "717002", "words": watch.UNREACHED, "at": state.stamp(T0), "said": None, "request": "req-held"}]
+    down = "orca orchestration worker-show: remote_runtime_unavailable: Could not connect to the remote Orca runtime at ws://127.0.0.1:53245"
+
+    def worker(dispatch: str) -> dict:
+        raise orca.OrcaError(down)
+
+    monkeypatch.setattr(orca, "worker", worker)
+    monkeypatch.setattr(state, "holders", lambda path: f"pid 49041 drive job resume j1 on {path.name}")
+    watching = watcher(demo)
+    held = (
+        f'ANSWER undelivered j1: "{render.cut(watch.UNREACHED, 80)}", held at {render.when(state.stamp(T0))}, has not reached j1; the watch sends it to a worker that'
+        " takes messages, hands it to the next worker of one that returned and launches a builder never started with it"
+    )
+    with open(state.job_lock_path(demo, "j1"), "a") as holder:
+        fcntl.flock(holder, fcntl.LOCK_EX)
+        assert watch.undelivered_lines(watching, T0 + timedelta(minutes=10)) == [
+            f"{held}; drive job resume j1 is refused now: another drive verb holds its lock (pid 49041 drive job resume j1 on j1.lock) while Orca cannot reach its lane on its Sprite ({down}),"
+            " so drive job launch j1 --local moves it to a fresh worktree on this Mac now, the verb holding its lock standing down at its next step, and its handoff carries every text the job holds [o1 j1]"
+        ]
+    assert watch.undelivered_lines(watching, T0 + timedelta(minutes=20)) == [f"{held}, and drive job resume j1 delivers it now [o1 j1]"]
 
 
 def test_a_text_held_on_a_lane_whose_own_card_still_asks_him_is_never_said_undelivered_until_his_answer_ends_it(demo: str) -> None:
