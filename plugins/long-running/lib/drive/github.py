@@ -18,7 +18,8 @@ FIELDS = (
     "commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes { "
     f"... on CheckRun {{ name conclusion detailsUrl {REQUIRED} checkSuite {{ workflowRun {{ workflow {{ name }} }} }} }} ... on StatusContext {{ context state targetUrl {REQUIRED} }} }} }} }} }} }} }}"
 )
-RULES = "defaultBranchRef { name rules(first: 50) { nodes { type parameters { ... on RequiredStatusChecksParameters { requiredStatusChecks { context } } ... on PullRequestParameters { requiredApprovingReviewCount } } } } }"
+RULES = "defaultBranchRef { name rules(first: 50) { nodes { type parameters { ... on RequiredStatusChecksParameters { requiredStatusChecks { context } } ... on PullRequestParameters { requiredApprovingReviewCount allowedMergeMethods } } } } } squashMergeAllowed rebaseMergeAllowed mergeCommitAllowed"
+METHODS = {"squash": "squashMergeAllowed", "rebase": "rebaseMergeAllowed", "merge": "mergeCommitAllowed"}
 PR_STATES = {"OPEN": "open", "MERGED": "merged", "CLOSED": "closed"}
 FOLDED = "folded"
 UNLANDED = ("open", FOLDED)
@@ -243,8 +244,14 @@ def rule_reviews(repository: dict) -> int:
     return max((rule["parameters"]["requiredApprovingReviewCount"] for rule in rules if rule["type"] == "PULL_REQUEST"), default=0)
 
 
+def merge_method(repository: dict) -> str:
+    """The method the lander merges a PR of a repository by, as GitHub's GraphQL answers RULES: squash, else rebase, else merge, the first its settings allow that every pull request rule of its default branch allows too, a rule naming no allowedMergeMethods allowing each, since GitHub refuses a merge by any other method and gh pr merge picks none for a caller with no terminal."""
+    rules = [rule["parameters"]["allowedMergeMethods"] for rule in repository["defaultBranchRef"]["rules"]["nodes"] if rule["type"] == "PULL_REQUEST"]
+    return next(method for method, setting in METHODS.items() if repository[setting] and all(allowed is None or method.upper() in allowed for allowed in rules))
+
+
 def live(read: dict, stored: dict) -> dict:
-    """The drive's stored fields (state, the PR it folded into and the merge commit carrying it onto its repository's default branch, by landing(), its repository's default branch, checks, the checks that failed on its head, the required checks' verdict, review, head, its base and head branches, title, author, whether it carries the hold label, the PRs of its native GitHub stack that are not closed and that stack's trunk, the approving reviews its repository's rules require, conflict) of one fetched PR against its stored row; conflict while GitHub answers CONFLICTING, and through its UNKNOWN at the stored head, which is no answer while it works mergeability out again after a base move, so a conflict GitHub has not cleared never flips its stage; a new head reads no conflict until GitHub answers for it."""
+    """The drive's stored fields (state, the PR it folded into and the merge commit carrying it onto its repository's default branch, by landing(), its repository's default branch, checks, the checks that failed on its head, the required checks' verdict, review, head, its base and head branches, title, author, whether it carries the hold label, the PRs of its native GitHub stack that are not closed and that stack's trunk, the approving reviews its repository's rules require, the method its repository merges it by, conflict) of one fetched PR against its stored row; conflict while GitHub answers CONFLICTING, and through its UNKNOWN at the stored head, which is no answer while it works mergeability out again after a base move, so a conflict GitHub has not cleared never flips its stage; a new head reads no conflict until GitHub answers for it."""
     failed = sorted({*failed_before(stored, read["headRefOid"]), *failing(read["checks"])})
     fields = landing(read) | {
         "default": read["default"],
@@ -261,6 +268,7 @@ def live(read: dict, stored: dict) -> dict:
         "native": [member for member, status in read["native"] if status != "closed"],
         "trunk": read["trunk"],
         "reviews_required": read["required_reviews"],
+        "merge_method": read["merge_method"],
         "conflict": read["mergeable"] == "CONFLICTING" or read["mergeable"] == "UNKNOWN" and read["headRefOid"] == stored["head"] and stored["conflict"],
     }
     return fields
@@ -303,6 +311,7 @@ def parse(payload: dict, keys: list[str]) -> dict[str, dict]:
             "trunk": node["stack"]["baseRefName"] if node["stack"] else None,
             "required_checks": rule_checks(found[repo_of(key)]),
             "required_reviews": rule_reviews(found[repo_of(key)]),
+            "merge_method": merge_method(found[repo_of(key)]),
             "default": found[repo_of(key)]["defaultBranchRef"]["name"],
             "base_pr": None,
         }
@@ -399,7 +408,7 @@ def run_conclusion(run_id: str | None, job: str | None, repo: str | None, cwd: s
 
 
 def fetch(keys: list[str], into: dict[str, str] | None = None) -> tuple[dict[str, dict], GithubError | None]:
-    """Read every PR key ("owner/name#123"), its native GitHub stack, its repository's default branch and the checks the rules of that branch require included, PRS_PER_QUERY to a `gh api graphql` call, since GitHub refuses a query past its resource limits, each with base_pr, the read of the PR whose head its base was: for a key into names, the PR the drive holds it folded into, read beside it; for any other GitHub reads merged into a base other than its repository's default, the one bases() finds. It gives the reads of every key whose reads all answered, and an error joining what the others could not read, so one refused call loses only its own PRs and those folded into them."""
+    """Read every PR key ("owner/name#123"), its native GitHub stack, its repository's default branch, the checks the rules of that branch require and the method it merges by included, PRS_PER_QUERY to a `gh api graphql` call, since GitHub refuses a query past its resource limits, each with base_pr, the read of the PR whose head its base was: for a key into names, the PR the drive holds it folded into, read beside it; for any other GitHub reads merged into a base other than its repository's default, the one bases() finds. It gives the reads of every key whose reads all answered, and an error joining what the others could not read, so one refused call loses only its own PRs and those folded into them."""
     into = into or {}
     asked = list(dict.fromkeys([*keys, *(into[key] for key in keys if key in into)]))
     found, refused = {}, []

@@ -830,6 +830,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         pr.setdefault("native", [])
         pr.setdefault("trunk", None)
         pr.setdefault("reviews_required", 1)
+        pr.setdefault("merge_method", "squash")
         pr.setdefault("base", None)
         pr.setdefault("default", None)
         pr.setdefault("into", None)
@@ -3540,6 +3541,7 @@ def new_pr(url: str, job_id: str, order_id: str) -> dict:
         "native": [],
         "trunk": None,
         "reviews_required": 1,
+        "merge_method": "squash",
         "base": None,
         "default": None,
         "into": None,

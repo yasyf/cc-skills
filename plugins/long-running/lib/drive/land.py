@@ -27,7 +27,7 @@ CONFLICTS = ("Pull Request has merge conflicts", "the merge commit cannot be cle
 MERGE_ASYNC = "merge-async"
 STACKED = "must be merged using the asynchronous merge REST API"
 ASYNC_SECONDS = 2
-MERGE = ("gh", "pr", "merge", "--squash")
+MERGE = ("gh", "pr", "merge")
 # TODO: delete with its case in stage.unlanded once no lander of an install that refused mid-check still runs: its record() reopens on this install with this outcome.
 NEWER_INSTALL = "not landed: a newer long-running saved the drive while stack-enqueue --check ran, so the landing runs again on it"
 OWN_FAILURE = "the lander could not"
@@ -363,7 +363,7 @@ def admin_merged(name: str, key: str) -> str:
         return f"not landed: {cut(str(refused), SAID_CHARS)}"
     if why := unmergeable(key, reads[key]):
         return f"not landed: {why}"
-    return merged(name, key, ["--admin", "--match-head-commit", reads[key]["headRefOid"]])
+    return merged(name, key, reads[key]["merge_method"], ["--admin", "--match-head-commit", reads[key]["headRefOid"]])
 
 
 def mark(data: dict, keys: tuple[str, ...], pid: int) -> None:
@@ -382,7 +382,7 @@ def spawn(name: str, keys: tuple[str, ...]) -> int:
 
 
 def run(name: str, keys: list[str], dry_run: bool = False) -> str:
-    """Land one unit his Approve or exempt classes clear, or one yasyf/* PR, in whichever repository the drive tracks it, never a PR the drive does not track or one someone else opened that no order of his it serves names, then record what came of it on each PR, which its stage reads, and as a landing event: a yasyf/* PR merges with gh pr merge --admin at the head a fresh read finds no check failing on, a Forge-AI/monorepo unit queues through stack-enqueue, and a PR of any other repository merges with gh pr merge at the head its stage read ready, which GitHub merges only once its repository's rules pass. His Approve lands the PR whatever the check of its change against his words says, which only informs his card and its owner; a unit with a PR below it that nothing clears is not landed, since its landing would land that PR too, nor one with a PR its changes put outside its exempt class, nor one a hold of his holds, his Hold, the hold label or an open card of his on the work of any job carrying a PR of it. A dry run runs stack-enqueue --check as the landing would, says what it would do, and lands and records nothing."""
+    """Land one unit his Approve or exempt classes clear, or one yasyf/* PR, in whichever repository the drive tracks it, never a PR the drive does not track or one someone else opened that no order of his it serves names, then record what came of it on each PR, which its stage reads, and as a landing event: a yasyf/* PR merges with gh pr merge --admin at the head a fresh read finds no check failing on, a Forge-AI/monorepo unit queues through stack-enqueue, and a PR of any other repository merges with gh pr merge at the head its stage read ready, which GitHub merges only once its repository's rules pass, each by the method its repository allows, by github.merge_method. His Approve lands the PR whatever the check of its change against his words says, which only informs his card and its owner; a unit with a PR below it that nothing clears is not landed, since its landing would land that PR too, nor one with a PR its changes put outside its exempt class, nor one a hold of his holds, his Hold, the hold label or an open card of his on the work of any job carrying a PR of it. A dry run runs stack-enqueue --check as the landing would, says what it would do, and lands and records nothing."""
     data = state.load(name)
     if untracked := [key for key in keys if key not in data["prs"]]:
         raise state.DriveError(f"{', '.join(untracked)}: the drive tracks no such PR, so it lands none; drive pr add <url> --job <job> registers one first")
@@ -395,7 +395,7 @@ def run(name: str, keys: list[str], dry_run: bool = False) -> str:
     if holding := held(data, keys):
         outcome = f"{HELD}: {holding}"
     elif state.merges_untapped(keys[0]):
-        outcome = f"would merge it with {' '.join(MERGE)} --admin once no check fails at its head, then install each plugin it changes" if dry_run else admin_merged(name, keys[0])
+        outcome = f"would merge it with {' '.join(MERGE)} --{data['prs'][keys[0]]['merge_method']} --admin once no check fails at its head, then install each plugin it changes" if dry_run else admin_merged(name, keys[0])
     else:
         try:
             below = uncleared_below(data, keys)
@@ -411,8 +411,8 @@ def run(name: str, keys: list[str], dry_run: bool = False) -> str:
             elif state.queued_by_lander(keys[0]):
                 outcome = enqueued(name, Path(data["roles"]["coordinator"]["cwd"]), keys, data["prs"], asked, dry_run, any(requeues(data, data["prs"][key]) for key in keys))
             else:
-                head = data["prs"][keys[0]]["head"]
-                outcome = f"would merge it with {' '.join(MERGE)} --match-head-commit {head[:12]}" if dry_run else merged(name, keys[0], ["--match-head-commit", head])
+                pr = data["prs"][keys[0]]
+                outcome = f"would merge it with {' '.join(MERGE)} --{pr['merge_method']} --match-head-commit {pr['head'][:12]}" if dry_run else merged(name, keys[0], pr["merge_method"], ["--match-head-commit", pr["head"]])
     if dry_run:
         return outcome
     return record(name, keys, outcome, below, asked)
@@ -527,12 +527,12 @@ def ask_review(repo: str, number: str, head: str) -> str | None:
     return None
 
 
-def merged(name: str, key: str, flags: list[str]) -> str:
-    """Merge a PR with gh pr merge and the flags given, --admin for a yasyf/* one by his rule for his own repositories, and --match-head-commit, which GitHub merges only at that head and, without --admin, only once its repository's rules pass, or through GitHub's merge-async endpoint once gh pr merge is refused for a PR of a native GitHub stack, with gh itself since ccx's GitHub gateway refuses a merge; record its merge commit on its row, then install from it each plugin of this Mac it changes; what came of it, a refusal not landed."""
+def merged(name: str, key: str, method: str, flags: list[str]) -> str:
+    """Merge a PR by method, squash, rebase or merge, the one github.merge_method reads its repository allowing, with gh pr merge and the flags given, --admin for a yasyf/* one by his rule for his own repositories, and --match-head-commit, which GitHub merges only at that head and, without --admin, only once its repository's rules pass, or through GitHub's merge-async endpoint once gh pr merge is refused for a PR of a native GitHub stack, with gh itself since ccx's GitHub gateway refuses a merge; record its merge commit on its row, then install from it each plugin of this Mac it changes; what came of it, a refusal not landed."""
     repo, number = key.split("#")
-    if (refusal := merged_sync(key, flags)) and STACKED in refusal:
+    if (refusal := merged_sync(key, method, flags)) and STACKED in refusal:
         print(f"{key}: {refusal}; merging it through GitHub's {MERGE_ASYNC} instead", flush=True)
-        refusal = merged_async(key, flags)
+        refusal = merged_async(key, method, flags)
     if refusal:
         return f"not landed: {refusal}"
     try:
@@ -553,21 +553,21 @@ def merged(name: str, key: str, flags: list[str]) -> str:
     return "; ".join(lines)
 
 
-def merged_sync(key: str, flags: list[str]) -> str | None:
-    """Merge a PR with gh pr merge and the flags given; what gh said refusing it, or None once merged. GitHub refuses a merge whose base moved while it merged, which another merge into that base did, so the lander merges again on the new base."""
+def merged_sync(key: str, method: str, flags: list[str]) -> str | None:
+    """Merge a PR by method with gh pr merge and the flags given; what gh said refusing it, or None once merged. GitHub refuses a merge whose base moved while it merged, which another merge into that base did, so the lander merges again on the new base."""
     repo, number = key.split("#")
-    command = ["gh", "pr", "merge", number, "-R", repo, "--squash", *flags]
+    command = ["gh", "pr", "merge", number, "-R", repo, f"--{method}", *flags]
     while (done := subprocess.run(command, capture_output=True, text=True)).returncode and BASE_MOVED in done.stderr:
         print(f"{key}: {' '.join(done.stderr.split())}; merging it again on its new base", flush=True)
-    return f"{' '.join([*MERGE, *flags])} refused it: {cut(' '.join(done.stderr.split()), SAID_CHARS)}" if done.returncode else None
+    return f"{' '.join([*MERGE, f'--{method}', *flags])} refused it: {cut(' '.join(done.stderr.split()), SAID_CHARS)}" if done.returncode else None
 
 
-def merged_async(key: str, flags: list[str]) -> str | None:
-    """Squash-merge a PR of a native GitHub stack through GitHub's merge-async endpoint, the one GitHub merges a stacked PR through, past the rules its actor may bypass for --admin, which GitHub grants only the stack's bottom PR, the one a lander outside Forge-AI/monorepo lands, or at the head --match-head-commit names, then read its result every ASYNC_SECONDS until GitHub ends it; why GitHub refused it, or None once merged."""
+def merged_async(key: str, method: str, flags: list[str]) -> str | None:
+    """Merge a PR of a native GitHub stack by method through GitHub's merge-async endpoint, the one GitHub merges a stacked PR through, past the rules its actor may bypass for --admin, which GitHub grants only the stack's bottom PR, the one a lander outside Forge-AI/monorepo lands, or at the head --match-head-commit names, then read its result every ASYNC_SECONDS until GitHub ends it; why GitHub refused it, or None once merged."""
     repo, number = key.split("#")
     endpoint = f"repos/{repo}/pulls/{number}/{MERGE_ASYNC}"
     pinned = ["-f", f"sha={flags[flags.index('--match-head-commit') + 1]}"] if "--match-head-commit" in flags else []
-    fields = ["-f", "merge_method=squash", "-f", "merge_action=direct_merge", "-F", f"bypass_rules={str('--admin' in flags).lower()}", *pinned]
+    fields = ["-f", f"merge_method={method}", "-f", "merge_action=direct_merge", "-F", f"bypass_rules={str('--admin' in flags).lower()}", *pinned]
     done = subprocess.run(["gh", "api", "-X", "PUT", endpoint, *fields], capture_output=True, text=True)
     if done.returncode:
         return f"GitHub's {MERGE_ASYNC} refused it: {cut(' '.join((done.stdout + done.stderr).split()), SAID_CHARS)}"
