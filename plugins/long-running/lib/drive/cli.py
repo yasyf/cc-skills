@@ -76,6 +76,13 @@ STAGING_FIRST = (
     " record on the cci `post` tool, `to: [communicator@{drive}]`, `text: POST <the finding>`, `attrs: {attrs}`, so it posts while he is away too;"
     " then finish the run and return as usual"
 )
+STAGING_MAC_BOX = (
+    "; {tested} changes the dashboard, so run its cases in Iris Staging on a Mac box too, once plat-usw2-staging serves its dashboard, against the sand-next his Mac runs:"
+    " `tools/ci mac-box prove <box> --commit {live}`, the commit of sand-next's newest passed release on core-usw2-auto, then `tools/ci mac-box open <box>` and"
+    " `tools/ci mac-box record <box>` for each case, by the test-mac skill's Prove a desktop change"
+)
+STAGING_OWN_SAND = "; {tested} changes sand-next too, so run them again after `tools/ci mac-box prove <box> --commit <its head's full sha>`"
+LIVE_SAND_NEXT = re.compile(r"^#\d+\s+passed\s+(?:manual )?(?:release|hotfix|rollback)\s.*?\s(?P<commit>[0-9a-f]{7,40})\s+(?:not )?started\b", re.MULTILINE)
 PROMISED_TIME = re.compile(
     r"\bnext (?:line|update|post|summary)(?:\s+(?:by|before|at))?\s+(?:about\s+|around\s+)?([01]?\d|2[0-3]):([0-5]\d)(?![:\d])(?:\s*([AP])\.?M\b)?", re.IGNORECASE
 )
@@ -2909,7 +2916,9 @@ def rewrite_brief(name: str, job_id: str, flags: dict, over: dict | None) -> tup
         "Research": planned and job["kind"] == "reader" and not answers and READER_RESEARCH,
         "Researched": found and found[0],
         "Answer": answers and answer_first(name, order, job["order"], job_id),
-        "Staging": staged and STAGING_FIRST.format(drive=name, attrs=json.dumps(state.thread_attr(order) | {"order": job["order"], "job": job_id, "progress": "true", "incident": "true"})),
+        "Staging": staged
+        and STAGING_FIRST.format(drive=name, attrs=json.dumps(state.thread_attr(order) | {"order": job["order"], "job": job_id, "progress": "true", "incident": "true"}))
+        + staging_mac_box(name, data, job),
         "Native": flags["native"],
         "Interactions": flags["interactions"],
         "Would he ask": flags["would_he_ask"],
@@ -4167,6 +4176,25 @@ def release_reach(name: str, data: dict, keys: list[str]) -> dict[str, dict]:
             continue
         reach[key] = json.loads(github.run([str(checkout / GO_CI), "release", "select", "--pr"], cwd=str(checkout), stdin=json.dumps({"body": "", "paths": paths})))
     return reach
+
+
+def staging_mac_box(name: str, data: dict, job: dict) -> str:
+    """What a staging tester's Staging line adds for each PR its `staging test of #N before it lands` parts name whose paths reach the dashboard, by release_reach: its cases run in Iris Staging on a Mac box against the sand-next commit live on core-usw2-auto, by live_sand_next, and again on its own head's sand-next when its paths reach sand-next too, so a control calling a route the released sand-next lacks fails on staging rather than for him; nothing when none reaches the dashboard."""
+    keys = [f"{state.MONOREPO}#{state.STAGING_PART.fullmatch(part)['number']}" for _, part in state.staging_parts(data, job)]
+    reach = release_reach(name, data, keys)
+    if not (dashboard := [key for key in keys if key in reach and "dashboard" in reach[key]["touched"]]):
+        return ""
+    live = live_sand_next(orca.checkout(name, data["roles"]["coordinator"]["cwd"]))
+    own = [key for key in dashboard if "sand-next" in reach[key]["touched"]]
+    return STAGING_MAC_BOX.format(tested=", ".join(dashboard), live=live) + (STAGING_OWN_SAND.format(tested=", ".join(own)) if own else "")
+
+
+def live_sand_next(checkout: Path) -> str:
+    """The full commit of the sand-next every Mac updates to: the newest release, hotfix or rollback `tools/ci release status --manual sand-next --env core-usw2-auto` lists as passed, run in the drive's checkout with seven minutes to outlast the five tools/ci spends retrying a failed job's log Buildkite answers 502, its short commit made whole by git there."""
+    listed = github.run([str(checkout / GO_CI), "release", "status", "--manual", "sand-next", "--env", "core-usw2-auto"], cwd=str(checkout), timeout=420)
+    if not (found := LIVE_SAND_NEXT.search(listed)):
+        raise DriveError("`tools/ci release status --manual sand-next --env core-usw2-auto` lists no passed sand-next release among its newest builds, so no live sand-next commit was read")
+    return github.run(["git", "-C", str(checkout), "rev-parse", "--verify", f"{found['commit']}^{{commit}}"]).strip()
 
 
 def merged_waits(data: dict, owner: dict, waits: list[str], no_waits: bool, found: dict | None) -> list[str]:
