@@ -4121,7 +4121,7 @@ def answer(args: argparse.Namespace) -> int:
     if found is None:
         raise DriveError("his cards could not be read, so nothing can say what this answer leaves asking him; the watch rereads them every minute, run this again then")
     data = state.load(name)
-    asked = superseded.asking(data, found)
+    asked = superseded.asking(data, found, (args.link or [None])[0])
     cwd = data["roles"]["coordinator"]["cwd"]
     cited = settled.shown(args.id, cwd) if args.id else None
     if cited:
@@ -4161,7 +4161,7 @@ def answer(args: argparse.Namespace) -> int:
     if not marking:
         with state.edit(name) as data:
             ended = superseded.answer_cards(data, args.id, data["answers"][args.id])
-        done = superseded.follow(name, ended)
+        done = superseded.follow(name, ended) + superseded.supersede_taps(name, ended)
     kept = data["answers"][args.id]
     asked = superseded.listed(data, kept, asked)
     open_keys = superseded.unmarked(kept, asked)

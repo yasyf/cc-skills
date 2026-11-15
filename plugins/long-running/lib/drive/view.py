@@ -55,6 +55,7 @@ from drive.render import cut, when
 STATES = ("blocked", "running", "built", "waiting", "merged", "live", "not started")
 BUG_STAGES = ("reported", "fixing", "merged", "live", "told")
 LIVE_FOR = timedelta(days=1)
+TAP_UNDO = timedelta(minutes=10)
 SLACK_LINK = re.compile(r"<(?:[^|>]*\|)?([^>]*)>")
 SLACK_TS = re.compile(r"/p(\d+)")
 BOARD_PICK = re.compile(r"^Owner on board \w+, ")
@@ -202,6 +203,21 @@ def pr_card_words(found: dict | None, source: str, pr: dict) -> str | None:
 def open_questions(job: dict) -> list[dict]:
     """The questions a job asked him that nothing has closed: no tap, words or ruling of his answered it, nobody withdrew it and no answer of his superseded it, a refused one included until it is asked again or dropped; his card on each follows it."""
     return [question for question in job["questions"] if question["closed"] is None]
+
+
+def answerable(question: dict, link: str | None) -> bool:
+    """Whether his words at this link answer the question: it is open, or his tap closed it within the ten minutes either side of them that cc-slack shows Undo for, and they sit under its card, so words he wrote under a card and a tap on it seconds apart end it on his words, whichever Slack took first."""
+    tapped = question["closed"] and question["closed"]["tap"]
+    if not tapped:
+        return question["closed"] is None
+    said = link and state.CARD_LINK.search(link)
+    card = question["card"]
+    return bool(said and card and message_key(link) != message_key(card) and under(link, card)) and abs(float(f"{said[2]}.{said[3]}") - float(tapped)) <= TAP_UNDO.total_seconds()
+
+
+def under(link: str, card: str) -> bool:
+    """Whether his message at this link is the card itself or a reply in the card's own thread, so it answers that card."""
+    return (card_thread(link) or "").replace(".", "") == message_key(card)
 
 
 def open_cards(job: dict) -> list[str]:

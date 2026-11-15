@@ -943,6 +943,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
             if question["closed"]:
                 question["closed"]["seq"] = bare_seq(question["closed"]["seq"])
                 question["closed"].setdefault("noted", None)
+                question["closed"].setdefault("tap", None)
+                question["closed"].setdefault("replaces", None)
             question.setdefault("holds", None)
             question.setdefault("replaced", None)
             question.setdefault("recorded", [])
@@ -2277,10 +2279,20 @@ def tap_time(record_id: str | None) -> str | None:
 
 
 def new_close(
-    how: str, words: str | None, link: str | None, seq: str | None = None, answer: str | None = None, ruling: str | None = None, by: str | None = None, at: str | None = None, noted: str | None = None
+    how: str,
+    words: str | None,
+    link: str | None,
+    seq: str | None = None,
+    answer: str | None = None,
+    ruling: str | None = None,
+    by: str | None = None,
+    at: str | None = None,
+    noted: str | None = None,
+    tap: str | None = None,
+    replaces: dict | None = None,
 ) -> dict:
-    """How a job's question ended, the one record of whether it still asks him that its card follows: answered by his tap, words or a ruling, withdrawn for his other words or by the asker, or superseded by his answer to another question; his words and their link, the record, recorded answer and ruling carrying them, the question whose answer superseded it, and when."""
-    return {"how": how, "words": words, "link": link, "seq": seq, "answer": answer, "ruling": ruling, "by": by, "at": at or stamp(), "noted": noted}
+    """How a job's question ended, the one record of whether it still asks him that its card follows: answered by his tap, words or a ruling, withdrawn for his other words or by the asker, or superseded by his answer to another question; his words and their link, the record, recorded answer and ruling carrying them, the question whose answer superseded it, when, the Slack action ts of the tap that answered it, and the close of the tap his words replaced."""
+    return {"how": how, "words": words, "link": link, "seq": seq, "answer": answer, "ruling": ruling, "by": by, "at": at or stamp(), "noted": noted, "tap": tap, "replaces": replaces}
 
 
 def kept_in(job: dict, file: Path) -> dict | None:

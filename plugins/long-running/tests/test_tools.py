@@ -1346,6 +1346,113 @@ def test_his_tap_the_drive_takes_late_ends_its_question_at_the_tap_while_its_job
     assert (closed["at"], state.parse_time(job["updated"]) > state.parse_time(closed["at"])) == (state.stamp(datetime.fromtimestamp(1794200001.0001).astimezone()), True)
 
 
+TAP = "1794200011.000100"
+
+
+def his_words_at(seconds: int) -> str:
+    """His message under CARD's thread, sent this many seconds after his tap at TAP."""
+    return f"https://acme.slack.com/archives/D123/p{int(float(TAP)) + seconds}000200?thread_ts=1794200000.000700"
+
+
+def tap_on_card(demo: str) -> None:
+    """His tap at TAP on the card of j1's question, which j1, made before the card, asked."""
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["created"] = state.stamp(datetime.fromtimestamp(1794200000).astimezone())
+    card.question_answered({"waits": "demo:j1-7", "label": "Ring", "url": CARD, "action_ts": TAP})
+
+
+@pytest.mark.parametrize("after", [5, -5], ids=["tap then words", "words then tap"])
+def test_his_words_under_a_card_within_ten_minutes_of_his_tap_on_it_replace_the_tap_as_his_answer(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, after: int
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
+    run("job", "add", "builder", "--order", "o1", "--goal", "build it")
+    run("order", "add", "--title", "Side door", "--project", "Iris", "--workstream", "Run page", "ship the side door")
+    run("job", "add", "builder", "--order", "o2", "--goal", "build the side door")
+    monkeypatch.setattr(subprocess, "run", Cci().run)
+    answered = open_cards(monkeypatch, "demo:j1-7")
+    with state.edit(demo) as data:
+        data["jobs"]["j2"]["created"] = state.stamp(datetime.fromtimestamp(1794200000).astimezone())
+        data["jobs"]["j2"]["questions"].append(state.new_question(None, "Which ring", state.stamp()) | {"waits": "demo:j2-8"})
+    superseding: list[tuple[str, str]] = []
+    monkeypatch.setattr(settled, "supersede", lambda pick, answer_id, cwd: superseding.append((pick, answer_id)))
+    tap_on_card(demo)
+    assert {job_id: [kept["seq"] for kept in state.load(demo)["jobs"][job_id]["undelivered"]] for job_id in ("j1", "j2")} == {"j1": ["51"], "j2": ["51"]}
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["state"] = "done"
+    words = his_words_at(after)
+    assert tools.run("record", demo, {"records": [{"kind": "answer", "text": "Knock, the bell is broken", "url": words, "waits": "demo:j1-7"}]}).splitlines() == [
+        "1 answer 52",
+        '1 j1\'s question "Which ring?" ended answered by 52',
+        '1 j2\'s question "Which ring" ended answered by 52',
+        f"demo:j1-7: his card {CARD} now shows his words with no buttons, its question answered",
+        "his tap 'Ring' on demo:j1-7 superseded in cc-notes by his words, 2c0ffee",
+    ]
+    assert answered == [("card-answer", "--card", CARD, "--label", "Knock, the bell is broken", "--settled", "--other", "--replaces", TAP, "--via", words)]
+    assert superseding == [(f"1c0ffee{'0' * 33}", f"2c0ffee{'0' * 33}")]
+    jobs = state.load(demo)["jobs"]
+    closed, twin = jobs["j1"]["questions"][0]["closed"], jobs["j2"]["questions"][0]["closed"]
+    assert (closed["how"], closed["words"], closed["link"], closed["noted"], closed["replaces"]["tap"]) == ("answered", "Knock, the bell is broken", words, f"2c0ffee{'0' * 33}", TAP)
+    assert (twin["how"], twin["words"], twin["seq"], twin["replaces"]["tap"], twin["replaces"]["noted"]) == ("answered", "Knock, the bell is broken", "52", TAP, None)
+    held = [("52", f'His answer on card demo:j1-7 ({words}), verbatim: "Knock, the bell is broken"; the card recommended "Ring"')]
+    assert {job_id: [(kept["seq"], kept["words"]) for kept in jobs[job_id]["undelivered"]] for job_id in ("j1", "j2")} == {"j1": held, "j2": held}
+
+
+def test_his_words_under_a_card_past_ten_minutes_from_his_tap_on_it_leave_the_tap_standing(demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch) -> None:
+    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
+    run("job", "add", "builder", "--order", "o1", "--goal", "build it")
+    monkeypatch.setattr(subprocess, "run", Cci().run)
+    answered = open_cards(monkeypatch, "demo:j1-7")
+    tap_on_card(demo)
+    with pytest.raises(DriveError, match="1: refused, nothing posted: the question this answer names ended already"):
+        tools.run("record", demo, {"records": [{"kind": "answer", "text": "Knock, the bell is broken", "url": his_words_at(601), "waits": "demo:j1-7"}]})
+    assert (state.load(demo)["jobs"]["j1"]["questions"][0]["closed"]["words"], answered) == ("Ring", [])
+
+
+@pytest.mark.parametrize("after", [5, -5], ids=["tap then words", "words then tap"])
+def test_his_question_asking_for_facts_under_a_card_beside_his_tap_on_it_leaves_the_tap_standing(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, after: int
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
+    run("job", "add", "builder", "--order", "o1", "--goal", "build it")
+    monkeypatch.setattr(subprocess, "run", Cci().run)
+    answered = open_cards(monkeypatch, "demo:j1-7")
+    superseding: list[tuple[str, str]] = []
+    monkeypatch.setattr(settled, "supersede", lambda pick, answer_id, cwd: superseding.append((pick, answer_id)))
+    tap_on_card(demo)
+    asked = {"kind": "owner", "text": "Expand on 1 and 2 and how does the replica fit in?", "url": his_words_at(after), "about": "his work"}
+    tools.run("record", demo, {"records": [asked]})
+    job = state.load(demo)["jobs"]["j1"]
+    closed = job["questions"][0]["closed"]
+    assert (closed["words"], closed["tap"], closed["replaces"], answered, superseding) == ("Ring", TAP, None, [], [])
+    assert [kept["seq"] for kept in job["undelivered"]] == ["51"]
+
+
+def test_drive_answer_lists_and_ends_the_question_his_tap_closed_once_his_words_under_its_card_replace_the_tap(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
+    run("job", "add", "builder", "--order", "o1", "--goal", "build it")
+    monkeypatch.setattr(subprocess, "run", Cci().run)
+    open_cards(monkeypatch, "demo:j1-7")
+    superseding: list[tuple[str, str]] = []
+    monkeypatch.setattr(settled, "supersede", lambda pick, answer_id, cwd: superseding.append((pick, answer_id)))
+    tap_on_card(demo)
+    assert [kept["seq"] for kept in state.load(demo)["jobs"]["j1"]["undelivered"]] == ["51"]
+    words = his_words_at(5)
+    found = view.live_cards(demo)
+    assert ("demo:j1-7" in superseded.asking(state.load(demo), found, words), "demo:j1-7" in superseded.asking(state.load(demo), found)) == (True, False)
+    answer_id = "a1c0ffee" + "0" * 32
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["state"] = "done"
+        kept = superseded.record(data, answer_id, "Knock, the bell is broken", words, superseded.asking(data, found, words), set(), {}, state.stamp())
+        ended = superseded.answer_cards(data, answer_id, kept)
+    assert list(kept["jobs"]) == ["j1"]
+    assert [(job_id, question["closed"]["answer"], question["closed"]["replaces"]["tap"]) for job_id, question in ended] == [("j1", answer_id, TAP)]
+    assert superseded.supersede_taps(demo, ended) == ["his tap 'Ring' on demo:j1-7 superseded in cc-notes by his words, a1c0ffe"]
+    assert (superseding, state.load(demo)["jobs"]["j1"]["undelivered"]) == ([(f"1c0ffee{'0' * 33}", answer_id)], [])
+
+
 def test_an_answer_his_recorded_rules_give_by_the_waits_id_of_a_question_whose_card_never_drew_settles_it_under_the_rulings_full_id(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, heard: Heard, recorded: Answers
 ) -> None:

@@ -196,7 +196,7 @@ def ready_records(monkeypatch: pytest.MonkeyPatch) -> list[list[dict]]:
 @pytest.fixture(autouse=True)
 def closed_cards(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str, str, bool]]:
     closes: list[tuple[str, str, str, bool]] = []
-    monkeypatch.setattr(superseded, "answer_card", lambda card, words, link, settled: closes.append((card, words, link, settled)) or {})
+    monkeypatch.setattr(superseded, "answer_card", lambda card, words, link, settled, replaces=None: closes.append((card, words, link, settled)) or {})
     return closes
 
 

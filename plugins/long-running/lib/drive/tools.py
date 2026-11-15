@@ -578,6 +578,7 @@ def record(name: str, records: list[dict], dry_run: bool) -> str:
     keep_undelivered(name, [posts[index] for index in his], [seqs[index] for index in his], [closes[index] for index in his], found)
     said += [f"{index} {job_id}'s question \"{render.cut(question['title'] or '', 80)}\" ended {question['closed']['how']} by {seqs[index - 1]}" for index, job_id, question in ended]
     said += superseded.follow(name, [(job_id, question) for _, job_id, question in ended])
+    said += superseded.supersede_taps(name, [(job_id, question) for _, job_id, question in ended])
     said += keep_rulings(name, posts, found)
     return "\n".join(said)
 
@@ -591,7 +592,7 @@ def keep_rulings(name: str, posts: list[dict], found: dict) -> list[str]:
             continue
         made = named[0]
         words = " … ".join(other["text"] for other in named)
-        asked = superseded.asking(data, found)
+        asked = superseded.asking(data, found, made["url"])
         try:
             changes = settled.changed(settled.shown(ruling, data["roles"]["coordinator"]["cwd"])["title"], words, asked)
         except DriveError:
@@ -710,13 +711,13 @@ def superseded_by_answer(data: dict, made: dict, questions: list[tuple[str, dict
 
 
 def keep_closed(name: str, posts: list[dict], closes: list[list[tuple[str, dict]]], decided: list[list[tuple[str, dict, dict]]]) -> None:
-    """End in one write, before any of these records goes out, each job question his words in them are on, answered by an answer and withdrawn by other words, with his words, their link and the ruling it names, and each older question of its job his answer decides too, superseded, so a record cci refuses leaves none of them asking him; stamped names the record once it stores."""
+    """End in one write, before any of these records goes out, each job question his words in them are on, answered by an answer, in place of his tap when they replace it by view.answerable, and withdrawn by other words, with his words, their link and the ruling it names, and each older question of its job his answer decides too, superseded, so a record cci refuses leaves none of them asking him; stamped names the record once it stores."""
     with state.edit(name) as data:
         for made, questions, deciding in zip(posts, closes, decided, strict=True):
             closed = state.new_close("answered" if made["kind"] == "answer" else "withdrawn", made["text"], made.get("url"), ruling=(made.get("attr") or {}).get("ruling"))
             for job_id, question in questions:
-                if (kept := state.question_in(data["jobs"][job_id], question))["closed"] is None:
-                    superseded.end(data, job_id, kept, closed)
+                if view.answerable(kept := state.question_in(data["jobs"][job_id], question), made.get("url")):
+                    superseded.end(data, job_id, kept, closed | {"replaces": kept["closed"]})
             for job_id, older, question in deciding:
                 if (kept := state.question_in(data["jobs"][job_id], older))["closed"] is None:
                     superseded.end(data, job_id, kept, superseded.superseded_by(closed, question))
@@ -749,7 +750,7 @@ def ended_by(closed: dict, made: dict, seq: str | None = None) -> bool:
 
 
 def keep_undelivered(name: str, posts: list[dict], seqs: list[str], closes: list[list[tuple[str, dict]]], found: dict, since: str | None = None) -> None:
-    """Hold each answer of his verbatim, under a fresh Orca request id, on every job it frees: the job its attr names and each whose question it ends while they are not finished, and every builder not finished that waits on one of them or on the card it answers, or builds one's research or design, each made by `since`, when he gave it, so the watch sends it to a running builder, hands it to the next worker of one that returned and launches one never started with it in its brief, with no session's turn between; an Undo tap takes the answer it undoes off those jobs."""
+    """Hold each answer of his verbatim, under a fresh Orca request id, on every job it frees: the job its attr names and each whose question it ends while they are not finished, each whose question it ends in place of his tap whatever its state, since that job heard the tap, and every builder not finished that waits on one of them or on the card it answers, or builds one's research or design, each made by `since`, when he gave it, so the watch sends it to a running builder, hands it to the next worker of one that returned and launches one never started with it in its brief, with no session's turn between; an Undo tap takes the answer it undoes off those jobs."""
     answers = [(made, seq, questions) for made, seq, questions in zip(posts, seqs, closes, strict=True) if made["kind"] == "answer"]
     if not answers:
         return
@@ -758,7 +759,8 @@ def keep_undelivered(name: str, posts: list[dict], seqs: list[str], closes: list
             attrs = made.get("attr") or {}
             asking = list(dict.fromkeys(filter(None, [state.named_job(data, attrs), *(job_id for job_id, _ in questions)])))
             cards = {attrs.get("waits"), *(drawn for _, question in questions for drawn in (question["waits"], question["card"]))} - {None}
-            for job_id in hearers(data, asking, cards, since):
+            tapped = [job_id for job_id, job in data["jobs"].items() for question in job["questions"] if (closed := question["closed"]) and closed["replaces"] and ended_by(closed, made, seq)]
+            for job_id in dict.fromkeys([*hearers(data, asking, cards, since), *tapped]):
                 kept = data["jobs"][job_id]["undelivered"]
                 if "undone" in attrs:
                     superseded.unhold(data["jobs"][job_id], attrs["undone"])
@@ -799,10 +801,11 @@ def his_cards(name: str) -> dict:
 
 
 def closed_by(data: dict, index: int, made: dict, order: str | dict | None) -> list[tuple[str, dict]]:
-    """The open job questions this record's words end, each by its job: each its waits id, `thread_card` or `card:<thread_ts>` topic names or whose card his message sits under, whatever thread the record names, with each these same words ended on a call cci refused, which this call sends again; his answer naming only questions that already ended otherwise is refused, posting nothing, since his answer on each is recorded already, while a record whose link is not where he said its words ends none and goes out as it is."""
+    """The open job questions this record's words end, each by its job: each its waits id, `thread_card` or `card:<thread_ts>` topic names or whose card his message sits under, whatever thread the record names, with each his tap closed that his answer replaces by view.answerable and each these same words ended on a call cci refused, which this call sends again; his answer naming only questions that already ended otherwise is refused, posting nothing, since his answer on each is recorded already, while a record whose link is not where he said its words ends none and goes out as it is."""
     attrs = made.get("attr") or {}
     named = superseded.closing(data, made["kind"], attrs | {"order": order or attrs.get("order")}, made.get("topic"), made.get("re") or [], made.get("url"))
-    if questions := [(job_id, question) for job_id, question in named if question["closed"] is None or ended_by(question["closed"], made)]:
+    answering = made.get("url") if made["kind"] == "answer" else None
+    if questions := [(job_id, question) for job_id, question in named if view.answerable(question, answering) or ended_by(question["closed"], made)]:
         return questions
     if made["kind"] != "answer" or "undone" in attrs or not (attrs.get("job") or attrs.get("thread_card")) or not superseded.said_at(data, made.get("url")):
         return []
@@ -813,9 +816,9 @@ def closed_by(data: dict, index: int, made: dict, order: str | dict | None) -> l
         )
     raise DriveError(
         f"{index}: refused, nothing posted: the question this answer names ended already, so his answer on it is"
-        " recorded already: a tap or its number typed needs nothing more, and words he wrote are a message from him:"
-        ' a question of fact, an order, one proposing a way such as "why not just X?" included, which replaces his'
-        " tap with X, or a ruling"
+        " recorded already: a tap or its number typed needs nothing more, words he wrote under its card within ten"
+        " minutes of his tap on it replace the tap as this answer, and any other words he wrote are a message from him:"
+        ' a question of fact, an order, one proposing a way such as "why not just X?" included, or a ruling'
     )
 
 
