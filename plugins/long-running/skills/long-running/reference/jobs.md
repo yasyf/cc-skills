@@ -21,33 +21,23 @@ Contents:
   session starts its agents and posts its reports, and the watch sends it the order's lines. The
   coordinator starts no agent on it and sends `meta@<drive>` a `defect` record naming the job and its
   `Read your brief first:` line.
-- At most eight builders hold this Mac's builder slots at once: each builder job here the watch's
-  `FREE` line gave its turn for a slot whose agent has not started yet, each job on a Sprite whose
-  turn to move here came, for the 30 minutes its launch may take or until its lane here starts, each builder the `agent_brief`
+- At most eight builders hold this Mac's builder slots at once: each builder the `agent_brief`
   hook let an Agent call start here, from that call until its agent's first step records it, so a burst of starts fills the
   cap rather than passing it, each agent here still in its turn, and each Orca
   worker started here with `drive job launch --local` while it launches or runs. An agent that ended its turn, on a result line or a question, does not count, nor
-  does a launch that started no worker or a lane on a Sprite, nor a job freed from a card, PR or other wait whose agent has not started. `drive job add builder` past eight, or
-  while builders wait their turn, records the job to start on a Sprite at once, `where` remote, and
+  does a launch that started no worker or a lane on a Sprite, nor a job freed from a card, PR or other wait whose agent has not started. `drive job add builder` past eight records the job to start on a Sprite at once, `where` remote, and
   prints why, naming each builder it counted with its order and when its agent last wrote, and its
   `drive job launch <j> <brief>`. A builder whose brief declares a step only this Mac runs, on its
-  `Mac:` or `Release:` line below, or on an open incident's order or an `immediate fix` part, never
-  waits its turn: it starts here at once past the cap and the line, by his picks "Decide at start:
+  `Mac:` or `Release:` line below, or on an open incident's order or an `immediate fix` part,
+  starts here at once past the cap, by his picks "Decide at start:
   a brief naming a Mac-only step starts here at any load" and "Start at once past the cap", since a
   Sprite never runs that step, and holds a slot against later builders once it runs.
   A builder added with `drive job add builder --order <o> --goal "<goal>" --builds-nothing`, one whose whole work holds no
   checkout or compiler, such as a read, or one whose goal reads `prove <PRs> live`, a merged PR's
   live proof, marked or not, holds no slot at all: it starts
-  here at once past the cap and the line, and no later builder counts it. `drive job set <j> --builds-nothing`
+  here at once past the cap, and no later builder counts it. `drive job set <j> --builds-nothing`
   marks a builder already added the same way, a waiting one included, so a message wakes it past a full
-  cap and one waiting its turn leaves the line.
-  A job a drive still holds on `builder-slot`, from before such a brief started at once, waits its
-  turn: `drive status` shows its place, the watch reads it waiting, never abandoned, and each watch
-  pass gives each open slot to the one due first, the earliest time promised him on an order it
-  serves, then the oldest added, its `FREE` line going once to the session holding its order, or
-  starting its move here itself with `drive job launch <j> --local`. The `agent_brief` hook refuses
-  any other builder here while one waits its turn, naming each builder it counted, and it starts on
-  a Sprite at once with `drive job launch <j> <brief>`.
+  cap.
   Every start here meets this one count, and no judge lifts its refusal: an Agent call, through the
   `agent_brief` hook; `drive job launch --local`, for a first lane, which starts on a Sprite the
   same way; a move from a Sprite or a takeover from an agent here, which only a brief declaring
@@ -85,8 +75,8 @@ Contents:
   job's own PR reaches its Sprite lane. Such a brief starts here
   at any load, and `drive job launch <j>` refuses its Sprite start, naming the step: start it with
   the Agent tool or with `--local`. A brief whose writer left its `Mac:` line out starts on a Sprite,
-  which refuses or lacks the step. A refused builder starts on its own Sprite with `drive job launch <j>`,
-  which also starts one waiting its turn there at once. A Sprite holds no Buildkite token or Datadog
+  which refuses or lacks the step. A refused builder starts on its own Sprite with `drive job launch <j>`.
+  A Sprite holds no Buildkite token or Datadog
   key and reads Datadog with `drive datadog`, which runs on this Mac with ai-oncall's keys; its AWS session reads Buildkite and starts `ci db-read` builds only through the sprite door, and `ci mac-box` and `ci devbox` run on this Mac's machine profile
   through `DEVBOX_AWS_PROFILE`, with no sign-in. Readers, codex jobs and any job that touches this
   Mac's processes always run here.
@@ -122,8 +112,8 @@ refuses a builder whose brief lacks `Serves:`
 or `Handoff:`, whose `Serves:` names none of the three, whose job no worker started while a wait of its still holds, as `drive job launch` refuses it, so it starts on its `FREE` line, or whose Goal's own action backfills,
 bulk-repairs, migrates, converts or repairs, or runs such a pass, with no `Runs as:` line; a Goal
 that only names a PR, stack or check for a pass is not one; and a builder, other than one on an
-open incident's order or an `immediate fix` part, building nothing, marked with `--builds-nothing` or its goal reading `prove <PRs> live`, or whose brief declares a step only this Mac runs, while eight hold this Mac's builder slots or one
-waits its turn ahead of it, sending it to a Sprite at once. The `scratch_folder` hook refuses a build
+open incident's order or an `immediate fix` part, building nothing, marked with `--builds-nothing` or its goal reading `prove <PRs> live`, or whose brief declares a step only this Mac runs, while eight hold this Mac's builder slots,
+sending it to a Sprite at once. The `scratch_folder` hook refuses a build
 order's builder, designer or codex lane whose brief lacks the `Researched:` line the `brief` op
 writes once its reader's or design's research is kept, the one check of that research, since `drive job add`
 adds such a job at once, unless its job ships the order's `immediate fix` part or its `Handoff:` line hands it a PR
@@ -138,7 +128,7 @@ job, and its first call after a prompt that reached it after its return, such as
 marks the job running again, when its type is one the job's kind runs as: `long-running:builder` on a builder, `long-running:reader` on a reader,
 `long-running:designer` on a design job, and an incident's second-lane `long-running:builder` on
 a codex job; a call or stop after its return with no such prompt leaves
-the return standing. Every worker start runs its job, a stopped one included, and ends its turn in line for a builder slot: this record, `drive job launch`, a `drive job resume` of a job not stopped, which refuses a stopped one, and `drive job set <j> --agent` naming a worker other
+the return standing. Every worker start runs its job, a stopped one included: this record, `drive job launch`, a `drive job resume` of a job not stopped, which refuses a stopped one, and `drive job set <j> --agent` naming a worker other
 than the one recorded. Each start also ends a question the job's last lane asked, holding that lane's said line for the new worker, dated when the lane asked and sent by no one, so a brief, handoff or opening prompt quoting it takes it off and one lacking it leaves it to the watch's `ANSWER undelivered` line, never an `ORPHAN`; `drive job set <j> --agent` naming an agent on this Mac hears that agent's opening prompt, as its first step would. A pass of a standing part is the exception: the watch alone starts each, so `drive job launch` and `drive job resume` refuse one that finished, done, failed or stopped. Only the agent a stop left on its job keeps the stop, so that agent's later return is kept in the job's history and sets nothing, and the agent ends on its line. An agent of any other type is never recorded this way, even
 when its brief, the brief file it names or the record it is briefed with names a job: a
 `long-running:handler` started to run `drive job launch <j>` leaves `<j>` to the lane it launches

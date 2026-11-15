@@ -164,14 +164,14 @@ def onward(data: dict, subject: str, cards: dict | None) -> list[str]:
 
 
 def mover(data: dict, key: str, waits: list[str], cards: dict | None) -> str:
-    """Who moves the PR past the waits that still hold, at the ends ends() walks them to: him while one is his to move, by his(); else, at the first, the job at work there, a PR standing for the job answering for it, by owner_job(), so the stage's deadline wakes that job's lane; the watch for a builder slot on this Mac, which it gives; and the session holding the PR's order for a release, a staging soak commit, a process on this Mac, a teammate's reply to the drive's question, a part no job carries or waits that only come back to the PR."""
+    """Who moves the PR past the waits that still hold, at the ends ends() walks them to: him while one is his to move, by his(); else, at the first, the job at work there, a PR standing for the job answering for it, by owner_job(), so the stage's deadline wakes that job's lane; and the session holding the PR's order for a release, a staging soak commit, a process on this Mac, a teammate's reply to the drive's question, a part no job carries or waits that only come back to the PR."""
     found = ends(data, waits, cards, {key})
     if any(his(data, end, cards) for end in found):
         return HIM
     end = owner_job(data, found[0]) if found and found[0] in data["prs"] else next(iter(found), None)
     if end in data["jobs"]:
         return end
-    return WATCH if end == state.SLOT_WAIT else ORDER
+    return ORDER
 
 
 def his(data: dict, wait: str, cards: dict | None) -> bool:
@@ -261,7 +261,7 @@ def holds_now(data: dict, job_id: str) -> str:
     """The block that ends every handoff, resume brief and resume text a job's worker gets: the drive's one read, as that worker starts or hears it, of each wait of the job still holding by view.holding, the cards its own open questions are drawn on among them, each card of his by its question and link, and what of his holds each of its open PRs by held(), so no worker takes an older line, report or message for what holds them now."""
     job = data["jobs"][job_id]
     waits = view.holding(data, view.stored_waits(data, [*job["waits"], *view.open_cards(job)]), None)
-    lines = [f"- It waits on {waited_on(data, wait)}." for wait in waits if wait != state.SLOT_WAIT]
+    lines = [f"- It waits on {waited_on(data, wait)}." for wait in waits]
     lines += [f"- {pr['url']}: {held(data, pr) or 'nothing of his holds it'}." for pr in data["prs"].values() if pr["url"] in job["prs"] and pr["state"] == "open"]
     return f"{state.HOLDS_NOW}\n\nWhat holds this job and its PRs as the drive reads it now, over any line, report or message above:\n" + ("\n".join(lines) or "- Nothing: it waits on nothing and has no open PR.") + "\n"
 

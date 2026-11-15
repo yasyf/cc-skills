@@ -151,7 +151,6 @@ STAGING_GOAL = re.compile(r"\bstaging\b", re.IGNORECASE)
 APPLY_STEP = re.compile(r"apply-(?P<target>.+?)--(?P<env>.+)")
 CASE_LINE = re.compile(r"^CASE[ \t]+[^:\n]+:[ \t]*(.*?)[ \t]*$", re.MULTILINE)
 PASSED_CASE = re.compile(r"pass(?:ed)?\b", re.IGNORECASE)
-SLOT_WAIT = "builder-slot"
 HOLDS_NOW = "## Holds now"
 REPLY_WAIT = re.compile(r"reply:(?P<link>https://[\w.-]+/archives/[A-Z0-9]+/p\d{16}(?:\?[^\s,;]*)?)")
 PROVER_GOAL = re.compile(r"prove (?P<keys>.+) live")
@@ -1523,10 +1522,10 @@ def resumed(job: dict) -> str | None:
 
 
 def start(job: dict) -> None:
-    """Run the job a worker started on, a stopped one included, its turn for a builder slot on this Mac over, so the drive keeps the return of each worker it lets start and when it started. A question the worker before it asked ends here, handed on as a text the job holds, that lane's said line dated when it asked and sent by no one, which the text this worker started on takes off by superseded.hear when it quotes it, so no question of a worker gone reads unanswered while this one runs that step."""
+    """Run the job a worker started on, a stopped one included, so the drive keeps the return of each worker it lets start and when it started. A question the worker before it asked ends here, handed on as a text the job holds, that lane's said line dated when it asked and sent by no one, which the text this worker started on takes off by superseded.hear when it quotes it, so no question of a worker gone reads unanswered while this one runs that step."""
     if job.get("ask"):
         hold_text(job, job["said"], None, job["ask_at"])
-    job.update(state="running", ask=None, waits=[wait for wait in job["waits"] if wait != SLOT_WAIT], updated=stamp(), worker_started=stamp())
+    job.update(state="running", ask=None, updated=stamp(), worker_started=stamp())
 
 
 def started_after(job: dict, moment: str) -> bool:
@@ -4089,8 +4088,8 @@ def followed_builds(orders: dict[str, dict]) -> set[str]:
 
 
 def card_wait(data: dict, wait: str) -> bool:
-    """Whether a wait names a card of his, by its Slack link or waits id, rather than a job, a PR, tracked or not, a part of an order, a release of the drive, a staging test's soak commit, a process on this Mac, a Buildkite build, a teammate's reply to a question the drive asked them or a builder slot on this Mac."""
-    return wait not in data["jobs"] and wait not in data["prs"] and not part_wait(data, wait) and not RELEASE_WAIT.fullmatch(wait) and not STAGING_WAIT.fullmatch(wait) and not PID_WAIT.fullmatch(wait) and not github.BUILD.fullmatch(wait) and not REPLY_WAIT.fullmatch(wait) and not untracked_wait(data, wait) and wait != SLOT_WAIT
+    """Whether a wait names a card of his, by its Slack link or waits id, rather than a job, a PR, tracked or not, a part of an order, a release of the drive, a staging test's soak commit, a process on this Mac, a Buildkite build, or a teammate's reply to a question the drive asked them."""
+    return wait not in data["jobs"] and wait not in data["prs"] and not part_wait(data, wait) and not RELEASE_WAIT.fullmatch(wait) and not STAGING_WAIT.fullmatch(wait) and not PID_WAIT.fullmatch(wait) and not github.BUILD.fullmatch(wait) and not REPLY_WAIT.fullmatch(wait) and not untracked_wait(data, wait)
 
 
 def job_wait_refusal(data: dict, waits: list[str]) -> str | None:

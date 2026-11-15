@@ -15,8 +15,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from conftest import DRIVE_TERMINAL, LEAD, RESEARCH, SHORT_ASK, UNFROZEN, Answers, CodexAsk, drawn_card, Draws, Jev, Judge, Receiver, Redraws, Thread, WatchProcess, Withdrawals, carrying, codex_reply, commit_files, git_in, said_lines, staged, waiting_its_turn
-from drive import agents, card, cli, codex, github, install, land, launchd, limits, orca, place, reads, receiver, render, served, settled, slack, stage, stall, state, superseded, talk, view, watch
+from conftest import DRIVE_TERMINAL, LEAD, RESEARCH, SHORT_ASK, UNFROZEN, Answers, CodexAsk, drawn_card, Draws, Jev, Judge, Receiver, Redraws, Thread, WatchProcess, Withdrawals, carrying, codex_reply, commit_files, git_in, said_lines, staged
+from drive import agents, card, cli, codex, github, install, land, launchd, limits, orca, reads, receiver, render, served, settled, slack, stage, stall, state, superseded, talk, view, watch
 
 KEY = "Forge-AI/monorepo#42"
 OTHER = "Forge-AI/monorepo#43"
@@ -4582,46 +4582,6 @@ def test_a_job_waiting_on_a_codex_job_holds_through_its_handoff_a_pointer_report
     ]
 
 
-def test_a_builder_waiting_its_turn_for_a_slot_is_no_orphan_and_the_watch_frees_the_earliest_due_once_as_each_slot_opens_while_old_held_work_holds_none(
-    demo: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    serve(monkeypatch, {})
-    monkeypatch.setattr(watch, "local_gap", lambda job_id, job, data, moment: None if job.get("agent") else REAL_LOCAL_GAP(job_id, job, data, moment))
-    with state.edit(demo) as data:
-        data["prs"].clear()
-        data["jobs"]["j1"].update(prs=[], agent="a1", session="session-under-test")
-        for number in range(2, place.LOCAL_BUILDERS + 1):
-            data["jobs"][f"j{number}"] = job(agent=f"a{number}", session="session-under-test")
-        data["orders"]["o1"]["jobs"] = [f"j{number}" for number in range(1, place.LOCAL_BUILDERS + 2)] + ["j12"]
-        months_ago = state.stamp(T0 - timedelta(days=90))
-        data["jobs"]["j12"] = job(state="waiting", questions=[state.new_question(None, "Which store?", months_ago, card=CARD)], created=months_ago, updated=months_ago)
-        data["orders"]["o2"] = order(text="fix the card", jobs=["j10"])
-        data["orders"]["o3"] = order(text="fix the watch", jobs=["j11"])
-        for job_id, order_id, added in (("j9", "o1", 10), ("j10", "o2", 20), ("j11", "o3", 30)):
-            data["jobs"][job_id] = job(order=order_id, session="session-under-test", created=state.stamp(T0 - timedelta(minutes=added)), updated=state.stamp(T0 - timedelta(minutes=10)))
-            waiting_its_turn(data["jobs"][job_id], T0 - timedelta(minutes=10))
-    watching = watcher(demo)
-    assert watch.run_pass(watching, T0) == []
-    assert place.positions(state.load(demo)) == {"j11": "1 of 3 in line", "j10": "2 of 3 in line", "j9": "3 of 3 in line"}
-    assert watch.run_pass(watching, T0 + timedelta(minutes=31)) == []
-    with state.edit(demo) as data:
-        data["jobs"]["j2"]["state"] = "done"
-    freed = T0 + timedelta(minutes=33)
-    assert watch.run_pass(watching, freed) == ["FREE j11 o3: its turn came as a builder slot opened on this Mac, 7 of its 8 held, nothing else holds it"]
-    data = state.load(demo)
-    assert {field: data["jobs"]["j11"][field] for field in ("state", "waits", "agent", "slot")} == {"state": "waiting", "waits": [], "agent": None, "slot": state.stamp(freed)}
-    assert place.turns(data, freed) == ([], place.LOCAL_BUILDERS)
-    assert "j12" not in place.local_builders(data, freed)
-    assert watch.run_pass(watching, T0 + timedelta(minutes=35)) == []
-    with state.edit(demo) as data:
-        data["jobs"]["j11"].update(state="running", agent="a11")
-    assert watch.run_pass(watching, T0 + timedelta(minutes=37)) == []
-    with state.edit(demo) as data:
-        data["jobs"]["j3"]["state"] = "done"
-    assert watch.run_pass(watching, T0 + timedelta(minutes=39)) == ["FREE j10 o2: its turn came as a builder slot opened on this Mac, 7 of its 8 held, nothing else holds it"]
-    assert place.waiting_builders(state.load(demo)) == ["j9"]
-
-
 def live_reads(monkeypatch: pytest.MonkeyPatch, serving: list[dict] | None = None, carried: set[str] | None = None) -> list[list[str]]:
     calls = []
 
@@ -6066,26 +6026,17 @@ def test_each_open_pr_of_a_job_in_any_repository_waits_on_each_staging_test_anot
     assert (now.name, now.owner, now.why) == ("waiting", "j2", "it waits on its staging run by j2, running")
 
 
-@pytest.mark.parametrize(
-    ("waits", "said", "owner"),
-    [
-        ([OTHER, state.SLOT_WAIT], "waits its turn for a builder slot on this Mac", stage.WATCH),
-        ([OTHER], f"WAITING {state.pr_url(OTHER)} to merge: then it soaks both on staging", "j4542"),
-    ],
-    ids=["its tester waits on a builder slot", "its tester waits on the other PR it tests"],
-)
-def test_replayed_56550_an_approved_pr_waiting_only_on_its_staging_tester_reads_waiting_on_that_run_never_blocked_on_his_approve_of_the_tester_s_other_pr(
-    demo: str, waits: list[str], said: str, owner: str
-) -> None:
+def test_replayed_56550_an_approved_pr_waiting_only_on_its_staging_tester_reads_waiting_on_that_run_never_blocked_on_his_approve_of_the_tester_s_other_pr(demo: str) -> None:
+    said = f"WAITING {state.pr_url(OTHER)} to merge: then it soaks both on staging"
     with state.edit(demo) as data:
         data["orders"]["o2"] = order(jobs=["j4542"])
-        data["jobs"]["j4542"] = job(order="o2", state="waiting", goal="soak #42 and #43 on staging", builds_nothing=True, waits=waits, said=said)
+        data["jobs"]["j4542"] = job(order="o2", state="waiting", goal="soak #42 and #43 on staging", builds_nothing=True, waits=[OTHER], said=said)
         data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"head": "aaaaaaa111", "checks": "pass", "review": "approved", "waits": ["j4542"]}
         data["prs"][KEY] |= {"checks": "pass", "review": "approved", "waits": ["j4542"]}
     approve(demo, KEY)
     data, cards = state.load(demo), NO_CARDS | {"pr_cards": [pr_card(OTHER)]}
     assert stage.of(data, OTHER, cards).owner == stage.HIM
-    assert stage.of(data, KEY, cards) == stage.Stage("waiting", owner, f"it waits on its staging run by j4542, {said}")
+    assert stage.of(data, KEY, cards) == stage.Stage("waiting", "j4542", f"it waits on its staging run by j4542, {said}")
     assert his_card_row(demo, KEY)["blocks"] == f"Approved by you. Lands once its staging run by j4542 passes ({said})"
 
 

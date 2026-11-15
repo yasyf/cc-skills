@@ -6,7 +6,7 @@ from pathlib import Path
 
 import agent_brief
 import pytest
-from conftest import RESEARCH, kept_brief, waiting_its_turn
+from conftest import RESEARCH, kept_brief
 from drive import agents, brief, place, state, view, watch
 from drive.render import when
 
@@ -159,7 +159,6 @@ def test_a_ninth_builder_here_starts_on_a_sprite_at_once_and_one_whose_brief_run
     assert agent_brief.deny_reason(briefed("long-running:builder", f"{sprite}order o1, job j10")).startswith(
         "refused: 9 builders already run on this Mac, its cap of 8 (j1 on o3, its agent launching since "
     )
-    assert place.waiting_builders(state.load(demo)) == []
 
 
 def test_an_open_incidents_fix_builder_and_an_immediate_fix_start_here_at_once_while_eight_hold_the_slots_and_others_start_on_a_sprite(demo: str, run: Run) -> None:
@@ -182,7 +181,7 @@ def test_a_builder_whose_wait_still_holds_starts_here_only_on_its_free_line_by_t
     run("job", "add", "builder", "--order", "o1", "--part", "the reads", "--goal", "build the reads", "--waits", "j1")
     brief = "Order (his words): copy one store\nServes: his order\nGoal: build it\nDrive: demo, order o1, job "
     refused = "j2 waits on j1: launch it on the watch's FREE line, which comes once the last wait ends"
-    assert view.start_refusal(state.load(demo), "j2", True) == refused
+    assert view.start_refusal(state.load(demo), "j2") == refused
     assert agent_brief.deny_reason(briefed("long-running:builder", f"{brief}j2")) == f"refused: {refused}"
     assert agent_brief.deny_reason(briefed("long-running:builder", f"{brief}j1")) is None
     with state.edit(demo) as data:
@@ -195,8 +194,6 @@ def test_a_builder_added_to_build_nothing_such_as_an_agentinbox_live_proof_start
     for number in range(1, 9):
         run("job", "add", "builder", "--order", "o1", "--part", f"part {number}", "--goal", f"build part {number}", "--agent", f"a{number}")
     run("job", "add", "builder", "--order", "o1", "--part", "docs", "--goal", "tidy the docs")
-    with state.edit(demo) as data:
-        waiting_its_turn(data["jobs"]["j9"], state.now())
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "fix the AgentInbox", "--due", "+1h", "--thread", "1.3")
     assert run("job", "add", "builder", "--order", "o2", "--goal", "prove the AgentInbox fix live: a Datadog APM read", "--builds-nothing") == (0, "j10")
     proof = state.load(demo)["jobs"]["j10"]
@@ -206,11 +203,7 @@ def test_a_builder_added_to_build_nothing_such_as_an_agentinbox_live_proof_start
     run("job", "set", "j10", "--agent", "a10")
     data = state.load(demo)
     assert list(place.local_builders(data, state.now())) == [f"j{number}" for number in range(1, 9)]
-    assert place.turns(data, state.now()) == ([], place.LOCAL_BUILDERS)
-    assert place.waiting_builders(data) == ["j9"]
     assert run("job", "add", "reader", "--order", "o2", "--goal", "read the APM traces", "--builds-nothing")[0] == 2
-    run("job", "set", "j9", "--builds-nothing")
-    assert (state.load(demo)["jobs"]["j9"]["waits"], place.waiting_builders(state.load(demo))) == ([], [])
     dry_run = "Order (his words): tidy the docs\nServes: his order\nGoal: dry-run it\nMac: tools/ci cluster-job reads this Mac's Buildkite token\nDrive: demo, order o1, job j9"
     assert agent_brief.deny_reason(briefed("long-running:builder", dry_run)) is None
     run("job", "add", "reader", "--order", "o2", "--goal", "read the APM traces")

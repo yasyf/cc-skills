@@ -19,7 +19,7 @@ import record_lines
 import role_rules
 import scratch_folder
 import session_start
-from conftest import ACME_CUT, CUT_PICK, CUT_TAP, LEAD, RESEARCH, SANDSQL_NOTE, SHORT_ASK, WRITTEN_AT, answered_cut, cloned, drawn_card, kept_brief, unheld, waiting_its_turn, Answers, Jev, WatchProcess
+from conftest import ACME_CUT, CUT_PICK, CUT_TAP, LEAD, RESEARCH, SANDSQL_NOTE, SHORT_ASK, WRITTEN_AT, answered_cut, cloned, drawn_card, kept_brief, unheld, Answers, Jev, WatchProcess
 from drive import agents, brief, cli, github, land, limits, orca, place, render, settled, state, tools, watch
 
 Run = Callable[..., tuple[int, str]]
@@ -631,13 +631,11 @@ def test_a_step_leaves_a_job_another_agent_runs_and_a_stopped_job_the_agent_its_
     assert [(jobs[job_id]["agent"], jobs[job_id]["state"]) for job_id in ("j1", "j2")] == [("a-1", "running"), ("a-2", "stopped")]
 
 
-def test_a_fresh_agent_started_on_a_stopped_jobs_brief_runs_it_past_its_builder_slot_wait_and_its_return_is_kept(
+def test_a_fresh_agent_started_on_a_stopped_jobs_brief_runs_it_and_its_return_is_kept(
     demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
-    with state.edit("demo") as data:
-        waiting_its_turn(data["jobs"]["j1"], state.now())
     run("job", "set", "j1", "--state", "stopped")
     hook_output(no_file_tools, monkeypatch, capsys, json.dumps(file_call("Edit") | stepped(tmp_path, "Handoff: 681835\nDrive: demo, order o1, job j1")))
     job = state.load("demo")["jobs"]["j1"]

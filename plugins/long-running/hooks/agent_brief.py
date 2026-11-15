@@ -97,9 +97,9 @@ def tooling_refusal(name: str, data: dict, text: str, role: str) -> str:
 
 
 def waiting(data: dict, text: str) -> str | None:
-    """Why a builder starts no agent while a wait of its holds, by the one view.start_refusal drive job launch reads, so it starts on the watch's FREE line here as on a Sprite; its turn for a builder slot on this Mac is crowded's to name."""
+    """Why a builder starts no agent while a wait of its holds, by the one view.start_refusal drive job launch reads, so it starts on the watch's FREE line here as on a Sprite."""
     match = brief.BRIEF_JOB.search(text)
-    refused = view.start_refusal(data, match[1], False) if match and match[1] in data["jobs"] else None
+    refused = view.start_refusal(data, match[1]) if match and match[1] in data["jobs"] else None
     return refused and agents.Unjudged(f"refused: {refused}")
 
 
@@ -119,7 +119,7 @@ def overloaded(data: dict, text: str) -> str | None:
 
 
 def crowded(name: str, data: dict, text: str) -> str | None:
-    """Why no builder starts on this Mac now: its cap's builders hold every other slot, each named, or builders wait their turn ahead of it, unless its brief declares a step only this Mac runs, by place.mac_step, or it builds for an open incident or an immediate fix, any of which starts at once; a refused one starts on a Sprite at once. A job let start is stamped launching, so place.local_builders counts its slot before its agent's first step records the agent, and a burst of starts fills the cap rather than passing it."""
+    """Why no builder starts on this Mac now: its cap's builders hold every other slot, each named, unless its brief declares a step only this Mac runs, by place.mac_step, or it builds for an open incident or an immediate fix, any of which starts at once; a refused one starts on a Sprite at once. A job let start is stamped launching, so place.local_builders counts its slot before its agent's first step records the agent, and a burst of starts fills the cap rather than passing it."""
     match = brief.BRIEF_JOB.search(text)
     job_id = match[1] if match and match[1] in data["jobs"] else None
     moment = state.now()

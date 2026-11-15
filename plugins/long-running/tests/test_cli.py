@@ -15,7 +15,7 @@ from pathlib import Path
 import drive
 import pytest
 import spawnllm
-from conftest import ACME_CUT, CAP_RULING, CARD_BODY, CUT_LINK, CUT_PICK, CUT_TAP, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SAND_NEXT_NOTE, SANDSQL_NOTE, SETTLED_LINE_ANSWERS, SETTLED_LISTED, SETTLED_MATCHED, SETTLED_NOTE, SETTLED_RECORDED, SHORT_ASK, REAL_SESSION_TERMINALS, WRITTEN_AT, answered_cut, carrying, cloned, drawn_card, git_in, kept_research, Answers, explained, Checked, Chrome, Draws, Drawing, Heard, Images, Jev, Judge, MetaLaunches, Redraws, Thread, WatchProcess, Withdrawals, waiting_its_turn
+from conftest import ACME_CUT, CAP_RULING, CARD_BODY, CUT_LINK, CUT_PICK, CUT_TAP, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SAND_NEXT_NOTE, SANDSQL_NOTE, SETTLED_LINE_ANSWERS, SETTLED_LISTED, SETTLED_MATCHED, SETTLED_NOTE, SETTLED_RECORDED, SHORT_ASK, REAL_SESSION_TERMINALS, WRITTEN_AT, answered_cut, carrying, cloned, drawn_card, git_in, kept_research, Answers, explained, Checked, Chrome, Draws, Drawing, Heard, Images, Jev, Judge, MetaLaunches, Redraws, Thread, WatchProcess, Withdrawals
 from drive import (
     agents,
     brief,
@@ -2788,7 +2788,7 @@ def test_job_ask_redraws_the_card_redraws_names_and_settles_a_duplicate_card_of_
 def test_j4239_a_waits_id_typed_without_its_drive_names_the_card_its_drive_stores_and_every_other_wait_stays_as_typed(
     asking: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    others = ["demo:j1-7", asking, "o1", "acme/app#12", "merge:acme:app:12", "release:api:acme/app#12", slack_card(1), state.SLOT_WAIT]
+    others = ["demo:j1-7", asking, "o1", "acme/app#12", "merge:acme:app:12", "release:api:acme/app#12", slack_card(1)]
     assert [state.waits_of("demo", wait) for wait in ["j1-7", *others]] == ["demo:j1-7", *others]
     assert cli.folded_waits("demo", [("j1-7", None), ("j1-8", "j2")]) == [("demo:j1-7", None), ("demo:j1-8", "j2")]
     with state.edit("demo") as data:
@@ -5486,7 +5486,7 @@ def test_a_design_that_kept_a_question_is_kept_with_no_fork_line_and_its_builder
     holding = f", building his recommended option with no PR until he answers {card}" if held else ""
     assert capsys.readouterr().out.splitlines()[-1] == f'j2 builder on "Short title": start its agent now{holding}'
     assert (data["jobs"]["j1"]["said"], data["jobs"]["j2"]["state"], data["jobs"]["j2"]["waits"]) == ("carried by builder j2", "running", [])
-    assert (view.start_refusal(data, "j2", True), land.ship_held(data, "j2")) == (None, [card] if held else [])
+    assert (view.start_refusal(data, "j2"), land.ship_held(data, "j2")) == (None, [card] if held else [])
 
 
 def test_a_builders_ready_says_how_it_reuses_what_its_research_found(
@@ -7699,7 +7699,7 @@ def test_pr_add_on_an_incident_order_refuses_a_revert_unless_it_waits_on_his_tap
     assert run("pr", "add", PR, "--job", "j1", *LEAD)[0] == 0
 
 
-def test_job_add_sends_a_builder_past_the_macs_cap_or_behind_its_line_to_a_sprite_at_once_and_never_refuses_a_monorepo_one_for_load(
+def test_job_add_sends_a_builder_past_the_macs_cap_to_a_sprite_at_once_and_never_refuses_a_monorepo_one_for_load(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(place, "busy", lambda: 0.95)
@@ -7722,34 +7722,23 @@ def test_job_add_sends_a_builder_past_the_macs_cap_or_behind_its_line_to_a_sprit
     assert (routed["state"], routed["waits"], routed["agent"], routed["where"]) == ("running", [], None, "remote")
     with state.edit("demo") as data:
         data["jobs"]["j2"]["state"] = "done"
-        waiting_its_turn(data["jobs"]["j10"], state.now())
-    assert run("job", "add", "builder", "--order", "o1", "--part", "strip 11", "--goal", "land", "--repo", "yasyf/cc-skills")[1].splitlines()[1] == (
-        "j11 starts on a Sprite at once, since builders already wait their turn for a slot on this Mac ahead of it, earliest due first (j10):"
-        f" drive job launch j11 <brief>; {mac_only}"
-    )
-    assert place.waiting_builders(state.load(demo)) == ["j10"]
-    assert "j10 builder waiting: land; waits on a builder slot on this Mac, 1 of 1 in line" in run("status", "o1")[1]
-    assert json.loads(run("status", "o1", "--json")[1])["jobs"]["j10"]["in_line"] == "1 of 1 in line"
+    assert run("job", "add", "builder", "--order", "o1", "--part", "strip 11", "--goal", "land", "--repo", "yasyf/cc-skills")[0] == 0
+    here = state.load(demo)["jobs"]["j11"]
+    assert (here["state"], here["waits"], here["where"]) == ("running", [], "local")
     assert run("job", "add", "reader", "--order", "o1", "--part", "strip 1", "--goal", "read")[0] == 0
 
 
-def test_job_add_starts_an_open_incidents_fix_builder_31st_in_line_and_an_immediate_fix_at_once_past_the_macs_cap(run: Run, demo: str) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "tidy the docs", "--parts", *(f"doc {number}" for number in range(place.LOCAL_BUILDERS + 30)))
+def test_job_add_starts_an_open_incidents_fix_builder_and_an_immediate_fix_at_once_past_the_macs_cap(run: Run, demo: str) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "tidy the docs", "--parts", *(f"doc {number}" for number in range(place.LOCAL_BUILDERS + 1)))
     for number in range(place.LOCAL_BUILDERS):
         assert run("job", "add", "builder", "--order", "o1", "--part", f"doc {number}", "--goal", "build", "--agent", "a")[0] == 0
-    for number in range(place.LOCAL_BUILDERS, place.LOCAL_BUILDERS + 30):
-        assert "starts on a Sprite at once" in run("job", "add", "builder", "--order", "o1", "--part", f"doc {number}", "--goal", "wait")[1]
-    with state.edit(demo) as data:
-        for job in data["jobs"].values():
-            if job["where"] == "remote":
-                waiting_its_turn(job, state.now())
+    assert "starts on a Sprite at once" in run("job", "add", "builder", "--order", "o1", "--part", f"doc {place.LOCAL_BUILDERS}", "--goal", "wait")[1]
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "you broke something again fix this asap", "--incident", "--parts", "fix", "first check")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the card is broken", "--parts", "the card", "immediate fix")
     for order_id, part in (("o2", "fix"), ("o3", "immediate fix")):
         code, added = run("job", "add", "builder", "--order", order_id, "--part", part, "--goal", "fix it")
         job = state.load(demo)["jobs"][added.splitlines()[0]]
         assert (code, job["state"], job["waits"], job["where"], "Sprite" in added) == (0, "running", [], "local", False)
-    assert len(place.waiting_builders(state.load(demo))) == 30
 
 
 def test_job_add_records_an_agent_already_running_past_the_macs_cap_and_its_limit(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:

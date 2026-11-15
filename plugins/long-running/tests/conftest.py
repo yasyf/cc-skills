@@ -239,11 +239,6 @@ def kept_brief(text: str, name: str = "demo") -> str:
     return f"Read your brief first: {path}"
 
 
-def waiting_its_turn(job: dict, moment: datetime) -> None:
-    """Hold a builder job on builder-slot, waiting its turn for the watch's FREE line, as a drive written before a brief declaring a step only this Mac runs started at once past the cap still holds one."""
-    job.update(state="waiting", where="local", waits=[*job["waits"], state.SLOT_WAIT], slot=None, said="waits its turn for a builder slot on this Mac", updated=state.stamp(moment))
-
-
 def carrying(head: str, carried: dict[str, list[str]]) -> dict:
     return {"head": head, "pid": 1, "at": state.stamp(), "outcome": "CHECKED", "orders": None, "answers": None, "against": "", "carried": carried}
 
