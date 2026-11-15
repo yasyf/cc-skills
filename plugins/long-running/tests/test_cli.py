@@ -5397,6 +5397,21 @@ def test_a_done_on_a_staging_test_part_names_its_cases_and_one_whose_case_failed
         cli.answered_by("demo", "o1", staging, "https://github.com/Forge-AI/monorepo/pull/42")
 
 
+def test_a_staging_testers_full_pass_delivers_only_the_part_whose_pr_it_names_and_one_naming_none_is_refused_as_j4683s_left_55051_delivered(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    tested, untested = "staging test of #42 before it lands", "staging test of #43 before it lands"
+    run("order", "add", "--title", "Soak it", "--project", "The drive", "--workstream", "Drive tooling", "soak it", "--kind", "build", "--parts", tested, untested)
+    assert run("job", "add", "builder", "--order", "o1", "--part", tested, "--part", untested, "--goal", "soak #42 and #43 on staging", "--builds-nothing")[0] == 0
+    results = tmp_path / "results.txt"
+    results.write_text("case 1 passed\n")
+    code, err = keep(monkeypatch, capsys, "j1", f"DONE the staging test passed on cut 1\nCHECK: {results}\nCASE 1 a rollback refused: pass\n")
+    assert (code, f'j1 holds "{tested}", and its DONE names no PR its staging test tested, so it delivers none of its staging test parts:' in err) == (2, True)
+    assert keep(monkeypatch, capsys, "j1", f"DONE every case of https://github.com/Forge-AI/monorepo/pull/42 passed on cut 1\nCHECK: {results}\nCASE 1 a rollback refused: pass\n")[0] == 0
+    data = state.load("demo")
+    assert [state.delivered(data, "o1", part) for part in (tested, untested)] == [True, False]
+
+
 def test_a_drive_tooling_yasyf_pr_wanting_no_tap_may_land_untapped_as_the_lander_lands_it(run: Run, with_pr: str, meta: str) -> None:
     run("order", "set", "o1", "--kind", "build")
     run("start", "demo", "--role", "meta")

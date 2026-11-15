@@ -3177,7 +3177,7 @@ def carded(job: dict, asked: datetime) -> bool:
 
 
 def job_gap(watcher: Watcher, job_id: str, job: dict, data: dict, order_id: str, part: str, moment: datetime) -> str | None:
-    """Why the job leaves the order's part with no one, None when it carries it or is a design its builder carries, or SETTLING while a change in the last two minutes is still being handed over; a builder that took DONE at its merge carries it only through the builder proving it live; a done tester leaves a staging test part it ran no full pass of waiting on a rerun; a local job no agent has taken settles one minute only, since its agent's first step records it within seconds of starting; a waiting job nothing can wake also names what its line names that ended or moved; a builder stopped before any agent took it carries the part by the PRs the drive does not track that it holds, by untracked_gap."""
+    """Why the job leaves the order's part with no one, None when it carries it or is a design its builder carries, or SETTLING while a change in the last two minutes is still being handed over; a builder that took DONE at its merge carries it only through the builder proving it live; a done tester leaves a staging test part whose PR it ran no full pass of waiting on a rerun; a local job no agent has taken settles one minute only, since its agent's first step records it within seconds of starting; a waiting job nothing can wake also names what its line names that ended or moved; a builder stopped before any agent took it carries the part by the PRs the drive does not track that it holds, by untracked_gap."""
     if moment - state.parse_time(job["updated"]) < (UNSTARTED_FOR if unstarted(job) else HANDOFF):
         return SETTLING
     if job["state"] == "running":
@@ -3207,7 +3207,7 @@ def job_gap(watcher: Watcher, job_id: str, job: dict, data: dict, order_id: str,
                 f" `tools/ci release select --pr` read of {', '.join(reported_prs(data, job_id))} answers"
             )
         if state.STAGING_PART.fullmatch(part) and job["kind"] in state.CHANGE_KINDS:
-            return f"{job_id}'s DONE is no full pass, a CASE line of it reading other than pass or none there, so the part waits on a rerun: drive job add builder --order {order_id} --part {shlex.quote(part)} --goal '<rerun it>'"
+            return f"{job_id}'s DONE is no full pass of its PR, a CASE line of it reading other than pass, none there or no line naming the PR, so the part waits on a rerun: drive job add builder --order {order_id} --part {shlex.quote(part)} --goal '<rerun it>'"
         if state.unposted_answer(data, job_id):
             return f"{job_id} answered and the answer is not posted to him"
         if state.design_builder(data, job_id):
