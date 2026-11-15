@@ -356,7 +356,7 @@ def wait_words(drive: dict, wait: str, found: dict | None) -> str:
         pr = drive["prs"][wait]
         return f"{pr_link(pr)} lands" + (f", which waits on your Approve on {link('its card', card)}" if (card := tap_card(pr, found)) else "")
     if release := state.RELEASE_WAIT.fullmatch(wait):
-        return f"the {release['service']} release carrying {pr_link(drive['prs'][release['pr']])} is out"
+        return f"the {release['service']} release carrying {pr_link(drive['prs'][release['pr']])} is out" + (f" on {release['env']}" if release["env"] else "")
     if staging := state.STAGING_WAIT.fullmatch(wait):
         return f"{staging['env']} runs {staging['target']} at {staging['commit'][:12]} or a build carrying it"
     if part := state.part_wait(drive, wait):
@@ -792,7 +792,7 @@ def wait_entry(drive: dict, wait: str, found: dict) -> dict:
     if wait in drive["prs"]:
         return {"title": f"{wait} merging: {cut(pr_title(drive['prs'][wait]), TITLE_CHARS)}", "url": state.pr_url(wait)}
     if release := state.RELEASE_WAIT.fullmatch(wait):
-        return {"title": f"the release of {release['service']} carrying {release['pr']}", "url": state.pr_url(release["pr"])}
+        return {"title": f"the release of {release['service']} carrying {release['pr']}" + (f" on {release['env']}" if release["env"] else ""), "url": state.pr_url(release["pr"])}
     if staging := state.STAGING_WAIT.fullmatch(wait):
         return {"title": f"{staging['env']} running {staging['target']} at {staging['commit'][:12]} or a build carrying it", "url": f"https://github.com/{state.MONOREPO}/commit/{staging['commit']}"}
     if part := state.part_wait(drive, wait):

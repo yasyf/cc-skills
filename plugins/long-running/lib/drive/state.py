@@ -132,7 +132,7 @@ PR_URL = re.compile(r"(?:https?://)?github\.com/([^/\s]+)/([^/\s]+)/pull/(\d+)")
 MERGED_LINE = re.compile(rf"DONE (?:{PR_URL.pattern} )+merged: ")
 HELD_DONE = re.compile(rf"WAITING (?:{PR_URL.pattern} )+to merge: DONE\b")
 MERGE_COMMIT = re.compile(r"https://github\.com/(?P<repo>[^/\s]+/[^/\s]+)/commit/[0-9a-f]{7,40}")
-RELEASE_WAIT = re.compile(r"release:(?P<service>[\w.-]+):(?P<pr>[^/\s#]+/[^/\s#]+#\d+)")
+RELEASE_WAIT = re.compile(r"release:(?P<service>[\w.-]+):(?P<pr>[^/\s#]+/[^/\s#]+#\d+)(?:@(?P<env>[\w.-]+))?")
 STAGING_WAIT = re.compile(r"staging:(?P<target>[\w.-]+)/(?P<env>[\w.-]+)@(?P<commit>[0-9a-f]{7,40})")
 STAGING_TEST = "staging test of #{number} before it lands"
 STAGING_PART = re.compile(STAGING_TEST.format(number=r"\d+"))
@@ -1477,7 +1477,7 @@ def result_refusal(data: dict, job_id: str, line: str, report: str) -> str | Non
     if re.match(r"WAITING\b", line) and not (job["due"] or view.holding(data, unlooped(data, job_id, job["waits"]), None) or result_waits(data, job_id, line)):
         return (
             "its WAITING names nothing the watch frees it on: name on its first line, the only line its waits are read from, the release as"
-            " release:<service>:<owner>/<repo>#<n>, a staging test's soak commit as staging:<target>/<env>@<commit>, a Buildkite build by its link, https://buildkite.com/<org>/<pipeline>/builds/<n>,"
+            " release:<service>:<owner>/<repo>#<n>, or release:<service>:<owner>/<repo>#<n>@<env> for one env as tools/ci release live names it, a staging test's soak commit as staging:<target>/<env>@<commit>, a Buildkite build by its link, https://buildkite.com/<org>/<pipeline>/builds/<n>,"
             " an open PR the drive tracks, a part of an order not yet delivered as <order>:<part>"
             f" or a process you started on this Mac that still runs as pid:<n>, which wakes {job_id} once it ends, since a PR that merged or closed, a part delivered and a process that ended free it at once,"
             f" and a PR waiting on a part {job_id} carries, as the PR its staging test tests, waits on {job_id} in turn,"
@@ -1543,7 +1543,7 @@ def fix_refusal(data: dict, job_id: str, line: str, report: str) -> str | None:
 
 
 def named_waits(data: dict, order_id: str, line: str) -> list[str]:
-    """The waits a result line names: each release:<service>:<owner>/<repo>#<n> of a PR the drive tracks, each staging:<target>/<env>@<commit>, each Buildkite build it links, by the build's own link, each other drive PR it names, each part it names as <order>:<part>, and each process on this Mac it names as pid:<n> that runs now, by pid_waits."""
+    """The waits a result line names: each release:<service>:<owner>/<repo>#<n>, with its @<env> when it names one, of a PR the drive tracks, each staging:<target>/<env>@<commit>, each Buildkite build it links, by the build's own link, each other drive PR it names, each part it names as <order>:<part>, and each process on this Mac it names as pid:<n> that runs now, by pid_waits."""
     releases = [found[0] for found in RELEASE_WAIT.finditer(line) if found["pr"] in data["prs"]]
     stagings = [found[0] for found in STAGING_WAIT.finditer(line)]
     builds = [found[0] for found in github.BUILD.finditer(line)]
@@ -3653,13 +3653,12 @@ def foreign_pr(data: dict, key: str) -> str | None:
 
 
 def drop_pr(data: dict, key: str) -> None:
-    """Stop tracking a PR, with nothing done on GitHub: its entry, its link on each job, each release wait on it, freed or not, its place in each stack a card drew and each check judged beside it, and each drive pr set --flaky record naming it the fix, whose ejection reads final again; a wait on the PR itself ends as one on a PR the drive no longer tracks."""
+    """Stop tracking a PR, with nothing done on GitHub: its entry, its link on each job, each release wait on it, its place in each stack a card drew and each check judged beside it, and each drive pr set --flaky record naming it the fix, whose ejection reads final again; a wait on the PR itself ends as one on a PR the drive no longer tracks."""
     url = data["prs"].pop(key)["url"]
     for owner in [*data["jobs"].values(), *data["prs"].values()]:
         rewait(owner, [wait for wait in owner["waits"] if not ((release := RELEASE_WAIT.fullmatch(wait)) and release["pr"] == key)])
     for job in data["jobs"].values():
         job["prs"] = [held for held in job["prs"] if held != url]
-        job["shipped"] = [wait for wait in job["shipped"] if RELEASE_WAIT.fullmatch(wait)["pr"] != key]
     for pr in data["prs"].values():
         if pr.get("stack") and key in pr["stack"]:
             pr["stack"] = [member for member in pr["stack"] if member != key]

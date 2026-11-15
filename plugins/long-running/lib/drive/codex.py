@@ -39,7 +39,7 @@ RESULT = {
             "description": (
                 "The rest of the result line after the state word, never repeating it, at most 400 characters, the result itself and never a"
                 " `REPLY_FILE:` pointer to a file holding it, since the drive keeps this reply whole as your report: the proof for DONE, each PR link for"
-                " READY or PUSHED, each open PR the drive tracks, `release:<service>:<owner>/<repo>#<n>`, `<order>:<part>` and `pid:<n>` of a process you started that still runs it waits on for WAITING,"
+                " READY or PUSHED, each open PR the drive tracks, `release:<service>:<owner>/<repo>#<n>[@<env>]`, `<order>:<part>` and `pid:<n>` of a process you started that still runs it waits on for WAITING,"
                 " the only place its waits are read from, since a PR that merged or closed and a part delivered wait on nothing,"
                 " `<branch>, waits on <cards>` for BUILT, the ASK block's file for ASK, what is in the way for BLOCKED, the worktree"
                 " and branch holding your edits and what is left for HANDOFF."

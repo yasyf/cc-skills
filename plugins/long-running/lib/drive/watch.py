@@ -33,7 +33,7 @@ HANDOFF_FACT = "handoff"
 FREED_AGAIN = timedelta(minutes=30)
 LIVE_EVERY = timedelta(minutes=5)
 TELL_AFTER = timedelta(minutes=10)
-WAKES = ("TAP ", "DUE ", "TELL ", "PROVE ", "ORPHAN ", "ANSWER ", "JOB ", "LANE ", "STAGE ", "FREE ", "REWAIT ", "WATCH stopped")
+WAKES = ("TAP ", "DUE ", "TELL ", "PROVE ", "ORPHAN ", "ANSWER ", "JOB ", "LANE ", "STAGE ", "FREE ", "WATCH stopped")
 PR_EVENT = re.compile(r"PR (?P<key>\S+): (?P<change>.+) \[(?P<order>o\d+) (?P<job>j\d+)\]$")
 STAGE_LINE = re.compile(r"STAGE (?P<key>\S+) (?P<name>\w+)\b")
 ENDED = ("merged", "closed", PROOF_FAILED)
@@ -330,7 +330,7 @@ def bare(wait: str) -> str:
 
 
 def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Drop each wait of a job or PR that ended, his card answered, the job finished, the release out by the watch's release live read or its PR closed unmerged, the Buildkite build finished or stopped at an approve step by the watch's Buildkite read, a process on this Mac ended, or a builder slot on this Mac given to the earliest due builder waiting its turn, one per slot no builder holds, and say once, as its last wait ends, that nothing holds it, holding back the job's ORPHAN for 30 minutes, but for a builder's READY or PUSHED whose PRs all merged, which the watch finishes next in the same pass, or else says once as an ORPHAN naming who finishes it; a builder given its slot waits on nothing with no agent yet, its slot stamped with when its turn came, and holds that slot until its agent starts, and one moving here from its Sprite keeps its other waits, its slot stamped, while drive job launch <j> --local, run by start_verb, moves it, a refusal of that launch reaching the watch's lines as its relaunch_refused event; a Sprite job busy reads another drive verb acting on takes its turn on a pass after that verb ends. The cards a job asked him on hold it too, so it keeps its waits until he answers them. A codex job whose process ended holds the text exited_text writes, which carry_held's launch of its next codex-ask run carries, so its FREE line asks nobody to launch it. His open card for a PR whose waits ended is redrawn in place, so it names only the waits that still hold. A job keeps each release wait it was freed of until it finishes, and waits on it again, said as REWAIT, once those reads name a cluster of its service behind, as when a release that failed its Watch puts the build before the fix back."""
+    """Drop each wait of a job or PR that ended, his card answered, the job finished, the release out by the watch's release live read or its PR closed unmerged, the Buildkite build finished or stopped at an approve step by the watch's Buildkite read, a process on this Mac ended, or a builder slot on this Mac given to the earliest due builder waiting its turn, one per slot no builder holds, and say once, as its last wait ends, that nothing holds it, holding back the job's ORPHAN for 30 minutes, but for a builder's READY or PUSHED whose PRs all merged, which the watch finishes next in the same pass, or else says once as an ORPHAN naming who finishes it; a builder given its slot waits on nothing with no agent yet, its slot stamped with when its turn came, and holds that slot until its agent starts, and one moving here from its Sprite keeps its other waits, its slot stamped, while drive job launch <j> --local, run by start_verb, moves it, a refusal of that launch reaching the watch's lines as its relaunch_refused event; a Sprite job busy reads another drive verb acting on takes its turn on a pass after that verb ends. The cards a job asked him on hold it too, so it keeps its waits until he answers them. A codex job whose process ended holds the text exited_text writes, which carry_held's launch of its next codex-ask run carries, so its FREE line asks nobody to launch it. His open card for a PR whose waits ended is redrawn in place, so it names only the waits that still hold. A release wait is a wake the job set, freed by out_because once one cluster, or the env it names, serves the PR's merge, and never comes back."""
     data = state.load(watcher.name)
     out, lines = shipped(watcher, data), []
     turns, held = place.turns(data, moment)
@@ -339,7 +339,7 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
         *(job for job in data["jobs"].values() if heard_job(watcher, data, job) and not view.open_cards(job)),
         *(pr for pr in data["prs"].values() if hears(watcher, data, pr["order"])),
     ]
-    if not out and not turned and not any(regained(watcher, job) for job in data["jobs"].values()) and all(view.holding(data, owner["waits"], watcher.cards) == owner["waits"] for owner in owners):
+    if not out and not turned and all(view.holding(data, owner["waits"], watcher.cards) == owner["waits"] for owner in owners):
         return lines
     slot = {state.SLOT_WAIT: f"its turn came as a builder slot opened on this Mac, {held} of its {place.LOCAL_BUILDERS} held"}
     moves = []
@@ -347,10 +347,6 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
         for job_id, job in data["jobs"].items():
             if not heard_job(watcher, data, job):
                 continue
-            if again := regained(watcher, job):
-                job["shipped"] = [wait for wait in job["shipped"] if wait not in again]
-                state.rewait(job, list(dict.fromkeys([*job["waits"], *again])))
-                lines += [f"REWAIT {job_id} {job['order']}: {wait} holds again: {', '.join(behind(watcher, wait))} behind it" for wait in again]
             if job_id in turned and place.on_sprite(job):
                 state.rewait(job, [wait for wait in job["waits"] if wait != state.SLOT_WAIT])
                 job.update(slot=state.stamp(moment), updated=state.stamp(moment))
@@ -363,7 +359,6 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
             exited = [wait for wait in waited if state.PID_WAIT.fullmatch(wait) and wait not in job["waits"]] if job["kind"] == "codex" else []
             if exited:
                 state.hold_text(job, exited_text(watcher.name, job_id, exited), state.WATCH_SENDER)
-            job["shipped"] = list(dict.fromkeys([*job["shipped"], *(wait for wait in waited if wait in out and state.RELEASE_WAIT.fullmatch(wait))]))
             if ended and job["state"] not in state.FINISHED_JOB_STATES and not (watch_proves(data, job_id) or at_merge(data, job_id)):
                 job["updated"] = state.stamp(moment)
                 if turn:
@@ -459,15 +454,12 @@ def monitors(data: dict, order_id: str) -> dict[str, str]:
 
 
 def followed(watcher: Watcher, data: dict) -> list[str]:
-    """The waits of each live job or open PR whose order the watch hears, and each release wait a live job it hears was freed of."""
-    return [
-        *(wait for order_id, owner in release_owners(data) if hears(watcher, data, order_id) for wait in owner["waits"]),
-        *(wait for job in data["jobs"].values() if job["state"] not in state.FINISHED_JOB_STATES and heard_job(watcher, data, job) for wait in job["shipped"]),
-    ]
+    """The waits of each live job or open PR whose order the watch hears."""
+    return [wait for order_id, owner in release_owners(data) if hears(watcher, data, order_id) for wait in owner["waits"]]
 
 
 def serving_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Read which clusters serve the merged Forge-AI/monorepo PR of each release wait the watch follows and the soak commit of each staging wait, for waits_lines, and of each component in the releases release_reach names for each fix PR of an open incident, for recovered_lines: one `tools/ci release live --json`, run in the drive's checkout as orca.checkout moves it, at most once every LIVE_EVERY, since it takes most of a minute, prints the commit each cluster of every service serves, production or not, a stack whose switch never passed serving its older build, and the release still running on it. Kept on the watcher as serving until the next read, each wait's clusters by whether each serves a commit carrying the PR's merge with no release running there, by github.carrier's read of the checkout's own history, or, for a staging wait, the soak commit itself or a build carrying it by the same read, so a promotion of dev holding a merge frees a wait on that merge commit while a soak commit off dev's line still frees only at itself, a service no cluster runs reading none, and each fix PR's waits as fix_waits, both None while the read fails."""
+    """Read which clusters serve the merged Forge-AI/monorepo PR of each release wait the watch follows and the soak commit of each staging wait, for waits_lines, and of each component in the releases release_reach names for each fix PR of an open incident, for recovered_lines: one `tools/ci release live --json`, run in the drive's checkout as orca.checkout moves it, at most once every LIVE_EVERY, since it takes most of a minute, prints the commit each cluster of every service serves, production or not, a stack whose switch never passed serving its older build. Kept on the watcher as serving until the next read, each wait's clusters by whether each serves a commit carrying the PR's merge, by github.carrier's read of the checkout's own history, or, for a staging wait, the soak commit itself or a build carrying it by the same read, so a promotion of dev holding a merge frees a wait on that merge commit while a soak commit off dev's line still frees only at itself, a service no cluster runs reading none, and each fix PR's waits as fix_waits, both None while the read fails."""
     from drive import cli
 
     data = state.load(watcher.name)
@@ -490,7 +482,7 @@ def serving_lines(watcher: Watcher, moment: datetime) -> list[str]:
         fix_waits = {key: [f"release:{component}:{key}" for component in reach[key]["releases"]] for key in fixes}
         carries = github.carrier(str(checkout))
         serving = {
-            wait: {row["env"]: not row.get("running") and carries(row["commit"], data["prs"][found["pr"]]["merged_sha"], github.split(data["prs"][found["pr"]]["into"] or found["pr"])[2]) for row in live if row["target"] == found["service"]}
+            wait: {row["env"]: carries(row["commit"], data["prs"][found["pr"]]["merged_sha"], github.split(data["prs"][found["pr"]]["into"] or found["pr"])[2]) for row in live if row["target"] == found["service"]}
             for wait in dict.fromkeys([*merged, *(wait for waits in fix_waits.values() for wait in waits)])
             if (found := state.RELEASE_WAIT.fullmatch(wait))
         } | {
@@ -531,7 +523,7 @@ def incident_fixes(watcher: Watcher, data: dict) -> dict[str, list[str]]:
 
 
 def recovered_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Close each open incident the watch hears once its fix is live, every Datadog monitor recorded on it reads OK, one with no monitor on its fix alone, and each of its orders that builds something he uses keeps a proof from there, by brief.unseen, or else say so once by proof_owed: what is left of it moves to a plain order, and a POST report hands the communicator the Live line for its thread, whose handler closes each order of it. Its fix is live when incident_fixes names its PRs and the watch's last release live read, by serving_lines, has every cluster of each component each one touches serving it with no release running there, one touching none live at its merge; a fix PR outside Forge-AI/monorepo has no such read, so the coordinator closes its incident. The monitors of the incidents whose fix is live are read in one search."""
+    """Close each open incident the watch hears once its fix is live, every Datadog monitor recorded on it reads OK, one with no monitor on its fix alone, and each of its orders that builds something he uses keeps a proof from there, by brief.unseen, or else say so once by proof_owed: what is left of it moves to a plain order, and a POST report hands the communicator the Live line for its thread, whose handler closes each order of it. Its fix is live when incident_fixes names its PRs and the watch's last release live read, by serving_lines, has every cluster of each component each one touches serving it, one touching none live at its merge; a fix PR outside Forge-AI/monorepo has no such read, so the coordinator closes its incident. The monitors of the incidents whose fix is live are read in one search."""
     if not watcher.fix_waits:
         return []
     data = state.load(watcher.name)
@@ -808,14 +800,26 @@ def started(pid: int) -> str | None:
 
 
 def shipped(watcher: Watcher, data: dict) -> dict[str, str]:
-    """Each release wait of a live job or open PR whose release is out, each staging wait whose env runs its soak commit and each Buildkite build that ended or stopped at an approve step, with what says so."""
-    return {wait: said for order_id, owner in release_owners(data) if hears(watcher, data, order_id) for wait in owner["waits"] if (said := out_because(watcher, wait))}
+    """Each release wait of a live job or open PR that out_because frees, each staging wait whose env runs its soak commit and each Buildkite build that ended or stopped at an approve step, with what says so."""
+    return {wait: said for order_id, owner in release_owners(data) if hears(watcher, data, order_id) for wait in owner["waits"] if (said := out_because(watcher, data, wait))}
 
 
-def out_because(watcher: Watcher, wait: str) -> str | None:
-    """What says a wait is out: a release wait's once release live reads its service on one cluster at least and behind names none of them, a staging wait's once release live reads its env's target serving its commit or a build carrying it, a build wait's once the watch's Buildkite read finds it ended or stopped at an approve step; None for any other wait."""
-    if (found := state.RELEASE_WAIT.fullmatch(wait)) and behind(watcher, wait) == []:
-        return f"every cluster of {found['service']}, {', '.join(sorted(watcher.serving[wait]))}, serves {found['pr']} with no release running there"
+def out_because(watcher: Watcher, data: dict, wait: str) -> str | None:
+    """What frees a wait. A release wait is a wake the job set, never a gate: it frees once its PR merged and the watch's release live read finds one cluster of its service, or the env the wait names after its @, serving a commit holding the merge, and at once once its PR merged where release live cannot follow it, a PR outside Forge-AI/monorepo or a service or env no cluster runs, naming why. A staging wait frees once release live reads its env's target serving its commit or a build carrying it, and a build wait once the watch's Buildkite read finds it ended or stopped at an approve step. None for any other wait, or while it holds."""
+    if found := state.RELEASE_WAIT.fullmatch(wait):
+        key, service, env = found["pr"], found["service"], found["env"]
+        if not data["prs"][key]["merged_sha"]:
+            return None
+        if github.repo_of(key).lower() != state.MONOREPO.lower():
+            return f"{key} merged, and tools/ci release live reads only {state.MONOREPO}, so nothing follows its release"
+        if watcher.serving is None or (clusters := watcher.serving.get(wait)) is None:
+            return None
+        if env and env not in clusters:
+            return f"{key} merged, and tools/ci release live reads {service} on no env {env}, so nothing follows its release there"
+        if not clusters:
+            return f"{key} merged, and tools/ci release live reads {service} on no cluster, so nothing follows its release"
+        serving = sorted(each for each in ([env] if env else clusters) if clusters[each])
+        return f"tools/ci release live reads {service} on {', '.join(serving)} serving {key}" if serving else None
     if (found := state.STAGING_WAIT.fullmatch(wait)) and (watcher.serving or {}).get(wait, {}).get(found["env"]):
         return f"tools/ci release live reads {found['env']}'s {found['target']} serving {found['commit'][:12]} or a build carrying it"
     if github.BUILD.fullmatch(wait) and wait in watcher.builds:
@@ -823,13 +827,8 @@ def out_because(watcher: Watcher, wait: str) -> str | None:
     return None
 
 
-def regained(watcher: Watcher, job: dict) -> list[str]:
-    """The release waits a live job was freed of that hold again, behind naming a cluster of the wait's service, as when a release that failed its Watch puts the build before the fix back."""
-    return [wait for wait in job["shipped"] if job["state"] not in state.FINISHED_JOB_STATES and behind(watcher, wait)]
-
-
 def behind(watcher: Watcher, wait: str) -> list[str] | None:
-    """The clusters of a release wait's service not serving its PR yet, each release live reads, production or not, running a build without the PR's merge or one a release still runs on; None when the read failed or holds nothing for the wait, its PR unmerged or outside Forge-AI/monorepo, or release live reads its service on no cluster, so a wait frees only once one cluster at least serves it and every one does."""
+    """The clusters of a release wait's service not serving its PR yet, each release live reads, production or not, running a build without the PR's merge; None when the read failed or holds nothing for the wait, its PR unmerged or outside Forge-AI/monorepo, or release live reads its service on no cluster, so an incident's fix reads live, by recovered_lines, only once one cluster at least serves it and every one does."""
     if not watcher.serving or not (clusters := watcher.serving.get(wait)):
         return None
     return sorted(env for env, serves in clusters.items() if not serves)
@@ -2510,19 +2509,17 @@ def watchdog_brief(watcher: Watcher, data: dict, thing: str, found: dict, held: 
 
 
 def release_line(watcher: Watcher, data: dict, wait: str) -> str:
-    """A release wait as the watch's release live read found it: the clusters of its service behind its PR, or none, or that its PR has not merged, that no cluster runs its service, or that a read holds no line for it."""
+    """A release wait as the watch's release live read found it: what frees it, by out_because, or that its PR has not merged, that a read holds no line for it, or the clusters of its service, or the env it names, behind its PR."""
     found = state.RELEASE_WAIT.fullmatch(wait)
     key, service = found["pr"], found["service"]
     pr = data["prs"][key]
+    if said := out_because(watcher, data, wait):
+        return f"{wait}: {said}"
     if not pr["merged_sha"]:
         return f"{wait}: {key} is {github.fold_line(pr) if pr['state'] == github.FOLDED else pr['state'] + ' and unmerged'}, so no release holds it yet"
-    if watcher.serving and watcher.serving.get(wait) == {}:
-        return f"{wait}: tools/ci release live reads {service} on no cluster, so no cluster serving {key} frees it"
     if (clusters := behind(watcher, wait)) is None:
-        return f"{wait}: the watch's tools/ci release live read holds no line for {key}, as it failed, has not run since the wait was added or reads only {state.MONOREPO}"
-    if not clusters:
-        return f"{wait}: every cluster of {service}, {', '.join(sorted(watcher.serving[wait]))}, serves {key}'s merge commit {pr['merged_sha'][:12]} with no release running there"
-    return f"{wait}: {service} on {', '.join(clusters)} is behind {key}'s merge commit {pr['merged_sha'][:12]}, running an older build or a release still running there"
+        return f"{wait}: the watch's tools/ci release live read holds no line for {key}, as it failed or has not run since the wait was added"
+    return f"{wait}: {service} on {found['env'] or ', '.join(clusters)} is behind {key}'s merge commit {pr['merged_sha'][:12]}, running an older build"
 
 
 def stall_cards(data: dict, chain: dict[str, str], cards: dict) -> list[str]:
@@ -2904,13 +2901,11 @@ def unproven(data: dict, job_id: str) -> bool:
 
 
 def at_merge(data: dict, job_id: str) -> bool:
-    """Whether the watch takes DONE at its merge on a builder waiting on a READY, PUSHED or WAITING line whose PRs, by reported_prs, all merged outside yasyf/*, a product change, held by no open card of his and no wait but on a release, which moves to the builder proving it live, on whatever order it serves, unless it is an open incident's fix, which is live only once its release is out."""
+    """Whether the watch takes DONE at its merge on a builder waiting on a READY, PUSHED or WAITING line whose PRs, by reported_prs, all merged outside yasyf/*, a product change, held by no open card of his and no wait but on a release, which ends with it, on whatever order it serves, an open incident's fix like any other, since the builder proving it live starts at the merge and sets its own release wait."""
     job = data["jobs"][job_id]
     if job["kind"] != "builder" or job["state"] != "waiting" or not MERGE_ENDS.match(job["said"] or "") or not product(data, job_id):
         return False
-    if not all(data["prs"][key]["merged_sha"] for key in reported_prs(data, job_id)) or view.open_cards(job) or not all(map(state.RELEASE_WAIT.fullmatch, job["waits"])):
-        return False
-    return not any(state.INCIDENT_FIX in state.job_parts(job, order_id) for order_id in state.open_incidents(data, [job["order"], *job["carries"]]))
+    return all(data["prs"][key]["merged_sha"] for key in reported_prs(data, job_id)) and not view.open_cards(job) and all(map(state.RELEASE_WAIT.fullmatch, job["waits"]))
 
 
 def open_served(data: dict, job: dict) -> dict[str, list[str]]:
@@ -2965,7 +2960,7 @@ def proving(data: dict, job_id: str) -> bool:
 
 
 def finished(watcher: Watcher, moment: datetime) -> list[str]:
-    """Finish each builder the watch hears whose PRs all merged: one waiting on a READY, PUSHED or WAITING line whose PRs all merged outside yasyf/* takes DONE at its merge, its order keeping no proof until a builder proves it live on the release holding its merge, its release waits moving to that builder; one whose READY or PUSHED names a yasyf/* PR and keeps an executable proof file, or a repair waiting on the proof it marked, gets drive job prove, which takes its DONE or BLOCKED once the installed plugins hold its yasyf/* merges, marked under the drive's lock so no second proof starts on its line, said on its PRs' lines; and one naming a yasyf/* PR and keeping no executable proof file takes BLOCKED, said by its part's ORPHAN line when no other job carries the part, so it leaves the jobs whose lanes each pass reads. Each builder unproved owes its parts, at that DONE or one it took before, goes to its PRs' prover by add_prover, which adds one only for PRs prover_of finds none for, waiting on each release their paths reach, read by cli.release_reach before the drive's lock, a read that fails leaving both the DONE and the prover to the next pass; one line says each prover."""
+    """Finish each builder the watch hears whose PRs all merged: one waiting on a READY, PUSHED or WAITING line whose PRs all merged outside yasyf/* takes DONE at its merge, its order keeping no proof until a builder proves it live on the release holding its merge, its release waits ending with it; one whose READY or PUSHED names a yasyf/* PR and keeps an executable proof file, or a repair waiting on the proof it marked, gets drive job prove, which takes its DONE or BLOCKED once the installed plugins hold its yasyf/* merges, marked under the drive's lock so no second proof starts on its line, said on its PRs' lines; and one naming a yasyf/* PR and keeping no executable proof file takes BLOCKED, said by its part's ORPHAN line when no other job carries the part, so it leaves the jobs whose lanes each pass reads. Each builder unproved owes its parts, at that DONE or one it took before, goes to its PRs' prover by add_prover, which adds one only for PRs prover_of finds none for, waiting on no release, its handoff naming whether their paths reach only tests or CI config, read by cli.release_reach before the drive's lock, a read that fails leaving both the DONE and the prover to the next pass; one line says each prover."""
     from drive import cli
 
     data = state.load(watcher.name)
@@ -2984,12 +2979,11 @@ def finished(watcher: Watcher, moment: datetime) -> list[str]:
     else:
         watcher.failures.pop("release select", None)
     with state.edit(watcher.name) as data:
-        moved: dict[str, list[str]] = {}
         for job_id, job in list(data["jobs"].items()):
             if not heard_job(watcher, data, job):
                 continue
             if job_id in merging and at_merge(data, job_id):
-                moved[job_id] = merged_done(watcher.name, data, job_id)
+                merged_done(watcher.name, data, job_id)
             elif proof_due(data, job_id):
                 job["proof"] = {"pid": prove(watcher.name, job_id), "at": state.stamp(moment), "said": job["said"], "version": state.VERSION}
             elif unproven(data, job_id):
@@ -2998,12 +2992,12 @@ def finished(watcher: Watcher, moment: datetime) -> list[str]:
         known = set(data["jobs"])
         provers: dict[str, list[str]] = {}
         for job_id, parts in proving.items():
-            provers.setdefault(add_prover(data, job_id, reach, parts, moved.get(job_id, []), watcher.staged or set()), []).append(job_id)
+            provers.setdefault(add_prover(data, job_id, reach, parts, watcher.staged or set()), []).append(job_id)
     return lines + [merged_said(watcher.name, builder_id, f"widened to the parts of {', '.join(jobs)}" if builder_id in known else "added") for builder_id, jobs in provers.items()]
 
 
 def folded_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Fold each prover no agent or lane took whose PRs another prover proves, by folded_into, into that prover, which widen gives its open parts and, while no agent or lane took it either, the PRs it lacks, its release waits and its handoff, and stop it, one line saying each fold, so the provers two passes, two orders or a coordinator added for one PR become one."""
+    """Fold each prover no agent or lane took whose PRs another prover proves, by folded_into, into that prover, which widen gives its open parts and, while no agent or lane took it either, the PRs it lacks and its handoff, and stop it, one line saying each fold, so the provers two passes, two orders or a coordinator added for one PR become one."""
     if not doubled(state.load(watcher.name)):
         return []
     folds = []
@@ -3012,10 +3006,10 @@ def folded_lines(watcher: Watcher, moment: datetime) -> list[str]:
             if not (first := folded_into(data, job_id)):
                 continue
             job = data["jobs"][job_id]
-            widen(data, first, open_served(data, job), [key for key in proves(data, job_id) if key not in proves(data, first)], job["waits"], (job.get("brief_flags") or {}).get("handoff"))
+            widen(data, first, open_served(data, job), [key for key in proves(data, job_id) if key not in proves(data, first)], (job.get("brief_flags") or {}).get("handoff"))
             job.update(state="stopped", said=f"folded into {first}", updated=state.stamp(moment))
             folds.append((first, job_id))
-    return [merged_said(watcher.name, first, f"took the parts and waits of {job_id}, a duplicate now stopped") for first, job_id in folds]
+    return [merged_said(watcher.name, first, f"took the parts of {job_id}, a duplicate now stopped") for first, job_id in folds]
 
 
 def doubled(data: dict) -> list[str]:
