@@ -3,14 +3,11 @@ import os
 import re
 import sys
 import unicodedata
-from typing import TYPE_CHECKING, TextIO
+from typing import TextIO
 
 from drive import github, limits, picture, state
 from drive.github import GithubError, run
 from drive.render import cut
-
-if TYPE_CHECKING:
-    from drive.stage import Stage
 
 FIELDS = "title,body,author,state,isDraft,headRefOid,baseRefName,headRefName,reviewDecision,labels,url,additions,deletions,changedFiles"
 READ_AGE = "60s"
@@ -78,6 +75,7 @@ RECORD_ID = re.compile(
 HIS = re.compile(r"\bhis\b")
 HIM = re.compile(r"\bhim\b")
 Member = tuple[dict, dict, tuple[str, ...], tuple[str, ...], tuple[str, ...], tuple[tuple[str, str], ...]]
+REDRAWN = ("head", "review", "blocks", "lands", "staging")
 EMOJI_CATEGORIES = {"So", "Cf"}
 EMOJI_MARKS = {chr(0xFE0E), chr(0xFE0F), chr(0x20E3), *map(chr, range(0x1F3FB, 0x1F400))}
 
@@ -325,7 +323,7 @@ def render(pr: dict, entry: dict, shown: tuple[str, ...] = (), held: tuple[str, 
         "head": pr["headRefOid"],
         "staging": entry["staging"],
         "changed": entry.get("fundamental") or "",
-        "review": f"Commit {entry['head'][:7]} goes against your words: {named}. {'Your Approve still lands it' if tap_label(entry) == 'Approve' else 'Its agent is told; your Approve still lands it'}" if pr["state"] == "OPEN" and (named := state.against(entry)) else "",
+        "review": f"Commit {entry['head'][:7]} goes against your words: {named}. {'Your Approve still lands it' if tap_label(entry) == 'Approve' else 'Its agent is told; your Approve still lands it'}" if pr["state"] == "OPEN" and entry["head"] == pr["headRefOid"] and (named := state.against(entry)) else "",
         "summary": section_words(found, "summary"),
         "impact": section_words(found, *IMPACT_HEADINGS),
         "refresher": section_words(found, *REFRESHER_HEADINGS) or comment_refresher(pr),
@@ -597,12 +595,27 @@ def untapped(known: dict[str, tuple[str, dict]], reads: dict[str, dict], members
     return "; ".join(f"{key}: {why}" if len(members) > 1 else why for key, why in refusals.items()) + ", so no PR card draws, since it would offer him no Approve"
 
 
-def standing(known: dict[str, tuple[str, dict]], key: str) -> "Stage":
-    """The PR's stage as his card on it draws, which that card shows under it."""
+def member(name: str, data: dict, pr: dict, entry: dict, picked: dict[str, dict], drawing: tuple[tuple[str, ...], tuple[str, ...]] = ((), ())) -> Member:
+    """The PR as his card draws it: GitHub's read of it, the drive's entry with its stage and staging line now, its drawn Show me pictures and why each left off does not draw, each wait that holds it outside the cards his Approve picks, and those picks."""
     from drive import stage, view
 
-    name = known[key][0]
-    return stage.on_card(state.load(name), key, view.live_cards(name))
+    key = state.pr_key(entry["url"])
+    held = holding(name, entry)
+    return (
+        pr,
+        entry | {"now": stage.on_card(data, key, view.live_cards(name)), "staging": view.staging(data, key)},
+        drawing[0],
+        tuple(words for wait, words in held.items() if wait not in picked),
+        drawing[1],
+        tuple((pick["option"], view.link(pick["title"], pick["url"])) for pick in picked.values()),
+    )
+
+
+def drawn_lines(name: str, data: dict, key: str) -> dict[str, str]:
+    """The REDRAWN lines his card on the PR draws now from the drive's entry alone, no GitHub read, which the watch holds against the card cc-slack last drew."""
+    entry = data["prs"][key]
+    row = render(*member(name, data, watched(entry), entry, picks(data, entry)))["prs"][0]
+    return {line: row[line] for line in REDRAWN}
 
 
 def reworked(known: dict[str, tuple[str, dict]], members: list[str]) -> str:
@@ -629,8 +642,6 @@ def on_his_card(known: dict[str, tuple[str, dict]], reads: dict[str, dict], memb
 
 def cards(asked: list[dict], redraw: bool = False) -> dict:
     """One card per stack the asked PRs form, by groups(), bottom PR first, cut below its lowest PR reworked to his words, which with every PR above it is refused by reworked() since none lands without it, each card drawn kept on its PRs and asking under ask_waits, so Approve lands exactly the PRs it asks, and a fresh one only when tap_refused finds one of them asking his Approve, the same check that puts Approve on a card. A redraw of a card cc-slack already posted draws it as the PRs stand now, a wait that holds back a fresh Approve shown on it rather than refusing it. A PR body's sections are drawn as they stand and never hold a card, a Show me picture that does not draw included, such as an arch diagram whose store node names a medium the drawing does not know: it is left off, the card's Show me saying why in one line, which `drawn` tells the session hearing its order."""
-    from drive import view
-
     at, known = state.stamp(), drive_prs()
     asked_keys = keys_of(asked, known)
     for key in asked_keys:
@@ -668,20 +679,9 @@ def cards(asked: list[dict], redraw: bool = False) -> dict:
         taken: set[str] = set()
         drives = {name: state.load(name) for name in {known[key][0] for key in members}}
         drawings = {key: pictured(known[key][0], reads[key], state.pr_jobs(drives[known[key][0]], known[key][1]), taken) for key in members}
-        held = {key: holding(*known[key]) for key in members}
         picked = {key: picks(drives[known[key][0]], known[key][1]) for key in members}
         card = drawn_card(
-            [
-                (
-                    reads[key],
-                    known[key][1] | {"now": standing(known, key), "staging": view.staging(drives[known[key][0]], key)},
-                    drawings[key][0],
-                    tuple(words for wait, words in held[key].items() if wait not in picked[key]),
-                    drawings[key][1],
-                    tuple((pick["option"], view.link(pick["title"], pick["url"])) for pick in picked[key].values()),
-                )
-                for key in members
-            ],
+            [member(known[key][0], drives[known[key][0]], reads[key], known[key][1], picked[key], drawings[key]) for key in members],
             siblings(known, members, reads),
         )
         remember(known, members)

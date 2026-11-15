@@ -2412,7 +2412,7 @@ def already_answered(asked: limits.Question, recorded: list[dict]) -> limits.Que
 
 
 def cards_redraw(args: argparse.Namespace) -> int:
-    """Print, one JSON line each in one pass, the card `drive job card` prints for each of his open question cards, its `replaces` the card's permalink, which cc-slack draws over that card where it sits, posting no new version, whether or not its store still keeps the card: each open question of the drive drawn on a card, from the ASK file it keeps, as drive status reads it open, and each card cc-slack lists open, from the ASK file `ask_source` finds for it; with --post, draw each over his card through `talk.posted`, as `post_ask` posts one, and print its waits id and permalink instead; each card that does not redraw is named once the rest are printed."""
+    """Print, one JSON line each in one pass, the card `drive job card` prints for each of his open question cards, its `replaces` the card's permalink, which cc-slack draws over that card where it sits, posting no new version, whether or not its store still keeps the card: each open question of the drive drawn on a card, from the ASK file it keeps, as drive status reads it open, and each card cc-slack lists open, from the ASK file `ask_source` finds for it; a `--waits` naming a PR card's `merge:` waits id, open or answered and neither replaced nor withdrawn, has cc-slack redraw that card in place as drive card draws it now, said on stderr; with --post, draw each over his card through `talk.posted`, as `post_ask` posts one, and print its waits id and permalink instead; each card that does not redraw is named once the rest are printed."""
     from drive import talk, view
 
     name = state.resolve(args.drive)
@@ -2420,6 +2420,7 @@ def cards_redraw(args: argparse.Namespace) -> int:
     if (found := view.live_cards(name)) is None:
         raise DriveError(f"his open cards could not be read: {view.stored_cards(name)[1]}")
     shown = {waits: card for card in found["questions"] if (waits := card["card"].get("waits"))}
+    prs = {waits: card for card in [*found["pr_cards"], *(closed for closed in found["closed"] if "card" in closed)] if (waits := card["card"].get("waits"))}
     asked = {
         question["waits"]: question
         for job in state.load(name)["jobs"].values()
@@ -2428,8 +2429,14 @@ def cards_redraw(args: argparse.Namespace) -> int:
     }
     drawn, missed = [], []
     for waits in args.waits or dict.fromkeys([*shown, *asked]):
+        if waits in prs:
+            try:
+                print(f"{waits}: redrawing in place the {slack.redraw_pr_cards(prs[waits]['prs'][0])} card(s) of his carrying {prs[waits]['prs'][0]}", file=sys.stderr)
+            except slack.SlackError as error:
+                missed.append(f"{waits}: {error}")
+            continue
         if waits not in shown and waits not in asked:
-            missed.append(f"{waits}: not one of his open cards")
+            missed.append(f"{waits}: not one of his open cards, nor a PR card of his still drawn")
             continue
         try:
             source, url = (ask_source(name, shown[waits]), shown[waits]["url"]) if waits in shown else (Path(asked[waits]["file"]), asked[waits]["card"])
@@ -3905,7 +3912,7 @@ def pr_set(args: argparse.Namespace) -> int:
 
 
 def set_outside(name: str, key: str, url: str, args: argparse.Namespace, dropped: dict | None, lane: str, withdrawn: list[str]) -> list[str]:
-    """What drive pr set does outside the drive once its write is kept, a line each: the hold the drive gave itself kept dropped on its events, his open card withdrawn when the PR no longer waits on his tap, each such card added to withdrawn, and each card of his carrying it redrawn in place to show what the set stored."""
+    """What drive pr set does outside the drive once its write is kept, a line each: the hold the drive gave itself kept dropped on its events, and his open card withdrawn when the PR no longer waits on his tap, each such card added to withdrawn; the watch's next pass redraws in place each other card of his carrying it to show what the set stored."""
     if args.no_tapped:
         repo, number = key.split("#")
         state.append_event(name, "untapped", repo=repo, number=int(number), label=dropped["label"], source=dropped["source"], why=args.why, lane=lane)
@@ -3914,8 +3921,7 @@ def set_outside(name: str, key: str, url: str, args: argparse.Namespace, dropped
             withdrawn += slack.withdraw_pr_card(url, why)
         except slack.SlackError as error:
             raise DriveError(f"{key}: withdrawing its open card failed, so his Approve still shows: {error}; run this again") from None
-    corrected = correct_card(name, key, url, *redrawn) if (redrawn := redraw_words(args, dropped)) else ""
-    return [*(f"\nwithdrew his card {card}: {why}" for card in withdrawn), corrected]
+    return [f"\nwithdrew his card {card}: {why}" for card in withdrawn]
 
 
 def refuse_a_part_its_job_lacks(data: dict, key: str, parts: list[str], delivers: bool, done: str) -> None:
@@ -3936,33 +3942,6 @@ def withdrawal(args: argparse.Namespace) -> str | None:
     if args.port_of:
         return f"port of #{args.port_of}, which lands with no tap"
     return None
-
-
-def redraw_words(args: argparse.Namespace, dropped: dict | None) -> tuple[str, str, str] | None:
-    """What this set stored that his open card for the PR draws, what that card does not show while its redraw fails, and what redrawing it in place shows: his tap recorded or dropped, which takes Approve and Hold off a card on which no PR asks his tap any more, or what the PR waits on, Approve and Hold kept; None when it stored nothing the card draws."""
-    if args.tapped:
-        return f"his {args.tapped} is stored", "does not show it yet", f"to show his {args.tapped}"
-    if args.no_tapped:
-        return f"the {dropped['label']} the drive gave itself is dropped", "still shows it", f"to drop the {dropped['label']} the drive gave itself"
-    if args.waits or args.no_waits:
-        return "its waits are stored", "does not name them yet", "Approve and Hold kept, to say what it waits on"
-    return None
-
-
-def correct_card(name: str, key: str, url: str, stored: str, unshown: str, shows: str) -> str:
-    """Redraw in place each card of his carrying the PR that cc-slack still draws, so it shows what this set stored: an open one, or one whose Approve and Hold it took off once no PR on it asked his tap, neither replaced nor withdrawn; nothing new posts."""
-    from drive import view
-
-    view.refresh_cards(name)
-    found = view.live_cards(name)
-    drawn = [*found["pr_cards"], *(closed for closed in found["closed"] if not closed["replaced_by"] and not (closed["answer"] or {}).get("withdrawn"))] if found else []
-    if found is not None and not view.card_for(drawn, url):
-        return ""
-    try:
-        redrawing = slack.redraw_pr_cards(url)
-    except slack.SlackError as error:
-        raise DriveError(f"{key}: {stored}, but redrawing his open card in place failed, so it {unshown}: {error}; run this again") from None
-    return f"\nredrawing in place the {redrawing} open card(s) of his carrying it, {shows}" if redrawing else ""
 
 
 def check_waits(name: str, waits: list[str]) -> dict | None:
@@ -6091,9 +6070,11 @@ def parser() -> argparse.ArgumentParser:
             " not redraw, one whose redraw is refused, is named once the rest are printed, and the verb exits 2. It is no list"
             " of his open cards: the asks him: lines of `drive status <order or job>` name each card its jobs asked, and"
             " `cc-slack drive-cards --drive <drive> | grep -i '<words>'` each open card on those words, each in under a second."
+            " A --waits naming a PR card's merge: waits id, open or answered and neither replaced nor withdrawn, has"
+            " cc-slack redraw that card in place as drive card draws it now, said on stderr."
         ),
     )
-    verb.add_argument("--waits", action="append", default=[], help="redraw only this open card, by its waits id; repeatable")
+    verb.add_argument("--waits", action="append", default=[], help="redraw only this open card, by its waits id, or the PR card of his under this merge: waits id; repeatable")
     verb.add_argument("--post", action="store_true", help="draw each card over his where it sits, as drive job ask posts one, and print its waits id and permalink, so a brief's After install: line can redraw a card")
     verb.set_defaults(run=cards_redraw)
     verb = cards.add_parser(

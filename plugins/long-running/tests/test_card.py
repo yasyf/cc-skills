@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 from conftest import Cci, Chrome, Images, Jev, Judge, Redraws
-from drive import card, cli, github, land, limits, picture, stage, state, superseded, view
+from drive import card, cli, github, land, limits, picture, stage, state, superseded, view, watch
 from drive.github import GithubError
 
 URL = "https://github.com/Forge-AI/monorepo/pull/42"
@@ -1093,8 +1093,8 @@ def test_a_head_that_moved_under_his_card_keeps_approve_and_his_approve_of_the_h
     assert ("options" in held["card"], held["card"]["prs"][0]["blocks"]) == (False, "Approved by you. CI passed; the drive queues it for merge")
 
 
-def test_a_change_against_his_words_is_a_whole_line_on_his_card_beside_approve_and_his_approve_still_lands_it(
-    drive: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]], redraws: Redraws, judge: Judge
+def test_a_change_against_his_words_is_a_whole_line_on_his_card_beside_approve_his_approve_still_lands_it_and_a_newer_head_drops_it(
+    drive: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]], judge: Judge
 ) -> None:
     key, change = "Forge-AI/monorepo#42", "run.ts drops the run page " + "and its link from the sidebar " * 20
     named = f'o1 "ship the run page": {change}'
@@ -1105,13 +1105,16 @@ def test_a_change_against_his_words_is_a_whole_line_on_his_card_beside_approve_a
     assert checked["change"].startswith(f"NOT READY: {key} go against his words, judged from each PR's title and diff: {named}. ")
     line = f"Commit fedcba9 goes against your words: {named}. Its agent is told; your Approve still lands it"
     [asking] = ask(redraw)["cards"]
-    assert (asking["card"]["options"], asking["card"]["prs"][0]["review"], redraws.asked) == (["Approve", "Hold"], line, [URL])
+    assert (asking["card"]["options"], asking["card"]["prs"][0]["review"]) == (["Approve", "Hold"], line)
     tap_approve(MOVED)
     pr = state.load(drive)["prs"][key]
     assert (pr["tap"]["label"], pr["fundamental"], landers) == ("Approve", None, [(key,)])
     [held] = ask(redraw)["cards"]
     approved = f"Commit fedcba9 goes against your words: {named}. Your Approve still lands it"
     assert (held["card"]["prs"][0]["blocks"], held["card"]["prs"][0]["review"]) == ("Approved by you. CI passed; the drive queues it for merge", approved)
+    monkeypatch.setattr(card, "run", answering(pr_json() | {"headRefOid": HEAD}))
+    [pushed] = ask(redraw)["cards"]
+    assert (pushed["card"]["prs"][0]["head"], pushed["card"]["prs"][0]["review"]) == (HEAD, "")
 
 
 def test_answer_matches_the_lowercase_repo_cc_slack_sends(drive: str) -> None:
@@ -1519,27 +1522,34 @@ def on_his_stack_card(monkeypatch: pytest.MonkeyPatch, *numbers: int) -> str:
     return drawn["card"]["waits"]
 
 
+def redrawn_by_the_watch(moment: datetime) -> list[str]:
+    watching = watch.Watcher("demo", offset=state.events_end("demo"))
+    view.refresh_cards("demo")
+    watching.cards = view.live_cards("demo")
+    return watch.redraw_lines(watching, moment)
+
+
 def test_his_typed_approve_of_one_pr_and_hold_of_the_other_redraw_their_stack_card_in_place_with_no_buttons_saying_each_and_a_later_tap_redraws_it_until_it_is_replaced(
-    stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch, redraws: Redraws, capsys: pytest.CaptureFixture[str]
+    stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch, redraws: Redraws
 ) -> None:
+    moment = state.parse_time("2026-11-12T12:30:00-08:00")
     on_his_stack_card(monkeypatch, 41, 42)
     with state.edit("demo") as data:
         data["prs"]["Forge-AI/monorepo#41"]["checks"] = "fail"
-    capsys.readouterr()
     typed(41, "Approve")
-    assert capsys.readouterr().out.strip().endswith("redrawing in place the 1 open card(s) of his carrying it, to show his Approve")
     typed(42, "Hold")
-    assert redraws.asked == [stack_url(41), stack_url(42)]
+    assert (redrawn_by_the_watch(moment), redraws.asked) == ([], [stack_url(41), stack_url(42)])
     [redrawn] = ask(asks(41, 42) | {"redraw": True})["cards"]
     assert (redrawn["card"]["status"], "options" in redrawn["card"], "waits" in redrawn["card"]) == ("info", False, False)
     assert [row["blocks"] for row in redrawn["card"]["prs"]] == ["Approved by you. CI failed; the agent is fixing it", "Held by you"]
     collapsed = {"url": "https://acme.slack.com/archives/D123/p1794515083771169", "prs": [stack_url(41), stack_url(42)], "waits": asked_waits(41, 42), "answer": None, "replaced_by": "", "tapped": "This PR no longer waits on your tap."}
-    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [], "closed": [collapsed]})
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [], "closed": [collapsed | {"card": redrawn["card"]}]})
+    assert (redrawn_by_the_watch(moment), redraws.asked) == ([], [stack_url(41), stack_url(42)])
     typed(42, "Approve")
-    assert redraws.asked == [stack_url(41), stack_url(42), stack_url(42)]
+    assert (redrawn_by_the_watch(moment), redraws.asked) == ([], [stack_url(41), stack_url(42), stack_url(42)])
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [], "closed": [collapsed | {"replaced_by": "https://acme.slack.com/archives/D123/p1794515999000000"}]})
     typed(42, "Hold")
-    assert redraws.asked == [stack_url(41), stack_url(42), stack_url(42)]
+    assert (redrawn_by_the_watch(moment), redraws.asked) == ([], [stack_url(41), stack_url(42), stack_url(42)])
 
 
 def test_a_tap_on_his_stack_card_after_his_typed_approve_of_one_pr_keeps_that_approve_and_taps_the_rest(

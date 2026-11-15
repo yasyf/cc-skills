@@ -481,9 +481,7 @@ def test_a_wait_on_another_builders_pr_closed_unmerged_moves_to_that_builder_the
     assert [line for line in said if line.startswith("FREE ")] == [f"FREE j3 o1: {rebuilt} answered or done, nothing else holds it"]
 
 
-def test_a_release_wait_on_a_pr_closed_unmerged_frees_the_job_that_opened_it_and_moves_every_other_waiter_to_that_jobs_change(
-    demo: str, monkeypatch: pytest.MonkeyPatch, redraws: Redraws
-) -> None:
+def test_a_release_wait_on_a_pr_closed_unmerged_frees_the_job_that_opened_it_and_moves_every_other_waiter_to_that_jobs_change(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     closed, rebuilt = "Forge-AI/monorepo#43", "Forge-AI/monorepo#44"
     release_wait = f"release:api:{closed}"
     serve(monkeypatch, {})
@@ -501,7 +499,6 @@ def test_a_release_wait_on_a_pr_closed_unmerged_frees_the_job_that_opened_it_and
     assert [line for line in said if line.startswith("FREE ")] == [f"FREE j2 o1: {release_wait} answered or done, nothing else holds it, built on blobstore-refcounts"]
     data = state.load(demo)
     assert (data["jobs"]["j2"]["waits"], data["jobs"]["j3"]["waits"], data["jobs"]["j3"]["said"], data["prs"][KEY]["waits"]) == ([], ["j2"], "waits on j2", ["j2"])
-    assert state.pr_url(KEY) in redraws.asked
     assert cli.main(["pr", "add", state.pr_url(rebuilt), "--job", "j2", "--drive", demo, *LEAD]) == 0
     assert state.load(demo)["jobs"]["j3"]["waits"] == [rebuilt]
     serve(monkeypatch, {rebuilt: read(state="MERGED", mergeCommit="ccc333")})
@@ -4593,22 +4590,55 @@ def test_pr_set_waits_adds_a_job_refuses_his_card_naming_the_holds_line_and_anyt
     assert state.load(demo)["prs"][KEY]["waits"] == []
 
 
-def test_a_wait_added_to_a_pr_redraws_his_open_card_in_place_never_withdraws_it_and_a_fresh_tap_draws_its_card_while_it_holds(
-    demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], withdrawals: Withdrawals, redraws: Redraws
+def carded(name: str, *shown: dict, closed: tuple[dict, ...] = ()) -> watch.Watcher:
+    """A watch of the drive that read his PR cards as cc-slack lists them."""
+    watching = watcher(name)
+    watching.cards = NO_CARDS | {"pr_cards": list(shown), "closed": list(closed)}
+    return watching
+
+
+def test_a_wait_added_to_a_pr_he_approved_never_withdraws_his_card_and_the_watch_redraws_it_in_place_saying_what_it_waits_on_and_a_fresh_tap_draws_its_card_while_it_holds(
+    demo: str, withdrawals: Withdrawals, redraws: Redraws
 ) -> None:
-    asking(monkeypatch, demo, "demo:j1-7-a")
+    with state.edit(demo) as data:
+        data["prs"][KEY]["tap"] = {"label": "Approve", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "slack", "picks": {}}
+    watching = carded(demo, shown := drawn_pr_card(demo, KEY))
+    assert (watch.redraw_lines(watching, T0), redraws.asked) == ([], [])
     assert cli.main(["pr", "set", KEY, "--waits", "j1", "--drive", demo]) == 0
     assert (withdrawals.asked, redraws.asked) == ([], [])
-    tap_card = pr_card(KEY, url="https://acme.slack.com/archives/D123/p1794200000000200")
-    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [question("demo:j1-7-a")], "closed": [], "pr_cards": [tap_card]})
-    assert cli.main(["pr", "set", KEY, "--waits", "j1", "--drive", demo]) == 0
-    assert (withdrawals.asked, redraws.asked) == ([], [state.pr_url(KEY)])
-    assert capsys.readouterr().out.strip().endswith("redrawing in place the 1 open card(s) of his carrying it, Approve and Hold kept, to say what it waits on")
-    redraws.failure = "cc-slack exited 1"
-    assert cli.main(["pr", "set", KEY, "--waits", "j1", "--drive", demo]) == 2
-    assert "redrawing his open card in place failed, so it does not name them yet: cc-slack exited 1; run this again" in capsys.readouterr().err
+    assert watch.redraw_lines(watching, T0) == []
+    assert (redraws.asked, redraws.rows[state.pr_url(KEY)]) == ([state.pr_url(KEY)], card.drawn_lines(demo, state.load(demo), KEY))
+    assert ["the build of" in row["blocks"] for row in (shown["card"]["prs"][0], redraws.rows[state.pr_url(KEY)])] == [False, True]
     assert cli.main(["pr", "set", KEY, "--tap", "--serves", "o1", "--design", "none", "--drive", demo]) == 0
     assert state.load(demo)["prs"][KEY]["wants_tap"] is True
+
+
+def test_his_pr_card_whose_row_went_stale_is_redrawn_in_place_once_and_asked_again_only_a_retry_later(demo: str, redraws: Redraws) -> None:
+    stale = pr_card(KEY)
+    stale["card"]["prs"][0] |= card.drawn_lines(demo, state.load(demo), KEY) | {"head": "0000000aaa", "review": "Commit 0000000 goes against your words: o1. Your Approve still lands it"}
+    watching = carded(demo, stale)
+    assert (watch.redraw_lines(watching, T0), redraws.asked) == ([], [state.pr_url(KEY)])
+    assert (watch.redraw_lines(watching, T0 + served.RETRY - timedelta(seconds=1)), redraws.asked) == ([], [state.pr_url(KEY)])
+    assert (watch.redraw_lines(watching, T0 + served.RETRY), redraws.asked) == ([], [state.pr_url(KEY)] * 2)
+    assert (watch.redraw_lines(carded(demo, drawn_pr_card(demo, KEY)), T0), redraws.asked) == ([], [state.pr_url(KEY)] * 2)
+
+
+def test_his_answered_pr_card_cc_slack_still_draws_is_redrawn_in_place_but_never_one_it_replaced_withdrew_or_whose_pr_ended(demo: str, redraws: Redraws) -> None:
+    answered = {"waits": f"merge:42:{state.ask_hash('aaaaaaa111')}", "url": CARD, "prs": [state.pr_url(KEY)], "answer": {"label": "Approve"}, "replaced_by": "", "card": pr_card(KEY)["card"]}
+    retired = {field: value for field, value in answered.items() if field != "card"}
+    assert (watch.redraw_lines(carded(demo, closed=(retired,)), T0), redraws.asked) == ([], [])
+    assert (watch.redraw_lines(carded(demo, closed=(answered,)), T0), redraws.asked) == ([], [state.pr_url(KEY)])
+    with state.edit(demo) as data:
+        data["prs"][KEY]["state"] = "merged"
+    assert (watch.redraw_lines(carded(demo, closed=(answered,)), T0), redraws.asked) == ([], [state.pr_url(KEY)])
+
+
+def test_a_failed_redraw_of_his_stale_pr_card_is_tried_again_on_the_next_pass_and_said_from_its_third_failure(demo: str, redraws: Redraws) -> None:
+    watching = carded(demo, pr_card(KEY))
+    redraws.failure = "cc-slack exited 1"
+    said = [watch.redraw_lines(watching, T0 + timedelta(minutes=minute)) for minute in range(3)]
+    assert (said[:2], len(redraws.asked)) == ([[], []], 3)
+    assert said[2] == [f"WATCH redraw of his card on {KEY} failed 3 times in a row: cc-slack exited 1"]
 
 
 def test_a_prs_release_wait_whose_release_is_already_out_is_stored_and_freed_on_the_next_read(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -5317,10 +5347,10 @@ def test_a_red_pr_his_card_holds_wakes_its_builder_at_once_and_every_thirty_minu
 
 
 def his_card_row(name: str, key: str) -> dict:
-    entry = state.load(name)["prs"][key]
-    known = {key: (name, entry)}
+    data = state.load(name)
+    entry = data["prs"][key]
     shown = {"title": entry["title"], "body": "", "comments": [], "state": "OPEN", "isDraft": False, "headRefOid": entry["head"], "labels": [], "url": entry["url"], "reviewDecision": "REVIEW_REQUIRED"}
-    return card.render(shown, entry | {"now": card.standing(known, key), "staging": view.staging(state.load(name), key)}, (), tuple(card.holding(*known[key]).values()))["prs"][0]
+    return card.render(*card.member(name, data, shown, entry, {}))["prs"][0]
 
 
 def test_replayed_55175_a_red_pr_whose_builder_waits_on_a_fix_that_waits_on_his_tap_names_and_links_that_fix_and_its_card_on_his_card(
@@ -8580,6 +8610,14 @@ def pr_card(*keys: str, url: str = CARD, head: str = "aaaaaaa111") -> dict:
     return {"url": url, "prs": [state.pr_url(key) for key in keys], "asked": state.stamp(T0), "card": {"title": "Fix: the watch", "prs": [{"url": state.pr_url(key), "head": head} for key in keys]}}
 
 
+def drawn_pr_card(name: str, *keys: str, url: str = CARD) -> dict:
+    """His card on the PRs as drive card draws it now."""
+    data = state.load(name)
+    shown = pr_card(*keys, url=url)
+    shown["card"]["prs"] = [row | card.drawn_lines(name, data, key) for row, key in zip(shown["card"]["prs"], keys, strict=True)]
+    return shown
+
+
 @pytest.mark.parametrize(("ended", "said"), [("MERGED", "merged"), ("CLOSED", "closed")])
 def test_his_open_pr_card_is_settled_in_place_once_every_pr_it_carries_merged_or_closed(
     demo: str, monkeypatch: pytest.MonkeyPatch, ended: str, said: str
@@ -8636,7 +8674,7 @@ def test_a_pr_github_closes_and_reopens_settles_his_card_at_the_close_read_and_i
     with state.edit(demo) as data:
         data["prs"][KEY]["wants_tap"] = True
     shown, shut = [pr_card(KEY)], []
-    settled = {"waits": "merge:Forge-AI:monorepo:42", "title": "Fix: the watch", "prs": [url], "asked": state.stamp(T0), "url": CARD, "answer": None, "tapped": "", "replaced_by": ""}
+    settled = {"waits": "merge:Forge-AI:monorepo:42", "title": "Fix: the watch", "prs": [url], "asked": state.stamp(T0), "url": CARD, "answer": None, "tapped": "", "replaced_by": "", "card": pr_card(KEY)["card"]}
     monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [], "closed": list(shut), "pr_cards": list(shown)})
     monkeypatch.setattr(watch.slack, "withdraw_pr_card", lambda pr, why: shown.clear() or shut.append(settled) or [CARD])
     reads = {KEY: read(checks=GREEN, reviewDecision="APPROVED")}
@@ -8665,7 +8703,7 @@ def test_his_card_cc_slack_keeps_closed_in_place_on_a_pr_that_asks_his_tap_again
     url = state.pr_url(KEY)
     with state.edit(demo) as data:
         data["prs"][KEY]["wants_tap"] = True
-    shut = {"waits": "merge:Forge-AI:monorepo:42", "title": "Fix: the watch", "prs": [url], "asked": state.stamp(T0), "url": CARD, "answer": None, "tapped": "This PR no longer waits on your tap.", "replaced_by": ""}
+    shut = {"waits": "merge:Forge-AI:monorepo:42", "title": "Fix: the watch", "prs": [url], "asked": state.stamp(T0), "url": CARD, "answer": None, "tapped": "This PR no longer waits on your tap.", "replaced_by": "", "card": pr_card(KEY)["card"]}
     shown = {"team_url": "", "questions": [], "closed": [shut], "pr_cards": []}
     monkeypatch.setattr(watch.view, "cards", lambda drive: shown)
     serve(monkeypatch, {KEY: read(checks=GREEN, reviewDecision="APPROVED")})
@@ -8709,7 +8747,7 @@ def test_his_open_card_that_left_a_show_me_picture_off_redraws_in_place_once_git
     serve(monkeypatch, reads)
     watching = watcher(demo)
     watch.run_pass(watching, T0)
-    shown["pr_cards"] = [pr_card(KEY)]
+    shown["pr_cards"] = [drawn_pr_card(demo, KEY)]
     reads[KEY] = read(lastEditedAt=before)
     watch.run_pass(watching, T0 + timedelta(minutes=1))
     assert redraws.asked == []

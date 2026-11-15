@@ -129,7 +129,7 @@ def stands(data: dict, key: str, unit: tuple[str, ...]) -> bool:
 
 
 def verdict(name: str, key: str) -> str:
-    """Judge one PR his card waits on at its head against his words together with the other PRs of its stack, by land.landing_stacks, the one place a PR is judged, with the answers kept on them for their design and each answer of his binding their jobs, by brief.bound, and keep the outcome on each PR of the stack with the orders and binding answers it was judged against, so tried keeps it for that head while they stand: CHECKED with what each PR waits on now, as his card draws it, and its staging result, and NOT READY, also as a check event, which the watch says on the PR's line, and a refusal is a line on his card that wakes its builder through drive pr wake unless he approved the PR, holding neither his Approve nor its landing; then redraw his open card in place, so it shows the verdict; the outcome for key. A judge or GitHub read that failed is kept alone, and the watch tries it again RETRY on."""
+    """Judge one PR his card waits on at its head against his words together with the other PRs of its stack, by land.landing_stacks, the one place a PR is judged, with the answers kept on them for their design and each answer of his binding their jobs, by brief.bound, and keep the outcome on each PR of the stack with the orders and binding answers it was judged against, so tried keeps it for that head while they stand: CHECKED with what each PR waits on now, as his card draws it, and its staging result, and NOT READY, also as a check event, which the watch says on the PR's line, and a refusal is a line on his card that wakes its builder through drive pr wake unless he approved the PR, holding neither his Approve nor its landing, and his card shows the verdict once the watch redraws it; the outcome for key. A judge or GitHub read that failed is kept alone, and the watch tries it again RETRY on."""
     from drive import land, stage
 
     data = state.load(name)
@@ -152,7 +152,7 @@ def verdict(name: str, key: str) -> str:
 
 
 def kept(name: str, key: str, result: dict) -> str:
-    """Keep a check's outcome on each PR it judged, with the head, orders and binding answers it checked, and redraw his open card for each, as verdict describes, but on a PR another check started on after this one, whose outcome is the one kept there; one objection to a stack makes one check event for each job its PRs belong to, so each builder is woken once; verdict runs it through install.finished, since a newer install may save the drive while the judge runs, so no judgment runs twice; the outcome for key."""
+    """Keep a check's outcome on each PR it judged, with the head, orders and binding answers it checked, but on a PR another check started on after this one, whose outcome is the one kept there; one objection to a stack makes one check event for each job its PRs belong to, so each builder is woken once; verdict runs it through install.finished, since a newer install may save the drive while the judge runs, so no judgment runs twice; the outcome for key."""
     outcome = result["outcomes"][key]
     with state.edit(name) as data:
         fresh = [
@@ -175,13 +175,6 @@ def kept(name: str, key: str, result: dict) -> str:
             woken.add(pr["job"])
             repo, number = member.split("#")
             state.append_event(name, "check", repo=repo, number=int(number), change=said, lane=state.heard_lane(data, pr["order"]))
-    if outcome.startswith(FAILED):
-        return outcome
-    try:
-        for member in fresh:
-            slack.redraw_pr_cards(data["prs"][member]["url"])
-    except slack.SlackError as error:
-        return f"{outcome}; his open card for {key} still shows it as drawn before this check, since its redraw failed: {error}"
     return outcome
 
 
