@@ -1449,8 +1449,12 @@ def staging_reads(data: dict) -> tuple[bool, str | None, str | None]:
         ("CASE a rollback refused: pass\nCASE a write lands: not exercised\n", False),
         ("CASE a write lands: skipped\n", False),
         ("Case 5 a write lands: fail: the writer kept the old row\n", False),
+        ("CASE line sent to root on topic staging-slots {at:718168}\nCASE a write on staging:plat-usw2-staging lands: pass\n", True),
+        ('CASE rollback semantics: the release reads mode dry-run, rollback true: pass\nCASE the key published ("ci-go: linux-amd64 is already published"): pass\n', True),
+        ("CASE B the first blob mint on lapsed keys: pass: run run_01m7 on the soak\n", True),
+        ("CASE rollback semantics: the release reads mode dry-run: fail: rollback false\n", False),
     ],
-    ids=["every-case-passes", "a-case-fails", "a-case-not-exercised", "a-case-skipped", "no-case-line"],
+    ids=["every-case-passes", "a-case-fails", "a-case-not-exercised", "a-case-skipped", "no-case-line", "a-prose-line-opening-case", "a-verdict-after-what-ran", "a-verdict-before-what-ran", "a-failing-verdict-after-what-ran"],
 )
 def test_a_staging_test_part_is_delivered_by_its_testers_done_only_when_every_case_line_reads_pass_as_j4832s_and_j4850s_were_not(
     state_root: Path, cases: str, passed: bool
@@ -1565,6 +1569,14 @@ def test_a_full_pass_by_the_builder_of_the_pr_it_tests_delivers_its_staging_part
     assert [held, (data["jobs"]["j1"]["state"], staging_reads(data))] == [("waiting", (True, PROOF, "j1")), ("done", (True, PROOF, "j1"))]
 
 
+def test_a_job_following_a_release_it_started_on_a_staging_test_part_is_no_staging_run_and_its_done_naming_no_case_leaves_the_testers_pass_as_j5978s_did_not(state_root: Path) -> None:
+    data = staging_drive("j1", "j2")
+    data["jobs"]["j2"] |= {"brief_flags": {"release": "kaleidoscopic-gamsakhurdia"}, "builds_nothing": True, "waits": ["staging:monorepo/plat-usw2-staging@70f5e5b"]}
+    staging_return(data, "j1", "DONE every case of #42 passed", "CASE a rollback refused: pass\n")
+    state.take_result(data, "j2", "DONE APPLIED https://buildkite.com/forge/release/builds/16491: cloudrunner-next on plat-usw2-staging at 70f5e5bfc396, applied 6m ago")
+    assert (state.staging_parts(data, data["jobs"]["j2"]), staging_reads(data), state.staging_tester(data, "j2"), state.staging_tester(data, f"o1:{STAGING}")) == ([], (True, PROOF, "j1"), None, "j1")
+
+
 APPROVE = {"label": "Approve", "at": "2026-11-14T10:30:00-08:00", "head": "aaaaaaa111", "source": "slack", "picks": {}}
 
 
@@ -1590,42 +1602,51 @@ def test_a_staging_tests_full_pass_takes_back_his_approve_given_before_it_on_eac
     )
 
 
-def test_a_drive_saved_delivering_staging_test_parts_by_any_done_keeps_each_only_on_the_newest_tester_whose_full_pass_named_its_proof_and_pr_once_as_j4683s_and_j4832s_were_not(
+def test_a_drive_saved_reading_staging_passes_by_prose_case_lines_and_release_followers_reads_each_again_from_its_testers_returns_dated_by_the_first_carrying_it_as_56594s_and_56677s_were_not(
     state_root: Path,
 ) -> None:
     data = staging_drive()
-    del data["staging_passes_named"]
-    data["staging_passes_owned"] = True
-    created = "2026-11-14T10:00:00-08:00"
-    owned, rerun, running, unposted, compared, unnamed = (state.STAGING_TEST.format(number=number) for number in (42, 43, 44, 45, 46, 47))
-    data["orders"]["o1"]["parts"] = {part: state.new_part() | {"posted": PROOF if part != unposted else None} for part in (owned, rerun, running, unposted, compared, unnamed)}
-    for part in (owned, rerun, running, unposted):
-        del data["orders"]["o1"]["parts"][part]["posted_by"]
-    data["orders"]["o1"]["parts"][compared]["posted_by"] = "j6"
-    data["orders"]["o1"]["parts"][unnamed]["posted_by"] = "j7"
-    testers = {"j1": owned, "j2": rerun, "j3": rerun, "j4": running, "j5": unposted, "j6": compared, "j7": unnamed}
-    data["orders"]["o1"]["jobs"] = list(testers)
-    done = f"DONE {PROOF} ran the staging test"
-    data["jobs"] = {job_id: state.new_job("o1", "builder", "run the staging test", [part], created) | {"state": "done", "said": done} for job_id, part in testers.items()}
-    data["jobs"]["j3"] |= {"state": "waiting", "said": "WAITING on a staging slot"}
-    data["jobs"]["j4"] |= {"state": "running", "said": None}
+    del data["staging_passes_reread"]
+    data["staging_passes_named"] = True
+    created, passed = "2026-11-14T10:00:00-08:00", "2026-11-14T11:00:00-08:00"
+    prose, followed, rerun, uncased, unnamed = (state.STAGING_TEST.format(number=number) for number in (42, 43, 44, 45, 46))
+    followed_soak = "staging:monorepo/plat-usw2-staging@70f5e5b"
+    data["orders"]["o1"]["parts"] = {part: state.new_part() | {"soak": followed_soak if part == followed else None} for part in (prose, followed, rerun, uncased, unnamed)}
+    testers = {"j1": prose, "j2": followed, "j3": followed, "j4": rerun, "j5": rerun, "j6": uncased, "j7": unnamed}
+    data["jobs"] = {job_id: state.new_job("o1", "builder", "run the staging test", [part], created) | {"state": "done"} for job_id, part in testers.items()}
+    data["jobs"]["j2"]["waits"] = ["staging:monorepo/plat-usw2-staging@346fcf4"]
+    data["jobs"]["j3"] |= {"state": "running", "brief_flags": {"release": "kaleidoscopic-gamsakhurdia"}, "builds_nothing": True, "waits": [followed_soak]}
+    data["jobs"]["j5"]["state"] = "waiting"
+    data["jobs"] |= {"j8": state.new_job("o1", "builder", "ship #42", [], created), "j9": state.new_job("o1", "builder", "ship #43", [], created)}
+    data["orders"]["o1"]["jobs"] = [*testers, "j8", "j9"]
+    approves = {f"{MONOREPO}#42": APPROVE, f"{MONOREPO}#43": APPROVE | {"at": "2026-11-14T11:30:00-08:00"}}
+    data["prs"] = {key: state.new_pr(state.pr_url(key), job_id, "o1") | {"tap": dict(tap)} for (key, tap), job_id in zip(approves.items(), ("j8", "j9"))}
     state.create(data)
-    for job_id in ("j1", "j2", "j4", "j5"):
-        state.keep_report("demo", job_id, done, f"{done} of #{state.STAGING_PART.fullmatch(testers[job_id])['number']}\nCHECK: {PROOF}\nCASE a rollback refused: pass\n")
-    state.keep_report("demo", "j6", done, f"{done} of #46\nCHECK: {PROOF}\n")
-    state.keep_report("demo", "j7", done, f"{done} of #42\nCHECK: {PROOF}\nCASE a rollback refused: pass\n")
+
+    def kept(job_id: str, line: str, body: str, at: str = passed) -> None:
+        state.keep_report("demo", job_id, line, f"{line}\n{body}", state.parse_time(at))
+
+    kept("j1", "DONE ran the staging test of #42", f"CHECK: {PROOF}\nCASE line sent to root on topic staging-slots {{at:718168}}\nCASE a rollback refused: pass\n")
+    kept("j1", f"DONE {state.pr_url(f'{MONOREPO}#42')} merged: {MONOREPO}#42 at fedcba987654", "", "2026-11-14T11:10:00-08:00")
+    kept("j2", "DONE ran the staging test of #43", f"CHECK: {PROOF}\nCASE a rollback refused: pass\n")
+    kept("j2", "WAITING staging:monorepo/plat-usw2-staging@346fcf4, the restore after its cases", "", "2026-11-14T11:05:00-08:00")
+    kept("j2", "DONE ran the staging test of #43, and staging is restored", f"CHECK: {PROOF}\nCASE a rollback refused: pass\n", "2026-11-14T12:30:00-08:00")
+    kept("j3", "DONE APPLIED https://buildkite.com/forge/release/builds/16491: cloudrunner-next on plat-usw2-staging at 70f5e5bfc396", "", "2026-11-14T12:00:00-08:00")
+    kept("j4", "DONE ran the staging test of #44", f"CHECK: {PROOF}\nCASE a rollback refused: pass\n")
+    kept("j6", "DONE ran the staging test of #45", f"CHECK: {PROOF}\n")
+    kept("j7", "DONE ran the staging test of #42", f"CHECK: {PROOF}\nCASE a rollback refused: pass\n")
     data = state.load("demo")
     parts = data["orders"]["o1"]["parts"]
-    assert [(state.delivered(data, "o1", part), parts[part]["posted"], parts[part]["posted_by"]) for part in (owned, rerun, running, unposted, compared, unnamed)] == [
-        (True, PROOF, "j1"),
-        (False, PROOF, "j2"),
-        (False, PROOF, "j4"),
-        (False, None, None),
-        (False, None, None),
-        (False, None, None),
+    assert [(state.delivered(data, "o1", part), parts[part]["posted"], parts[part]["posted_by"], parts[part]["passed_at"]) for part in (prose, followed, rerun, uncased, unnamed)] == [
+        (True, PROOF, "j1", state.stamp(state.parse_time(passed))),
+        (True, PROOF, "j2", state.stamp(state.parse_time(passed))),
+        (False, PROOF, "j4", state.stamp(state.parse_time(passed))),
+        (False, None, None, None),
+        (False, None, None, None),
     ]
+    assert ([(data["prs"][key]["tap"] or {}).get("at") for key in approves], parts[followed]["soak"]) == ([None, "2026-11-14T11:30:00-08:00"], "staging:monorepo/plat-usw2-staging@346fcf4")
     with state.edit("demo") as drive:
-        assert (drive["staging_passes_named"], "staging_passes_owned" in drive) == (True, False)
+        assert (drive["staging_passes_reread"], "staging_passes_named" in drive) == (True, False)
 
 
 def test_a_part_an_older_install_saved_with_spaces_around_its_name_loads_trimmed_wherever_a_job_or_pr_names_it(state_root: Path) -> None:

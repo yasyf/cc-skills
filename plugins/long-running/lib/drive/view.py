@@ -376,7 +376,7 @@ def coming(drive: dict, job_id: str) -> bool:
 
 
 def staging(drive: dict, key: str) -> str:
-    """What a PR's cards say of its staging test, read from the `staging test of #N before it lands` part an order holds for it, the soak its tester last waited on and the newest job on it: tested on staging with its env, commit and result, testing while its job runs, or not on staging and why, the why of its builder's `STAGING: none` among them."""
+    """What a PR's cards say of its staging test, read from the `staging test of #N before it lands` part an order holds for it, the soak its tester last waited on and the newest tester on it, by state.part_testers: tested on staging with its env, commit and result, a pass with when its tester returned it, testing while its job runs, or not on staging and why, the why of its builder's `STAGING: none` among them."""
     repo, _, number = key.rpartition("#")
     if repo.lower() != state.MONOREPO.lower():
         return f"Not on staging: {repo} has no staging env"
@@ -388,15 +388,14 @@ def staging(drive: dict, key: str) -> str:
     parts = [drive["orders"][order_id]["parts"][part] for order_id in held]
     soak = next((state.STAGING_WAIT.fullmatch(each["soak"]) for each in parts if each["soak"]), None)
     where = f"{soak['env']} at {soak['commit'][:7]}, " if soak else ""
-    if proof := next((each["posted"] for each in parts if each["posted"]), None):
-        return f"Tested on staging: {where}passed, " + (link("proof", proof) if proof.startswith("https://") else "its proof a file on the Mac")
-    jobs = sorted((job for order_id in held for _, job in state.part_jobs(drive, order_id, part)), key=lambda job: job["created"])
+    if passed := next((each for each in parts if each["posted"]), None):
+        at = f" at {when(passed['passed_at'])}" if passed["passed_at"] else ""
+        return f"Tested on staging: {where}passed{at}, " + (link("proof", passed["posted"]) if passed["posted"].startswith("https://") else "its proof a file on the Mac")
+    jobs = sorted((job for order_id in held for _, job in state.part_testers(drive, order_id, part)), key=lambda job: job["created"])
     if not jobs:
         return "Not on staging: its staging test has not started"
-    if soak and soak[0] in jobs[-1]["waits"]:
-        return f"Not on staging yet: waiting for {soak['env']} to run {soak['commit'][:7]}"
     if jobs[-1]["state"] not in state.FINISHED_JOB_STATES:
-        return f"Testing on staging: {where}running"
+        return f"Not on staging yet: waiting for {soak['env']} to run {soak['commit'][:7]}" if soak and soak[0] in jobs[-1]["waits"] else f"Testing on staging: {where}running"
     result = "stopped with no result" if jobs[-1]["state"] == "stopped" else f"no pass: {cut(without_records(jobs[-1]['said'] or ''), NOW_CHARS)}"
     return f"Tested on staging: {where}{result}" if soak else f"Not on staging: its test ended, {result}"
 
