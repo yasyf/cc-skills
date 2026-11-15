@@ -5082,6 +5082,9 @@ def channels(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     data = state.load(name)
     made = [slack.cc_slack("operator-channel", slack.channel_name(name, project)) for project in dict.fromkeys([*data["subcoordinators"], TOOLING_FILING[0]])]
+    with state.edit(name) as fresh:
+        if held := fresh["roles"].get("communicator"):
+            held.pop("rules", None)
     return emit(args, "\n".join(f"#{channel['name']} {channel['id']}" for channel in made), made)
 
 
