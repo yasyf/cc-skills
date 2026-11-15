@@ -7,7 +7,7 @@ from pathlib import Path
 import agent_brief
 import pytest
 from conftest import RESEARCH, kept_brief
-from drive import agents, brief, place, state, watch
+from drive import agents, brief, place, state, view, watch
 from drive.render import when
 
 Run = Callable[..., tuple[int, str]]
@@ -202,6 +202,20 @@ def test_an_open_incidents_fix_builder_and_an_immediate_fix_start_here_at_once_w
         job_id = run("job", "add", "builder", "--order", order_id, "--part", part, "--goal", "fix it")[1].splitlines()[0]
         assert agent_brief.deny_reason(briefed("long-running:builder", f"{order}order {order_id}, job {job_id}")) is None
     assert "so j9 starts on a Sprite at once" in agent_brief.deny_reason(briefed("long-running:builder", f"{order}order o1, job j9"))
+
+
+def test_a_builder_whose_wait_still_holds_starts_here_only_on_its_free_line_by_the_refusal_drive_job_launch_gives(demo: str, run: Run) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "copy one store", "--parts", "the interface", "the reads")
+    run("job", "add", "builder", "--order", "o1", "--part", "the interface", "--goal", "build the interface")
+    run("job", "add", "builder", "--order", "o1", "--part", "the reads", "--goal", "build the reads", "--waits", "j1")
+    brief = "Order (his words): copy one store\nServes: his order\nGoal: build it\nDrive: demo, order o1, job "
+    refused = "j2 waits on j1: launch it on the watch's FREE line, which comes once the last wait ends"
+    assert view.start_refusal(state.load(demo), "j2", True) == refused
+    assert agent_brief.deny_reason(briefed("long-running:builder", f"{brief}j2")) == f"refused: {refused}"
+    assert agent_brief.deny_reason(briefed("long-running:builder", f"{brief}j1")) is None
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["state"] = "done"
+    assert agent_brief.deny_reason(briefed("long-running:builder", f"{brief}j2")) is None
 
 
 def test_a_builder_added_to_build_nothing_such_as_an_agentinbox_live_proof_starts_here_at_once_past_a_full_cap_and_its_line_and_holds_no_slot(demo: str, run: Run) -> None:

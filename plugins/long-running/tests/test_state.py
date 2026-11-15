@@ -377,6 +377,30 @@ def test_j3668_a_drive_saved_with_two_questions_in_one_ask_file_keeps_the_one_an
     assert state.load("demo")["jobs"]["j1"]["questions"] == [answered | {"refused": None}, other]
 
 
+def test_j3771_a_drive_saved_with_his_cards_on_an_unstarted_design_builders_waits_keeps_only_its_waits_on_earlier_changes(state_root: Path) -> None:
+    make("demo")
+    data = state.load("demo")
+    del data["change_builders_unwaited"]
+    moment = "2026-11-13T09:00:00-08:00"
+    cards = ["demo:j1-660010", "demo:j1-660681"]
+    data["jobs"] = {
+        "j1": state.new_job("o1", "design", "cards: the copy", [], moment) | {"state": "done"},
+        "j2": state.new_job("o1", "builder", "build j1's change: the interface", ["the interface"], moment) | {"state": "waiting", "waits": [*cards, "j3"], "said": "waits on them"},
+        "j3": state.new_job("o1", "builder", "build j1's change: the reads", ["the reads"], moment) | {"state": "waiting", "waits": cards, "said": state.waits_line(cards)},
+        "j4": state.new_job("o1", "builder", "build j1's change: the writes", ["the writes"], moment) | {"state": "built", "waits": cards, "agent": "a4"},
+        "j5": state.new_job("o1", "builder", "build the writes", ["the writes"], moment) | {"state": "waiting", "waits": cards},
+    }
+    state.create(data)
+    drive = state.load("demo")
+    assert {job_id: (job["state"], job["waits"], job["said"]) for job_id, job in drive["jobs"].items() if job_id != "j1"} == {
+        "j2": ("waiting", ["j3"], "waits on them"),
+        "j3": ("running", [], None),
+        "j4": ("built", cards, None),
+        "j5": ("waiting", cards, None),
+    }
+    assert drive["change_builders_unwaited"] is True
+
+
 def test_j3986_a_drive_saved_keying_his_rulings_as_typed_keys_each_by_its_full_id_and_folds_one_kept_twice(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     make("demo")
     data = state.load("demo")

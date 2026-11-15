@@ -121,7 +121,7 @@ prompt reads in no brief file of the drive's `jobs/` folder, where `drive job br
 launch write every brief, naming each path the prompt names that does not exist and
 `drive job brief <j>`, so a prompt typed whole or naming a brief nothing wrote starts no agent. It
 refuses a builder whose brief lacks `Serves:`
-or `Handoff:`, whose `Serves:` names none of the three, or whose Goal's own action backfills,
+or `Handoff:`, whose `Serves:` names none of the three, whose job no worker started while a wait of its still holds, as `drive job launch` refuses it, so it starts on its `FREE` line, or whose Goal's own action backfills,
 bulk-repairs, migrates, converts or repairs, or runs such a pass, with no `Runs as:` line; a Goal
 that only names a PR, stack or check for a pass is not one; and a builder, other than one on an
 open incident's order or an `immediate fix` part or building nothing, marked with `--builds-nothing` or its goal reading `prove <PRs> live`, while eight hold this Mac's builder slots or one
