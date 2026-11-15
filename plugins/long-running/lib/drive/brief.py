@@ -3,6 +3,7 @@ import itertools
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import textwrap
@@ -190,6 +191,19 @@ def release_flags(words: list[str]) -> dict[str, tuple[str, ...]] | None:
             value = next(rest, "") if name in RELEASE_VALUED else "true"
         flags.setdefault("targets" if name == "groups" else name, []).extend(filter(None, NAMES.split(value.replace("#", ""))))
     return {name: tuple(sorted(values)) for name, values in flags.items() if name not in RELEASE_ASIDE}
+
+
+def tested_release(release: str) -> str:
+    """The production release a `ci release start --for-production` tests, the staging release go/ci starts on every staging env through every staging freeze, a teammate's included: the same start without --for-production and its --env, so it runs on production."""
+    [words] = [words for words in simple_commands(release) if release_flags(words) is not None]
+    kept, rest = [], iter(words)
+    for word in rest:
+        flag, given, _ = word.partition("=")
+        if flag == "--env" and not given:
+            next(rest, None)
+        elif flag not in ("--env", f"--{settled.FOR_PRODUCTION}"):
+            kept.append(word)
+    return shlex.join(kept)
 
 
 def started(command: str) -> list[dict[str, tuple[str, ...]]]:

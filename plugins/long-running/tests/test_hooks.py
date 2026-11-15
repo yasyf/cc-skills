@@ -2214,6 +2214,86 @@ def test_jev_reads_a_stack_release_on_the_places_its_stacks_name_so_his_words_to
     ]
 
 
+FOR_PRODUCTION_START = "tools/ci release start platform dashboard --from afb881f92076 --for-production --env plat-gbl-staging,plat-usw2-staging --order {order}"
+WHOLE_PLATFORM = {
+    "id": "f3633ed" + "0" * 33,
+    "title": "What production release does he order past his release hold on Nov 15, and how are its commit and test chosen?",
+    "body": "find a safe sha that has this fix and has all the stuff tested in staging, make sure we do a thorough test again at that commit of anything that can go wrong, then cut a release of whole platform",
+    "tags": ["scope:durable", "drive:demo"],
+    "created_at": "2026-11-15T19:51:37Z",
+}
+WHERE_CARD = """ASK Where should the whole platform go at the commit staging proved?
+Drive tooling: your pick decides which production places get the whole platform at that commit.
+- Every production place (recommended)
+  The top coordinator starts `tools/ci release start platform dashboard --from afb881f92076` once its staging test passes.
+- Production's own cluster alone
+  The top coordinator starts `tools/ci release start platform dashboard --from afb881f92076 --env plat-usw2-prod` once its staging test passes.
+- Every place but Acme's cluster
+  The top coordinator starts `tools/ci release start platform dashboard --from afb881f92076 --without tnt-usw2-acme` once its staging test passes.
+
+Findings:
+Root cause: none: a pick of where the release goes
+Simplest: Every production place
+Holds: none: no option changes code any job builds
+"""
+WHERE_PICK = {
+    "title": "Where should the whole platform go at the commit staging proved?",
+    "tags": ["scope:durable", "drive:demo"],
+    "created_at": "2026-11-15T20:00:00Z",
+}
+
+
+def test_a_staging_release_for_production_starts_on_his_pick_of_the_production_release_it_tests_wherever_that_goes_and_never_one_shipping_more_with_no_jev_read(
+    demo: str, run: Run, recorded: Answers, jev: Jev
+) -> None:
+    picks = [WHERE_PICK | {"id": f"f0ca00{number}" + "0" * 33, "body": str(number)} for number in (1, 2, 3)]
+    answered_cut(run, demo, picks, WHERE_CARD)
+    with state.edit(demo) as data:
+        data["answers"]["15c4de1"] = {"words": RELEASE_HOLD["body"], "link": HOLD_LINK, "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {}}
+    recorded.listed = [RELEASE_HOLD, *picks]
+    recorded.shown = {answer["id"][:7]: answer for answer in recorded.listed}
+    data = state.load(demo)
+    assert [brief.approval_refusal(FOR_PRODUCTION_START.format(order=pick["id"][:7]), data) for pick in picks] == [None] * len(picks)
+    wider = FOR_PRODUCTION_START.replace("dashboard", "dashboard sandsql").format(order="f0ca001")
+    tested = settled.TESTED.format(
+        release="tools/ci release start platform dashboard sandsql --from afb881f92076 --order f0ca001",
+        why="it picks option 1 of the card it answers, `tools/ci release start platform dashboard --from afb881f92076`, and this release ships another change",
+    )
+    assert brief.approval_refusal(wider, data) == held(wider, f'`--order f0ca001` names his answer to "{WHERE_PICK["title"]}", and {tested}')
+    assert jev.asked == []
+    assert brief.tested_release("cd /work && tools/ci release start platform --env=plat-gbl-staging,plat-usw2-staging --for-production --from afb881f92076") == "tools/ci release start platform --from afb881f92076"
+
+
+def test_his_standing_yes_to_soak_and_his_words_to_test_on_staging_order_no_staging_release_for_production_and_jev_reads_his_other_words_against_the_production_release_it_tests(
+    demo: str, run: Run, recorded: Answers, jev: Jev
+) -> None:
+    answered_cut(run, demo, [STANDING_SOAK], STANDING_SOAK_CARD)
+    with state.edit(demo) as data:
+        data["answers"]["15c4de1"] = {"words": RELEASE_HOLD["body"], "link": HOLD_LINK, "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {}}
+    recorded.listed = [RELEASE_HOLD, STANDING_SOAK, SANDBOX_TESTS, WHOLE_PLATFORM]
+    recorded.shown = {answer["id"][:7]: answer for answer in recorded.listed}
+    data = state.load(demo)
+    soaked = FOR_PRODUCTION_START.format(order="23eefb9")
+    unsoaked = settled.TESTED.format(
+        release="tools/ci release start platform dashboard --from afb881f92076 --order 23eefb9",
+        why=f"it picks option 1 of the card it answers, `tools/ci release start --emergency --env plat-usw2-staging`, {settled.UNTESTED}",
+    )
+    assert brief.approval_refusal(soaked, data) == held(soaked, f'`--order 23eefb9` names his answer to "{STANDING_SOAK["title"]}", and {unsoaked}')
+    assert jev.asked == []
+    jev.picks("orders")
+    staging = FOR_PRODUCTION_START.replace(" --for-production", "").format(order="077d93a")
+    assert [brief.approval_refusal(release, data) for release in (staging, FOR_PRODUCTION_START.format(order="f3633ed"))] == [None, None]
+    jev.picks("none")
+    tested = FOR_PRODUCTION_START.format(order="077d93a")
+    untested = settled.TESTED.format(release="tools/ci release start platform dashboard --from afb881f92076 --order 077d93a", why=settled.UNORDERED)
+    assert brief.approval_refusal(tested, data) == held(tested, f'`--order 077d93a` names his answer to "{SANDBOX_TESTS["title"]}", and {untested}')
+    assert [asked["state"]["action"] for asked in jev.asked] == [
+        f"start this release on plat-gbl-staging (stage staging), plat-usw2-staging (stage staging): `{staging}`",
+        f"start this release on {settled.PRODUCTION}: `tools/ci release start platform dashboard --from afb881f92076 --order f3633ed`",
+        f"start this release on {settled.PRODUCTION}: `tools/ci release start platform dashboard --from afb881f92076 --order 077d93a`",
+    ]
+
+
 def test_a_stack_names_its_project_as_a_target_and_its_env_as_a_place_beside_env_so_a_manual_staging_deploy_ships_what_an_option_on_staging_names(
     demo: str, run: Run, recorded: Answers
 ) -> None:
