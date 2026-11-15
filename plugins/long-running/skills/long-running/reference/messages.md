@@ -906,6 +906,32 @@ GET 2 page ranges
 ⏸ *Being built on a branch while you decide, paused on your pick.* Tap an option or reply with its number, or tap Other to write your own answer.
 ````
 
+### A post that explains
+
+An answer to his question, a reply to his Explain more tap and a walkthrough he orders for a
+teammate go out whole, so each reads as a short worked lesson. When the repository's `AGENTS.md`
+names a model post, write the way it does. Each step says what to do and why:
+
+1. Open with one line saying who asked, why, and what example follows, so a reader who saw nothing
+   before it knows what they are reading.
+2. Put a bold lead before each part, in the order the reader's questions come, with one idea under
+   each, so they can stop once they have what they need.
+3. Show each mechanism as a short snippet of what the code does, the real call wherever one exists,
+   then one plain sentence on what happens when it runs, so a reader who skims the code still gets
+   the point.
+4. Define each proper term where it first appears, in a few words in parentheses, so the reader
+   never leaves the post to look one up.
+5. List a cost as the concrete things the change adds, read from the diff, and name what the next
+   change of the same kind would need too, since a list can be checked and an adjective only argued
+   with.
+6. End a post that teaches on a test the reader can reuse, so the point outlives the one change.
+7. Address the reader by name, warmly and directly, and leave out any account of your own process,
+   because they want the point, not the search for it.
+
+A review walkthrough's leads might read *What your PR does*, *What we want instead*, *Why it
+matters* and *A test for next time*; each post picks leads for its own reader's questions. A routine
+line keeps its bold line and two sentences, as the status lines above show.
+
 ## Before it goes out
 
 - The hook passes the exact words of every post and edit, the ack's included, through

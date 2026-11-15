@@ -146,7 +146,11 @@ SAY = {
         " words of a raw <url|words> link is refused outright, since Slack draws it as a broken link: close that link first and"
         " put the inner one after it. edit=<the permalink of a post of yours, in his DM or in a thread outside it>"
         " rewords that post in place with text, its references linked as a new post's are, and the dashboard shows the new"
-        " words for it; cc-slack's Slack permission hook judges it as it judges slack_edit; it returns EDITED <permalink>. The communicator's ack to his message is one sentence: what he asked and what"
+        " words for it; cc-slack's Slack permission hook judges it as it judges slack_edit; it returns EDITED <permalink>. An answer, an Explain more reply or a walkthrough reads as a short"
+        " worked lesson: an opening line saying who asked and why, a bold lead before each question its reader"
+        " has, each mechanism as a short snippet of what the code does with one plain sentence on what happens,"
+        " each term defined where it first appears, a cost as the concrete things the change adds, and a test"
+        " the reader can reuse last. The communicator's ack to his message is one sentence: what he asked and what"
         " happens next."
     ),
     "inputSchema": {
