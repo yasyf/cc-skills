@@ -102,7 +102,7 @@ class Watcher:
     serving: dict[str, dict[str, bool]] | None = None
     fix_waits: dict[str, list[str]] | None = None
     live_at: datetime | None = None
-    sending: dict[str, int] = field(default_factory=dict)
+    started: dict[str, datetime] = field(default_factory=dict)
     mail_read: set[str] = field(default_factory=set)
     resumed: dict[str, str] = field(default_factory=dict)
     carried: dict[str, tuple[set[str], datetime]] = field(default_factory=dict)
@@ -298,11 +298,11 @@ def bare(wait: str) -> str:
 
 
 def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Drop each wait of a job or PR that ended, his card answered, the job finished, the release out by the watch's release live read or its PR closed unmerged, or a builder slot on this Mac given to the earliest due builder waiting its turn, one per slot no builder holds, and say once, as its last wait ends, that nothing holds it, holding back the job's ORPHAN for 30 minutes, but for a builder's READY or PUSHED whose PRs all merged, which the watch finishes next in the same pass, or else says once as an ORPHAN naming who finishes it; a builder given its slot waits on nothing with no agent yet, its slot stamped with when its turn came, and holds that slot until its agent starts, and one moving here from its Sprite keeps its other waits, its slot stamped, while drive job launch <j> --local, run as its own process with its output in the drive's relaunches log, moves it, a refusal of that launch reaching the watch's lines as its relaunch_refused event. The cards a job asked him on hold it too, so it keeps its waits until he answers them. His open card for a PR whose waits ended is redrawn in place, so it names only the waits that still hold. A job keeps each release wait it was freed of until it finishes, and waits on it again, said as REWAIT, once those reads name a cluster of its service behind, as when a release that failed its Watch puts the build before the fix back."""
+    """Drop each wait of a job or PR that ended, his card answered, the job finished, the release out by the watch's release live read or its PR closed unmerged, or a builder slot on this Mac given to the earliest due builder waiting its turn, one per slot no builder holds, and say once, as its last wait ends, that nothing holds it, holding back the job's ORPHAN for 30 minutes, but for a builder's READY or PUSHED whose PRs all merged, which the watch finishes next in the same pass, or else says once as an ORPHAN naming who finishes it; a builder given its slot waits on nothing with no agent yet, its slot stamped with when its turn came, and holds that slot until its agent starts, and one moving here from its Sprite keeps its other waits, its slot stamped, while drive job launch <j> --local, run by start_verb, moves it, a refusal of that launch reaching the watch's lines as its relaunch_refused event; a Sprite job busy reads another drive verb acting on takes its turn on a pass after that verb ends. The cards a job asked him on hold it too, so it keeps its waits until he answers them. His open card for a PR whose waits ended is redrawn in place, so it names only the waits that still hold. A job keeps each release wait it was freed of until it finishes, and waits on it again, said as REWAIT, once those reads name a cluster of its service behind, as when a release that failed its Watch puts the build before the fix back."""
     data = state.load(watcher.name)
     out, lines = shipped(watcher, data), []
     turns, held = place.turns(data, moment)
-    turned = {job_id for job_id in turns if heard_job(watcher, data, data["jobs"][job_id])}
+    turned = {job_id for job_id in turns if heard_job(watcher, data, data["jobs"][job_id]) and not (place.on_sprite(data["jobs"][job_id]) and busy(watcher, job_id, moment))}
     owners = [
         *(job for job in data["jobs"].values() if heard_job(watcher, data, job) and not view.open_cards(job)),
         *(pr for pr in data["prs"].values() if hears(watcher, data, pr["order"])),
@@ -360,7 +360,7 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
             if pr["waits"] != waited and pr["state"] == "open":
                 redraws.append(pr["url"])
     for job_id in moves:
-        watcher.sending[job_id] = state.detach(watcher.name, ["job", "launch", job_id, "--local"], RELAUNCHES_LOG)
+        start_verb(watcher, job_id, ["job", "launch", job_id, "--local"], moment)
     for url in redraws:
         try:
             slack.redraw_pr_cards(url)
@@ -1984,7 +1984,7 @@ def launching(job: dict, moment: datetime) -> bool:
 
 
 def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Each running job's gap from its agent or lane, with each PR it has open, a remote lane, running or waiting, whose worker died, and a running job's lane Orca could not reach three reads running, which wake hands to drive job resume, and a running lane on this Mac whose last response ended on an API error, which resume_lane resumes through its terminal, while a job whose agent or lane on this Mac a model's safeguards stopped goes to safeguard_lines; a lane recorded by its dispatch alone gets its Run, Task and terminal from the worker-show read for its liveness, and a lane filed on this Mac whose worker-show names a Sprite is filed on that Sprite; a remote lane whose worker finished or exited has the mail it never read held on its job once for its dispatch by unread_lines, before death_lines relaunches a running job's lane. A local agent that ended its turn on a result line its job never took is a gap, since only `drive job report` sets a job's state from its return; a codex job no agent holds has its codex-ask run taken once that run ended, its returned event telling the coordinator the return, failed or not, with where his card on its ASK stands and, for an incident fix job, the builder that ships its fix."""
+    """Each running job's gap from its agent or lane, with each PR it has open, a remote lane, running or waiting, whose worker died, and a running job's lane Orca could not reach three reads running, which wake hands to drive job resume, its failed reads neither counted nor said while busy reads another drive verb acting on the job, as the wake an earlier watch started does, and a running lane on this Mac whose last response ended on an API error, which resume_lane resumes through its terminal, while a job whose agent or lane on this Mac a model's safeguards stopped goes to safeguard_lines; a lane recorded by its dispatch alone gets its Run, Task and terminal from the worker-show read for its liveness, and a lane filed on this Mac whose worker-show names a Sprite is filed on that Sprite; a remote lane whose worker finished or exited has the mail it never read held on its job once for its dispatch by unread_lines, before death_lines relaunches a running job's lane. A local agent that ended its turn on a result line its job never took is a gap, since only `drive job report` sets a job's state from its return; a codex job no agent holds has its codex-ask run taken once that run ended, its returned event telling the coordinator the return, failed or not, with where his card on its ASK stands and, for an incident fix job, the builder that ships its fix."""
     data = state.load(watcher.name)
     gaps, deaths, refusals, heads, found, taken, shippers, finished, lines = {}, {}, {}, {}, {}, {}, {}, {}, []
     for order_id, order in heard_orders(watcher, data).items():
@@ -2029,9 +2029,11 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 if why := orca.gone(error):
                     deaths[job_id] = (job["dispatch"], why)
                     continue
+                if running and orca.UNREACHABLE in str(error) and busy(watcher, job_id, moment):
+                    continue
                 said = read_failed(watcher, source, error, moment)
                 if running and orca.UNREACHABLE in str(error) and watcher.failures[source] == FAILURES_BEFORE_SAYING:
-                    wake(watcher.name, job_id)
+                    wake(watcher, job_id, moment)
                     said = [
                         f'LANE {job_id} {job["order"]} unreachable {orca.place(job)}: {error}, while it worked on "{cut(job["said"] or job["goal"], 60)}". The watch ran'
                         f" drive job resume {job_id}, which wakes that Sprite and restarts the lane there, else on a fresh Sprite, its output in the drive's {RELAUNCHES_LOG}"
@@ -2046,8 +2048,8 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 found[job_id] = lane
             if (orca.death(worker) or worker["worker"]["state"] in orca.FINISHED) and job["dispatch"] not in watcher.mail_read:
                 finished[job_id] = job | lane
-            if job["undelivered"] and state.SLOT_WAIT not in job["waits"] and orca.takes_messages(job, worker) and not ((pid := watcher.sending.get(job_id)) and state.alive(pid)):
-                watcher.sending[job_id] = send_held(watcher.name, job_id)
+            if job["undelivered"] and state.SLOT_WAIT not in job["waits"] and orca.takes_messages(job, worker) and not busy(watcher, job_id, moment):
+                send_held(watcher, job_id, moment)
             if why := orca.death(worker):
                 deaths[job_id] = (job["dispatch"], why)
             elif running:
@@ -2073,15 +2075,17 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
     gapped = {job_id: gap for job_id, gap in gaps.items() if gap}
     unlisted, failed = untracked_prs(watcher, data, {job_id: heads[job_id] for job_id in gapped if job_id in heads}, moment)
     watcher.agent_gaps = {job_id: stranded(job_id, data, gap, unlisted.get(job_id, {})) if gap else None for job_id, gap in gaps.items()}
-    return failed + death_lines(watcher.name, deaths, moment) + safeguard_lines(watcher, refusals, moment)
+    return failed + death_lines(watcher, deaths, moment) + safeguard_lines(watcher, refusals, moment)
 
 
 def unread_lines(watcher: Watcher, finished: dict[str, dict], relaunched: set[str], moment: datetime) -> list[str]:
-    """Hold on each job whose lane's worker ended, finished or exited, while the job runs or waits, the texts Orca queued in that worker's Dispatch and it never read, read once for that dispatch from the Orca that keeps its mailbox, by cli.hold_unread, since a sent text lives only there until its worker reads it and Orca shows a finished worker none of it; each job that held any gets `drive job resume` as a process of its own, whose relaunch carries them in its next worker's handoff, unless the death this pass records already relaunches it, and a JOB line naming them. A read Orca refuses is read again next pass."""
+    """Hold on each job whose lane's worker ended, finished or exited, while the job runs or waits, the texts Orca queued in that worker's Dispatch and it never read, read once for that dispatch from the Orca that keeps its mailbox, by cli.hold_unread, since a sent text lives only there until its worker reads it and Orca shows a finished worker none of it; each job that held any gets `drive job resume` as a process of its own, whose relaunch carries them in its next worker's handoff, unless the death this pass records already relaunches it, and a JOB line naming them. A read Orca refuses is read again next pass, and so is the mail of a job busy reads another drive verb acting on, so its resume starts once that verb ends."""
     from drive import cli
 
     lines = []
     for job_id, lane in finished.items():
+        if busy(watcher, job_id, moment):
+            continue
         source = f"unread mail of {job_id}"
         try:
             held = cli.hold_unread(watcher.name, job_id, lane)
@@ -2094,7 +2098,7 @@ def unread_lines(watcher: Watcher, finished: dict[str, dict], relaunched: set[st
             continue
         carried = "its lane's relaunch carries it" if job_id in relaunched else f"the watch ran drive job resume {job_id}, whose relaunch carries it, its output in the drive's {RELAUNCHES_LOG}"
         if job_id not in relaunched:
-            watcher.sending[job_id] = send_held(watcher.name, job_id)
+            send_held(watcher, job_id, moment)
         lines.append(f"JOB {job_id} {lane['order']} {render.unread(held)}; {carried}")
     return lines
 
@@ -2377,29 +2381,30 @@ def lane_holds(job: dict, moment: datetime, live: set[str]) -> set[str]:
     return {workspace for workspace in left - {None} if orca.holds_sprite({**job, "workspace": workspace})}
 
 
-def death_lines(name: str, deaths: dict[str, tuple[str, str]], moment: datetime) -> list[str]:
-    """Record each worker's death on its job: a remote lane's, by its dispatch, or a running local job's agent's, by its agent, and say it once for a running job, whose worker is replaced that pass by `drive job resume` as a process of its own, its pid kept on the death so no later pass starts a second: a Sprite lane's is resumed in its own Claude session on its Sprite, or else relaunched, and an agent's is handed to a lane on a Sprite, or on this Mac when its brief declares a step only this Mac runs. A waiting job's death asks no step, since his answer reaches it through drive job resume whether or not its lane lives, so it is recorded and not said: its Sprite is freed by the `drive job end` release_lanes runs on every remote job that is not running, which copies its Sprite's Orca runtime and worker logs to the drive's folder before the Sprite goes, and its lane on this Mac just waits. A job stopped, done or failed since the pass read it has the death recorded and nothing started or said. A running Sprite lane's line names the file in the drive's folder that resume copies those logs to, and, when another lane of the job died since its last line, that death and its cause, since the resume then starts no worker."""
+def death_lines(watcher: Watcher, deaths: dict[str, tuple[str, str]], moment: datetime) -> list[str]:
+    """Record each worker's death on its job: a remote lane's, by its dispatch, or a running local job's agent's, by its agent, and say it once for a running job, whose worker is replaced that pass by `drive job resume` as a process of its own, its pid kept on the death so no later pass starts a second: a Sprite lane's is resumed in its own Claude session on its Sprite, or else relaunched, and an agent's is handed to a lane on a Sprite, or on this Mac when its brief declares a step only this Mac runs. A running job busy reads another drive verb acting on has its death neither recorded nor said, so the first pass after that verb ends relaunches it, or reads the next worker that verb started. A waiting job's death asks no step, since his answer reaches it through drive job resume whether or not its lane lives, so it is recorded and not said: its Sprite is freed by the `drive job end` release_lanes runs on every remote job that is not running, which copies its Sprite's Orca runtime and worker logs to the drive's folder before the Sprite goes, and its lane on this Mac just waits. A job stopped, done or failed since the pass read it has the death recorded and nothing started or said. A running Sprite lane's line names the file in the drive's folder that resume copies those logs to, and, when another lane of the job died since its last line, that death and its cause, since the resume then starts no worker."""
     if not deaths:
         return []
     lines = []
-    with state.edit(name) as data:
+    with state.edit(watcher.name) as data:
         for job_id, (worker, why) in deaths.items():
             job = data["jobs"][job_id]
-            if not state.lane_died(job, worker, why, moment) or job["state"] in state.FINISHED_JOB_STATES:
+            if job["state"] in state.FINISHED_JOB_STATES or job.get("where") == "remote" and job["state"] == "waiting":
+                state.lane_died(job, worker, why, moment)
                 continue
+            if job[state.worker_key(job)] != worker or state.lane_death(job) or busy(watcher, job_id, moment):
+                continue
+            state.lane_died(job, worker, why, moment)
+            job["deaths"][-1]["relaunch"] = {"pid": relaunch(watcher, job_id, moment), "at": state.stamp(moment)}
             if job.get("where") != "remote":
-                job["deaths"][-1]["relaunch"] = {"pid": relaunch(name, job_id), "at": state.stamp(moment)}
                 lines.append(
                     f'LANE {job_id} {job["order"]} died as agent {worker} on this Mac: {why}, while it worked on "{cut(job["said"] or job["goal"], 60)}". The watch ran'
                     f" drive job resume {job_id}, which hands the job to a lane on a Sprite, or on this Mac when its brief declares a step only this Mac runs,"
                     f" with a handoff, its output in the drive's {RELAUNCHES_LOG}"
                 )
                 continue
-            if job["state"] == "waiting":
-                continue
-            job["deaths"][-1]["relaunch"] = {"pid": relaunch(name, job_id), "at": state.stamp(moment)}
             fresh = f'{"in a fresh worktree " + orca.ON_MAC if state.on_mac(job) else "on a fresh Sprite"} with a handoff'
-            logs = "" if state.on_mac(job) else f"copies its Sprite's Orca runtime and worker logs to {orca.death_logs(name, job_id, worker)}, "
+            logs = "" if state.on_mac(job) else f"copies its Sprite's Orca runtime and worker logs to {orca.death_logs(watcher.name, job_id, worker)}, "
             again = f"relaunches it {fresh}" if state.on_mac(job) else f"resumes its Claude session on its Sprite, or else relaunches it {fresh}"
             if not state.on_mac(job) and (first := state.died_before(job, worker)):
                 again = (
@@ -2413,32 +2418,43 @@ def death_lines(name: str, deaths: dict[str, tuple[str, str]], moment: datetime)
     return lines
 
 
-def relaunch(name: str, job_id: str) -> int:
-    """Run `drive job resume` on a running job whose lane died as its own process, outliving the pass that started it, its output appended to the drive's relaunches log."""
-    return state.detach(name, ["job", "resume", job_id, CARRY_ON], RELAUNCHES_LOG)
+def busy(watcher: Watcher, job_id: str, moment: datetime) -> bool:
+    """Whether the watch starts no drive verb on the job now, the one gate each of its starts passes: it started one on the job this pass, whose moment every stage of a pass shares, or another drive verb holds the job's own lock, by state.job_lock_held, as a resume a watch started before an install restarted it still does while it wakes the job's Sprite. A start it holds back is left for a pass after that verb ends, so the watch never starts a second verb beside the one acting on the job."""
+    return watcher.started.get(job_id) == moment or state.job_lock_held(watcher.name, job_id)
 
 
-def wake(name: str, job_id: str) -> int:
-    """Run `drive job resume` with UNREACHED on a running job whose lane Orca could not reach FAILURES_BEFORE_SAYING reads running, as its own process, its output appended to the drive's relaunches log: its lane_end wakes that lane's Sprite, then sends the text to a worker that takes messages again, or restarts the lane on that Sprite with the text in its handoff, else on a fresh one."""
-    return state.detach(name, ["job", "resume", job_id, UNREACHED], RELAUNCHES_LOG)
+def start_verb(watcher: Watcher, job_id: str, args: list[str], moment: datetime) -> int:
+    """Run a drive verb on the job busy let through as its own process, outliving the pass that started it, its output appended to the drive's relaunches log, kept as the pass's start on the job; its pid."""
+    watcher.started[job_id] = moment
+    return state.detach(watcher.name, args, RELAUNCHES_LOG)
 
 
-def send_held(name: str, job_id: str) -> int:
-    """Run `drive job resume` with no text on a job holding texts a resume could not deliver, once Orca reads its worker alive and no wait on builder-slot holds it to move here, as its own process, so the pass never waits on Orca or the job's lock; each goes under the request id it was held with, so Orca never applies one twice. Its output is appended to the drive's relaunches log."""
-    return state.detach(name, ["job", "resume", job_id], RELAUNCHES_LOG)
+def relaunch(watcher: Watcher, job_id: str, moment: datetime) -> int:
+    """Run `drive job resume` by start_verb on a running job whose lane died."""
+    return start_verb(watcher, job_id, ["job", "resume", job_id, CARRY_ON], moment)
+
+
+def wake(watcher: Watcher, job_id: str, moment: datetime) -> int:
+    """Run `drive job resume` with UNREACHED by start_verb on a running job whose lane Orca could not reach FAILURES_BEFORE_SAYING reads running: its lane_end wakes that lane's Sprite, then sends the text to a worker that takes messages again, or restarts the lane on that Sprite with the text in its handoff, else on a fresh one."""
+    return start_verb(watcher, job_id, ["job", "resume", job_id, UNREACHED], moment)
+
+
+def send_held(watcher: Watcher, job_id: str, moment: datetime) -> int:
+    """Run `drive job resume` with no text by start_verb on a job holding texts a resume could not deliver, once Orca reads its worker alive and no wait on builder-slot holds it to move here, so the pass never waits on Orca or the job's lock; each goes under the request id it was held with, so Orca never applies one twice."""
+    return start_verb(watcher, job_id, ["job", "resume", job_id], moment)
 
 
 def carry_held(watcher: Watcher, moment: datetime) -> None:
-    """Carry the texts each heard job holds, his answers among them, with no session's turn, once his cards ask nothing of the job: `drive job resume` for a lane on a Sprite or this Mac whose job returned, its worker ended or not, which sends them to a worker that takes messages and hands them to the next worker of one that finished, and `drive job launch` for an agent on this Mac that returned and that no session reaches by state.agent_lane, whose job it hands to a lane on a Sprite, and for a job no agent or lane started once its waits end, which it briefs and launches with them under His answers since:, on this Mac when its brief declares a step only this Mac runs. Each runs as its own process, its output in the drive's relaunches log, once for each new text and again every ten minutes while one stays held."""
+    """Carry the texts each heard job holds, his answers among them, with no session's turn, once his cards ask nothing of the job: `drive job resume` for a lane on a Sprite or this Mac whose job returned, its worker ended or not, which sends them to a worker that takes messages and hands them to the next worker of one that finished, and `drive job launch` for an agent on this Mac that returned and that no session reaches by state.agent_lane, whose job it hands to a lane on a Sprite, and for a job no agent or lane started once its waits end, which it briefs and launches with them under His answers since:, on this Mac when its brief declares a step only this Mac runs. Each runs by start_verb once busy lets it, for each new text and again every ten minutes while one stays held."""
     data = state.load(watcher.name)
     for job_id, job in data["jobs"].items():
         held = {kept["request"] for kept in job["undelivered"]}
         if not held or job["state"] in state.FINISHED_JOB_STATES or not heard_job(watcher, data, job) or view.open_cards(job) or launching(job, moment):
             continue
-        if (pid := watcher.sending.get(job_id)) and state.alive(pid) or (tried := watcher.carried.get(job_id)) and held <= tried[0] and moment - tried[1] < DUE_EVERY:
+        if busy(watcher, job_id, moment) or (tried := watcher.carried.get(job_id)) and held <= tried[0] and moment - tried[1] < DUE_EVERY:
             continue
         if command := carrier(job_id, job, data, watcher.cards):
-            watcher.sending[job_id] = state.detach(watcher.name, command, RELAUNCHES_LOG)
+            start_verb(watcher, job_id, command, moment)
             watcher.carried[job_id] = (held, moment)
 
 
