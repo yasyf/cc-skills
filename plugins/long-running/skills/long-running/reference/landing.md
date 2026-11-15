@@ -32,7 +32,7 @@ for its repository says, then return `DONE <proof>`.
   dequeues what it queued. On a Sprite lane, which holds no copy of the drive, the hook asks this Mac
   with `drive job held --pr` first and refuses while it does not answer. Return `WAITING <the PR> waits on <the card>`, which
   the coordinator puts in front of him by [Design first](design.md). A started staging test holds its
-  PR the same way, by his ruling 0048b14. While any order's `staging test of #N before it lands` part
+  PR the same way, by his ruling 0048b14, never another PR of its job or its stack, which lands on its own tests. While any order's `staging test of #N before it lands` part
   has a job on it, or the PR waits on it, and is not delivered, the PR reads waiting on that run, and
   red, owed by its builder, while no tester runs it. `drive pr add`, `drive pr set` and the lander put
   each PR waiting on his tap whose paths reach a component, counting no path on go/ci's dev list, `tools/ci` and `go/ci`, whose code only its caller runs, whatever its exempt class, on that part,
@@ -683,6 +683,17 @@ the patch.
 - A job never starts a release. One his order covers releasing returns `WAITING release` naming the
   exact `tools/ci release start` or `hotfix`, outside an incident after reading its `tools/ci release
   plan`; any other change rides the next release and returns `WAITING release`.
+- A release he orders goes out smallest first, by his words 42a0764 on Nov 15, 2026: "you could be
+  suggesting things like if there's a safe way to exclude ssql from this release, if there's a way to
+  just hotfix his bug fix and do that as an initial release, etc." Offer, in this order, and
+  recommend the smallest that meets his goal unless his words choose another: a `tools/ci release
+  hotfix` of the fix his order names; the cut `--without` each stack holding a migration, storage or
+  write-path change no staging test passed; the whole cut. Once his words withdraw a card, the next
+  card offers every option they did not rule out.
+- A release he ordered never waits on drive tooling, by the same answer: "stop blocking the release
+  on random tooling fixes that are necessary but not blocking." A release-path PR whose staging cases
+  passed while the drive refused or never kept their `DONE` lands by `drive order set --drop-part` on
+  its tester's part, the turn the defect goes to meta.
 - His hold on every release is his answer labelled `release-hold` that no later answer of his
   supersedes, such as 15c4de1: "no releases until I say we can again, only I can give exceptions".
   While it stands, a release runs only on his exception, an answer of his recorded after the hold
@@ -755,15 +766,19 @@ the patch.
   or tap orders a `release start` carrying only targets, `--env`, `--without`, `--from` or `--commit`, `--order` and
   `--emergency`, with a target and a place, when the option's words name each target and they or his
   words past the number name each place it runs on, so his "1" on a card whose option deploys the
-  branch's cloudrunner-next build to plat-usw2-staging orders that start; Jev reads any other answer beside the card it answers
-  and the places the release runs on with each one's stage, ordering only what his words name, so
+  branch's cloudrunner-next build to plat-usw2-staging orders that start; Jev reads any other answer beside the card it answers,
+  the drive's `Notes:` on his words, his answers recorded before it in the same Slack thread and the
+  places the release runs on with each one's stage, ordering only what his words name, so
   his words to get work built or tested on a sandbox or staging order its release on those places
   alone and none on production. A staging release started with `--for-production`, which go/ci
   starts on both staging envs through every staging freeze, a teammate's included, reads as the
   production release it tests, the same start without `--for-production` and its `--env`: only his
   answer ordering that production release orders it, such as his pick of an option whose release
   ships the same change on any production place, so neither his standing yes to soak nor his words to
-  test on staging do. The top starts it with `--order <his answer id>` in the
+  test on staging do. The notes and earlier answers only say what his words point at:
+  304ffb2's "All 3 of these are approved" orders each release his 2:32 PM plan 42a0764 in its thread
+  names, the hotfix of the fix its notes name, the release without SandSQL and SandSQL's, and lifts
+  no presence hold, so a dangerous start still waits for his word once he is quiet 15 minutes. The top starts it with `--order <his answer id>` in the
   `--release` command, with no `ASK` or card first: nobody asks him again. With no such answer, the
   top reads the release's plan and asks him with `drive job ask` whether to start that exact command,
   and his go is the answer it names. A resume or re-plan of a release he ordered passes the same
@@ -780,8 +795,10 @@ the patch.
   carries #55980". By his ruling 17f763e, "Again this is not meant to be codified as hard coded
   rules that fail, the tooling is jsut there to help the agent comply with the prose rules", nothing
   refuses on one. `drive job ask` and `drive job add --release`, `--check` and the job tool's
-  `dry_run` included, send Jev every such note, in as many requests of at most 10,000 characters
-  as release notes fill, read at once, so none goes unread. Beside them goes each start a card's
+  `dry_run` included, send Jev each such note in a start's range, in as many requests of at most
+  10,000 characters as release notes fill, read at once, so none goes unread: one whose title names
+  no PR or commit, for a hotfix one naming a PR it hotfixes, and for a start one naming a PR or
+  commit the commit it cuts holds or git cannot place. Beside them goes each start a card's
   options, their descriptions and its Show me name in backticks, or the one start. Each note Jev
   does not read as silent on a start, an unsure read included, prints whole, with what git finds for
   the PRs and commits its title names at the commit that start cuts. Follow its words before you
