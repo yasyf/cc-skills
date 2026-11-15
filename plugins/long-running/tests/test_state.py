@@ -1,10 +1,13 @@
 import fcntl
 import json
+import os
 import shutil
+import sqlite3
 import subprocess
 import sys
 import time
 from collections.abc import Callable
+from contextlib import closing
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -158,6 +161,56 @@ def test_the_previous_release_reads_and_saves_a_drive_this_release_saved(run: Ca
     saved = state.load(demo)
     subprocess.run([sys.executable, "-c", PREVIOUS_RELEASE_SAVE, str(previous_release)], check=True, timeout=60)
     assert state.load(demo) == saved | {"slack": saved["slack"] | {"page_stale": "the previous release's save"}}
+
+
+OTHER_PROCESS_SAVE = """
+import sys
+sys.path.insert(0, sys.argv[1])
+from drive import state
+with state.edit("demo") as data:
+    data["terminal"] = "the other process's terminal"
+    data["orders"].pop("o2")
+"""
+
+
+def ordered(name: str, count: int) -> Path:
+    make(name)
+    with state.edit(name) as data:
+        for number in range(count):
+            data["orders"][f"o{number}"] = state.new_order(f"order {number}", "slack", None, {}, state.stamp()) | {"kind": "build"}
+    return state.database_path(name)
+
+
+def other_process_save() -> None:
+    subprocess.run([sys.executable, "-c", OTHER_PROCESS_SAVE, str(Path(state.__file__).resolve().parents[1])], check=True, timeout=30)
+
+
+@pytest.mark.parametrize("count", [1, 1000 if os.environ.get("FORGE_CI_AT_SCALE") == "1" else 100])
+def test_a_load_after_another_processs_save_reads_only_the_rows_that_save_wrote_at_any_drive_size_and_matches_a_fresh_read(state_root: Path, count: int) -> None:
+    path = ordered("demo", count + 2)
+    state.load("demo")
+    statements: list[str] = []
+    state.WHOLE_READS[(path, path.stat().st_ino)].watcher.set_trace_callback(statements.append)
+    other_process_save()
+    loaded = state.load("demo")
+    assert (loaded["terminal"], "o2" in loaded["orders"], len(loaded["orders"])) == ("the other process's terminal", False, count + 1)
+    assert loaded == state.shaped("demo", state.stored("demo"))[0]
+    assert [statement.partition(" WHERE ")[0] for statement in statements if " rows" in statement] == ["SELECT collection, key, place, body FROM (SELECT DISTINCT collection, key FROM changed"]
+
+
+def test_a_write_outside_any_save_is_read_by_the_next_load_even_once_the_changed_table_dropped_its_entries(state_root: Path) -> None:
+    path = ordered("demo", 3)
+    state.load("demo")
+    with closing(sqlite3.connect(path)) as db, db:
+        order = json.loads(db.execute("SELECT body FROM rows WHERE collection = 'orders' AND key = 'o1'").fetchone()[0])
+        db.execute("UPDATE rows SET body = ? WHERE collection = 'orders' AND key = 'o1'", (json.dumps(order | {"text": "a write the list dropped"}),))
+        dropped = db.execute("SELECT MAX(rev) FROM changed").fetchone()[0]
+    other_process_save()
+    with closing(sqlite3.connect(path)) as db, db:
+        db.execute("DELETE FROM changed WHERE rev <= ?", (dropped,))
+    loaded = state.load("demo")
+    assert (loaded["orders"]["o1"]["text"], loaded["terminal"], "o2" in loaded["orders"]) == ("a write the list dropped", "the other process's terminal", False)
+    assert loaded == state.shaped("demo", state.stored("demo"))[0]
 
 
 def test_a_write_waiting_past_the_drive_lock_wait_changes_nothing_and_names_the_lock_held(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:

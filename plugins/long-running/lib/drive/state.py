@@ -1,4 +1,5 @@
 import fcntl
+import gc
 import hashlib
 import itertools
 import json
@@ -243,13 +244,15 @@ UNSTARTED_WAITING = ".unstarted-jobs-waiting"
 CARDS_NOTED = "card_answers_noted"
 INDEX: ContextVar["Index | None"] = ContextVar("index", default=None)
 BATCHED: dict[str, bytes] = {}
-WHOLE_READS: dict[tuple[Path, int], tuple[sqlite3.Connection, int, bytes]] = {}
+WHOLE_READS: dict[tuple[Path, int], "Copy"] = {}
 READING = threading.Lock()
 MOVED_REPORTS: set[Path] = set()
 LOCK_POLL_SECONDS = 0.1
 HOLDER_CHARS = 200
 HOLDERS_SECONDS = 5
 DRIVE_LOCK_SECONDS = 300
+CHANGES_KEPT = 500
+ROW_MARSHAL = 2
 SLOW_HOLD_SECONDS = 2
 STUCK_HOLD_SECONDS = 30
 AFTER_SAVE: dict[str, list[Callable[[], list[str]]]] = {}
@@ -282,6 +285,12 @@ TABLES = """
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;
 CREATE TABLE rows (collection TEXT NOT NULL, key TEXT NOT NULL, place INTEGER NOT NULL, body TEXT, PRIMARY KEY (collection, key)) WITHOUT ROWID;
 """
+LISTED = (
+    "CREATE TABLE IF NOT EXISTS changed (rev INTEGER PRIMARY KEY, collection TEXT NOT NULL, key TEXT NOT NULL)",
+    "CREATE TRIGGER IF NOT EXISTS row_inserted AFTER INSERT ON rows BEGIN INSERT INTO changed (collection, key) VALUES (NEW.collection, NEW.key); END",
+    "CREATE TRIGGER IF NOT EXISTS row_updated AFTER UPDATE ON rows BEGIN INSERT INTO changed (collection, key) VALUES (OLD.collection, OLD.key), (NEW.collection, NEW.key); END",
+    "CREATE TRIGGER IF NOT EXISTS row_deleted AFTER DELETE ON rows BEGIN INSERT INTO changed (collection, key) VALUES (OLD.collection, OLD.key); END",
+)
 VERSION = json.loads((Path(__file__).resolve().parents[2] / ".claude-plugin" / "plugin.json").read_text())["version"]
 
 
@@ -787,17 +796,81 @@ def stored(name: str, fields: tuple[str, ...] | None = None) -> dict:
 
 
 def whole(path: Path, shape: Callable[[dict], tuple[dict, bool]]) -> dict:
-    """The drive's whole saved state as shape brings it up to this install's fields, read and shaped again only once another connection committed since this process last read it, as PRAGMA data_version on a connection of this process's own that never writes says, else a fresh copy of what it shaped last, so a verb's many loads parse and shape the drive's rows once; a shape that says it read something outside the database that may change with no commit is never kept. Shaping runs outside the lock, since it may read the drive itself."""
+    """The drive's whole saved state as shape brings it up to this install's fields, from this process's copy of its rows, which caught_up brings up to the database once another connection committed since, as PRAGMA data_version on the copy's own connection that never writes says, reading only the rows written since; a fresh copy of what it shaped last while none did, so a verb's many loads parse and shape the drive's rows once, and a shape that says it read something outside the database that may change with no commit is shaped again on each load. Shaping runs outside READING, since it may read the drive itself."""
     key = (path, path.stat().st_ino)
     with READING:
-        watcher, version, kept = WHOLE_READS.get(key) or (sqlite3.connect(path, check_same_thread=False, isolation_level=None), None, b"")
-        if (now := watcher.execute("PRAGMA data_version").fetchone()[0]) == version:
-            return marshal.loads(kept)
-    data, keep = shape(rows_read(path, None))
+        if (copy := WHOLE_READS.get(key)) is None:
+            copy = WHOLE_READS[key] = Copy(path)
+        if (now := copy.watcher.execute("PRAGMA data_version").fetchone()[0]) == copy.version and copy.shaped:
+            return marshal.loads(copy.shaped)
+        if now != copy.version:
+            caught_up(copy)
+            copy.version = now
+        rev, saved = copy.rev, copy.built_back()
+    data, keep = shape(saved)
     if keep:
         with READING:
-            WHOLE_READS[key] = (watcher, now, marshal.dumps(data))
+            if (copy.rev, copy.version) == (rev, now):
+                copy.shaped = marshal.dumps(data)
     return data
+
+
+class Copy:
+    """This process's copy of a drive's database: each row's place and body, parsed and kept as marshal bytes, by collection and key, as of rev, the newest entry the changed table held then, or None while it held no such table; shaped, what those rows shaped into last when shaping read nothing outside the database."""
+
+    def __init__(self, path: Path) -> None:
+        self.watcher = sqlite3.connect(path, timeout=DRIVE_LOCK_SECONDS, check_same_thread=False, isolation_level=None)
+        self.version: int | None = None
+        self.rev: int | None = None
+        self.rows: dict[str, dict[str, tuple[int, bytes | None]]] = {}
+        self.shaped = b""
+
+    def built_back(self) -> dict:
+        """The drive the rows hold, as rows_read builds it back, with the cyclic garbage collector paused, since the records hold no cycles and each collection it ran while they were built walked every object of the process, each drive copy it holds included, which took longer than building them."""
+        collecting = gc.isenabled()
+        gc.disable()
+        try:
+            data = {field: {} if body is None else marshal.loads(body) for field, (_, body) in self.rows.get("", {}).items()}
+            for collection, records in self.rows.items():
+                if collection:
+                    data[collection] = {key: marshal.loads(body) for key, (_, body) in records.items()}
+        finally:
+            if collecting:
+                gc.enable()
+        return data
+
+    def patch(self, rows: dict[str, dict[str, tuple[int, str | None] | None]]) -> None:
+        """Take these rows read from or written to the database, each its place and body or None once deleted, keeping each collection in place order."""
+        for collection, changed in rows.items():
+            held = self.rows.setdefault(collection, {})
+            for key, row in changed.items():
+                if row is None:
+                    held.pop(key, None)
+                else:
+                    held[key] = (row[0], None if row[1] is None else marshal.dumps(json.loads(row[1]), ROW_MARSHAL))
+            self.rows[collection] = dict(sorted(held.items(), key=lambda item: item[1][0]))
+            self.shaped = b""
+
+
+def caught_up(copy: Copy) -> None:
+    """Bring a copy up to its database in one transaction: only the rows the changed table lists since the copy's rev, which the triggers LISTED makes on rows fill on every write whatever install makes it, while the table still lists each entry since; else every row."""
+    db = copy.watcher
+    db.execute("BEGIN")
+    try:
+        first, last = db.execute("SELECT MIN(rev), COALESCE(MAX(rev), 0) FROM changed").fetchone() if db.execute("SELECT 1 FROM sqlite_master WHERE name = 'changed'").fetchone() else (None, None)
+        rows: dict[str, dict[str, tuple[int, str | None] | None]] = {}
+        if copy.rev is not None and copy.rev >= (first or 1) - 1:
+            listed = db.execute("SELECT collection, key, place, body FROM (SELECT DISTINCT collection, key FROM changed WHERE rev > ?) LEFT JOIN rows USING (collection, key)", (copy.rev,))
+            for collection, key, place, body in listed:
+                rows.setdefault(collection, {})[key] = None if place is None else (place, body)
+        else:
+            copy.rows = {}
+            for collection, place, key, body in db.execute("SELECT collection, place, key, body FROM rows"):
+                rows.setdefault(collection, {})[key] = (place, body)
+        copy.patch(rows)
+        copy.rev = last
+    finally:
+        db.execute("COMMIT")
 
 
 def rows_read(path: Path, fields: tuple[str, ...] | None) -> dict:
@@ -943,7 +1016,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
             part.setdefault("cases", [])
             part.setdefault("soak", None)
             part.setdefault("follow", None)
-    mail = data.pop("lane_mail", {})
+    mail, job_fields = data.pop("lane_mail", {}), [*new_job(None, None, None, [], None), "session"]
     for job in data["jobs"].values():
         job["mail_seen"] = max(job.get("mail_seen", 0), mail.get(job.get("run"), 0))
         job.setdefault("where", "remote" if job.get("dispatch") else "local")
@@ -962,8 +1035,9 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         if "questions" not in job:
             asked, card = job.get("question"), job.get("card")
             job["questions"] = [new_question(asked, job["said"], job["updated"], job.get("unsettled"), card)] if asked or card else []
-        for field, blank in (new_job(None, None, None, [], None) | {"session": None}).items():
-            job.setdefault(field, blank)
+        if missing := [field for field in job_fields if field not in job]:
+            blank = new_job(None, None, None, [], None) | {"session": None}
+            job.update({field: blank[field] for field in missing})
         if job["waited"] and "red" in job["waited"]:
             job["waited"] = {"owed": job["waited"]["red"], "waits": job["waited"]["waits"]} if (job["said"] or "").startswith("WAITING") else None
         job["parts"] = [part.strip() for part in job["parts"]]
@@ -971,7 +1045,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         if job["kind"] == "reader" and job["state"] in FINISHED_JOB_STATES:
             job["undelivered"] = []
         for kept in job["undelivered"]:
-            kept.setdefault("request", str(uuid.uuid5(uuid.NAMESPACE_OID, f"{job['created']} {kept['seq']} {kept['at']}")))
+            if "request" not in kept:
+                kept["request"] = str(uuid.uuid5(uuid.NAMESPACE_OID, f"{job['created']} {kept['seq']} {kept['at']}"))
             kept["seq"] = bare_seq(kept["seq"])
             kept.setdefault("sender", HIM if kept["seq"] else None)
         if flags := job.get("brief_flags"):
@@ -1102,7 +1177,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
             question.setdefault("recorded", [])
             question.setdefault("ordered", [])
             question.setdefault("told", {})
-            question.setdefault("hash", question["file"] and (named := KEPT_ASK.fullmatch(Path(question["file"]).stem)) and named["hash"] or None)
+            if "hash" not in question:
+                question["hash"] = question["file"] and (named := KEPT_ASK.fullmatch(Path(question["file"]).stem)) and named["hash"] or None
             question["waits"] = question["waits"] and question["waits"].replace("-#", "-")
             if question["waits"] and not question["file"] and (kept := rebuilt_ask(name, question["waits"])).exists():
                 question["file"] = str(kept)
@@ -3496,14 +3572,20 @@ def save(name: str, data: dict) -> None:
         os.replace(built(name, data), path)
         pointed(name, data)
         return
+    key = (path, path.stat().st_ino)
     with closing(connect(path)) as db:
         db.execute("BEGIN IMMEDIATE")
         try:
-            finished = rewrite(db, data)
+            with READING:
+                finished, taken = rewrite(db, data, WHOLE_READS.get(key))
         except BaseException:
             db.execute("ROLLBACK")
             raise
         db.execute("COMMIT")
+        if taken:
+            with READING:
+                WHOLE_READS[key].patch(taken[0])
+                WHOLE_READS[key].rev = taken[1]
         with suppress(sqlite3.OperationalError):
             db.execute("PRAGMA wal_checkpoint(PASSIVE)")
     down_mac_boxes(name, data, finished)
@@ -3518,40 +3600,60 @@ def built(name: str, data: dict) -> Path:
         db.executescript(TABLES)
         db.execute("BEGIN IMMEDIATE")
         db.execute("INSERT INTO meta VALUES ('schema', ?)", (SCHEMA,))
-        rewrite(db, data)
+        rewrite(db, data, None)
         db.execute("COMMIT")
     return path
 
 
-def rewrite(db: sqlite3.Connection, data: dict) -> list[str]:
-    """Make the database's rows data's, inside a transaction: one row for each top-level field, a collection's with no body, and one for each record of a collection, each keeping its place unless the order data holds them in moved, each job it moves into done or stopped holding no text, by drop_ended_texts; the id of each job whose row it moved from an unfinished state into done, failed or stopped."""
-    kept: dict[str, dict[str, tuple[int, str | None]]] = {}
-    for collection, key, place, body in db.execute("SELECT collection, key, place, body FROM rows"):
-        kept.setdefault(collection, {})[key] = (place, body)
-    rows: dict[str, dict[str, str | None]] = {"": {}}
-    for field, value in data.items():
-        if field in COLLECTIONS:
-            rows[""][field] = None
-            rows[field] = {key: json.dumps(record) for key, record in value.items()}
-        else:
-            rows[""][field] = json.dumps(value)
+def rewrite(db: sqlite3.Connection, data: dict, copy: Copy | None) -> tuple[list[str], tuple[dict, int] | None]:
+    """Make the database's rows data's, inside a transaction: one row for each top-level field, a collection's with no body, and one for each record of a collection, each keeping its place unless the order data holds them in moved, each job it moves into done or stopped holding no text, by drop_ended_texts. The triggers LISTED makes list each row written in the changed table, which keeps the newest CHANGES_KEPT entries. Each record is compared with copy's when copy holds the rows as the database does now, its rev the table's newest entry, so the save parses and serializes only what changed, else with the JSON the database holds. The id of each job whose row it moved from an unfinished state into done, failed or stopped, and, when it compared with copy, the rows it wrote and the table's newest entry after them, for copy to take."""
+    for statement in LISTED:
+        db.execute(statement)
+    last = db.execute("SELECT COALESCE(MAX(rev), 0) FROM changed").fetchone()[0]
+    current = copy is not None and copy.rev == last
+    kept: dict[str, dict[str, tuple[int, bytes | str | None]]] = copy.rows if copy and current else {}
+    if not current:
+        for collection, key, place, body in db.execute("SELECT collection, key, place, body FROM rows"):
+            kept.setdefault(collection, {})[key] = (place, body)
+    parse = marshal.loads if current else json.loads
+    stored = (lambda body: body and json.dumps(marshal.loads(body))) if current else (lambda body: body)
+    top = {field: None if field in COLLECTIONS else json.dumps(value) for field, value in data.items()}
+    changed = {"": {field: body for field, body in top.items() if (was := kept.get("", {}).get(field)) is None or stored(was[1]) != body}}
+    for collection in COLLECTIONS:
+        held, changed[collection] = kept.get(collection, {}), {}
+        for key, record in data.get(collection, {}).items():
+            if (was := held.get(key)) and current and was[1] == marshalled(record):
+                continue
+            body = json.dumps(record)
+            if not was or stored(was[1]) != body:
+                changed[collection][key] = body
     was = kept.get("jobs", {})
-    ended = {
-        job_id: json.loads(was[job_id][1])["state"]
-        for job_id, body in rows.get("jobs", {}).items()
-        if job_id in was and was[job_id][1] != body and data["jobs"][job_id]["state"] in FINISHED_JOB_STATES
-    }
+    ended = {job_id: parse(was[job_id][1])["state"] for job_id in changed["jobs"] if job_id in was and data["jobs"][job_id]["state"] in FINISHED_JOB_STATES}
     for job_id in drop_ended_texts(data, ended):
-        rows["jobs"][job_id] = json.dumps(data["jobs"][job_id])
-    for collection in {*kept, *rows}:
-        before, after = kept.get(collection, {}), rows.get(collection, {})
-        places = placed(before, list(after))
-        db.executemany("DELETE FROM rows WHERE collection = ? AND key = ?", [(collection, key) for key in before if key not in after])
-        db.executemany(
-            "INSERT OR REPLACE INTO rows VALUES (?, ?, ?, ?)",
-            [(collection, key, places[key], body) for key, body in after.items() if before.get(key) != (places[key], body)],
-        )
-    return [job_id for job_id, then in ended.items() if then not in FINISHED_JOB_STATES]
+        changed["jobs"][job_id] = json.dumps(data["jobs"][job_id])
+    wrote: dict[str, dict[str, tuple[int, str | None] | None]] = {}
+    for collection in {*kept, *changed}:
+        before, keys = kept.get(collection, {}), list(top if collection == "" else data.get(collection, {}))
+        places = placed(before, keys)
+        rows: dict[str, tuple[int, str | None] | None] = {key: None for key in before if key not in places}
+        for key in keys:
+            if key in changed[collection] or before[key][0] != places[key]:
+                rows[key] = (places[key], changed[collection][key] if key in changed[collection] else top[key] if collection == "" else json.dumps(data[collection][key]))
+        db.executemany("DELETE FROM rows WHERE collection = ? AND key = ?", [(collection, key) for key, row in rows.items() if row is None])
+        db.executemany("INSERT OR REPLACE INTO rows VALUES (?, ?, ?, ?)", [(collection, key, *row) for key, row in rows.items() if row])
+        if rows:
+            wrote[collection] = rows
+    newest = db.execute("SELECT COALESCE(MAX(rev), 0) FROM changed").fetchone()[0]
+    db.execute("DELETE FROM changed WHERE rev <= ?", (newest - CHANGES_KEPT,))
+    return [job_id for job_id, then in ended.items() if then not in FINISHED_JOB_STATES], (wrote, newest) if current else None
+
+
+def marshalled(record: dict) -> bytes | None:
+    """A record as a Copy keeps it, or None while it holds a value marshal cannot write but JSON writes as its base type, such as an instance of a str subclass an edit just set, which the record's JSON then compares."""
+    try:
+        return marshal.dumps(record, ROW_MARSHAL)
+    except ValueError:
+        return None
 
 
 def drop_ended_texts(data: dict, ended: dict[str, str]) -> list[str]:
