@@ -733,7 +733,7 @@ def test_a_handler_whose_launch_never_named_its_session_holds_its_thread_only_th
     left_mid_start(state.now() - agents.START_WINDOW)
     fresh = tools.run("handler", "demo", {"brief": his}).removeprefix("started ")
     assert {key: entry["handed"] for key, entry in state.load("demo")["handlers"].items()} == {fresh: [*([briefs["715733"]] if kept else []), briefs["716199"]]}
-    assert [argv[-1] for argv in started if argv[:2] == ["claude", "--bg"]] == [briefs["716199"], his]
+    assert [argv[-1] for argv in started if argv[:2] == ["claude", "--bg"]] == [briefs["716199"] + UNFROZEN, his + UNFROZEN]
 
 
 API_ERROR ="Please run /login · API Error: 403 Attention Required! | Cloudflare"
