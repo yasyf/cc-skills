@@ -447,7 +447,7 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
   and a bare `drive status` prints your own job; its writes, `drive job report <job> -`, `job ask`,
   `job set --repro`, `pr add` and `pr set --flaky`, act on your own job alone. A verb
   stopped mid-run answers that it stopped and never runs twice: read what it changed before you type
-  it again. Its answer can take minutes, since the watch answers each lane's questions in turn:
+  it again. A read answers in seconds, but a write such as a `job ask` can take minutes:
   never wrap a `drive` verb or a `READ` in `timeout` or any other kill, which ends the wait and
   prints nothing while the watch still runs it, and give its Bash call the 600000 ms timeout the
   Bash tool allows at most.
