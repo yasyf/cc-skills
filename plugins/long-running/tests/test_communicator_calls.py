@@ -160,7 +160,7 @@ def test_each_step_a_watch_line_names_to_reach_a_builder_on_this_mac_is_one_the_
     data = state.load(demo)
     job = data["jobs"]["j1"]
     idle = [watch.agent_gap("j1", job, data, state.now())] if returned == "running" else []
-    brief = watch.watchdog_brief(watcher, data, "j1", [], {"since": state.stamp(), "print": f"j1 {returned}"}, state.now())
+    brief = watch.watchdog_brief(watcher, data, "j1", {"members": ["j1"], "subjects": ["j1"], "chain": {}}, {"since": state.stamp(), "print": f"j1 {returned}"}, state.now())
     [wake] = [line.partition("to wake it: ")[2] for line in brief.splitlines() if line.startswith("Holder:")]
     lines = [*answers, *(record["text"] for record in posted), *idle, wake]
     assert len(lines) == (4 if returned == "running" else 3 if returned == "built" else 2)
