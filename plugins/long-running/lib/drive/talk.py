@@ -570,7 +570,7 @@ def status(name: str, data: dict, post: dict, stack: list[str], pictures: list[s
 
 
 def draw(name: str, keys: list[str], again: bool = False) -> str:
-    """Post his card on the PRs at his DM root and in no order's thread, under the line `waits_line` writes from their records, as drive pr add draws it on the row it makes and the watch on a PR still uncarded, or `again` on PRs that wait on him while they fix a live bug, keep it as a said event, and store his cards as cc-slack lists them now, which view.tap_card reads; its link. A card drive card refuses for every one of them, a line `plain` refuses, or a card whose waits id names a card he answered, which cc-slack only links again while no PR on it changed since, posts nothing and says why."""
+    """Draw his card on the PRs, as drive pr add draws it on the row it makes and the watch on a PR when it first needs his tap: cc-slack redraws the card where it sits, offering Approve again when drive card still asks it, or first posts it in his DM's thread of the first order they carry out, at his DM root when they carry out none, and posts nothing else; `again`, on PRs that wait on him while they fix a live bug, then posts the line `waits_line` writes in that thread, or the card's own. Keep it as a said event and store his cards as cc-slack lists them now, which view.tap_card reads; the card's link. A card drive card refuses for every one of them, a line `plain` refuses, or a card whose waits id names a card he answered while no PR on it changed since, so his answer stands, posts nothing and says why."""
     from drive import card
 
     drawn = card.cards([{"repo": key.split("#")[0], "number": int(key.split("#")[1])} for key in keys])
@@ -581,31 +581,30 @@ def draw(name: str, keys: list[str], again: bool = False) -> str:
         waits = each["card"].get("waits")
         closed = waits and not view.card_open(waits, found) and view.closed_card(found, waits)
         if closed and closed["answer"] and not closed["answer"].get("withdrawn") and not closed["replaced_by"] and not any(row["changed"] for row in each["card"]["prs"]):
-            raise DriveError(f"nothing was posted: his card under {waits} is {closed['url']}, which he answered, and with no PR on it changed since, cc-slack would only link it again")
+            raise DriveError(f"nothing was posted: his card under {waits} is {closed['url']}, which he answered, and with no PR on it changed since, his answer stands")
     data = state.load(name)
-    line = waits_line(data, keys, [row["title"] for each in drawn["cards"] for row in each["card"]["prs"]], again)
-    plain(line)
-    reply = slack.cc_slack(*status(name, data, {}, keys, [], line))
-    link = (reply.get("card_permalink") or reply["permalink"]).split()[0]
-    state.append_event(
-        name, "said", text=line, channel=None, thread=reply.get("thread_ts"), url=reply["permalink"], card=reply.get("card_permalink"), order=None, visuals=[], prs=keys, edited=False
-    )
+    titles = [row["title"] for each in drawn["cards"] for row in each["card"]["prs"]]
+    line = waits_line(data, keys, titles) if again else "; ".join(titles)
+    if again:
+        plain(line)
+    thread = next((where[1] for where in state.pr_threads(data, keys) if where[0] == slack.dm()), None)
+    reply = slack.cc_slack(*status(name, data, {"thread_ts": thread}, keys, [], ""))
+    link = reply["card_permalink"].split()[0]
+    if again:
+        reply = slack.cc_slack(*status(name, data, {"thread_ts": thread or view.card_thread(link)}, keys, [], line))
+    state.append_event(name, "said", text=line, channel=None, thread=reply.get("thread_ts"), url=reply["permalink"], card=link, order=None, visuals=[], prs=keys, edited=False)
     view.refresh_cards(name)
     return link
 
 
-def waits_line(data: dict, keys: list[str], titles: list[str], again: bool) -> str:
-    """The line over the drive's own draw of his card, with no link, so Slack draws no other card: what the PRs on it do, by their titles, under "Waits on your Approve", or asked again, why it asks, the open incident or reported bug they fix; a flake fix adds that it fixes a flaking test at its cause, by his ruling FLAKE_RULING, its words quoted."""
-    opening = "Waits on your Approve"
-    if again:
-        incident = any(data["orders"][order_id]["incident"] for key in keys for order_id in state.served_orders(data, data["prs"][key]))
-        opening = f"Asking again, since it fixes {'an open incident' if incident else 'a reported bug'}"
-    flaky = any(data["prs"][key].get("exempt") == state.FLAKE_FIX for key in keys)
-    return "\n".join([f"{opening}: {'; '.join(titles)}", *([f'Fixes a flaking test at its cause, by your ruling "{state.FLAKE_WORDS}"'] if flaky else [])])
+def waits_line(data: dict, keys: list[str], titles: list[str]) -> str:
+    """The line the drive posts when it asks his tap again on PRs that fix a live bug, in the card's thread, with no link, so Slack draws no other card: why it asks, the open incident or reported bug they fix, and what the PRs on it do, by their titles."""
+    incident = any(data["orders"][order_id]["incident"] for key in keys for order_id in state.served_orders(data, data["prs"][key]))
+    return f"Asking again, since it fixes {'an open incident' if incident else 'a reported bug'}: {'; '.join(titles)}"
 
 
 def plain(line: str) -> None:
-    """Refuse a line over his card that `cc-slack check-post` finds something in and Jev, in one request with one Noul a finding, reads as breaking the plain-words rule at settled.YES or more; a line Jev reads in the band between settled.NO and settled.YES, or gives no reading of, goes out, said on stderr, as a say post does when its judge cannot finish."""
+    """Refuse a line asking his tap again that `cc-slack check-post` finds something in and Jev, in one request with one Noul a finding, reads as breaking the plain-words rule at settled.YES or more; a line Jev reads in the band between settled.NO and settled.YES, or gives no reading of, goes out, said on stderr, as a say post does when its judge cannot finish."""
     from drive import settled
 
     if not (findings := slack.post_findings(line, True)):
@@ -615,13 +614,13 @@ def plain(line: str) -> None:
     try:
         read = settled.jev(told, questions)
     except settled.Unheard as failure:
-        print(f"drive: Jev gave no reading of the line over his card, so it goes out with what check-post found in it, {'; '.join(findings)}: {failure}", file=sys.stderr)
+        print(f"drive: Jev gave no reading of the line asking his tap again, so it goes out with what check-post found in it, {'; '.join(findings)}: {failure}", file=sys.stderr)
         return
     holds = {found: settled.reading(read.get(f"f{number}.holds")) for number, found in enumerate(findings, 1)}
     if broken := [found for found, held in holds.items() if held]:
-        raise DriveError(f"nothing was posted: the line over his card breaks the plain-words rule, as `cc-slack check-post` finds and Jev reads it: {'; '.join(broken)}. Line: {line}")
+        raise DriveError(f"nothing was posted: the line asking his tap again breaks the plain-words rule, as `cc-slack check-post` finds and Jev reads it: {'; '.join(broken)}. Line: {line}")
     if unsure := [found for found, held in holds.items() if held is None]:
-        print(f"drive: Jev is unsure whether the plain-words rule holds against {'; '.join(unsure)} in the line over his card, so it goes out", file=sys.stderr)
+        print(f"drive: Jev is unsure whether the plain-words rule holds against {'; '.join(unsure)} in the line asking his tap again, so it goes out", file=sys.stderr)
 
 
 def withdraw(name: str, key: str) -> list[str]:
