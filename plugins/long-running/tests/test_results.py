@@ -2,6 +2,7 @@ import io
 import json
 import os
 import shlex
+import subprocess
 import sys
 import tomllib
 from collections.abc import Callable
@@ -297,6 +298,40 @@ def test_a_codex_jobs_run_carries_its_job_and_codex_runs_landing_guard_on_its_ba
     kept = (hooks.read_text(), config.read_text())
     codex.guarded()
     assert (hooks.read_text(), config.read_text()) == kept
+
+
+def test_a_codex_launch_replaces_a_link_to_another_runtime_slot_script_with_this_installs_copy(tmp_path: Path, codex_ask: CodexAsk) -> None:
+    older = tmp_path / "older" / codex.SLOT.name
+    older.parent.mkdir()
+    older.write_text("print('older')\n")
+    installed = tmp_path / "codex-home" / "bin" / codex.SLOT.name
+    installed.parent.mkdir()
+    installed.symlink_to(older)
+    codex.slotted()
+    assert (installed.is_symlink(), installed.read_text(), older.read_text()) == (False, codex.SLOT.read_text(), "print('older')\n")
+
+
+def test_a_busy_runtime_slot_queues_the_command_in_its_own_session_as_a_pid_the_drive_waits_on_that_runs_it_once_the_holder_ends(tmp_path: Path) -> None:
+    slot = tmp_path / "bin" / codex.SLOT.name
+    slot.parent.mkdir()
+    slot.write_text(codex.SLOT.read_text())
+    owner = slot.parent / "local-runtime-slot-owner.private.json"
+    wrapped = [sys.executable, "-I", "-B", str(slot)]
+    free = subprocess.run([*wrapped, "--queue", "--phase", "free", "--", sys.executable, "-c", "print('ran')"], capture_output=True, text=True, check=False)
+    assert (free.returncode, free.stdout) == (0, "ran\n")
+    holder = subprocess.Popen([*wrapped, "--phase", "holder", "--", sys.executable, "-c", "import sys; print('held', flush=True); sys.stdin.read()"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+    assert holder.stdout.readline() == "held\n"
+    fifo = tmp_path / "queued.fifo"
+    os.mkfifo(fifo)
+    copy_owner = "import sys; open(sys.argv[1], 'w').write(open(sys.argv[2]).read())"
+    queued = subprocess.run([*wrapped, "--queue", "--phase", "queued", "--", sys.executable, "-c", copy_owner, str(fifo), str(owner)], capture_output=True, text=True, check=False)
+    pid = int(queued.stdout.removeprefix("pid:"))
+    assert (queued.returncode, queued.stdout, os.getsid(pid), json.loads(owner.read_text())["phase"]) == (75, f"pid:{pid}\n", pid, "holder")
+    assert state.pid_waits(f"WAITING pid:{pid} queued behind the holder") == [f"pid:{pid}@{state.procs.started(pid)}"]
+    holder.stdin.close()
+    assert holder.wait() == 0
+    record = json.loads(fifo.read_text())
+    assert (record["phase"], record["wrapper_pid"]) == ("queued", pid)
 
 
 def test_a_codex_job_runs_the_model_its_order_names_and_astra_only_on_an_order_whose_words_name_it(

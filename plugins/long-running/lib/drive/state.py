@@ -1498,10 +1498,11 @@ def result_refusal(data: dict, job_id: str, line: str, report: str) -> str | Non
             )
     if re.match(r"WAITING\b", line) and not (job["due"] or view.holding(data, unlooped(data, job_id, job["waits"]), None) or result_waits(data, job_id, line)):
         return (
-            "its WAITING names nothing the watch frees it on: name on its first line, the only line its waits are read from, the release as"
-            " release:<service>:<owner>/<repo>#<n>, or release:<service>:<owner>/<repo>#<n>@<env> for one env as tools/ci release live names it, a staging test's soak commit as staging:<target>/<env>@<commit>, a Buildkite build by its link, https://buildkite.com/<org>/<pipeline>/builds/<n>,"
-            " an open PR the drive tracks, a part of an order not yet delivered as <order>:<part>"
-            f" or a process you started on this Mac that still runs as pid:<n>, which wakes {job_id} once it ends, since a PR that merged or closed, a part delivered and a process that ended free it at once,"
+            "its WAITING names nothing the watch frees it on: name on its first line, the only line its waits are read from,"
+            f" a process on this Mac that outlives your run as pid:<n>, which wakes {job_id} once it ends, such as the one a busy with-local-runtime-slot.py --queue prints,"
+            " never one left running in a codex run's shell, which codex kills as the run ends, an open PR the drive tracks, a part of an order not yet delivered as <order>:<part>, the release as"
+            " release:<service>:<owner>/<repo>#<n>, or release:<service>:<owner>/<repo>#<n>@<env> for one env as tools/ci release live names it, a staging test's soak commit as staging:<target>/<env>@<commit>,"
+            " or a Buildkite build by its link, https://buildkite.com/<org>/<pipeline>/builds/<n>, since a PR that merged or closed, a part delivered and a process that ended free it at once,"
             f" and a PR waiting on a part {job_id} carries, as the PR its staging test tests, waits on {job_id} in turn,"
             f" or first give it what it waits on with drive job set {job_id} --waits <card or job> or a clock with --due <time>"
         )

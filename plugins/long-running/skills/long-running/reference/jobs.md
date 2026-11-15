@@ -200,8 +200,10 @@ sets failed on `BLOCKED codex-ask completed, its reply refused:` and why, with t
 failed or dead run sets failed on `BLOCKED codex-ask <state>:` and its log's last line; a run still
 going sets nothing. Codex leaves its edits uncommitted, so a codex job that changed code returns
 `HANDOFF`, and the builder that ships it is briefed `Handoff: drive job report <the codex job>`.
-A codex job waiting on a long run it started on this Mac, such as a pass-box command's observer,
-returns `WAITING … waits on pid:<n>`, naming that process; the drive keeps the wait as
+A codex job waiting on a process on this Mac that outlives its run, such as the waiter a busy
+`with-local-runtime-slot.py --queue` starts in its own session for its turn at the runtime slot,
+returns `WAITING … waits on pid:<n>`, naming the pid that command prints, never a process left
+running in the run's shell, which codex kills as the run ends; the drive keeps the wait as
 `pid:<n>@<the second it started>`, so the number taken by another process once it ends holds
 nothing. Once the process ends, crashed or finished, the watch's `FREE` line says so and the same
 pass starts the job's next codex-ask run, its brief carrying under `From the watch since:` which process

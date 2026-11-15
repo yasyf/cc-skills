@@ -6034,7 +6034,7 @@ def test_a_waiting_line_names_what_frees_it_and_each_pr_and_release_it_names_is_
     run("job", "add", "builder", "--order", "o1", "--goal", "ship")
     run("pr", "add", PR, "--job", "j1", *LEAD)
     code, err = keep(monkeypatch, capsys, "j1", "WAITING release: #54575 merged after the newest release was cut\n")
-    assert (code, "j1: refused, nothing kept: its WAITING names nothing the watch frees it on: name on its first line, the only line its waits are read from, the release as release:<service>" in err) == (2, True)
+    assert (code, "j1: refused, nothing kept: its WAITING names nothing the watch frees it on: name on its first line, the only line its waits are read from, a process on this Mac that outlives your run as pid:<n>" in err) == (2, True)
     assert state.load("demo")["jobs"]["j1"]["state"] == "running"
     assert keep(monkeypatch, capsys, "j1", "WAITING release:api:Forge-AI/monorepo#42 and release:api:Forge-AI/monorepo#9\n") == (0, "")
     job = state.load("demo")["jobs"]["j1"]
@@ -6079,7 +6079,7 @@ def test_a_waiting_line_naming_a_process_that_runs_on_this_mac_waits_on_it_pinne
     assert cli.main(["job", "set", "j1", "--waits", f"pid:{ended.pid}"]) == 2
     assert f"--waits pid:{ended.pid}: no process on this Mac holds that number now, so nothing is left to wait on" in capsys.readouterr().err
     code, err = keep(monkeypatch, capsys, "j1", f"WAITING the checkpoint pass runs, waits on pid:{ended.pid}\n")
-    assert (code, "a process you started on this Mac that still runs as pid:<n>, which wakes j1 once it ends" in err) == (2, True)
+    assert (code, "a process on this Mac that outlives your run as pid:<n>, which wakes j1 once it ends, such as the one a busy with-local-runtime-slot.py --queue prints" in err) == (2, True)
     observer = subprocess.Popen(["sleep", "600"])
     try:
         assert keep(monkeypatch, capsys, "j1", f"WAITING the checkpoint pass runs, waits on pid:{observer.pid}\n") == (0, "")

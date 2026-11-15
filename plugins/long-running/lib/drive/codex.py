@@ -21,6 +21,7 @@ SCHEMA_FILE = "codex-result.json"
 GUARD = Path(__file__).resolve().parents[2] / "hooks" / "landing_guard.py"
 GUARD_MATCHER = "^Bash$"
 GUARD_SECONDS = 60
+SLOT = Path(__file__).with_name("with-local-runtime-slot.py")
 RESULT = {
     "type": "object",
     "properties": {
@@ -29,8 +30,9 @@ RESULT = {
             "enum": [*(word for word in state.RESULT_STATES if word != "DESIGN"), "BUILT"],
             "description": (
                 "The result your run ends on: DONE, finished and checked where it is used; READY or PUSHED, a PR is open; WAITING, it waits on a"
-                " release, an open PR, a part of an order not yet delivered or a long run you started on this Mac, such as a pass-box command's observer, named as pid:<n> in the line,"
-                " whose end, crashed or finished, starts your next run with this report; ASK, a choice his words leave open; BUILT, the recommended option built"
+                " release, an open PR, a part of an order not yet delivered or a process on this Mac that outlives your run, such as the waiter a busy"
+                " `with-local-runtime-slot.py --queue` starts for your turn at the slot, named as the pid:<n> it prints in the line, whose end, crashed or finished,"
+                " starts your next run with this report, never a process left running in your shell, which codex kills as your run ends; ASK, a choice his words leave open; BUILT, the recommended option built"
                 " on a branch while his card is open; BLOCKED, no route works; HANDOFF, the work is left for a builder to ship, such as edits left uncommitted."
             ),
         },
@@ -39,7 +41,7 @@ RESULT = {
             "description": (
                 "The rest of the result line after the state word, never repeating it, at most 400 characters, the result itself and never a"
                 " `REPLY_FILE:` pointer to a file holding it, since the drive keeps this reply whole as your report: the proof for DONE, each PR link for"
-                " READY or PUSHED, each open PR the drive tracks, `release:<service>:<owner>/<repo>#<n>[@<env>]`, `<order>:<part>` and `pid:<n>` of a process you started that still runs it waits on for WAITING,"
+                " READY or PUSHED, each open PR the drive tracks, `release:<service>:<owner>/<repo>#<n>[@<env>]`, `<order>:<part>` and `pid:<n>` of a process that outlives your run, such as the one a busy `with-local-runtime-slot.py --queue` prints, it waits on for WAITING,"
                 " the only place its waits are read from, since a PR that merged or closed and a part delivered wait on nothing,"
                 " `<branch>, waits on <cards>` for BUILT, the ASK block's file for ASK, what is in the way for BLOCKED, the worktree"
                 " and branch holding your edits and what is left for HANDOFF."
@@ -87,6 +89,7 @@ def ask(name: str, job_id: str, question: str, incident: bool, model: str | None
     schema.write_text(json.dumps(RESULT, indent=2) + "\n")
     folder = scratch / "codex"
     guarded()
+    slotted()
     argv = [str(launcher()), "--dispatch", "-s", str(folder), "--schema", str(schema), *(["-m", model] if model else []), *(["--incident"] if incident else []), "-"]
     try:
         done = subprocess.run(argv, input=question, env=os.environ | {state.DRIVE_ENV: name, state.OWN_JOB_ENV: job_id}, check=False, capture_output=True, text=True, timeout=DISPATCH_SECONDS)
@@ -118,6 +121,16 @@ def guarded() -> None:
         replaced(config, f'{text}\n[hooks.state.{json.dumps(key)}]\ntrusted_hash = "{trusted}"\n')
     elif entry["trusted_hash"] != trusted:
         replaced(config, text.replace(entry["trusted_hash"], trusted, 1))
+
+
+def slotted() -> None:
+    """Keep codex's bin/with-local-runtime-slot.py, the lock every codex run on this Mac takes to run one local job at a time, as this install's copy, so a pass finding it busy can queue behind it with --queue; a file there whose text differs, or a link to one elsewhere, is replaced whole, its lock and owner record moving beside it."""
+    home = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
+    installed = home / "bin" / SLOT.name
+    text = SLOT.read_text()
+    if installed.is_symlink() or not installed.exists() or installed.read_text() != text:
+        installed.parent.mkdir(parents=True, exist_ok=True)
+        replaced(installed, text)
 
 
 def replaced(path: Path, text: str) -> None:
