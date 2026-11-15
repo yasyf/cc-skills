@@ -1,9 +1,10 @@
+import itertools
 import json
 import re
 from collections.abc import Iterator
 from datetime import datetime
 
-from drive import agents, limits, refs, settled, slack, state
+from drive import agents, artifacts, limits, refs, settled, slack, state
 
 CALL_FIELDS = ("records", "lane", "drive", "id")
 OPENING = re.compile(r"(?:POST|FYI)\b")
@@ -42,9 +43,9 @@ THREAD_TS = re.compile(r"\d{10}\.\d{6}")
 NOT_THREAD = "refused: thread {thread} is no Slack thread, which is named by its root message's ts, such as 1794478810.620779; leave thread out for a post at his DM root"
 NOT_UNTIL = "refused: until {until} is no time with its offset; name the end of the post it goes with in RFC 3339, such as 2026-11-14T13:30:00-08:00"
 SECOND_REPORT = (
-    "refused: the coordinator and the meta session send one report per thread per turn, and this turn, which runs from a wake"
-    " to the end of its response, already sent one for thread {thread}; what did not fit in it waits for the next wake."
-    " A report on an open incident always goes"
+    "refused: the coordinator and the meta session send one report per thread per turn, a wake to the end of its response;"
+    " this turn already sent one for thread {thread}, so the rest waits for the next wake."
+    " A report on an open incident goes, as does one correcting a withdrawn report"
 )
 SECOND_REPORT_RULE = "A second report for a thread in one turn of the coordinator's or the meta session's that repeats what its first report there already sent, rather than news that came in since; a report on an open incident order always goes."
 UNPREVENTED = (
@@ -124,7 +125,7 @@ def report_refusals(payload: dict, drive: dict, records: list[dict], index: int)
     yield agents.unpromised(drive["name"], f"{text}\n{record.get('body') or ''}")
     yield VAGUE_WAIT if WAITS_ON_OTHER.search(text) and not (WAITED.search(text) and RUNNING.search(text)) else None
     if thread and state.session_role(drive, payload.get("session_id")) in ("coordinator", "meta") and not payload.get("agent_id") and not state.open_incidents(drive, state.report_orders(drive, attrs(record))):
-        yield second_report(payload, records, index, thread)
+        yield second_report(payload, drive["name"], records, index, thread)
     yield agents.unread_job(payload, text)
     yield agents.unowned_work(text)
 
@@ -231,18 +232,21 @@ def report_threads(tool_input: dict) -> set[str]:
     return {attrs(record).get("thread") for record in posted(tool_input) if kind(record) == "report" and addressed(record, "communicator")} - {None}
 
 
-def second_report(payload: dict, records: list[dict], index: int, thread: str) -> str | None:
-    """Why the coordinator's or the meta session's report for a thread waits for its next turn: the batch, or a post since its last response ended, already carried one for that thread."""
+def second_report(payload: dict, name: str, records: list[dict], index: int, thread: str) -> str | None:
+    """Why the coordinator's or the meta session's report for a thread waits for its next turn: the batch, or a post since its last response ended, already carried one for that thread that no withdraw record answers, by agents.amendments, so a report withdrawn for what it got wrong leaves its turn's place to the report correcting it. A post's result names the seq of each record it stored, in the order of its records; one whose result names none counts."""
     if thread in report_threads({"records": records[:index]}):
         return agents.Ruled(SECOND_REPORT.format(thread=thread), SECOND_REPORT_RULE)
-    sent: dict[str, set[str]] = {}
-    posted: set[str] = set()
+    sent: dict[str, list[str | None]] = {}
+    seqs: list[str | None] = []
     for row in agents.tail(agents.transcript_of(payload)):
         if agents.ended(row):
-            sent, posted = {}, set()
+            sent, seqs = {}, []
         for part in agents.parts(row):
             if part.get("type") == "tool_use" and part.get("name") == payload["tool_name"] and part.get("id") != payload.get("tool_use_id"):
-                sent[part["id"]] = report_threads(part.get("input") or {})
+                sent[part["id"]] = [attrs(record).get("thread") if kind(record) == "report" and addressed(record, "communicator") else None for record in posted(part.get("input") or {})]
             elif part.get("type") == "tool_result" and part.get("tool_use_id") in sent and not part.get("is_error"):
-                posted.add(part["tool_use_id"])
-    return agents.Ruled(SECOND_REPORT.format(thread=thread), SECOND_REPORT_RULE) if any(thread in sent[call] for call in posted) else None
+                stored = [word for word in artifacts.tool_result_text(part.get("content")).split() if word.isdigit()]
+                seqs += [seq for seq, said in itertools.zip_longest(stored, sent[part["tool_use_id"]]) if said == thread]
+    if seqs and (None in seqs or not set(seqs) <= agents.amendments(name, seqs)["withdraw"].keys()):
+        return agents.Ruled(SECOND_REPORT.format(thread=thread), SECOND_REPORT_RULE)
+    return None

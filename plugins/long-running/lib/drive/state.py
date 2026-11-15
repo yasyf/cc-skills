@@ -1402,6 +1402,28 @@ def deliver(data: dict, job_id: str, order_id: str, parts: list[str]) -> None:
     job["parts"] = list(dict.fromkeys([*job["parts"], *parts]))
 
 
+def drop_part(data: dict, order_id: str, part: str, why: str) -> tuple[list[str], list[str]]:
+    """Take a part off its order, every job delivering it and every PR naming it, stopping each live job it leaves with no part, said so with why: the one way a part leaves an open order, whether his answer, drive order set --drop-part or its design's newest DESIGN drops it. The jobs it took the part off, and the live ones of them it stopped."""
+    del data["orders"][order_id]["parts"][part]
+    data["orders"][order_id]["updated"] = stamp()
+    trimmed, stopped = [], []
+    for job_id, job in data["jobs"].items():
+        if part not in (held := job_parts(job, order_id)):
+            continue
+        held.remove(part)
+        if job["order"] != order_id and not held:
+            del job["carries"][order_id]
+        job["updated"] = stamp()
+        trimmed.append(job_id)
+        if job["state"] not in FINISHED_JOB_STATES and not job["parts"] and not job["carries"]:
+            job.update(state="stopped", said=why)
+            stopped.append(job_id)
+    for pr in data["prs"].values():
+        if pr["order"] == order_id and part in pr["parts"]:
+            pr["parts"].remove(part)
+    return trimmed, stopped
+
+
 def agent_job(data: dict, agent: str | None) -> str | None:
     return next((job_id for job_id, job in data["jobs"].items() if agent and job.get("agent") == agent), None)
 
@@ -1798,7 +1820,7 @@ def unread_since_take(data: dict, job_id: str) -> list[str]:
 
 
 def add_changes(name: str, data: dict, job_id: str, report: str) -> list[str]:
-    """Make each change a design job's DESIGN return lists on its `Change:` lines, when it lists more than one, a part of the design's order under the line's words before its `(waits on …)`, naming the design, a part already under those words included, a design of one change being its own parts, and each piece of its plan a builder's return leaves to a follow-up on its `UNBUILT:` lines, never its `CHANGE:` or `Change:` lines, which name its own change, a part of its order by left_changes; then give each change no builder or codex job builds a builder of its own, by change_builders, and return the builders added."""
+    """Make each change a design job's DESIGN return lists on its `Change:` lines, when it lists more than one, a part of the design's order under the line's words before its `(waits on …)`, naming the design, a part already under those words included, a design of one change being its own parts, each change an earlier DESIGN of several made that it no longer lists and on which no work began dropped, its builders no agent or lane took stopped, by unlisted_changes and drop_part, and each piece of its plan a builder's return leaves to a follow-up on its `UNBUILT:` lines, never its `CHANGE:` or `Change:` lines, which name its own change, a part of its order by left_changes; then give each change no builder or codex job builds a builder of its own, by change_builders, and return the builders added."""
     job = data["jobs"][job_id]
     found = [(whole_order(line["change"]), change_waits(line)) for line in change_lines(job["kind"], report)]
     if job["kind"] == "builder":
@@ -1806,6 +1828,8 @@ def add_changes(name: str, data: dict, job_id: str, report: str) -> list[str]:
     if job["kind"] != "design" or not report.lstrip().startswith("DESIGN") or not found:
         return []
     order = data["orders"][job["order"]]
+    for part in unlisted_changes(name, data, job_id):
+        drop_part(data, job["order"], part, f"its design {job_id} no longer lists it")
     for change, _ in found if len(found) > 1 else []:
         order["parts"].setdefault(change, new_part()).update(design=job_id)
     added = change_builders(name, data, job_id, [([change], waits) for change, waits in found] if len(found) > 1 else [(job["parts"], [])])
@@ -1817,16 +1841,21 @@ def add_changes(name: str, data: dict, job_id: str, report: str) -> list[str]:
 
 
 def renamed_change(name: str, data: dict, order_id: str, named: list[str], design_id: str) -> str | None:
-    """Why a list of an order's changes renames one, refused with nothing kept, since a change's part words are its one identity, which its design, its builder and that builder's PR hang on: the Change: lines of design_id's DESIGN of several naming a change no builder or codex job carries, by part_builders, which change_builders would start a builder on, while leaving out an undelivered change that design listed before, a part its DESIGN of several made under its name or its own parts once a DESIGN of one change made them its change, that such a job carries, which would then build one change twice. A list that only drops changes or only brings names in renames none."""
+    """Why a list of an order's changes renames one, refused with nothing kept, since a change's part words are its one identity, which its design, its builder and that builder's PR hang on: the Change: lines of design_id's DESIGN of several naming a change no builder or codex job carries, by part_builders, which change_builders would start a builder on, while leaving out an undelivered change that design listed before that such a job carries and the kept list would leave standing, which would then build one change twice: a change its DESIGN of several made once work on it began, by unstarted_change, since unlisted_changes drops one whose builders no agent or lane took, or its own parts once a DESIGN of one change made them its change, which no list drops; a piece a builder's UNBUILT: line left under the design is none of these. A list that only drops changes or only brings names in renames none."""
     parts = data["orders"][order_id]["parts"]
     design = data["jobs"][design_id]
-    alone = any(len(change_lines("design", reply["body"])) == 1 for reply in returns(name, design_id) if opening(reply["body"]).startswith("DESIGN"))
-    listed = dict.fromkeys([*(design["parts"] if alone else []), *designed(data, design_id, order_id)])
+    lists = change_lists(name, design_id)
+    made = {change for listed in lists if len(listed) > 1 for change in listed}
+    own = design["parts"] if any(len(listed) == 1 for listed in lists) else []
     added = [part for part in named if not part_builders(data, order_id, part)]
     left = [
         f'"{part}", carried by {", ".join(jobs)}'
-        for part in listed
-        if part in parts and part not in named and not delivered(data, order_id, part) and (jobs := part_builders(data, order_id, part))
+        for part in dict.fromkeys([*own, *(designed(data, design_id, order_id) & made)])
+        if part in parts
+        and part not in named
+        and not delivered(data, order_id, part)
+        and (jobs := part_builders(data, order_id, part))
+        and (part in design["parts"] or not unstarted_change(data, order_id, part))
     ]
     said = f"its Change: lines name {', '.join(json.dumps(part, ensure_ascii=False) for part in added)}, which no builder or codex job carries, and leave out {', '.join(left)}, so one change would get a second builder"
     fix = (
@@ -1978,6 +2007,28 @@ def design_builders(data: dict, design_id: str) -> list[str]:
 def designed(data: dict, job_id: str, order_id: str) -> set[str]:
     """The parts of an order a job's DESIGN listed as its changes, none for a job that designs nothing."""
     return {part for part, held in data["orders"][order_id]["parts"].items() if held["design"] == job_id}
+
+
+def unlisted_changes(name: str, data: dict, design_id: str) -> list[str]:
+    """The changes a DESIGN of several of this design made parts of its order that its newest DESIGN no longer lists, the design's own parts aside, and on which no work began, by unstarted_change, so a design that renames a change leaves no part behind on the old name, and drop_part stops the builders no agent or lane took in the save that drops it."""
+    design = data["jobs"][design_id]
+    lists = change_lists(name, design_id)
+    made = {change for listed in lists if len(listed) > 1 for change in listed}
+    return sorted(part for part in designed(data, design_id, design["order"]) & made if part not in [*lists[0], *design["parts"]] and unstarted_change(data, design["order"], part))
+
+
+def change_lists(name: str, design_id: str) -> list[list[str]]:
+    """The changes each DESIGN return of a design job lists on its Change: lines, newest first."""
+    return [[whole_order(line["change"]) for line in change_lines("design", reply["body"])] for reply in returns(name, design_id) if opening(reply["body"]).startswith("DESIGN")]
+
+
+def unstarted_change(data: dict, order_id: str, part: str) -> bool:
+    """Whether no work on a change began: undelivered, every builder or codex job on it, by part_builders, one no agent or lane took, by untaken, and on no open PR the drive tracks."""
+    return (
+        not delivered(data, order_id, part)
+        and all(untaken(data["jobs"][job_id]) for job_id in part_builders(data, order_id, part))
+        and not any(pr["state"] == "open" and pr["order"] == order_id and part in (pr["parts"] or job_parts(data["jobs"][pr["job"]], order_id)) for pr in data["prs"].values())
+    )
 
 
 def names_part(holds: str, parts: Iterable[str]) -> bool:

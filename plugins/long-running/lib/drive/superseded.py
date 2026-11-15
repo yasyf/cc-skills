@@ -735,29 +735,15 @@ def stops_open_pr(data: dict, key: str, into: str | None) -> bool:
 
 
 def drop(data: dict, answer_id: str, order_id: str, part: str) -> list[str]:
-    """Take a part his answer removes off its order, every job delivering it and every PR naming it, stopping each live job it leaves with no part and keeping each other live job it trims waiting to hear his words; what was done, a line each."""
-    del data["orders"][order_id]["parts"][part]
-    data["orders"][order_id]["updated"] = state.stamp()
-    trimmed, stopped = [], []
-    for job_id, job in data["jobs"].items():
-        if part not in (held := state.job_parts(job, order_id)):
-            continue
-        held.remove(part)
-        if job["order"] != order_id and not held:
-            del job["carries"][order_id]
-        job["updated"] = state.stamp()
-        trimmed.append(job_id)
-        if job["state"] in state.FINISHED_JOB_STATES:
-            continue
-        if job["parts"] or job["carries"]:
+    """Take a part his answer removes off its order, every job delivering it and every PR naming it, by state.drop_part, keeping each live job it trims waiting to hear his words; what was done, a line each."""
+    trimmed, stopped = state.drop_part(data, order_id, part, f"his answer {answer_id} dropped every part it delivered")
+    for job_id in trimmed:
+        if data["jobs"][job_id]["state"] not in state.FINISHED_JOB_STATES:
             owe(data, answer_id, job_id)
-            continue
-        job.update(state="stopped", said=f"his answer {answer_id} dropped every part it delivered")
-        stopped.append(f"{job_id} stopped, left with no part: end its agent, or its lane with drive job end {job_id}")
-    for pr in data["prs"].values():
-        if pr["order"] == order_id and part in pr["parts"]:
-            pr["parts"].remove(part)
-    return [f"{order_id}:{part} dropped from {order_id}" + (f" and {', '.join(trimmed)}" if trimmed else ""), *stopped]
+    return [
+        f"{order_id}:{part} dropped from {order_id}" + (f" and {', '.join(trimmed)}" if trimmed else ""),
+        *(f"{job_id} stopped, left with no part: end its agent, or its lane with drive job end {job_id}" for job_id in stopped),
+    ]
 
 
 def drop_order(data: dict, answer_id: str, order_id: str) -> list[str]:

@@ -286,11 +286,13 @@ the others, and a
 the builder of each earlier change it waits on. Those words are the change's one identity, which
 its builder and PR hang on: when you file your design again, each change you listed before keeps
 its words on its `Change:` line, a design of one change being your own part, with what is new on
-the `Design:` line. `drive job report` refuses, keeping nothing, a design of several that names a
-change no live builder carries while it leaves out an undelivered change you listed before that a
-builder or codex job neither failed nor stopped carries, naming each such change and its job, since
-the drive would add a second builder for one change; for a change you drop, return `BLOCKED`
-naming the job that carries it, for the coordinator to stop. A `HANDOFF <path>`, when
+the `Design:` line. A design of several that leaves out an undelivered change you listed before drops it from the
+order, its jobs and its PRs, stopping its builders, while no agent or lane took a builder of it and
+no open PR carries it. `drive job report` refuses, keeping nothing, a design of several that names a
+change no live builder carries while it leaves out such a change once an agent or lane took its
+builder or a PR carries it, or your own part once a design of one change made it its change, naming
+each such change and its job, since the drive would add a second builder for one change; for a
+change you drop, return `BLOCKED` naming the job that carries it, for the coordinator to stop. A `HANDOFF <path>`, when
 the session that started you stops you before you are done, or a `BLOCKED`, carries no design and
 skips that check.
 

@@ -706,8 +706,8 @@ def quoted_parts(parts: Iterable[str]) -> str:
     return ", ".join(json.dumps(part, ensure_ascii=False) for part in parts)
 
 
-def change_parts(data: dict, order_id: str, added: list[str], dropped: list[str]) -> None:
-    """Add and take off an order's parts one name a flag, so no call retypes a part it leaves alone, and each part it keeps keeps its posted mark, design and the jobs naming it: an add is refused for a name the order holds, a drop for a name it does not hold, for its every part, which a close takes off, and for a change a design listed that no builder delivered, which only his answer drops."""
+def change_parts(name: str, data: dict, order_id: str, added: list[str], dropped: list[str]) -> list[str]:
+    """Add and take off an order's parts one name a flag, so no call retypes a part it leaves alone, and each part it keeps keeps its posted mark, design and the jobs naming it, a dropped one leaving every job and PR too, by state.drop_part: an add is refused for a name the order holds, a drop for a name it does not hold, for its every part, which a close takes off, and for a change a design listed that no builder delivered, which only his answer drops, unless its design's newest DESIGN no longer lists it and no work on it began, by state.unlisted_changes. A line for each live job a drop left with no part, which it stopped."""
     parts = data["orders"][order_id]["parts"]
     if held := [part for part in added if part in parts]:
         raise DriveError(f"{order_id}: refused, its parts stay as they are: it holds {quoted_parts(held)} already, so --add-part adds none; name it as it stands with --part")
@@ -715,16 +715,20 @@ def change_parts(data: dict, order_id: str, added: list[str], dropped: list[str]
         pick_parts(order_id, data["orders"][order_id], dropped)
     if not added and set(parts) <= set(dropped):
         raise DriveError(f"{order_id}: refused, its parts stay as they are: --drop-part takes off its every part, which closes it: drive order set {order_id} --state done or dropped")
-    if designed := [f'{json.dumps(part, ensure_ascii=False)} of {parts[part]["design"]}\'s design' for part in dropped if parts[part]["design"] and not state.delivered(data, order_id, part)]:
+    if designed := [
+        f'{json.dumps(part, ensure_ascii=False)} of {design}\'s design'
+        for part in dropped
+        if (design := parts[part]["design"]) and not state.delivered(data, order_id, part) and part not in state.unlisted_changes(name, data, design)
+    ]:
         raise DriveError(
             f"{order_id}: refused, its parts stay as they are: --drop-part takes off {', '.join(designed)}, which no builder delivered;"
             f" a design's change leaves once its builder delivers it, or by his answer, drive answer <his answer> --dropped {order_id}:<the part>,"
             " which takes it off every job and PR too"
         )
     state.split_research(data, order_id, added, dropped)
-    for part in dropped:
-        del parts[part]
     parts |= {part: state.new_part() for part in added}
+    stopped = [job_id for part in dropped for job_id in state.drop_part(data, order_id, part, f"drive order set {order_id} --drop-part took off every part it delivered")[1]]
+    return [f"{job_id} stopped, left with no part: end its agent, or its lane with drive job end {job_id}" for job_id in stopped]
 
 
 def apart_from_filing(order: dict) -> str:
@@ -843,7 +847,7 @@ def order_set(args: argparse.Namespace) -> int:
         if args.state:
             order["state"] = args.state
         order["alerts"] = list(dict.fromkeys([*order["alerts"], *alerts]))
-        change_parts(data, args.id, list(dict.fromkeys(args.add_part)), list(dict.fromkeys(args.drop_part)))
+        stopped = change_parts(name, data, args.id, list(dict.fromkeys(args.add_part)), list(dict.fromkeys(args.drop_part)))
         for part in standing:
             order["parts"][part]["standing"] = args.standing.strip() or None
         turning = args.incident and not order["incident"]
@@ -878,7 +882,7 @@ def order_set(args: argparse.Namespace) -> int:
     reworked = rework_named_prs(name, args.id, reworks, cards, f"drive order set {args.id} --rework <PR>=<his permalink>")
     parts = [f"{args.id} {render.part_line(data, args.id, part)}" for part in dict.fromkeys([*sorted_parts, *standing])]
     turned += state.asked_lines(data, order["text"]) if turning else []
-    return emit(args, render.order_line(data, args.id, order) + promised + "".join(f"\n{line}" for line in [*turned, *parts, *render.builder_lines(data, added), *reworked]), {"id": args.id, **order})
+    return emit(args, render.order_line(data, args.id, order) + promised + "".join(f"\n{line}" for line in [*turned, *parts, *stopped, *render.builder_lines(data, added), *reworked]), {"id": args.id, **order})
 
 
 def standing_parts(name: str, data: dict, order_id: str, added: list[str], dropped: list[str], named: list[str], goal: str) -> list[str]:
@@ -5158,7 +5162,7 @@ def parser() -> argparse.ArgumentParser:
         default=[],
         type=str.strip,
         metavar="PART",
-        help="a part to take off, one name a flag, each other part staying as it is; refused for a name the order does not hold, for its every part, which a close takes off, and for a change a design listed that no builder delivered, which only his answer's --dropped takes off",
+        help="a part to take off, one name a flag, each other part staying as it is, and off every job and PR, stopping each live job left with no part; refused for a name the order does not hold, for its every part, which a close takes off, and for a change a design listed that no builder delivered, which only his answer's --dropped takes off, unless its design's newest DESIGN no longer lists it and no builder an agent or lane took or open PR carries it",
     )
     reported = verb.add_mutually_exclusive_group()
     reported.add_argument("--reporter", metavar="LINK", help=REPORTER_HELP)

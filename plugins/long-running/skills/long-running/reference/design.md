@@ -52,7 +52,7 @@ stop doing the bare minimum", so no builder waits on a job holding its design.
      characters with no backtick, double quote, `$` or backslash, which becomes a part of the order
      under those words with a builder of its own the drive adds as the design returns, and keeps
      those words each time the design is filed again, since `drive job report` refuses a filing
-     that renames a change a live builder carries. Its forks are the `ASK` blocks it kept with `drive job ask`, each an
+     that renames a change once an agent or lane took its builder, and drops a renamed one no agent or lane took. Its forks are the `ASK` blocks it kept with `drive job ask`, each an
      `asks him:` line under it in `drive status <j>`. Each piece has a worked example, such as an API's calls, imperative beside
      declarative, or a file format's bytes.
    - A design makes a bad state impossible by its shape, under one durable owner. When one leans
