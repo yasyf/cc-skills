@@ -272,7 +272,7 @@ def test_the_coordinator_wakes_no_builder_here_whose_turn_ended_while_eight_hold
     assert reason.endswith(
         'so this message would start it again in a slot it has no turn for. `drive job resume j1 "<the message>"` hands it to a lane on a Sprite'
         " with the message in its handoff, or, when its brief declares a step only this Mac runs on its Mac: line, which drive job brief --mac"
-        " writes, or its Release: line, refuses until a slot opens; when its work holds no checkout or compiler, such as a dry run or a read,"
+        " writes, or its Release: line, holds the message while the job waits its turn for a builder slot here; when its work holds no checkout or compiler, such as a dry run or a read,"
         " `drive job set j1 --builds-nothing` marks it to take the message here at once"
     )
     assert agents.ruled(reason) == {"judged": False}

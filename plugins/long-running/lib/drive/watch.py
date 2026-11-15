@@ -314,11 +314,11 @@ def bare(wait: str) -> str:
 
 
 def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Drop each wait of a job or PR that ended, his card answered, the job finished, the release out by the watch's release live read or its PR closed unmerged, a process on this Mac ended, or a builder slot on this Mac given to the earliest due builder waiting its turn, one per slot no builder holds, and say once, as its last wait ends, that nothing holds it, holding back the job's ORPHAN for 30 minutes, but for a builder's READY or PUSHED whose PRs all merged, which the watch finishes next in the same pass, or else says once as an ORPHAN naming who finishes it; a builder given its slot waits on nothing with no agent yet, its slot stamped with when its turn came, and holds that slot until its agent starts, and one moving here from its Sprite keeps its other waits, its slot stamped, while drive job launch <j> --local, run by start_verb, moves it, a refusal of that launch reaching the watch's lines as its relaunch_refused event; a Sprite job busy reads another drive verb acting on takes its turn on a pass after that verb ends. The cards a job asked him on hold it too, so it keeps its waits until he answers them. A codex job whose process ended holds the text exited_text writes, which carry_held's launch of its next codex-ask run carries, so its FREE line asks nobody to launch it. His open card for a PR whose waits ended is redrawn in place, so it names only the waits that still hold. A job keeps each release wait it was freed of until it finishes, and waits on it again, said as REWAIT, once those reads name a cluster of its service behind, as when a release that failed its Watch puts the build before the fix back."""
+    """Drop each wait of a job or PR that ended, his card answered, the job finished, the release out by the watch's release live read or its PR closed unmerged, a process on this Mac ended, or a builder slot on this Mac given to the earliest due builder waiting its turn, one per slot no builder holds, and say once, as its last wait ends, that nothing holds it, holding back the job's ORPHAN for 30 minutes, but for a builder's READY or PUSHED whose PRs all merged, which the watch finishes next in the same pass, or else says once as an ORPHAN naming who finishes it; a builder given its slot waits on nothing with no agent yet, its slot stamped with when its turn came, and holds that slot until its agent starts, and one moving here from its Sprite, or taking over here from its agent on this Mac, keeps its other waits, its slot stamped, while drive job launch <j> --local, run by start_verb, moves it, a refusal of that launch reaching the watch's lines as its relaunch_refused event; a Sprite job busy reads another drive verb acting on takes its turn on a pass after that verb ends. The cards a job asked him on hold it too, so it keeps its waits until he answers them. A codex job whose process ended holds the text exited_text writes, which carry_held's launch of its next codex-ask run carries, so its FREE line asks nobody to launch it. His open card for a PR whose waits ended is redrawn in place, so it names only the waits that still hold. A job keeps each release wait it was freed of until it finishes, and waits on it again, said as REWAIT, once those reads name a cluster of its service behind, as when a release that failed its Watch puts the build before the fix back."""
     data = state.load(watcher.name)
     out, lines = shipped(watcher, data), []
     turns, held = place.turns(data, moment)
-    turned = {job_id for job_id in turns if heard_job(watcher, data, data["jobs"][job_id]) and not (place.on_sprite(data["jobs"][job_id]) and busy(watcher, job_id, moment))}
+    turned = {job_id for job_id in turns if heard_job(watcher, data, data["jobs"][job_id]) and not (place.moves_here(data["jobs"][job_id]) and busy(watcher, job_id, moment))}
     owners = [
         *(job for job in data["jobs"].values() if heard_job(watcher, data, job) and not view.open_cards(job)),
         *(pr for pr in data["prs"].values() if hears(watcher, data, pr["order"])),
@@ -335,7 +335,7 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 job["shipped"] = [wait for wait in job["shipped"] if wait not in again]
                 state.rewait(job, list(dict.fromkeys([*job["waits"], *again])))
                 lines += [f"REWAIT {job_id} {job['order']}: {wait} holds again: {', '.join(behind(watcher, wait))} behind it" for wait in again]
-            if job_id in turned and place.on_sprite(job):
+            if job_id in turned and place.moves_here(job):
                 state.rewait(job, [wait for wait in job["waits"] if wait != state.SLOT_WAIT])
                 job.update(slot=state.stamp(moment), updated=state.stamp(moment))
                 moves.append(job_id)
@@ -2803,12 +2803,12 @@ def finished(watcher: Watcher, moment: datetime) -> list[str]:
         known = set(data["jobs"])
         provers: dict[str, list[str]] = {}
         for job_id, parts in proving.items():
-            provers.setdefault(add_prover(data, job_id, reach, parts, moved.get(job_id, [])), []).append(job_id)
+            provers.setdefault(add_prover(watcher.name, data, job_id, reach, parts, moved.get(job_id, [])), []).append(job_id)
     return lines + [merged_said(watcher.name, builder_id, f"widened to the parts of {', '.join(jobs)}" if builder_id in known else "added") for builder_id, jobs in provers.items()]
 
 
 def folded_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Fold each prover no agent or lane took whose PRs another prover proves, by folded_into, into that prover, which widen gives its open parts and, while no agent or lane took it either, the PRs it lacks, its release waits and its handoff, and stop it, one line saying each fold, so the provers two passes, two orders or a coordinator added for one PR become one."""
+    """Fold each prover no agent or lane took whose PRs another prover proves, by folded_into, into that prover, which widen gives its open parts and, while no agent or lane took it either, the PRs it lacks, its release waits, its handoff and its Mac: step, and stop it, one line saying each fold, so the provers two passes, two orders or a coordinator added for one PR become one."""
     if not doubled(state.load(watcher.name)):
         return []
     folds = []
@@ -2817,7 +2817,7 @@ def folded_lines(watcher: Watcher, moment: datetime) -> list[str]:
             if not (first := folded_into(data, job_id)):
                 continue
             job = data["jobs"][job_id]
-            widen(data, first, open_served(data, job), [key for key in proves(data, job_id) if key not in proves(data, first)], job["waits"], (job.get("brief_flags") or {}).get("handoff"))
+            widen(data, first, open_served(data, job), [key for key in proves(data, job_id) if key not in proves(data, first)], job["waits"], {flag: (job.get("brief_flags") or {}).get(flag) for flag in ("handoff", "mac")})
             job.update(state="stopped", said=f"folded into {first}", updated=state.stamp(moment))
             folds.append((first, job_id))
     return [merged_said(watcher.name, first, f"took the parts and waits of {job_id}, a duplicate now stopped") for first, job_id in folds]
