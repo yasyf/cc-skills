@@ -702,7 +702,7 @@ def test_rewording_a_posted_line_is_held_to_that_lines_own_length(
     talker: str, transcript: Path, slack_thread: Thread, monkeypatch: pytest.MonkeyPatch, ts: str, before: str, after: str
 ) -> None:
     slack_thread.messages.append({"ts": ts, "from_claude": True, "from_bot": True, "text": before})
-    monkeypatch.setattr(refs.reads, "run", lambda argv, checkout: json.dumps({"kind": "report", "text": "Restore log, 3:20 AM", "refs": {}}))
+    monkeypatch.setattr(refs.reads, "run", lambda argv, checkout: json.dumps({"kind": "report", "lane": "root", "text": "Restore log, 3:20 AM", "refs": {}}))
     monkeypatch.setattr(limits, "now", lambda: WRITTEN_AT.replace(hour=3))
     assert say(transcript, edit=link(ts), text=after) is None
 
@@ -1619,6 +1619,26 @@ def test_a_line_naming_a_cause_with_no_record_is_found_its_handlers_claim_and_hi
     ]
 
 
+def test_718857_a_cause_line_citing_a_record_the_lane_whose_words_it_carries_wrote_is_refused_claims_or_none_while_a_jobs_record_backs_it(
+    run: Run, talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    kept = {
+        "718725": {"kind": "report", "lane": "iris", "text": "POST sandsql-inbox had no writer for 51 seconds", "fields": {"attrs": {"order": "o1"}}},
+        "718719": {"kind": "handoff", "lane": "iris", "text": "go: the tester saw no writer, so the handoff code is already on dev", "fields": {"attrs": {}}},
+        "718700": {"kind": "evidence", "lane": "j6301", "text": "sandsql-inbox logged no writer from 9:31:02 to 9:31:53", "fields": {"attrs": {}}},
+        "718650": {"kind": "owner", "lane": "communicator", "text": "why did the inbox stall", "fields": {"attrs": {}}},
+    }
+    monkeypatch.setattr(refs.reads, "run", lambda argv, checkout: json.dumps({"seq": argv[2], "at": state.stamp(), "refs": {}} | kept[argv[2]]))
+    caused = "sandsql-inbox had no writer for 51 seconds because the handoff code is already on dev, {{record:{}|the read}}."
+    assert say(transcript, text=caused.format("718650")) == refs.SELF_CITED.format(lane="communicator", lines=caused.format("718650"))
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    own = refs.SELF_CITED.format(lane="iris", lines=caused.format("718719"))
+    assert say(transcript, text=caused.format("718719"), record="718725") == own
+    assert say(transcript, text=caused.format("718719"), record="718725", claims=[{"claim": "the handoff code is already on dev", "read": "record:718719"}]) == own
+    assert say(transcript, text=caused.format("718700"), record="718725") is None
+    assert say(transcript, text="The tester's message is in, {record:718719|its words}.", record="718725") is None
+
+
 def test_a_state_of_work_told_by_a_session_posting_on_its_own_carries_the_read_that_measured_it_or_says_unverified(talker: str, transcript: Path) -> None:
     covered = "The flood fix covers it."
     own = call("slack_dm_status", transcript, text=covered) | {"tool_name": message_limits.SAY}
@@ -1702,8 +1722,8 @@ def test_a_line_reading_as_a_drive_failure_or_citing_a_defect_record_is_a_findin
     talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     shown = {
-        "671981": {"kind": "defect", "text": "check-post refused a status table as a wall of text", "refs": {}},
-        "672190": {"kind": "report", "text": "the one refused request was this drive's own proof job", "refs": {}},
+        "671981": {"kind": "defect", "lane": "watch", "text": "check-post refused a status table as a wall of text", "refs": {}},
+        "672190": {"kind": "report", "lane": "root", "text": "the one refused request was this drive's own proof job", "refs": {}},
     }
     monkeypatch.setattr(refs.reads, "run", lambda argv, checkout: json.dumps(shown[argv[2]]))
     proof = "The one refused request was this drive's own proof job starting a staging cloud agent."
@@ -1966,7 +1986,7 @@ def test_jev_reads_each_stamp_say_fills_beside_the_words_it_drew_and_what_it_sta
 def test_say_passes_a_past_window_typed_in_pacific_on_the_line_linking_the_read_that_measured_it(
     talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    measured = {"kind": "report", "text": "the model API returned 503 to one call in three from 09:35 to 09:55 UTC", "refs": {}}
+    measured = {"kind": "report", "lane": "root", "text": "the model API returned 503 to one call in three from 09:35 to 09:55 UTC", "refs": {}}
     monkeypatch.setattr(refs.reads, "run", lambda argv, checkout: json.dumps(measured))
     window = "From 1:35 to 1:55 AM, one in three calls to the model API returned 503"
     assert say(transcript, text=f"{window}, {{record:690223|measured here}}.") is None

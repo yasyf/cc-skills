@@ -788,7 +788,12 @@ restating it.
   card he tapped at 9:49 PM carried a false "disk full". `say` refuses a bare `{record:<seq>}`, naming the
   record's opening it would have drawn, words its poster never wrote. `say` posts nothing while a line outside a
   fence or quote names a cause, such as "because" or "caused", with no `{record:}` on it, unless a
-  handler's post lists it in `claims`, where Jev checks it against the read beside it.
+  handler's post lists it in `claims`, where Jev checks it against the read beside it. The record a
+  cause line cites is a job's read, its evidence, mechanism, handoff or report, never one the lane
+  whose words the line carries wrote itself, such as a sub-coordinator's go record restating a
+  tester's message: `say` refuses such a line, claims or none, judging by the writer of the report it
+  posts, else the posting session's lane, and `record_lines` refuses it on a `POST` report, and one
+  citing a seq cci does not hold, such as one guessed before its post returned.
 - A line telling him a state of work, that it is fixed, covers his case, merged, landed, queued,
   deployed or live, stands on a read of that state made in the same turn: the squash commit for
   merged, the deployed build holding it for live, the queue's own readback for queued, and for

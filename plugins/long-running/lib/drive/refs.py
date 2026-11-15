@@ -48,6 +48,11 @@ ABSENT_RECORD = re.compile(
     re.IGNORECASE,
 )
 RECORD_WORDS = 10
+SELF_CITED = (
+    "refused: a line naming a cause cites the read that measured it, a job's evidence, mechanism, handoff or report, and these cite a"
+    " record {lane}, the lane posting them, wrote itself, which restates its own reading: cite the record of the job that measured the"
+    " cause, as {{record:<seq>|<what that read measured>}}, or leave the cause off the line until a job has measured it: {lines}"
+)
 
 
 def resolved(name: str, text: str) -> dict[str, dict]:
@@ -95,13 +100,19 @@ def nested(text: str) -> str | None:
     return None
 
 
+def causes(text: str) -> list[str]:
+    """Each line of the text, outside a fence, a quote and a quoted line, that states a cause: a because, due to, caused by, culprit or the cause is, never a line naming the cause as the question or as what a read is on."""
+    return [line.strip() for line in picture.FENCE.sub("", text).splitlines() if not line.lstrip().startswith(">") and CAUSE.search(QUOTED.sub("", line))]
+
+
 def unbacked(text: str) -> list[str]:
-    """Each line of the text, outside a fence, a quote and a quoted line, that states a cause with no {record:…} on it: a because, due to, caused by, culprit or the cause is, never a line naming the cause as the question or as what a read is on."""
-    return [
-        line.strip()
-        for line in picture.FENCE.sub("", text).splitlines()
-        if not line.lstrip().startswith(">") and CAUSE.search(QUOTED.sub("", line)) and "{record:" not in line
-    ]
+    """Each line of the text stating a cause, as causes finds them, with no {record:…} on it."""
+    return [line for line in causes(text) if "{record:" not in line]
+
+
+def self_cited(text: str, found: dict[str, dict], lane: str | None) -> list[str]:
+    """Each line of the text stating a cause, as causes finds them, whose {record:…} names a record lane wrote, the lane whose words the line carries, which restates that lane's own reading rather than a job's read that measured the cause; found holds each record reference the text makes, as resolved or records reads it."""
+    return [line for line in causes(text) if any(found[match[0]]["writer"] == lane for match in REF.finditer(line) if match[1] == "record")]
 
 
 def unread_states(text: str) -> list[str]:
@@ -235,12 +246,13 @@ def record(name: str, seq: str, label: str) -> dict:
             f" measured after a |, as {{record:{seq}|<what that read measured>}}"
         )
     url = found["refs"].get("url")
-    return {"kind": "record", "title": label, "url": url, "board": url, "defect": found["kind"] == "defect"}
+    return {"kind": "record", "title": label, "url": url, "board": url, "defect": found["kind"] == "defect", "writer": found["lane"]}
 
 
 def records(name: str, text: str) -> dict[str, dict]:
-    """Whether each {record:<seq>} reference the text holds cites a defect record, read from cci."""
-    return {match[0]: {"defect": shown(name, "record", match[2])["kind"] == "defect"} for match in REF.finditer(text) if match[1] == "record"}
+    """Whether each {record:<seq>} reference the text holds cites a defect record, and the lane that wrote it, read from cci."""
+    read = {match[0]: shown(name, "record", match[2]) for match in REF.finditer(text) if match[1] == "record"}
+    return {reference: {"defect": found["kind"] == "defect", "writer": found["lane"]} for reference, found in read.items()}
 
 
 def answer(data: dict, answer_id: str) -> dict:
