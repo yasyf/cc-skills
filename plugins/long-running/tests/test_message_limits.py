@@ -2792,7 +2792,8 @@ def test_while_he_is_away_only_cards_incident_lines_and_answers_go_out(run: Run,
     assert posted(transcript, text="The fix merged.") is None
 
 
-def test_a_line_naming_a_clock_time_still_to_come_goes_out_while_he_is_away_and_a_line_whose_only_time_promises_the_next_line_waits(run: Run, talker: str, transcript: Path) -> None:
+def test_a_line_naming_a_clock_time_still_to_come_goes_out_while_he_is_away_and_a_line_whose_only_time_promises_the_next_line_waits(run: Run, talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(limits, "now", state.now)
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     heard = state.now() - timedelta(hours=2)
     with state.edit("demo") as data:
