@@ -495,7 +495,7 @@ def delivery(data: dict, job_id: str, job: dict, text: str, what: str = "his wor
         return fresh
     if job.get("agent") or job.get("dispatch"):
         return state.job_lane(data, job), f"drive job resume {job_id} with {what} verbatim"
-    if state.adopted_pr_job(job):
+    if state.adopted_pr_job(data, job):
         return state.job_lane(data, job), f"drive job launch {job_id} --handoff \"<{', '.join(job['prs'])}, its head and {what} verbatim>\", starting the first builder of its adopted PR"
     return state.job_lane(data, job), f"drive job launch {job_id} on its FREE line, which carries each answer of his it has not heard to its first worker"
 

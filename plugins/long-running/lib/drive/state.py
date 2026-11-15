@@ -3768,9 +3768,9 @@ def title(role: str) -> str:
     return "meta session" if role == "meta" else role
 
 
-def adopted_pr_job(job: dict) -> bool:
-    """Whether the job is an adopted PR's: waiting on PRs it holds with no agent or lane ever started on it, so only an event on one of them that needs action, failed checks, requested changes, a new head or his tap, starts its builder, briefed with that event as its handoff."""
-    return job["state"] == "waiting" and bool(job["prs"]) and not (job.get("agent") or job.get("dispatch"))
+def adopted_pr_job(data: dict, job: dict) -> bool:
+    """Whether the job is an adopted PR's: waiting on an open PR it holds with no agent or lane ever started on it, so only an event on one of them that needs action, failed checks, requested changes, a new head or his tap, starts its builder, briefed with that event as its handoff."""
+    return job["state"] == "waiting" and not (job.get("agent") or job.get("dispatch")) and any(data["prs"][pr_key(url)]["state"] == "open" for url in job["prs"])
 
 
 def held_elsewhere(data: dict, order_id: str, session: str | None, cut: bool = False) -> str | None:
