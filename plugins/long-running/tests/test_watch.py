@@ -3054,6 +3054,34 @@ def test_a_codex_job_waiting_on_a_process_it_started_on_this_mac_holds_while_it_
     assert detached == [["job", "launch", "j2"]]
 
 
+def test_a_free_line_for_a_never_started_job_the_watch_launches_with_his_answers_says_so_and_names_no_brief_so_no_session_starts_a_second_worker(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    serve(monkeypatch, {})
+    detached = []
+
+    def detach(name: str, args: list[str], log: str) -> int:
+        detached.append(args)
+        return 1
+
+    monkeypatch.setattr(state, "detach", detach)
+    written = tmp_path / "j2.brief.md"
+    written.write_text("Goal: build the copy\nDrive: demo, order o1, job j2\n")
+    observer = subprocess.Popen(["sleep", "600"])
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["jobs"].append("j2")
+        data["jobs"]["j2"] = state.new_job("o1", "builder", "build the copy", [], state.stamp(T0)) | {"brief": str(written), "waits": state.pid_waits(f"pid:{observer.pid}")}
+        state.hold_text(data["jobs"]["j2"], "ship the narrower fix", state.HIM)
+    watching = watcher(demo)
+    observer.kill()
+    observer.wait()
+    assert watch.waits_lines(watching, T0 + timedelta(minutes=1)) == [
+        f"FREE j2 o1: process {observer.pid} on this Mac ended, nothing else holds it, and the watch now launches it with the texts it holds, his answers among them: start no agent for it"
+    ]
+    watch.carry_held(watching, T0 + timedelta(minutes=1))
+    assert detached == [["job", "launch", "j2"]]
+
+
 def test_his_tap_on_a_lane_questions_card_leads_its_orphan_line_until_his_undo_reopens_the_question_his_card_asks_again(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {})
     monkeypatch.setattr(watch.view, "cards", lambda name: watch.view.NO_CARDS)
@@ -4071,9 +4099,17 @@ def test_a_local_agent_from_another_session_or_with_no_transcript_is_gone(demo: 
 
 
 @pytest.mark.parametrize("session", [None, "session-under-test", "46723e7e-879a-45ac-a21c-71b7ab11db5a"], ids=["no-session", "bound-session", "a-lanes-session"])
-def test_j135_a_local_job_no_worker_started_never_started_whatever_session_added_it(demo: str, session: str | None) -> None:
-    unstarted = {"session": session, "agent": None, "worker_started": None}
-    assert REAL_LOCAL_GAP("j1", unstarted, state.load(demo), state.now()) == "j1 never started: no agent has taken it, so start its agent now"
+@pytest.mark.parametrize(
+    ("brief", "start"),
+    [
+        (None, "brief it with drive job brief j1, then start its agent on the line that prints"),
+        ("/drive/jobs/j1.brief.md", 'start its agent now, run_in_background, on the prompt "Read your brief first: /drive/jobs/j1.brief.md"'),
+    ],
+    ids=["unbriefed", "briefed"],
+)
+def test_j135_a_local_job_no_worker_started_never_started_whatever_session_added_it(demo: str, session: str | None, brief: str | None, start: str) -> None:
+    unstarted = {"session": session, "agent": None, "worker_started": None, "brief": brief}
+    assert REAL_LOCAL_GAP("j1", unstarted, state.load(demo), state.now()) == f"j1 never started: no agent has taken it, so {start}"
 
 
 def test_j135_a_local_job_a_worker_started_whose_agent_is_gone_reads_by_its_session_never_as_not_started(demo: str) -> None:

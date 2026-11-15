@@ -296,7 +296,7 @@ def dangerous_lines(watcher: Watcher, moment: datetime) -> list[str]:
     watcher.failures.pop("changed files", None)
     with state.edit(watcher.name) as data:
         added = {key: tester for key, (head, paths) in read.items() if key in data["prs"] and (tester := state.mark_dangerous(data, key, head, paths))}
-    return [f"PR {key}: {line} {ids(data['prs'][key])}" for key, tester in added.items() for line in render.builder_lines(data, [tester])]
+    return [f"PR {key}: {line} {ids(data['prs'][key])}" for key, tester in added.items() for line in render.builder_lines(watcher.name, data, [tester])]
 
 
 def main_lines(watcher: Watcher, moment: datetime) -> list[str]:
@@ -452,7 +452,7 @@ def bare(wait: str) -> str:
 
 
 def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Drop each wait of a job or PR that ended, his card answered, the job finished, the release out by the watch's release live read or its PR closed unmerged, the Buildkite build finished or stopped at an approve step by the watch's Buildkite read, a process on this Mac ended, a teammate's reply come, a builder slot on this Mac given to the earliest due builder waiting its turn, one per slot no builder holds, or a once-only pass of state.shaped ended it, each by the reason that pass handed by state.drop_waits, forgotten as this edit saves, and say once, as its last wait ends, that nothing holds it, holding back the job's ORPHAN for 30 minutes, but for a builder's READY or PUSHED whose PRs all merged, which the watch finishes next in the same pass, or else says once as an ORPHAN naming who finishes it; a builder given its slot waits on nothing with no agent yet, its slot stamped with when its turn came, and holds that slot until its agent starts, and one moving here from its Sprite, or taking over here from its agent on this Mac, keeps its other waits, its slot stamped, while drive job launch <j> --local, run by start_verb, moves it, a refusal of that launch reaching the watch's lines as its relaunch_refused event; a Sprite job busy reads another drive verb acting on takes its turn on a pass after that verb ends. The cards a job asked him on hold it too, so it keeps its waits until he answers them. A codex job whose process ended holds the text exited_text writes, which carry_held's launch of its next codex-ask run carries, so its FREE line asks nobody to launch it. A release wait is a wake the job set, freed by out_because once every cluster of its service, or the one env it names, serves the PR's merge, and never comes back."""
+    """Drop each wait of a job or PR that ended, his card answered, the job finished, the release out by the watch's release live read or its PR closed unmerged, the Buildkite build finished or stopped at an approve step by the watch's Buildkite read, a process on this Mac ended, a teammate's reply come, a builder slot on this Mac given to the earliest due builder waiting its turn, one per slot no builder holds, or a once-only pass of state.shaped ended it, each by the reason that pass handed by state.drop_waits, forgotten as this edit saves, and say once, as its last wait ends, that nothing holds it, holding back the job's ORPHAN for 30 minutes, but for a builder's READY or PUSHED whose PRs all merged, which the watch finishes next in the same pass, or else says once as an ORPHAN naming who finishes it; a builder given its slot waits on nothing with no agent yet, its slot stamped with when its turn came, and holds that slot until its agent starts, and one moving here from its Sprite, or taking over here from its agent on this Mac, keeps its other waits, its slot stamped, while drive job launch <j> --local, run by start_verb, moves it, a refusal of that launch reaching the watch's lines as its relaunch_refused event; a Sprite job busy reads another drive verb acting on takes its turn on a pass after that verb ends. The cards a job asked him on hold it too, so it keeps its waits until he answers them. A codex job whose process ended holds the text exited_text writes, which carry_held's launch of its next codex-ask run carries, so its FREE line asks nobody to launch it; a job holding texts that carry_held launches, by carrier's drive job launch, names no brief and says the watch launches it and to start no agent for it, so no session starts a second worker beside that launch, while one whose worker carry_held resumes says it carries them. A release wait is a wake the job set, freed by out_because once every cluster of its service, or the one env it names, serves the PR's merge, and never comes back."""
     data = state.load(watcher.name)
     out, lines = replies(watcher, data, moment)
     out |= shipped(watcher, data)
@@ -500,9 +500,10 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
                     else ""
                 )
                 unstarted = brief_first(job)
-                if job["undelivered"] and carrier(job_id, job, data, watcher.cards):
+                if job["undelivered"] and (command := carrier(job_id, job, data, watcher.cards)):
                     his = ", his answers among them" if any(held["sender"] == state.HIM for held in job["undelivered"]) else ""
-                    unlaunched, unstarted = ", and the watch now starts its next codex-ask run carrying its last report" if exited else f", and the watch now carries it the texts it holds{his}", ""
+                    carried = f", and the watch now launches it with the texts it holds{his}: start no agent for it" if command[1] == "launch" else f", and the watch now carries it the texts it holds{his}"
+                    unlaunched, unstarted = ", and the watch now starts its next codex-ask run carrying its last report" if exited else carried, ""
                 lines.append(f"FREE {job_id} {job['order']}: {ended}, nothing else holds it{built}{unlaunched}{unstarted}")
         for key, pr in data["prs"].items():
             if hears(watcher, data, pr["order"]) and (ended := released(data, pr, pr["job"], watcher.cards, out)) and pr["state"] == "open":
@@ -1196,8 +1197,8 @@ def first_line(text: str) -> str:
     return next((line.strip() for line in text.splitlines() if line.strip()), "")
 
 
-def mail_line(name: str, data: dict, job_id: str, message: dict, moment: datetime, kept: str | None, taken: bool) -> str | None:
-    """Record one message from a remote lane on its job, a final report ending any question the lane asked before it and setting its state unless state.result_refusal refuses it or it types a clock time for work already done, which the event line names, and a question opening with a result other than ASK being that result; what it took goes as its job's returned event, by state.returned, naming when to start each builder a design's DESIGN or a builder's UNBUILT: lines added, which for an `ASK <file> [<file>…]` naming the blocks `drive job ask` kept is that line, as a job's own return is, and for any other `ASK` says that `drive job ask` keeps it, and a PUSHED makes only the line naming when to start each builder its UNBUILT: lines added, since pushed_lines settles the rest. The message ending the turn of a report `drive job report` already took, a worker_done or Orca's escalation for a worker that exited, whatever its body, only ends that question, since that command wrote its returned event, and any such message from a lane `drive job end` ended changes nothing, so its question stays open for the next worker's handoff; any other escalation is a STOPPED quoting on one line the whole of Orca's last output, or its first line when it names none, and a refused result its line with the refusal, each returned for the coordinator; a report the watch takes itself names each PR it links that the drive does not track, since only `drive pr add` registers one; a status, the lane's word to its coordinator while it works, is its job's returned event `MESSAGE <id>: <subject>`, setting no said line, report or state, whose record carries the message whole by whole_message."""
+def mail_line(name: str, data: dict, job_id: str, message: dict, moment: datetime, kept: str | None, taken: bool, owed: list[tuple[str, list[str], list[str], list[str]]]) -> str | None:
+    """Record one message from a remote lane on its job, a final report ending any question the lane asked before it and setting its state unless state.result_refusal refuses it or it types a clock time for work already done, which the event line names, and a question opening with a result other than ASK being that result; what it took goes as its job's returned event, by state.returned, which lane_lines writes once its save landed from what this adds to owed, the job, the words before and after its builders' lines and those builders, since render.builder_lines briefs each under the drive's lock, naming when to start each builder a design's DESIGN or a builder's UNBUILT: lines added, which for an `ASK <file> [<file>…]` naming the blocks `drive job ask` kept is that line, as a job's own return is, and for any other `ASK` says that `drive job ask` keeps it, and a PUSHED makes only the line naming when to start each builder its UNBUILT: lines added, since pushed_lines settles the rest. The message ending the turn of a report `drive job report` already took, a worker_done or Orca's escalation for a worker that exited, whatever its body, only ends that question, since that command wrote its returned event, and any such message from a lane `drive job end` ended changes nothing, so its question stays open for the next worker's handoff; any other escalation is a STOPPED quoting on one line the whole of Orca's last output, or its first line when it names none, and a refused result its line with the refusal, each returned for the coordinator; a report the watch takes itself names each PR it links that the drive does not track, since only `drive pr add` registers one; a status, the lane's word to its coordinator while it works, is its job's returned event `MESSAGE <id>: <subject>`, setting no said line, report or state, whose record carries the message whole by whole_message."""
     job = data["jobs"][job_id]
     kind = message["type"]
     body = message["body"] or ""
@@ -1210,7 +1211,7 @@ def mail_line(name: str, data: dict, job_id: str, message: dict, moment: datetim
         output = body.partition("Last output:")[2].partition("\nFull output:")[0] or first_line(body)
         return f"JOB {job_id} {job['order']} STOPPED without a report, last output: {' '.join(output.split())}"
     if kind == "status":
-        state.returned(name, data, job_id, f"MESSAGE {message['id']}: {message['subject'] or first_line(body)}")
+        owed.append((job_id, [f"MESSAGE {message['id']}: {message['subject'] or first_line(body)}"], [], []))
         return None
     if not kept:
         job["said"] = message["subject"] if kind == "worker_done" else first_line(body) or message["subject"]
@@ -1229,16 +1230,16 @@ def mail_line(name: str, data: dict, job_id: str, message: dict, moment: datetim
         state.cite_designs(data, job_id, job["said"], body)
         added = state.add_changes(name, data, job_id, body)
         if untracked := [url for url in dict.fromkeys(found[0] for line in body.splitlines() if PR_LINE.match(line) for found in state.PR_URL.finditer(line)) if state.pr_key(url) not in data["prs"]]:
-            state.returned(name, data, job_id, "; ".join([f"{job['said']}; the drive tracks no {', '.join(untracked)}: drive pr add <url> --job {job_id} registers each", *render.builder_lines(data, added)]))
+            owed.append((job_id, [f"{job['said']}; the drive tracks no {', '.join(untracked)}: drive pr add <url> --job {job_id} registers each"], added, []))
             return None
         if state.PUSHED_LINE.match(job["said"]):
             if added:
-                state.returned(name, data, job_id, "; ".join(render.builder_lines(data, added)))
+                owed.append((job_id, [], added, []))
             return None
     if kept:
-        state.returned(name, data, job_id, f"ASK {kept}")
+        owed.append((job_id, [f"ASK {kept}"], [], []))
         return None
-    state.returned(name, data, job_id, "; ".join([job["said"], *render.builder_lines(data, added), *([UNKEPT_ASK.format(job=job_id)] if job.get("ask") == message["id"] and reads.asks(body) else [])]))
+    owed.append((job_id, [job["said"]], added, [UNKEPT_ASK.format(job=job_id)] if job.get("ask") == message["id"] and reads.asks(body) else []))
     return None
 
 
@@ -1248,7 +1249,7 @@ def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
     data = state.load(watcher.name)
     if not live_lanes(watcher, data):
         return [line for line in read_lines(watcher, moment) if line]
-    lines, messages, delivered, undelivered = [], [], {}, []
+    lines, messages, delivered, undelivered, owed = [], [], {}, [], []
     after = watcher.mailbox_seen or max((job["mail_seen"] for job in data["jobs"].values() if heard_job(watcher, data, job)), default=0)
     try:
         mail = orca.mail(after or None)
@@ -1289,8 +1290,10 @@ def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
                             undelivered.append((job_id, job["order"], held, f"Orca's follow-up dispatch {delivery.dispatch} never started: {delivery.failed}"))
                         continue
                 taken = message["type"] in state.TURN_ENDS and (state.lane_ended(job) or message["id"] in state.turn_ends(state.replies(watcher.name, job_id)))
-                lines.append(mail_line(watcher.name, data, job_id, message, moment, asks.get(message["id"]), taken))
+                lines.append(mail_line(watcher.name, data, job_id, message, moment, asks.get(message["id"]), taken, owed))
         watcher.mailbox_seen = messages[-1]["sequence"]
+    for job_id, said, added, unkept in owed:
+        state.returned(watcher.name, data, job_id, "; ".join([*said, *render.builder_lines(watcher.name, data, added), *unkept]))
     for job_id, order_id, held, failed in undelivered:
         carried = "" if busy(watcher, job_id, moment) else f"; the watch ran drive job resume {job_id}, which carries it, its output in the drive's {RELAUNCHES_LOG}"
         if carried:
@@ -2523,7 +2526,7 @@ def fix_shipped(name: str, builder_id: str) -> str:
         started = cli.write_brief(name, builder_id, {})[0].splitlines()[0]
     except cli.VERB_ERRORS as error:
         return f"{head}, has no brief: {error}; brief it with drive job brief {builder_id}, then start its agent this turn"
-    return f'{head}: start its agent now, run_in_background, on the prompt "{started}"'
+    return f"{head}: {render.start_now(started)}"
 
 
 def session_of(job: dict, data: dict) -> dict | None:
@@ -2533,9 +2536,10 @@ def session_of(job: dict, data: dict) -> dict | None:
 
 
 def local_gap(job_id: str, job: dict, data: dict, moment: datetime) -> str | None:
-    """A running local job's gap from its agent's transcript: one no agent has taken that no worker started, by worker_started, which only state.start writes, never started, whoever's session added it, since drive job add stamps the adding session on every job; else its agent's session, transcript and last turn."""
+    """A running local job's gap from its agent's transcript: one no agent has taken that no worker started, by worker_started, which only state.start writes, never started, whoever's session added it, since drive job add stamps the adding session on every job, naming the prompt its brief starts it on, by render.start_now, or the drive job brief that writes one; else its agent's session, transcript and last turn."""
     if not (job.get("agent") or job.get("worker_started")):
-        return f"{job_id} never started: no agent has taken it, so start its agent now"
+        start = render.start_now(f"Read your brief first: {job['brief']}") if job.get("brief") else f"brief it with drive job brief {job_id}, then start its agent on the line that prints"
+        return f"{job_id} never started: no agent has taken it, so {start}"
     holder = session_of(job, data)
     if holder is None:
         return f"{job_id}'s agent ended with an earlier session"

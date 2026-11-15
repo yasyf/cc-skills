@@ -951,7 +951,7 @@ def add_prover(name: str, data: dict, job_id: str, reach: dict[str, dict], parts
     from drive import brief
 
     job = data["jobs"][job_id]
-    mac = next((step[1].strip() for taken in state.returns(name, job_id) if (step := brief.MAC.search(taken["body"]))), None)
+    mac = brief.returned_mac(name, job_id)
     merges = merges_of(data, job_id)
     found = list(dict.fromkeys(filter(None, (prover_of(data, key) for key in merges))))
     keys = [key for key in merges if not prover_of(data, key)]
@@ -1050,7 +1050,7 @@ def proves(data: dict, job_id: str) -> list[str]:
 
 def merged_said(name: str, builder_id: str, change: str) -> str:
     """The one line saying the builder add_prover added or widened, by change, to prove live the PRs of builders that took DONE at their merge, whatever their number, counting the releases it waits on, which drive status lists, briefed here so its agent starts on the watch's FREE once the last is out, or in the turn this line wakes when it waits on none, as a prover owing its after-merge staging pass does, or why its brief was not written; one an agent or lane already took, or that finished, keeps its brief and says its state."""
-    from drive import cli
+    from drive import cli, render
 
     data = state.load(name)
     builder = data["jobs"][builder_id]
@@ -1065,7 +1065,7 @@ def merged_said(name: str, builder_id: str, change: str) -> str:
     if waits := len(builder["waits"]):
         return f"{head}, waits on {waits} release{'s' if waits > 1 else ''}: drive status {builder_id}"
     owes = f"owes its {state.AFTER_MERGE_PASS} first" if state.AFTER_MERGE_PASS in (builder.get("brief_flags") or {}).get("handoff", "") else "waits on no release"
-    return f'{head}, {owes}: start its agent now, run_in_background, on the prompt "{started}"'
+    return f"{head}, {owes}: {render.start_now(started)}"
 
 
 def proofless(name: str, data: dict, job_id: str) -> None:

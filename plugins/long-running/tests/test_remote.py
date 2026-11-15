@@ -6943,7 +6943,8 @@ def test_a_lanes_pushed_whose_unbuilt_line_adds_a_builder_says_only_the_line_sta
     assert run("pr", "add", url, "--job", "j1", *LEAD)[0] == 0
     deliver(monkeypatch, [message("worker_done", f"PUSHED {url}\n{UNSTAGED}\nUNBUILT: retry each stalled copy\n")])
     watching = watch.Watcher(remote, offset=state.events_end(remote))
-    assert said_lines(watch.lane_lines, watching, T0) == ['JOB j1 o1 j2 builder on "retry each stalled copy": start its agent now']
+    said = said_lines(watch.lane_lines, watching, T0)
+    assert said == [f'JOB j1 o1 j2 builder on "retry each stalled copy": start its agent now, run_in_background, on the prompt "Read your brief first: {state.load(remote)["jobs"]["j2"]["brief"]}"']
 
 
 def test_the_inbox_turns_each_message_into_one_event_even_one_a_consuming_check_took_first(

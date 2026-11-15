@@ -167,6 +167,11 @@ def brief_file(prompt: str) -> tuple[Path, str] | None:
     return None
 
 
+def returned_mac(name: str, job_id: str) -> str | None:
+    """The step only this Mac runs that a job's newest return holding a Mac: line names, by MAC, which places the jobs its PRs hand on: the prover install.add_prover adds at their merge and the tester cli.write_brief briefs on their staging test."""
+    return next((step[1].strip() for taken in state.returns(name, job_id) if (step := MAC.search(taken["body"]))), None)
+
+
 def carried(prompt: str) -> str:
     """An agent's prompt with its brief file, by brief_file, read in after it."""
     return f"{prompt}\n{read[1]}" if (read := brief_file(prompt)) else prompt

@@ -6,7 +6,7 @@ from collections.abc import Callable, Iterable
 from datetime import datetime
 
 from drive import slack
-from drive.state import DRIVE_TOOLING, FINISHED_JOB_STATES, FREED, NOT_STARTED, REPO_RULES, ROLES, SLOT_WAIT, TOOLING_DETAILS_RULING, VERSION, alias, carriers, delivered, exempted, following, holding_job_lane, lane_death, launch_in_flight, may_tell, now, open_orders, orphan_stands, owed, owed_at_return, parse_time, part_jobs, pass_due, passes, pr_key, pr_url, project_lane, promise_thread, repo_rules, resumed, session_lane, standing_passes, title, unstarted, untracked_carriers, work
+from drive.state import DRIVE_TOOLING, FINISHED_JOB_STATES, FREED, NOT_STARTED, REPO_RULES, ROLES, SLOT_WAIT, TOOLING_DETAILS_RULING, VERSION, alias, carriers, delivered, exempted, following, holding_job_lane, lane_death, launch_in_flight, may_tell, now, open_orders, orphan_stands, owed, owed_at_return, parse_time, part_jobs, pass_due, passes, pr_key, pr_url, project_lane, promise_thread, repo_rules, resumed, session_lane, standing_passes, title, unstarted, unstarted_builder, untracked_carriers, work
 
 SLACK_TOOLS = "mcp__plugin_cc-slack_cc-slack__"
 REWORKING = "no card while its builder reworks it to his words, until its READY says how they are met"
@@ -351,20 +351,30 @@ def withdrawn_by(seqs: list[str]) -> str:
     return f", withdrawn by record{'s' if len(seqs) > 1 else ''} {', '.join(seqs)}, so the catch-up leaves it out and closes no order on it" if seqs else ""
 
 
-def builder_lines(data: dict, builder_ids: list[str]) -> list[str]:
-    """When to start each builder the drive added itself, beside a reader or for a design's change, by the one view.start_refusal drive job launch and the agent_brief hook read: on the watch's FREE line once its last wait ends, or now, naming each card of his that holds its PR by land.ship_held, since it builds his recommended option and opens no PR until he answers them."""
-    from drive import land, view
+def start_now(prompt: str) -> str:
+    """The one wording of a line whose reader starts a job's agent itself, on the prompt its brief starts it on, so a line naming a brief is the reader's start and one naming none is the watch's."""
+    return f'start its agent now, run_in_background, on the prompt "{prompt}"'
+
+
+def builder_lines(name: str, data: dict, builder_ids: list[str]) -> list[str]:
+    """When to start each builder the drive added itself, beside a reader, for a design's change or on a staging test, by the one view.start_refusal drive job launch and the agent_brief hook read, on the watch's FREE line, which names its brief, once its last wait ends, or now on the prompt its brief starts it on, by start_now, each briefed here by cli.write_brief, which takes the drive's lock, so its caller says these once its own save landed, but one waiting only on readers, by unstarted_builder, whose return briefs it on their research, naming each card of his that holds its PR by land.ship_held, since it builds his recommended option and opens no PR until he answers them; a builder whose brief was refused says why and how to brief it."""
+    from drive import cli, land, view
 
     lines = []
     for builder_id in builder_ids:
         builder = data["jobs"][builder_id]
         named = ", ".join(json.dumps(part, ensure_ascii=False) for part in builder["parts"])
+        try:
+            started = None if unstarted_builder(data, builder) else cli.write_brief(name, builder_id, {})[0].splitlines()[0]
+        except cli.VERB_ERRORS as error:
+            lines.append(f"{builder_id} builder on {named} has no brief: {error}; brief it with drive job brief {builder_id}, then start its agent on the line that prints")
+            continue
         if view.start_refusal(data, builder_id, True):
             lines.append(f"{builder_id} builder on {named} waits on {', '.join(builder['waits'])}: start no agent for it until the watch's FREE line says its last wait ended")
             continue
         held = land.ship_held(data, builder_id)
         cards = f", building his recommended option with no PR until he answers {', '.join(held)}" if held else ""
-        lines.append(f"{builder_id} builder on {named}: start its agent now{cards}")
+        lines.append(f"{builder_id} builder on {named}: {start_now(started)}{cards}")
     return lines
 
 
