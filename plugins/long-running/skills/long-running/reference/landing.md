@@ -152,8 +152,11 @@ for its repository says, then return `DONE <proof>`.
 
 No tap: by his standing rule a `yasyf/*` PR merges without asking, but only once every check at its
 head finished with none failing on its own change, since a check that fails after the merge turns `main`
-red for every PR behind it. A check fails on its own change when `main` passed it, or never ran it, at the
-commit the PR's run of it merged its head onto; one `main` fails there too merges.
+red for every PR behind it. A check fails on its own change unless `main`'s run of it, at the commit the
+PR's run of it merged its head onto, failed every test the PR's run failed, as each job's log names them
+(pytest's `FAILED` and `ERROR` summary lines, go test's `--- FAIL:`): one check is one verdict over a whole
+job, so `main` failing one test under its name says nothing of another. A failed check whose log names
+no failing test, such as a lint step, is the PR's own.
 
 1. Ship with `ccx vcs ship` (jj in colocated repositories); the `open-pr` skill writes the body.
 2. Register it with `drive pr add <url> --job <j>`. Taking the builder's `READY` or `PUSHED`, which

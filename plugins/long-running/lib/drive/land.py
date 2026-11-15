@@ -55,6 +55,7 @@ STORED_DATA = re.compile(r"(?:^|/)migrations?/|(?:^|/)[^/]*schema[^/]*$|\.(?:sql
 CI_FILES = re.compile(r"^(?:\.github|\.buildkite|(?:go|infra)/ci)/|^tools/ci(?:-ts)?(?:/|$)")
 BRANCH_HISTORY = 50
 BRANCH_SECONDS = 20
+TESTED = re.compile(r"HEAD is now at \w+ Merge [0-9a-f]{40} into (?P<base>[0-9a-f]{40})")
 
 
 def open_cards(data: dict, job_id: str, pr: dict | None, exempt: str | None = None) -> list[str]:
@@ -397,40 +398,42 @@ def admin_merged(name: str, key: str) -> str:
     except github.GithubError as error:
         return f"{UNREAD}: {cut(str(error), SAID_CHARS)}"
     if owned:
-        return f"{OWN_RED} {', '.join(owned)} at {head[:7]}, which the default branch does not fail where the PR's run of it merged its head"
+        return f"{OWN_RED} {', '.join(owned)} at {head[:7]}, which the default branch does not fail on the same tests where the PR's run of it merged its head"
     return merged(name, key, read["merge_method"], ["--admin", "--match-head-commit", head])
 
 
 def own_reds(key: str, rollup: list[dict]) -> list[str]:
-    """The name of each check the PR's head fails on its own change: each it fails that the default branch does not fail too, by inherited(), by his words that tooling fixes merge early only when no check is failing on their own change."""
+    """The name of each check the PR's head fails on its own change: each it fails on a test the default branch does not fail too, by inherited(), by his words that tooling fixes merge early only when no check is failing on their own change."""
     return sorted({github.check_name(check) for check in github.counted(rollup) if github.outcome(check) in github.FAILED and not inherited(key, check)})
 
 
 def inherited(key: str, check: dict) -> bool:
-    """Whether the default branch fails a check the PR's head fails too, where the PR's run of it merged that head: at the newest commit at or below that one it ran on, as on a `[skip ci]` commit no workflow runs on, once that run finished, which the lander waits for; never for a check no workflow ran, with no run of it there to compare."""
-    if not (run := github.run_of(check)):
+    """Whether the default branch fails every test a check the PR's head fails failed there, as each job's log names them, where the PR's run of it merged that head: at the base its log's checkout merged the head into, or the newest commit below it the check ran on, as on a `[skip ci]` commit no workflow runs on, once that run finished, which the lander waits for. Never for a check no workflow ran, or whose log names no failing test or no merge, with no failure of the default branch's to compare it to, since a check is one verdict over every test of its job and the default branch failing one of them says nothing of another."""
+    if not (job := github.job_of(check)):
         return False
-    repo, number = key.split("#")
-    base = github.read(f"the commit run {run[1]} of {key} tested", ["gh", "api", f"repos/{repo}/actions/runs/{run[1]}", "--jq", f".pull_requests[] | select(.number == {number}) | .base.sha"]).strip()
-    named = (run[0], github.check_name(check))
-    while (main := branch_checks(repo, base)).get(named, "") is None:
+    repo = github.repo_of(key)
+    log = github.job_log(repo, job)
+    if not (failed := github.failed_tests(log)) or not (tested := TESTED.search(log)):
+        return False
+    named = (check["workflowName"], github.check_name(check))
+    while named in (main := branch_checks(repo, tested["base"])) and main[named]["conclusion"] is None:
         time.sleep(BRANCH_SECONDS)
-    return named in main and main[named] not in github.PASSED
+    return named in main and main[named]["conclusion"] in github.FAILED and failed <= github.failed_tests(github.job_log(repo, main[named]["databaseId"]))
 
 
-def branch_checks(repo: str, base: str) -> dict[tuple[str, str], str | None]:
-    """The conclusion of each check of a workflow run on the default branch, by its workflow and name, at the newest of base and the BRANCH_HISTORY commits below it where it ran and was not cancelled, None while it runs."""
+def branch_checks(repo: str, base: str) -> dict[tuple[str, str], dict]:
+    """Each check run of a workflow run on the default branch, its name, conclusion, None while it runs, and job id as databaseId, by its workflow and name, at the newest of base and the BRANCH_HISTORY commits below it where it ran and was not cancelled."""
     owner, name = repo.split("/")
     text = (
         f"query {{ repository(owner: {json.dumps(owner)}, name: {json.dumps(name)}) {{ object(oid: {json.dumps(base)}) {{ ... on Commit {{ history(first: {BRANCH_HISTORY}) {{ nodes {{ "
-        "checkSuites(first: 20) { nodes { workflowRun { workflow { name } } checkRuns(first: 20) { nodes { name conclusion } } } } } } } } } }"
+        "checkSuites(first: 20) { nodes { workflowRun { workflow { name } } checkRuns(first: 20) { nodes { name conclusion databaseId } } } } } } } } } }"
     )
-    found: dict[tuple[str, str], str | None] = {}
+    found: dict[tuple[str, str], dict] = {}
     for commit in github.graphql(text, f"the default branch's checks at and below {repo}@{base[:12]}")["data"]["repository"]["object"]["history"]["nodes"]:
         for suite in commit["checkSuites"]["nodes"]:
             for check in suite["checkRuns"]["nodes"] if suite["workflowRun"] else []:
                 if check["conclusion"] != "CANCELLED":
-                    found.setdefault((suite["workflowRun"]["workflow"]["name"], check["name"]), check["conclusion"])
+                    found.setdefault((suite["workflowRun"]["workflow"]["name"], check["name"]), check)
     return found
 
 
