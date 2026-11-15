@@ -776,6 +776,34 @@ def test_his_tap_the_drive_takes_two_hours_late_is_held_on_every_job_it_frees_bu
     assert {job_id: [held["seq"] for held in job["undelivered"]] for job_id, job in jobs.items()} == {"j1": ["661500"], "j3": ["661500"], "j4": []}
 
 
+def test_his_tap_answers_another_jobs_card_asking_his_question_in_the_same_words_but_its_punctuation_and_frees_the_builder_waiting_on_it(
+    drive: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with state.edit(drive) as data:
+        data["jobs"]["j3"] = state.new_job("o1", "builder", "the lander", [], "2026-11-08T20:00:00-08:00")
+        data["jobs"]["j4"] = state.new_job("o1", "builder", "the lander, again", [], "2026-11-08T20:10:00-08:00")
+        data["jobs"]["j5"] = state.new_job("o1", "builder", "the prose merge", [], "2026-11-08T20:15:00-08:00") | {"waits": [f"{drive}:j4-661600"]}
+        data["jobs"]["j3"]["questions"] = [
+            state.new_question("asks/j3-merge.md", "Who settles a tooling PR's conflict before the lander's squash merge", "2026-11-08T20:05:00-08:00", card=OLDER_CARD) | {"waits": f"{drive}:j3-661440"}
+        ]
+        data["jobs"]["j4"]["questions"] = [
+            state.new_question("asks/j4-merge.md", "Who settles a tooling PR’s conflict before the lander’s squash merge?", "2026-11-08T20:20:00-08:00", card=NEWER_CARD) | {"waits": f"{drive}:j4-661600"}
+        ]
+    monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS)
+    view.refresh_cards(drive)
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess([], 0, '{"seq": 661700}\n', ""))
+    answered: list[tuple[str, str, str, bool]] = []
+    monkeypatch.setattr(superseded, "answer_card", lambda card, words, link, settled: answered.append((card, words, link, settled)) or {})
+    words = "The lander merges prose itself, code conflicts wake the builder"
+    tap = {"waits": f"{drive}:j3-661440", "label": words, "url": OLDER_CARD, "action_ts": "1794200001.000100", "source": "slack"}
+    assert ask({"answer": tap}) == {"ok": True, "seq": "661700"}
+    data = state.load(drive)
+    assert [closes(data["jobs"][job_id]["questions"][0]) for job_id in ("j3", "j4")] == [("answered", words, OLDER_CARD, "661700", None)] * 2
+    assert answered == [(NEWER_CARD, words, OLDER_CARD, True)]
+    assert not view.holds(data, f"{drive}:j4-661600", view.NO_CARDS)
+    assert {job_id: [held["seq"] for held in data["jobs"][job_id]["undelivered"]] for job_id in ("j3", "j4", "j5")} == {"j3": ["661700"], "j4": ["661700"], "j5": ["661700"]}
+
+
 def test_his_tap_ends_its_question_before_cci_takes_its_answer_record_so_a_refusal_holds_no_builder_and_cc_slacks_run_again_posts_it_once(
     drive: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:

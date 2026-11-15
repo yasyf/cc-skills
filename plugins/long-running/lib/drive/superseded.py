@@ -256,15 +256,27 @@ def close_card(card: str, closed: dict) -> dict:
 
 
 def end(data: dict, job_id: str, question: dict, closed: dict) -> list[tuple[str, dict]]:
-    """End a job's open question as closed records, with each other open question of the job asking it in the same words superseded by it, and each question a `Replaces:` line folded into it, of any job, ended the same way, since it asked that one too, in the write the caller saves: the one way a question stops asking him, which its card then follows. The questions it ended, by their job."""
-    job = data["jobs"][job_id]
-    twins = [other for other in view.open_questions(job) if other is not question and state.same_question(other["title"], question["title"])]
+    """End a job's open question as closed records, with each twin asking it in the same words, answered by his answer that ends it or else superseded by it, and each question a `Replaces:` line folded into it, of any job, ended the same way, since it asked that one too, in the write the caller saves: the one way a question stops asking him, which its card then follows. The questions it ended, by their job."""
+    answered = closed["how"] == "answered"
+    same = twins(data, job_id, question, answered)
     question["closed"] = closed
-    for twin in twins:
-        twin["closed"] = superseded_by(closed, question)
-    job["updated"] = state.stamp()
+    data["jobs"][job_id]["updated"] = state.stamp()
+    for asker, twin in same:
+        twin["closed"] = closed if answered else superseded_by(closed, question)
+        data["jobs"][asker]["updated"] = state.stamp()
     replaced = [(asker, other) for asker, each in data["jobs"].items() for other in view.open_questions(each) if question["file"] and other["replaced"] == question["file"]]
-    return [(job_id, question), *((job_id, twin) for twin in twins), *(ended for asker, other in replaced for ended in end(data, asker, other, closed))]
+    return [(job_id, question), *same, *(ended for asker, other in replaced for ended in end(data, asker, other, closed))]
+
+
+def twins(data: dict, job_id: str, question: dict, answered: bool) -> list[tuple[str, dict]]:
+    """Each other open question asking this one in the same words, by its job: of every job for his answer, which answers each card asking it, and of its own job alone for any other close, which speaks for that job only."""
+    return [
+        (asker, other)
+        for asker, job in data["jobs"].items()
+        if answered or asker == job_id
+        for other in view.open_questions(job)
+        if other is not question and state.same_question(other["title"], question["title"])
+    ]
 
 
 def superseded_by(closed: dict, question: dict) -> dict:
@@ -312,17 +324,20 @@ def said_at(data: dict, link: str | None) -> bool:
 
 
 def closing(data: dict, kind: str, attrs: dict, topic: str | None, answered: list[str], link: str | None) -> list[tuple[str, dict]]:
-    """The job questions an owner or answer record of his words is on, open or ended: each its `waits` or `thread_card` names, the seq its waits id ends in that it answers by `re`, or its `card:<thread_ts>` topic is drawn in, and each whose card his message sits under, whatever thread the record names: his answer is on each, and his owner words only on a question whose work they are about, the drive's for a drive tooling order and his work for any other, so his feedback on the drive under a product card leaves it asking; a record whose link is not where he said its words, his feedback on a post or card the drive made, a `Drive tooling: post feedback:` order, and an Undo, which reopens its card, are on none. His words never close a PR card: only his order on its thread, or a job carrying one, withdraws it."""
+    """The job questions an owner or answer record of his words is on, open or ended: each its `waits` or `thread_card` names, the seq its waits id ends in that it answers by `re`, or its `card:<thread_ts>` topic is drawn in, and each whose card his message sits under, whatever thread the record names, with each twin of every job asking one of them in the same words for his answer: his answer is on each, and his owner words only on a question whose work they are about, the drive's for a drive tooling order and his work for any other, so his feedback on the drive under a product card leaves it asking; a record whose link is not where he said its words, his feedback on a post or card the drive made, a `Drive tooling: post feedback:` order, and an Undo, which reopens its card, are on none. His words never close a PR card: only his order on its thread, or a job carrying one, withdraws it."""
     if kind not in ("owner", "answer") or "undone" in attrs or feedback(data, attrs.get("order")) or not said_at(data, link):
         return []
-    return [
-        (job_id, question)
+    on = {
+        id(question): (job_id, question)
         for job_id, job in data["jobs"].items()
         if kind == "answer" or (attrs.get("about") == state.ABOUT_DRIVE) == (data["orders"][job["order"]]["owner"] == "meta")
         for question in job["questions"]
         if (waits := question["waits"]) and (waits in (attrs.get("thread_card"), attrs.get("waits")) or waits.rpartition("-")[2] in answered)
         or (card := question["card"]) and (topic == f"card:{view.card_thread(card)}" or link and under(link, card))
-    ]
+    }
+    if kind == "answer":
+        on |= {id(twin): (asker, twin) for job_id, question in on.values() for asker, twin in twins(data, job_id, question, True)}
+    return list(on.values())
 
 
 

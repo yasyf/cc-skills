@@ -987,8 +987,10 @@ def test_a_bare_number_two_repositories_share_names_the_pr_on_the_jobs_order() -
     assert state.named_prs(kept_prs(), "o359", "#4289 and Forge-AI/monorepo#4302") == ["yasyf/cc-skills#4289", f"{MONOREPO}#4302"]
 
 
-def test_two_questions_are_the_same_whatever_their_case_and_spacing_and_an_untitled_one_matches_none() -> None:
+def test_two_questions_are_the_same_whatever_their_case_spacing_and_punctuation_and_an_untitled_one_matches_none() -> None:
     assert state.same_question("What runs a watch's  Sand function?", "what runs a watch's Sand function?")
+    assert state.same_question("Who settles a tooling PR's conflict before the lander's squash merge", "Who settles a tooling PR’s conflict before the lander’s squash merge?")
+    assert not state.same_question("Who settles a tooling PR's conflict?", "Who settles a tooling PRs conflict?")
     assert not state.same_question("What runs a watch's Sand function?", "What runs a watch's Sand function each interval?")
     assert not state.same_question(None, None)
 

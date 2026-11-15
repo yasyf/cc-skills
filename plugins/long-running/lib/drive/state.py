@@ -2305,8 +2305,8 @@ def question_in(job: dict, question: dict) -> dict:
 
 
 def same_question(one: str | None, other: str | None) -> bool:
-    """Whether two questions ask him the same thing: the same words, whatever their case and spacing."""
-    return bool(one and other) and " ".join(one.split()).casefold() == " ".join(other.split()).casefold()
+    """Whether two questions ask him the same thing: the same words, whatever their case, spacing and punctuation, so a trailing question mark or a curly apostrophe asks nothing new."""
+    return bool(one and other) and re.findall(r"\w+", one.casefold()) == re.findall(r"\w+", other.casefold())
 
 
 def version_order(version: str) -> tuple[int, ...]:
