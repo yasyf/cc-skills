@@ -156,13 +156,15 @@ change".
    needs its proof file kept with `drive job set <j> --repro <file>`, makes its stage read `ready` while
    its checks run or pass and `red` once one fails, and the watch starts the drive's lander on it within
    one GitHub read of `ready`: a process of its own, outliving your turn, that reads its checks from GitHub
-   again and merges it with `gh pr merge <n> -R <repo> --squash --admin --match-head-commit <head>` at the
-   head that read found no check failing on, records the merge sha on the PR, then runs `drive install` from it for
+   again and merges it with `gh pr merge <n> -R <repo> --<method> --admin --match-head-commit <head>` at the
+   head that read found no check failing on, `<method>` being `squash`, else `rebase`, else `merge`, the
+   first the repository's settings and every pull request rule of its default branch allow, as the watch
+   reads them from GitHub with each PR, since GitHub refuses a merge by any other method, records the merge sha on the PR, then runs `drive install` from it for
    each plugin installed on this Mac whose folder the merge changes, or that is its marketplace's only
    plugin. When GitHub refuses the merge with `Base branch was modified`, which another merge into
    `main` while this one ran causes, the lander merges again on the new base, as GitHub's own refusal
    asks, and never touches the PR's branch. When `gh pr merge` refuses a PR of a native GitHub stack,
-   saying it must be merged using the asynchronous merge REST API, the lander merges it through
+   saying it must be merged using the asynchronous merge REST API, the lander merges it by the same method through
    GitHub's `merge-async` endpoint past its rules, which GitHub allows only for a stack's bottom PR,
    the one the lander lands, and reads its result until GitHub ends it. A refusal for a conflict with its base reads `red`, which
    wakes its builder to rebase. After any other refusal, a failing check included, the watch
@@ -177,7 +179,7 @@ change".
    and on a `DONE` that finishes the order sends the communicator its close report. The lander writes its output to the drive's `landings.log`, ending in one line of the PR's
    key and its outcome, such as `yasyf/cc-skills#7: merged at <sha>; …`. Its outcome reaches the
    job's holder as `PR … merged at <sha>; <each install's version line or no release: line>` or
-   `PR … not landed: gh pr merge --squash --admin refused it: <its answer>`, such as a conflict git
+   `PR … not landed: gh pr merge --<method> --admin refused it: <its answer>`, such as a conflict git
    cannot merge, and the proof's as `PR … proven live by drive job prove …`,
    `PR … drive job prove failed: …` or `PR … drive job prove waits on his next word: …`. Its stage in `drive status` says why no lander started: a
    failing check, a draft, the `hold` label, a conflict, an open card of his, or a lander already
@@ -396,8 +398,11 @@ His `TAP Approve` line itself wakes no session: a red PR's stage wakes its build
 **The same lander lands every other repository the drive tracks**, such as `Forge-AI/litestream`, by
 the coordinator's finding that approved `litestream` PRs had no owner: once his Approve or an exempt
 class clears a PR and its stage reads `ready`, it merges the stack's bottom PR alone with
-`gh pr merge --squash --match-head-commit <head>`, which GitHub merges only at the head the stage read
-and only once that repository's rules pass, then the next PR once it reads `ready` on the new base. The
+`gh pr merge --<method> --match-head-commit <head>`, which GitHub merges only at the head the stage read
+and only once that repository's rules pass, then the next PR once it reads `ready` on the new base, each
+by the method a `yasyf/*` PR merges by, such as `--rebase` on `Forge-AI/design-docs`, whose settings allow
+only rebase merges. Once a rebase merge lands a native stack's bottom, GitHub restacks the PR above onto the new base
+as a new head, whose checks run again, and his tap carries across it as across any restack. The
 approving reviews a PR needs come from the pull request rule of its repository's default branch, as
 GitHub's GraphQL `requiredApprovingReviewCount` reads it: `Forge-AI/monorepo` requires one, so a green
 head forge-pr-reviewer approved nothing on is `red` until its findings are answered, and a repository

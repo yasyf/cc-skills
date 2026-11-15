@@ -147,6 +147,7 @@ def read(**overrides: object) -> dict:
         "trunk": None,
         "required_checks": ["buildkite/test"],
         "required_reviews": 1,
+        "merge_method": "squash",
         "default": "main",
         "base_pr": None,
     }
@@ -6275,17 +6276,20 @@ def test_a_lander_refuses_a_pr_the_drive_does_not_track_and_one_his_approve_does
         land.run(demo, [KEY])
 
 
-def test_a_lander_merges_a_pr_he_approved_in_another_repository_with_gh_pr_merge_at_the_head_its_stage_read_ready(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_lander_merges_a_pr_he_approved_in_another_repository_with_gh_pr_merge_at_the_head_its_stage_read_ready_by_the_method_its_repository_allows(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
     docs = "Forge-AI/design-docs#5"
     tap = {"label": "Approve", "at": state.stamp(T0), "head": "ddddddd444", "source": "pressed the button", "picks": {}}
     with state.edit(demo) as data:
-        data["prs"][docs] = state.new_pr(state.pr_url(docs), "j1", "o1") | {"head": "ddddddd444", "tap": tap}
+        data["prs"][docs] = state.new_pr(state.pr_url(docs), "j1", "o1") | {"head": "ddddddd444", "tap": tap, "merge_method": "rebase"}
     runs: list[list[str]] = []
     monkeypatch.setattr(land.subprocess, "run", lambda argv, **kwargs: runs.append(argv) or land.subprocess.CompletedProcess(argv, 0, "", ""))
     monkeypatch.setattr(github, "run", lambda cmd, **_: "eee555fff666\n" if cmd[2] == "view" else "README.md\n")
     monkeypatch.setattr(install, "touched", lambda repo, files: [])
     assert land.run(demo, [docs]) == "merged at eee555fff666; it changes no plugin installed on this Mac"
-    assert runs == [["gh", "pr", "merge", "5", "-R", "Forge-AI/design-docs", "--squash", "--match-head-commit", "ddddddd444"]]
+    assert land.run(demo, [docs], dry_run=True) == "would merge it with gh pr merge --rebase --match-head-commit ddddddd444"
+    assert runs == [["gh", "pr", "merge", "5", "-R", "Forge-AI/design-docs", "--rebase", "--match-head-commit", "ddddddd444"]]
 
 
 def test_an_exempt_monorepo_pr_is_queued_once_green_with_no_tap_unless_its_files_put_it_outside_its_class(
@@ -6587,7 +6591,7 @@ def test_a_yasyf_lander_merges_with_admin_records_its_merge_commit_and_installs_
     )
     with state.edit(demo) as data:
         data["prs"]["yasyf/cc-skills#7"] = state.new_pr("https://github.com/yasyf/cc-skills/pull/7", "j1", "o1")
-    assert land.merged(demo, "yasyf/cc-skills#7", ["--admin"]) == "merged at ccc333ddd444; long-running@skills 1.0.4 installed"
+    assert land.merged(demo, "yasyf/cc-skills#7", "squash", ["--admin"]) == "merged at ccc333ddd444; long-running@skills 1.0.4 installed"
     assert state.load(demo)["prs"]["yasyf/cc-skills#7"]["merged_sha"] == "ccc333ddd444eee"
     assert runs == [
         ["gh", "pr", "merge", "7", "-R", "yasyf/cc-skills", "--squash", "--admin"],
@@ -7228,7 +7232,7 @@ def test_a_yasyf_merge_whose_base_moved_merges_again_on_the_new_base_and_never_u
     monkeypatch.setattr(install, "touched", lambda repo, files: [])
     monkeypatch.setattr(land.subprocess, "run", lambda argv, **kwargs: runs.append(argv) or land.subprocess.CompletedProcess(argv, *next(merges)))
     tried(demo, "")
-    assert land.merged(demo, YASYF, ["--admin"]) == "merged at ccc333ddd444; it changes no plugin installed on this Mac"
+    assert land.merged(demo, YASYF, "squash", ["--admin"]) == "merged at ccc333ddd444; it changes no plugin installed on this Mac"
     assert runs == [["gh", "pr", "merge", "7", "-R", "yasyf/cc-skills", "--squash", "--admin"]] * 3
 
 
@@ -7238,7 +7242,7 @@ def test_a_yasyf_merge_gh_refuses_for_a_conflict_reads_red_and_wakes_its_builder
 ) -> None:
     runs: list[list[str]] = []
     monkeypatch.setattr(land.subprocess, "run", lambda argv, **kwargs: runs.append(argv) or land.subprocess.CompletedProcess(argv, 1, "", refusal + "\n"))
-    outcome = land.merged(demo, YASYF, ["--admin"])
+    outcome = land.merged(demo, YASYF, "squash", ["--admin"])
     assert outcome == f"not landed: gh pr merge --squash --admin refused it: {refusal}"
     assert runs == [["gh", "pr", "merge", "7", "-R", "yasyf/cc-skills", "--squash", "--admin"]]
     waiting_job(demo)
@@ -7252,7 +7256,7 @@ def test_a_yasyf_merge_gh_refuses_for_a_conflict_reads_red_and_wakes_its_builder
 
 def test_a_yasyf_merge_gh_refuses_for_any_other_reason_is_not_landed_and_reads_unlanded_for_the_session_holding_its_order(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(land.subprocess, "run", lambda argv, **kwargs: land.subprocess.CompletedProcess(argv, 1, "", POLICY + "\n"))
-    outcome = land.merged(demo, YASYF, ["--admin"])
+    outcome = land.merged(demo, YASYF, "squash", ["--admin"])
     assert outcome == f"not landed: gh pr merge --squash --admin refused it: {POLICY}"
     waiting_job(demo)
     tried(demo, outcome)
@@ -7260,8 +7264,9 @@ def test_a_yasyf_merge_gh_refuses_for_any_other_reason_is_not_landed_and_reads_u
     assert stage.of(state.load(demo), YASYF, NO_CARDS).name == "unlanded"
 
 
-def test_a_stacked_yasyf_pr_gh_pr_merge_refuses_merges_through_githubs_merge_async_past_its_rules_and_reads_its_result_until_it_merged(
-    demo: str, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("method", ["squash", "rebase"])
+def test_a_stacked_yasyf_pr_gh_pr_merge_refuses_merges_through_githubs_merge_async_past_its_rules_by_its_method_and_reads_its_result_until_it_merged(
+    demo: str, monkeypatch: pytest.MonkeyPatch, method: str
 ) -> None:
     stacked_pr = "yasyf/cc-skills#4706"
     refusal = f"GraphQL: This pull request is part of a stack and {land.STACKED}. (mergePullRequest)"
@@ -7284,10 +7289,10 @@ def test_a_stacked_yasyf_pr_gh_pr_merge_refuses_merges_through_githubs_merge_asy
     monkeypatch.setattr(land.subprocess, "run", lambda argv, **kwargs: runs.append(argv) or land.subprocess.CompletedProcess(argv, *next(merges)))
     with state.edit(demo) as data:
         data["prs"][stacked_pr] = state.new_pr(state.pr_url(stacked_pr), "j1", "o1") | {"native": [stacked_pr, "yasyf/cc-skills#4720", "yasyf/cc-skills#4730"]}
-    assert land.merged(demo, stacked_pr, ["--admin"]) == "merged at ccc333ddd444; it changes no plugin installed on this Mac"
+    assert land.merged(demo, stacked_pr, method, ["--admin"]) == "merged at ccc333ddd444; it changes no plugin installed on this Mac"
     assert runs == [
-        ["gh", "pr", "merge", "4706", "-R", "yasyf/cc-skills", "--squash", "--admin"],
-        ["gh", "api", "-X", "PUT", endpoint, "-f", "merge_method=squash", "-f", "merge_action=direct_merge", "-F", "bypass_rules=true"],
+        ["gh", "pr", "merge", "4706", "-R", "yasyf/cc-skills", f"--{method}", "--admin"],
+        ["gh", "api", "-X", "PUT", endpoint, "-f", f"merge_method={method}", "-f", "merge_action=direct_merge", "-F", "bypass_rules=true"],
     ]
     assert [cmd for cmd in reads_ if land.MERGE_ASYNC in " ".join(cmd)] == [["gh", "api", f"{endpoint}/630b9d5e-3f2a-4f7e-8b0c-2d5f9a8c1e42"]] * 2
     assert state.load(demo)["prs"][stacked_pr]["merged_sha"] == "ccc333ddd444eee"
@@ -7299,7 +7304,7 @@ def test_a_stacked_pr_githubs_merge_async_ends_failed_is_not_landed_with_githubs
     merges = iter([(1, "", refusal + "\n"), (0, json.dumps(failed), "")])
     monkeypatch.setattr(land.subprocess, "run", lambda argv, **kwargs: land.subprocess.CompletedProcess(argv, *next(merges)))
     head = "aaaaaaa111bbbbbbb222"
-    assert land.merged(demo, "Forge-AI/litestream#12", ["--match-head-commit", head]) == f'not landed: GitHub\'s {land.MERGE_ASYNC} ended it failed: Required status check "test" is expected.'
+    assert land.merged(demo, "Forge-AI/litestream#12", "squash", ["--match-head-commit", head]) == f'not landed: GitHub\'s {land.MERGE_ASYNC} ended it failed: Required status check "test" is expected.'
 
 
 def pushed(name: str, *keys: str) -> None:

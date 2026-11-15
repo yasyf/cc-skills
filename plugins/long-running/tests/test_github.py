@@ -17,7 +17,7 @@ GREEN = [{"name": "Lint", "conclusion": "SUCCESS"}, {"context": "buildkite/test"
 RULED = {
     "rules": {
         "nodes": [
-            {"type": "PULL_REQUEST", "parameters": {"requiredApprovingReviewCount": 1}},
+            {"type": "PULL_REQUEST", "parameters": {"requiredApprovingReviewCount": 1, "allowedMergeMethods": ["SQUASH", "REBASE"]}},
             {"type": "REQUIRED_STATUS_CHECKS", "parameters": {"requiredStatusChecks": [{"context": "buildkite/test"}, {"context": GATE}]}},
             {"type": "REQUIRED_STATUS_CHECKS", "parameters": {"requiredStatusChecks": [{"context": "buildkite/test"}]}},
             {"type": "NON_FAST_FORWARD", "parameters": None},
@@ -26,6 +26,7 @@ RULED = {
     "name": "main",
 }
 UNRULED = {"name": "main", "rules": {"nodes": []}}
+ALLOWED = {"squashMergeAllowed": True, "rebaseMergeAllowed": True, "mergeCommitAllowed": True}
 
 
 def node(**overrides: object) -> dict:
@@ -56,7 +57,7 @@ def stored(head: str = "abc", failed: list[str] | None = None) -> dict:
 
 
 def pr_read(rollup: list[dict], **overrides: object) -> dict:
-    return {"state": "OPEN", "checks": rollup, "reviewDecision": None, "approvals": [], "mergeable": "MERGEABLE", "headRefOid": "abc", "baseRefName": "main", "headRefName": "lane", "title": "T", "author": "yasyf", "labels": [], "native": [], "trunk": None, "required_checks": [], "required_reviews": 0, "mergeCommit": None, "default": "main", "base_pr": None, **overrides}
+    return {"state": "OPEN", "checks": rollup, "reviewDecision": None, "approvals": [], "mergeable": "MERGEABLE", "headRefOid": "abc", "baseRefName": "main", "headRefName": "lane", "title": "T", "author": "yasyf", "labels": [], "native": [], "trunk": None, "required_checks": [], "required_reviews": 0, "merge_method": "squash", "mergeCommit": None, "default": "main", "base_pr": None, **overrides}
 
 
 def test_query_aliases_one_repository_per_repo_and_one_pull_per_number() -> None:
@@ -88,6 +89,29 @@ def test_rule_reviews_reads_the_approvals_a_default_branchs_pull_request_rule_re
     assert (github.rule_reviews({"defaultBranchRef": RULED}), github.rule_reviews({"defaultBranchRef": UNRULED})) == (1, 0)
 
 
+@pytest.mark.parametrize(
+    ("settings", "allowed", "method"),
+    [
+        ((True, True, True), None, "squash"),
+        ((False, False, True), None, "rebase"),
+        ((False, True, False), ["SQUASH", "REBASE"], "squash"),
+        ((True, True, True), ["REBASE", "MERGE"], "rebase"),
+        ((True, False, False), ["MERGE"], "merge"),
+    ],
+)
+def test_merge_method_is_squash_else_rebase_else_merge_among_those_the_repository_and_every_pull_request_rule_allow(
+    settings: tuple[bool, bool, bool], allowed: list[str] | None, method: str
+) -> None:
+    rules = [{"type": "PULL_REQUEST", "parameters": {"requiredApprovingReviewCount": 0, "allowedMergeMethods": allowed}}] if allowed else []
+    repository = dict(zip(("squashMergeAllowed", "rebaseMergeAllowed", "mergeCommitAllowed"), settings)) | {"defaultBranchRef": {"name": "main", "rules": {"nodes": rules}}}
+    assert github.merge_method(repository) == method
+
+
+def test_merge_method_reads_a_pull_request_rule_naming_no_methods_as_allowing_each() -> None:
+    rules = [{"type": "PULL_REQUEST", "parameters": {"requiredApprovingReviewCount": 1, "allowedMergeMethods": None}}]
+    assert github.merge_method({"squashMergeAllowed": False, "rebaseMergeAllowed": True, "mergeCommitAllowed": True, "defaultBranchRef": {"name": "main", "rules": {"nodes": rules}}}) == "rebase"
+
+
 def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPatch) -> None:
     calls = []
 
@@ -105,7 +129,7 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
             lastEditedAt="2026-11-12T23:08:08Z",
             stack={"baseRefName": "main", "entries": {"nodes": [{"position": 2, "pullRequest": {"number": 2, "state": "MERGED"}}, {"position": 1, "pullRequest": {"number": 1, "state": "OPEN"}}]}},
         )
-        return json.dumps({"data": {"r0": {"defaultBranchRef": RULED, "p1": node(), "p2": merged}, "r1": {"defaultBranchRef": UNRULED, "p7": None}}})
+        return json.dumps({"data": {"r0": {**ALLOWED, "defaultBranchRef": RULED, "p1": node(), "p2": merged}, "r1": {**ALLOWED, "defaultBranchRef": UNRULED, "p7": None}}})
 
     monkeypatch.setattr(github, "run", fake)
     reads, refused = FETCH(["a/one#1", "a/one#2", "b/two#7"])
@@ -135,6 +159,7 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
             "trunk": None,
             "required_checks": [GATE, "buildkite/test"],
             "required_reviews": 1,
+            "merge_method": "squash",
             "default": "main",
             "base_pr": None,
         },
@@ -160,6 +185,7 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
             "trunk": "main",
             "required_checks": [GATE, "buildkite/test"],
             "required_reviews": 1,
+            "merge_method": "squash",
             "default": "main",
             "base_pr": None,
         },
@@ -196,7 +222,7 @@ def test_a_refused_query_loses_only_its_own_prs_and_names_them(monkeypatch: pyte
     def second_refused(cmd: list[str], **_: object) -> str:
         if "p26: pullRequest" in cmd[4]:
             raise github.GithubError("gh: HTTP 502 ccx: gh failed after 4 tries")
-        return json.dumps({"data": {"r0": {"defaultBranchRef": RULED} | {f"p{number}": node() for number in range(1, 61)}}})
+        return json.dumps({"data": {"r0": {**ALLOWED, "defaultBranchRef": RULED} | {f"p{number}": node() for number in range(1, 61)}}})
 
     monkeypatch.setattr(github, "run", second_refused)
     reads, refused = FETCH([f"a/one#{number}" for number in range(1, 61)])
@@ -305,6 +331,7 @@ def test_live_maps_a_read_onto_the_stored_vocabulary() -> None:
         "native": ["a/one#1", "a/one#3"],
         "trunk": "main",
         "reviews_required": 0,
+        "merge_method": "squash",
         "conflict": True,
         "required": {"checks": "none", "failed": {}},
     }
@@ -367,7 +394,7 @@ def test_fetch_follows_a_pr_merged_off_its_default_branch_to_the_same_repo_pr_op
     ]
     sent = replying(
         monkeypatch,
-        {"data": {"r0": {"defaultBranchRef": UNRULED, "p1": fold, "p2": stacked, "p3": node()}}},
+        {"data": {"r0": {**ALLOWED, "defaultBranchRef": UNRULED, "p1": fold, "p2": stacked, "p3": node()}}},
         {"data": {"r0": {"defaultBranchRef": {"c0": {"status": "DIVERGED"}, "c1": {"status": "BEHIND"}}, "o0": {"nodes": owners}, "o1": {"nodes": [owner(8, "MERGED", MERGED_AT, merge="888aaa")]}}}},
     )
     reads, refused = FETCH(["a/one#1", "a/one#2", "a/one#3"])
@@ -385,7 +412,7 @@ def test_fetch_follows_a_fold_whose_parent_folded_in_turn_and_the_fold_line_name
     fold = node(state="MERGED", baseRefName="lane-9", mergeCommit={"oid": "fff000"}, mergedAt=MERGED_AT)
     sent = replying(
         monkeypatch,
-        {"data": {"r0": {"defaultBranchRef": UNRULED, "p1": fold}}},
+        {"data": {"r0": {**ALLOWED, "defaultBranchRef": UNRULED, "p1": fold}}},
         {"data": {"r0": {"defaultBranchRef": {"c0": {"status": "DIVERGED"}}, "o0": {"nodes": [owner(9, "MERGED", "2026-11-14T21:20:00Z", base="lane-4", merge="999aaa")]}}}},
         {"data": {"r0": {"defaultBranchRef": {"c0": {"status": "DIVERGED"}}, "o0": {"nodes": [owner(4)]}}}},
     )
@@ -400,7 +427,7 @@ def test_fetch_reads_the_pr_the_drive_holds_a_pr_folded_into_beside_it_in_one_ca
     monkeypatch: pytest.MonkeyPatch, answered: bool, landed: dict | None
 ) -> None:
     fold = node(state="MERGED", baseRefName="lane-9", mergeCommit={"oid": "fff000"}, mergedAt=MERGED_AT)
-    sent = replying(monkeypatch, {"data": {"r0": {"defaultBranchRef": UNRULED, "p1": fold} | ({"p9": node(headRefName="lane-9")} if answered else {})}})
+    sent = replying(monkeypatch, {"data": {"r0": {**ALLOWED, "defaultBranchRef": UNRULED, "p1": fold} | ({"p9": node(headRefName="lane-9")} if answered else {})}})
     reads, refused = FETCH(["a/one#1"], {"a/one#1": "a/one#9"})
     assert (refused, len(sent), "p9: pullRequest(number: 9)" in sent[0], list(reads)) == (None, 1, True, ["a/one#1"] if answered else [])
     assert (github.landing(reads["a/one#1"]) if answered else None) == landed
@@ -408,7 +435,7 @@ def test_fetch_reads_the_pr_the_drive_holds_a_pr_folded_into_beside_it_in_one_ca
 
 def test_a_refused_follow_up_leaves_out_only_the_prs_merged_off_their_default_branch_and_names_them(monkeypatch: pytest.MonkeyPatch) -> None:
     fold = node(state="MERGED", baseRefName="lane-9", mergeCommit={"oid": "fff000"}, mergedAt=MERGED_AT)
-    replying(monkeypatch, {"data": {"r0": {"defaultBranchRef": UNRULED, "p1": fold, "p2": node()}}}, github.GithubError("gh: HTTP 502"))
+    replying(monkeypatch, {"data": {"r0": {**ALLOWED, "defaultBranchRef": UNRULED, "p1": fold, "p2": node()}}}, github.GithubError("gh: HTTP 502"))
     reads, refused = FETCH(["a/one#1", "a/one#2"])
     assert (list(reads), str(refused)) == (["a/one#2"], "could not read the PRs whose heads are the bases of a/one#1 from GitHub: gh: HTTP 502")
 
@@ -511,7 +538,7 @@ def test_fetch_names_each_check_runs_workflow_as_gh_pr_view_does(monkeypatch: py
         {"context": "buildkite/test", "state": "SUCCESS"},
     ]
     pr = node(commits={"nodes": [{"commit": {"statusCheckRollup": {"contexts": {"nodes": contexts}}}}]})
-    monkeypatch.setattr(github, "run", lambda cmd, **_: json.dumps({"data": {"r0": {"defaultBranchRef": UNRULED, "p1": pr}}}))
+    monkeypatch.setattr(github, "run", lambda cmd, **_: json.dumps({"data": {"r0": {**ALLOWED, "defaultBranchRef": UNRULED, "p1": pr}}}))
     assert FETCH(["a/one#1"])[0]["a/one#1"]["checks"] == [
         {"name": "build", "conclusion": "CANCELLED", "detailsUrl": "https://github.com/a/one/actions/runs/1/job/10", "workflowName": "FDE Docs"},
         {"name": "Socket", "conclusion": "SUCCESS", "detailsUrl": "https://socket.dev/x", "workflowName": ""},
@@ -611,7 +638,7 @@ def test_fetch_reads_a_fold_whose_base_no_pr_was_open_on_merged_at_its_own_commi
 ) -> None:
     fold = node(state="MERGED", baseRefName="lane-9", mergeCommit={"oid": "fff000"}, mergedAt=MERGED_AT)
     later = [owner(100 + number, created="2026-11-14T22:00:00Z") for number in range(page)]
-    replying(monkeypatch, {"data": {"r0": {"defaultBranchRef": UNRULED, "p1": fold}}}, {"data": {"r0": {"defaultBranchRef": {"c0": {"status": "DIVERGED"}}, "o0": {"nodes": later}}}})
+    replying(monkeypatch, {"data": {"r0": {**ALLOWED, "defaultBranchRef": UNRULED, "p1": fold}}}, {"data": {"r0": {"defaultBranchRef": {"c0": {"status": "DIVERGED"}}, "o0": {"nodes": later}}}})
     reads, refused = FETCH(["a/one#1"])
     assert (github.landing(reads["a/one#1"]) if "a/one#1" in reads else None, refused is None) == (landed, landed is not None)
 
