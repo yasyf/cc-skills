@@ -129,8 +129,10 @@ def links_of(port: int, net: Tailnet | None) -> list[str]:
 
 
 def link(name: str) -> str:
-    """The drive's dashboard link the status page ends with, on the tailnet when tailscale runs here."""
-    return links_of(port_of(name), tailnet())[0]
+    """The drive's dashboard link the status page ends with, as its running dashboard serves it, on the tailnet when tailscale ran here as it started, so no card or page waits on a `tailscale status` of its own; its loopback link while no dashboard serves the drive."""
+    port = port_of(name)
+    drawn = serving(name, port)
+    return drawn["links"][0] if drawn else url_of(port)
 
 
 def owner_calling(address: str, net: Tailnet | None) -> bool:

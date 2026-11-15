@@ -375,7 +375,7 @@ def render(pr: dict, entry: dict, shown: tuple[str, ...] = (), undrawn: tuple[st
         "stored_data": stored_words(found) or "".join(f"Not said yet: {why}. The agent is fixing it." for why in unsaid_storage(pr, entry)),
         "surprise": section_words(found, "biggest surprise"),
         "hate_most": section_words(found, *HATE_HEADINGS),
-        "show_me": "\n\n".join(filter(None, [show_me_words(found.get("show me", ""), bool(shown), charts), left_off(undrawn)])),
+        "show_me": "\n\n".join(filter(None, [show_me_words(found.get("show me", ""), bool(shown), charts), picture.left_off(undrawn)])),
         "pictures": list(shown),
         "plan": section_words(found, *PLAN_HEADINGS),
         "port": section_words(found, "port"),
@@ -414,11 +414,6 @@ def unsaid_storage(pr: dict, entry: dict) -> tuple[str, ...]:
     if stored_words(sections(body_of(pr))) or not (paths := land.stored(listed) if pr["changedFiles"] <= len(listed) else entry["stored"]):
         return ()
     return (f"it changes {', '.join(paths)}, and no `## How old data moves` section of its body says how the data stored before it moves or what keeps that from breaking",)
-
-
-def left_off(undrawn: tuple[str, ...]) -> str:
-    """The one line a card's Show me names each picture left off it with, and why."""
-    return f"Left off this card: {'; '.join(why.rstrip('.') for why in undrawn)}. The agent is fixing it." if undrawn else ""
 
 
 def stack_words(pr: dict) -> tuple[str, str]:

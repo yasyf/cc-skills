@@ -7,7 +7,6 @@ import shlex
 import shutil
 import subprocess
 import sys
-import tempfile
 import textwrap
 import uuid
 from collections.abc import Callable, Iterable
@@ -2198,12 +2197,11 @@ def answered_drop(name: str, job_id: str, file: Path, answer_id: str) -> list[st
 
 
 def ask_checked(name: str, job_id: str, text: str, unsettled: str | None, redraws: str | None) -> str:
-    """What `drive job ask --check` prints of an ASK block, keeping nothing, refused as `keep_ask` refuses it: that his answer to this same question, asked in the same words, settles it, checking nothing, else ready once every check `keep_ask` runs passed, by `checked_ask`, its Show me pictures drawn in a folder deleted after it, with settled.DECIDES or settled.REHEARSES, or settled.APPROVES for one his standing approval covers, on stderr for one kept decided with no card."""
+    """What `drive job ask --check` prints of an ASK block, keeping nothing, refused as `keep_ask` refuses it: that his answer to this same question, asked in the same words, settles it, checking nothing, else ready once every check `keep_ask` runs passed, by `checked_ask`, its Show me pictures drawn by headless Chrome into the drive's pictures cache, so the keep after it posts each with no Chrome, with settled.DECIDES or settled.REHEARSES, or settled.APPROVES for one his standing approval covers, on stderr for one kept decided with no card."""
     text = limits.ask_block(text)
     if answer := settled.answered(state.load(name), asked_title(text)):
         return f"no card: he already answered this same question, asked in the same words, at {answered_at(answer)}, so drive job ask keeps it settled on his words, checking nothing and drawing no card"
-    with tempfile.TemporaryDirectory(prefix="drive-ask-check-") as scratch:
-        asked, *_, deciding = checked_ask(name, job_id, text, unsettled, redraws, Path(scratch))
+    asked, *_, deciding = checked_ask(name, job_id, text, unsettled, redraws, chrome=True)
     option = render.cut(asked.recommended, 200)
     if deciding in settled.RULED:
         print(settled.RULED[deciding][2].format(option=option, ruling=deciding), file=sys.stderr)
@@ -2224,8 +2222,8 @@ def asked_unsettled(job: dict, text: str, unsettled: str | None) -> str | None:
     return next((question["unsettled"] for question in job["questions"] if question["unsettled"] and not settled.READ_MARK.search(question["unsettled"]) and state.same_question(question["title"], title)), None)
 
 
-def checked_ask(name: str, job_id: str, text: str, unsettled: str | None, redraws: str | None, pictures: Path) -> tuple[limits.Question, str, str | None, list[dict], str | None]:
-    """The question the job's ASK block puts to him, the words of its `Holds:` line his card holds, the --unsettled it is kept under, the one `asked_unsettled` reads else Opus's mark, and the recorded answers the release gate, `brief.approval_refusal`, reads as ordering a release its recommended option names in backticks, which his card offers as its Already answered tap, and the ruling or standing approval of his under which `keep_ask` keeps it decided on its recommended option with no card, else None, once every check `drive job ask <j>` runs passes: refused naming at once every way its words, the card cc-slack draws from them and the job it is asked for are out of shape, a summary sentence recommending an option by a recorded answer of his that --unsettled does not name among them, since that answer already chose it, each rule one entry of the list, its words counted as his card draws them, each reference in the summary filled as say fills it, an {order:<o>} as the opening of his order's words, and each paragraph `cc-slack check-post` finds a wall of text in on the card as it draws; then each Show me picture drawn under pictures, refused with why one does not draw; then Jev's read of whether its options differ in how a screen looks with a screenshot missing or choose between architectures with an ```arch diagram missing, by `limits.unread`, which in the same call prints each name the card never says in plain words, a code name, a capitalised word no sentence opens, or a run id or word the drive coined that `cc-slack check-post` finds on the card as it draws; each raw id check-post finds there is printed too, refusing nothing, by his pick 320b7a7; then each release note `brief.release_notes` reads as speaking to a release its options, their descriptions or its Show me name in backticks is printed on stderr with its words, refusing nothing; last Opus's read of it against his words by `settled.judged`, the recorded answers of his its job's brief binds or the block cites among them, printing each finding, the recorded answer Opus reads as already answering a line of its question or options, of those `settled.line_answers` finds for that line, with the two ways on, ANSWERED, and the mark keeping it unsettled, UNSETTLED, an answer its Already answered tap carries never marked by an option it does not recommend, nor one recorded before such an answer, OUTWEIGHED, and refused with no card, UNASKED, when his words on an order the job works tell it to ask him nothing on that work and it asks no step his rules keep for him, and each open card `repeating` finds that Opus reads it as asking again, with that card's job, order and PRs and the `Replaces:` line that would fold it, REPEATED, sharing no card; for a card nothing keeps unsettled, no answer of his answers or orders its release and no card of his already asks, his standing approval covering its order or holding it in Opus's read, by `settled.approved_by`, said by `--check` as APPROVES, else, for a job a ruling of his leaves some questions to, by settled.leaving, a drive tooling order's or a builder's of a design his words ordered from scratch, Opus's read of whether it asks him only what that ruling leaves to the job, by `settled.detail`, said by `--check` as DECIDES; and on any order, before Opus reads it against his words, a card whose recommended option names in backticks only releases brief.rehearsal() reads as on staging or sandbox alone, and that no --unsettled, --redraws, `Replaces:` line or drawn card of the same question holds, decided under his ruling state.REHEARSAL_RULING, said by `--check` as REHEARSES. `drive job ask <j> --check` and `keep_ask` both check here, so --check prints every finding before any card draws."""
+def checked_ask(name: str, job_id: str, text: str, unsettled: str | None, redraws: str | None, chrome: bool) -> tuple[limits.Question, str, str | None, list[dict], str | None]:
+    """The question the job's ASK block puts to him, the words of its `Holds:` line his card holds, the --unsettled it is kept under, the one `asked_unsettled` reads else Opus's mark, and the recorded answers the release gate, `brief.approval_refusal`, reads as ordering a release its recommended option names in backticks, which his card offers as its Already answered tap, and the ruling or standing approval of his under which `keep_ask` keeps it decided on its recommended option with no card, else None, once every check `drive job ask <j>` runs passes: refused naming at once every way its words, the card cc-slack draws from them and the job it is asked for are out of shape, a summary sentence recommending an option by a recorded answer of his that --unsettled does not name among them, since that answer already chose it, each rule one entry of the list, its words counted as his card draws them, each reference in the summary filled as say fills it, an {order:<o>} as the opening of his order's words, and each paragraph `cc-slack check-post` finds a wall of text in on the card as it draws; then each Show me picture in the drive's pictures cache, drawn there by headless Chrome when chrome is set, as --check draws it, else read from the cache alone, as the keep reads it so it never waits on Chrome, refused with why one does not draw, a verdict the cache keeps, so a keep after a --check that refused a picture refuses it too; then Jev's read of whether its options differ in how a screen looks with a screenshot missing or choose between architectures with an ```arch diagram missing, by `limits.unread`, which in the same call prints each name the card never says in plain words, a code name, a capitalised word no sentence opens, or a run id or word the drive coined that `cc-slack check-post` finds on the card as it draws; each raw id check-post finds there is printed too, refusing nothing, by his pick 320b7a7; then each release note `brief.release_notes` reads as speaking to a release its options, their descriptions or its Show me name in backticks is printed on stderr with its words, refusing nothing; last Opus's read of it against his words by `settled.judged`, the recorded answers of his its job's brief binds or the block cites among them, printing each finding, the recorded answer Opus reads as already answering a line of its question or options, of those `settled.line_answers` finds for that line, with the two ways on, ANSWERED, and the mark keeping it unsettled, UNSETTLED, an answer its Already answered tap carries never marked by an option it does not recommend, nor one recorded before such an answer, OUTWEIGHED, and refused with no card, UNASKED, when his words on an order the job works tell it to ask him nothing on that work and it asks no step his rules keep for him, and each open card `repeating` finds that Opus reads it as asking again, with that card's job, order and PRs and the `Replaces:` line that would fold it, REPEATED, sharing no card; for a card nothing keeps unsettled, no answer of his answers or orders its release and no card of his already asks, his standing approval covering its order or holding it in Opus's read, by `settled.approved_by`, said by `--check` as APPROVES, else, for a job a ruling of his leaves some questions to, by settled.leaving, a drive tooling order's or a builder's of a design his words ordered from scratch, Opus's read of whether it asks him only what that ruling leaves to the job, by `settled.detail`, said by `--check` as DECIDES; and on any order, before Opus reads it against his words, a card whose recommended option names in backticks only releases brief.rehearsal() reads as on staging or sandbox alone, and that no --unsettled, --redraws, `Replaces:` line or drawn card of the same question holds, decided under his ruling state.REHEARSAL_RULING, said by `--check` as REHEARSES. `drive job ask <j> --check` and `keep_ask` both check here, so --check prints every finding before any card draws."""
     from drive import view
 
     data = state.load(name)
@@ -2316,7 +2314,8 @@ def checked_ask(name: str, job_id: str, text: str, unsettled: str | None, redraw
         problems.append(f"the ASK's card is out of shape, so cc-slack would not draw it: {refused}")
     if problems:
         raise DriveError(limits.out_of_shape(problems))
-    picture.drawn(pictures, asked.show_me)
+    if refused := picture.drawn(state.drive_dir(name) / "pictures", asked.show_me, chrome)[1]:
+        raise DriveError("; ".join(refused))
     if raw := limits.checked(findings, limits.RAW_IDS):
         print(limits.RAW.format(found=", ".join(raw), advisory=limits.ADVISORY), file=sys.stderr)
     if unshown := limits.unread(asked, findings):
@@ -2434,7 +2433,7 @@ def keep_ask(name: str, job_id: str, text: str, unsettled: str | None, redraws: 
     fresh = state.drive_dir(name) / "asks" / f"{job_id}-{state.ask_hash(text)}.md"
     if answer := settled.answered(data, title):
         return keep_settled(name, job_id, text, fresh, title, unsettled, answer)
-    asked, holds, unsettled, ordered, deciding = checked_ask(name, job_id, text, unsettled, redraws, state.drive_dir(name) / "pictures")
+    asked, holds, unsettled, ordered, deciding = checked_ask(name, job_id, text, unsettled, redraws, chrome=False)
     if deciding:
         return keep_decided(name, job_id, text, fresh, asked, deciding)
     fresh.parent.mkdir(exist_ok=True)
@@ -2557,7 +2556,7 @@ def asked_before(job: dict, title: str, file: Path, generic: set[str]) -> list[d
 
 
 def ask_card(name: str, job_id: str, file: Path) -> dict:
-    """The card the job's question kept in the file draws, by `question_card`, under its waits id, one minted for a question holding none; a card it refuses is kept as the question's refusal by `refuse_draw`, once, and never on a question that ended or is on his card, so no card draws for it and the watch says the job waits on a card never posted until it asks again or drops it."""
+    """The card the job's question kept in the file draws, by `question_card`, under its waits id, one minted for a question holding none, its pictures read from the drive's pictures cache alone, so neither drive job ask nor the watch's draw waits on headless Chrome: a picture not drawn yet goes up as a line saying it is still drawing, which `watch.draw_pictures` draws and redraws the card with in place; a card it refuses is kept as the question's refusal by `refuse_draw`, once, and never on a question that ended or is on his card, so no card draws for it and the watch says the job waits on a card never posted until it asks again or drops it."""
     def ask_card_write(data: dict):
         question = state.kept_in(data["jobs"][job_id], file)
         question["waits"] = question["waits"] or state.new_waits(name, job_id)
@@ -2565,7 +2564,7 @@ def ask_card(name: str, job_id: str, file: Path) -> dict:
 
     question = state.update(name, None, ask_card_write)
     try:
-        return question_card(name, file, question["waits"])
+        return question_card(name, file, question["waits"], chrome=False)
     except DriveError as error:
         refuse_draw(name, job_id, file, question["waits"], str(error))
         raise DriveError(
@@ -2808,8 +2807,8 @@ def card_source(name: str, args: argparse.Namespace) -> tuple[Path, str]:
     return Path(question["file"]), waits
 
 
-def question_card(name: str, path: Path, waits: str) -> dict:
-    """The card a job's question draws: its newest kept ASK block, under the waits id the question already holds, so every ask of one question redraws its one card; the waits id given names the card of a question holding none yet, or one of the job's cards drawn again on purpose. A question that ended, that `drive job ask` refused, or that a `Replaces:` line folded into another job's or its own later question, draws none under any waits id, by `settled.card_refusal`. The card is the job's whose question holds the waits id, by `state.waits_job`, so a card another job took over with --redraws draws for that job; a waits id naming no job of the drive, a card asked outside any job, only draws the block. Each reference in its summary, Root cause and Interim fix lines, Show me and option descriptions, such as {at:<seq>} in a Show me table, is filled as say fills a post's, through `refs.resolved` and `refs.slack`, before its file names are drawn as code. A job's card says above its buttons what is built while he decides, as `meanwhile` reads it from the drive's jobs at each draw."""
+def question_card(name: str, path: Path, waits: str, chrome: bool = True) -> dict:
+    """The card a job's question draws: its newest kept ASK block, under the waits id the question already holds, so every ask of one question redraws its one card; the waits id given names the card of a question holding none yet, or one of the job's cards drawn again on purpose. A question that ended, that `drive job ask` refused, or that a `Replaces:` line folded into another job's or its own later question, draws none under any waits id, by `settled.card_refusal`. The card is the job's whose question holds the waits id, by `state.waits_job`, so a card another job took over with --redraws draws for that job; a waits id naming no job of the drive, a card asked outside any job, only draws the block. Each reference in its summary, Root cause and Interim fix lines, Show me and option descriptions, such as {at:<seq>} in a Show me table, is filled as say fills a post's, through `refs.resolved` and `refs.slack`, before its file names are drawn as code. Its Show me pictures are drawn by `picture.drawn`, headless Chrome drawing each the drive's pictures cache lacks unless chrome is False, and each that does not draw is left off in one line. A job's card says above its buttons what is built while he decides, as `meanwhile` reads it from the drive's jobs at each draw."""
     from drive import superseded, view
 
     data = state.load(name)
@@ -2835,7 +2834,7 @@ def question_card(name: str, path: Path, waits: str) -> dict:
         raise DriveError(f"{path}: {refused}.{limits.FROM_ASK.format(waits=waits)}")
     recorded = taps(question["ordered"] if question else [], settled.deciding(asked, cited_answers("\n".join(asked.summary), recorded_answers(data, job, path.read_text())))) if job else []
     asked = already_answered(asked, recorded)
-    show_me = picture.drawn(state.drive_dir(name) / "pictures", asked.show_me)
+    show_me = picture.drawn(state.drive_dir(name) / "pictures", asked.show_me, chrome)[0]
     found = refs.resolved(name, "\n".join([*asked.summary, asked.cause, asked.interim, *show_me, *asked.hints.values()]))
     holds = question["holds"] if question else job and asked.holds and state.held_words(data, asked.holds, job_id)
     card = replace(

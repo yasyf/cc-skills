@@ -2670,29 +2670,36 @@ def test_a_designs_card_holding_changes_not_yet_parts_says_its_own_part_is_built
     assert cli.meanwhile(state.load("demo"), "j1", "the snapshot writer; the run page reader", None) == limits.NOTHING_BUILT
 
 
-def test_job_ask_check_keep_and_card_refuse_a_show_me_picture_that_does_not_draw_with_why_and_keep_it_once_it_draws(
+SHORT_ASK_CAPTIONS = ["1 · One snapshot file per finished run, the requests its page makes", "2 · A map file beside each journal file, the requests its page makes"]
+PARSE_ERROR = "Parse error on line 7: Expecting 'SOLID_OPEN_ARROW', got 'NEWLINE'"
+
+
+def test_job_ask_check_and_keep_refuse_each_show_me_picture_that_does_not_draw_with_why_his_card_leaves_each_off_and_a_fixed_block_keeps(
     run: Run, asking: str, tmp_path: Path, state_root: Path, capsys: pytest.CaptureFixture[str], chrome: Chrome
 ) -> None:
     block = tmp_path / "ask.md"
-    block.write_text(SHORT_ASK)
-    chrome.refusal = "Parse error on line 7: Expecting 'SOLID_OPEN_ARROW', got 'NEWLINE'"
-    for argv in (["job", "ask", asking, "--check", str(block)], ["job", "ask", asking, str(block)], ["job", "card", str(block), "--waits", "demo:j1-7"]):
+    block.write_text(SHORT_ASK.replace("```http\nGET", "```http\nHEAD"))
+    chrome.refusal = PARSE_ERROR
+    for argv in (["job", "ask", asking, "--check", str(block)], ["job", "ask", asking, str(block)]):
         assert cli.main(argv) == 2
-        assert capsys.readouterr().err == (
-            'drive: the Show me picture "1 · One snapshot file per finished run, the requests its page makes", a ```http fence,'
-            " does not draw: Parse error on line 7: Expecting 'SOLID_OPEN_ARROW', got 'NEWLINE'\n"
-        )
+        assert capsys.readouterr().err == "drive: " + "; ".join(f'the Show me picture "{caption}", a ```http fence, does not draw: {PARSE_ERROR}' for caption in SHORT_ASK_CAPTIONS) + "\n"
+    assert chrome.drawn == []
     job = state.load("demo")["jobs"]["j1"]
     assert (job["state"], job["questions"]) == ("running", [])
     assert not list((state_root / "demo").glob("asks/*.md"))
+    code, printed = run("job", "card", str(block), "--waits", "demo:j1-7")
+    assert code == 0
+    shown = json.loads(printed)["body"].split("*Show me*\n", 1)[1].splitlines()
+    assert [line.split('"')[1] for line in shown if line.startswith("Left off this card: ")] == SHORT_ASK_CAPTIONS
     chrome.refusal = None
+    block.write_text(SHORT_ASK)
     assert run("job", "ask", asking, "--check", str(block)) == (0, "ready")
     code, kept = run("job", "ask", asking, str(block))
     assert code == 0
     assert Path(kept.splitlines()[0]).read_text() == SHORT_ASK
-    assert [kind for kind, _ in chrome.drawn] == ["code:http", "code:http", "code:http", "code:http"]
+    assert [kind for kind, _ in chrome.drawn] == ["code:http", "code:http"]
     assert run("job", "card", str(block), "--waits", "demo:j1-7")[0] == 0
-    assert len(chrome.drawn) == 4
+    assert len(chrome.drawn) == 2
 
 
 def test_job_card_keeps_its_refusal_on_the_question_whose_card_did_not_draw_until_job_ask_asks_it_again(
@@ -2906,6 +2913,47 @@ def test_a_card_that_does_not_draw_leaves_its_question_undrawn_under_its_waits_i
     watch.draw_questions(watcher, state.now())
     assert [(question["file"], question["waits"], question["card"]) for question in state.load("demo")["jobs"]["j1"]["questions"]] == [(str(kept), "demo:j1-7", drawn_card(1))]
     assert [(drawn["file"], drawn["waits"]) for drawn in cards_drawn] == [(str(kept), "demo:j1-7")]
+
+
+def test_a_card_kept_with_no_check_goes_up_at_once_saying_each_picture_still_draws_and_the_watchs_next_read_draws_them_and_redraws_it_in_place(
+    run: Run, asking: str, tmp_path: Path, cards_drawn: list[dict], chrome: Chrome
+) -> None:
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK)
+    kept = state.drive_dir("demo") / "asks" / f"j1-{state.ask_hash(SHORT_ASK)}.md"
+    assert run("job", "ask", asking, str(block)) == (0, f"{kept}\nhis card {drawn_card(1)} asks it under demo:j1-7")
+    assert chrome.drawn == []
+    assert [line for line in cards_drawn[0]["body"].splitlines() if line.startswith("Still drawing ")] == [
+        f'Still drawing "{caption}": it joins this card once drawn.' for caption in SHORT_ASK_CAPTIONS
+    ]
+    offset = state.events_end("demo")
+    watcher = watch.Watcher("demo", offset=offset, cards=view.NO_CARDS | {"questions": [{"url": drawn_card(1), "card": cards_drawn[0]}]})
+    watch.draw_pictures(watcher, state.now())
+    assert [kind for kind, _ in chrome.drawn] == ["code:http", "code:http"]
+    assert [(drawn["file"], drawn["waits"]) for drawn in cards_drawn] == [(str(kept), "demo:j1-7")] * 2
+    shown = cards_drawn[1]["body"].splitlines()
+    assert [line.removeprefix("![").split("](")[0] for line in shown if line.startswith("![")] == SHORT_ASK_CAPTIONS
+    assert not [line for line in shown if line.startswith("Still drawing ")]
+    assert not [event for event, _ in state.read_events("demo", offset) if event["kind"] == "undrawn"]
+    watch.draw_pictures(watch.Watcher("demo", offset=offset, cards=view.NO_CARDS | {"questions": [{"url": drawn_card(1), "card": cards_drawn[1]}]}), state.now())
+    assert len(cards_drawn) == 2
+
+
+def test_a_picture_the_watch_finds_does_not_draw_is_left_off_his_card_in_one_line_and_said_once_to_its_job(
+    run: Run, asking: str, tmp_path: Path, cards_drawn: list[dict], chrome: Chrome
+) -> None:
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK)
+    run("job", "ask", asking, str(block))
+    chrome.refusal = PARSE_ERROR
+    offset = state.events_end("demo")
+    watch.draw_pictures(watch.Watcher("demo", offset=offset, cards=view.NO_CARDS | {"questions": [{"url": drawn_card(1), "card": cards_drawn[0]}]}), state.now())
+    shown = cards_drawn[1]["body"].splitlines()
+    assert [line.split('"')[1] for line in shown if line.startswith("Left off this card: ")] == SHORT_ASK_CAPTIONS
+    assert not [line for line in shown if line.startswith("Still drawing ")]
+    [said] = [event for event, _ in state.read_events("demo", offset) if event["kind"] == "undrawn"]
+    assert (said["job"], said["waits"], said["card"]) == ("j1", "demo:j1-7", drawn_card(1))
+    assert said["reason"] == "; ".join(f'the Show me picture "{caption}", a ```http fence, does not draw: {PARSE_ERROR}' for caption in SHORT_ASK_CAPTIONS)
 
 
 def test_j2801_a_question_kept_under_a_waits_id_with_cci_s_hash_and_no_card_draws_it_under_that_id_without_the_hash_posting_no_record(
@@ -8901,6 +8949,7 @@ def test_pr_add_refuses_a_show_me_fence_that_does_not_draw_and_adds_it_once_it_d
     assert capsys.readouterr().err.strip() == 'drive: Forge-AI/monorepo#42: refused, nothing added: its Show me arch does not draw: "name" is required'
     assert state.load("demo")["prs"] == {}
     chrome.refusal = None
+    on_github["body"] = on_github["body"].replace('{"arch": 1}', '{"arch": 2}')
     assert run("pr", "add", PR, "--job", "j1", *LEAD)[0] == 0
     assert [kind for kind, _ in chrome.drawn] == ["arch"]
 

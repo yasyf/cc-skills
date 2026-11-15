@@ -34,6 +34,18 @@ def test_links_lead_with_https_on_the_tailnet_name_when_the_tailnet_issues_certi
     assert dashboard.links_of(41330, None) == ["http://127.0.0.1:41330/"]
 
 
+def test_the_dashboard_link_is_the_one_its_running_dashboard_serves_and_never_asks_tailscale(monkeypatch: pytest.MonkeyPatch) -> None:
+    def tailnet() -> None:
+        raise AssertionError("dashboard.link asked tailscale")
+
+    port = dashboard.port_of("demo")
+    answers = iter([{"links": dashboard.links_of(port, NET._replace(https=True))}, None])
+    monkeypatch.setattr(dashboard, "tailnet", tailnet)
+    monkeypatch.setattr(dashboard, "serving", lambda name, at: next(answers) if (name, at) == ("demo", port) else None)
+    assert dashboard.link("demo") == f"https://box.tail1.ts.net:{port}/"
+    assert dashboard.link("demo") == f"http://127.0.0.1:{port}/"
+
+
 def test_rebuild_lists_reports_only_when_jobs_directory_membership_changes(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     with state.edit(demo) as data:
         data["orders"] = {"o1": order("ship the page", ["j1", "j2"], project="Drive", workstream="Dashboard")}
@@ -2677,7 +2689,7 @@ done([...document.querySelectorAll('#main .visual-host[data-visual="code:text"]'
 
 def test_a_cards_slack_picture_and_its_web_embed_are_drawn_from_one_source(tmp_path: Path, chrome: Chrome) -> None:
     flow = "flowchart LR\n  page[Dashboard] --> server[Server]"
-    body = "\n".join(["Pick where it reads.", "", *picture.drawn(tmp_path / "pictures", ["The flow", "```mermaid", flow, "```"])])
+    body = "\n".join(["Pick where it reads.", "", *picture.drawn(tmp_path / "pictures", ["The flow", "```mermaid", flow, "```"], True)[0]])
     item = QUESTION | {"card": QUESTION["card"] | {"body": body}}
     seen = browse(tmp_path, """
 location.hash = '#/queue/all';

@@ -25,7 +25,7 @@ from pathlib import Path
 from time import monotonic
 from typing import NamedTuple, Self
 
-from drive import agents, answer, brief, children, codex, dashboard, github, install, land, launchd, limits, orca, page, place, procs, reads, receiver, refs, render, restack, served, settled, slack, stage, stall, state, superseded, superseded_procs, train, view
+from drive import agents, answer, brief, children, codex, dashboard, github, install, land, launchd, limits, orca, page, picture, place, procs, reads, receiver, refs, render, restack, served, settled, slack, stage, stall, state, superseded, superseded_procs, train, view
 from drive.install import PROOF_FAILED, add_prover, config_dir, handed_on, open_cut, done_before_proofs, done_unproven, merged_done, merged_ready, merges_of, merged_said, product, proof_gap, proofless, proved_prs, prover_of, proves, released_prs, reported_prs, watch_upgraded as upgraded, watch_proves, widen
 from drive.render import cut, when
 
@@ -48,6 +48,7 @@ BEAT_SECONDS = 15
 BEAT_FILE = "watchd.beat"
 EVERY_PROJECT_ENV = "LONG_RUNNING_WATCH_EVERY_PROJECT"
 EVERY_PROJECT = "1"
+STILL_DRAWING = re.compile(rf"^{picture.STILL_DRAWING} ", re.MULTILINE)
 FAILURES_BEFORE_SAYING = 3
 FAILURE_EVERY = timedelta(minutes=10)
 DUE_EVERY = timedelta(minutes=10)
@@ -5165,6 +5166,7 @@ def stages(watcher: Watcher, moment: datetime, until: Callable[[], object] = lam
                     digest_lines,
                     page_lines,
                     down_lines,
+                    draw_pictures,
                 )
             ),
             functools.partial(dashboard_lines, watcher),
@@ -5467,6 +5469,36 @@ def draw_questions(watcher: Watcher, moment: datetime) -> None:
             watcher.unsent.setdefault("meta", []).extend(failed(watcher, "question draw", f"draw of {job_id}'s card on {file}", error, moment))
             continue
         watcher.failures.pop("question draw", None)
+
+
+def draw_pictures(watcher: Watcher, moment: datetime) -> None:
+    """Draw with headless Chrome each Show me picture an open question card of a heard job went up saying is still drawing, as `drive job ask` posts a card whose pictures the drive's pictures cache lacks so it never waits on Chrome, then redraw that card in place under its waits id through `cli.post_ask`, each picture drawn and each that does not draw left off in one line; a picture left off is told once to the session hearing the job's order as an undrawn event, so its job asks the question again with the picture fixed. A draw that fails, headless Chrome failing included, is said to the meta session from its third failure in a row, and the card keeps its line, so a later read draws it again."""
+    if watcher.cards is None:
+        return
+    from drive import cli
+
+    drawing = {card["card"].get("waits") for card in watcher.cards["questions"] if STILL_DRAWING.search(card["card"].get("body", ""))}
+    if not drawing:
+        return
+    data = state.load(watcher.name)
+    asked = [
+        (job_id, job, question)
+        for job_id, job in data["jobs"].items()
+        if heard_job(watcher, data, job)
+        for question in view.open_questions(job)
+        if question["waits"] in drawing and question["card"] and question["file"] and not question["replaced"]
+    ]
+    for job_id, job, question in asked:
+        file = Path(question["file"])
+        try:
+            refused = picture.drawn(state.drive_dir(watcher.name) / "pictures", cli.kept_ask(file, question, watcher.cards, data["jobs"]).show_me, chrome=True)[1]
+            cli.post_ask(watcher.name, job_id, file, cli.question_card(watcher.name, file, question["waits"], chrome=False))
+        except (slack.SlackError, state.DriveError) as error:
+            watcher.unsent.setdefault("meta", []).extend(failed(watcher, "picture draw", f"draw of the pictures on {job_id}'s card {question['card']}", error, moment))
+            continue
+        watcher.failures.pop("picture draw", None)
+        if refused:
+            state.append_event(watcher.name, "undrawn", job=job_id, waits=question["waits"], card=question["card"], reason="; ".join(refused), lane=state.heard_lane(data, job["order"]))
 
 
 def acted(watcher: Watcher, key: str, now: stage.Stage, entered: bool, line: str, moment: datetime) -> list[str]:

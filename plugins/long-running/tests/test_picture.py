@@ -266,7 +266,7 @@ def test_pictures_titled_alike_on_one_card_are_numbered_apart_and_drawn_once(tmp
     assert drawn == ["mermaid", "mermaid"]
 
 
-def test_a_question_cards_show_me_draws_each_fence_titled_by_its_caption_or_kind_keeps_words_and_charts_as_written_leaves_out_raw_data_and_refuses_what_does_not_draw(
+def test_a_question_cards_show_me_draws_each_fence_titled_by_its_caption_or_kind_keeps_words_and_charts_as_written_leaves_out_raw_data_and_what_does_not_draw_and_says_what_still_draws(
     tmp_path, monkeypatch
 ) -> None:
     tried = []
@@ -312,7 +312,8 @@ def test_a_question_cards_show_me_draws_each_fence_titled_by_its_caption_or_kind
         "```",
         "After.",
     ]
-    shown = picture.drawn(tmp_path / "pictures", show_me)
+    shown, refused = picture.drawn(tmp_path / "pictures", show_me, True)
+    assert refused == []
     assert [line.split("](")[0] for line in shown] == [
         "![The call today",
         "![proto code",
@@ -330,8 +331,18 @@ def test_a_question_cards_show_me_draws_each_fence_titled_by_its_caption_or_kind
         "After.",
     ]
     assert tried == ["code:sand", "code:proto", "mermaid", "dot"]
-    with pytest.raises(state.DriveError, match='^the Show me picture "The call that breaks", a ```go fence, does not draw: the code:go did not finish drawing$'):
-        picture.drawn(tmp_path / "pictures", ["The call that breaks:", "```go", "broken()", "next()", "```"])
+    breaks = ["The call that breaks:", "```go", "broken()", "next()", "```"]
+    left = (
+        ['Left off this card: the Show me picture "The call that breaks" does not draw: the code:go did not finish drawing. The agent is fixing it.'],
+        ['the Show me picture "The call that breaks", a ```go fence, does not draw: the code:go did not finish drawing'],
+    )
+    assert picture.drawn(tmp_path / "pictures", breaks, True) == left
+    assert picture.drawn(tmp_path / "pictures", breaks, False) == left
+    assert tried == ["code:sand", "code:proto", "mermaid", "dot", "code:go"]
+    drawing = ["The next call:", "```go", "fn()", "next()", "```"]
+    assert picture.drawn(tmp_path / "pictures", drawing, False) == (['Still drawing "The next call": it joins this card once drawn.'], [])
+    assert tried == ["code:sand", "code:proto", "mermaid", "dot", "code:go"]
+    assert picture.drawn(tmp_path / "pictures", drawing, True)[0][0].startswith("![The next call](")
 
 
 def test_a_fence_of_sentences_shows_as_a_quote_of_its_text_and_a_bare_fence_draws_as_a_code_picture_only_when_it_holds_code(
@@ -366,7 +377,7 @@ def test_a_fence_of_sentences_shows_as_a_quote_of_its_text_and_a_bare_fence_draw
         "api -> broker -> bucket",
         "```",
     ]
-    shown = picture.drawn(tmp_path / "pictures", show_me)
+    shown = picture.drawn(tmp_path / "pictures", show_me, True)[0]
     assert [line.split("](")[0] for line in shown] == [
         "The DM as drafted",
         "> Hey Rowan! The copy for the acme team can't read acme's files: its grant throws <https://sentry.io/1|this error> at 9:29 PM.",
@@ -412,7 +423,7 @@ def test_a_visual_chrome_fails_on_says_chrome_failed_and_never_that_the_picture_
     with pytest.raises(picture.ChromeError, match="Teardown watchdog expired"):
         picture.visual_png("mermaid", "flowchart TD\n  a --> b\n", tmp_path / "flow.png")
     with pytest.raises(state.DriveError, match=r'^the Show me picture "The wake", a ```mermaid fence, was not judged: headless Chrome failed, not the picture, so keep the picture and run the same command again: .*Teardown watchdog expired'):
-        picture.drawn(tmp_path / "pictures", ["The wake", "```mermaid", "flowchart TD", "  a --> b", "```"])
+        picture.drawn(tmp_path / "pictures", ["The wake", "```mermaid", "flowchart TD", "  a --> b", "```"], True)
     monkeypatch.setattr(subprocess, "run", lambda command, **_: subprocess.CompletedProcess(command, 0, "<html><body></body></html>", ""))
     with pytest.raises(picture.ChromeError, match="^Chrome gave no verdict on the dot$"):
         picture.visual_png("dot", "digraph { a -> b }", tmp_path / "dot.png")
@@ -507,7 +518,7 @@ def test_a_question_cards_fence_that_illustrates_nothing_stays_a_captioned_code_
     jev.plain = {FLAG_FLIP}
     show_me = ["The table it drops:", "```sql", "DROP TABLE session_claims;", "```", "The flag:", "```toml", *FLAG_FLIP.splitlines(), "```"]
     show_me += ["1 · The claim:", "```go", *CLAIM.splitlines(), "```", "The flow:", "```mermaid", "flowchart TD", "  a --> b", "```"]
-    shown = picture.drawn(tmp_path / "pictures", show_me)
+    shown = picture.drawn(tmp_path / "pictures", show_me, True)[0]
     assert [line.split("](")[0] for line in shown] == [
         "The table it drops",
         "```",

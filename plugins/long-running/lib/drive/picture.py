@@ -118,6 +118,10 @@ SIGNED = re.compile(r'<img src="([^"]+)"')
 SIGNING_CONTEXT = "cli/cli"
 SOURCED = ".sourced"
 SOURCE = "source.json"
+REFUSED = "refused.txt"
+DOES_NOT_DRAW = "{which} does not draw: {error}"
+NOT_JUDGED = "{which} was not judged: headless Chrome failed, not the picture, so keep the picture and run the same command again: {error}"
+STILL_DRAWING = "Still drawing"
 JUDGED = "illustrative"
 
 
@@ -388,15 +392,25 @@ def draw(kind: str, source: str, out: Path) -> Path:
     return out
 
 
-def cached(folder: Path, name: str, kind: str, source: str) -> Path:
-    """The picture of one source, drawn once under folder and named name, never the source it keeps beside it."""
+def cached(folder: Path, name: str, kind: str, source: str, chrome: bool = True) -> Path | None:
+    """The picture of one source, drawn once under folder and named name, never the source it keeps beside it. A visual's own verdict that it does not draw is kept beside it too and raised again as a PictureError with no Chrome, as Jev's verdict on a fence is kept by `illustrative`, since one source and renderer always draw alike; an image's is not, since a link can download later. With chrome False a picture not drawn yet is None, so a caller that must not wait on headless Chrome starts none."""
     renderer = VISUALS.read_text() if kind != "image" else ""
     home = folder / hashlib.sha256(f"{kind}\n{source}{renderer}".encode()).hexdigest()[:16]
     home.mkdir(parents=True, exist_ok=True)
     (home / SOURCE).write_text(json.dumps({"kind": kind, "source": source}))
-    if found := sorted(path for path in home.glob(f"{name}.*") if path.name != SOURCE):
+    if found := sorted(path for path in home.glob(f"{name}.*") if path.name not in {SOURCE, REFUSED}):
         return found[0]
-    return draw(kind, source, home / f"{name}.png")
+    refused = home / REFUSED
+    if refused.is_file():
+        raise PictureError(refused.read_text())
+    if not chrome:
+        return None
+    try:
+        return draw(kind, source, home / f"{name}.png")
+    except (PictureError, ValueError) as error:
+        if kind != "image":
+            refused.write_text(str(error))
+        raise
 
 
 def fill(folder: Path, kept: list[str]) -> None:
@@ -427,9 +441,9 @@ def shot(folder: Path, name: str, kind: str, source: str, which: str) -> Path:
     try:
         return cached(folder, name, kind, source)
     except (PictureError, ValueError) as error:
-        raise DriveError(f"{which} does not draw: {error}") from None
+        raise DriveError(DOES_NOT_DRAW.format(which=which, error=error)) from None
     except ChromeError as error:
-        raise DriveError(f"{which} was not judged: headless Chrome failed, not the picture, so keep the picture and run the same command again: {error}") from None
+        raise DriveError(NOT_JUDGED.format(which=which, error=error)) from None
 
 
 def pictures(folder: Path, show_me: str, taken: set[str]) -> tuple[list[str], list[str]]:
@@ -452,12 +466,20 @@ def pictures(folder: Path, show_me: str, taken: set[str]) -> tuple[list[str], li
 
 
 def apart(name: str, taken: set[str]) -> str:
-    """name, or name numbered from 2 when taken holds it or it is the source a picture keeps beside it."""
-    return next(each for each in itertools.chain([name], (f"{name} ({count})" for count in itertools.count(2))) if each not in {*taken, SOURCE})
+    """name, or name numbered from 2 when taken holds it or it is the source or verdict a picture keeps beside it."""
+    return next(each for each in itertools.chain([name], (f"{name} ({count})" for count in itertools.count(2))) if each not in {*taken, SOURCE, REFUSED})
 
 
-def drawn(folder: Path, show_me: list[str]) -> list[str]:
-    """A question card's Show me with each fenced block that draws as a picture replaced by one line holding it, `![caption](/abs.png)`, which cc-slack draws as an image block where the line sits, or with the pictures beside it as one gallery, titled with the caption line just above the fence, or what kind of picture it is when none is. A fence of sentences, such as a draft message or a quote, becomes `> ` lines under its caption, which Slack shows as a quote of the text, links and all. A ```chart stays as written, since cc-slack draws it as Slack's own chart. A fence of other words, with no language or `text`, which only a block kept before `drive job ask` refused one holds, stays as written with its caption, so a redraw never loses it and Slack draws it as a code block, since a picture of words shows nothing; one with no language that holds code draws as a code picture, its grammar guessed by the renderer. A code fence whose picture would illustrate nothing, by `illustrative`, stays with its caption as Slack's code block, its language left off, which Slack would show as its first line. A fence of raw data or tool output leaves the card with its caption, since a picture of JSON or a terminal shows nothing, and a fence that does not draw raises the DriveError `shot` names it in, such as Mermaid's parse error, so no card goes up without its picture."""
+def left_off(undrawn: tuple[str, ...]) -> str:
+    """The one line a card's Show me names each picture left off it with, and why."""
+    return f"Left off this card: {'; '.join(why.rstrip('.') for why in undrawn)}. The agent is fixing it." if undrawn else ""
+
+
+def drawn(folder: Path, show_me: list[str], chrome: bool) -> tuple[list[str], list[str]]:
+    """A question card's Show me with each fenced block that draws as a picture replaced by one line holding it, `![caption](/abs.png)`, which cc-slack draws as an image block where the line sits, or with the pictures beside it as one gallery, titled with the caption line just above the fence, or what kind of picture it is when none is; and why each picture that does not draw is left out, in DOES_NOT_DRAW's words. A fence of sentences, such as a draft message or a quote, becomes `> ` lines under its caption, which Slack shows as a quote of the text, links and all. A ```chart stays as written, since cc-slack draws it as Slack's own chart. A fence of other words, with no language or `text`, which only a block kept before `drive job ask` refused one holds, stays as written with its caption, so a redraw never loses it and Slack draws it as a code block, since a picture of words shows nothing; one with no language that holds code draws as a code picture, its grammar guessed by the renderer. A code fence whose picture would illustrate nothing, by `illustrative`, stays with its caption as Slack's code block, its language left off, which Slack would show as its first line. A fence of raw data or tool output leaves the card with its caption, since a picture of JSON or a terminal shows nothing. A fence that does not draw, such as one Mermaid cannot parse, becomes the `left_off` line naming it and why, by his ruling a7c2605, "Always send the card; a picture that fails is left out, named in one line, and drawn once fixed". With chrome False a picture `cached` has not drawn yet becomes one line saying it is still drawing, so a card goes up without waiting on headless Chrome and the watch draws it, by `watch.draw_pictures`; with chrome True headless Chrome draws it, and Chrome failing raises a DriveError in NOT_JUDGED's words, since it says nothing of the picture."""
+    from drive.state import DriveError
+
+    refused = []
 
     def picture_line(fence: re.Match[str]) -> str:
         language = fence["language"].lower()
@@ -473,6 +495,13 @@ def drawn(folder: Path, show_me: list[str]) -> list[str]:
         shown = fence_kind(fence["language"])
         caption = fence["caption"] or title(shown)
         which = f'the Show me picture "{caption}", a ```{fence["language"]} fence,'
-        return f"![{caption}]({shot(folder, 'show-me', shown, fence['source'], which)})"
+        try:
+            found = cached(folder, "show-me", shown, fence["source"], chrome)
+        except (PictureError, ValueError) as error:
+            refused.append(DOES_NOT_DRAW.format(which=which, error=error))
+            return left_off((DOES_NOT_DRAW.format(which=f'the Show me picture "{caption}"', error=error),))
+        except ChromeError as error:
+            raise DriveError(NOT_JUDGED.format(which=which, error=error)) from None
+        return f"![{caption}]({found})" if found else f'{STILL_DRAWING} "{caption}": it joins this card once drawn.'
 
-    return CAPTIONED.sub(picture_line, "\n".join(show_me)).split("\n")
+    return CAPTIONED.sub(picture_line, "\n".join(show_me)).split("\n"), refused
