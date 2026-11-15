@@ -1272,6 +1272,27 @@ def test_a_tap_card_say_just_drew_lets_the_next_say_link_it_as_what_the_pr_waits
     assert say(transcript, text=text) is None
 
 
+def test_a_table_saying_a_pr_waits_on_his_approve_links_its_tap_card_on_a_line_under_it_and_no_cell_links_a_slack_message(
+    talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    url, link = "https://github.com/Forge-AI/monorepo/pull/56773", f"https://acme.slack.com/archives/{DM}/p1794753825913689"
+    with state.edit("demo") as data:
+        data["prs"]["Forge-AI/monorepo#56773"] = state.new_pr(url, "j1", "o1") | {"head": "abc123"}
+    tap = {"asked": state.stamp(), "url": link, "prs": [url], "card": {"title": "Fix: land it?", "prs": [{"url": url, "head": "abc123"}]}}
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [tap], "closed": []})
+    view.refresh_cards("demo")
+    unlinked = f"Forge-AI/monorepo#56773: the words do not link its open tap card {link} on a line, where Slack draws it"
+    holds = f"*The new design is half built.*\n| *PR* | *checks* | *what holds it* |\n| --- | --- | --- |\n| <{url}|recovery skips the log's mark> | pass | your Approve"
+    assert unlinked in say(transcript, text=f"{holds} |")
+    in_cell = say(transcript, text=f"{holds} on <{link}|its stack's PR card> |")
+    assert unlinked in in_cell
+    assert f"<{link}|its stack's PR card> links a Slack message from a table cell, where Slack draws no card" in in_cell
+    assert say(transcript, text=f"{holds}, on its card below |\n<{link}|Recovery skipping the log's mark> waits on your Approve.") is None
+    tap_column = f"*The rework passed staging.*\n| *PR* | *Where it stands* | *Your tap* |\n| --- | --- | --- |\n| <{url}|recovery skips the log's mark> | green; review-approved |"
+    assert "links a Slack message from a table cell, where Slack draws no card and the link opens nothing" in say(transcript, text=f"{tap_column} <{link}|its Approve card> |", tap_prs=[url])
+    assert say(transcript, text=f"{tap_column} its card below |\n<{link}|Recovery skipping the log's mark> waits on your Approve.") is None
+
+
 def test_a_post_that_is_one_slack_link_or_mention_goes_out(talker: str, transcript: Path) -> None:
     assert posted(transcript, thread_ts="1.2", text="<https://github.com/yasyf/cc-skills/pull/1|the fix>") is None
     assert posted(transcript, thread_ts="1.2", text="<@U123>") is None
@@ -1709,6 +1730,28 @@ def test_say_refuses_a_line_telling_him_a_card_is_coming_until_it_names_that_car
     assert say(transcript, text="No release card follows, since your Nov 5 answer settled it.") is None
     monkeypatch.setattr(view, "stored_cards", lambda name: (view.NO_CARDS, "live"))
     assert "names no open card of his" in say(transcript, text="The release card {card:demo:j1-7} is coming once the cut is green.")
+
+
+@pytest.mark.parametrize(
+    "promise",
+    [
+        "You're saying the SandSQL status gave you no links; a handler is adding each one's Approve card to that post.",
+        "I'm giving you the Approve buttons for both PRs in this thread.",
+        "You'll see its Approve button under this line once the card draws.",
+    ],
+)
+def test_say_refuses_a_line_saying_approve_buttons_or_cards_are_being_given_him_until_it_names_the_open_card(
+    run: Run, talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch, promise: str
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
+    monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS)
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["questions"].append(state.new_question(None, "Land the fix?", state.stamp(), card=f"https://acme.slack.com/archives/{DM}/p1794288799976279") | {"waits": "demo:j1-7"})
+    refused = say(transcript, text=promise)
+    assert isinstance(refused, agents.Unjudged) and refused.startswith(f'refused: "{promise}" tells him a card is coming and names no open card of his')
+    assert say(transcript, text=f"{promise.rstrip('.')}: {{card:demo:j1-7}}.") is None
+    assert say(transcript, text="You're saying the SandSQL status gave you no links; a handler is fixing that post.") is None
 
 
 def test_say_refuses_a_handlers_line_saying_a_job_is_being_started_until_it_names_the_job_or_a_handoff_asking_for_one_no_job_answered_is_kept_on_its_order(

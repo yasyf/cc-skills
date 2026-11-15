@@ -78,9 +78,10 @@ UNOWNED = re.compile(
 )
 JOB_WORD = re.compile(r"\bj\d+\b")
 PROMISED_CARD = re.compile(
-    r"\bcards?\b(?:\s+[\w-]+){0,5}?\s+(?:(?:is|are)\s+)?(?:coming|on (?:its|the) way|follows|will (?:follow|come|go up|be drawn))\b"
-    r"|\b(?:will|['’]ll|going to|about to)\s+(?:\w+\s+)?(?:draw|send|post|put up)\s+(?:\w+\s+){0,3}?cards?\b"
-    r"|\b(?:you(?:['’]ll| will) (?:get|see)|expect)\s+(?:\w+\s+){0,3}?cards?\b",
+    r"\b(?:cards?|buttons?)\b(?:\s+[\w-]+){0,5}?\s+(?:(?:is|are)\s+)?(?:coming|on (?:its|the) way|follows|will (?:follow|come|go up|be drawn))\b"
+    r"|\b(?:will|['’]ll|going to|about to)\s+(?:\w+\s+)?(?:draw|send|post|put up|add|give)\s+(?:[\w'’-]+\s+){0,4}?(?:cards?|buttons?)\b"
+    r"|\b(?:is|are|am|['’]m|['’]re)\s+(?:now\s+)?(?:drawing|sending|posting|putting up|adding|giving)\s+(?:[\w'’-]+\s+){0,4}?(?:cards?|buttons?)\b"
+    r"|\b(?:you(?:['’]ll| will) (?:get|see)|expect)\s+(?:[\w'’-]+\s+){0,3}?(?:cards?|buttons?)\b",
     re.IGNORECASE,
 )
 DENIED = re.compile(r"\b(?:no|not|never|nor|without)\b|n['’]t\b", re.IGNORECASE)
@@ -88,7 +89,8 @@ CLAUSE_END = re.compile(r"[,;:.!?](?=\s|$)")
 UNPROMISED = (
     'refused: "{line}" tells him a card is coming and names no open card of his as {{card:<waits id>}}; a card not drawn yet may never'
     " come, as when an answer of his already settled its question, so draw it first, with `drive job ask` or a post's tap_prs, and name"
-    " it on that line, or drop the promise"
+    ' it on that line, or drop the promise, by his Nov 15 9:06 AM words "you\'re saying in threads you\'re giving me approve buttons and then'
+    ' there\'s no such thing"'
 )
 UNOWNED_RULE = (
     "A line never says work sits with no one on it: the session that saw it puts a job on it that turn and the line names that job, by his words"
