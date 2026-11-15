@@ -3567,11 +3567,11 @@ def names_pr(words: str, key: str) -> bool:
 
 
 def asking_cards(data: dict, words: str) -> list[tuple[dict, str]]:
-    """Each open question card of his the words point at, once a card by its Slack link, beside what they name of it: an open question drawn there, but one a `Replaces:` line folded into another, whose ask above its `Findings:` names a PR the words name, by link, key or #N, or whose `Root cause:` line holds a span of 24 or more characters the words quote, such as the error a failure prints; so a job, order or post on a failure he was already told about reads as his card's, whatever its `Holds:` line holds."""
+    """Each open question card of his the words point at, once a card by its Slack link, beside what they name of it: an open question drawn there, but one a `Replaces:` line folded into another, whose ask above its `Findings:` names a PR the words name, by link, key or #N, or whose `Root cause:` line holds a span of 24 or more characters and two or more words the words quote, such as the error a failure prints, never a file, path or name both texts quote, which many cards on other subjects name too; so a job, order or post on a failure he was already told about reads as his card's, whatever its `Holds:` line holds."""
     from drive import limits, view
 
     asked: dict[str, tuple[dict, str]] = {}
-    spans = QUOTED_SPAN.findall(words)
+    spans = [span for span in QUOTED_SPAN.findall(words) if len(span.split()) > 1]
     for job in data["jobs"].values():
         for question in view.open_questions(job):
             if not (question["card"] and question["file"]) or question["replaced"] or (card := view.message_key(question["card"])) in asked:

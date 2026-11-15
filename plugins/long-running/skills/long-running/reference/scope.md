@@ -112,25 +112,31 @@ root cause, the recommended one.
 A card whose summary sentence recommending an option cites a recorded answer of his asks again what
 that answer chose, so `drive job ask` refuses it and names that option to build with no card, unless
 `--unsettled` names that answer as words the card asks him to lift. A card's Already answered option
-carries only the recorded answers its summary cites that Jev reads as deciding its question or making
-it moot, his words above the `Options:` line its recorder lists the choices under, so his one tap
-gives its job one answer's words; the card draws no Already answered option when Jev reads none so
-or gives no reading.
+carries only the recorded answers its summary cites that Jev answers 0.7 or more as deciding its
+question or making it moot, one yes-or-no question an answer, his words above the `Options:` line its
+recorder lists the choices under, so his one tap gives its job one answer's words; the card draws no
+Already answered option when Jev reads none so, reads one only between 0.3 and 0.7, or gives no
+reading.
 
 It reads no answer he gave another question, by his pick "Settle only on your answer to that same
 question, copies only in the same words: no wrong skips; each skip below becomes a card." A question
 once kept settled with no card on another answer of his draws its card when its job asks it again.
 An answer he gives later still settles the older cards it decides, through `drive answer`.
 
-Every other question Jev reads, in one call, against his words on the order and his messages about
-it in its thread, without the lines he quoted from an alert or another's message. It prints to the
+Every other question Jev reads in one request of at most 10,000 characters against his words on the
+order and his messages about it in its thread, without the lines he quoted from an alert or another's
+message. The request holds the card whole, then, filled by whole items while it fits, the recorded
+answers the card cites, his rulings beside them, then his other words, with one yes-or-no question
+for each option and each of his words that could rule it out, and Jev answers each as a probability
+of yes: code reads 0.7 or more as a finding, under 0.3 as none, and the band between as unsure,
+printed for the agent to weigh. It prints to the
 agent each option they rule out and each amount or choice they name that the card offers no tap
 for, by his words "You didn't give me a tap for 30 day bonding how many times do I have to say this",
 naming each part and the words it breaks, and keeps the card, by his pick 320b7a7 "Advisory judge: drive job ask keeps every well-shaped card and prints Jev's finding to the agent; no card is refused on merits".
 When a finding holds, the agent rewrites that part and asks the same question again, which redraws
-its card. When Jev reads the card's recommended option as breaking a recorded answer or ruling of his,
-at least 0.8 sure, the cited answer the card says it goes against first, or else any other option it
-offers as sure, the verb keeps the card unsettled on it, as `<id>: Jev reads the recommended option as
+its card. When Jev answers 0.7 or more that the card's recommended option breaks a recorded answer
+or ruling of his, the cited answer the card says it goes against first, or else that any other option
+it offers does, the verb keeps the card unsettled on it, as `<id>: Jev reads the recommended option as
 breaking it` or `<id>: Jev reads option "<that option>" as breaking it`, asking him to lift those words, so it holds
 its PR on an incident too until he answers. A cited answer the release gate reads as ordering a release
 the recommended option names in backticks is his order carried out, never words to lift: the verb
@@ -141,9 +147,9 @@ and `drive status` lists it refused. The watch says its job waits on a
 card never posted until the job asks it again, in its words or others sharing three rare words, or
 `drive job ask <j> --drop <file>` drops it.
 
-Jev also reads, in the same call, whether an answer of his that cc-notes ranks nearest the card's
+Jev also reads, in the same request, whether an answer of his that cc-notes ranks nearest the card's
 question, summary and options, or nearest the whole block, already answers what the card asks.
-When it reads one at least 0.8 sure, the verb prints that answer with its id and where he gave it,
+When it answers one 0.7 or more, the verb prints that answer with its id and where he gave it,
 and keeps the card, by his picks 320b7a7 and 679484. When it holds, the agent cites the id in the
 summary and asks the same question again, which redraws the card with his words as its `Already
 answered` tap, by his pick 692284 "Your cited answer as a tap on the card: one tap settles it,
@@ -198,12 +204,13 @@ without them. The cause is the one his order asks about, such as why a step is s
 cap, retry or time budget around it goes on the `Interim fix:` line. His card draws the `Root cause:`
 line under the summary's first line, so it is at most 60 words, a named cause with the number that
 measures it, by his words "this still doesnt tell us why its so slow/how to speed it up". In the
-call that reads his words, Jev weighs each option by his words, and the card, its recommended option
+request that reads his words, Jev weighs each option by his words, and the card, its recommended option
 and its `Root cause:`, `First principles:` and `Simplest:` lines, by the part of this rule its `Root cause:`
 form names and by the words each page it links shows once Chrome opens it against what the card says
 that page shows. This rule speaks only to the recommended option, never one offered beside it such as
-the `Simplest:` one every card offers. Each option or part Jev is at least 0.8 sure breaks his words,
-this rule or a page's is printed to the agent, naming the part and the words it breaks, and refuses no
+the `Simplest:` one every card offers. Each option or part Jev answers 0.7 or more as breaking his
+words, this rule or a page's is printed to the agent, naming the part and the words it breaks, and
+one in the band between 0.3 and 0.7 is printed as unsure; each refuses no
 card, by his pick 320b7a7 "Advisory judge: drive job ask keeps every well-shaped card and prints Jev's finding to the agent; no card is refused on merits". His ruling: "Update your skill to not just brush over the root cause ever". On a bug hurting
 someone now, an incident's or one a reporter shared, the findings' `Interim fix:` line links the
 immediate fix shipping while he picks (its PR, release, rollback, repair, or the job building it),

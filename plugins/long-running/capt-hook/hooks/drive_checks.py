@@ -10,25 +10,20 @@ import sys
 import tempfile
 import threading
 from collections import OrderedDict
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from contextlib import closing
-from dataclasses import dataclass, field, replace
-from datetime import UTC, datetime, timedelta
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from captain_hook import (
-    CONFIRMED,
-    UNCONFIRMED,
     Allow,
     BaseHookEvent,
     Block,
-    Confirm,
     Event,
     FileFixture,
     HookResult,
     Input,
     Rewrite,
-    T,
     Tool,
     Warn,
     WorkflowState,
@@ -36,22 +31,7 @@ from captain_hook import (
     workflow_state,
 )
 from captain_hook.dispatch import SYNC_DEADLINE_MARGIN_SECONDS, collect_budget
-from captain_hook.contexts import PendingToolCall
-from captain_hook.prompt import Prompt, dedent_text
-from captain_hook.snapshots.client import EvidenceIncomplete
-from captain_hook.tickets import (
-    Context,
-    Decide,
-    Evidence,
-    Proposal,
-    Undecided,
-    UserAnswered,
-)
-from captain_hook.tickets.context import said_evidence
-from captain_hook.tickets.decide import DETAIL_SHOWN, UNPERMITTED, cited, render_action, render_evidence
-from captain_hook.transcripts import TranscriptLoadError
 from cc_transcript.tools import tool_name_matches
-from spawnllm import LabelAnswer
 
 newest_install = runpy.run_path(str(Path(__file__).resolve().parents[2] / "hooks" / "installed.py"))["root"]
 SLACK = "mcp__plugin_cc-slack_cc-slack__"
@@ -120,18 +100,11 @@ HIS_DM_HOME = FileFixture(
     content=json.dumps({"plugins": {"cc-slack@cc-slack": [{"installPath": str(TURN.with_name("cc-slack"))}]}}),
 )
 HANDLER_SESSION = "handler-fixture"
-RELAYED_ORDER = "Post it in o598's thread if it has one, else at his DM root"
 THREAD = "1794378983.440769"
-THREAD_WORDS = 100
-OLDEST_WORDS = f"slack:{THREAD[:-6]}{0:06}"
-NEWEST_WORDS = f"slack:{THREAD[:-6]}{THREAD_WORDS - 1:06}"
-LONG_WORDS = f"slack:{THREAD}"
-LONG_CHARS = 30_000
 ACK = "You set the staging-claim rule and want the fuzzing box back; both orders are handed off."
 SAID_LINK = "https://acme.slack.com/archives/D123/p1794288799976279"
 SAID_CALL = "toolu_said"
 RESUMED = "drive job resume now works from a session that did not start the job's agent."
-OWN_ACT = "I took the refusal as working as designed because it queues the brief, so I sent no defect."
 AWAY = "Refused on purpose: he is away, since he said so or has written nothing for an hour."
 ASKED = (
     "POST Yes: the old attributes are deleted, dreaming is cleaned up, and the 1024 memory indexes are gone."
@@ -139,102 +112,22 @@ ASKED = (
     " The only memory work left is the index rebuild, which runs tonight from the cluster's schedule and"
     " needs nothing from you; I will post here when it finishes and the counts match."
 )
-DRIVE_POST = "drive.post"
-POST_FRAME = """
-    You decide whether one pending post to the user goes out, by <rules>. <evidence> holds items under ids: his words,
-    the only items in which he speaks, and the reads, records and rules <rules> name, each item's source saying which.
-    <action> is the post, its claims, and what the drive's checks found in it, none when they found nothing. post.text
-    is the post as Slack gets it, post.written as the agent wrote it, and post.stamps each time say drew from the
-    drive's own stamps. No post in his DM or its threads needs words of his permitting it, and cc-slack's permission
-    hook, not you, permits any other, so hold none back as unpermitted or for saying more than his message asked.
-
-    Cite in relied_on the id in square brackets of every item your verdict rests on: an allow rests on the reads and
-    rules it cites as fully as on his words, and one citing none is refused. Reason first, quoting the rule, read or
-    words of his you relied on, then set allow. When you refuse, set refusal to one plain sentence for the agent, under
-    150 characters, with no quotation marks, ids, dates or times: what holds against which words of the post, and its
-    fix.
-"""
-POST_RULES = """
-    The agent posts one line to the user in his Slack DM with the app. Judge only what the parts below name, and
-    whether the post keeps each ruling of his in <evidence> on how such a post is written, naming what it owes where
-    it breaks one.
-"""
-FINDINGS_RULES = """
-    Findings. Each is a pattern standing for the rule numbered as it is in <evidence>, and can match words its rule
-    never meant: it holds back the line it names only when that rule holds against the line and no word of his lifts
-    it. A finding on his own words quoted back, or on a term he used himself, holds nothing back.
-"""
-READS_RULES = """
-    Reads, by his words "stop saying wrong shit bc you jsut guess" and "dont just take things for granted critically
-    evakuate them". Each claim in <action> names the id of its read in <evidence>, which holds the handler's newest call
-    whose words that read names, whole once, under the first item holding it. Check each claim against its reads
-    together:
-    - A line about code, where it lives, what it does or why, stands only on a read of that code: its lines, a grep or
-      a diff. A doc, report, brief, PR body, earlier answer, or a comment, panic, error or log message is a claim to
-      test, never a read of the code.
-    - A number or state stands on the call that measured it, and one told as it stands now on the newest read of it.
-    - A line telling what a named source, such as a job's report, says stands on the read of that source.
-    - A line about every case, with each, all, always, never or only, stands on a read of what decides it; an absence
-      read from one metric, span or log series also needs a second source with no shared emitter.
-    - A mechanism the line proposes stands on a read or his words showing the system controls that piece, by his words
-      "we cant do that since we dont control the poloices on customer bucket".
-    - The handler's own act, when its next line is due, his words quoted back, the title or question say draws for a
-      bare {pr:} or {card:}, and a time post.stamps lists need no read; a claim copying those drawn words claims only
-      that PR's or card's state, and a stamp only what it stamps, never what that job or record did.
-    A claim stands when its reads or his words hold what it says, without the whole decision path. Hold the post back
-    only for a claim its reads do not back, a read matching no call, or a line needing a read the claims leave out,
-    naming each and the read it needs.
-"""
-RECORD_RULES = """
-    A record item is the handler's newest call naming its seq, and a record's line names its writer and, after >, the
-    lanes it went to. It backs a line telling what the record says or where it went, and any other line only where it
-    measured what that line says.
-"""
-ANCESTRY_RULES = """
-    An ancestry read, such as `git merge-base --is-ancestor`, measures that a build holds a commit when it is an
-    ancestor, never that a build lacks a pull request, since a hotfix carries the PR as a cherry-pick no ancestry read
-    finds.
-"""
-RULE_SOURCE = "the rules the drive's checks stand for, in the installed long-running and cc-slack skills' words"
-JEV_PROMPT_CHARS = 10_000
-CUT_QUOTE = " […cut to fit]"
-
-
-@dataclass(frozen=True, slots=True)
-class PostShown(PendingToolCall):
-    """The judge's one context, which shows nothing: <action> holds the post as Slack gets it, and naming a context keeps capt-hook from adding the session's last prose as <context>, so Jev's prompt is its frame, rules, evidence and action alone."""
-
-    def content(self, evt: BaseHookEvent) -> None:
-        return None
-
-
-@dataclass(frozen=True, slots=True)
-class Weighed(Decide):
-    """A judge that reasons over every evidence item and never takes Jev's quick pick of one item permitting the post, since whether each claim stands on a read is no single item's to permit."""
-
-    def quick(self, ctx: Context, prompt: Prompt, items: Sequence[Evidence]) -> None:
-        return None
-
-
-JUDGE = Weighed(POST_RULES, contexts=(PostShown(),), model="medium", second_opinion=False, frame=POST_FRAME)
-HANDLER_JUDGE = replace(JUDGE, over=(UserAnswered(approved=False),))
-JEV_UNSURE = {"permits": LabelAnswer(UNPERMITTED, {UNPERMITTED: 1.0}, 0.9)}
-SAID_AT = datetime(2026, 11, 11, 17, 40, tzinfo=UTC)
-TAP_ASKED = "tell me when deleting the old memory indexes needs my tap"
+WEIGH = "import json, sys; sys.path.insert(0, sys.argv[1]); from drive import settled; print(json.dumps(settled.weighed(json.load(sys.stdin))))"
+WEIGHS = "python3 -I -c"
+HELD = {WEIGHS: json.dumps({"verdict": "hold", "note": ""})}
+PASSED = {WEIGHS: json.dumps({"verdict": "pass", "note": ""})}
 GUESSED = "The cloud's inbox reader queries Postgres straight."
 GUESSED_CLAIMS = [{"claim": GUESSED, "read": "cloudrunner/inbox.go"}]
 CLOUD_READ = 'ccx_code_read {"path": "go/sand/next/internal/cloudrunner/inbox.go"}\n57  rows, err := r.postgres.Query(ctx, selectInbox, agentID)'
-OVER_LINE = (
-    "refused: this post is 96 words, and a line in his thread is at most 60 words (the coordinator's reading of his Nov 9 9:33 PM words"
-    ' "your messages need to be way shorter rewrite this for a human"). Say what changed for him and what happens next, in plain words;'
-    " everything else stays on disk until he asks for it. It names no message of his as asked, so it is not an answer and keeps that limit."
-    " An answer to a question or order of his goes out whole, at any length: pass as asked each message of his it answers, word for word or"
-    " by its permalink, one per line."
-)
-STAMPED = "The stop alert fired a third time; a reader, {started:j4750}, is naming the runs it counted."
-STAMPED_CLAIMS = [{"claim": "fired a third time; a reader is naming the runs it counted", "read": "grep -m1 -o 'j4750 reader running'"}]
-STAMPED_READ = "Bash {\"command\": \"drive status o1535 | grep -m1 -o 'j4750 reader running'\"}\nj4750 reader running: read which runs the stop monitor counted in its third firing"
-JOB_STARTED = "5:54 AM (job start)"
+NOT_READ = 'none: no call of the handler\'s own holds "cloudrunner/inbox.go"'
+HELD_BACK = "Jev held back this post: claim \"The cloud's inbox reader queries Postgres straight.\" does not stand on its read."
+UNSURE = "message_limits: Jev is unsure of finding he is away, so the post goes out as written: if one is wrong, reword the post in place."
+SENT_HELD = f"Jev holds this post: it states a fact no claim names. So reword the sent post in place with say(edit={SAID_LINK}, text=…) until Jev passes it."
+
+
+def verdict(kind: str, note: str) -> dict[str, str]:
+    """An inline test's stub of the verdict `weighed` reads from settled.weighed: hold, warn or pass, beside its note."""
+    return {WEIGHS: json.dumps({"verdict": kind, "note": note})}
 
 
 @workflow_state("drive-say")
@@ -250,38 +143,11 @@ def handler_reads(read: str) -> str:
     return json.dumps({"his_words": [], "reads": [named], "post": {"text": GUESSED, "thread_ts": THREAD, "claims": [{"claim": GUESSED, "read": "read:1"}]}})
 
 
-def stamped_post() -> dict:
-    """What message_limits.py hands Jev for the j4750 post Jev held for a start time no read measured: say drew that time from the drive's stamp of when it added job j4750, which post.stamps lists, and the one claim stands on the read it names."""
-    named = {"id": "read:1", "read": STAMPED_CLAIMS[0]["read"], "source": "the read the posting handler's claims name", "quote": STAMPED_READ}
-    stamp = {"written": "{started:j4750}", "drawn": JOB_STARTED, "stamps": "when the drive added job j4750"}
-    post = {"text": STAMPED.replace(stamp["written"], JOB_STARTED), "written": STAMPED, "stamps": [stamp], "thread_ts": THREAD, "claims": [STAMPED_CLAIMS[0] | {"read": "read:1"}]}
-    return {"his_words": [], "reads": [named], "post": post}
-
-
 def refused_post(text: str, reason: str, counted: str = "") -> dict:
     """What message_limits.py hands Jev for a say post one finding refuses, beside the rule that finding stands for, and the finding again as counted when a count or a mark decides it."""
     denied = {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": reason}
-    return {"hookSpecificOutput": denied, "rule": f"1. {reason}", "his_words": [], "reads": [], "post": {"text": text}} | ({"counted": counted} if counted else {})
-
-
-def found_beside(read: str) -> str:
-    """What message_limits.py hands Jev for a handler's say post whose claim names a read that long and whose words run past a line's length, as j4845 measured the post refused three times: the refusal telling its fix, the rule it stands for, and the one line its check found."""
-    return json.dumps(refused_post(GUESSED, OVER_LINE) | json.loads(handler_reads(read)) | {"found": "this post is 96 words, and a line in his thread is at most 60 words"})
-
-
-def long_thread(output: dict) -> str:
-    """What message_limits.py hands Jev for a post in a thread holding THREAD_WORDS messages of his, oldest first, each one minute after the last, 40,000 characters in all."""
-    words = [
-        {"id": f"slack:{THREAD[:-6]}{index:06}", "source": "slack", "quote": f"{index:03}" + "w" * 397, "said_at": (SAID_AT + timedelta(minutes=index)).isoformat(), "detail": "his message in the thread this post goes to"}
-        for index in range(THREAD_WORDS)
-    ]
-    return json.dumps(output | {"his_words": words})
-
-
-def long_message(output: dict, said: bool) -> str:
-    """What message_limits.py hands Jev for a post answering one message of his LONG_CHARS characters long: in the thread the post goes to, said at SAID_AT, or as the words of the order the post is on, which the drive keeps with no time."""
-    word = {"id": LONG_WORDS, "source": "slack", "quote": "w" * LONG_CHARS, "detail": "his message this post answers"}
-    return json.dumps(output | {"his_words": [word | {"said_at": SAID_AT.isoformat()} if said else word]})
+    findings = [{"rule": reason, "found": reason}]
+    return {"hookSpecificOutput": denied, "rule": reason, "findings": findings, "his_words": [], "reads": [], "post": {"text": text}} | ({"counted": counted} if counted else {})
 
 
 def sent_found(output: dict) -> list[WorkflowState]:
@@ -468,7 +334,7 @@ def ran_alone(payload: dict, script: str) -> dict:
 
 
 def checked(evt: BaseHookEvent, script: str) -> HookResult | None:
-    """Run the drive's own check for this call from the newest installed long-running, since capt-hook keeps this pack loaded from the install it first found while an install leaves the pack's files unchanged, and let Jev judge each refusal it makes by the rule the check names, else by its words, so a check that matched a call its rule never meant lets the call through, and every handler's say post by the read each of its claims names, which the check hands with it, whatever it found: a say post goes out at once and Jev judges it once Slack has it, unless a finding a count or a mark decides is in it or it is a dry run, which Jev judges before say runs; a merge, release or public-body guard, or a refusal decided by the call's shape alone, the check marks unjudged and it blocks outright, and a check that exits non-zero raises with its own stderr, so capt-hook's log names why it failed."""
+    """Run the drive's own check for this call from the newest installed long-running, since capt-hook keeps this pack loaded from the install it first found while an install leaves the pack's files unchanged, and let Jev weigh each refusal it makes by the rule the check names, else by its words, so a check that matched a call its rule never meant lets the call through, and every post the check hands with his words: a say post goes out at once and Jev weighs it once Slack has it, unless a finding a count or a mark decides is in it or it is a dry run, which Jev weighs before say runs; a merge, release or public-body guard, or a refusal decided by the call's shape alone, the check marks unjudged and it blocks outright, and a check that exits non-zero raises with its own stderr, so capt-hook's log names why it failed."""
     payload = evt._raw
     due = checks_due(evt, script)
     if script not in due:
@@ -481,18 +347,44 @@ def checked(evt: BaseHookEvent, script: str) -> HookResult | None:
     output = json.loads(said)
     found = output.get("hookSpecificOutput") or {}
     reason = found.get("permissionDecisionReason") or (output.get("decision") == "block" and output["reason"]) or ""
-    if "his_words" in output and (refusal := oversize(evt, output, reason)):
-        return evt.block(refusal)
     if "his_words" in output and payload["tool_name"] == SAY and not output.get("counted") and not payload["tool_input"].get("dry_run"):
         return sent_first(evt, output)
     if "his_words" in output:
         return judged(evt, output)
+    if reason and output.get("judged", True):
+        call = {"tool": payload.get("tool_name") or payload.get("hook_event_name") or "", "input": payload.get("tool_input") or {"message": payload.get("last_assistant_message") or ""}}
+        return refused(evt, reason, weighed(evt, {"refusal": {"rule": output.get("rule") or reason, "call": call}}))
     if reason:
-        return evt.block(reason, confirm=Confirm(rule=output.get("rule") or reason) if output.get("judged", True) else None)
+        return evt.block(reason)
     if made := found.get("updatedInput"):
         return evt.rewrite(made, note=found.get("additionalContext"))
     if context := found.get("additionalContext"):
         return evt.context(context)
+    return None
+
+
+def weighed(evt: BaseHookEvent, request: dict) -> dict:
+    """Jev's verdict, hold, warn or pass, and its note, from the newest installed long-running's settled.weighed, in a process of its own on this worker's interpreter, which imports spawnllm, as each drive check runs, so a release changing how the drive asks Jev reaches this pack without a restart; the request carries what is left of capt-hook's deadline, so Jev's answer or its warning comes before the hook's time runs out."""
+    ran = subprocess.run(
+        ["python3", "-I", "-c", WEIGH, str(newest_install() / "lib")],
+        executable=sys.executable,
+        input=json.dumps(request | {"seconds": collect_budget(2 * SYNC_DEADLINE_MARGIN_SECONDS)}),
+        capture_output=True,
+        text=True,
+        cwd=evt._raw.get("cwd") or None,
+    )
+    if ran.returncode:
+        raise RuntimeError(f"settled.weighed exited {ran.returncode}:\n{ran.stderr}")
+    return json.loads(ran.stdout)
+
+
+def refused(evt: BaseHookEvent, reason: str, verdict: dict) -> HookResult | None:
+    """A judged refusal as Jev weighed it: the block, beside Jev's note when it is unsure, a warning when Jev gave no verdict in time, and the call let through when Jev reads it as a match its rule never meant."""
+    match verdict["verdict"]:
+        case "hold":
+            return evt.block("\n\n".join(filter(None, [reason, verdict["note"]])))
+        case "warn":
+            return evt.context(f"{verdict['note']}\n```\n{reason}\n```")
     return None
 
 
@@ -505,115 +397,14 @@ def sent_first(evt: BaseHookEvent, output: dict) -> None:
 
 
 def judged(evt: BaseHookEvent, output: dict, sent: str = "") -> HookResult | None:
-    """Jev's verdict on a post the drive's checks found something in, or on any handler's say post, before the post goes out, or with sent naming the say post Slack already has: Jev reads the post as Slack gets it, each of say's references linked, each finding beside its rule's words, his messages and card answers in this thread and his answers in the transcripts, the newest of them that fit its prompt as `fitted` keeps them, and on a handler's post the read each of its claims names and each record it cites or carries, as its own calls read them. It passes when no finding's rule holds against the line it names, or his words lift it, and every claim of a handler's stands on the read it names, and is held with Jev's reason otherwise, never for saying more than his message asked: a post not yet sent stays back, and a sent one stands in his DM while its session hears to reword it in place, Jev taking all the time capt-hook's request leaves the hook. When Jev cannot finish, because it errs, times out, or reads the transcript past capt-hook's deadline, a finding a count or a mark decides, such as the post's word count or his reading as away, still refuses, since no judgment lifts it, and every other finding only warns: the post goes out as written with every finding beside it for the session that posts it, by his pick "Refusals only warn when the judge cannot finish: no post ever waits, but it goes out unchecked, as twice this morning". On a handler's post the checks found nothing in, the post is held only for a claim the read it names does not back, a read that matched none of its calls, or a line needing a read its claims leave out, by his pick "The handler names the read behind each claim; Jev checks each claim against that read, whole, and holds only unbacked claims", and passes with any warning the checks heard beside it otherwise. A handler's own `claude --bg` session reads as a session of his to capt-hook, but every prompt it holds is the communicator's brief or a record, so its judge reads no prompt there as his words."""
-    found = output.get("hookSpecificOutput") or {}
-    reason = found.get("permissionDecisionReason") or (output.get("decision") == "block" and output["reason"]) or ""
-    heard = found.get("additionalContext") or ""
-    ctx, judge, fixed, answered = jev_reads(evt, output, reason)
-    if sent and (budget := collect_budget(2 * SYNC_DEADLINE_MARGIN_SECONDS)) is not None:
-        judge = replace(judge, deadline=budget)
-    shown = f"\n```\n{reason}\n```" if reason else ""
-    held = evt.context if sent else evt.block
-    holds = "holds it" if sent else "held it back"
-    again = (
-        f"; reword the sent post in place with say(edit={sent}, text=…) until Jev passes it"
-        if sent
-        else ", then call say again"
-    )
-    stands = "stays as say sent it" if sent else "goes out as written"
-    try:
-        if not (items := fitted(ctx, judge, fixed, answered, judge.items(ctx))):
-            return held(f"Jev found no rule and no words of his to weigh this post against, so what the drive's checks found stands: fix each finding below{again}.{shown}")
-        verdict = judge.verdict(ctx, items)
-    except (Undecided, EvidenceIncomplete, TranscriptLoadError) as exc:
-        cause = exc.cause if isinstance(exc, Undecided) else f"{type(exc).__name__}: {exc}"
-        if counted := output.get("counted"):
-            return evt.block(f"message_limits: Jev gave no verdict ({cause}), and a finding a count or a mark decides refuses without one: fix it, then call say again.\n```\n{counted}\n```")
-        inplace = f" with say(edit={sent}, text=…)" if sent else ""
-        unjudged = (
-            f"message_limits: Jev gave no verdict ({cause}), so each finding below only warns and the post {stands}: if one holds, reword the post in place{inplace}.{shown}"
-            if reason
-            else f"message_limits: Jev gave no verdict ({cause}) on whether each claim of this post stands on the read it names, so the post {stands}."
-        )
-        return evt.context("\n\n".join(filter(None, [heard, unjudged])))
-    if not reason and verdict.allow:
-        return evt.context(heard) if heard else None
-    if not reason:
-        return held(
-            f"Jev checked each claim against the read it names and {holds}: make the read Jev names and pass it"
-            f" in claims, or cut the line to what your reads show{again}.\n```\nJev: {verdict.explained}\n```"
-        )
-    if verdict.allow and cited(items, verdict.relied_on):
-        return evt.context(f"message_limits: Jev read no finding's rule as holding against this post, so it {stands}.\n```\nJev: {verdict.reason}\n```")
-    return held(f"Jev weighed this post by the drive's rules and {holds}: fix what Jev and each finding below name{again}.\n```\nJev: {verdict.explained}\n{reason}\n```")
-
-
-def jev_reads(evt: BaseHookEvent, output: dict, reason: str) -> tuple[Context, Decide, list[Evidence], list[Evidence]]:
-    """The post as Jev weighs it, in its place with what the drive's checks found in it, each finding as the one line its check found it in rather than the refusal telling the handler its fix, the judge for its session with only the rules this post can trip, the findings' only when the checks found something, each finding's own rule beside it, and the reads' only on a handler's post, the record rule only beside a record and the ancestry rule only beside a read the claims name, and the evidence the check hands with it: each read the post's claims name and each record it cites or carries, as the handler's own calls read them, with the rule each finding stands for, and apart from them his words the post answers, quotes or links, which the judge reads beside the user's words its own items find."""
-    post = output["post"]
-    place = {"thread": str(post.get("thread_ts") or "")} | ({"channel": post["channel_id"]} if post.get("channel_id") else {})
-    where = f"in thread {place['thread']} of channel {post['channel_id']}" if post.get("channel_id") else "to him in his DM"
-    if post.get("channel_id") and not place["thread"]:
-        where = f"in the group DM of {post['channel_id']}, him and the bot" if post["channel_id"].startswith(("U", "W")) else f"at the root of channel {post['channel_id']}, to its members"
-    ctx = Context.of(evt, DRIVE_POST, Proposal(place, {"post": post, "findings": output.get("found") or reason or "none"}, f"post this line {where}"))
-    reads = [item["id"] for item in output.get("reads", [])]
-    rules = dedent_text(
-        POST_RULES
-        + (FINDINGS_RULES if reason else "")
-        + (READS_RULES if reads else "")
-        + (RECORD_RULES if any(read.startswith("record:") for read in reads) else "")
-        + (ANCESTRY_RULES if any(read.startswith(("read:", "record:")) for read in reads) else "")
-    )
-    judge = replace(HANDLER_JUDGE if evt._raw.get("agent_type") == HANDLER and not evt.agent_id else JUDGE, rules=rules)
-    reads = [Evidence.model_validate(item) for item in output.get("reads", [])]
-    found = [Evidence(id="rule:findings", source=RULE_SOURCE, quote=rule)] if (rule := output.get("rule")) else []
-    return ctx, judge, [*reads, *found], [Evidence.model_validate(item) for item in output["his_words"]]
-
-
-def fitted(ctx: Context, judge: Decide, fixed: list[Evidence], answered: list[Evidence], said: list[Evidence]) -> list[Evidence]:
-    """The evidence Jev's prompt holds within JEV_PROMPT_CHARS: every read, record and finding rule the checks add whole, then each of his words cut to what still fits beside the rest, in turn: the rulings of his and words on the post's order the checks add, the messages and card answers of his the post answers, quotes or links, newest first, his prompts in the transcripts, newest first, and those said at no known time last, so a message of his of any length reaches Jev as far as it fits and his own length never refuses a post, by his words "jev should be getting like 10k chars at most for any call"; in the order they came."""
-    kept = {id(item): item for item in fixed}
-    for item in [*(item for item in answered if not item.said_at), *by_newest(answered), *by_newest(said), *(item for item in said if not item.said_at)]:
-        room = JEV_PROMPT_CHARS + len(CUT_QUOTE) - len(str(judge.framed(ctx, [*kept.values(), item.model_copy(update={"quote": CUT_QUOTE})], DETAIL_SHOWN)))
-        if len(item.quote) <= room:
-            kept[id(item)] = item
-        elif room > len(CUT_QUOTE):
-            kept[id(item)] = item.model_copy(update={"quote": item.quote[: room - len(CUT_QUOTE)] + CUT_QUOTE})
-    return [kept[id(item)] for item in [*said, *answered, *fixed] if id(item) in kept]
-
-
-def by_newest(items: list[Evidence]) -> list[Evidence]:
-    """The items said at a known time, newest first."""
-    return sorted((item for item in items if item.said_at), key=lambda item: item.said_at.timestamp(), reverse=True)
-
-
-def oversize(evt: BaseHookEvent, output: dict, reason: str) -> str | None:
-    """Why a post waits for narrower reads or fixed findings: Jev's prompt for it, its frame, rules, evidence and action, with his words cut to what `fitted` fits, would pass the JEV_PROMPT_CHARS his words set, "jev should be getting like 10k chars at most for any call", and its findings, reads and records are what push it past; it refuses before say runs, as a post over its word count does, naming the characters each part adds: the frame, the rules, the post, the findings, and each read and record, largest first; the findings come in the words that tell the handler their fix, so a post they would hold is fixed on its first retry: fixing them takes off their rules, their rule items and their lines in the action, and the reads are cut only by what that leaves. A post neither can bring under, one whose rules and own words already pass it, is refused too, naming a DEFECT line, since no narrower read fixes it; his words never refuse one, since `fitted` cuts them to what fits, and one past the limit holds none of them; one whose transcript Jev cannot read goes to the judge as it stands, which says it gave no verdict on it."""
-    ctx, judge, fixed, answered = jev_reads(evt, output, reason)
-    try:
-        prompt = str(judge.framed(ctx, fitted(ctx, judge, fixed, answered, judge.items(ctx)), DETAIL_SHOWN))
-    except (EvidenceIncomplete, TranscriptLoadError):
-        return None
-    if (cut := len(prompt) - JEV_PROMPT_CHARS) <= 0:
-        return None
-    bare, plain, reads, _ = jev_reads(evt, {key: value for key, value in output.items() if key not in ("rule", "found")}, "")
-    unfound = len(str(plain.framed(bare, reads, DETAIL_SHOWN)))
-    sized = sorted(
-        ((f"{item['id']} {json.dumps(item['read'], ensure_ascii=False)}" if item["id"].startswith("read:") else item["id"], len(render_evidence([read]))) for item, read in zip(output["reads"], reads)),
-        key=lambda pair: -pair[1],
-    )
-    post, rules, found = len(render_action(bare.action)), len(plain.rules), len(prompt) - unfound
-    parts = [("frame", unfound - post - rules - sum(chars for _, chars in sized)), ("rules", rules), ("post", post), *([("findings", found)] if found else []), *sized]
-    sizes = "\n".join(f"{name} {chars:,}" for name, chars in parts)
-    shown = f":\n```text\n{sizes}\n```" + (f"\n```\n{reason}\n```" if found else "")
-    too_long = f"refused: Jev's prompt for this post would be {len(prompt):,} characters, over the {JEV_PROMPT_CHARS:,} it takes"
-    if cut - found > sum(chars for _, chars in sized):
-        return f"{too_long}, and its rules and the post alone pass that. Say less and name it on a `DEFECT` line{shown}"
-    narrower = "with a grep or a smaller `cci read` showing only what each claim needs, name it in claims"
-    if not found:
-        return f"{too_long}. Cut your reads by at least {cut:,} {narrower}, and call say again{shown}"
-    fix = f"{too_long}. Fix each finding below, which takes {found:,} of them off"
-    return f"{fix}, and call say again{shown}" if cut <= found else f"{fix}, cut your reads by at least {cut - found:,} {narrower}, and call say again{shown}"
+    """Jev's verdict on a post the drive's checks hand with his words, as settled.post_verdict weighs it, before the post goes out, or with sent naming the say post Slack already has: a held post not yet sent stays back, and a sent one stands in his DM while its session hears to reword it in place; a warning, such as a verdict Jev could not finish, goes out beside the post with what the checks heard."""
+    heard = (output.get("hookSpecificOutput") or {}).get("additionalContext") or ""
+    verdict = weighed(evt, {"post": output, "sent": sent})
+    if verdict["verdict"] == "hold":
+        return evt.context(verdict["note"]) if sent else evt.block(verdict["note"])
+    if told := "\n\n".join(filter(None, [heard, verdict["note"]])):
+        return evt.context(told)
+    return None
 
 
 @on(
@@ -662,8 +453,8 @@ def no_terminal_questions(evt: BaseHookEvent) -> HookResult | None:
     tests={
         Input(command="ls", session_id=NO_DRIVE): Allow(),
         Input(command="gh pr view 1", session_id=NO_DRIVE, tool_use_id="toolu_unbound"): Allow(),
-        Input(command='ccx vcs ship -m "Fix: x"', session_id=COORDINATOR, decide=CONFIRMED): Block(pattern="does no order's work itself"),
-        Input(command='ccx vcs ship -m "Fix: x"', session_id=COORDINATOR, decide=CONFIRMED, tool_use_id="toolu_batched"): Block(pattern="does no order's work itself"),
+        Input(command='ccx vcs ship -m "Fix: x"', session_id=COORDINATOR, commands=HELD): Block(pattern="does no order's work itself"),
+        Input(command='ccx vcs ship -m "Fix: x"', session_id=COORDINATOR, commands=HELD, tool_use_id="toolu_batched"): Block(pattern="does no order's work itself"),
         Input(command="for j in j855 j966; do drive job replies $j --drive fixture | tail -5; done", session_id=COORDINATOR): Allow(),
         Input(command="orca orchestration check --help", session_id=COORDINATOR): Allow(),
     },
@@ -701,19 +492,19 @@ def bash_guard(evt: BaseHookEvent) -> HookResult | None:
             tool="Agent",
             tool_input={"subagent_type": HANDLER, "prompt": "Record: 1"},
             session_id=COMMUNICATOR,
-            decide=UNCONFIRMED,
+            commands=PASSED,
         ): Block(pattern="a handler starts with the drive's handler tool"),
         Input(
             tool="Agent",
             tool_input={"subagent_type": BUILDER, "prompt": f"Read your brief first: {BRIEFS / 'j1.brief.md'}"},
             session_id=COORDINATOR,
-            decide=CONFIRMED,
+            commands=HELD,
         ): Block(pattern="reads as a pass over a team's data"),
         Input(
             tool="Agent",
             tool_input={"subagent_type": BUILDER, "prompt": f"Read your brief first: {BRIEFS / 'j2.brief.md'}"},
             session_id=COORDINATOR,
-            decide=UNCONFIRMED,
+            commands=PASSED,
         ): Allow(),
         Input(tool="Agent", tool_input={"subagent_type": "long-running:reader", "prompt": f"Read your brief first: {BRIEFS / 'j3.brief.md'}", "name": "desk"}, session_id=COORDINATOR): Rewrite(
             subagent_type="long-running:reader"
@@ -722,7 +513,7 @@ def bash_guard(evt: BaseHookEvent) -> HookResult | None:
             tool="Agent",
             tool_input={"subagent_type": "long-running:reader", "prompt": f"Read your brief first: {BRIEFS / 'j9.brief.md'}"},
             session_id=COORDINATOR,
-            decide=UNCONFIRMED,
+            commands=PASSED,
         ): Block(pattern="j9.brief.md does not exist"),
     },
 )
@@ -751,10 +542,8 @@ def scratch_folder(evt: BaseHookEvent) -> HookResult | None:
             agent_id="a1",
             transcript=COMMUNICATOR_TURN,
             file=HIS_DM_HOME,
-            root_transcript=[T.user("ship the memory fix", timestamp=SAID_AT.isoformat()), T.assistant("on it")],
-            decide=JEV_UNSURE,
-            llm={"reason": "he is away and this is news, not an answer", "allow": False, "refusal": "His order asks for the fix, not news of it while he is away."},
-        ): Block(pattern="Jev: His order asks for the fix"),
+            commands=verdict("hold", HELD_BACK),
+        ): Block(pattern="Jev held back this post"),
         Input(
             tool=SLACK + "slack_dm_status",
             tool_input={"text": "The fix merged."},
@@ -762,32 +551,8 @@ def scratch_folder(evt: BaseHookEvent) -> HookResult | None:
             agent_id="a1",
             transcript=COMMUNICATOR_TURN,
             file=HIS_DM_HOME,
-            root_transcript=[T.user("ship the memory fix", timestamp=SAID_AT.isoformat()), T.assistant("on it")],
-            decide=JEV_UNSURE,
-            llm={"error": TimeoutError("codex timed out after 19s")},
-        ): Block(pattern=r"(?s)Jev gave no verdict \(TimeoutError: codex timed out after 19s\), and a finding a count or a mark decides refuses without one.*Refused on purpose: he is away"),
-        Input(
-            tool=SLACK + "slack_dm_status",
-            tool_input={"text": "The fix merged."},
-            session_id=COMMUNICATOR,
-            agent_id="a1",
-            transcript=COMMUNICATOR_TURN,
-            file=HIS_DM_HOME,
-            root_transcript=[T.user("ship the memory fix", timestamp=SAID_AT.isoformat()), T.assistant("on it")],
-            decide=JEV_UNSURE,
-            llm={"error": EvidenceIncomplete("deadline", "foreground transcript deadline exhausted")},
-        ): Block(pattern=r"(?s)Jev gave no verdict \(EvidenceIncomplete: transcript evidence deadline: foreground transcript deadline exhausted\), and a finding a count or a mark decides refuses without one.*Refused on purpose: he is away"),
-        Input(
-            tool=SLACK + "slack_dm_status",
-            tool_input={"text": "Deleting the old memory indexes still waits on your tap: https://acme.slack.com/archives/D123/p1794288799976279"},
-            session_id=COMMUNICATOR,
-            agent_id="a1",
-            transcript=COMMUNICATOR_TURN,
-            file=HIS_DM_HOME,
-            root_transcript=[T.user(TAP_ASKED, timestamp=SAID_AT.isoformat()), T.assistant("will do")],
-            decide=JEV_UNSURE,
-            llm={"reason": "he asked to hear when it waits on his tap", "allow": True, "relied_on": [said_evidence(TAP_ASKED, SAID_AT, "prompt").id]},
-        ): Warn(pattern="Jev: he asked to hear when it waits on his tap"),
+            commands=verdict("warn", UNSURE),
+        ): Warn(pattern="Jev is unsure of finding he is away"),
         Input(
             tool=SAY,
             tool_input={"text": GUESSED, "thread_ts": THREAD, "claims": GUESSED_CLAIMS},
@@ -795,8 +560,7 @@ def scratch_folder(evt: BaseHookEvent) -> HookResult | None:
             agent_id="a1",
             agent_type=HANDLER,
             transcript=COMMUNICATOR_TURN,
-            commands={"python3 -I": handler_reads('none: no call of the handler\'s own holds "cloudrunner/inbox.go"')},
-            llm={"reason": "the read the claim names matched no call", "allow": False, "refusal": "The cloud reader querying Postgres stands on no read; read cloudrunner/inbox.go."},
+            commands={"python3 -I": handler_reads(NOT_READ), **verdict("hold", HELD_BACK)},
         ): Allow(),
         Input(
             tool=SAY,
@@ -805,89 +569,15 @@ def scratch_folder(evt: BaseHookEvent) -> HookResult | None:
             agent_id="a1",
             agent_type=HANDLER,
             transcript=COMMUNICATOR_TURN,
-            commands={"python3 -I": handler_reads('none: no call of the handler\'s own holds "cloudrunner/inbox.go"')},
-            llm={"reason": "the read the claim names matched no call", "allow": False, "refusal": "The cloud reader querying Postgres stands on no read; read cloudrunner/inbox.go."},
-        ): Block(pattern="(?s)Jev checked each claim against the read it names and held it back.*Jev: The cloud reader querying Postgres"),
-        Input(
-            tool=SAY,
-            tool_input={"text": GUESSED, "thread_ts": THREAD, "claims": GUESSED_CLAIMS},
-            session_id=COMMUNICATOR,
-            agent_id="a1",
-            agent_type=HANDLER,
-            transcript=COMMUNICATOR_TURN,
-            commands={"python3 -I": handler_reads("x" * JEV_PROMPT_CHARS)},
-        ): Block(pattern=r'(?s)over the 10,000 it takes\. Cut your reads by at least \d,\d{3} .*\nframe [\d,]+\nrules [\d,]+\npost [\d,]+\nread:1 "cloudrunner/inbox\.go" 10,\d{3}\n```'),
-        Input(
-            tool=SAY,
-            tool_input={"text": GUESSED, "thread_ts": THREAD, "claims": GUESSED_CLAIMS},
-            session_id=COMMUNICATOR,
-            agent_id="a1",
-            agent_type=HANDLER,
-            transcript=COMMUNICATOR_TURN,
-            commands={"python3 -I": handler_reads("x" * 5_950)},
-        ): Allow(),
-        Input(
-            tool=SAY,
-            tool_input={"text": GUESSED, "thread_ts": THREAD, "claims": GUESSED_CLAIMS},
-            session_id=COMMUNICATOR,
-            agent_id="a1",
-            agent_type=HANDLER,
-            transcript=COMMUNICATOR_TURN,
-            commands={"python3 -I": json.dumps(json.loads(handler_reads("x")) | {"post": {"text": "y" * JEV_PROMPT_CHARS, "thread_ts": THREAD}})},
-        ): Block(pattern=r"(?s)over the 10,000 it takes, and its rules and the post alone pass that\. Say less and name it on a `DEFECT` line"),
-        Input(
-            tool=SAY,
-            tool_input={"text": GUESSED, "thread_ts": THREAD, "claims": GUESSED_CLAIMS},
-            session_id=COMMUNICATOR,
-            agent_id="a1",
-            agent_type=HANDLER,
-            transcript=COMMUNICATOR_TURN,
-            commands={"python3 -I": found_beside("x" * 5_950)},
-        ): Block(pattern=r"(?s)over the 10,000 it takes\. Fix each finding below, which takes [\d,]+ of them off, and call say again:\n```text\nframe .*\nfindings [\d,]+\nread:1 .*\n```\n```\nrefused: this post is 96 words"),
-        Input(
-            tool=SAY,
-            tool_input={"text": GUESSED, "thread_ts": THREAD, "claims": GUESSED_CLAIMS},
-            session_id=COMMUNICATOR,
-            agent_id="a1",
-            agent_type=HANDLER,
-            transcript=COMMUNICATOR_TURN,
-            commands={"python3 -I": found_beside("x" * JEV_PROMPT_CHARS)},
-        ): Block(pattern=r"(?s)over the 10,000 it takes\. Fix each finding below, which takes [\d,]+ of them off, cut your reads by at least \d,\d{3} with a grep .*\nfindings [\d,]+\nread:1 .*refused: this post is 96 words"),
-        Input(
-            tool=SAY,
-            tool_input={"text": ACK, "thread_ts": THREAD},
-            session_id=COMMUNICATOR,
-            transcript=COMMUNICATOR_TURN,
-            commands={"python3 -I": long_message({"his_words": [], "reads": [], "post": {"text": ACK, "thread_ts": THREAD}}, said=False)},
-        ): Allow(),
+            commands={"python3 -I": handler_reads(NOT_READ), **verdict("hold", HELD_BACK)},
+        ): Block(pattern="Jev held back this post"),
         Input(
             tool=SAY,
             tool_input={"text": ACK, "thread_ts": THREAD, "dry_run": True},
             session_id=COMMUNICATOR,
             transcript=COMMUNICATOR_TURN,
-            commands={"python3 -I": long_message(refused_post(ACK, AWAY), said=True)},
-            llm={"reason": "his message asks for this ack", "allow": True, "relied_on": [LONG_WORDS]},
-        ): Warn(pattern="Jev read no finding's rule as holding against this post, so it goes out as written"),
-        Input(
-            tool=SAY,
-            tool_input={"text": "The fix merged.", "dry_run": True},
-            session_id=COMMUNICATOR,
-            agent_id="a1",
-            agent_type=HANDLER,
-            transcript=COMMUNICATOR_TURN,
-            commands={"python3 -I": long_thread(refused_post("The fix merged.", AWAY))},
-            llm={"reason": "his newest message asks for this news", "allow": True, "relied_on": [NEWEST_WORDS]},
-        ): Warn(pattern="Jev read no finding's rule as holding against this post, so it goes out as written"),
-        Input(
-            tool=SAY,
-            tool_input={"text": "The fix merged.", "dry_run": True},
-            session_id=COMMUNICATOR,
-            agent_id="a1",
-            agent_type=HANDLER,
-            transcript=COMMUNICATOR_TURN,
-            commands={"python3 -I": long_thread(refused_post("The fix merged.", AWAY))},
-            llm={"reason": "his first message asks for this news", "allow": True, "relied_on": [OLDEST_WORDS]},
-        ): Block(pattern="Jev weighed this post by the drive's rules and held it back"),
+            commands={"python3 -I": json.dumps(refused_post(ACK, AWAY)), **PASSED},
+        ): Allow(),
         Input(
             tool=SAY,
             tool_input={"text": "The fix merged."},
@@ -895,10 +585,8 @@ def scratch_folder(evt: BaseHookEvent) -> HookResult | None:
             agent_id="a1",
             agent_type=HANDLER,
             transcript=COMMUNICATOR_TURN,
-            commands={"python3 -I": json.dumps(refused_post("The fix merged.", AWAY, AWAY))},
-            decide=JEV_UNSURE,
-            llm={"error": TimeoutError("codex timed out after 19s")},
-        ): Block(pattern=r"(?s)Jev gave no verdict \(TimeoutError: codex timed out after 19s\), and a finding a count or a mark decides refuses without one.*he is away"),
+            commands={"python3 -I": json.dumps(refused_post("The fix merged.", AWAY, AWAY)), **verdict("hold", AWAY)},
+        ): Block(pattern="he is away"),
     },
 )
 def message_limits(evt: BaseHookEvent) -> HookResult | None:
@@ -920,6 +608,7 @@ def message_limits(evt: BaseHookEvent) -> HookResult | None:
             agent_id="a1",
             agent_type=HANDLER,
             transcript=COMMUNICATOR_TURN,
+            commands=verdict("hold", SENT_HELD),
         ): Allow(),
         Input(
             tool=SAY,
@@ -930,21 +619,8 @@ def message_limits(evt: BaseHookEvent) -> HookResult | None:
             session_id=HANDLER_SESSION,
             agent_type=HANDLER,
             transcript=HANDLER_TURN,
-            decide=JEV_UNSURE,
-            llm={"reason": "the user said to post it at his DM root", "allow": True, "relied_on": [RELAYED_ORDER]},
-        ): Warn(pattern=f"(?s)Jev weighed this post by the drive's rules and holds it.*say\\(edit={SAID_LINK}, text=…\\)"),
-        Input(
-            tool=SAY,
-            tool_input={"text": GUESSED, "thread_ts": THREAD, "claims": GUESSED_CLAIMS},
-            output=f"POSTED {SAID_LINK} CARD https://acme.slack.com/archives/D123/p1794288799976280",
-            tool_use_id=SAID_CALL,
-            state=sent_found(json.loads(handler_reads('none: no call of the handler\'s own holds "cloudrunner/inbox.go"'))),
-            session_id=COMMUNICATOR,
-            agent_id="a1",
-            agent_type=HANDLER,
-            transcript=COMMUNICATOR_TURN,
-            llm={"reason": "the read the claim names matched no call", "allow": False, "refusal": "The cloud reader querying Postgres stands on no read; read cloudrunner/inbox.go."},
-        ): Warn(pattern=f"(?s)Jev checked each claim against the read it names and holds it.*say\\(edit={SAID_LINK}, text=…\\).*Jev: The cloud reader querying Postgres"),
+            commands=verdict("hold", SENT_HELD),
+        ): Warn(pattern=f"(?s)Jev holds this post.*say\\(edit={SAID_LINK}, text=…\\)"),
         Input(
             tool=SAY,
             tool_input={"text": GUESSED, "thread_ts": THREAD, "claims": GUESSED_CLAIMS},
@@ -955,19 +631,7 @@ def message_limits(evt: BaseHookEvent) -> HookResult | None:
             agent_id="a1",
             agent_type=HANDLER,
             transcript=COMMUNICATOR_TURN,
-            llm={"reason": "read 1 holds the cloud's reader querying Postgres", "allow": True, "relied_on": ["read:1"]},
-        ): Allow(),
-        Input(
-            tool=SAY,
-            tool_input={"text": STAMPED, "thread_ts": THREAD, "claims": STAMPED_CLAIMS},
-            output=f"POSTED {SAID_LINK}",
-            tool_use_id=SAID_CALL,
-            state=sent_found(stamped_post()),
-            session_id=COMMUNICATOR,
-            agent_id="a1",
-            agent_type=HANDLER,
-            transcript=COMMUNICATOR_TURN,
-            llm={"reason": "5:54 AM is the time post.stamps lists for {started:j4750}, which needs no read, and read 1 holds the reader naming the runs", "allow": True, "relied_on": ["read:1"]},
+            commands=PASSED,
         ): Allow(),
         Input(
             tool=SAY,
@@ -978,32 +642,8 @@ def message_limits(evt: BaseHookEvent) -> HookResult | None:
             session_id=HANDLER_SESSION,
             agent_type=HANDLER,
             transcript=HANDLER_TURN,
-            decide=JEV_UNSURE,
-            llm={"reason": "read 1 backs the one claim, and a report in his thread needs no words of his", "allow": True, "relied_on": ["read:1"]},
-        ): Allow(),
-        Input(
-            tool=SAY,
-            tool_input={"text": GUESSED, "thread_ts": THREAD, "claims": GUESSED_CLAIMS},
-            output=f"EDITED {SAID_LINK}",
-            tool_use_id=SAID_CALL,
-            state=sent_found(json.loads(handler_reads(CLOUD_READ))),
-            session_id=COMMUNICATOR,
-            agent_id="a1",
-            agent_type=HANDLER,
-            transcript=COMMUNICATOR_TURN,
-            llm={"error": TimeoutError("codex timed out after 19s")},
-        ): Warn(pattern=r"Jev gave no verdict \(TimeoutError: codex timed out after 19s\) on whether each claim.*stays as say sent it"),
-        Input(
-            tool=SAY,
-            tool_input={"text": OWN_ACT},
-            output=f"POSTED {SAID_LINK}",
-            tool_use_id=SAID_CALL,
-            state=sent_found(refused_post(OWN_ACT, "refused: a line naming a cause carries {record:<seq>} of the record that measured it, on that line")),
-            session_id=COMMUNICATOR,
-            transcript=COMMUNICATOR_TURN,
-            decide=JEV_UNSURE,
-            llm={"reason": "the line is the session's account of its own act, which the cause rule never asks a record for", "allow": True, "relied_on": ["rule:findings"]},
-        ): Warn(pattern="Jev read no finding's rule as holding against this post, so it stays as say sent it"),
+            commands=verdict("warn", UNSURE),
+        ): Warn(pattern="Jev is unsure of finding he is away"),
     },
 )
 def sent_post(evt: BaseHookEvent) -> HookResult | None:
@@ -1028,14 +668,14 @@ def sent_post(evt: BaseHookEvent) -> HookResult | None:
             tool_input={"kind": "report", "lane": "root", "to": "communicator@fixture", "text": "POST The fix is still building.", "attrs": {"thread": THREAD, "progress": "true"}},
             session_id=COORDINATOR,
             transcript=TURN,
-            decide=CONFIRMED,
+            commands=HELD,
         ): Block(pattern="one report per thread per turn"),
         Input(
             tool=POST,
             tool_input={"kind": "report", "lane": "root", "to": "communicator@fixture", "text": "POST New: 663230 shows 0 refused writes.", "attrs": {"thread": THREAD, "progress": "true"}},
             session_id=COORDINATOR,
             transcript=TURN,
-            decide=UNCONFIRMED,
+            commands=PASSED,
         ): Allow(),
         Input(
             tool=POST,

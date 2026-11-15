@@ -54,27 +54,10 @@ CONSTANT_RULING = 'his Nov 10 11:03 PM words "we needed an image to show a const
 CHART_RULING = 'his Nov 10 10:53 PM words "for the chart slack ltieraly has the native … vertsion of this why didnt youi build that for the renderer"'
 PHONE_RULING = 'his Nov 11 12:21 AM words "mermaid is but is ugly"'
 LOOKS_RULING = 'his ruling 0d2b7df, "this should have included images; you include images when they are usless and dont add anyhtng, and then dont when its things like this, its totlly backwards"'
-LOOKS = "looks"
-LOOKS_SURE = 0.8
-LOOKS_QUESTION = (
-    "Do this question's options differ in how a screen someone sees looks, such as where rows draw in a sidebar, a page's layout,"
-    " where a control sits or how it is styled, or an icon, so that he must see each option drawn to pick one? Pick looks when"
-    " they do. Pick none when they differ in something he reads about rather than sees, such as where data is stored, which code"
-    " runs, a schedule, a rule, a process, a message's wording or a cost, even when the work behind them ends up on a screen."
-)
-LOOK_OPTIONS = {"none": "They differ in something he reads about rather than sees.", LOOKS: "They differ in how a screen looks, so he must see each to pick."}
 CODE_TERM = re.compile(r"\w+(?:(?:::|[-./])\w+)*")
 CODE_MARK = re.compile(r"[_.-]|::|[a-z][A-Z]")
 LETTER = re.compile(r"[A-Za-z]")
 PLAIN = "plain"
-PLAIN_QUESTION = (
-    "He knows the product but not each table, column, function, file, migration or flag in its code. Does this question card leave"
-    " him asking what {name} is for? Answer yes when nowhere on the card, in its question, summary, options, their descriptions or"
-    " its Show me, does a clause say what it is for: what a table records, what a column holds, what a function, file or route does,"
-    ' what a migration changes, what a flag turns on. A phrase that only repeats its name or kind, such as "two run_claims columns"'
-    ' or "the X migration", says nothing. Answer no when such a clause is there, even a short one, or when {name} is a word or'
-    " product anyone reads."
-)
 EXPLAIN_RULING = 'his ruling e405d69, "Explain what this is what do you mean check"'
 GLOSS_RULING = 'his words on a card naming the run_claims table bare, "also what is run claims"'
 GLOSSED = (
@@ -889,31 +872,33 @@ def question_problems(text: str, kept: bool = False, unsettled: str | None = Non
 
 
 def unread(asked: Question) -> str | None:
-    """Why a question goes to him without a picture of each option, by his ruling 0d2b7df: Jev reads its options as differing in how a screen looks, LOOKS_SURE sure or more, so he picks by seeing each, and an option has no picture line captioned with its number, `![N · …](path)`. In the same call Jev reads each code name `code_terms` finds anywhere on his card, its question, summary, options, their descriptions and its Show me outside its fences, and each one Jev reads at least settled.DECIDES sure as never said in plain words on the card is printed on stderr, refusing nothing, by his pick 320b7a7. When Jev gives no reading the question goes up, said on stderr."""
+    """Why a question goes to him without a picture of each option, by his ruling 0d2b7df: Jev reads its options as differing in how a screen looks, at settled.YES or more, so he picks by seeing each, and an option has no picture line captioned with its number, `![N · …](path)`. In the same request Jev reads each code name `code_terms` finds anywhere on his card, its question, summary, options, their descriptions and its Show me outside its fences, one Noul a name, and each one it reads at settled.YES or more as never said in plain words on the card is printed on stderr, refusing nothing, by his pick 320b7a7. The options, then the Show me, then each name fill the request whole; a reading in the band between settled.NO and settled.YES is said on stderr as unsure, and a name the request has no room for, or Jev giving no reading, lets the question up unread."""
     from drive import settled
 
     shot = {int(number[1]) for line in captions(asked.show_me) if (found := PICTURE.fullmatch(line)) and (number := OPTION_CAPTION.match(found[1]))}
     unshown = [index for index in range(1, len(asked.options) + 1) if index not in shot]
     named = code_terms("\n".join([asked.title, *asked.summary, *asked.options, *asked.hints.values(), *captions(asked.show_me)]))
-    questions = {LOOKS: {"label": {"instructions": LOOKS_QUESTION, "options": LOOK_OPTIONS}}} if unshown else {}
-    questions |= {f"{PLAIN}{number}": {"binary": {"instructions": PLAIN_QUESTION.format(name=name)}} for number, name in enumerate(named, 1)}
-    if not questions:
+    if not unshown and not named:
         return None
-    seen = {
-        "question": asked.title,
-        "summary": "\n".join(asked.summary),
-        "options": [{"option": option, "description": asked.hints.get(option, "")} for option in asked.options],
-        "show_me": "\n".join(asked.show_me),
-    }
+    options = (({"options": {f"o{number}": {"option": option, "description": asked.hints.get(option, "")}}}, {}) for number, option in enumerate(asked.options, 1))
+    names = (({"names": {f"n{number}": name}}, {f"{PLAIN}{number}": settled.asking(settled.UNEXPLAINED, name=f"n{number}")}) for number, name in enumerate(named, 1))
+    seen, questions, _ = settled.fill({"question": asked.title, "summary": "\n".join(asked.summary), "options": {}}, {"looks": settled.LOOKS} if unshown else {}, [*options, ({"show_me": "\n".join(asked.show_me)}, {}), *names])
     try:
-        read = settled.jev({"state": seen, "questions": questions})
+        read = settled.jev(seen, questions)
     except settled.Unheard as failure:
         print(f"drive job ask: Jev did not say whether this question needs a screenshot of each option or plain words beside the code it names, so it goes up unchecked: {failure}", file=sys.stderr)
         return None
-    if unglossed := [name for number, name in enumerate(named, 1) if read[f"{PLAIN}{number}"]["p_yes"] >= settled.DECIDES]:
+    glossed = {name: settled.reading(read.get(f"{PLAIN}{number}")) for number, name in enumerate(named, 1) if f"{PLAIN}{number}" in read}
+    if unglossed := [name for name, unexplained in glossed.items() if unexplained]:
         each = "it" if len(unglossed) == 1 else "each"
         print(GLOSSED.format(names=", ".join(unglossed), each=each, explain=EXPLAIN_RULING, gloss=GLOSS_RULING, advisory=ADVISORY), file=sys.stderr)
-    if not unshown or read[LOOKS]["probabilities"].get(LOOKS, 0) < LOOKS_SURE:
+    if unsure := [name for name, unexplained in glossed.items() if unexplained is None]:
+        print(f"drive job ask: kept, and Jev is unsure whether his card says in plain words what {', '.join(unsure)} is for: add a clause saying what each is the first time the card names it when it does not. {ADVISORY}", file=sys.stderr)
+    if not unshown:
+        return None
+    if (looks := settled.reading(read["looks"])) is None:
+        print("drive job ask: Jev is unsure whether this question's options differ in how a screen looks, so it goes up: put a screenshot of each option in its Show me when they do", file=sys.stderr)
+    if not looks:
         return None
     which = f"option {unshown[0]} carries" if len(unshown) == 1 else f"options {', '.join(map(str, unshown))} carry"
     return (

@@ -105,17 +105,17 @@ PLAIN_WORDS_RULE = (
 
 
 class Ruled(str):
-    """A refusal Jev judges by the one sentence naming what its check protects against, not by its own words, which name the fix; counted holds its findings a count or a mark decides, such as a post's word count or his reading as away, which refuse when Jev cannot finish, and found what its check found, one line naming no fix, which Jev reads as the post's findings in place of its words."""
+    """A refusal Jev judges by the one sentence naming what its check protects against, not by its own words, which name the fix; counted holds its findings a count or a mark decides, such as a post's word count or his reading as away, which refuse when Jev cannot finish, and findings each rule beside what its check found under it, one line naming no fix, which Jev weighs one Noul a finding: its own when its check found one thing, and every check's when `every` joins them."""
 
     rule: str
     counted: str
-    found: str
+    findings: list[dict]
 
-    def __new__(cls, reason: str, rule: str, counted: str = "", found: str = "") -> Self:
+    def __new__(cls, reason: str, rule: str, counted: str = "", found: str = "", findings: list[dict] | None = None) -> Self:
         made = super().__new__(cls, reason)
         made.rule = rule
         made.counted = counted
-        made.found = found
+        made.findings = findings or [{"rule": rule, "found": found or reason.removeprefix("refused: ")}]
         return made
 
 
@@ -124,12 +124,12 @@ class Unjudged(str):
 
 
 def ruled(reason: str) -> dict:
-    """The fields the capt-hook pack reads off a refusal: the rule Jev judges it by, the findings that refuse when Jev cannot finish and what its check found, or that no Jev judges it."""
+    """The fields the capt-hook pack reads off a refusal: the rule Jev judges it by, the findings that refuse when Jev cannot finish and each rule beside what its check found, or that no Jev judges it."""
     if isinstance(reason, Unjudged):
         return {"judged": False}
     if not isinstance(reason, Ruled):
         return {}
-    return {"rule": reason.rule} | ({"counted": reason.counted} if reason.counted else {}) | ({"found": reason.found} if reason.found else {})
+    return {"rule": reason.rule, "findings": reason.findings} | ({"counted": reason.counted} if reason.counted else {})
 
 
 def transcript(payload: dict) -> Path:

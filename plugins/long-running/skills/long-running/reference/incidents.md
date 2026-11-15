@@ -239,8 +239,9 @@ changed and when, its findings the suspects, and its root cause the verdict.
   recommended option: the asker when it is one, each whose waits name the card and each whose
   work the card holds by its `Holds:` line, else that nothing is built before his pick, with the
   incident's thread as its `thread`, which its handler posts there. Asked again, the card sends
-  that thread a line only when Jev reads the line it holds as no longer true for the card as asked
-  now, who builds it included, the report then naming that line and what changed.
+  that thread a line unless Jev answers under 0.3 that the line it holds is no longer true for the
+  card as asked now on what it asks, what it blocks and who builds it, the report then naming that
+  line and what changed.
 - Its PR opens and lands on that recommendation while the card stays open: `drive pr add` takes
   it, `drive pr set --waits <card>` refuses on it, and a different pick of his starts a follow-up
   job on the same order. His pick: "The repair lands on the recommendation, the question stays
