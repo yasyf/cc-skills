@@ -575,7 +575,13 @@ state. Like `--held`, it needs no Dispatch, so it reaches a Sprite whose Dispatc
 Orca dropped, and the gc pause does not hold it. It prints what it saved and the
 workspace it destroyed, or nothing when no task records a Sprite under that name,
 and exits 1 naming what keeps the Sprite: a failed read or save, what it still
-holds, or cc-remote's refusal. `drive job end` runs it after `--done`, `drive job
+holds, or cc-remote's refusal. One reclaim at a time destroys a Sprite: `--destroy`
+takes a lock of that workspace's own under `~/.local/state/orca-gc/destroying`
+before its save, and a pass takes it before its `cc-remote destroy`, so a second
+reclaim of the same Sprite while one runs changes nothing and says so. `cc-remote
+destroy` gets 120 seconds, such as while it waits on a cc-remote process that
+holds the workspace and never ends, past which it is killed and the Sprite is
+kept with that named. `drive job end` runs it after `--done`, `drive job
 resume` runs it on a dead lane's Sprite once the relaunch starts on a fresh one,
 and a drive's watch runs it on the Sprite of each done, failed or stopped job.
 

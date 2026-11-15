@@ -65,6 +65,7 @@ CC_REMOTE_STATE = STATE_HOME / "cc-remote"
 RESUMED = STATE_HOME / "orca-gc" / "resumed"
 FILES_PAUSED = STATE_HOME / "orca-gc" / "files-paused"
 REMOVING = STATE_HOME / "orca-gc" / "remove.lock"
+DESTROYING = STATE_HOME / "orca-gc" / "destroying"
 SWEPT = STATE_HOME / "orca-gc"
 BACKOFF = STATE_HOME / "orca-gc" / "backoff.json"
 SWEPT_BATCH = 40
@@ -74,6 +75,7 @@ SHELL_QUIET_MS = 3 * 24 * 60 * 60 * 1000
 SLOW_READ_S = 15.0
 PASS_ORCA_S = 180.0
 CALL_TIMEOUT_S = 60
+DESTROY_S = 120
 SSH_CONNECT_S = 30
 BACKOFF_FIRST_S = 15 * 60
 BACKOFF_MOST_S = 4 * 60 * 60
@@ -668,7 +670,10 @@ class CcRemote:
         return Remote(GitHubTips(slug), GitHubPullHeads(slug), GitHubTrunk(slug))
 
     def destroy(self, sprite: Sprite) -> str | None:
-        done = subprocess.run([CC_REMOTE, "destroy", sprite.workspace], capture_output=True, text=True)
+        try:
+            done = subprocess.run([CC_REMOTE, "destroy", sprite.workspace], capture_output=True, text=True, timeout=DESTROY_S)
+        except subprocess.TimeoutExpired:
+            return f"cc-remote destroy {sprite.workspace} gave no answer in {DESTROY_S} s, so it was killed"
         return None if done.returncode == 0 else (done.stderr.strip().splitlines() or [f"cc-remote destroy exited {done.returncode}"])[-1]
 
     def wake(self, workspace: str) -> str | None:
@@ -755,17 +760,29 @@ class Unsaved(Exception):
     pass
 
 
+@contextmanager
+def one_destroy(workspace: str) -> Iterator[None]:
+    DESTROYING.mkdir(parents=True, exist_ok=True)
+    with (DESTROYING / f"{workspace}.lock").open("w") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise Unsaved(f"another orca-reclaim is destroying {workspace}, so this one changed nothing") from None
+        yield
+
+
 def destroy(workspace: str, lane: str, cc_remote: CcRemote) -> str | None:
     if (sprite := sprite_of(workspace, cc_remote)) is None:
         return None
-    saved = save(workspace, lane, cc_remote)
-    checkout = cc_remote.checkout(sprite)
-    if isinstance(checkout, str):
-        raise Unsaved(checkout)
-    if holding := unsaved(checkout, cc_remote.remote(checkout.repository)):
-        raise Unsaved(holding)
-    if refusal := cc_remote.destroy(sprite):
-        raise Unsaved(refusal)
+    with one_destroy(workspace):
+        saved = save(workspace, lane, cc_remote)
+        checkout = cc_remote.checkout(sprite)
+        if isinstance(checkout, str):
+            raise Unsaved(checkout)
+        if holding := unsaved(checkout, cc_remote.remote(checkout.repository)):
+            raise Unsaved(holding)
+        if refusal := cc_remote.destroy(sprite):
+            raise Unsaved(refusal)
     return "; ".join(filter(None, [saved, f"destroyed {workspace}"]))
 
 
@@ -837,7 +854,12 @@ def reap(action: Action, worker: Worker, sprite: Sprite, ended: dict[str, str], 
         return Action("keep", sprite.workspace, "changed since the first read")
     if pause.held():
         return pause.skip(action.target, action.verb)
-    if refusal := cc_remote.destroy(sprite):
+    try:
+        with one_destroy(sprite.workspace):
+            refusal = cc_remote.destroy(sprite)
+    except Unsaved as running:
+        return Action("keep", sprite.workspace, str(running))
+    if refusal:
         return Action("keep", sprite.workspace, refusal)
     return Action("destroyed", sprite.workspace, action.reason)
 
@@ -1203,6 +1225,10 @@ def main() -> int:
         "It needs no Orca Run or dispatch and no idle terminal, so it reaches a Sprite whose dispatch Orca has dropped, and the pause does not hold it. It prints what it saved, as --save does, "
         "and the workspace it destroyed, or nothing when no task records a Sprite under that name, and exits 1 naming why the read or the save failed, what the Sprite still holds, "
         "or cc-remote's refusal. "
+        "One reclaim at a time destroys a Sprite: --destroy, before its save, and a pass, before its cc-remote destroy, each take a lock of that workspace's own under "
+        "$XDG_STATE_HOME/orca-gc/destroying, so a second reclaim of the same Sprite while one runs changes nothing and says so, --destroy exiting 1 and a pass keeping the Sprite. "
+        f"cc-remote destroy gets {DESTROY_S} s, such as while it waits on a cc-remote process that holds the workspace and never ends, past which it is killed, "
+        "and the Sprite is kept with that named. "
         "--wake WORKSPACE wakes the Sprite a cc-remote task records under that workspace name with cc-remote orca reconnect, which reopens its forward, waits for the Orca runtime "
         "a cold boot starts and adopts it, so Orca reaches the Sprite again; it starts no worker. It prints the workspace it woke, or exits 1 naming cc-remote's refusal. "
         "--new is the recurring pass. Without --run it takes one Run a pass, those no pass has swept first, then the one swept longest ago, and skips a Run whose "
