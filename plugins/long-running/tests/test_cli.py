@@ -1048,6 +1048,15 @@ def test_order_set_kind_build_on_one_part_of_an_answer_order_makes_it_a_build_wh
     assert (order["kind"], {part: held["answer"] for part, held in order["parts"].items()}) == ("build", {"why": True, "fix": False})
 
 
+def test_an_order_added_with_no_kind_is_a_build_whose_builder_waits_on_research_but_one_on_the_branch_an_open_pr_pushed_starts_at_once(
+    run: Run, demo: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Migrated PR", "--project", "The drive", "--workstream", "Drive tooling", "ship the migrated watch PR")
+    assert state.load(demo)["orders"]["o1"]["kind"] == "build"
+    assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "Fix: the watch"]) == 2
+    assert "o1 is a build order, so its builder starts only once" in capsys.readouterr().err
+    assert run("job", "add", "builder", "--order", "o1", "--goal", "Fix: the watch", "--repo", "yasyf/cc-skills", "--branch", "the-watch")[1].splitlines()[0] == "j1"
+
 def test_order_set_standing_keeps_each_part_it_names_standing_on_its_goal_an_empty_goal_takes_it_out_and_it_refuses_with_no_part_or_on_an_order_limited_to_options(
     run: Run, demo: str, capsys: pytest.CaptureFixture[str]
 ) -> None:

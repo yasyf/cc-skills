@@ -380,8 +380,12 @@ def research(name: str, data: dict, order_id: str, parts: list[str], besides: st
 
 
 def research_links(data: dict, job: dict, text: str) -> list[str]:
-    """The readers and designs a job was built on: each its briefs so far named on their `Researched:` line, the one this brief names, and each job of the drive it names was built on, so a reader's open questions hold the builders of the design built on it, by state.holds_work."""
-    named = RESEARCHED_BY.findall(text)
+    """The readers and designs a job was built on, beside the one this brief names on its `Researched:` line, by built_on."""
+    return built_on(data, job, RESEARCHED_BY.findall(text))
+
+
+def built_on(data: dict, job: dict, named: list[str]) -> list[str]:
+    """The readers and designs a job was built on: each its briefs so far named on their `Researched:` line, each of these, and each job of the drive one of these was built on, so a reader's open questions hold the builders of the design built on it, by state.holds_work."""
     return list(dict.fromkeys([*job["researched"], *named, *(linked for job_id in named if job_id in data["jobs"] for linked in data["jobs"][job_id]["researched"])]))
 
 
@@ -432,7 +436,7 @@ def build_goal(report: str) -> str | None:
 
 
 def waits_on_research(order: dict, kind: str, parts: list[str], lands: bool = False) -> bool:
-    """Whether a job of this kind on these parts starts only on its reader's research: a build order's builder, designer or codex lane, but on an incident, on the immediate fix, as a builder that builds nothing, one landing PRs he approved, starting a release or marked --builds-nothing such as a staging test of a built PR, or as a follow-up's design, each of which starts at once."""
+    """Whether a job of this kind on these parts starts only on its reader's research: a build order's builder, designer or codex lane, but on an incident, on the immediate fix, as a builder that builds nothing, one landing PRs he approved, starting a release, marked --builds-nothing such as a staging test of a built PR, or added with --branch on the branch an open PR already pushed, such as a migrated drive's, or as a follow-up's design, each of which starts at once."""
     return (
         order["kind"] == "build"
         and not order["incident"]
@@ -443,13 +447,14 @@ def waits_on_research(order: dict, kind: str, parts: list[str], lands: bool = Fa
 
 
 def job_refusal(name: str, data: dict, order_id: str, kind: str, parts: list[str], lands: bool = False, waits: list[str] | None = None) -> str | None:
-    """Why a job of this kind may not start on the order: an order he limited to options gets no builder or codex job until he picks, an answer order is one reader's, and a build order's builder, designer or codex lane waits on the research of a reader or design of its own part, a change a design listed counting as that design's part, added at once waiting on such a reader still at work when --waits names it, so no part sits in no job while it reads,. A job of any kind may wait on his card, a drive PR or a release, which check_waits reads, and on any job still at work, a reader that just started included, which state.job_wait_refusal reads, stored as that job's newest open PR, each PR it opens taking the wait's place. The immediate fix of a bug hurting someone now, a red default branch's fix-forward among them, and a builder landing PRs he approved start at once past each of those, by his words: "always do the immediate fix (or rollback if prudent) in parallel to giving me options for the proper fix". A follow-up he orders to a PR gets its design job at once, doing its own research and waiting on nothing, beside landing that PR, by his words "start deisgnng the follow p right awya motherfucker dont wait"."""
+    """Why a job of this kind may not start on the order: an order he limited to options gets no builder or codex job until he picks, an answer order is one reader's, and a build order's builder, designer or codex lane waits on the research of a reader or design of its own part, a change a design listed counting as that design's part, added at once waiting on such a reader still at work when --waits names it, so no part sits in no job while it reads,. A job of any kind may wait on his card, a drive PR or a release, which check_waits reads, and on any job still at work, a reader that just started included, which state.job_wait_refusal reads, stored as that job's newest open PR, each PR it opens taking the wait's place. The immediate fix of a bug hurting someone now, a red default branch's fix-forward among them, a builder landing PRs he approved and an open PR's builder added on the branch it pushed start at once past each of those, by his words: "always do the immediate fix (or rollback if prudent) in parallel to giving me options for the proper fix". A follow-up he orders to a PR gets its design job at once, doing its own research and waiting on nothing, beside landing that PR, by his words "start deisgnng the follow p right awya motherfucker dont wait"."""
     order = data["orders"][order_id]
     at_once = state.IMMEDIATE_FIX in parts or lands
     listed = " ".join(f'"{part}"' for part in dict.fromkeys([*order["parts"], state.IMMEDIATE_FIX]))
     immediate = (
         f'the immediate fix of a bug hurting someone now, or a red default branch\'s fix-forward, starts at once on its own "{state.IMMEDIATE_FIX}"'
-        f" part, added with drive order set {order_id} --parts {listed}, and a builder landing PRs he approved with --lands <each PR>"
+        f" part, added with drive order set {order_id} --parts {listed}, a builder landing PRs he approved with --lands <each PR>,"
+        " and an open PR's builder with --branch <the branch it pushed>"
     )
     if order["options_only"] and kind in ("builder", "codex") and not at_once:
         return (
@@ -508,7 +513,7 @@ def brief_refusal(name: str, data: dict, job_id: str, brief: str) -> str | None:
     order = data["orders"][order_id]
     if order["incident"] and (rule := state.INCIDENT_CHOICE.get(job["kind"])):
         return incident_refusal(job_id, order_id, brief, rule)
-    if HANDOFF.search(brief) or order["incident"] or not order["kind"] or state.IMMEDIATE_FIX in job["parts"]:
+    if HANDOFF.search(brief) or order["incident"] or state.IMMEDIATE_FIX in job["parts"]:
         return None
     if job["kind"] == "design" and state.FOLLOW_UP in job["parts"]:
         return None
@@ -584,7 +589,7 @@ def heavier(data: dict, job_id: str, brief: str, model: str | None) -> bool:
     """Whether a Sonnet or Haiku passed for the job's lane gives way to its agent definition's own model: a build order's reader, builder and designer run on Opus or Fable, and so does an answer order's lane when the communicator marked the order complex."""
     job = data["jobs"][job_id]
     order = data["orders"][job["order"]]
-    if HANDOFF.search(brief) or order["incident"] or not order["kind"] or job["kind"] not in LANE_KINDS or not any(word in (model or "") for word in LIGHT_MODELS):
+    if HANDOFF.search(brief) or order["incident"] or job["kind"] not in LANE_KINDS or not any(word in (model or "") for word in LIGHT_MODELS):
         return False
     if order["kind"] != "answer":
         return True

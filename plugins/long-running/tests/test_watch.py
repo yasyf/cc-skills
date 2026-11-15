@@ -11,7 +11,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from conftest import DRIVE_TERMINAL, LEAD, SHORT_ASK, Answers, CodexAsk, drawn_card, Draws, Jev, Judge, Receiver, Redraws, Thread, WatchProcess, Withdrawals, codex_reply, commit_files, git_in, said_lines, staged
+from conftest import DRIVE_TERMINAL, LEAD, RESEARCH, SHORT_ASK, Answers, CodexAsk, drawn_card, Draws, Jev, Judge, Receiver, Redraws, Thread, WatchProcess, Withdrawals, codex_reply, commit_files, git_in, said_lines, staged
 from drive import agents, card, cli, codex, github, install, land, launchd, orca, place, reads, receiver, render, served, settled, slack, stage, stall, state, superseded, talk, view, watch
 
 KEY = "Forge-AI/monorepo#42"
@@ -5537,6 +5537,24 @@ def test_a_drive_saved_before_research_links_keeps_each_jobs_researched_readers_
         data.pop("research_linked")
     linked = state.load(demo)
     assert (linked["research_linked"], linked["jobs"]["j1"]["researched"], [question["holds"] for question in linked["jobs"]["j1"]["questions"]]) == (True, ["j2"], [None, "", "ship the watch"])
+
+
+def test_an_order_an_older_install_kept_with_no_kind_loads_as_a_build_whose_parts_only_research_held_are_answers_and_whose_builder_keeps_its_readers_research(demo: str) -> None:
+    state.keep_report(demo, "j2", state.opening(RESEARCH), RESEARCH)
+    with state.edit(demo) as data:
+        data["orders"]["o2"] = order(text="why does the watch stall, then fix it", jobs=["j2", "j3", "j4"], parts={part: state.new_part() for part in ("why", "fix", "proof")})
+        data["jobs"]["j2"] = job(order="o2", kind="reader", goal="research: the stall", parts=["why", "fix"], state="done")
+        data["jobs"]["j3"] = job(order="o2", goal="fix the stall", parts=["fix"], state="waiting")
+        data["jobs"]["j4"] = job(order="o2", goal="prove it", parts=["proof"], state="stopped")
+    loaded = state.load(demo)
+    folded = loaded["orders"]["o2"]
+    assert (folded["kind"], {part: held["answer"] for part, held in folded["parts"].items()}, loaded["jobs"]["j3"]["researched"]) == ("build", {"why": True, "fix": False, "proof": False}, ["j2"])
+    assert [state.work(loaded, "o2", part) for part in ("why", "fix", "proof")] == [False, True, True]
+    loaded["jobs"]["j5"] = job(order="o2", goal="fix the reader's find", parts=["why"], state="stopped")
+    folded["jobs"].append("j5")
+    assert state.work(loaded, "o2", "why") is False
+    loaded["jobs"]["j5"]["state"] = "done"
+    assert state.work(loaded, "o2", "why") is True
 
 
 HOLDING_CARD = "demo:j2-5-a"
