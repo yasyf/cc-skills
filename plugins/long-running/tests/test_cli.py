@@ -5994,6 +5994,28 @@ def test_a_built_return_sets_its_job_built_on_its_branches_waiting_on_each_card_
     assert (job["state"], job["waits"]) == ("built", ["demo:j2-3"])
 
 
+def test_a_drive_tooling_orders_part_or_pr_is_refused_as_a_wait_of_his_product_pr_and_with_its_card_on_his_product_builders_waiting_or_built_line(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship")
+    url, part, tooled = "https://github.com/Forge-AI/monorepo/pull/7", "Drive tooling: every PR of a stack draws on one card", "yasyf/cc-skills#5402"
+    assert run("pr", "add", url, "--job", "j1", *LEAD)[0] == 0
+    with state.edit(demo) as data:
+        asked = state.new_question(None, "Should every PR of a stack draw on one card?", state.stamp(), holds=part) | {"waits": "demo:j9-7"}
+        data["orders"]["o9"] = state.new_order(part, "terminal", None, {part: state.new_part()}, state.stamp()) | {"jobs": ["j9"], "owner": "meta"}
+        data["jobs"]["j9"] = state.new_job("o9", "design", "cards: one card per stack", [part], state.stamp()) | {"questions": [asked], "prs": [state.pr_url(tooled)]}
+        data["prs"][tooled] = state.new_pr(state.pr_url(tooled), "j9", "o9")
+    for wait in (f"o9:{part}", tooled):
+        assert cli.main(["pr", "set", url, "--waits", wait]) == 2
+        assert f'--waits {wait}: refused, nothing set: the work of a "Drive tooling:" order never holds Forge-AI/monorepo#7' in capsys.readouterr().err
+    for line, named in ((f"WAITING on {state.pr_url(tooled)}", tooled), ("BUILT j1-ship, waits on demo:j9-7", "demo:j9-7")):
+        code, err = keep(monkeypatch, capsys, "j1", f"{line}\nCHECK: build 12\n")
+        assert (code, f'its line names {named}, the work of a "Drive tooling:" order, which never holds j1\'s work on his product' in err) == (2, True)
+    drive = state.load(demo)
+    assert (drive["prs"]["Forge-AI/monorepo#7"]["waits"], drive["jobs"]["j1"]["waits"], drive["jobs"]["j1"]["branch"]) == ([], [], None)
+
+
 def test_a_report_takes_a_waiting_or_built_job_and_a_stopped_ones_is_kept_ahead_of_every_refusal_setting_nothing_until_a_fresh_worker_runs_it(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

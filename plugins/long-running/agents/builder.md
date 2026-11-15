@@ -677,7 +677,8 @@ Replaces: <only on a question built on another open question of his: the path dr
   holds the PRs of a change it names that the builder its design or research starts carries, or a
   job it names by id, while a question kept with no `Holds:` line holds every change of those jobs;
   any open card also holds each PR whose `DESIGN:` line, but a `DESIGN: none`, cites it, whatever job asked it.
-  `Holds: none: <why>` holds nothing, whichever job waits on it or PR cites it; no card holds a flake fix. `drive
+  `Holds: none: <why>` holds nothing, whichever job waits on it or PR cites it; no card holds a flake fix, and a `Drive tooling:` order's card
+  holds no PR of his product, by his ruling de88d49. `drive
   job ask` refuses a block without the line, or a builder's naming no PR the drive tracks on its
   orders, none waiting on a part it carries and no branch: a staging tester's card names the PR its
   test tests, whatever order tracks it, and holds it from landing. His pick: "Each question names the changes it holds, kept with it".

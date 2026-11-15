@@ -2916,6 +2916,24 @@ def test_a_handler_post_naming_a_pr_or_error_his_open_question_card_asks_about_i
     assert message_limits.KNOWN_RULE in say(transcript, text=claim, channel_id="C0B75AL4XEW", thread_ts="1.2").rule
 
 
+def test_a_drive_tooling_card_naming_his_product_pr_never_claims_a_post_about_that_pr_only_one_about_its_own_pr(run: Run, demo: str) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
+    product, tooled, part = "Forge-AI/monorepo#56251", "yasyf/cc-skills#5402", "Drive tooling: every PR of a stack draws on one card"
+    ask = state.drive_dir(demo) / "asks" / "j9-7.md"
+    ask.parent.mkdir(parents=True, exist_ok=True)
+    ask.write_text(f"ASK One card per stack?\nFor {{order:o9}}: your pick decides whether {state.pr_url(tooled)} lands and how {state.pr_url(product)} draws its card.\nFindings:\nRoot cause: none: a pick between two designs of his\n")
+    with state.edit(demo) as data:
+        asked = state.new_question(str(ask), "One card per stack?", state.stamp(), card=f"https://acme.slack.com/archives/{DM}/p1794288799976279") | {"waits": "demo:j9-7"}
+        data["orders"]["o9"] = state.new_order(part, "terminal", None, {part: state.new_part()}, state.stamp()) | {"jobs": ["j9"], "owner": "meta"}
+        data["jobs"]["j9"] = state.new_job("o9", "design", "cards: one card per stack", [part], state.stamp()) | {"questions": [asked]}
+        data["prs"][product] = state.new_pr(state.pr_url(product), "j1", "o1")
+        data["prs"][tooled] = state.new_pr(state.pr_url(tooled), "j9", "o9")
+    drive = state.load(demo)
+    assert [(question["waits"], about) for question, about in state.asking_cards(drive, f"{state.pr_url(tooled)} and {state.pr_url(product)} are red again.")] == [("demo:j9-7", tooled)]
+    assert state.asking_cards(drive, f"{state.pr_url(product)} is red again.") == []
+
+
 def test_a_say_post_to_a_channels_members_gets_a_readers_checks_in_place_of_a_line_to_hims(talker: str, transcript: Path, run: Run, checked: Checked, slack_thread: Thread) -> None:
     with state.edit("demo") as data:
         data["owner"] = {"heard": (heard := state.stamp()), "away": heard}

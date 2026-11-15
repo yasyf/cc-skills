@@ -109,6 +109,7 @@ GUARDED_OWNER = "forge-ai"
 HIS_LOGIN = "yasyf"
 NO_TAP_OWNER = HIS_LOGIN
 FOREIGN_RULING = '5815316 on a teammate\'s PRs: "Don\'t touch old tree or his PRs"'
+TOOLING_RULING = 'de88d49: "Block in a fucking tooling question for core work is not fucnigbbacceotbale"'
 MONOREPO = "Forge-AI/monorepo"
 ROLES = ("communicator", "coordinator", "meta")
 REPO_RULES = ".claude/long-running.toml"
@@ -1481,7 +1482,7 @@ def kept_return(name: str, job_id: str, job: dict, line: str) -> bool:
 
 
 def result_refusal(data: dict, job_id: str, line: str, report: str) -> str | None:
-    """Why a job's returned line may not set its state, naming the fix: a line opening with no result sets nothing, a builder's READY or PUSHED naming a yasyf/* PR keeps the proof file the watch runs once it merges, one the kernel can exec as unrunnable reads it, and a WAITING holds on something the watch frees it on: a due time, a wait of the job's that still holds, or one result_waits reads off its line, the build a --release job started counting, the rule drive job report and codex.take share, so a codex reply whose line names only lost logs or merged PRs is refused rather than freed a minute later and launched into the same wait again, and never puts a PR on a part view.pooled refuses it, which open PRs of other jobs outside its stack wait on, and a staging test's DONE frees no PR held for it that no build its CHECK: lines name deployed to staging, by unstaged."""
+    """Why a job's returned line may not set its state, naming the fix: a line opening with no result sets nothing, a builder's READY or PUSHED naming a yasyf/* PR keeps the proof file the watch runs once it merges, one the kernel can exec as unrunnable reads it, and a WAITING holds on something the watch frees it on: a due time, a wait of the job's that still holds, or one result_waits reads off its line, the build a --release job started counting, the rule drive job report and codex.take share, so a codex reply whose line names only lost logs or merged PRs is refused rather than freed a minute later and launched into the same wait again, never puts a PR on a part view.pooled refuses it, which open PRs of other jobs outside its stack wait on, a staging test's DONE frees no PR held for it that no build its CHECK: lines name deployed to staging, by unstaged, and a WAITING or BUILT of a job on an order of his product names no "Drive tooling:" order's work, by tooling_waits."""
     from drive import view
 
     job = data["jobs"][job_id]
@@ -1504,6 +1505,11 @@ def result_refusal(data: dict, job_id: str, line: str, report: str) -> str | Non
             f" or a process you started on this Mac that still runs as pid:<n>, which wakes {job_id} once it ends, since a PR that merged or closed, a part delivered and a process that ended free it at once,"
             f" and a PR waiting on a part {job_id} carries, as the PR its staging test tests, waits on {job_id} in turn,"
             f" or first give it what it waits on with drive job set {job_id} --waits <card or job> or a clock with --due <time>"
+        )
+    if re.match(r"(?:WAITING|BUILT)\b", line) and (tooled := tooling_waits(data, job["order"], [*named_waits(data, job["order"], line), *BUILT_CARD.findall(line)])):
+        return (
+            f'its line names {", ".join(tooled)}, the work of a "{TOOLING}" order, which never holds {job_id}\'s work on his product, by his ruling {TOOLING_RULING}:'
+            " take each off the line, and open or keep its PR as its own work needs, since his PRs land on their taps while a tooling question waits on its own card"
         )
     if waiting := WAITING_LINE.match(line):
         for key in named_prs(data, job["order"], waiting["prs"]):
@@ -1670,7 +1676,7 @@ def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
 
 
 def part_cards(data: dict, job_id: str, pr: dict | None = None) -> list[str]:
-    """Each open card of his holding a job's work, its PR when given, by its link or else its waits id: each holds_work finds on a question of a job on one of the job's orders, or, on a PR, of a job carrying a part it waits on by waits_on_parts, whatever order tracks the PR, as a staging tester's card names the PR it tests, and on a PR each its `DESIGN:` lines but a `DESIGN: none` cite by served.named, whatever job asked it, since that PR builds an option of a choice he has not made; the one rule by which a card holds work from landing, in every repository, which the lander, stage.held, the `bash_guard` and `landing_guard` hooks, his PR card and the dashboard read, none whose `Holds:` line reads none; a BUILT line adds them to its job's waits beside the cards its words name, and a card in a job's waits only wakes it."""
+    """Each open card of his holding a job's work, its PR when given, by its link or else its waits id: each holds_work finds on a question of a job on one of the job's orders, or, on a PR, of a job carrying a part it waits on by waits_on_parts, whatever order tracks the PR, as a staging tester's card names the PR it tests, and on a PR each its `DESIGN:` lines but a `DESIGN: none` cite by served.named, whatever job asked it, since that PR builds an option of a choice he has not made, but never a card only a "Drive tooling:" order's jobs asked on the work of an order of his product, by tooling_waits; the one rule by which a card holds work from landing, in every repository, which the lander, stage.held, the `bash_guard` and `landing_guard` hooks, his PR card and the dashboard read, none whose `Holds:` line reads none; a BUILT line adds them to its job's waits beside the cards its words name, and a card in a job's waits only wakes it."""
     from drive import served, view
 
     job = data["jobs"][job_id]
@@ -1681,7 +1687,7 @@ def part_cards(data: dict, job_id: str, pr: dict | None = None) -> list[str]:
         if pr is not None
         else []
     )
-    return [
+    found = [
         *(
             drawn
             for order_id, asker in dict.fromkeys([*askers, *testers])
@@ -1690,6 +1696,8 @@ def part_cards(data: dict, job_id: str, pr: dict | None = None) -> list[str]:
         ),
         *(drawn for _, question in (view.drawn_on(data, *cited) if cited else []) if question["closed"] is None and question["holds"] != "" and (drawn := question["card"] or question["waits"])),
     ]
+    tooled = tooling_waits(data, (pr or job)["order"], found)
+    return [card for card in found if card not in tooled]
 
 
 def holds_work(data: dict, asker_id: str, question: dict, job_id: str, order_id: str, pr: dict | None) -> bool:
@@ -3183,6 +3191,28 @@ def unread(drives: dict[str, dict], to: list[str], drive: str | None) -> str | N
     return None
 
 
+def tooling(order: dict) -> bool:
+    return order["text"].startswith(TOOLING)
+
+
+def tooling_wait(data: dict, wait: str) -> bool:
+    """Whether a wait names a "Drive tooling:" order's work, which never holds his product work, by his words "Block in a fucking tooling question for core work is not fucnigbbacceotbale": a job of such an order, a PR it tracks or that PR's release, a part of it, or a card of his only its jobs asked, since a job or PR never carries both kinds of order."""
+    from drive import view
+
+    if wait in data["jobs"]:
+        return tooling(data["orders"][data["jobs"][wait]["order"]])
+    if (key := waited_pr(wait)) in data["prs"]:
+        return tooling(data["orders"][data["prs"][key]["order"]])
+    if part := part_wait(data, wait):
+        return tooling(data["orders"][part[0]])
+    return bool(drawn := view.drawn_on(data, wait)) and all(tooling(data["orders"][data["jobs"][job_id]["order"]]) for job_id, _ in drawn)
+
+
+def tooling_waits(data: dict, order_id: str, waits: Iterable[str]) -> list[str]:
+    """The waits naming a "Drive tooling:" order's work, by tooling_wait, that the work of an order of his product would take, which none of them may hold; none for a tooling order's own work."""
+    return [] if tooling(data["orders"][order_id]) else [wait for wait in dict.fromkeys(waits) if tooling_wait(data, wait)]
+
+
 def holder_lane(order: dict) -> str | None:
     """The lane of the session holding an order whose watch lines, jobs, agents and reports are its own rather than a coordinator's: the meta session's for a drive tooling order or one a brief serving drive tooling gave it, the communicator's for its read-only question; None for a coordinator's."""
     return order["owner"] if order["owner"] in HOLDERS else None
@@ -3673,7 +3703,7 @@ def names_pr(words: str, key: str) -> bool:
 
 
 def asking_cards(data: dict, words: str) -> list[tuple[dict, str]]:
-    """Each open question card of his the words point at, once a card by its Slack link, beside what they name of it: an open question drawn there, but one a `Replaces:` line folded into another, whose ask above its `Findings:` names a PR the words name, by link, key or #N, or whose `Root cause:` line holds a span of 24 or more characters and two or more words the words quote, such as the error a failure prints, never a file, path or name both texts quote, which many cards on other subjects name too; so a job, order or post on a failure he was already told about reads as his card's, whatever its `Holds:` line holds."""
+    """Each open question card of his the words point at, once a card by its Slack link, beside what they name of it: an open question drawn there, but one a `Replaces:` line folded into another, whose ask above its `Findings:` names a PR the words name, by link, key or #N, but on a card a "Drive tooling:" order's job asked no drive PR of his product, so a post about one never reads as a tooling question's news, or whose `Root cause:` line holds a span of 24 or more characters and two or more words the words quote, such as the error a failure prints, never a file, path or name both texts quote, which many cards on other subjects name too; so a job, order or post on a failure he was already told about reads as his card's, whatever its `Holds:` line holds."""
     from drive import limits, view
 
     asked: dict[str, tuple[dict, str]] = {}
@@ -3685,6 +3715,8 @@ def asking_cards(data: dict, words: str) -> list[tuple[dict, str]]:
             ask, *findings = limits.FINDINGS.split(Path(question["file"]).read_text(), maxsplit=1)
             cause = found[1].casefold() if (found := limits.ROOT_CAUSE.search("".join(findings))) else ""
             keys = dict.fromkeys(pr_key(found[0]) for text in (ask, words) for found in PR_REF.finditer(text) if not found.groups()[-1])
+            if tooling(data["orders"][job["order"]]):
+                keys = [key for key in keys if key not in data["prs"] or tooling(data["orders"][data["prs"][key]["order"]])]
             if about := next((key for key in keys if names_pr(ask, key) and names_pr(words, key)), None) or next((f'"{span}"' for span in spans if span.casefold() in cause), None):
                 asked[card] = (question, about)
     return list(asked.values())
