@@ -548,6 +548,9 @@ def test_a_report_re_its_own_lanes_post_report_goes_out_as_its_correction_in_the
 def test_a_wait_on_anything_else_says_how_long_and_whether_it_runs(demo: str) -> None:
     assert "how long it has waited" in refusal(record_lines.decision(post(kind="report", text="POST j702 waits on CI", to=TO, attrs=PROGRESS)))
     assert record_lines.decision(post(kind="report", text="POST j702 waits on CI, 40 min, run 123 running", to=TO, attrs=PROGRESS)) is None
+    for stamped in ("POST {pr:4093} waits on its own staging test, running since {started:j702}", "POST j702 waits on CI, run 123 running since the push {at:700}"):
+        assert record_lines.decision(post(kind="report", text=stamped, to=TO, attrs=PROGRESS)) is None
+    assert "{started:<job>}" in refusal(record_lines.decision(post(kind="report", text="POST j702 waits on {pr:4093}, its CI running", to=TO, attrs=PROGRESS)))
 
 
 def test_a_job_is_called_stuck_only_after_a_read_of_its_transcript(demo: str, turn: Path) -> None:
