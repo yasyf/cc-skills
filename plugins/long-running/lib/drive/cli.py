@@ -6342,7 +6342,7 @@ def parser() -> argparse.ArgumentParser:
         parents=both,
         help=(
             "what the watch starts once every PR of a builder's taken READY or PUSHED merged, a yasyf/* one among them, and it keeps an"
-            " executable proof file: install each plugin a yasyf/* merge changes whose installs, binaries, Homebrew copy or Captain Hook.app lack it, its other merges taken at once,"
+            " executable proof file: install each plugin a yasyf/* merge changes whose installs, binaries, Homebrew copy or Captain Hook.app lack it, its merges outside yasyf/* left to the builder the watch hands them to, which proves them on their release,"
             " wait until the drive's dashboard runs the newest long-running installed, run the proof file with those plugins' bin folders first on PATH, its bare python3 the drive's own interpreter that drive job set --repro pinned in it, with no wait for CI,"
             " and when it fails while the CI of the push that carried a yasyf/* merge onto its default branch has not passed it,"
             " as drive pr ci judges the merge, wait for it to pass with no deadline and run the file once more, keep its output"
