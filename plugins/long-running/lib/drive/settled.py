@@ -790,9 +790,9 @@ def size(state: dict, questions: dict[str, Noul]) -> int:
 
 
 BACKED = Noul(
-    "Does `reads.{read}.result` show what `claims.{claim}.claim` says?",
+    "Do the lines of `reads.{read}.result`, that call's output by line number out of its `reads.{read}.lines`, show what `claims.{claim}.claim` says?",
     yes="The read's own output holds what the claim says, as it stands now for a state told as it stands.",
-    no="The read does not hold it, or only a doc, report, PR body, comment or log line inside it says so about code.",
+    no="The lines shown do not hold it, or only a doc, report, PR body, comment or log line inside them says so about code.",
 )
 HOLDS = Noul(
     "Does `findings.{finding}.rule` hold against `findings.{finding}.found` in `post.text`?",
@@ -836,7 +836,7 @@ def refusal_verdict(rule: str, call: dict, seconds: float = REFUSAL_SECONDS) -> 
 
 
 def post_verdict(output: dict, seconds: float = DECIDE_SECONDS) -> dict:
-    """Whether a post the drive's checks hand with his words holds, by one request filled by whole items: each claim beside the read it names, whole, one Noul whether that read backs it; each finding beside the rule it stands for, one Noul whether the rule holds against it and one whether his words lift it; each sentence of a handler's post no claim's words cover, one Noul whether it states a fact that stands only on a read; and his words, the checks' own picks first, then newest first. It holds for a claim whose read is under BACKS or matched none of the handler's calls, a finding that holds at YES with no lift at NO or more, or an uncovered fact at YES, by his pick f9e9302 "The handler names the read behind each claim; Jev checks each claim against that read, whole, and holds only unbacked claims"; a claim at BACKS or more stands, since every unbacked claim of the drive's recorded posts drew under it and no claim's answer only warns; a finding's or sentence's Noul in the band between, or an item with no room left, only warns, naming it. When Jev cannot finish, a finding a count or a mark decides still holds, since no judgment lifts it, and every other only warns, by his pick b80a8b1 "Refusals only warn when the judge cannot finish: no post ever waits, but it goes out unchecked, as twice this morning"."""
+    """Whether a post the drive's checks hand with his words holds, by one request filled by whole items: each claim beside the call its read names, one Noul whether that read backs it, and the lines of that call's result the claim cites as `cited` gives them; each finding beside the rule it stands for, one Noul whether the rule holds against it and one whether his words lift it; each sentence of a handler's post no claim's words cover, one Noul whether it states a fact that stands only on a read; and his words, the checks' own picks first, then newest first. It holds for a claim whose read is under BACKS or matched none of the handler's calls, a finding that holds at YES with no lift at NO or more, or an uncovered fact at YES, by his pick f9e9302 "The handler names the read behind each claim; Jev checks each claim against that read, whole, and holds only unbacked claims"; a claim at BACKS or more stands, since every unbacked claim of the drive's recorded posts drew under it and no claim's answer only warns; a finding's or sentence's Noul in the band between, or an item with no room left, only warns, naming it. When Jev cannot finish, a finding a count or a mark decides still holds, since no judgment lifts it, and every other only warns, by his pick b80a8b1 "Refusals only warn when the judge cannot finish: no post ever waits, but it goes out unchecked, as twice this morning"."""
     post = output["post"]
     reason = (output.get("hookSpecificOutput") or {}).get("permissionDecisionReason") or ""
     findings = output.get("findings") or ([{"rule": reason, "found": reason.removeprefix("refused: ")}] if reason else [])
@@ -846,13 +846,18 @@ def post_verdict(output: dict, seconds: float = DECIDE_SECONDS) -> dict:
     unread = [claim for claim in claims if unmatched(reads, claim)]
     uncovered = [index for index, sentence in enumerate(sentences) if reads and not any(covers(claim["claim"], sentence) for claim in claims)]
     words = output.get("his_words") or []
+    lines = [cited(reads, claim) for claim in claims if claim not in unread]
     asked = [
         *(backed(reads, number, claim) for number, claim in enumerate(claims, 1) if claim not in unread),
+        *(line for citing, _ in lines for line in citing),
         *(({"findings": {f"f{number}": finding}}, {f"f{number}.holds": asking(HOLDS, finding=f"f{number}"), **({f"f{number}.lifted": asking(LIFTED, finding=f"f{number}")} if words else {})}) for number, finding in enumerate(findings, 1)),
         *(({}, {f"s{index}.fact": asking(FACT, index=index)}) for index in uncovered),
         *(({"his_words": {word["id"]: word["quote"]}}, {}) for word in [*(word for word in words if not word.get("said_at")), *sorted((word for word in words if word.get("said_at")), key=lambda word: word["said_at"], reverse=True)]),
+        *(line for _, rest in lines for line in rest),
     ]
     told, questions, _ = fill(post_base(post, sentences), {}, asked)
+    for each in told.get("reads", {}).values():
+        each["result"] = dict(sorted(each["result"].items(), key=lambda pair: int(pair[0])))
     try:
         read = jev(told, questions, seconds) if questions else {}
     except Unheard as failure:
@@ -898,15 +903,25 @@ def unmatched(reads: dict[str, dict], claim: dict) -> bool:
 
 
 def backed(reads: dict[str, dict], number: int, claim: dict) -> tuple[dict, dict[str, Noul]]:
-    """One claim's item: the claim beside the call its read names and that call's whole result, under the read the call was first given under when an earlier read named the same call, so one call goes to Jev once, and one Noul whether that read backs the claim."""
+    """One claim's item: the claim beside the call its read names and how many lines that call's result holds, under the read the call was first given under when an earlier read named the same call, so one call goes to Jev once, and one Noul whether that read backs the claim; the result's lines go in as `cited` gives them."""
     item = reads[claim["read"]]
     held = reads.get(item.get("given") or "", item)
     call, _, result = held["quote"].partition("\n")
-    return {"claims": {f"c{number}": {"claim": claim["claim"], "read": held["id"]}}, "reads": {held["id"]: {"call": call, "result": result}}}, {f"c{number}.backed": asking(BACKED, read=held["id"], claim=f"c{number}")}
+    return {"claims": {f"c{number}": {"claim": claim["claim"], "read": held["id"]}}, "reads": {held["id"]: {"call": call, "lines": len(result.splitlines()), "result": {}}}}, {f"c{number}.backed": asking(BACKED, read=held["id"], claim=f"c{number}")}
+
+
+def cited(reads: dict[str, dict], claim: dict) -> tuple[list[tuple[dict, dict[str, Noul]]], list[tuple[dict, dict[str, Noul]]]]:
+    """The lines of the result of the call a claim's read names, each a `fill` item under that read by its line number, so a read takes Jev's request by the lines its claim cites, never by its whole output: those holding the claim's words, the most of them first, then the rest in order, which go in after every other item, so a long read never crowds out another claim, a finding or his words, and a line left out shows as a line number missing from the lines it counts."""
+    item = reads[claim["read"]]
+    held = reads.get(item.get("given") or "", item)
+    words = set(UNWORDED.sub(" ", claim["claim"].casefold()).split())
+    lines = [(number, line, len(words & set(UNWORDED.sub(" ", line.casefold()).split()))) for number, line in enumerate(held["quote"].partition("\n")[2].splitlines(), 1) if line.strip()]
+    shown = [({"reads": {held["id"]: {"result": {str(number): line}}}}, {}) for number, line, _ in sorted((line for line in lines if line[2]), key=lambda line: -line[2])]
+    return shown, [({"reads": {held["id"]: {"result": {str(number): line}}}}, {}) for number, line, hits in lines if not hits]
 
 
 def unfit_reads(output: dict) -> list[tuple[str, int]]:
-    """Each read a handler's claims name that Jev's request on the post has no room for beside the post and the claims before it, by the read's id and words and the characters its own call and result add, largest first, each read once: a claim whose read was first given under another read counts that read, never its own, so each size is the size of the call it names, and a claim left out while the request already holds its read names no read, since that read fit and `post_verdict` warns for the claim."""
+    """Each read a handler's claims name whose call Jev's request on the post has no room for beside the post and the claims before it, by the read's id and words and the characters its call adds, largest first, each read once, since its result goes in by the lines its claim cites as `cited` gives them: a claim whose read was first given under another read counts that read, never its own, so each size is the size of the call it names, and a claim left out while the request already holds its read names no read, since that read fit and `post_verdict` warns for the claim."""
     post = output["post"]
     reads = {item["id"]: item for item in output.get("reads") or []}
     sentences = [sentence for sentence in SENTENCE.split(post.get("text") or "") if sentence.strip()]

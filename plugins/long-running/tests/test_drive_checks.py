@@ -67,7 +67,7 @@ def test_a_handlers_claim_goes_to_jev_beside_its_reads_whole_call_and_holds_unde
         "state": {
             "post": {"text": CLAIM["claim"], "sentences": [CLAIM["claim"]]},
             "claims": {"c1": {"claim": CLAIM["claim"], "read": "read:1"}},
-            "reads": {"read:1": {"call": CALL_READ, "result": RESULT}},
+            "reads": {"read:1": {"call": CALL_READ, "lines": 1, "result": {"1": RESULT}}},
         },
         "questions": {"c1.backed": settled.asking(settled.BACKED, read="read:1", claim="c1")},
     }
@@ -118,15 +118,20 @@ def test_a_post_jev_gives_no_verdict_on_holds_only_for_a_finding_a_count_decides
     assert settled.post_verdict(handled(CLAIM["claim"]))["note"].startswith("message_limits: Jev gave no verdict (no jev decision within 20s) on whether each claim of this post stands")
 
 
-def test_each_read_with_no_room_is_named_by_the_read_whose_call_it_is_beside_that_calls_own_size_and_never_a_second_read_of_the_same_call() -> None:
-    whole = "\n".join(f"{line}  rows, err := r.postgres.Query(ctx, selectInbox, agentID)" for line in range(1, 200))
-    reads = [
-        READ | {"quote": f"{CALL_READ}\n{whole}"},
-        {"id": "read:2", "read": "inbox.go:57", "source": "a file", "quote": "the same call as read:1", "given": "read:1"},
-        {"id": "read:3", "read": "outbox.go", "source": "a file", "quote": 'ccx_code_read {"path": "outbox.go"}\n12  ok'},
-    ]
-    claims = [{"claim": "The reader queries Postgres.", "read": "read:2"}, {"claim": "The outbox is fine.", "read": "read:3"}, {"claim": "It reads one row.", "read": "read:1"}]
-    output = {"post": {"text": "The reader queries Postgres. The outbox is fine. It reads one row.", "claims": claims}, "reads": reads, "his_words": []}
-    own = len(json.dumps({"state": {"reads": {"read:1": {"call": CALL_READ, "result": whole}}}, "questions": {}}, ensure_ascii=False))
-    assert own > settled.REQUEST_CHARS
-    assert settled.unfit_reads(output) == [('read:1 "cloudrunner/inbox.go"', own)]
+def test_a_long_read_reaches_jev_by_the_lines_its_claim_cites_most_first_in_line_order_and_only_a_call_with_no_room_refuses(jev: Jev) -> None:
+    query = "400  rows, err := r.postgres.Query(ctx, selectInbox, agentID)"
+    whole = "\n".join([*(f"{line}  ok := cache.Hit(key)" for line in range(1, 400)), query])
+    output = handled(CLAIM["claim"], [READ | {"quote": f"{CALL_READ}\n{whole}"}])
+    assert len(whole) > settled.REQUEST_CHARS
+    assert settled.unfit_reads(output) == []
+    jev.picks("backed", 0.9)
+    assert settled.post_verdict(output) == {"verdict": "pass", "note": ""}
+    request = jev.asked[-1]
+    read = request["state"]["reads"]["read:1"]
+    assert (read["lines"], read["result"]["400"]) == (400, query)
+    assert list(read["result"]) == sorted(read["result"], key=int)
+    assert 1 < len(read["result"]) < 400
+    assert settled.size(request["state"], request["questions"]) <= settled.REQUEST_CHARS
+    call = f'ccx_code_read {{"path": "{"cloudrunner/" * 1000}inbox.go"}}'
+    own = len(json.dumps({"state": {"reads": {"read:1": {"call": call, "lines": 1, "result": {}}}}, "questions": {}}, ensure_ascii=False))
+    assert settled.unfit_reads(handled(CLAIM["claim"], [READ | {"quote": f"{call}\n{RESULT}"}])) == [('read:1 "cloudrunner/inbox.go"', own)]

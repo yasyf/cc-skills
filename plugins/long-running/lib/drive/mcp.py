@@ -91,7 +91,7 @@ CLAIMS = {
                 "description": (
                     "The read behind it: record:<seq> for a record, else words copied from one call of yours, such as the"
                     " path, command or query it ran, each word in its input, your newest call holding them, or naming that seq,"
-                    " handed to Jev with its whole result"
+                    " handed to Jev with its whole result, or for a record the record alone when that call held more"
                 ),
             },
         },

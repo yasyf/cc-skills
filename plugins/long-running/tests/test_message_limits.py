@@ -1057,6 +1057,20 @@ def test_a_record_the_post_cites_or_a_claim_names_reaches_jev_as_the_handlers_ne
     assert evidence(transcript, monkeypatch, capsys, text="On it; next line by 5:40 AM.", thread_ts="1.2") == [message_limits.UNCLAIMED]
 
 
+def test_a_record_a_wider_read_held_reaches_jev_alone_at_its_own_size_never_that_reads(
+    talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    quiet = "711800 report watch>communicator POST order o1 has news since the thread's last line\nMoved: j2. At work: no job."
+    record = {"seq": "711800", "kind": "report", "lane": "watch", "at": state.stamp(), "text": quiet, "refs": {}, "fields": {"attrs": {}}}
+    shows: list[list[str]] = []
+    monkeypatch.setattr(refs.reads, "run", lambda argv, checkout: json.dumps(record) if "--json" in argv else shows.append(argv) or quiet)
+    tool(lane_of(transcript), CCI_READ, {"seqs": [711800, 711751]}, f"{quiet}\n711751 report root>communicator DONE the build\n" + "deleted " * 2_000)
+    claims = [{"claim": "j2 moved", "read": "record:711800"}]
+    reads = evidence(transcript, monkeypatch, capsys, text="j2 returned its finding.", thread_ts="1.2", record="711800", claims=claims)
+    assert reads == [{"id": "record:711800", "read": "711800", "source": message_limits.CARRIED_SOURCE + message_limits.ALONE_SOURCE, "quote": f"cci show 711800\n{quiet}"}]
+    assert shows == [["cci", "show", "711800", "--drive", "demo"]]
+
+
 def test_the_communicators_own_post_and_a_card_hand_jev_no_reads_and_claims_whose_text_is_not_json_are_refused_outright(
     talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

@@ -775,15 +775,19 @@ restating it.
   handler's own claim. The say hook hands Jev the handler's newest call those
   words name with its whole result, each call once, so a narrower call made later and named stands in for a wider one,
   and each record the post cites or a claim names, the report it carries
-  among them, as the handler's newest call naming its seq, never the record's whole body; each claim names its read by
+  among them, as the handler's newest call naming its seq, or the record alone as `cci show` prints it when that call
+  held more, such as a `cci read` of several seqs, so a record never weighs more than itself; each claim names its read by
   that read's id, so claims sharing a read add only their own words. Each request to Jev is at most 10,000
   characters, by his words "jev should be getting like 10k chars at most for any call", filled by whole items: the post
-  and its sentences, then each claim beside its read, each finding beside its rule, and of his words only those the
-  post answers, the checks' own picks first, then each newest first, so a long thread refuses no post. An item with no
-  room is left out whole, never cut, and a later smaller one still goes in. A word of his with no room is only left
-  out, while a claim whose read has no room refuses the post before say runs, naming each such read beside the size of
-  its own call, never a second read of the same call, and the handler makes narrower calls, such as a grep, a jq filter
-  or a line range, and names those. Jev holds
+  and its sentences, then each claim beside the call its read names, then the lines of that call's output holding the
+  claim's words, the most of them first, each finding beside its rule, of his words only those the post answers, the
+  checks' own picks first, then each newest first, and last the rest of each read's lines, so neither a long read nor a
+  long thread refuses a post. An item with no room is left out whole, never cut, and a later smaller one still goes in;
+  a read's line left out shows Jev as a line number missing from the count of its lines. A word of his with no room is
+  only left out, while a claim whose call itself has no room refuses the post before say runs, naming each such read
+  beside the size of its call, never a second read of the same call, and the handler makes narrower calls, such as a grep, a jq filter
+  or a line range, and names those, never a `cci read` with a smaller budget, which cuts a record's end unseen, and never
+  a line of the post dropped to fit. Jev holds
   the post for a claim its reads do not back, a read matching no call, or such a line left out, by his
   pick "The handler names the read behind each claim; Jev
   checks each claim against that read, whole, and holds only unbacked claims". Jev answers one
