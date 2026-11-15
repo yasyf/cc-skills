@@ -72,7 +72,8 @@ STACK = re.compile(r"[a-z0-9-]+/([a-z0-9_-]+)")
 BUILD_NUMBER = re.compile(r"https://buildkite\.com/\S+/builds/(\d+)")
 ENVS = Path("infra") / "envs"
 CLOUD = re.compile(r"^cloud:\n((?:[ \t]+\S.*(?:\n|$))+)", re.MULTILINE)
-CLOUD_KEY = re.compile(r"^[ \t]+(account|namespace):[ \t]*(\S+)", re.MULTILINE)
+CLOUD_KEY = re.compile(r"^[ \t]+(account|accountId|namespace|region):[ \t]*[\"']?([^\"'\s]+)", re.MULTILINE)
+DEVOPS_ROLE = "frg-core-gbl-identity-devops"
 AWS_CONFIG = "~/.aws/config"
 WINDOW_PROFILE = "machine-break-glass"
 UNAUTHORIZED = "is not authorized to perform"
@@ -419,13 +420,18 @@ def live(group: int) -> bool:
 
 @contextlib.contextmanager
 def break_glass(stack: str, reason: str, asker: str, checkout: Path, started: Callable[[str], None]) -> Iterator[Grant]:
-    """The forge/break-glass grant for the stack, started in the asker's name, its link handed to `started` as grant says, and passed, with the environment a command under it runs in: the env's admin credentials and the WINDOW_PROFILE role the grant opens to this Mac's machine, which the SandSQL guards admit, minted once STS reads the trust the grant wrote, as opened says, each minted on this Mac's machine profile so nobody signs in and ending no later than the grant, as the two profiles its AWS config names, the admin one its default, every other AWS setting of this Mac left out, so a command naming another stack's profile finds none. A stack with no machine profile, or a Mac with no WINDOW_PROFILE, is refused before any grant posts; the credentials go when the block ends, and from their writing to their deletion drive's stop signals are recorded for run_granted rather than acted on, so a drive told to stop deletes them."""
+    """The forge/break-glass grant for the stack, started in the asker's name, its link handed to `started` as grant says, and passed, with the environment a command under it runs in: the env's admin credentials and the WINDOW_PROFILE role the grant opens to this Mac's machine, which the SandSQL guards admit, minted once STS reads the trust the grant wrote, as opened says, each minted on this Mac's machine profile so nobody signs in and ending no later than the grant, as the two profiles its AWS config names, the admin one its default, every other AWS setting of this Mac left out, so a command naming another stack's profile finds none. A stack whose admin role STS refuses this Mac's machine, as it refuses core-gbl-identity's, or a Mac with no machine profile or no WINDOW_PROFILE, is refused before any grant posts; the credentials go when the block ends, and from their writing to their deletion drive's stop signals are recorded for run_granted rather than acted on, so a drive told to stop deletes them."""
     if not (named := STACK.fullmatch(stack)):
         raise ReadError(f'"{stack}" is no stack: name it as <domain>/<env>, such as sandsql/plat-usw2-prod')
     profile = machine_profile(named[1], checkout)
     window = window_profile()
+    session = SESSION_NAME.sub("-", asker)[:64]
+    try:
+        assume(profile, session, STS_SHORTEST, checkout)
+    except ReadError as error:
+        raise ReadError(f"STS minted this Mac's machine no {profile['role_arn']} credentials, so no grant started: {error}") from None
     link, ends = grant(stack, f"{asker}: {reason}", checkout, started)
-    minted = [(profile, mint(profile, SESSION_NAME.sub("-", asker)[:64], link, ends, checkout)), (window, opened(window, link, ends, checkout))]
+    minted = [(profile, mint(profile, session, link, ends, checkout)), (window, opened(window, link, ends, checkout))]
     name = profile.name.removeprefix("profile ")
     with stop_signals() as stops, tempfile.TemporaryDirectory(prefix="drive-break-glass-") as kept:
         config = configparser.RawConfigParser()
@@ -481,15 +487,20 @@ def mint(profile: configparser.SectionProxy, session: str, link: str, ends: date
             f"the break-glass grant {link} ends at {clock(ends.astimezone(), seconds=True)}, too soon for the {STS_SHORTEST.seconds // 60} minutes"
             " the shortest AWS credentials last, so nothing ran: start a fresh grant"
         )
+    minted = assume(profile, session, lasting, checkout)
+    if state.parse_time(minted["Expiration"]) > ends:
+        raise ReadError(f"STS minted credentials ending at {minted['Expiration']}, past the end of the break-glass grant {link} at {ends.isoformat()}, so nothing ran")
+    return minted
+
+
+def assume(profile: configparser.SectionProxy, session: str, lasting: timedelta, checkout: Path) -> dict[str, str]:
+    """Credentials for the profile's role, assumed from its source profile, lasting as long as asked."""
     assumed = run(
         ["aws", "sts", "assume-role", "--profile", profile["source_profile"], "--role-arn", profile["role_arn"]]
         + ["--role-session-name", session, "--duration-seconds", str(int(lasting.total_seconds())), "--output", "json"],
         checkout,
     )
-    minted = json.loads(assumed)["Credentials"]
-    if state.parse_time(minted["Expiration"]) > ends:
-        raise ReadError(f"STS minted credentials ending at {minted['Expiration']}, past the end of the break-glass grant {link} at {ends.isoformat()}, so nothing ran")
-    return minted
+    return json.loads(assumed)["Credentials"]
 
 
 def opened(window: configparser.SectionProxy, link: str, ends: datetime, checkout: Path) -> dict[str, str]:
@@ -507,23 +518,32 @@ def opened(window: configparser.SectionProxy, link: str, ends: datetime, checkou
 
 
 def machine_profile(env: str, checkout: Path) -> configparser.SectionProxy:
-    """The profile in this Mac's AWS config that assumes the admin role of the env's account, its role the account's name under its namespace, and reaches it through each source_profile from a credential_process, the machine certificate, never an SSO sign-in."""
+    """The profile that assumes the admin role of the env's account, written from the env's file as this Mac's machine-chained profiles are: named the account's spec ID without its gbl segment, its role the account's name under its namespace in the account the account's own file numbers, its region the env's, and its source_profile the profile in this Mac's AWS config that reaches DEVOPS_ROLE, which assumes every account's admin role, through each source_profile from a credential_process, the machine certificate, never an SSO sign-in."""
+    cloud = cloud_block(env, checkout, ("account", "namespace", "region"))
+    numbered = cloud_block(cloud["account"], checkout, ("accountId",))
+    path, config = aws_config()
+    devops = (section for section in config.sections() if config[section].get("role_arn", "").endswith(f":role/{DEVOPS_ROLE}") and machine_chained(config, section))
+    if not (source := next(devops, None)):
+        raise ReadError(f"no profile in {path} assumes {DEVOPS_ROLE} through source_profile from a credential_process, so this Mac has no machine profile")
+    derived = configparser.RawConfigParser()
+    section = f"profile {cloud['account'].replace('-gbl-', '-')}"
+    derived[section] = {
+        "role_arn": f"arn:aws:iam::{numbered['accountId']}:role/{cloud['namespace']}-{cloud['account']}-admin",
+        "region": cloud["region"],
+        "source_profile": source.removeprefix("profile "),
+    }
+    return derived[section]
+
+
+def cloud_block(env: str, checkout: Path, keys: tuple[str, ...]) -> dict[str, str]:
+    """The cloud block the env's file in the checkout declares, refused when the file or one of the keys is missing."""
     declared = checkout / ENVS / f"{env}.yaml"
     if not declared.is_file():
         raise ReadError(f"{env} is no env {checkout} declares in {ENVS}")
     cloud = dict(CLOUD_KEY.findall(block[1])) if (block := CLOUD.search(declared.read_text())) else {}
-    if not {"account", "namespace"} <= cloud.keys():
-        raise ReadError(f"{declared} names no cloud account and namespace, so no admin role runs it")
-    role = f"{cloud['namespace']}-{cloud['account']}-admin"
-    path, config = aws_config()
-    chained = (
-        config[section]
-        for section in config.sections()
-        if config[section].get("role_arn", "").endswith(f":role/{role}") and machine_chained(config, section)
-    )
-    if not (profile := next(chained, None)):
-        raise ReadError(f"no profile in {path} assumes {role} through source_profile from a credential_process, so {env} has no machine profile")
-    return profile
+    if missing := [key for key in keys if key not in cloud]:
+        raise ReadError(f"{declared} names no cloud {' or '.join(missing)}, so no admin role runs it")
+    return cloud
 
 
 def window_profile() -> configparser.SectionProxy:

@@ -62,23 +62,15 @@ Measured: `drive job set j7 --repro proof.sh 2>&1` exits 2
 """
 SSO_FIRST = """[profile identity]
 sso_session = forge
-[profile plat-prod-human]
+[profile devops-human]
 source_profile = identity
-role_arn = arn:aws:iam::222:role/frg-plat-gbl-prod-admin
+role_arn = arn:aws:iam::111:role/frg-core-gbl-identity-devops
 """
 MACHINE = """[profile machine]
 credential_process = /usr/local/bin/machine-credentials
 [profile tf]
 source_profile = machine
 role_arn = arn:aws:iam::111:role/frg-core-gbl-identity-devops
-[profile plat-prod]
-source_profile = tf
-role_arn = arn:aws:iam::222:role/frg-plat-gbl-prod-admin
-role_session_name = machine
-region = us-west-2
-[profile tnt-0ddq7rb]
-source_profile = tf
-role_arn = arn:aws:iam::333:role/frg-tnt-gbl-0ddq7rb-admin
 """
 WINDOW = """[profile machine-break-glass]
 source_profile = machine
@@ -93,6 +85,8 @@ REFUSED = (
 GRANT_ENDS = "2026-11-12T12:22:25.577Z"
 GRANTED = state.parse_time("2026-11-12T11:22:30Z")
 ASSUME = ["aws", "sts", "assume-role", "--profile", "tf", "--role-arn", "arn:aws:iam::222:role/frg-plat-gbl-prod-admin", "--role-session-name", "demo-j7"]
+PROBE = [*ASSUME, "--duration-seconds", "900", "--output", "json"]
+DEVOPS_SESSION = "arn:aws:sts::111:assumed-role/frg-core-gbl-identity-devops/machine"
 WINDOW_ASSUME = ["aws", "sts", "assume-role", "--profile", "machine", "--role-arn", "arn:aws:iam::111:role/frg-core-gbl-identity-studio-break-glass"]
 APPLIED = "6c751b8b101597fbef4464a3cc7dee314ef778a1"
 EARLIER = "648dbdcf19be2f65ea3c3c05f35ef9b46b8381a2"
@@ -343,12 +337,14 @@ class Granted:
         self.listed: list[str] | None = LISTED
         self.histories = HISTORIES
         self.refusals = 0
+        self.refuses: set[str] = set()
 
 
 def grantable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config: str, ended: str = "passed", now: datetime = GRANTED) -> Granted:
     envs = tmp_path / "infra" / "envs"
     envs.mkdir(parents=True)
-    (envs / "plat-usw2-prod.yaml").write_text("name: plat-usw2-prod\ncloud:\n  account: prod\n  namespace: frg-plat-gbl\n  region: us-west-2\nrows: {}\n")
+    (envs / "plat-usw2-prod.yaml").write_text("id: plat-usw2-prod\ncloud:\n  kind: aws\n  account: plat-gbl-prod\n  region: us-west-2\n  namespace: frg\nnet: {}\n")
+    (envs / "plat-gbl-prod.yaml").write_text('id: plat-gbl-prod\ncloud:\n  kind: aws\n  account: plat-gbl-prod\n  accountId: "222"\n  region: us-west-2\n  namespace: frg\n')
     (tmp_path / "infra" / "backend.json").write_text(BACKEND)
     (tmp_path / "aws").write_text(config)
     monkeypatch.setenv("AWS_CONFIG_FILE", str(tmp_path / "aws"))
@@ -367,6 +363,8 @@ def grantable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config: str, ende
             return f"Build created: {GRANT}\n"
         if argv[:3] == ["bk", "build", "view"]:
             return json.dumps({"state": ended, "meta_data": {"break-glass-expires-at": GRANT_ENDS}})
+        if (role := argv[argv.index("--role-arn") + 1] if "--role-arn" in argv else None) in granted.refuses:
+            raise reads.ReadError(f"aws sts assume-role exited 254: User: {DEVOPS_SESSION} is not authorized to perform: sts:AssumeRole on resource: {role}")
         if argv[: len(WINDOW_ASSUME)] == WINDOW_ASSUME and granted.refusals:
             granted.refusals -= 1
             raise reads.ReadError(f"aws sts assume-role exited 254: {REFUSED}")
@@ -395,6 +393,7 @@ def test_a_break_glass_grant_runs_its_command_holding_only_the_stacks_and_the_ma
     said = glass(tmp_path, started=lambda link: granted.calls.append(["started", link]))
     why = "demo j7: count rows, read only"
     assert granted.calls == [
+        PROBE,
         LIST_IDENTITY,
         read_history(1794564460244448753),
         ["bk", "build", "create", "-p", "forge/break-glass", "-b", "dev", "-c", APPLIED, "-m", why]
@@ -481,7 +480,7 @@ def test_a_grant_ending_before_the_shortest_credentials_sts_mints_runs_nothing(n
     granted = grantable(tmp_path, monkeypatch, MACHINE + WINDOW, now=now)
     with pytest.raises(reads.ReadError, match=f"^the break-glass grant {GRANT} ends at .*, too soon for the 15 minutes the shortest AWS credentials last, so nothing ran"):
         glass(tmp_path)
-    assert [argv[0] for argv in granted.calls] == ["aws", "aws", "bk", "bk", "bk"]
+    assert [argv[0] for argv in granted.calls] == ["aws", "aws", "aws", "bk", "bk", "bk"]
 
 
 def test_credentials_sts_stamps_past_the_grants_end_are_never_used(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -506,7 +505,7 @@ def test_a_window_sts_refuses_while_the_grants_trust_propagates_is_minted_again_
     naps = slept(monkeypatch)
     glass(tmp_path)
     window = [*WINDOW_ASSUME, "--role-session-name", "operator@example.com", "--duration-seconds", "3535", "--output", "json"]
-    assert granted.calls[5:] == [[*ASSUME, "--duration-seconds", "3535", "--output", "json"], window, window, window, ["aws", "sts", "get-caller-identity"]]
+    assert granted.calls[6:] == [[*ASSUME, "--duration-seconds", "3535", "--output", "json"], window, window, window, ["aws", "sts", "get-caller-identity"]]
     assert naps == [5, 5]
 
 
@@ -536,7 +535,8 @@ def test_a_grant_builds_at_the_newest_identity_update_that_succeeded_reading_bac
     }
     granted.listed = sorted([*granted.histories, history(1794571000000000000, ".checkpoint.json")])
     glass(tmp_path)
-    assert granted.calls[:5] == [
+    assert granted.calls[:6] == [
+        PROBE,
         LIST_IDENTITY,
         read_history(1794572000000000000),
         read_history(1794571000000000000),
@@ -564,14 +564,15 @@ def test_a_grant_whose_grantor_stack_records_no_update_that_succeeded_posts_no_g
         "the Pulumi state bucket demo-pulumi-state records no update of identity on core-gbl-identity that succeeded,"
         " whose IAM the grantor role holds, so no grant started"
     )
-    assert [argv[0] for argv in granted.calls] == ["aws"] * reads_made
+    assert granted.calls[0] == PROBE
+    assert [argv[0] for argv in granted.calls] == ["aws"] * (1 + reads_made)
 
 
 def test_a_break_glass_grant_that_does_not_pass_runs_nothing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     granted = grantable(tmp_path, monkeypatch, MACHINE + WINDOW, ended="failed")
     with pytest.raises(reads.ReadError, match=f"^the break-glass grant {GRANT} failed, so nothing ran$"):
         glass(tmp_path)
-    assert [argv[0] for argv in granted.calls] == ["aws", "aws", "bk", "bk", "bk"]
+    assert [argv[0] for argv in granted.calls] == ["aws", "aws", "aws", "bk", "bk", "bk"]
 
 
 @pytest.mark.parametrize(
@@ -588,17 +589,64 @@ def test_a_break_glass_grant_naming_no_stack_or_env_is_refused_before_any_grant(
     assert granted.calls == []
 
 
-def test_an_env_reached_only_through_an_sso_sign_in_has_no_machine_profile_and_posts_no_grant(
+@pytest.mark.parametrize(
+    ("env", "files", "name", "role_arn", "region"),
+    [
+        (
+            "plat-use1-prod",
+            {"plat-use1-prod": "id: plat-use1-prod\ncloud:\n  kind: aws\n  account: plat-gbl-prod\n  region: us-east-1\n  namespace: frg\ndelivery: direct\n"},
+            "plat-prod",
+            "arn:aws:iam::222:role/frg-plat-gbl-prod-admin",
+            "us-east-1",
+        ),
+        (
+            "tnt-gbl-26qmqm1",
+            {"tnt-gbl-26qmqm1": 'id: tnt-gbl-26qmqm1\ncloud:\n  kind: aws\n  account: tnt-gbl-26qmqm1\n  accountId: "333"\n  region: us-west-2\n  namespace: frg\n'},
+            "tnt-26qmqm1",
+            "arn:aws:iam::333:role/frg-tnt-gbl-26qmqm1-admin",
+            "us-west-2",
+        ),
+    ],
+)
+def test_an_envs_admin_profile_is_written_from_its_env_file_with_no_profile_of_its_own_on_this_mac(
+    env: str, files: dict[str, str], name: str, role_arn: str, region: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    grantable(tmp_path, monkeypatch, SSO_FIRST + MACHINE + WINDOW)
+    for each, text in files.items():
+        (tmp_path / "infra" / "envs" / f"{each}.yaml").write_text(text)
+    profile = reads.machine_profile(env, tmp_path)
+    assert (profile.name, dict(profile)) == (f"profile {name}", {"role_arn": role_arn, "region": region, "source_profile": "tf"})
+
+
+def test_a_mac_reaching_the_devops_role_only_through_an_sso_sign_in_has_no_machine_profile_and_posts_no_grant(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     granted = grantable(tmp_path, monkeypatch, SSO_FIRST)
     with pytest.raises(reads.ReadError) as refused:
         glass(tmp_path)
     assert str(refused.value) == (
-        f"no profile in {tmp_path / 'aws'} assumes frg-plat-gbl-prod-admin through source_profile from a credential_process,"
-        " so plat-usw2-prod has no machine profile"
+        f"no profile in {tmp_path / 'aws'} assumes frg-core-gbl-identity-devops through source_profile from a credential_process,"
+        " so this Mac has no machine profile"
     )
     assert granted.calls == []
+
+
+def test_an_env_whose_admin_role_sts_refuses_this_macs_machine_posts_no_grant(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    granted = grantable(tmp_path, monkeypatch, MACHINE + WINDOW)
+    (tmp_path / "infra" / "envs" / "core-gbl-identity.yaml").write_text(
+        'id: core-gbl-identity\ncloud:\n  kind: aws\n  account: core-gbl-identity\n  accountId: "111"\n  region: us-west-2\n  namespace: frg\n'
+    )
+    granted.refuses = {"arn:aws:iam::111:role/frg-core-gbl-identity-admin"}
+    with pytest.raises(reads.ReadError) as refused:
+        glass(tmp_path, "identity/core-gbl-identity")
+    assert str(refused.value) == (
+        "STS minted this Mac's machine no arn:aws:iam::111:role/frg-core-gbl-identity-admin credentials, so no grant started:"
+        f" aws sts assume-role exited 254: User: {DEVOPS_SESSION} is not authorized to perform: sts:AssumeRole on resource: arn:aws:iam::111:role/frg-core-gbl-identity-admin"
+    )
+    assert granted.calls == [
+        ["aws", "sts", "assume-role", "--profile", "tf", "--role-arn", "arn:aws:iam::111:role/frg-core-gbl-identity-admin"]
+        + ["--role-session-name", "demo-j7", "--duration-seconds", "900", "--output", "json"]
+    ]
 
 
 @pytest.mark.parametrize("window", ["", WINDOW.replace("role_session_name = operator@example.com\n", ""), WINDOW.replace("source_profile = machine", "source_profile = identity")])
