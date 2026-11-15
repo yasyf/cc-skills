@@ -2637,17 +2637,10 @@ def rewrite(name: str, db: sqlite3.Connection, data: dict, newest: str | None) -
 
 
 def down_mac_boxes(name: str, data: dict, finished: list[str]) -> None:
-    """Take down every Mac box each job a save just finished holds: `tools/ci mac-box down --holder <drive>/<job>` in the drive's checkout, a process of its own for each job that outlives the save, its output appended to the drive's mac-boxes.log, so a box comes down with the job whose holder tag it carries. None for a scratch drive, a proof's or a test's, or a repository with no tools/ci, which hold no Mac box."""
-    if not finished or scratch():
+    """Take down every Mac box each job a save just finished holds: `drive mac-boxes-down` on those jobs, a process of its own that outlives the save, its output appended to the drive's mac-boxes.log, so a box comes down with the job whose holder tag it carries while the save neither waits on the drive's checkout nor fails with it. None for a scratch drive, a proof's or a test's, or a coordinator checkout with no tools/ci, which hold no Mac box."""
+    if not finished or scratch() or not (Path(data["roles"]["coordinator"]["cwd"]) / "tools" / "ci").is_file():
         return
-    from drive import orca
-
-    checkout = orca.holder(data["roles"]["coordinator"]["cwd"], f"drive-{name}")
-    if not (ci := checkout / "tools" / "ci").is_file():
-        return
-    with (drive_dir(name) / MAC_BOXES_LOG).open("a") as log:
-        for job_id in finished:
-            subprocess.Popen([str(ci), "mac-box", "down", "--holder", f"{name}/{job_id}"], cwd=checkout, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+    detach(name, ["mac-boxes-down", *finished], MAC_BOXES_LOG)
 
 
 def placed(before: dict[str, tuple[int, str | None]], order: list[str]) -> dict[str, int]:

@@ -5,11 +5,13 @@ import shutil
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
+from conftest import REAL_DOWN_MAC_BOXES
 from drive import github, install, reads, served, settled, stage, state
 from drive.state import DriveError
 
@@ -55,6 +57,23 @@ def test_a_save_takes_down_the_mac_boxes_of_each_job_it_moves_into_done_failed_o
     with state.edit("demo") as data:
         data["jobs"]["j1"]["state"] = "done"
     assert mac_boxes_downed == ["demo/j1", "demo/j4", "demo/j2", "demo/j1"]
+
+
+def test_a_save_hands_a_finished_jobs_mac_boxes_to_a_process_of_its_own_that_takes_them_down_from_the_drives_checkout(
+    state_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, run: Callable[..., tuple[int, str]]
+) -> None:
+    checkout = tmp_path / "checkout"
+    (checkout / "tools").mkdir(parents=True)
+    (checkout / "tools" / "ci").write_text(f'#!/bin/sh\necho "$(pwd -P) $*" >> {tmp_path / "downs"}\n')
+    (checkout / "tools" / "ci").chmod(0o755)
+    state.create(state.new_drive("demo", "coordinator", None, str(checkout)))
+    detached: list[tuple[str, list[str], str]] = []
+    monkeypatch.setattr(state, "detach", lambda name, args, log: detached.append((name, args, log)) or 0)
+    REAL_DOWN_MAC_BOXES("demo", state.load("demo"), ["j1", "j2"])
+    REAL_DOWN_MAC_BOXES("demo", state.new_drive("demo", "coordinator", None, str(tmp_path / "elsewhere")), ["j3"])
+    assert detached == [("demo", ["mac-boxes-down", "j1", "j2"], state.MAC_BOXES_LOG)]
+    assert run("mac-boxes-down", "j1", "j2", "--drive", "demo")[0] == 0
+    assert (tmp_path / "downs").read_text().splitlines() == [f"{checkout.resolve()} mac-box down --holder demo/j1", f"{checkout.resolve()} mac-box down --holder demo/j2"]
 
 
 def test_edit_saves_atomically_and_leaves_no_temp(state_root: Path) -> None:
