@@ -2180,6 +2180,37 @@ def change_job(data: dict, order_id: str, parts: list[str], waits: list[str] = (
     )
 
 
+def hand_over(data: dict, held: tuple[str, dict, str], job_id: str, order_id: str, parts: list[str], moment: str) -> str:
+    """Give the job drive job add adds on these parts of an order what the returned change job change_job found carries of them, a part having one change job: those parts, each PR it opened serving one, and each part such a PR serves, since one PR builds one change, a PR serving the parts its row names or else every part of its job. The old job stops, handed to the new one, only when that leaves it no part; else it keeps its other parts and PRs and its state, so a staging tester also carrying another part keeps its staging test; the line saying which."""
+    old_id, old, shared = held
+    lists = [(old["order"], old["parts"]), *old["carries"].items()]
+    carried = {(held_order, part) for held_order, kept in lists for part in kept}
+    served = {url: {(pr["order"], part) for part in pr["parts"]} if (pr := data["prs"].get(pr_key(url))) and pr["parts"] else carried for url in old["prs"]}
+    moved = {(order_id, part) for part in parts} & carried
+    while grown := {pair for pairs in served.values() if pairs & moved for pair in pairs} & carried - moved:
+        moved |= grown
+    whole = moved == carried
+    taken = old["prs"] if whole else [url for url, pairs in served.items() if pairs & moved]
+    for held_order, kept in lists:
+        if handed := [part for part in kept if (held_order, part) in moved]:
+            deliver(data, job_id, held_order, handed)
+    for url in taken:
+        if (key := pr_key(url)) in data["prs"]:
+            take_pr(data, job_id, key)
+        elif url not in data["jobs"][job_id]["prs"]:
+            data["jobs"][job_id]["prs"].append(url)
+    named = ", ".join(map(pr_key, taken)) or "no PR"
+    if whole:
+        old.update(state="stopped", said=f"handed to {job_id}", updated=moment)
+        return f"{job_id} replaces {old_id}, which carried {shared} and returned, a part having one change job: it takes {old_id}'s parts and {named}, and {old_id} stopped, handed to {job_id}"
+    left = ", ".join(json.dumps(part, ensure_ascii=False) for held_order, kept in lists for part in kept if (held_order, part) not in moved)
+    given = ", ".join(json.dumps(part, ensure_ascii=False) for held_order, kept in lists for part in kept if (held_order, part) in moved)
+    old["parts"] = [part for part in old["parts"] if (old["order"], part) not in moved]
+    old["carries"] = {held_order: kept for held_order, part_list in old["carries"].items() if (kept := [part for part in part_list if (held_order, part) not in moved])}
+    old.update(prs=[url for url in old["prs"] if url not in taken], updated=moment)
+    return f"{job_id} takes {given} and {named} from {old_id}, which returned, a part having one change job; {old_id} keeps {left} and stays {old['state']}"
+
+
 def done_at_merge(job: dict) -> bool:
     """Whether a job holds the DONE the watch takes at the merge of a builder's PRs outside yasyf/*, which proves nothing live."""
     return job["state"] == "done" and bool(MERGED_LINE.match(job["said"] or ""))

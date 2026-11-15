@@ -1355,17 +1355,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
             job = data["jobs"][job_id] = state.new_job(args.order, args.kind, args.goal, parts, created) | given | {"where": given["where"] or "local", "waits": waits}
             order["jobs"].append(job_id)
         if held and not folds:
-            held_id, old, shared = held
-            for order_id, kept in [(old["order"], old["parts"]), *old["carries"].items()]:
-                state.deliver(data, job_id, order_id, kept)
-            for url in old["prs"]:
-                if (key := state.pr_key(url)) in data["prs"]:
-                    state.take_pr(data, job_id, key)
-                elif url not in job["prs"]:
-                    job["prs"].append(url)
-            old.update(state="stopped", said=f"handed to {job_id}", updated=created)
-            taken = ", ".join(map(state.pr_key, old["prs"])) or "no PR"
-            took.append(f"{job_id} replaces {held_id}, which carried {shared} and returned, a part having one change job: it takes {held_id}'s parts and {taken}, and {held_id} stopped, handed to {job_id}")
+            took.append(state.hand_over(data, held, job_id, args.order, parts, created))
         if args.release:
             job["brief_flags"] = (job.get("brief_flags") or {}) | {"release": args.release}
         state.hold_unstarted(job)
@@ -1430,7 +1420,7 @@ def refuse_a_mark_off_a_builder(kind: str, builds_nothing: bool | None) -> None:
 
 
 def one_change_job(data: dict, order_id: str, kind: str, parts: list[str], held: tuple[str, dict, str], waits: list[str], adds: bool = True) -> str | None:
-    """Why a builder or codex job may not take parts another unfinished one carries, a part having one change job: while that job runs it takes the event itself; parts two such jobs carry name no one job; and drive job set gives no job a part such a job carries, which drive job add hands that job, folding into it while no worker took it and replacing it once it returned."""
+    """Why a builder or codex job may not take parts another unfinished one carries, a part having one change job: while that job runs it takes the event itself; parts two such jobs carry name no one job; and drive job set gives no job a part such a job carries, which drive job add hands that job, folding into it while no worker took it and taking those parts from it once it returned, by state.hand_over."""
     held_id, other, shared = held
     carries = f"{held_id} {other['kind']} {other['state']} carries {shared} already"
     if other["state"] == "running" and not state.untaken(other):
