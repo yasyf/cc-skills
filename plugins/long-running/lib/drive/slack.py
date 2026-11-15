@@ -49,6 +49,11 @@ def whoami() -> dict:
     return cc_slack("whoami")
 
 
+def owed() -> list[dict]:
+    """His messages cc-slack still owes an answer, by `dm-owed`, each with its thread_ts, ts, text and permalink."""
+    return cc_slack("dm-owed")["replies"]
+
+
 def dm() -> str:
     """His DM: cc-slack's DM with him, as `cc-slack whoami` names it, where dm-status draws every card and post to him."""
     return whoami()["dm_channel_id"]

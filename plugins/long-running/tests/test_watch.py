@@ -10615,3 +10615,62 @@ def test_no_chain_is_aged_past_a_step_of_his_a_time_to_come_or_a_running_job(dem
         stops(data)
     asked = {"question": "Which store should the sand CLI read?", "url": CARD, "card": {"title": "Which store?", "body": ""}}
     assert list(stall.chains(state.load(demo), NO_CARDS | {"questions": [asked]}, on_hold, T0)) == subjects
+
+
+REAL_SWEEP = watch.sweep_lines
+
+
+def test_the_daily_sweep_files_a_drive_tooling_order_per_bar_crossed_and_an_order_still_open_on_a_bar_takes_its_new_measure(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    asked = T0 - timedelta(minutes=20)
+    ts = f"{asked.timestamp():.6f}"
+    owed = {"thread_ts": ts, "ts": ts, "text": "is it up?", "permalink": f"https://acme.slack.com/archives/D123/p{ts.replace('.', '')}"}
+    fresh = {**owed, "ts": f"{(T0 - timedelta(minutes=5)).timestamp():.6f}"}
+    monkeypatch.setattr(slack, "owed", lambda: [fresh, owed])
+    with state.edit(demo) as data:
+        data["prs"][KEY]["tap"] = state.new_tap("Approve", "aaaaaaa111", "card", at=state.stamp(T0 - timedelta(hours=25)))
+        data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"tap": state.new_tap("Approve", "bbbbbbb222", "card", at=state.stamp(T0 - timedelta(hours=1)))}
+    watching = watcher(demo)
+    old_card = {"question": ASKED, "url": CARD, "asked": state.stamp(T0 - timedelta(hours=49))}
+    watching.cards = NO_CARDS | {"questions": [{**old_card, "url": POSTED, "asked": state.stamp(T0 - timedelta(hours=1))}, old_card]}
+    end = state.events_end(demo)
+    assert REAL_SWEEP(watching, T0) == []
+    first = state.load(demo)
+    assert [(order_id, order["title"], order["owner"], order["note"]) for order_id, order in first["orders"].items() if order_id != "o1"] == [
+        ("o2", "Message unanswered past 10 minutes", "meta", f"1 owed, the oldest since {render.when(slack.sent_at(owed).isoformat())}: {owed['permalink']}"),
+        ("o3", "Card open past 48 hours", "meta", f"1 cards, the oldest asked {render.when(old_card['asked'])}: {CARD}"),
+        ("o4", "Approved pull request open past 24 hours", "meta", f"1 PRs: {KEY}"),
+    ]
+    assert first["orders"]["o2"]["text"] == "Drive tooling: the daily Slack sweep found a message of yours still unanswered after 10 minutes"
+    assert first["slack"]["swept"] == {"at": state.stamp(T0), "offset": end}
+    posted = T0 + timedelta(hours=2)
+    monkeypatch.setattr(state, "now", lambda: posted)
+    for wait, url in ((1, POSTED), (5, f"{POSTED}1"), (6, f"{POSTED}2")):
+        state.append_event(demo, "said", text="It is up.", channel=None, thread=None, url=url, card=None, order=None, visuals=[], prs=[], edited=False, answers=[f"{(posted - timedelta(minutes=wait)).timestamp():.6f}"])
+    state.append_event(demo, "said", text="It is in.", channel=None, thread=None, url=POSTED, card=None, order=None, visuals=[], prs=[], edited=True, answers=[f"{(posted - timedelta(minutes=50)).timestamp():.6f}"])
+    reask = f"{talk.ASKING_AGAIN} a reported bug: Fix: the watch reads each PR once"
+    state.append_event(demo, "said", text=reask, channel=None, thread="1794200000.000300", url=CARD, card=CARD, order=None, visuals=[], prs=[KEY], edited=False)
+    state.append_event(demo, "said", text=reask, channel=None, thread="1794200000.000100", url=f"{POSTED}?thread_ts=1794200000.000100", card=CARD, order=None, visuals=[], prs=[KEY], edited=False)
+    end = state.events_end(demo)
+    assert REAL_SWEEP(watching, T0 + timedelta(hours=23)) == []
+    assert len(state.load(demo)["orders"]) == 4
+    assert REAL_SWEEP(watching, T0 + timedelta(days=1)) == []
+    second = state.load(demo)
+    assert [(order_id, order["title"], order["note"]) for order_id, order in second["orders"].items() if order_id not in first["orders"]] == [
+        ("o5", "Answers slower than 2 minutes", f"3 answers, 90th percentile 5.0 min, slowest 6 min: {POSTED}2"),
+        ("o6", "Card asked again at a channel's top level", f"1 re-asks, the first {CARD}"),
+    ]
+    assert second["orders"]["o4"]["note"] == f"2 PRs: {KEY}, {OTHER}"
+    assert second["slack"]["swept"] == {"at": state.stamp(T0 + timedelta(days=1)), "offset": end}
+
+
+def test_a_sweep_waits_for_a_pass_that_read_his_cards_and_a_failed_owed_read_is_said_as_a_failed_read_is(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    def refused() -> list[dict]:
+        raise slack.SlackError("cc-slack daemon not running")
+
+    monkeypatch.setattr(slack, "owed", refused)
+    watching = watcher(demo)
+    assert REAL_SWEEP(watching, T0) == []
+    assert watching.failures == {}
+    watching.cards = NO_CARDS
+    assert [REAL_SWEEP(watching, T0) for _ in range(watch.FAILURES_BEFORE_SAYING)][-1] == ["WATCH daily Slack sweep failed 3 times in a row: cc-slack daemon not running"]
+    assert state.load(demo)["slack"]["swept"] is None

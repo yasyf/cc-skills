@@ -661,7 +661,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str) -> dict:
         "roles": {role: {"session": session, "cwd": cwd, "started": stamp()}},
         "subcoordinators": {},
         "handlers": {},
-        "slack": {"page": None, "watch": []},
+        "slack": {"page": None, "watch": [], "swept": None},
         "owner": {"heard": None, "away": None, "absence": None},
         "orders": {},
         "jobs": {},
@@ -1027,6 +1027,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     for flag in ("may_settle_per_answer", "may_settle_skips_approvals", "may_settle_by_subject", "may_settle_by_jev", "delivered_by_prs", "delivered_restored", "proofs_posted"):
         data.pop(flag, None)
     data["slack"].pop("channel", None)
+    data["slack"].setdefault("swept", None)
     for job in data["jobs"].values():
         job.pop("may_settle", None)
         for question in job["questions"]:
