@@ -695,15 +695,16 @@ def checks(watcher: Watcher, moment: datetime) -> None:
     if watcher.cards is None:
         return
     data = state.load(watcher.name)
-    if owed := [key for key, pr in data["prs"].items() if hears(watcher, data, pr["order"]) and check_owed(watcher.name, key, pr, data, watcher.cards, moment)]:
+    stacks = land.landing_stacks(data)
+    if owed := [key for key, pr in data["prs"].items() if hears(watcher, data, pr["order"]) and check_owed(watcher.name, key, pr, data, stacks.get(key, (key,)), moment)]:
         served.start(watcher.name, owed)
 
 
-def check_owed(name: str, key: str, pr: dict, data: dict, cards: dict, moment: datetime) -> bool:
-    """Whether a PR owes the check of its change against his words: open and waiting on his card, its change at its head not checked, its builder's report no port of an old-tree PR, which the coordinator checks against that PR, and no check of it running, or done at this head against the orders and answers of his that bind it now. It runs on every head whatever its job's state or its waits, its objection a line on his card and, until he approves the PR, a wake of its builder, and his Approve lands the PR whatever it says."""
-    if pr["state"] != "open" or not stage.carded(pr) or state.checked(data, pr):
+def check_owed(name: str, key: str, pr: dict, data: dict, unit: tuple[str, ...], moment: datetime) -> bool:
+    """Whether a PR owes the check of its change against his words: open and waiting on his card, its change at its head not checked beside each PR of unit, the stack it sits in, at its head, its builder's report no port of an old-tree PR, which the coordinator checks against that PR, and no check of it and the rest of unit together running, or done at this head against the orders and answers of his that bind it now. It runs on every head whatever its job's state or its waits, its objection a line on his card and, until he approves the PR, a wake of its builder, and his Approve lands the PR whatever it says."""
+    if pr["state"] != "open" or not stage.carded(pr) or served.stands(data, key, unit):
         return False
-    return not served.ported(state.report_text(name, pr["job"])) and not served.tried(name, data, pr, moment)
+    return not served.ported(state.report_text(name, pr["job"])) and not served.tried(name, data, key, unit, moment)
 
 
 def waiting_lines(watcher: Watcher, moment: datetime) -> list[str]:
