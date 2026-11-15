@@ -119,7 +119,7 @@ def check(name: str, unit: tuple[str, ...], bound: list[str]) -> dict[str, dict]
     if lacking := {key: text for key in unit if prs[key]["state"] == "open" and (text := unwritten(key, owes[key]))}:
         raise Against(list(lacking), "; ".join(lacking.values()), cited, [*binding["cited"], *near])
     carried = (state.pr_key(url) for job in data["jobs"].values() if any(pr["url"] in job["prs"] for pr in prs.values()) for url in job["prs"])
-    others = [other for other in dict.fromkeys(carried) if other not in prs and data["prs"][other]["state"] != "closed"]
+    others = [other for other in dict.fromkeys(carried) if other in data["prs"] and other not in prs and data["prs"][other]["state"] != "closed"]
     said, numbered = words(data, list(prs.values()), orders, answered, near, others, [each for key in unit for each in owes[key]], ruled)
     found = judged(name, said, reads, len(numbered))
     carries: dict[str, list[str]] = {}
@@ -140,7 +140,7 @@ def stands(data: dict, key: str, unit: tuple[str, ...]) -> bool:
 
 
 def verdict(name: str, key: str) -> str:
-    """Judge one PR at its head against his words, one his card waits on or one merged, together with the other PRs of its stack, by land.landing_stacks, the one place a PR is judged, with the answers kept on them for their design and each answer of his binding their jobs, by brief.bound, and keep the outcome on each PR of the stack with the orders and binding answers it was judged against and the parts their diffs carry, so tried keeps it for that head while they stand: CHECKED with what each PR waits on now, as his card draws it, and its staging result, also as a check event, which the watch says on the PR's line, and NOT READY with the PRs it faults, a line on his card that the watch's pass tells the builders of those of them still open once a head, by watch.objections, holding neither his Approve nor its landing, and his card shows the verdict once the watch redraws it; the outcome for key. A judge or GitHub read that failed is kept alone, naming no parts, and the watch tries it again RETRY on."""
+    """Judge one PR at its head against his words, one his card waits on or one merged, together with the other PRs of its stack, by land.landing_stacks, the one place a PR is judged, with the answers kept on them for their design and each answer of his binding their jobs, by brief.bound, and keep the outcome on each PR of the stack with the orders and binding answers it was judged against and the parts their diffs carry, so tried keeps it for that head while they stand: CHECKED with what each PR waits on now, as his card draws it, and its staging result, also as a check event, which the watch says on the PR's line, and NOT READY with the PRs it faults, a line on his card that the watch's pass tells the builders of those of them still open once a head, by watch.objections, holding neither his Approve nor its landing, and his card shows the verdict once the watch redraws it; the outcome for key. A judge or GitHub read that failed is kept alone, naming no parts, and the watch tries it again RETRY on while the PR is open, by tried, and never at a merged head, by merge_due."""
     from drive import land, stage
 
     data = state.load(name)
@@ -231,14 +231,14 @@ def start(name: str, keys: list[str]) -> None:
                     pr["checker"] = {"head": pr["head"], "pid": pid, "at": at, "orders": None, "answers": None, "outcome": None, "against": "", "faulted": [], "carried": None}
 
 
-def merge_due(pr: dict, moment: datetime) -> bool:
-    """Whether a merged PR's check is to start, the one that names the parts its merged diff carries: no check at its head named them, as one kept before checks named parts did not, and none runs there, or one that failed or ended with no outcome started RETRY ago."""
-    checker = pr["checker"]
-    if state.carried(pr) is not None:
-        return False
-    if not checker or checker["head"] != pr["head"] or checker["outcome"] and not checker["outcome"].startswith(FAILED):
-        return True
-    return not (checker["outcome"] is None and state.alive(checker["pid"])) and moment - state.parse_time(checker["at"]) >= RETRY
+def merge_due(pr: dict) -> bool:
+    """Whether a merged PR's check is to start, the one that names the parts its merged diff carries: none ever started at its merged head, which never moves, so each merged head is judged once whatever that check found; one that failed or ended with no outcome stays on the PR for the drive pr check the ORPHAN line of each part it leaves uncarried names, by watch.unbuilt, and one kept there before checks named parts starts none."""
+    return not pr["checker"] or pr["checker"]["head"] != pr["head"]
+
+
+def merge_judging(pr: dict) -> bool:
+    """Whether a merged PR's check of its merged head is still to come: due, by merge_due, or running there."""
+    return merge_due(pr) or pr["checker"]["outcome"] is None and state.alive(pr["checker"]["pid"])
 
 
 def spawn(name: str, key: str) -> int:

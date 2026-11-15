@@ -8236,6 +8236,32 @@ def test_a_merged_ready_job_whose_merged_diff_no_check_has_judged_starts_one_che
     assert (state.carried(data["prs"][OTHER]), state.delivered(data, "o1", "ship the watch"), "j2" in data["jobs"]) == ({}, False, False)
 
 
+@pytest.mark.parametrize(
+    "checker",
+    [
+        {"outcome": f"{served.FAILED}: the judge timed out", "carried": None},
+        {"outcome": None, "carried": None},
+        {"outcome": f"{served.CHECKED} against the words of o1", "carried": None},
+    ],
+    ids=["failed", "ended with no outcome", "kept before checks named parts"],
+)
+def test_a_merged_pr_whose_check_already_ran_at_its_merged_head_starts_no_check_on_any_pass_after_it_or_an_install_and_its_job_goes_on(
+    demo: str, monkeypatch: pytest.MonkeyPatch, checkers: list[str], tmp_path: Path, checker: dict
+) -> None:
+    serve(monkeypatch, {})
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {})
+    merged_ready(demo, OTHER, proof_file(tmp_path))
+    with state.edit(demo) as data:
+        data["prs"][OTHER]["checker"] |= checker | {"pid": 999999999, "at": state.stamp(T0 - timedelta(hours=1))}
+    watching = watcher(demo)
+    for moment in (T0, T0 + served.RETRY + timedelta(minutes=1)):
+        watch.run_pass(watching, moment)
+    data = state.load(demo)
+    assert (checkers, data["jobs"]["j1"]["said"].startswith(f"DONE {state.pr_url(OTHER)} merged: ")) == ([], True)
+    rerun = f"j1 merged no PR whose checked diff carries it, the check at its merged head naming no parts, so drive pr check {state.pr_url(OTHER)} judges it again"
+    assert rerun in watch.unbuilt(data, "o1", "ship the watch", state.part_jobs(data, "o1", "ship the watch"))
+
+
 def test_a_proven_done_on_a_merged_pr_delivers_its_own_orders_part_by_its_proof_whatever_the_check_found_and_a_carried_part_of_another_order_only_once_the_check_names_it(
     demo: str, monkeypatch: pytest.MonkeyPatch, checkers: list[str], judge: Judge
 ) -> None:

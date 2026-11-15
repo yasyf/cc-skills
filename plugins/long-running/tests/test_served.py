@@ -313,6 +313,18 @@ def test_an_answer_cc_notes_prints_with_no_tags_key_reads_as_ruling_no_code_so_a
     assert served.coded(state.load(demo), KEY, ["fd79b94"], {KEY: {"base": "dev", "head": "head1", "diff": CACHE_CODE}}) == []
 
 
+def test_a_job_naming_a_pr_the_drive_keeps_no_row_for_is_judged_beside_only_the_prs_it_keeps(run: Callable[..., tuple[int, str]], demo: str, judge: Judge) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "land it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "land")
+    run("pr", "add", URL, "--job", "j1", *LEAD)
+    with state.edit(demo) as data:
+        data["prs"][KEY]["head"] = "head1"
+        data["jobs"]["j1"]["prs"].append("https://github.com/Forge-AI/monorepo/pull/43")
+    assert served.verdict(demo, KEY).startswith(served.CHECKED)
+    [(said, _)] = judge.asked
+    assert "other open PRs" not in said
+
+
 CLOCKS = ("self::sleep(seconds) is a clock timer that fires one inbox row", "self::watch sets a watch and then suspends", "each alarm is its own clock timer")
 
 

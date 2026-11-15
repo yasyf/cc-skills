@@ -3341,14 +3341,14 @@ def unproven(data: dict, job_id: str) -> bool:
 
 
 def judging(data: dict, job_id: str) -> bool:
-    """Whether a job whose PRs, by judged_prs, all merged waits on the check of a merged diff, the one that names the parts of his orders it carries: a builder waiting on a READY, PUSHED or WAITING line, before the watch takes its DONE or proves it; and, while a part it holds is undelivered, a product builder that took DONE at its merge before checks named parts, before unproved hands that part to its prover, and a builder or codex job holding a DONE of its own, whatever its line says, such as one it returned after its merge or one drive job prove took, whose passing proof delivers the parts that check names, by state.deliver_proven, at the proof or by served.kept once the check lands after it."""
+    """Whether a job whose PRs, by judged_prs, all merged waits on the check of a merged diff, the one that names the parts of his orders it carries, while that check is still to start or runs at a merged head, by served.merge_judging, one that failed or ended there with no outcome ending the wait as one naming none of them does: a builder waiting on a READY, PUSHED or WAITING line, before the watch takes its DONE or proves it; and, while a part it holds is undelivered, a product builder that took DONE at its merge before checks named parts, before unproved hands that part to its prover, and a builder or codex job holding a DONE of its own, whatever its line says, such as one it returned after its merge or one drive job prove took, whose passing proof delivers the parts that check names, by state.deliver_proven, at the proof or by served.kept once the check lands after it."""
     job = data["jobs"][job_id]
     waiting = job["state"] == "waiting" and MERGE_ENDS.match(job["said"] or "")
     own = job["state"] == "done" and job["kind"] in state.CHANGE_KINDS and not state.done_at_merge(job)
     if not (own or job["kind"] == "builder" and (waiting or state.done_at_merge(job) and product(data, job_id))):
         return False
     keys = judged_prs(data, job_id)
-    if not (keys and all(data["prs"][key]["merged_sha"] for key in keys) and any(state.carried(data["prs"][key]) is None for key in keys)):
+    if not (keys and all(data["prs"][key]["merged_sha"] for key in keys) and any(served.merge_judging(data["prs"][key]) for key in keys)):
         return False
     return bool(waiting) or not all(state.delivered(data, order_id, part) for order_id, parts in open_served(data, job).items() for part in parts)
 
@@ -3432,7 +3432,7 @@ def finished(watcher: Watcher, moment: datetime) -> list[str]:
     owed = [job_id for job_id in heard if unproved(data, job_id)]
     if not (owed or any(finishes(data, job_id) for job_id in heard)):
         return []
-    if due := [key for job_id in heard if judging(data, job_id) for key in judged_prs(data, job_id) if served.merge_due(data["prs"][key], moment)]:
+    if due := [key for job_id in heard if judging(data, job_id) for key in judged_prs(data, job_id) if served.merge_due(data["prs"][key])]:
         served.start(watcher.name, list(dict.fromkeys(due)))
     merging = [job_id for job_id in heard if at_merge(data, job_id)]
     lines: list[str] = []
@@ -3624,10 +3624,12 @@ def no_fix_job(data: dict, order_id: str, part: str, jobs: list[tuple[str, dict]
 
 
 def unbuilt(data: dict, order_id: str, part: str, jobs: list[tuple[str, dict]]) -> str:
-    """Why work he ordered that only research, a design done with no builder, a builder done that merged no PR whose checked diff carries it, his card or a post holds has no one carrying it: the builder to start, waiting on the reader still at work alone, since a wait says only when a job starts, which builds the recommended option of each open card of his whose `Holds:` line names the part or that was kept with none and opens no PR until he answers, each card holding its PR by state.part_cards; then the prover to start on the merged PR the part's words name, since a merge delivers nothing, or else the sort of the part as an answer."""
+    """Why work he ordered that only research, a design done with no builder, a builder done that merged no PR whose checked diff carries it, his card or a post holds has no one carrying it, naming the drive pr check that judges again each of its merged PRs whose one check at its merged head, by served.merge_due, failed, ended with no outcome or came before checks named parts: the builder to start, waiting on the reader still at work alone, since a wait says only when a job starts, which builds the recommended option of each open card of his whose `Holds:` line names the part or that was kept with none and opens no PR until he answers, each card holding its PR by state.part_cards; then the prover to start on the merged PR the part's words name, since a merge delivers nothing, or else the sort of the part as an answer."""
     held = ", ".join(f"{job['kind']} {job_id} {job['state']}" for job_id, job in jobs)
     finished = [job_id for job_id, job in jobs if job["kind"] in state.CHANGE_KINDS and job["state"] == "done"]
-    left = f"; {' and '.join(finished)} merged no PR whose checked diff carries it" if finished else ""
+    unjudged = dict.fromkeys(key for job_id in finished for key in judged_prs(data, job_id) if data["prs"][key]["merged_sha"] and state.carried(data["prs"][key]) is None and not served.merge_judging(data["prs"][key]))
+    rerun = f", the check at its merged head naming no parts, so {' and '.join(f'drive pr check {state.pr_url(key)}' for key in unjudged)} judges it again" if unjudged else ""
+    left = f"; {' and '.join(finished)} merged no PR whose checked diff carries it{rerun}" if finished else ""
     reading = [job_id for job_id, job in jobs if job["kind"] == "reader" and job["state"] not in state.FINISHED_JOB_STATES]
     cards = list(
         dict.fromkeys(
