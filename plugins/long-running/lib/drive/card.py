@@ -9,7 +9,7 @@ from drive import github, limits, picture, state
 from drive.github import GithubError, run
 from drive.render import cut
 
-FIELDS = "title,body,author,state,isDraft,headRefOid,baseRefName,headRefName,reviewDecision,labels,url,additions,deletions,changedFiles"
+FIELDS = "title,body,author,state,isDraft,headRefOid,baseRefName,headRefName,reviewDecision,labels,url,additions,deletions,changedFiles,files"
 READ_AGE = "60s"
 KEPT_READS = "pr-reads"
 REVIEW_DECISIONS = {"approved": "APPROVED", "stale": "REVIEW_REQUIRED", "changes": "CHANGES_REQUESTED", "none": ""}
@@ -29,6 +29,7 @@ LEAD_LABELS = (("why", "Why this exists"), ("what", "What changes"), ("downstrea
 HATE_HEADINGS = ("what you'll hate most", "what you will hate most", "what you'll hate the most", "what you will hate the most")
 PLAN_HEADINGS = ("against the plan", "differs from the plan", "plan deviations")
 IMPACT_HEADINGS = ("fde impact", "fde impact scan")
+STORED_HEADING = re.compile(r"migrat|\bhow (?:the )?old\b|data[- ]location|stored data")
 SHOWN_HEADINGS = ("summary", *IMPACT_HEADINGS, *REFRESHER_HEADINGS, "biggest surprise", *HATE_HEADINGS, "show me", *PLAN_HEADINGS, "port", STACK_HEADING)
 CONVENTIONAL_KINDS = {
     "fix": "Fix",
@@ -329,6 +330,7 @@ def render(pr: dict, entry: dict, shown: tuple[str, ...] = (), held: tuple[str, 
         "summary": section_words(found, "summary"),
         "impact": section_words(found, *IMPACT_HEADINGS),
         "refresher": section_words(found, *REFRESHER_HEADINGS) or comment_refresher(pr),
+        "stored_data": stored_words(found) or "".join(f"Not said yet: {why}. The agent is fixing it." for why in unsaid_storage(pr)),
         "surprise": section_words(found, "biggest surprise"),
         "hate_most": section_words(found, *HATE_HEADINGS),
         "show_me": "\n\n".join(filter(None, [show_me_words(found.get("show me", ""), bool(shown), charts), left_off(undrawn)])),
@@ -360,6 +362,20 @@ def render(pr: dict, entry: dict, shown: tuple[str, ...] = (), held: tuple[str, 
     if shown:
         card["pictures"] = list(shown)
     return card
+
+
+def stored_words(found: dict[str, str]) -> str:
+    """What the PR body says of how the data stored before it moves and what keeps that from breaking, from its first section headed so, such as `## How old data moves`, `## How the old rows move` or a monorepo body's `## Migration risk`."""
+    return next((words for heading in found if STORED_HEADING.search(heading) and (words := section_words(found, heading))), "")
+
+
+def unsaid_storage(pr: dict) -> tuple[str, ...]:
+    """Why his card on the PR cannot say how its stored data moves: it changes a migration, schema or wire format, by land.stored, and its body never says how the data stored before it moves; none when it says or stores nothing differently. His words under the card of a PR moving stored rows: "How will you migrate the old ones / avoid breaking anything?"."""
+    from drive import land
+
+    if stored_words(sections(body_of(pr))) or not (paths := land.stored([file["path"] for file in pr["files"]])):
+        return ()
+    return (f"it changes {', '.join(paths)}, and no `## How old data moves` section of its body says how the data stored before it moves or what keeps that from breaking",)
 
 
 def left_off(undrawn: tuple[str, ...]) -> str:
@@ -431,17 +447,20 @@ def skip(key: str, reason: str) -> dict:
 
 
 def read(key: str, entry: dict | None = None) -> dict | None:
-    """The PR's card fields through ccx's GitHub cache, which answers the same read made within READ_AGE, but fresh for a PR whose card left a picture off, since the body edit that fixes it can be newer than the read cached, each read kept on disk, so a read GitHub refuses, as under its rate-limit floor, draws from the copy kept at the last read with the state and head the drive's entry holds; a PR GitHub reads merged that the entry holds folded reads FOLDED, by github.landing; None only for a PR never read. Its checks come from the drive's entry, and its comments are read over REST: gh's comments field also asks for each comment's viewerDidAuthor, so ccx sends that read to his own GraphQL budget instead of the GitHub App's."""
+    """The PR's card fields through ccx's GitHub cache, which answers the same read made within READ_AGE, but fresh for a PR whose card left a picture off, since the body edit that fixes it can be newer than the read cached, each read kept on disk, so a read GitHub refuses, as under its rate-limit floor, draws from the copy kept at the last read with the state and head the drive's entry holds; a PR GitHub reads merged that the entry holds folded reads FOLDED, by github.landing; None only for a PR never read. Its checks come from the drive's entry, its changed files past the first 100 gh reads over REST, and its comments are read over REST: gh's comments field also asks for each comment's viewerDidAuthor, so ccx sends that read to his own GraphQL budget instead of the GitHub App's."""
     repo, number = key.split("#")
     kept = state.root() / KEPT_READS / repo / f"{number}.json"
     try:
         pr = json.loads(run(["gh", "pr", "view", number, "-R", repo, "--json", FIELDS], max_age="0s" if entry and entry["undrawn"] else READ_AGE))
         pr["comments"] = json.loads(run(["gh", "api", "--paginate", f"repos/{repo}/issues/{number}/comments?per_page=100"], max_age=READ_AGE))
+        if pr["changedFiles"] > len(pr["files"]):
+            pr["files"] = [{"path": path} for path in github.files(key)]
     except (GithubError, json.JSONDecodeError) as error:
         print(f"drive card: {key}: {error}", file=sys.stderr)
         if not kept.is_file():
             return None
-        pr = json.loads(kept.read_text())
+        # TODO: drop the default once every read kept before files joined FIELDS is read again.
+        pr = {"files": []} | json.loads(kept.read_text())
         return pr | {"state": entry["state"].upper(), "headRefOid": entry["head"] or pr["headRefOid"]} if entry else pr
     kept.parent.mkdir(parents=True, exist_ok=True)
     written = kept.with_name(f"{kept.name}.{os.getpid()}")
@@ -465,6 +484,7 @@ def watched(entry: dict) -> dict | None:
         "labels": [{"name": github.HOLD_LABEL}] if entry["hold_label"] else [],
         "url": entry["url"],
         "comments": [],
+        "files": [],
     }
 
 
@@ -536,7 +556,7 @@ def remember(known: dict[str, tuple[str, dict]], stack: list[str]) -> None:
 
 
 def drawn(known: dict[str, tuple[str, dict]], undrawn: dict[str, tuple[str, ...]], at: str) -> None:
-    """Clears the refusal each drawn PR carries, so a PR drawn after a refusal reads as drawn and a later refusal is told again, and keeps on it why each Show me picture left off its card does not draw and when its body was read for it, at, told once a reason to the session hearing its order, so a builder fixes the body and the watch redraws the card once GitHub reads the body edited since."""
+    """Clears the refusal each drawn PR carries, so a PR drawn after a refusal reads as drawn and a later refusal is told again, and keeps on it why each Show me picture left off its card does not draw and when its body was read for it, at, and why the card cannot say how its stored data moves, by unsaid_storage, told once a reason to the session hearing its order, so a builder fixes the body and the watch redraws the card once GitHub reads the body edited since."""
     for key, left in undrawn.items():
         name, entry = known[key]
         if not (left or entry["undrawn"] or entry.get("refused")):
@@ -689,7 +709,7 @@ def cards(asked: list[dict], redraw: bool = False) -> dict:
             siblings(known, members, reads),
         )
         remember(known, members)
-        drawn(known, {key: undrawn for key, (_, undrawn) in drawings.items()}, at)
+        drawn(known, {key: (*undrawn, *unsaid_storage(reads[key])) for key, (_, undrawn) in drawings.items()}, at)
         repo, number = members[0].split("#")
         found.append({"repo": repo, "number": int(number), "card": card})
     return {"cards": found, "skipped": [each for each in skipped if f"{each['repo']}#{each['number']}" in asked_keys]}

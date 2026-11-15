@@ -15,6 +15,7 @@ HEAD = "0123456789abcdef0123456789abcdef01234567"
 MOVED = "fedcba9876543210fedcba9876543210fedcba98"
 HIS_TAPS = "https://acme.slack.com/archives/D123/p1794515484282799"
 STAGING = "Not on staging: no staging test is set for it"
+MIGRATION = "api/migrations/1794700000000-UploadRetries.ts"
 SUMMARY = "`upload.Retry` retries a failed upload up to five times instead of dropping the file."
 FIX_BODY = f"""## Summary
 {SUMMARY}
@@ -49,6 +50,7 @@ def pr_json(
     base: str = "main",
     branch: str = "retry-uploads",
     comments: list[dict] | None = None,
+    files: tuple[str, ...] = (),
 ) -> dict:
     return {
         "title": title,
@@ -62,6 +64,8 @@ def pr_json(
         "reviewDecision": review,
         "labels": [],
         "url": url,
+        "changedFiles": len(files),
+        "files": [{"path": path} for path in files],
     }
 
 
@@ -130,6 +134,7 @@ def row(**fields: str) -> dict:
         "title": "retry flaky uploads",
         "head": HEAD,
         "staging": STAGING,
+        "stored_data": "",
         "changed": "",
         "review": "",
         "summary": SUMMARY,
@@ -440,6 +445,31 @@ def test_a_card_read_asks_gh_pr_view_for_no_field_only_his_token_answers_and_tak
     assert drawn["card"]["prs"][0]["refresher"] == "Uploads try again."
     viewed = [cmd[-1].split(",") for cmd in asked if cmd[1:3] == ["pr", "view"]]
     assert viewed and not {"comments", "reactionGroups", "reviewRequests"} & {field for fields in viewed for field in fields}
+
+
+def test_a_monorepo_migration_risk_section_states_how_its_stored_data_moves() -> None:
+    body = f"{FIX_BODY}\n## Migration risk\nAdds a retry count to each upload, 0 for uploads stored before it.\n"
+    assert card.render(pr_json(body=body, files=(MIGRATION,)), entry())["prs"][0]["stored_data"] == "Adds a retry count to each upload, 0 for uploads stored before it."
+
+
+def test_a_pr_changing_how_data_is_stored_tells_its_builder_once_until_its_body_says_how_the_old_data_moves(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    pr = pr_json(files=(MIGRATION, "upload.go"))
+    monkeypatch.setattr(card, "run", answering(pr))
+    asked = {"prs": [{"repo": "Forge-AI/monorepo", "number": 42}], "redraw": True}
+    why = f"it changes {MIGRATION}, and no `## How old data moves` section of its body says how the data stored before it moves or what keeps that from breaking"
+    assert [drawn["card"]["prs"][0]["stored_data"] for drawn in ask(asked)["cards"] + ask(asked)["cards"]] == [f"Not said yet: {why}. The agent is fixing it."] * 2
+    assert [event["reason"] for event in events("demo") if event["kind"] == "undrawn"] == [f"monorepo PR 42: {why}, so his card went out without it"]
+    pr["body"] += "\n## How old data moves\nUploads stored before it read a retry count of 0, so old readers see no change.\n"
+    assert [drawn["card"]["prs"][0]["stored_data"] for drawn in ask(asked)["cards"]] == ["Uploads stored before it read a retry count of 0, so old readers see no change."]
+    assert state.load("demo")["prs"]["Forge-AI/monorepo#42"]["undrawn"] is None
+
+
+def test_a_card_finds_a_migration_past_the_first_100_files_gh_reads(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    listed = tuple(f"lib/part{n}.py" for n in range(100))
+    monkeypatch.setattr(card, "run", answering(pr_json(files=listed) | {"changedFiles": 101}))
+    monkeypatch.setattr(github, "files", lambda key: [*listed, MIGRATION])
+    [drawn] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["cards"]
+    assert MIGRATION in drawn["card"]["prs"][0]["stored_data"]
 
 
 @pytest.mark.parametrize("words", ["None.", "Nothing.", "Nothing differed."])

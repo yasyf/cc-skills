@@ -79,6 +79,12 @@ for its repository says, then return `DONE <proof>`.
     behavior he did not ask for, a shortcut, or a risk he would not take. A cost is the concrete
     things the change adds, such as a new message kind or a call that now waits on another, never an
     adjective.
+  - `## How old data moves`: on a PR changing how data is stored, a migration, schema or wire
+    format by `land.stored`: how the data stored before it moves to the new shape and what keeps
+    readers and writers from breaking meanwhile, in his words "How will you migrate the old ones /
+    avoid breaking anything?". His card draws it as Stored data, and the card reads a monorepo
+    body's `## Migration risk` and `## Data-location changes` the same way. Until the body has one,
+    his card says it does not and its builder hears an `EVENT undrawn`.
   - `## Show me`: one concrete example of the change, which his card draws as a picture, or as Slack's
     code block when the code is one line or trivial, and the dashboard draws live: the real SQL, code, CLI call, or Sand call it changes, before and after, in a
     fence naming its language (`sql`, `go`, `sand`), with one plain sentence after it saying what
