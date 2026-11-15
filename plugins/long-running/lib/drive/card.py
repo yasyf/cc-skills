@@ -833,7 +833,7 @@ def question_answered(ask: dict) -> dict:
 
 
 def answer_question(name: str, ask: dict) -> dict:
-    """What question_answered does once it heard his tap, which land.start runs for each card his Approve on a PR picks an option on, that Approve heard already, with its Slack action, which dates the answer record and keeps it idempotent; his tap ends each question on the card view.tappable lets it, in place of his words in its thread a tap after them replaces, whose cc-notes answer recording the tap supersedes."""
+    """What question_answered does once it heard his tap, which land.start runs for each card his Approve on a PR picks an option on, that Approve heard already, with its Slack action, which dates the answer record and keeps it idempotent; his tap ends each question on the card view.tappable lets it, in place of whatever answer of his ended it before the tap, whose cc-notes answer recording the tap supersedes, and the question's own card follows when he tapped another copy of it."""
     from drive import settled, superseded, tools, view
 
     undone = bool(ask.get("undone"))
@@ -889,7 +889,7 @@ def answer_question(name: str, ask: dict) -> dict:
     ended = [(job_id, question) for _, job_id, question in tools.stamped(name, [made], [seq])]
     tools.keep_undelivered(name, [made], [seq], [ended], shown, closed["at"])
     tapped_key = view.message_key(ask["url"])
-    superseded.follow(name, [(job_id, question) for job_id, question in ended if question["waits"] != ask["waits"] and not (question["card"] and view.message_key(question["card"]) == tapped_key)])
+    superseded.follow(name, [(job_id, question) for job_id, question in ended if (view.message_key(question["card"]) != tapped_key if question["card"] else question["waits"] != ask["waits"])])
     return {"ok": True, "seq": seq}
 
 

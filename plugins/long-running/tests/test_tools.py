@@ -1540,6 +1540,27 @@ def test_his_tap_on_a_card_within_ten_minutes_after_his_answer_under_it_replaces
         tools.run("record", demo, {"records": [dict(said)]})
 
 
+def test_his_write_in_on_an_older_copy_of_a_card_whose_question_ended_on_his_tap_ends_it_on_his_words_recorded_in_cc_notes_and_redraws_its_card(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, noted: list[tuple[str, str, str]]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
+    run("job", "add", "builder", "--order", "o1", "--goal", "build it")
+    cci = Cci()
+    monkeypatch.setattr(subprocess, "run", cci.run)
+    answered = open_cards(monkeypatch, "demo:j1-7")
+    tap_on_card(demo)
+    older_copy = f"{CARD[:-3]}600"
+    written = {"waits": "demo:j1-7", "label": "Knock, the bell is broken", "url": older_copy, "other": True, "action_ts": f"{int(float(TAP)) + 3600}.000100"}
+    assert card.question_answered(dict(written)) == {"ok": True, "seq": "52"}
+    closed = state.load(demo)["jobs"]["j1"]["questions"][0]["closed"]
+    assert (closed["words"], closed["link"], closed["seq"], closed["noted"], closed["replaces"]["words"], closed["replaces"]["tap"]) == ("Knock, the bell is broken", older_copy, "52", f"2c0ffee{'0' * 33}", "Ring", TAP)
+    assert (noted, cci.posted[-1][0]["attr"]["noted"]) == ([(demo, "Which ring?", "Ring"), (demo, "Which ring?", "Knock, the bell is broken")], f"2c0ffee{'0' * 33}")
+    assert answered == [("card-answer", "--card", CARD, "--label", "Knock, the bell is broken", "--settled", "--other", "--replaces", TAP, "--via", older_copy)]
+    card.question_answered(dict(written))
+    card.question_answered(dict(written, label="Ring", other=False, action_ts=f"{int(float(TAP)) + 60}.000100"))
+    assert (state.load(demo)["jobs"]["j1"]["questions"][0]["closed"]["words"], len(noted), len(answered)) == ("Knock, the bell is broken", 2, 1)
+
+
 @pytest.mark.parametrize("after", [5, -5], ids=["tap then words", "words then tap"])
 def test_his_question_asking_for_facts_under_a_card_beside_his_tap_on_it_leaves_the_tap_standing(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, after: int

@@ -214,11 +214,11 @@ def answerable(question: dict, link: str | None) -> bool:
 
 
 def tappable(question: dict, action_ts: str | None) -> bool:
-    """Whether his tap at this Slack action ts answers the question: it is open, or his answer in its card's thread closed it within the ten minutes before the tap, so a tap he made after answering there ends it on the tap."""
+    """Whether his tap at this Slack action ts answers the question: it is open, or what closed it came before the tap, another tap of his by its Slack ts, his words in its card's thread by theirs and anything else by when it closed, so of his answers to one question the later is his answer, on whichever card drawn for it he gave it, an older copy's included, while cc-slack running the same tap again ends nothing twice."""
     closed = question["closed"]
     if closed is None:
         return True
-    return closed["how"] == "answered" and not closed["tap"] and later(replied(closed["link"], question), action_ts)
+    return bool(action_ts) and closed["tap"] != action_ts and float(action_ts) > float(closed["tap"] or replied(closed["link"], question) or state.parse_time(closed["at"]).timestamp())
 
 
 def replied(link: str | None, question: dict) -> str | None:
