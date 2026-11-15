@@ -671,7 +671,9 @@ the patch.
   that release while he is present, his word or tap within the last 15 minutes, never the migrations, deletes and
   replaces its approve hold holds. While he is away `drive job add --release` and the `landing_guard` hook refuse a
   start, resume or approve, the job returning `WAITING his word` with the release held, but for an incident's hotfix
-  of pull requests that change nothing dangerous, which carries no other change; a rollback runs at any hour. A pick whose words
+  of pull requests that change nothing dangerous, which carries no other change; a release whose every place is off
+  production, its `infra/envs` file giving a stage and no `prod: true` as staging, sandbox and dev have, and a rollback
+  run at any hour. A pick whose words
   order the release approves it whatever its card asked, by his words "if I apprtove a release dont
   fuckl around kjust appriove it". The release gate and `drive job ask` read his answer one way: his
   option number or tap on a kept card whose option names a release in backticks orders a release
