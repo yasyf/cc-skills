@@ -290,14 +290,10 @@ def in_turn(steps: list[str]) -> str:
     return " and ".join(steps) if len(steps) < 3 else ", ".join(steps[:-1]) + " and " + steps[-1]
 
 
-def merge_waits(url: str) -> str:
-    repo, number = state.pr_key(url).split("#")
-    return f"merge:{repo.replace('/', ':')}:{number}"
-
-
-def stack_waits(keys: list[str]) -> str:
-    repo, bottom = keys[0].split("#")
-    return f"merge:{repo.replace('/', ':')}:{bottom}-{keys[-1].split('#')[1]}"
+def ask_waits(asked: list[dict]) -> str:
+    """The waits id his PR card asks under: the number of each PR on it still asking his tap and the hash of the heads they are asked at, inside the 64 characters cc-slack takes, so his answer to one ask never closes a later one: a push that takes his Approve back asks at a new head, and cc-slack opens the answered card again in place under the new id."""
+    numbers = ".".join(state.pr_key(pr["url"]).split("#")[1] for pr in asked)
+    return f"merge:{numbers}:{state.ask_hash(' '.join(pr['headRefOid'] for pr in asked))}"
 
 
 def body_of(pr: dict) -> str:
@@ -351,7 +347,7 @@ def render(pr: dict, entry: dict, shown: tuple[str, ...] = (), held: tuple[str, 
             "title": headline(entry) or framed(f"{kind}: approve ", plain, "?"),
             "options": list(TAP_LABELS),
             "recommended": "Approve",
-            "waits": merge_waits(pr["url"]),
+            "waits": ask_waits([pr]),
         }
     else:
         card["status"] = "done" if pr["state"] == "MERGED" else "info"
@@ -399,7 +395,7 @@ def render_stack(members: list[Member], siblings: bool) -> dict:
             "status": "needs_you",
             "options": list(TAP_LABELS),
             "recommended": "Approve",
-            "waits": stack_waits([state.pr_key(member[0]["url"]) for member in members]),
+            "waits": ask_waits([member[0] for member, one in zip(members, drawn, strict=True) if one["status"] == "needs_you"]),
         }
     elif all(one["status"] == "done" for one in drawn):
         card["status"] = "done"
@@ -633,7 +629,7 @@ def on_his_card(known: dict[str, tuple[str, dict]], reads: dict[str, dict], memb
 
 
 def cards(asked: list[dict], redraw: bool = False) -> dict:
-    """One card per stack the asked PRs form, by groups(), bottom PR first, cut below its lowest PR reworked to his words, which with every PR above it is refused by reworked() since none lands without it, each card drawn kept on its PRs so Approve lands exactly those, and a fresh one only when tap_refused finds one of them asking his Approve, the same check that puts Approve on a card. A redraw of a card cc-slack already posted draws it as the PRs stand now, a wait that holds back a fresh Approve shown on it rather than refusing it. A PR body's sections are drawn as they stand and never hold a card, a Show me picture that does not draw included, such as an arch diagram whose store node names a medium the drawing does not know: it is left off, the card's Show me saying why in one line, which `drawn` tells the session hearing its order."""
+    """One card per stack the asked PRs form, by groups(), bottom PR first, cut below its lowest PR reworked to his words, which with every PR above it is refused by reworked() since none lands without it, each card drawn kept on its PRs and asking under ask_waits, so Approve lands exactly the PRs it asks, and a fresh one only when tap_refused finds one of them asking his Approve, the same check that puts Approve on a card. A redraw of a card cc-slack already posted draws it as the PRs stand now, a wait that holds back a fresh Approve shown on it rather than refusing it. A PR body's sections are drawn as they stand and never hold a card, a Show me picture that does not draw included, such as an arch diagram whose store node names a medium the drawing does not know: it is left off, the card's Show me saying why in one line, which `drawn` tells the session hearing its order."""
     from drive import view
 
     at, known = state.stamp(), drive_prs()
@@ -730,7 +726,7 @@ def refused(asks: list[dict]) -> dict:
 
 
 def answered(ask: dict) -> dict:
-    """Keep his tap on a PR card on each open PR it covers, one tap event each, his Approve with the cards it picks the recommended option of, each card picks() finds holding the PR, and on his Approve run land.start, the one path that answers each of those cards and starts the lander, which every watch pass runs again; a stack card's tap covers only the PRs on it holding no tap yet, as its Approve and Hold ask only for those, so his words approving or holding one PR keep it through a later tap on the card, and cc-slack applies a tap again when its first card command did not finish, so a member already holding this tap's Slack action keeps it and gets no second event."""
+    """Keep his tap on a PR card on each open PR it covers, one tap event each, his Approve with the cards it picks the recommended option of, each card picks() finds holding the PR, and on his Approve run land.start, the one path that answers each of those cards and starts the lander, which every watch pass runs again; a card's tap covers the PRs its waits id asks, by ask_waits, and an answer whose waits id names no ask the PR it names; on a card of several PRs a member already holding a tap keeps it, so his words approving or holding one PR keep it through a later tap on the card, and cc-slack applies a tap again when its first card command did not finish, so a member already holding this tap's Slack action keeps it and gets no second event."""
     if "repo" not in ask:
         return question_answered(ask)
     known = drive_prs()
@@ -739,10 +735,10 @@ def answered(ask: dict) -> dict:
         raise state.DriveError(f"{key} is not a drive PR")
     if ask["label"] not in TAP_LABELS:
         raise state.DriveError(f"a PR card answers Approve or Hold, not {ask['label']!r}")
-    name, held = known[key]
+    name = known[key][0]
     hear_tap(name)
-    stack = held.get("stack") or []
-    members = stack if stack and ask["waits"] == stack_waits(stack) else [key]
+    asked = state.ASK_WAITS.fullmatch(ask["waits"])
+    members = keys_of([{"repo": ask["repo"], "number": number} for number in asked[1].split(".")], known) if asked else [key]
     with state.edit(name) as data:
         for member in members:
             entry = data["prs"][member]

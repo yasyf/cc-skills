@@ -173,6 +173,7 @@ REBUILT_ASKS = ".rebuilt"
 NOT_LANE = re.compile(r"[^a-z0-9]+")
 BARE_WAITS = re.compile(r"(j\d+)-(\d+)")
 WAITS_ID = re.compile(rf"([\w.-]+):{BARE_WAITS.pattern}")
+ASK_WAITS = re.compile(r"merge:(\d+(?:\.\d+)*):[0-9a-f]{8}")
 TAP_ID = re.compile(r"tap:.+:(\d+\.\d+)")
 ORDER_LIST = re.compile(r"[\s,]+")
 PART_ITEMS = re.compile(r"\s*;\s*(?=o\d+:)")
