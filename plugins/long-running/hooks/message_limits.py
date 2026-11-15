@@ -424,9 +424,10 @@ def unanswered(messages: list[dict]) -> list[dict]:
     return list(itertools.takewhile(lambda message: not message.get("from_bot"), reversed(messages)))[::-1]
 
 
-def thread_words(messages: list[dict]) -> list[dict]:
-    """His words in the thread the post goes to, each as the evidence Jev cites, those since the bot's last post there marked as the ones it answers: in his DM with the app every message not the bot's is his, and each card the bot drew or shared there shows his answer on its ✓ line and his Explain more tap on the line cc-slack draws for it, which asks for the reply that explains the card; a thread outside his DM, such as an alert's, holds others' words, never his."""
+def thread_words(messages: list[dict], name: str) -> list[dict]:
+    """His words in the thread the post goes to, each as the evidence Jev cites, those since the bot's last post there marked as the ones it answers: in his DM with the app every message not the bot's is his, and each card the bot drew or shared there shows his answer on its ✓ line and his Explain more tap on the line cc-slack draws for it, which asks for the reply that explains the card, while words he wrote in a card's Other box are read whole from that card's answer, since its ✓ line clips them; a thread outside his DM, such as an alert's, holds others' words, never his."""
     answers = {message["ts"] for message in unanswered(messages)}
+    others = {view.message_key(card["url"]): answer["label"] for card in view.stored_cards(name)[0]["closed"] if (answer := card["answer"]) and answer.get("other")}
     words = []
     for message in messages:
         said_at = slack.sent_at(message).isoformat()
@@ -436,6 +437,7 @@ def thread_words(messages: list[dict]) -> list[dict]:
             continue
         cards = [message["text"], *(share.get("text") or "" for share in message.get("shares") or [])]
         taps = {answer: CARD_ANSWERED for card in cards for answer in CARD_ANSWER.findall(card)}
+        taps |= {others[key]: CARD_ANSWERED} if (key := message["ts"].replace(".", "")) in others else {}
         taps |= {EXPLAIN_MORE: EXPLAIN_TAPPED for card in cards if EXPLAIN_TAP.search(card)}
         words += [
             {"id": f"card:{message['ts']}:{index}", "source": "card", "quote": quote, "said_at": said_at, "detail": detail}
@@ -520,7 +522,7 @@ def his_words(payload: dict) -> list[dict]:
     ruled = [PREVENTION_WORDS] if refs.prevented(text) else []
     ruled += [WORKED_WORDS] if in_card_thread(drive, tool_input) else []
     try:
-        thread = thread_words(thread_messages(payload, dm))
+        thread = thread_words(thread_messages(payload, dm), drive["name"])
         linked = linked_words(tool_input.get("asked"), dm)
     except slack.SlackError:
         return ruled
@@ -646,7 +648,7 @@ def found_in(payload: dict, drive: dict, said: str, found: dict[str, dict]) -> s
     except slack.SlackError as error:
         return f"refused: his thread could not be read, so this post cannot be checked as a reply to his messages there: {error}."
     heard_him(drive, messages, linked)
-    long = over_length(payload, dm, messages, linked)
+    long = over_length(payload, dm, thread_words(messages, drive["name"]), linked)
     return every(
         [
             long and agents.Ruled(long, LENGTH_RULE, long, found=long.found),
@@ -1015,7 +1017,7 @@ def uncarded_known(payload: dict, drive: dict, found: dict[str, dict]) -> str | 
     return agents.Ruled(f"refused: {named}. Name it beside what it asks about, and tell him the news as that card's.", KNOWN_RULE, found=asked)
 
 
-def over_length(payload: dict, dm: str, messages: list[dict], linked: dict[str, dict]) -> str | None:
+def over_length(payload: dict, dm: str, heard: list[dict], linked: dict[str, dict]) -> str | None:
     """Why the post is longer than he reads: a routine line, summary or card keeps its limit, an edit may reword its post at that post's length, and an answer naming as asked any message of his, word for word as the thread it goes to shows it or by its permalink in his DM, goes out whole."""
     tool_input = payload["tool_input"]
     if (refusal := limits.post_refusal(tool_input)) is None or tool_input.get("card"):
@@ -1028,7 +1030,7 @@ def over_length(payload: dict, dm: str, messages: list[dict], linked: dict[str, 
         return None
     if not (asked := quotes(answered_words(tool_input.get("asked"), linked))):
         return refusal + WHOLE
-    missing = unsaid(asked, " ".join(word["quote"] for word in [*thread_words(messages), *linked.values()]))
+    missing = unsaid(asked, " ".join(word["quote"] for word in [*heard, *linked.values()]))
     if len(missing) < len(asked):
         return None
     named = ", ".join(f'"{part}"' for part in missing)

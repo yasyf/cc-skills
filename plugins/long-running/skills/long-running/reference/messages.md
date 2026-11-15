@@ -53,7 +53,8 @@ his words "your messages need to be way shorter rewrite this for a human".
   ordered from his thread to another person's group DM, passes that permalink, since the thread it
   goes to holds no word of his.
 - The hook looks for each quote in his messages in the thread the post goes to, in the answers of his
-  its cards there show, in his Explain more tap, which a card there shows on cc-slack's "You asked for
+  its cards there show, whole for words he wrote in a card's Other box, which the card's ✓ line clips
+  and the drive reads from that card's answer, in his Explain more tap, which a card there shows on cc-slack's "You asked for
   more" line so a reply passes `asked="Explain more"`, and in each message of his in his DM an `asked`
   permalink links, read from Slack, with straight and curly quote marks alike; one found quote is
   enough. The handler's brief

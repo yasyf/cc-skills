@@ -791,6 +791,16 @@ def test_his_answer_on_a_card_in_the_thread_is_his_words_for_asked_and_for_jev(t
     assert posted(transcript, text=said(100), thread_ts="1.2", asked="Use break glass every time").startswith("refused: this post is 100 words")
 
 
+def test_his_words_in_a_cards_other_box_lift_the_limit_whole_though_its_answer_line_clips_them(talker: str, transcript: Path, slack_thread: Thread) -> None:
+    card = "1794505940.419019"
+    other = "keep the old writer for one release, then delete it with its flag and every test still reading it"
+    slack_thread.messages.append({"ts": card, "from_bot": True, "text": f"*Which writer ships?*\n✓ *{other[:40]}…* · answered 2:03pm"})
+    assert posted(transcript, text=said(100), thread_ts="1.2", asked=other).startswith("refused: this post is 100 words")
+    closed = {"waits": "demo:j1-7", "url": f"https://acme.slack.com/archives/{DM}/p{card.replace('.', '')}", "answer": {"label": other, "other": True}}
+    state.cards_path("demo").write_text(json.dumps({"source": "live", "closed": [closed]}))
+    assert posted(transcript, text=said(100), thread_ts="1.2", asked=other) is None
+
+
 def test_his_explain_more_tap_on_a_card_in_the_thread_asks_for_the_whole_reply(talker: str, transcript: Path, slack_thread: Thread) -> None:
     card = "*A write re-citing an old file pointer passes on the database's own rows.*\n*1. Ask the names route first*"
     slack_thread.messages.append({"ts": "1794505940.419019", "from_bot": True, "text": card})
@@ -2736,7 +2746,7 @@ def test_a_reply_in_his_thread_is_checked_as_the_answer_to_his_messages_since_th
     assert posted(transcript, text=ack, thread_ts="1794479000.000100") is None
     assert posted(transcript, text=ack, thread_ts="1794479000.000100", asked="the release?") is None
     assert checked.asked == [["sot hat was asnwet 1 right"], ["the release?", "sot hat was asnwet 1 right"]]
-    assert [word["detail"] for word in message_limits.thread_words(slack_thread.messages)] == [message_limits.EARLIER, message_limits.ANSWERED]
+    assert [word["detail"] for word in message_limits.thread_words(slack_thread.messages, "demo")] == [message_limits.EARLIER, message_limits.ANSWERED]
 
 
 def test_main_prints_a_pretooluse_denial(
