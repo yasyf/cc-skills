@@ -2364,7 +2364,7 @@ def staging_parts(data: dict, job: dict) -> list[tuple[str, str]]:
 
 
 def post_staging_proof(data: dict, job_id: str, line: str, report: str) -> None:
-    """Keep on each staging test part a builder or codex job holds the first proof its DONE's CHECK: lines name, beside the job as posted_by, replacing an older job's, when its CASE lines, one or more, all read pass, so the PR waiting on that part lands while the job's DONE waits on the PR's merge; its DONE with a case reading anything else, or none, takes the part's proof back, and so does its next return other than DONE the proof it kept, as take_result takes back an order's proof_by, but the DONE the watch takes at a merge, which keeps it."""
+    """Keep on each staging test part a builder or codex job holds the first proof its DONE's CHECK: lines name, beside the job as posted_by, replacing an older job's, when its CASE lines, one or more, all read pass, so the PR waiting on that part lands while the job's DONE waits on the PR's merge, a pass it newly keeps taking back his Approve on each open PR waiting on the part by job_waits, since he gave it before the test and a dangerous change merges only on a tap he gives once its test passed, by his ruling 27ea387, "merging or rleasing dangerous things should only be done wehn the human is present"; its DONE with a case reading anything else, or none, takes the part's proof back, and so does its next return other than DONE the proof it kept, as take_result takes back an order's proof_by, but the DONE the watch takes at a merge, which keeps it."""
     job = data["jobs"][job_id]
     if job["kind"] not in CHANGE_KINDS or MERGED_LINE.match(line):
         return
@@ -2372,6 +2372,10 @@ def post_staging_proof(data: dict, job_id: str, line: str, report: str) -> None:
     done = bool(re.match(r"DONE\b", line))
     for order_id, part in staging_parts(data, job):
         held = data["orders"][order_id]["parts"][part]
+        if done and proof and (held["posted"], held["posted_by"]) != (proof, job_id):
+            for pr in data["prs"].values():
+                if pr["state"] == "open" and (pr["tap"] or {}).get("label") == "Approve" and f"{order_id}:{part}" in job_waits(data, pr):
+                    pr.update(tap=None, fundamental=f"its staging test passed after your Approve, so only an Approve you give now lands it: {proof}", updated=job["updated"])
         if done and proof:
             held.update(posted=proof, posted_by=job_id)
         elif done or held["posted_by"] == job_id:
