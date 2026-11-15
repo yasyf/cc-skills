@@ -31,6 +31,7 @@ UNLANDABLE = (
     " --exempt <class> or --port-of <N>; his order reworking it takes its card down with drive order set <o> --rework <url>=<his permalink>"
 )
 PORT_DATA_RULING = 'his Nov 12 words "port his visuals but always do it the fundamentally right way when it comes to modelng the data"'
+FDE_SCAN_ROUTE = "drive fde-scan -- --symbol <each name the change touches> --pr <n>, which scans from the drive's checkout at dev's head whatever your branch's base"
 FILING = ("project", "workstream", "title")
 TITLE_CHARS = 60
 RECORD_NOTE = re.compile(r"\brecord \w+")
@@ -4124,7 +4125,7 @@ def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = N
         return pr
 
     pending = registered(dict(known["prs"].get(key) or state.new_pr(url, job_id, added["order"]) | {"wants_tap": wants_tap}), added["order"])
-    problems = [why for why in [unkinded_title(key, read, port_of)] if why] + undrawn_show_me(name, read, jobs)
+    problems = [why for why in [unkinded_title(key, read, port_of)] if why] + undrawn_show_me(name, read, jobs) + (put_off_steps(key, read) if lead is not None else [])
     if lead is not None and stage.carded(pending) and (unled := limits.lead_problems(pending["lead"] or {})):
         flags = " ".join(f'{flag} "<{line}>"' for line, flag in limits.LEAD_LINES)
         problems.append(f"his card opens with its lead, and {'; '.join(unled)}. Add it with drive pr add {url} --job {job_id} {flags}")
@@ -4546,6 +4547,33 @@ def unkinded_title(key: str, read: dict, port_of: int | None) -> str | None:
     repo, number = key.split("#")
     opening, retitled = (f"Port:, since it is a port of #{port_of}", f"Port: {plain}") if port_of else ("Fix:, New:, Cleanup: or Port:", f"<Fix|New|Cleanup|Port>: {plain}")
     return f'its title "{read["title"]}" does not open {opening}, the kind of change his card names it by: retitle it with gh pr edit {number} -R {repo} --title "{retitled}"'
+
+
+def put_off_steps(key: str, read: dict) -> list[str]:
+    """Why each section of a PR's body his card draws fails to report the step it holds: Jev reads it, at settled.YES or more, as saying that step, such as the FDE impact scan its branch's own tools/ci refused, runs later, each naming the route around it, FDE_SCAN_ROUTE for the FDE impact, since a refused tool is routed around in the turn it refuses; every section read at once, and a reading in the band between settled.NO and settled.YES, or none, lets it in, said on stderr."""
+    from drive import card
+
+    shown = [(heading, text) for heading, text in card.sections(card.body_of(read)).items() if heading in card.SHOWN_HEADINGS and text.strip()]
+    asked = (({"sections": {f"s{index}": {"heading": heading, "text": text}}}, {f"puts_off.s{index}": settled.asking(settled.PUTS_OFF, slot=f"s{index}")}) for index, (heading, text) in enumerate(shown, 1))
+    try:
+        found = settled.jev_all(settled.batched({}, {}, asked))
+    except settled.Unheard as failure:
+        print(f"drive pr add: Jev did not read {key}'s body for a step it puts off, so it goes on unread: {failure}", file=sys.stderr)
+        return []
+    repo, number = key.split("#")
+    problems = []
+    for index, (heading, text) in enumerate(shown, 1):
+        puts_off = settled.reading(found.get(f"puts_off.s{index}"))
+        if puts_off is None:
+            print(f"drive pr add: Jev is unsure whether {key}'s {heading} section puts off the step it reports, so it goes on", file=sys.stderr)
+        if not puts_off:
+            continue
+        route = FDE_SCAN_ROUTE if heading in card.IMPACT_HEADINGS else "the route around what refused it"
+        problems.append(
+            f'its {heading} section says its step runs later: "{render.cut(text.strip(), 160)}". A refused step runs in the same turn by the route around the refusal, here {route},'
+            f" then its result goes in the section with gh pr edit {number} -R {repo} --body-file <file>, and the refusal is a defect you name, never a step left for later"
+        )
+    return problems
 
 
 def note_third_person(key: str, read: dict) -> None:

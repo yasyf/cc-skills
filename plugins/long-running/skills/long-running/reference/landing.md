@@ -658,7 +658,7 @@ builtin, API or SDK call, a consistency level, a default, a schema, or a wire or
 It runs the monorepo's `tools/ci fde-scan`, which the `fde-scan` skill on `dev` describes, in the
 drive's checkout at the head of `dev`, on the coordinator's Mac for a Sprite lane too, since a
 branch cut before the scan landed routes the verb to a `ci` build without it and holds no Sand
-parser command for it to run. Its report is the PR body's `## FDE impact` section, whose first paragraph his card draws
+parser command for it to run. Its report, never a line saying it comes later, which `drive pr add` refuses, is the PR body's `## FDE impact` section, whose first paragraph his card draws
 under the Summary; each caller it finds is fixed in
 the same stack or asked on a card, whatever his words, by his words "this MUST be usedto analyze
 impact before doing anyhting tht coulc imapct FDEs, regardless of what the human says".
