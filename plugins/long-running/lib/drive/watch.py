@@ -3192,7 +3192,10 @@ def release_lanes(watcher: Watcher, moment: datetime) -> None:
     ending = sorted(due, key=lambda job_id: state.parse_time(heard[job_id]["returned"] or heard[job_id]["updated"]), reverse=True)[:RELEASES_AT_ONCE]
     live = {job.get(key) for job in data["jobs"].values() if job["state"] not in state.FINISHED_JOB_STATES for key in ("workspace", "run", "dispatch")} - {None}
     held = [(job_id, lane) for job_id, job in heard.items() for lane in sorted(lane_holds(job, moment, live) - live)]
-    asking = [(job_id, lane) for job_id, lane in held if not in_flight((state.death_on(heard[job_id], lane) or {}).get("reclaim"), moment)]
+    asking = sorted(
+        [(job_id, lane) for job_id, lane in held if not in_flight((state.death_on(heard[job_id], lane) or {}).get("reclaim"), moment)],
+        key=lambda held_lane: ((state.death_on(heard[held_lane[0]], held_lane[1]) or {}).get("reclaim") or {}).get("at") or "",
+    )
     reclaiming = asking[: max(0, RELEASES_AT_ONCE - len(held) + len(asking))]
     if not ending and not reclaiming:
         return
@@ -3202,7 +3205,7 @@ def release_lanes(watcher: Watcher, moment: datetime) -> None:
             data["jobs"][job_id]["end"] = {"pid": end_lane(watcher.name, job_id), "at": state.stamp(moment)}
         for job_id, lane in reclaiming:
             job = data["jobs"][job_id]
-            if state.on_mac(job):
+            if state.on_mac(job) and lane == job.get("dispatch"):
                 state.lane_died(job, lane, RECLAIMED, moment)
             state.death_on(job, lane)["reclaim"] = {"pid": state.detach(watcher.name, ["job", "reclaim", job_id, lane], log), "at": state.stamp(moment)}
 
@@ -3223,10 +3226,11 @@ def unended(job: dict, moment: datetime) -> bool:
 
 
 def lane_holds(job: dict, moment: datetime, live: set[str]) -> set[str]:
-    """What the job's lanes left for the reclaimer: on this Mac, the dispatch of a done, failed or stopped job quiet for QUIET_LANE whose Run no unfinished job shares and no drive job reclaim freed; on a Sprite, each Sprite cc-remote still records that a lane of its died on or an end ended, never its own lane's before an end ended it, since unended gives that one to `drive job end`, nor while the end that ended it is in_flight, which destroys it itself, nor one a drive job reclaim kept on the newest death on it, since what it may hold on no remote could not be saved, which that reclaim's refusal says once, so the watch asks for it once and a session asks again by hand."""
+    """What the job's lanes left for the reclaimer: on this Mac, each dispatch of a done, failed or stopped job quiet for QUIET_LANE whose Run no unfinished job shares that no drive job reclaim freed, its last lane's and each earlier lane's its deaths record, since a relaunch leaves the lane before it unsettled in Orca; on a Sprite, each Sprite cc-remote still records that a lane of its died on or an end ended, never its own lane's before an end ended it, since unended gives that one to `drive job end`, nor while the end that ended it is in_flight, which destroys it itself, nor one a drive job reclaim kept on the newest death on it, since what it may hold on no remote could not be saved, which that reclaim's refusal says once, so the watch asks for it once and a session asks again by hand."""
     if state.on_mac(job):
-        quiet = job["state"] in state.FINISHED_JOB_STATES and job.get("dispatch") and job.get("run") not in live | {None} and moment - state.parse_time(job["updated"]) >= QUIET_LANE
-        return {job["dispatch"]} if quiet and not (state.death_on(job, job["dispatch"]) or {}).get("freed") else set()
+        quiet = job["state"] in state.FINISHED_JOB_STATES and job.get("run") not in live | {None} and moment - state.parse_time(job["updated"]) >= QUIET_LANE
+        lanes = {job.get("dispatch"), *(death["dispatch"] for death in job.get("deaths", []) if not death.get("workspace"))} - {None}
+        return {lane for lane in lanes if not (state.death_on(job, lane) or {}).get("freed")} if quiet else set()
     left = {death.get("workspace") for death in job.get("deaths", [])}
     if not state.lane_ended(job) or in_flight(state.lane_death(job, "dispatch")["ended"], moment):
         left.discard(job.get("workspace"))
