@@ -270,7 +270,7 @@ class Launch:
     def tools(self, placed: str = "0") -> list[list[str]]:
         read = [call for bin, repo, tag, _, _, sums, _ in RELEASES for call in ([bin, "--version"], ["curl", "-fsSL", "--retry", "3", download(repo, tag, sums)])]
         words = " ".join(f"{bin} {tag} {download(repo, tag, f'{bin}_linux_amd64')} {sha} {alias or "''"}" for bin, repo, tag, sha, alias, *_ in RELEASES)
-        return [*read, ["ssh", "-F", PREPARED["forward"]["config"], "-o", "BatchMode=yes", "-o", "ConnectTimeout=30", WORKSPACE, f"bash -s -- {placed} {words}"]]
+        return [*read, ["ssh", "-F", PREPARED["forward"]["config"], "-o", "BatchMode=yes", "-o", "ConnectTimeout=30", WORKSPACE, f"bash -s -- {ROOT} {placed} {words}"]]
 
     def copy(self) -> list[str]:
         return ["ssh", "-F", PREPARED["forward"]["config"], "-o", "BatchMode=yes", "-o", "ConnectTimeout=30", WORKSPACE, f"cat >{PREPARED['brief']['path']}"]

@@ -89,6 +89,12 @@ Sprite's Orca runtime starts, holds no capability to write it, and zig 0.14.0, t
 pins, checked against its SHA-256 and linked into `~/.local/bin`. Each is
 skipped when present, but a Sprite serves one lane and is destroyed after, so
 every launch downloads both: about 28 seconds for the toolchain and 9 for zig.
+When the checkout's mise config pins sccache, as the monorepo's does for
+cargo's `rustc-wrapper`, it installs that pin with the Sprite's mise from the
+checkout's `mise.lock`, under `MISE_LOCKED=1` so the lockfile is read and never
+rewritten, links it into `~/.local/bin`, and checks a login shell runs it from
+there, about 2 seconds: a worker's shell never activates mise, so without the
+link mise's install folder is on no PATH and `command -v sccache` finds nothing.
 Before the releases it places each tool `WORKER_TOOLS` names, its words
 `NAME=FILE` naming a file on this Mac, as `~/.local/bin/NAME` with mode 755,
 sent whole over the same ssh session, and checks a login shell runs it from
