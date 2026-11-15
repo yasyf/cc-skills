@@ -4781,6 +4781,42 @@ def test_replayed_o1324_a_part_split_off_a_read_part_keeps_its_readers_research_
     assert (code, builder["parts"], builder["waits"]) == (0, [memory], [])
 
 
+def test_replayed_715027_a_builder_starts_on_another_orders_readers_research_once_that_reader_carries_its_part_with_no_second_reader(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cause, call = "why the store copy stalls", "copies resume after a stall"
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Platform", cause, "--kind", "build", "--parts", cause)
+    run("job", "add", "reader", "--order", "o1", "--goal", "research: the stall")
+    assert keep(monkeypatch, capsys, "j1", RESEARCH) == (0, "")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Platform", call, "--kind", "build", "--parts", call)
+    assert cli.main(["job", "add", "builder", "--order", "o2", "--part", call, "--goal", "resume the copy"]) == 2
+    assert f'drive job set <that reader or design> --carries o2 --part "{call}" for another order\'s' in capsys.readouterr().err
+    assert run("job", "set", "j1", "--carries", "o2", "--part", call)[0] == 0
+    assert state.load("demo")["jobs"]["j1"]["state"] == "done"
+    code, out = run("job", "add", "builder", "--order", "o2", "--part", call, "--goal", "resume the copy")
+    builder_id = out.splitlines()[0]
+    assert (code, state.load("demo")["jobs"][builder_id]["waits"]) == (0, [])
+    code, out = run("job", "brief", builder_id, "--serves", "his order", "--done-when", "merged", "--where", "yasyf/cc-skills main")
+    written = Path(out.splitlines()[0].removeprefix("Read your brief first: ")).read_text()
+    assert (code, "\nResearched: j1\n" in written, brief.brief_refusal("demo", state.load("demo"), builder_id, written)) == (0, True, None)
+
+
+@pytest.mark.parametrize(
+    "opening",
+    [
+        "Researched:",
+        "Researched: why the store copy stalls under load, read from its supervisor logs",
+        "  Researched: why the store copy stalls",
+        "Researched: j2, by its first send\nnone of this is the block\nResearched:",
+    ],
+)
+def test_a_reports_researched_block_opens_at_the_first_researched_line_with_block_lines_under_it_at_any_indentation_and_with_words_after_it(
+    opening: str,
+) -> None:
+    report = f"DONE the stalled copy\n{opening}\nrulings: none on the copy path\nexists: supervisor/copies.rs store_copy_at\nopen: none\nbuild: one store_copy_at call per stalled store\nUNPROVEN: none"
+    assert brief.researched(report) == {"rulings": "none on the copy path", "exists": "supervisor/copies.rs store_copy_at", "open": "none", "build": "one store_copy_at call per stalled store"}
+
+
 def test_a_builders_card_whose_holds_line_names_no_pr_the_drive_tracks_or_branch_is_refused_since_it_would_hold_none_of_its_work(
     run: Run, demo: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -4923,6 +4959,7 @@ def test_a_build_jobs_research_is_a_reader_of_its_own_part_a_designs_change_coun
     assert brief.brief_refusal("demo", data, "j7", "Researched: j1\nDrive: demo, order o1, job j7") is None
     assert brief.brief_refusal("demo", data, "j7", "Researched: j3\nDrive: demo, order o1, job j7") == (
         "Researched: j3 names no reader or design of j7's part of o1 that kept a Researched: line and under it rulings:, exists: and open: lines in its report"
+        "; a reader or design that already kept that block on this work, on another order or this one, is this part's research once it holds the part, with no second reader: drive job set <that reader or design> --carries o1 --part \"the reads through it\" for another order's, drive job set <that reader or design> --part \"the reads through it\" for one of o1"
     )
 
 
