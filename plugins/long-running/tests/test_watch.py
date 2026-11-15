@@ -439,7 +439,9 @@ def test_a_pushed_waits_while_the_check_its_rules_require_has_not_posted_on_its_
     assert said == [[], [], [f"JOB j1 o1 READY {state.pr_url(KEY)}; {KEY} is at aaaaaaa on GitHub, grading, owed by Buildkite and forge-pr-reviewer: its checks run at aaaaaaa"]]
 
 
-def test_a_pushed_on_a_repository_whose_rules_require_no_check_settles_at_its_first_read_beside_a_red_check_its_lander_judges(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_pushed_on_a_repository_whose_rules_require_no_check_settles_at_its_first_read_beside_a_check_failing_on_its_own_change_red_and_owed_by_its_builder(
+    demo: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]], woken: list[tuple[str, str]]
+) -> None:
     url = state.pr_url(YASYF)
     with state.edit(demo) as data:
         del data["prs"][KEY]
@@ -447,10 +449,9 @@ def test_a_pushed_on_a_repository_whose_rules_require_no_check_settles_at_its_fi
         data["jobs"]["j1"].update(state="waiting", said=f"PUSHED {url}", prs=[url])
     serve(monkeypatch, {YASYF: read(checks=RED, required_checks=[])})
     said = watch.run_pass(watcher(demo), T0 + timedelta(minutes=1))
-    assert f"PR {YASYF}: checks failed [o1 j1]" in said
-    started = state.load(demo)["prs"][YASYF]["lander"]["at"]
-    assert f"JOB j1 o1 READY {url}; {YASYF} is at aaaaaaa on GitHub, landing, owed by the lander: lander pid {os.getpid()} lands aaaaaaa, started {started}" in said
-    assert state.load(demo)["jobs"]["j1"]["said"] == f"READY {url}"
+    own = "its own change fails test at aaaaaaa, which the default branch does not fail on the same tests where the PR's run of it merged its head"
+    assert [f"PR {YASYF}: checks failed [o1 j1]", f"JOB j1 o1 READY {url}; {YASYF} is at aaaaaaa on GitHub, red, owed by its builder: {own}"] == [line for line in said if line.startswith((f"PR {YASYF}", "JOB j1"))]
+    assert (state.load(demo)["jobs"]["j1"]["said"], landers, [key for key, _ in woken]) == (f"READY {url}", [], [YASYF])
 
 
 def test_a_red_required_check_ends_a_pushed_with_its_build_and_its_red_stage_wakes_its_builder_not_the_coordinator(
