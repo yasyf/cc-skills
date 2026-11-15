@@ -8176,21 +8176,25 @@ DRIVE_CHECKOUT = Path("/drive-checkout")
 LATCHED = "j2322 proved it live: Datadog read of monitor 341360574's query: 0 OpenAI /images/edits 400s from principal ci since ac3194dc merged"
 
 
-def incident_reads(monkeypatch: pytest.MonkeyPatch, statuses: dict[str, str], live: dict[str, bool]) -> list[list[str]]:
+def incident_reads(monkeypatch: pytest.MonkeyPatch, statuses: dict[str, str], live: dict[str, bool], checkout: Path) -> list[list[str]]:
+    """The drive's checkout, whose infra/envs marks plat-usw2-prod production and plat-usw2-staging not, and release live reading api on both, production serving each fix PR live names and staging none, an older build."""
     calls = []
+    (checkout / "infra" / "envs").mkdir(parents=True)
+    (checkout / "infra" / "envs" / "plat-usw2-prod.yaml").write_text("id: plat-usw2-prod\nstage: prod\nprod: true\n")
+    (checkout / "infra" / "envs" / "plat-usw2-staging.yaml").write_text("id: plat-usw2-staging\nstage: staging\n")
 
-    def run(argv: list[str], checkout: Path, env: dict | None = None, stdin: str | None = None) -> str:
+    def run(argv: list[str], at: Path, env: dict | None = None, stdin: str | None = None) -> str:
         calls.append(argv)
         if argv[0] == "pup":
             return json.dumps([{"id": int(monitor), "status": status} for monitor, status in statuses.items()])
         if argv[1:3] == ["release", "live"]:
-            return json.dumps([{"target": "api", "component": "platform", "env": "plat-usw2-prod", "commit": "c0ffee"}])
+            return json.dumps([{"target": "api", "component": "platform", "env": env, "commit": commit} for env, commit in (("plat-usw2-prod", "c0ffee"), ("plat-usw2-staging", "01d5ca1e"))])
         return ""
 
     monkeypatch.setattr(watch.reads, "run", run)
-    monkeypatch.setattr(watch.orca, "checkout", lambda name, clone: DRIVE_CHECKOUT)
+    monkeypatch.setattr(watch.orca, "checkout", lambda name, clone: checkout)
     monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {key: {"components": ["api"], "touched": ["api"], "dev": [], "releases": ["api"]} for key in keys})
-    monkeypatch.setattr(watch.github, "carrier", lambda clone: lambda build, merge, number: live[str(number)])
+    monkeypatch.setattr(watch.github, "carrier", lambda clone: lambda build, merge, number: build == "c0ffee" and live[str(number)])
     return calls
 
 
@@ -8208,12 +8212,12 @@ def o852(demo: str) -> None:
 
 
 def test_an_incident_with_no_monitor_held_by_its_open_fix_pr_closes_with_no_datadog_read_once_its_merged_fix_pr_runs_on_each_production_stack(
-    demo: str, monkeypatch: pytest.MonkeyPatch, ready_records: list[list[dict]]
+    demo: str, monkeypatch: pytest.MonkeyPatch, ready_records: list[list[dict]], tmp_path: Path
 ) -> None:
     served = {OTHER: read()}
     serve(monkeypatch, served)
     live = {"42": False}
-    calls = incident_reads(monkeypatch, {}, live)
+    calls = incident_reads(monkeypatch, {}, live, tmp_path)
     with state.edit(demo) as data:
         data["orders"]["o1"].update(incident=True, parts={"fix": state.new_part()}, jobs=["j1", "j2"])
         data["prs"][KEY].update(state="merged", merged_sha="abc123")
@@ -8243,11 +8247,11 @@ def test_an_incident_with_no_monitor_held_by_its_open_fix_pr_closes_with_no_data
 
 
 def test_o761s_incident_on_a_surface_he_uses_holds_its_live_line_with_one_prove_line_until_a_builders_done_keeps_a_recording_from_there(
-    demo: str, monkeypatch: pytest.MonkeyPatch, ready_records: list[list[dict]]
+    demo: str, monkeypatch: pytest.MonkeyPatch, ready_records: list[list[dict]], tmp_path: Path
 ) -> None:
     serve(monkeypatch, {})
     monkeypatch.setattr(watch.agents, "handle", lambda name, brief, **_: ("h1", False))
-    incident_reads(monkeypatch, {}, {"42": True})
+    incident_reads(monkeypatch, {}, {"42": True}, tmp_path)
     surface, recording = "the Iris chat on a Mac", "/tmp/proofs/o761-chat-answers.mov"
     fixed = f"{state.pr_url(KEY)} live in production"
     with state.edit(demo) as data:
@@ -8277,9 +8281,9 @@ def test_o761s_incident_on_a_surface_he_uses_holds_its_live_line_with_one_prove_
     assert state.load(demo)["orders"]["o1"]["proof"] == f"{fixed}; {recording}"
 
 
-def test_an_incident_whose_drive_checkout_cannot_move_to_the_default_branch_head_closes_nothing_and_says_so_from_the_third_failed_read(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_an_incident_whose_drive_checkout_cannot_move_to_the_default_branch_head_closes_nothing_and_says_so_from_the_third_failed_read(demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     serve(monkeypatch, {})
-    calls = incident_reads(monkeypatch, {}, {"42": True})
+    calls = incident_reads(monkeypatch, {}, {"42": True}, tmp_path)
 
     def unmoved(name: str, clone: str) -> Path:
         raise state.DriveError("the drive's checkout was not moved to the head of its default branch")
@@ -8298,13 +8302,13 @@ def test_an_incident_whose_drive_checkout_cannot_move_to_the_default_branch_head
     )
 
 def test_o852s_close_in_record_682673_replayed_stays_open_with_its_five_minute_line_while_its_monitor_reads_ok_and_closes_once_both_fix_prs_run_in_production(
-    demo: str, monkeypatch: pytest.MonkeyPatch, ready_records: list[list[dict]]
+    demo: str, monkeypatch: pytest.MonkeyPatch, ready_records: list[list[dict]], tmp_path: Path
 ) -> None:
     serve(monkeypatch, {})
     monkeypatch.setattr(watch.agents, "handle", lambda name, brief, **_: ("h1", False))
     o852(demo)
     live = {"55166": True, "55225": False}
-    calls = incident_reads(monkeypatch, {"341360574": "OK"}, live)
+    calls = incident_reads(monkeypatch, {"341360574": "OK"}, live, tmp_path)
     watching = watcher(demo)
     assert [line for line in watch.run_pass(watching, T0) if line.startswith("RECOVERED")] == []
     data = state.load(demo)
@@ -8321,17 +8325,17 @@ def test_o852s_close_in_record_682673_replayed_stays_open_with_its_five_minute_l
         f"RECOVERED o852: {O852_MONITOR} read OK and {fixed}, so the communicator posts its Live line and closes o852"
     ]
     assert state.load(demo)["orders"]["o852"]["proof"] == f"{O852_MONITOR} read OK at {render.when(state.stamp(closed_at))}; {fixed}"
-    assert [argv for argv in calls if argv[1:3] == ["release", "live"]] == [[str(DRIVE_CHECKOUT / "tools" / "ci"), "release", "live", "--json"]] * 3
+    assert [argv for argv in calls if argv[1:3] == ["release", "live"]] == [[str(tmp_path / "tools" / "ci"), "release", "live", "--json"]] * 3
 
 
-def test_o852_the_deleted_latch_closed_with_its_fix_not_live_is_back_on_the_strip_once_drive_json_loads_and_a_closed_incident_keeps_its_close(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_o852_the_deleted_latch_closed_with_its_fix_not_live_is_back_on_the_strip_once_drive_json_loads_and_a_closed_incident_keeps_its_close(demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     serve(monkeypatch, {})
     o852(demo)
     closed_at = state.stamp(T0 - timedelta(minutes=1))
     with state.edit(demo) as data:
         data["orders"]["o852"].update(fixed=LATCHED, recovered=closed_at, proof=f"{O852_MONITOR} read OK at 5:45pm; {LATCHED}")
         data["orders"]["o1"].update(incident=True, state="done", fixed=LATCHED, recovered=closed_at, proof="read OK")
-    incident_reads(monkeypatch, {"341360574": "OK"}, {"55166": True, "55225": False})
+    incident_reads(monkeypatch, {"341360574": "OK"}, {"55166": True, "55225": False}, tmp_path)
     data = state.load(demo)
     assert ("fixed" in data["orders"]["o852"], data["orders"]["o852"]["recovered"], data["orders"]["o852"]["proof"]) == (False, None, None)
     assert ("fixed" in data["orders"]["o1"], data["orders"]["o1"]["recovered"], data["orders"]["o1"]["proof"]) == (False, closed_at, "read OK")
@@ -8344,11 +8348,11 @@ def test_o852_the_deleted_latch_closed_with_its_fix_not_live_is_back_on_the_stri
     [("Alert", True, "fix", False), ("OK", False, "fix", False), ("OK", True, "stop", False), ("OK", True, "fix", True)],
 )
 def test_an_incident_closes_once_its_monitor_reads_ok_and_its_merged_fix_pr_runs_on_each_production_stack_moving_the_follow_ups_of_each_of_its_orders_to_a_plain_order(
-    demo: str, monkeypatch: pytest.MonkeyPatch, ready_records: list[list[dict]], status: str, live: bool, part: str, closes: bool
+    demo: str, monkeypatch: pytest.MonkeyPatch, ready_records: list[list[dict]], status: str, live: bool, part: str, closes: bool, tmp_path: Path
 ) -> None:
     reads = {OTHER: read()}
     serve(monkeypatch, reads)
-    calls = incident_reads(monkeypatch, {"315028134": status}, {"42": live})
+    calls = incident_reads(monkeypatch, {"315028134": status}, {"42": live}, tmp_path)
     with state.edit(demo) as data:
         parts = {name: state.new_part() for name in ("fix", "stop", "cause", "follow-up")}
         data["orders"]["o1"].update(incident=True, thread=["D123", "1794200000.000100"], note="record 5f6b2b5", alerts=[MONITOR], jobs=["j1", "j2"], parts=parts)
@@ -8465,11 +8469,11 @@ def test_the_watchs_close_report_is_its_orders_one_close_so_the_cci_post_hook_re
 
 @pytest.mark.parametrize("count", [1, 100])
 def test_the_watch_reads_where_every_open_incidents_merged_fix_prs_run_in_one_release_live_read_and_their_monitors_in_one_search(
-    demo: str, monkeypatch: pytest.MonkeyPatch, count: int
+    demo: str, monkeypatch: pytest.MonkeyPatch, count: int, tmp_path: Path
 ) -> None:
     serve(monkeypatch, {})
     numbers = [str(1000 + number) for number in range(count)]
-    calls = incident_reads(monkeypatch, {}, dict.fromkeys(numbers, True))
+    calls = incident_reads(monkeypatch, {}, dict.fromkeys(numbers, True), tmp_path)
     with state.edit(demo) as data:
         for number in numbers:
             key = f"Forge-AI/monorepo#{number}"

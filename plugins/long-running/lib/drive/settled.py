@@ -187,6 +187,7 @@ PROSE_FLAGS = frozenset({"targets", *UNCHANGED, "emergency"})
 TENANTS = re.compile(r"^tenants:\n((?:[ -].*(?:\n|$))*)", re.MULTILINE)
 TEAM_NAME = re.compile(r"^[ -] (?:name|displayName): *(.+?) *$", re.MULTILINE)
 STAGE = re.compile(r"^stage: *(\S+) *$", re.MULTILINE)
+PROD = re.compile(r"^prod: *true *$", re.MULTILINE)
 STAGING = "staging"
 PRODUCTION = "production, every environment except staging"
 ASKS_PAGE = Noul(
@@ -683,6 +684,11 @@ def stage(place: str, cwd: str) -> str | None:
     """A place's stage, such as staging or prod, as the place's infra/envs file of the drive's checkout gives it; None for a place with no such file."""
     found = STAGE.search(env_file(place, cwd))
     return found[1] if found else None
+
+
+def prod(place: str, cwd: str) -> bool:
+    """Whether go/ci counts a place as production, as its Model.Prod reads it: the place's infra/envs file of the drive's checkout marks it `prod: true`, as plat-usw2-prod and each tenant's cluster are and staging, dev and sandbox are not."""
+    return bool(PROD.search(env_file(place, cwd)))
 
 
 def env_file(place: str, cwd: str) -> str:
