@@ -30,6 +30,7 @@ WAITS = "demo:j1-7"
 CARD_URL = "https://acme.slack.com/archives/D123/p1794300000000100"
 PR_URL = "https://github.com/yasyf/cc-skills/pull/7"
 POSTED = "https://acme.slack.com/archives/D123/p1794300000000900"
+UNDER = "https://acme.slack.com/archives/D123/p1794300000000950"
 QUESTION = "Lock each chat's database, or the whole table?"
 ASKED = "2026-11-10T20:59:00-08:00"
 AWAY = "2026-11-10T21:30:00-08:00"
@@ -479,11 +480,13 @@ def test_the_watchs_ask_again_on_a_stack_card_says_why_it_asks_where_it_posted_a
     view.refresh_cards(demo)
     rows = [{"title": "only the root agent has tools that ask the operator"}, {"title": "every other agent mails the root"}, {"title": "the root asks for each mail it gets"}]
     monkeypatch.setattr("drive.card.cards", lambda asked: {"cards": [{"repo": "yasyf/cc-skills", "number": 7, "card": {"title": "New: approve 3 PRs?", "prs": rows}}], "skipped": []})
-    assert DRAW(demo, stack, again=True) == POSTED
+    sent = slack.cc_slack
+    monkeypatch.setattr(slack, "cc_slack", lambda *argv: sent(*argv) | {"card_permalink": UNDER})
+    assert DRAW(demo, stack, again=True) == UNDER
     line = "Asking again, since it fixes a reported bug: only the root agent has tools that ask the operator; every other agent mails the root; the root asks for each mail it gets"
     drawn = ("dm-status", "--agent", "claude", "--drive", "demo", "--as-holder", "--thread", "1794200000.000100", *(flag for key in stack for flag in ("--tap-pr", state.pr_url(key))))
-    assert posts == [drawn, (*drawn, "--", line)]
-    assert said(demo)[0]["text"] == line
+    assert posts == [(*drawn, "--", line)]
+    assert [(event["text"], event["card"]) for event in said(demo)] == [(line, UNDER)]
 
 
 def test_a_draw_of_his_card_under_the_waits_id_of_one_he_answered_posts_nothing_until_a_pr_on_it_changed_since(
@@ -509,6 +512,9 @@ def test_a_line_over_his_card_that_check_post_flags_and_jev_reads_as_shorthand_p
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Run page", "show a run's history", "--owner", "coordinator")
     building(demo)
+    standing = {"url": "https://acme.slack.com/archives/D123/p1794300000000500", "prs": [PR_URL], "asked": ASKED, "card": {"title": "Fix: approve the desk?", "prs": [{"url": PR_URL}]}}
+    monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS | {"pr_cards": [standing]})
+    view.refresh_cards(demo)
     monkeypatch.setattr("drive.card.cards", lambda asked: {"cards": [{"repo": "yasyf/cc-skills", "number": 7, "card": {"title": "Fix: approve the desk?", "prs": [{"title": "the desk sheds j12"}]}}], "skipped": []})
     checked.findings = ["1:28 drive-term 'desk': name the role by what it does"]
     jev.picks("holds")
@@ -518,12 +524,32 @@ def test_a_line_over_his_card_that_check_post_flags_and_jev_reads_as_shorthand_p
     assert (posts, said(demo)) == ([], [])
     assert jev.asked[-1]["state"] == {"post": {"text": line}, "findings": {"f1": {"rule": agents.PLAIN_WORDS_RULE, "found": checked.findings[0]}}}
     jev.answer = None
-    assert DRAW(demo, ["yasyf/cc-skills#7"], again=True) == POSTED
-    drawn = ("dm-status", "--agent", "claude", "--drive", "demo", "--as-holder", "--tap-pr", PR_URL)
-    assert posts == [drawn, (*drawn[:6], "--thread", "1794300000.000900", *drawn[6:], "--", line)]
+    sent = slack.cc_slack
+    monkeypatch.setattr(slack, "cc_slack", lambda *argv: sent(*argv) | {"card_permalink": UNDER})
+    assert DRAW(demo, ["yasyf/cc-skills#7"], again=True) == UNDER
+    assert posts == [("dm-status", "--agent", "claude", "--drive", "demo", "--as-holder", "--thread", "1794300000.000500", "--tap-pr", PR_URL, "--", line)]
 
 
-def test_a_pr_card_goes_in_the_thread_of_each_open_order_its_pr_carries_out_so_the_one_he_reads_carries_its_link(
+def test_a_line_asking_his_tap_again_posts_nothing_with_no_thread_to_go_in_and_one_cc_slack_drew_no_card_under_is_kept_as_said_so_the_watch_posts_it_not_again(
+    demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Run page", "show a run's history", "--owner", "coordinator")
+    building(demo)
+    monkeypatch.setattr("drive.card.cards", lambda asked: {"cards": [{"repo": "yasyf/cc-skills", "number": 7, "card": {"title": "Fix: approve the run page?", "prs": [{"title": "the run page shows its history"}]}}], "skipped": []})
+    with pytest.raises(DriveError, match="nothing was posted: no order of yasyf/cc-skills#7 has a thread and no open card of his shows their heads"):
+        DRAW(demo, ["yasyf/cc-skills#7"], again=True)
+    assert (posts, said(demo)) == ([], [])
+    standing = {"url": "https://acme.slack.com/archives/D123/p1794300000000500", "prs": [PR_URL], "asked": ASKED, "card": {"title": "Fix: approve the run page?", "prs": [{"url": PR_URL}]}}
+    monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS | {"pr_cards": [standing]})
+    view.refresh_cards(demo)
+    sent = slack.cc_slack
+    monkeypatch.setattr(slack, "cc_slack", lambda *argv: sent(*argv) | {"warning": "the card command did not finish"})
+    with pytest.raises(DriveError, match=f"posted {POSTED}, so post it not again, but cc-slack named no card of yasyf/cc-skills#7 under it: the card command did not finish"):
+        DRAW(demo, ["yasyf/cc-skills#7"], again=True)
+    assert [(event["text"], event["url"], event["card"]) for event in said(demo)] == [(f"{talk.ASKING_AGAIN} a reported bug: the run page shows its history", POSTED, None)]
+
+
+def test_a_pr_card_goes_under_its_first_line_in_his_dm_and_each_other_open_orders_thread_links_it_so_one_card_carries_the_buttons(
     demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Run page", "show a run's history", "--thread", "1794200000.000100", "--owner", "coordinator")
@@ -544,7 +570,8 @@ def test_a_pr_card_goes_in_the_thread_of_each_open_order_its_pr_carries_out_so_t
     )
     talk.say(demo, team | TICKET)
     assert posts == [
-        *(("dm-status", "--agent", "claude", "--drive", "demo", "--as-holder", "--thread", thread, "--tap-pr", PR_URL, "--", "land these") for thread in ("1794200000.000100", "1794300000.000100")),
+        ("dm-status", "--agent", "claude", "--drive", "demo", "--as-holder", "--thread", "1794200000.000100", "--tap-pr", PR_URL, "--", "land these"),
+        ("dm-status", "--agent", "claude", "--drive", "demo", "--as-holder", "--thread", "1794300000.000100", "--", f"land these\n<{POSTED}|the run page shows its history>"),
         (
             "reply", "--agent", "claude", "--channel", "C9TEAM", "--thread", "1794500000.000100", "--text", f"land these\n<{POSTED}|the run page shows its history>",
             "--ticket", "t1", "--ticket-tree", "tree1", "--ticket-agent", "agent1", "--ticket-call", "call1", "--ticket-fingerprint", "print1",

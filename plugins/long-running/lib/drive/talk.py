@@ -501,11 +501,12 @@ def posted(name: str, post: dict, order: str | None = None) -> dict:
         reply |= {"sent": sent}
         if first[1] and view.drawn_on(data, *view.SLACK_TS.findall(sent)):
             keep_line(name, first[1], reply["permalink"], sent)
-    cards = [reply.get("card_permalink"), *(linked(name, data, reply["permalink"], place, stack, refs.slack(words, found, place[1]), kept, post.get("request_key")) for place in rest if place[0] in operators)]
+    label = card["title"] if card else "; ".join(view.pr_title(data["prs"][key]) for key in stack)
+    for place in [place for place in rest if place[0] in operators]:
+        linked(name, data, reply, place, stack, refs.slack(words, found, place[1]), label, kept, post.get("request_key"))
     if stack:
         with state.edit(name) as data:
-            state.join_pr_cards(data, stack, cards, state.stamp())
-    label = card["title"] if card else "; ".join(view.pr_title(data["prs"][key]) for key in stack)
+            state.join_pr_cards(data, stack, [reply.get("card_permalink")], state.stamp())
     for place in [place for place in rest if place[0] not in operators]:
         reply |= {"permalink": carried(name, reply, place, post, refs.slack(words, found, place[1]), label, kept, stack)}
     return reply
@@ -593,23 +594,26 @@ def shown_in(name: str, post: dict) -> str | None:
     return places(state.load(name), post, [state.pr_key(each) for each in post.get("tap_prs") or []])[0][1]
 
 
-def linked(name: str, data: dict, first: str, where: tuple[str, str], stack: list[str], sent: str, kept: str, key: str | None) -> str | None:
-    """Post a PR card's line in one more thread of his DM or of an operator channel, where cc-slack links the card it drew under the line, and keep it for the dashboard; the card's link cc-slack names. A failure says the card already went out, so nothing is posted again."""
+def linked(name: str, data: dict, reply: dict, where: tuple[str, str], stack: list[str], sent: str, label: str, kept: str, key: str | None) -> None:
+    """Post a PR card's line in one more thread of his DM or of an operator channel, linking the card cc-slack drew under the first line, which keeps its buttons there, since a line naming the PRs in tap_prs moves their card under itself, and keep it for the dashboard. A failure says the card already went out, so nothing is posted again."""
     channel, thread = where
+    card, text = card_link(reply, sent, label)
     try:
-        reply = slack.cc_slack(*status(name, data, {"channel_id": channel, "thread_ts": thread, "request_key": key}, stack, [], sent))
+        line = slack.cc_slack(*status(name, data, {"channel_id": channel, "thread_ts": thread, "request_key": key}, [], [], text))
     except slack.SlackError as error:
-        raise slack.SlackError(f"posted {first} with its card, but its line in thread {thread} did not go out, so post neither again: {error}") from None
-    state.append_event(
-        name, "said", text=kept, channel=None if channel == slack.dm() else channel, thread=reply.get("thread_ts"), url=reply["permalink"], card=reply.get("card_permalink"), order=None, visuals=[], prs=stack, edited=False
-    )
-    return reply.get("card_permalink")
+        raise slack.SlackError(f"posted {reply['permalink']} with its card, but its line in thread {thread} did not go out, so post neither again: {error}") from None
+    state.append_event(name, "said", text=kept, channel=None if channel == slack.dm() else channel, thread=line.get("thread_ts"), url=line["permalink"], card=card, order=None, visuals=[], prs=stack, edited=False)
+
+
+def card_link(reply: dict, sent: str, label: str) -> tuple[str, str]:
+    """The card a say post drew, by the first link its reply names, else the post's own, and the line a post in another thread carries: its words, then that card's link under the label."""
+    card = (reply.get("card_permalink") or reply["permalink"]).split()[0]
+    return card, "\n".join(filter(None, [sent, f"<{card}|{label.translate(refs.LINK_WORDS)}>"]))
 
 
 def carried(name: str, reply: dict, place: tuple[str, str], post: dict, sent: str, label: str, kept: str, stack: list[str]) -> str:
     """Post a card's line in a thread outside his DM, such as an alert's, linking the card cc-slack drew in his DM, since cc-slack dm-status links a card into his DM's threads alone, through cc-slack reply with the ticket cc-slack's Slack permission hook attached to the say call, and keep it for the dashboard; its permalink. A failure says the card already went out, so nothing is posted again."""
-    card = (reply.get("card_permalink") or reply["permalink"]).split()[0]
-    text = "\n".join(filter(None, [sent, f"<{card}|{label.translate(refs.LINK_WORDS)}>"]))
+    card, text = card_link(reply, sent, label)
     try:
         line = slack.cc_slack("reply", "--agent", "claude", "--channel", place[0], "--thread", place[1], "--text", text, *keyed(post), *ticketed(post))
     except slack.SlackError as error:
@@ -638,7 +642,7 @@ def status(name: str, data: dict, post: dict, stack: list[str], pictures: list[s
 
 
 def draw(name: str, keys: list[str], again: bool = False) -> str:
-    """Draw his card on the PRs, as drive pr add draws it on the row it makes and the watch on a PR when it first needs his tap: cc-slack redraws the card where it sits, offering Approve again when drive card still asks it, or first posts it in the thread of the first order they carry out in his DM or an operator channel, at the root of their project's operator channel when they carry out none, his DM's when that project has none, and posts nothing else; `again`, on PRs that wait on him while they fix a live bug, then posts the line `waits_line` writes in that thread, or the card's own. Keep it as a said event and store his cards as cc-slack lists them now, which view.tap_card reads; the card's link. A card drive card refuses for every one of them, a line `plain` refuses, or a card whose waits id names a card he answered while no PR on it changed since, so his answer stands, posts nothing and says why."""
+    """Draw his card on the PRs, as drive pr add draws it on the row it makes and the watch on a PR when it first needs his tap: cc-slack redraws the card where it sits, offering Approve again when drive card still asks it, or first posts it in the thread of the first order they carry out in his DM or an operator channel, at the root of their project's operator channel when they carry out none, his DM's when that project has none, and posts nothing else; `again`, on PRs that wait on him while they fix a live bug, posts instead the line `waits_line` writes in that thread, or in his open card's own, naming the PRs, and cc-slack posts the card with its buttons right under that line and marks the card it replaces, so the line never goes out with nothing to tap under it. Keep it as a said event and store his cards as cc-slack lists them now, which view.tap_card reads; the card's link. A card drive card refuses for every one of them, a line `plain` refuses, or a card whose waits id names a card he answered while no PR on it changed since, so his answer stands, posts nothing and says why; a line asking again with no thread to go in, since no order of theirs has one and no open card of his shows their heads, posts nothing and says why, and a line cc-slack drew no card under is kept and said, so it is not posted again."""
     from drive import card
 
     drawn = card.cards([{"repo": key.split("#")[0], "number": int(key.split("#")[1])} for key in keys])
@@ -656,17 +660,21 @@ def draw(name: str, keys: list[str], again: bool = False) -> str:
     if again:
         plain(line)
     channel, thread = next((where for where in state.pr_threads(data, keys) if where[0] in slack.operators()), (slack.project_channel(name, project(data, {}, keys, None)), None))
-    reply = slack.cc_slack(*status(name, data, {"channel_id": channel, "thread_ts": thread}, keys, [], ""))
-    link = reply["card_permalink"].split()[0]
-    if again:
-        reply = slack.cc_slack(*status(name, data, {"channel_id": channel, "thread_ts": thread or view.card_thread(link)}, keys, [], line))
+    standing = next(filter(None, (view.tap_card(data, data["prs"][key], found) for key in keys)), None) if again else None
+    under = thread or (standing and view.card_thread(standing))
+    if again and not under:
+        raise DriveError(f"nothing was posted: no order of {', '.join(keys)} has a thread and no open card of his shows their heads, so no thread holds the card to ask his tap again under")
+    reply = slack.cc_slack(*status(name, data, {"channel_id": channel, "thread_ts": under}, keys, [], line if again else ""))
+    link = next(iter((reply.get("card_permalink") or "").split()), None)
     state.append_event(name, "said", text=line, channel=None if channel == slack.dm() else channel, thread=reply.get("thread_ts"), url=reply["permalink"], card=link, order=None, visuals=[], prs=keys, edited=False)
     view.refresh_cards(name)
+    if not link:
+        raise DriveError(f"posted {reply['permalink']}, so post it not again, but cc-slack named no card of {', '.join(keys)} under it: {reply.get('warning') or 'it gave no warning'}")
     return link
 
 
 def waits_line(data: dict, keys: list[str], titles: list[str]) -> str:
-    """The line the drive posts when it asks his tap again on PRs that fix a live bug, in the card's thread, with no link, so Slack draws no other card: why it asks, the open incident or reported bug they fix, and what the PRs on it do, by their titles."""
+    """The line the drive posts when it asks his tap again on PRs that fix a live bug, with the card cc-slack posts under it: why it asks, the open incident or reported bug they fix, and what the PRs on it do, by their titles."""
     incident = any(data["orders"][order_id]["incident"] for key in keys for order_id in state.served_orders(data, data["prs"][key]))
     return f"{ASKING_AGAIN} {'an open incident' if incident else 'a reported bug'}: {'; '.join(titles)}"
 

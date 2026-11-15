@@ -4164,13 +4164,14 @@ def redraw_lines(watcher: Watcher, moment: datetime, keys: set[str] | None = Non
 
 
 def stage_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Keep each heard unmerged PR's stage, as stage.of names it from the approval, checks and head GitHub last answered for it, and act once on each open one that entered a stage or passed its deadline, leaving a PR never read, or whose last read failed, as it stands until a read answers for it: draw his card on each PR that entered uncarded or passed its deadline there, one card for the PRs of one card unit as drive card draws them, or redraw in place the card cc-slack keeps closed on one, so it offers Approve again and no second card shares its waits id, or, once a card of the unit leaves off a PR of its stack, native or chained by base branch, by view.apart, draw one fresh card for the unit and those PRs, which cc-slack marks each older card of theirs replaced by, wake the builder answering for a PR rework or red owe, ask forge-pr-reviewer once for a review of a head grading an hour and then wake its builder, wake past its deadline the job a waiting or blocked PR names as owing it and the builder of one its author lands, wake the session holding its order on one unlanded and on any other past its deadline but uncarded, and draw his card again, once per card unit, on the PRs that wait on him while they fix a live bug and whose card asks his tap, by state.asks_tap, with a line in its thread saying why it asks. A draw or redraw in place that fails, or leaves a PR that asks his tap with no card of his offering Approve at its head, as one cc-slack answers by linking a card he already answered does or a redraw cc-slack leaves the card closed under, clears the PR's stage, so the next read enters uncarded again and draws, and is said to the meta session from its third failure in a row."""
+    """Keep each heard unmerged PR's stage, as stage.of names it from the approval, checks and head GitHub last answered for it, and act once on each open one that entered a stage or passed its deadline, leaving a PR never read, or whose last read failed, as it stands until a read answers for it: draw his card on each PR that entered uncarded or passed its deadline there, one card for the PRs of one card unit as drive card draws them, or redraw in place the card cc-slack keeps closed on one, so it offers Approve again and no second card shares its waits id, or, once a card of the unit leaves off a PR of its stack, native or chained by base branch, by view.apart, draw one fresh card for the unit and those PRs, which cc-slack marks each older card of theirs replaced by, wake the builder answering for a PR rework or red owe, ask forge-pr-reviewer once for a review of a head grading an hour and then wake its builder, wake past its deadline the job a waiting or blocked PR names as owing it and the builder of one its author lands, wake the session holding its order on one unlanded and on any other past its deadline but uncarded, and draw his card again, once per card unit, on the PRs that wait on him while they fix a live bug and whose card asks his tap, by state.asks_tap, once he was heard after that card went up and after the watch last woke on them, by heard_since_shown, with a line in its thread saying why it asks, under which cc-slack posts the card. A draw or redraw in place that fails, or leaves a PR that asks his tap with no card of his offering Approve at its head, as one cc-slack answers by linking a card he already answered does or a redraw cc-slack leaves the card closed under, clears the PR's stage, so the next read enters uncarded again and draws, and is said to the meta session from its third failure in a row."""
     if watcher.cards is None:
         return []
     with state.edit(watcher.name) as data:
         stacks = land.landing_stacks(data)
         units = {key: state.card_unit(key, stacks.get(key, ()), pr) for key, pr in data["prs"].items()}
         acts = []
+        woke = {}
         for key in state.unmerged_pr_keys(data):
             pr = data["prs"][key]
             if key in watcher.stale or pr["required"] is None or not hears(watcher, data, pr["order"]):
@@ -4182,6 +4183,7 @@ def stage_lines(watcher: Watcher, moment: datetime) -> list[str]:
                     acts.append((key, now, True, stage.line(key, pr, now) + f" {ids(pr)}"))
             elif stage.overdue(data, pr, now, moment):
                 stage.kept(pr, now)
+                woke[key] = pr["stage"]["woke"] or pr["stage"]["since"]
                 pr["stage"]["woke"] = state.stamp(moment)
                 acts.append((key, now, False, stage.line(key, pr, now) + f" {ids(pr)}"))
             else:
@@ -4223,6 +4225,8 @@ def stage_lines(watcher: Watcher, moment: datetime) -> list[str]:
             continue
         watcher.failures.pop("card draw", None)
     for keys in asked.values():
+        if not heard_since_shown(data, keys, watcher.cards, max((woke[key] for key in keys), key=state.parse_time)):
+            continue
         try:
             talk.draw(watcher.name, keys, again=True)
         except (slack.SlackError, state.DriveError) as error:
@@ -4230,6 +4234,14 @@ def stage_lines(watcher: Watcher, moment: datetime) -> list[str]:
             continue
         watcher.failures.pop("card ask", None)
     return lines
+
+
+def heard_since_shown(data: dict, keys: list[str], found: dict, woke: str) -> bool:
+    """Whether he was heard since the watch last woke on these PRs' stage, woke, its wake before this one, else when the stage began, and since his open card on any of them was last put in front of him, so the drive asks his tap again at most once while he is not heard, a line cc-slack drew no card under included: each line asking it again posts that card fresh under itself, so the card's own post time is when he was last asked; a PR with no open card at its head counts as never shown."""
+    if not (heard := data["owner"]["heard"]) or state.parse_time(heard) <= state.parse_time(woke):
+        return False
+    shown = [view.tap_card(data, data["prs"][key], found) for key in keys]
+    return any(card is None or state.parse_time(heard).timestamp() > int(view.message_key(card)) / 1_000_000 for card in shown)
 
 
 def draw_questions(watcher: Watcher, moment: datetime) -> None:
