@@ -634,6 +634,10 @@ restating it.
   report withdrawn, which it must leave out. A correction that
   comes after rewords the catch-up post: `say` of it posts nothing and names that post, and a
   second catch-up while none is owed posts nothing.
+- A report found wrong after its post went out is corrected, never reported again: a report to
+  the communicator `re` the seq of a `POST` report its own lane sent goes out as a `correction`,
+  which no one-report-a-turn rule holds, and the watch starts the handler that rewords the post
+  the report went out in, which `say` of the correction names.
 - That report carries `catch_up=true`, so `say` opens the post with the bold title
   `*Catch-up since <the time he was last heard>*` whatever the text says, and closes it with a
   count of every open card waiting on him, the list his status page queues, linking that queue on
@@ -859,6 +863,10 @@ restating it.
   it went to answered, until a job of that order is made or started, by his words b4b64f5 "fix your
   toolking so tracking this stuff beciomes deterministic and it cant get lost at the whims of an
   agent". `say` refuses a handler's line saying a job is being started with neither.
+- A card promised before it is drawn. A line saying a card is coming names that card, open now,
+  as `{card:<waits id>}`, or is the post that draws it; `say` and a report to the communicator
+  refuse any other, since a card no one drew may never come, as when an answer of his already
+  settled its question.
 - The current time, and any time you estimated: Slack already stamps every post. Compute a promised
   time from `date`, or write it as `+30m` to `--due` and read it back from `drive status`, never from
   your sense of how long the turn has run, which drifts.

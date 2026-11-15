@@ -33,6 +33,7 @@ QUESTION = "Lock each chat's database, or the whole table?"
 ASKED = "2026-11-10T20:59:00-08:00"
 AWAY = "2026-11-10T21:30:00-08:00"
 AMENDMENTS = agents.amendments
+POSTS = agents.posts
 DRAW = talk.draw
 SSQL = "are we doing the ssql release foe it"
 FOOTERS = "why didnt our release footers whatever catch this and bring ssql along with API"
@@ -1104,6 +1105,18 @@ def test_amendments_reads_each_correction_and_withdrawal_re_the_reports_in_one_c
     ]
 
 
+def test_the_watch_reads_each_post_report_and_post_correction_to_the_communicator_in_one_cci_tail(monkeypatch: pytest.MonkeyPatch) -> None:
+    tail = [
+        {"seq": 700, "kind": "report", "to": ["communicator@demo"], "text": "POST his release card is coming"},
+        {"seq": 701, "kind": "report", "to": ["communicator@demo"], "text": "FYI the cut is green"},
+        {"seq": 702, "kind": "correction", "re": 700, "to": ["communicator@demo"], "text": "POST no release card follows"},
+    ]
+    calls: list[list[str]] = []
+    monkeypatch.setattr(reads, "run", lambda argv, checkout: calls.append(argv) or "".join(json.dumps(record) + "\n" for record in tail))
+    assert POSTS("demo") == ["700", "702"]
+    assert calls[0][:10] == ["cci", "tail", "--drive", "demo", "--to", "communicator", "--kind", "report", "--kind", "correction"]
+
+
 def test_a_report_post_names_each_correction_cci_holds_re_it(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch, cci_amendments: dict[str, dict[str, list[str]]]) -> None:
     report(monkeypatch, {"orders": "o1"})
     cci_amendments["correction"]["669950"] = ["669952"]
@@ -1142,9 +1155,25 @@ def test_a_correction_of_a_held_report_rides_with_it_and_one_after_his_catch_up_
     assert talk.say(demo, {"text": "Each request reads 16 MiB.", "record": "669999"}).endswith(
         f"; it carries the reports held for it, no longer held: 669950; cci holds corrections 669952, 669980 of them: unless this post carries each, reword it with say(edit={POSTED}, text=…)"
     )
-    assert (state.load(demo)["held"], state.load(demo)["carried"]) == ({}, {"669950": POSTED})
-    with pytest.raises(DriveError, match=f"nothing posted: record 669980 corrects report 669950, which his catch-up {re.escape(POSTED)} carried: reword that post"):
+    assert (state.load(demo)["held"], state.load(demo)["carried"]) == ({}, {"669950": POSTED, "669999": POSTED})
+    with pytest.raises(DriveError, match=f"nothing posted: record 669980 corrects report 669950, which went out in {re.escape(POSTED)}: reword that post"):
         talk.say(demo, {"text": "It reads 12 MiB a request.", "record": "669980"})
+
+
+def test_a_correction_of_a_report_already_posted_names_the_post_it_went_out_in_to_reword(
+    demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch, cci_amendments: dict[str, dict[str, list[str]]]
+) -> None:
+    records = {"669950": {"kind": "report", "attrs": {"orders": "o1"}}, "669980": {"kind": "correction", "re": 669950}}
+
+    def shown(argv: list[str], checkout: Path) -> str:
+        record = records[argv[2]]
+        return json.dumps({"seq": argv[2], "lane": "root", "at": "2026-11-11T09:08:16.896Z", "fields": {"attrs": record.get("attrs", {})}} | record)
+
+    monkeypatch.setattr(cli.reads, "run", shown)
+    talk.say(demo, {"text": "Each request reads 64 MiB.", "record": "669950"})
+    with pytest.raises(DriveError, match=f"nothing posted: record 669980 corrects report 669950, which went out in {re.escape(POSTED)}: reword that post with say\\(edit={re.escape(POSTED)}"):
+        talk.say(demo, {"text": "Each request reads 16 MiB.", "record": "669980"})
+    assert len(posts) == 1
 
 
 def test_a_held_report_its_writer_withdrew_goes_out_in_no_post_and_gives_back_the_close_it_claimed_on_an_open_order(
@@ -1163,7 +1192,7 @@ def test_a_held_report_its_writer_withdrew_goes_out_in_no_post_and_gives_back_th
         f" unless this post leaves each out, reword it with say(edit={POSTED}, text=…)"
     )
     data = state.load(demo)
-    assert (data["held"], data["carried"]) == ({}, {"695810": POSTED})
+    assert (data["held"], data["carried"]) == ({}, {"695810": POSTED, "695999": POSTED})
     assert {order_id: data["orders"][order_id]["closed_on"] for order_id in ("o946", "o1015", "o771")} == {"o946": None, "o1015": "695810", "o771": "695689"}
 
 

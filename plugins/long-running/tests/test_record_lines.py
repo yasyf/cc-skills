@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 import record_lines
 from conftest import SHORT_ASK
-from drive import agents, limits, reads, settled, slack, state
+from drive import agents, limits, reads, settled, slack, state, view
 
 SESSION = "session-under-test"
 ALERT = "1794413465.441409"
@@ -484,6 +484,27 @@ def test_a_report_saying_something_waits_on_him_names_its_card(demo: str) -> Non
     assert record_lines.decision(post(kind="report", text="POST the copy fix waits on his pick", to=TO, attrs={"waits": "durable-agents:j750-661229", **PROGRESS})) is None
     assert record_lines.decision(post(kind="report", text="POST the copy fix waits on his pick {card:durable-agents:j750-661229}", to=TO, attrs=PROGRESS)) is None
     assert record_lines.decision(post(kind="report", text="POST https://github.com/yasyf/cc-skills/pull/4093 waits on his pick", to=TO, attrs=PROGRESS)) is None
+
+
+def test_a_report_telling_him_a_card_is_coming_names_that_card_open_now(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    coming = "POST the release card is coming once the cut is green"
+    refused = refusal(record_lines.decision(post(kind="report", text=coming, to=TO, attrs=PROGRESS)))
+    assert isinstance(refused, agents.Unjudged) and "names no open card of his as {card:<waits id>}" in refused
+    named = f"{coming}: {{card:durable-agents:j750-661229}}"
+    assert record_lines.decision(post(kind="report", text=named, to=TO, attrs=PROGRESS)) is None
+    assert record_lines.decision(post(kind="report", text="POST no release card follows: his Nov 5 answer settled it", to=TO, attrs=PROGRESS)) is None
+    monkeypatch.setattr(view, "stored_cards", lambda name: (view.NO_CARDS, "live"))
+    assert "names no open card of his" in refusal(record_lines.decision(post(kind="report", text=named, to=TO, attrs=PROGRESS)))
+
+
+def test_a_report_re_its_own_lanes_post_report_goes_out_as_its_correction_in_the_same_turn(demo: str, turn: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    earlier = {"seq": 700, "kind": "report", "lane": "root", "to": TO, "text": "POST his release card is coming"}
+    monkeypatch.setattr(agents, "shown", lambda seq: earlier)
+    called(turn, "first", "mcp__plugin_cc-inbox_cci__post", {"kind": "report", "text": "POST j1 merged", "to": TO, "attrs": {"thread": THREAD, **PROGRESS}})
+    fix = {"kind": "report", "text": "POST no release card follows: his Nov 5 answer settled it", "to": TO, "re": 700, "attrs": {"thread": THREAD, **PROGRESS}}
+    assert record_lines.decision(coordinator(turn, **fix))["updatedInput"]["kind"] == "correction"
+    earlier["lane"] = "meta"
+    assert "one report per thread per turn" in refusal(record_lines.decision(coordinator(turn, **fix)))
 
 
 def test_a_wait_on_anything_else_says_how_long_and_whether_it_runs(demo: str) -> None:

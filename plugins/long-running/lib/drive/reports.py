@@ -116,6 +116,7 @@ def report_refusals(payload: dict, drive: dict, records: list[dict], index: int)
     yield not_thread(record)
     yield not_until(record)
     yield UNCARDED if WAITS_ON_HIM.search(text) and not attrs(record).get("waits") and not CARD_NAMED.search(f"{text}\n{record.get('body') or ''}") else None
+    yield agents.unpromised(drive["name"], f"{text}\n{record.get('body') or ''}")
     yield VAGUE_WAIT if WAITS_ON_OTHER.search(text) and not (WAITED.search(text) and RUNNING.search(text)) else None
     if thread and state.session_role(drive, payload.get("session_id")) in ("coordinator", "meta") and not payload.get("agent_id") and not state.open_incidents(drive, state.report_orders(drive, attrs(record))):
         yield second_report(payload, records, index, thread)

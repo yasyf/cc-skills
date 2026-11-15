@@ -1630,6 +1630,24 @@ def test_say_refuses_a_line_saying_work_has_no_one_on_it_until_it_names_the_job_
         assert say(transcript, text=text) is None, text
 
 
+def test_say_refuses_a_line_telling_him_a_card_is_coming_until_it_names_that_card_open_now_or_draws_it(
+    run: Run, talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
+    monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS)
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["questions"].append(state.new_question(None, "Cut the release?", state.stamp(), card=f"https://acme.slack.com/archives/{DM}/p1794288799976279") | {"waits": "demo:j1-7"})
+    coming = "The release card is coming once the cut is green."
+    refused = say(transcript, text=coming)
+    assert isinstance(refused, agents.Unjudged) and refused.startswith(f'refused: "{coming}" tells him a card is coming and names no open card of his')
+    assert say(transcript, text=f"The release card {{card:demo:j1-7}} is coming once the cut is green.") is None
+    assert posted(transcript, text=coming, card={"title": said(5), "body": coming, "options": ["Yes", "No"], "waits": "demo:j1-7"}) is None
+    assert say(transcript, text="No release card follows, since your Nov 5 answer settled it.") is None
+    monkeypatch.setattr(view, "stored_cards", lambda name: (view.NO_CARDS, "live"))
+    assert "names no open card of his" in say(transcript, text=f"The release card {{card:demo:j1-7}} is coming once the cut is green.")
+
+
 def test_say_refuses_a_handlers_line_saying_a_job_is_being_started_until_it_names_the_job_or_a_handoff_asking_for_one_no_job_answered_is_kept_on_its_order(
     talker: str, transcript: Path
 ) -> None:

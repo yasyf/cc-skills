@@ -4404,7 +4404,7 @@ def handler(args: argparse.Namespace) -> int:
     if re.search(rf"^{re.escape(agents.HIS_WORDS)}:", args.brief, re.MULTILINE):
         watch.hear(name, state.now(), args.away)
     briefed = answering(name, args) if args.answer else None
-    if (named := agents.RECORD.search(args.brief)) and agents.posted(name, named[1]):
+    if (named := agents.RECORD.search(args.brief)) and agents.posting(name, agents.shown(named[1])):
         handler_id, handed = agents.handle_report(name, named[1], args.brief, once=True, detached=True, briefed=briefed)
     else:
         handler_id, handed = agents.handle(name, args.brief, detached=True, briefed=briefed)
