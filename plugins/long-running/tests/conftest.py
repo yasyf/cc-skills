@@ -60,6 +60,7 @@ REAL_CHECKOUT = orca.checkout
 REAL_SPRITE_CONFIG = orca.sprite_config
 REAL_MAILBOX = orca.mailbox
 REAL_PLUGIN_COPIES_FIRST = install.plugin_copies_first
+REAL_DOWN_MAC_BOXES = state.down_mac_boxes
 SPRITE_CONFIG = "4b925c205080" + "0" * 52
 LANE_SPEC = Path(__file__).resolve().parents[2] / "orca" / "lib" / "lane.json"
 SETTLED_NOTE = cli.settled_note

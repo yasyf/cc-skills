@@ -4551,6 +4551,12 @@ def handler_start(args: argparse.Namespace) -> int:
     return emit(args, agents.start_kept(state.resolve(args.drive), args.id), {"handler": args.id})
 
 
+def mac_boxes_down(args: argparse.Namespace) -> int:
+    name = state.resolve(args.drive)
+    checkout = orca.checkout(name, state.load(name)["roles"]["coordinator"]["cwd"])
+    return max(subprocess.run([str(checkout / GO_CI), "mac-box", "down", "--holder", f"{name}/{job_id}"], cwd=checkout, stdin=subprocess.DEVNULL, check=False).returncode for job_id in args.jobs)
+
+
 def answering(name: str, args: argparse.Namespace) -> Callable[[str], str]:
     """The brief of his read-only question's handler once its answer order, titled as --answer names and filed under no project or workstream, and the handler's reader job on it are added, naming both, the pairs in use, which the handler picks from when it files the order with drive order set, and every open order in his thread with its jobs, questions and PRs, read from the drive and its stored cards, so the handler reads no drive status."""
     held = agents.holds(args.brief)
@@ -6047,6 +6053,11 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("id", help="the handler's id, as drive handler printed it")
     verb.set_defaults(run=handler_start)
+    verb = verbs.add_parser(
+        "mac-boxes-down", parents=both, help="take down the Mac boxes each job holds with tools/ci mac-box down --holder <drive>/<job> in the drive's checkout; a save that finishes a job runs it detached"
+    )
+    verb.add_argument("jobs", nargs="+", help="the jobs whose Mac boxes come down")
+    verb.set_defaults(run=mac_boxes_down)
     verb = verbs.add_parser(
         "finish", parents=both, help="run the drive writes an older install's verb made once its outside work went out, from the receipt it kept when this install saved the drive meanwhile; that verb runs it"
     )
