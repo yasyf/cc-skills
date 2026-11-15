@@ -2796,6 +2796,11 @@ def hold_done(job: dict, held: list[str]) -> None:
     job.update(state="waiting", said=f"WAITING {' '.join(map(pr_url, held))} to merge: {job['said']}", waits=list(dict.fromkeys([*job["waits"], *held])), waited=None)
 
 
+def tests_staging(job: dict) -> bool:
+    """Whether a job holds a `staging test of #N before it lands` part, on its own order or one it carries, never one following a release it started, by starts_cut, as staging_parts reads it."""
+    return not starts_cut(job) and any(STAGING_PART.fullmatch(part) for order_id in [job["order"], *job["carries"]] for part in job_parts(job, order_id))
+
+
 def staging_parts(data: dict, job: dict) -> list[tuple[str, str]]:
     """Each `staging test of #N before it lands` part a job holds, beside its order, its own order's first; none for a job following a release it started, by starts_cut, which runs no case of the test whatever part its add asked."""
     if starts_cut(job):
@@ -2813,16 +2818,18 @@ def part_testers(data: dict, order_id: str, part: str) -> list[tuple[str, dict]]
     return [(job_id, job) for job_id, job in part_jobs(data, order_id, part) if not starts_cut(job)]
 
 
-def post_staging_proof(data: dict, job_id: str, line: str, report: str) -> None:
-    """Keep on each staging test part a builder or codex job holds the run of its cases the job's DONE reports for that part's PR, by part_run, beside the job as posted_by, replacing an older job's, and the first proof the run's CHECK: lines name as posted when the run is a full pass, by full_pass, so the PR waiting on that part lands on each Approve he gave, before the test or after it, while the job's DONE waits on the PR's merge, a pass it newly keeps, by keep_pass, dated when the job first returned it; a DONE whose run is no full pass takes the part's proof back, and so does the next return other than DONE of the job whose run it holds, as take_result takes back an order's proof_by, but a DONE that ran no case of the part, naming none or each not exercised, as the watch's at a merge, drive job prove's and a job's following a release another job started are, leaves the part as it was, by keep_pass."""
+def post_staging_proof(data: dict, job_id: str, line: str, report: str, proven: bool = False) -> None:
+    """Keep on each staging test part a builder or codex job holds the run of its cases the job's DONE reports for that part's PR, by part_run, beside the job as posted_by, replacing an older job's, and the first proof the run's CHECK: lines name as posted when the run is a full pass, by full_pass, so the PR waiting on that part lands on each Approve he gave, before the test or after it, while the job's DONE waits on the PR's merge, a pass it newly keeps, by keep_pass, dated when the job first returned it; a DONE whose run is no full pass takes the part's proof back, and so does the next return other than DONE of the job whose run it holds, as take_result takes back an order's proof_by, but a DONE that ran no case of the part, naming none or each not exercised, as the watch's at a merge, drive job prove's and a job's following a release another job started are, leaves the part as it was, by keep_pass; on a builder whose brief names user stories, by brief.staged_stories, only a DONE drive job prove took once its proof file proved them keeps a pass, or one read as proven, as unstaged reads it."""
     job = data["jobs"][job_id]
     if job["kind"] in CHANGE_KINDS:
         for order_id, part in staging_parts(data, job):
-            keep_pass(data, order_id, part, job_id, line, report, job["returned"] or job["updated"])
+            keep_pass(data, order_id, part, job_id, line, report, job["returned"] or job["updated"], proven)
 
 
-def keep_pass(data: dict, order_id: str, part: str, job_id: str, line: str, report: str, moment: str) -> None:
-    """Keep or take back a staging test part's run on one return of a job testing it, kept at moment, as post_staging_proof says: a DONE running a case of the part keeps its cases and the job as posted_by, and its proof when they make a full pass, which, newly kept, is dated passed_at, when the job's first DONE carrying that proof was kept, so a WAITING between two DONEs of the same cases keeps the first's time; any other return of the job whose run the part holds takes its proof back, and a DONE running none of its cases leaves it."""
+def keep_pass(data: dict, order_id: str, part: str, job_id: str, line: str, report: str, moment: str, proven: bool = False) -> None:
+    """Keep or take back a staging test part's run on one return of a job testing it, kept at moment, as post_staging_proof says: a DONE running a case of the part keeps its cases and the job as posted_by, and its proof when they make a full pass, which, newly kept, is dated passed_at, when the job's first DONE carrying that proof was kept, so a WAITING between two DONEs of the same cases keeps the first's time; any other return of the job whose run the part holds takes its proof back, and a DONE running none of its cases leaves it; on a builder whose brief names user stories, by brief.staged_stories, its run makes a pass only on a DONE drive job prove took, by PROVEN_LINE, or one read as proven, so the builder's own DONE keeps its cases with no pass until its proof file proves its stories."""
+    from drive import brief
+
     held = data["orders"][order_id]["parts"][part]
     if not re.match(r"DONE\b", line):
         if held["posted_by"] == job_id:
@@ -2831,6 +2838,8 @@ def keep_pass(data: dict, order_id: str, part: str, job_id: str, line: str, repo
     cases, proof = full_pass(data, job_id, report, part)
     if all(UNEXERCISED_CASE.match(verdict) for _, verdict in cases):
         return
+    if (staged := not proven and brief.staged_stories(data["jobs"][job_id])) and not PROVEN_LINE.match(line):
+        proof = None
     kept = (held["posted"], held["posted_by"]) == (proof, job_id)
     held.update(posted_by=job_id, cases=[[case, verdict] for case, verdict in cases])
     if not proof:
@@ -2838,7 +2847,7 @@ def keep_pass(data: dict, order_id: str, part: str, job_id: str, line: str, repo
         return
     if kept:
         return
-    moment = min([moment, *(reply["created_at"] for reply in replies(data["name"], job_id) if re.match(r"DONE\b", body := reply["body"] or reply["subject"]) and full_pass(data, job_id, body, part)[1] == proof)], key=parse_time)
+    moment = min([moment, *(reply["created_at"] for reply in replies(data["name"], job_id) if re.match(r"DONE\b", body := reply["body"] or reply["subject"]) and (not staged or PROVEN_LINE.match(body)) and full_pass(data, job_id, body, part)[1] == proof)], key=parse_time)
     held.update(posted=proof, passed_at=moment)
 
 
@@ -2924,7 +2933,7 @@ def part_soak(data: dict, waits: list[str], part: str) -> str | None:
 
 
 def unstaged(data: dict, job_id: str, line: str, report: str) -> str | None:
-    """Why a staging test's DONE may not free the PRs held for it, naming the fix: a builder or codex job whose goal names staging or that holds a `staging test of #N before it lands` part, whose DONE, taken as take_result takes it, ends every wait an open PR holds on the job or a part it holds, never one following a release it started, by starts_cut, frees that PR only when a Buildkite build the CHECK: lines heading the PR's own run of cases name, by part_run, or every CHECK: line for a PR it tests no staging part of, passed, at a commit carrying the PR's head, an apply step on an env its infra/envs file marks `stage: staging` or the mac-box-approve step of a `tools/ci mac-box prove`, which signs in to staging a Mac box holding Iris Staging and sand-next built at that commit, the one staging test of a change only a Mac runs, which no staging deploy carries, read with one `bk build view` of each build and, in the coordinator's checkout, by github.uncarried, the lines each freed PR changes in each file since its fork from its base branch, which a shared cut squashing or replaying it on an older line carries too, a file no build ships aside, or, for a PR changing only tools/ci and go/ci, the code on go/ci's dev list its caller runs from a checkout, which no release deploys, by cli.release_reach's releases, the GitHub commit link of a commit carrying its head, the head that checkout ran, by the same read, since a soak that tested what staging already ran, or a cut built without the PRs, proves none of them; None for any other result."""
+    """Why a staging test's DONE may not free the PRs held for it, naming the fix: a builder or codex job whose goal names staging or that holds a `staging test of #N before it lands` part, whose DONE, taken as take_result takes it and read as its proof proven, which a DONE drive job prove proves before it delivers needs, ends every wait an open PR holds on the job or a part it holds, never one following a release it started, by starts_cut, frees that PR only when a Buildkite build the CHECK: lines heading the PR's own run of cases name, by part_run, or every CHECK: line for a PR it tests no staging part of, passed, at a commit carrying the PR's head, an apply step on an env its infra/envs file marks `stage: staging` or the mac-box-approve step of a `tools/ci mac-box prove`, which signs in to staging a Mac box holding Iris Staging and sand-next built at that commit, the one staging test of a change only a Mac runs, which no staging deploy carries, read with one `bk build view` of each build and, in the coordinator's checkout, by github.uncarried, the lines each freed PR changes in each file since its fork from its base branch, which a shared cut squashing or replaying it on an older line carries too, a file no build ships aside, or, for a PR changing only tools/ci and go/ci, the code on go/ci's dev list its caller runs from a checkout, which no release deploys, by cli.release_reach's releases, the GitHub commit link of a commit carrying its head, the head that checkout ran, by the same read, since a soak that tested what staging already ran, or a cut built without the PRs, proves none of them; None for any other result."""
     from drive import brief, cli, settled, view
 
     job = data["jobs"][job_id]
@@ -2936,6 +2945,7 @@ def unstaged(data: dict, job_id: str, line: str, report: str) -> str | None:
         return None
     taken = marshal.loads(marshal.dumps(data))
     take_result(taken, job_id, line, report)
+    post_staging_proof(taken, job_id, line, report, proven=True)
     if not (freed := [key for key, waits in held.items() if not view.holding(taken, waits, None)]):
         return None
     clone = data["roles"]["coordinator"]["cwd"]
@@ -3028,8 +3038,7 @@ def staging_runs(data: dict, pr: dict) -> list[str]:
 def staging_tester(data: dict, wait: str) -> str | None:
     """The job running the staging test a PR's wait names: the job it names while that job carries a `staging test of #N before it lands` part, or builds nothing, proves no merge live and follows no release it started, as a tester over several PRs does, or the tester of the staging test part it names, by part_tester; None for any other wait."""
     if job := data["jobs"].get(wait):
-        testing = any(STAGING_PART.fullmatch(part) for order_id in [job["order"], *job["carries"]] for part in job_parts(job, order_id))
-        return wait if (testing or builds_nothing(job) and not PROVER_GOAL.fullmatch(job["goal"])) and not starts_cut(job) else None
+        return wait if tests_staging(job) or builds_nothing(job) and not PROVER_GOAL.fullmatch(job["goal"]) and not starts_cut(job) else None
     if (part := part_wait(data, wait)) and STAGING_PART.fullmatch(part[1]):
         return part_tester(data, *part)
     return None

@@ -1,4 +1,5 @@
 import fcntl
+import io
 import json
 import os
 import plistlib
@@ -2098,6 +2099,30 @@ def test_a_proof_of_something_he_sees_takes_blocked_naming_every_gap_in_each_use
     closing = "".join(f"drive job prove: {gap}\n" for gap in gaps) + f"drive job prove: a proof file prints {brief.STORY_LINES}\n"
     assert state.proof_path("demo", "j1").read_text() == printed + closing
     assert jev.asked == []
+
+
+@pytest.mark.parametrize(("exits", "delivered"), [(0, True), (1, False)])
+def test_a_staging_testers_done_on_a_brief_naming_user_stories_is_kept_for_drive_job_prove_which_delivers_its_part_on_the_unmerged_pr_only_when_its_proof_file_exits_0(
+    config: Path, tmp_path: Path, fake: Callable[..., FakeGit], monkeypatch: pytest.MonkeyPatch, exits: int, delivered: bool
+) -> None:
+    part = "staging test of #42 before it lands"
+    tester = {"state": "running", "said": None, "parts": [part], "goal": "test #42 on staging before it lands", "builds_nothing": True, "brief_flags": {"native": "the dashboard's queue", "interactions": QUEUE_STORIES}}
+    script = repairing(config, tmp_path, fake([BUILD], {BUILD}), exits, tester)
+    press, cases = tmp_path / "press-j.png", tmp_path / "cases.txt"
+    press.write_bytes(b"\0")
+    cases.write_text("case 1 passed\n")
+    script.write_text(f"#!/bin/sh\ncat <<'EOF'\n{story_output(press)}EOF\nexit {exits}\n")
+    with state.edit("demo") as data:
+        data["orders"]["o1"]["parts"] = {part: state.new_part()}
+    monkeypatch.setattr("sys.stdin", io.StringIO(f"DONE every case of #42 passed on staging\nCHECK: {cases}\nCASE 1 j opens the next card: pass\n"))
+    assert cli.main(["job", "report", "j1", "-", "--drive", "demo"]) == 0
+    data = state.load("demo")
+    assert (data["jobs"]["j1"]["state"], install.done_unproven(data, "j1"), state.delivered(data, "o1", part)) == ("done", True, False)
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["proof"] = {"pid": os.getpid(), "at": state.stamp(), "said": data["jobs"]["j1"]["said"], "version": state.VERSION}
+    install.prove("demo", "j1", 900)
+    data = state.load("demo")
+    assert (data["jobs"]["j1"]["state"], state.delivered(data, "o1", part)) == ("done" if delivered else "failed", delivered)
 
 
 J4506_OUTPUT = """install /Users/yasyf/.local/share/claude-plugins/cache/skills/long-running/1.0.978/lib

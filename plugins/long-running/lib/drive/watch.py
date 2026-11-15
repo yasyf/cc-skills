@@ -3382,6 +3382,8 @@ def job_gap(watcher: Watcher, job_id: str, job: dict, data: dict, order_id: str,
                 f"{job_id} took DONE at its merge, which proves nothing live, and the watch adds the builder proving it live once its"
                 f" `tools/ci release select --pr` read of {', '.join(reported_prs(data, job_id))} answers"
             )
+        if done_unproven(data, job_id):
+            return None if proving(data, job_id) else merged_gap(job_id, data)
         if job["kind"] in state.CHANGE_KINDS and (staging := state.STAGING_PART.fullmatch(part)):
             held, key, add = data["orders"][order_id]["parts"][part], f"{state.MONOREPO}#{staging['number']}", f"drive job add builder --order {order_id} --part {shlex.quote(part)}"
             if held["posted_by"] != job_id:
@@ -3389,8 +3391,6 @@ def job_gap(watcher: Watcher, job_id: str, job: dict, data: dict, order_id: str,
             if held["posted"]:
                 return f"{job_id}'s DONE passed {key}'s staging test, and a newer tester of it holds the pass"
             return f"{job_id}'s DONE is no pass of {key}'s staging test: {cut(state.unpassed(held), 240)}, so the part waits on a rerun: {add} --goal '<rerun it>'"
-        if done_unproven(data, job_id):
-            return None if proving(data, job_id) else merged_gap(job_id, data)
         if done_before_proofs(data, job_id):
             return None
         if state.unposted_answer(data, job_id):
