@@ -90,7 +90,7 @@ CHANGES = Noul(
 )
 SUPERSEDES = Noul("Does `answer.said`, his answer to a newer question of the same job, settle everything `open.{slot}` asks him?")
 REPEATS = Noul(
-    "Is `order` on the feature `open.{slot}` holds: the same fault or change in other words, or more of that piece of work, such as another slice of it, a correction to it or a step after it?",
+    "Is `order` on the feature `open.{slot}` holds: the same fault or change, a slice of it, a fix to it or a step after it?",
     no="It asks for work that order is not about, even in the same code.",
 )
 ORDERS = Noul(
