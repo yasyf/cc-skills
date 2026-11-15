@@ -26,11 +26,11 @@ RESULT = {
     "properties": {
         "state": {
             "type": "string",
-            "enum": [*state.RESULT_STATES, "BUILT"],
+            "enum": [*(word for word in state.RESULT_STATES if word != "DESIGN"), "BUILT"],
             "description": (
                 "The result your run ends on: DONE, finished and checked where it is used; READY or PUSHED, a PR is open; WAITING, it waits on a"
                 " release, an open PR, a part of an order not yet delivered or a long run you started on this Mac, such as a pass-box command's observer, named as pid:<n> in the line,"
-                " whose end, crashed or finished, starts your next run with this report; ASK, a choice his words leave open; DESIGN, a design decision for his card; BUILT, the recommended option built"
+                " whose end, crashed or finished, starts your next run with this report; ASK, a choice his words leave open; BUILT, the recommended option built"
                 " on a branch while his card is open; BLOCKED, no route works; HANDOFF, the work is left for a builder to ship, such as edits left uncommitted."
             ),
         },
