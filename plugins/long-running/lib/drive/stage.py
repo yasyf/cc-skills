@@ -332,15 +332,15 @@ def waited(data: dict, job_id: str, line: str) -> dict:
     }
 
 
-def answered(data: dict, key: str, step: str) -> list[str]:
-    """What the builder answering for the PR waits on by its last WAITING or ASK, while that line answered this same step the PR owes, by owed(), and each PR, release and card of his it named still holds it, by onward(), so the PR wakes that builder again only once one of them ends, his answer closing the card, his new words reworking it, or its red changing."""
+def answered(data: dict, key: str, step: str) -> list[str] | None:
+    """What the builder answering for the PR waits on by its last WAITING or ASK, while that line answered this same step the PR owes, by owed(), and each PR, release and card of his it named still holds it, by onward(), so the PR wakes that builder again only once one of them ends, his answer closing the card, his new words reworking it, or its red changing: none for a line that named none, as one naming only the job's own PRs, which waited() leaves out; None once no such line stands."""
     if not (owner := owner_job(data, key)):
-        return []
+        return None
     job = data["jobs"][owner]
     if not job["waited"] or job["waited"]["owed"].get(key) != step:
-        return []
+        return None
     waits = job["waited"]["waits"]
-    return waits if set(waits) <= set(onward(data, owner, None)) else []
+    return waits if set(waits) <= set(onward(data, owner, None)) else None
 
 
 def blocked(data: dict, key: str, step: str, waits: list[str], cards: dict | None) -> Stage:
@@ -365,9 +365,12 @@ def grading(pr: dict) -> str:
 
 
 def behind(data: dict, key: str, cards: dict, now: Stage, under: dict[str, str | None] | None = None, stacks: dict[str, tuple[str, ...]] | None = None) -> Stage:
-    """The PR's stage now, unless another PR his Approve lands it with, by land.landed_with() bottom first, holds it: one under it that GitHub reads conflicting, with what conflicts_with() names, which every PR above it waits on whatever its own row reads, since none of them lands before it and their builders can fix nothing until its owner settles it, or, while it reads ready, one that does not by its own row, or, while it waits on his card, one under it being reworked to his words, by state.reworked_under, since no card asks his tap on it until that rework's READY; then that PR's stage, seen from this one, whose owner owes the step. A stage someone answers on the PR itself stands: his card to draw, a lander's try, his hold and a rework to his words."""
+    """The PR's stage now, unless another PR his Approve lands it with, by land.landed_with() bottom first, holds it: one under it that GitHub reads conflicting, with what conflicts_with() names, which every PR above it waits on whatever its own row reads, since none of them lands before it and their builders can fix nothing until its owner settles it, or, while it reads ready, one that does not by its own row, or, while it waits on his card, one under it being reworked to his words, by state.reworked_under, since no card asks his tap on it until that rework's READY, or, while it reads red, the open PR its own row waits on that its builder names as the fix by fixer(); then that PR's stage, seen from this one, whose owner owes the step, so no deadline wakes anyone for this one. A stage someone answers on the PR itself stands: his card to draw, a lander's try, his hold and a rework to his words."""
     if now.name in OWN_STEP:
         return now
+    if now.name == "red" and (fix := fixer(data, key)):
+        other = own(data, fix, cards)
+        return Stage("behind", other.owner, f"{now.why}, which its builder waits on {fix} to fix, {other.name}: {other.why}")
     under = land.unders(data) if under is None else under
     stacks = land.landing_stacks(data, under) if stacks is None else stacks
     below = land.chain(under, key)
@@ -380,6 +383,13 @@ def behind(data: dict, key: str, cards: dict, now: Stage, under: dict[str, str |
             base = f" conflicts with {conflicts_with(data['prs'][member])}," if conflicts else ","
             return Stage("behind", other.owner, f"{member} {where}{base} {other.name}: {other.why}")
     return now
+
+
+def fixer(data: dict, key: str) -> str | None:
+    """The first open PR of the drive the PR's own row waits on while answered() finds its builder's last WAITING or ASK still standing on the step it owes now, as a builder's own PR fixing the red of its others does, which waited() leaves out of the waits answered() reads, so it stands until that PR lands, that step changes, as a push of its head changes it, or a wait that line named ends; None otherwise."""
+    if answered(data, key, owed(data, key)) is None:
+        return None
+    return next((wait for wait in data["prs"][key]["waits"] if wait in data["prs"] and data["prs"][wait]["state"] == "open"), None)
 
 
 def live(data: dict, pr: dict) -> bool:
