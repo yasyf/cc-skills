@@ -8218,6 +8218,29 @@ def test_a_change_job_added_on_a_part_another_unfinished_one_carries_folds_into_
     assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["said"]) == ("stopped", "handed to j3")
 
 
+def test_a_change_job_added_on_one_part_of_a_returned_job_takes_that_part_and_its_pr_and_stops_the_job_only_once_it_is_left_no_part(run: Run, demo: str) -> None:
+    staging = "staging test of #55 before it lands"
+    url, key = "https://github.com/acme/app/pull/56", "acme/app#56"
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "watch the search worker", "--parts", "search watch", staging)
+    run("job", "add", "builder", "--order", "o1", "--goal", "test #55 on staging", "--part", "search watch", "--part", staging)
+    run("job", "set", "j1", "--agent", "a1")
+    with state.edit("demo") as data:
+        data["prs"][key] = state.new_pr(url, "j1", "o1") | {"parts": ["search watch"]}
+        data["jobs"]["j1"].update(state="waiting", said="WAITING its staging window", prs=[url])
+    assert run("job", "add", "builder", "--order", "o1", "--goal", "rework the watch", "--part", "search watch") == (
+        0,
+        f'j2\nj2 takes "search watch" and {key} from j1, which returned, a part having one change job; j1 keeps "{staging}" and stays waiting',
+    )
+    data = state.load("demo")
+    assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["said"], data["jobs"]["j1"]["parts"], data["jobs"]["j1"]["prs"]) == ("waiting", "WAITING its staging window", [staging], [])
+    assert (data["jobs"]["j2"]["parts"], data["jobs"]["j2"]["prs"], data["prs"][key]["job"]) == (["search watch"], [url], "j2")
+    assert run("job", "add", "builder", "--order", "o1", "--goal", "test #55 again", "--part", staging) == (
+        0,
+        f'j3\nj3 replaces j1, which carried "{staging}" and returned, a part having one change job: it takes j1\'s parts and no PR, and j1 stopped, handed to j3',
+    )
+    assert state.load("demo")["jobs"]["j1"]["state"] == "stopped"
+
+
 def test_the_immediate_fix_a_sub_coordinators_builder_runs_takes_no_second_change_job_and_no_step_of_the_top_coordinator(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
