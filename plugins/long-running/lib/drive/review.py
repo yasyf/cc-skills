@@ -11,7 +11,7 @@ import uuid
 from collections.abc import Iterable
 from pathlib import Path
 
-from drive import install, state
+from drive import github, install, state
 from drive.state import DriveError
 
 PLUGIN = "cc-review@cc-review"
@@ -26,7 +26,7 @@ LOCAL_LINE = re.compile(r"^(https?://\S+)$", re.M)
 STARTED_HEAD = "started-head"
 REASONS = (
     (re.compile(r"rate limit", re.IGNORECASE), "GitHub's API rate limit for your account is used up, so cc-review could not read the PR until it resets within the hour"),
-    (re.compile(r"TLS handshake timeout|context deadline exceeded|i/o timeout|connection reset", re.IGNORECASE), "GitHub did not answer cc-review in time"),
+    (github.UNANSWERED, "GitHub did not answer cc-review in time"),
 )
 
 PROMPT = """You are the review assistant behind the drive dashboard's embedded cc-review of {key}. This directory is that review's scope and your session owns it. Handle the one event below, then stop. Never edit a file.
