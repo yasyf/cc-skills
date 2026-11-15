@@ -557,7 +557,7 @@ def fetched(clone: str, branch: str) -> str:
 
 
 def carrier(clone: str) -> Callable[[str, str, int], bool]:
-    """Whether a build carries a squash merge of PR number, read from the clone's own history at its HEAD, its default branch's head, by go/ci's rule: the build sits at or after the merge on the first-parent line, or it is a hotfix whose fork from that line sits at or after it or whose own commits hold one whose subject ends `(#<number>)`, the subject a cherry-pick of it carries. A merge commit may be abbreviated, matched to the line's commit it starts. One rev-list orders the line; each build off it costs one merge-base and one log, a build the clone lacks fetched by its sha as fetched does."""
+    """Whether a build carries a squash merge of PR number, read from the clone's own history at its HEAD, its default branch's head, by go/ci's rule: the build sits at or after the merge on the first-parent line, or it is a hotfix whose fork from that line sits at or after it or whose own commits hold one whose subject ends `(#<number>)`, the subject a cherry-pick of it carries. A merge commit may be abbreviated, matched to the line's commit it starts. One rev-list orders the line; each build off it costs one merge-base and one log, a build the clone lacks fetched by its sha, by fetch_commit."""
     git = ["git", "-C", clone]
     order = {sha: at for at, sha in enumerate(reversed(run([*git, "rev-list", "--first-parent", "HEAD"]).split()))}
 
@@ -565,8 +565,7 @@ def carrier(clone: str) -> Callable[[str, str, int], bool]:
     def held(build: str) -> tuple[int, set[str]]:
         if build in order:
             return order[build], set()
-        if subprocess.run([*git, "cat-file", "-e", f"{build}^{{commit}}"], capture_output=True, check=False).returncode:
-            run([*git, "fetch", "-q", "--no-tags", "--no-write-fetch-head", "origin", build])
+        fetch_commit(clone, build)
         fork = run([*git, "merge-base", build, "HEAD"]).strip()
         return order[fork], {found[1] for subject in run([*git, "log", "--format=%s", build, "--not", "HEAD"]).splitlines() if (found := PICK.search(subject))}
 
@@ -579,3 +578,16 @@ def carrier(clone: str) -> Callable[[str, str, int], bool]:
         return order.get(whole(merge), at + 1) <= at or str(number) in picks
 
     return carries
+
+
+def fetch_commit(clone: str, sha: str) -> None:
+    """Fetch a commit the clone lacks by its sha, writing no ref, as fetched does."""
+    if subprocess.run(["git", "-C", clone, "cat-file", "-e", f"{sha}^{{commit}}"], capture_output=True, check=False).returncode:
+        run(["git", "-C", clone, "fetch", "-q", "--no-tags", "--no-write-fetch-head", "origin", sha])
+
+
+def uncarried(clone: str, build: str, head: str) -> list[str]:
+    """Each commit of head that a build's commit carries no change of, by one `git cherry`, which matches commits by patch id, so a cut that cherry-picked a PR's commits onto the default branch carries them as one built on its branch does; each commit the clone lacks fetched first, by fetch_commit."""
+    for sha in (build, head):
+        fetch_commit(clone, sha)
+    return [sha for mark, sha in (row.split() for row in run(["git", "-C", clone, "cherry", build, head]).splitlines()) if mark == "+"]

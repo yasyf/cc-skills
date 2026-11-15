@@ -139,6 +139,8 @@ STAGING_PART = re.compile(STAGING_TEST.format(number=r"\d+"))
 STAGING_ENV = "plat-usw2-staging"
 AFTER_MERGE_PASS = "after-merge staging pass"
 PID_WAIT = re.compile(r"pid:(?P<pid>\d+)(?:@(?P<started>\d+))?")
+STAGING_GOAL = re.compile(r"\bstaging\b", re.IGNORECASE)
+APPLY_STEP = re.compile(r"apply-(?P<target>.+?)--(?P<env>.+)")
 CASE_LINE = re.compile(r"^CASE[ \t]+[^:\n]+:[ \t]*(.*?)[ \t]*$", re.MULTILINE)
 PASSED_CASE = re.compile(r"pass(?:ed)?\b", re.IGNORECASE)
 SLOT_WAIT = "builder-slot"
@@ -1461,7 +1463,7 @@ def kept_return(name: str, job_id: str, job: dict, line: str) -> bool:
 
 
 def result_refusal(data: dict, job_id: str, line: str, report: str) -> str | None:
-    """Why a job's returned line may not set its state, naming the fix: a line opening with no result sets nothing, a builder's READY or PUSHED naming a yasyf/* PR keeps the proof file the watch runs once it merges, one the kernel can exec as unrunnable reads it, and a WAITING holds on something the watch frees it on: a due time, a wait of the job's that still holds, or one result_waits reads off its line, the build a --release job started counting, the rule drive job report and codex.take share, so a codex reply whose line names only lost logs or merged PRs is refused rather than freed a minute later and launched into the same wait again, and never puts a PR on a part view.pooled refuses it, which open PRs of other jobs outside its stack wait on."""
+    """Why a job's returned line may not set its state, naming the fix: a line opening with no result sets nothing, a builder's READY or PUSHED naming a yasyf/* PR keeps the proof file the watch runs once it merges, one the kernel can exec as unrunnable reads it, and a WAITING holds on something the watch frees it on: a due time, a wait of the job's that still holds, or one result_waits reads off its line, the build a --release job started counting, the rule drive job report and codex.take share, so a codex reply whose line names only lost logs or merged PRs is refused rather than freed a minute later and launched into the same wait again, and never puts a PR on a part view.pooled refuses it, which open PRs of other jobs outside its stack wait on, and a staging test's DONE frees no PR held for it that no build its CHECK: lines name deployed to staging, by unstaged."""
     from drive import view
 
     job = data["jobs"][job_id]
@@ -1490,7 +1492,7 @@ def result_refusal(data: dict, job_id: str, line: str, report: str) -> str | Non
             for wait in named_parts(data, waiting["cards"]):
                 if why := view.pooled(data, key, wait):
                     return f"its WAITING puts {key} on {wait}: {why}"
-    return fix_refusal(data, job_id, line, report)
+    return fix_refusal(data, job_id, line, report) or unstaged(data, job_id, line, report)
 
 
 def traced(data: dict, job_id: str, line: str) -> str | None:
@@ -2071,6 +2073,53 @@ def first_proof(report: str) -> str | None:
     from drive import brief
 
     return next((found for check in brief.CHECK.findall(report) for found in brief.proofs(check)), None)
+
+
+def unstaged(data: dict, job_id: str, line: str, report: str) -> str | None:
+    """Why a staging test's DONE may not free the PRs held for it, naming the fix: a builder or codex job whose goal names staging or that holds a `staging test of #N before it lands` part, whose DONE, taken as take_result takes it, ends every wait an open PR holds on the job or a part it holds, frees that PR only when a Buildkite build its CHECK: lines name passed an apply step on an env its infra/envs file marks `stage: staging` at a commit carrying the PR's head, read with one `bk build view` of each build and one git cherry of each freed PR in the coordinator's checkout, since a soak that tested what staging already ran, or a cut built without the PRs, proves none of them; None for any other result."""
+    from drive import brief, settled, view
+
+    job = data["jobs"][job_id]
+    if job["kind"] not in CHANGE_KINDS or not re.match(r"DONE\b", line) or MERGED_LINE.match(line) or not (STAGING_GOAL.search(job["goal"]) or staging_parts(data, job)):
+        return None
+    ours = {job_id, *(f"{order_id}:{part}" for order_id in [job["order"], *job["carries"]] for part in job_parts(job, order_id))}
+    held = {key: waits for key, pr in data["prs"].items() if pr["state"] in github.UNLANDED and (waits := view.holding(data, [wait for wait in pr["waits"] if wait in ours], None))}
+    if not held:
+        return None
+    taken = marshal.loads(marshal.dumps(data))
+    take_result(taken, job_id, line, report)
+    if not (freed := [key for key, waits in held.items() if not view.holding(taken, waits, None)]):
+        return None
+    clone = data["roles"]["coordinator"]["cwd"]
+    builds = list(dict.fromkeys(found[0] for check in brief.CHECK.findall(report) for proof in brief.proofs(check) if (found := github.BUILD.match(proof))))
+    deployed, said, lacking = [], [], {}
+    try:
+        for build in builds:
+            named = github.BUILD.match(build)
+            read = github.build(named["pipeline"], named["number"])
+            if envs := sorted({step["env"] for ran in read.get("jobs", []) if ran.get("state") == "passed" and (step := APPLY_STEP.fullmatch(ran.get("step_key") or "")) and settled.stage(step["env"], clone) == settled.STAGING}):
+                deployed.append((build, read["commit"], envs))
+            else:
+                said.append(f"{build} deployed nothing to staging, passing no apply step on an env its infra/envs file marks stage: staging")
+        for key in freed:
+            misses = []
+            for build, commit, envs in deployed:
+                if not (missing := github.uncarried(clone, commit, data["prs"][key]["head"])):
+                    break
+                misses.append(f"git cherry finds {key}'s {', '.join(sha[:12] for sha in missing)} missing from {commit[:12]}, which {build} deployed to {', '.join(envs)}")
+            else:
+                lacking[key] = misses
+    except github.GithubError as error:
+        return f"{job_id}'s DONE frees {', '.join(freed)} from waiting on its staging test, and what the builds its CHECK: lines name deployed could not be read: {error}; send this report again"
+    if not lacking:
+        return None
+    said.extend(miss for misses in lacking.values() for miss in misses)
+    return (
+        f"{job_id}'s DONE frees {', '.join(lacking)} from waiting on its staging test, and no build its CHECK: lines name deployed a commit carrying"
+        f" {'them' if len(lacking) > 1 else 'it'} to staging: {'; '.join(said) or 'they name no Buildkite build'}. Name on a CHECK: line the release build"
+        " that deployed a commit carrying each one's head to staging, or return WAITING on what still holds them, such as staging:<target>/<env>@<commit>"
+        " while staging does not run it yet"
+    )
 
 
 def staged(data: dict, order_id: str, part: str) -> bool:
