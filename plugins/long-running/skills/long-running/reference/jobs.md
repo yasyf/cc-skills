@@ -100,7 +100,12 @@ Contents:
   starts `drive mac-boxes-down <job>`, a process of its own that runs `tools/ci mac-box down --holder
   <drive>/<job>` in the drive's checkout and whose output goes to the drive's `mac-boxes.log`, so no box outlives its job and no sweep
   looks for one. A waiting job, such as one waiting for a staging slot, keeps its box, and a job
-  that needs a Mac runs its own `up`.
+  that needs a Mac runs its own `up`. A box handed to another job moves before the old job's save
+  with `tools/ci mac-box up <box> --holder <drive>/<new job> --from <drive>/<old job>`, run by either
+  job, which moves the box's `mac-box:holder` tag instead of launching one, so that save leaves the
+  box up for the new job and the new job's own save takes it down; a box handed on with no such `up`
+  comes down at the old job's save, under the new job, and its host sits in AWS's scrub for an hour
+  or more.
 
 ## Start one on this Mac
 
