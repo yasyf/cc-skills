@@ -557,37 +557,6 @@ def test_705235_a_post_from_a_session_neither_the_communicator_nor_its_bound_han
     assert (posts, said(demo), unrecorded, state.load(demo)["orders"]["o1"]["last_line"]) == ([], [], [], None)
 
 
-def test_a_handler_its_prompt_hook_left_unbound_is_bound_from_its_own_environment_when_it_says_so_its_post_goes_out_and_is_recorded(
-    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread, unrecorded: list[str], tmp_path: Path
-) -> None:
-    thread = "1794200000.000100"
-    run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "Releases", "did it get released?", "--thread", thread, "--parts", "did it get released?")
-    run("start", "demo", "--role", "communicator")
-    with state.edit(demo) as data:
-        data["roles"]["communicator"]["session"] = "communicator-session"
-        data["roles"]["coordinator"]["session"] = "elsewhere"
-    handling(demo, "o1", "1794201723.677000")
-    with state.edit(demo) as data:
-        data["handlers"]["h1"]["session"] = None
-    transcript = tmp_path / "config" / "projects" / "-Users-yasyf-src" / f"{os.environ['CLAUDE_CODE_SESSION_ID']}.jsonl"
-    transcript.parent.mkdir(parents=True)
-    transcript.touch()
-    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
-    monkeypatch.setenv(state.HANDLER_ENV, "demo/h1")
-    answer = slack_thread.post(state.now(), from_claude=True)
-    monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": answer, "thread_ts": thread})
-    report(monkeypatch, {"order": "o1", "thread": thread}, lane="communicator", kind="owner")
-    assert talk.say(demo, {"text": "No, the fix is not live: its hotfix was rolled back.", "thread_ts": thread, "record": "698123"}) == f"POSTED {answer}; o1 progress line, no part delivered: {answer}"
-    data = state.load(demo)
-    assert (data["handlers"]["h1"]["session"], data["handlers"]["h1"]["transcript"], data["handlers"]["h1"]["posted"], data["orders"]["o1"]["last_line"] is not None, unrecorded) == (
-        os.environ["CLAUDE_CODE_SESSION_ID"],
-        str(transcript),
-        [f"POSTED {answer}"],
-        True,
-        [],
-    )
-
-
 @pytest.mark.parametrize(
     ("attrs", "lane", "text", "recorded"),
     [

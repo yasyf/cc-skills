@@ -3253,7 +3253,7 @@ def catch_up_lines(watcher: Watcher, moment: datetime) -> list[str]:
     owed, heard = data["catch_up"], data["owner"]["heard"]
     if watcher.project or owed is None or owed["tried"] == heard or state.owner_away(data, moment):
         return []
-    if (entry := data["handlers"].get(owed["handler"] or "")) and not agents.gone(watcher.name, owed["handler"], entry):
+    if (entry := data["handlers"].get(owed["handler"] or "")) and not agents.gone(entry):
         with state.edit(watcher.name) as data:
             data["catch_up"]["tried"] = heard
         return []

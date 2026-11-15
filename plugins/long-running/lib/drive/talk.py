@@ -111,14 +111,8 @@ def repromised(name: str, promise: dict, text: str) -> str:
 
 
 def caller(name: str) -> dict:
-    """The drive once say's caller reads as the communicator or its handler, binding to this session the handler LONG_RUNNING_HANDLER names when its prompt's hook did not; any other caller posts nothing."""
-    session = os.environ.get("CLAUDE_CODE_SESSION_ID")
-    drive, _, handler = os.environ.get(state.HANDLER_ENV, "").partition("/")
+    """The drive once say's caller reads as the communicator or its handler; any other caller posts nothing."""
     known = state.load(name)
-    if drive == name and session and (held := known["handlers"].get(handler)) and not held["session"]:
-        transcript = next((install.config_dir() / "projects").glob(f"*/{session}.jsonl"), None)
-        agents.bind_handler({"session_id": session, "transcript_path": transcript and str(transcript), "cwd": os.getcwd()}, f"{name}/{handler}")
-        known = state.load(name)
     if refused := cli.recording_refusal(known, f"only the communicator's handlers post to him: send these words as a report record to communicator@{name}, whose handler posts and records them"):
         raise DriveError(f"nothing posted: {refused}")
     return known
