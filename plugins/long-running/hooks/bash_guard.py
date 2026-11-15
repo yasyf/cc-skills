@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
 from drive import agents, brief, github, install, land, limits, orca, state
 from drive.orca import OrcaError
-from drive.shell import KEYWORDS, Case, Function, expanded, grouped, literal, runnable, simple_commands, spread
+from drive.shell import KEYWORDS, Case, Function, Loop, expanded, grouped, literal, runnable, simple_commands, spread
 
 AGENTS = "long-running:"
 DESIGNER = "long-running:designer"
@@ -89,6 +89,8 @@ OPTIONED = {
 }
 SOURCES = {"source", "."}
 PARSE_ONLY = re.compile(r"-[A-Za-z]*n[A-Za-z]*")
+XARGS_INPUT = "$(xargs)"
+XARGS_REPLACE = re.compile(r"(?:-I|-i|--replace=)(?P<string>.*)|--replace")
 FOLLOWED_DEPTH = 4
 SCRIPT_FOLDER = re.compile(r'\$\(cd "\$\(dirname "(?:\$0|\$\{BASH_SOURCE\[0\]\})"\)([^"]*)" && pwd\)')
 JSON_FIELD = re.compile(r"\$\(jq -r '?((?:\.\w+)+)'? (\S+)\)")
@@ -120,10 +122,14 @@ UNLISTED = (
 SANDSQL_NAMESPACES = {"sandsql", "sandsql-system", "sandsql-inbox"}
 SANDSQL_REACHES = {"exec", "port-forward", "attach", "cp", "debug"}
 SECRETS = {"secret", "secrets"}
-KUBECTL_VALUED = {"-n", "--namespace", "--context", "--cluster", "--user", "--kubeconfig", "-c", "--container", "-o", "--output", "-l", "--selector", "-f", "--filename", "--address", "-s", "--server", "--as"}
+KIND_READS = {"get", "describe", "edit"}
+ALL_NAMESPACES = {"-A", "--all-namespaces", "--all-namespaces=true"}
+EVERY_NAMESPACE = "in every namespace, SandSQL's among them,"
+KUBECTL_NAMESPACE = re.compile(r"(?:-n=?|--namespace=)(?P<namespace>.+)")
+KUBECTL_VALUED = {"-n", "--namespace", "--context", "--cluster", "--user", "--kubeconfig", "-c", "--container", "-o", "--output", "-l", "--selector", "-f", "--filename", "--address", "-s", "--server", "--as", "--raw"}
 SANDSQL_DATA = (
-    "refused: `{step}` in the `{namespace}` namespace opens a team's SandSQL databases where the job runs, and with them"
-    " every read and write of their rows, and " + limits.TEAM_DATA_RULE + ". " + BOX_ROUTE
+    "refused: {step} {where} opens a team's SandSQL databases where the job runs, and with them every read and write of"
+    " their rows, and " + limits.TEAM_DATA_RULE + ". " + BOX_ROUTE
 )
 RUNS_ROUTE = (
     "A team's `iris/teams/<team>/runs/` is read on the box under a `runs_read` grant, which a plat-prod box's script loads"
@@ -433,7 +439,7 @@ class Place:
 
 
 def reached(text: str, place: Place, depth: int = 0) -> Iterator[list[str]]:
-    """The words of each command shell text runs and of each command it starts: an `sh -c` script, a script file a shell, `source` or its own path runs, the body of each function it calls, the command after `drive break-glass … --` and the one `xargs` runs, each word expanded with the variables and positional parameters set before it; a function nothing calls runs none of its commands, and a case statement only the arms its selector's value picks."""
+    """The words of each command shell text runs and of each command it starts: an `sh -c` script, a script file a shell, `source` or its own path runs, the body of each function it calls, a for loop's body once per word it walks, the command after `drive break-glass … --` and the one `xargs` runs, each word expanded with the variables and positional parameters set before it; a function nothing calls runs none of its commands, and a case statement only the arms its selector's value picks."""
     yield from walked(parsed(text), place, depth)
 
 
@@ -452,6 +458,10 @@ def walked(nodes: list, place: Place, depth: int) -> Iterator[list[str]]:
         elif isinstance(node, Case):
             for body in taken(node, place):
                 yield from walked(body, place, depth)
+        elif isinstance(node, Loop):
+            for value in spread(node.values, place.env, place.args):
+                place.env[node.name] = value
+                yield from walked(node.body, place, depth)
         else:
             yield from started(spread(node, place.env, place.args), place, depth)
 
@@ -491,7 +501,7 @@ def started(written: list[str], place: Place, depth: int) -> Iterator[list[str]]
         place.cwd = called.cwd
     elif depth < FOLLOWED_DEPTH and (followed := script_file(words, place)):
         script, args = followed
-        fed = "xargs" in {Path(word).name for word in written[: len(written) - len(words)]}
+        fed = XARGS_INPUT in words
         functions = place.functions if Path(words[0]).name in SOURCES else {}
         yield from reached(located(script), Place(place.cwd, dict(place.env), script, place.seen | {script}, None if fed else args, functions), depth + 1)
 
@@ -513,7 +523,7 @@ def json_field(value: str, place: Place) -> str:
 
 
 def unwrapped(words: list[str], place: Place) -> list[str]:
-    """A command's own words, past the assignments it makes, shell keywords, wrappers and their options, and `drive break-glass` up to its `--`; a variable assigned a command's output, which `grouped` splits at `$(` and leaves as `$`, stays as written."""
+    """A command's own words, past the assignments it makes, shell keywords, wrappers and their options, and `drive break-glass` up to its `--`, the input an `xargs` gives it as a word the guard cannot expand; a variable assigned a command's output, which `grouped` splits at `$(` and leaves as `$`, stays as written."""
     while words:
         head = Path(words[0]).name
         if ASSIGNMENT.fullmatch(words[0]):
@@ -523,13 +533,31 @@ def unwrapped(words: list[str], place: Place) -> list[str]:
         elif words[0] in KEYWORDS:
             words = words[1:]
         elif head in WRAPPERS or head in OPTIONED:
+            replaced = xargs_replace(words[1:]) if head == "xargs" else None
             words = past_options(words[1:], OPTIONED.get(head, set()))
             words = words[1:] if head == "timeout" else words
+            if head == "xargs" and words:
+                words = [word.replace(replaced, XARGS_INPUT) for word in words] if replaced else [*words, XARGS_INPUT]
         elif verb(words)[:2] == ["drive", "break-glass"] and "--" in words:
             words = words[words.index("--") + 1 :]
         else:
             break
     return words
+
+
+def xargs_replace(words: list[str]) -> str | None:
+    """The string an `xargs` call's `-I`, `-i` or `--replace` names for its input to take the place of, `{}` when `-i` or `--replace` names none; None when its input follows its command's words."""
+    rest = iter(words)
+    for word in rest:
+        if word == "--" or not word.startswith("-"):
+            return None
+        if word == "-I":
+            return next(rest, None)
+        if found := XARGS_REPLACE.fullmatch(word):
+            return found["string"] or "{}"
+        if word in OPTIONED["xargs"]:
+            next(rest, None)
+    return None
 
 
 def past_options(words: list[str], valued: set[str]) -> list[str]:
@@ -588,22 +616,68 @@ def bucket_locations(words: list[str]) -> list[str]:
 
 
 def sandsql_reach(words: list[str]) -> tuple[str, str] | None:
-    """The `kubectl` step and SandSQL namespace through which a command reaches a team's SandSQL databases: an exec, attach, copy, debug session or port-forward into a SandSQL fleet's namespace, or a read of a secret there, such as the blobstore's root key."""
-    if Path(words[0]).name != "kubectl" or (namespace := option(words, "-n") or option(words, "--namespace")) not in SANDSQL_NAMESPACES:
+    """The `kubectl` step through which a command reaches a team's SandSQL databases, and where: a `kubectl proxy`, which serves every namespace, a `--raw` call on a secrets path a SandSQL namespace or every namespace holds, or on a path it cannot expand, or, in a namespace that may be a SandSQL fleet's, an exec, attach, copy, debug session or port-forward, a step naming Secret, such as a read of the blobstore's root key, or a get, describe or edit of a kind the guard cannot read, as an unexpanded word or `xargs` input is."""
+    if Path(words[0]).name != "kubectl":
         return None
-    named, rest = [], iter(words[1:])
+    flags = words[: words.index("--")] if "--" in words else words
+    named, rest = [], iter(flags[1:])
     for word in rest:
-        if word == "--":
-            break
         if word in KUBECTL_VALUED:
             next(rest, None)
         elif not word.startswith("-"):
             named.append(word)
-    if named[:1] and named[0] in SANDSQL_REACHES:
-        return f"kubectl {named[0]}", namespace
-    if any(word.split("/")[0] in SECRETS for word in named[1:]):
-        return f"kubectl {named[0]} secret", namespace
+    if not named:
+        return None
+    if named[0] == "proxy":
+        return "`kubectl proxy`", EVERY_NAMESPACE
+    if (raw := option(flags, "--raw")) and (where := raw_secrets(raw)):
+        return f"`kubectl {named[0]} --raw` on a secrets path, or one the guard cannot read,", where
+    if not (where := sandsql_where(kubectl_namespace(flags), bool(ALL_NAMESPACES & set(flags)))):
+        return None
+    if named[0] in SANDSQL_REACHES:
+        return f"`kubectl {named[0]}`", where
+    if any(names_secret(word) for word in named[1:]):
+        return f"`kubectl {named[0]} secret`", where
+    kinds = named[1:] if "/" in "".join(named[1:2]) else named[1:2]
+    if named[0] in KIND_READS and any(not literal(kind.split("/")[0]) for kind in kinds):
+        return f"`kubectl {named[0]}` of a kind the guard cannot read, which may be Secret,", where
     return None
+
+
+def kubectl_namespace(flags: list[str]) -> str | None:
+    """The namespace a `kubectl` command's flags name last, as `-n <ns>`, `-n=<ns>`, `-n<ns>`, `--namespace <ns>` or `--namespace=<ns>`."""
+    named, rest = None, iter(flags)
+    for word in rest:
+        if word in ("-n", "--namespace"):
+            named = next(rest, None)
+        elif found := KUBECTL_NAMESPACE.fullmatch(word):
+            named = found["namespace"]
+    return named
+
+
+def sandsql_where(namespace: str | None, every: bool) -> str | None:
+    """Where a `kubectl` step reaches a SandSQL fleet, as its refusal says it: every namespace, a SandSQL namespace, or one the guard cannot expand, which may be one; None for any other namespace, or none, the context's default."""
+    if every:
+        return EVERY_NAMESPACE
+    if namespace in SANDSQL_NAMESPACES:
+        return f"in the `{namespace}` namespace"
+    if namespace and not literal(namespace):
+        return f"in the `{namespace}` namespace, which the guard cannot expand,"
+    return None
+
+
+def raw_secrets(path: str) -> str | None:
+    """Where a `kubectl --raw` API path reaches a SandSQL fleet's secrets: the secrets of a namespace `sandsql_where` reads as one, or of every namespace when it names none or the guard cannot expand it."""
+    segments = path.split("?")[0].strip("/").split("/")
+    if literal(path) and "secrets" not in segments:
+        return None
+    namespace = segments[segments.index("namespaces") + 1] if "namespaces" in segments[:-1] else None
+    return sandsql_where(namespace, namespace is None)
+
+
+def names_secret(word: str) -> bool:
+    """Whether a `kubectl` resource word names Secret, in any case, singular or plural, alone, as `<kind>/<name>`, in `.v1.` form or in a comma list."""
+    return any(kind.split(".")[0].lower() in SECRETS for kind in word.split("/")[0].split(","))
 
 
 def remote_location(tool: str, word: str) -> str | None:
@@ -627,7 +701,7 @@ def team_data(command: str, cwd: str) -> agents.Unjudged | None:
             if any(f"{location.rstrip('/')}/".startswith(entry) or entry.startswith(f"{location.rstrip('/')}/") for entry in listed or ()):
                 return agents.Unjudged(TEAM_DATA.format(location=location, route=team_route(location)))
         if reach := sandsql_reach(words):
-            return agents.Unjudged(SANDSQL_DATA.format(step=reach[0], namespace=reach[1]))
+            return agents.Unjudged(SANDSQL_DATA.format(step=reach[0], where=reach[1]))
     return None
 
 

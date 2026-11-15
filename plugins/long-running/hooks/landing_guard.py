@@ -13,15 +13,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 from drive import agents, brief, card, github, land, limits, public_check, render, reports, settled, slack, state, superseded
 from drive.cli import sent_kept, tap_verdict
 from drive.github import repo_name
-from drive.shell import expanded, runnable, templates
+from drive.shell import KEYWORDS, Case, Function, Loop, expanded, grouped, runnable
 
 ADMIN_REASON = "Admin merges bypass required review; never on Forge-AI repos"
 TAP_HINT = "Draw his PR card with slack_dm_status tap_prs, or record an exemption with drive pr set --exempt"
 ENV_ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=.*")
 SHELL_SCRIPT_FLAG = re.compile(r"-[A-Za-z]*c[A-Za-z]*")
-KEYWORDS = {"!", "{", "if", "then", "elif", "else", "do", "while", "until"}
-LOOPS = {"for", "while", "until"}
-LEADING = KEYWORDS - LOOPS
 WRAPPERS = {
     "command": frozenset(),
     "exec": frozenset({"-a"}),
@@ -541,25 +538,25 @@ def lane_release_reason(release: str) -> str | None:
 
 
 def commands(script: str, shell: Shell) -> Iterator[tuple[list[str], list[str], Shell]]:
-    """Each command a script runs, as its segment, its own words and the shell it runs in, following cd, assignments, export, each value of a for loop and nested shell scripts."""
-    yield from run_through(templates(runnable(script)), shell)
+    """Each command a script runs, as its segment, its own words and the shell it runs in, following cd, assignments, export, each value of a for loop, every function body and case arm where it stands, and nested shell scripts."""
+    yield from run_through(grouped(runnable(script)), shell)
 
 
-def run_through(groups: list[list[str]], shell: Shell) -> Generator[tuple[list[str], list[str], Shell], None, Shell]:
-    """The commands of groups in order, each word expanded with the variables set before it, then the shell they leave."""
-    index = 0
-    while index < len(groups):
-        segment = [expanded(word, shell.env) for word in groups[index]]
+def run_through(nodes: list, shell: Shell) -> Generator[tuple[list[str], list[str], Shell], None, Shell]:
+    """The commands of nodes in order, each word expanded with the variables set before it, then the shell they leave."""
+    for node in nodes:
+        if isinstance(node, Loop):
+            for value in [expanded(word, shell.env) for word in node.values]:
+                shell = yield from run_through(node.body, replace(shell, env=shell.env | {node.name: value}))
+            continue
+        if isinstance(node, Function | Case):
+            for body in [node.body] if isinstance(node, Function) else [body for _, body, _ in node.arms]:
+                shell = yield from run_through(body, shell)
+            continue
+        segment = [expanded(word, shell.env) for word in node]
         words, run_in = command_words(segment, shell)
-        index += 1
         if not words:
             shell = run_in
-        elif words[0] == "for":
-            yield segment, words, run_in
-            end = loop_end(groups, index)
-            for binding in [{words[1]: value} for value in words[3:]] if words[2:3] == ["in"] else [{}]:
-                shell = yield from run_through(groups[index:end], replace(shell, env=shell.env | binding))
-            index = end + 1
         elif words[0] == "cd":
             shell = replace(shell, cwd=moved(shell.cwd, words[1]) if len(words) > 1 else str(Path.home()))
         elif words[0] == "export":
@@ -569,17 +566,6 @@ def run_through(groups: list[list[str]], shell: Shell) -> Generator[tuple[list[s
         else:
             yield segment, words, run_in
     return shell
-
-
-def loop_end(groups: list[list[str]], start: int) -> int:
-    """The index of the `done` closing the loop whose body starts at start, or past the last group when none does."""
-    depth = 1
-    for index in range(start, len(groups)):
-        head = next((word for word in groups[index] if word not in LEADING), "")
-        depth += (head in LOOPS) - (head == "done")
-        if not depth:
-            return index
-    return len(groups)
 
 
 def script_reason(script: str, shell: Shell) -> str | None:
