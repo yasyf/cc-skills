@@ -5093,6 +5093,17 @@ def test_a_readers_builder_builds_its_parts_and_each_later_readers_done_rebriefs
     assert (job["goal"], job["agent"], Path(job["brief"]).read_text() == written) == ("copy it", "a1", True)
 
 
+def test_a_readers_build_line_naming_no_change_names_no_goal_so_its_builder_keeps_its_parts_goal_with_the_research_in_its_brief(
+    run: Run, meta: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build", "--parts", "the copy")
+    run("job", "add", "reader", "--order", "o1", "--part", "the copy", "--goal", "research: read-only, at once: why the copy stalls")
+    assert keep(monkeypatch, capsys, "j1", RESEARCH.replace("one store_copy_at call per stalled store", "none: every stalled copy already resumes on its next pass"))[0] == 0
+    builder = state.load("demo")["jobs"]["j2"]
+    written = Path(builder["brief"]).read_text()
+    assert (builder["goal"], "\nGoal: build the copy\n" in written, "\nResearched: j1\n" in written) == ("build the copy", True, True)
+
+
 def test_an_order_added_with_no_parts_is_one_part_named_by_its_title_and_its_readers_build_line_names_its_builders_goal(
     run: Run, meta: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -5756,7 +5767,7 @@ def test_a_follow_up_piece_a_builder_names_on_an_unbuilt_line_of_an_undesigned_o
     assert (code, "\nResearched: j1\n" in written, '\nPlan: j2\'s return, change "retry each stalled copy": drive job report j2\n' in written) == (0, True, True)
 
 
-def test_a_builders_own_change_and_change_lines_make_no_part_and_an_unbuilt_line_on_work_a_sibling_part_or_another_jobs_pr_holds_is_refused(
+def test_a_builders_own_change_change_lines_and_unbuilt_lines_naming_no_piece_make_no_part_and_an_unbuilt_line_on_work_a_sibling_part_or_another_jobs_pr_holds_is_refused(
     run: Run, meta: str, jev: Jev, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build", "--parts", "copy one store")
@@ -5785,7 +5796,7 @@ def test_a_builders_own_change_and_change_lines_make_no_part_and_an_unbuilt_line
         data["prs"]["yasyf/cc-skills#77"] = state.new_pr("https://github.com/yasyf/cc-skills/pull/77", "j6", "o1")
     code, err = keep(monkeypatch, capsys, "j4", f"{done}UNBUILT: the batched writes https://github.com/yasyf/cc-skills/pull/77 opens\n")
     assert (code, "names work the drive already holds, in yasyf/cc-skills#77, a PR of j6, so a part of its own would build it a second time" in err) == (2, True)
-    returned = f"{done}CHANGE: the moved-table interface now serves reads\nChange: the writes go through the moved table\nUNBUILT: none: every piece is built\n"
+    returned = f"{done}CHANGE: the moved-table interface now serves reads\nChange: the writes go through the moved table\nUNBUILT: none: every piece is built\nUNBUILT: nothing in change 3.\nUNBUILT: N/A\n"
     assert keep(monkeypatch, capsys, "j4", returned)[0] == 0
     data = state.load("demo")
     assert (list(data["orders"]["o1"]["parts"]), sorted(data["jobs"])) == (parts, ["j1", "j2", "j3", "j4", "j5", "j6"])
