@@ -856,13 +856,13 @@ def takes(name: str, job_id: str, payload: dict) -> bool:
         return False
     if not {"state", "agent", "where"} <= job.keys():
         return True
-    return free({"jobs": {job_id: job}, "orders": {job["order"]: state.saved_row(name, "orders", job["order"])}} | state.saved(name), job_id, payload["agent_id"]) and payload.get("agent_type") in state.JOB_AGENTS[job["kind"]]
+    return free(name, {"jobs": {job_id: job}, "orders": {job["order"]: state.saved_row(name, "orders", job["order"])}} | state.saved(name), job_id, payload["agent_id"]) and payload.get("agent_type") in state.JOB_AGENTS[job["kind"]]
 
 
-def free(data: dict, job_id: str, agent: str) -> bool:
-    """Whether an agent at work on the job takes it: the job exists, it is not the agent a stop left on the job, which keeps the stop, no Orca lane holds it by its dispatch, which drive job resume restarts once that lane dies, it is no codex job but an incident's, whose codex-ask run is its worker and beside which only an incident's second-lane builder runs, and no agent runs it already but one that ended with its session, which no role holds any more."""
+def free(name: str, data: dict, job_id: str, agent: str) -> bool:
+    """Whether an agent at work on the job takes it: the job exists, it is not the agent a stop left on the job, which keeps the stop, no Orca lane holds it by its dispatch, which drive job resume restarts once that lane dies, nor will once the launch starting one now records it, by state.launch_in_flight, it is no codex job but an incident's, whose codex-ask run is its worker and beside which only an incident's second-lane builder runs, and no agent runs it already but one that ended with its session, which no role holds any more."""
     job = data["jobs"].get(job_id)
-    if not job or (job["state"] == "stopped" and job["agent"] == agent) or (job["where"] == "remote" and job.get("dispatch")) or (job["kind"] == "codex" and not data["orders"][job["order"]]["incident"]):
+    if not job or (job["state"] == "stopped" and job["agent"] == agent) or (job["where"] == "remote" and job.get("dispatch")) or state.launch_in_flight(name, job_id, job) or (job["kind"] == "codex" and not data["orders"][job["order"]]["incident"]):
         return False
     return not (job["state"] == "running" and job["agent"] and state.session_role(data, job.get("session")) is not None)
 
@@ -889,13 +889,13 @@ def hold(payload: dict) -> None:
         return
     known = state.load(names[0])
     job_id = match[1] if match else state.agent_job(known, payload["agent_id"])
-    if not job_id or not free(known, job_id, payload["agent_id"]) or payload.get("agent_type") not in state.JOB_AGENTS[known["jobs"][job_id]["kind"]]:
+    if not job_id or not free(names[0], known, job_id, payload["agent_id"]) or payload.get("agent_type") not in state.JOB_AGENTS[known["jobs"][job_id]["kind"]]:
         return
     returned = known["jobs"][job_id]["state"] != "running" and bool(known["jobs"][job_id]["returned"])
     if returned and not (resumed := woken(payload, known["jobs"][job_id])):
         return
     with state.edit(names[0]) as data:
-        if free(data, job_id, payload["agent_id"]):
+        if free(names[0], data, job_id, payload["agent_id"]):
             job = data["jobs"][job_id]
             job.update(agent=payload["agent_id"], where="local", session=payload["session_id"], undelivered=[], launching=None)
             if returned:

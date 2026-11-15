@@ -735,19 +735,19 @@ def stops_open_pr(data: dict, key: str, into: str | None) -> bool:
 
 
 def drop(data: dict, answer_id: str, order_id: str, part: str) -> list[str]:
-    """Take a part his answer removes off its order, every job delivering it and every PR naming it, by state.drop_part, keeping each live job it trims waiting to hear his words; what was done, a line each."""
+    """Take a part his answer removes off its order, every job delivering it and every PR naming it, by state.drop_part, which drops each text a job it stops held, keeping each live job it trims waiting to hear his words; what was done, a line each, naming each text dropped."""
     trimmed, stopped = state.drop_part(data, order_id, part, f"his answer {answer_id} dropped every part it delivered")
     for job_id in trimmed:
         if data["jobs"][job_id]["state"] not in state.FINISHED_JOB_STATES:
             owe(data, answer_id, job_id)
     return [
         f"{order_id}:{part} dropped from {order_id}" + (f" and {', '.join(trimmed)}" if trimmed else ""),
-        *(f"{job_id} stopped, left with no part: end its agent, or its lane with drive job end {job_id}" for job_id in stopped),
+        *(stopped_line(f"{job_id} stopped, left with no part: end its agent, or its lane with drive job end {job_id}", held) for job_id, held in stopped.items()),
     ]
 
 
 def drop_order(data: dict, answer_id: str, order_id: str) -> list[str]:
-    """Drop an order his answer removes whole, as drive order set <o> --state dropped --withdrawn <his link> does, stopping each live job whose order it is and taking it off each live job carrying it, which keeps waiting to hear his words; what was done, a line each."""
+    """Drop an order his answer removes whole, as drive order set <o> --state dropped --withdrawn <his link> does, stopping each live job whose order it is, by state.stop_job, which drops each text it held, and taking it off each live job carrying it, which keeps waiting to hear his words; what was done, a line each."""
     kept = data["answers"][answer_id]
     order = data["orders"][order_id]
     order.update(state="dropped", withdrawn=kept["link"], updated=state.stamp())
@@ -762,8 +762,7 @@ def drop_order(data: dict, answer_id: str, order_id: str) -> list[str]:
                 job["updated"] = state.stamp()
                 owe(data, answer_id, job_id)
             continue
-        job.update(state="stopped", said=f"his answer {answer_id} dropped its order {order_id}", updated=state.stamp())
-        done.append(f"{job_id} stopped with its order: end its agent, or its lane with drive job end {job_id}")
+        done.append(stopped_line(f"{job_id} stopped with its order: end its agent, or its lane with drive job end {job_id}", state.stop_job(job, f"his answer {answer_id} dropped its order {order_id}")))
     return done
 
 
@@ -788,7 +787,7 @@ def unasked(data: dict, key: str, entry: dict, into: str | None = None) -> list[
 
 
 def supersede(data: dict, answer_id: str, key: str, entry: dict, into: str | None) -> list[str]:
-    """Stop the superseded card's job, or fold what it carries and each open PR it answers for into a live job, so every wake, check and lander of those PRs reaches that job's lane and none relaunches the one stopped; drop its PR's tap ask, and keep an open PR stopped outright as closed, once closed on GitHub; what was done, a line each."""
+    """Stop the superseded card's job, by state.stop_job, which drops each text it held, or fold what it carries and each open PR it answers for into a live job, so every wake, check and lander of those PRs reaches that job's lane and none relaunches the one stopped; drop its PR's tap ask, and keep an open PR stopped outright as closed, once closed on GitHub; what was done, a line each."""
     done = unasked(data, key, entry, into)
     if not (job_id := entry["job"]):
         return done
@@ -797,6 +796,13 @@ def supersede(data: dict, answer_id: str, key: str, entry: dict, into: str | Non
         moved = state.fold(data, job_id, into)
         done += [f"{job_id}'s parts now ride on {into}", *(f"{key} now answers to {into}, which its wakes, checks and lander reach" for key in moved)]
     if job["state"] not in state.FINISHED_JOB_STATES:
-        job.update(state="stopped", said=f"superseded by his answer {answer_id}" + (f", folded into {into}" if into else ""), updated=state.stamp())
-        done.append(f"{job_id} stopped: end its agent, or its lane with drive job end {job_id}")
+        done.append(stopped_line(f"{job_id} stopped: end its agent, or its lane with drive job end {job_id}", state.stop_job(job, f"superseded by his answer {answer_id}" + (f", folded into {into}" if into else ""))))
     return done
+
+
+def stopped_line(line: str, held: list[str]) -> str:
+    """The line saying a job stopped, naming each text state.stop_job dropped from it."""
+    if not held:
+        return line
+    texts = "the text it held" if len(held) == 1 else f"the {len(held)} texts it held"
+    return f"{line}; {texts}, which no worker of a stopped job carries, dropped: " + "; ".join(f'"{cut(words, 160)}"' for words in held)

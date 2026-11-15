@@ -1403,11 +1403,11 @@ def deliver(data: dict, job_id: str, order_id: str, parts: list[str]) -> None:
     job["parts"] = list(dict.fromkeys([*job["parts"], *parts]))
 
 
-def drop_part(data: dict, order_id: str, part: str, why: str) -> tuple[list[str], list[str]]:
-    """Take a part off its order, every job delivering it and every PR naming it, stopping each live job it leaves with no part, said so with why: the one way a part leaves an open order, whether his answer, drive order set --drop-part or its design's newest DESIGN drops it. The jobs it took the part off, and the live ones of them it stopped."""
+def drop_part(data: dict, order_id: str, part: str, why: str) -> tuple[list[str], dict[str, list[str]]]:
+    """Take a part off its order, every job delivering it and every PR naming it, stopping each live job it leaves with no part, said so with why, by stop_job, which drops each text it held: the one way a part leaves an open order, whether his answer, drive order set --drop-part or its design's newest DESIGN drops it. The jobs it took the part off, and the live ones of them it stopped, each with the words of each text it dropped."""
     del data["orders"][order_id]["parts"][part]
     data["orders"][order_id]["updated"] = stamp()
-    trimmed, stopped = [], []
+    trimmed, stopped = [], {}
     for job_id, job in data["jobs"].items():
         if part not in (held := job_parts(job, order_id)):
             continue
@@ -1417,12 +1417,18 @@ def drop_part(data: dict, order_id: str, part: str, why: str) -> tuple[list[str]
         job["updated"] = stamp()
         trimmed.append(job_id)
         if job["state"] not in FINISHED_JOB_STATES and not job["parts"] and not job["carries"]:
-            job.update(state="stopped", said=why)
-            stopped.append(job_id)
+            stopped[job_id] = stop_job(job, why)
     for pr in data["prs"].values():
         if pr["order"] == order_id and part in pr["parts"]:
             pr["parts"].remove(part)
     return trimmed, stopped
+
+
+def stop_job(job: dict, said: str) -> list[str]:
+    """Stop a job left nothing to do, said so, and drop each text it holds, since no worker of a stopped job carries one and no pass of the watch sends one again, so none stays held on a job that ended; the words of each text dropped."""
+    held = [kept["words"] for kept in job["undelivered"]]
+    job.update(state="stopped", said=said, undelivered=[], updated=stamp())
+    return held
 
 
 def agent_job(data: dict, agent: str | None) -> str | None:
@@ -2412,8 +2418,8 @@ def on_mac(job: dict) -> bool:
 
 
 def lane_died(job: dict, worker: str, why: str, moment: datetime, cause: str | None = None) -> bool:
-    """Record once that the job's current worker died or finished, so it takes no more messages: its remote lane, by this dispatch, or its agent on this Mac, by this agent, and keep on that death, whoever recorded it, the cause line a resume read off its lane's Sprite; whether this call recorded it. A running job changes with it, its parts settling while it is relaunched, but a job at rest does not, since a waiting job's answer reaches it by drive job resume whether or not its lane lives and the end of a finished job's lane changes nothing it does."""
-    key = worker_key(job)
+    """Record once that a worker the job's row records died or finished, so it takes no more messages: its Orca lane, by this dispatch, whatever the row's where names, or its agent on this Mac, by this agent, and keep on that death, whoever recorded it, the cause line a resume read off its lane's Sprite; whether this call recorded it. A running job changes with it, its parts settling while it is relaunched, but a job at rest does not, since a waiting job's answer reaches it by drive job resume whether or not its lane lives and the end of a finished job's lane changes nothing it does."""
+    key = "dispatch" if worker == job.get("dispatch") else "agent"
     deaths = job.setdefault("deaths", [])
     if job[key] != worker:
         return False
@@ -2424,7 +2430,7 @@ def lane_died(job: dict, worker: str, why: str, moment: datetime, cause: str | N
         if job["state"] == "running":
             job["updated"] = stamp(moment)
     if cause:
-        lane_death(job)["cause"] = cause
+        lane_death(job, key)["cause"] = cause
     return recorded
 
 
@@ -2439,9 +2445,9 @@ def why_died(why: str, cause: str | None) -> str:
     return f"{why}; {cause}" if cause else why
 
 
-def lane_death(job: dict) -> dict | None:
-    """The recorded death of the job's current worker, its remote lane or its agent on this Mac, which takes no message until drive job resume replaces it; None while it lives or the job has none."""
-    key = worker_key(job)
+def lane_death(job: dict, key: str | None = None) -> dict | None:
+    """The recorded death of the job's current worker, its remote lane or its agent on this Mac, which takes no message until drive job resume replaces it, or with key dispatch of the Orca lane its row records whatever its where names; None while it lives or the job has none."""
+    key = key or worker_key(job)
     return next((death for death in job.get("deaths", []) if job.get(key) and death.get(key) == job[key]), None)
 
 
@@ -2450,8 +2456,8 @@ def worker_key(job: dict) -> str:
 
 
 def lane_ended(job: dict) -> bool:
-    """Whether a `drive job end` ended the job's current remote lane, which it records before it saves, stops or destroys anything, so whatever that lane sends or Orca says of it afterwards is the end's own doing."""
-    return bool((death := lane_death(job)) and death.get("ended"))
+    """Whether a `drive job end` ended the Orca lane the job's row records by its dispatch, whatever its where names, which it records before it saves, stops or destroys anything, so whatever that lane sends or Orca says of it afterwards is the end's own doing."""
+    return bool((death := lane_death(job, "dispatch")) and death.get("ended"))
 
 
 def whole_order(text: str) -> str:
@@ -2896,6 +2902,11 @@ def job_lock_held(name: str, job_id: str) -> bool:
         except BlockingIOError:
             return True
     return False
+
+
+def launch_in_flight(name: str, job_id: str, job: dict) -> bool:
+    """Whether a drive job launch or resume is starting the job's next Orca lane now: its row reads a lane launch begun with no dispatch recorded yet while that verb holds the job's own lock, so the dispatch it records once its worker starts would land beside an agent bound meanwhile; the launching mark an Agent start here or a launch that failed leaves holds no lock."""
+    return job["where"] == "remote" and bool(job.get("launching")) and not job.get("dispatch") and job_lock_held(name, job_id)
 
 
 @contextmanager
