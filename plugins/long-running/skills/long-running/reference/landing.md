@@ -604,9 +604,11 @@ PR checks that everyone hits".
 - **What holds the PR.** The pass the merge requires is the drive's, never GitHub's. Three things start
   it, so it never rests on the builder's word alone. The builder's `READY` or `PUSHED` naming a
   Forge-AI/monorepo PR carries `STAGING: #N <cases>`, which `drive job report` turns into the part
-  `<order>:staging test of #N before it lands`, the PR's wait on it and its tester, or
-  `STAGING: none: <why AGENTS.md's dangerous rule misses it>`. And `drive pr add`, on each such PR it
-  registers, and the watch, on each new head of one and once on every open one after the install that
+  `<order>:staging test of #N before it lands`, the PR's wait on it and its tester, or,
+  when another order's staging part already names the PR or a tester the PR or a PR under it waits on
+  still runs, the PR's wait on that test alone, or `STAGING: none: <why AGENTS.md's dangerous rule
+  misses it>`. And `drive pr add`, on each such PR it registers, and the watch, on each new head of one
+  and once on every open one after the install that
   brought it, read the files the PR changes against the `[[dangerous]]` tables of the monorepo's
   `.claude/long-running.toml`, each a class of AGENTS.md's dangerous rule with the globs of its paths,
   leaving out test files and its `[skip]` globs, and give a PR that changes one the same part, wait and
