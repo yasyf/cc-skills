@@ -10866,9 +10866,9 @@ def test_the_daily_sweep_files_a_drive_tooling_order_per_bar_crossed_and_an_orde
     ]
     assert first["orders"]["o2"]["text"] == "Drive tooling: the daily Slack sweep found a message of yours still unanswered after 10 minutes"
     assert first["slack"]["swept"] == {"at": state.stamp(T0), "offset": end}
-    posted = T0 + timedelta(hours=2)
+    posted = T0 + timedelta(hours=2, microseconds=600000)
     monkeypatch.setattr(state, "now", lambda: posted)
-    for wait, url in ((1, POSTED), (5, f"{POSTED}1"), (6, f"{POSTED}2")):
+    for wait, url in ((1, POSTED), (2, f"{POSTED}1"), (6, f"{POSTED}2")):
         state.append_event(demo, "said", text="It is up.", channel=None, thread=None, url=url, card=None, order=None, visuals=[], prs=[], edited=False, answers=[f"{(posted - timedelta(minutes=wait)).timestamp():.6f}"])
     state.append_event(demo, "said", text="It is in.", channel=None, thread=None, url=POSTED, card=None, order=None, visuals=[], prs=[], edited=True, answers=[f"{(posted - timedelta(minutes=50)).timestamp():.6f}"])
     reask = f"{talk.ASKING_AGAIN} a reported bug: Fix: the watch reads each PR once"
@@ -10880,7 +10880,7 @@ def test_the_daily_sweep_files_a_drive_tooling_order_per_bar_crossed_and_an_orde
     assert REAL_SWEEP(watching, T0 + timedelta(days=1)) == []
     second = state.load(demo)
     assert [(order_id, order["title"], order["note"]) for order_id, order in second["orders"].items() if order_id not in first["orders"]] == [
-        ("o4", "Answers slower than 2 minutes", f"3 answers, 90th percentile 5.0 min, slowest 6 min: {POSTED}2"),
+        ("o4", "Answers slower than 2 minutes", f"3 answers, 90th percentile 6.0 min, slowest 6.0 min: {POSTED}2"),
         ("o5", "Card asked again at a channel's top level", f"1 re-asks, the first {CARD}"),
     ]
     assert second["orders"]["o3"]["note"] == f"2 PRs: {KEY}, {OTHER}"
