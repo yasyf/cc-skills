@@ -355,7 +355,9 @@ state folder's `clones/`, which the first landing makes, holding every file with
 neither its checkout nor `stack-enqueue`'s merge checks ask GitHub for a file by its id, which GitHub
 may answer without the file. Each landing fetches the default branch into that clone's
 `refs/remotes/origin/<branch>` under the clone's lock, and its LFS files check out as their pointers,
-since no landing step reads one. A landing fix merged to the default branch, such as a newly pinned toolchain, holds for
+since no landing step reads one. The lander runs `stack-enqueue` with `MISE_TRUSTED_CONFIG_PATHS`
+naming that worktree, so the mise shim that starts the script's `uv` trusts the worktree's mise
+configs, which this Mac's mise trusts under no path of the state folder. A landing fix merged to the default branch, such as a newly pinned toolchain, holds for
 the next landing at once:
 
     .agents/skills/submit-pr/scripts/stack-enqueue --check <PR>...
