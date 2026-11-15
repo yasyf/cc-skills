@@ -2530,7 +2530,7 @@ def stall_cards(data: dict, chain: dict[str, str], cards: dict) -> list[str]:
     subjects = list(chain)
     services = {found["service"] for link in subjects if (found := state.RELEASE_WAIT.fullmatch(link))}
     naming = re.compile(rf"(?<![\w-])(?:{'|'.join(map(re.escape, sorted(services)))})(?![\w-])") if services else None
-    taps = [f"his Approve on {key}, {url}" for key in subjects if (pr := data["prs"].get(key)) and (url := view.tap_card(data, pr, cards))]
+    taps = [f"his Approve on {key}, {url}" for key in subjects if (pr := data["prs"].get(key)) and (url := view.tap_card(pr, cards))]
     asks = [
         f'"{cut(card["question"], 300)}" {card["url"]}, asked by {card["job"] or "no job of the drive"}'
         for card in view.with_questions(data, cards)["questions"]
@@ -2578,9 +2578,9 @@ def stall_report(data: dict, thing: str, found: dict, held: dict, cards: dict, m
         f"The STUCK line went to {holder} at {when(held['said'])}, {said} minutes ago.",
         *(f"{label}: {answered[label]}" for label in ("WHY", "WHO", "NEXT", "UNREAD") if label in answered),
         *(
-            f"His card on {key} now: {view.tap_card(data, pr, cards) or 'none open at its head, so the watch draws or redraws it'}"
+            f"His card on {key} now: {view.tap_card(pr, cards) or 'none open at its head, so the watch draws or redraws it'}"
             for key in found["chain"]
-            if (pr := data["prs"].get(key)) and state.asks_tap(data, pr)
+            if (pr := data["prs"].get(key)) and state.asks_tap(pr)
         ),
     ]
     return {
@@ -3411,7 +3411,7 @@ def carried_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def stage_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Keep each heard unmerged PR's stage, as stage.of names it from the approval, checks and head GitHub last answered for it, and act once on each open one that entered a stage or passed its deadline, leaving a PR never read, or whose last read failed, as it stands until a read answers for it: draw his card on each PR that entered uncarded, one card for the PRs of one card unit as drive card draws them, and never again while it stays there, since a draw cc-slack answers by linking a card he already answered leaves it uncarded, or redraw in place the card cc-slack keeps closed on one, so it offers Approve again and no second card shares its waits id, redraw his card in place on every other change of stage so its line shows it, on a held PR whose cards of his holding it changed, so it names only those still open, and on a PR whose staging words view.staging reads changed, so his card says its staging result as it stands, wake the builder answering for a PR rework or red owe, ask forge-pr-reviewer once for a review of a head grading an hour and then wake its builder, wake the session holding its order on one unlanded, or landing or ready past its deadline, and post his card again, once per card unit, on the PRs that wait on him while they fix a live bug and whose card asks his tap, by state.asks_tap, under a line saying why it asks. A draw that fails clears the PR's stage, so the next read enters uncarded again and draws, and is said to the meta session from its third failure in a row."""
+    """Keep each heard unmerged PR's stage, as stage.of names it from the approval, checks and head GitHub last answered for it, and act once on each open one that entered a stage or passed its deadline, leaving a PR never read, or whose last read failed, as it stands until a read answers for it: draw his card on each PR that entered uncarded, one card for the PRs of one card unit as drive card draws them, and never again while it stays there, or redraw in place the card cc-slack keeps closed on one, so it offers Approve again and no second card shares its waits id, redraw his card in place on every other change of stage so its line shows it, on a held PR whose cards of his holding it changed, so it names only those still open, and on a PR whose staging words view.staging reads changed, so his card says its staging result as it stands, wake the builder answering for a PR rework or red owe, ask forge-pr-reviewer once for a review of a head grading an hour and then wake its builder, wake the session holding its order on one unlanded, or landing or ready past its deadline, and post his card again, once per card unit, on the PRs that wait on him while they fix a live bug and whose card asks his tap, by state.asks_tap, under a line saying why it asks. A draw that fails, or leaves a PR that asks his tap with no card of his offering Approve at its head, as one cc-slack answers by linking a card he already answered does, clears the PR's stage, so the next read enters uncarded again and draws, and is said to the meta session from its third failure in a row."""
     if watcher.cards is None:
         return []
     with state.edit(watcher.name) as data:
@@ -3449,7 +3449,7 @@ def stage_lines(watcher: Watcher, moment: datetime) -> list[str]:
             uncarded.setdefault(units[key], []).append(key)
             continue
         if now.owner == stage.HIM and not entered:
-            if state.asks_tap(data, data["prs"][key]):
+            if state.asks_tap(data["prs"][key]):
                 asked.setdefault(units[key], []).append(key)
             continue
         lines += acted(watcher, key, now, entered, line, moment)
@@ -3461,7 +3461,10 @@ def stage_lines(watcher: Watcher, moment: datetime) -> list[str]:
             for key in standing:
                 slack.redraw_pr_cards(state.pr_url(key))
             if undrawn := [key for key in keys if key not in standing]:
-                talk.draw(watcher.name, undrawn)
+                link = talk.draw(watcher.name, undrawn)
+                drew, found = state.load(watcher.name)["prs"], view.live_cards(watcher.name)
+                if bare := [key for key in undrawn if state.asks_tap(drew[key]) and not view.tap_card(drew[key], found)]:
+                    raise state.DriveError(f"it went out as {link}, which offers him no Approve at the head of {', '.join(bare)}")
         except (slack.SlackError, state.DriveError) as error:
             with state.edit(watcher.name) as data:
                 for key in keys:

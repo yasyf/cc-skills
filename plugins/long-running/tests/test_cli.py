@@ -6374,7 +6374,7 @@ def test_pr_add_on_a_public_repo_takes_demo_pictures_and_draws_his_card_in_the_s
         "Follows yasyf/cc-skills#4146."
     )
     assert run("pr", "add", PR, "--job", "j1", *LEAD) == (0, f"Forge-AI/monorepo#42, his card {draws.link}")
-    assert (draws.keys, view.tap_card(state.load("demo"), state.load("demo")["prs"]["Forge-AI/monorepo#42"], view.live_cards("demo"))) == ([["Forge-AI/monorepo#42"]], draws.link)
+    assert (draws.keys, view.tap_card(state.load("demo")["prs"]["Forge-AI/monorepo#42"], view.live_cards("demo"))) == ([["Forge-AI/monorepo#42"]], draws.link)
 
 
 def test_pr_add_whose_card_draw_fails_registers_the_pr_uncarded_for_the_watch_to_draw(run: Run, demo: str, draws: Draws) -> None:
@@ -6546,7 +6546,7 @@ def test_an_exempt_class_its_files_are_outside_is_refused_by_the_landers_class_c
     assert cli.main(["pr", "set", PR, "--exempt", "ci-only"]) == 2
     assert f'it is no "ci-only": it changes {", ".join(paths)}, outside CI configuration and CI tooling' in capsys.readouterr().err
     pr = state.load("demo")["prs"]["Forge-AI/monorepo#42"]
-    assert (pr["exempt"], state.asks_tap(state.load("demo"), pr), redraws.asked) == (None, True, [])
+    assert (pr["exempt"], state.asks_tap(pr), redraws.asked) == (None, True, [])
     paths.pop()
     assert run("pr", "set", PR, "--exempt", "test-only")[0] == 0
     assert state.load("demo")["prs"]["Forge-AI/monorepo#42"]["exempt"] == "test-only"

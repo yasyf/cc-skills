@@ -38,8 +38,9 @@ for its repository says, then return `DONE <proof>`.
   `drive job ask` marks when any option it offers breaks one, holds it on an incident too. His Approve on the PR answers each card holding
   it: his PR card names each with its recommended option, his Approve keeps those picks on its tap,
   and the lander's start, on his tap and on every watch pass, answers each card still open with its
-  pick and closes it before it lands. A card that comes to hold the PR after his Approve has his PR
-  card offer Approve again, naming that pick.
+  pick and closes it before it lands. His Approve stands until his words rework the PR or he taps Hold:
+  a card that comes to hold the PR after his Approve holds it as held, owed by him and naming that
+  card, and only his answer on that card frees it.
 - A stack draws one card for his Approve whatever its size: the card names every PR, and the PR
   sections past the 50 blocks one Slack message holds open under its Explain more.
 - Title: `Fix:`, `New:`, `Cleanup:` or `Port:`, then what changes for a user, in plain words. A

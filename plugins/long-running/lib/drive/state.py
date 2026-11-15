@@ -3727,8 +3727,8 @@ def against(pr: dict) -> str:
     return checker["against"] if checker and checker["head"] == pr["head"] else ""
 
 
-def tap_refused(pr: dict, picked: Iterable[str]) -> str | None:
-    """Why his card on the PR offers no Approve; None when it does: open, waiting on his tap with no exempt class landing it, and neither his Hold nor his Approve on it, whatever the check against his words says, his Approve standing only while the picks it kept name each card his Approve would pick on the PR now, the waits ids `picked` gives, so a card of his that came to hold it since he tapped, which his Approve did not answer, has his card on it offer Approve again naming that pick. A red PR offers it, as does one the hold label on GitHub holds, and so does one the check objects to, the objection a line on the card."""
+def tap_refused(pr: dict) -> str | None:
+    """Why his card on the PR offers no Approve; None when it does: open, waiting on his tap with no exempt class landing it, and neither his Hold nor his Approve on it, whatever the check against his words says. His Approve stands until his words rework the PR or he taps Hold, so a card of his that came to hold it since he tapped, which his Approve did not answer, holds it as held, owed by him and naming that card, until his answer on it frees it. A red PR offers it, as does one the hold label on GitHub holds, and so does one the check objects to, the objection a line on the card."""
     if pr["state"] != "open":
         return f"it is {pr['state']}"
     if exempted(pr):
@@ -3736,18 +3736,16 @@ def tap_refused(pr: dict, picked: Iterable[str]) -> str | None:
     if not pr["wants_tap"]:
         return "its author or its own builder lands it with no tap"
     match (pr["tap"] or {}).get("label"):
-        case "Approve" if set(picked) <= pr["tap"]["picks"].keys():
+        case "Approve":
             return "he approved it already"
         case "Hold":
             return "he held it"
     return None
 
 
-def asks_tap(data: dict, pr: dict) -> bool:
-    """Whether his card on the PR offers Approve, by tap_refused with the cards his Approve would pick on it now, by card.picks."""
-    from drive import card
-
-    return tap_refused(pr, card.picks(data, pr) if (pr["tap"] or {}).get("label") == "Approve" else ()) is None
+def asks_tap(pr: dict) -> bool:
+    """Whether his card on the PR offers Approve, by tap_refused."""
+    return tap_refused(pr) is None
 
 
 def rework(pr: dict, by: str, words: str) -> None:
