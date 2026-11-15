@@ -577,7 +577,7 @@ def report_refusal(name: str, data: dict, job_id: str, text: str) -> str | None:
         )
     if job["kind"] == "design" and len(listed) > 1 and (renamed := state.renamed_change(name, data, job["order"], [state.whole_order(line["change"]) for line in listed], job_id)):
         return renamed
-    if job["kind"] == "builder" and (held := held_piece(data, job_id, listed)):
+    if job["kind"] == "builder" and (held := held_piece(name, data, job_id, listed)):
         return (
             f'its UNBUILT: line "{cut(held[0], 120)}" names work the drive already holds, {held[1]}, so a part of its own would build it'
             " a second time: an UNBUILT: line names only a piece of its plan nothing on the drive builds yet, never its own change, which"
@@ -790,13 +790,15 @@ def left_piece(data: dict, job: dict, text: str) -> str | None:
     return None
 
 
-def held_piece(data: dict, job_id: str, listed: list[re.Match]) -> tuple[str, str] | None:
-    """The first UNBUILT: line of a builder's return naming work the drive already holds, beside what holds it, so a line on its own or a sibling's work makes no second part: a PR of another job the line names that did not close unmerged, or else a part of its order still to build, but its own and those the lines name in their own words, that Jev reads at settled.YES or more as naming that piece itself, every line read in one request by pieces; a reading in the band between, or none, lets it out, said on stderr."""
+def held_piece(name: str, data: dict, job_id: str, listed: list[re.Match]) -> tuple[str, str] | None:
+    """The first UNBUILT: line of a builder's return naming work the drive already holds, beside what holds it, so a line on its own or a sibling's work makes no second part: a PR of another job the line names that did not close unmerged, or else a piece an earlier return of the same builder left unbuilt that the line restates in new words, by restated_piece, or else a part of its order still to build, but its own and those the lines name in their own words, that Jev reads at settled.YES or more as naming that piece itself, every line read in one request by pieces; a reading in the band between, or none, lets it out, said on stderr."""
     job = data["jobs"][job_id]
     order_id = job["order"]
     for line in listed:
         if other := next((key for key in state.named_prs(data, order_id, line[0]) if data["prs"][key]["job"] != job_id and data["prs"][key]["state"] != "closed"), None):
             return line[0].strip(), f"in {other}, a PR of {data['prs'][other]['job']}"
+    if restated := restated_piece(name, data, job_id, listed):
+        return restated
     pieces_held = {*job["parts"], *(state.whole_order(line["change"]) for line in listed)}
     if not listed or not (building := [part for part in data["orders"][order_id]["parts"] if part not in pieces_held and not state.delivered(data, order_id, part)]):
         return None
@@ -812,6 +814,42 @@ def held_piece(data: dict, job_id: str, listed: list[re.Match]) -> tuple[str, st
             return line[0].strip(), f'as the part "{cut(holder, 80)}"' + (f", which {', '.join(builders)} builds" if builders else "")
         if any(found is None for _, found in named):
             print(f'drive job report: Jev is unsure whether a part of the order already holds "{cut(line[0].strip(), 160)}", so it is kept', file=sys.stderr)
+    return None
+
+
+def restated_piece(name: str, data: dict, job_id: str, listed: list[re.Match]) -> tuple[str, str] | None:
+    """The first UNBUILT: line of a builder's return that Jev reads at settled.YES or more as restating in new words a piece an UNBUILT: line of the same builder's earlier return left unbuilt, beside the part that piece became, its builders and their PRs: each such part a builder or codex job builds, by state.part_builders, read with each builder's goal and PR titles, every line against every part in one request; a reading in the band between, or none, lets it on to the order-wide read, said on stderr."""
+    order_id = data["jobs"][job_id]["order"]
+    words = {state.whole_order(line["change"]) for line in listed}
+    earlier = {
+        part: builders
+        for reply in state.returns(name, job_id)
+        for line in state.change_lines("builder", reply["body"])
+        if (part := state.whole_order(line["change"])) not in words and (builders := state.part_builders(data, order_id, part))
+    }
+    if not earlier:
+        return None
+    prs = {part: [key for builder in builders for key in map(state.pr_key, data["jobs"][builder]["prs"]) if key in data["prs"]] for part, builders in earlier.items()}
+    builds = {part: {"goals": [data["jobs"][builder]["goal"] for builder in builders], "prs": [title for key in prs[part] if (title := data["prs"][key]["title"])]} for part, builders in earlier.items()}
+    lines = [line[0].strip() for line in listed]
+    numbered = range(1, len(lines) + 1)
+    asked = (
+        ({"earlier": {f"e{index}": {"line": f"UNBUILT: {part}", "builds": builds[part]}}}, {f"restates.l{number}.e{index}": settled.asking(settled.RESTATES, slot=f"l{number}", part=f"e{index}") for number in numbered})
+        for index, part in enumerate(earlier, 1)
+    )
+    told, questions, _ = settled.fill({"lines": {f"l{number}": line for number, line in zip(numbered, lines)}}, {}, asked)
+    try:
+        read = settled.jev(told, questions)
+    except settled.Unheard as failure:
+        print(f"drive job report: Jev did not read whether an UNBUILT: line restates a piece an earlier return left unbuilt, so it is kept unchecked: {failure}", file=sys.stderr)
+        return None
+    for number, line in enumerate(lines, 1):
+        found = [(part, settled.reading(read.get(f"restates.l{number}.e{index}"))) for index, part in enumerate(earlier, 1)]
+        if part := next((part for part, restates in found if restates), None):
+            held = f" in {', '.join(prs[part])}" if prs[part] else ""
+            return line, f'as the part "{cut(part, 80)}" an earlier return of {job_id} left unbuilt, which {", ".join(earlier[part])} builds{held}'
+        if any(restates is None for _, restates in found):
+            print(f'drive job report: Jev is unsure whether "{cut(line, 160)}" restates a piece an earlier return of {job_id} left unbuilt, so it is kept', file=sys.stderr)
     return None
 
 

@@ -148,6 +148,11 @@ NAMES_PIECE = Noul(
     "Does `parts.{part}`, work a job of its own builds, name the piece `lines.{slot}` leaves unbuilt, that piece itself in any wording?",
     no="It names a larger piece of work holding that piece, or another piece.",
 )
+RESTATES = Noul(
+    "Does `lines.{slot}`, an UNBUILT: line of a builder's later return, name the same piece of work as `earlier.{part}.line`, a piece that same builder's earlier return left unbuilt and that `earlier.{part}.builds` now builds, restated in other words?",
+    yes="Building what that earlier piece's `builds` names builds what the line names.",
+    no="It names a different piece, or a piece beside or inside it that the earlier piece's `builds` leaves out.",
+)
 STEPS = Noul(
     "Does `stories.{slot}` list steps on `surface`, or name a part to walk, with no result he must then see?",
     yes='Such as "open the run page, click a step" or "walk each part the earlier brief names".',
