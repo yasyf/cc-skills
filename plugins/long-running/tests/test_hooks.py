@@ -914,7 +914,7 @@ def test_a_build_orders_builder_starts_only_on_a_brief_naming_its_readers_resear
     assert not folder.exists()
     assert scratch_folder.deny_reason(drive_agent("long-running:builder", f"Researched: j2\n{bare}")) == (
         "refused, no agent started: Researched: j2 names no reader or design of j2's part of o1 that kept a Researched: line and under it rulings:, exists: and open: lines in its report"
-        "; a reader or design that already kept that block on this work, on another order or this one, is this part's research once it holds the part, with no second reader: drive job set <that reader or design> --carries o1 --part \"Short title\" for another order's, drive job set <that reader or design> --part \"Short title\" for one of o1"
+        "; a reader or design of another order that already kept that block on this work is this part's research once it carries the part, with no second reader: drive job set <that reader or design> --carries o1 --part \"Short title\""
     )
     assert scratch_folder.deny_reason(drive_agent("long-running:builder", f"Researched: j1\n{bare}", "sonnet")) is None
     assert "model" not in agents.shaped(drive_agent("long-running:builder", f"Researched: j1\n{bare}", "sonnet"))
