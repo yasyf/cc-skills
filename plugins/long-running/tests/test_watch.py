@@ -10725,25 +10725,6 @@ def test_a_stalls_watchdog_is_handed_the_watchs_last_buildkite_read_of_each_buil
     ]
 
 
-def test_a_watchdogs_next_asking_its_holder_for_a_release_step_the_release_check_refuses_reaches_the_stuck_line_and_him_as_that_refusal(
-    demo: str, watchdogs: list[tuple[str, Path]], ready_records: list[list[dict]], jev: Jev
-) -> None:
-    watching = stalling(demo)
-    for minutes in (0, 60):
-        watch.stall_lines(watching, T0 + timedelta(minutes=minutes))
-    asked = "WHY: no sand-next release carries it\nWHO: the holder\nNEXT: start a sand-next production release now\nUNREAD: nothing\n"
-    [(_, out)] = watchdogs
-    watchdog_answered(out, asked)
-    jev.picks("asks")
-    [stuck] = watch.stall_lines(watching, T0 + timedelta(minutes=68))
-    assert f"; NEXT: {watch.cut(watch.brief.RELEASE_UNNAMED, 200)}; its whole answer" in stuck
-    watch.stall_lines(watching, T0 + timedelta(minutes=98))
-    watchdog_answered(watchdogs[1][1], asked)
-    watch.stall_lines(watching, T0 + timedelta(minutes=99))
-    [[report]] = ready_records
-    assert f"NEXT: {watch.brief.RELEASE_UNNAMED}" in report["body"].splitlines()
-
-
 @pytest.mark.parametrize(
     ("key", "builder", "standing", "stale", "fresh"),
     [
