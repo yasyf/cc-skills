@@ -6,7 +6,7 @@ from collections.abc import Callable, Iterable
 from datetime import datetime
 
 from drive import slack
-from drive.state import DRIVE_TOOLING, FINISHED_JOB_STATES, FREED, REPO_RULES, ROLES, SLOT_WAIT, VERSION, alias, carriers, delivered, exempted, holding_job_lane, lane_death, may_tell, now, open_orders, orphan_stands, owed, owed_at_return, parse_time, part_jobs, pass_due, passes, pr_key, pr_url, project_lane, promise_thread, repo_rules, resumed, session_lane, standing_passes, title, untracked_carriers, work
+from drive.state import DRIVE_TOOLING, FINISHED_JOB_STATES, FREED, REPO_RULES, ROLES, SLOT_WAIT, VERSION, alias, carriers, delivered, exempted, following, holding_job_lane, lane_death, may_tell, now, open_orders, orphan_stands, owed, owed_at_return, parse_time, part_jobs, pass_due, passes, pr_key, pr_url, project_lane, promise_thread, repo_rules, resumed, session_lane, standing_passes, title, untracked_carriers, work
 
 SLACK_TOOLS = "mcp__plugin_cc-slack_cc-slack__"
 REWORKING = "no card while its builder reworks it to his words, until its READY says how they are met"
@@ -518,11 +518,14 @@ def orphans(drive: dict, order_id: str, limit: int) -> list[str]:
 
 
 def part_line(drive: dict, order_id: str, part: str) -> str:
-    """A part as drive status lists it: a standing part by standing_line, delivered, else each job state.carriers says can carry it, with each PR the drive does not track that carries a stopped builder's part, else that no builder carries work he ordered."""
-    if drive["orders"][order_id]["parts"][part]["standing"]:
+    """A part as drive status lists it: a standing part by standing_line, delivered, else the build the watch follows for it, else each job state.carriers says can carry it, with each PR the drive does not track that carries a stopped builder's part, else that no builder carries work he ordered."""
+    kept = drive["orders"][order_id]["parts"][part]
+    if kept["standing"]:
         return standing_line(drive, order_id, part)
     if delivered(drive, order_id, part):
         return f'"{part}": delivered'
+    if following(kept):
+        return f'"{part}": the watch follows {kept["follow"]["build"]}, and its end line delivers it'
     held = ", ".join(f"{job['kind']} {job_id} {job['state']}{untracked_line(drive, job)}" for job_id, job in carriers(drive, order_id, part))
     return f'"{part}": {held or ("no builder carries it" if work(drive, order_id, part) else "no job carries it")}'
 

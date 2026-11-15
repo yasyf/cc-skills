@@ -619,6 +619,19 @@ restating it.
   carries it, nor once a report closing the order is kept or posted, whose post is its line. A job
   carrying a part of another order, and each PR registered on it, is a step in its own order's
   thread alone.
+- His ask to be kept updated on a Buildkite build, such as a staging release, is the watch's to
+  follow, by his pick "A live status message: one message in your thread, rewritten each minute with
+  the running step, then an end line; one Buildkite read a minute" and his words "fix your toolking
+  so tracking this stuff beciomes deterministic and it cant get lost at the whims of an agent". Once
+  the build exists, the session holding the order runs `drive order set <o> --follow <build link>
+  <his ask> [--part "<part>"]`. The watch posts one status message in the thread of his ask naming
+  each running step with its minutes, or the approve step it stopped at, and how many steps are done,
+  and rewrites it whenever those words change, from the read it keeps of the build, which Buildkite's
+  deliveries renew, so the follow adds no Buildkite read. At the build's end it starts a handler on
+  the end line, which says how the build ended and what his ask wants of it, such as how confident we
+  are to release the same commit further, and delivers the part; no other post delivers it meanwhile,
+  so the ack under his ask leaves it open. Only an ask in his DM is followed, since the watch rewrites
+  its own post there with no ticket.
 - An incident shares that rule with a clock: until its fix is live he hears each step the moment it
   happens, and until its users are unblocked a line five quiet minutes after the last while a job
   works on it or something it names moved, while he is away too, which the watch owes and has a

@@ -197,10 +197,10 @@ def took(repo: str, hook_id: int, guid: str, event: str, payload: dict | None) -
 
 
 def took_builds(event: str, links: list[str] | None) -> None:
-    """Append one build delivery line to each drive with a live job or open PR waiting on a Buildkite build a delivery of Buildkite's names, for its watch to read that build from Buildkite, and log it; a missed delivery, links None, names every build each drive waits on, since the receiver took none of what Buildkite sent while it was down."""
+    """Append one build delivery line to each drive with a live job or open PR waiting on, or an open order's part following, a Buildkite build a delivery of Buildkite's names, for its watch to read that build from Buildkite, and log it; a missed delivery, links None, names every build each drive waits on, since the receiver took none of what Buildkite sent while it was down."""
     said = []
     for name in state.names():
-        held = state.held_builds(state.stored(name, ("jobs", "prs")))
+        held = state.held_builds(state.stored(name, ("jobs", "prs", "orders")))
         if builds := sorted(held if links is None else held & set(links)):
             state.append_event(name, BUILD_DELIVERY, builds=builds, event=event)
             said.append(f"{name} {' '.join(builds)}")
