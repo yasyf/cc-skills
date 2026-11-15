@@ -298,7 +298,7 @@ def run(tool: str, name: str, arguments: dict) -> str:
             return record(name, listing(arguments, "records", "owner, answer, handoff or defect records"), dry_run)
         case "heard" | "handler" | "status" | "search_plan":
             said: list[str] = []
-            printed = ran(name, said, 1, ONE_VERB[tool], arguments, dry_run)
+            printed, _ = ran(name, said, 1, ONE_VERB[tool], arguments, dry_run) or ([], [])
             return "\n".join(said if dry_run or not printed else printed)
         case group:
             return batch(name, group, listing(arguments, "ops", ", ".join(OPS[group])), dry_run)
@@ -490,34 +490,47 @@ def refusal(index: int, words: tuple[str, ...], given: dict, why: str) -> str:
     return f"{index} {' '.join(words)}{f' {json.dumps(render.cut(opening, 60), ensure_ascii=False)}' if opening else ''} refused: {why}"
 
 
-def first(printed: list[str] | None) -> str | None:
-    """The id an add printed first, or None for one a dry run stopped before its write."""
-    return printed[0].split()[0] if printed else None
+def first(printed: tuple[list[str], list[str]] | None) -> str | None:
+    """The id an add printed first on stdout, or None for one a dry run stopped before its write."""
+    return printed[1][0].split()[0] if printed else None
 
 
-def ran(name: str, said: list[str], index: int, words: tuple[str, ...], given: dict, dry_run: bool) -> list[str] | None:
-    """Run one drive verb in this process, appending its line to said, its printed lines back; a refusal raises naming the op and why. A dry run runs it the same way in a dry state.batch, so it is refused as the call would be and keeps nothing, its line the drive command; one stopped at a command that does more than read, which every check before it passed, says so and gives back None."""
+class Copied(io.StringIO):
+    """A stream keeping what is written to it and writing it to copy too."""
+
+    def __init__(self, copy: io.StringIO) -> None:
+        super().__init__()
+        self.copy = copy
+
+    def write(self, text: str) -> int:
+        self.copy.write(text)
+        return super().write(text)
+
+
+def ran(name: str, said: list[str], index: int, words: tuple[str, ...], given: dict, dry_run: bool) -> tuple[list[str], list[str]] | None:
+    """Run one drive verb in this process, appending its line to said; every line it printed back, beside the lines it printed on stdout, whose first opens with the id an add made, so a note it printed on stderr before it, such as order add's that Jev is unsure its words are on an open order's feature, is never read as that id. A refusal raises naming the op and why. A dry run runs it the same way in a dry state.batch, so it is refused as the call would be and keeps nothing, its line the drive command; one stopped at a command that does more than read, which every check before it passed, says so and gives back None."""
     try:
         line = argv(words, given)
     except DriveError as error:
         raise DriveError(refusal(index, words, given, str(error))) from None
     out, usage, stopped = io.StringIO(), False, None
-    with state.batch(name, dry=True) if dry_run else contextlib.nullcontext(), contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+    result = Copied(out)
+    with state.batch(name, dry=True) if dry_run else contextlib.nullcontext(), contextlib.redirect_stdout(result), contextlib.redirect_stderr(out):
         try:
             code = cli.main([*words, "--drive", name, *line[len(words) :]])
         except SystemExit as stop:
             code, usage = stop.code, True
         except state.Rehearsed as reached:
             code, stopped = 0, str(reached)
-    printed = [text.strip() for text in out.getvalue().splitlines() if text.strip()]
+    printed, stdout = ([text.strip() for text in stream.getvalue().splitlines() if text.strip()] for stream in (out, result))
     if code:
         why = printed[-1:] if usage else printed
         raise DriveError(refusal(index, words, given, "; ".join(text.removeprefix("drive: ") for text in why)))
     if not dry_run:
         said.append(f"{index} {' '.join(words)}: {'; '.join(printed)}")
-        return printed
+        return printed, stdout
     said.append(f"{index} {shlex.join(['drive', *line])}" + (f": checked up to `{stopped}`, which a dry run never starts" if stopped else ""))
-    return None if stopped else printed
+    return None if stopped else (printed, stdout)
 
 
 def record(name: str, records: list[dict], dry_run: bool) -> str:

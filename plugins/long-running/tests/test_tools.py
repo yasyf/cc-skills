@@ -47,6 +47,16 @@ def test_a_job_call_whose_inline_tooling_order_repeats_an_open_one_adds_no_job_a
     assert (list(state.load(meta)["jobs"]), len([request for request in jev.asked if any(key.startswith("repeats.") for key in request["questions"])])) == (["j1", "j2"], 1)
 
 
+def test_a_job_call_whose_inline_order_add_first_prints_jevs_join_note_adds_its_job_on_the_order_that_add_made(meta: str, jev: Jev) -> None:
+    filed = {"title": "Install lock stall", "project": "The drive", "workstream": "Drive tooling"}
+    tools.run("job", meta, {"ops": [{"add": {"kind": "reader", "order": filed | {"words": LOCK_STALL}, "goal": "research: the install lock"}}]})
+    jev.picks("o1", 0.5)
+    said = tools.run("job", meta, {"ops": [{"add": {"kind": "reader", "order": filed | {"words": LOCK_STALL_AGAIN}, "goal": "research: the install stall"}}]})
+    assert said.splitlines()[0] == "1 order add: drive order add: Jev is unsure whether these words are on the feature of o1; name it with --joins o1 when they are; o2"
+    data = state.load(meta)
+    assert (data["jobs"]["j3"]["order"], data["orders"]["o2"]["jobs"][0]) == ("o2", "j3")
+
+
 def test_a_job_call_whose_inline_tooling_order_repeats_one_no_unfinished_job_carries_adds_its_reader_on_its_own_part_with_its_builder_waiting(
     meta: str, jev: Jev
 ) -> None:
