@@ -5130,13 +5130,31 @@ def with_build(place: str, held: dict) -> str:
 
 
 def channels(args: argparse.Namespace) -> int:
+    from drive import talk, view
+
     name = state.resolve(args.drive)
     data = state.load(name)
     made = [slack.cc_slack("operator-channel", slack.channel_name(name, project)) for project in dict.fromkeys([*data["subcoordinators"], TOOLING_FILING[0]])]
     with state.edit(name) as fresh:
         if held := fresh["roles"].get("communicator"):
             held.pop("rules", None)
-    return emit(args, "\n".join(f"#{channel['name']} {channel['id']}" for channel in made), made)
+    slack.whoami.cache_clear()
+    found, dm, moved = view.cards(name), slack.dm(), []
+    try:
+        for card in [*found["questions"], *found["pr_cards"]]:
+            stack = [key for url in card.get("prs", []) if (key := state.pr_key(url)) in data["prs"]]
+            channel = slack.project_channel(name, talk.project(data, {"card": card["card"]}, stack, None))
+            if channel != dm and state.slack_message(card["url"])[0] == dm:
+                moved.append((card, stack, slack.cc_slack("move-card", "--url", card["url"], "--channel", channel)["permalink"]))
+    finally:
+        with state.batch(name):
+            for card, stack, url in moved:
+                follow_card(name, card["card"]["waits"], {view.message_key(card["url"])}, url)
+                with state.edit(name) as fresh:
+                    state.join_pr_cards(fresh, stack, [url], state.stamp())
+        view.refresh_cards(name)
+    lines = [*(f"#{channel['name']} {channel['id']}" for channel in made), f"{len(moved)} open card(s) of his DM moved to their project's channel"]
+    return emit(args, "\n".join(lines), {"channels": made, "moved": [{"from": card["url"], "to": url} for card, _, url in moved]})
 
 
 def context(args: argparse.Namespace) -> int:
@@ -6598,7 +6616,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("page", nargs="?", choices=manual_pages(), help="default: list the pages")
     verb.add_argument("row", nargs="?", help="print only the table rows whose first cell names this, such as TAP or READY, else each section, list item, row, fenced block and paragraph carrying it")
     verb.set_defaults(run=manual)
-    verb = verbs.add_parser("channels", parents=both, help="make the private operator channel of each sub-coordinator's project and of the drive's tooling as him, which cc-slack reads as it reads his DM, and say posts of each project go to; one he has is kept")
+    verb = verbs.add_parser("channels", parents=both, help="make the private operator channel of each sub-coordinator's project and of the drive's tooling as him, which cc-slack reads as it reads his DM, and say posts of each project go to, one he has kept, then move each open card of his DM whose project has a channel to that channel's root, its DM card edited to Moved to and a link")
     verb.set_defaults(run=channels)
     verb = verbs.add_parser("context", parents=[drive_opt])
     verb.add_argument("--role", choices=state.ROLES, help="default: the role this session holds")
