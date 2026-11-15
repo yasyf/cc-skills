@@ -4615,8 +4615,8 @@ def test_an_unchecked_pr_starts_one_check_against_his_words_whatever_its_jobs_st
     assert (watch.run_pass(watching, T0 + timedelta(minutes=5)), checkers) == ([], [KEY])
     judge.against = []
     assert cli.main(["pr", "check", state.pr_url(KEY), "--drive", demo]) == 0
-    checked = f"PR {KEY}: CHECKED against the words of o1 at aaaaaaa111, so his Approve lands it once it is green [o1 j1]"
-    assert watch.run_pass(watching, T0 + timedelta(minutes=6)) == [checked]
+    [checked] = watch.run_pass(watching, T0 + timedelta(minutes=6))
+    assert checked.startswith(f"PR {KEY}: CHECKED against the words of o1 at aaaaaaa111; ") and checked.endswith("; Not on staging: no staging test is set for it [o1 j1]")
     assert not watch.wakes(checked, state.load(demo), NO_CARDS)
     assert (state.load(demo)["prs"][KEY]["checked"]["head"], watch.run_pass(watching, T0 + timedelta(minutes=7)), checkers) == ("aaaaaaa111", [], [KEY])
 
