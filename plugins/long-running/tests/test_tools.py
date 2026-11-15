@@ -1135,18 +1135,19 @@ def test_an_answer_or_handoff_naming_a_job_goes_to_the_coordinator_session_whose
 
 
 def open_cards(monkeypatch: pytest.MonkeyPatch, *waits: str, prs: tuple[str, ...] = ()) -> list[tuple[str, ...]]:
-    """His open question card for each waits id, the first at CARD, its question kept on the job the waits id names as drawn there, and a PR card at PR_CARD carrying the PRs named, stored as the drive stores the cards cc-slack lists; each card-answer call cc-slack gets, answered as a card that was waiting."""
+    """His open question card for each waits id, the first at CARD asking "Which ring?" and each other asking about its own door, its question kept on the job the waits id names as drawn there, and a PR card at PR_CARD carrying the PRs named, stored as the drive stores the cards cc-slack lists; each card-answer call cc-slack gets, answered as a card that was waiting."""
     urls = [CARD if index == 0 else f"{CARD[:-2]}{index:02d}" for index in range(len(waits))]
+    titles = ["Which ring?" if index == 0 else f"Which ring for door {index + 1}?" for index in range(len(waits))]
     if waits:
         with state.edit("demo") as data:
-            for wait, url in zip(waits, urls, strict=True):
+            for wait, url, title in zip(waits, urls, titles, strict=True):
                 job_id = wait.partition(":")[2].partition("-")[0]
-                data["jobs"][job_id]["questions"].append(state.new_question(None, "Which ring?", state.stamp(), card=url) | {"waits": wait})
+                data["jobs"][job_id]["questions"].append(state.new_question(None, title, state.stamp(), card=url) | {"waits": wait})
     found = {
         "team_url": "",
         "questions": [
-            {"card": {"waits": wait, "title": "Which ring?", "body": "Ring or knock?", "options": ["Ring", "Knock"], "recommended": "Ring"}, "url": url, "question": "Which ring?", "options": ["Ring", "Knock"]}
-            for wait, url in zip(waits, urls, strict=True)
+            {"card": {"waits": wait, "title": title, "body": "Ring or knock?", "options": ["Ring", "Knock"], "recommended": "Ring"}, "url": url, "question": title, "options": ["Ring", "Knock"]}
+            for wait, url, title in zip(waits, urls, titles, strict=True)
         ],
         "closed": [], "pr_cards": [{"url": PR_CARD, "prs": list(prs), "card": {"options": ["Approve", "Hold"]}}] if prs else [],
     }
@@ -1286,8 +1287,34 @@ def test_an_answer_naming_his_open_card_by_its_waits_attr_settles_that_card_in_t
     answered = open_cards(monkeypatch, "demo:j1-7", "demo:j2-8")
     card = f"{CARD[:-2]}01"
     said = tools.run("record", demo, {"records": [{"kind": "answer", "text": "Ring", "url": HIS, "attrs": {"waits": "demo:j2-8"}}]})
-    assert said.splitlines() == ["1 answer 52", '1 j2\'s question "Which ring?" ended answered by 52', f"demo:j2-8: his card {card} now shows his words with no buttons, its question answered"]
+    assert said.splitlines() == ["1 answer 52", '1 j2\'s question "Which ring for door 2?" ended answered by 52', f"demo:j2-8: his card {card} now shows his words with no buttons, its question answered"]
     assert answered == [("card-answer", "--card", card, "--label", "Ring", "--settled", "--other", "--via", HIS)]
+
+
+def test_his_answer_on_one_card_answers_another_jobs_card_asking_it_in_the_same_words_but_its_punctuation_and_frees_the_builder_waiting_on_that_card(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page", "--parts", "the run", "the page", "the door")
+    for part in ("the run", "the page", "the door"):
+        run("job", "add", "builder", "--order", "o1", "--part", part, "--goal", f"build {part}")
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess([], 0, '{"seq": 53}\n', ""))
+    answered = open_cards(monkeypatch, "demo:j1-7", "demo:j2-8")
+    with state.edit(demo) as data:
+        data["jobs"]["j2"]["questions"][0]["title"] = "which ring"
+        data["jobs"]["j3"]["waits"] = ["demo:j2-8"]
+    twin = f"{CARD[:-2]}01"
+    said = tools.run("record", demo, {"records": [{"kind": "answer", "text": "Ring", "url": HIS, "attrs": {"waits": "demo:j1-7"}}]})
+    assert said.splitlines() == [
+        "1 answer 53",
+        '1 j1\'s question "Which ring?" ended answered by 53',
+        '1 j2\'s question "which ring" ended answered by 53',
+        f"demo:j1-7: his card {CARD} now shows his words with no buttons, its question answered",
+        f"demo:j2-8: his card {twin} now shows his words with no buttons, its question answered",
+    ]
+    assert answered == [("card-answer", "--card", card, "--label", "Ring", "--settled", "--other", "--via", HIS) for card in (CARD, twin)]
+    data = state.load(demo)
+    assert not view.holds(data, "demo:j2-8", view.NO_CARDS)
+    assert {job_id: [held["seq"] for held in job["undelivered"]] for job_id, job in data["jobs"].items()} == {"j0": [], "j1": ["53"], "j2": ["53"], "j3": ["53"]}
 
 
 def test_his_tap_and_an_answer_naming_his_card_by_its_waits_attr_each_post_under_their_cards_thread_which_cci_requires_and_end_its_question(

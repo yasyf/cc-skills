@@ -2046,7 +2046,7 @@ def asking(data: dict, title: str) -> list[tuple[str, dict]]:
 
 
 def elsewhere(data: dict, job_id: str, title: str, redraws: str | None) -> tuple[str, dict] | None:
-    """Another job's open question asking him in these same words, whatever their case and spacing, what this title asks, never one `drive job ask` refused, which draws no card, nor the one on the card `--redraws` takes over, nor one that `took` the job's card, which the job's ask folds into."""
+    """Another job's open question asking him in these same words, whatever their case, spacing and punctuation, what this title asks, never one `drive job ask` refused, which draws no card, nor the one on the card `--redraws` takes over, nor one that `took` the job's card, which the job's ask folds into."""
     return next(
         ((other, question) for other, question in asking(data, title) if other != job_id and not question["refused"] and question["waits"] != redraws and not took(data, job_id, question)),
         None,

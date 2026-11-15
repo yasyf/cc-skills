@@ -415,7 +415,10 @@ When it is answered, replaced or redone:
   its question rides on that card's, so his one answer there ends both.
   A card still worth a tap while its work is reworked keeps its buttons. One question has one card. `drive job ask` refuses a question another job's
   open card asks in the same words, naming the `drive job set --waits` that frees its job at his
-  answer. `drive answer` lists every open card
+  answer. Same words means case, spacing and punctuation aside, and his answer on any card answers
+  every open question of every job asking it in those words: each card shows his words settled with
+  no buttons, each of those jobs holds his words, and each builder waiting on one of them goes free.
+  `drive answer` lists every open card
   his answer decides, rules options out of or makes moot, whatever job, order or words it shares with
   the one he answered. His words, on three cards about one search
   worker's cache disk: "We're already addressing this with the lazy + restate object + increase disk size right? So why is this card still here?"

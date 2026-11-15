@@ -691,7 +691,7 @@ def jev(request: dict) -> dict:
 
 
 def answered(data: dict, title: str) -> dict | None:
-    """His answer to this same question: the newest question of any job asked in these words, whatever their case and spacing, that ended answered by his tap or words on or under its card, or by his words a record kept for it; a question kept answered with no card and no record, as `drive job ask` once kept one on Jev's reading of an answer he gave another question, is none."""
+    """His answer to this same question: the newest question of any job asked in these words, whatever their case, spacing and punctuation, that ended answered by his tap or words on or under its card, or by his words a record kept for it; a question kept answered with no card and no record, as `drive job ask` once kept one on Jev's reading of an answer he gave another question, is none."""
     return max(
         (
             question
