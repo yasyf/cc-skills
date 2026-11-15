@@ -1394,7 +1394,7 @@ def proving(config: Path, tmp_path: Path, git: FakeGit, exits: int) -> Path:
     script = tmp_path / "proof.sh"
     script.write_text(f'#!/bin/sh\necho "ran on ${{PATH%%:*}}"\nexit {exits}\n')
     script.chmod(0o755)
-    state.create(state.new_drive("demo", "coordinator", "demo-coordinator", "/work"))
+    state.create(state.new_drive("demo", "coordinator", "demo-coordinator", str(tmp_path)))
     with state.edit("demo") as data:
         part = "Drive tooling: prove each install"
         data["orders"]["o1"] = state.new_order(part, f"slack:D123/{HIS_THREAD}", ("D123", HIS_THREAD), {part: state.new_part()}, state.stamp()) | {"jobs": ["j1"]}
@@ -1455,6 +1455,20 @@ def test_a_jobs_own_done_on_work_delivers_its_part_only_once_drive_job_prove_run
     data = state.load("demo")
     assert (data["jobs"]["j1"]["state"], state.delivered(data, "o1", part), git.claude_calls()) == ("done" if delivered else "failed", delivered, [])
     assert data["orders"]["o1"]["parts"][part]["posted"] == (f"j1 live: {script} exits 0 on long-running {state.VERSION}" if delivered else None)
+    assert (data["jobs"]["j1"]["proof"]["said"], data["jobs"]["j1"]["proof"]["result"]) == ("DONE checked it by hand", data["jobs"]["j1"]["said"])
+
+
+@pytest.mark.parametrize("saver", [None, "9.9.9"])
+def test_a_proof_runs_in_the_drives_checkout_never_the_folder_drive_job_prove_started_in_even_once_a_newer_install_saved_the_drive(
+    config: Path, tmp_path: Path, fake: Callable[..., FakeGit], monkeypatch: pytest.MonkeyPatch, saver: str | None
+) -> None:
+    git = fake([BUILD], {BUILD})
+    script = repairing(config, tmp_path, git, 0, {"state": "done", "said": "DONE checked it by hand"})
+    script.write_text("#!/bin/sh\npwd -P\n")
+    if saver:
+        state.store("demo", state.stored("demo") | {"saved_by": saver})
+    monkeypatch.chdir(state.drive_dir("demo"))
+    assert install.proof_run("demo", str(script), "/usr/bin:/bin", 60).stdout == f"{tmp_path.resolve()}\n"
 
 
 @pytest.mark.parametrize(("later", "owed"), [("done", False), ("failed", False), ("running", False), ("stopped", True)])

@@ -8676,20 +8676,35 @@ def test_a_merged_ready_product_job_on_an_open_incidents_fix_takes_done_at_its_m
     assert (data["jobs"]["j1"]["state"], data["jobs"]["j2"]["parts"], data["jobs"]["j2"]["waits"], provers) == ("done", ["fix"], [], [])
 
 
-@pytest.mark.parametrize(("version", "started"), [(state.VERSION, []), ("1.0.1", ["j1"])])
-def test_a_proof_that_ended_with_no_result_is_said_with_its_rerun_and_started_again_by_a_newer_watch(
-    demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str], tmp_path: Path, version: str, started: list[str]
+@pytest.mark.parametrize(("version", "result", "started"), [(state.VERSION, None, []), ("1.0.1", None, ["j1"]), ("1.0.1", "BLOCKED j1: repro/j1.sh exits 1", []), (state.VERSION, "BLOCKED j1: repro/j1.sh exits 1", [])])
+def test_a_proof_that_ended_with_no_result_is_started_again_by_a_newer_watch_and_one_that_took_a_result_never_is_once_its_job_is_put_back_on_its_line(
+    demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str], tmp_path: Path, version: str, result: str | None, started: list[str]
 ) -> None:
     serve(monkeypatch, {})
     merged_ready(demo, YASYF, proof_file(tmp_path))
     ended = subprocess.Popen(["true"])
     ended.wait()
     with state.edit(demo) as data:
-        data["jobs"]["j1"]["proof"] = {"pid": ended.pid, "at": state.stamp(T0), "said": f"READY {state.pr_url(YASYF)}", "version": version}
+        data["jobs"]["j1"]["proof"] = {"pid": ended.pid, "at": state.stamp(T0), "said": f"READY {state.pr_url(YASYF)}", "version": version} | ({"result": result} if result else {})
     lines = watch.run_pass(watcher(demo), T0)
     assert provers == started
     rerun = f"j1's proof, drive job prove pid {ended.pid}, ended with no result, its output in the drive's {watch.PROOFS_LOG}: drive job prove j1 runs it again"
-    assert lines == ([] if started else [f'ORPHAN o1 "ship the watch": {rerun}'])
+    put_back = f"j1 was put back on the line its proof, drive job prove pid {ended.pid}, took a result on, so no install runs it again: drive job prove j1 runs it again"
+    assert lines == ([] if started else [f'ORPHAN o1 "ship the watch": {put_back if result else rerun}'])
+
+
+@pytest.mark.parametrize(("returned", "started"), [(T0 - timedelta(hours=1), []), (T0 + timedelta(hours=1), ["j1"])])
+def test_a_jobs_own_done_taken_before_the_drives_own_done_proofs_since_gets_no_first_proof_and_no_orphan_while_one_taken_after_gets_its_proof(
+    demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str], tmp_path: Path, returned: datetime, started: list[str]
+) -> None:
+    serve(monkeypatch, {})
+    with state.edit(demo) as data:
+        del data["prs"][KEY]
+        data["own_done_proofs_since"] = state.stamp(T0)
+        data["jobs"]["j1"].update(state="done", said="DONE checked it by hand", prs=[], repro=proof_file(tmp_path), returned=state.stamp(returned), updated=state.stamp(returned))
+    data = state.load(demo)
+    assert (install.done_unproven(data, "j1"), install.done_before_proofs(data, "j1")) == (bool(started), not started)
+    assert (watch.run_pass(watcher(demo), T0 + timedelta(hours=2)), provers) == ([], started)
 
 
 

@@ -638,6 +638,24 @@ def test_a_drive_saved_with_builders_whose_goal_is_their_readers_question_gives_
     )
 
 
+def test_a_drive_saved_before_proof_results_marked_marks_each_proof_that_moved_its_job_off_its_line_and_names_when_own_done_proofs_began(state_root: Path) -> None:
+    make("demo")
+    data = state.load("demo")
+    del data["proof_results_marked"], data["own_done_proofs_since"]
+    ran, blocked = "DONE checked it by hand", "BLOCKED j1: repro/j1.sh exits 1"
+    proof = {"pid": 1, "at": state.stamp(), "said": ran, "version": "1.0.1170"}
+    data["orders"] = {"o1": state.new_order("fix it", "slack", None, {"fix": state.new_part()}, state.stamp()) | {"kind": "build", "jobs": ["j1", "j2", "j3"]}}
+    data["jobs"] = {
+        "j1": state.new_job("o1", "builder", "fail it", ["fix"], state.stamp()) | {"state": "failed", "said": blocked, "proof": proof},
+        "j2": state.new_job("o1", "builder", "end it", ["fix"], state.stamp()) | {"state": "done", "said": ran, "proof": proof},
+        "j3": state.new_job("o1", "builder", "wait on him", ["fix"], state.stamp()) | {"state": "waiting", "said": "WAITING his next word", "proof": proof | {"waits": "WAIT he answers"}},
+    }
+    state.create(data)
+    loaded = state.load("demo")
+    assert [loaded["jobs"][job_id]["proof"].get("result") for job_id in ("j1", "j2", "j3")] == [blocked, None, None]
+    assert (loaded["own_done_proofs_since"], loaded["proof_results_marked"], state.new_drive("fresh", "coordinator", None, "/work")["own_done_proofs_since"]) == ("2026-11-15T06:49:27-08:00", True, None)
+
+
 def test_a_drive_saved_before_proofs_proven_keeps_work_delivered_only_where_drive_job_prove_proved_it_and_puts_back_a_superseded_job_its_proof_failed(state_root: Path) -> None:
     make("demo")
     data = state.load("demo")

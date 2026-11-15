@@ -143,6 +143,7 @@ PR_URL = re.compile(r"(?:https?://)?github\.com/([^/\s]+)/([^/\s]+)/pull/(\d+)")
 MERGED_LINE = re.compile(rf"DONE (?:{PR_URL.pattern} )+merged: ")
 HELD_DONE = re.compile(rf"WAITING (?:{PR_URL.pattern} )+to merge: DONE\b")
 PROVEN_LINE = re.compile(r"DONE (?P<proof>.+? live: \S+ exits 0 on .+)")
+POST_PROOFS_MERGED = datetime.fromisoformat("2026-11-15T06:49:27-08:00")
 MERGE_COMMIT = re.compile(r"https://github\.com/(?P<repo>[^/\s]+/[^/\s]+)/commit/[0-9a-f]{7,40}")
 RELEASE_WAIT = re.compile(r"release:(?P<service>[\w.-]+):(?P<pr>[^/\s#]+/[^/\s#]+#\d+)(?:@(?P<env>[\w.-]+))?")
 STAGING_WAIT = re.compile(r"staging:(?P<target>[\w.-]+)/(?P<env>[\w.-]+)@(?P<commit>[0-9a-f]{7,40})")
@@ -679,6 +680,8 @@ def new_drive(name: str, role: str, session: str | None, cwd: str) -> dict:
         "change_builders_unwaited": True,
         "finished_replacers_undone": True,
         "proofs_proven": True,
+        "proof_results_marked": True,
+        "own_done_proofs_since": None,
         CARDS_NOTED: True,
         "finished_texts_dropped": True,
         "messages_kept_once": True,
@@ -1004,7 +1007,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     if data["catch_up"]:
         data["catch_up"]["record"] = bare_seq(data["catch_up"]["record"])
     passes = (drive_dir(name) / "pictures" / picture.SOURCED, drive_dir(name) / "asks" / REBUILT_ASKS, drive_dir(name) / APPROVALS_LABELLED)
-    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated")) and bool(data.get("holds_owed")) and bool(data.get("near_answers_apart")) and bool(data.get("stack_writes_read")) and bool(data.get("builder_goals_named")) and bool(data.get("members_kept")) and bool(data.get("open_dones_held")) and bool(data.get("staging_passes_named")) and bool(data.get("lines_kept")) and bool(data.get("change_builders_unwaited")) and bool(data.get("finished_replacers_undone")) and bool(data.get("finished_texts_dropped")) and bool(data.get("proofs_proven")) and bool(data.get("messages_kept_once"))
+    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated")) and bool(data.get("holds_owed")) and bool(data.get("near_answers_apart")) and bool(data.get("stack_writes_read")) and bool(data.get("builder_goals_named")) and bool(data.get("members_kept")) and bool(data.get("open_dones_held")) and bool(data.get("staging_passes_named")) and bool(data.get("lines_kept")) and bool(data.get("change_builders_unwaited")) and bool(data.get("finished_replacers_undone")) and bool(data.get("finished_texts_dropped")) and bool(data.get("proofs_proven")) and bool(data.get("messages_kept_once")) and bool(data.get("proof_results_marked"))
     for flag in ("may_settle_per_answer", "may_settle_skips_approvals", "may_settle_by_subject", "may_settle_by_jev", "delivered_by_prs", "delivered_restored", "proofs_posted"):
         data.pop(flag, None)
     data["slack"].pop("channel", None)
@@ -1068,6 +1071,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         own_staging_proofs(name, data)
     if not data.get("change_builders_unwaited"):
         unwait_change_builders(data)
+    if not data.get("proof_results_marked"):
+        mark_proof_results(data)
     if not data.get("proofs_proven"):
         post_proofs(data)
     if not data.get("finished_texts_dropped"):
@@ -1151,6 +1156,15 @@ def drop_finished_texts(data: dict) -> None:
         if job["undelivered"] and job["state"] in ("done", "stopped") and not standing_part(data, job):
             job["undelivered"] = []
     data["finished_texts_dropped"] = True
+
+
+def mark_proof_results(data: dict) -> None:
+    """Mark each proof an older install's drive job prove took a pass or a fail on, which moved its job off the line it ran on, waiting on no word of his, with the line its job moved to as its result, as proof_kept marks each now, so no newer install reruns it once the job is put back on that line, and name as the drive's own_done_proofs_since POST_PROOFS_MERGED, the merge of yasyf/cc-skills#5356 that made a proof the one way a job's own DONE delivers work, so no DONE taken before it gets a first proof; a drive made since names none; marked so this runs once, before post_proofs puts a job back."""
+    for job in data["jobs"].values():
+        if (proof := job.get("proof")) and not proof.get("waits") and "result" not in proof and proof["said"] != job["said"]:
+            proof["result"] = job["said"]
+    data["own_done_proofs_since"] = stamp(POST_PROOFS_MERGED)
+    data["proof_results_marked"] = True
 
 
 def post_proofs(data: dict) -> None:

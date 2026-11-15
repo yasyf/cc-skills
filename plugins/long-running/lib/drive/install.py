@@ -693,10 +693,25 @@ def own_proof(data: dict, job_id: str) -> bool:
 
 
 def done_unproven(data: dict, job_id: str) -> bool:
-    """Whether a builder or codex job returned DONE of its own, never the DONE the watch takes at a merge nor one drive job prove took, on work he ordered that no proof delivered yet, the DONE drive job prove proves by running its proof file."""
+    """Whether the job's own DONE, as own_done reads it, is one drive job prove proves by running its proof file: one the drive's own_done_proofs_since, when the drive was made before such a proof became the one way a DONE delivers work, never names as taken before it, so no older DONE gets a first proof on an install."""
+    return own_done(data, job_id) and not before_own_done_proofs(data, job_id)
+
+
+def done_before_proofs(data: dict, job_id: str) -> bool:
+    """Whether the job's own DONE, as own_done reads it, was taken before the drive's own_done_proofs_since, so no proof of it is to come and no gap is said on the parts it holds."""
+    return own_done(data, job_id) and before_own_done_proofs(data, job_id)
+
+
+def own_done(data: dict, job_id: str) -> bool:
+    """Whether a builder or codex job returned DONE of its own, never the DONE the watch takes at a merge nor one drive job prove took, on work he ordered that no proof delivered yet."""
     job = data["jobs"][job_id]
     said = job["said"] or ""
     return job["kind"] in state.CHANGE_KINDS and job["state"] == "done" and said.startswith("DONE") and not state.MERGED_LINE.match(said) and not state.PROVEN_LINE.match(said) and bool(state.owed_work(data, job_id))
+
+
+def before_own_done_proofs(data: dict, job_id: str) -> bool:
+    job = data["jobs"][job_id]
+    return (since := data["own_done_proofs_since"]) is not None and state.parse_time(job["returned"] or job["updated"]) < state.parse_time(since)
 
 
 def provable(data: dict, job_id: str) -> bool:
@@ -1220,10 +1235,18 @@ def waited(code: int | str, output: str) -> str | None:
 
 
 def proof_run(name: str, repro: str, path: str, timeout: int) -> subprocess.CompletedProcess:
-    """Run the proof file as subprocess.run would, its output read as text, PATH set to `path`, the one newest_builds builds, DRIVE_ENV naming the drive it proves, so each drive call in it that names no drive acts on that one whatever session or drives this Mac holds, and PROOF_DEADLINE_ENV the Unix second its deadline, `timeout` seconds from its start, falls at, so a proof that waits prints its WAIT line before it, but as a process group of its own, which reads.end ends at that deadline with SIGINT, the signal that unwinds a Python proof, one run with -I included, so it writes what it printed before it exits, and SIGKILL reads.STOP_GRACE seconds on; the TimeoutExpired raised then holds everything the group wrote."""
+    """Run the proof file as subprocess.run would, in the folder the drive's coordinator runs in, the drive's checkout, read from its saved sessions by state.saved, so a newer install that saved the drive meanwhile refuses nothing, never the folder drive job prove was started in, such as the drive's state folder, which no git repository holds, so a proof calling git, ccn or tools/ci by relative path runs as its builder ran it, its output read as text, PATH set to `path`, the one newest_builds builds, DRIVE_ENV naming the drive it proves, so each drive call in it that names no drive acts on that one whatever session or drives this Mac holds, and PROOF_DEADLINE_ENV the Unix second its deadline, `timeout` seconds from its start, falls at, so a proof that waits prints its WAIT line before it, but as a process group of its own, which reads.end ends at that deadline with SIGINT, the signal that unwinds a Python proof, one run with -I included, so it writes what it printed before it exits, and SIGKILL reads.STOP_GRACE seconds on; the TimeoutExpired raised then holds everything the group wrote."""
     from drive import reads
 
-    with subprocess.Popen([repro], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=os.environ | {"PATH": path, state.DRIVE_ENV: name, PROOF_DEADLINE_ENV: str(int(time.time() + timeout))}, start_new_session=True) as running:
+    with subprocess.Popen(
+        [repro],
+        cwd=state.saved(name)["roles"]["coordinator"]["cwd"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=os.environ | {"PATH": path, state.DRIVE_ENV: name, PROOF_DEADLINE_ENV: str(int(time.time() + timeout))},
+        start_new_session=True,
+    ) as running:
         try:
             out, err = running.communicate(timeout=timeout)
         except subprocess.TimeoutExpired as expired:
@@ -1252,6 +1275,7 @@ def proof_kept(name: str, job_id: str, result: dict) -> str:
             job["proof"] = (job.get("proof") or {"pid": os.getpid(), "at": state.stamp(), "version": state.VERSION}) | {"said": job["said"], "waits": wait}
             change = f"{PROOF_WAITS}: {line.removeprefix('BLOCKED ')}"
         else:
+            job["proof"] = (job.get("proof") or {"pid": os.getpid(), "at": state.stamp(), "version": state.VERSION}) | {"said": job["said"], "result": line}
             seen = [found for found in brief.proofs(output) if brief.SEEN_PROOF.search(found)]
             post, facts = (f"is live in {versions}", f"Live: {versions}\n") if keys else ("is fixed", "")
             closes = finish(name, data, job_id, line, [str(kept), *seen], post, f"{facts}Proof: {proven}\n")
