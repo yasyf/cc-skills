@@ -7911,19 +7911,6 @@ def test_a_yasyf_merge_github_never_answered_or_ccx_refused_is_the_landers_own_f
     assert posted(sent) == [("defect", f"meta@{demo}", f"{watch.LANDER}{outcome}")]
 
 
-def test_a_yasyf_landing_whose_fresh_read_github_never_answered_reads_ready_and_the_next_pass_lands_it_again(demo: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]) -> None:
-    timeout = 'could not read 1 PRs of yasyf/cc-skills from GitHub: Post "https://api.github.com/graphql": net/http: TLS handshake timeout'
-    monkeypatch.setattr(github, "fetch", lambda keys: ({}, github.GithubError(timeout)))
-    assert land.admin_merged(demo, YASYF) == f"{land.UNREAD}: {timeout}"
-    waiting_job(demo)
-    tried(demo, f"{land.UNREAD}: {timeout}")
-    with state.edit(demo) as data:
-        data["jobs"]["j1"] |= {"said": f"PUSHED {state.pr_url(YASYF)}", "returned": state.stamp(T0)}
-        data["prs"][YASYF]["checks"] = "pass"
-    assert stage.of(state.load(demo), YASYF, NO_CARDS).name == "ready"
-    assert land.start(demo, [YASYF], NO_CARDS) == [(YASYF,)]
-
-
 def test_replayed_433_a_yasyf_try_recorded_before_the_lander_said_github_never_answered_its_merge_reads_ready_and_the_next_pass_lands_it_again(demo: str, landers: list[tuple[str, ...]]) -> None:
     waiting_job(demo)
     tried(demo, 'not landed: gh pr merge --squash --admin --match-head-commit aaaaaaa111 refused it: Post "https://api.github.com/graphql": net/http: TLS handshake timeout')
@@ -8186,6 +8173,44 @@ def test_a_yasyf_lander_rereads_its_checks_and_merges_with_admin_at_that_head_on
     monkeypatch.setattr(github, "run", gh)
     monkeypatch.setattr(install, "touched", lambda repo, files: [])
     assert (land.run(demo, ["yasyf/cc-skills#4755"]), runs, len(slept)) == (outcome, [MERGE_4755] if outcome == MERGED_4755 else [], waits)
+
+
+FLOOR_4755 = "ccx: GitHub rate limit floor: user core has {} of 5000 left, under the floor of 1000, until 1:55AM (2026-11-15T01:55:01-08:00); top callers: drive job prove 223"
+
+
+def test_a_yasyf_lander_under_ccxs_rate_limit_floor_merges_a_green_pr_reading_its_default_branch_from_its_fresh_graphql_read(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    replayed(demo, monkeypatch, {"yasyf/cc-skills#4755": [long_running_test("SUCCESS"), SOCKET]})
+    runs: list[list[str]] = []
+    monkeypatch.setattr(land.subprocess, "run", lambda argv, **kwargs: runs.append(argv) or land.subprocess.CompletedProcess(argv, 0, "", ""))
+    monkeypatch.setattr(github, "default_branch", lambda repo: pytest.fail(f"read {repo}'s default branch through GitHub's REST API, which the floor refuses"))
+    monkeypatch.setattr(github, "run", lambda cmd, **_: "390c80f416be\n" if cmd[2] == "view" else "plugins/long-running/hooks/message_limits.py\n")
+    monkeypatch.setattr(install, "touched", lambda repo, files: [])
+    assert (land.run(demo, ["yasyf/cc-skills#4755"]), runs) == (MERGED_4755, [MERGE_4755])
+
+
+@pytest.mark.parametrize(("fetched", "what"), [pytest.param(False, "1 PRs of yasyf/cc-skills", id="its-fresh-read"), pytest.param(True, "yasyf/cc-skills's job 1 log", id="the-log-of-its-failing-check")])
+def test_a_yasyf_landing_whose_read_ccxs_rate_limit_floor_refuses_ends_unread_said_once_and_lands_again_at_the_next_pass(
+    demo: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]], fetched: bool, what: str
+) -> None:
+    key = "yasyf/cc-skills#4755"
+    replayed(demo, monkeypatch, {key: [long_running_test("FAILURE"), SOCKET]})
+    if not fetched:
+        monkeypatch.setattr(github, "fetch", REAL_FETCH)
+    with state.edit(demo) as data:
+        data["prs"][key] |= {"head": "1120acd", "checks": "fail", "failed_checks": ["test"]}
+    floors = iter([828, 735])
+
+    def floored(cmd: list[str], **_: object) -> str:
+        raise github.GithubError(FLOOR_4755.format(next(floors)))
+
+    monkeypatch.setattr(github, "run", floored)
+    watching = watcher(demo)
+    first = land.run(demo, [key])
+    assert first == f"{land.UNREAD}: could not read {what} from GitHub: {FLOOR_4755.format(828)}"
+    assert stage.of(state.load(demo), key, NO_CARDS).name == "ready"
+    assert land.start(demo, [key], NO_CARDS) == [(key,)]
+    assert land.run(demo, [key]) == f"{land.UNREAD}: could not read {what} from GitHub: {FLOOR_4755.format(735)}"
+    assert watch.event_lines(watching) == [f"PR {key}: {first} [o1 j1]"]
 
 
 def test_a_line_the_coordinator_did_not_get_goes_again_and_says_so_from_the_third_failure(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
