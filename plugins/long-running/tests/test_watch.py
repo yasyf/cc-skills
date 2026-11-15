@@ -5626,7 +5626,7 @@ def test_a_red_pr_his_card_holds_wakes_its_builder_at_once_and_every_thirty_minu
 def his_card_row(name: str, key: str) -> dict:
     data = state.load(name)
     entry = data["prs"][key]
-    shown = {"title": entry["title"], "body": "", "comments": [], "state": "OPEN", "isDraft": False, "headRefOid": entry["head"], "labels": [], "url": entry["url"], "reviewDecision": "REVIEW_REQUIRED"}
+    shown = {"title": entry["title"], "body": "", "comments": [], "state": "OPEN", "isDraft": False, "headRefOid": entry["head"], "labels": [], "url": entry["url"], "reviewDecision": "REVIEW_REQUIRED", "files": []}
     return card.render(*card.member(name, data, shown, entry, {}))["prs"][0]
 
 

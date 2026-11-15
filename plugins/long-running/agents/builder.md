@@ -337,6 +337,9 @@ prints and a remote lane's brief carries whole:
   service by its proper name, with no background; his card opens the PR's section with it.
 - `## Refresher`: for someone who knows the codebase but has not read this code lately.
 - `## Biggest surprise`, then `## What you'll hate most`.
+- `## How old data moves`, on a PR changing how data is stored, a migration, schema or wire format:
+  how the data stored before it moves and what keeps readers and writers from breaking meanwhile.
+  His card draws it, and says the body never does until it has one.
 - `## Show me`: a concrete example in the visual kind that fits, as ASK lists them, or the real SQL,
   code or call before and after; a PR that adds or rewires components shows an `arch` map of them; words, JSON, YAML, logs, terminal output and HTTP exchanges stay out of fences.
   A PR that changes what he or a user sees, a UI, page, card or post its `NATIVE:` line names,

@@ -354,7 +354,7 @@ def refused_lines(watcher: Watcher, keys: list[str], moment: datetime) -> list[s
 
 
 def edited_since_undrawn(pr: dict, read: dict, cards: dict | None) -> bool:
-    """Whether his open card left a Show me picture of the PR off and GitHub reads its body edited since the read that card drew, so a redraw in place draws the picture the edit fixed."""
+    """Whether his open card left a Show me picture of the PR, or how its stored data moves, off and GitHub reads its body edited since the read that card drew, so a redraw in place draws what the edit fixed."""
     if not (left := pr["undrawn"]) or cards is None or not view.card_for(cards["pr_cards"], pr["url"]):
         return False
     return bool(edited := read["lastEditedAt"]) and state.parse_time(edited) > state.parse_time(left["at"])
