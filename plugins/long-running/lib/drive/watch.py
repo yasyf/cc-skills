@@ -51,6 +51,7 @@ PASS_DONE = (
     " pass, since drive status reads a pass's HANDOFF as stopped"
 )
 RELAUNCH_REFUSED = "relaunch_refused"
+READ_UNANSWERED = "read_unanswered"
 PROOFS_LOG = "proofs.log"
 CARRY_ON = "The lane that held this job died while it worked, and the watch started you in its place: carry the job on from where that lane left it."
 UNREACHED = "Orca could not reach this job's lane on its Sprite, so the watch had drive job resume wake that Sprite: carry the job on from where the lane left it."
@@ -934,16 +935,13 @@ def kept_read(job: dict) -> str | None:
 
 
 def live_lanes(watcher: Watcher, data: dict) -> dict[str, dict]:
-    """Each remote job whose lane the watch reads: one running or waiting, and one built while the turn of the worker that built it is open, so the reads it asks after its BUILT report are answered."""
-    return {
-        job_id: job
-        for job_id, job in data["jobs"].items()
-        if job.get("where") == "remote"
-        and job.get("dispatch")
-        and job.get("run")
-        and (job["state"] in LIVE_JOB_STATES or (job["state"] == "built" and job["turn_open"]))
-        and heard_job(watcher, data, job)
-    }
+    """Each remote job whose lane this watch reads, by read_lane."""
+    return {job_id: job for job_id, job in data["jobs"].items() if read_lane(job) and heard_job(watcher, data, job)}
+
+
+def read_lane(job: dict) -> bool:
+    """Whether the job's lane is one a watch reads: a remote one running or waiting, and one built while the turn of the worker that built it is open, so the reads it asks after its BUILT report are answered."""
+    return bool(job.get("where") == "remote" and job.get("dispatch") and job.get("run") and (job["state"] in LIVE_JOB_STATES or (job["state"] == "built" and job["turn_open"])))
 
 
 def replaced(job: dict) -> set[str]:
@@ -1051,15 +1049,15 @@ def drained(lines: collections.deque[str]) -> list[str]:
 
 
 def read_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Send each `READ`, `LOG` or `DRIVE` question a lane queued the answer `drive job read` keeps for it here, since a Sprite holds no copy of the drive's records, starting that read as its own process for each question with neither an answer nor a reader still running whose lane may wait on it, a live lane's or one whose worker's turn is open whatever its job's state, as when the lane's own `drive job report` took its job done while its next question waited, so a drive command that runs for minutes holds up no pass; one the read cannot answer gets why as its answer and a `JOB` line saying so. A question no worker waits on leaves its queue with no line, never read and any answer kept for it never sent, so no write a lane asked runs after its lane gave up on it, even once a later move of its job makes it live again: each of a job outside the live lanes whose worker ended its turn, since that worker's wait ended with its turn, and each its job's live worker did not ask, by foreign_reads. A lane's `drive job report` wrote its returned event as it took the return, so the answer carries no line of its own, and the return may have moved its job out of the live states, so a kept answer goes whatever its job's state. An answer goes, and a reader starts, only on what drive.json held once its reader was seen ended, so the cut-off answer a reader keeps before it runs never goes ahead of the one it finishes with, no reader that finished since the watch last read drive.json starts again, and a refused reply sends the kept answer again and never reruns the read. A question leaves its job's queue only once its answer goes through, or with no line since nothing is owed on it once Orca says it already holds another answer, since a lane whose wait ends waits again on the same question, or that the question's dispatch closed, since no lane waits on it then: any other refused reply only delays it. An answer past what one Orca relay message carries goes as a file on the lane's Sprite, written by its reader or, when the Sprite could not take it then, as the answer goes, a refused write only delaying it as a refused reply does. The relay's thread and the pass take turns here under RELAYING, each reading the drive afresh, so no question gets two readers."""
+    """Start `drive job read` here as its own process on each `READ`, `LOG` or `DRIVE` question a lane queued, since a Sprite holds no copy of the drive's records, which sends the answer it keeps, by answer_kept, for each question with neither an answer nor a reader still running whose lane may wait on it, a live lane's or one whose worker's turn is open whatever its job's state, as when the lane's own `drive job report` took its job done while its next question waited, so a drive command that runs for minutes holds up no pass; one the read cannot answer gets why as its answer and a `JOB` line saying so. A question no worker waits on leaves its queue with no line, never read and any answer kept for it never sent, so no write a lane asked runs after its lane gave up on it, even once a later move of its job makes it live again, by gone_reads, which send_answers reads too. A lane's `drive job report` wrote its returned event as it took the return, so the answer carries no line of its own, and the return may have moved its job out of the live states, so a kept answer goes whatever its job's state. A reader starts only on what drive.json held once its reader was seen ended, so no reader that finished since the watch last read drive.json starts again; then each Run holding an answer kept for a job this watch hears gets every answer a refused reply left by send_answers, which sends them again and never reruns the read, each refusal said once as read_failed says it. The relay's thread and the pass take turns here under RELAYING, each reading the drive afresh, so no question gets two readers."""
     with RELAYING:
         running, data = ended_reads(watcher.name, state.load(watcher.name))
-        lanes, unowed = live_lanes(watcher, data), {}
+        unowed = {}
         for job_id, job in data["jobs"].items():
             idle = [message_id for message_id in job.get("reads", {}) if (job_id, message_id) not in running]
             if not idle or not heard_job(watcher, data, job):
                 continue
-            gone = set(idle) if job_id not in lanes and not job["turn_open"] else foreign_reads(job, state.replies(watcher.name, job_id))
+            gone = gone_reads(watcher.name, job_id, job, idle)
             if dropped := [message_id for message_id in idle if message_id in gone]:
                 unowed[job_id] = dropped
             for message_id in idle:
@@ -1067,7 +1065,8 @@ def read_lines(watcher: Watcher, moment: datetime) -> list[str]:
                     continue
                 reader = job.setdefault("readers", {})[message_id] = spawn_reader(watcher.name, job_id, message_id)
                 with state.edit(watcher.name) as fresh:
-                    fresh["jobs"][job_id].setdefault("readers", {})[message_id] = reader
+                    if message_id in fresh["jobs"][job_id].get("reads", {}):
+                        fresh["jobs"][job_id].setdefault("readers", {})[message_id] = reader
         if unowed:
             with state.edit(watcher.name) as fresh:
                 for job_id, message_ids in unowed.items():
@@ -1076,25 +1075,65 @@ def read_lines(watcher: Watcher, moment: datetime) -> list[str]:
                             fresh["jobs"][job_id].get(held, {}).pop(message_id, None)
         lines = []
         running, data = ended_reads(watcher.name, data)
-        for job_id, job in data["jobs"].items():
-            for message_id in job.get("reads", {}) if heard_job(watcher, data, job) else ():
-                if (job_id, message_id) in running or not (kept := job.get("read_answers", {}).get(message_id)):
-                    continue
-                said, why = kept
+        for run in dict.fromkeys(job["run"] for job_id, job in data["jobs"].items() if heard_job(watcher, data, job) and unsent_answers(watcher.name, job_id, job, running)):
+            for job_id, error in send_answers(watcher.name, run):
                 source = f"the answer to {job_id}'s"
+                if error:
+                    lines += read_failed(watcher, source, error, moment)
+                else:
+                    watcher.failures.pop(source, None)
+        return lines
+
+
+def unsent_answers(name: str, job_id: str, job: dict, running: set[tuple[str, str]]) -> list[str]:
+    """The questions of the job whose answer is kept, whose reader no longer runs and that a worker still waits on, by gone_reads."""
+    kept = [message_id for message_id in job.get("reads", {}) if (job_id, message_id) not in running and job.get("read_answers", {}).get(message_id)]
+    if not kept:
+        return []
+    gone = gone_reads(name, job_id, job, kept)
+    return [message_id for message_id in kept if message_id not in gone]
+
+
+def gone_reads(name: str, job_id: str, job: dict, idle: list[str]) -> set[str]:
+    """The reads among these no worker waits on: each of a job whose lane no watch reads, by read_lane, once its worker ended its turn, since that worker's wait ended with its turn, and each its job's live worker did not ask, by foreign_reads."""
+    return set(idle) if not read_lane(job) and not job["turn_open"] else foreign_reads(job, state.replies(name, job_id))
+
+
+def send_answers(name: str, run: str) -> list[tuple[str, orca.OrcaError | None]]:
+    """Send every answer kept on the Run's questions in one hold of the drive terminal's binding, binding the Run once for them all, whether the watch or the reader that just kept one sends them, so a lane gets its answer the moment its read ends, never once a pass of the watch reaches it. Each answer is read under the hold from what drive.json held once its reader was seen ended, so no other sender sends it twice and the cut-off answer a reader keeps before it runs never goes ahead of the one it finishes with; one past what one Orca relay message carries goes as a file on the lane's Sprite, by orca.sprite_answer. A question leaves its job's queue in the same hold once its answer goes through, or once Orca says it already holds another answer, since a lane whose wait ends waits again on the same question, or that the question's dispatch closed, since no lane waits on it then; any other refusal, a refused write to the Sprite included, leaves it for the watch's next pass. A sent answer whose read failed writes the event the watch hearing its job says as a `JOB` line. What came of each answer, by its job: the refusal, or None."""
+    data = state.load(name)
+    if not (owed := run_answers(name, data, run, running_reads(data))):
+        return []
+    sent, refused = [], []
+    try:
+        with orca.replying(name, run):
+            running, data = ended_reads(name, state.load(name))
+            for job_id, message_id in run_answers(name, data, run, running):
+                job = data["jobs"][job_id]
+                said, why = job["read_answers"][message_id]
                 try:
-                    orca.reply(watcher.name, job["run"], message_id, orca.sprite_answer(said, job, message_id))
+                    orca.call("reply", "--id", message_id, "--run", run, "--body", orca.sprite_answer(said, job, message_id))
                 except orca.OrcaError as error:
                     if error.code not in (orca.ANSWERED_ELSEWHERE, orca.DISPATCH_CLOSED):
-                        lines += read_failed(watcher, source, error, moment)
+                        refused.append((job_id, error))
                         continue
-                else:
-                    lines += [f"JOB {job_id} {job['order']} READ unanswered, its lane was told why: {why}"] if why else []
-                watcher.failures.pop(source, None)
-                with state.edit(watcher.name) as fresh:
-                    for held in ("reads", "read_answers", "readers"):
-                        fresh["jobs"][job_id].get(held, {}).pop(message_id, None)
-        return lines
+                    why = None
+                sent.append((job_id, message_id, why))
+            if sent:
+                with state.edit(name) as data:
+                    for job_id, message_id, _ in sent:
+                        for held in ("reads", "read_answers", "readers"):
+                            data["jobs"][job_id].get(held, {}).pop(message_id, None)
+    except orca.OrcaError as error:
+        return [(job_id, error) for job_id, _ in owed]
+    for job_id, _, why in sent:
+        if why:
+            state.append_event(name, READ_UNANSWERED, job=job_id, order=data["jobs"][job_id]["order"], why=why, lane=state.heard_job_lane(data, data["jobs"][job_id]))
+    return [(job_id, None) for job_id, _, _ in sent] + refused
+
+
+def run_answers(name: str, data: dict, run: str, running: set[tuple[str, str]]) -> list[tuple[str, str]]:
+    return [(job_id, message_id) for job_id, job in data["jobs"].items() if job.get("run") == run for message_id in unsent_answers(name, job_id, job, running)]
 
 
 def foreign_reads(job: dict, kept: list[dict]) -> set[str]:
@@ -1106,8 +1145,11 @@ def foreign_reads(job: dict, kept: list[dict]) -> set[str]:
 
 def ended_reads(name: str, data: dict) -> tuple[set[tuple[str, str]], dict]:
     """The reads in data a reader still runs on, by job and message id, then the drive read again after that check, so each other read's answer there is the one its reader finished with, since a reader keeps its final answer before it exits; data names every reader started so far."""
-    running = {(job_id, message_id) for job_id, job in data["jobs"].items() for message_id in job.get("reads", {}) if reading(job, message_id)}
-    return running, state.load(name)
+    return running_reads(data), state.load(name)
+
+
+def running_reads(data: dict) -> set[tuple[str, str]]:
+    return {(job_id, message_id) for job_id, job in data["jobs"].items() for message_id in job.get("reads", {}) if reading(job, message_id)}
 
 
 def reading(job: dict, message_id: str) -> bool:
@@ -1122,7 +1164,7 @@ def spawn_reader(name: str, job_id: str, message_id: str) -> int:
 
 
 def answer_read(name: str, job_id: str, message_id: str) -> list[str | None]:
-    """Run a lane's queued read here and keep its answer, and why it is no answer when it failed, under its message id, for the watch to send. It first keeps the answer a reader stopped mid-run leaves, so no read runs twice, a `drive break-glass` in production included, and none that crashes starts again, with this reader's process id in the same save, so a watch whose own save of that id a newer install's save refused still reads it running. An answer past one Orca relay message that the lane's Sprite cannot take yet is kept whole, for the watch to write there as it replies."""
+    """Run a lane's queued read here, keep its answer, and why it is no answer when it failed, under its message id, and send it by answer_kept. It first keeps the answer a reader stopped mid-run leaves, so no read runs twice, a `drive break-glass` in production included, and none that crashes starts again, with this reader's process id in the same save, so a watch whose own save of that id a newer install's save refused still reads it running. An answer past one Orca relay message that the lane's Sprite cannot take yet is kept whole, written there as it is sent."""
     data = state.load(name)
     question = data["jobs"][job_id]["reads"][message_id]
     keep_answer(name, job_id, message_id, [reads.lane_exit(1, CUT_OFF) if reads.DRIVE.match(question) else f"{question}: {CUT_OFF}", CUT_OFF], reader=os.getpid())
@@ -1139,15 +1181,16 @@ def answer_read(name: str, job_id: str, message_id: str) -> list[str | None]:
 
 
 def answer_kept(name: str, job_id: str, message_id: str, kept: list[str | None]) -> None:
-    """Keep the answer a read came to; when a newer install saved the drive while it ran, the newest install's `drive job answered` keeps it, so the read never runs again."""
+    """Keep the answer a read came to, then send it with every other answer kept on its job's Run by send_answers, which leaves one Orca refuses for the watch's next pass; when a newer install saved the drive while it ran, the newest install's `drive job answered` keeps and sends it, so the read never runs again."""
     try:
         keep_answer(name, job_id, message_id, kept)
-        return
     except state.NewerDrive:
         if not (newer := install.upgraded()):
             raise
-    receipt = state.drive_dir(name) / "jobs" / f"{job_id}.read.{message_id}.json"
-    install.handed(newer, name, ["job", "answered", job_id], receipt, {"message": message_id, "answer": kept}, f"{job_id}: its read {message_id} ran", state.DRIVE_LOCK_SECONDS)
+        receipt = state.drive_dir(name) / "jobs" / f"{job_id}.read.{message_id}.json"
+        install.handed(newer, name, ["job", "answered", job_id], receipt, {"message": message_id, "answer": kept}, f"{job_id}: its read {message_id} ran", state.DRIVE_LOCK_SECONDS)
+        return
+    send_answers(name, state.load(name)["jobs"][job_id]["run"])
 
 
 def keep_answer(name: str, job_id: str, message_id: str, kept: list[str | None], reader: int | None = None) -> None:
@@ -1199,6 +1242,8 @@ def event_line(event: dict, prs: dict) -> str:
         return f"JOB {event['job']} {event['order']}: {event['change']}"
     if event["kind"] in ("landing", "check", "proof"):
         return f"PR {key}: {event['change']}{suffix}"
+    if event["kind"] == READ_UNANSWERED:
+        return f"JOB {event['job']} {event['order']} READ unanswered, its lane was told why: {event['why']}"
     if event["kind"] == RELAUNCH_REFUSED:
         return f"EVENT {RELAUNCH_REFUSED} drive job {event['verb']} {event['job']}, which the watch ran, refused: {event['refusal']}; its output is in the drive's {event['log']} [{event['order']} {event['job']}]"
     details = " ".join(f"{name}={value}" for name, value in event.items() if name not in ("kind", "at", "lane"))
@@ -2683,7 +2728,7 @@ def unanswered(name: str, job_id: str, job: dict, data: dict, moment: datetime) 
 
 
 def unread(name: str, job_id: str, job: dict, moment: datetime) -> str | None:
-    """The oldest `READ`, `LOG` or `DRIVE` question the job's live worker queued that no answer reached for 30 minutes, timed from when the lane asked it, as Orca stamped its message in the job's history, with what holds it: its reader still running, its answer kept for a reply Orca has not taken, or no reader on it, which `drive job read` runs here once for the watch to send. A read foreign_reads names waits on nobody, since read_lines drops it."""
+    """The oldest `READ`, `LOG` or `DRIVE` question the job's live worker queued that no answer reached for 30 minutes, timed from when the lane asked it, as Orca stamped its message in the job's history, with what holds it: its reader still running, its answer kept for a reply Orca has not taken, or no reader on it, which `drive job read` runs and answers here. A read foreign_reads names waits on nobody, since read_lines drops it."""
     if not job.get("reads"):
         return None
     kept = state.replies(name, job_id)
@@ -2699,7 +2744,7 @@ def unread(name: str, job_id: str, job: dict, moment: datetime) -> str | None:
     elif message_id in job.get("read_answers", {}):
         held = "its answer is kept and Orca has not taken the reply"
     else:
-        held = f"no reader runs on it, and drive job read {job_id} {message_id} runs it here for the watch to send"
+        held = f"no reader runs on it, and drive job read {job_id} {message_id} runs and answers it here"
     return f'{job_id}\'s lane asked "{cut(first_line(job["reads"][message_id]), 80)}" {minutes(waited)} minutes ago and no answer reached it: {held}, each reader\'s output in the drive\'s {READS_LOG}'
 
 

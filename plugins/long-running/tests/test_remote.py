@@ -4767,6 +4767,28 @@ def test_a_relay_pass_reads_orcas_mail_once_however_many_sprite_lanes_are_live_a
     assert len(read) == mail_reads
 
 
+def test_every_answer_kept_on_a_run_goes_in_one_hold_of_the_drive_terminals_binding_bound_once(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(
+            reads={"relay_one": "READ cci show 1", "relay_two": "READ cci show 2"},
+            read_answers={"relay_one": ["m1", None], "relay_two": ["m2", None]},
+            readers={"relay_one": ENDED_READER, "relay_two": ENDED_READER},
+        )
+    calls = []
+    monkeypatch.setattr(orca, "call", lambda *args: calls.append(args) or {})
+    assert watch.send_answers(remote, RUN) == [("j1", None), ("j1", None)]
+    assert calls == [
+        ("run-use", "--id", RUN),
+        ("reply", "--id", "relay_one", "--run", RUN, "--body", "m1"),
+        ("reply", "--id", "relay_two", "--run", RUN, "--body", "m2"),
+        ("check", "--run", RUN),
+    ]
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["reads"], job["read_answers"], job["readers"]) == ({}, {}, {})
+    assert watch.send_answers(remote, RUN) == []
+    assert len(calls) == 4
+
+
 def test_a_log_question_a_lane_on_the_old_builder_rules_asks_gets_the_rule_back_with_no_job_line(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
     question = "LOG https://buildkite.com/forge/test/builds/129091"
     deliver(monkeypatch, [message("question", question, id="msg_log")])
@@ -4798,12 +4820,12 @@ def test_a_read_that_cannot_be_answered_tells_its_lane_why_and_says_so(remote: s
     assert watch.run_pass(watching, T0 + timedelta(seconds=70)) == []
 
 
-def test_a_read_answer_orca_refuses_is_retried_until_it_goes_through_and_said_from_the_third_refusal(
+def test_a_read_answer_orca_refuses_its_reader_is_retried_by_the_watch_until_it_goes_through_and_said_from_the_watchs_third_refusal(
     remote: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     deliver(monkeypatch, [message("question", "READ cci show 2065", id="msg_read")])
     monkeypatch.setattr(reads, "answer", lambda question, root, drive, job_id: "m2065")
-    replies, refusals = [], iter(range(3))
+    replies, refusals = [], iter(range(4))
 
     def fenced_three_times(*args: str) -> dict:
         if args[0] == "reply" and next(refusals, None) is not None:
@@ -5062,12 +5084,13 @@ def test_a_read_stopped_before_it_finished_is_answered_as_cut_off_and_never_run_
     assert (job["reads"], job["read_answers"]) == ({}, {})
 
 
-def test_a_read_a_newer_installs_save_overtook_keeps_its_answer_through_the_newest_installs_drive_job_answered_and_never_runs_again(
+def test_a_read_a_newer_installs_save_overtook_keeps_and_sends_its_answer_through_the_newest_installs_drive_job_answered_and_never_runs_again(
     remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     deliver(monkeypatch, [message("question", "READ cci show 2065", id="relay_newer")])
     monkeypatch.setattr(watch, "spawn_reader", lambda name, job_id, message_id: os.getpid())
-    monkeypatch.setattr(orca, "call", lambda *args: {})
+    replies = []
+    monkeypatch.setattr(orca, "call", lambda *args: replies.append(args) or {})
     assert staged(watch.lane_lines, watch.Watcher(remote, offset=state.events_end(remote)), T0) == []
 
     def answered_as_an_install_lands(question: str, root: Path, drive: str, job_id: str) -> str:
@@ -5087,11 +5110,13 @@ def test_a_read_a_newer_installs_save_overtook_keeps_its_answer_through_the_newe
     monkeypatch.setattr(install, "handed", newest)
     said = watch.answer_read(remote, "j1", "relay_newer")
     assert said[0].endswith("m2065 the field facts")
-    assert state.load(remote)["jobs"]["j1"]["read_answers"]["relay_newer"] == said
+    assert [args for args in replies if args[0] == "reply"] == [("reply", "--id", "relay_newer", "--run", RUN, "--body", said[0])]
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["reads"], job["read_answers"]) == ({}, {})
     assert not (state.drive_dir(remote) / "jobs" / "j1.read.relay_newer.json").exists()
 
 
-def test_a_read_still_running_holds_its_answer_starts_no_second_reader_and_its_answer_goes_once_kept(
+def test_a_read_still_running_holds_its_answer_starts_no_second_reader_and_its_reader_sends_its_answer_the_moment_it_is_kept(
     remote: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     deliver(monkeypatch, [message("question", "DRIVE job report j1 -\n{\"stdin\": \"READY x\"}", id="relay_drive")])
@@ -5108,9 +5133,11 @@ def test_a_read_still_running_holds_its_answer_starts_no_second_reader_and_its_a
     watching = watch.Watcher(remote, offset=state.events_end(remote))
     assert [staged(watch.lane_lines, watching, T0 + timedelta(seconds=s)) for s in (0, 5)] == [[], []]
     assert (started, [args for args in replies if args[0] == "reply"]) == (["relay_drive"], [])
+    sent = [("reply", "--id", "relay_drive", "--run", RUN, "--body", "drive exited 0\njobs/j1.replies.jsonl")]
     watch.answer_read(remote, "j1", "relay_drive")
+    assert [args for args in replies if args[0] == "reply"] == sent
     assert staged(watch.lane_lines, watching, T0 + timedelta(seconds=10)) == []
-    assert [args for args in replies if args[0] == "reply"] == [("reply", "--id", "relay_drive", "--run", RUN, "--body", "drive exited 0\njobs/j1.replies.jsonl")]
+    assert [args for args in replies if args[0] == "reply"] == sent
     job = state.load(remote)["jobs"]["j1"]
     assert (started, job["reads"], job["read_answers"], job["readers"]) == (["relay_drive"], {}, {}, {})
 
@@ -5177,7 +5204,7 @@ def test_a_read_queued_by_a_lane_that_left_the_live_states_runs_only_while_its_w
     ("asked_before", "alive", "held"),
     [
         (timedelta(minutes=20), False, None),
-        (timedelta(minutes=40), False, "no reader runs on it, and drive job read j1 relay_slow runs it here for the watch to send"),
+        (timedelta(minutes=40), False, "no reader runs on it, and drive job read j1 relay_slow runs and answers it here"),
         (timedelta(minutes=40), True, "its reader still runs"),
     ],
     ids=["asked 20 minutes ago", "asked 40 minutes ago with no reader", "asked 40 minutes ago with its reader running"],
