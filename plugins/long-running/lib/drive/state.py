@@ -3865,11 +3865,13 @@ def owner_away(data: dict, moment: datetime) -> bool:
 
 
 def absence(data: dict, moment: datetime) -> str | None:
-    """How he is not present, for a refusal to say, by the root AGENTS.md's rule that present means he told you to go or answered just before you act: he said he is away, or his last word or tap is PRESENT_WITHIN old or older; None while he is, or the drive never heard him."""
+    """How he is not present, for a refusal to say, by the root AGENTS.md's rule that present means he told you to go or answered just before you act: he said he is away, which marks the owner row's away at the moment he was heard, or his last word or tap is PRESENT_WITHIN old or older; None while he is, or the drive never heard him."""
     owner = data.get("owner") or {}
-    if owner.get("away"):
+    if not (heard := owner.get("heard")):
+        return None
+    if (away := owner.get("away")) and parse_time(away) <= parse_time(heard):
         return "he said he is away"
-    if not (heard := owner.get("heard")) or (quiet := moment - parse_time(heard)) < PRESENT_WITHIN:
+    if (quiet := moment - parse_time(heard)) < PRESENT_WITHIN:
         return None
     return f"he last wrote or tapped {int(quiet.total_seconds() // 60)} minutes ago"
 
