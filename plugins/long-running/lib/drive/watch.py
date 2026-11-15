@@ -3936,9 +3936,9 @@ def crossed(watcher: Watcher, data: dict, offset: int, moment: datetime) -> tupl
     approved = [key for key, pr in data["prs"].items() if pr["state"] == "open" and (tap := pr["tap"]) and tap["label"] == "Approve" and moment - state.parse_time(tap["at"]) > APPROVED_WAIT]
     found = f"{state.TOOLING} the daily Slack sweep found"
     bars = []
-    if waits and (p90 := sorted(wait for wait, _ in waits.values())[int(0.9 * (len(waits) - 1))]) > ANSWER_WAIT:
+    if waits and (p90 := sorted(wait for wait, _ in waits.values())[(9 * len(waits) - 1) // 10]) > ANSWER_WAIT:
         slowest, link = max(waits.values())
-        bars.append((f"{found} more than 1 in 10 answers to your messages taking over 2 minutes", "Answers slower than 2 minutes", f"{len(waits)} answers, 90th percentile {p90.total_seconds() / 60:.1f} min, slowest {minutes(slowest)} min: {link}"))
+        bars.append((f"{found} more than 1 in 10 answers to your messages taking over 2 minutes", "Answers slower than 2 minutes", f"{len(waits)} answers, 90th percentile {p90.total_seconds() / 60:.1f} min, slowest {slowest.total_seconds() / 60:.1f} min: {link}"))
     if owed:
         bars.append((f"{found} a message of yours still unanswered after 10 minutes", "Message unanswered past 10 minutes", f"{len(owed)} owed, the oldest since {when(slack.sent_at(owed[0]).isoformat())}: {owed[0]['permalink']}"))
     if reasks:
