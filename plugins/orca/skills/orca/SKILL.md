@@ -587,9 +587,9 @@ finds nothing `--held` would name. A finished lane's unpushed work so reaches
 GitHub as `saved/<lane>/<branch>` and its Sprite is freed, whatever its job's
 state. Like `--held`, it needs no Dispatch, so it reaches a Sprite whose Dispatch
 Orca dropped, and the gc pause does not hold it. It prints what it saved and the
-workspace it destroyed, or nothing when no task records a Sprite under that name,
-and exits 1 naming what keeps the Sprite: a failed read or save, what it still
-holds, or cc-remote's refusal. One reclaim at a time destroys a Sprite: `--destroy`
+workspace it destroyed, and exits 1 naming why: a failed read or save, what the
+Sprite still holds, cc-remote's refusal, or no task recording a Sprite under that
+name, so nothing was destroyed. One reclaim at a time destroys a Sprite: `--destroy`
 takes a lock of that workspace's own under `~/.local/state/orca-gc/destroying`
 before its save, and a pass takes it before its `cc-remote destroy`, so a second
 reclaim of the same Sprite while one runs changes nothing and says so. `cc-remote

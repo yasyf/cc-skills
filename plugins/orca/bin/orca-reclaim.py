@@ -771,9 +771,9 @@ def one_destroy(workspace: str) -> Iterator[None]:
         yield
 
 
-def destroy(workspace: str, lane: str, cc_remote: CcRemote) -> str | None:
+def destroy(workspace: str, lane: str, cc_remote: CcRemote) -> str:
     if (sprite := sprite_of(workspace, cc_remote)) is None:
-        return None
+        raise Unsaved(f"cc-remote records no Sprite {workspace}, so nothing was destroyed")
     with one_destroy(workspace):
         saved = save(workspace, lane, cc_remote)
         checkout = cc_remote.checkout(sprite)
@@ -1223,8 +1223,8 @@ def main() -> int:
         "--destroy WORKSPACE LANE first takes what --held would name to GitHub as --save WORKSPACE LANE does, then destroys the Sprite a cc-remote task records under that workspace name "
         "with cc-remote destroy, which closes its forward and removes its Orca environment, once the same checkout read, made again after the save, finds it holds nothing --held would name. "
         "It needs no Orca Run or dispatch and no idle terminal, so it reaches a Sprite whose dispatch Orca has dropped, and the pause does not hold it. It prints what it saved, as --save does, "
-        "and the workspace it destroyed, or nothing when no task records a Sprite under that name, and exits 1 naming why the read or the save failed, what the Sprite still holds, "
-        "or cc-remote's refusal. "
+        "and the workspace it destroyed, and exits 1 naming why the read or the save failed, what the Sprite still holds, "
+        "cc-remote's refusal, or that no task records a Sprite under that name, so nothing was destroyed. "
         "One reclaim at a time destroys a Sprite: --destroy, before its save, and a pass, before its cc-remote destroy, each take a lock of that workspace's own under "
         "$XDG_STATE_HOME/orca-gc/destroying, so a second reclaim of the same Sprite while one runs changes nothing and says so, --destroy exiting 1 and a pass keeping the Sprite. "
         f"cc-remote destroy gets {DESTROY_S} s, such as while it waits on a cc-remote process that holds the workspace and never ends, past which it is killed, "
@@ -1274,7 +1274,7 @@ def main() -> int:
         return 0
     if args.destroy:
         try:
-            print(destroy(*args.destroy, CcRemote()) or "")
+            print(destroy(*args.destroy, CcRemote()))
         except Unsaved as refused:
             print(refused, file=sys.stderr)
             return 1

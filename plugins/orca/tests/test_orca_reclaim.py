@@ -1152,9 +1152,10 @@ class DestroyTest(unittest.TestCase):
         self.assertEqual(orca_gc.destroy("pool-abc", "demo-j1", cc_remote), "destroyed pool-abc")
         self.assertEqual(cc_remote.destroyed, ["pool-abc"])
 
-    def test_destroy_of_a_workspace_no_task_records_destroys_nothing(self):
+    def test_destroy_of_a_workspace_no_task_records_fails_naming_that_it_destroyed_nothing(self):
         cc_remote = self.hosting(checkout(SPRITE.root))
-        self.assertIsNone(orca_gc.destroy("pool-other", "demo-j1", cc_remote))
+        with self.assertRaisesRegex(orca_gc.Unsaved, "^cc-remote records no Sprite pool-other, so nothing was destroyed$"):
+            orca_gc.destroy("pool-other", "demo-j1", cc_remote)
         self.assertEqual(cc_remote.destroyed, [])
 
     def test_a_destroy_while_another_destroys_the_same_sprite_reads_and_destroys_nothing(self):

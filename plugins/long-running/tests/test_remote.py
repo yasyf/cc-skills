@@ -1,3 +1,4 @@
+import copy
 import fcntl
 import hashlib
 import io
@@ -4542,7 +4543,7 @@ def test_the_watch_keeps_a_waiting_jobs_lane_on_a_sprite_while_its_worker_waits_
     assert ended_lanes == ["j1"]
 
 
-def test_the_watch_keeps_a_waiting_jobs_lane_on_a_sprite_while_the_worker_that_returned_its_line_is_still_in_that_turn(
+def test_the_watch_keeps_a_waiting_jobs_lane_on_a_sprite_while_the_worker_that_returned_its_line_is_still_in_that_turn_and_ends_it_in_the_pass_that_reads_its_turn_end(
     remote: str, monkeypatch: pytest.MonkeyPatch, ended_lanes: list[str]
 ) -> None:
     deliver(monkeypatch, [message("worker_done", "READY #53090 head b6f66c236d70")])
@@ -4556,8 +4557,27 @@ def test_the_watch_keeps_a_waiting_jobs_lane_on_a_sprite_while_the_worker_that_r
     staged(watch.lane_lines, watching, T0 + timedelta(hours=1))
     job = state.load(remote)["jobs"]["j1"]
     assert (job["state"], job["turn_open"]) == ("waiting", False)
-    watch.release_lanes(watching, state.parse_time(job["returned"]) + watch.HANDOFF)
+    watch.release_lanes(watching, T0 + timedelta(hours=1))
     assert ended_lanes == ["j1"]
+
+
+@pytest.mark.parametrize("lanes", [1, 100])
+def test_the_watch_ends_each_lane_on_a_sprite_once_in_the_pass_that_reads_its_workers_turn_end_however_many_end_together(
+    remote: str, monkeypatch: pytest.MonkeyPatch, ended_lanes: list[str], lanes: int
+) -> None:
+    numbers = range(1, lanes + 1)
+    with state.edit(remote) as data:
+        first = data["jobs"]["j1"] | {"state": "waiting", "returned": state.stamp(T0), "turn_open": True}
+        for n in numbers:
+            data["jobs"][f"j{n}"] = copy.deepcopy(first) | {"dispatch": f"ctx_lane{n:04}", "run": f"run_drive{n:04}", "workspace": f"pool-{n}", "said": f"PUSHED #{53000 + n} head b6f66c236d70"}
+    deliver(monkeypatch, [message("worker_done", f"READY #{53000 + n} head b6f66c236d70", id=f"msg_done{n}", from_handle=f"dispatch:ctx_lane{n:04}", to_handle=f"run:run_drive{n:04}") for n in numbers])
+    monkeypatch.setattr(state, "scratch", lambda: False)
+    monkeypatch.setattr(orca, "holds_sprite", lambda job: bool(job.get("workspace")))
+    watching = watch.Watcher(remote, offset=state.events_end(remote))
+    staged(watch.lane_lines, watching, T0)
+    watch.release_lanes(watching, T0)
+    watch.release_lanes(watching, T0 + timedelta(minutes=1))
+    assert ended_lanes == [f"j{n}" for n in numbers]
 
 
 def test_the_watch_ends_a_waiting_jobs_own_lane_and_releases_each_sprite_an_earlier_lane_died_on(
@@ -5045,7 +5065,7 @@ def test_the_watch_frees_each_finished_lane_once_a_sprite_by_destroy_and_a_quiet
     assert [(death["dispatch"], death["why"], death["reclaim"]) for death in mac] == [("ctx_mac", watch.RECLAIMED, {"pid": os.getpid(), "at": state.stamp(T0)})]
 
 
-def test_the_watch_ends_every_lane_on_a_sprite_two_minutes_after_its_line_ahead_of_any_reclaim_two_a_pass(
+def test_the_watch_ends_every_due_lane_on_a_sprite_in_one_pass_and_a_finished_job_whose_turn_is_open_two_minutes_after_its_line(
     run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ended_lanes: list[str]
 ) -> None:
     goals = ("returned built", "returned done", "returned pushed", "still at work", "already ended")
@@ -5058,33 +5078,27 @@ def test_the_watch_ends_every_lane_on_a_sprite_two_minutes_after_its_line_ahead_
     with state.edit(remote) as data:
         for job_id, now in (("j1", "waiting"), ("j2", "built"), ("j3", "done"), ("j4", "waiting"), ("j5", "running"), ("j6", "waiting")):
             data["jobs"][job_id].update(state=now, workspace=f"pool-{job_id[1:]}", dispatch=f"ctx_{job_id[1:]}", returned=earlier)
-        for job_id, minutes in (("j1", 1), ("j2", 30), ("j3", 20), ("j4", 10)):
-            data["jobs"][job_id]["returned"] = state.stamp(T0 - timedelta(minutes=minutes))
-        data["jobs"]["j3"]["deaths"] = [dead_lane]
+        for job_id in ("j1", "j3"):
+            data["jobs"][job_id]["returned"] = state.stamp(T0 - timedelta(minutes=1))
+        data["jobs"]["j3"].update(turn_open=True, deaths=[dead_lane])
         data["jobs"]["j6"]["deaths"] = [ended]
     workspaces = tmp_path / "cc-remote-workspaces"
     workspaces.mkdir()
-    for workspace in ("pool-old", *(f"pool-{n}" for n in range(1, 7))):
+    for workspace in ("pool-old", "pool-a", *(f"pool-{n}" for n in range(1, 7))):
         (workspaces / f"{workspace}.json").write_text("{}")
     monkeypatch.setattr(orca, "CC_REMOTE_WORKSPACES", workspaces)
     monkeypatch.setattr(state, "scratch", lambda: False)
     started: list[str] = []
     monkeypatch.setattr(state, "detach", lambda name, args, log: started.append(args[-1]) or os.getpid())
     with state.edit(remote) as data:
-        for workspace in ("pool-a", "pool-b"):
-            (workspaces / f"{workspace}.json").write_text("{}")
-            data["jobs"]["j3"]["deaths"].append(dead_lane | {"dispatch": f"ctx_{workspace}", "workspace": workspace, "reclaim": {"pid": ENDED_READER, "at": state.stamp(T0)}})
+        data["jobs"]["j3"]["deaths"].append(dead_lane | {"dispatch": "ctx_pool-a", "workspace": "pool-a", "reclaim": {"pid": ENDED_READER, "at": state.stamp(T0)}})
     watcher = watch.Watcher(remote, offset=state.events_end(remote))
     watch.release_lanes(watcher, T0)
-    assert (ended_lanes, started) == (["j4", "j3"], [])
+    assert (ended_lanes, started) == (["j1", "j2", "j4"], ["pool-old"])
     watch.release_lanes(watcher, T0)
-    assert (ended_lanes, started) == (["j4", "j3", "j2"], [])
+    assert (ended_lanes, started) == (["j1", "j2", "j4"], ["pool-old"])
     watch.release_lanes(watcher, T0 + timedelta(minutes=1))
-    assert ended_lanes == ["j4", "j3", "j2", "j1"]
-    (workspaces / "pool-a.json").unlink()
-    (workspaces / "pool-b.json").unlink()
-    watch.release_lanes(watcher, T0 + watch.HANDOFF)
-    assert (ended_lanes, started) == (["j4", "j3", "j2", "j1"], ["pool-old"])
+    assert (ended_lanes, started) == (["j1", "j2", "j4", "j3"], ["pool-old"])
 
 
 def test_a_restarted_watch_asks_for_a_left_sprite_again_only_once_the_reclaim_an_earlier_watch_started_is_gone_and_reclaim_seconds_passed(
@@ -5134,7 +5148,7 @@ def test_reclaim_destroys_a_left_sprite_and_marks_a_lane_on_this_mac_freed_so_no
     assert started == [["job", "reclaim", "j1", "ctx_mac"]]
 
 
-def test_a_finished_job_on_this_mac_has_every_lane_its_relaunches_left_reclaimed_the_least_recently_asked_first(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_finished_job_on_this_mac_has_every_lane_its_relaunches_left_reclaimed_in_one_pass(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
     quiet = state.stamp(T0 - watch.QUIET_LANE)
     earlier = [{"dispatch": dispatch, "workspace": None, "why": "its worker succeeded, and Orca sends nothing to a finished worker on this Mac", "at": quiet} for dispatch in ("ctx_first", "ctx_second")]
     with state.edit(remote) as data:
@@ -5143,8 +5157,7 @@ def test_a_finished_job_on_this_mac_has_every_lane_its_relaunches_left_reclaimed
     monkeypatch.setattr(state, "detach", lambda name, args, log: started.append(args) or ENDED_READER)
     monkeypatch.setattr(state, "scratch", lambda: False)
     watch.release_lanes(watch.Watcher(remote, offset=state.events_end(remote)), T0)
-    watch.release_lanes(watch.Watcher(remote, offset=state.events_end(remote)), T0 + watch.RECLAIM)
-    assert started == [["job", "reclaim", "j1", "ctx_first"], ["job", "reclaim", "j1", "ctx_last"], ["job", "reclaim", "j1", "ctx_second"], ["job", "reclaim", "j1", "ctx_first"]]
+    assert started == [["job", "reclaim", "j1", "ctx_first"], ["job", "reclaim", "j1", "ctx_last"], ["job", "reclaim", "j1", "ctx_second"]]
     assert [death["dispatch"] for death in state.load(remote)["jobs"]["j1"]["deaths"]] == ["ctx_first", "ctx_second", "ctx_last"]
 
 
