@@ -81,7 +81,7 @@ HEARD_LINES = 8
 NAMED = re.compile(r"\b[oj]\d+\b")
 LINK_LABEL = str.maketrans({"[": "(", "]": ")", "|": "/"})
 TAP_CLAIM = re.compile(
-    r"(?<!not )(?<!n't )(?<!never )\b(?:wait\w*|await\w*|needs?|owed?|pending|blocked)\b(?:(?!\b(?:no|not|never|without)\b)[^.!?\n]){0,40}?\b(?:tap|approv(?:e|al))\b",
+    r"(?<!not )(?<!n't )(?<!never )\b(?:wait\w*|await\w*|needs?|owed?|pending|blocked|holds|holding)\b(?:(?!\b(?:no|not|never|without)\b)[^.!?\n]){0,40}?\b(?:tap|approv(?:e|al))\b",
     re.IGNORECASE,
 )
 SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+|\n")
@@ -584,11 +584,11 @@ def waits_on_tap(pr: dict) -> bool:
 
 
 def tap_claim_refusal(data: dict, order_id: str, text: str, pr_cards: list[dict]) -> str | None:
-    """Why words say something waits on his tap or Approve when he has nothing to tap. A sentence saying so is judged by each open tap card it links, passing while each PR on it the sentence claims stands open at the head the card shows, those it names owing his tap, else those it names, else every PR on the card, so a PR that merged off the card is never blamed; and by each PR it names that owes his tap, passing while the words link its open tap card at its head, by head_card(), so a PR the sentence says shipped is never blamed; one linking no card while none of the PRs it names owes his tap refuses each with why."""
-    linked = set(SLACK_TS.findall(text))
+    """Why words say something waits on his tap or Approve when he has nothing to tap. A sentence of a line, or a table row read as each cell under its header, saying so is judged by each open tap card it links, passing while each PR on it the claim names stands open at the head the card shows, those it names owing his tap, else those it names, else every PR on the card, so a PR that merged off the card is never blamed; and by each PR it names that owes his tap, passing while a line of the words links its open tap card at its head, by head_card(), since Slack draws no card under a link in a table cell, so a PR the sentence says shipped is never blamed; one linking no card while none of the PRs it names owes his tap refuses each with why."""
+    linked = set(SLACK_TS.findall(limits.untabled(text)))
     found = []
-    for sentence in SENTENCE_BREAK.split(text):
-        if not TAP_CLAIM.search(SLACK_LINK.sub(r"\1", sentence)):
+    for said, sentence in tap_claims(text):
+        if not TAP_CLAIM.search(said):
             continue
         cited = set(SLACK_TS.findall(sentence))
         cards = [card for card in pr_cards if message_key(card["url"]) in cited]
@@ -612,16 +612,28 @@ def tap_claim_refusal(data: dict, order_id: str, text: str, pr_cards: list[dict]
             if (card := head_card(pr, pr_cards)) is None:
                 found.append(f"{key}: no open tap card of his stands at its head")
             elif message_key(card["url"]) not in linked:
-                found.append(f"{key}: the words do not link its open tap card {card['url']}")
+                found.append(f"{key}: the words do not link its open tap card {card['url']} on a line, where Slack draws it")
     if not found:
         return None
     untapped = f"these words say a PR waits on his tap or Approve with nothing for him to tap: {'; '.join(dict.fromkeys(found))}"
     return limits.Refusal(
         f"refused: {untapped}."
-        " Say a PR waits on his tap only while its open tap card stands at its head, and link that card where you say it, as <permalink|its tap card>; else say what happened to the PR"
-        f" ({TAP_CLAIM_RULING})",
+        " Say a PR waits on his tap only while its open tap card stands at its head, and link that card on a line where you say it, or under the table that says it, as <permalink|its tap card>; else say what happened to the PR"
+        f" ({TAP_CLAIM_RULING}; {limits.TABLE_LINK_RULING})",
         untapped,
     )
+
+
+def tap_claims(text: str) -> list[tuple[str, str]]:
+    """Each sentence of the text's lines and each row of its tables, as read, its links by their words and a row's cells each under its header, beside it as written."""
+    lines = text.splitlines()
+    sentences = [(SLACK_LINK.sub(r"\1", sentence), sentence) for sentence in SENTENCE_BREAK.split(limits.untabled(text))]
+    rows = [
+        (". ".join(f"{head}: {cell}" for head, cell in zip(shown[0], row, strict=False)), "|".join(written))
+        for shown, table in zip(limits.tables([SLACK_LINK.sub(r"\1", line) for line in lines]), limits.tables(lines), strict=True)
+        for row, written in zip(shown[1:], table[1:], strict=True)
+    ]
+    return [*sentences, *rows]
 
 
 def card_heads(card: dict, url: str) -> list[str]:

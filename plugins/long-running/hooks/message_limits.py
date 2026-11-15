@@ -621,7 +621,7 @@ def claimed(claim: str, titled: dict[str, str]) -> str:
 
 
 def found_in(payload: dict, drive: dict, said: str, found: dict[str, dict]) -> str | None:
-    """What the drive's checks find in a post, which the say hook hands Jev to judge against his words: a bug report's thread gets one fix-live note once the fix is proven live, a question's thread one answer once it is posted to him, an edit of his question card redraws it, an edit of a post say made goes through say, a post in his DM goes through say, a thread outside his DM, such as an alert's, is named with its channel_id, a post to the people of a reporter's or watched teammate's thread or of another channel passes `cc-slack check-post`, a handler's line in his thread waits for its read of that thread, and then, every finding at once, the post keeps its length, links what it names, links the open question card of his asking about each PR or error it names, asks no tap that is not owed, backs each cause, and each state of work a session posting on its own tells him, with the record of the read that measured it, answers his order by no plan, record or answer of his that is missing, calls nothing by a word he corrected, tells him no coordinator is down that was not restarted, calls no job stuck or silent before its poster read that job's transcript, says no work sits with no one on it while it names no job on it now, tells him of no coming card but an open one it names or draws, types no clock time for work already done, says in a summary what a PR it names serves, which a PR card's line above its card already quotes, names in its writer's own words no failure of the drive's without the order or PR preventing it, puts up for change in no line of a list an item a recorded answer of his orders or keeps, and `cc-slack check-post` passes its exact words."""
+    """What the drive's checks find in a post, which the say hook hands Jev to judge against his words: a bug report's thread gets one fix-live note once the fix is proven live, a question's thread one answer once it is posted to him, an edit of his question card redraws it, an edit of a post say made goes through say, a post in his DM goes through say, a thread outside his DM, such as an alert's, is named with its channel_id, a post to the people of a reporter's or watched teammate's thread or of another channel passes `cc-slack check-post`, a handler's line in his thread waits for its read of that thread, and then, every finding at once, the post keeps its length, links what it names, links the open question card of his asking about each PR or error it names, asks no tap that is not owed, links no Slack message from a table cell, backs each cause, and each state of work a session posting on its own tells him, with the record of the read that measured it, answers his order by no plan, record or answer of his that is missing, calls nothing by a word he corrected, tells him no coordinator is down that was not restarted, calls no job stuck or silent before its poster read that job's transcript, says no work sits with no one on it while it names no job on it now, tells him of no coming card but an open one it names or draws, types no clock time for work already done, says in a summary what a PR it names serves, which a PR card's line above its card already quotes, names in its writer's own words no failure of the drive's without the order or PR preventing it, puts up for change in no line of a list an item a recorded answer of his orders or keeps, and `cc-slack check-post` passes its exact words."""
     dm = slack.dm()
     tool_input = payload["tool_input"]
     if PLACEHOLDER.fullmatch(text := (tool_input.get("text") or "").strip()):
@@ -654,6 +654,7 @@ def found_in(payload: dict, drive: dict, said: str, found: dict[str, dict]) -> s
             uncarded_known(payload, drive, found),
             untapped(payload),
             claimed_tap(tool_input, drive, order_id),
+            table_linked(tool_input),
             raw_visuals(tool_input),
             unswitched(tool_input, drive),
             *unchecked(tool_input, messages, linked, drive, report, order_id),
@@ -972,6 +973,13 @@ def untapped(payload: dict) -> str | None:
     prs = {key: pr for name in state.session_drives(payload["session_id"]) for key, pr in state.load(name)["prs"].items()}
     refusal = limits.tap_refusal("\n".join(tap_prs), prs)
     return refusal and agents.Ruled(refusal, OWED_TAP_RULE, found=refusal.found)
+
+
+def table_linked(tool_input: dict) -> str | None:
+    """Why a post or its card links a Slack message from a table cell, which opens nothing and draws no card there, whatever PR cards its tap_prs draws."""
+    card = tool_input.get("card") or {}
+    refusal = limits.table_link_refusal("\n".join([tool_input.get("text") or "", card.get("body") or ""]))
+    return refusal and agents.Ruled(refusal, CARD_RULE, found=refusal.found)
 
 
 def claimed_tap(tool_input: dict, drive: dict, order_id: str | None) -> str | None:

@@ -102,6 +102,12 @@ his words "your messages need to be way shorter rewrite this for a human".
   more than five as pages, each cut at the last blank line before the line holding its sixth, so
   every card draws ("if you're telling me to tap something you need to include the unfurled card
   here"), and refuses one line linking six.
+- A table cell draws no card under a link and opens nothing from it, so no table links a card or
+  any other Slack message: link each card on a line under the table, where Slack draws it. A table
+  row saying a PR waits on his tap or Approve, read with its column headers, as "what holds it: your
+  Approve" reads, carries that PR's open tap card on such a line, and `say` refuses the row while
+  its card is linked only in a cell or nowhere, by his words "Those links to the approve cards in
+  the table aren't doing anything t".
 - A line that waits on him and links a PR draws that PR's tap card, as `tap_prs` does. When the PR
   draws no card, such as one merged or one the card command skips, `say` is refused and nothing goes
   out, so name a PR he has nothing to tap in a line that waits on nothing.
@@ -919,10 +925,12 @@ restating it.
   it went to answered, until a job of that order is made or started, by his words b4b64f5 "fix your
   toolking so tracking this stuff beciomes deterministic and it cant get lost at the whims of an
   agent". `say` refuses a handler's line saying a job is being started with neither.
-- A card promised before it is drawn. A line saying a card is coming names that card, open now,
-  as `{card:<waits id>}`, or is the post that draws it; `say` and a report to the communicator
+- A card promised before it is drawn. A line saying a card or its buttons are coming, being added
+  or being given him, as "a handler is adding each one's Approve card" does, names that card, open
+  now, as `{card:<waits id>}`, or is the post that draws it; `say` and a report to the communicator
   refuse any other, since a card no one drew may never come, as when an answer of his already
-  settled its question.
+  settled its question, by his words "you're saying in threads you're giving me approve buttons and
+  then there's no such thing".
 - The current time, and any time you estimated: Slack already stamps every post. Compute a promised
   time from `date`, or write it as `+30m` to `--due` and read it back from `drive status`, never from
   your sense of how long the turn has run, which drifts.

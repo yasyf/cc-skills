@@ -11,7 +11,7 @@ from itertools import groupby, pairwise, permutations
 from pathlib import Path
 from typing import Self
 
-from drive import picture
+from drive import picture, slack
 from drive.render import clock, cut, when
 from drive.state import DAY, PR_KEY, PR_URL, TOOLING, DriveError, ask_hash, exempted, in_reporter_thread, kept_hash, named_prs, nearest, now, pr_key, pr_url, reworked_under, root, same_question
 
@@ -40,6 +40,7 @@ FROM_ASK = (
 )
 PERMISSION_WAITS = "slack:"
 LINKS_RULING = 'his Nov 10 4:36 PM words "never mention somehting and expect me to go look it up myself"'
+TABLE_LINK_RULING = 'his Nov 15 9:03 AM words "Those links to the approve cards in the table aren\'t doing anything t"'
 PLACEHOLDER_RULING = 'his Nov 10 7:35 PM words "this table just says `time,bytes,disk` for everything"'
 LIBRARY_RULING = 'his Nov 10 9:58 PM words "buold out a libary of difernetg visualizaions … and then use the approporiuate one each time"'
 WORDS_RULING = 'his Nov 10 10:30 PM words "these images are not useful at all, at ALL … if theres nothing to show its bette rnot to show anyhting"'
@@ -1668,6 +1669,15 @@ def unlinked(linked: list[str], plain: list[str], kinds: tuple[str, ...], mentio
                         f' opens it where it is named, or say in that clause it does not exist yet, as "its PR goes up next" does ({LINKS_RULING})'
                     )
     return list(dict.fromkeys(problems))
+
+
+def table_link_refusal(text: str) -> Refusal | None:
+    """Why a post links a Slack message, such as his card, from a table cell, where Slack draws no card under the link and opens nothing from it."""
+    found = [link[0] for table in tables(text.splitlines()) for row in table for link in LINK.finditer("|".join(row)) if slack.PERMALINK.match(link["target"])]
+    if not found:
+        return None
+    problem = f"{', '.join(found)} {'link Slack messages' if len(found) > 1 else 'links a Slack message'} from a table cell, where Slack draws no card and the link opens nothing"
+    return Refusal(f"refused: {problem}: link each on a line under the table, where Slack draws it ({TABLE_LINK_RULING})", problem)
 
 
 def masked(line: str) -> str:
