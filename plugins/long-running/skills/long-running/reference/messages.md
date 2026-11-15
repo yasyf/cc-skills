@@ -381,10 +381,10 @@ Posting it:
   links, on the card's question. A card asked again sends that thread a line only when the line it
   holds is no longer true: `drive job ask` asks Jev, in the same request that weighs the card against
   his words, one yes-or-no question for each of what the card asks, what it blocks and what is built
-  meanwhile and as which PR, whether that line no longer holds on it for the card as asked now, and
-  sends no report when Jev answers each under 0.3, by his pick "Owe a line only on news"; else its
-  report names the earlier line and what changed, the likeliest of those Jev answers 0.7 or more, or
-  that Jev gave no clear reading. The record's cci id names the card's `waits` id and the
+  meanwhile and as which PR, each PR by its state, so a merge is that PR moving on, whether that
+  line no longer holds on it for the card as asked now, and sends no report when Jev answers each
+  under 0.3, by his pick "Owe a line only on news"; else its report names the earlier line and what
+  changed, the likeliest of those Jev answers 0.7 or more, or that Jev gave no clear reading. The record's cci id names the card's `waits` id and the
   report's hash, so a redraw that leaves the report as it was returns the record cci already holds
   and starts no handler. His tap comes back as an `answer` record, so "card posted" and "he
   answered" stay two states.
