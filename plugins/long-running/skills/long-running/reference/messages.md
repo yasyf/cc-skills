@@ -196,13 +196,13 @@ summary of one feature is a line of at most 60 words.
   paused on his pick when the asking job is a builder or the card holds a part only a builder
   carries, landing on the recommendation on an open incident, and nothing built until he picks on
   an order he limited to options or an answer order. The first line says what the card is: the work it serves, as
-  `{order:<o>}`, which his card draws as his order's own words linked to its thread, `port of #N` as
+  `{order:<o>}`, which his card draws as his order's title linked to its thread, `port of #N` as
   the text of that PR's link, or Drive tooling, and what his pick changes for him, said as "your
   pick", such as "For {order:o518}: your pick decides whether restoring a SandSQL Env to an earlier
   point keeps its moved tables readable once the reader switch ships." `drive job ask` refuses a first
   line missing either, by his words on a card that opened on its findings: "what is this and what the
   fuck are you talking about". It also counts the words his card draws for each reference in the
-  summary: an `{order:<o>}` draws its order's first 100 characters, so give it a few words of its own,
+  summary: an `{order:<o>}` draws its order's title, so give it a few words of its own,
   `{order:<o>|<a few words>}`, when the card runs near 150. When the block has a Show me, a `*Show me*` line
   and the Show me follow as written.
 - His card draws the findings' `Root cause:` line under the summary's first line, as `*Root cause:*`

@@ -207,6 +207,24 @@ def test_his_read_only_questions_handler_starts_on_its_answer_order_and_one_say_
     assert not [argv for argv in started if argv[:2] == ["drive", "status"] or argv[0] in ("orca", "cc-slack")]
 
 
+def test_a_handlers_close_finishes_no_order_his_message_did_not_start_though_a_meta_order_came_last_into_his_thread(
+    communicator: str, run: Run, tmp_path: Path, started: list[list[str]], slack_calls: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--title", "Copy fix", "--project", "The drive", "--workstream", "Copies", "fix the copy", "--from", f"https://acme.slack.com/archives/D123/p{THREAD.replace('.', '')}")
+    run("order", "add", "--title", "Card hook", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: the card hook refused a post", "--thread", THREAD, "--owner", "meta")
+    his = f"{state.now().timestamp():.6f}"
+    link = f"https://acme.slack.com/archives/D123/p{his.replace('.', '')}?thread_ts={THREAD}&cid=D123"
+    brief = f"Message (his words): give me copies of the cards you need my taps on here\nLink: {link}\nThread: D123 {THREAD}\nDrive: demo\nScratch: {tmp_path / 'h1'}"
+    handler = tools.run("handler", "demo", {"brief": brief}).removeprefix("started ")
+    bind(monkeypatch, handler, "h-session")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "h-session")
+    assert state.message_order(state.load("demo"), "D123", THREAD, his) == "o2"
+    with pytest.raises(state.DriveError, match="^nothing posted: close finishes only the order the record your handler holds names or the order his message it holds started"):
+        talk.say("demo", {"text": "Here are the cards waiting on your tap.", "thread_ts": THREAD, "close": True})
+    assert [order["closed_on"] for order in state.load("demo")["orders"].values()] == [None, None]
+    assert slack_calls == [] and not [argv for argv in started if argv[:2] == ["cci", "post"]]
+
+
 def test_a_handlers_own_session_reads_as_an_agent_of_the_communicators(
     communicator: str, run: Run, tmp_path: Path, started: list[list[str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:

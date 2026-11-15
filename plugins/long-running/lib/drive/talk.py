@@ -31,7 +31,12 @@ def say(name: str, post: dict) -> str:
     seq = report.get("seq")
     order = cli.post_order(known, os.environ.get("CLAUDE_CODE_SESSION_ID"), post, report)
     if close and not order:
-        raise DriveError("nothing posted: close answers the order of the message of his or the record your handler holds, and no order holds it")
+        raise DriveError(
+            "nothing posted: close finishes only the order the record your handler holds names or the order his message it holds started, and"
+            " neither names one, while another order in that thread is not this message's to close: on an order the communicator holds, post your"
+            " own report on the cci post tool with kind report, lane communicator, attrs {close: <o>} and no to, and pass its seq as record; on any"
+            ' other, send the owner record with his words and order: "<o>", so the session holding it closes it'
+        )
     if close:
         report = {"close": order, "writer": "communicator", "written": state.stamp()}
         held = known["handlers"][state.handler_id(known, os.environ.get("CLAUDE_CODE_SESSION_ID"))]["holds"] or {}

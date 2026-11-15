@@ -195,18 +195,19 @@ def test_a_pr_card_he_tapped_links_by_its_waits_id_from_cc_slacks_closed_cards_i
     assert said(demo)[0]["text"] == f"You approved [New: approve the run page history?]({tapped})."
 
 
-def test_an_order_links_its_thread_in_slack_or_else_its_dashboard_page_under_his_words(
+def test_an_order_links_its_thread_in_slack_or_else_its_dashboard_page_under_its_title(
     demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]]
 ) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "a verb for owners", "--thread", "1794200000.000100", "--owner", "coordinator")
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: one owner per order")
+    shared = "Shared from Sam in #C0BUGS1: [November 13th, 2026 8:13 AM] sam: Screenshot 2026-11-13 at 11.11.51"
+    run("order", "add", "--title", "Share links open the session", "--project", "The drive", "--workstream", "Releases", shared, "--thread", "1794200000.000100", "--owner", "coordinator")
+    run("order", "add", "--title", "One owner per order", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: one owner per order")
     view.refresh_cards(demo)
     talk.say(demo, {"text": "{order:o1} is live; {order:o2} is next."})
     assert posts[0][-1] == (
-        "<https://acme.slack.com/archives/D123/p1794200000000100|a verb for owners> is live;"
-        f" <{dashboard.link(demo)}#/feature/o2|Drive tooling: one owner per order> is next."
+        "<https://acme.slack.com/archives/D123/p1794200000000100|Share links open the session> is live;"
+        f" <{dashboard.link(demo)}#/feature/o2|One owner per order> is next."
     )
-    assert said(demo)[0]["text"] == "[a verb for owners](#/feature/o1) is live; [Drive tooling: one owner per order](#/feature/o2) is next."
+    assert said(demo)[0]["text"] == "[Share links open the session](#/feature/o1) is live; [One owner per order](#/feature/o2) is next."
     with pytest.raises(DriveError, match=r"\{order:o9\} names no order"):
         talk.say(demo, {"text": "{order:o9} is next."})
 

@@ -1176,7 +1176,7 @@ def report_refusal(data: dict, order_id: str, report: dict) -> str | None:
 
 
 def post_order(data: dict, session: str | None, post: dict, report: dict) -> str | None:
-    """The one order a say post is recorded on, which say decides and no caller names: a post carrying a record goes on the order that record is about, the report it relays or the record of his words it answers; a handler's close goes on the order of what the handler holds, the order its record is about, else the order of his message; an edit, a card, a PR card, his catch-up, an answer in a teammate's watched thread and any other post with no record go on none."""
+    """The one order a say post is recorded on, which say decides and no caller names: a post carrying a record goes on the order that record is about, the report it relays or the record of his words it answers; a handler's close goes on the order the record it holds names, else the order his message it holds started, never another order that only shares the thread, which is not that message's to close; an edit, a card, a PR card, his catch-up, an answer in a teammate's watched thread and any other post with no record go on none."""
     if post.get("edit") or post.get("card") or post.get("tap_prs") or report.get("catch_up") or report.get("watch"):
         return None
     if post.get("record"):
@@ -1184,8 +1184,8 @@ def post_order(data: dict, session: str | None, post: dict, report: dict) -> str
     if not (post.get("close") and (handler := state.handler_id(data, session))):
         return None
     held = data["handlers"][handler]["holds"] or {}
-    return (held.get("record") and state.report_order(data, agents.shown(held["record"])["fields"].get("attrs", {}))) or (
-        held.get("message") and state.message_order(data, state.slack_message(held["link"])[0], held["thread"], held["message"])
+    return (held.get("record") and state.named_order(data, agents.shown(held["record"])["fields"].get("attrs", {}))) or (
+        held.get("message") and state.started_order(data, state.slack_message(held["link"])[0], held["message"])
     ) or None
 
 
@@ -1872,7 +1872,7 @@ def checked_ask(name: str, job_id: str, text: str, unsettled: str | None, redraw
         if (drawn := limits.card_words(shown)) > limits.QUESTION_WORDS:
             problems.append(
                 f"the ASK's question, summary and options are {drawn} words as his card draws them, each reference in the summary drawn as"
-                f" the words that name it, an {{order:<o>}} as the first {view.TITLE_CHARS} characters of his order, and at most"
+                f" the words that name it, an {{order:<o>}} as its order's title, and at most"
                 f" {limits.QUESTION_WORDS} in all: give a reference a few words of its own, as {{order:<o>|<a few words>}}, or cut the summary"
             )
         linked = {state.pr_key(url[0]) for url in state.PR_URL.finditer("\n".join([*asked.summary, *(ref["url"] for ref in found.values() if ref["kind"] == "pr")]))}

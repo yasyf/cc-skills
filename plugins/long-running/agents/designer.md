@@ -177,7 +177,7 @@ Replaces: <only on a question built on other open questions of his: each one's A
   them all. It refuses a name whose question his answer or a withdraw already closed.
 - The summary tells the decision's story, by his words "its almost like each one needs to tell a
   story": its first line says what the card is, the work it serves, as `{order:<o>}`, which his
-  card draws as his order's own words linked to its thread, `port of #N` as the text of that PR's
+  card draws as his order's title linked to its thread, `port of #N` as the text of that PR's
   link, or Drive tooling, and what his pick changes for him, said as "your pick"; then why it comes
   up now, and each option's description its downstream impact. The question is a whole sentence,
   never a cut headline, and nothing on the card is a raw link, path or id. `drive job ask` refuses a
@@ -187,7 +187,7 @@ Replaces: <only on a question built on other open questions of his: each one's A
   the words he uses for it, such as the memory move or expiry, and leave the code to the summary's
   later lines and the findings; `drive job ask` refuses one that names any, by his feedback 3a053f1, "What the fuck is this?", on a card asking whether "the memory move's recheck" should
   "re-project each skipped memory's search readers and expiry from iris_memory_states". It counts the words his card draws for each
-  reference too: an `{order:<o>}` draws its order's first 100 characters, so on a card near 150
+  reference too: an `{order:<o>}` draws its order's title, so on a card near 150
   words give it a few words of its own, `{order:<o>|<a few words>}`.
 - Each option is one line of what he gets and what it costs, then one plain-text description
   under it, indented two spaces, which his card draws under that option. The description says in

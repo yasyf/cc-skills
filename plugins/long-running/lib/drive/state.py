@@ -3389,16 +3389,24 @@ def thread_order(data: dict, thread: str | None, until: datetime | None = None) 
 
 def message_order(data: dict, channel: str, thread: str, ts: str) -> str | None:
     """The order his message in a thread is about: the order it started, else the one that came last into the thread by the time he sent it, so a thread two orders share splits his words between them by when each came in."""
+    return started_order(data, channel, ts) or thread_order(data, thread, datetime.fromtimestamp(float(ts)).astimezone())
+
+
+def started_order(data: dict, channel: str, ts: str) -> str | None:
+    """The order his message started, kept under slack:<channel>/<ts> as --from adds it."""
     started = f"slack:{channel}/{ts}"
-    return next((order_id for order_id, order in data["orders"].items() if order["from"] == started), None) or thread_order(
-        data, thread, datetime.fromtimestamp(float(ts)).astimezone()
-    )
+    return next((order_id for order_id, order in data["orders"].items() if order["from"] == started), None)
 
 
 def report_order(data: dict, attrs: dict) -> str | None:
-    """The order a report is about: the one its order attr names, else the first its close attr names, else its job's, else the newest in its thread."""
+    """The order a report is about: the one named_order reads, else the newest in its thread."""
+    return named_order(data, attrs) or thread_order(data, attrs.get("thread"))
+
+
+def named_order(data: dict, attrs: dict) -> str | None:
+    """The order a record names: the one its order attr names, else the first its close attr names, else its job's."""
     named = [attrs.get("order"), *closed_orders(attrs), (data["jobs"].get(attrs.get("job") or "") or {}).get("order")]
-    return next((order_id for order_id in named if order_id in data["orders"]), None) or thread_order(data, attrs.get("thread"))
+    return next((order_id for order_id in named if order_id in data["orders"]), None)
 
 
 def report_orders(data: dict, attrs: dict) -> list[str]:

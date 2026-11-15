@@ -2113,7 +2113,7 @@ def test_job_ask_check_passes_a_first_line_naming_the_work_it_serves_and_what_hi
 def test_job_ask_and_its_check_refuse_a_summary_over_his_length_as_his_card_draws_its_order_references_and_keep_one_whose_references_carry_words(
     run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--title", "Store copy", "--project", "The drive", "--workstream", "Drive tooling", "copy every store of the team in the order its list names them, one at a time, with no store skipped or copied twice")
+    run("order", "add", "--title", "Copy each store of a team once, in the order its list names", "--project", "The drive", "--workstream", "Drive tooling", "copy every store of the team in the order its list names them, one at a time, with no store skipped or copied twice")
     block = tmp_path / "ask.md"
     repeated = " ".join(["{order:o2}"] * 8)
     block.write_text(RESTORE_ASK.replace(RESTORE_OPENING, f"For {{order:o2}}: your pick decides who relinks a moved table. It serves {repeated}."))

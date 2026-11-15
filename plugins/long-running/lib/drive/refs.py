@@ -218,12 +218,12 @@ def pr(prs: dict, ref: str, label: str) -> dict:
 
 
 def order(name: str, data: dict, order_id: str) -> dict:
-    """An order of his under the first line of his words: Slack links the thread its lines go in, or its dashboard page when it has none, and the dashboard opens its page."""
+    """An order of his under its title, as every surface drawing an order names it: Slack links the thread its lines go in, or its dashboard page when it has none, and the dashboard opens its page."""
     if order_id not in data["orders"]:
         raise DriveError(f"{{order:{order_id}}} names no order of the drive's; drive status lists them")
     board = f"#/feature/{order_id}"
     url = view.thread_url(data, view.stored_cards(name)[0]["team_url"], data["orders"][order_id]) or dashboard.link(name) + board
-    return {"kind": "order", "title": view.plain(data["orders"][order_id]["text"], view.TITLE_CHARS), "url": url, "board": board}
+    return {"kind": "order", "title": view.order_title(data["orders"][order_id]), "url": url, "board": board}
 
 
 def record(name: str, seq: str, label: str) -> dict:

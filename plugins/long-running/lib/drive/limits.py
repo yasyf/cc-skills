@@ -1257,7 +1257,7 @@ def interim_fix_problems(findings: str) -> list[str]:
 
 
 def opening_problems(summary: list[str]) -> list[str]:
-    """Whether the summary's first line tells him what the card is: the work it serves, as `{order:<o>}`, which his card draws as his order's own words linked to its thread, `port of #N` or Drive tooling, and what his pick changes for him, said as "your pick" outside a quote or reference."""
+    """Whether the summary's first line tells him what the card is: the work it serves, as `{order:<o>}`, which his card draws as his order's title linked to its thread, `port of #N` or Drive tooling, and what his pick changes for him, said as "your pick" outside a quote or reference."""
     if not summary:
         return []
     missing = [
