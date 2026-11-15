@@ -55,6 +55,7 @@ cat "{answer}"
 REPORTED = "https://acme.slack.com/archives/C0REPORTS01/p1794400100000200"
 ROOT_CAUSE = "Root cause: none: where a copy runs is a pick between two designs, with no defect behind it\n"
 HOLDS = "Holds: none: no option changes code any job builds\n"
+UNSTAGED = "STAGING: none: it changes no path AGENTS.md calls dangerous\n"
 DESIGN_TITLE = "Where should store_copy_at in supervisor/copies.rs run each store copy?"
 SECOND_OPTION = (
     "- store_copy_at runs on a separate worker that reads each store from the bucket and copies it there\n"
@@ -5326,8 +5327,31 @@ def test_a_builders_ready_is_kept_whatever_its_pr_body_says(
     run: Run, with_pr: str, on_github: dict, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     on_github["body"] = CARD_BODY.replace("## What you'll hate most", "## Biggest surprise")
-    assert keep(monkeypatch, capsys, "j1", f"READY {PR}\n") == (0, "")
+    assert keep(monkeypatch, capsys, "j1", f"READY {PR}\n{UNSTAGED}") == (0, "")
     assert state.load("demo")["jobs"]["j1"]["state"] == "waiting"
+
+
+def test_a_builders_pushed_naming_a_monorepo_pr_says_how_it_is_tested_on_staging_and_its_staging_line_adds_the_part_its_wait_and_one_tester_briefed_on_this_mac(
+    run: Run, with_pr: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    part, cases = state.STAGING_TEST.format(number=42), "run the migration twice and roll it back on plat-usw2-staging"
+    for report, refused in (
+        (f"PUSHED {PR}\n", f"it names {with_pr}, so {state.STAGING_RULE}"),
+        (f"PUSHED {PR}\nSTAGING: none\n", "its STAGING line `none` neither stages"),
+        (f"PUSHED {PR}\nSTAGING: #43 run it twice\n", "its STAGING line `#43 run it twice` neither stages"),
+    ):
+        code, err = keep(monkeypatch, capsys, "j1", report)
+        assert (code, f"j1: refused, nothing kept: {refused}" in err) == (2, True)
+    for _ in range(2):
+        assert keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\nSTAGING: #42 {cases}\n") == (0, "")
+    data = state.load("demo")
+    (tester_id, tester), = [(job_id, job) for job_id, job in data["jobs"].items() if job.get("builds_nothing")]
+    assert (data["prs"][with_pr]["waits"], part in data["orders"]["o1"]["parts"], tester_id in data["orders"]["o1"]["jobs"]) == ([f"o1:{part}"], True, True)
+    assert (tester["kind"], tester["goal"], tester["parts"], tester["where"]) == ("builder", cases, [part], "local")
+    assert run("job", "brief", tester_id)[0] == 0
+    written = Path(state.load("demo")["jobs"][tester_id]["brief"]).read_text()
+    assert (f"Mac: {cli.STAGING_MAC}" in written, '"incident": "true"' in written, "Researched:" in written) == (True, True, False)
+    assert keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\n{UNSTAGED}") == (0, "")
 
 
 def test_a_builders_ready_counts_only_on_a_green_required_check_and_one_still_running_or_red_returns_pushed(
@@ -5343,11 +5367,11 @@ def test_a_builders_ready_counts_only_on_a_green_required_check_and_one_still_ru
         ([{**test, "state": "FAILURE"}], f"{with_pr}'s required buildkite/test failed at abc ({build}): fix it and push, then return"),
     ):
         pr_reads[with_pr] = read | {"checks": posted}
-        code, err = keep(monkeypatch, capsys, "j1", f"READY {PR}\n")
+        code, err = keep(monkeypatch, capsys, "j1", f"READY {PR}\n{UNSTAGED}")
         assert code == 2
         assert f"j1: refused, nothing kept: READY counts only on a green required check, and {held} this report with `PUSHED {PR}` as its first line" in err
     assert state.load("demo")["jobs"]["j1"]["state"] == "running"
-    assert keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\n") == (0, "")
+    assert keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\n{UNSTAGED}") == (0, "")
     job = state.load("demo")["jobs"]["j1"]
     assert (job["state"], job["said"]) == ("waiting", f"PUSHED {PR}")
 
@@ -5356,7 +5380,7 @@ def test_a_builders_ready_and_a_serves_are_kept_unjudged_and_only_the_watchs_che
     run: Run, with_pr: str, on_github: dict, judge: Judge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     judge.against = [{"order": "o1", "words": "land it", "file": "api/run.ts", "change": "api/run.ts keeps the staff flag"}]
-    assert keep(monkeypatch, capsys, "j1", f"READY {PR}\n") == (0, "")
+    assert keep(monkeypatch, capsys, "j1", f"READY {PR}\n{UNSTAGED}") == (0, "")
     assert run("pr", "set", PR, "--serves", "o1", "--design", "none")[0] == 0
     pr = state.load("demo")["prs"][with_pr]
     assert (judge.asked, pr["serves"], pr["checked"], state.load("demo")["jobs"]["j1"]["state"]) == ([], "o1", None, "waiting")
@@ -5430,7 +5454,7 @@ def test_a_pr_set_to_serve_an_order_its_job_carries_is_judged_against_that_order
     judge.against = [{"order": "o1", "words": "land it", "file": "", "change": "no moved table"}]
     monkeypatch.setattr(served, "judged", lambda name, said, changes: judge.asked.append((said, changes)) or (list(judge.against) if '"land it"' in said else []))
     assert run("pr", "set", PR, "--serves", "o2", "--design", "asked:3185177")[0] == 0
-    assert keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\n") == (0, "")
+    assert keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\n{UNSTAGED}") == (0, "")
     assert cli.main(["pr", "check", PR, "--drive", "demo"]) == 0
     [(said, _)] = judge.asked
     assert (state.served_orders(state.load("demo"), state.load("demo")["prs"][with_pr]), said.startswith("o2, "), '"land it"' in said) == (["o2"], True, False)
@@ -5475,7 +5499,7 @@ def test_a_ready_is_judged_by_the_watchs_check_against_the_answers_its_design_li
     run: Run, with_pr: str, on_github: dict, judge: Judge, recorded: Answers, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     recorded.shown["953a8c8"] = DOORS
-    assert keep(monkeypatch, capsys, "j1", f"READY {PR}\nDESIGN: the doors stay open until Env::file_of reads env_id, by 953a8c8\n") == (0, "")
+    assert keep(monkeypatch, capsys, "j1", f"READY {PR}\n{UNSTAGED}DESIGN: the doors stay open until Env::file_of reads env_id, by 953a8c8\n") == (0, "")
     assert cli.main(["pr", "check", PR, "--drive", "demo"]) == 0
     said = judge.asked[-1][0]
     assert said.startswith('o1, ') and f'asked "{DOORS["title"]}": "Close every door once Env::file_of reads env_id (recommended)' in said
@@ -5488,7 +5512,7 @@ def test_a_ready_or_pushed_whose_design_line_names_no_answer_of_his_keeps_nothin
         code, err = keep(monkeypatch, capsys, "j1", f"{first} {PR}\nDESIGN: also start stopped boxes, as built (his pick, 3:24 AM Nov 10)\n")
         assert (code, f"j1: refused, nothing kept: {served.NAMELESS}" in err) == (2, True)
     assert state.report_text("demo", "j1") == ""
-    assert keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\nDESIGN: none: it makes no design decision\n") == (0, "")
+    assert keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\n{UNSTAGED}DESIGN: none: it makes no design decision\n") == (0, "")
     with pytest.raises(SystemExit):
         cli.main(["pr", "set", PR, "--serves", "o1", "--design", "asked:his pick, 3:24 AM Nov 10"])
     assert served.NAMES in capsys.readouterr().err
@@ -5500,7 +5524,7 @@ def test_pr_set_design_replaces_what_a_returns_design_line_cited_and_the_check_r
 ) -> None:
     recorded.shown["953a8c8"] = DOORS
     dropped = "https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794357048254809"
-    assert keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\nDESIGN: one proposal tool, his tap {dropped}\n") == (0, "")
+    assert keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\n{UNSTAGED}DESIGN: one proposal tool, his tap {dropped}\n") == (0, "")
     assert state.load("demo")["prs"][with_pr]["design"] == f"DESIGN: one proposal tool, his tap {dropped}"
     code, out = run("pr", "set", PR, "--design", "asked:953a8c8")
     assert (code, ", design answers 953a8c8" in out.splitlines()[0], "his answer its design cites, kept: 953a8c8, " in out) == (0, True, True)
@@ -5520,9 +5544,9 @@ def test_a_drive_saved_before_prs_kept_their_design_cites_on_each_open_pr_the_de
     run: Run, with_pr: str
 ) -> None:
     for at, whole in (
-        ("2026-11-11T08:00:00-08:00", f"PUSHED {PR}\nDESIGN: the doors stay open, by 953a8c8\n"),
+        ("2026-11-11T08:00:00-08:00", f"PUSHED {PR}\n{UNSTAGED}DESIGN: the doors stay open, by 953a8c8\n"),
         ("2026-11-11T09:00:00-08:00", f"WAITING CI on {PR}\nDESIGN: one proposal tool, by 5f75623\n"),
-        ("2026-11-11T10:00:00-08:00", f"PUSHED {PR}\nCHANGE: the doors stay open\n"),
+        ("2026-11-11T10:00:00-08:00", f"PUSHED {PR}\n{UNSTAGED}CHANGE: the doors stay open\n"),
     ):
         state.keep_report("demo", "j1", state.opening(whole), whole, state.parse_time(at))
     with state.edit("demo") as data:
@@ -6076,14 +6100,14 @@ def test_a_builders_pushed_naming_an_untracked_pr_his_card_would_open_with_no_le
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "land it")
     run("job", "add", "builder", "--order", "o1", "--goal", "land")
-    monkeypatch.setattr("sys.stdin", io.StringIO(f"PUSHED {PR}\n"))
+    monkeypatch.setattr("sys.stdin", io.StringIO(f"PUSHED {PR}\n{UNSTAGED}"))
     assert cli.main(["job", "report", "j1", "-"]) == 2
     refusal = capsys.readouterr().err
     assert "drive pr add refuses a PR its first line names: Forge-AI/monorepo#42: refused, nothing added: his card opens with its lead, and --headline is missing" in refusal
     assert f'drive pr add {PR} --job j1 --headline "<headline>" --because "<why>" --does "<what>" --downstream "<downstream>"' in refusal
     assert ("Forge-AI/monorepo#42" in state.load("demo")["prs"], draws.keys) == (False, [])
     assert run("pr", "add", PR, "--job", "j1", *LEAD) == (0, f"Forge-AI/monorepo#42, his card {draws.link}")
-    monkeypatch.setattr("sys.stdin", io.StringIO(f"PUSHED {PR}\n"))
+    monkeypatch.setattr("sys.stdin", io.StringIO(f"PUSHED {PR}\n{UNSTAGED}"))
     assert (run("job", "report", "j1", "-")[0], draws.keys) == (0, [["Forge-AI/monorepo#42"]])
 
 

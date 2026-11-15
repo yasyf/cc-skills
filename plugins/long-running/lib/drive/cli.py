@@ -63,6 +63,16 @@ ANSWER_FIRST = (
     ' `"incident": "true"` added when it says a customer team\'s production runs are failing or stopped, so it posts while he is'
     " away too; then keep your full report and return as usual"
 )
+STAGING_MAC = (
+    "start the soak of the PR each `staging test of #N before it lands` part of yours names from this Mac, since go/ci's sprite door refuses a release start from a Sprite:"
+    " `tools/ci release start <each target its paths reach> --from <its branch> --emergency --env plat-usw2-staging`, by his standing yes to soak any dangerous branch on"
+    " staging alone (23eefb9), then return `WAITING staging:<target>/plat-usw2-staging@<commit>` until staging runs it"
+)
+STAGING_FIRST = (
+    "a finding of your staging run that production shows too goes to his thread the moment you have it, before any other step: one `report`"
+    " record on the cci `post` tool, `to: [communicator@{drive}]`, `text: POST <the finding>`, `attrs: {attrs}`, so it posts while he is away too;"
+    " then finish the run and return as usual"
+)
 PROMISED_TIME = re.compile(
     r"\bnext (?:line|update|post|summary)(?:\s+(?:by|before|at))?\s+(?:about\s+|around\s+)?([01]?\d|2[0-3]):([0-5]\d)(?![:\d])(?:\s*([AP])\.?M\b)?", re.IGNORECASE
 )
@@ -2606,6 +2616,7 @@ def rewrite_brief(name: str, job_id: str, flags: dict, over: dict | None) -> tup
     rulings = [*dict.fromkeys(ruling_words(answer_id, checkout_dir) for answer_id in ids), *heard]
     carried = "".join(f"\n{order_id}, which it also carries: {data['orders'][order_id]['text']}" for order_id in job["carries"])
     scratch = Path(flags["scratch"]).expanduser() if flags["scratch"] else state.drive_dir(name) / "scratch" / job_id
+    staged = any(state.STAGING_PART.fullmatch(part) for part in job["parts"])
     fields = {
         "Order (his words)": order["text"] + carried,
         "From": order["from"],
@@ -2617,13 +2628,14 @@ def rewrite_brief(name: str, job_id: str, flags: dict, over: dict | None) -> tup
         "Runs as": flags["runs_as"],
         "Release": flags["release"],
         "Release build": job["release_build"],
-        "Mac": flags["mac"],
+        "Mac": flags["mac"] or staged and STAGING_MAC,
         "Handoff": flags["handoff"],
         "Decisions that bind": rulings or "none named; search his answers on the area",
         "Repo rules": state.repo_rules(data),
         "Research": planned and job["kind"] == "reader" and READER_RESEARCH,
         "Researched": found and found[0],
         "Answer": order["kind"] == "answer" and job["kind"] == "reader" and answer_first(name, order, job["order"], job_id),
+        "Staging": staged and STAGING_FIRST.format(drive=name, attrs=json.dumps(state.thread_attr(order) | {"order": job["order"], "job": job_id, "progress": "true", "incident": "true"})),
         "Native": flags["native"],
         "Interactions": flags["interactions"],
         "Would he ask": flags["would_he_ask"],

@@ -5144,6 +5144,42 @@ def test_j4802_an_approved_pr_waiting_on_a_job_whose_open_question_no_wait_names
     assert stage.of(state.load(demo), KEY, NO_CARDS) == stage.Stage("blocked", stage.HIM, f"it waits on j2, his answer on {view.link('his question card', CARD)}")
 
 
+def test_each_open_pr_of_a_job_in_any_repository_waits_on_each_staging_test_another_pr_of_that_job_waits_on(demo: str) -> None:
+    part = state.STAGING_TEST.format(number=42)
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["parts"][part] = state.new_part()
+        data["orders"]["o1"]["jobs"].append("j2")
+        data["jobs"]["j2"] = job(goal="run it twice on staging", parts=[part], builds_nothing=True)
+        data["jobs"]["j1"].update(state="waiting", said=f"PUSHED {state.pr_url(YASYF)}", prs=[state.pr_url(KEY), state.pr_url(YASYF)])
+        data["prs"][YASYF] = state.new_pr(state.pr_url(YASYF), "j1", "o1") | {"head": "aaaaaaa111", "checks": "pass", "wants_tap": False}
+        data["prs"][KEY] |= {"waits": [f"o1:{part}"]}
+    now = stage.of(state.load(demo), YASYF, NO_CARDS)
+    assert (now.name, now.owner, now.why) == ("waiting", stage.TESTER, "it waits on its staging run by j2, running")
+
+
+@pytest.mark.parametrize(
+    ("waits", "said", "owner"),
+    [
+        ([OTHER, state.SLOT_WAIT], "waits its turn for a builder slot on this Mac", stage.SLOT),
+        ([OTHER], f"WAITING {state.pr_url(OTHER)} to merge: then it soaks both on staging", stage.TESTER),
+    ],
+    ids=["its tester waits on a builder slot", "its tester waits on the other PR it tests"],
+)
+def test_replayed_56550_an_approved_pr_waiting_only_on_its_staging_tester_reads_waiting_on_that_run_never_blocked_on_his_approve_of_the_tester_s_other_pr(
+    demo: str, waits: list[str], said: str, owner: str
+) -> None:
+    with state.edit(demo) as data:
+        data["orders"]["o2"] = order(jobs=["j4542"])
+        data["jobs"]["j4542"] = job(order="o2", state="waiting", goal="soak #42 and #43 on staging", builds_nothing=True, waits=waits, said=said)
+        data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"head": "aaaaaaa111", "checks": "pass", "review": "approved", "waits": ["j4542"]}
+        data["prs"][KEY] |= {"checks": "pass", "review": "approved", "waits": ["j4542"]}
+    approve(demo, KEY)
+    data = state.load(demo)
+    assert stage.of(data, OTHER, NO_CARDS).owner == stage.HIM
+    assert stage.of(data, KEY, NO_CARDS) == stage.Stage("waiting", owner, f"it waits on its staging run by j4542, {said}")
+    assert his_card_row(demo, KEY)["blocks"] == f"Approved by you. Lands once its staging run by j4542 passes ({said})"
+
+
 @pytest.mark.parametrize("named", [True, False], ids=["its waits name his cards", "no wait names his cards"])
 def test_replayed_56278_an_approved_pr_whose_waits_end_at_his_open_cards_reads_blocked_on_him_over_an_older_unlanded_try_and_wakes_no_one_until_they_close(
     demo: str, monkeypatch: pytest.MonkeyPatch, woken: list[tuple[str, str]], landers: list[tuple[str, ...]], named: bool

@@ -303,7 +303,9 @@ def coming(drive: dict, job_id: str) -> bool:
 
 
 def wait_words(drive: dict, wait: str, found: dict | None) -> str:
-    """What a PR's wait waits for, as his card says it to him: each PR, card or build by its title, linked in the markdown his card draws as a link."""
+    """What a PR's wait waits for, as his card says it to him: each PR, card or build by its title, linked in the markdown his card draws as a link, and its staging test by its tester and that tester's line, as its stage says it."""
+    if tester := state.staging_tester(drive, wait):
+        return f"its staging run by {tester} passes ({tester_line(drive, tester)})"
     if wait in drive["jobs"]:
         return f"the build of {cut(drive['jobs'][wait]['goal'], TITLE_CHARS)} finishes"
     if wait in drive["prs"]:
@@ -321,6 +323,12 @@ def wait_words(drive: dict, wait: str, found: dict | None) -> str:
     if card := next((card for card in listed if card["card"].get("waits") == wait or message_key(card["url"]) == message_key(wait)), None):
         return f"you answer {link(card['card']['title'], card['url'])}"
     return f"you answer {link('your question card', wait)}" if wait.startswith("https://") else "you answer your question card"
+
+
+def tester_line(drive: dict, tester: str) -> str:
+    """What a staging tester says of itself to each PR it tests: its WAITING line while it waits, else its state."""
+    job = drive["jobs"][tester]
+    return job["said"] if job["state"] == "waiting" and job["said"] else job["state"]
 
 
 def tap_card(drive: dict, pr: dict, found: dict | None) -> str | None:

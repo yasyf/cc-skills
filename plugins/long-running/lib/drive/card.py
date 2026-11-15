@@ -578,7 +578,7 @@ def holding(name: str, entry: dict) -> dict[str, str]:
     from drive import land, stage, view
 
     data, found = state.load(name), view.live_cards(name)
-    waits = view.holding(data, entry["waits"], found)
+    waits = view.holding(data, state.job_waits(data, entry), found)
     return {wait: view.wait_words(data, wait, found) for wait in view.stored_waits(data, [*waits, *stage.asked(data, state.pr_key(entry["url"]), waits, found), *land.pr_cards(data, entry)], found)}
 
 

@@ -12,6 +12,8 @@ HIM = "him"
 BUILDER = "its builder"
 GRADERS = "Buildkite and forge-pr-reviewer"
 WAITED = "what it waits on"
+TESTER = "its staging tester"
+SLOT = "the top coordinator's builder slot"
 ACCEPT_RULING = '2bb0472, "you have to accept the risk stop just pretendinf urblocked"'
 UNLANDED_SILENT = "no outcome: its process ended before it said whether it queued anything"
 WAKES_LOG = "wakes.log"
@@ -103,12 +105,17 @@ def alone(data: dict, key: str, cards: dict) -> Stage:
 
 
 def waiting(data: dict, key: str, cards: dict) -> Stage | None:
-    """The stage of a PR the lander would land now while a PR, job or release of the drive it waits on still holds, which every ready rule of alone reads first, so the lander lands none of them until the watch frees it: blocked, owed by him and naming each, while an end of those waits is his by asked(), so it wakes no one, else waiting on what it waits on; None once nothing it waits on holds."""
-    if not (standing := view.holding(data, data["prs"][key]["waits"], cards)):
+    """The stage of a PR the lander would land now while a PR, job or release of the drive it waits on still holds, which every ready rule of alone reads first, so the lander lands none of them until the watch frees it: blocked, owed by him and naming each, while an end of those waits is his by asked(), so it wakes no one, else waiting on what it waits on, each wait on its staging test named as its staging run by its tester and that tester's line, owed by the tester, or by the top coordinator's builder slot while each tester waits its turn for one, once its staging runs are all it waits on; each of its waits by state.job_waits, its job's staging tests included; None once nothing it waits on holds."""
+    if not (standing := view.holding(data, state.job_waits(data, data["prs"][key]), cards)):
         return None
     if mine := asked(data, key, standing, cards):
         return Stage("blocked", HIM, f"it waits on {', '.join(fix_words(data, wait, cards) for wait in dict.fromkeys([*standing, *mine]))}")
-    return Stage("waiting", WAITED, f"it waits on {', '.join(standing)}, and the watch frees it once each ends")
+    testers = {wait: tester for wait in standing if (tester := state.staging_tester(data, wait))}
+    words = ", ".join(f"its staging run by {testers[wait]}, {view.tester_line(data, testers[wait])}" if wait in testers else wait for wait in standing)
+    if len(testers) < len(standing):
+        return Stage("waiting", WAITED, f"it waits on {words}, and the watch frees it once each ends")
+    slotted = all(state.SLOT_WAIT in data["jobs"][tester]["waits"] for tester in testers.values())
+    return Stage("waiting", SLOT if slotted else TESTER, f"it waits on {words}")
 
 
 def asked(data: dict, key: str, waits: list[str], cards: dict | None) -> list[str]:
@@ -130,9 +137,9 @@ def ends(data: dict, waits: list[str], cards: dict | None, seen: set[str]) -> li
 
 
 def onward(data: dict, subject: str, cards: dict | None) -> list[str]:
-    """What a job or PR waits on that still holds, which ends() and stall.chain walk: a job waiting or built its waits and the cards of its own questions open on him, by view.open_cards, and a PR its waits and his open cards holding it from landing, by land.pr_cards, since no wait names a card a job asked after its READY, PUSHED or WAITING or a builder asked mid-build, so a walk ends at his card wherever the drive keeps it; nothing for a job in any other state."""
+    """What a job or PR waits on that still holds, which ends() and stall.chain walk: a job waiting or built its waits but each PR waiting on it, by state.unlooped, as a tester over several PRs waits on none of them, and the cards of its own questions open on him, by view.open_cards, and a PR its waits and his open cards holding it from landing, by land.pr_cards, since no wait names a card a job asked after its READY, PUSHED or WAITING or a builder asked mid-build, so a walk ends at his card wherever the drive keeps it; nothing for a job in any other state."""
     if job := data["jobs"].get(subject):
-        waits = [*job["waits"], *view.open_cards(job)] if job["state"] in ("waiting", "built") else []
+        waits = [*state.unlooped(data, subject, job["waits"]), *view.open_cards(job)] if job["state"] in ("waiting", "built") else []
     else:
         waits = [*data["prs"][subject]["waits"], *land.pr_cards(data, data["prs"][subject])]
     return view.holding(data, view.stored_waits(data, waits, cards), cards)
