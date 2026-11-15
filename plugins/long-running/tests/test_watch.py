@@ -7601,6 +7601,9 @@ def test_a_yasyf_merge_github_refuses_on_a_conflict_in_prose_alone_is_rebased_on
     with state.edit(demo) as data:
         data["jobs"]["j1"] |= {"said": f"PUSHED {state.pr_url(YASYF)}", "returned": state.stamp(T0)}
         data["prs"][YASYF] |= {"head": rebased, "conflict": False}
+    assert stage.of(state.load(demo), YASYF, NO_CARDS).name == "grading"
+    with state.edit(demo) as data:
+        data["prs"][YASYF]["checks"] = "pass"
     assert stage.of(state.load(demo), YASYF, NO_CARDS).name == "ready"
     assert land.start(demo, [YASYF], NO_CARDS) == [(YASYF,)]
 
