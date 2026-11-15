@@ -60,8 +60,8 @@ def link(data: dict, cards: dict, subject: str) -> tuple[str, list[str]]:
     return " ".join(filter(None, (entry["title"], entry["url"]))), []
 
 
-def things(data: dict, links: dict[str, list[tuple[str, str, bool]]]) -> dict[str, dict]:
-    """Each thing the chains end on, by its id, with its members, every job and PR whose chain ends on it, in the order chains() found them, each link of their chains in words, and whether waits join it, so however many jobs wait on one PR stack, release, staging env or job they make one stall, by his words "the watch reports a stall for each job held by the same open Approve card, so three jobs waiting on one card would each send him a line": a PR stands for the card it draws on by state.card_unit, its landing stack or its repository's open PRs serving its order, named by the stack's bottom PR or the order's lowest-numbered one; a staging or release wait for its fold, by fold(), its members every wait of the chains folding there; a job or a builder slot stands for itself."""
+def things(data: dict, links: dict[str, list[tuple[str, str, bool]]], claims: list[dict]) -> dict[str, dict]:
+    """Each thing the chains end on, by its id, with its members, every job and PR whose chain ends on it, in the order chains() found them, each link of their chains in words, whether waits join it, and the claim of another drive it stands behind, by behind() from claims, so however many jobs wait on one PR stack, release, staging env or job they make one stall, by his words "the watch reports a stall for each job held by the same open Approve card, so three jobs waiting on one card would each send him a line": a PR stands for the card it draws on by state.card_unit, its landing stack or its repository's open PRs serving its order, named by the stack's bottom PR or the order's lowest-numbered one; a staging or release wait for its fold, by fold(), its members every wait of the chains folding there; a job or a builder slot stands for itself."""
     stacks = land.landing_stacks(data)
     units = {key: state.card_unit(key, stacks.get(key, ()), pr) for key, pr in data["prs"].items() if pr["state"] == "open"}
     members: dict[tuple, list[str]] = {}
@@ -81,7 +81,7 @@ def things(data: dict, links: dict[str, list[tuple[str, str, bool]]]) -> dict[st
                 continue
             into = fold(end)
             named = folds[into] if into else members[units[end]] if end in units else [end]
-            held = found.setdefault(into or named[0], {"members": named, "subjects": [], "chain": {}, "joins": bool(into)})
+            held = found.setdefault(into or named[0], {"members": named, "subjects": [], "chain": {}, "joins": bool(into), "behind": behind(end, claims)})
             if subject not in held["subjects"]:
                 held["subjects"].append(subject)
                 held["chain"] |= {link: words for link, words, _ in chained}
@@ -97,9 +97,18 @@ def fold(wait: str) -> str | None:
     return None
 
 
-def words(data: dict, cards: dict, members: list[str]) -> str:
-    """A thing in words that change only when it moves: each member as link() says it."""
-    return "; ".join(link(data, cards, member)[0] for member in members)
+def behind(wait: str, claims: list[dict]) -> dict | None:
+    """The claim of another drive on this Mac a staging wait, or a release wait naming an env, stands behind, by the order's words "when staging is frozen by another drive's claim": of claims, state.others_claims() latest end first, the first, while the wait awaits state.STAGING_ENV, the env every staging claim and the freeze it announces hold, by the repository's staging-claim rule; None for any other wait or env, or with no such claim standing."""
+    found = state.STAGING_WAIT.fullmatch(wait) or state.RELEASE_WAIT.fullmatch(wait)
+    return claims[0] if claims and found and found["env"] == state.STAGING_ENV else None
+
+
+def words(data: dict, cards: dict, held: dict) -> str:
+    """A thing in words that change only when it moves: each member as link() says it, then the claim it stands behind with that claim's end, so the claim ending or moving its end restarts the thing's hour."""
+    said = [link(data, cards, member)[0] for member in held["members"]]
+    if claim := held["behind"]:
+        said.append(f"behind the staging claim {claim['link']} of {claim['order']} on drive {claim['drive']}, which ends {claim['until']}")
+    return "; ".join(said)
 
 
 def aged(kept: dict | None, printed: str, joins: bool, moment: datetime) -> dict:
@@ -110,8 +119,8 @@ def aged(kept: dict | None, printed: str, joins: bool, moment: datetime) -> dict
 
 
 def stalled(data: dict, kept: dict[str, dict], found: dict[str, dict], moment: datetime) -> list[str]:
-    """The things that stood unmoved past their deadline, oldest first."""
-    old = [thing for thing, held in kept.items() if moment - state.parse_time(held["since"]) >= deadline(data, found[thing]["members"])]
+    """The things that stood unmoved past their deadline, oldest first, never one behind another drive's claim, owed outside the drive until that claim ends, so it starts no watchdog agent, says no STUCK line and reaches him never."""
+    old = [thing for thing, held in kept.items() if not found[thing]["behind"] and moment - state.parse_time(held["since"]) >= deadline(data, found[thing]["members"])]
     return sorted(old, key=lambda thing: kept[thing]["since"])
 
 

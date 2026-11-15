@@ -10082,7 +10082,7 @@ def test_release_waits_fold_into_one_stall_per_pr_and_env_and_staging_waits_into
         data["jobs"]["j1"] |= {"state": "waiting", "waits": [f"release:api:{OTHER}", f"release:rsw-go:{OTHER}", f"release:api:{OTHER}@{state.STAGING_ENV}", staged_on("api", "6d44e8728ec1")]}
         data["jobs"]["j2"] = job(state="waiting", waits=[f"release:executor:{OTHER}", f"release:api:{KEY}", staged_on("rsw-go", "5f986a0")])
     data = state.load(demo)
-    found = stall.things(data, stall.chains(data, NO_CARDS, False, T0))
+    found = stall.things(data, stall.chains(data, NO_CARDS, False, T0), [])
     assert {thing: (held["members"], held["subjects"], held["joins"]) for thing, held in found.items()} == {
         f"release:{OTHER}": ([f"release:api:{OTHER}", f"release:rsw-go:{OTHER}", f"release:executor:{OTHER}"], ["j1", "j2"], True),
         f"release:{OTHER}@{state.STAGING_ENV}": ([f"release:api:{OTHER}@{state.STAGING_ENV}"], ["j1"], True),
@@ -10096,6 +10096,54 @@ def test_a_staging_or_release_stall_keeps_its_hour_while_waits_join_and_restarts
     assert stall.aged(kept, "c; a; b", True, T0 + timedelta(minutes=30)) == kept | {"print": "c; a; b"}
     assert stall.aged(kept, "a; c", True, T0 + timedelta(minutes=30))["since"] == state.stamp(T0 + timedelta(minutes=30))
     assert stall.aged(kept, "a; b; c", False, T0 + timedelta(minutes=30))["since"] == state.stamp(T0 + timedelta(minutes=30))
+
+
+def claimed_by(name: str, claims: dict[str, dict[str, datetime]]) -> None:
+    """A drive of its own on this Mac whose orders each hold a staging claim by its post's ts and end, as its watch keeps a claim no closing line ended yet."""
+    data = state.new_drive(name, "coordinator", f"session-of-{name}", f"/{name}")
+    for order_id, held in claims.items():
+        data["orders"][order_id] = order(
+            jobs=[],
+            claims={ts: {"channel": "C0STAGING1", "link": staging_claim(ts), "until": state.stamp(until), "since": ts, "said": None, "replies_read": state.stamp(T0)} for ts, until in held.items()}
+        )
+    state.create(data)
+
+
+def staging_claim(ts: str) -> str:
+    return f"https://example.slack.com/archives/C0STAGING1/p{ts.replace('.', '')}"
+
+
+def test_a_staging_env_another_drives_staging_claim_holds_stands_behind_it_with_no_watchdog_stuck_line_or_line_to_him_until_its_end_starts_its_hour(
+    demo: str, watchdogs: list[tuple[str, Path]], ready_records: list[list[dict]]
+) -> None:
+    thing, ends = f"staging:{state.STAGING_ENV}", T0 + timedelta(minutes=90)
+    with state.edit(demo) as data:
+        data["jobs"]["j1"] |= {"state": "waiting", "waits": [staged_on("api", "6d44e8728ec1"), staged_on("rsw-go", "6d44e8728ec1")]}
+        data["orders"]["o1"]["claims"] = {"1794746488.439069": {"channel": "C0STAGING1", "link": staging_claim("1794746488.439069"), "until": state.stamp(T0 + timedelta(hours=4)), "since": "1794746488.439069", "said": None, "replies_read": state.stamp(T0)}}
+    claimed_by("durable", {"o717": {"1794762734.416779": ends}, "o1718": {"1794735942.908509": T0 - timedelta(minutes=50), "1794754129.998849": T0 + timedelta(minutes=45)}})
+    watching = watcher(demo)
+    watching.cards, watching.live = NO_CARDS, STAGING_LIVE
+    for minutes in (0, 60, 61, 89):
+        assert watch.stall_lines(watching, T0 + timedelta(minutes=minutes)) == []
+    kept = state.load(demo)["stalls"][thing]
+    behind = f"behind the staging claim {staging_claim('1794762734.416779')} of o717 on drive durable, which ends {state.stamp(ends)}"
+    assert (watchdogs, kept["since"], kept["print"].split("; ")[-1], kept["agent"]) == ([], state.stamp(T0), behind, None)
+    assert watch.stall_lines(watching, T0 + timedelta(minutes=90)) == []
+    kept = state.load(demo)["stalls"][thing]
+    assert (kept["since"], "behind" in kept["print"]) == (state.stamp(ends), False)
+    assert watch.stall_lines(watching, T0 + timedelta(minutes=149)) == []
+    assert watchdogs == []
+    watch.stall_lines(watching, T0 + timedelta(minutes=150))
+    [(brief, out)] = watchdogs
+    assert brief.splitlines()[0] == f"Stall: {thing}, which holds j1, unmoved 60 minutes"
+    watchdog_answered(out)
+    [stuck] = watch.stall_lines(watching, T0 + timedelta(minutes=158))
+    assert stuck.startswith(f"STUCK j1 o1: {thing}, which holds j1, unmoved 68 minutes: {state.STAGING_ENV} running api at 6d44e8728ec1")
+    with state.edit("durable") as data:
+        data["orders"]["o717"]["claims"]["1794762734.416779"] |= {"until": state.stamp(T0 + timedelta(hours=5)), "since": "1794790000.000001"}
+    for minutes in (160, 188, 200, 250):
+        assert watch.stall_lines(watching, T0 + timedelta(minutes=minutes)) == []
+    assert (ready_records, len(watchdogs)) == ([], 1)
 
 
 def test_a_stall_whose_report_another_live_watch_claimed_posts_nothing_and_one_whose_claimer_died_posts_once(
