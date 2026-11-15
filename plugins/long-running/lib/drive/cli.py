@@ -1818,7 +1818,7 @@ def asked_unsettled(job: dict, text: str, unsettled: str | None) -> str | None:
 
 
 def checked_ask(name: str, job_id: str, text: str, unsettled: str | None, redraws: str | None, pictures: Path) -> tuple[limits.Question, str, str | None, list[str], tuple[str, str | None] | None]:
-    """The question the job's ASK block puts to him, the words of its `Holds:` line his card holds, the --unsettled it is kept under, the one `asked_unsettled` reads else Jev's mark, the waits ids of the open cards Jev reads it as asking again, and the link of the line a thread already holds about the card it takes the place of beside what Jev reads as no longer true in it, for `post_ask`, once every check `drive job ask <j>` runs passes: refused naming at once every way its words, the card cc-slack draws from them and the job it is asked for are out of shape, a summary sentence recommending an option by a recorded answer of his that --unsettled does not name among them, since that answer already chose it, each rule one entry of the list, its words counted as his card draws them, each reference in the summary filled as say fills it, an {order:<o>} as the opening of his order's words; then each Show me picture drawn under pictures, refused with why one does not draw; then Jev's read of whether its options differ in how a screen looks with a screenshot missing, by `limits.unread`, which in the same call prints each code name the card never says in plain words; each raw id `cc-slack check-post` finds on the card as it draws is printed too, refusing nothing, by his pick 320b7a7; then each release note `brief.release_notes` reads as speaking to a release its options, their descriptions or its Show me name in backticks is printed on stderr with its words, refusing nothing; last Jev's read of it against his words by `settled.judged`, the recorded answers of his its job's brief binds or the block cites among them, printing each finding, the recorded answer Jev reads as already answering it with the two ways on, ANSWERED, and the mark keeping it unsettled, UNSETTLED, an answer its Already answered tap carries never marked by an option it does not recommend. `drive job ask <j> --check` and `keep_ask` both check here, so --check prints every finding before any card draws."""
+    """The question the job's ASK block puts to him, the words of its `Holds:` line his card holds, the --unsettled it is kept under, the one `asked_unsettled` reads else Jev's mark, the waits ids of the open cards Jev reads it as asking again, and the link of the line a thread already holds about the card it takes the place of beside what Jev reads as no longer true in it, for `post_ask`, once every check `drive job ask <j>` runs passes: refused naming at once every way its words, the card cc-slack draws from them and the job it is asked for are out of shape, a summary sentence recommending an option by a recorded answer of his that --unsettled does not name among them, since that answer already chose it, each rule one entry of the list, its words counted as his card draws them, each reference in the summary filled as say fills it, an {order:<o>} as the opening of his order's words; then each Show me picture drawn under pictures, refused with why one does not draw; then Jev's read of whether its options differ in how a screen looks with a screenshot missing, by `limits.unread`, which in the same call prints each name the card never says in plain words, a code name, a capitalised word no sentence opens, or a run id or word the drive coined that `cc-slack check-post` finds on the card as it draws; each raw id check-post finds there is printed too, refusing nothing, by his pick 320b7a7; then each release note `brief.release_notes` reads as speaking to a release its options, their descriptions or its Show me name in backticks is printed on stderr with its words, refusing nothing; last Jev's read of it against his words by `settled.judged`, the recorded answers of his its job's brief binds or the block cites among them, printing each finding, the recorded answer Jev reads as already answering it with the two ways on, ANSWERED, and the mark keeping it unsettled, UNSETTLED, an answer its Already answered tap carries never marked by an option it does not recommend. `drive job ask <j> --check` and `keep_ask` both check here, so --check prints every finding before any card draws."""
     from drive import view
 
     data = state.load(name)
@@ -1839,14 +1839,14 @@ def checked_ask(name: str, job_id: str, text: str, unsettled: str | None, redraw
             f'its summary recommends "{asked.recommended}" by his recorded answer {chosen["answer"]}, "{render.cut(chosen["words"], settled.QUOTED_CHARS)}",'
             f" which already chose it, so no card asks him again: {settled.CHOSEN.format(id=chosen['answer'], job=job_id)}; a card asking him to lift those words names {chosen['answer']} in --unsettled"
         )
-    raw = []
+    findings = []
     try:
         found = refs.resolved(name, "\n".join(asked.summary))
     except DriveError as error:
         problems.append(str(error))
     else:
         shown = replace(already_answered(asked, tapped), summary=[refs.slack(line, found, None) for line in asked.summary]).card(name, "")
-        raw = limits.raw_ids(slack.check_post("\n".join([shown["title"], shown["body"], *shown["options"], *(shown.get("hints") or {}).values()]), []))
+        findings = slack.check_post("\n".join([shown["title"], shown["body"], *shown["options"], *(shown.get("hints") or {}).values()]), [])
         if (drawn := limits.card_words(shown)) > limits.QUESTION_WORDS:
             problems.append(
                 f"the ASK's question, summary and options are {drawn} words as his card draws them, each reference in the summary drawn as"
@@ -1899,9 +1899,9 @@ def checked_ask(name: str, job_id: str, text: str, unsettled: str | None, redraw
     if problems:
         raise DriveError(limits.out_of_shape(problems))
     picture.drawn(pictures, asked.show_me)
-    if raw:
+    if raw := limits.checked(findings, limits.RAW_IDS):
         print(limits.RAW.format(found=", ".join(raw), advisory=limits.ADVISORY), file=sys.stderr)
-    if unshown := limits.unread(asked):
+    if unshown := limits.unread(asked, findings):
         raise DriveError(unshown)
     for line in brief.release_notes(brief.card_releases("\n".join([*asked.show_me, *asked.options, *asked.hints.values()])), data):
         print(f"drive job ask: {line}", file=sys.stderr)

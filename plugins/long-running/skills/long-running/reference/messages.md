@@ -175,13 +175,18 @@ summary of one feature is a line of at most 60 words.
   `drive job ask` refuses a title naming its object only as "the change", "the fix" or "this" while
   its summary or findings name the proper terms.
 - Each code name below the first line keeps its proper term, with a clause saying what it is the
-  first time the card names it, as "the run_claims table, which records the runner holding each run" does.
+  first time the card names it, as "the run_claims table, which records the runner holding each run" does,
+  and the card names nothing by a word the drive coined for a rule, check, gate, line or judge, such
+  as a Forbids line.
   `drive job ask` asks Jev of each code name in its question, summary, options, their descriptions
-  and Show me whether the card says what it is, one yes-or-no question a name, and prints each one
-  Jev answers 0.7 or more as never said, and as unsure each it answers between 0.3 and 0.7, with
-  each raw id `cc-slack check-post` finds on the card, refusing no card, by his
-  pick 320b7a7, his ruling e405d69, "Explain what this is what do you mean check", and his words on
-  a card naming the run_claims table bare: "also what is run claims".
+  and Show me, and each run id or drive word `cc-slack check-post` finds there, whether the card
+  says what it is, one yes-or-no question a name, then of the whole card, read cold, whether it uses
+  any of them, or a capitalised word its writer coined, as if he knew it, and prints each finding
+  Jev answers 0.7 or more, and as unsure each name it answers between 0.3 and 0.7, with each raw id
+  check-post finds on the card, refusing no card, by his pick 320b7a7, his ruling e405d69, "Explain
+  what this is what do you mean check", his words on a card naming the run_claims table bare: "also
+  what is run claims", and on a card asking whether a release-order rule should be a Forbids line:
+  "Explain this I don't get it".
 - Slack draws a card's title and buttons as plain text, so a link or markdown there shows raw and
   `drive job ask` refuses it; put the link in the summary.
 - Its body is its summary, one to three lines: what was found and what is being decided, and the
