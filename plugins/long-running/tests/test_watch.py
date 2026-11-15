@@ -107,6 +107,8 @@ def order(**overrides: object) -> dict:
         "due": None,
         "due_said": None,
         "jobs": ["j1"],
+        "owner": None,
+        "project": None,
         "proof": None,
         "note": None,
         "created": state.stamp(T0),
@@ -1136,7 +1138,7 @@ def test_a_due_report_names_a_job_carrying_orders_joined_to_its_order_once_in_it
     [report, _] = owed(watcher(demo), T0, said)
     lines = report["body"].splitlines()
     assert [line.rpartition(". At work: ")[2] for line in lines if line.startswith("Moved since")] == ["j1."]
-    assert lines[lines.index("Jobs: 1") + 1 :] == [f"- {render.job_line('j1', state.load(demo)['jobs']['j1'])}"]
+    assert lines[lines.index("Jobs: 1") + 1 :] == [f"- {render.job_line(state.load(demo), 'j1', state.load(demo)['jobs']['j1'])}"]
 
 
 @pytest.mark.parametrize(
@@ -1318,7 +1320,7 @@ def test_an_open_incident_with_no_line_for_five_minutes_owes_him_one_through_a_r
     [(report, body), (start, _)] = calls
     assert (report["text"], report["topic"], report["to"]) == ("POST incident o1 has had no line to him in 5 minutes: post where it stands now in its thread", "watch-quiet-o1", [f"communicator@{demo}"])
     assert report["attr"] == {"order": "o1", "progress": "true", "quiet": "true", "thread": INCIDENT_THREAD}
-    assert {f"- {render.job_line('j2', state.load(demo)['jobs']['j2'])}", "PRs, as the watch last read them from GitHub: 1", shown_pr(demo, KEY)} <= set(body.splitlines())
+    assert {f"- {render.job_line(state.load(demo), 'j2', state.load(demo)['jobs']['j2'])}", "PRs, as the watch last read them from GitHub: 1", shown_pr(demo, KEY)} <= set(body.splitlines())
     assert "674295" not in body
     assert start[-1] == f"Record: 901 Drive: {demo} Scratch: {state.drive_dir(demo) / 'scratch' / 'quiet-901'}"
     quiet = state.load(demo)["orders"]["o1"]["quiet"]
@@ -1499,7 +1501,7 @@ def test_incidents_sharing_a_thread_owe_him_one_line_there_through_one_report_an
         "PRs, as the watch last read them from GitHub: 1",
         shown_pr(demo, KEY),
     ]
-    assert f"- {render.job_line('j3', state.load(demo)['jobs']['j3'])}" in lines
+    assert f"- {render.job_line(state.load(demo), 'j3', state.load(demo)['jobs']['j3'])}" in lines
     assert start[-1] == f"Record: 901 Drive: {demo} Scratch: {state.drive_dir(demo) / 'scratch' / 'quiet-901'}"
     orders = state.load(demo)["orders"]
     assert [{key: orders[head]["quiet"][key] for key in ("record", "at", "handler")} for head in ("o1", "o3")] == 2 * [{"record": "901", "at": state.stamp(T0 + timedelta(minutes=7)), "handler": orders["o1"]["quiet"]["handler"]}]
@@ -1532,7 +1534,7 @@ def test_a_quiet_report_names_each_job_and_pr_of_its_thread_once_however_many_of
         shown_pr(demo, KEY),
     ]
     assert f"Moved since the thread's last line or the watch's last report on it: {KEY}. At work: j1, j2, j3." in lines
-    assert lines[lines.index("Jobs: 3") + 1 :] == [f"- {render.job_line(job_id, jobs[job_id])}" for job_id in ("j1", "j2", "j3")]
+    assert lines[lines.index("Jobs: 3") + 1 :] == [f"- {render.job_line(state.load(demo), job_id, jobs[job_id])}" for job_id in ("j1", "j2", "j3")]
 
 
 def test_a_quiet_incident_owes_a_line_while_a_job_works_then_one_when_it_returns_or_his_card_is_answered_and_none_while_every_job_waits(
@@ -2252,6 +2254,14 @@ def sub_coordinated(name: str, project: str = "Iris", session: str = "iris-1", c
         cli.bind_subcoordinator(data, project, {"session": session, "terminal": None, "cwd": cwd, "started": state.stamp(T0)})
 
 
+def moved(orders: str, lane: str, to: str, jobs: str, own: str = "none") -> str:
+    return (
+        f"MOVED {orders} from {lane} to {to}: unfinished jobs {jobs}; agents of your session among them: {own}, which run on and take SendMessage from you alone."
+        " Add, brief and land nothing more on these orders, and send their holder, as drive status names it, one handoff record of what you hold on them"
+        " outside the drive file: holds, waits, jobs you meant to add or brief, promises to him"
+    )
+
+
 def test_a_projects_watch_hears_only_its_orders_jobs_prs_and_orphans_and_the_drives_watch_the_rest(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     sub_coordinated(demo)
     still = state.stamp(T0 - timedelta(minutes=10))
@@ -2290,12 +2300,13 @@ def test_the_drives_watch_keeps_a_projects_lines_until_a_sub_coordinator_is_boun
     assert watch.run_pass(top, T0) == [f"PR {KEY}: checks failed [o1 j1]"]
     state.append_event(demo, "tap", repo="Forge-AI/monorepo", number=42, label="Hold", lane=state.heard_lane(state.load(demo), "o1"))
     sub_coordinated(demo)
-    assert state.load(demo)["subcoordinators"]["Iris"]["from"] == state.events_end(demo)
+    bound = state.load(demo)["subcoordinators"]["Iris"]["from"]
+    assert [(event["kind"], event["lane"], event["orders"], event["to"]) for event, _ in state.read_events(demo, bound)] == [(state.ORDERS_MOVED, "root", ["o1"], ["iris"])]
     state.append_event(demo, "tap", repo="Forge-AI/monorepo", number=42, label="Approve", lane=state.heard_lane(state.load(demo), "o1"))
     iris = watch.Watcher(demo, offset=state.watch_cursor(demo, "Iris"), project="Iris")
     reads[KEY] = read(state="MERGED", mergeCommit="ccc333", checks=RED)
     later = T0 + timedelta(minutes=2)
-    assert watch.run_pass(top, later) == [f"TAP Hold {KEY} [o1 j1]"]
+    assert watch.run_pass(top, later) == [f"TAP Hold {KEY} [o1 j1]", moved("o1", "root", "iris", "j1")]
     assert watch.run_pass(iris, later) == [
         f"TAP Approve {KEY} [o1 j1]",
         f"PR {KEY}: merged [o1 j1]",
@@ -2346,6 +2357,36 @@ def test_a_projects_watch_hands_a_stuck_or_lane_line_to_the_session_that_started
     assert watch.handed(platform, [stuck, died, *kept], T0) == kept
     assert posted(sent) == [("evidence", f"root@{demo}", stuck), ("handoff", f"root@{demo}", died)]
     assert platform.unsent == {"root": []}
+
+
+def test_a_save_that_moves_open_orders_hands_each_session_losing_them_one_moved_line_and_status_names_the_session_whose_agent_runs_a_moved_job(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    serve(monkeypatch, {})
+    with state.edit(demo) as data:
+        data["prs"][KEY]["state"] = "merged"
+        data["jobs"]["j2"] = job(goal="release the service")
+        data["jobs"]["j1"].update(state="waiting", waits=["j2"], agent="agent-j1", where="local", session="session-under-test")
+        data["orders"]["o2"] = order(text="fix the hook", jobs=["j3", "j4"], owner="meta")
+        data["jobs"]["j3"] = job(order="o2", state="waiting", waits=["j2"])
+        data["jobs"]["j4"] = job(order="o2", state="done")
+    sent = posts(monkeypatch)
+    top = watcher(demo)
+    with state.edit(demo) as data:
+        data["jobs"]["j2"]["goal"] = "release the service today"
+    sub_coordinated(demo)
+    with state.edit(demo) as data:
+        data["orders"]["o2"]["owner"] = None
+    assert watch.sent(top, "root", watch.run_pass(top, T0), T0) == []
+    assert posted(sent) == [
+        ("handoff", f"meta@{demo}", moved("o2", "meta", "root", "j3")),
+        ("handoff", f"root@{demo}", moved("o1", "root", "iris", "j1", "j1")),
+    ]
+    data = state.load(demo)
+    assert [render.job_line(data, job_id, data["jobs"][job_id]) for job_id in ("j1", "j3")] == [
+        "j1 builder waiting agent agent-j1 of root's session, whose SendMessage alone reaches it, so drive job resume posts a text there: watch; waits on j2",
+        "j3 builder waiting: watch; waits on j2",
+    ]
 
 
 def test_a_projects_watch_runs_as_its_own_process_from_where_the_drives_watch_stands_and_posts_to_its_sub_coordinators_lane(
@@ -4362,7 +4403,7 @@ def test_a_built_job_is_told_once_though_its_sub_coordinator_is_bound_while_the_
         return {"permalink": POSTED}
 
     monkeypatch.setattr(talk, "posted", post)
-    assert watch.run_pass(watcher(demo), T0) == waiting("demo:j1-7-a")
+    assert watch.run_pass(watcher(demo), T0) == [*waiting("demo:j1-7-a"), moved("o1", "root", "iris", "j1")]
     assert (posts, nested) == ([paused()], [[]])
 
 
@@ -4549,7 +4590,7 @@ def test_job_held_names_his_open_cards_holding_a_jobs_pr_until_he_answers_or_it_
         state.take_result(data, "j1", "BUILT lane/built, waits on demo:j1-7-a")
         data["prs"].pop(KEY, None)
         data["jobs"]["j1"]["prs"] = []
-    assert render.job_line("j1", state.load(demo)["jobs"]["j1"]) == "j1 builder built on lane/built: watch; waits on demo:j1-7-a"
+    assert render.job_line(state.load(demo), "j1", state.load(demo)["jobs"]["j1"]) == "j1 builder built on lane/built: watch; waits on demo:j1-7-a"
     capsys.readouterr()
     assert cli.main(["job", "held", "j1", "--drive", demo]) == 0
     assert capsys.readouterr().out == "demo:j1-7-a\n"

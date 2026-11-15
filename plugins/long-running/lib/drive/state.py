@@ -113,6 +113,7 @@ MONOREPO = "Forge-AI/monorepo"
 ROLES = ("communicator", "coordinator", "meta")
 REPO_RULES = ".claude/long-running.toml"
 HOLDERS = ("communicator", "meta")
+ORDERS_MOVED = "orders_moved"
 HANDLER_ENV = "LONG_RUNNING_HANDLER"
 DRIVE_ENV = "CLAUDE_LONG_RUNNING_DRIVE"
 OWN_JOB_ENV = "LONG_RUNNING_OWN_JOB"
@@ -2756,7 +2757,7 @@ def writing(name: str) -> Iterator[None]:
 
 @contextmanager
 def edit(name: str) -> Iterator[dict]:
-    """Load the drive under its lock, yield it for changes, and save it atomically on exit; inside a batch, which holds the lock already, keep the changes for the batch's one save."""
+    """Load the drive under its lock, yield it for changes, and save it atomically on exit, telling each session the save took open orders from; inside a batch, which holds the lock already, keep the changes for the batch's one save."""
     if name in BATCHED:
         data = load(name)
         yield data
@@ -2764,26 +2765,32 @@ def edit(name: str) -> Iterator[dict]:
         return
     with writing(name):
         data = load(name)
+        before = holding_lanes(data)
         yield data
         save(name, data)
+        tell_moved(name, data, before)
 
 
 @contextmanager
 def batch(name: str, dry: bool = False) -> Iterator[list[str]]:
-    """Hold the drive's lock across a call of several writes, each load and edit inside it reading and changing one copy in memory, saved once when the call ends and never when it raises, so a refused write leaves drive.json as it was; what a write does outside the drive runs after that save, its lines added to the list it yields. A batch opened inside one joins it. A dry batch, a dry run's, runs every check its writes make and keeps none: it takes no lock, saves nothing, drops what its writes would do outside the drive, and stops at Rehearsed each command they start that does more than read."""
+    """Hold the drive's lock across a call of several writes, each load and edit inside it reading and changing one copy in memory, saved once when the call ends and never when it raises, so a refused write leaves drive.json as it was, and that save tells each session the call took open orders from; what a write does outside the drive runs after that save, its lines added to the list it yields. A batch opened inside one joins it. A dry batch, a dry run's, runs every check its writes make and keeps none: it takes no lock, saves nothing, drops what its writes would do outside the drive, and stops at Rehearsed each command they start that does more than read."""
     if name in BATCHED:
         yield []
         return
     after: list[str] = []
     with nullcontext() if dry else writing(name):
-        BATCHED[name] = marshal.dumps(load(name))
+        loaded = load(name)
+        before = holding_lanes(loaded)
+        BATCHED[name] = marshal.dumps(loaded)
         AFTER_SAVE[name] = []
         if dry:
             REHEARSING.add(name)
         try:
             yield after
             if not dry:
-                save(name, marshal.loads(BATCHED[name]))
+                saved = marshal.loads(BATCHED[name])
+                save(name, saved)
+                tell_moved(name, saved, before)
             effects = [] if dry else AFTER_SAVE[name]
         finally:
             del BATCHED[name], AFTER_SAVE[name]
@@ -2810,8 +2817,10 @@ def edit_or_create(name: str, fresh: dict) -> Iterator[dict]:
     """Like edit, but start from fresh when the drive does not exist yet; the lock covers the check too."""
     with writing(name):
         data = load(name) if exists(name) else fresh
+        before = holding_lanes(data)
         yield data
         save(name, data)
+        tell_moved(name, data, before)
 
 
 def create(data: dict) -> None:
@@ -3230,6 +3239,21 @@ def pr_held_elsewhere(data: dict, key: str, job_id: str) -> str | None:
         f" put {job_id}'s change up as a PR of its own stacked on {key}'s branch, or send {holder} the step as a handoff record"
         f' on the drive\'s record tool, to "{lane}" and attrs {{"order": "{pr["order"]}"}}'
     )
+
+
+def holding_lanes(data: dict) -> dict[str, str]:
+    """The holding lane of each open order, read as a save loads the drive so tell_moved finds which the save moved."""
+    return {order_id: holding_lane(data, order) for order_id, order in open_orders(data).items()}
+
+
+def tell_moved(name: str, data: dict, before: dict[str, str]) -> None:
+    """After a save, write one ORDERS_MOVED event for each lane that held open orders before it and no longer holds them, naming the orders and the lanes holding them now, which that lane's own watch says to it, an order the save deleted moving nowhere; every save compares, so a sub-coordinator's binding, a refile, a brief handing an order to the meta session and any later write that changes an order's holder all tell the session losing it."""
+    lost: dict[str, list[str]] = {}
+    for order_id, was in before.items():
+        if (order := data["orders"].get(order_id)) and holding_lane(data, order) != was:
+            lost.setdefault(was, []).append(order_id)
+    for lane, orders in lost.items():
+        append_event(name, ORDERS_MOVED, lane=lane, orders=orders, to=sorted({holding_lane(data, data["orders"][order_id]) for order_id in orders}))
 
 
 def holding_session(data: dict, order: dict) -> tuple[str, str]:
