@@ -7789,6 +7789,25 @@ def test_replayed_717646_an_approved_dangerous_pr_whose_last_wait_ended_on_a_del
     assert land.run(demo, [KEY]) == land.QUEUED
 
 
+def test_a_pr_he_approved_before_he_went_quiet_whose_builder_staged_it_waits_for_his_next_word_once_its_staging_test_passes_whatever_its_paths(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(github, "files", {EJECTED: ["infra/rows/router/router.ts"]}.__getitem__)
+    part = state.STAGING_TEST.format(number=55582)
+    with state.edit(demo) as data:
+        data["owner"]["heard"] = state.stamp(T0)
+        data["orders"]["o1"]["parts"][part] = state.new_part()
+        data["jobs"]["j1"]["prs"] += [state.pr_url(EJECTED)]
+        data["prs"][EJECTED] = state.new_pr(state.pr_url(EJECTED), "j1", "o1") | {"head": "bb28d680bf", "checks": "pass", "review": "approved", "tap": state.new_tap("Approve", "bb28d680bf", "pressed the button", at=state.stamp(T0))}
+    assert land.dangerous(github.files(EJECTED)) == []
+    assert land.unattended(state.load(demo), EJECTED, T0 + timedelta(minutes=20)) == (
+        f"he last wrote or tapped 20 minutes ago, and o1 holds its {part} part, given only to a change its builder read as dangerous, which can break FDE or customer runs"
+        f" or lose their data, so it lands only while he is present, his word or tap within 15 minutes, at his next word, by his words {state.PRESENCE_WORDS}"
+    )
+    assert land.unattended(state.load(demo), EJECTED, T0 + timedelta(minutes=10)) is None
+    with state.edit(demo) as data:
+        del data["orders"]["o1"]["parts"][part]
+    assert land.unattended(state.load(demo), EJECTED, T0 + timedelta(minutes=20)) is None
+
+
 def test_replayed_55582_a_pr_trunk_ejected_on_a_flaky_test_outside_its_diff_is_queued_again_at_the_same_commit_once_that_tests_fix_merges_and_only_once(
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], landers: list[tuple[str, ...]]
 ) -> None:

@@ -123,12 +123,22 @@ def dangerous(paths: list[str]) -> list[str]:
     return [path for path in paths if DANGEROUS.search(path) and not served.TESTS.search(path)]
 
 
+def danger(data: dict, key: str) -> str:
+    """What makes a Forge-AI PR dangerous, so it lands or releases only while he is present: each path dangerous() names, as GitHub lists its files now, else an order's `staging test of #N before it lands` part for it, delivered or not, which a builder's STAGING line gives only a change it read as dangerous, an infra or blue-green one included whatever its paths; "" for neither."""
+    if found := dangerous(github.files(key)):
+        return f"it changes {', '.join(found[:3])}{', …' if len(found) > 3 else ''}"
+    part = state.STAGING_TEST.format(number=key.partition("#")[2])
+    if github.repo_of(key).lower() != state.MONOREPO.lower() or not (order_id := next((order_id for order_id, order in data["orders"].items() if part in order["parts"]), None)):
+        return ""
+    return f"{order_id} holds its {part} part, given only to a change its builder read as dangerous"
+
+
 def unattended(data: dict, key: str, moment: datetime) -> str | None:
-    """Why a Forge-AI PR waits for his next word to land: he is not present, by state.absence, and it changes a path dangerous() names, as GitHub lists its files now, by his words state.PRESENCE_WORDS; None otherwise, reading GitHub only while he is not present."""
-    if not state.guarded(key) or not (away := state.absence(data, moment)) or not (found := dangerous(github.files(key))):
+    """Why a Forge-AI PR waits for his next word to land: he is not present, by state.absence, and danger() reads it dangerous, by his words state.PRESENCE_WORDS; None otherwise, reading GitHub only while he is not present."""
+    if not state.guarded(key) or not (away := state.absence(data, moment)) or not (why := danger(data, key)):
         return None
     return (
-        f"{away}, and it changes {', '.join(found[:3])}{', …' if len(found) > 3 else ''}, which can break FDE or customer runs or lose their data,"
+        f"{away}, and {why}, which can break FDE or customer runs or lose their data,"
         f" so it lands only while he is present, his word or tap within {state.PRESENT_WITHIN.seconds // 60} minutes, at his next word, by his words {state.PRESENCE_WORDS}"
     )
 

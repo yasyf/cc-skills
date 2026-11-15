@@ -111,6 +111,7 @@ CI_BINARIES = frozenset({"ci", "ci.dev"})
 RELEASE_STARTS = ("start", "hotfix")
 PRESENT_CUTS = ("start", "hotfix", "resume", "approve", "api")
 HOLD_PASSES = ("approve", "api")
+REHEARSAL_CLUSTERS = frozenset({state.STAGING_ENV, "plat-usw2-sandbox"})
 RELEASE_VALUED = frozenset({"groups", "targets", "hotfix", "landed", "exclude", "only", "without", "env", "from", "order", "stack", "commit"})
 RELEASE_ASIDE = frozenset({"json"})
 RELEASE_APPROVAL = (
@@ -254,15 +255,25 @@ def away_refusal(verb: str, release: str, data: dict, moment: datetime) -> str |
 
 
 def harmless(release: str, data: dict) -> bool:
-    """Whether a release may run while he is not present: one `ci release start` or `hotfix` of pull requests, which carries no other change, on an --order of his labelled incident, none of whose pull requests changes a path land.dangerous names, as GitHub lists their files now."""
-    from drive import github, land
+    """Whether a release may run while he is not present: one `ci release start` or `hotfix` of pull requests, which carries no other change, on an --order of his labelled incident, none of whose pull requests land.danger reads dangerous."""
+    from drive import land
 
     named = started(release)
     if len(named) != 1 or not (pulls := named[0].get("hotfix")) or not (orders := named[0].get("order")):
         return False
     if settled.INCIDENT not in settled.shown(orders[-1], data["roles"]["coordinator"]["cwd"])["tags"]:
         return False
-    return not any(land.dangerous(github.files(f"{state.MONOREPO}#{number}")) for number in pulls)
+    return not any(land.danger(data, f"{state.MONOREPO}#{number}") for number in pulls)
+
+
+def away_job_refusal(cluster: str, data: dict, moment: datetime) -> str | None:
+    """Why a Job may not start now from a suspended CronJob on this cluster, by `tools/ci cluster-job`, a `ci bk api` write to the forge/release build it starts such as unblocking its gate, or a rerun of that build: he is not present, by state.absence, and the cluster is a production one, any but REHEARSAL_CLUSTERS, where every such Job is a pass, backfill, repair or delete of a team's data that the root AGENTS.md calls dangerous, an incident's repair included."""
+    if cluster in REHEARSAL_CLUSTERS or not (away := state.absence(data, moment)):
+        return None
+    return (
+        f"refused: {away}, and a Job on {cluster}, a production cluster, writes a team's data, so it starts only while he is present, an incident's repair included,"
+        f" by his words {state.PRESENCE_WORDS}: return WAITING his word with the Job unstarted; the watch pages him for an open incident"
+    )
 
 
 def hold_refusal(release: str, data: dict, hold: dict) -> str | None:

@@ -257,6 +257,32 @@ def test_a_release_resume_waits_for_his_next_word_once_he_last_wrote_15_minutes_
     assert landing_guard.deny_reason(bash(RESUME, session_id="sprite")) is None
 
 
+def test_a_job_on_a_production_cluster_waits_for_his_next_word_once_he_last_wrote_15_minutes_ago_while_staging_and_a_cancel_run(
+    run: Run, demo: str, sprite: list[list[str]], no_calls: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "repair the stuck rows")
+    run("job", "add", "builder", "--order", "o1", "--goal", "repair the stuck rows")
+    jobs = {"15699": "plat-usw2-prod", "15700": "plat-usw2-staging"}
+    monkeypatch.setattr(github, "build", lambda pipeline, number: {"env": {"CLUSTER_JOB": json.dumps({"cluster": jobs[number], "cronJob": "journal-repair", "reason": "repair"})}})
+    start = "tools/ci cluster-job --cluster {} --cronjob journal-repair --reason 'repair the stuck rows'"
+    gate = "tools/ci bk api -X PUT /pipelines/release/builds/{}/jobs/01a1d8aa/unblock"
+    held = (start.format("plat-usw2-prod"), start.format("tnt-usw2-1frg9c7").replace("--cluster ", "--cluster="), gate.format("15699"), "tools/ci bk rerun release 15699")
+    passed = (start.format("plat-usw2-staging"), gate.format("15700"), "tools/ci bk cancel release 15699", "tools/ci cluster-job run")
+    with state.edit(demo) as data:
+        data["owner"]["heard"] = state.stamp(state.now() - timedelta(minutes=20))
+    refused = brief.away_job_refusal("plat-usw2-prod", state.load(demo), state.now())
+    assert refused and refused.startswith("refused: he last wrote or tapped 20 minutes ago, and a Job on plat-usw2-prod, a production cluster, writes a team's data")
+    assert [landing_guard.deny_reason(bash(command, session_id="sprite")) for command in held] == [refused, refused.replace("plat-usw2-prod", "tnt-usw2-1frg9c7"), refused, refused]
+    assert [landing_guard.deny_reason(bash(command, session_id="sprite")) for command in passed] == [None] * len(passed)
+    assert [argv[4] for argv in sprite] == ["--cluster=plat-usw2-prod", "--cluster=tnt-usw2-1frg9c7", "--cluster=plat-usw2-prod", "--cluster=plat-usw2-prod", "--cluster=plat-usw2-staging", "--cluster=plat-usw2-staging"]
+    monkeypatch.delenv(state.REMOTE_LANE_ENV)
+    monkeypatch.delenv(state.OWN_JOB_ENV)
+    assert landing_guard.deny_reason(bash(held[0])) == refused
+    with state.edit(demo) as data:
+        data["owner"]["heard"] = state.stamp(state.now() - timedelta(minutes=5))
+    assert [landing_guard.deny_reason(bash(command)) for command in held] == [None] * len(held)
+
+
 def test_a_sprite_lanes_release_verb_is_refused_while_the_coordinators_mac_does_not_answer(monkeypatch: pytest.MonkeyPatch, no_calls: None) -> None:
     monkeypatch.setenv(state.REMOTE_LANE_ENV, "1")
     monkeypatch.setattr(land.subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess(argv, 1, stdout="", stderr="drive: no run"))

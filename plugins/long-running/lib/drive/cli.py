@@ -3736,6 +3736,9 @@ def job_held(args: argparse.Namespace) -> int:
         hold = settled.hold(data["roles"]["coordinator"]["cwd"])
         refused = hold and brief.hold_refusal(args.release, data, hold) or args.release_verb and brief.away_refusal(args.release_verb, args.release, data, state.now())
         return emit(args, refused or f"no hold of his refuses {args.release}", {"id": job_id, "release": refused})
+    if args.cluster:
+        refused = brief.away_job_refusal(args.cluster, data, state.now())
+        return emit(args, refused or f"nothing holds a Job on {args.cluster}", {"id": job_id, "cluster": refused})
     if args.pr:
         tracked = {stored.casefold(): pr for stored, pr in data["prs"].items()}
         prs = {key: tracked.get(key.casefold()) for key in args.pr}
@@ -6087,6 +6090,10 @@ def parser() -> argparse.ArgumentParser:
         help="instead, why his hold on every release refuses this release, a `ci release start` or `hotfix` as the job runs it, or a release verb naming none; the landing_guard hook on a Sprite lane asks it before the lane starts, resumes, approves, reruns or rolls back a release",
     )
     verb.add_argument("--verb", dest="release_verb", help="with --release, the release verb the lane runs, such as resume, refused as well while he is not present when it starts, resumes or approves a dangerous release")
+    verb.add_argument(
+        "--cluster",
+        help="instead, why a Job may not start on this release env now from its suspended CronJob, while he is not present on a production cluster; the landing_guard hook on a Sprite lane asks it before the lane runs `tools/ci cluster-job`, or unblocks or reruns the build it starts",
+    )
     verb.set_defaults(run=job_held)
     verb = job.add_parser("wake", parents=both, help="send the job's lane a message while it takes messages, or hold it for a codex job's run that goes, which hears it at its next Bash call, starting no worker: the watchdog's agent's one way to message the job answering for a stall")
     verb.add_argument("id", help="the job")
