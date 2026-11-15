@@ -2447,6 +2447,10 @@ def test_his_tap_on_a_card_redrawn_for_a_newer_question_orders_its_release_narro
     }
     assert {release: brief.approval_refusal(release, data) for release in releases} == releases
     assert jev.asked == []
+    narrow = {"hotfix": ("101",), "only": ("api",)}
+    worded = ("It ships only the api.", "The api stack alone goes out.", "The fix changes only the api.", "It ships not only the api.", "It never ships only the api.", "The hotfix does not ship the api alone.", "The full release.")
+    assert [settled.narrowed(narrow, {"hotfix": ("101",)}, words) for words in worded] == [{"hotfix": ("101",)}, {"hotfix": ("101",)}, narrow, narrow, narrow, narrow, narrow]
+    assert settled.narrowed(narrow, narrow, "It ships the api alone.") == narrow
 
 
 def test_guard_denies_admin_on_forge_even_when_tapped(drive_pr: str, no_calls: list[list[str]]) -> None:
