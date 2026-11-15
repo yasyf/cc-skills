@@ -359,11 +359,13 @@ lane reads those, and Slack, through this Mac with a blocking question.
   refuses there.
 - The watch answers it itself, with no event, as it answers a `DRIVE` question. Its relay, a process
   of its own each watch starts beside its passes and ends as it ends, moves onto the newest install
-  every 2 s, then reads Orca's newest 100 messages in one call while a Sprite lane is live and starts
+  every 2 s, then reads Orca's mail past the newest message its last read reached in one call while a
+  Sprite lane is live, so no question drops out of a window however fast lanes ask, and starts
   `drive job read` as a process of its own on each new read one asked, taking no drive lock, so no
   GitHub read, landing or install a pass runs holds it, and a pass that runs for an hour on the
   install it started on leaves the reads to the code installed now; lane mail each minute starts one
-  on any the newest 100 passed over. The reader claims its question by creating the question's
+  on any the relay had not taken. A question its worker asked again with the same first line before
+  either took it runs once, on the later question. The reader claims its question by creating the question's
   file in the drive's `answers/` folder, so a second reader started on it exits, and runs nothing on a
   question asked over 540 s ago, past which its lane's `drive` gave up, or whose lane ended. It runs
   `cci`, `ccn` or the drive's own cc-slack launcher in
