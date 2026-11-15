@@ -99,7 +99,9 @@ and waits ids, record seqs), never a technical name.
    bind` names an open card's option to build, build that one the same way. While an open card your
    own job asked is up, its `Holds:` line not reading none, or one the design you build or the
    reader your brief's `Researched:` line names asked whose `Holds:` line names a change your job
-   builds or that was kept with no `Holds:` line, the `bash_guard` hook refuses a `ccx vcs ship`
+   builds or that was kept with no `Holds:` line, or one that held the work of the job whose
+   `UNBUILT:` or `Change:` line made your change, which the drive's add of you wrote your change
+   and job id onto, the `bash_guard` hook refuses a `ccx vcs ship`
    that would open your first PR, on this Mac and on a Sprite, and `drive pr add` refuses the PR, since
    work does not land with a question of his on it unanswered; once your job has a PR up, his card
    holds from landing only the PRs its `Holds:` line names by link, `#N` or whole branch name and each
