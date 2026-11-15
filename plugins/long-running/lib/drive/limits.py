@@ -51,15 +51,6 @@ CONSTANT_RULING = 'his Nov 10 11:03 PM words "we needed an image to show a const
 CHART_RULING = 'his Nov 10 10:53 PM words "for the chart slack ltieraly has the native … vertsion of this why didnt youi build that for the renderer"'
 PHONE_RULING = 'his Nov 11 12:21 AM words "mermaid is but is ugly"'
 LOOKS_RULING = 'his ruling 0d2b7df, "this should have included images; you include images when they are usless and dont add anyhtng, and then dont when its things like this, its totlly backwards"'
-LOOKS = "looks"
-LOOKS_SURE = 0.8
-LOOKS_QUESTION = (
-    "Do this question's options differ in how a screen someone sees looks, such as where rows draw in a sidebar, a page's layout,"
-    " where a control sits or how it is styled, or an icon, so that he must see each option drawn to pick one? Pick looks when"
-    " they do. Pick none when they differ in something he reads about rather than sees, such as where data is stored, which code"
-    " runs, a schedule, a rule, a process, a message's wording or a cost, even when the work behind them ends up on a screen."
-)
-LOOK_OPTIONS = {"none": "They differ in something he reads about rather than sees.", LOOKS: "They differ in how a screen looks, so he must see each to pick."}
 HAND_DRAWN = ("asks", "pictures")
 BEFORE = re.compile(r"\bbefore\b", re.IGNORECASE)
 AFTER = re.compile(r"\bafter\b", re.IGNORECASE)
@@ -823,19 +814,22 @@ def question_problems(text: str, kept: bool = False, unsettled: str | None = Non
 
 
 def unshot(asked: Question) -> str | None:
-    """Why a question goes to him without a picture of each option, by his ruling 0d2b7df: Jev reads its options as differing in how a screen looks, LOOKS_SURE sure or more, so he picks by seeing each, and an option has no picture line captioned with its number, `![N · …](path)`. Jev reads the question in one call, and when it gives no reading the question goes up, said on stderr."""
+    """Why a question goes to him without a picture of each option, by his ruling 0d2b7df: Jev reads its options as differing in how a screen looks, at settled.YES or more, so he picks by seeing each, and an option has no picture line captioned with its number, `![N · …](path)`. Jev reads the question in one request, its options filled whole, and a reading in the band between settled.NO and settled.YES, or none, lets the question up, said on stderr."""
     from drive import settled
 
     shot = {int(number[1]) for line in captions(asked.show_me) if (found := PICTURE.fullmatch(line)) and (number := OPTION_CAPTION.match(found[1]))}
     if not (unshown := [index for index in range(1, len(asked.options) + 1) if index not in shot]):
         return None
-    seen = {"question": asked.title, "summary": "\n".join(asked.summary), "options": [{"option": option, "description": asked.hints.get(option, "")} for option in asked.options]}
+    options = (({"options": {f"o{number}": {"option": option, "description": asked.hints.get(option, "")}}}, {}) for number, option in enumerate(asked.options, 1))
+    seen, _, _ = settled.fill({"question": asked.title, "summary": "\n".join(asked.summary), "options": {}}, {"looks": settled.LOOKS}, options)
     try:
-        read = settled.jev({"state": seen, "questions": {LOOKS: {"label": {"instructions": LOOKS_QUESTION, "options": LOOK_OPTIONS}}}})[LOOKS]
+        looks = settled.reading(settled.jev(seen, {"looks": settled.LOOKS})["looks"])
     except settled.Unheard as failure:
         print(f"drive job ask: Jev did not say whether this question's options differ in how a screen looks, so it goes up unchecked for screenshots: {failure}", file=sys.stderr)
         return None
-    if read["probabilities"].get(LOOKS, 0) < LOOKS_SURE:
+    if looks is None:
+        print("drive job ask: Jev is unsure whether this question's options differ in how a screen looks, so it goes up: put a screenshot of each option in its Show me when they do", file=sys.stderr)
+    if not looks:
         return None
     which = f"option {unshown[0]} carries" if len(unshown) == 1 else f"options {', '.join(map(str, unshown))} carry"
     return (

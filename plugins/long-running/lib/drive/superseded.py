@@ -279,7 +279,7 @@ def decided_by(data: dict, job_id: str, question: dict, words: str, found: dict 
     shown = {card["card"].get("waits"): card["options"] for card in (found or view.NO_CARDS)["questions"]}
     entries = {f"{job_id}:q{index}": {"kind": "question", "title": other["title"] or "", "options": shown.get(other["waits"]) or []} for index, other in enumerate(older)}
     try:
-        keys = settled.changed(question["title"] or "", words, entries, settled.SUPERSEDES_QUESTION, settled.DECIDES)
+        keys = settled.changed(question["title"] or "", words, entries, settled.SUPERSEDES, unsure=False)
     except state.DriveError as error:
         print(f"his answer to {question['waits'] or question['file']} ends none of {job_id}'s older questions: {error}", file=sys.stderr)
         return []

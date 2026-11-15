@@ -1,4 +1,3 @@
-import dataclasses
 import html
 import json
 import mmap
@@ -6,9 +5,10 @@ import re
 import subprocess
 import sys
 import time
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from functools import cache
 from pathlib import Path
+from typing import NamedTuple
 
 from drive import github, limits, slack, state, view
 from drive.install import config_dir
@@ -25,53 +25,46 @@ BODY_CHARS = 1500
 TITLE_BYTES = 256
 QUOTED_CHARS = 400
 CANDIDATES = 8
-UNDECIDED = "none"
-DECIDES = 0.8
+MODEL = "jev-1.14.0"
+YES = 0.7
+NO = 0.3
+REQUEST_CHARS = 10_000
 DECIDE_SECONDS = 20
+REFUSAL_SECONDS = 3
 REPEATS_ASKED = 30
-UNSAID_HERE = (
-    " A bare option number, such as \"1\" or \"move to 3\", answers the card it was typed on and says nothing about this one;"
-    ' a question he asked says nothing unless it proposes a way, as "why not just X?" orders X.'
+
+
+class Noul(NamedTuple):
+    """One yes-or-no question Jev answers with the probability of yes: what it asks of the request's state by backticked path, then what a yes and a no mean where the question alone leaves it open."""
+
+    ask: str
+    yes: str | None = None
+    no: str | None = None
+
+
+UNSAID_HERE = 'A bare option number answers only the card it was typed on, and a question of his rules nothing out unless it proposes a way, as "why not just X?" orders X.'
+BREAKS = Noul("Do `words.{slot}.said` rule out `card.options[{index}]`, so building it goes against what he said?", no=UNSAID_HERE)
+WORKED = Noul("Does `card.show_me` leave `card.options[{index}]` unworked, showing none of its real calls, the rows it writes, its flow or what a caller gets?")
+RELEASES_ONLY = Noul("Does `card.text` ask only whether or when to release, land, run or hold something, offering no design to build?")
+UNTAPPED = Noul(
+    "Do `words.{slot}.said` name an amount or a choice for what `card.text` asks, such as 30 days or 64 rows, that no option or question of the card gives him a tap for?",
+    no="The card taps each amount and choice they name, or the words are quoted from an alert, a log or another message.",
 )
-BREAKS_QUESTION = (
-    'Do his words rule out this option, so building it goes against what he said? The option: "{option}"{marked}. A standing'
-    " rule for a kind of work, such as that one kind of thing is like any other, rules out an option that treats that kind as"
-    " its own case. Pick the item whose words rule it out, or none when his words do not speak to what the option does." + UNSAID_HERE
+SAYS = Noul("Does `card.text` say its recommended option replaces, drops, changes or goes against `words.{slot}.said`?")
+BREAKS_CARD = Noul(
+    "Does `card.text` itself, apart from what any one option builds, break `words.{slot}.rule`?",
+    no="A ruling on root causes speaks only to the recommended option and the Root cause line, so an option offered beside it breaks nothing.",
 )
-UNTAPPED_QUESTION = (
-    "Which item's words name an amount or a choice for what this card asks, such as 30 days or 64 rows, that the card gives"
-    " him no tap for, as an option or a question of its own? His words after he got a card without one: \"You didn't give me"
-    ' a tap for 30 day bonding how many times do I have to say this". Words he quotes from an alert, a log or another message'
-    " are not his. Pick none when the card offers a tap for each amount and choice his words name." + UNSAID_HERE
-)
-CARD_QUESTION = (
-    "Does the card itself, apart from what any one option builds, break one of his rulings below by the rule it carries: a Page"
-    " line shows a page the card links lacking what the card's words say that page shows, its recommended option or its Root"
-    " cause line breaks his ruling on root causes, what it says runs meanwhile reads or writes a team's data the way his"
-    " ruling on a team's data rules out, or it asks him for a fact or value its job reads where that value is defined, which"
-    " his words on asking him for a value rule out? His ruling on root causes speaks only to the option the card recommends: an option"
-    " offered beside it, such as the Simplest line's, which every card must offer, breaks nothing. Pick the ruling it breaks,"
-    " or none."
-)
+ANSWERS = Noul("Does `words.{slot}.said`, his answer to `words.{slot}.asked`, already settle what `card.text` asks him?", no=UNSAID_HERE)
+AGAIN = Noul("Does `card.text` ask him again, in other words, what `open.{slot}` asks, so one answer of his settles both?", no="It asks something that card leaves open, or a choice that card does not offer.")
 ADVISED = (
     "drive job ask: Jev reads {part} as breaking {id}, {asked}, \"{said}\".{rule} This finding refuses no card, by his pick"
     " 320b7a7 that drive job ask keeps every well-shaped card and prints Jev's finding to the agent: when it holds, rewrite"
     " that part and ask the same question again, which redraws its card."
 )
-SAYS_QUESTION = (
-    "Does this card, in its own words anywhere in it, say that its recommended option replaces, drops, changes or goes against"
-    " what one of his recorded answers below says, so building it lifts those words of his? Pick that answer, or none when the"
-    " card says its recommended option keeps every one of them or says nothing of the kind."
-)
-UNSAID = "It says none of that."
-AGAIN_QUESTION = (
-    "Does this card ask him again, in other words, the question this open card of his already asks, so that one answer of his"
-    ' settles both? Answer no when it asks something that card leaves open, or a choice that card does not offer. That card asks: "{title}"'
-)
-ANSWERS_QUESTION = (
-    "Does one of his recorded answers below already answer what this card asks him, given to an earlier question in the same or"
-    " other words, so the card asks him again what his words there settle? Pick that answer, or none when the card asks something"
-    " each of them leaves open, such as a choice none of them makes." + UNSAID_HERE
+UNSURE = (
+    "drive job ask: Jev is unsure whether {part} goes against {id}, {asked}, \"{said}\": weigh it yourself, and rewrite that part when it"
+    " does. This refuses no card, by his pick 320b7a7."
 )
 ANSWERED = (
     'drive job ask: Jev reads his answer {id} to "{asked}"{link} as already answering this card: "{said}". This refuses and skips'
@@ -86,40 +79,72 @@ UNSETTLED = (
     ' on an incident too until he answers, by his pick "Hold the PR until you answer; the drive finds each card against your'
     ' recorded answers"; --unsettled "<id>: <why>" names other words of his it asks him to lift.'
 )
-WORKED_QUESTION = (
-    'Is this option worked out on the card to what it will look like once built, by his ruling below? The option: "{option}".'
-    " Pick the ruling when the card offers it as a design to build and its Show me carries no example of this option itself,"
-    " such as its real calls, the rows it writes, its flow or what a caller gets, so the card tells it only by its description,"
-    " the files it touches or its cost. Pick none when the Show me works it out, or when the card asks only whether or when to"
-    " release, land, run or hold something."
+CHANGES = Noul(
+    "Does `answer.said`, his answer to `answer.asked`, decide, rule out options of, or make moot what `open.{slot}` asks him?",
+    no="It leaves every choice that card asks open; a standing rule for a kind of work, worded with always, every or never, changes each card about work of that kind whatever its subject.",
 )
-WORKED_OUT = "The card works it out, or offers no design."
-UNBROKEN = "His words do not rule it out."
-CHANGES = 0.15
-LABEL_OPTIONS = 255
-CHANGES_QUESTION = (
-    "His answer below was given to another question. Which of these open questions he has not answered does it decide, rule out"
-    " options of, or make moot, so that card must change or stop asking him? His answer may be a standing rule for a kind of work,"
-    " worded with always, every or never, such as how every bug, landing or release is handled: it changes each open question about"
-    " work of that kind whatever its subject, when the rule rules out an option or decides part of what it asks. Pick none when it"
-    " changes none of them."
+SUPERSEDES = Noul("Does `answer.said`, his answer to a newer question of the same job, settle everything `open.{slot}` asks him?")
+REPEATS = Noul("Does `order` ask for what `open.{slot}` asks: the same fault or the same change in other words?", no="It asks for something that order does not, even about the same code.")
+ORDERS = Noul(
+    "Do `answer.said`, read with `card`, have the release in `action` run?",
+    yes="His order to ship or release that work, or his pick on a card about it reaching production whose option has that release run; a condition such as once tests pass orders it once it holds.",
+    no="His Approve or tap on a pull request, a pick to land, merge or enqueue one, or a pick of a design, a repair or whether a check holds releases nothing.",
 )
-SUPERSEDES_QUESTION = (
-    "His answer below was given to a newer question of the same job. Which of these older open questions does it decide or make"
-    " moot, so that card asks him nothing his answer leaves open? Pick none when each of them still asks something his answer"
-    " does not settle."
+SHIPS_MORE = Noul(
+    "Does the release in `action` ship more than `answer.said` orders: another change, more components or other places?",
+    no="His words past a bare option number order only what they name, such as a team brought to where the picked option put the others.",
 )
-ORDERS_QUESTION = (
-    "Do his words order the release the action starts? They do when, read with the card they answer where it is given, they"
-    " have that release run: his order to ship or release that work, or his pick on a card about that work reaching"
-    " production, such as whether, when or how to release it or what the release carries or does as it runs, whose option"
-    " has that release run. A pick that names a condition, such as once tests pass or after a fix merges, orders the release"
-    " once it holds, which the drive sees to before it starts. A bare option number picks that option of the card he typed it"
-    " on, and his words past it order only what they name, such as \"and then bring <a team> to the same\", which orders that"
-    " team brought to where the picked option put the others. Pick none when the release ships more than his words order,"
-    " another change, more components or other places; when his pick has no release run: his Approve or tap on a pull"
-    " request, or a pick to land, merge or enqueue one, lands it and releases nothing, and so does a pick of which code or"
-    " data layout to build, how to repair something, or whether a check holds; and when unsure."
+ASKS_RELEASE = Noul(
+    "Does `record` ask the session it goes to, or a job or agent that session runs, to take a step of a production release itself: start, hotfix, resume, approve, rerun or roll back a release, now or once something holds?",
+    yes="It asks for that step, whatever words of his it quotes.",
+    no=(
+        "It only reports a release that ran, is running or a teammate says they will run, states that an approval or answer of his is pending, his Approve on a"
+        " pull request included, says nothing starts, quotes a command, plan or refusal, asks for a plan, a dry run or a card redrawn, or asks that session to"
+        " put the release to him and start nothing until he answers. A step of drive work, such as resuming a job, rebasing a pull request or redrawing a card,"
+        " is no release step, nor is a `tools/ci cluster-job` start or the unblock of the gate of the forge/release build it starts, which runs one suspended"
+        " CronJob in a team's cluster and ships no change."
+    ),
+)
+UNWORDED_RETURN = Noul(
+    "Does `line`, written for a builder's or designer's brief, tell the job to end its turn or return on a line whose first word is none of DONE, READY, PUSHED, BUILT, WAITING, ASK, BLOCKED, DESIGN or HANDOFF?",
+    yes="It orders one plain line with no result word, or one opening with a phrase of its own.",
+    no="Every return it orders opens with one of those words, or it orders no return and only describes or quotes such a line, as a fix refusing one does.",
+)
+NARROWS = Noul(
+    "Does `design` build less than `words.{slot}.said` name, or build part of it later, with no question in `forks` asking him about it?",
+    yes="It leaves out, defers to a later change or trigger, or narrows what they name, such as building one of several strategies he approved while the others wait, or decides such a cut on its own because it is cheap to reverse.",
+    no="It builds all they name, or a question in `forks` asks him about what it leaves out.",
+)
+STRATEGIES = Noul("Do `words` or `design` name several strategies for one job, such as the partition strategies a table picks by its usage?")
+ABSTRACTION_FIRST = Noul(
+    "Is the first change of `design` the one abstraction every one of its strategies goes through, walked through each strategy on paper, with each strategy's change waiting on it?",
+    no="Its first change builds one strategy, or routes each strategy as its own case, before their shared abstraction.",
+)
+LEAVES = Noul(
+    "Does `lines.{slot}`, a line of a builder's return, leave a piece of the work `goal` names unbuilt for later, to a follow-up PR, another job or builder or a later change, as a piece its PR leaves out under Against the plan does?",
+    no="Each piece it names is built, ruled out or never asked for by his words, is left to this same job's next event, or is only a proof, check, review, merge, install or release still to run, or an idea beyond the plan.",
+)
+NAMES_PIECE = Noul(
+    "Does `parts.{part}`, work a job of its own builds, name the piece `lines.{slot}` leaves unbuilt, that piece itself in any wording?",
+    no="It names a larger piece of work holding that piece, or another piece.",
+)
+STEPS = Noul(
+    "Does `stories.{slot}` list steps on `surface`, or name a part to walk, with no result he must then see?",
+    yes='Such as "open the run page, click a step" or "walk each part the earlier brief names".',
+    no="It says what he does there, such as a click, key or hover, and what he must then see.",
+)
+BARE = Noul(
+    "Do `proof_file` and `check` stop at the bare minimum for the user story `stories.{slot}` on the installed surface?",
+    yes="The proof only opens a page or checks that something drew, states no criteria for this story, or its check names no picture or recording of it and no live post's link it reads back.",
+    no="The proof file states strict acceptance criteria for it, what he sees first, the result of each click, key or hover, and its empty and error states, asserts each on the installed surface, and its check names a picture or recording of it or the live post's link it reads back.",
+)
+LOOKS = Noul(
+    "Do `options` differ in how a screen someone sees looks, such as where rows draw in a sidebar, a page's layout, where a control sits or how it is styled, or an icon, so that he must see each option drawn to pick one?",
+    no="They differ in something he reads about rather than sees, such as where data is stored, which code runs, a schedule, a rule, a process, a message's wording or a cost, even when the work behind them ends up on a screen.",
+)
+ILLUSTRATES = Noul(
+    "Does `code`, a fence in `language` about to be drawn as a picture of code on his Slack card, illustrate something the card's words cannot say as well, such as the shape of a function, a type, a query or several statements working together?",
+    no="It is trivial: a value flipped, such as write = 0 becoming write = 1, an argument or list item added or dropped, a name or path changed, or one declaration, which a sentence says as well.",
 )
 UNORDERED = "Jev does not read it as approving this release"
 ORDERED = (
@@ -135,11 +160,6 @@ TEAM_NAME = re.compile(r"^[ -] (?:name|displayName): *(.+?) *$", re.MULTILINE)
 STAGE = re.compile(r"^stage: *(\S+) *$", re.MULTILINE)
 STAGING = "staging"
 PRODUCTION = "production, every environment except staging"
-REPEATS_QUESTION = (
-    "A drive tooling order is being added in the words below. Does it ask for what one of these open drive tooling orders already"
-    " asks, the same fault or the same change in other words, so it joins that order and the job building it instead of starting a"
-    " second order, builder and card? Pick that order, or none when it asks for anything none of them asks, even about the same code."
-)
 APPROVAL = "kind:approval"
 INCIDENT = "incident"
 RELEASE_HOLD = "release-hold"
@@ -427,92 +447,103 @@ def given_at(data: dict, answer_id: str) -> str | None:
 
 
 def judged(case: str, asked: limits.Question, words: list[dict], cited: list[dict], cards: dict[str, str]) -> tuple[tuple[dict, str] | None, list[str]]:
-    """Print on stderr each part of a card Jev reads as going against his words, in one reading of the card against all of them at once, the recorded answers the card cites among them, and his rulings `limits.rule_words` names beside them, at least DECIDES sure, with the words it breaks: an option his words or a ruling that speaks to every option rule out, an option of a design the card never works out to what it will look like, an amount or choice his words name that the card gives no tap for, a ruling the card itself breaks, and a cited answer the card says its recommended option replaces, drops, changes or goes against. Each finding refuses nothing, by his pick 320b7a7 "Advisory judge: drive job ask keeps every well-shaped card and prints Jev's finding to the agent; no card is refused on merits". His ruling on root causes is weighed on the card alone, never per option, since it speaks only to the option the card recommends and its Root cause line. Return the recorded answer or ruling of his the card asks him to lift, beside the option that breaks it, each pick at least DECIDES sure: the one Jev picks for the recommended option, the cited answer the card says it goes against first, else one his words show it breaks, else the first Jev picks for any other option the card offers, since offering an option his words rule out asks him to lift them too; None when Jev picks his words on the order, or none, and when Jev gives no reading, which leaves the card to him, said on stderr. In the same call Jev reads the card against each open card of his among `cards`, their titles by waits id, one yes or no each, and the waits ids of those it reads at least DECIDES sure as asking it again come back beside that answer, none when Jev gives no reading; and it picks the one recorded answer of his among `words` the card does not cite that already answers what the card asks, printed with where he gave it, at least DECIDES sure, so its job cites it and his card carries it as the Already answered tap, refusing and skipping nothing, by his picks 320b7a7, 679484 and 692284."""
+    """Print on stderr each part of a card Jev reads as going against his words, in one request holding the card and, filled by whole items, the recorded answers the card cites, his rulings `limits.rule_words` names beside them, then his other words: one Noul for each option and each of his words or rulings that could rule it out, each cited answer the card could say it goes against, each ruling the card itself could break, each of his words naming an amount or choice the card could leave untapped or already answering it, each option the card could leave unworked, and each open card of his among `cards` it could ask again. A Noul at YES or more is a finding and one in the band between NO and YES is printed as unsure, and each refuses nothing, by his pick 320b7a7 "Advisory judge: drive job ask keeps every well-shaped card and prints Jev's finding to the agent; no card is refused on merits". His ruling on root causes is weighed on the card alone, never per option, since it speaks only to the option the card recommends and its Root cause line, and an option left unworked is no finding on a card asking only whether or when to release something. Return the recorded answer or ruling of his the card asks him to lift, beside the option that breaks it, at YES or more: the cited answer the card says its recommended option goes against first, else one his words show the recommended option breaks, else the first that rules out any other option, since offering an option his words rule out asks him to lift them too; None when Jev reads none, and when Jev gives no reading, which leaves the card to him, said on stderr. Beside it come the waits ids of the open cards Jev reads at YES or more as asked again, and an answer of his the card does not cite that Jev reads at YES or more as already answering it is printed with where he gave it, so its job cites it and his card carries it as the Already answered tap, by his picks 320b7a7, 679484 and 692284."""
     rules = limits.rule_words(case)
     near = {word["id"] for word in words}
-    given = [word for word in words if limits.ANSWER_ID.fullmatch(word["id"]) and word["id"] not in {answer["id"] for answer in cited}]
-    heard_words = [*words, *(answer for answer in cited if answer["id"] not in near)]
-    offered = {UNDECIDED: UNBROKEN, **dict.fromkeys(word["id"] for word in [*heard_words, *rules] if word["id"] != limits.ROOT_CAUSE_WORDS["id"])}
-    items = {word["id"]: word for word in [*heard_words, *rules, limits.WORKED_WORDS]}
-    recommended = f"breaks{asked.options.index(asked.recommended) + 1}"
-    parts = {f"{kind}{number}": f'option "{option}"' for kind in ("breaks", "worked") for number, option in enumerate(asked.options, 1)} | {"says": f'option "{asked.recommended}"', "untapped": "the card", "card": "the card"}
-    questions = {
-        **{
-            f"breaks{number}": {"label": {"instructions": BREAKS_QUESTION.format(option=option, marked=" (recommended)" if option == asked.recommended else ""), "options": offered}}
-            for number, option in enumerate(asked.options, 1)
-        },
-        **{
-            f"worked{number}": {"label": {"instructions": WORKED_QUESTION.format(option=option), "options": {UNDECIDED: WORKED_OUT, limits.WORKED_WORDS["id"]: None}}}
-            for number, option in enumerate(asked.options, 1)
-        },
-        **({"untapped": {"label": {"instructions": UNTAPPED_QUESTION, "options": {UNDECIDED: "The card offers a tap for each.", **dict.fromkeys(word["id"] for word in words)}}}} if words else {}),
-        **({"says": {"label": {"instructions": SAYS_QUESTION, "options": {UNDECIDED: UNSAID, **dict.fromkeys(answer["id"] for answer in cited)}}}} if cited else {}),
-        "card": {"label": {"instructions": CARD_QUESTION, "options": {UNDECIDED: "It breaks none of them.", **dict.fromkeys(rule["id"] for rule in rules)}}},
-        **({"answers": {"label": {"instructions": ANSWERS_QUESTION, "options": {UNDECIDED: "It asks what none of them settles.", **dict.fromkeys(word["id"] for word in given)}}}} if given else {}),
-        **{f"again{number}": {"binary": {"instructions": AGAIN_QUESTION.format(title=title)}} for number, title in enumerate(cards.values(), 1)},
-    }
-    heard = [{key: item[key] for key in ("id", "asked", "said", "rule") if key in item} for item in items.values()]
+    cited_ids = {answer["id"] for answer in cited}
+    ordered = [*cited, *rules, *(word for word in words if word["id"] not in cited_ids)]
+    items = {word["id"]: word for word in [*ordered, limits.WORKED_WORDS]}
+    slots = {key: f"w{number}" for number, key in enumerate(items, 1)}
+    given = {word["id"] for word in words if limits.ANSWER_ID.fullmatch(word["id"]) and word["id"] not in cited_ids}
+    options = asked.options
+    parts = {f"{kind}{number}": f'option "{option}"' for kind in ("breaks", "worked") for number, option in enumerate(options, 1)} | {"says": f'option "{asked.recommended}"', "untapped": "the card", "card": "the card", "answers": "the card"}
+    base = {"card": {"text": case, "options": options, "recommended": asked.recommended, "show_me": asked.show_me}, "open": {f"a{number}": title for number, title in enumerate(cards.values(), 1)}}
+    fixed = (
+        {"releases": RELEASES_ONLY}
+        | {f"worked{number}.{limits.WORKED_WORDS['id']}": asking(WORKED, index=number - 1) for number in range(1, len(options) + 1)}
+        | {f"again{number}": asking(AGAIN, slot=f"a{number}") for number in range(1, len(cards) + 1)}
+    )
+
+    def nouls(word: dict) -> dict[str, Noul]:
+        slot, key = slots[word["id"]], word["id"]
+        breaks = {} if key == limits.ROOT_CAUSE_WORDS["id"] else {f"breaks{number}.{key}": asking(BREAKS, slot=slot, index=number - 1) for number in range(1, len(options) + 1)}
+        return (
+            breaks
+            | ({f"untapped.{key}": asking(UNTAPPED, slot=slot)} if key in near else {})
+            | ({f"says.{key}": asking(SAYS, slot=slot)} if key in cited_ids else {})
+            | ({f"card.{key}": asking(BREAKS_CARD, slot=slot)} if "rule" in word else {})
+            | ({f"answers.{key}": asking(ANSWERS, slot=slot)} if key in given else {})
+        )
+
+    weighs = (({"words": {slots[word["id"]]: {field: word[field] for field in ("asked", "said", "rule") if field in word}}}, nouls(word)) for word in ordered)
+    told, questions, _ = fill(base, fixed, weighs)
     try:
-        read = jev({"state": {"card": case, "his_words": heard}, "questions": questions})
+        read = jev(told, questions)
     except Unheard as failure:
         print(f"drive job ask: Jev gave no reading of this question against his words, so it goes to him: {failure}", file=sys.stderr)
         return None, []
-    repeated = [waits for number, waits in enumerate(cards, 1) if read.pop(f"again{number}")["p_yes"] >= DECIDES]
-    if (found := read.pop("answers", None)) and found["choice"] in items and found["probabilities"][found["choice"]] >= DECIDES:
-        item = items[found["choice"]]
-        print(ANSWERED.format(id=item["id"], asked=cut(item["asked"], 200), link=f" ({item['link']})" if item.get("link") else "", said=cut(item["said"], QUOTED_CHARS)), file=sys.stderr)
-    for key, found in read.items():
-        if found["choice"] in items and found["probabilities"][found["choice"]] >= DECIDES:
-            item = items[found["choice"]]
-            rule = f" Its rule: {item['rule']}" if "rule" in item else ""
-            print(ADVISED.format(part=parts[key], id=item["id"], asked=cut(item["asked"], 200), said=cut(item["said"], QUOTED_CHARS), rule=rule), file=sys.stderr)
+    repeated = [waits for number, waits in enumerate(cards, 1) if read[f"again{number}"] >= YES]
+    designs = reading(read["releases"]) is not True
+    for key, sure in read.items():
+        question, _, word = key.partition(".")
+        if not word or question.startswith("worked") and not designs or (found := reading(sure)) is False:
+            continue
+        item = items[word]
+        if question == "answers":
+            print((ANSWERED if found else UNSURE).format(id=item["id"], asked=cut(item["asked"], 200), link=f" ({item['link']})" if item.get("link") else "", said=cut(item["said"], QUOTED_CHARS), part=parts[question]), file=sys.stderr)
+            continue
+        rule = f" Its rule: {item['rule']}" if "rule" in item else ""
+        print((ADVISED if found else UNSURE).format(part=parts[question], id=item["id"], asked=cut(item["asked"], 200), said=cut(item["said"], QUOTED_CHARS), rule=rule), file=sys.stderr)
+    recommended = f"breaks{options.index(asked.recommended) + 1}"
     marks = [("says", "the recommended option"), (recommended, "the recommended option"), *((key, parts[key]) for key in parts if key.startswith("breaks") and key != recommended)]
-    picks = ((option, found["choice"]) for key, option in marks if (found := read.get(key)) and found["probabilities"][found["choice"]] >= DECIDES)
-    return next(((items[choice], option) for option, choice in picks if limits.ANSWER_ID.fullmatch(choice.removeprefix("ruling:"))), None), repeated
+    picks = ((option, word) for part, option in marks for key, sure in read.items() if key.partition(".")[0] == part and sure >= YES for word in [key.partition(".")[2]])
+    return next(((items[word], option) for option, word in picks if limits.ANSWER_ID.fullmatch(word.removeprefix("ruling:"))), None), repeated
 
 
-def changed(title: str, words: str, asked: dict[str, dict], instructions: str = CHANGES_QUESTION, bar: float = CHANGES) -> set[str]:
-    """The question cards still asking him that a new answer of his decides, rules options out of or makes moot, as Jev reads it against all of them in one call, a label question for each page of them, since one label question takes at most LABEL_OPTIONS options, none included, however many cards are open, the pages as even as they split and each in the order they are asking him, so each card is weighed beside the others of its page: each Jev gives at least CHANGES, since a card held wrongly costs one --stands mark and one missed keeps asking him what he already decided; asked instead which older questions of the job an answer decides, each at the bar given."""
+def changed(title: str, words: str, asked: dict[str, dict], question: Noul = CHANGES, unsure: bool = True) -> set[str]:
+    """The question cards still asking him that a new answer of his decides, rules options out of or makes moot, as Jev reads it in one request, one Noul a card, the cards filled whole into the request in the order of the rare words each shares with his answer, so a card the request has no room for is one sharing the fewest: each Jev reads at YES or more, and with unsure each in the band between NO and YES too, since a card held wrongly costs one --stands mark and one missed keeps asking him what he already decided; asked instead which older questions of the job an answer settles, with the question given and unsure off."""
     cards = {key.rpartition(":")[2]: key for key, entry in asked.items() if entry["kind"] == "question"}
     if not cards:
         return set()
-    options = [(short, f'{asked[key]["title"]} Options: {" | ".join(asked[key]["options"])}') for short, key in cards.items()]
-    pages = -(-len(options) // (LABEL_OPTIONS - 1))
-    questions = {
-        f"changes{page}": {"label": {"instructions": instructions, "options": {UNDECIDED: "It changes none of them.", **dict(options[len(options) * (page - 1) // pages : len(options) * page // pages])}}}
-        for page in range(1, pages + 1)
-    }
+    said = rare(f"{title} {words}")
+    ranked = sorted(cards, key=lambda short: len(said & rare(f'{asked[cards[short]]["title"]} {" ".join(asked[cards[short]]["options"])}')), reverse=True)
+    items = (({"open": {short: {"asked": asked[cards[short]]["title"], "options": asked[cards[short]]["options"]}}}, {f"changes.{short}": asking(question, slot=short)}) for short in ranked)
+    told, questions, _ = fill({"answer": {"asked": title, "said": words[:BODY_CHARS]}}, {}, items)
     try:
-        read = jev({"state": {"answer": {"asked": title, "said": words[:BODY_CHARS]}}, "questions": questions})
+        read = jev(told, questions)
     except Unheard as failure:
         raise DriveError(
             f"nothing recorded in the drive: Jev did not read his answer against his {len(cards)} open {'card' if len(cards) == 1 else 'cards'} ({failure}), so each"
             " card it settles would keep asking him; run this drive answer again"
         ) from None
-    return {cards[short] for page in read.values() for short, probability in page["probabilities"].items() if short in cards and probability >= bar}
+    return {cards[key.partition(".")[2]] for key, sure in read.items() if (found := reading(sure)) or unsure and found is None}
 
 
 def repeats(data: dict, words: str) -> str | None:
-    """The open drive tooling order these new tooling words ask for again, as Jev reads them in one call against the REPEATS_ASKED open tooling orders whose title and words share the most rare words with them, each order's title and words an option, picked at the DECIDES bar, since one label question takes at most LABEL_OPTIONS options however many tooling orders are open; None when no tooling order is open or Jev picks none, refused when Jev gives no answer."""
+    """The open drive tooling order these new tooling words ask for again, as Jev reads them in one request against the REPEATS_ASKED open tooling orders whose title and words share the most rare words with them, one Noul an order, the orders filled whole in that order: the one Jev reads surest, at YES or more; None when no tooling order is open or Jev reads none at YES, an order in the band between NO and YES named on stderr for --joins, refused when Jev gives no answer."""
     said = rare(words)
     orders = [(order_id, order) for order_id, order in state.open_orders(data).items() if order["text"].startswith(state.TOOLING)]
     closest = sorted(orders, key=lambda item: len(said & rare(f'{item[1]["title"] or ""} {item[1]["text"]}')), reverse=True)[:REPEATS_ASKED]
-    if not closest:
+    items = (({"open": {order_id: " — ".join(filter(None, [order["title"], order["text"]]))}}, {f"repeats.{order_id}": asking(REPEATS, slot=order_id)}) for order_id, order in closest)
+    state_read, questions, _ = fill({"order": words[:BODY_CHARS]}, {}, items)
+    if not questions:
         return None
-    options = {order_id: " — ".join(filter(None, [order["title"], cut(order["text"], QUOTED_CHARS)])) for order_id, order in closest}
-    label = {"instructions": REPEATS_QUESTION, "options": {UNDECIDED: "It repeats none of them.", **options}}
     try:
-        pick = jev({"state": {"order": words[:BODY_CHARS]}, "questions": {"repeats": {"label": label}}})["repeats"]
+        read = jev(state_read, questions)
     except Unheard as failure:
         raise DriveError(
-            f"no order added: Jev did not read these words against the {len(options)} open drive tooling orders sharing the most words with them ({failure}),"
+            f"no order added: Jev did not read these words against the {len(questions)} open drive tooling orders sharing the most words with them ({failure}),"
             " so a repeat of one would start a second order, builder and card on it; run it again, or name the order it repeats with --joins <o>"
         ) from None
-    return pick["choice"] if pick["choice"] in options and pick["probabilities"][pick["choice"]] >= DECIDES else None
+    surest = max(read, key=read.__getitem__)
+    order_id = surest.partition(".")[2]
+    if reading(read[surest]) is None:
+        print(f"drive order add: Jev is unsure whether these words repeat {order_id}; name it with --joins {order_id} when they do", file=sys.stderr)
+    return order_id if read[surest] >= YES else None
 
 
 def unordered(answer: dict, release: str, data: dict) -> str | None:
-    """Why his answer does not order this release, one `ci release start` or `hotfix`; None when it does, the one reading the release gates and `drive job ask` share. When the card his answer answers is kept, found through the link `drive answer` kept for it, and his leading option number or tap picks an option whose words name a release in backticks, code decides: his answer orders a release shipping the change one of those ships, every flag the same but its places, `--from` and `--order`, and on staging alone under one on staging alone, as placed() reads it, its targets and `--only`, on no place beyond that option's but those his words past the number name, by env id or by the name or displayName its infra/envs file gives that place's team. A picked option naming no release in backticks orders, in code too, a release its words name whole, as named() reads it. Any other answer Jev reads once, his words beside that card and the places the release runs on with their stages, ordering only what they name, at the DECIDES bar; Unheard when Jev gave no answer."""
+    """Why his answer does not order this release, one `ci release start` or `hotfix`; None when it does, the one reading the release gates and `drive job ask` share. When the card his answer answers is kept, found through the link `drive answer` kept for it, and his leading option number or tap picks an option whose words name a release in backticks, code decides: his answer orders a release shipping the change one of those ships, every flag the same but its places, `--from` and `--order`, and on staging alone under one on staging alone, as placed() reads it, its targets and `--only`, on no place beyond that option's but those his words past the number name, by env id or by the name or displayName its infra/envs file gives that place's team. A picked option naming no release in backticks orders, in code too, a release its words name whole, as named() reads it. Any other answer Jev reads in one request, his words beside that card and the places the release runs on with their stages, one Noul whether his words have that release run and one whether it ships more than they order: it orders the release at YES on the first and under NO on the second, either in the band between refusing it as unsure; Unheard when Jev gave no answer."""
     from drive import brief
 
     said = his(answer["body"])
@@ -531,8 +562,11 @@ def unordered(answer: dict, release: str, data: dict) -> str | None:
         if named(flags, words, rest, cwd):
             return None
     card = {"card": "\n".join([f"Question: {asked.title}", *asked.summary, *limits.offered(asked)])} if asked else {}
-    found = picked(ORDERS_QUESTION, "His words order no such release.", {"action": f"start this release on {runs_on(flags, cwd)}: `{release}`"} | card, [{"id": answer["id"][:7], "asked": answer["title"], "said": said}])
-    return None if found else UNORDERED
+    read = jev({"action": f"start this release on {runs_on(flags, cwd)}: `{release}`", "answer": {"asked": answer["title"], "said": said}} | card, {f"orders.{answer['id'][:7]}": ORDERS, "more": SHIPS_MORE})
+    orders, more = reading(read[f"orders.{answer['id'][:7]}"]), reading(read["more"])
+    if orders and more is False:
+        return None
+    return UNORDERED if orders is False or more else f"{UNORDERED}: Jev is unsure"
 
 
 def answered_card(data: dict, answer_id: str) -> limits.Question | None:
@@ -612,54 +646,191 @@ def runs_on(release: dict, cwd: str) -> str:
     return f"{places}, leaving out {', '.join(release['without'])}" if release.get("without") else places
 
 
-def picked(instructions: str, unpicked: str, asked: dict, found: list[dict]) -> dict | None:
-    """The one of these answers Jev picks for what asked holds, asked as captain_hook's permits_question asks with none first and picked at its 0.8 bar; none or a lower probability picks nothing."""
-    if not found:
-        return None
-    answers = [{key: answer[key] for key in ("id", "asked", "said")} for answer in found]
-    label = {"instructions": instructions, "options": {UNDECIDED: unpicked, **dict.fromkeys(answer["id"] for answer in found)}}
-    pick = jev({"state": asked | {"answers": answers}, "questions": {"decides": {"label": label}}})["decides"]
-    if pick["choice"] == UNDECIDED or pick["probabilities"][pick["choice"]] < DECIDES:
-        return None
-    return next(answer for answer in found if answer["id"] == pick["choice"])
-
-
 class Unheard(Exception):
-    """Jev gave no answer: no key, a timeout, a request Jev rejected, or Jev declining the question."""
+    """Jev gave no answer: no key, a timeout, a request Jev rejected, or Jev declining a question."""
 
 
 @cache
 def jev_key() -> str:
     """Jev's API key, from TYPESAFE_API_KEY or else the Keychain item `spawnllm key set jev` wrote, read once per process, so no question after the first starts a process."""
-    from spawnllm.decide import JEV, api_key
+    from spawnllm import Provider
+    from spawnllm.decide import api_key
 
-    return api_key(JEV, timeout=DECIDE_SECONDS)
+    return api_key(Provider("jev", MODEL), timeout=DECIDE_SECONDS)
 
 
-def jev(request: dict) -> dict:
-    """Jev's answers to the questions the request asks of its state, each `{"binary": {...}}` or `{"label": {...}}` holding that question's fields, by question id, as spawnllm's `decide_sync` gives them in this process on the one keep-alive client every question of the process shares, the key's read and the answer both within DECIDE_SECONDS; Unheard when none came, Jev declining any of them included. spawnllm is imported on the first question, so a hook or verb that asks none never loads it."""
+def jev(state: dict, questions: dict[str, Noul], seconds: float = DECIDE_SECONDS) -> dict[str, float]:
+    """Jev's probability of yes for each Noul about the state, by question id, in one request to MODEL on the keep-alive client every question of the process shares, the key's read and the answer both within the seconds given, as TypeSafe's docs say to ask: named-field state, one judgment a question, the decision in code; Unheard when none came, Jev declining any of them included, since a failed call is never a no. spawnllm is imported on the first question, so a hook or verb that asks none never loads it."""
     import httpx
-    from spawnllm import (
-        JEV,
-        Binary,
-        DecideError,
-        DecideKeyMissing,
-        Label,
-        Refused,
-        decide_sync,
-    )
+    from spawnllm import Binary, BinaryAnswer, DecideError, DecideKeyMissing, Provider, decide_sync
 
-    kinds = {"binary": Binary, "label": Label}
-    questions = {key: kinds[kind](**fields) for key, spec in request["questions"].items() for kind, fields in spec.items()}
-    deadline = time.monotonic() + DECIDE_SECONDS
+    deadline = time.monotonic() + seconds
     try:
         token = jev_key()
-        decision = decide_sync(request["state"], questions, provider=JEV, timeout=deadline - time.monotonic(), api_key=token)
+        decision = decide_sync(state, {key: Binary(*noul) for key, noul in questions.items()}, provider=Provider("jev", MODEL), timeout=deadline - time.monotonic(), api_key=token)
     except (TimeoutError, ValueError, DecideError, DecideKeyMissing, httpx.HTTPError) as error:
         raise Unheard(str(error)) from None
-    if any(isinstance(answer, Refused) for answer in decision.answers.values()):
-        raise Unheard("Jev declined the question")
-    return {key: dataclasses.asdict(answer) for key, answer in decision.answers.items()}
+    if declined := [key for key, answer in decision.answers.items() if not isinstance(answer, BinaryAnswer)]:
+        raise Unheard(f"Jev declined {', '.join(declined)}")
+    return {key: answer.p_yes for key, answer in decision.answers.items()}
+
+
+def reading(sure: float | None) -> bool | None:
+    """A Noul's answer as code decides on it: yes at YES or more, no under NO, and None in the band between and for a question the request had no room for, which each check handles as its own row."""
+    return None if sure is None else True if sure >= YES else False if sure < NO else None
+
+
+def asking(noul: Noul, **slots: object) -> Noul:
+    """The Noul with the state paths its question names filled in, its yes and no as they are."""
+    return noul._replace(ask=noul.ask.format(**slots))
+
+
+def fill(state: dict, questions: dict[str, Noul], items: Iterable[tuple[dict, dict[str, Noul]]]) -> tuple[dict, dict[str, Noul], int]:
+    """The request holding the state and questions given, then each item's state and questions, whole, in turn, while the request stays within REQUEST_CHARS, by his words "jev should be getting like 10k chars at most for any call": an item with no room is left out whole, never cut, and a later smaller one still goes in; beside it, how many were left out."""
+    left = 0
+    for part, asked in items:
+        merged = state | {key: state[key] | value if isinstance(value, dict) and isinstance(state.get(key), dict) else value for key, value in part.items()}
+        if size(merged, questions | asked) > REQUEST_CHARS:
+            left += 1
+            continue
+        state, questions = merged, questions | asked
+    return state, questions, left
+
+
+def lined(key: str, text: str) -> Iterator[tuple[dict, dict[str, Noul]]]:
+    """Each line of the text that holds words as an item of `fill` under the key, by its line number, so a long text goes to Jev by whole lines."""
+    return (({key: {str(number): line}}, {}) for number, line in enumerate(text.splitlines(), 1) if line.strip())
+
+
+def size(state: dict, questions: dict[str, Noul]) -> int:
+    """The characters of the request Jev gets for this state and these questions, as JSON."""
+    return len(json.dumps({"state": state, "questions": {key: noul._asdict() for key, noul in questions.items()}}, ensure_ascii=False))
+
+
+BACKED = Noul(
+    "Does `reads.{read}.result` show what `claims.{claim}.claim` says?",
+    yes="The read's own output holds what the claim says, as it stands now for a state told as it stands.",
+    no="The read does not hold it, or only a doc, report, PR body, comment or log line inside it says so about code.",
+)
+HOLDS = Noul(
+    "Does `findings.{finding}.rule` hold against `findings.{finding}.found` in `post.text`?",
+    yes="The rule is meant to stop what the finding names in this post.",
+    no="The finding's pattern matched words its rule never meant.",
+)
+LIFTED = Noul("Do `his_words` permit what `findings.{finding}.found` names: his own words quoted back, a term he used himself, or words of his asking for it?")
+FACT = Noul(
+    "Does `post.sentences[{index}]` state a fact about code, a number or a state of work, which stands only on a read?",
+    no="It tells the handler's own act, when its next line is due, his words quoted back, the title a PR or card link draws, or a time `post.stamps` lists.",
+)
+PROTECTS = Noul(
+    "Is `call` the case `rule` exists to stop?",
+    yes="The call is exactly what the rule exists to stop.",
+    no="The rule's pattern matched a call it was never meant to stop, or an exception the rule names covers it.",
+)
+NO_READ = "none: "
+SENTENCE = re.compile(r"(?<=[.!?])\s+|\n+")
+COVERS = 0.5
+
+
+def weighed(request: dict) -> dict:
+    """The verdict of the capt-hook pack's one Jev request on a call a drive check refused or a post it hands with his words, as `post_verdict` or `refusal_verdict` gives it, the pack reading only its verdict, hold, warn or pass, and its note."""
+    if "refusal" in request:
+        return refusal_verdict(request["refusal"]["rule"], request["refusal"]["call"])
+    return post_verdict(request["post"], request["sent"])
+
+
+def refusal_verdict(rule: str, call: dict) -> dict:
+    """Whether a drive check's refusal stands, by one Noul over the rule it names and the call, the call's input filled whole field by field: it holds at YES or more and in the band between NO and YES, since a call the rule may stop waits, and passes under NO, as a match its rule never meant; when Jev cannot finish within REFUSAL_SECONDS the call goes ahead with the refusal beside it as a warning."""
+    fields = (({"call": {"input": {key: value}}}, {}) for key, value in call["input"].items())
+    told, _, _ = fill({"rule": rule, "call": {"tool": call["tool"], "input": {}}}, {"protects": PROTECTS}, fields)
+    try:
+        protects = reading(jev(told, {"protects": PROTECTS}, REFUSAL_SECONDS)["protects"])
+    except Unheard as failure:
+        return {"verdict": "warn", "note": f"Jev gave no verdict ({failure}) on whether this call is what the refusal's rule protects against, so the call goes ahead and the refusal only warns."}
+    if protects is None:
+        return {"verdict": "hold", "note": "Jev is unsure whether this call is what its rule protects against, so the refusal stands."}
+    return {"verdict": "hold" if protects else "pass", "note": ""}
+
+
+def post_verdict(output: dict, sent: str) -> dict:
+    """Whether a post the drive's checks hand with his words holds, by one request filled by whole items: each claim beside the read it names, whole, one Noul whether that read backs it; each finding beside the rule it stands for, one Noul whether the rule holds against it and one whether his words lift it; each sentence of a handler's post no claim's words cover, one Noul whether it states a fact that stands only on a read; and his words, the checks' own picks first, then newest first. It holds for a claim whose read is under NO or matched none of the handler's calls, a finding that holds at YES with no lift at NO or more, or an uncovered fact at YES, by his pick f9e9302 "The handler names the read behind each claim; Jev checks each claim against that read, whole, and holds only unbacked claims"; a Noul in the band between, or an item with no room left, only warns, naming it. When Jev cannot finish, a finding a count or a mark decides still holds, since no judgment lifts it, and every other only warns, by his pick b80a8b1 "Refusals only warn when the judge cannot finish: no post ever waits, but it goes out unchecked, as twice this morning". With sent naming the post Slack already has, by his pick 7bd6634, a held post stays in his DM and its note says to reword it in place."""
+    post = output["post"]
+    reason = (output.get("hookSpecificOutput") or {}).get("permissionDecisionReason") or ""
+    findings = output.get("findings") or ([{"rule": reason, "found": reason.removeprefix("refused: ")}] if reason else [])
+    reads = {item["id"]: item for item in output.get("reads") or []}
+    claims = post.get("claims") or []
+    sentences = [sentence for sentence in SENTENCE.split(post.get("text") or "") if sentence.strip()]
+    unread = [claim for claim in claims if reads.get(claim["read"], {}).get("quote", NO_READ).startswith(NO_READ)]
+    uncovered = [index for index, sentence in enumerate(sentences) if reads and not any(covers(claim["claim"], sentence) for claim in claims)]
+    words = output.get("his_words") or []
+    base = {"post": {"text": post.get("text") or "", "sentences": sentences} | ({"stamps": post["stamps"]} if post.get("stamps") else {})}
+
+    def backed(number: int, claim: dict) -> tuple[dict, dict[str, Noul]]:
+        item = reads[claim["read"]]
+        held = reads.get(item.get("given") or "", item)
+        call, _, result = held["quote"].partition("\n")
+        return {"claims": {f"c{number}": {"claim": claim["claim"], "read": held["id"]}}, "reads": {held["id"]: {"call": call, "result": result}}}, {f"c{number}.backed": asking(BACKED, read=held["id"], claim=f"c{number}")}
+
+    asked = [
+        *(backed(number, claim) for number, claim in enumerate(claims, 1) if claim not in unread),
+        *(({"findings": {f"f{number}": finding}}, {f"f{number}.holds": asking(HOLDS, finding=f"f{number}"), **({f"f{number}.lifted": asking(LIFTED, finding=f"f{number}")} if words else {})}) for number, finding in enumerate(findings, 1)),
+        *(({}, {f"s{index}.fact": asking(FACT, index=index)}) for index in uncovered),
+        *(({"his_words": {word["id"]: word["quote"]}}, {}) for word in [*(word for word in words if not word.get("said_at")), *sorted((word for word in words if word.get("said_at")), key=lambda word: word["said_at"], reverse=True)]),
+    ]
+    told, questions, _ = fill(base, {}, asked)
+    try:
+        read = jev(told, questions) if questions else {}
+    except Unheard as failure:
+        return unheard_post(output, reason, sent, str(failure))
+    held = [f'claim "{claim["claim"]}" names the read {json.dumps(claim["read"], ensure_ascii=False)}, which matches none of your calls' for claim in unread]
+    unsure: list[str] = []
+    for number, claim in enumerate(claims, 1):
+        if claim in unread:
+            continue
+        if (sure := read.get(f"c{number}.backed")) is None:
+            unsure.append(f'claim "{claim["claim"]}", whose read had no room in Jev\'s {REQUEST_CHARS:,} characters')
+        elif (backs := reading(sure)) is False:
+            held.append(f'claim "{claim["claim"]}" does not stand on its read: make the read that shows it and name it in claims, or cut the line to what your reads show')
+        elif backs is None:
+            unsure.append(f'claim "{claim["claim"]}"')
+    for number, finding in enumerate(findings, 1):
+        holds, lifted = read.get(f"f{number}.holds"), read.get(f"f{number}.lifted", 0.0)
+        if holds is None:
+            unsure.append(f"finding {finding['found']}, which had no room in Jev's {REQUEST_CHARS:,} characters")
+        elif reading(holds) and lifted < NO:
+            held.append(f"{finding['found']}, by its rule: {finding['rule']}")
+        elif reading(holds) is None or reading(lifted) is None:
+            unsure.append(f"finding {finding['found']}")
+    for index in uncovered:
+        if (fact := reading(read.get(f"s{index}.fact", 0.0))) is True:
+            held.append(f'"{sentences[index]}" states a fact no claim names: name the read behind it in claims')
+        elif fact is None:
+            unsure.append(f'sentence "{sentences[index]}"')
+    shown = f"\n```\n{reason}\n```" if reason else ""
+    if held:
+        fix = f"reword the sent post in place with say(edit={sent}, text=…) until Jev passes it" if sent else "fix each, then call say again"
+        return {"verdict": "hold", "note": f"Jev {'holds' if sent else 'held back'} this post: {'; '.join(held)}. So {fix}.{shown}"}
+    stands = "stays as say sent it" if sent else "goes out as written"
+    if unsure:
+        return {"verdict": "warn", "note": f"message_limits: Jev is unsure of {'; '.join(unsure)}, so the post {stands}: if one is wrong, reword the post in place.{shown}"}
+    return {"verdict": "warn" if reason else "pass", "note": f"message_limits: Jev read no finding's rule as holding against this post, so it {stands}." if reason else ""}
+
+
+def unheard_post(output: dict, reason: str, sent: str, failure: str) -> dict:
+    """The verdict on a post Jev gave no answer on: held for a finding a count or a mark decides, since no judgment lifts it, and a warning naming every other finding otherwise, so the post goes out, by his pick b80a8b1."""
+    if counted := output.get("counted"):
+        return {"verdict": "hold", "note": f"message_limits: Jev gave no verdict ({failure}), and a finding a count or a mark decides refuses without one: fix it, then call say again.\n```\n{counted}\n```"}
+    stands = "stays as say sent it" if sent else "goes out as written"
+    inplace = f" with say(edit={sent}, text=…)" if sent else ""
+    if reason:
+        return {"verdict": "warn", "note": f"message_limits: Jev gave no verdict ({failure}), so each finding below only warns and the post {stands}: if one holds, reword the post in place{inplace}.\n```\n{reason}\n```"}
+    return {"verdict": "warn", "note": f"message_limits: Jev gave no verdict ({failure}) on whether each claim of this post stands on the read it names, so the post {stands}."}
+
+
+def covers(claim: str, sentence: str) -> bool:
+    """Whether a claim speaks for a sentence of the post: at least COVERS of the claim's words stand in the sentence, case aside."""
+    named = set(UNWORDED.sub(" ", claim.casefold()).split())
+    return bool(named) and len(named & set(UNWORDED.sub(" ", sentence.casefold()).split())) >= COVERS * len(named)
 
 
 def answered(data: dict, title: str) -> dict | None:

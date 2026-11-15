@@ -22,11 +22,6 @@ RECENT_POSTS = 50
 RECORD_WAIT_SECONDS = 1.0
 RECORD_POLL_SECONDS = 0.05
 WORD = re.compile(r"\w+")
-BREAKS = "breaks"
-PLAIN_QUESTION = (
-    "The drive posts this line over his PR card, written from the PR's title, and `cc-slack check-post` found each of these in it. Does the rule"
-    " any finding stands for hold against the line, a finding matching words its rule never meant included? The rule: {rule}"
-)
 
 
 def say(name: str, post: dict) -> str:
@@ -547,19 +542,23 @@ def waits_line(data: dict, keys: list[str], titles: list[str], again: bool) -> s
 
 
 def plain(line: str) -> None:
-    """Refuse a line over his card that `cc-slack check-post` finds something in and Jev, in one call, reads as breaking the plain-words rule; a line Jev gives no reading of goes out, said on stderr, as a say post does when its judge cannot finish."""
+    """Refuse a line over his card that `cc-slack check-post` finds something in and Jev, in one request with one Noul a finding, reads as breaking the plain-words rule at settled.YES or more; a line Jev reads in the band between settled.NO and settled.YES, or gives no reading of, goes out, said on stderr, as a say post does when its judge cannot finish."""
     from drive import settled
 
     if not (findings := slack.post_findings(line, True)):
         return
-    question = {"label": {"instructions": PLAIN_QUESTION.format(rule=agents.PLAIN_WORDS_RULE), "options": {settled.UNDECIDED: "No finding's rule holds against the line.", BREAKS: "A finding's rule holds against the line."}}}
+    items = (({"findings": {f"f{number}": {"rule": agents.PLAIN_WORDS_RULE, "found": found}}}, {f"f{number}.holds": settled.asking(settled.HOLDS, finding=f"f{number}")}) for number, found in enumerate(findings, 1))
+    told, questions, _ = settled.fill({"post": {"text": line}}, {}, items)
     try:
-        read = settled.jev({"state": {"line": line, "findings": findings}, "questions": {BREAKS: question}})[BREAKS]
+        read = settled.jev(told, questions)
     except settled.Unheard as failure:
         print(f"drive: Jev gave no reading of the line over his card, so it goes out with what check-post found in it, {'; '.join(findings)}: {failure}", file=sys.stderr)
         return
-    if read["choice"] == BREAKS and read["probabilities"][BREAKS] >= settled.DECIDES:
-        raise DriveError(f"nothing was posted: the line over his card breaks the plain-words rule, as `cc-slack check-post` finds and Jev reads it: {'; '.join(findings)}. Line: {line}")
+    holds = {found: settled.reading(read.get(f"f{number}.holds")) for number, found in enumerate(findings, 1)}
+    if broken := [found for found, held in holds.items() if held]:
+        raise DriveError(f"nothing was posted: the line over his card breaks the plain-words rule, as `cc-slack check-post` finds and Jev reads it: {'; '.join(broken)}. Line: {line}")
+    if unsure := [found for found, held in holds.items() if held is None]:
+        print(f"drive: Jev is unsure whether the plain-words rule holds against {'; '.join(unsure)} in the line over his card, so it goes out", file=sys.stderr)
 
 
 def withdraw(name: str, key: str) -> list[str]:

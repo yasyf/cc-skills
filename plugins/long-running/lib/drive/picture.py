@@ -117,13 +117,6 @@ SIGNED = re.compile(r'<img src="([^"]+)"')
 SIGNING_CONTEXT = "cli/cli"
 SOURCED = ".sourced"
 SOURCE = "source.json"
-ILLUSTRATES = (
-    "This fence is about to be drawn as a picture of code on his Slack card. Does the picture illustrate something the card's"
-    " words cannot say as well, such as the shape of a function, a type, a query or several statements working together?"
-    " Answer no when it is trivial: a value flipped, such as write = 0 becoming write = 1, an argument or list item added or"
-    " dropped, a name or path changed, or one declaration, which a sentence says as well."
-)
-ILLUSTRATIVE = 0.5
 JUDGED = "illustrative"
 
 
@@ -341,27 +334,30 @@ def pictured(language: str, source: str) -> bool:
 
 
 def illustrative(language: str, source: str) -> bool:
-    """Whether a fence is worth a picture on his card, by his pick 29865ea, "drop the ones where the code is not illustrative or is just one line or something": every diagram is, a fence of one line never is, and code is when Jev reads its picture as illustrating what the card's words cannot say as well, ILLUSTRATIVE sure or more, never a value flipped, an argument dropped or a name changed. Jev's verdict on each source is kept under the state root, so every draw of a card shows the same pictures; when Jev gives none the fence draws, said on stderr."""
+    """Whether a fence is worth a picture on his card, by his pick 29865ea, "drop the ones where the code is not illustrative or is just one line or something": every diagram is, a fence of one line never is, and code is when Jev reads its picture as illustrating what the card's words cannot say as well, at settled.YES or more, never a value flipped, an argument dropped or a name changed, a reading in the band between settled.NO and settled.YES drawing it as Slack's code block, said on stderr. Jev's verdict on each source under the model and question asked is kept under the state root, so every draw of a card shows the same pictures; when Jev gives none the fence draws, said on stderr."""
     if language.lower() in DIAGRAMS:
         return True
     if len([line for line in source.splitlines() if line.strip()]) < 2:
         return False
     from drive import settled, state
 
-    key = hashlib.sha256(f"{language.lower()}\n{source}".encode()).hexdigest()[:16]
+    key = hashlib.sha256(f"{settled.MODEL}\n{settled.ILLUSTRATES.ask}\n{language.lower()}\n{source}".encode()).hexdigest()[:16]
     kept = state.root() / JUDGED / f"{key}.json"
     if kept.is_file():
         return json.loads(kept.read_text())["illustrative"]
     try:
-        sure = settled.jev({"state": {"language": language, "code": source}, "questions": {"illustrates": {"binary": {"instructions": ILLUSTRATES}}}})["illustrates"]["p_yes"]
+        told, _, _ = settled.fill({"language": language, "code": {}}, {"illustrates": settled.ILLUSTRATES}, settled.lined("code", source))
+        sure = settled.jev(told, {"illustrates": settled.ILLUSTRATES})["illustrates"]
     except settled.Unheard as failure:
         print(f"drive card: Jev did not say whether a ```{language} fence illustrates anything, so it draws as a picture: {failure}", file=sys.stderr)
         return True
+    if (illustrates := settled.reading(sure)) is None:
+        print(f"drive card: Jev is unsure whether a ```{language} fence illustrates anything, so it draws as Slack's code block", file=sys.stderr)
     kept.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile("w", dir=kept.parent, suffix=".tmp", delete=False) as written:
-        json.dump({"language": language, "source": source, "p_yes": sure, "illustrative": sure >= ILLUSTRATIVE}, written)
+        json.dump({"language": language, "source": source, "model": settled.MODEL, "p_yes": sure, "illustrative": bool(illustrates)}, written)
     os.replace(written.name, kept)
-    return sure >= ILLUSTRATIVE
+    return bool(illustrates)
 
 
 def file_name(caption: str) -> str:
