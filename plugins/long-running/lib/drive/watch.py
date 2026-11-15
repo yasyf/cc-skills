@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Self
 
 from drive import agents, brief, codex, dashboard, github, install, land, launchd, orca, page, place, procs, reads, receiver, render, served, settled, slack, stage, stall, state, superseded, view
-from drive.install import PROOF_FAILED, add_prover, config_dir, merged_done, merged_ready, merged_said, product, proof_gap, proofless, prover_of, proves, reported_prs, upgraded, watch_proves, widen
+from drive.install import PROOF_FAILED, add_prover, config_dir, merged_done, merged_ready, merged_said, product, proof_gap, proofless, proved_prs, prover_of, proves, reported_prs, upgraded, watch_proves, widen
 from drive.render import cut, when
 
 POLL_SECONDS = 5
@@ -2991,9 +2991,9 @@ def unposted_card(job_id: str, job: dict, data: dict) -> tuple[str, dict] | None
 
 
 def merged_gap(job_id: str, data: dict) -> str:
-    """Who proves live a builder's READY or PUSHED whose PRs all merged, or a repair's marked proof, that the watch neither took DONE on at its merge nor proves: who proof_gap names, else a run again of the proof that ended with no result."""
+    """Who proves live a builder's READY or PUSHED whose PRs all merged, or a repair's or prover's marked proof, that the watch neither took DONE on at its merge nor proves: who proof_gap names, else a run again of the proof that ended with no result."""
     if why := proof_gap(data, job_id):
-        return f"{job_id}'s PRs all merged and nothing proves them live: {why}" if reported_prs(data, job_id) else f"nothing proves {job_id}'s repair: {why}"
+        return f"{job_id}'s PRs all merged and nothing proves them live: {why}" if proved_prs(data, job_id) else f"nothing proves {job_id}'s repair: {why}"
     proof = data["jobs"][job_id]["proof"]
     return f"{job_id}'s proof, drive job prove pid {proof['pid']}, ended with no result, its output in the drive's {PROOFS_LOG}: drive job prove {job_id} runs it again"
 
