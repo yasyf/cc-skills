@@ -1624,6 +1624,123 @@ def test_a_thread_his_open_order_watches_starts_a_handler_on_each_new_teammate_m
     assert (len(calls), len(slack_thread.reads)) == (2, 2)
 
 
+HIS_THREAD = "1794200000.000100"
+REAL_OWED = watch.owed_lines
+
+
+@pytest.fixture
+def owed_replies(demo: str, monkeypatch: pytest.MonkeyPatch) -> list[dict]:
+    """The messages of his cc-slack dm-owed lists, while the session the demo drive's handlers run beside holds his DM."""
+    owed: list[dict] = []
+    answer = slack.cc_slack
+    monkeypatch.setattr(slack, "cc_slack", lambda *argv, **flags: {"replies": list(owed), "holder_session": agents.beside(state.load(demo))[1]["session"]} if argv == ("dm-owed",) else answer(*argv, **flags))
+    return owed
+
+
+def owed_reply(moment: datetime, text: str) -> dict:
+    ts = f"{moment.timestamp():.6f}"
+    return {"ts": ts, "thread_ts": HIS_THREAD, "text": text, "permalink": f"https://acme.slack.com/archives/D123/p{ts.replace('.', '')}?thread_ts={HIS_THREAD}&cid=D123"}
+
+
+def owed_brief(demo: str, reply: dict) -> str:
+    return (
+        f"Message (his words): {reply['text']}\nLink: {reply['permalink']}\nThread: D123 {HIS_THREAD}\nDrive: {demo}\n"
+        f"Scratch: {state.drive_dir(demo) / 'scratch' / f'owed-{reply['ts']}'}\n"
+        f"Context: cc-slack has owed him an answer to this message since {watch.when(state.stamp(slack.sent_at(reply)))}, since no post answering it named it as asked"
+    )
+
+
+def test_a_message_of_his_cc_slack_owes_starts_one_handler_two_minutes_on_whatever_it_posts_one_report_in_its_thread_ten_minutes_on_and_is_forgotten_once_answered(
+    demo: str, monkeypatch: pytest.MonkeyPatch, owed_replies: list[dict], ended_sessions: set[str]
+) -> None:
+    calls = catching_up(monkeypatch, demo)
+    asked = owed_reply(T0, "why did the release stop?")
+    owed_replies.append(asked)
+    watching = watcher(demo)
+    assert REAL_OWED(watching, T0 + timedelta(minutes=1, seconds=59)) == []
+    assert calls == []
+    assert REAL_OWED(watching, T0 + timedelta(minutes=2)) == []
+    [(start, _)] = calls
+    assert start[-1] == owed_brief(demo, asked) + UNFROZEN
+    ended_sessions.add("launched-1")
+    assert REAL_OWED(watching, T0 + timedelta(minutes=9)) == []
+    assert len(calls) == 1
+    assert REAL_OWED(watching, T0 + timedelta(minutes=10)) == []
+    [_, (report, body), (lined, _)] = calls
+    assert (report["text"], report["topic"], report["to"]) == ("POST his message has waited 10 minutes for its answer: say in its thread what the answer waits on", f"owed-{asked['ts']}", [f"communicator@{demo}"])
+    assert report["attr"] == {"owed": asked["ts"], "progress": "true", "thread": HIS_THREAD}
+    assert body.splitlines()[:4] == ["His message, owed an answer 10 minutes: why did the release stop?", f"Link: {asked['permalink']}", f"Thread: D123 {HIS_THREAD}", "Order: none"]
+    assert lined[-1] == f"Record: 902 Drive: {demo} Scratch: {state.drive_dir(demo) / 'scratch' / 'owed-902'}" + UNFROZEN
+    assert state.load(demo)["owed_replies"] == {asked["ts"]: {"handed": True, "lined": "902"}}
+    assert REAL_OWED(watching, T0 + timedelta(minutes=30)) == []
+    assert len(calls) == 3
+    owed_replies.clear()
+    assert REAL_OWED(watching, T0 + timedelta(minutes=31)) == []
+    assert state.load(demo)["owed_replies"] == {}
+
+
+def test_a_message_of_his_cc_slack_owes_goes_to_the_live_handler_in_its_thread_each_read_and_to_its_own_handler_once_that_one_ends(
+    demo: str, monkeypatch: pytest.MonkeyPatch, owed_replies: list[dict], ended_sessions: set[str]
+) -> None:
+    calls = catching_up(monkeypatch, demo)
+    first, asked = owed_reply(T0 - timedelta(minutes=1), "is the release out?"), owed_reply(T0, "and the hotfix?")
+    holder, _ = agents.handle(demo, owed_brief(demo, first))
+    owed_replies.append(asked)
+    watching = watcher(demo)
+    assert REAL_OWED(watching, T0 + timedelta(minutes=2)) == []
+    assert REAL_OWED(watching, T0 + timedelta(minutes=3)) == []
+    assert (len(calls), state.load(demo)["handlers"][holder]["handed"]) == (1, [owed_brief(demo, asked)])
+    assert state.load(demo)["owed_replies"][asked["ts"]]["handed"] is False
+    ended_sessions.add("launched-1")
+    assert REAL_OWED(watching, T0 + timedelta(minutes=4)) == []
+    [_, (start, _)] = calls
+    assert start[-1] == owed_brief(demo, asked) + UNFROZEN
+    assert [entry["handed"] for entry in state.load(demo)["handlers"].values()] == [[]]
+    assert state.load(demo)["owed_replies"][asked["ts"]]["handed"] is True
+
+
+def test_a_message_of_his_that_started_an_open_order_is_left_to_its_lines_and_handed_once_the_order_ends_still_owed(
+    demo: str, monkeypatch: pytest.MonkeyPatch, owed_replies: list[dict]
+) -> None:
+    calls = catching_up(monkeypatch, demo)
+    asked = owed_reply(T0, "ship the watch")
+    owed_replies.append(asked)
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["from"] = f"slack:D123/{asked['ts']}"
+    watching = watcher(demo)
+    assert REAL_OWED(watching, T0 + timedelta(minutes=30)) == []
+    assert calls == []
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["state"] = "done"
+    assert REAL_OWED(watching, T0 + timedelta(minutes=31)) == []
+    [(start, _), (report, body), _] = calls
+    assert start[-1] == owed_brief(demo, asked) + UNFROZEN
+    assert report["attr"] == {"owed": asked["ts"], "progress": "true", "thread": HIS_THREAD, "order": "o1"}
+    assert body.splitlines()[3:5] == ["Order o1: ship the watch", "Jobs: 1"]
+
+
+def test_a_dm_owed_read_that_fails_is_said_from_its_third_failure_in_a_row_and_a_project_watch_reads_none(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    reads_made: list[str] = []
+
+    def refused(*argv: str, **flags: object) -> dict:
+        reads_made.append(argv[0])
+        raise slack.SlackError("daemon not running")
+
+    monkeypatch.setattr(slack, "cc_slack", refused)
+    watching = watcher(demo)
+    assert [REAL_OWED(watching, T0 + timedelta(minutes=minute)) for minute in range(3)] == [[], [], ["WATCH read of the replies cc-slack owes him failed 3 times in a row: daemon not running"]]
+    assert REAL_OWED(watch.Watcher(demo, offset=0, project="platform"), T0) == []
+    assert reads_made == ["dm-owed"] * 3
+
+
+def test_a_message_of_his_owed_while_another_session_holds_his_dm_is_left_to_that_session(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = catching_up(monkeypatch, demo)
+    asked = owed_reply(T0, "why did the release stop?")
+    monkeypatch.setattr(slack, "cc_slack", lambda *argv, **flags: {"replies": [asked], "holder_session": "another-drives-communicator"})
+    assert REAL_OWED(watcher(demo), T0 + timedelta(minutes=30)) == []
+    assert (calls, state.load(demo)["owed_replies"]) == ([], {})
+
+
 FOLLOWED = "https://buildkite.com/forge/release/builds/14185"
 SMOKE = "Watch the tenant smoke on plat-usw2-staging"
 

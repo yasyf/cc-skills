@@ -515,7 +515,7 @@ def handle(name: str, brief: str, detached: bool = False, briefed: Callable[[str
         left: list[str] = []
         while (held := holder(data, held_now)) and gone(data["handlers"][held]):
             left += forget(data, held)
-        left = [one for one in dict.fromkeys(left) if not (named := RECORD.search(one)) or named[1] != held_now["record"]]
+        left = [one for one in dict.fromkeys(left) if one != brief.strip() and (not (named := RECORD.search(one)) or named[1] != held_now["record"])]
         if held:
             entry = data["handlers"][held]
             same = "record" if held_now["record"] else "message"
