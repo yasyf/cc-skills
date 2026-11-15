@@ -1881,6 +1881,28 @@ def test_his_standing_yes_to_soak_on_staging_orders_each_soak_there_whatever_it_
     assert jev.asked[-1]["state"]["action"] == f"start this release on plat-usw2-staging (stage staging): `{unapproved}`"
 
 
+def test_his_standing_yes_on_a_card_another_drive_keeps_orders_a_staging_soak_on_this_drive_and_no_production_start_with_no_jev_read(
+    demo: str, run: Run, recorded: Answers, jev: Jev
+) -> None:
+    standing = STANDING_SOAK | {"tags": ["scope:durable", f"drive:{demo}"]}
+    answered_cut(run, demo, [standing], STANDING_SOAK_CARD)
+    run("start", "ssql-duckdb", "--role", "coordinator")
+    recorded.listed = [RELEASE_HOLD, standing]
+    recorded.shown = {answer["id"][:7]: answer for answer in recorded.listed}
+    data = state.load("ssql-duckdb")
+    assert standing["id"] not in data["answers"]
+    soak = STAGING_SOAKS[0]
+    production = soak.replace("plat-usw2-staging", "plat-usw2-prod")
+    picks = f'`--order 23eefb9` names his answer to "{STANDING_SOAK["title"]}", and it picks option 1 of the card it answers, `tools/ci release start --emergency --env plat-usw2-staging`'
+    held_here = brief.RELEASE_HELD.format(said=RELEASE_HOLD["body"], where="15c4de1", hold="15c4de1", release=production, why=f"{picks}, and this release ships another change")
+    assert [brief.approval_refusal(release, data) for release in (soak, production)] == [None, held_here]
+    assert jev.asked == []
+    recorded.shown["23eefb9"] = STANDING_SOAK | {"tags": ["scope:durable", "drive:gone"]}
+    unread = f'`--order 23eefb9` names his answer to "{STANDING_SOAK["title"]}", and {settled.UNORDERED}'
+    assert brief.approval_refusal(soak, data) == brief.RELEASE_HELD.format(said=RELEASE_HOLD["body"], where="15c4de1", hold="15c4de1", release=soak, why=unread)
+    assert len(jev.asked) == 1
+
+
 def test_his_words_past_the_number_order_only_the_places_they_name(demo: str, run: Run, recorded: Answers) -> None:
     answered_cut(run, demo, [CUT_PICK])
     recorded.shown = {"5d17d9c": CUT_PICK}

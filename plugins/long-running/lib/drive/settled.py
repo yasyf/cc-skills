@@ -7,7 +7,7 @@ import sys
 import time
 from collections.abc import Iterable, Iterator, Sequence
 from functools import cache
-from itertools import zip_longest
+from itertools import chain, zip_longest
 from pathlib import Path
 from typing import NamedTuple
 
@@ -698,7 +698,7 @@ def unordered(answer: dict, release: str, data: dict) -> str | None:
     from drive import brief
 
     said = his(answer["body"])
-    asked = answered_card(data, answer["id"])
+    asked = answered_card(data, answer)
     [flags] = brief.started(release)
     cwd = data["roles"]["coordinator"]["cwd"]
     if asked and (pick := picked_option(asked, said)):
@@ -725,12 +725,15 @@ def only_asks(title: str, options: list[str], words: str) -> bool:
     return reading(jev({"card": {"question": title, "options": options}, "his_words": words[:BODY_CHARS]}, {"answers_nothing": ANSWERS_NOTHING})["answers_nothing"]) is True
 
 
-def answered_card(data: dict, answer_id: str) -> limits.Question | None:
-    """The card his answer answers, as `drive job ask` kept it: a question drawn on the card at the link `drive answer` kept for his answer, ended answered, whose ASK file stands; None when none does."""
-    link = (data["answers"].get(answer_id) or {}).get("link")
-    files = [Path(question["file"]) for _, question in view.drawn_on(data, link) if question["file"] and (question["closed"] or {}).get("how") == "answered"] if link else []
-    kept = next((file for file in files if file.is_file()), None)
-    return limits.question_problems(limits.ask_block(kept.read_text()), kept=True)[0] if kept else None
+def answered_card(data: dict, answer: dict) -> limits.Question | None:
+    """The card his answer answers, as `drive job ask` kept it: a question drawn on the card at the link `drive answer` kept for his answer, ended answered, whose ASK file stands, in this drive, else in each drive on this Mac its `drive:<name>` labels name, where `drive answer` recorded it, so an answer he gave on one drive's card reads the same in every drive; None when none does."""
+    labelled = (name for tag in answer["tags"] if (name := tag.removeprefix("drive:")) not in (tag, data["name"]) and state.exists(name))
+    for drive in chain([data], map(state.load, labelled)):
+        link = (drive["answers"].get(answer["id"]) or {}).get("link")
+        files = [Path(question["file"]) for _, question in view.drawn_on(drive, link) if question["file"] and (question["closed"] or {}).get("how") == "answered"] if link else []
+        if kept := next((file for file in files if file.is_file()), None):
+            return limits.question_problems(limits.ask_block(kept.read_text()), kept=True)[0]
+    return None
 
 
 def picked_option(asked: limits.Question, said: str) -> tuple[int, str] | None:
