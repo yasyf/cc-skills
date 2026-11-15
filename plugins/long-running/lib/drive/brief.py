@@ -457,10 +457,9 @@ def job_refusal(name: str, data: dict, order_id: str, kind: str, parts: list[str
     """Why a job of this kind may not start on the order: an order he limited to options gets no builder or codex job until he picks, an answer order is one reader's, and a build order's builder, designer or codex lane waits on the research of a reader or design of its own part, a change a design listed counting as that design's part, added at once waiting on such a reader still at work when --waits names it, so no part sits in no job while it reads,. A job of any kind may wait on his card, a drive PR or a release, which check_waits reads, and on any job still at work, a reader that just started included, which state.job_wait_refusal reads, stored as that job's newest open PR, each PR it opens taking the wait's place. The immediate fix of a bug hurting someone now, a red default branch's fix-forward among them, a builder landing PRs he approved and an open PR's builder added on the branch it pushed start at once past each of those, by his words: "always do the immediate fix (or rollback if prudent) in parallel to giving me options for the proper fix". A follow-up he orders to a PR gets its design job at once, doing its own research and waiting on nothing, beside landing that PR, by his words "start deisgnng the follow p right awya motherfucker dont wait"."""
     order = data["orders"][order_id]
     at_once = state.IMMEDIATE_FIX in parts or lands
-    listed = " ".join(f'"{part}"' for part in dict.fromkeys([*order["parts"], state.IMMEDIATE_FIX]))
     immediate = (
         f'the immediate fix of a bug hurting someone now, or a red default branch\'s fix-forward, starts at once on its own "{state.IMMEDIATE_FIX}"'
-        f" part, added with drive order set {order_id} --parts {listed}, a builder landing PRs he approved with --lands <each PR>,"
+        f' part, added with drive order set {order_id} --add-part "{state.IMMEDIATE_FIX}", a builder landing PRs he approved with --lands <each PR>,'
         " and an open PR's builder with --branch <the branch it pushed>"
     )
     if order["options_only"] and kind in ("builder", "codex") and not at_once:

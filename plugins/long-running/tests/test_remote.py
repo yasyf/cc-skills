@@ -4236,7 +4236,7 @@ def test_the_watch_frees_each_finished_lane_once_a_sprite_by_destroy_and_a_quiet
     run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     goals = ("on this mac", "still at work", "its run lives on", "just finished", "stopped by hand")
-    run("order", "set", "o1", "--parts", "Short title", *goals)
+    run("order", "set", "o1", *(flag for goal in goals for flag in ("--add-part", goal)))
     for goal in goals:
         run("job", "add", "builder", "--order", "o1", "--part", goal, "--goal", goal, "--remote")
     quiet = state.stamp(T0 - watch.QUIET_LANE)
@@ -4272,7 +4272,7 @@ def test_the_watch_ends_every_lane_on_a_sprite_two_minutes_after_its_line_ahead_
     run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ended_lanes: list[str]
 ) -> None:
     goals = ("returned built", "returned done", "returned pushed", "still at work", "already ended")
-    run("order", "set", "o1", "--parts", "Short title", *goals)
+    run("order", "set", "o1", *(flag for goal in goals for flag in ("--add-part", goal)))
     for goal in goals:
         run("job", "add", "builder", "--order", "o1", "--part", goal, "--goal", goal, "--remote")
     earlier = state.stamp(T0 - timedelta(minutes=10))
@@ -5289,7 +5289,7 @@ def test_every_worker_on_a_jobs_own_run_is_heard_one_it_never_recorded_included_
 def test_mail_orca_files_on_a_jobs_own_run_from_another_jobs_worker_enters_neither_its_history_nor_its_said_line_nor_its_state_as_j4507s_status_became_j4841s(
     run: Run, remote: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run("order", "set", "o1", "--parts", "Short title", "staging test")
+    run("order", "set", "o1", "--add-part", "staging test")
     run("job", "add", "builder", "--order", "o1", "--part", "staging test", "--goal", "staging test", "--remote")
     with state.edit(remote) as data:
         data["jobs"]["j2"].update(run="run_drive0002", dispatch="ctx_lane0002", ask=None, deaths=[{"dispatch": "ctx_e82dd7684e4e", "workspace": "local", "why": "x", "at": "y"}])
@@ -5608,7 +5608,7 @@ def test_lane_names_fit_a_sprite() -> None:
 
 
 def test_each_lane_is_read_from_its_own_run(run: Run, remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    run("order", "set", "o1", "--parts", "Short title", "second lane")
+    run("order", "set", "o1", "--add-part", "second lane")
     run("job", "add", "builder", "--order", "o1", "--part", "second lane", "--goal", "second lane", "--remote")
     with state.edit(remote) as data:
         data["jobs"]["j2"].update(run="run_drive0002", dispatch="ctx_lane0002", ask=None)
@@ -5623,7 +5623,7 @@ def test_each_lane_is_read_from_its_own_run(run: Run, remote: str, monkeypatch: 
 
 
 def test_a_run_a_finished_job_shares_gives_the_live_job_only_its_own_workers_mail(run: Run, remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    run("order", "set", "o1", "--parts", "Short title", "an earlier lane")
+    run("order", "set", "o1", "--add-part", "an earlier lane")
     run("job", "add", "builder", "--order", "o1", "--part", "an earlier lane", "--goal", "an earlier lane on the drive's old shared Run", "--remote")
     with state.edit(remote) as data:
         data["jobs"]["j2"].update(run=RUN, dispatch="ctx_lane0002", state="done")

@@ -1244,11 +1244,10 @@ def job_parts(job: dict, order_id: str) -> list[str]:
     return job["parts"] if job["order"] == order_id else job["carries"].get(order_id, [])
 
 
-def split_research(data: dict, order_id: str, parts: list[str]) -> None:
-    """Give each part a `drive order set --parts` list adds to each reader of the part it splits, a part the list leaves out or else the order's one part, so a builder on a part split from read work starts on that reader's research, as the remedy of a part every option on his card shares being its own builder job needs."""
+def split_research(data: dict, order_id: str, added: list[str], dropped: list[str]) -> None:
+    """Give each part `drive order set --add-part` adds to each reader of the part it splits, a part `--drop-part` takes off in the same call or else the order's one part, so a builder on a part split from read work starts on that reader's research, as the remedy of a part every option on his card shares being its own builder job needs."""
     held = data["orders"][order_id]["parts"]
-    split = {part for part in held if part not in parts} or (set(held) if len(held) == 1 else set())
-    share_research(data, order_id, split, [part for part in parts if part not in held])
+    share_research(data, order_id, set(dropped) or (set(held) if len(held) == 1 else set()), added)
 
 
 def share_research(data: dict, order_id: str, read: set[str], added: list[str]) -> None:
@@ -1659,29 +1658,23 @@ def add_changes(name: str, data: dict, job_id: str, report: str) -> list[str]:
     return added
 
 
-def renamed_change(name: str, data: dict, order_id: str, named: list[str], design_id: str | None = None) -> str | None:
-    """Why a list of an order's changes renames one, refused with nothing kept, since a change's part words are its one identity, which its design, its builder and that builder's PR hang on: a drive order set --parts list, with no design_id, bringing in a name the order does not hold while leaving out a change a design listed that no builder delivered, whose design the new name would lose; or the Change: lines of design_id's DESIGN of several naming a change no builder or codex job carries, by part_builders, which change_builders would start a builder on, while leaving out an undelivered change that design listed before, a part its DESIGN of several made under its name or its own parts once a DESIGN of one change made them its change, that such a job carries, which would then build one change twice. A list that only drops changes or only brings names in renames none."""
+def renamed_change(name: str, data: dict, order_id: str, named: list[str], design_id: str) -> str | None:
+    """Why a list of an order's changes renames one, refused with nothing kept, since a change's part words are its one identity, which its design, its builder and that builder's PR hang on: the Change: lines of design_id's DESIGN of several naming a change no builder or codex job carries, by part_builders, which change_builders would start a builder on, while leaving out an undelivered change that design listed before, a part its DESIGN of several made under its name or its own parts once a DESIGN of one change made them its change, that such a job carries, which would then build one change twice. A list that only drops changes or only brings names in renames none."""
     parts = data["orders"][order_id]["parts"]
-    if design_id is None:
-        added = [part for part in named if part not in parts]
-        left = [f'"{part}" of {held["design"]}\'s design' for part, held in parts.items() if part not in named and held["design"] and not delivered(data, order_id, part)]
-        said = f"--parts adds {', '.join(json.dumps(part, ensure_ascii=False) for part in added)} and leaves out {', '.join(left)}, which no builder delivered"
-        fix = 'name each change by its part, as drive job add builder --part "<the part>" takes it, and leave a change out only once it is delivered or he withdrew it'
-    else:
-        design = data["jobs"][design_id]
-        alone = any(len(change_lines("design", reply["body"])) == 1 for reply in returns(name, design_id) if opening(reply["body"]).startswith("DESIGN"))
-        listed = dict.fromkeys([*(design["parts"] if alone else []), *designed(data, design_id, order_id)])
-        added = [part for part in named if not part_builders(data, order_id, part)]
-        left = [
-            f'"{part}", carried by {", ".join(jobs)}'
-            for part in listed
-            if part in parts and part not in named and not delivered(data, order_id, part) and (jobs := part_builders(data, order_id, part))
-        ]
-        said = f"its Change: lines name {', '.join(json.dumps(part, ensure_ascii=False) for part in added)}, which no builder or codex job carries, and leave out {', '.join(left)}, so one change would get a second builder"
-        fix = (
-            "a change's part words are its one identity, so keep each change it leaves out word for word on the Change: line of that change,"
-            " with what is new on the Design: line, or, for a change this design drops, return BLOCKED naming the job that carries it, for the coordinator to stop"
-        )
+    design = data["jobs"][design_id]
+    alone = any(len(change_lines("design", reply["body"])) == 1 for reply in returns(name, design_id) if opening(reply["body"]).startswith("DESIGN"))
+    listed = dict.fromkeys([*(design["parts"] if alone else []), *designed(data, design_id, order_id)])
+    added = [part for part in named if not part_builders(data, order_id, part)]
+    left = [
+        f'"{part}", carried by {", ".join(jobs)}'
+        for part in listed
+        if part in parts and part not in named and not delivered(data, order_id, part) and (jobs := part_builders(data, order_id, part))
+    ]
+    said = f"its Change: lines name {', '.join(json.dumps(part, ensure_ascii=False) for part in added)}, which no builder or codex job carries, and leave out {', '.join(left)}, so one change would get a second builder"
+    fix = (
+        "a change's part words are its one identity, so keep each change it leaves out word for word on the Change: line of that change,"
+        " with what is new on the Design: line, or, for a change this design drops, return BLOCKED naming the job that carries it, for the coordinator to stop"
+    )
     return f"{said}; {fix}" if added and left else None
 
 

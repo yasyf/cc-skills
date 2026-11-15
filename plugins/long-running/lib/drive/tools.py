@@ -649,7 +649,7 @@ def carried(name: str, said: list[str], index: int, item: dict, attrs: dict, dry
     part = order["title"] if state.whole_order(item["text"]) == state.whole_order(order["text"]) else state.whole_order(item["text"])
     attrs |= {"order": order_id, "part": f"{order_id}:{part}"}
     if part not in order["parts"]:
-        ran(name, said, index, ("order", "set"), {"id": order_id, "parts": [*order["parts"], part]}, dry_run)
+        ran(name, said, index, ("order", "set"), {"id": order_id, "add_part": [part]}, dry_run)
 
 
 def reporters_order(name: str, said: list[str], index: int, item: dict, attrs: dict, data: dict, served: str, dry_run: bool) -> str:
