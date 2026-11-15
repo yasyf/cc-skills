@@ -44,16 +44,16 @@ def test_weighed_gives_jev_at_most_the_seconds_the_hook_has_left_and_a_refusal_t
 )
 def test_a_refusal_stands_at_yes_and_in_the_band_and_lets_the_call_through_under_no_by_one_noul_over_its_rule_and_whole_call(jev: Jev, sure: float, verdict: dict) -> None:
     jev.breaks("protects", "", sure)
-    assert settled.refusal_verdict(RULE, CALL) == verdict
+    assert settled.refusal_verdict(RULE, CALL, [FINDING]) == verdict
     [request] = jev.asked
     assert request == {"state": {"rule": RULE, "call": CALL}, "questions": {"protects": settled.PROTECTS}}
 
 
-def test_a_refusal_jev_gives_no_verdict_on_only_warns_so_the_call_goes_ahead(jev: Jev) -> None:
+def test_a_refusal_jev_gives_no_verdict_on_only_warns_saying_the_call_goes_ahead_and_naming_what_its_check_found(jev: Jev) -> None:
     jev.answer = None
-    assert settled.refusal_verdict(RULE, CALL) == {
+    assert settled.refusal_verdict(RULE, CALL, [FINDING]) == {
         "verdict": "warn",
-        "note": "Jev gave no verdict (no jev decision within 20s) on whether this call is what the refusal's rule protects against, so the call goes ahead and the refusal only warns.",
+        "note": f"This call goes ahead: Jev gave no verdict (no jev decision within 20s) on whether it is what the refusal's rule protects against, so what the check found only warns:\n1. {FINDING['found']}",
     }
 
 
@@ -130,7 +130,7 @@ def test_a_claim_saying_only_every_no_or_never_of_a_set_is_asked_whether_its_rea
     jev.breaks("c1", "spans", 0.5)
     assert settled.post_verdict(output) == {
         "verdict": "warn",
-        "note": f'message_limits: Jev is unsure of claim "{only["claim"]}" speaking for more of a set than its read reads, so the post goes out as written: if one is wrong, reword the post in place.',
+        "note": f'{settled.GOES_OUT} Jev is unsure of claim "{only["claim"]}" speaking for more of a set than its read reads: if one is wrong, reword the post in place.',
     }
     settled.post_verdict(handled(CLAIM["claim"]))
     assert list(jev.asked[-1]["questions"]) == ["c1.backed"]
@@ -164,7 +164,7 @@ def test_a_post_in_a_thread_of_his_dm_holding_orders_is_asked_whether_it_reaches
     asked = len(jev.asked)
     assert settled.post_verdict(output | {"thread_scope": scope | {"work": "x" * settled.REQUEST_CHARS}}) == {
         "verdict": "warn",
-        "note": "message_limits: Jev is unsure of whether it reaches past the work of his thread, so the post goes out as written: if one is wrong, reword the post in place.",
+        "note": "message_limits: this post goes out as written; Jev is unsure of whether it reaches past the work of his thread: if one is wrong, reword the post in place.",
     }
     assert len(jev.asked) == asked
 
@@ -208,7 +208,7 @@ def test_a_finding_holds_at_yes_unless_his_words_lift_it_and_jev_reads_his_words
     assert (jev.asked[-1]["state"]["findings"], jev.asked[-1]["state"]["his_words"], list(jev.asked[-1]["questions"])) == ({"f1": FINDING}, {"w1": "land the first PR"}, ["f1.holds", "f1.lifted"])
     jev.picks("f1", 0.9)
     jev.ruled = {}
-    stands = {"verdict": "warn", "note": "message_limits: Jev read no finding's rule as holding against this post, so it goes out as written."}
+    stands = {"verdict": "warn", "note": f"{settled.GOES_OUT} Jev read none of these findings' rules as holding against it:\n1. {FINDING['found']}"}
     assert settled.post_verdict(output) == stands
     jev.picks("lifted", 0.5)
     jev.breaks("f1", "holds", 0.1)
@@ -223,9 +223,27 @@ def test_a_post_jev_gives_no_verdict_on_holds_only_for_a_finding_a_count_decides
     assert settled.post_verdict(finding | {"counted": counted})["verdict"] == "hold"
     assert settled.post_verdict(finding) == {
         "verdict": "warn",
-        "note": f"message_limits: Jev gave no verdict (no jev decision within 20s), so each finding below only warns and the post goes out as written: if one holds, reword the post in place.\n```\n{reason}\n```",
+        "note": f"{settled.GOES_OUT} Jev gave no verdict (no jev decision within 20s), so each finding only warns: if one holds, reword the post in place:\n1. {FINDING['found']}",
     }
-    assert settled.post_verdict(handled(CLAIM["claim"]))["note"].startswith("message_limits: Jev gave no verdict (no jev decision within 20s) on whether each claim of this post stands")
+    assert settled.post_verdict(handled(CLAIM["claim"]))["note"] == f"{settled.GOES_OUT} Jev gave no verdict (no jev decision within 20s) on whether each claim of it stands on the read it names."
+
+
+@pytest.mark.parametrize("heard", ["unsure", "stands", "unheard"])
+def test_a_post_that_goes_out_says_so_first_and_names_each_finding_never_in_its_refusals_words(jev: Jev, heard: str) -> None:
+    long = {"rule": "A line in his thread is at most 60 words.", "found": "this post is 69 words, and a line in his thread is at most 60 words"}
+    reason = f"refused, 2 ways; fix each, then post the fixed words once:\n1. {long['found']}\n2. {FINDING['found']}"
+    output = {"post": {"text": "Merged."}, "findings": [long, FINDING], "his_words": [{"id": "w1", "quote": "land the first PR"}], "hookSpecificOutput": {"permissionDecisionReason": reason}}
+    if heard == "unsure":
+        jev.breaks("f1", "holds", 0.5)
+        jev.breaks("f2", "holds", 0.5)
+    if heard == "unheard":
+        jev.answer = None
+    verdict = settled.post_verdict(output)
+    assert verdict["verdict"] == "warn"
+    assert verdict["note"].startswith(settled.GOES_OUT)
+    assert "refused" not in verdict["note"]
+    assert "fix each" not in verdict["note"]
+    assert all(finding["found"] in verdict["note"] for finding in [long, FINDING])
 
 
 def test_a_read_and_a_card_too_long_for_one_request_together_reach_jev_whole_in_two(jev: Jev) -> None:

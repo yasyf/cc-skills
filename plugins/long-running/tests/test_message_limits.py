@@ -2763,10 +2763,12 @@ def test_a_post_check_post_cannot_check_does_not_go_out(talker: str, transcript:
         raise slack.SlackError("the cc-slack@cc-slack plugin is not installed")
 
     monkeypatch.setattr(slack, "check_post", broken)
-    assert posted(transcript, text="Fixed.", thread_ts="1.2") == (
+    reason = posted(transcript, text="Fixed.", thread_ts="1.2")
+    assert reason == (
         "refused: `cc-slack check-post` could not check this post's words, so it does not go out: the cc-slack@cc-slack"
         " plugin is not installed."
     )
+    assert isinstance(reason, agents.Unjudged)
 
 
 def test_check_post_runs_the_installed_cc_slack_on_the_exact_words(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2838,7 +2840,9 @@ def test_a_check_that_fails_refuses_the_post_rather_than_let_it_out_unchecked(
     monkeypatch.setattr(message_limits, "checked", broken)
     monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(call("slack_dm_status", transcript, text="Fixed."))))
     message_limits.main()
-    decision = json.loads(capsys.readouterr().out)["hookSpecificOutput"]
+    out = json.loads(capsys.readouterr().out)
+    decision = out["hookSpecificOutput"]
+    assert out["judged"] is False
     assert decision["permissionDecision"] == "deny"
     assert decision["permissionDecisionReason"].startswith("refused: the drive's message check failed on this post with KeyError: 'timestamp'")
 
