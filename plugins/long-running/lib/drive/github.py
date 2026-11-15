@@ -35,6 +35,8 @@ HOLD_LABEL = "hold"
 EJECTED_LABEL = "trunk-failed"
 TRUNK_CHECK = "Trunk Merge Queue"
 RUN_URL = re.compile(r"/actions/runs/(?P<run>\d+)/")
+JOB_URL = re.compile(r"/actions/runs/\d+/job/(?P<job>\d+)")
+FAILED_TEST = re.compile(r"^\S+ (?:FAILED|ERROR) (?P<pytest>\S+\.py(?:::[^\r\n]+?)?)(?: - [^\r\n]*)?\r?$|--- FAIL: (?P<go>[^\s\"\\]+)", re.MULTILINE)
 PRS_PER_QUERY = 25
 MERGEABILITY = "state headRefOid mergeable"
 MERGEABILITY_PER_QUERY = 100
@@ -207,6 +209,20 @@ def run_of(check: dict) -> tuple[str, str] | None:
     """The workflow and run id of a GitHub Actions check run, read from its details URL; None for a status or a check no workflow ran."""
     found = RUN_URL.search(check.get("detailsUrl") or "")
     return (check["workflowName"], found["run"]) if found else None
+
+
+def job_of(check: dict) -> int | None:
+    """The job id of a GitHub Actions check run, read from its details URL; None for a status or a check no workflow ran."""
+    return int(found["job"]) if (found := JOB_URL.search(check.get("detailsUrl") or "")) else None
+
+
+def job_log(repo: str, job: int) -> str:
+    return read(f"{repo}'s job {job} log", ["gh", "api", f"repos/{repo}/actions/jobs/{job}/logs"])
+
+
+def failed_tests(log: str) -> set[str]:
+    """Each test a GitHub Actions job's log names failing: each node id pytest's short test summary says FAILED or ERROR, and each test go test says `--- FAIL:` of, plainly or inside `go test -json` output."""
+    return {found["pytest"] or found["go"] for found in FAILED_TEST.finditer(log)}
 
 
 def counted(rollup: list[dict]) -> list[dict]:

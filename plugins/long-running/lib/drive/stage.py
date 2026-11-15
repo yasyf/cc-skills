@@ -229,7 +229,7 @@ def held(data: dict, pr: dict) -> str:
 
 
 def red(data: dict, key: str) -> str:
-    """What its builder must fix at its head: failing checks, those of a yasyf/* PR its builder reported only once its lander found one failing on its own change, by land.own_red(), while one the default branch fails too merges, a conflict GitHub reads or refused the lander's merge for, named as conflicts_with() names it, with the restack that clears one in a native GitHub stack, a draft, changes a reviewer asked for, or, in a repository whose rules require an approving review before merging, a forge-pr-reviewer that finished on a green head and approved nothing, which holds it until each finding is fixed or its risk accepted."""
+    """What its builder must fix at its head: failing checks, those of a yasyf/* PR its builder reported only once its lander found one failing on its own change, by land.own_red(), while one failing only tests the default branch fails too merges, a conflict GitHub reads or refused the lander's merge for, named as conflicts_with() names it, with the restack that clears one in a native GitHub stack, a draft, changes a reviewer asked for, or, in a repository whose rules require an approving review before merging, a forge-pr-reviewer that finished on a green head and approved nothing, which holds it until each finding is fixed or its risk accepted."""
     pr = data["prs"][key]
     head = pr["head"][:7]
     if pr["checks"] == "fail" and land.own_red(pr):

@@ -567,6 +567,19 @@ def test_a_cancelled_job_with_no_other_run_of_its_workflow_still_fails(rollup: l
     assert github.checks(rollup, []) == "fail"
 
 
+def test_a_jobs_failed_tests_are_each_pytest_summary_and_go_test_failure_its_log_names() -> None:
+    log = (
+        "2026-11-13T13:05:55.1Z FAILED tests/test_watch.py::test_a[x-y] - AssertionError: assert 1 == 2\r\n"
+        "2026-11-13T13:05:55.2Z FAILED (errors=2)\n"
+        "2026-11-13T13:05:56.1Z ERROR tests/test_land.py\n"
+        "2026-11-13T13:05:56.3Z ===== 1 failed, 1 error in 9.1s =====\n"
+        "2026-11-15T07:56:38.3Z {\"Action\":\"output\",\"Test\":\"TestReadModel\",\"Output\":\"--- FAIL: TestReadModel (2.81s)\\n\"}\n"
+        "2026-11-15T07:56:38.4Z     --- FAIL: TestTail/cursor (0.02s)\n"
+        "2026-11-15T07:56:38.5Z FAIL\tgithub.com/yasyf/cc-inbox/internal/store\t601.3s\n"
+    )
+    assert github.failed_tests(log) == {"tests/test_watch.py::test_a[x-y]", "tests/test_land.py", "TestReadModel", "TestTail/cursor"}
+
+
 def test_fetch_names_each_check_runs_workflow_as_gh_pr_view_does(monkeypatch: pytest.MonkeyPatch) -> None:
     contexts = [
         {"name": "build", "conclusion": "CANCELLED", "detailsUrl": "https://github.com/a/one/actions/runs/1/job/10", "checkSuite": {"workflowRun": {"workflow": {"name": "FDE Docs"}}}},
