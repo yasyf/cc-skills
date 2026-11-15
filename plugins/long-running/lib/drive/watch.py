@@ -3978,7 +3978,7 @@ def untapped_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def crossed(watcher: Watcher, data: dict, offset: int, moment: datetime) -> tuple[list[tuple[str, str, str]], int]:
-    """The words, title and note of an order for each bar the sweep finds crossed, and the events offset it read to: the 90th percentile of his answers since the last sweep over ANSWER_WAIT, each message's first post answering it; a message of his cc-slack still owes an answer past OWED_WAIT; a re-ask posted at a channel's root rather than in its card's thread; a PR open past APPROVED_WAIT after his Approve."""
+    """The words, title and note of an order for each bar the sweep finds crossed, and the events offset it read to: the 90th percentile of his answers since the last sweep over ANSWER_WAIT, each message's first post answering it; a message of his cc-slack still owes an answer past OWED_WAIT, while the session this drive's handlers run beside holds his DM, so the drive owes it; a re-ask posted at a channel's root rather than in its card's thread; a PR open past APPROVED_WAIT after his Approve."""
     from drive import talk
 
     waits, reasks = {}, []
@@ -3989,7 +3989,7 @@ def crossed(watcher: Watcher, data: dict, offset: int, moment: datetime) -> tupl
             waits.setdefault(ts, (state.parse_time(event["at"]) - slack.sent_at({"ts": ts}), event["url"]))
         if event["text"].startswith(talk.ASKING_AGAIN) and (message := state.slack_message(event["url"])) and message[1] == message[2]:
             reasks.append(event["url"])
-    owed = sorted((reply for reply in slack.owed() if moment - slack.sent_at(reply) > OWED_WAIT), key=lambda reply: float(reply["ts"]))
+    owed = sorted((reply for reply in slack.owed(agents.beside(data)[1]["session"]) if moment - slack.sent_at(reply) > OWED_WAIT), key=lambda reply: float(reply["ts"]))
     approved = [key for key, pr in data["prs"].items() if pr["state"] == "open" and (tap := pr["tap"]) and tap["label"] == "Approve" and moment - state.parse_time(tap["at"]) > APPROVED_WAIT]
     found = f"{state.TOOLING} the daily Slack sweep found"
     bars = []

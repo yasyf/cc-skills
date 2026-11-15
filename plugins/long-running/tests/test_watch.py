@@ -10845,7 +10845,7 @@ def test_the_daily_sweep_files_a_drive_tooling_order_per_bar_crossed_and_an_orde
     ts = f"{asked.timestamp():.6f}"
     owed = {"thread_ts": ts, "ts": ts, "text": "is it up?", "permalink": f"https://acme.slack.com/archives/D123/p{ts.replace('.', '')}"}
     fresh = {**owed, "ts": f"{(T0 - timedelta(minutes=5)).timestamp():.6f}"}
-    monkeypatch.setattr(slack, "owed", lambda: [fresh, owed])
+    monkeypatch.setattr(slack, "owed", lambda session: [fresh, owed])
     with state.edit(demo) as data:
         data["prs"][KEY]["tap"] = state.new_tap("Approve", "aaaaaaa111", "card", at=state.stamp(T0 - timedelta(hours=25)))
         data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"tap": state.new_tap("Approve", "bbbbbbb222", "card", at=state.stamp(T0 - timedelta(hours=1)))}
@@ -10907,7 +10907,7 @@ def test_the_daily_sweep_ends_his_open_drive_tooling_cards_jev_reads_as_details_
     changed = {KEY: ["rust/crates/sandsql-server/src/admin/tests.rs"], OTHER: ["api/src/run.ts", "api/src/run.test.ts"]}
     monkeypatch.setattr(github, "files", lambda key: changed[key])
     monkeypatch.setattr(settled, "detail", lambda case, words: "Where should" in case)
-    monkeypatch.setattr(slack, "owed", list)
+    monkeypatch.setattr(slack, "owed", lambda session: [])
     watching = watcher(demo)
     watching.cards = NO_CARDS | {"questions": [{"question": text.splitlines()[0], "url": card, "card": {"waits": waits}, "asked": state.stamp(T0)} for text, card, waits in ((SHORT_ASK, CARD, "demo:j1-1"), (detail, POSTED, "demo:j1-2"))]}
     option = "One snapshot file per finished run, written when it ends, old runs backfilled: opens in 3 requests"
@@ -10949,8 +10949,23 @@ def test_a_card_of_his_open_past_48_hours_reaches_its_orders_thread_line_once_sa
     assert len(calls) == 2
 
 
+def test_the_daily_sweep_counts_his_owed_messages_only_while_the_session_this_drives_handlers_run_beside_holds_his_dm(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    ts = f"{(T0 - timedelta(minutes=20)).timestamp():.6f}"
+    owed = {"thread_ts": ts, "ts": ts, "text": "is it up?", "permalink": f"https://acme.slack.com/archives/D123/p{ts.replace('.', '')}"}
+    holder = {"session": "another-drives-communicator"}
+    monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"replies": [owed], "holder_session": holder["session"]})
+    watching = watcher(demo)
+    watching.cards = NO_CARDS
+    unanswered = "Message unanswered past 10 minutes"
+    assert REAL_SWEEP(watching, T0) == []
+    assert unanswered not in [order["title"] for order in state.load(demo)["orders"].values()]
+    holder["session"] = agents.beside(state.load(demo))[1]["session"]
+    assert REAL_SWEEP(watching, T0 + timedelta(days=1)) == []
+    assert [order["note"] for order in state.load(demo)["orders"].values() if order["title"] == unanswered] == [f"1 owed, the oldest since {render.when(slack.sent_at(owed).isoformat())}: {owed['permalink']}"]
+
+
 def test_a_sweep_waits_for_a_pass_that_read_his_cards_and_a_failed_owed_read_is_said_as_a_failed_read_is(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    def refused() -> list[dict]:
+    def refused(session: str) -> list[dict]:
         raise slack.SlackError("cc-slack daemon not running")
 
     monkeypatch.setattr(slack, "owed", refused)
