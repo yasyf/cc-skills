@@ -214,8 +214,9 @@ ILLUSTRATES = Noul(
 )
 UNORDERED = "Jev does not read it as approving this release"
 ORDERED = (
-    'drive job ask: his answer {id}, {asked}, orders the recommended option\'s `{release}`, which `drive job add --release'
-    ' "{release} --order {id}"` starts with no card, so this card is kept unsettled on none of his words it carries out.'
+    "drive job ask: his answer {id}, {asked}, orders the recommended option's `{release}`, so his card offers his words as its"
+    ' Already answered tap: his one tap settles the card on them, and `drive job add --release "{release} --order {id}"` starts that'
+    " release; the card is kept unsettled on none of his words it carries out."
 )
 LEADING_NUMBER = re.compile(r"\s*(\d+)\b(?![.,]\d)")
 UNCHANGED = frozenset({"env", "without", "from", "order"})

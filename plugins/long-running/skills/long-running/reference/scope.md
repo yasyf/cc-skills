@@ -118,10 +118,11 @@ that answer chose, so `drive job ask` refuses it and names that option to build 
 on his words with `drive job ask <j> --drop <file> --answer <id>`, which closes its card in place
 showing them and the link where he gave them. A card's Already answered option
 carries only the recorded answers its summary cites that Jev answers 0.7 or more as deciding its
-question or making it moot, one yes-or-no question an answer, his words above the `Options:` line its
-recorder lists the choices under, so his one tap gives its job one answer's words; the card draws no
-Already answered option when Jev reads none so, reads one only between 0.3 and 0.7, or gives no
-reading.
+question or making it moot, one yes-or-no question an answer, and each recorded answer the release
+gate reads as ordering a release the recommended option names in backticks, his words above the
+`Options:` line its recorder lists the choices under, so his one tap gives its job one answer's words;
+the card draws no Already answered option when the gate passes none and Jev reads none so, reads one
+only between 0.3 and 0.7, or gives no reading.
 
 It reads no answer he gave another question, by his pick "Settle only on your answer to that same
 question, copies only in the same words: no wrong skips; each skip below becomes a card." A question
@@ -146,9 +147,11 @@ breaking it` or `<id>: Jev reads option "<that option>" as breaking it`, asking 
 its PR on an incident too until he answers. Another option alone never marks an answer that already
 answers the card, one its Already answered tap carries or one Jev reads below, since offering an
 option his answer did not choose asks him to lift nothing. A cited answer the release gate reads as ordering a release
-the recommended option names in backticks is his order carried out, never words to lift: the verb
-prints that `drive job add --release` starts that release with no card, by one reading of his pick
-that both share ([landing.md](landing.md#after-merge)). A tap approving a PR settles only that PR's landing. A block a refusal stops
+the recommended option names in backticks is his order carried out, never words to lift: his card
+offers it as its Already answered tap, and the verb prints that his one tap settles the card and
+`drive job add --release "<release> --order <id>"` starts that release, by his pick 1bd8a74 "Your
+cited answer as a tap on the card: one tap settles it, nothing skipped unseen"
+([landing.md](landing.md#after-merge)). A tap approving a PR settles only that PR's landing. A block a refusal stops
 stays kept under `asks/` as the job's pending question with its refusal. No card draws from it,
 and `drive status` lists it refused. The watch says its job waits on a
 card never posted until the job asks it again, in its words or others sharing three rare words, or
