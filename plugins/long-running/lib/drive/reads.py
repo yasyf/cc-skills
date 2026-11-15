@@ -205,21 +205,40 @@ def lane_drive(question: str, checkout: Path, drive: str, job_id: str) -> str:
 
 
 def lane_pictures(sent: dict, drive: str, job_id: str) -> dict[str, str]:
-    """Each picture the files and stdin a Sprite lane's drive sent show on a line of its own, `![caption](/absolute/path)` as a card draws it, by a path on its Sprite, copied off that Sprite under the job's scratch folder here, at that path below its `sprite` folder, which outlives the run since the card drawn from a kept question opens it later; the copy here by the Sprite path."""
+    """Each picture the files and stdin a Sprite lane's drive sent show on a line of its own, `![caption](/absolute/path)` as a card draws it, by a path on its Sprite, copied off that Sprite as off_sprite copies it; the copy here by the Sprite path."""
     texts = [file["text"] for file in sent.get("files", {}).values()] + [sent.get("stdin", "")]
-    paths = list(dict.fromkeys(shown["path"] for text in texts for line in text.splitlines() if (shown := limits.POSTED_PICTURE.fullmatch(line.strip()))))
+    return off_sprite(drive, job_id, list(dict.fromkeys(shown["path"] for text in texts for line in text.splitlines() if (shown := limits.POSTED_PICTURE.fullmatch(line.strip())))))
+
+
+def off_sprite(drive: str, job_id: str, paths: list[str]) -> dict[str, str]:
+    """Each file at its path on the job's Sprite copied off it under the job's scratch folder here, at that path below its `sprite` folder, which outlives the run since a card drawn later from what names it opens it; the copy here by the Sprite path."""
     if not paths:
         return {}
     from drive import orca
 
-    into = state.drive_dir(drive) / "scratch" / job_id / "sprite"
+    into = sprite_folder(drive, job_id)
     orca.take_off_sprite(state.load(drive)["jobs"][job_id]["workspace"], paths, into)
     return {path: str(into / path.lstrip("/")) for path in paths}
+
+
+def sprite_folder(drive: str, job_id: str) -> Path:
+    return state.drive_dir(drive) / "scratch" / job_id / "sprite"
 
 
 def shown_here(text: str, shown: dict[str, str]) -> str:
     """The text with each picture it shows by a Sprite path naming its copy here instead."""
     return picture.IMAGE.sub(lambda image: image[0].replace(path := image[1] or image[2], shown.get(path, path)), text)
+
+
+def shown_off_sprite(drive: str, jobs: list[str], text: str) -> str:
+    """The text with each picture it shows by a path that is no file here named by its copy off a Sprite, as off_sprite kept it under the first of the jobs holding one, such as the PR's builder before a handoff; a picture with no copy is left as it is."""
+    copies = {path: [sprite_folder(drive, job_id) / path.lstrip("/") for job_id in jobs] for path in unfound(text)}
+    return shown_here(text, {path: str(held[0]) for path, kept in copies.items() if (held := [copy for copy in kept if copy.is_file()])})
+
+
+def unfound(text: str) -> list[str]:
+    """Each picture the text shows by an absolute path that is no file here, such as one a Sprite lane shot."""
+    return list(dict.fromkeys(path for image in picture.IMAGE.finditer(text) if (path := image[1] or image[2]).startswith("/") and not Path(path).is_file()))
 
 
 def lane_refusal(args: argparse.Namespace, parse: Callable[[list[str]], argparse.Namespace], drive: str, job_id: str) -> str | None:
