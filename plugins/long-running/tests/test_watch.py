@@ -15,7 +15,7 @@ from types import SimpleNamespace
 
 import pytest
 from conftest import DRIVE_TERMINAL, LEAD, RESEARCH, SHORT_ASK, Answers, CodexAsk, drawn_card, Draws, Jev, Judge, Receiver, Redraws, Thread, WatchProcess, Withdrawals, carrying, codex_reply, commit_files, git_in, said_lines, staged
-from drive import agents, card, cli, codex, github, install, land, launchd, orca, place, reads, receiver, render, served, settled, slack, stage, stall, state, superseded, talk, view, watch
+from drive import agents, card, cli, codex, github, install, land, launchd, limits, orca, place, reads, receiver, render, served, settled, slack, stage, stall, state, superseded, talk, view, watch
 
 KEY = "Forge-AI/monorepo#42"
 OTHER = "Forge-AI/monorepo#43"
@@ -5056,6 +5056,22 @@ def test_the_prs_of_one_native_stack_waiting_on_his_tap_draw_one_card_and_one_re
     watch.run_pass(watching, T0 + timedelta(minutes=20))
     watch.run_pass(watching, T0 + timedelta(minutes=30))
     assert draws.keys == [[KEY, OTHER], list(STACKED)]
+
+
+def test_replayed_56774_his_words_reworking_the_middle_pr_of_a_three_pr_stack_draw_his_card_on_the_pr_below_alone_and_none_for_the_pr_above_which_owes_no_tap_and_reads_behind_it(
+    demo: str, monkeypatch: pytest.MonkeyPatch, draws: Draws
+) -> None:
+    three_stacked(demo, monkeypatch)
+    with state.edit(demo) as data:
+        state.rework(data["prs"][OTHER], "o2", "Refuse past 256 MiB", "https://acme.slack.com/archives/D123/p1794300000000600")
+    watching = watcher(demo)
+    lines = [*watch.run_pass(watching, T0), *watch.run_pass(watching, T0 + timedelta(minutes=10)), *watch.run_pass(watching, T0 + timedelta(minutes=40))]
+    prs = state.load(demo)["prs"]
+    assert draws.keys == [[KEY]]
+    assert [line for line in lines if "draw of his card" in line] == []
+    assert (prs[THIRD]["stage"]["name"], prs[THIRD]["stage"]["owner"], prs[THIRD]["stage"]["why"]) == ("behind", stage.BUILDER, f'{OTHER} below it in its stack, rework: being reworked to his words "Refuse past 256 MiB"')
+    assert limits.tap_owed_not(prs, THIRD) == f'{OTHER} below it in its stack is being reworked to his words "Refuse past 256 MiB" until its builder\'s READY says how they are met'
+    assert limits.tap_owed_not(prs, KEY) == ""
 
 
 def test_a_native_stack_whose_prs_each_sit_on_a_card_of_their_own_draws_one_fresh_card_for_the_stack_once(demo: str, monkeypatch: pytest.MonkeyPatch, draws: Draws) -> None:

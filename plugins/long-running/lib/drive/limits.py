@@ -13,7 +13,7 @@ from typing import Self
 
 from drive import picture
 from drive.render import clock, cut, when
-from drive.state import DAY, KEPT_ASK, PR_KEY, PR_URL, TOOLING, DriveError, ask_hash, exempted, in_reporter_thread, named_prs, nearest, now, pr_key, pr_url, root, same_question
+from drive.state import DAY, KEPT_ASK, PR_KEY, PR_URL, TOOLING, DriveError, ask_hash, exempted, in_reporter_thread, named_prs, nearest, now, pr_key, pr_url, reworked_under, root, same_question
 
 LINE_WORDS = 60
 SUMMARY_WORDS = 120
@@ -1724,14 +1724,17 @@ def bare_mechanisms(line: str) -> list[str]:
     return list(dict.fromkeys(found))
 
 
-def tap_owed_not(pr: dict) -> str:
-    """Why no tap of his is owed on a drive PR, or "" when one is: he tapped it, it merged, folded into another open PR's branch or closed, it lands with no tap, or it is being reworked to his words."""
+def tap_owed_not(prs: dict[str, dict], key: str) -> str:
+    """Why no tap of his is owed on a drive PR, or "" when one is: he tapped it, it merged, folded into another open PR's branch or closed, it lands with no tap, or it or a PR below it in its native GitHub stack is being reworked to his words, by reworked_under."""
+    pr = prs[key]
     tap = pr.get("tap")
+    reworked = reworked_under(prs, key)
+    where = "it is" if reworked == key else f"{reworked} below it in its stack is"
     reasons = [
         f"he tapped {tap['label']} at {when(tap['at'])}" if tap else "",
         pr["state"] if pr["state"] != "open" else "",
         f"it lands with no tap as {pr['exempt']}" if exempted(pr) else "",
-        f'it is being reworked to his words "{pr["rework"]["words"]}" until its builder\'s READY says how they are met' if pr["rework"] else "",
+        f'{where} being reworked to his words "{prs[reworked]["rework"]["words"]}" until its builder\'s READY says how they are met' if reworked else "",
     ]
     return ", ".join(reason for reason in reasons if reason)
 
@@ -1740,7 +1743,7 @@ def tap_refusal(text: str, prs: dict[str, dict]) -> str | None:
     """Why a PR card asking him to tap each PR it names by what it is, names one the drive records as owing no tap."""
     folded = {key.casefold(): (key, pr) for key, pr in prs.items()}
     named = dict.fromkeys(f"{owner}/{name}#{number}".casefold() for owner, name, number in [*PR_URL.findall(text), *PR_KEY.findall(text)])
-    found = [f"{key}: {why}" for each in named if each in folded for key, pr in [folded[each]] if (why := tap_owed_not(pr))]
+    found = [f"{key}: {why}" for each in named if each in folded for key, _ in [folded[each]] if (why := tap_owed_not(prs, key))]
     if not found:
         return None
     owed = f"this asks him to tap, approve or hold a PR the drive owes no tap on: {'; '.join(found)}"
