@@ -807,6 +807,7 @@ def close_report_lines(watcher: Watcher, moment: datetime) -> list[str]:
         with state.edit(watcher.name) as data:
             for order_id in unasked:
                 data["orders"][order_id].update(close_report=None, state="done", updated=state.stamp(moment))
+                state.close_order_jobs(data, order_id, f"stopped: the watch closed its order {order_id} on its close report")
     owed = {order_id: order["close_report"] for order_id, order in closing.items() if order_id not in unasked}
     if not owed:
         return []

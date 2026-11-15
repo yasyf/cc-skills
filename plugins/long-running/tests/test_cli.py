@@ -1501,6 +1501,26 @@ def test_a_drive_stored_with_milestones_loads_without_them(run: Run, demo: str) 
     assert "milestone" not in state.load("demo")["orders"]["o1"]
 
 
+def test_closing_an_order_stops_its_unfinished_jobs_and_takes_it_off_jobs_carrying_it(run: Run, demo: str) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "copy the store")
+    run("order", "add", "--title", "Other title", "--project", "The drive", "--workstream", "Drive tooling", "list the store")
+    builder = run("job", "add", "builder", "--order", "o1", "--goal", "copy it")[1].splitlines()[0]
+    carrier = run("job", "add", "builder", "--order", "o2", "--goal", "list it")[1].splitlines()[0]
+    with state.edit("demo") as data:
+        data["jobs"][builder]["state"] = "running"
+        data["jobs"][carrier]["carries"]["o1"] = []
+        data["orders"]["o1"]["jobs"].append(carrier)
+    code, out = run("order", "set", "o1", "--state", "dropped", "--note", "he called it off")
+    assert code == 0
+    assert f"{builder} stopped with its order: end its agent, or its lane with drive job end {builder}" in out.splitlines()
+    assert f"{carrier} carries o1 no more and keeps working on its own order" in out.splitlines()
+    data = state.load("demo")
+    assert {data["jobs"][job_id]["state"] for job_id in data["orders"]["o1"]["jobs"] if data["jobs"][job_id]["order"] == "o1"} == {"stopped"}
+    assert data["jobs"][builder]["said"] == "stopped: drive order set o1 --state dropped closed its order"
+    assert "o1" not in data["jobs"][carrier]["carries"]
+    assert data["jobs"][carrier]["state"] != "stopped"
+
+
 def test_order_set_unknown_order_fails(run: Run, demo: str) -> None:
     assert run("order", "set", "o9", "--state", "done")[0] == 2
 
