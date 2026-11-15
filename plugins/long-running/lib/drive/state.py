@@ -786,6 +786,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str) -> dict:
         "work_proofs_owned": True,
         "proof_results_marked": True,
         "own_done_proofs_since": None,
+        "old_dones_kept": True,
         CARDS_NOTED: True,
         "finished_texts_dropped": True,
         "messages_kept_once": True,
@@ -1184,7 +1185,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     if data["catch_up"]:
         data["catch_up"]["record"] = bare_seq(data["catch_up"]["record"])
     passes = (drive_dir(name) / "pictures" / picture.SOURCED, drive_dir(name) / "asks" / REBUILT_ASKS, drive_dir(name) / APPROVALS_LABELLED)
-    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated")) and bool(data.get("holds_owed")) and bool(data.get("near_answers_apart")) and bool(data.get("stack_writes_read")) and bool(data.get("builder_goals_named")) and bool(data.get("members_kept")) and bool(data.get("open_dones_held")) and bool(data.get("staging_runs_reread")) and bool(data.get("lines_kept")) and bool(data.get("change_builders_unwaited")) and bool(data.get("finished_replacers_undone")) and bool(data.get("stopped_handed_off")) and bool(data.get("finished_texts_dropped")) and bool(data.get("work_proofs_owned")) and bool(data.get("messages_kept_once")) and bool(data.get("proof_results_marked")) and bool(data.get("reader_prs_handed")) and bool(data.get("stale_queued_dropped")) and bool(data.get("staging_approves_restored")) and bool(data.get("proofs_rehomed")) and bool(data.get("unowed_fails_undone")) and bool(data.get("carried_proofs_delivered"))
+    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated")) and bool(data.get("holds_owed")) and bool(data.get("near_answers_apart")) and bool(data.get("stack_writes_read")) and bool(data.get("builder_goals_named")) and bool(data.get("members_kept")) and bool(data.get("open_dones_held")) and bool(data.get("staging_runs_reread")) and bool(data.get("lines_kept")) and bool(data.get("change_builders_unwaited")) and bool(data.get("finished_replacers_undone")) and bool(data.get("stopped_handed_off")) and bool(data.get("finished_texts_dropped")) and bool(data.get("work_proofs_owned")) and bool(data.get("messages_kept_once")) and bool(data.get("proof_results_marked")) and bool(data.get("reader_prs_handed")) and bool(data.get("stale_queued_dropped")) and bool(data.get("staging_approves_restored")) and bool(data.get("proofs_rehomed")) and bool(data.get("unowed_fails_undone")) and bool(data.get("carried_proofs_delivered")) and bool(data.get("old_dones_kept"))
     for flag in ("may_settle_per_answer", "may_settle_skips_approvals", "may_settle_by_subject", "may_settle_by_jev", "delivered_by_prs", "delivered_restored", "proofs_posted", "proofs_proven", "tap_cards_kept"):
         data.pop(flag, None)
     data["slack"].pop("channel", None)
@@ -1256,6 +1257,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         mark_proof_results(data)
     if not data.get("work_proofs_owned"):
         post_proofs(data)
+    if not data.get("old_dones_kept"):
+        keep_old_dones(name, data)
     if not data.get("finished_texts_dropped"):
         drop_finished_texts(data)
     if not data.get("messages_kept_once"):
@@ -1448,6 +1451,18 @@ def keep_messages_once(data: dict) -> None:
         kept["words"] = MESSAGES_JOINED.join(once)
         superseded.hear_answer(data, answer_id, [job_id for job_id, mark in kept["jobs"].items() if mark is None])
     data["messages_kept_once"] = True
+
+
+def keep_old_dones(name: str, data: dict) -> None:
+    """Put back each builder or codex job whose first proof by drive job prove, run on a DONE of its own taken before the drive's own_done_proofs_since, failed, on that DONE as done, returned when it returned that DONE, so it reads as every DONE taken before that moment reads, its parts owed with no proof to come, by install.done_before_proofs, since that proof ran outside the drive's checkout or under a rule newer than its file, such as one passing with no output, regrading work nobody changed; marked so this runs once, after mark_proof_results names that moment and post_proofs."""
+    for job_id, job in data["jobs"].items():
+        if not (since := data["own_done_proofs_since"]) or job["state"] != "failed" or not str(said := (job.get("proof") or {}).get("said")).startswith("DONE"):
+            continue
+        done = next((reply for reply in returns(name, job_id) if opening(reply["body"]).startswith("DONE")), None)
+        if not done or opening(done["body"]) != said or parse_time(done["created_at"]) >= parse_time(since):
+            continue
+        job.update(state="done", said=said, returned=stamp(parse_time(done["created_at"])), updated=stamp())
+    data["old_dones_kept"] = True
 
 
 def undo_finished_replacers(name: str, data: dict) -> None:
