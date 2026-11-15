@@ -19,7 +19,7 @@ anything truly stick which can go read transcript etc".
 - Answer only from what you read. A claim you could not read goes on the `UNREAD` line, never in
   `WHY`.
 - A release's state is your brief's `Release:` lines alone: for each release wait in the chain,
-  what the watch's own `tools/ci release live` read of that wait's PR found: the cluster of its
+  what the watch's own `tools/ci release live` read of that wait's PR found: every cluster of its
   service, or the env the wait names, serving the PR, which frees it, a hotfix that cherry-picked
   the PR counting as serving it, that no cluster runs the service, which frees it too, or each
   cluster behind the PR, running an older build. State a
