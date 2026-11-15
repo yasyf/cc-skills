@@ -44,6 +44,7 @@ def say(name: str, post: dict) -> str:
         post = post | {"text": titled(known, post.get("text") or "") + waiting(name, known, post.get("text") or "")}
     if post.get("dry_run"):
         return dry(name, post) + (f"; {cli.delivering(name, order, report)}" if order else "")
+    promise = promising(known, post["edit"]) if post.get("edit") else None
     held = list(known["held"]) if report.get("catch_up") else []
     amended = agents.amendments(name, [seq, *held] if seq else [])
     if close:
@@ -54,7 +55,7 @@ def say(name: str, post: dict) -> str:
     except (DriveError, slack.SlackError):
         cli.unclaim_close(name, claimed)
         raise
-    said = {"post": post, "order": order, "report": report, "amended": amended, "reply": reply}
+    said = {"post": post, "order": order, "report": report, "amended": amended, "reply": reply, "promise": promise}
     try:
         known = state.load(name)
     except state.NewerDrive:
@@ -85,7 +86,41 @@ def finished(name: str, said: dict, known: dict) -> str:
         line += "; " + recording(name, {"order": order, "link": reply["permalink"], "record": seq, "sent": reply.get("sent"), "channel": post.get("channel_id")}, report if close else None)
     if close:
         line += closed(name, order, report["seq"], reply["permalink"], post.get("text") or "")
+    if promise := said.get("promise"):
+        line += repromised(name, promise, reply["sent"])
     return line
+
+
+def promising(data: dict, link: str) -> dict | None:
+    """The open order owing him a line by a time the post an edit at link rewords started, read before the edit goes out, since Slack then holds only its new words: the order whose promised time is that post's own, found with no Slack call, and whether the post's words promise a time, read from Slack only once such an order is found, since a post that kept one time and started the next the drive held waiting promises it with no time in its words."""
+    if not (message := state.slack_message(link)):
+        return None
+    at = slack.sent_at({"ts": message[1]})
+    owing = (order_id for order_id, order in data["orders"].items() if order["state"] not in state.CLOSED_ORDER_STATES and state.owed(order) and state.parse_time(order["promised"]) == at)
+    if not (order_id := next(owing, None)):
+        return None
+    return {"order": order_id, "at": at.isoformat(), "timed": cli.promised_due(slack.message(link).get("text") or "", at) is not None}
+
+
+def repromised(name: str, promise: dict, text: str) -> str:
+    """Keep the time an order owes him in step with the edited post that promised it, under the drive's lock: the time its new words promise, owed from the post as its old words' time was, or, when its old words promised a time and its new words name none, no time owed, the drive's own next time that waited on it promised in its place; nothing once a later post kept the time or replaced it while the edit went out. The part of the EDITED line saying so."""
+    at = state.parse_time(promise["at"])
+    due = cli.promised_due(text, at)
+    if not due and not promise["timed"]:
+        return ""
+    with state.edit(name) as data:
+        order = data["orders"][promise["order"]]
+        if not state.owed(order) or state.parse_time(order["promised"]) != at:
+            return ""
+        if due:
+            state.remind(order, state.stamp(due), at)
+            return f"; its new words promise him {promise['order']}'s next line by {render.when(order['due'])}, now owed"
+        dropped, waiting = order["due"], order["next_due"]
+        order.update(due=None, promised=None, kept=None, due_said=None)
+        if waiting:
+            state.promise(order, waiting, state.parse_time(order["next_set"]))
+    restarted = f", and the drive's own time {render.when(waiting)} is owed from its next line" if waiting else ""
+    return f"; its new words promise no time, so {promise['order']} no longer owes him a line by {render.when(dropped)}{restarted}"
 
 
 def caller(name: str) -> dict:

@@ -864,6 +864,54 @@ def test_a_time_a_post_promises_becomes_its_orders_due_once_slack_has_the_post_a
     assert (kept["kept"], state.owed(kept)) == (slack.sent_at(slack_thread.messages[-1]).isoformat(), False)
 
 
+@pytest.mark.parametrize("waits", [False, True])
+def test_an_edit_moving_the_time_a_post_promised_moves_its_orders_due_and_one_dropping_it_owes_none_but_the_time_that_waited(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread, waits: bool
+) -> None:
+    thread = "1794200000.000100"
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Iris chat turns fail on sand 0.162.3983", "--thread", thread)
+    run("start", "demo", "--role", "communicator")
+    with state.edit(demo) as data:
+        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
+        data["roles"]["coordinator"]["session"] = "elsewhere"
+    at = datetime(2026, 11, 11, 21, 29, 43, 954739).astimezone()
+    text = "Turns have run without failing since 9:22 PM. Next line by 9:45."
+    line = slack_thread.post(at, from_claude=True, text=text)
+
+    def cc_slack(*argv: str) -> dict:
+        if argv[0] == "edit":
+            slack_thread.messages[-1]["text"] = argv[argv.index("--text") + 1]
+        return {"permalink": line, "thread_ts": thread}
+
+    monkeypatch.setattr(slack, "cc_slack", cc_slack)
+    handling(demo, "o1")
+    talk.say(demo, {"text": text, "thread_ts": thread})
+    promised = slack.sent_at(slack_thread.messages[-1]).isoformat()
+    moved = state.stamp(at.replace(hour=22, minute=15, second=0, microsecond=0))
+    reads = len(slack_thread.reads)
+    assert talk.say(demo, {"edit": line, "text": "Turns have run without failing since 9:22 PM. Next line by 10:15."}) == (
+        f"EDITED {line}; its new words promise him o1's next line by {render.when(moved)}, now owed"
+    )
+    assert [where[1] for where in slack_thread.reads[reads:] if where[0] == "--url"] == [line]
+    told = state.load(demo)["orders"]["o1"]
+    assert (told["due"], told["promised"], state.owed(told)) == (moved, promised, True)
+    waiting = state.stamp(at.replace(hour=23, minute=0, second=0, microsecond=0))
+    set_at = state.stamp(at + timedelta(minutes=5))
+    if waits:
+        with state.edit(demo) as data:
+            state.promise(data["orders"]["o1"], waiting, state.parse_time(set_at))
+    restarted = f", and the drive's own time {render.when(waiting)} is owed from its next line" if waits else ""
+    assert talk.say(demo, {"edit": line, "text": "Turns have run without failing since 9:22 PM."}) == (
+        f"EDITED {line}; its new words promise no time, so o1 no longer owes him a line by {render.when(moved)}{restarted}"
+    )
+    dropped = state.load(demo)["orders"]["o1"]
+    assert (dropped["due"], dropped["promised"], dropped["next_due"], state.owed(dropped)) == ((waiting, set_at, waiting, True) if waits else (None, None, None, False))
+    assert (" due " in render.order_line(state.load(demo), "o1", dropped)) == waits
+    reads = len(slack_thread.reads)
+    assert talk.say(demo, {"edit": line, "text": "Turns still run without failing."}) == f"EDITED {line}"
+    assert (state.load(demo)["orders"]["o1"], slack_thread.reads[reads:]) == (dropped, [])
+
+
 def test_a_post_on_an_incident_records_its_line_and_keeps_no_time_its_words_promise_since_the_watch_owes_the_next_five_quiet_minutes_on(
     demo: str, run: Callable[..., tuple[int, str]], slack_thread: Thread
 ) -> None:
