@@ -9,7 +9,6 @@ import subprocess
 import sys
 import tempfile
 import textwrap
-import uuid
 from collections.abc import Callable
 from functools import cache
 from concurrent.futures import ThreadPoolExecutor
@@ -2899,11 +2898,9 @@ def returned(job: dict) -> str | None:
 
 
 def hold(name: str, job_id: str, text: str, sender: str | None) -> None:
-    """Keep the text on the job's undelivered list with who sent it, under a fresh Orca request id before any Orca call, so an outage delays it and never drops it, unless the job already holds it."""
+    """Keep the text on the job's undelivered list with who sent it by state.hold_text before any Orca call, so an outage delays it and never drops it."""
     with state.edit(name) as data:
-        kept = data["jobs"][job_id]["undelivered"]
-        if all(held["words"] != text for held in kept):
-            kept.append({"seq": None, "words": text, "sender": sender, "at": state.stamp(), "said": None, "request": str(uuid.uuid4())})
+        state.hold_text(data["jobs"][job_id], text, sender)
 
 
 def hold_unread(name: str, job_id: str, lane: dict) -> list[str]:
@@ -3806,6 +3803,8 @@ def check_waits(name: str, waits: list[str]) -> dict | None:
         if (named := state.ORDER_PART.fullmatch(wait)) and named[1] in data["orders"] and not (state.part_wait(data, wait) and view.holds(data, wait, None)):
             left = [part for part in data["orders"][named[1]]["parts"] if view.holds(data, f"{named[1]}:{part}", None)]
             raise DriveError(f"--waits {wait}: name a part of {named[1]} still to be delivered, word for word, as {named[1]}:<part>: {'; '.join(left) or 'none is left'}")
+        if state.PID_WAIT.fullmatch(wait) and not state.pid_waits(wait):
+            raise DriveError(f"--waits {wait}: no process on this Mac holds that number now, so nothing is left to wait on")
     cards = [wait for wait in waits if state.card_wait(data, wait)]
     found = view.live_cards(name)
     if not all(view.card_open(wait, found) for wait in cards):
@@ -4810,16 +4809,18 @@ def parser() -> argparse.ArgumentParser:
         "--waits",
         action="append",
         default=[],
-        metavar="CARD|JOB|PR|RELEASE|PART",
+        metavar="CARD|JOB|PR|RELEASE|PART|PID",
         help=(
             "a design card or PR card of his still open, by its Slack link or waits id, on drive job set alone, since a card holds a PR"
             " only by its question's Holds: line or the PR's DESIGN: line citing it, and drive pr set refuses one, a PR the drive tracks as <owner>/<repo>#<n>,"
             " a part of an open order still to be delivered as <order>:<part>, word for word, held until a builder or codex job on it returns DONE with no PR of its own unlanded, or a staging test part's DONE keeps its first CHECK: proof on it, never the DONE the watch takes at a merge,"
             " release:<service>:<owner>/<repo>#<n>, the next release of that service carrying that PR, refused, naming the components"
             " they reach, when go/ci's own map, tools/ci release select --pr, finds the PR's changed paths reach components and that"
-            " service is none of them or is no component at all, or a job of this drive still at work, of any kind, it waits on;"
+            " service is none of them or is no component at all, a process on this Mac that still runs as pid:<n>, stored pinned to the second it started,"
+            " or a job of this drive still at work, of any kind, it waits on;"
             " repeat for each, a job's wait on a job stored as that job's newest open PR. The watch drops each as he answers or taps it, the PR merges, the job returns DONE, or, once it"
-            " stops or fails, each part it carries is delivered, or every cluster tools/ci release live reads running that service,"
+            " stops or fails, each part it carries is delivered, the process ends, crashed or finished, which starts a codex job's next codex-ask run carrying its last report,"
+            " or every cluster tools/ci release live reads running that service,"
             " production or not, one at least, serves the PR with no release running there, and says FREE once when the last is gone, which wakes the"
             " coordinator; a job keeps a release wait it was freed of until it finishes and says REWAIT once a cluster goes behind."
             " On a PR it never withdraws his open card: the card is redrawn in place, Approve and Hold kept, to say what it waits on"

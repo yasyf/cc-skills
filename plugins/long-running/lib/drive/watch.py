@@ -298,7 +298,7 @@ def bare(wait: str) -> str:
 
 
 def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Drop each wait of a job or PR that ended, his card answered, the job finished, the release out by the watch's release live read or its PR closed unmerged, or a builder slot on this Mac given to the earliest due builder waiting its turn, one per slot no builder holds, and say once, as its last wait ends, that nothing holds it, holding back the job's ORPHAN for 30 minutes, but for a builder's READY or PUSHED whose PRs all merged, which the watch finishes next in the same pass, or else says once as an ORPHAN naming who finishes it; a builder given its slot waits on nothing with no agent yet, its slot stamped with when its turn came, and holds that slot until its agent starts, and one moving here from its Sprite keeps its other waits, its slot stamped, while drive job launch <j> --local, run by start_verb, moves it, a refusal of that launch reaching the watch's lines as its relaunch_refused event; a Sprite job busy reads another drive verb acting on takes its turn on a pass after that verb ends. The cards a job asked him on hold it too, so it keeps its waits until he answers them. His open card for a PR whose waits ended is redrawn in place, so it names only the waits that still hold. A job keeps each release wait it was freed of until it finishes, and waits on it again, said as REWAIT, once those reads name a cluster of its service behind, as when a release that failed its Watch puts the build before the fix back."""
+    """Drop each wait of a job or PR that ended, his card answered, the job finished, the release out by the watch's release live read or its PR closed unmerged, a process on this Mac ended, or a builder slot on this Mac given to the earliest due builder waiting its turn, one per slot no builder holds, and say once, as its last wait ends, that nothing holds it, holding back the job's ORPHAN for 30 minutes, but for a builder's READY or PUSHED whose PRs all merged, which the watch finishes next in the same pass, or else says once as an ORPHAN naming who finishes it; a builder given its slot waits on nothing with no agent yet, its slot stamped with when its turn came, and holds that slot until its agent starts, and one moving here from its Sprite keeps its other waits, its slot stamped, while drive job launch <j> --local, run by start_verb, moves it, a refusal of that launch reaching the watch's lines as its relaunch_refused event; a Sprite job busy reads another drive verb acting on takes its turn on a pass after that verb ends. The cards a job asked him on hold it too, so it keeps its waits until he answers them. A codex job whose process ended holds the text exited_text writes, which carry_held's launch of its next codex-ask run carries, so its FREE line asks nobody to launch it. His open card for a PR whose waits ended is redrawn in place, so it names only the waits that still hold. A job keeps each release wait it was freed of until it finishes, and waits on it again, said as REWAIT, once those reads name a cluster of its service behind, as when a release that failed its Watch puts the build before the fix back."""
     data = state.load(watcher.name)
     out, lines = shipped(watcher, data), []
     turns, held = place.turns(data, moment)
@@ -328,6 +328,9 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
             turn = job_id in turned and job["state"] == "waiting" and state.SLOT_WAIT in job["waits"]
             waited = job["waits"]
             ended = released(data, job, job_id, watcher.cards, out | slot if turn else out)
+            exited = [wait for wait in waited if state.PID_WAIT.fullmatch(wait) and wait not in job["waits"]] if job["kind"] == "codex" else []
+            if exited:
+                state.hold_text(job, exited_text(watcher.name, job_id, exited), state.WATCH_SENDER)
             job["shipped"] = list(dict.fromkeys([*job["shipped"], *(wait for wait in waited if wait in out and state.RELEASE_WAIT.fullmatch(wait))]))
             if ended and job["state"] not in state.FINISHED_JOB_STATES and not (watch_proves(data, job_id) or at_merge(data, job_id)):
                 job["updated"] = state.stamp(moment)
@@ -348,7 +351,7 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 unstarted = f"; Read your brief first: {job['brief']}" if job["kind"] != "codex" and job.get("brief") and not job.get("agent") and not job.get("dispatch") else ""
                 if job["undelivered"] and carrier(job_id, job, data, watcher.cards):
                     his = ", his answers among them" if any(held["sender"] == state.HIM for held in job["undelivered"]) else ""
-                    unlaunched, unstarted = f", and the watch now carries it the texts it holds{his}", ""
+                    unlaunched, unstarted = ", and the watch now starts its next codex-ask run carrying its last report" if exited else f", and the watch now carries it the texts it holds{his}", ""
                 lines.append(f"FREE {job_id} {job['order']}: {ended}, nothing else holds it{built}{unlaunched}{unstarted}")
         redraws = []
         for key, pr in data["prs"].items():
@@ -367,6 +370,13 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
         except slack.SlackError as error:
             lines.append(f"WATCH his open card for {url} still names the waits that ended, since its redraw failed: {error}")
     return lines
+
+
+def exited_text(name: str, job_id: str, exited: list[str]) -> str:
+    """The text a codex job holds once a process it waited on ended, which carry_held's launch of its next codex-ask run carries under From the watch since:, since that run reads only its brief: which process ended and the job's last report."""
+    ended = f"The process on this Mac {job_id} waited on ended, crashed or finished: {', '.join(wait.partition('@')[0] for wait in exited)}."
+    report = state.report_text(name, job_id, every=False).strip()
+    return f"{ended} Your last report:\n{report}" if report else ended
 
 
 def monitors(data: dict, order_id: str) -> dict[str, str]:
@@ -748,15 +758,22 @@ def release_owners(data: dict) -> list[tuple[str, dict]]:
 
 
 def released(data: dict, owner: dict, own: str, cards: dict | None, out: dict[str, str]) -> str:
-    """Drop the waits of a job or PR that ended, a wait on a PR or its release whose PR, of a job other than own, closed unmerged taking that job's change in its place by state.change_wait; what ended, when nothing else holds it."""
+    """Drop the waits of a job or PR that ended, a wait on a PR or its release whose PR, of a job other than own, closed unmerged taking that job's change in its place by state.change_wait; what ended, when nothing else holds it, a process by its number."""
     waits = list(dict.fromkeys(state.change_wait(data, pr["job"]) if (pr := data["prs"].get(state.waited_pr(wait))) and pr["state"] == "closed" and pr["job"] != own else wait for wait in owner["waits"]))
     holds = [wait for wait in view.holding(data, waits, cards) if wait not in out]
     ended = [wait for wait in waits if wait not in holds]
     state.rewait(owner, holds)
     if holds or not ended:
         return ""
-    answered = [bare(wait) for wait in ended if wait not in out]
-    return ", ".join([*([f"{', '.join(answered)} answered or done"] if answered else []), *(out[wait] for wait in ended if wait in out)])
+    answered = [bare(wait) for wait in ended if wait not in out and not state.PID_WAIT.fullmatch(wait)]
+    exited = [process["pid"] for wait in ended if (process := state.PID_WAIT.fullmatch(wait))]
+    return ", ".join(
+        [
+            *([f"{', '.join(answered)} answered or done"] if answered else []),
+            *([f"process {', '.join(exited)} on this Mac ended"] if exited else []),
+            *(out[wait] for wait in ended if wait in out),
+        ]
+    )
 
 
 def minutes(span: timedelta) -> int:

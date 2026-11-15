@@ -29,7 +29,8 @@ RESULT = {
             "enum": [*state.RESULT_STATES, "BUILT"],
             "description": (
                 "The result your run ends on: DONE, finished and checked where it is used; READY or PUSHED, a PR is open; WAITING, it waits on a"
-                " release, an open PR or a part of an order not yet delivered; ASK, a choice his words leave open; DESIGN, a design decision for his card; BUILT, the recommended option built"
+                " release, an open PR, a part of an order not yet delivered or a long run you started on this Mac, such as a pass-box command's observer, named as pid:<n> in the line,"
+                " whose end, crashed or finished, starts your next run with this report; ASK, a choice his words leave open; DESIGN, a design decision for his card; BUILT, the recommended option built"
                 " on a branch while his card is open; BLOCKED, no route works; HANDOFF, the work is left for a builder to ship, such as edits left uncommitted."
             ),
         },
@@ -38,7 +39,7 @@ RESULT = {
             "description": (
                 "The rest of the result line after the state word, never repeating it, at most 400 characters, the result itself and never a"
                 " `REPLY_FILE:` pointer to a file holding it, since the drive keeps this reply whole as your report: the proof for DONE, each PR link for"
-                " READY or PUSHED, each open PR the drive tracks, `release:<service>:<owner>/<repo>#<n>` and `<order>:<part>` it waits on for WAITING,"
+                " READY or PUSHED, each open PR the drive tracks, `release:<service>:<owner>/<repo>#<n>`, `<order>:<part>` and `pid:<n>` of a process you started that still runs it waits on for WAITING,"
                 " the only place its waits are read from, since a PR that merged or closed and a part delivered wait on nothing,"
                 " `<branch>, waits on <cards>` for BUILT, the ASK block's file for ASK, what is in the way for BLOCKED, the worktree"
                 " and branch holding your edits and what is left for HANDOFF."

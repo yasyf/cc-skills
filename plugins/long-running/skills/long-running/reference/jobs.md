@@ -155,9 +155,9 @@ every state but `stopped`, and `drive job report` refuses, naming the fix, a job
 opening with no result, a `WAITING` naming nothing the watch frees it on, a design lane's `DESIGN`
 that Jev reads as building less or later than his words or answers name with no fork asking him, or a strategy before the
 abstraction it shares, and a reader's `DESIGN` that `drive job ask` refuses as his card. Each drive PR, `release:<service>:<owner>/<repo>#<n>`, `staging:<target>/<env>@<commit>` and `<order>:<part>` a
-`READY` or `PUSHED` first line names becomes a wait, and each a `WAITING` first line names that still holds, never one the lines below it name, so a
-`WAITING` naming only PRs that merged or closed or parts delivered is refused, by the one rule `drive job report` and a codex job's take share; the watch's `FREE` line ends a wait once
-the PR merges, the release is out, `tools/ci release live` reads the staging wait's env running its target at its commit or a builder or codex job on the part returns `DONE` with no PR of its own unlanded, a `staging test of #N before it lands` part once that `DONE`'s first `CHECK:` proof is kept on it, or once the PR it names, one of the job's own, closes unmerged, while another job's PR closing unmerged
+`READY` or `PUSHED` first line names becomes a wait, and each a `WAITING` first line names that still holds, never one the lines below it name, a `pid:<n>` of a process on this Mac that still runs among them, so a
+`WAITING` naming only PRs that merged or closed, parts delivered or processes that ended is refused, by the one rule `drive job report` and a codex job's take share; the watch's `FREE` line ends a wait once
+the PR merges, the release is out, `tools/ci release live` reads the staging wait's env running its target at its commit, the process ends or a builder or codex job on the part returns `DONE` with no PR of its own unlanded, a `staging test of #N before it lands` part once that `DONE`'s first `CHECK:` proof is kept on it, or once the PR it names, one of the job's own, closes unmerged, while another job's PR closing unmerged
 moves either wait to that job's newest open PR, else to that job until its work is done; a staging test pausing until staging runs
 its soak commit returns one `WAITING staging:<target>/<env>@<commit>` per stack, the target and env as `tools/ci release live` names
 them, such as `WAITING staging:sandsql/plat-usw2-staging@044e8552b694`, never a line opening with no result word; a release wait whose service `tools/ci release select
@@ -196,6 +196,12 @@ sets failed on `BLOCKED codex-ask completed, its reply refused:` and why, with t
 failed or dead run sets failed on `BLOCKED codex-ask <state>:` and its log's last line; a run still
 going sets nothing. Codex leaves its edits uncommitted, so a codex job that changed code returns
 `HANDOFF`, and the builder that ships it is briefed `Handoff: drive job report <the codex job>`.
+A codex job waiting on a long run it started on this Mac, such as a pass-box command's observer,
+returns `WAITING … waits on pid:<n>`, naming that process; the drive keeps the wait as
+`pid:<n>@<the second it started>`, so the number taken by another process once it ends holds
+nothing. Once the process ends, crashed or finished, the watch's `FREE` line says so and the same
+pass starts the job's next codex-ask run, its brief carrying under `From the watch since:` which process
+ended and the job's last report, so nobody launches it.
 On an open incident's `fix` whose fix is not live, the watch adds that builder at each return of
 the codex job and names it on a `JOB` line for the coordinator to start in that turn.
 
