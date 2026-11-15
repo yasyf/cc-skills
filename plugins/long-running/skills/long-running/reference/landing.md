@@ -597,6 +597,12 @@ the patch.
   nothing. It holds a drive session, its agents, a Sprite lane, which asks the coordinator's Mac
   with `drive job held --release`, and a codex job's run, through the codex PreToolUse hook
   `drive job launch` keeps in `~/.codex/hooks.json`.
+- His agents freeze, the release-ledger row `tools/ci release freeze --agents --reason <why>` keeps,
+  makes the release tool itself refuse every release his agents and ai-oncall start but one whose
+  `--order` names an answer he excepted on it. Only he lifts it or excepts an answer on it: the
+  `landing_guard` hook refuses `tools/ci release unfreeze --agents` and `tools/ci release freeze
+  --agents --except <answer id>` to every drive session and agent, a Sprite lane and a codex job's
+  run included, while reading the row and setting it pass.
 - A start names his exception in `--order`. A job's approve, resume, rerun or rollback passes on the
   `--order` of its `Release:` line. A call naming none is refused, with no answer of his read. An
   incident's order passes on its words, never on its label. Ask
