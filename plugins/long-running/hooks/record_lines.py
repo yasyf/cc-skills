@@ -27,6 +27,7 @@ READY_GONE = (
 )
 LIMIT_ATTR = "max_words"
 STAGING_SLOTS = "staging-slots"
+CLOSE = "mcp__plugin_cc-inbox_cci__close"
 
 
 def unready(record: dict) -> str | None:
@@ -118,13 +119,17 @@ def posting_lane(data: dict, payload: dict, records: list[dict]) -> str:
 
 
 def decision(payload: dict) -> dict | None:
-    """What a drive session's post becomes: refused with the fix while a record in it, read with the text, kind, lanes and attrs cci stores for it, breaks a rule its kind keeps, an ask record carrying his card's ASK block, which only `drive job ask` keeps and draws, included, while any other ask, a question to another session's lane, goes out, or a handoff whose list line goes against a recorded answer of his, by overruled_handoffs, else posted, each report re a POST report its own lane sent going out as the correction it is, with a warning on each POST line telling him a failure of the drive's with no word on how it is prevented, and every record in it trimmed of the attrs it never carries and one line, the rest in its body for whoever acts on it, each record sent where its drive routes it, and the call posted as posting_lane names, a records list rewritten with each record whole, since a field cci filled in beside the list would put back what the record dropped."""
+    """What a drive session's close becomes: refused when it reaches an unfinished job's id, named in its to or, with none, the lane that wrote a record it closes, since only the drive's `record` tool posts there, else as called. What its post becomes: refused with the fix while a record in it, read with the text, kind, lanes and attrs cci stores for it, breaks a rule its kind keeps, an ask record carrying his card's ASK block, which only `drive job ask` keeps and draws, included, while any other ask, a question to another session's lane, goes out, or a handoff whose list line goes against a recorded answer of his, by overruled_handoffs, else posted, each report re a POST report its own lane sent going out as the correction it is, with a warning on each POST line telling him a failure of the drive's with no word on how it is prevented, and every record in it trimmed of the attrs it never carries and one line, the rest in its body for whoever acts on it, each record sent where its drive routes it, and the call posted as posting_lane names, a records list rewritten with each record whole, since a field cci filled in beside the list would put back what the record dropped."""
     names = state.session_drives(payload.get("session_id") or "")
     if not names:
         return None
     tool_input = payload["tool_input"]
-    given = posted(tool_input)
     drives = state.bound_drives(names)
+    if payload.get("tool_name") == CLOSE:
+        to = listed(tool_input.get("to")) or [agents.shown(seq)["lane"] for seq in listed(tool_input.get("seqs"))]
+        refused = state.job_addressed(drives, to, tool_input.get("drive") or names[0])
+        return {"permissionDecision": "deny", "permissionDecisionReason": refused} if refused else None
+    given = posted(tool_input)
     drive = drives[names[0]]
     writer = state.session_lane(drive, payload.get("session_id"))
     records = [amended(drive, writer, trimmed(record)) for record in given]

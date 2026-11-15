@@ -1931,6 +1931,28 @@ def test_a_running_codex_jobs_resume_and_wake_hold_each_text_its_run_hears_once_
     assert state.load("demo")["jobs"]["j1"]["undelivered"] == []
 
 
+def test_a_codex_runs_cci_post_to_another_jobs_id_is_held_on_that_job_and_one_to_a_lane_nobody_reads_is_refused(
+    demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], no_calls: list[list[str]]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "fix the incident")
+    run("job", "add", "codex", "--order", "o1", "--goal", "fix the incident")
+    run("order", "add", "--title", "Other title", "--project", "The drive", "--workstream", "Drive tooling", "review the fix")
+    asked = run("job", "add", "codex", "--order", "o2", "--goal", "review the fix")[1].splitlines()[0]
+    with state.edit("demo") as data:
+        state.start(data["jobs"]["j1"])
+    monkeypatch.setenv(state.OWN_JOB_ENV, "j1")
+    monkeypatch.setenv(state.DRIVE_ENV, "demo")
+    call = bash(f"cci post --kind ask --to {asked} 'which port does the router retry on?'") | {"session_id": "a-codex-session", "transcript_path": str(tmp_path / "rollout.jsonl")}
+    assert hook_output(landing_guard, monkeypatch, capsys, json.dumps(call)) == ""
+    assert [(held["words"], held["sender"], held["seq"]) for held in state.load("demo")["jobs"][asked]["undelivered"]] == [
+        ("ask record from j1: which port does the router retry on?", "j1", None)
+    ]
+    assert state.load("demo")["jobs"]["j1"]["undelivered"] == []
+    unread = call | {"tool_input": {"command": "cci post --kind ask --to coordinator 'which port?'"}}
+    denied = json.loads(hook_output(landing_guard, monkeypatch, capsys, json.dumps(unread)))["hookSpecificOutput"]["permissionDecisionReason"]
+    assert denied.startswith("refused, nothing posted: to coordinator: no session of drive demo reads that lane")
+
+
 def test_drive_job_add_starts_no_release_his_hold_holds_and_starts_his_exception(demo: str, run: Run, recorded: Answers, jev: Jev, capsys: pytest.CaptureFixture[str]) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "release the fix")
     recorded.listed = [RELEASE_HOLD, SSQL_EXCEPTION, RELEASE_PICK | {"created_at": EARLIER}]

@@ -737,6 +737,25 @@ def test_a_sub_coordinator_posts_from_its_lane_his_answer_to_its_card_or_an_owne
         tools.run("record", demo, {"records": [{"kind": "owner", "text": "fix the alert", "to": "platform", "about": "his work"}]})
 
 
+def test_a_record_to_an_unfinished_jobs_id_goes_out_and_is_held_on_that_job_with_its_seq_and_sender_and_a_finished_jobs_is_refused(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "fix the incident")
+    run("job", "add", "codex", "--order", "o1", "--goal", "fix the incident")
+    posted: list[list[dict]] = []
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: posted.append(json.loads(kwargs["input"])) or subprocess.CompletedProcess([], 0, '{"seq": 46}\n', ""))
+    handoff = {"kind": "handoff", "text": "the router retries on port 8080", "to": "j1"}
+    said = tools.run("record", demo, {"records": [handoff]}).splitlines()
+    assert said[:2] == ["1 handoff 46", "1 held on j1 for its running worker or codex run, as drive job resume holds a text"]
+    assert [[record["kind"] for record in records] for records in posted] == [["handoff"]]
+    [held] = state.load(demo)["jobs"]["j1"]["undelivered"]
+    assert (held["words"], held["sender"], held["seq"]) == ("handoff record 46 from root: the router retries on port 8080", "coordinator", "46")
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["state"] = "done"
+    with pytest.raises(DriveError, match="to j1: no session of drive demo reads that lane"):
+        tools.run("record", demo, {"records": [handoff | {"text": "and on 8081"}]})
+
+
 def test_his_answer_to_a_job_whose_agent_the_top_started_reaches_the_top_not_the_sub_coordinator_hearing_its_order_as_683494_did_not(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:

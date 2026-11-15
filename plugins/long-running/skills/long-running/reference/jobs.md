@@ -197,7 +197,9 @@ holds under a heading naming its sender, his answers under `His answers since:` 
 and the launch drops those texts off the job and marks it sent those answers. A text held while
 the run goes reaches it at its next Bash call: `landing_guard`, which codex runs before each of the
 run's Bash calls, hands each text the job holds to the run as that call's `additionalContext`, which
-codex records into the running turn, and drops it off the job. The watch starts no launch while the
+codex records into the running turn, and drops it off the job. A codex job that asks over cci is
+answered on the drive's `record` tool with `to` its id, which holds the record on the job the same way;
+cci's own tools refuse that lane. The watch starts no launch while the
 run goes, and its next launch carries a text still held when the run ends. The `scratch_folder` hook refuses a
 `codex:` agent started on a codex job's brief. The schema holds codex's final message to three
 required fields: `state`, a result word of the table above but `DESIGN`, since a visual design is its

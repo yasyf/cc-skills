@@ -664,7 +664,7 @@ def body_reason(script: str, shell: Shell) -> str | None:
 
 
 def cci_posts(script: str, shell: Shell) -> list[dict]:
-    """Each record a script posts with `cci post`, never a call asking for its help with `--help` or `-h`, which cci answers before it reads a record, in the shape the cci `post` tool takes: its kind, attrs, addressed lanes, text, body, url, topic and answered seqs, each read as cci reads it: its text the positionals, else --text, else the opening line of the file --path names, its body the file --body-file or --path names, and each `--attr` as cci's flag parser reads it, one `key=value` whole, commas and all, and with several `=` comma-separated `key=value` fields, quotes around one holding a comma."""
+    """Each record a script posts with `cci post`, never a call asking for its help with `--help` or `-h`, which cci answers before it reads a record, in the shape the cci `post` tool takes: its kind, attrs, addressed lanes, the lane it posts from, text, body, url, topic and answered seqs, each read as cci reads it: its text the positionals, else --text, else the opening line of the file --path names, its body the file --body-file or --path names, and each `--attr` as cci's flag parser reads it, one `key=value` whole, commas and all, and with several `=` comma-separated `key=value` fields, quotes around one holding a comma."""
     posts = []
     for _, words, run_in in commands(script, shell):
         if (found := landing_of(words, (CCI_POST,))) and lands(found[0], found[2]):
@@ -675,6 +675,7 @@ def cci_posts(script: str, shell: Shell) -> list[dict]:
                 "attrs": dict(pair.split("=", 1) for value in options.get("attr", []) for pair in ([value.strip('"')] if value.count("=") == 1 else next(csv.reader([value])))),
                 "to": [lane for value in options.get("to", []) for lane in value.split(",")],
                 "drive": (options.get("drive") or [None])[-1],
+                "lane": (options.get("lane") or [None])[-1],
                 "text": " ".join(positionals) or (options.get("text") or [""])[-1] or limits.opening_line(file_text(run_in.cwd, path)),
                 "body": file_text(run_in.cwd, (options.get("body-file") or [path])[-1]),
                 "url": (options.get("url") or [None])[-1],
@@ -752,7 +753,7 @@ def shell_of(payload: dict) -> tuple[list[str], Shell]:
 
 
 def judged_reason(payload: dict) -> str | None:
-    """Why a drive session's Bash call looks wrong in a way Jev judges before it stands: it posts an ask record carrying his card's ASK block, which only `drive job ask` keeps and draws, refused by its shape alone while any other ask, a question to another session's lane, goes out, a report carrying a part in an attr other than part, which no post reads, or naming an attr a separator, a capital or one letter from one the drive reads, a record to a lane no session reads or to lanes other than the drive routes it to, a report to the communicator that the checks the cci `post` tool's hook runs refuse, such as one leaving out a part a finished job answered, or a record a handler posts to him typing a clock time for work already done, which blocks outright, or is the coordinator's or the meta session's own order work."""
+    """Why a drive session's Bash call looks wrong in a way Jev judges before it stands: it posts an ask record carrying his card's ASK block, which only `drive job ask` keeps and draws, refused by its shape alone while any other ask, a question to another session's lane, goes out, a report carrying a part in an attr other than part, which no post reads, or naming an attr a separator, a capital or one letter from one the drive reads, a record to a lane no session reads, a job's id included, which only the drive's `record` tool posts to, or to lanes other than the drive routes it to, a codex run's checked against the drive its environment names, a job's id there a lane held_posts holds it on, a report to the communicator that the checks the cci `post` tool's hook runs refuse, such as one leaving out a part a finished job answered, or a record a handler posts to him typing a clock time for work already done, which blocks outright, or is the coordinator's or the meta session's own order work."""
     names, shell = shell_of(payload)
     session = shell.session
     command = payload["tool_input"]["command"]
@@ -761,10 +762,11 @@ def judged_reason(payload: dict) -> str | None:
         return carded
     if names and (misnamed := next(filter(None, (reports.stray_parts(post["kind"], post["attrs"]) or limits.misnamed(post["kind"], post["attrs"]) for post in posts)), None)):
         return misnamed
-    drives = state.bound_drives(names) if posts else {}
-    if unread := next(filter(None, (state.unread(drives, post["to"], post["drive"] or next(iter(names), None)) for post in posts)), None):
+    codex = [os.environ[state.DRIVE_ENV]] if posts and codex_job() and not names else []
+    drives = state.bound_drives(names or codex) if posts else {}
+    if unread := next(filter(None, (state.unread(drives, post["to"], post["drive"] or next(iter(names or codex), None), held=bool(codex)) for post in posts)), None):
         return unread
-    if posts and (wrong := misrouted(posts, drives, session)):
+    if posts and not codex and (wrong := misrouted(posts, drives, session)):
         return wrong
     drive = state.load(names[0]) if names and posts else None
     if drive and (unreported := next(filter(None, (refused for index in range(len(posts)) for refused in reports.report_refusals(payload, drive, posts, index))), None)):
@@ -835,6 +837,7 @@ def verdict() -> dict | None:
     if reason:
         return denial(reason) if os.environ.get(state.OWN_JOB_ENV) else denial(reason) | {"judged": bool(judged)} | agents.ruled(reason)
     agents.hold(payload)
+    held_posts(payload)
     return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": context}} if context else None
 
 
@@ -848,6 +851,18 @@ def heard() -> str | None:
     for kept in job["undelivered"]:
         sent_kept(name, job_id, kept | {"ask": job.get("ask")})
     return state.held_since(job["undelivered"]).lstrip()
+
+
+def held_posts(payload: dict) -> None:
+    """Hold each `cci post` a running codex job's Bash call makes to an unfinished job's id on that job, as the drive's `record` tool holds a record it posts there, its writer the lane it posts from, else the codex job, which is its sender, so that job's running worker or codex run hears it as a text drive job resume holds, a call naming no such job writing nothing; the seq is unknown before cci posts it, so the job holds it by its words."""
+    if not (job_id := codex_job()) or not (posts := cci_posts(payload["tool_input"]["command"], shell_of(payload)[1])):
+        return
+    lanes = {entry.partition("@")[0] for post in posts for entry in post["to"]}
+    if not lanes & set(state.open_jobs(state.load(name := os.environ[state.DRIVE_ENV]))):
+        return
+    with state.edit(name) as data:
+        for post in posts:
+            state.hold_addressed(data, post, post["lane"] or job_id, None, job_id, post["drive"] or name)
 
 
 def codex_job() -> str | None:

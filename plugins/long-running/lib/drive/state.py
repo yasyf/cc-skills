@@ -1807,17 +1807,30 @@ def owed_handoffs(data: dict, group: list[str]) -> list[dict]:
     ]
 
 
-def hold_text(job: dict, text: str, sender: str | None, at: str | None = None) -> bool:
-    """Keep a text on the job's undelivered list as kept_text writes it, which its next worker or codex-ask run carries, unless the job already holds it or it is one of the watch's RESTART_NOTES, which tells only the lane a wake or restart reaches to carry on and so rides only the message or handoff of the drive job resume that wakes or restarts it, never a later worker; whether it kept it."""
-    if text in RESTART_NOTES or any(held["words"] == text for held in job["undelivered"]):
+def hold_text(job: dict, text: str, sender: str | None, at: str | None = None, seq: str | None = None) -> bool:
+    """Keep a text on the job's undelivered list as kept_text writes it, which its next worker or codex-ask run carries, unless the job already holds it, by its words or the cci seq of the record it came in, or it is one of the watch's RESTART_NOTES, which tells only the lane a wake or restart reaches to carry on and so rides only the message or handoff of the drive job resume that wakes or restarts it, never a later worker; whether it kept it."""
+    if text in RESTART_NOTES or any(held["words"] == text or seq and held["seq"] == seq for held in job["undelivered"]):
         return False
-    job["undelivered"].append(kept_text(text, sender, at))
+    job["undelivered"].append(kept_text(text, sender, at, seq))
     return True
 
 
-def kept_text(text: str, sender: str | None, at: str | None = None) -> dict:
-    """A text owed to a job's worker with who sent it, dated now unless at names when it was given, under a fresh Orca request id."""
-    return {"seq": None, "words": text, "sender": sender, "at": at or stamp(), "said": None, "request": str(uuid.uuid4())}
+def kept_text(text: str, sender: str | None, at: str | None = None, seq: str | None = None) -> dict:
+    """A text owed to a job's worker with who sent it and the cci seq of the record it came in, if any, dated now unless at names when it was given, under a fresh Orca request id."""
+    return {"seq": seq, "words": text, "sender": sender, "at": at or stamp(), "said": None, "request": str(uuid.uuid4())}
+
+
+def hold_addressed(data: dict, record: dict, writer: str, seq: str | None, sender: str | None, drive: str | None = None) -> list[str]:
+    """Hold a record on each unfinished job its to names by the job's id, the lane that job hears, a bare lane read as drive's, by hold_text: its kind, cci seq once cci stored it and writer lane, which a reply addresses, then its text and body, held with who sent it, so the job's running worker or codex-ask run gets it as any held text; the jobs it held it on."""
+    head = " ".join(filter(None, [record["kind"], "record", seq, "from", writer]))
+    words = "\n".join(filter(None, [f"{head}: {record['text']}", record.get("body")]))
+    jobs = open_jobs(data)
+    named = [lane for entry in record["to"] if (lane := entry.partition("@")[0]) in jobs and (entry.partition("@")[2] or drive or data["name"]) == data["name"]]
+    return [job_id for job_id in dict.fromkeys(named) if hold_text(data["jobs"][job_id], words, sender, seq=seq)]
+
+
+def open_jobs(data: dict) -> list[str]:
+    return [job_id for job_id, job in data["jobs"].items() if job["state"] not in FINISHED_JOB_STATES]
 
 
 def hand_held(data: dict, job_id: str, into: str) -> None:
@@ -4230,13 +4243,26 @@ def holding_job_lane(data: dict, job: dict) -> str:
     return "root" if starts_cut(job) else holding_lane(data, data["orders"][job["order"]])
 
 
-def unread(drives: dict[str, dict], to: list[str], drive: str | None) -> str | None:
-    """Why a record cannot go out: it names a lane of a drive the session is bound to that no session reads, a bare lane read as the drive's, as a sub-coordinator's handoffs to coordinator sat unread while the top coordinator read root; the drive's sessions read root, communicator, meta and each sub-coordinator's lane, and he reads owner."""
+def unread(drives: dict[str, dict], to: list[str], drive: str | None, held: bool = False) -> str | None:
+    """Why a record cannot go out: it names a lane of a drive the session is bound to that no session reads, a bare lane read as the drive's, as a sub-coordinator's handoffs to coordinator sat unread while the top coordinator read root; the drive's sessions read root, communicator, meta and each sub-coordinator's lane, and he reads owner. An unfinished job's id is the lane its job hears where held is set, since that post holds the record on the job by hold_addressed, and job_addressed refuses it anywhere else."""
     for entry in to:
         lane, _, name = entry.partition("@")
         name = name or drive or ""
-        if (data := drives.get(name)) and lane not in (lanes := ["root", "communicator", "meta", *map(project_lane, data["subcoordinators"]), "owner"]):
-            return f"refused, nothing posted: to {lane}: no session of drive {name} reads that lane; name one of {', '.join(lanes)}"
+        if not (data := drives.get(name)) or lane in (lanes := ["root", "communicator", "meta", *map(project_lane, data["subcoordinators"]), "owner"]) or held and lane in open_jobs(data):
+            continue
+        return job_addressed(drives, [entry], drive) or f"refused, nothing posted: to {lane}: no session of drive {name} reads that lane; name one of {', '.join(lanes)}, or an unfinished job's id on the drive's `record` tool"
+    return None
+
+
+def job_addressed(drives: dict[str, dict], to: list[str], drive: str | None) -> str | None:
+    """Why a cci post or close cannot go out: it names an unfinished job's id, a bare lane read as the drive's, which only the drive's record tool posts to, holding the record on that job, since cci stores a record to that lane with nothing handing it to the job's worker."""
+    for entry in to:
+        lane, _, name = entry.partition("@")
+        if (data := drives.get(name or drive or "")) and lane in open_jobs(data):
+            return (
+                f"refused, nothing posted: to {lane}: job {lane} hears a record only from the drive's `record` tool, which posts it and holds it on the job"
+                f" for its running worker or codex run, as drive job resume holds a text; send it there with to {lane}, re the seq it answers and resolves each seq it closes"
+            )
     return None
 
 
