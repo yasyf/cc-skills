@@ -321,7 +321,7 @@ def test_a_grant_whose_record_for_root_cci_refuses_runs_no_command(
     [
         (
             ["order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "count"],
-            "drive order add: refused, nothing ran: a lane runs only these verbs: job report, job ask, job set, job replies, job held, pr add, pr set, plan search, datadog, manual, page-owner, status",
+            "drive order add: refused, nothing ran: a lane runs only these verbs: job report, job ask, job set, job replies, job held, pr add, pr set, plan search, datadog, fde-scan, manual, page-owner, status",
         ),
         (
             ["job", "report", "j8", "-"],
@@ -387,6 +387,23 @@ def test_a_sprite_lanes_refusal_naming_a_drive_command_no_sprite_lane_runs_names
         "No Sprite lane runs drive pr set --staging: return BLOCKED naming each step and its command above, and the coordinator runs it on this Mac"
     )
     assert "No Sprite lane runs" not in refusal("WAITING its soak")
+
+
+def test_a_sprite_lanes_fde_scan_runs_tools_ci_fde_scan_in_the_drives_checkout_never_its_own_tree_and_exits_with_its_status(
+    state_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, run: Callable[..., tuple[int, str]]
+) -> None:
+    checkout = tmp_path / "checkout"
+    (checkout / "tools").mkdir(parents=True)
+    (checkout / "tools" / "ci").write_text(f'#!/bin/sh\necho "$(pwd -P) $*" >> {tmp_path / "scans"}\nexit 3\n')
+    (checkout / "tools" / "ci").chmod(0o755)
+    state.create(state.new_drive("demo", "coordinator", None, str(checkout)))
+    (tmp_path / "lane").mkdir()
+    monkeypatch.chdir(tmp_path / "lane")
+    monkeypatch.setenv(reads.SPRITE_LANE, "1")
+    monkeypatch.setenv(state.OWN_JOB_ENV, "j7")
+    monkeypatch.setenv(state.DRIVE_ENV, "demo")
+    assert run("fde-scan", "--", "--symbol", "raw_sql", "--pr", "42")[0] == 3
+    assert (tmp_path / "scans").read_text().splitlines() == [f"{checkout.resolve()} fde-scan --symbol raw_sql --pr 42"]
 
 
 def test_a_sprite_lane_reads_another_job_as_a_mac_lane_does_its_bare_status_reads_its_own_job_and_nothing_it_starts_carries_its_mark(

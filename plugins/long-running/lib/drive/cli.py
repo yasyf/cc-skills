@@ -4892,6 +4892,13 @@ def mac_boxes_down(args: argparse.Namespace) -> int:
     return max(subprocess.run([str(checkout / GO_CI), "mac-box", "down", "--holder", f"{name}/{job_id}"], cwd=checkout, stdin=subprocess.DEVNULL, check=False).returncode for job_id in args.jobs)
 
 
+def fde_scan(args: argparse.Namespace) -> int:
+    """Run tools/ci fde-scan in the drive's checkout, moved to its default branch's head, since a lane's own tree on a branch cut before the scan landed routes the verb to a ci that lacks it and holds no go/sand command to run; its output and exit status are the verb's."""
+    name = state.resolve(args.drive)
+    checkout = orca.checkout(name, state.load(name)["roles"]["coordinator"]["cwd"])
+    return subprocess.run([str(checkout / GO_CI), "fde-scan", *args.arguments], cwd=checkout, stdin=subprocess.DEVNULL, check=False).returncode
+
+
 def answering(name: str, args: argparse.Namespace) -> Callable[[str], str]:
     """The brief of his read-only question's handler once its answer order, titled as --answer names and filed under no project or workstream, and the handler's reader job on it are added, naming both, the pairs in use, which the handler picks from when it files the order with drive order set, and every open order in his thread with its jobs, questions and PRs, read from the drive and its stored cards, so the handler reads no drive status."""
     held = agents.holds(args.brief)
@@ -6483,6 +6490,11 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("jobs", nargs="+", help="the jobs whose Mac boxes come down")
     verb.set_defaults(run=mac_boxes_down)
+    verb = verbs.add_parser(
+        "fde-scan", parents=[drive_opt], help="run tools/ci fde-scan with the arguments after -- in the drive's checkout at its default branch's head, for a lane on any branch or Sprite"
+    )
+    verb.add_argument("arguments", nargs="+", help="after --, what tools/ci fde-scan takes, such as --symbol raw_sql --pr 42")
+    verb.set_defaults(run=fde_scan)
     verb = verbs.add_parser(
         "finish", parents=both, help="run the drive writes an older install's verb made once its outside work went out, from the receipt it kept when this install saved the drive meanwhile; that verb runs it"
     )
