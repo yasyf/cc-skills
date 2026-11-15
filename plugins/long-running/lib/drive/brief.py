@@ -34,6 +34,16 @@ NATIVE = re.compile(r"^NATIVE:[ \t]*(.*)$", re.MULTILINE)
 PROOF = re.compile(rf"{limits.PAGE_LINK.pattern}|(?<![\w.])/[^\s,;)]+")
 SEEN_PROOF = re.compile(r"slack\.com/archives/|\.(?:mov|mp4|webm|gif|png|jpe?g)$", re.IGNORECASE)
 SEEN = "a picture or recording of it, or the live post's link its proof file reads back"
+STORY_LINE = re.compile(r"(?P<kind>STORY|CRITERION|PASS|FAIL|GAP|SEEN) (?P<story>S\d+)(?: (?P<label>[^:]+?))?:(?P<rest>.*)")
+STORY_KINDS = ("STORY", "CRITERION", "PASS", "FAIL", "GAP", "SEEN")
+CRITERIA = ("first", "empty state", "error state")
+UNMET = ("FAIL", "GAP")
+STORY_LINES = (
+    "each user story's lines, S1 on in the order its brief's Interactions: line names them: STORY Sn: <the story>; CRITERION Sn <label>: <what must hold>"
+    " for each of its strict acceptance criteria, first, empty state and error state among the labels; PASS Sn <label>: <what the run saw> or"
+    " FAIL Sn <label>: <why> for each criterion by its label; and SEEN Sn: <the picture or recording it saved, or the live post's link it read back>,"
+    " which opens; a story lacking any of these lines, or printing a FAIL or GAP line, falls short"
+)
 GITHUB_PAGES = (
     (re.compile(r"https://github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)"), "repos/{0}/pulls/{1}"),
     (re.compile(r"https://github\.com/([\w.-]+/[\w.-]+)/commit/([0-9a-f]{7,40})"), "repos/{0}/commits/{1}"),
@@ -697,7 +707,7 @@ def heavier(data: dict, job_id: str, brief: str, model: str | None) -> bool:
 
 
 def report_refusal(name: str, data: dict, job_id: str, text: str) -> str | None:
-    """Why a job's return may not be kept: a builder's or designer's opens with a result word, a REPRO: file is kept on the job first, a report naming a limit in its own words as a finding left standing is an ASK or DESIGN, a design lane's is the design in its shape, building all his words name and the abstraction several strategies share before any of them, by narrowed_design, a research reader's carries its Researched: block, a reader's DESIGN is a choice for him with its options, starting from the root cause and recommending the option that removes it, a DONE, READY or PUSHED leaves no step for someone else, nor a builder's a piece of its plan to a follow-up that no UNBUILT: line of it names, by left_piece, a builder's UNBUILT: lines naming their pieces as a design's Change: lines must and none naming work the drive already holds, by held_piece, a builder's or codex job's DONE on a staging test part carries a CASE line for each case, a design's DESIGN of several keeping the words of each change it listed before that a live builder carries, by state.renamed_change, a builder's DONE names its proof, one picture, recording or live post of each user story its brief names when he sees the result, a repair keeping a proof file told to prove it with drive job prove instead, and a builder's READY or PUSHED names PRs whose tap card draws, saying how his words are met on each reworked to them, and says how it builds on what its research found."""
+    """Why a job's return may not be kept: a builder's or designer's opens with a result word, a REPRO: file is kept on the job first, a report naming a limit in its own words as a finding left standing is an ASK or DESIGN, a design lane's is the design in its shape, building all his words name and the abstraction several strategies share before any of them, by narrowed_design, a research reader's carries its Researched: block, a reader's DESIGN is a choice for him with its options, starting from the root cause and recommending the option that removes it, a DONE, READY or PUSHED leaves no step for someone else, nor a builder's a piece of its plan to a follow-up that no UNBUILT: line of it names, by left_piece, a builder's UNBUILT: lines naming their pieces as a design's Change: lines must and none naming work the drive already holds, by held_piece, a builder's or codex job's DONE on a staging test part carries a CASE line for each case, a design's DESIGN of several keeping the words of each change it listed before that a live builder carries, by state.renamed_change, a builder's DONE names its proof, and a picture, recording or live post when he sees the result, a DONE whose brief names user stories refused, since only drive job prove proves them from what its proof file prints, a repair keeping a proof file told to prove it with drive job prove instead, and a builder's READY or PUSHED names PRs whose tap card draws, saying how his words are met on each reworked to them, and says how it builds on what its research found."""
     job = data["jobs"][job_id]
     order = data["orders"][job["order"]]
     lines = [line.strip() for line in text.strip().splitlines()]
@@ -1137,7 +1147,16 @@ def dead(named: list[str]) -> list[str]:
 
 
 def unproven(text: str, job_id: str, job: dict) -> str | None:
-    """Why a builder's or codex job's DONE may not be kept: a link its first line or a CHECK: line names does not open, since an incident's keeps that first line as its order's proof; its CHECK: line names no link and no file that exists and is not empty, as held reads it; or, for what he sees, by its NATIVE: line or its brief's Native, it falls short of story_gap."""
+    """Why a builder's or codex job's DONE may not be kept: for what he sees, by its NATIVE: line or its brief's Native, its brief names user stories, which only drive job prove proves, by story_gap on what its proof file prints, never a DONE's words; a link its first line or a CHECK: line names does not open, since an incident's keeps that first line as its order's proof; its CHECK: line names no link and no file that exists and is not empty, as held reads it; or, for what he sees, its CHECK: names no recording, picture or live post."""
+    sees = he_sees(text) or surface(job)
+    if sees and (told := stories((job.get("brief_flags") or {}).get("interactions"))):
+        prover = (
+            "a codex job runs no drive job prove, so a builder added on its part with drive job add builder --builds-nothing keeps its proof file and runs"
+            " drive job prove on itself, which reads"
+            if job["kind"] == "codex"
+            else "drive job prove proves them, running its proof file and reading"
+        )
+        return f"{job_id}'s brief names {len(told)} user stories, which no DONE's words prove: {prover} in what it prints {STORY_LINES}"
     if shut := dead(proofs("\n".join([text.strip().splitlines()[0], *CHECK.findall(text)]))):
         return f"a DONE's links each open as he would open them, and {shut[0]}: link the live post, page or run itself, or name the saved file of the check"
     real = [proof for line in CHECK.findall(text) for proof in proofs(line) if held(proof)]
@@ -1146,47 +1165,48 @@ def unproven(text: str, job_id: str, job: dict) -> str | None:
             "a DONE names its proof on a CHECK: line, a link or the absolute path of a file that exists and is not empty, such as the"
             " live post, the recording of the click, or the saved output of the installed command"
         )
-    if not (he_sees(text) or surface(job)):
-        return None
-    return story_gap(job_id, job, real, text)
+    return unseen_surface(real) if sees else None
 
 
-def story_gap(job_id: str, job: dict, named: list[str], evidence: str) -> str | None:
-    """Why the proof of a result he sees falls short: it names no recording, picture or live post of that surface, or, for a brief naming user stories, fewer pictures, recordings or live posts than stories, no proof file holding their acceptance criteria, or one Jev reads with the evidence as stopping at the bare minimum for a story, at settled.YES or more, every story read in one request beside the proof file and its output by whole lines; a reading in the band between settled.NO and settled.YES, or none, leaves it proven, said on stderr."""
-    from drive import settled
-
-    seen = [proof for proof in named if SEEN_PROOF.search(proof)]
-    if not (told := stories((job.get("brief_flags") or {}).get("interactions"))):
-        return None if seen else (
-            "this builds something he sees, by its NATIVE: line or its brief's Native, so its proof is from that surface: record the"
-            " click through it (agent-browser's recording, or screencapture -v of the window) or link the live post, and name the"
-            " file or link on CHECK:; data fetched from an API or a command's output does not show what he sees"
-        )
-    if len(seen) < len(told):
-        return (
-            f"its brief names {len(told)} user stories and its proof shows {len(seen)} of them on the installed surface:"
-            f" its proof file clicks through each story and its check names, for each, {SEEN}, by his words " + STORIES_RULING
-        )
-    if not (job.get("repro") and Path(job["repro"]).is_file()):
-        return (
-            f"{job_id}'s brief names user stories and it keeps no proof file holding their acceptance criteria: write them before"
-            f" building into the script that clicks each story on the installed surface, and keep it with drive job set {job_id} --repro <file>"
-        )
-    weighs = (({"stories": {f"s{number}": story}}, {f"bare.s{number}": settled.asking(settled.BARE, slot=f"s{number}")}) for number, story in enumerate(told, 1))
-    lines = [*settled.lined("proof_file", Path(job["repro"]).read_text(errors="replace")), *settled.lined("check", evidence)]
-    request, questions, _ = settled.fill({"proof_file": {}, "check": {}}, {}, [*weighs, *lines])
-    try:
-        read = settled.jev(request, questions)
-    except settled.Unheard as failure:
-        print(f"drive: Jev did not read the proof against its user stories, so it stands unchecked: {failure}", file=sys.stderr)
-        return None
-    found = {story: settled.reading(read.get(f"bare.s{number}")) for number, story in enumerate(told, 1)}
-    for story in (story for story, stops in found.items() if stops is None):
-        print(f'drive: Jev is unsure whether the proof stops at the bare minimum for the story "{cut(story, 120)}", so it stands', file=sys.stderr)
-    if not (bare := [story for story, stops in found.items() if stops]):
+def unseen_surface(named: list[str]) -> str | None:
+    """Why the proof of a result he sees, on a brief naming no user story, falls short: it names no recording, picture or live post of that surface."""
+    if any(SEEN_PROOF.search(proof) for proof in named):
         return None
     return (
-        f'its proof stops at the bare minimum for the story "{cut(bare[0], 120)}": its proof file states that story\'s strict acceptance'
-        " criteria, what he sees first, each click, key and hover's result and its empty and error states, asserts each on the installed"
-        f" surface, and its check names {SEEN}, by his words " + STORIES_RULING
+        "this builds something he sees, by its NATIVE: line or its brief's Native, so its proof is from that surface: record the"
+        " click through it (agent-browser's recording, or screencapture -v of the window) or link the live post, and name the"
+        " file or link on CHECK:; data fetched from an API or a command's output does not show what he sees"
     )
+
+
+def story_gap(job: dict, output: str) -> tuple[str, list[str]] | None:
+    """Why what a proof file printed falls short of the surface he sees, read in code, so no reading decides, by his pick 43f4d82, with the lines that close its kept output, one gap each: on a brief naming no user story, unseen_surface; on one naming stories, how many fall short and the first gap, each story by its number on the Interactions line, S1 on, read by story_short."""
+    if not (told := stories((job.get("brief_flags") or {}).get("interactions"))):
+        return (gap, []) if (gap := unseen_surface(proofs(output))) else None
+    printed: dict[str, list[re.Match]] = {}
+    for line in output.splitlines():
+        if found := STORY_LINE.fullmatch(line.strip()):
+            printed.setdefault(found["story"], []).append(found)
+    short = {story: gaps for number in range(1, len(told) + 1) if (gaps := story_short(story := f"S{number}", printed.get(story, [])))}
+    if not short:
+        return None
+    gaps = [gap for each in short.values() for gap in each]
+    return (
+        f"{len(short)} of its {len(told)} user stories fall short in the lines it printed, each gap on a line closing that output: {gaps[0]}",
+        [*(f"drive job prove: {gap}" for gap in gaps), f"drive job prove: a proof file prints {STORY_LINES}"],
+    )
+
+
+def story_short(story: str, lines: list[re.Match]) -> list[str]:
+    """Each gap in one user story's lines of a proof's output: each line of STORY_LINES it lacks, each criterion with no PASS or FAIL line of its label, each FAIL or GAP line it printed, quoted whole, and a SEEN line naming no picture or recording file holding something nor a live post's link that opens, as held reads them."""
+    kinds = {kind: [line for line in lines if line["kind"] == kind] for kind in STORY_KINDS}
+    criteria = list(dict.fromkeys(line["label"] for line in kinds["CRITERION"] if line["label"]))
+    results = {line["label"] for line in kinds["PASS"] + kinds["FAIL"]}
+    seen = [proof for line in kinds["SEEN"] for proof in proofs(line["rest"]) if SEEN_PROOF.search(proof) and held(proof)]
+    return [
+        *([] if kinds["STORY"] else [f"{story} prints no STORY {story}: line"]),
+        *(f"{story} prints no CRITERION {story} {label}: line" for label in CRITERIA if label not in criteria),
+        *(f'{story}\'s criterion "{label}" has no PASS {story} {label}: or FAIL {story} {label}: line' for label in criteria if label not in results),
+        *(f'{story} prints "{line[0]}"' for line in lines if line["kind"] in UNMET),
+        *([] if seen else [f"{story} prints no SEEN {story}: line naming a picture or recording it saved or a live post's link that opens"]),
+    ]

@@ -15,7 +15,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from conftest import REAL_PLUGIN_COPIES_FIRST, carrying, commit_files, git_in, Jev
-from drive import card, cli, dashboard, github, install, orca, reads, receiver, settled, state, view, watch
+from drive import brief, card, cli, dashboard, github, install, orca, reads, receiver, settled, state, view, watch
 
 SHA = "abc123def4567890"
 REPO = "yasyf/cc-skills"
@@ -1974,22 +1974,83 @@ def test_a_proof_ending_on_wait_with_no_fail_line_takes_no_result_and_marks_its_
     assert proof_events() == [("yasyf/cc-skills#7", waits)]
 
 
-@pytest.mark.parametrize(("printed", "taken"), [("ran on the queue", "failed"), ("/tmp/press-j.png /tmp/hover-a-card.png", "done")])
-def test_a_proof_of_something_he_sees_takes_done_only_once_its_output_pictures_each_user_story(
-    config: Path, tmp_path: Path, fake: Callable[..., FakeGit], printed: str, taken: str
+QUEUE_STORIES = "press j and the next card opens; hover a card and its title shows"
+POST = "https://acme.slack.com/archives/D123/p1794559450293519?thread_ts=1794555580.526529&cid=D123"
+
+
+def story_output(press: Path) -> str:
+    return f"""drive under test: long-running 1.0.3
+STORY S1: press j and the next card opens
+  CRITERION S1 first: the queue opens on its oldest card, selected
+  CRITERION S1 next card: j selects the card under it and opens it
+  CRITERION S1 empty state: on the queue's last card j opens nothing and keeps it selected
+  CRITERION S1 error state: a card whose PR GitHub does not read opens saying so
+PASS S1 first: the queue opened on the card asked 4 minutes ago, selected
+PASS S1 next card: j opened the card under it
+PASS S1 empty state: j on the last card kept it selected
+PASS S1 error state: the card on a PR GitHub refused opened saying GitHub did not read it
+SEEN S1: {press}: the queue after j
+STORY S2: hover a card and its title shows
+CRITERION S2 first: no title shows before the hover
+CRITERION S2 title: hovering a card shows its PR's title
+CRITERION S2 empty state: a card with no PR shows no title
+CRITERION S2 error state: a title GitHub does not read shows the PR's number alone
+PASS S2 first: no title before the hover
+PASS S2 title: the hover showed "Fix: prove each install"
+PASS S2 empty state: the card with no PR showed no title
+PASS S2 error state: the unread title showed #7
+SEEN S2: {POST}
+"""
+
+
+def test_a_proof_of_something_he_sees_takes_done_once_each_user_storys_lines_it_prints_hold_every_criterion_passed_and_seen(
+    config: Path, tmp_path: Path, fake: Callable[..., FakeGit]
 ) -> None:
     script = proving(config, tmp_path, fake([BUILD], {BUILD}), 0)
-    script.write_text(f"#!/bin/sh\necho '{printed}'\n")
+    press = tmp_path / "press-j.png"
+    press.write_bytes(b"\0")
+    script.write_text(f"#!/bin/sh\ncat <<'EOF'\n{story_output(press)}EOF\n")
     with state.edit("demo") as data:
-        data["jobs"]["j1"]["brief_flags"] = {"native": "the dashboard's queue", "interactions": "press j and the next card opens; hover a card and its title shows"}
+        data["jobs"]["j1"]["brief_flags"] = {"native": "the dashboard's queue", "interactions": QUEUE_STORIES}
     install.prove("demo", "j1", 900)
     job = state.load("demo")["jobs"]["j1"]
-    assert job["state"] == taken
-    if taken == "failed":
-        assert job["said"].startswith(
-            f"BLOCKED {URL}: {script} exits 0 but falls short of its surface on long-running@skills 1.0.3, its output {state.proof_path('demo', 'j1')}: its brief names 2 user stories"
-            " and its proof shows 0 of them"
-        )
+    assert (job["state"], job["said"]) == ("done", f"DONE {URL} live: {script} exits 0 on long-running@skills 1.0.3")
+    assert state.proof_path("demo", "j1").read_text() == story_output(press)
+
+
+def test_a_proof_of_something_he_sees_takes_blocked_naming_every_gap_in_each_user_storys_lines_it_prints_each_on_a_line_closing_its_output(
+    config: Path, tmp_path: Path, fake: Callable[..., FakeGit], jev: Jev
+) -> None:
+    script = proving(config, tmp_path, fake([BUILD], {BUILD}), 0)
+    press = tmp_path / "press-j.png"
+    press.write_bytes(b"\0")
+    printed = story_output(press)
+    printed = printed.replace("  CRITERION S1 empty state: on the queue's last card j opens nothing and keeps it selected\n", "")
+    printed = printed.replace("PASS S1 next card: j opened the card under it\n", "GAP S1 next card: j selected the card under it and left it shut\n")
+    printed = printed.replace("CRITERION S2 error state: a title GitHub does not read shows the PR's number alone\n", "")
+    printed = printed.replace('PASS S2 title: the hover showed "Fix: prove each install"\n', "")
+    printed = printed.replace(f"SEEN S2: {POST}\n", "SEEN S2: /gone/hover-a-card.png\n")
+    script.write_text(f"#!/bin/sh\ncat <<'EOF'\n{printed}EOF\n")
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["brief_flags"] = {"native": "the dashboard's queue", "interactions": QUEUE_STORIES}
+    install.prove("demo", "j1", 900)
+    job = state.load("demo")["jobs"]["j1"]
+    gaps = [
+        "S1 prints no CRITERION S1 empty state: line",
+        "S1's criterion \"next card\" has no PASS S1 next card: or FAIL S1 next card: line",
+        'S1 prints "GAP S1 next card: j selected the card under it and left it shut"',
+        "S2 prints no CRITERION S2 error state: line",
+        'S2\'s criterion "title" has no PASS S2 title: or FAIL S2 title: line',
+        "S2 prints no SEEN S2: line naming a picture or recording it saved or a live post's link that opens",
+    ]
+    said = (
+        f"BLOCKED {URL}: {script} exits 0 but falls short of its surface on long-running@skills 1.0.3, its output {state.proof_path('demo', 'j1')}:"
+        f" 2 of its 2 user stories fall short in the lines it printed, each gap on a line closing that output: {gaps[0]}"
+    )
+    assert (job["state"], job["said"]) == ("failed", said)
+    closing = "".join(f"drive job prove: {gap}\n" for gap in gaps) + f"drive job prove: a proof file prints {brief.STORY_LINES}\n"
+    assert state.proof_path("demo", "j1").read_text() == printed + closing
+    assert jev.asked == []
 
 
 J4506_OUTPUT = """install /Users/yasyf/.local/share/claude-plugins/cache/skills/long-running/1.0.978/lib

@@ -180,11 +180,6 @@ STEPS = Noul(
     yes='Such as "open the run page, click a step" or "walk each part the earlier brief names".',
     no="It says what he does there, such as a click, key or hover, and what he must then see.",
 )
-BARE = Noul(
-    "Do `proof_file` and `check` stop at the bare minimum for the user story `stories.{slot}` on the installed surface?",
-    yes="The proof only opens a page or checks that something drew, states no criteria for this story, or its check names no picture or recording of it and no live post's link it reads back.",
-    no="The proof file states strict acceptance criteria for it, what he sees first, the result of each click, key or hover, and its empty and error states, asserts each on the installed surface, and its check names a picture or recording of it or the live post's link it reads back.",
-)
 LOOKS = Noul(
     "Do `options` differ in how a screen someone sees looks, such as where rows draw in a sidebar, a page's layout, where a control sits or how it is styled, or an icon, so that he must see each option drawn to pick one?",
     no="They differ in something he reads about rather than sees, such as where data is stored, which code runs, a schedule, a rule, a process, a message's wording or a cost, even when the work behind them ends up on a screen.",

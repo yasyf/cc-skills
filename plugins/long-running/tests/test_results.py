@@ -12,7 +12,7 @@ import one_line_result
 import pytest
 import quiet_turn
 from conftest import LEAD, RESEARCH, CodexAsk, codex_reply
-from drive import cli, codex, render, state, watch
+from drive import brief, cli, codex, render, state, watch
 
 Run = Callable[..., tuple[int, str]]
 POST = "https://acme.slack.com/archives/D1/p1"
@@ -416,14 +416,13 @@ def test_a_reply_file_pointer_reported_on_a_codex_job_sets_no_state(demo: str, r
     assert (job["state"], job["said"]) == ("running", None)
 
 
-@pytest.mark.parametrize(("pictures", "taken"), [(1, "failed"), (2, "done")])
-def test_a_codex_done_on_a_surface_its_brief_names_is_taken_only_with_a_picture_of_each_user_story(
-    demo: str, run: Run, tmp_path: Path, codex_ask: CodexAsk, pictures: int, taken: str
+def test_a_codex_done_on_a_surface_its_brief_names_user_stories_on_is_refused_whatever_it_names_naming_the_prover_that_runs_drive_job_prove(
+    demo: str, run: Run, tmp_path: Path, codex_ask: CodexAsk
 ) -> None:
     codex_job(run)
     proof = tmp_path / "proof.sh"
     proof.write_text("#!/bin/sh\n")
-    shots = [tmp_path / f"story{number}.png" for number in range(1, pictures + 1)]
+    shots = [tmp_path / f"story{number}.png" for number in (1, 2)]
     for shot in shots:
         shot.write_bytes(b"\0")
     reply = codex_reply("DONE", "the queue redrawn", f"CHECK: {' '.join(map(str, shots))}")
@@ -434,9 +433,12 @@ def test_a_codex_done_on_a_surface_its_brief_names_is_taken_only_with_a_picture_
             "codex_run": str(codex_ask.run("completed", reply)),
         }
     job = watched(demo)
-    assert job["state"] == taken
-    if taken == "failed":
-        assert job["said"].startswith("BLOCKED codex-ask completed, its reply refused: its brief names 2 user stories and its proof shows 1 of them")
+    assert job["state"] == "failed"
+    assert job["said"] == (
+        "BLOCKED codex-ask completed, its reply refused: j1's brief names 2 user stories, which no DONE's words prove: a codex job runs no drive job prove,"
+        " so a builder added on its part with drive job add builder --builds-nothing keeps its proof file and runs drive job prove on itself, which reads"
+        f" in what it prints {brief.STORY_LINES}"
+    )[: codex.SAID_CHARS]
 
 
 def test_a_communicator_turn_writes_no_text_between_its_tool_calls(communicator: str, tmp_path: Path) -> None:
