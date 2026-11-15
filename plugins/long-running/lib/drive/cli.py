@@ -4139,18 +4139,17 @@ def answer(args: argparse.Namespace) -> int:
         if unsaid := settled.unsaid([args.words], args.link, found, data):
             raise DriveError(f"refused, nothing recorded: {unsaid}")
         changes = settled.changed(args.title, args.words, asked)
-        tapped = next((closed["noted"] for _, question in view.drawn_on(data, *args.link) if (closed := question["closed"]) and closed["noted"] and [closed["link"]] == args.link and settled.plain(closed["words"] or "") == settled.plain(args.words)), None)
-        args.id = tapped or settled.recorded(name, args.title, args.words, args.label, " and ".join(args.link), cwd)
+        args.id = settled.recorded(name, args.title, args.words, args.label, " and ".join(args.link), cwd)
     marking = args.stands or args.settled or args.dropped or args.superseded or args.reopened or args.others_stand or args.untouched
     if args.id not in data["answers"]:
-        if marking:
+        if marking or not args.link:
             raise DriveError(
-                f"{args.id} is not recorded yet: run it with --words and --link alone first, which lists each card still asking him"
-                " and each PR not yet live, and mark them once you have read it"
+                f"cc-notes holds {args.id}; the drive keeps no link for it: run drive answer {args.id} --link <the permalink of his message or the card he tapped>"
+                " alone first, which keeps his words above its Notes: line at that link and lists each card still asking him and each PR not yet live,"
+                " and mark them once you have read it"
             )
-        if not (args.words and args.link):
-            raise DriveError(f'{args.id} is not recorded yet: pass --words "<his words, verbatim>" and --link <the permalink of his message or the card he tapped>')
         if cited:
+            args.words = args.words or settled.his(cited["body"])
             if unsaid := settled.unsaid([args.words, settled.his(cited["body"])], args.link, found, data):
                 raise DriveError(f"{args.id}: refused, nothing recorded: {unsaid}")
             changes = settled.changed(cited["title"], args.words, asked)
@@ -5712,7 +5711,8 @@ def parser() -> argparse.ArgumentParser:
         help="record an answer or ruling of his against the cards still asking him, parts undelivered and PRs not yet live that it could change, each marked standing, settled, dropped, superseded or reopened by it",
         description=(
             "Run for every answer and ruling of his. The first call, with --title, --words and --link and no id, records"
-            " it in cc-notes and here, or with an id, --words and --link records one already in cc-notes, his messages in a row"
+            " it in cc-notes and here, taking the standing answer cc-notes holds under that question in those words when one does,"
+            " or with an id and --link records one already in cc-notes, his words read from it above its Notes: line, his messages in a row"
             " one answer of a --link each; a ruling, labelled"
             " ruling, records only with --rewrite naming the communicator's open \"Drive tooling:\" order that rewrites the"
             " skill to it, so the watch chases that rewrite until it is done. The record tool keeps each ruling an owner or"
@@ -5748,7 +5748,7 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument(
         "--words",
-        help="his words, verbatim, cut with … where words are left out, which his cc-notes answer keeps and a superseded card shows; the first call needs them, refused unless his message or card answer at --link holds them",
+        help="his words, verbatim, cut with … where words are left out, which his cc-notes answer keeps and a superseded card shows; the first call with --title needs them, and with an id they are its cc-notes words above Notes: unless given, refused unless his message or card answer at --link holds them",
     )
     verb.add_argument(
         "--link",
