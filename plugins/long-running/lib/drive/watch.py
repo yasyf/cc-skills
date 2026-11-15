@@ -3997,7 +3997,12 @@ def landed(watcher: Watcher, moment: datetime) -> None:
     """Stop each lander on a PR the watch hears that a hold of his or a wait came on since it started, and through land.start answer each card his Approve on one picks that is still unanswered and start the drive's lander on each once its stage reads ready, within one GitHub read of it getting there: green and cleared by his Approve or an exempt class, or a yasyf/* one its builder reported with every check at its head finished, which a head its builder pushes since its lander's try reaches again. A pick that fails to answer again is said to the meta session from its third failure in a row."""
     data = state.load(watcher.name)
     keys = [key for key in state.open_pr_keys(data) if hears(watcher, data, data["prs"][key]["order"])]
-    land.halt(watcher.name, keys, watcher.cards)
+    try:
+        land.halt(watcher.name, keys, watcher.cards)
+    except github.GithubError as error:
+        watcher.unsent.setdefault("meta", []).extend(failed(watcher, "halt", "read of the files of each queued PR his absence may hold", error, moment))
+        return
+    watcher.failures.pop("halt", None)
     try:
         land.start(watcher.name, keys, watcher.cards)
     except state.DriveError as error:

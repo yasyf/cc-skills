@@ -325,7 +325,8 @@ by [Neither](scope.md#the-four-kinds-of-pr). A PR lands only when all of these h
 - he is present, his word or tap within the last 15 minutes, when it changes what the root `AGENTS.md` calls dangerous:
   a migration, a backfill, a delete of user data, SandSQL, a Sand builtin, the parser, checker, compiler or VM,
   `runtime-api` or `common/src/iris/appShell`, outside tests. The lander reads its files only while he is away, records
-  `not landed while he is away` and lands it at his next word, his Approve standing; the `landing_guard` hook refuses a
+  `not landed while he is away` and lands it at his next word, his Approve standing. A unit Trunk queued before he went
+  quiet leaves the queue the same way, since the watch's next pass dequeues it as any other stop does; the `landing_guard` hook refuses a
   hand merge meanwhile, an incident's fix included, by his words "merging or rleasing dangerous things should only be
   done wehn the human is present";
 - he tapped Approve on its card, or it is an exempt class. His approval in words, or his pick on a card
@@ -433,7 +434,7 @@ His Approve is one field on the PR, kept on every PR of the landing unit his car
 only by his Hold or by any reply of his in its card's thread, which cc-slack sends through its card
 command as it sends his tap: the reply takes back each Approve he gave before writing it, and the card
 draws Approve again. Whatever stops a landing, his Hold, the hold label, a card holding its change, a
-wait of the PR, its staging test included, a rework or his Approve coming off, the watch's next pass stops it, and his tap or reply stops it in the
+wait of the PR, its staging test included, a rework, his Approve coming off or his absence from a dangerous PR, the watch's next pass stops it, and his tap or reply stops it in the
 same card command: a running lander is ended, which dequeues what it queued, and a unit Trunk holds after
 its lander ended is taken out of the queue by `drive pr land --dequeue`, its own process running
 `stack-enqueue --dequeue` from a fresh worktree of the default branch, whose own failure reads as the

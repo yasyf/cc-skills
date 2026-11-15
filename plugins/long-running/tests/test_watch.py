@@ -6868,6 +6868,34 @@ def test_a_staging_test_started_on_a_pr_trunk_queued_after_its_lander_ended_read
     watch.landed(watching, T0)
     assert (stage.alone(state.load(demo), KEY, NO_CARDS).name, landers) == ("waiting", [("--dequeue", KEY)])
 
+
+def test_a_dangerous_pr_trunk_queued_before_he_went_quiet_leaves_the_queue_while_he_is_away_and_lands_again_at_his_next_word(
+    demo: str, tmp_path: Path, landers: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    on_main(tmp_path, demo, '#!/bin/sh\necho "#42 DEQUEUED aaaaaaa"\n')
+    approve(demo, KEY)
+    queued(demo)
+    monkeypatch.setattr(github, "files", {KEY: ["go/sand/sandsql/write.go"]}.__getitem__)
+    whys: list[str] = []
+    monkeypatch.setattr(land, "unqueue", lambda name, keys, why: whys.append(why) or os.getpid())
+    watching = watcher(demo)
+    watching.cards = NO_CARDS
+    with state.edit(demo) as data:
+        data["owner"]["heard"] = state.stamp(state.now() - timedelta(minutes=5))
+    watch.landed(watching, T0)
+    assert whys == []
+    with state.edit(demo) as data:
+        data["owner"]["heard"] = state.stamp(state.now() - timedelta(minutes=20))
+    watch.landed(watching, T0)
+    watch.landed(watching, T0)
+    assert len(whys) == 1 and whys[0].startswith(f"{land.AWAY}: he last wrote or tapped 20 minutes ago, and it changes go/sand/sandsql/write.go")
+    land.dequeue(demo, [KEY], whys[0])
+    assert stage.of(state.load(demo), KEY, NO_CARDS) == stage.Stage("waiting", stage.HIM, f"green and cleared, and its lander's try at aaaaaaa ended {whys[0]}; stack-enqueue --dequeue said #42 DEQUEUED aaaaaaa")
+    with state.edit(demo) as data:
+        data["owner"]["heard"] = state.stamp(state.now())
+    assert land.start(demo, [KEY], NO_CARDS) == [(KEY,)]
+
+
 def test_a_dequeue_takes_the_unit_out_of_trunks_queue_from_main_records_why_and_it_lands_again_on_his_approve(demo: str, tmp_path: Path, landers: list[tuple[str, ...]]) -> None:
     calls = tmp_path / "calls"
     on_main(tmp_path, demo, f'#!/bin/sh\necho "$*" >> {calls}\necho "#42 DEQUEUED aaaaaaa"\n')

@@ -375,11 +375,13 @@ def answer_picks(name: str, keys: list[str]) -> list[str]:
 
 
 def halt(name: str, keys: list[str], cards: dict | None) -> list[str]:
-    """Stop each landing of a Forge-AI/monorepo unit with a PR among keys that stopping() stops: a lander still running on it by ending its process group, which dequeues what it queued, recording that on each PR of its unit, and a unit Trunk's merge queue holds after its lander ended by unqueue(), a process of its own that takes it out of the queue and records it; each PR reads that hold until he answers or waiting until the wait ends, and lands then; the PRs stopped."""
-    if not held_landings(state.load(name), keys, cards):
+    """Stop each landing of a Forge-AI/monorepo unit with a PR among keys that stopping() stops, or that unattended() holds while he is not present, read before the drive's lock is taken since it reads GitHub, so a unit queued before he went quiet leaves the queue: a lander still running on it by ending its process group, which dequeues what it queued, recording that on each PR of its unit, and a unit Trunk's merge queue holds after its lander ended by unqueue(), a process of its own that takes it out of the queue and records it; each PR reads that hold until he answers, waiting until the wait ends or away until his next word, and lands then; the PRs stopped."""
+    data = state.load(name)
+    away = {key: f"{AWAY}: {why}" for key in keys if landing(pr := data["prs"][key]) and not dequeuing(pr) and (why := unattended(data, key, state.now()))}
+    if not held_landings(data, keys, cards, away):
         return []
     with state.edit(name) as data:
-        stopped = held_landings(data, keys, cards)
+        stopped = held_landings(data, keys, cards, away)
         under = unders(data)
         units = {tried: sorted((key for key, pr in data["prs"].items() if landing(pr) and (pr["lander"]["pid"], pr["lander"]["at"]) == tried), key=lambda key: len(chain(under, key))) for tried in stopped}
         for (pid, at), unit in units.items():
@@ -393,12 +395,12 @@ def halt(name: str, keys: list[str], cards: dict | None) -> list[str]:
     return [key for unit in units.values() for key in unit]
 
 
-def held_landings(data: dict, keys: list[str], cards: dict | None) -> dict[tuple[int, str], str]:
-    """Each landing of a Forge-AI/monorepo unit with a PR among keys that stopping() stops, a lander running on it or Trunk's merge queue holding what its lander queued, by that lander's pid and start, with the outcome saying why; none a dequeuer already takes out of the queue."""
+def held_landings(data: dict, keys: list[str], cards: dict | None, away: dict[str, str]) -> dict[tuple[int, str], str]:
+    """Each landing of a Forge-AI/monorepo unit with a PR among keys that stopping() stops, or that away holds by the outcome it names for that PR, a lander running on it or Trunk's merge queue holding what its lander queued, by that lander's pid and start, with the outcome saying why; none a dequeuer already takes out of the queue."""
     return {
         (pr["lander"]["pid"], pr["lander"]["at"]): outcome
         for key in keys
-        if landing(pr := data["prs"][key]) and not dequeuing(pr) and (outcome := stopping(data, key, cards))
+        if landing(pr := data["prs"][key]) and not dequeuing(pr) and (outcome := stopping(data, key, cards) or away.get(key, ""))
     }
 
 
