@@ -2858,7 +2858,7 @@ def relaunch(args: argparse.Namespace, name: str, text: str | None) -> int:
                 hold(name, args.id, text, state.held_sender(data))
                 return deliver(args, name)
             local = args.local and not state.on_mac(job)
-            step = declared_step(job)
+            step = declared_step(name, args.id, job)
             try:
                 end = orca.lane_end(name, job, wake=not (local or step))
             except orca.OrcaError as error:
@@ -2932,7 +2932,7 @@ def deliver(args: argparse.Namespace, name: str) -> int:
     if not held:
         return emit(args, f"{args.id} holds no message to send", {"id": args.id, "how": None})
     yield_to_launch(name, args.id)
-    step = declared_step(job)
+    step = declared_step(name, args.id, job)
     try:
         end = orca.lane_end(name, job, wake=step is None)
     except orca.OrcaError as error:
@@ -2946,12 +2946,12 @@ def deliver(args: argparse.Namespace, name: str) -> int:
         return unsent(args, job, held, error)
 
 
-def declared_step(job: dict, text: str | None = None) -> str | None:
-    """The step only this Mac runs that a job on a Sprite declares on a Mac: or Release: line of its brief, when a launch recorded one rather than a lane recorded by hand, its last report, a text it holds or the text given, by place.mac_step: the one placement read every resume, wake and launch of a Sprite job makes before it sends or starts anything; None for a job on this Mac or one declaring none."""
+def declared_step(name: str, job_id: str, job: dict, text: str | None = None) -> str | None:
+    """The step only this Mac runs that a job on a Sprite declares on a Mac: or Release: line of its brief, when a launch recorded one rather than a lane recorded by hand, its last report as its history keeps it and its handoff shows it, a text it holds or the text given, by place.mac_step: the one placement read every resume, wake and launch of a Sprite job makes before it sends or starts anything; None for a job on this Mac or one declaring none."""
     if state.on_mac(job):
         return None
     brief = orca.brief_of(Path(job["brief"]).read_text()) if job.get("brief") else None
-    return place.mac_step("\n\n".join(filter(None, [brief, job.get("report"), *(kept["words"] for kept in job["undelivered"]), text])))
+    return place.mac_step("\n\n".join(filter(None, [brief, state.report_text(name, job_id, every=False), *(kept["words"] for kept in job["undelivered"]), text])))
 
 
 def live_end(job: dict) -> orca.LaneEnd:
@@ -3043,7 +3043,7 @@ def launched(name: str, job_id: str, brief_file: str | None, local: bool, text: 
     root = orca.checkout(name, data["roles"]["coordinator"]["cwd"])
     written = answers_since(data, job_id, rebriefed(name, job_id) if (taker or died) and not brief_file else named_text(brief_file or job["brief"], "brief file"))
     if taker or died:
-        written = orca.agent_handoff(orca.brief_of(written), job, text, died)
+        written = orca.agent_handoff(orca.brief_of(written), job, state.report_text(name, job_id, every=False), text, died)
     step = place.mac_step(written)
     local = local or bool(died and step)
     if refused := (
@@ -3189,7 +3189,7 @@ def hand_over(args: argparse.Namespace, name: str, data: dict, session: str) -> 
     if not job.get("brief"):
         raise DriveError(f"{args.id} has no brief to hand over: write it with drive job brief {args.id}, then resume it again")
     kept = state.drive_dir(name) / "jobs" / f"{args.id}.handoff.md"
-    kept.write_text(orca.agent_handoff(rebriefed(name, args.id), job, args.text, None))
+    kept.write_text(orca.agent_handoff(rebriefed(name, args.id), job, state.report_text(name, args.id, every=False), args.text, None))
     with state.edit(name) as data:
         data["jobs"][args.id].update(handoff=str(kept), updated=state.stamp())
     line = (
@@ -3261,7 +3261,7 @@ def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEn
     kept = launch_brief(name, args.id, job)
     attempt = kept.stem
     kept.parent.mkdir(exist_ok=True)
-    brief = orca.vm_brief(name, args.id, orca.handoff(rebriefed(name, args.id), ended, branches, job, message, end, continued, here, unsaved), route)
+    brief = orca.vm_brief(name, args.id, orca.handoff(rebriefed(name, args.id), ended, branches, job, state.report_text(name, args.id, every=False), message, end, continued, here, unsaved), route)
     was = orca.place(job)
     if same:
         kept.write_text(brief)
@@ -3553,7 +3553,7 @@ def pr_wake(args: argparse.Namespace) -> int:
             data = state.load(name)
             job = data["jobs"][job_id]
             if job["state"] != "stopped":
-                step = declared_step(job, text)
+                step = declared_step(name, job_id, job, text)
                 if (end := orca.lane_end(name, job, wake=step is None)) or step:
                     return restart(argparse.Namespace(id=job_id, text=text, drive=args.drive, json=args.json), name, job["dispatch"], end or live_end(job), text, declared=step)
                 how = orca.send(name, job, f"{key}: its next step is yours", text)

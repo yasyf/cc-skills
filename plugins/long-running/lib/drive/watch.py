@@ -929,17 +929,19 @@ def sender(lanes: dict[str, dict[str | None, str]], recorded: set[str], run: str
 
 
 def read_lines(watcher: Watcher, data: dict, moment: datetime) -> list[str]:
-    """Send each `READ`, `LOG` or `DRIVE` question a lane queued the answer `drive job read` keeps for it here, since a Sprite holds no copy of the drive's records, starting that read as its own process for each question with neither an answer nor a reader still running whose lane may wait on it, a live lane's or one whose worker's turn is open whatever its job's state, as when the lane's own `drive job report` took its job done while its next question waited, so a drive command that runs for minutes holds up no pass; one the read cannot answer gets why as its answer and a `JOB` line saying so. A question of a job outside the live lanes whose worker ended its turn leaves its queue unread and with no line, since that worker's wait ended with its turn and no lane waits on it, so no write it asked runs after its lane gave up on it. A lane's `drive job report` wrote its returned event as it took the return, so the answer carries no line of its own, and the return may have moved its job out of the live states, so a kept answer goes whatever its job's state. An answer goes, and a reader starts, only on what drive.json held once its reader was seen ended, so the cut-off answer a reader keeps before it runs never goes ahead of the one it finishes with, no reader that finished since the watch last read drive.json starts again, and a refused reply sends the kept answer again and never reruns the read. A question leaves its job's queue only once its answer goes through, or with no line since nothing is owed on it once Orca says it already holds another answer, since a lane whose wait ends waits again on the same question, or that the question's dispatch closed, since no lane waits on it then, as when `drive job end` ended its lane while its read ran: any other refused reply only delays it. An answer past what one Orca relay message carries goes as a file on the lane's Sprite, written by its reader or, when the Sprite could not take it then, as the answer goes, a refused write only delaying it as a refused reply does."""
+    """Send each `READ`, `LOG` or `DRIVE` question a lane queued the answer `drive job read` keeps for it here, since a Sprite holds no copy of the drive's records, starting that read as its own process for each question with neither an answer nor a reader still running whose lane may wait on it, a live lane's or one whose worker's turn is open whatever its job's state, as when the lane's own `drive job report` took its job done while its next question waited, so a drive command that runs for minutes holds up no pass; one the read cannot answer gets why as its answer and a `JOB` line saying so. A question no worker waits on leaves its queue with no line, never read and any answer kept for it never sent, so no write a lane asked runs after its lane gave up on it, even once a later move of its job makes it live again: each of a job outside the live lanes whose worker ended its turn, since that worker's wait ended with its turn, and each its job's live worker did not ask, by foreign_reads. A lane's `drive job report` wrote its returned event as it took the return, so the answer carries no line of its own, and the return may have moved its job out of the live states, so a kept answer goes whatever its job's state. An answer goes, and a reader starts, only on what drive.json held once its reader was seen ended, so the cut-off answer a reader keeps before it runs never goes ahead of the one it finishes with, no reader that finished since the watch last read drive.json starts again, and a refused reply sends the kept answer again and never reruns the read. A question leaves its job's queue only once its answer goes through, or with no line since nothing is owed on it once Orca says it already holds another answer, since a lane whose wait ends waits again on the same question, or that the question's dispatch closed, since no lane waits on it then: any other refused reply only delays it. An answer past what one Orca relay message carries goes as a file on the lane's Sprite, written by its reader or, when the Sprite could not take it then, as the answer goes, a refused write only delaying it as a refused reply does."""
     running, data = ended_reads(watcher.name, data)
     lanes, unowed = live_lanes(watcher, data), {}
     for job_id, job in data["jobs"].items():
-        unstarted = [message_id for message_id in job.get("reads", {}) if message_id not in job.get("read_answers", {}) and (job_id, message_id) not in running]
-        if not unstarted or not heard_job(watcher, data, job):
+        idle = [message_id for message_id in job.get("reads", {}) if (job_id, message_id) not in running]
+        if not idle or not heard_job(watcher, data, job):
             continue
-        if job_id not in lanes and not job["turn_open"]:
-            unowed[job_id] = unstarted
-            continue
-        for message_id in unstarted:
+        gone = set(idle) if job_id not in lanes and not job["turn_open"] else foreign_reads(job, state.replies(watcher.name, job_id))
+        if dropped := [message_id for message_id in idle if message_id in gone]:
+            unowed[job_id] = dropped
+        for message_id in idle:
+            if message_id in gone or message_id in job.get("read_answers", {}):
+                continue
             reader = job.setdefault("readers", {})[message_id] = spawn_reader(watcher.name, job_id, message_id)
             with state.edit(watcher.name) as fresh:
                 fresh["jobs"][job_id].setdefault("readers", {})[message_id] = reader
@@ -947,8 +949,8 @@ def read_lines(watcher: Watcher, data: dict, moment: datetime) -> list[str]:
         with state.edit(watcher.name) as fresh:
             for job_id, message_ids in unowed.items():
                 for message_id in message_ids:
-                    fresh["jobs"][job_id]["reads"].pop(message_id, None)
-                    fresh["jobs"][job_id].get("readers", {}).pop(message_id, None)
+                    for held in ("reads", "read_answers", "readers"):
+                        fresh["jobs"][job_id].get(held, {}).pop(message_id, None)
     lines = []
     running, data = ended_reads(watcher.name, data)
     for job_id, job in data["jobs"].items():
@@ -970,6 +972,13 @@ def read_lines(watcher: Watcher, data: dict, moment: datetime) -> list[str]:
                 for held in ("reads", "read_answers", "readers"):
                     fresh["jobs"][job_id].get(held, {}).pop(message_id, None)
     return lines
+
+
+def foreign_reads(job: dict, kept: list[dict]) -> set[str]:
+    """The reads a lane queued on the job that its live worker did not ask, by the job's kept messages: every one once `drive job end` ended its lane, else each whose message Orca stamped with a dispatch other than the job's; a message naming no dispatch is its job's, as sender takes it."""
+    if state.lane_ended(job):
+        return set(job["reads"])
+    return {reply["id"] for reply in kept if reply["id"] in job["reads"] and json.loads(reply.get("payload") or "{}").get("dispatchId", job["dispatch"]) != job["dispatch"]}
 
 
 def ended_reads(name: str, data: dict) -> tuple[set[tuple[str, str]], dict]:
@@ -2485,9 +2494,9 @@ def can_wake(job_id: str, job: dict, data: dict, moment: datetime) -> bool:
 
 
 def unanswered(name: str, job_id: str, job: dict, data: dict, moment: datetime) -> str | None:
-    """A lane's question no resume has answered for 30 minutes, whatever PR it has, that his cards do not carry; his answer since it came that no resume carried leads the line, and an `ASK` no `drive job ask` kept says that keeps it, as mail_line does, since no resume answers his question. A lane asking no such question may wait on a read it queued, which unread ages."""
+    """A lane's question no resume has answered for 30 minutes, whatever PR it has, that his cards do not carry; his answer since it came that no resume carried leads the line, and an `ASK` no `drive job ask` kept says that keeps it, as mail_line does, since no resume answers his question. A running lane asking no such question may wait on a read it queued, which unread ages; a waiting or built job's waits carry its part whatever read its lane left."""
     if not job.get("ask"):
-        return unread(name, job_id, job, moment)
+        return unread(name, job_id, job, moment) if job["state"] == "running" else None
     asked = state.parse_time(job["ask_at"])
     if moment - asked < QUIET_FOR or carded(job, asked):
         return None
@@ -2500,10 +2509,14 @@ def unanswered(name: str, job_id: str, job: dict, data: dict, moment: datetime) 
 
 
 def unread(name: str, job_id: str, job: dict, moment: datetime) -> str | None:
-    """The oldest `READ`, `LOG` or `DRIVE` question a lane queued that no answer reached for 30 minutes, timed from when the lane asked it, as Orca stamped its message in the job's history, with what holds it: its reader still running, its answer kept for a reply Orca has not taken, or no reader on it, which `drive job read` runs here once for the watch to send."""
+    """The oldest `READ`, `LOG` or `DRIVE` question the job's live worker queued that no answer reached for 30 minutes, timed from when the lane asked it, as Orca stamped its message in the job's history, with what holds it: its reader still running, its answer kept for a reply Orca has not taken, or no reader on it, which `drive job read` runs here once for the watch to send. A read foreign_reads names waits on nobody, since read_lines drops it."""
     if not job.get("reads"):
         return None
-    asked = {reply["id"]: state.parse_time(reply["created_at"]) for reply in state.replies(name, job_id) if reply["id"] in job["reads"]}
+    kept = state.replies(name, job_id)
+    foreign = foreign_reads(job, kept)
+    asked = {reply["id"]: state.parse_time(reply["created_at"]) for reply in kept if reply["id"] in job["reads"] and reply["id"] not in foreign}
+    if not asked:
+        return None
     message_id = min(asked, key=asked.__getitem__)
     if (waited := moment - asked[message_id]) < QUIET_FOR:
         return None
