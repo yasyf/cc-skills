@@ -116,8 +116,9 @@ the area, a line each with its waits id, link and question, both in under a seco
 each, and prints nothing until the last.
 Each says `none` when empty. `build:` names in one line the change your research recommends its
 builder make, the deliverable rather than the order's subject, since your kept report makes it that
-builder's `Goal: build <that line>`. `drive job report` refuses your report without that block
-filled, naming each line missing.
+builder's `Goal: build <that line>`; when it finds no change to make, `build: none: <why>` names
+no goal, so its builder keeps its parts' goal with your research in its brief. `drive job report`
+refuses your report without that block filled, naming each line missing.
 
 A choice a recorded answer of his already made leaves him none: return `DONE` with `rulings:`
 quoting that answer and `build:` naming the option it chose, since `drive job ask` refuses a

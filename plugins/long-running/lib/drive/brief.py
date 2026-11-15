@@ -521,7 +521,7 @@ def name_goals(name: str, data: dict, builder_ids: list[str], report: str) -> No
 
 
 def build_goal(report: str) -> str | None:
-    return f"build {build}" if (build := researched(report).get("build")) else None
+    return f"build {build}" if (build := researched(report).get("build")) and not state.NO_CHANGE.match(build) else None
 
 
 def waits_on_research(order: dict, kind: str, parts: list[str]) -> bool:
