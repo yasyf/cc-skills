@@ -127,7 +127,12 @@ def running(pr: dict) -> bool:
 
 def reported(key: str, pr: dict) -> bool:
     """Whether the lander merges the PR itself with gh pr merge, as it does every PR but a Forge-AI/monorepo one Trunk merges, and says so on its own line, so GitHub's merged line asks no step: it still runs on it, or it merged it."""
-    return not state.queued_by_lander(key) and (running(pr) or ((pr["lander"] or {}).get("outcome") or "").startswith("merged"))
+    return not state.queued_by_lander(key) and (running(pr) or merged_try(pr))
+
+
+def merged_try(pr: dict) -> bool:
+    """Whether the lander's last try on the PR merged it, by the outcome merged() records, which says so before the watch's next GitHub read of the PR does; a merged PR takes no later head, so the try that merged it stands at whatever head the row reads."""
+    return ((pr["lander"] or {}).get("outcome") or "").startswith("merged")
 
 
 def landing(pr: dict) -> bool:

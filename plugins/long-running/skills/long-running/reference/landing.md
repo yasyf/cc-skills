@@ -381,7 +381,8 @@ fetches that commit by its sha, writing no ref, since every worktree of the clon
 comes to what the one before it on that head did is said once. A try stands only while what let it run does: once `drive pr set <url> --no-exempt --tap`
 puts the PR on his card, or his tap comes after the try started, the PR reads his card or `ready` again, never
 `unlanded`. Its outcome comes back as the PR's stage:
-`landing` while Trunk holds it, and `unlanded`, a lander's try that ended without queueing it, with
+`landing` while Trunk holds it, `merged`, owed by nobody, once its try merged it with `gh pr merge`, even
+before the watch's next GitHub read says so, and `unlanded`, a lander's try that ended without queueing it, with
 `UNLANDED_SILENT` when its process ended before saying, which wakes the session holding its order
 every 30 minutes for a builder that fixes the cause and pushes; the lander tries the new head on its own.
 While the PR's own job waits on his open question cards, it reads `blocked` instead, owed by him and naming
