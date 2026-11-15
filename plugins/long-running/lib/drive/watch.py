@@ -3294,13 +3294,13 @@ def carry_held(watcher: Watcher, moment: datetime) -> None:
 
 
 def carrier(job_id: str, job: dict, data: dict, cards: dict | None) -> list[str] | None:
-    """The drive command that carries a job's held texts, by carry_held; None while its worker runs, which agent_lines sends them to, while the session that started its agent on this Mac reaches it, by state.agent_lane, whose ANSWER undelivered line names the drive job resume that posts each held text to that agent and prints the SendMessage pointing it there, by his pick "Keep with the starter: the agent finishes its job, your answers reach it at once", while its codex-ask run goes, whose next launch carries them in its brief, while a wait holds it, builder-slot included for a lane started, whose move here the watch's turn starts with them in its handoff, or for an adopted PR's job no builder started, which starts only on a PR event."""
+    """The drive command that carries a job's held texts, by carry_held; None while its worker runs, which agent_lines sends them to, while the session that started its agent on this Mac reaches it, by state.agent_lane, whose ANSWER undelivered line names the drive job resume that posts each held text to that agent and prints the SendMessage pointing it there, by his pick "Keep with the starter: the agent finishes its job, your answers reach it at once", while its codex-ask run goes, whose next launch carries them in its brief, while a wait holds it, builder-slot included for a lane started, whose move here the watch's turn starts with them in its handoff, but a wait on a PR of its own, by view.start_waits, or for an adopted PR's job no builder started, which starts only on a PR event."""
     started = job.get("agent") or job.get("dispatch") or job.get("codex_run")
     if job["state"] == "running" and started or job["prs"] and not started or state.agent_lane(data, job):
         return None
     remote = job.get("where") == "remote" and bool(job.get("dispatch"))
     local = not remote and bool(job.get("brief")) and bool(place.mac_step(Path(job["brief"]).read_text()))
-    if any(remote or local or wait != state.SLOT_WAIT for wait in view.holding(data, job["waits"], cards)):
+    if any(remote or local or wait != state.SLOT_WAIT for wait in view.start_waits(data, job, cards)):
         return None
     return ["job", "resume", job_id] if remote else ["job", "launch", job_id, *(["--local"] if local else [])]
 

@@ -8,6 +8,7 @@ import shlex
 import signal
 import subprocess
 import tarfile
+import time
 import uuid
 from collections.abc import Iterator
 from pathlib import Path
@@ -64,7 +65,10 @@ UNFINISHED = "What its workers were given since the job's last return, which non
 RELOAD = "/reload-plugins"
 EXIT = "/exit"
 MAIL = "You have orchestration messages: read them with `orca orchestration check`, then continue."
-UNANSWERED = ("runtime_busy", "runtime_timeout", "runtime_unavailable", None)
+RUNTIME_DOWN = "runtime_unavailable"
+RUNTIME_WAIT_SECONDS = 600
+RUNTIME_POLL_SECONDS = 2
+UNANSWERED = ("runtime_busy", "runtime_timeout", RUNTIME_DOWN, None)
 ANSWERED_ELSEWHERE = "answer_conflict"
 DISPATCH_CLOSED = "dispatch_inactive"
 UNSTARTED = 75
@@ -143,8 +147,27 @@ class Holder(NamedTuple):
     pr_head: str
 
 
+class Outage:
+    """The one wait for Orca's runtime that every call of a verb rides_restarts holds shares: it ends RUNTIME_WAIT_SECONDS after the verb first read the runtime down, by time.monotonic, and none is set before."""
+
+    def __init__(self) -> None:
+        self.ends: float | None = None
+
+
+riding: Outage | None = None
+
+
 def request(*args: str, seconds: float = CALL_SECONDS, caller: str | None = None) -> dict:
-    """One `orca` call: its result, or OrcaError carrying Orca's own reason; with caller, it speaks as that terminal rather than as this process does."""
+    """One `orca` call: its result, or OrcaError carrying Orca's own reason; with caller, it speaks as that terminal rather than as this process does. Inside a verb rides_restarts holds, a call Orca refuses as RUNTIME_DOWN, as it refuses every call while launchd restarts its app server, runs again each time runtime_back reads Orca's runtime ready, until Orca answers it otherwise or the verb's wait runs out."""
+    while True:
+        try:
+            return one_call(args, seconds, caller)
+        except OrcaError as error:
+            if error.code != RUNTIME_DOWN or not runtime_back(" ".join(args[:2]), error):
+                raise
+
+
+def one_call(args: tuple[str, ...], seconds: float, caller: str | None) -> dict:
     verb = " ".join(args[:2])
     try:
         done = subprocess.run(
@@ -158,6 +181,37 @@ def request(*args: str, seconds: float = CALL_SECONDS, caller: str | None = None
     except (OSError, subprocess.TimeoutExpired) as error:
         raise OrcaError(f"orca {verb}: {error}") from None
     return result_of(verb, done)
+
+
+@contextlib.contextmanager
+def rides_restarts() -> Iterator[None]:
+    """Make every Orca call of the verb inside wait out a restart of Orca's app server, such as launchd's, by request, so drive job launch, drive job resume, drive pr wake and the drive bound a launch's worker-start runs through carry on once Orca is back rather than refusing, all of the verb's calls sharing one Outage; any other process, the watch, a hook or a read, gets Orca's refusal at once, as before."""
+    global riding
+    held, riding = riding, Outage()
+    try:
+        yield
+    finally:
+        riding = held
+
+
+def runtime_back(verb: str, refusal: OrcaError) -> bool:
+    """Whether Orca's runtime reads ready again after Orca refused the verb's call as RUNTIME_DOWN, read by runtime_ready every RUNTIME_POLL_SECONDS inside a verb rides_restarts holds, the wait said by state.said as it starts; False once that verb's Outage ends, and at once outside such a verb. Orca's supervisor and launchd bring the runtime back, and the drive starts or restarts nothing of Orca's."""
+    if riding is None:
+        return False
+    riding.ends = riding.ends or time.monotonic() + RUNTIME_WAIT_SECONDS
+    state.said("orca", f"{refusal}; it reads `orca status` every {RUNTIME_POLL_SECONDS} s and runs `orca {verb}` again once Orca's runtime reads ready, for at most {max(0, round(riding.ends - time.monotonic()))} s")
+    while time.monotonic() < riding.ends:
+        time.sleep(RUNTIME_POLL_SECONDS)
+        if runtime_ready():
+            return True
+    return False
+
+
+def runtime_ready() -> bool:
+    """Whether `orca status`, which answers while Orca's runtime is down too, reads the runtime ready; a status read that fails reads it not ready."""
+    with contextlib.suppress(OrcaError):
+        return one_call(("status",), CALL_SECONDS, None)["runtime"]["state"] == "ready"
+    return False
 
 
 def result_of(verb: str, done: subprocess.CompletedProcess) -> dict:
@@ -213,12 +267,15 @@ def binder_terminal(drive: str) -> str:
 
 
 def kept_terminal(drive: str, key: str, title: str) -> str:
-    """The agentless Orca terminal the drive keeps under key: the one kept while Orca still shows its pane, else one opened in the coordinator's checkout, titled after the drive and title, with no drive lock held, so an Orca that answers nothing holds no other verb of the drive, and kept unless another process kept a fresh one meanwhile."""
+    """The agentless Orca terminal the drive keeps under key: the one kept while Orca still shows its pane, else one opened in the coordinator's checkout, titled after the drive and title, with no drive lock held, so an Orca that answers nothing holds no other verb of the drive, and kept unless another process kept a fresh one meanwhile; Orca's RUNTIME_DOWN refusal of the kept one's show, which says nothing of that pane, raised as it came."""
     loaded = state.load(drive)
     kept = loaded[key]
-    with contextlib.suppress(OrcaError):
+    try:
         if kept and not terminal(kept)["orphaned"]:
             return kept
+    except OrcaError as error:
+        if error.code == RUNTIME_DOWN:
+            raise
     opened = request("terminal", "create", "--worktree", f"path:{loaded['roles']['coordinator']['cwd']}", "--title", f"{drive}-{title}")["terminal"]["handle"]
     with state.edit(drive) as data:
         if data[key] == kept:
