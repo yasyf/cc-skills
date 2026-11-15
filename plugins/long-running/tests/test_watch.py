@@ -5235,7 +5235,7 @@ THIRD = "Forge-AI/monorepo#44"
 STACKED = (KEY, OTHER, THIRD)
 
 
-def three_stacked(demo: str, monkeypatch: pytest.MonkeyPatch) -> dict[str, dict]:
+def three_stacked(demo: str, monkeypatch: pytest.MonkeyPatch, native: bool = True) -> dict[str, dict]:
     waiting_job(demo)
     with state.edit(demo) as data:
         data["orders"]["o2"] = order(text="split the stack", jobs=["j2"])
@@ -5245,6 +5245,9 @@ def three_stacked(demo: str, monkeypatch: pytest.MonkeyPatch) -> dict[str, dict]
         data["prs"][THIRD] = state.new_pr(state.pr_url(THIRD), "j2", "o2") | {"checked": CHECKED | {"head": "ccccccc333", "orders": ["o2"]}}
     monkeypatch.setattr(watch.view, "cards", lambda drive: watch.view.NO_CARDS)
     reads = {key: stacked_read(head) for key, head in zip(STACKED, ("aaaaaaa111", "bbbbbbb222", "ccccccc333"))}
+    if not native:
+        for key, (base, branch) in zip(STACKED, (("main", "move-1"), ("move-1", "move-2"), ("move-2", "move-3"))):
+            reads[key] |= {"native": [], "baseRefName": base, "headRefName": branch}
     serve(monkeypatch, reads)
     return reads
 
@@ -5270,10 +5273,11 @@ def test_the_prs_of_one_native_stack_waiting_on_his_tap_draw_one_card_and_one_re
     assert draws.keys == [[KEY, OTHER], list(STACKED)]
 
 
+@pytest.mark.parametrize("native", [True, False])
 def test_replayed_56774_his_words_reworking_the_middle_pr_of_a_three_pr_stack_draw_his_card_on_the_pr_below_alone_and_none_for_the_pr_above_which_owes_no_tap_and_reads_behind_it(
-    demo: str, monkeypatch: pytest.MonkeyPatch, draws: Draws
+    demo: str, monkeypatch: pytest.MonkeyPatch, draws: Draws, native: bool
 ) -> None:
-    three_stacked(demo, monkeypatch)
+    three_stacked(demo, monkeypatch, native)
     with state.edit(demo) as data:
         state.rework(data["prs"][OTHER], "o2", "Refuse past 256 MiB", "https://acme.slack.com/archives/D123/p1794300000000600")
     watching = watcher(demo)
@@ -5286,8 +5290,9 @@ def test_replayed_56774_his_words_reworking_the_middle_pr_of_a_three_pr_stack_dr
     assert limits.tap_owed_not(prs, KEY) == ""
 
 
-def test_a_native_stack_whose_prs_each_sit_on_a_card_of_their_own_draws_one_fresh_card_for_the_stack_once(demo: str, monkeypatch: pytest.MonkeyPatch, draws: Draws) -> None:
-    reads = three_stacked(demo, monkeypatch)
+@pytest.mark.parametrize("native", [True, False])
+def test_a_stack_whose_prs_each_sit_on_a_card_of_their_own_draws_one_fresh_card_for_the_stack_once(demo: str, monkeypatch: pytest.MonkeyPatch, draws: Draws, native: bool) -> None:
+    reads = three_stacked(demo, monkeypatch, native)
     alone = [
         {
             "prs": [state.pr_url(key)],

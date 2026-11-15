@@ -4195,9 +4195,11 @@ def asks_tap(pr: dict) -> bool:
 
 
 def reworked_under(prs: dict[str, dict], key: str) -> str | None:
-    """The lowest open PR at or below the PR in its native GitHub stack being reworked to his words, the PR itself included, which with every PR above it owes no tap and draws no card until its builder's READY says how they are met; None when none is."""
-    native = [mate for mate in prs[key]["native"] if mate in prs and prs[mate]["state"] == "open"]
-    return next((mate for mate in (native[: native.index(key) + 1] if key in native else [key]) if prs[mate]["rework"]), None)
+    """The lowest open PR at or below the PR in its stack, its native GitHub stack or else its chain by base branch by card.stack_of, being reworked to his words, the PR itself included, which with every PR above it owes no tap and draws no card until its builder's READY says how they are met; None when none is."""
+    from drive import card
+
+    stack = [mate for mate in card.stack_of(prs, key) if mate in prs and prs[mate]["state"] == "open"]
+    return next((mate for mate in (stack[: stack.index(key) + 1] if key in stack else [key]) if prs[mate]["rework"]), None)
 
 
 def rework(pr: dict, by: str, words: str, link: str) -> None:
