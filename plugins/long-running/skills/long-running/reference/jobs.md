@@ -207,9 +207,13 @@ so no reply lacks its state.
 Once the run ends, the watch reads it with `codex-ask --collect` and takes it as the job's return.
 A completed run's `state` and `line` set the state and said line by the table above, as every job's
 line does, so a `HANDOFF` stops the job and a `READY` waits on its PR, and the line and report are
-kept as the job's report. A reply `drive job report` would refuse, such as a cause naming no fix,
-sets failed on `BLOCKED codex-ask completed, its reply refused:` and why, with the reply kept; a
-failed or dead run sets failed on `BLOCKED codex-ask <state>:` and its log's last line; a run still
+kept as the job's report. A `DONE` on a brief naming his user stories is taken once it keeps its
+`REPRO:` file, which the watch's `drive job prove` runs as it runs a builder's, reading each story's
+lines in what it prints. A reply `drive job report` would refuse, such as a cause naming no fix,
+is kept, and the same pass starts the job's next codex-ask run, its brief carrying under
+`From the watch since:` the refusal and the refused reply; once the run carrying a refusal is
+refused again, the job sets failed on `BLOCKED codex-ask completed, its reply refused:` and why,
+with that reply kept as its report; a failed or dead run sets failed on `BLOCKED codex-ask <state>:` and its log's last line; a run still
 going sets nothing. Codex leaves its edits uncommitted, so a codex job that changed code returns
 `HANDOFF`, and the builder that ships it is briefed `Handoff: drive job report <the codex job>`.
 A codex job waiting on a long run it started on this Mac, such as a pass-box command's observer,

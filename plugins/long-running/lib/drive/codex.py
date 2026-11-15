@@ -19,6 +19,8 @@ LOG_TAIL = 4096
 COLLECT_SECONDS = 60
 DISPATCH_SECONDS = 120
 SCHEMA_FILE = "codex-result.json"
+RETRIED = "codex-ask completed, its reply refused, so the watch starts its next codex-ask run carrying the refusal: "
+REFUSED = "The drive refused your last reply, as drive job report refuses any job's return, so answer again with a reply it takes: "
 REPRO = re.compile(r"^REPRO:[ \t]*(?P<path>\S+)", re.MULTILINE)
 GUARD = Path(__file__).resolve().parents[2] / "hooks" / "landing_guard.py"
 GUARD_MATCHER = "^Bash$"
@@ -149,7 +151,7 @@ def run_of(job: dict) -> Run:
 
 
 def take(name: str, data: dict, job_id: str, run: Run) -> str | None:
-    """Set a running codex job from its run once it ended: a completed run's reply is the JSON its schema requires, whose state and line open the job's said line and whose report is kept under that line in its history, its report, so `drive job report` shows each codex answer newest first and `drive job replies` each one oldest first, a DONE's REPRO: file kept as the proof file drive job prove runs to deliver its work, unless state.result_refusal refuses it as `drive job report` refuses any job's return, such as one tracing a live bug's cause that names no fix, or brief.unproven a DONE on a surface he sees that its brief names, whose line is then `BLOCKED codex-ask completed, its reply refused:` and why; a reply that is not that JSON is kept whole and refused the same way; a failed or dead run's line is `BLOCKED codex-ask <state>:` and its log's last line. Returns the builder state.fix_shipper added to ship an incident fix job's work, if any."""
+    """Set a running codex job from its run once it ended: a completed run's reply is the JSON its schema requires, whose state and line open the job's said line and whose report is kept under that line in its history, its report, so `drive job report` shows each codex answer newest first and `drive job replies` each one oldest first, a DONE's REPRO: file kept as the proof file drive job prove runs to deliver its work, unless state.result_refusal refuses it as `drive job report` refuses any job's return, such as one tracing a live bug's cause that names no fix, or brief.unproven a DONE on a surface he sees that its brief names, which holds the refusal and the refused reply for the job's next codex-ask run, the job waiting on nothing so carry_held's launch starts that run, and only when the run carrying a refusal is refused again is its line `BLOCKED codex-ask completed, its reply refused:` and why; a reply that is not that JSON is kept whole and refused the same way; a failed or dead run's line is `BLOCKED codex-ask <state>:` and its log's last line. Returns the builder state.fix_shipper added to ship an incident fix job's work, if any."""
     if data["jobs"][job_id]["state"] != "running":
         return None
     report = ""
@@ -172,6 +174,11 @@ def take(name: str, data: dict, job_id: str, run: Run) -> str | None:
             if not line
             else state.result_refusal(data, job_id, line, report) or (line.startswith("DONE") and brief.surface(job) and brief.unproven(report, job_id, job))
         )
+        if refused and not (job["said"] or "").startswith(RETRIED):
+            state.hold_text(job, f"{REFUSED}{refused}\nYour refused reply:\n{report.strip()}", state.WATCH_SENDER)
+            moment = state.stamp()
+            job.update(state="waiting", said=f"{RETRIED}{refused}"[:SAID_CHARS], updated=moment, returned=moment)
+            return None
         if refused:
             line = f"BLOCKED codex-ask completed, its reply refused: {refused}"
     else:
