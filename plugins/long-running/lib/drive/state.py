@@ -20,7 +20,7 @@ from contextvars import ContextVar
 from datetime import date, datetime, timedelta
 from fnmatch import fnmatchcase
 from pathlib import Path
-from typing import IO
+from typing import IO, NamedTuple
 
 from drive import github, picture, procs
 
@@ -220,7 +220,7 @@ APPROVALS_LABELLED = ".approvals-labelled-by-question"
 READ_MARK = hashlib.sha256(f"{github.READ} {github.RULES}".encode()).hexdigest()[:12]
 UNSTARTED_WAITING = ".unstarted-jobs-waiting"
 CARDS_NOTED = "card_answers_noted"
-PR_JOB_INDEX: ContextVar[tuple[dict, dict[str, list[str]]] | None] = ContextVar("pr_job_index", default=None)
+INDEX: ContextVar["Index | None"] = ContextVar("index", default=None)
 BATCHED: dict[str, bytes] = {}
 WHOLE_READS: dict[tuple[Path, int], tuple[sqlite3.Connection, int, bytes]] = {}
 READING = threading.Lock()
@@ -301,12 +301,16 @@ def root() -> Path:
         return Path(explicit)
     if xdg := os.environ.get("XDG_STATE_HOME"):
         return Path(xdg) / "long-running"
+    return home_root()
+
+
+def home_root() -> Path:
     return Path.home() / ".local" / "state" / "long-running"
 
 
 def scratch() -> bool:
-    """Whether LONG_RUNNING_STATE moves the state root, as a proof's or a test's drive does; no real drive sets it."""
-    return bool(os.environ.get("LONG_RUNNING_STATE"))
+    """Whether LONG_RUNNING_STATE or XDG_STATE_HOME moves the state root off ~/.local/state/long-running, as a proof's, a test's or a script's drive does, so it gets no launch agent, session, webhook or Mac box that would outlive it; no real drive moves it."""
+    return root() != home_root()
 
 
 def drive_dir(name: str) -> Path:
@@ -2659,7 +2663,8 @@ def staged(data: dict, order_id: str, part: str) -> bool:
 
 def job_waits(data: dict, pr: dict) -> list[str]:
     """A PR's waits, each `staging test of #N before it lands` part any open PR of its job, in any repository, waits on, so every PR of a job lands only once each staging test of the job's work passes, as part_cards holds a job's PRs on his card, and each staging run of the PR itself by staging_runs."""
-    staged = [wait for other in data["prs"].values() if other["job"] == pr["job"] and other["state"] == "open" for wait in other["waits"] if (part := part_wait(data, wait)) and STAGING_PART.fullmatch(part[1])]
+    mates = index.opened.get(pr["job"], []) if (index := index_of(data)) else [other for other in data["prs"].values() if other["job"] == pr["job"] and other["state"] == "open"]
+    staged = [wait for other in mates for wait in other["waits"] if (part := part_wait(data, wait)) and STAGING_PART.fullmatch(part[1])]
     return list(dict.fromkeys([*pr["waits"], *staged, *staging_runs(data, pr)]))
 
 
@@ -2669,11 +2674,8 @@ def staging_runs(data: dict, pr: dict) -> list[str]:
     if repo.lower() != MONOREPO.lower():
         return []
     part = STAGING_TEST.format(number=number)
-    return [
-        f"{order_id}:{part}"
-        for order_id, order in data["orders"].items()
-        if part in order["parts"] and (part_jobs(data, order_id, part) or f"{order_id}:{part}" in pr["waits"]) and not delivered(data, order_id, part)
-    ]
+    orders = index.part_orders.get(part, []) if (index := index_of(data)) else [order_id for order_id, order in data["orders"].items() if part in order["parts"]]
+    return [f"{order_id}:{part}" for order_id in orders if (part_jobs(data, order_id, part) or f"{order_id}:{part}" in pr["waits"]) and not delivered(data, order_id, part)]
 
 
 def staging_tester(data: dict, wait: str) -> str | None:
@@ -3022,7 +3024,10 @@ def waits_of(name: str | None, wait: str) -> str:
 
 def waits_job(data: dict, waits: str) -> str:
     """The job his card under this waits id asks for: the newest whose question holds it, but one a `Replaces:` line folded into another's, since a job that takes a question over with `drive job ask --redraws` takes its card; else the job that minted it, which the waits id names."""
-    held = [job_id for job_id, job in data["jobs"].items() for question in job["questions"] if question["waits"] == waits and not question["replaced"]]
+    if index := index_of(data):
+        held = [job_id for _, job_id, question in index.waits.get(waits, []) if not question["replaced"]]
+    else:
+        held = [job_id for job_id, job in data["jobs"].items() for question in job["questions"] if question["waits"] == waits and not question["replaced"]]
     return held[-1] if held else waits.partition(":")[2].partition("-")[0]
 
 
@@ -4496,24 +4501,72 @@ def served_orders(data: dict, pr: dict) -> list[str]:
     return list(dict.fromkeys([pr["order"], *(order_id for job in jobs for order_id in (job["order"], *job["carries"]))]))
 
 
+class Index(NamedTuple):
+    """What one pass over a drive's jobs, PRs and orders finds, for a read-only projection of it: the jobs listing each PR by its URL; each job's question by its waits id and by its card's Slack message, numbered in the order a scan of the jobs meets them; the open PRs waiting on each wait, by key, and each job's open PRs by their row's job, in the drive's order; the orders holding each part; and land.unders and land.landing_stacks of the drive."""
+
+    jobs: dict
+    pr_jobs: dict[str, list[str]]
+    waits: dict[str, list[tuple[int, str, dict]]]
+    cards: dict[str, list[tuple[int, str, dict]]]
+    waiting: dict[str, list[str]]
+    opened: dict[str, list[dict]]
+    part_orders: dict[str, list[str]]
+    under: dict[str, str | None]
+    stacks: dict[str, tuple[str, ...]]
+
+
 @contextmanager
-def indexed_pr_jobs(data: dict) -> Iterator[None]:
-    """Index PR ownership once for a read-only projection of this drive. Jobs and their PR lists must remain unchanged inside the projection; nested projections and other threads retain their own scope."""
-    by_url: dict[str, list[str]] = {}
+def indexed(data: dict) -> Iterator[None]:
+    """Index the drive once for a read-only projection of it, such as the dashboard's model, so pr_jobs, waits_job, waiting_prs, job_waits, staging_runs, view.drawn_on, land.unders and land.landing_stacks read it without scanning every job, PR or order. Jobs, their PR lists, their questions' waits ids, cards and replacements, PRs' jobs, states, waits, native stacks, branches and unders, and orders' parts must remain unchanged inside the projection; nested projections and other threads retain their own scope."""
+    from drive import land, view
+
+    pr_jobs: dict[str, list[str]] = {}
+    waits: dict[str, list[tuple[int, str, dict]]] = {}
+    cards: dict[str, list[tuple[int, str, dict]]] = {}
+    met = itertools.count()
     for job_id, job in data["jobs"].items():
         for url in dict.fromkeys(job["prs"]):
-            by_url.setdefault(url, []).append(job_id)
-    token = PR_JOB_INDEX.set((data, by_url))
+            pr_jobs.setdefault(url, []).append(job_id)
+        for question in job["questions"]:
+            drawn = (next(met), job_id, question)
+            waits.setdefault(question["waits"], []).append(drawn)
+            if question["card"]:
+                cards.setdefault(view.message_key(question["card"]), []).append(drawn)
+    waiting: dict[str, list[str]] = {}
+    opened: dict[str, list[dict]] = {}
+    for key, pr in data["prs"].items():
+        if pr["state"] == "open":
+            opened.setdefault(pr["job"], []).append(pr)
+            for wait in dict.fromkeys(pr["waits"]):
+                waiting.setdefault(wait, []).append(key)
+    part_orders: dict[str, list[str]] = {}
+    for order_id, order in data["orders"].items():
+        for part in order["parts"]:
+            part_orders.setdefault(part, []).append(order_id)
+    under = land.unders(data)
+    token = INDEX.set(Index(data["jobs"], pr_jobs, waits, cards, waiting, opened, part_orders, under, land.landing_stacks(data, under)))
     try:
         yield
     finally:
-        PR_JOB_INDEX.reset(token)
+        INDEX.reset(token)
+
+
+def index_of(data: dict) -> Index | None:
+    """The index of the projection this thread is building of this drive, read by its very jobs, so a copy of the drive that changes only what the index never reads, as view.approve_waits gives one PR a tap it has not got, reads it too; None outside one."""
+    return index if (index := INDEX.get()) is not None and index.jobs is data["jobs"] else None
+
+
+def waiting_prs(data: dict, wait: str) -> list[str]:
+    """Each open PR waiting on the wait, by its key in the drive's order, read from the projection's index when this thread is building one of this drive."""
+    if index := index_of(data):
+        return index.waiting.get(wait, [])
+    return [key for key, pr in data["prs"].items() if pr["state"] == "open" and wait in pr["waits"]]
 
 
 def pr_jobs(data: dict, pr: dict) -> list[str]:
     """The jobs carrying a PR: its own, then each other job listing it among its PRs, such as the job a builder took it over from."""
-    if (indexed := PR_JOB_INDEX.get()) is not None and indexed[0] is data:
-        return [pr["job"], *(job_id for job_id in indexed[1].get(pr["url"], ()) if job_id != pr["job"])]
+    if index := index_of(data):
+        return [pr["job"], *(job_id for job_id in index.pr_jobs.get(pr["url"], ()) if job_id != pr["job"])]
     return [pr["job"], *(job_id for job_id, job in data["jobs"].items() if job_id != pr["job"] and pr["url"] in job["prs"])]
 
 

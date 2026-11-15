@@ -3,6 +3,7 @@ import os
 import re
 import sys
 import unicodedata
+from functools import lru_cache
 from typing import TextIO
 
 from drive import github, limits, picture, state
@@ -94,6 +95,7 @@ def without_emoji(text: str) -> str:
     return " ".join("".join(char for char in text if not is_emoji(char)).split())
 
 
+@lru_cache(maxsize=4096)
 def kind_and_title(title: str) -> tuple[str, str]:
     """The card kind of a PR title (Fix, New, Cleanup, Port or Change) and the title without its prefix or emoji."""
     plain = without_emoji(title)

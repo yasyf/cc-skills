@@ -150,19 +150,31 @@ def test_bulk_stages_build_the_stack_graph_once(monkeypatch: pytest.MonkeyPatch)
     assert scans == 2
 
 
-def test_pr_job_index_preserves_the_complete_board() -> None:
+def test_the_projection_index_preserves_the_complete_board() -> None:
+    asked = found([question(f"Ship feature {n} now?", -n, waits=f"demo:j{n}-1-a") for n in range(1, 65)])
     data = drive_of(
         {f"o{n}": order(f"Ship feature {n}", [f"j{n}"]) for n in range(1, 65)},
-        {f"j{n}": job(f"o{n}", "waiting", prs=[f"https://github.com/yasyf/cc-skills/pull/{n}"]) for n in range(1, 65)},
-        [pr(n, f"o{n}", job=f"j{n}") for n in range(1, 65)],
+        {
+            f"j{n}": job(
+                f"o{n}",
+                "waiting",
+                prs=[f"https://github.com/yasyf/cc-skills/pull/{n}"],
+                waits=[f"{TEAM}archives/D123/p-{n}"],
+                questions=[*asked_on(f"{TEAM}archives/D123/p-{n}"), state.new_question(None, None, at(-20)) | {"waits": f"demo:j{n}-1-a"}],
+            )
+            for n in range(1, 65)
+        },
+        [pr(n, f"o{n}", job=f"j{n}", waits=[f"{TEAM}archives/D123/p-{n}"], under=f"yasyf/cc-skills#{n - 1}" if n % 2 == 0 else None) for n in range(1, 65)],
     )
-    expected = view.board(data, found(), "live", [], T0, set(), {})
-    with state.indexed_pr_jobs(data):
-        assert view.board(data, found(), "live", [], T0, set(), {}) == expected
+    expected = view.board(data, asked, "live", [], T0, set(), {})
+    with state.indexed(data):
+        assert view.board(data, asked, "live", [], T0, set(), {}) == expected
+        assert view.drawn_on(data, "demo:j2-1-a", f"{TEAM}archives/D123/p-2") == [("j2", question) for question in data["jobs"]["j2"]["questions"]]
     data["jobs"]["j2"]["prs"].append(data["prs"]["yasyf/cc-skills#1"]["url"])
-    expected = view.board(data, found(), "live", [], T0, set(), {})
-    with state.indexed_pr_jobs(data):
-        assert view.board(data, found(), "live", [], T0, set(), {}) == expected
+    data["jobs"]["j3"]["questions"][0]["closed"] = state.new_close("answered", "Yes", None, at=at(-5))
+    expected = view.board(data, asked, "live", [], T0, set(), {})
+    with state.indexed(data):
+        assert view.board(data, asked, "live", [], T0, set(), {}) == expected
 
 
 def test_queue_ranks_late_promises_then_what_lands_most_then_the_oldest_wait() -> None:

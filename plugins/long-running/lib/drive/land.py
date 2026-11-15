@@ -251,6 +251,8 @@ def refuse(name: str, data: dict, outcomes: dict[str, str]) -> None:
 
 def unders(data: dict) -> dict[str, str | None]:
     """Each open PR the drive tracks mapped to the open tracked PR it sits on, as the watch last read them and as stack-enqueue joins them: the one before it in its native GitHub stack or, at the bottom of one or in none, the open PR GitHub read heading its base, by github.parent; None for a PR on no tracked PR."""
+    if index := state.index_of(data):
+        return index.under
     opened = {key: pr for key, pr in data["prs"].items() if pr["state"] == "open"}
     under: dict[str, str | None] = {}
     for key, pr in opened.items():
@@ -266,6 +268,8 @@ def chain(under: dict[str, str | None], key: str) -> tuple[str, ...]:
 
 def landing_stacks(data: dict, under: dict[str, str | None] | None = None) -> dict[str, tuple[str, ...]]:
     """Each open PR the drive tracks in a stack, mapped to the stack's open tracked PRs bottom first, as the watch last read them: the PRs one card of his draws together, joined by unders() unless the caller already read them."""
+    if (index := state.index_of(data)) and (under is None or under is index.under):
+        return index.stacks
     under = unders(data) if under is None else under
     stacks: dict[str, list[str]] = {}
     for key in under:

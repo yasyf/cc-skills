@@ -310,6 +310,41 @@ def test_a_drive_saved_by_a_newer_install_hands_the_port_to_that_install_which_a
     assert set(answers) == {demo}
 
 
+def test_a_dashboard_ends_and_reaps_its_record_watch_before_a_newer_install_takes_its_place(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = tmp_path / "fake-bin"
+    fake.mkdir()
+    (fake / "cci").write_text("#!/bin/sh\nexec sleep 600\n")
+    (fake / "cci").chmod(0o755)
+    monkeypatch.setenv("PATH", f"{fake}{os.pathsep}{os.environ['PATH']}")
+    watches: list[subprocess.Popen] = []
+    handed: list[int | None] = []
+
+    class Handed(Exception):
+        pass
+
+    def follow(board: dashboard.Board) -> Path:
+        while board.watch is None:
+            time.sleep(0.05)
+        watches.append(board.watch)
+        return tmp_path / "cache" / "9.9.9" / "bin" / "drive"
+
+    def execv(executable: str, argv: list[str]) -> None:
+        [watch] = watches
+        handed.append(watch.returncode)
+        with pytest.raises(ChildProcessError):
+            os.waitpid(watch.pid, os.WNOHANG)
+        raise Handed
+
+    monkeypatch.setattr(dashboard.Board, "follow", follow)
+    monkeypatch.setattr(dashboard.signal, "signal", lambda signum, handler: None)
+    monkeypatch.setattr(dashboard.os, "execv", execv)
+    with socket.create_server((dashboard.LOOPBACK, 0)) as probe:
+        port = probe.getsockname()[1]
+    with pytest.raises(Handed):
+        dashboard.serve(demo, port, [])
+    assert handed == [-dashboard.signal.SIGTERM]
+
+
 def test_an_answer_reaches_cc_slack_only_from_the_page_itself_for_a_card_still_waiting_on_that_option_and_leaves_history_to_its_card_command(
     state_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

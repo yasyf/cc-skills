@@ -662,8 +662,8 @@ A reproduction leaves one file. A job that reproduces a bug, of any kind, saves 
 file before it returns: the steps in order, the exact prompt and code, the build and versions, and
 the numbers measured. It records the file with `drive job set <j> --repro <file>`, which keeps a
 copy that `drive status` lists, so a share reads it instead of rebuilding the steps from a
-transcript. A brief for such a job says so. A reproduction's scratch drive, one under
-`LONG_RUNNING_STATE`, gets no watch process from `drive start` or `drive watch`, so the file runs
+transcript. A brief for such a job says so. A reproduction's scratch drive, one whose state root
+`LONG_RUNNING_STATE` or `XDG_STATE_HOME` moves, gets no watch process from `drive start` or `drive watch`, so the file runs
 the watch's passes in-process with `watch.run_pass`.
 
 One deliverable per job, one job per deliverable, and no job waits on another. Before a job starts on

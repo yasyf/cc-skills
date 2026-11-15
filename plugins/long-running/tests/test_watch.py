@@ -15,7 +15,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from conftest import DRIVE_TERMINAL, HELD_RELEASES, LEAD, RESEARCH, SHORT_ASK, UNFROZEN, Answers, CodexAsk, drawn_card, Draws, Jev, Judge, Receiver, Redraws, Thread, WatchProcess, Withdrawals, carrying, codex_reply, commit_files, git_in, said_lines, staged
+from conftest import DRIVE_TERMINAL, HELD_RELEASES, LEAD, REAL_SCRATCH, RESEARCH, SHORT_ASK, UNFROZEN, Answers, CodexAsk, drawn_card, Draws, Jev, Judge, Receiver, Redraws, Thread, WatchProcess, Withdrawals, carrying, codex_reply, commit_files, git_in, said_lines, staged
 from drive import agents, card, cli, codex, github, install, land, launchd, limits, orca, place, reads, receiver, render, served, settled, slack, stage, stall, state, superseded, talk, view, watch
 
 KEY = "Forge-AI/monorepo#42"
@@ -2503,14 +2503,17 @@ def test_a_launched_watch_takes_the_env_of_this_macs_claude_settings_so_each_rea
     assert seen == ["the settings token\n"]
 
 
-def test_a_drive_under_long_running_state_gets_no_watch_process_and_a_watch_started_there_ends(
-    demo: str, state_root: Path, monkeypatch: pytest.MonkeyPatch, watch_process: WatchProcess, capsys: pytest.CaptureFixture[str]
+@pytest.mark.parametrize("moved_by", ["LONG_RUNNING_STATE", "XDG_STATE_HOME"])
+def test_a_drive_whose_state_root_is_moved_gets_no_watch_process_and_a_watch_started_there_ends(
+    demo: str, state_root: Path, monkeypatch: pytest.MonkeyPatch, watch_process: WatchProcess, capsys: pytest.CaptureFixture[str], moved_by: str
 ) -> None:
     started = []
-    monkeypatch.setenv("LONG_RUNNING_STATE", str(state_root))
+    if moved_by == "LONG_RUNNING_STATE":
+        monkeypatch.setenv("LONG_RUNNING_STATE", str(state_root))
+    monkeypatch.setattr(state, "scratch", REAL_SCRATCH)
     monkeypatch.setattr(watch, "ensure", REAL_ENSURE)
     monkeypatch.setattr(launchd, "keep", lambda *args: started.append(args))
-    monkeypatch.setattr(watch, "passed", lambda watching, moment: pytest.fail("a pass ran on a drive under LONG_RUNNING_STATE"))
+    monkeypatch.setattr(watch, "passed", lambda watching, moment: pytest.fail(f"a pass ran on a drive {moved_by} moves"))
     assert cli.main(["watch", "--drive", demo]) == 0
     assert "watch.run_pass" in capsys.readouterr().out
     assert watch.main(demo) == 0

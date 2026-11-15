@@ -181,7 +181,7 @@ def start(args: argparse.Namespace) -> int:
 
 
 def meta_started(name: str, worktree: str, earlier: str | None) -> str:
-    """Start the meta session in an Orca terminal of its own while none is bound, by his words "have the skill always start a meta root as a sibling to coordinator and communicator"; the line saying so, or nothing for a drive under LONG_RUNNING_STATE."""
+    """Start the meta session in an Orca terminal of its own while none is bound, by his words "have the skill always start a meta root as a sibling to coordinator and communicator"; the line saying so, or nothing for a drive whose state root LONG_RUNNING_STATE or XDG_STATE_HOME moves."""
     if state.scratch():
         return ""
     try:
@@ -5150,7 +5150,7 @@ def receive(args: argparse.Namespace) -> int:
 
 
 def watch_events(args: argparse.Namespace) -> int:
-    """Run the watch with --loop; else load its launch agent unless one is loaded. A project's watch starts only from the session of that project's sub-coordinator, and a drive under LONG_RUNNING_STATE gets no process."""
+    """Run the watch with --loop; else load its launch agent unless one is loaded. A project's watch starts only from the session of that project's sub-coordinator, and a drive whose state root LONG_RUNNING_STATE or XDG_STATE_HOME moves gets no process."""
     if args.loop:
         return watch.main(args.drive, args.project)
     name = state.resolve(args.drive)
