@@ -3906,6 +3906,8 @@ def pr_set(args: argparse.Namespace) -> int:
             f"--serves on a PR waiting on his tap needs --design asked:<{served.NAMES}> for each design decision"
             " the PR makes, or --design none: a design he never answered goes back as a question, never on a card"
         )
+    if replies := [wait for wait in args.waits if state.REPLY_WAIT.fullmatch(wait)]:
+        raise DriveError(f"--waits {', '.join(replies)}: refused, nothing set: a teammate's reply frees the job waiting on it, never a PR: drive job set {before['job']} --waits <it>")
     if cards := [wait for wait in args.waits if state.card_wait(known, wait) and not state.PR_KEY.fullmatch(wait) and not state.ORDER_PART.fullmatch(wait)]:
         raise DriveError(
             f"--waits {', '.join(cards)}: refused, nothing set: a card of his holds a PR from landing only by its question's Holds: line,"
@@ -4015,10 +4017,11 @@ def check_waits(name: str, waits: list[str]) -> dict | None:
             raise DriveError(
                 f"--waits {wait}: name a job of this drive, the Slack link or waits id of a card of his still open, a question"
                 " card or a PR card still waiting on his tap, whose waits id is merge:<n>[.<n>…]:<heads>, a PR of this drive as"
-                " <owner>/<repo>#<n>, held until it merges, or release:<service>:<owner>/<repo>#<n>, or with @<env> for one env as tools/ci release live"
+                " <owner>/<repo>#<n>, held until it merges, release:<service>:<owner>/<repo>#<n>, or with @<env> for one env as tools/ci release live"
                 " names it, held until one cluster of that service, or that env, serves a commit holding the PR's merge, either one moving to the change"
-                " of the job that opened the PR once it closes unmerged, or a Buildkite build by its link,"
-                " https://buildkite.com/<org>/<pipeline>/builds/<n>, held until it finishes or stops at an approve step"
+                " of the job that opened the PR once it closes unmerged, a Buildkite build by its link,"
+                " https://buildkite.com/<org>/<pipeline>/builds/<n>, held until it finishes or stops at an approve step, or"
+                " reply:<the permalink of a question the drive asked a teammate>, held until their reply"
             )
     unreached(name, data, waits)
     return found
@@ -5042,14 +5045,17 @@ def parser() -> argparse.ArgumentParser:
             " a wake the job sets once it reads release live, never a gate, kept with a note naming the components they reach when go/ci's own map,"
             " tools/ci release select --pr, finds the PR's changed paths reach components and that service is none of them or is no component at all,"
             " a process on this Mac that still runs as pid:<n>, stored pinned to the second it started,"
-            " a Buildkite build by its link, https://buildkite.com/<org>/<pipeline>/builds/<n>, or a job of this drive still at work, of any kind, it waits on;"
+            " a Buildkite build by its link, https://buildkite.com/<org>/<pipeline>/builds/<n>,"
+            " reply:<the permalink of a question the drive asked a teammate>, say's job field setting it,"
+            " or a job of this drive still at work, of any kind, it waits on;"
             " repeat for each, a job's wait on a job stored as that job's newest open PR. The watch drops each as he answers or taps it, the PR merges, the job returns DONE, or, once it"
             " stops or fails, each part it carries is delivered, the process ends, crashed or finished, which starts a codex job's next codex-ask run carrying its last report,"
             " once the PR merged, one cluster tools/ci release live reads running that service, or the env the wait names, production or not, serves"
             " a commit holding the merge, at once when release live cannot follow it, a PR outside Forge-AI/monorepo or a service or env no cluster runs,"
-            " the FREE line naming why, or the watch's Buildkite read, made as the build is first held"
+            " the FREE line naming why, the watch's Buildkite read, made as the build is first held"
             " and again on each delivery of Buildkite's to the receiver's /buildkite route naming it, finds the build passed, failed, canceled or stopped"
-            " at an approve step, and says FREE once when the last is gone, which wakes the coordinator."
+            " at an approve step, or the first message after the question from anyone but the drive and a bot"
+            " comes, and says FREE once when the last is gone, which wakes the coordinator."
             " On a PR it never withdraws his open card: the card is redrawn in place, Approve and Hold kept, to say what it waits on"
         ),
     )
@@ -5400,7 +5406,8 @@ def parser() -> argparse.ArgumentParser:
         default=[],
         metavar="CARD|PR|RELEASE|BUILD|JOB|PART",
         help=(
-            "a card of his still open, a PR the drive tracks as <owner>/<repo>#<n> or release:<service>:<owner>/<repo>#<n>, a Buildkite build by its link, a part of an open order as <order>:<part>, or a job"
+            "a card of his still open, a PR the drive tracks as <owner>/<repo>#<n> or release:<service>:<owner>/<repo>#<n>, a Buildkite build by its link, a part of an open order as <order>:<part>,"
+            " a teammate's reply as reply:<the question's permalink>, or a job"
             " of this drive still at work, of any kind, a reader that just started included, as job set takes them, that this job waits on: it is recorded"
             " waiting with no agent, so its part is never in no job, and the watch says FREE once the last wait ends, when its agent starts"
         ),

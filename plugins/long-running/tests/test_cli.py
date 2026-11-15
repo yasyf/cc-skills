@@ -6481,6 +6481,19 @@ def test_a_prover_waiting_on_nothing_is_refused_a_waiting_on_a_watcher_of_its_ow
         watcher.wait()
 
 
+def test_a_waiting_line_naming_a_teammates_reply_to_the_drives_question_keeps_the_job_waiting_on_it_as_j585s_needed(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ask Dana which env the soak runs on")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ask Dana")
+    question = "https://acme.slack.com/archives/C0TEAM0001/p1794348920958779"
+    code, err = keep(monkeypatch, capsys, "j1", f"WAITING Dana's reply in {question}\n")
+    assert (code, "a teammate's reply as reply:<the permalink of the question the drive asked them>, which their first message after it ends" in err) == (2, True)
+    assert keep(monkeypatch, capsys, "j1", f"WAITING Dana's reply, waits on reply:{question}, which names the env\n") == (0, "")
+    job = state.load("demo")["jobs"]["j1"]
+    assert (job["state"], job["waits"]) == ("waiting", [f"reply:{question}"])
+
+
 def test_a_waiting_waits_only_on_what_its_first_line_names_that_still_holds_never_its_body_as_j3122s_codex_reply_citing_merged_prs_did(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
