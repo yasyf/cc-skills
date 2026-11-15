@@ -525,14 +525,14 @@ When it is answered, replaced or redone:
   impacts of it are". A stack card is titled by its `## The stack` line, else its bottom PR's
   headline, and lists each PR's headline and lead above the stack's summary.
 - Each PR gets its own section: its title, link and Open button, then its Summary of what it
-  changes, its Refresher, its biggest surprise and what he will hate most. Where it stands and what it waits on follow only when that is
-  not green and his tap, and how it differs from the plan only when it does. A section its body lacks
+  changes, its Refresher, its biggest surprise and what he will hate most, and how it differs from
+  the plan only when it does. No section says where the PR stands or what it waits on, by his words
+  "Please just get rid of both everywhere and on new cards". A section its body lacks
   is left off and holds nothing, since a body is fixed beside the landing, never before it. A card
-  already posted redraws in place on every change with what holds it now. A stack card whose other
-  PRs still ask his tap keeps Approve and Hold for them, and a held PR's section says why. Every section opens with its PR's stage as `stage.of` names it, such as "Its checks fail at
-  1a2b3c4: lint". A head that moved under his card keeps Approve showing, and a head the check against
-  his words judges against them keeps Approve and any Approve he gave, the objection drawn whole under
-  Where it stands, since his Approve lands it whatever that check says, by his words "why the fuck would you keep eveyhting broken to make it perfect". While a PR
+  already posted redraws in place when a PR's head or staging line changes, and whole once a PR it
+  asks his tap on no longer asks it. A stack card whose other
+  PRs still ask his tap keeps Approve and Hold for them. A head that moved under his card keeps Approve showing, and a head the check against
+  his words judges against them keeps Approve and any Approve he gave, since his Approve lands it whatever that check says, by his words "why the fuck would you keep eveyhting broken to make it perfect". While a PR
   fixes a bug hurting someone now, a card that waits on him is posted again every 30 minutes until it lands. Its Show me comes last,
   its pictures inline. A stack card's summary comes from `## The stack` in its bottom PR, under its PRs' leads.
 - Once he answers, the card folds to its title, his pick and one line per PR. When an answer or ruling

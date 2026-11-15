@@ -141,6 +141,7 @@ class Watcher:
     relayed: collections.deque[str] = field(default_factory=collections.deque)
     relay_error: Exception | None = None
     questions_taken: set[str] = field(default_factory=set)
+    redrawn_whole: set[str] = field(default_factory=set)
 
     @property
     def lane(self) -> str:
@@ -4043,6 +4044,7 @@ def stages(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
         view.refresh_cards(watcher.name)
         found, source = view.stored_cards(watcher.name)
         watcher.cards = found if source == "live" else None
+        watcher.redrawn_whole = set()
         yield github_lines(watcher, moment, polled=True)
         yield main_lines(watcher, moment)
         yield dangerous_lines(watcher, moment)
@@ -4120,7 +4122,7 @@ def carried_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def redraw_lines(watcher: Watcher, moment: datetime, keys: set[str] | None = None) -> list[str]:
-    """Redraw in place each card of his on a heard open PR, or on those of keys alone, as github_lines asks for the PRs it just read, open or answered and neither replaced nor withdrawn, whose row cc-slack last drew differs from the card.REDRAWN lines drive card draws on it now, so its head, Where it stands, Waits on and staging line never stay stale: one slack.draw_pr_lines call writes those lines onto every row of each such PR, which cc-slack redraws in place in the background, buttons kept, and the watch's copy of his cards takes them too. A PR his open card drew asking his tap that no longer asks it is first redrawn whole from drive card, so the card gives up its Approve, and a whole redraw that fails leaves its lines unwritten, so the next pass asks both again."""
+    """Redraw in place each card of his on a heard open PR, or on those of keys alone, as github_lines asks for the PRs it just read, open or answered and neither replaced nor withdrawn, whose row cc-slack last drew differs from the card.REDRAWN lines drive card draws on it now, so its head and staging line never stay stale: one slack.draw_pr_lines call writes those lines onto every row of each such PR, which cc-slack redraws in place in the background, buttons kept, and the watch's copy of his cards takes them too. A PR his open card asks his tap on, by the PR numbers its waits id names, by card.ask_waits, or every PR on it under an older merge waits id, that no longer asks it, by state.asks_tap, is first redrawn whole from drive card, so the card gives up its Approve, once until the watch next reads his cards; a whole redraw that fails leaves its lines unwritten, so the next pass asks both again."""
     from drive import card
 
     if watcher.cards is None:
@@ -4130,22 +4132,23 @@ def redraw_lines(watcher: Watcher, moment: datetime, keys: set[str] | None = Non
     for shown in [*watcher.cards["pr_cards"], *(closed for closed in watcher.cards["closed"] if "card" in closed)]:
         for row in shown["card"]["prs"]:
             rows.setdefault(state.pr_key(row["url"]), []).append(row)
-    asking = {state.pr_key(row["url"]) for shown in watcher.cards["pr_cards"] for row in shown["card"]["prs"] if row.get("lands")}
+    asking = {state.pr_key(row["url"]) for shown in watcher.cards["pr_cards"] if (waits := shown["card"].get("waits") or "").startswith("merge:") for row in shown["card"]["prs"] if not (asked := state.ASK_WAITS.fullmatch(waits)) or state.pr_key(row["url"]).split("#")[1] in asked[1].split(".")} - watcher.redrawn_whole
     lines, fresh = [], {}
     for key, drawn in rows.items():
         pr = data["prs"].get(key)
         if (keys is not None and key not in keys) or not pr or pr["state"] != "open" or not pr["head"] or pr["rework"] or key in watcher.stale or not hears(watcher, data, pr["order"]):
             continue
-        now = card.drawn_lines(watcher.name, data, key)
-        if all({line: row.get(line, "") for line in card.REDRAWN} == now for row in drawn):
-            continue
-        if key in asking and not now["lands"]:
+        if key in asking and not state.asks_tap(data, pr):
             try:
                 slack.redraw_pr_cards(pr["url"])
             except slack.SlackError as error:
                 lines += failed(watcher, "card redraw", f"redraw of his card on {key}", error, moment)
                 continue
             watcher.failures.pop("card redraw", None)
+            watcher.redrawn_whole.add(key)
+        now = card.drawn_lines(watcher.name, data, key)
+        if all({line: row.get(line, "") for line in card.REDRAWN} == now for row in drawn):
+            continue
         fresh[key] = now
     if not fresh:
         return lines

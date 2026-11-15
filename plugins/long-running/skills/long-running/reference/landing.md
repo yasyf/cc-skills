@@ -451,7 +451,7 @@ its lander ended is taken out of the queue by `drive pr land --dequeue`, its own
 lander's `LANDER` defect and is retried at the next pass. His Approve lands the PR at its first green head, a dangerous one while he is present, whatever the check of its change
 against his words says, whatever head he tapped it on, by his words "why the fuck would you keep eveyhting broken to make it perfect": a head that moved under his card keeps Approve showing and
 lands with no second check. A `NOT READY` at the PR's head clears no tap and holds no landing: his
-card keeps Approve and draws the objection whole under Where it stands, and its `PR … NOT READY`
+card keeps Approve, and its `PR … NOT READY`
 line goes to the builder answering for each PR it faults through `drive pr wake`, once a head and one to each job,
 only while neither his Approve nor an open card of his holds the stack: under either on any
 PR of the stack it wakes nobody, so no builder changes what he approved or what his answer may change, while his Hold

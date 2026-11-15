@@ -143,7 +143,6 @@ def row(**fields: str) -> dict:
         "staging": STAGING,
         "stored_data": "",
         "changed": "",
-        "review": "",
         "summary": SUMMARY,
         "impact": "",
         "refresher": "When the network hiccups, we try again.",
@@ -1244,7 +1243,7 @@ def test_a_head_that_moved_under_his_card_keeps_approve_and_his_approve_of_the_h
     assert ("options" in held["card"], held["card"]["prs"][0]["blocks"]) == (False, "Approved by you. CI passed; the drive queues it for merge")
 
 
-def test_a_change_against_his_words_is_a_whole_line_on_his_card_beside_approve_his_approve_still_lands_it_and_a_newer_head_drops_it(
+def test_a_change_against_his_words_keeps_approve_on_his_card_with_no_line_naming_it_and_his_approve_still_lands_it(
     drive: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]], judge: Judge
 ) -> None:
     key, change = "Forge-AI/monorepo#42", "run.ts drops the run page " + "and its link from the sidebar " * 20
@@ -1254,18 +1253,13 @@ def test_a_change_against_his_words_is_a_whole_line_on_his_card_beside_approve_h
     assert cli.main(["pr", "check", URL, "--drive", drive]) == 0
     assert not [event for event in events(drive) if event["kind"] == "check"]
     assert state.load(drive)["prs"][key]["checker"]["outcome"].startswith(f"NOT READY: {key} go against his words, judged from each PR's title and diff: {named}. ")
-    line = f"Commit fedcba9 goes against your words: {named}. Its agent is told; your Approve still lands it"
     [asking] = ask(redraw)["cards"]
-    assert (asking["card"]["options"], asking["card"]["prs"][0]["review"]) == (["Approve", "Hold"], line)
+    assert (asking["card"]["options"], "review" in asking["card"]["prs"][0]) == (["Approve", "Hold"], False)
     tap_approve(MOVED)
     pr = state.load(drive)["prs"][key]
     assert (pr["tap"]["label"], pr["fundamental"], landers) == ("Approve", None, [(key,)])
     [held] = ask(redraw)["cards"]
-    approved = f"Commit fedcba9 goes against your words: {named}. Your Approve still lands it"
-    assert (held["card"]["prs"][0]["blocks"], held["card"]["prs"][0]["review"]) == ("Approved by you. CI passed; the drive queues it for merge", approved)
-    monkeypatch.setattr(card, "run", answering(pr_json() | {"headRefOid": HEAD}))
-    [pushed] = ask(redraw)["cards"]
-    assert (pushed["card"]["prs"][0]["head"], pushed["card"]["prs"][0]["review"]) == (HEAD, "")
+    assert held["card"]["prs"][0]["blocks"] == "Approved by you. CI passed; the drive queues it for merge"
 
 
 def test_answer_matches_the_lowercase_repo_cc_slack_sends(drive: str) -> None:
@@ -1691,7 +1685,7 @@ def redrawn_by_the_watch(moment: datetime) -> list[str]:
     return watch.redraw_lines(watching, moment)
 
 
-def test_his_typed_approve_of_one_pr_and_hold_of_the_other_redraw_their_stack_card_in_place_with_no_buttons_saying_each_and_a_later_tap_redraws_it_until_it_is_replaced(
+def test_his_typed_approve_of_one_pr_and_hold_of_the_other_redraw_their_stack_card_whole_with_no_buttons_and_a_later_tap_redraws_nothing(
     stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch, redraws: Redraws
 ) -> None:
     moment = state.parse_time("2026-11-12T12:30:00-08:00")
@@ -1700,7 +1694,7 @@ def test_his_typed_approve_of_one_pr_and_hold_of_the_other_redraw_their_stack_ca
         data["prs"]["Forge-AI/monorepo#41"]["checks"] = "fail"
     typed(41, "Approve")
     typed(42, "Hold")
-    assert (redrawn_by_the_watch(moment), redraws.asked, redraws.drawn) == ([], [stack_url(41), stack_url(42)], [stack_url(41), stack_url(42)])
+    assert (redrawn_by_the_watch(moment), redraws.asked, redraws.drawn) == ([], [stack_url(41), stack_url(42)], [])
     [redrawn] = ask(asks(41, 42) | {"redraw": True})["cards"]
     assert (redrawn["card"]["status"], "options" in redrawn["card"], "waits" in redrawn["card"]) == ("info", False, False)
     assert [row["blocks"] for row in redrawn["card"]["prs"]] == ["Approved by you. CI failed; the agent is fixing it", "Held by you"]
@@ -1708,10 +1702,10 @@ def test_his_typed_approve_of_one_pr_and_hold_of_the_other_redraw_their_stack_ca
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [], "closed": [collapsed | {"card": redrawn["card"]}]})
     assert (redrawn_by_the_watch(moment), redraws.asked) == ([], [stack_url(41), stack_url(42)])
     typed(42, "Approve")
-    assert (redrawn_by_the_watch(moment), redraws.asked, redraws.drawn) == ([], [stack_url(41), stack_url(42)], [stack_url(41), stack_url(42), stack_url(42)])
+    assert (redrawn_by_the_watch(moment), redraws.asked, redraws.drawn) == ([], [stack_url(41), stack_url(42)], [])
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [], "closed": [collapsed | {"replaced_by": "https://acme.slack.com/archives/D123/p1794515999000000"}]})
     typed(42, "Hold")
-    assert (redrawn_by_the_watch(moment), redraws.asked, redraws.drawn) == ([], [stack_url(41), stack_url(42)], [stack_url(41), stack_url(42), stack_url(42)])
+    assert (redrawn_by_the_watch(moment), redraws.asked, redraws.drawn) == ([], [stack_url(41), stack_url(42)], [])
 
 
 def test_a_tap_on_his_stack_card_after_his_typed_approve_of_one_pr_keeps_that_approve_and_taps_the_rest(

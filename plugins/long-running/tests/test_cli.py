@@ -11220,7 +11220,6 @@ def test_his_answer_reopening_the_top_pr_of_a_two_pr_stack_card_cards_the_pr_it_
     assert drawn["skipped"] == []
     assert f", alone while {view.pr_link(state.load('demo')['prs'][top])} above it is reworked to your words" in drawn["cards"][0]["card"]["prs"][0]["lands"]
     assert [state.load("demo")["prs"][key]["stack"] for key in stack] == [[designing], stack]
-    assert card.drawn_lines("demo", state.load("demo"), designing)["lands"] == drawn["cards"][0]["card"]["prs"][0]["lands"]
 
 
 def test_an_answer_under_a_card_lists_only_its_job_and_orders_cards_and_prs_and_those_its_words_name(
