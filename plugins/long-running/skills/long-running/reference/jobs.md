@@ -288,7 +288,11 @@ that the drive does not track, since only `drive pr add <url> --job <j>`, which 
 one. A report sent as an Orca question, one whose first line opens with a result word other than
 `ASK`, is that result and asks nothing, and a report ends any question the lane asked before it,
 since the lane no longer waits on that answer. Any other `ASK` question is a `JOB` line saying that
-`drive job ask <j>`, which you run, keeps it. The watch takes each message once: one the job's kept
+`drive job ask <j>`, which you run, keeps it. A `status` the lane sends while it works is a
+`JOB <j> <o> MESSAGE <msg id>: <subject>` event whose record carries its body whole, and sets no
+state. The watch gives each message to the job that recorded its worker, by its `dispatch:` handle,
+the dispatch its payload names or the worker's terminal, whatever Run Orca filed it on and whatever
+the job's state. The watch takes each message once: one the job's kept
 history already holds is never an event again, so a watch that restarts after an install says
 nothing it said before. `drive job report <j>` prints every result the lane sent, newest first, and
 `drive job replies <j>` prints every result and question the lane sent and every return
