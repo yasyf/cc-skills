@@ -9,7 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import agents, cli, install, limits, mcp, picture, reads, refs, render, settled, slack, state, talk, tools, view, watch
+from drive import agents, cli, install, limits, mcp, orca, picture, reads, refs, render, settled, slack, state, talk, tools, view, watch
 from drive.state import DriveError
 
 SLACK = "mcp__plugin_cc-slack_cc-slack__"
@@ -910,9 +910,12 @@ def raw_visuals(tool_input: dict) -> str | None:
 
 
 def unswitched(tool_input: dict, drive: dict) -> str | None:
-    """Why a post gives him a switch command for a terminal no session of the drive runs in."""
-    held = {role.get("terminal") for role in state.bound_sessions(drive).values()}
-    if not (wrong := [handle for handle in SWITCH.findall(tool_input.get("text") or "") if handle not in held]):
+    """Why a post gives him a switch command for a terminal no session of the drive runs in, as one read of Orca and the process tree finds them."""
+    if not (named := SWITCH.findall(tool_input.get("text") or "")):
+        return None
+    found = orca.session_terminals([held["session"] for held in state.bound_sessions(drive).values()])
+    shown = {terminal["handle"] for terminals in found.values() for terminal in terminals}
+    if not (wrong := [handle for handle in named if handle not in shown]):
         return None
     return agents.Ruled(
         f"refused: `orca terminal switch --terminal {wrong[0]}` names a terminal no session of this drive runs in. Give him a switch"

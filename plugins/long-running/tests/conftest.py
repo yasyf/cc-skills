@@ -68,6 +68,7 @@ REAL_DRIVE_TERMINAL = orca.drive_terminal
 REAL_KEEP_LOGS = orca.keep_logs
 REAL_SAVED_BRANCHES = github.saved_branches
 REAL_SESSION_OF = orca.session_of
+REAL_SESSION_TERMINALS = orca.session_terminals
 REAL_KEEP_TRANSCRIPTS = orca.keep_transcripts
 REAL_REGISTER = agents.register
 REAL_CHECKOUT = orca.checkout
@@ -409,6 +410,14 @@ def drive_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
     """Every drive speaks to Orca as the terminals of its own it already keeps, never ones Orca opens for the test."""
     monkeypatch.setattr(orca, "drive_terminal", lambda drive: DRIVE_TERMINAL)
     monkeypatch.setattr(orca, "binder_terminal", lambda drive: BINDER_TERMINAL)
+
+
+@pytest.fixture(autouse=True)
+def runs_in(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[dict]]:
+    """The Orca terminals each session runs in, as every read of them finds them, none for a session it holds none for; a test of the read itself calls REAL_SESSION_TERMINALS."""
+    terminals: dict[str, list[dict]] = {}
+    monkeypatch.setattr(orca, "session_terminals", lambda sessions: {session: terminals.get(session, []) for session in sessions})
+    return terminals
 
 
 @pytest.fixture(autouse=True)

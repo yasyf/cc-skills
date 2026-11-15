@@ -221,32 +221,36 @@ def test_a_session_is_resumed_only_once_its_process_exits(demo: str, config: Pat
     assert bash_guard.deny_reason(bash(CREATE)) is None
 
 
-def test_a_role_whose_terminal_orca_only_hides_is_shown_never_resumed(communicator: str, config: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_role_whose_terminals_orca_only_hides_is_shown_never_resumed(
+    communicator: str, config: Path, monkeypatch: pytest.MonkeyPatch, runs_in: dict[str, list[dict]]
+) -> None:
     with state.edit(communicator) as data:
-        data["roles"]["coordinator"].update(session=RESUMED, terminal="term_c", cwd="/work")
-    monkeypatch.setattr(orca, "terminal", lambda handle: {"orphaned": True})
+        data["roles"]["coordinator"].update(session=RESUMED, cwd="/work")
+    runs_in[RESUMED] = [{"handle": "term_c", "orphaned": True}]
     monkeypatch.setattr(orca, "main_checkout", lambda worktree: Path("/repo"))
     running(monkeypatch, config, {4123: 1})
     reason = bash_guard.deny_reason(bash(CREATE))
     assert reason.startswith(f"refused: session {RESUMED} still runs as pid 4123, in a terminal Orca only hides")
     assert "`orca repo set --repo path:/repo --external-worktree-visibility show`" in reason
+    runs_in[RESUMED].append({"handle": "term_shown", "orphaned": False})
+    assert "wait until `ps -p 4123` lists nothing" in bash_guard.deny_reason(bash(CREATE))
 
-    def gone(handle: str) -> dict:
-        raise OrcaError(f"no terminal {handle}")
+    def unreachable(sessions: list[str]) -> dict:
+        raise OrcaError("orca is not running")
 
-    monkeypatch.setattr(orca, "terminal", gone)
+    monkeypatch.setattr(orca, "session_terminals", unreachable)
     assert "wait until `ps -p 4123` lists nothing" in bash_guard.deny_reason(bash(CREATE))
     running(monkeypatch, config, {})
     assert bash_guard.deny_reason(bash(CREATE)) is None
 
 
 def test_a_sub_coordinators_session_is_found_like_a_roles_by_its_session_and_terminal(
-    communicator: str, config: Path, monkeypatch: pytest.MonkeyPatch
+    communicator: str, config: Path, monkeypatch: pytest.MonkeyPatch, runs_in: dict[str, list[dict]]
 ) -> None:
     with state.edit(communicator) as data:
         top = data["roles"]["coordinator"]
-        data["subcoordinators"]["Iris"] = {"session": RESUMED, "terminal": "term_i", "cwd": "/work", "started": top["started"], "from": 0}
-    monkeypatch.setattr(orca, "terminal", lambda handle: {"orphaned": True})
+        data["subcoordinators"]["Iris"] = {"session": RESUMED, "cwd": "/work", "started": top["started"], "from": 0}
+    runs_in[RESUMED] = [{"handle": "term_i", "orphaned": True}]
     monkeypatch.setattr(orca, "main_checkout", lambda worktree: Path("/repo"))
     running(monkeypatch, config, {4123: 1})
     assert bash_guard.deny_reason(bash(CREATE)).startswith(f"refused: session {RESUMED} still runs as pid 4123, in a terminal Orca only hides")
@@ -259,11 +263,11 @@ def test_a_terminal_command_ends_with_the_claude_command(demo: str, live_session
     assert bash_guard.deny_reason(bash('orca terminal create --worktree path:/work --command "claude --resume x"')) is None
 
 
-def test_no_session_is_moved_while_an_incident_order_is_open(demo: str, run: Run) -> None:
+def test_no_session_is_moved_while_an_incident_order_is_open(demo: str, run: Run, runs_in: dict[str, list[dict]]) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Incidents", "the API is down")
     with state.edit(demo) as data:
         data["orders"]["o1"]["incident"] = True
-        data["roles"]["coordinator"]["terminal"] = "term_c"
+    runs_in[state.load(demo)["roles"]["coordinator"]["session"]] = [{"handle": "term_c", "orphaned": False}]
     send = "orca terminal send --terminal term_c --text /exit --enter"
     reason = bash_guard.deny_reason(bash(send))
     assert reason.startswith("refused: o1 is an open incident order, and ending the coordinator now stops it mid-incident")
