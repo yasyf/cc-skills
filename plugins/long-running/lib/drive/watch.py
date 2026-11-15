@@ -794,23 +794,24 @@ def settle_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def follow_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Close in place each of his question cards still showing buttons whose every question ended, showing how the newest ended, since the drive's question decides its card: a close cc-slack missed when the question ended goes again here, and one that fails goes again next read."""
+    """Close in place each of his question cards still showing buttons whose every question ended, showing how the newest ended, and each still showing a tap of his that his words replaced, by view.replaced_taps, since the drive's question decides its card: a close cc-slack missed when the question ended goes again here, and one that fails goes again next read."""
     if watcher.cards is None:
         return []
     data = state.load(watcher.name)
-    lines = []
+    owed = view.replaced_taps(data, watcher.cards)
     for card in watcher.cards["questions"]:
         drawn = view.drawn_on(data, *filter(None, [card["card"].get("waits"), card["url"]]))
-        if not drawn or any(question["closed"] is None for _, question in drawn):
-            continue
-        closed = max((question["closed"] for _, question in drawn), key=lambda closed: closed["at"])
+        if drawn and all(question["closed"] for _, question in drawn):
+            owed[card["url"]] = max((question["closed"] for _, question in drawn), key=lambda closed: closed["at"])
+    lines = []
+    for url, closed in owed.items():
         try:
-            superseded.close_card(card["url"], closed)
+            superseded.close_card(url, closed)
         except slack.SlackError as error:
             lines += failed(watcher, "card follow", "question card follow", error, moment)
             continue
         watcher.failures.pop("card follow", None)
-        lines.append(f"CARD {card['url']} closed in place: its question {closed['how']}")
+        lines.append(f"CARD {url} closed in place: its question {closed['how']}" + (", his words in place of his tap" if closed["replaces"] and closed["replaces"]["tap"] else ""))
     return lines
 
 
