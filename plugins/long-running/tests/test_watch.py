@@ -2082,7 +2082,7 @@ def test_a_handoff_asking_for_a_job_owes_its_thread_one_line_five_quiet_minutes_
 
     def owed(moment: datetime) -> list[str]:
         data = state.load(demo)
-        return [key for key in watch.line_facts(data, ["o1"], render.prs_by_job(data), moment) if key.startswith(watch.HANDOFF_FACT)]
+        return [key for key in watch.line_facts(data, ["o1"], render.prs_by_job(data), None, moment) if key.startswith(watch.HANDOFF_FACT)]
 
     assert watch.quiet_lines(watching, T0 + timedelta(minutes=1)) == []
     handed("701640", T0 + timedelta(minutes=2))
@@ -7142,7 +7142,7 @@ def test_his_approve_of_49869_and_53227_lands_them_while_55258_stacked_later_on_
                 "checks": "pass",
                 "review": "approved",
             }
-        data["prs"][reparent] |= {"checks": "pending", "added": None}
+        data["prs"][reparent] |= {"checks": "pending"}
     approve(demo, bottom, renewal)
     data = state.load(demo)
     cards = NO_CARDS | {"pr_cards": [pr_card(bottom, renewal), pr_card(reparent, url="https://acme.slack.com/archives/D123/p2")]}
@@ -10955,15 +10955,20 @@ def test_the_daily_sweep_ends_his_open_drive_tooling_cards_jev_reads_as_details_
     assert (swept["prs"][KEY]["wants_tap"], swept["prs"][OTHER]["wants_tap"], swept["slack"]["swept"]["at"]) == (False, True, state.stamp(T0))
 
 
-def test_a_card_of_his_open_past_48_hours_reaches_its_orders_thread_line_once_saying_it_still_waits_and_what_it_holds(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_card_of_his_open_past_48_hours_since_cc_slack_drew_it_reaches_its_orders_thread_line_once_saying_it_still_waits_and_what_it_holds_and_a_pr_no_card_carries_has_none(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
     threaded(demo)
     asked = T0 - timedelta(hours=47)
+    undrawn = "Forge-AI/monorepo#44"
     with state.edit(demo) as data:
         data["jobs"]["j1"].update(state="waiting", questions=[state.new_question(None, "Which store should the sand CLI read?", state.stamp(asked), card=CARD, holds=KEY) | {"waits": "demo:j1-1"}])
-        data["prs"][KEY] |= {"wants_tap": True, "added": state.stamp(asked)}
-        data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"head": "bbbbbbb222", "title": "Fix: the watch reads each PR once", "added": state.stamp(asked)}
+        data["prs"][KEY] |= {"wants_tap": True}
+        data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"head": "bbbbbbb222", "title": "Fix: the watch reads each PR once", "added": None}
+        data["prs"][undrawn] = state.new_pr(state.pr_url(undrawn), "j1", "o1") | {"head": "ccccccc333", "title": "Fix: his card post was refused", "added": None}
     calls = catching_up(monkeypatch, demo)
     watching = watcher(demo)
+    watching.cards = NO_CARDS | {"pr_cards": [pr_card(OTHER, url=POSTED, head="bbbbbbb222") | {"asked": state.stamp(asked)}]}
     assert watch.quiet_lines(watching, T0) == []
     assert calls == []
     later = T0 + timedelta(hours=2)
