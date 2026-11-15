@@ -369,35 +369,31 @@ def held_landers(data: dict, keys: list[str]) -> dict[int, str]:
     }
 
 
-def unmergeable(key: str, read: dict) -> str | None:
-    """Why a yasyf/* PR may not merge at the head GitHub holds now: it is not open, is a draft, carries the hold label, or sits on another branch than its repository's default."""
+def unmergeable(read: dict) -> str | None:
+    """Why a yasyf/* PR may not merge at the head GitHub holds now, by github.fetch's read of it, its repository's default branch included: it is not open, is a draft, carries the hold label, or sits on another branch than its repository's default."""
     if read["state"] != "OPEN":
         return f"it is {read['state'].lower()}"
     if read["isDraft"]:
         return "it is a draft"
     if github.HOLD_LABEL in read["labels"]:
         return "it carries the hold label"
-    if read["baseRefName"] != (default := github.default_branch(github.repo_of(key))):
-        return f"it sits on {read['baseRefName']}, not {default}"
+    if read["baseRefName"] != read["default"]:
+        return f"it sits on {read['baseRefName']}, not {read['default']}"
     return None
 
 
 def admin_merged(name: str, key: str) -> str:
-    """Merge a yasyf/* PR with --admin at the head GitHub holds now, once a fresh read finds nothing there that unmergeable() names, every check there finished and none failing on its own change, by own_reds(), and pinned to that head so a push since the read merges nothing; what came of it."""
+    """Merge a yasyf/* PR with --admin at the head GitHub holds now, once a fresh read finds nothing there that unmergeable() names, every check there finished and none failing on its own change, by own_reds(), and pinned to that head so a push since the read merges nothing; what came of it, raising the GithubError of a read that failed before the merge."""
     reads, refused = github.fetch([key])
     if refused:
-        return f"{UNREAD}: {cut(str(refused), SAID_CHARS)}"
+        raise refused
     read = reads[key]
     head = read["headRefOid"]
-    if why := unmergeable(key, read):
+    if why := unmergeable(read):
         return f"not landed: {why}"
     if github.checks(read["checks"], []) == "pending":
         return f"{RUNNING} at {head[:7]}"
-    try:
-        owned = own_reds(key, read["checks"])
-    except github.GithubError as error:
-        return f"{UNREAD}: {cut(str(error), SAID_CHARS)}"
-    if owned:
+    if owned := own_reds(key, read["checks"]):
         return f"{OWN_RED} {', '.join(owned)} at {head[:7]}, which the default branch does not fail on the same tests where the PR's run of it merged its head"
     return merged(name, key, read["merge_method"], ["--admin", "--match-head-commit", head])
 
@@ -453,7 +449,7 @@ def spawn(name: str, keys: tuple[str, ...]) -> int:
 
 
 def run(name: str, keys: list[str], dry_run: bool = False) -> str:
-    """Land one unit his Approve or exempt classes clear, or one yasyf/* PR, in whichever repository the drive tracks it, never a PR the drive does not track or one someone else opened that no order of his it serves names, then record what came of it on each PR, which its stage reads, and as a landing event: a yasyf/* PR merges with gh pr merge --admin at the head a fresh read finds every check finished on with none failing on its own change, a Forge-AI/monorepo unit queues through stack-enqueue, and a PR of any other repository merges with gh pr merge at the head its stage read ready, which GitHub merges only once its repository's rules pass, each by the method its repository allows, by github.merge_method. His Approve lands the PR whatever the check of its change against his words says, which only informs his card and its owner; a unit with a PR below it that nothing clears is not landed, since its landing would land that PR too, nor one with a PR its changes put outside its exempt class, nor one a hold of his holds, his Hold, the hold label or an open card of his on the work of any job carrying a PR of it. A dry run runs stack-enqueue --check as the landing would, says what it would do, and lands and records nothing."""
+    """Land one unit his Approve or exempt classes clear, or one yasyf/* PR, in whichever repository the drive tracks it, never a PR the drive does not track or one someone else opened that no order of his it serves names, then record what came of it on each PR, which its stage reads, and as a landing event: a yasyf/* PR merges with gh pr merge --admin at the head a fresh read finds every check finished on with none failing on its own change, a Forge-AI/monorepo unit queues through stack-enqueue, and a PR of any other repository merges with gh pr merge at the head its stage read ready, which GitHub merges only once its repository's rules pass, each by the method its repository allows, by github.merge_method. His Approve lands the PR whatever the check of its change against his words says, which only informs his card and its owner; a unit with a PR below it that nothing clears is not landed, since its landing would land that PR too, nor one with a PR its changes put outside its exempt class, nor one a hold of his holds, his Hold, the hold label or an open card of his on the work of any job carrying a PR of it. A GitHub read or drive read that fails before it queues or merges anything, in any repository, ends the try not landed by UNREAD's rule, so the next watch pass lands it again. A dry run runs stack-enqueue --check as the landing would, says what it would do, and lands and records nothing."""
     data = state.load(name)
     if untracked := [key for key in keys if key not in data["prs"]]:
         raise state.DriveError(f"{', '.join(untracked)}: the drive tracks no such PR, so it lands none; drive pr add <url> --job <job> registers one first")
@@ -463,19 +459,14 @@ def run(name: str, keys: list[str], dry_run: bool = False) -> str:
         raise state.DriveError("; ".join(foreign))
     below: list[str] = []
     asked: dict[str, str] = {}
-    if holding := held(data, keys):
-        outcome = f"{HELD}: {holding}"
-    elif state.merges_untapped(keys[0]):
-        outcome = f"would merge it with {' '.join(MERGE)} --{data['prs'][keys[0]]['merge_method']} --admin once every check at its head finished with none failing on its own change, then install each plugin it changes" if dry_run else admin_merged(name, keys[0])
-    else:
-        try:
-            below = uncleared_below(data, keys)
-            misfiled = "; ".join(why for key in keys if (why := unexempt(data, key)))
-        except (github.GithubError, state.DriveError) as error:
-            print(error, flush=True)
-            outcome = f"{UNREAD}: {cut(str(error), SAID_CHARS)}"
+    try:
+        if holding := held(data, keys):
+            outcome = f"{HELD}: {holding}"
+        elif state.merges_untapped(keys[0]):
+            outcome = f"would merge it with {' '.join(MERGE)} --{data['prs'][keys[0]]['merge_method']} --admin once every check at its head finished with none failing on its own change, then install each plugin it changes" if dry_run else admin_merged(name, keys[0])
         else:
-            if misfiled:
+            below = uncleared_below(data, keys)
+            if misfiled := "; ".join(why for key in keys if (why := unexempt(data, key))):
                 outcome = f"not landed: {misfiled}"
             elif below:
                 outcome = held_below(keys, below)
@@ -484,13 +475,16 @@ def run(name: str, keys: list[str], dry_run: bool = False) -> str:
             else:
                 pr = data["prs"][keys[0]]
                 outcome = f"would merge it with {' '.join(MERGE)} --{pr['merge_method']} --match-head-commit {pr['head'][:12]}" if dry_run else merged(name, keys[0], pr["merge_method"], ["--match-head-commit", pr["head"]])
+    except (github.GithubError, state.DriveError) as error:
+        print(error, flush=True)
+        outcome = f"{UNREAD}: {cut(str(error), SAID_CHARS)}"
     if dry_run:
         return outcome
     return record(name, keys, outcome, below, asked)
 
 
 def record(name: str, keys: list[str], outcome: str, below: list[str], asked: dict[str, str]) -> str:
-    """Record what came of a landing on each PR, with the top of keys as its entry, the PR stack-enqueue submits and so the one whose labels say Trunk ejected them all, and as a landing event unless the try before it on the same head came to the same, such as a retried landing whose stack-enqueue again failed on its own, and on each PR asked names the head its lander asked forge-pr-reviewer to review, so none is asked twice; on the newest install, which `drive pr land --outcome` records it on when one landed while this lander worked."""
+    """Record what came of a landing on each PR, with the top of keys as its entry, the PR stack-enqueue submits and so the one whose labels say Trunk ejected them all, and as a landing event unless the try before it on the same head came to the same, such as a retried landing whose stack-enqueue again failed on its own or whose GitHub read failed again, whatever its refusal said, as ccx's rate-limit floor names the requests it leaves each time, and on each PR asked names the head its lander asked forge-pr-reviewer to review, so none is asked twice; on the newest install, which `drive pr land --outcome` records it on when one landed while this lander worked."""
     install.reopen(["pr", "land", *map(state.pr_url, keys), "--drive", name, "--outcome", outcome, *(flag for key in below for flag in ("--below", key)), *(flag for key, head in asked.items() for flag in ("--asked", key, head))])
     with state.edit(name) as data:
         for key, head in asked.items():
@@ -506,7 +500,7 @@ def noted(name: str, data: dict, keys: list[str], outcome: str, below: list[str]
             pr["flaky"]["requeued"] = state.stamp()
         pr["lander"] = (pr["lander"] or {"head": pr["head"], "pid": os.getpid(), "at": state.stamp()}) | {"outcome": outcome, "below": below, "entry": keys[-1]}
         was = pr["lander"].get("was")
-        if was == outcome or outcome.startswith(OWN_FAILURE) and (was or "").partition(": ")[0] == outcome.partition(": ")[0]:
+        if was == outcome or outcome.startswith(OWN_FAILURE) and (was or "").partition(": ")[0] == outcome.partition(": ")[0] or outcome.startswith(UNREAD) and (was or "").startswith(UNREAD):
             continue
         repo, number = key.split("#")
         state.append_event(name, "landing", repo=repo, number=int(number), change=outcome, lane=state.heard_lane(data, pr["order"]))
