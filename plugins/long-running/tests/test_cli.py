@@ -5140,10 +5140,11 @@ def test_a_design_that_kept_a_question_is_kept_with_no_fork_line_and_its_builder
     block.write_text(SHORT_ASK.replace("Holds: none: no option changes code any job builds", holds))
     run("job", "ask", "j1", str(block))
     capsys.readouterr()
-    monkeypatch.setattr("sys.stdin", io.StringIO(DESIGNED))
+    [card] = view.open_cards(state.load("demo")["jobs"]["j1"])
+    monkeypatch.setattr("sys.stdin", io.StringIO(DESIGNED.replace("open: none", f"open: where the store copy runs, {card}")))
     assert cli.main(["job", "report", "j1", "-"]) == 0
     data = state.load("demo")
-    [card] = view.open_cards(data["jobs"]["j1"])
+    assert view.open_cards(data["jobs"]["j1"]) == [card]
     holding = f", building his recommended option with no PR until he answers {card}" if held else ""
     assert capsys.readouterr().out.splitlines()[-1] == f'j2 builder on "Short title": start its agent now{holding}'
     assert (data["jobs"]["j1"]["said"], data["jobs"]["j2"]["state"], data["jobs"]["j2"]["waits"]) == ("carried by builder j2", "running", [])
@@ -10286,7 +10287,7 @@ def test_j4737_cards_withdraw_via_another_open_card_of_the_drive_folds_its_quest
 def test_j5473_job_report_withdraws_each_open_card_its_return_no_longer_names_but_one_it_links_one_holding_an_open_pr_and_one_a_handoff_leaves(
     run: Run, asking: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run("job", "add", "builder", "--order", "o1", "--goal", "design it too")
+    assert run("job", "add", "reader", "--order", "o1", "--goal", "read the copy")[0] == 0
     titles = {6: "Which store?", 7: "Which cache disk?", 8: "Should a memory the move skipped get its search and expiry rebuilt?", 9: "Which layout?"}
     shown = {n: open_card(n, {"title": title, "options": ["Keep", "Drop"], "recommended": "Keep", "waits": f"demo:j{2 if n == 6 else 1}-{n}"}) for n, title in titles.items()}
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": list(shown.values()), "pr_cards": [], "closed": []})
