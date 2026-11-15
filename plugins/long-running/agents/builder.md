@@ -212,7 +212,7 @@ and waits ids, record seqs), never a technical name.
      `BLOCKED` naming the repair and the grant it needs. On any cluster but staging or sandbox the
      `landing_guard` hook refuses that start, and the unblock or rerun of the build it starts, a
      repair included, while he holds every release and no answer of his recorded since orders that
-     CronJob on that cluster now, read from the answer ids its `--reason` names and those nearest it:
+     CronJob on that cluster now, read from the answer ids its `--reason` names alone:
      ask him with `drive job ask`, record his answer with `drive answer` and name its id in the
      `--reason`. While he is away, his last word or tap over 15 minutes old, it refuses them
      whatever answer the reason names: return `WAITING his word` with the Job unstarted, since the

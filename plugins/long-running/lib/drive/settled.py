@@ -176,10 +176,10 @@ SHIPS_MORE = Noul(
     ),
 )
 JOB_ORDERS = Noul(
-    "Do `answers.{slot}.said`, read with `answers.{slot}.card`, the rest of `answers` and his hold on every release in `hold`, have the Job in `job` start on `job.cluster` at `job.now`?",
+    "Do `answer.said`, read with `answer.card` and his hold on every release in `hold`, have the Job in `job` start on `job.cluster` at `job.now`?",
     yes=(
         "His order, or his pick on a card, to run that CronJob's pass, dry run or repair on that cluster, his exception to the hold, with each time or condition"
-        " his words set holding at `job.now`, such as tonight once it is evening there, and no other answer of his in `answers` holding it back at that time."
+        " his words set holding at `job.now`, such as tonight once it is evening there."
     ),
     no=(
         "Words that run it only on other clusters, such as staging, or once a time or condition that does not hold at `job.now`, such as after his hold lifts or later"
@@ -857,28 +857,29 @@ def card_text(asked: limits.Question) -> str:
 
 
 def job_unordered(job: dict, hold: dict, data: dict, moment: datetime) -> str | None:
-    """Why no answer of his recorded after his hold on every release orders this Job, a `tools/ci cluster-job` start of one CronJob on one cluster, at this moment; None when one does, the reading unordered() makes of a release for a Job, whose only words are its reason: each answer of his its reason names, as a release names its --order, and each `matched` ranks nearest the Job, read whole with shown(), those recorded after the hold Jev reads in as many requests as batched() packs them into, each with its card, beside the others, the hold and this moment in Pacific, ordering it when one JOB_ORDERS Noul reads YES. The why names each answer its reason names, each one recorded before the hold, and each Jev reads as speaking to the Job by JOB_ABOUT or is unsure of, with his words. Unheard when Jev gave no answer."""
+    """Why no answer of his recorded after his hold on every release orders this Job, a `tools/ci cluster-job` start of one CronJob on one cluster, at this moment; None when one does, the reading unordered() makes of a release for a Job, whose only words are its reason: only an answer of his its reason names orders it, as hold_refusal() reads only a release's --order, each read whole with shown() and, recorded after the hold, read alone in a Jev request of its own with its card, beside the Job, the hold and this moment in Pacific, ordering it when its JOB_ORDERS Noul reads YES. The answers `matched` ranks nearest the Job order nothing and stay in the why alone: those recorded since that its reason does not name, read in as many requests as batched() packs them into, each Jev reads as speaking to the Job by JOB_ABOUT or is unsure of, beside each answer its reason names, recorded before the hold or not read as ordering it, with his words. Unheard when Jev gave no answer."""
     cwd = data["roles"]["coordinator"]["cwd"]
+    context = {"job": {"cronjob": job["cronJob"], "cluster": job["cluster"], "reason": job["reason"], "now": pacific(moment)}, "hold": {"said": his(hold["body"])[:BODY_CHARS], "at": pacific(state.parse_time(hold["created_at"]))}}
+    named = {answer["id"][:7]: answer for typed in dict.fromkeys(ANSWER_REF.findall(job["reason"])) if (answer := answer_named(typed, cwd)) and his(answer["body"])}
+    since = {slot: answer for slot, answer in named.items() if answer["created_at"] > hold["created_at"]}
+    orders = jev_all([(context | {"answer": answer_words(answer, data)}, {f"orders.{slot}": JOB_ORDERS}) for slot, answer in since.items()])
+    if any(reading(orders[f"orders.{slot}"]) for slot in since):
+        return None
     action = f"start the {job['cronJob']} Job from its suspended CronJob on {job['cluster']}: {job['reason']}"
-    nearest = [shown(answer["id"], cwd) for answer in matched([action], data)]
-    named = [answer for typed in dict.fromkeys(ANSWER_REF.findall(job["reason"])) if (answer := answer_named(typed, cwd))]
-    named_ids = {answer["id"][:7] for answer in named}
-    read = {answer["id"][:7]: answer for answer in [*named, *nearest] if his(answer["body"])}
-    since = {slot: answer for slot, answer in read.items() if answer["created_at"] > hold["created_at"]}
-    said: dict[str, float] = {}
-    if since:
-        context = {"job": {"cronjob": job["cronJob"], "cluster": job["cluster"], "reason": job["reason"], "now": pacific(moment)}, "hold": {"said": his(hold["body"])[:BODY_CHARS], "at": pacific(state.parse_time(hold["created_at"]))}}
-        items = [({"answers": {slot: answer_words(answer, data)}}, {f"orders.{slot}": asking(JOB_ORDERS, slot=slot), f"about.{slot}": asking(JOB_ABOUT, slot=slot)}) for slot, answer in since.items()]
-        said = jev_all(batched(context, {}, items))
-        if any(reading(said.get(f"orders.{slot}")) for slot in since):
-            return None
-    early = [f'its reason names his answer {slot} to "{cut(answer["title"], 200)}", recorded before the hold' for slot, answer in read.items() if slot in named_ids and slot not in since]
-    spoken = [
-        f'his answer {slot} to "{cut(answer["title"], 200)}", "{cut(his(answer["body"]), QUOTED_CHARS)}", {"which Jev does not read as ordering it now" if reading(said.get(f"orders.{slot}")) is False else "which Jev is unsure orders it now"}'
+    near = (shown(answer["id"], cwd) for answer in matched([action], data) if answer["id"][:7] not in named)
+    nearest = {answer["id"][:7]: answer for answer in near if answer["created_at"] > hold["created_at"] and his(answer["body"])}
+    about = jev_all(batched(context, {}, (({"answers": {slot: answer_words(answer, data)}}, {f"about.{slot}": asking(JOB_ABOUT, slot=slot)}) for slot, answer in nearest.items())))
+    early = [f'its reason names his answer {slot} to "{cut(answer["title"], 200)}", recorded before the hold' for slot, answer in named.items() if slot not in since]
+    unordered = [
+        f'its reason names his answer {slot} to "{cut(answer["title"], 200)}", "{cut(his(answer["body"]), QUOTED_CHARS)}", {"which Jev does not read as ordering it now" if reading(orders[f"orders.{slot}"]) is False else "which Jev is unsure orders it now"}'
         for slot, answer in since.items()
-        if slot in named_ids or reading(said.get(f"about.{slot}")) is not False
     ]
-    return "; ".join([*early, *spoken]) or "its reason names no answer of his, and Jev reads none of his answers recorded since that are nearest it as speaking to it"
+    unnamed = [
+        f'his answer {slot} to "{cut(answer["title"], 200)}", "{cut(his(answer["body"]), QUOTED_CHARS)}", speaks to it but orders nothing, since its reason does not name it'
+        for slot, answer in nearest.items()
+        if reading(about.get(f"about.{slot}")) is not False
+    ]
+    return "; ".join([*early, *unordered, *unnamed]) or "its reason names no answer of his, and Jev reads none of his answers recorded since that are nearest it as speaking to it"
 
 
 def answer_named(typed: str, cwd: str) -> dict | None:
@@ -905,11 +906,13 @@ def only_asks(title: str, options: list[str], words: str) -> bool:
 
 
 def answered_card(data: dict, answer: dict) -> limits.Question | None:
-    """The card his answer answers, as `drive job ask` kept it: a question drawn on the card at the link `drive answer` kept for his answer, ended answered, whose ASK file stands, in this drive, else in each drive on this Mac its `drive:<name>` labels name, where `drive answer` recorded it, so an answer he gave on one drive's card reads the same in every drive; None when none does."""
+    """The card his answer answers, as `drive job ask` kept it: a question drawn on the card at the link `drive answer` kept for his answer, or one whose close `note_cards` or his tap noted under his answer's id, ended answered, whose ASK file stands, in this drive, else in each drive on this Mac its `drive:<name>` labels name, where `drive answer` recorded it, so an answer he gave on one drive's card reads the same in every drive; None when none does."""
     labelled = (name for tag in answer["tags"] if (name := tag.removeprefix("drive:")) not in (tag, data["name"]) and state.exists(name))
     for drive in chain([data], map(state.load, labelled)):
         link = (drive["answers"].get(answer["id"]) or {}).get("link")
-        files = [Path(question["file"]) for _, question in view.drawn_on(drive, link) if question["file"] and (question["closed"] or {}).get("how") == "answered"] if link else []
+        drawn = [question for _, question in view.drawn_on(drive, link)] if link else []
+        noted = [question for job in drive["jobs"].values() for question in job["questions"] if ((question["closed"] or {}).get("noted") or "")[:7] == answer["id"][:7]]
+        files = [Path(question["file"]) for question in [*drawn, *noted] if question["file"] and (question["closed"] or {}).get("how") == "answered"]
         if kept := next((file for file in files if file.is_file()), None):
             return limits.question_problems(limits.ask_block(kept.read_text()), kept=True)[0]
     return None

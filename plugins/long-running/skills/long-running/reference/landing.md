@@ -674,9 +674,11 @@ the patch.
   no release cut, yet the hold covers a Job it starts on any cluster but `plat-usw2-staging` or
   `plat-usw2-sandbox`: the hook refuses starting it, unblocking its build's gate and rerunning that
   build until an answer of his recorded after the hold orders that CronJob on that cluster at that
-  moment. Jev reads each answer of his the Job's `--reason` names by id and those
-  `ccn answer match` ranks nearest it, beside the hold and the time now in Pacific, so 34c9f21's
-  "the other three after your hold lifts" orders no production dry run while the hold stands. Name
+  moment. Only an answer of his the Job's `--reason` names by id orders it, as only a release's
+  `--order` orders a release: Jev reads each alone with the card it answers, beside the hold and the
+  time now in Pacific, so 34c9f21's "the other three after your hold lifts" orders no production dry
+  run while the hold stands, and those `ccn answer match` ranks nearest the Job only fill the
+  refusal's why. Name
   his answer's id in `--reason`, which the build keeps in `CLUSTER_JOB` for its unblock and rerun
   to read. While he is away, the hook refuses that start, unblock or rerun on a production cluster
   whatever answer it names. A Sprite lane asks with `drive job held --cluster <env> --cronjob <name>
