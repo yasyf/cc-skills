@@ -85,7 +85,11 @@ STAGING_MAC_BOX = (
     " `tools/ci mac-box record <box>` for each case, by the test-mac skill's Prove a desktop change"
 )
 STAGING_APPROVED = ", which waits behind this test: a full pass keeps it, so it lands the PR once the test passes (e5e4f7b), while the lander holds a dangerous change until he is present, his word or tap within 15 minutes (27ea387)"
-STAGING_OWN_SAND = "; {tested} changes sand-next too, so run them again after `tools/ci mac-box prove <box> --commit <its head's full sha>`"
+MAC_BOX_BUILDS = {"iris-desktop", "sand-next"}
+STAGING_OWN_HEAD = (
+    "; {tested} changes iris-desktop or sand-next too, the two components `tools/ci mac-box prove` builds from the commit it names, so run them again after"
+    " `tools/ci mac-box prove <box> --commit <its head's full sha>`"
+)
 STAGING_UNREAD = "; the drive could not read that commit ({error}), so read it from `tools/ci release status --manual sand-next --env core-usw2-auto` first"
 LIVE_SAND_NEXT = re.compile(r"^#\d+\s+passed\s+(?:manual )?(?:release|hotfix|rollback)\s.*?\s(?P<commit>[0-9a-f]{7,40})\s+(?:not )?started\b", re.MULTILINE)
 MANUAL_STARTED = re.compile(rf"\S+ #\d+: (?P<build>{github.BUILD.pattern}) — follow it from anywhere: (?P<follow>.+)")
@@ -4453,7 +4457,7 @@ def release_reach(name: str, data: dict, keys: list[str]) -> dict[str, dict]:
 
 
 def staging_mac_box(name: str, data: dict, job: dict) -> str:
-    """What a staging tester's Staging line adds for each PR its `staging test of #N before it lands` parts name whose paths reach the dashboard, by release_reach: its cases run in Iris Staging on a Mac box against the sand-next commit live on core-usw2-auto, by live_sand_next, and again on its own head's sand-next when its paths reach sand-next too, so a control calling a route the released sand-next lacks fails on staging rather than for him; nothing when none reaches the dashboard. A live commit that could not be read leaves the brief kept, its line naming the read its tester makes first."""
+    """What a staging tester's Staging line adds for each PR its `staging test of #N before it lands` parts name whose paths reach the dashboard, by release_reach: its cases run in Iris Staging on a Mac box against the sand-next commit live on core-usw2-auto, by live_sand_next, and again at its own head when its paths reach iris-desktop or sand-next too, the two MAC_BOX_BUILDS that `tools/ci mac-box prove` builds from the commit it names, so a control calling a route the released sand-next lacks, or an Iris Staging change, fails on staging rather than for him; nothing when none reaches the dashboard. A live commit that could not be read leaves the brief kept, its line naming the read its tester makes first."""
     keys = state.tested_prs(data, job)
     reach = release_reach(name, data, keys)
     if not (dashboard := [key for key in keys if key in reach and "dashboard" in reach[key]["touched"]]):
@@ -4462,8 +4466,8 @@ def staging_mac_box(name: str, data: dict, job: dict) -> str:
         live, unread = live_sand_next(orca.checkout(name, data["roles"]["coordinator"]["cwd"])), ""
     except (DriveError, github.GithubError) as error:
         live, unread = "<that commit>", STAGING_UNREAD.format(error=error)
-    own = [key for key in dashboard if "sand-next" in reach[key]["touched"]]
-    return STAGING_MAC_BOX.format(tested=", ".join(dashboard), live=live) + unread + (STAGING_OWN_SAND.format(tested=", ".join(own)) if own else "")
+    own = [key for key in dashboard if MAC_BOX_BUILDS & set(reach[key]["touched"])]
+    return STAGING_MAC_BOX.format(tested=", ".join(dashboard), live=live) + unread + (STAGING_OWN_HEAD.format(tested=", ".join(own)) if own else "")
 
 
 def staging_taps(data: dict, job: dict) -> str:
