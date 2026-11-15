@@ -9,7 +9,7 @@ from typing import TextIO
 from drive import github, limits, picture, state
 from drive.github import GithubError, run
 from drive.pr_graph import chains
-from drive.render import cut
+from drive.render import cut, when
 
 FIELDS = "title,body,author,state,isDraft,headRefOid,baseRefName,headRefName,reviewDecision,labels,url,additions,deletions,changedFiles,files"
 READ_AGE = "60s"
@@ -291,8 +291,9 @@ def doing(pr: dict, entry: dict, held: tuple[str, ...]) -> str:
 
 
 def lands_after_tap(pr: dict, entry: dict, held: tuple[str, ...], picked: tuple[tuple[str, str], ...] = ()) -> str:
-    """What the dashboard says the PR lands once: his Approve, CI when it has not passed, the hold label coming off it on GitHub while it carries one, and each of its waits that still holds, alone while each PR above it in its stack is being reworked to his words, then each option his Approve picks on a card of his holding it, which land.start answers."""
-    lands = in_turn(["you approve", *([] if checks(pr, entry) == "pass" else ["CI passes"]), *(["the hold label comes off on GitHub"] if entry["hold_label"] else []), *held])
+    """What the dashboard says the PR lands once: his Approve, lifting his Hold while he holds it, CI when it has not passed, the hold label coming off it on GitHub while it carries one, and each of its waits that still holds, alone while each PR above it in its stack is being reworked to his words, then each option his Approve picks on a card of his holding it, which land.start answers."""
+    approve = f"you approve, lifting your Hold of {when(entry['tap']['at'])}" if tap_label(entry) == "Hold" else "you approve"
+    lands = in_turn([approve, *([] if checks(pr, entry) == "pass" else ["CI passes"]), *(["the hold label comes off on GitHub"] if entry["hold_label"] else []), *held])
     above = entry["reworked_above"]
     alone = f", alone while {in_turn(list(above))} above it {'is' if len(above) == 1 else 'are'} reworked to your words" if above else ""
     options = [f'"{option}" on {card}' for option, card in picked]
@@ -303,10 +304,11 @@ def in_turn(steps: list[str]) -> str:
     return " and ".join(steps) if len(steps) < 3 else ", ".join(steps[:-1]) + " and " + steps[-1]
 
 
-def ask_waits(asked: list[dict]) -> str:
-    """The waits id his PR card asks under: the number of each PR on it still asking his tap and the hash of the heads they are asked at, inside the 64 characters cc-slack takes, so his answer to one ask never closes a later one: a push that takes his Approve back asks at a new head, and cc-slack opens the answered card again in place under the new id."""
-    numbers = ".".join(state.pr_key(pr["url"]).split("#")[1] for pr in asked)
-    return f"merge:{numbers}:{state.ask_hash(' '.join(pr['headRefOid'] for pr in asked))}"
+def ask_waits(asked: list[tuple[dict, dict]]) -> str:
+    """The waits id his PR card asks under, from the `gh pr view` payload and the drive's entry of each PR on it still asking his tap: their numbers and the hash of the heads they are asked at, each held one's beside the time of his Hold, inside the 64 characters cc-slack takes, so his answer to one ask never closes a later one: a push that takes his Approve back asks at a new head, and his Hold asks his Approve again, which cc-slack opens the answered card for again in place under the new id."""
+    numbers = ".".join(state.pr_key(pr["url"]).split("#")[1] for pr, _ in asked)
+    heads = (f"{pr['headRefOid']}@{entry['tap']['at']}" if tap_label(entry) == "Hold" else pr["headRefOid"] for pr, entry in asked)
+    return f"merge:{numbers}:{state.ask_hash(' '.join(heads))}"
 
 
 def body_of(pr: dict) -> str:
@@ -361,7 +363,7 @@ def render(pr: dict, entry: dict, shown: tuple[str, ...] = (), held: tuple[str, 
             "title": headline(entry) or framed(f"{kind}: approve ", plain, "?"),
             "options": list(TAP_LABELS),
             "recommended": "Approve",
-            "waits": ask_waits([pr]),
+            "waits": ask_waits([(pr, entry)]),
         }
         if entry.get("exempt") == state.FLAKE_FIX:
             card["body"] = "\n\n".join(filter(None, [card.get("body"), f'Fixes a flaking test at its cause, by your ruling "{state.FLAKE_WORDS}"']))
@@ -425,7 +427,7 @@ def render_stack(members: list[Member], siblings: bool) -> dict:
             "status": "needs_you",
             "options": list(TAP_LABELS),
             "recommended": "Approve",
-            "waits": ask_waits([member[0] for member, one in zip(members, drawn, strict=True) if one["status"] == "needs_you"]),
+            "waits": ask_waits([(member[0], member[1]) for member, one in zip(members, drawn, strict=True) if one["status"] == "needs_you"]),
         }
     elif all(one["status"] == "done" for one in drawn):
         card["status"] = "done"
@@ -766,7 +768,7 @@ def refused(asks: list[dict]) -> dict:
 
 
 def answered(ask: dict) -> dict:
-    """Keep his tap on a PR card on each open PR it covers, one tap event each, his Approve with the cards it picks the recommended option of, each card picks() finds holding the PR, and on his Approve run land.start, the one path that answers each of those cards and starts the lander, which every watch pass runs again, or on his Hold stop each landing of them by land.halt; a card's tap covers the PRs its waits id asks, by ask_waits, and an answer whose waits id names no ask the PR it names; on a card of several PRs a member already holding a tap keeps it, so his words approving or holding one PR keep it through a later tap on the card, and cc-slack applies a tap again when its first card command did not finish, so a member already holding this tap's Slack action keeps it and gets no second event. His reply in the card's thread comes as WORDS, which taken_back() answers."""
+    """Keep his tap on a PR card on each open PR it covers, one tap event each, his Approve with the cards it picks the recommended option of, each card picks() finds holding the PR, and on his Approve run land.start, the one path that answers each of those cards and starts the lander, which every watch pass runs again, or on his Hold stop each landing of them by land.halt; a card's tap covers the PRs its waits id asks, by ask_waits, and an answer whose waits id names no ask the PR it names; on a card of several PRs a member he already approved keeps that Approve through a later tap on the card, while one he held takes the tap, so one Approve on a stack card lifts each member's Hold and lands the card whole, by his pick eb69825, and cc-slack applies a tap again when its first card command did not finish, so a member already holding this tap's Slack action keeps it and gets no second event. His reply in the card's thread comes as WORDS, which taken_back() answers."""
     from drive import land, view
 
     if "repo" not in ask:
@@ -786,7 +788,7 @@ def answered(ask: dict) -> dict:
     with state.edit(name) as data:
         for member in members:
             entry = data["prs"][member]
-            if entry["state"] != "open" or len(members) > 1 and entry["tap"] or ask["action_ts"] and (entry["tap"] or {}).get("action_ts") == ask["action_ts"]:
+            if entry["state"] != "open" or len(members) > 1 and land.approved(entry) or ask["action_ts"] and (entry["tap"] or {}).get("action_ts") == ask["action_ts"]:
                 continue
             picked = {wait: pick | {"seq": None} for wait, pick in picks(data, entry).items()} if ask["label"] == "Approve" else {}
             entry["tap"] = state.new_tap(ask["label"], ask["heads"].get(member, entry["head"]), ask["source"], ask["action_ts"], picks=picked)

@@ -376,13 +376,15 @@ def coming(drive: dict, job_id: str) -> bool:
 
 
 def staging(drive: dict, key: str) -> str:
-    """What a PR's cards say of its staging test, read from the `staging test of #N before it lands` part an order holds for it, the soak its tester last waited on for this PR and its testers, by state.part_testers: tested on staging with its env, commit and result, a pass with when its tester returned it and each case it did not exercise with why, which his Approve lands it without, testing while a tester is at work, or not on staging and why, each CASE line of the run it holds that did not pass, a tester's DONE that ran none of its cases and the why of its builder's `STAGING: none` among them."""
+    """What a PR's cards say of its staging test, read from the `staging test of #N before it lands` part an order holds for it, the soak its tester last waited on for this PR and its testers, by state.part_testers, else from the run a job waiting on the PR returned DONE on under a part of its own, by waited_run, as a tester his words name the part of does: tested on staging with its env, commit and result, a pass with when its tester returned it and each case it did not exercise with why, which his Approve lands it without, testing while a tester is at work, or not on staging and why, each CASE line of the run it holds that did not pass, a tester's DONE that ran none of its cases and the why of its builder's `STAGING: none` among them."""
     repo, _, number = key.rpartition("#")
     if repo.lower() != state.MONOREPO.lower():
         return f"Not on staging: {repo} has no staging env"
     part = state.STAGING_TEST.format(number=number)
     held = [order_id for order_id, order in drive["orders"].items() if part in order["parts"]]
     if not held:
+        if run := waited_run(drive, key):
+            return tested(run, "") if run["posted"] else f"Tested on staging: no pass: {cut(state.unpassed(run), NOW_CHARS)}"
         if not (lifted := drive["prs"][key]["unstaged"]):
             return "Not on staging: no staging test is set for it"
         if lifted["merges_first"]:
@@ -392,10 +394,7 @@ def staging(drive: dict, key: str) -> str:
     soak = next((state.STAGING_WAIT.fullmatch(each["soak"]) for each in parts if each["soak"]), None)
     where = f"{soak['env']} at {soak['commit'][:7]}, " if soak else ""
     if passed := next((each for each in parts if each["posted"]), None):
-        at = f" at {when(passed['passed_at'])}" if passed["passed_at"] else ""
-        untested = "; ".join(f"{case} ({cut(why, TITLE_CHARS)})" if why else case for case, why in state.unexercised(passed))
-        proof = link("proof", passed["posted"]) if passed["posted"].startswith("https://") else "its proof a file on the Mac"
-        return f"Tested on staging: {where}passed{at}, {proof}" + (f". Land it without what staging did not exercise? {untested}. Approve lands it without them; Hold keeps it from landing" if untested else "")
+        return tested(passed, where)
     jobs = sorted(((job_id, job) for order_id in held for job_id, job in state.part_testers(drive, order_id, part)), key=lambda pair: pair[1]["created"])
     if not jobs:
         return "Not on staging: its staging test has not started"
@@ -410,6 +409,36 @@ def staging(drive: dict, key: str) -> str:
     else:
         result = f"no pass: {job_id}'s DONE ran none of its cases" if job["state"] == "done" else f"no pass: {cut(without_records(job['said'] or '') or job['state'], NOW_CHARS)}"
     return f"Tested on staging: {where}{result}" if soak else f"Not on staging: its test ended, {result}"
+
+
+def tested(passed: dict, where: str) -> str:
+    """A staging run's full pass as his card says it, from the run a part holds or waited_run reads: where it ran, when its tester returned it, its proof and each case it did not exercise, which his Approve lands it without."""
+    at = f" at {when(passed['passed_at'])}" if passed["passed_at"] else ""
+    untested = "; ".join(f"{case} ({cut(why, TITLE_CHARS)})" if why else case for case, why in state.unexercised(passed))
+    proof = link("proof", passed["posted"]) if passed["posted"].startswith("https://") else "its proof a file on the Mac"
+    return f"Tested on staging: {where}passed{at}, {proof}" + (f". Land it without what staging did not exercise? {untested}. Approve lands it without them; Hold keeps it from landing" if untested else "")
+
+
+def waited_run(drive: dict, key: str) -> dict | None:
+    """The staging run of the newest DONE a builder or codex job of the PR's order waiting on the PR returned last, by state.orders_jobs, read from its report, which names the PR and runs a case of it, shaped as a staging test part holds its run, by state.keep_pass: its cases, and on a full pass, by state.passing, its first CHECK: proof and when the job returned it; None when no such DONE ran one, as when each of its cases reads not exercised."""
+    from drive import brief
+
+    number = key.rpartition("#")[2]
+    dones = [
+        reply
+        for job_id, job in state.orders_jobs(drive, [drive["prs"][key]["order"]]).items()
+        if job["state"] == "done" and job["kind"] in state.CHANGE_KINDS and key in job["waits"]
+        for reply in state.returns(drive["name"], job_id)[:1]
+        if re.match(r"DONE\b", reply["body"])
+    ]
+    for reply in sorted(dones, key=lambda done: state.parse_time(done["created_at"]), reverse=True):
+        cases = state.case_lines(reply["body"])
+        if all(state.UNEXERCISED_CASE.match(verdict) for _, verdict in cases) or number not in state.named_numbers(reply["body"]):
+            continue
+        proofs = [found for check in brief.CHECK.findall(reply["body"]) for found in brief.proofs(check)]
+        passed = state.passing(cases) and bool(proofs)
+        return {"cases": [[case, verdict] for case, verdict in cases], "posted": proofs[0] if passed else None, "passed_at": reply["created_at"] if passed else None}
+    return None
 
 
 def wait_words(drive: dict, wait: str, found: dict | None) -> str:
@@ -448,11 +477,17 @@ def tester_line(drive: dict, tester: str) -> str:
 
 
 def tap_card(data: dict, pr: dict, found: dict | None) -> str | None:
-    """The link of his card a tap on lands the PR, which every line naming his card on it reads: while the PR waits on his tap, by state.asks_tap, his open card at its head; None with his cards unread."""
+    """The link of his card a tap on lands the PR, which every line naming his card on it reads: while the PR waits on his tap, by state.asks_tap, his open card at its head whose waits id asks it, by asks_on, so a card that carries it but asks his tap on its other PRs alone, as one drawn while it asked none, never reads as his to tap; None with his cards unread."""
     if found is None or not state.asks_tap(data, pr):
         return None
     shown = head_card(pr, found["pr_cards"])
-    return shown and shown["url"]
+    return shown["url"] if shown and asks_on(shown["card"].get("waits") or "", pr["url"]) else None
+
+
+def asks_on(waits: str, url: str) -> bool:
+    """Whether his card under the waits id asks his tap on the PR: the PR numbers an ask_waits id names, by card.ask_waits, or every PR on a card under any other id, as an older merge waits id asked them."""
+    asked = state.ASK_WAITS.fullmatch(waits)
+    return not asked or state.pr_key(url).split("#")[1] in asked[1].split(".")
 
 
 def standing_card(pr: dict, found: dict) -> str | None:
