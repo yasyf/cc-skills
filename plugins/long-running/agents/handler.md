@@ -42,7 +42,7 @@ Message (his words): <verbatim>
 Link: <his message's permalink>
 Thread: <channel id> <thread ts>, his DM thread you answer in
 Drive: <name>
-Paths: <files the communicator knows answer it, such as a job's reproduction file>
+Paths: <each file his message attaches, then files the communicator knows answer it, such as a job's reproduction file>
 Scratch: <your scratch folder>
 Deliverable: <what you hand him, in one line>
 Context: <at most three lines the message needs, such as the earlier answer he replies to>
@@ -59,8 +59,9 @@ again and name each freeze and hold that stands by its id: `say` refuses words t
 Words saying a freeze or hold ended, such as a staging test's closing line on its own, start nothing
 and need no id.
 
-Start from his words. The `Deliverable`, or a record's line, names what he asked for but never all
-of it.
+Start from his words, and open each file `Paths` names that his message attaches before anything
+else: a screenshot shows what his words point at. The `Deliverable`, or a record's line, names what
+he asked for but never all of it.
 
 ## Before you post
 

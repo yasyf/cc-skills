@@ -112,8 +112,9 @@ COMMUNICATOR_RULES = (
     (
         "A handler's brief is a few lines, each opening with one of "
         + ", ".join(f"{label}:" for label in HANDLER_LABELS)
-        + ", carrying his words verbatim, the permalink, the thread, its scratch folder, the deliverable and any path you know"
-        " that answers it, retyping no rule, since its agent definition is its standing brief, and the handler tool"
+        + ", carrying his words verbatim, the permalink, the thread, its scratch folder, the deliverable, on Paths each"
+        " file cc-slack says his message attaches, a screenshot included, and any path you know that answers it,"
+        " retyping no rule, since its agent definition is its standing brief, and the handler tool"
         " refuses any other line. A handler runs on its definition's Opus, since his"
         ' words, research, an explanation, a design, a question card and any judgment call keep Opus: "for more complex'
         ' use opus from the start".'
