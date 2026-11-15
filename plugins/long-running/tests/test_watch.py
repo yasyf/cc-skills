@@ -7348,6 +7348,16 @@ def test_a_merged_ready_product_job_on_a_done_order_or_whose_pr_a_job_proved_liv
     assert (data["jobs"]["j1"]["state"], list(data["jobs"])) == ("done", ["j1", "j9"] if proved else ["j1"])
 
 
+@pytest.mark.parametrize("tooling", [False, True])
+def test_a_pushed_whose_prs_all_merged_settles_nothing_so_no_ready_goes_out_after_the_merge(demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, tooling: bool) -> None:
+    serve(monkeypatch, {})
+    merged_ready(demo, YASYF if tooling else OTHER, proof_file(tmp_path))
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["said"] = f"PUSHED {state.pr_url(YASYF if tooling else OTHER)}"
+    data = state.load(demo)
+    assert (watch.settles(watcher(demo), data, "j1"), watch.pushed_lines(watcher(demo), T0)) == (None, [])
+
+
 @pytest.mark.parametrize(("fix", "sha"), [("Forge-AI/monorepo#55420", "485f9f408150"), ("Forge-AI/monorepo#55448", "6ec574a4f779")])
 def test_a_fix_merged_to_dev_that_no_release_holds_is_never_proven_live_so_its_reporter_is_owed_no_fix_live_note(
     demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str], ready_records: list[list[dict]], fix: str, sha: str

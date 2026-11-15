@@ -266,7 +266,7 @@ def edited_since_undrawn(pr: dict, read: dict, cards: dict | None) -> bool:
 
 
 def pushed_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Settle each builder's PUSHED the watch hears once its GitHub read after the take finds the required checks of every PR it names: all green takes the READY it holds, its JOB line waking whoever acts on a READY; a red one ends the hold with a `READY refused` line per failed check, which goes back to a remote lane waiting for its next event and wakes the coordinator otherwise."""
+    """Settle each builder's PUSHED the watch hears once its GitHub read after the take finds the required checks of every PR it names: all green takes the READY it holds, its JOB line waking whoever acts on a READY; a red one ends the hold with a `READY refused` line per failed check, which goes back to a remote lane waiting for its next event and wakes the coordinator otherwise. A PUSHED whose PRs all merged settles nothing and says no READY, since finished takes the merge's finish on it."""
     data = state.load(watcher.name)
     if not any(settles(watcher, data, job_id) for job_id in data["jobs"]):
         return []
@@ -286,7 +286,7 @@ def pushed_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def settles(watcher: Watcher, data: dict, job_id: str) -> tuple[str, list[tuple[str, str]]] | None:
-    if not pushing(watcher, data, job_id):
+    if not pushing(watcher, data, job_id) or merged_ready(data, job_id):
         return None
     verdict = state.pushed_verdict(data, job_id)
     return verdict if verdict[0] != "pending" else None
