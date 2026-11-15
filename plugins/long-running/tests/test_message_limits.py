@@ -572,6 +572,17 @@ def test_a_say_post_counts_the_words_its_writer_typed_each_reference_once_and_on
     assert "{card:demo:j9-1} names no card" in say(transcript, text="see {card:demo:j9-1}")
 
 
+def test_every_say_check_reads_the_words_its_writer_typed_and_never_a_title_say_draws(talker: str, transcript: Path, checked: Checked) -> None:
+    with state.edit("demo") as data:
+        data["prs"]["yasyf/cc-skills#7"] = state.new_pr("https://github.com/yasyf/cc-skills/pull/7", "j1", "o1") | {"title": "Fix: the backup copy restores by 9 AM PT"}
+        data["stand_ins"]["backup"] = "S3 replica"
+    assert say(transcript, text="{pr:7} landed.") is None
+    assert checked.texts[-1] == "<https://github.com/yasyf/cc-skills/pull/7|link> landed."
+    assert '"backup" becomes "S3 replica"' in say(transcript, text="{pr:7|The backup fix} landed.")
+    assert say(transcript, text="{pr:7|The 9 AM PT fix} landed.") is None
+    assert checked.texts[-1] == "<https://github.com/yasyf/cc-skills/pull/7|The 9 AM PT fix> landed."
+
+
 def test_jev_reads_a_refused_say_post_as_slack_gets_it_and_a_reference_nested_in_a_links_words_is_refused_unjudged(
     talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -3062,7 +3073,7 @@ def test_an_edit_of_his_question_card_is_refused_naming_the_redraw(run: Run, tal
     assert say(transcript, edit=link("1794288799.000001"), text="Reworded.") is None
 
 
-def test_a_handler_post_naming_a_pr_or_error_his_open_question_card_asks_about_is_refused_until_it_links_that_card(
+def test_a_handler_post_in_his_dm_naming_a_pr_or_error_his_open_question_card_asks_about_is_refused_until_it_links_that_card_and_one_outside_it_never_is(
     run: Run, talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
@@ -3088,8 +3099,8 @@ def test_a_handler_post_naming_a_pr_or_error_his_open_question_card_asks_about_i
     assert say(transcript, text="The `security-agent` entry in `infra/rows/k8s/datadog-agent.ts` now ships.") is None
     claim = f'Claiming staging to test the batch writer, which still prints "{error}". Does anyone object?'
     assert say(transcript, text=claim, channel_id="C0STAGING1").rule == message_limits.MEMBERS_RULE
-    reads(lane_of(transcript), "1.2", channel="C0B75AL4XEW")
-    assert message_limits.KNOWN_RULE in say(transcript, text=claim, channel_id="C0B75AL4XEW", thread_ts="1.2").rule
+    reads(lane_of(transcript), "1.2", channel="C0BQSADC7SS")
+    assert say(transcript, text=claim, channel_id="C0BQSADC7SS", thread_ts="1.2") is None
 
 
 def test_a_drive_tooling_card_naming_his_product_pr_never_claims_a_post_about_that_pr_only_one_about_its_own_pr(run: Run, demo: str) -> None:
@@ -3239,7 +3250,7 @@ def test_a_say_reply_in_a_thread_an_order_keeps_as_members_skips_the_checks_of_a
     reads(lane_of(transcript), alert, channel="C0822AHFY3G")
     refusal = say(transcript, text=done, channel_id="C0822AHFY3G", thread_ts=alert)
     assert "a line in his thread is at most 60 words" in refusal
-    assert "so link it as {card:demo:j1-7}" in refusal
+    assert "{card:demo:j1-7}" not in refusal
     assert checked.texts != []
 
 
