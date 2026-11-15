@@ -181,7 +181,11 @@ Replaces: <only on a question built on another open question of his: the path dr
   up now, and each option's description its downstream impact. The question is a whole sentence,
   never a cut headline, and nothing on the card is a raw link, path or id. `drive job ask` refuses a
   first line missing either, by his words on a card that opened on its findings: "what is this and
-  what the fuck are you talking about". It counts the words his card draws for each
+  what the fuck are you talking about". Neither the question nor that first line names code, a
+  table, column, function, file or flag: say what he would see go wrong or what his pick changes in
+  the words he uses for it, such as the memory move or expiry, and leave the code to the summary's
+  later lines and the findings; `drive job ask` refuses one that names any, by his feedback 3a053f1, "What the fuck is this?", on a card asking whether "the memory move's recheck" should
+  "re-project each skipped memory's search readers and expiry from iris_memory_states". It counts the words his card draws for each
   reference too: an `{order:<o>}` draws its order's first 100 characters, so on a card near 150
   words give it a few words of its own, `{order:<o>|<a few words>}`.
 - Each option is one line of what he gets and what it costs, then one plain-text description
@@ -251,7 +255,9 @@ Replaces: <only on a question built on another open question of his: the path dr
 ## Your report
 
 When every fork is kept, pipe the design with a quoted heredoc into `drive job report <your job> -`;
-you have no Write tool, and the coordinator reads it with `drive job report <your job>`:
+you have no Write tool, and the coordinator reads it with `drive job report <your job>`. It
+withdraws each open card of yours the report names by neither its link, waits id nor ASK file, so
+name each fork still open on `open:`:
 
 ```
 DESIGN <the part, in a few words>

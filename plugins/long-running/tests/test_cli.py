@@ -56,7 +56,7 @@ cat "{answer}"
 REPORTED = "https://acme.slack.com/archives/C0REPORTS01/p1794400100000200"
 ROOT_CAUSE = "Root cause: none: where a copy runs is a pick between two designs, with no defect behind it\n"
 HOLDS = "Holds: none: no option changes code any job builds\n"
-DESIGN_TITLE = "Where should store_copy_at in supervisor/copies.rs run each store copy?"
+DESIGN_TITLE = "Where should each store copy run, beside the queries or on a worker of its own?"
 SECOND_OPTION = (
     "- store_copy_at runs on a separate worker that reads each store from the bucket and copies it there\n"
     "  A new worker in `supervisor/worker.rs` reads each store from the team's bucket and calls store_copy_at there, so the primary"
@@ -64,7 +64,7 @@ SECOND_OPTION = (
 )
 DESIGN_RESEARCH = (
     f"DESIGN {DESIGN_TITLE}\n"
-    "Drive tooling: your pick decides where store_copy_at runs; it copies one store, on the primary or on a separate worker that reads the bucket.\n"
+    "Drive tooling: your pick decides whether a query waits behind a running copy, as it does on the primary, or a separate worker that reads the bucket copies each store.\n"
     "Recommended: on the primary; held until you pick, so nothing ships meanwhile.\n"
     "- store_copy_at runs on the primary, beside the queries it serves, copying each store in list order (recommended)\n"
     "  The primary calls store_copy_at in `supervisor/copies.rs` for each store in list order between the queries it serves, writing"
@@ -2059,7 +2059,7 @@ def test_job_ask_names_every_way_an_ask_is_out_of_shape(
     assert 'option "' in refusal and "is 26 words; each is one line of at most 25" in refusal
     assert "2 options end with (recommended); exactly one does" in refusal
     assert '"j702" is a drive job or order id, which he cannot open' in refusal
-    assert not any(term in refusal for term in ("reader.go", "posix_fadvise", "byte_copy", "/Users/me/repos/sand"))
+    assert "the summary's first line names byte_copy, reader.go, posix_fadvise, which tell him nothing" in refusal and "/Users/me/repos/sand" not in refusal
     assert '"#53288" is a number he cannot open; link it by what it is' in refusal
     assert "Show me" not in refusal
     assert "no `Findings:` line with the evidence under it" in refusal
@@ -2779,18 +2779,18 @@ def test_j4258_a_reader_whose_card_another_jobs_redraws_took_draws_nothing_for_i
     run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
     assert keep(monkeypatch, capsys, "j1", DESIGN_RESEARCH)[0] == 0
     run("job", "add", "design", "--order", "o1", "--goal", "cards: where the copy runs")
-    taken = "Which process should run store_copy_at for each store copy?"
+    taken = "Which process should copy each store?"
     monkeypatch.setattr("sys.stdin", io.StringIO(DESIGN_RESEARCH.replace(DESIGN_TITLE, taken)))
     took = run("job", "ask", "j2", "-", "--redraws", "demo:j1-7")[1].splitlines()[0]
     assert keep(monkeypatch, capsys, "j1", DESIGN_RESEARCH)[0] == 0
     jev.again = {taken}
-    assert keep(monkeypatch, capsys, "j1", DESIGN_RESEARCH.replace(DESIGN_TITLE, "Should store_copy_at copy each store on the primary or on a worker?"))[0] == 0
+    assert keep(monkeypatch, capsys, "j1", DESIGN_RESEARCH.replace(DESIGN_TITLE, "Should each store be copied on the primary or on a worker?"))[0] == 0
     assert drawn_waits(slack_calls) == ["demo:j1-7", "demo:j1-7"]
     assert [argv for argv in slack_calls if argv[0] == "card-answer"] == []
     jobs = state.load("demo")["jobs"]
     assert [(question["title"], question["waits"], question["card"], question["replaced"]) for question in jobs["j1"]["questions"]] == [
         (DESIGN_TITLE, "demo:j1-7", slack_card(2), took),
-        ("Should store_copy_at copy each store on the primary or on a worker?", "demo:j1-7", slack_card(2), took),
+        ("Should each store be copied on the primary or on a worker?", "demo:j1-7", slack_card(2), took),
     ]
     assert [(question["file"], question["title"], question["card"], question["replaced"], question["closed"]) for question in jobs["j2"]["questions"]] == [(took, taken, slack_card(2), None, None)]
 
@@ -10281,6 +10281,36 @@ def test_j4737_cards_withdraw_via_another_open_card_of_the_drive_folds_its_quest
     with state.edit("demo") as data:
         ended = superseded.end(data, "j1", data["jobs"]["j1"]["questions"][-1], state.new_close("answered", "Ship all three", live["url"], answer="a1"))
     assert [(job_id, question["closed"]["how"], question["closed"]["words"]) for job_id, question in ended] == [("j1", "answered", "Ship all three"), ("j2", "answered", "Ship all three")]
+
+
+def test_j5473_job_report_withdraws_each_open_card_its_return_no_longer_names_but_one_it_links_one_holding_an_open_pr_and_one_a_handoff_leaves(
+    run: Run, asking: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("job", "add", "builder", "--order", "o1", "--goal", "design it too")
+    titles = {6: "Which store?", 7: "Which cache disk?", 8: "Should a memory the move skipped get its search and expiry rebuilt?", 9: "Which layout?"}
+    shown = {n: open_card(n, {"title": title, "options": ["Keep", "Drop"], "recommended": "Keep", "waits": f"demo:j{2 if n == 6 else 1}-{n}"}) for n, title in titles.items()}
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": list(shown.values()), "pr_cards": [], "closed": []})
+    view.refresh_cards("demo")
+    held = "https://github.com/yasyf/cc-skills/pull/5"
+    with state.edit("demo") as data:
+        data["prs"][state.pr_key(held)] = state.new_pr(held, "j1", "o1")
+        for n, card in shown.items():
+            job_id = "j2" if n == 6 else "j1"
+            data["jobs"][job_id]["questions"].append(state.new_question(None, card["question"], state.stamp(), card=card["url"], holds=held if n == 9 else "") | {"waits": f"demo:{job_id}-{n}"})
+    calls: list[tuple] = []
+    monkeypatch.setattr(slack, "cc_slack", lambda *args: calls.append(args) or {"answered": True})
+    monkeypatch.setattr("sys.stdin", io.StringIO(f"BLOCKED the bucket refuses the copy\nUNPROVEN: the disk pick on {shown[7]['url']}?thread_ts=1794300000.000107&cid=D123\n"))
+    code, out = run("job", "report", "j1", "-")
+    assert (code, calls) == (0, [("card-answer", "--card", shown[8]["url"], "--label", superseded.MOVED_ON, "--withdrawn", "--via", shown[8]["url"])])
+    assert out.splitlines()[1:] == [
+        f"demo:j1-8: his card {shown[8]['url']} now shows that its work went on without it with no buttons, its question withdrawn",
+        "drive job ask <job> <file> --redraws demo:j1-8 asks it again once its work is back, from j1 or any job of o1, which redraws its card",
+    ]
+    jobs = state.load("demo")["jobs"]
+    assert [question["closed"] and question["closed"]["how"] for question in jobs["j1"]["questions"]] == [None, "withdrawn", None]
+    monkeypatch.setattr("sys.stdin", io.StringIO("HANDOFF /scratch/j2/left.md\n"))
+    assert run("job", "report", "j2", "-")[0] == 0
+    assert (len(calls), state.load("demo")["jobs"]["j2"]["questions"][0]["closed"]) == (1, None)
 
 
 def test_an_event_overtakes_a_card_once_its_pr_closed_its_build_or_job_finished_or_a_teammate_or_another_bot_wrote(

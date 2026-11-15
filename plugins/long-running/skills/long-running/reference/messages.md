@@ -165,13 +165,16 @@ summary of one feature is a line of at most 60 words.
 
 - `drive job ask` draws it in the call that keeps the job's `ASK`, from the file it kept, with
   nothing posted before or after it.
-- Its title is its question, one sentence of plain words that names what it decides by its proper
-  terms, the table, column, function, file, migration, flag or service, never a stand-in such as
-  "the copy change".
+- Its title is its question, one sentence of plain words that names what it decides by the terms he
+  uses for it, such as the memory move or expiry, never a stand-in such as "the copy change".
+  Neither it nor the summary's first line names code, a table, column, function, file or flag: the
+  code goes in the summary's later lines and the findings, as a PR card's lead leaves its code to
+  the Summary. `drive job ask` refuses a title or first line that names any, by his feedback 3a053f1, "What the fuck is this?", on a card asking whether "the memory move's recheck" should
+  "re-project each skipped memory's search readers and expiry from iris_memory_states".
   `drive job ask` refuses a title naming its object only as "the change", "the fix" or "this" while
   its summary or findings name the proper terms.
-- Each code name keeps its proper term, with a clause saying what it is the first time the card
-  names it, as "the run_claims table, which records the runner holding each run" does.
+- Each code name below the first line keeps its proper term, with a clause saying what it is the
+  first time the card names it, as "the run_claims table, which records the runner holding each run" does.
   `drive job ask` asks Jev of each code name in its question, summary, options, their descriptions
   and Show me whether the card says what it is, one yes-or-no question a name, and prints each one
   Jev answers 0.7 or more as never said, and as unsure each it answers between 0.3 and 0.7, with

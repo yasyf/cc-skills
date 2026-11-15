@@ -169,7 +169,8 @@ or exact quote, `REPRO:` your reproduction file's path, which `drive job report`
 `drive job set <your job> --repro` kept it, and `UNPROVEN:` what you could not show,
 never a guess. Pipe it from a quoted heredoc into `drive job report <your job> -`, as you
 have no Write tool and only it sets your job's state, so your line is sent back until it is kept. It keeps a
-`DESIGN` as his card's ASK in the same call, refusing one `drive job ask` would refuse. Then end with its first
+`DESIGN` as his card's ASK in the same call, refusing one `drive job ask` would refuse, and withdraws each
+other open card of yours it names by neither its link, waits id nor ASK file. Then end with its first
 line alone, at most 500 characters, since it lands whole in the starting session. Post
 nothing to him yourself, which the `post` tool refuses: a handler posts your `Answer:` record and
 relays your report.

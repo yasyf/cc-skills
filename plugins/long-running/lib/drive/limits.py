@@ -256,6 +256,7 @@ SIMPLEST_SHAPE = (
 )
 PICK = re.compile(r"\byour?\s+pick\b", re.IGNORECASE)
 OPENING_RULING = 'his ruling ebdb6aa, "what is this and what the fuck are you talking about"'
+CODED_OPENING_RULING = 'his feedback 3a053f1, "What the fuck is this?", on a card asking whether "the memory move\'s recheck" should "re-project each skipped memory\'s search readers and expiry from iris_memory_states"'
 HEAD_END = re.compile(r"(?<!:):(?!:)(?=\s|$)")
 SAID = re.compile(r'"[^"\n]*"|“[^”\n]*”')
 QUOTED = re.compile(rf"{SAID.pattern}|`[^`\n]*`")
@@ -860,6 +861,13 @@ def question_problems(text: str, kept: bool = False, unsettled: str | None = Non
         )
     problems += vague_problems(title, [*summary, *(findings[:1])])
     problems += opening_problems(summary)
+    problems += [
+        f"{where} names {', '.join(named)}, which tell him nothing of what the card is: say what he would see go wrong or what your pick"
+        f" changes for him in the words he uses for it, such as the memory move or expiry, and name the code in the summary's later lines"
+        f" and the findings, as a PR card's lead leaves its code to the Summary ({CODED_OPENING_RULING}; {OPENING_RULING})"
+        for where, line in [("the question", title), *(("the summary's first line", REF.sub(lambda found: f" {found[3] or ''} ", line)) for line in summary[:1])]
+        if (named := code_names(line))
+    ]
     if not findings or not findings[0].strip():
         problems.append("no `Findings:` line with the evidence under it; it stays on disk, for the record and Explain more")
     elif len(marked) == 1:
@@ -1231,7 +1239,7 @@ def vague_problems(title: str, evidence: list[str]) -> list[str]:
         return []
     problem = (
         f'the question names its object only as "{vague[0]}", while its summary and findings name {", ".join(terms[:4])}:'
-        f" name it by its proper term in the question itself ({PROPER_TERMS_RULING})"
+        f" name it in the question itself by the plain term he uses for it, such as the memory move, never a code name ({PROPER_TERMS_RULING})"
     )
     return [problem]
 
