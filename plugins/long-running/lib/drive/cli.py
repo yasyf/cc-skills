@@ -1308,6 +1308,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         order["updated"] = created
         if not args.release:
             state.end_carried_designs(data, args.order, created)
+        replaced = [] if args.release else state.end_replaced(data, [args.order], created)
         named = state.named_prs(data, args.order, args.goal)
         history = {key: state.pr_orders(data, key, args.order) for key in named}
     waiting = [f"{job_id} {job['said']}: start no agent for it until the watch's FREE line says its last wait ended"] if job["waits"] and not job["agent"] else []
@@ -1320,7 +1321,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
     also = list(dict.fromkeys(order_id for orders in history.values() for order_id in orders))
     names = [f"{job_id} names {', '.join(named)}" + (f", also on {', '.join(also)}" if also else "") + ": drive status <id>"] if named else []
     names += state.asked_lines(data, args.goal)
-    return job_id, job | {"builder": builder_id, "history": history}, [*took, *started, *waiting, *names]
+    return job_id, job | {"builder": builder_id, "history": history}, [*took, *replaced, *started, *waiting, *names]
 
 
 def started_release(name: str, job_id: str, command: str) -> list[str]:
@@ -1342,8 +1343,9 @@ def started_release(name: str, job_id: str, command: str) -> list[str]:
         job = data["jobs"][job_id]
         job["release_build"] = build
         state.end_carried_designs(data, job["order"], job["created"])
+        replaced = state.end_replaced(data, [job["order"]], job["created"])
     line, _ = write_brief(name, job_id, {})
-    return [f"{job_id} started `{command}` as {build} and left it running: its agent follows it with `{answer['follow']}` and reads its approve hold", line]
+    return [*replaced, f"{job_id} started `{command}` as {build} and left it running: its agent follows it with `{answer['follow']}` and reads its approve hold", line]
 
 
 def release_answer(said: list[str]) -> dict:
@@ -1509,12 +1511,13 @@ def job_set(args: argparse.Namespace) -> int:
                 job["prs"].append(url)
         job["updated"] = state.stamp()
         state.end_carried_designs(data, job["order"], job["created"])
+        replaced = state.end_replaced(data, [job["order"], *args.carries], job["updated"])
     owned = {pr["url"] for pr in data["prs"].values() if pr["job"] == args.id}
     cards = [card for card in fresh_pr_cards(name) if owned & set(card["prs"])] if args.carries else []
     reworked = [
         line for order_id in args.carries for line in rework_named_prs(name, order_id, args.rework, cards, f"drive job set {args.id} --carries {order_id} --rework <PR>")
     ]
-    return emit(args, already + render.job_line(args.id, job) + "".join(f"\n{line}" for line in reworked), {"id": args.id, **job})
+    return emit(args, already + render.job_line(args.id, job) + "".join(f"\n{line}" for line in [*replaced, *reworked]), {"id": args.id, **job})
 
 
 def fix_kept(data: dict, job_id: str) -> None:

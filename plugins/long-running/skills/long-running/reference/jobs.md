@@ -588,7 +588,8 @@ session started, which `SendMessage` cannot reach: there it prints a handoff bri
 returned gets a fresh builder, since a resumed one re-reads all it ever did on every event: the
 `communicator_calls` hook refuses `SendMessage` to a builder that returned `BUILT` or `DONE` outside
 an incident unless it carries an answer of his the job holds, by `superseded.delivery`, the rule each watch line names its step by. Run `drive job add builder` for the same order and parts, which takes each PR the old job opened and stops it
-`handed to <new>`, since a part has one change job, then write its brief with the `Handoff:` line and every earlier
+`handed to <new>`, since a part has one change job, or takes a failed old job's open PRs and stops it
+`replaced by <new>`, then write its brief with the `Handoff:` line and every earlier
 job's transcript under `Transcripts:`.
 
 A built job's `FREE` line is a PR event too: the fresh builder's `Handoff:` names the built branch,
