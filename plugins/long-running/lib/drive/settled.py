@@ -989,6 +989,11 @@ BACKED = Noul(
     yes="The read's own output holds what the claim says, as it stands now for a state told as it stands, or a record's or report's line in it shows the read that measured just that.",
     no="The read does not hold it, or only a doc, PR body, comment or log line, or a record's or report's line showing no read, inside it says so about code.",
 )
+BACKED_LINES = Noul(
+    "Do the lines of `reads.{read}.result`, one part of that call's output by line number out of its `reads.{read}.lines`, show what `claims.{claim}.claim` says?",
+    yes=BACKED.yes,
+    no="These lines do not hold it, or only a doc, PR body, comment or log line, or a record's or report's line showing no read, inside them says so about code.",
+)
 SPANS = Noul(
     "Does `claims.{claim}.claim` say only, every, all, no, nobody or never of a set, such as the routes minting a key or the callers of a function, while `reads.{read}.call` reads one file's lines or one function rather than searching for every member of that set?",
     yes="The claim speaks for a whole set, and the call reads one member, such as a sed of one file's line range, so nothing in it shows the other members.",
@@ -1041,7 +1046,7 @@ def refusal_verdict(rule: str, call: dict, seconds: float = REFUSAL_SECONDS) -> 
 
 
 def post_verdict(output: dict, seconds: float = DECIDE_SECONDS) -> dict:
-    """Whether a post the drive's checks hand with his words holds, by the requests `requests` packs, asked of Jev at once, every item Jev cannot weigh the post without whole in one of them, since `unfit` refuses a post before it reaches here when one item alone has no room: it holds for a claim whose read is under BACKS or matched none of the handler's calls, a claim saying only, every, no or never of a set whose read reads one member at YES, a sentence no claim holds whole that states a fact at YES, a post answering his question under a card while leaving a term of the card's first line it turns on unexplained at YES, and a finding that holds at YES with no lift at NO or more, by his pick f9e9302 "The handler names the read behind each claim; Jev checks each claim against that read, whole, and holds only unbacked claims"; a claim at BACKS or more stands, since every unbacked claim of the drive's recorded posts drew under it; any other Noul in the band between, or a finding with no room left, only warns, naming it. When Jev cannot finish, a finding a count or a mark decides still holds, since no judgment lifts it, and every other only warns, by his pick b80a8b1 "Refusals only warn when the judge cannot finish: no post ever waits, but it goes out unchecked, as twice this morning"."""
+    """Whether a post the drive's checks hand with his words holds, by the requests `requests` packs, asked of Jev at once, every item Jev cannot weigh the post without whole in one of them, a read too long for one request by whole lines across several, since `unfit` refuses a post before it reaches here when one item alone has no room: it holds for a claim whose read, or each part of it, is under BACKS or matched none of the handler's calls, a claim saying only, every, no or never of a set whose read reads one member at YES, a sentence no claim holds whole that states a fact at YES, a post answering his question under a card while leaving a term of the card's first line it turns on unexplained at YES, and a finding that holds at YES with no lift at NO or more, by his pick f9e9302 "The handler names the read behind each claim; Jev checks each claim against that read, whole, and holds only unbacked claims"; a claim at BACKS or more stands, since every unbacked claim of the drive's recorded posts drew under it; any other Noul in the band between, or a finding with no room left, only warns, naming it. When Jev cannot finish, a finding a count or a mark decides still holds, since no judgment lifts it, and every other only warns, by his pick b80a8b1 "Refusals only warn when the judge cannot finish: no post ever waits, but it goes out unchecked, as twice this morning"."""
     reason = refusal_reason(output)
     reads = {item["id"]: item for item in output.get("reads") or []}
     claims = output["post"].get("claims") or []
@@ -1056,7 +1061,7 @@ def post_verdict(output: dict, seconds: float = DECIDE_SECONDS) -> dict:
     for number, claim in enumerate(claims, 1):
         if unmatched(reads, claim):
             continue
-        if read[f"c{number}.backed"] < BACKS:
+        if max(sure for key, sure in read.items() if key.split(".")[:2] == [f"c{number}", "backed"]) < BACKS:
             held.append(f'claim "{claim["claim"]}" does not stand on its read: make the read that shows it and name it in claims, or cut the line to what your reads show')
         if (spans := reading(read.get(f"c{number}.spans", 0.0))) is True:
             held.append(f'claim "{claim["claim"]}" speaks for a whole set while its read reads one member of it: name a read that finds every member, such as a grep across the code, or cut the claim to the member it reads')
@@ -1089,7 +1094,7 @@ def post_verdict(output: dict, seconds: float = DECIDE_SECONDS) -> dict:
 
 
 def asked(output: dict) -> tuple[dict, list[tuple[str, tuple[dict, dict[str, Noul]]]], list[tuple[dict, dict[str, Noul]]]]:
-    """What Jev's requests on a post hold, the one builder `requests` packs and `unfit` sizes, so a post that passes `unfit` reaches Jev with every item it must weigh whole: the state each request opens with, the post as Slack gets it and each time say drew from the drive's stamps; each item Jev cannot weigh the post without, beside the words naming it, each read whole beside every claim naming it as `backed` gives each, one item, since no claim is weighed without its read and a read goes to Jev once, each sentence no claim holds whole beside one Noul whether it states a fact standing only on a read, and the first line of the card his question in that thread is under, beside his question and one Noul whether the post answering it leaves a term of that line unexplained; then the items that go in as room allows, in a request of their own, each finding beside the rule it stands for, one Noul whether the rule holds and one whether his words lift it, and his words, the checks' own picks first, then newest first."""
+    """What Jev's requests on a post hold, the one builder `requests` packs and `unfit` sizes, so a post that passes `unfit` reaches Jev with every item it must weigh whole: the state each request opens with, the post as Slack gets it and each time say drew from the drive's stamps; each item Jev cannot weigh the post without, beside the words naming it, each read whole beside every claim naming it as `backed` gives each, one item, or one item a part of it when `parted` finds it too long for a request, since no claim is weighed without its read and a read goes to Jev once, each sentence no claim holds whole beside one Noul whether it states a fact standing only on a read, and the first line of the card his question in that thread is under, beside his question and one Noul whether the post answering it leaves a term of that line unexplained; then the items that go in as room allows, in a request of their own, each finding beside the rule it stands for, one Noul whether the rule holds and one whether his words lift it, and his words, the checks' own picks first, then newest first."""
     post = output["post"]
     reads = {item["id"]: item for item in output.get("reads") or []}
     words = output.get("his_words") or []
@@ -1100,7 +1105,11 @@ def asked(output: dict) -> tuple[dict, list[tuple[str, tuple[dict, dict[str, Nou
             item = backed(reads, number, claim)
             shared.setdefault(next(iter(item[0]["reads"])), []).append(item)
     weighs = [
-        *((f'{read} {json.dumps(reads[read]["read"], ensure_ascii=False)} beside {"the claim" if len(items) == 1 else f"the {len(items)} claims"} naming it', together(items)) for read, items in shared.items()),
+        *(
+            (f'{read} {json.dumps(reads[read]["read"], ensure_ascii=False)} beside {"the claim" if len(items) == 1 else f"the {len(items)} claims"} naming it', part)
+            for read, items in shared.items()
+            for part in parted(base, together(items))
+        ),
         *((f'sentence "{sentence}"', ({"post": {"sentences": {str(index): sentence}}}, {f"s{index}.fact": asking(FACT, index=index)})) for index, sentence in uncovered(output)),
         *((f'the card "{card["title"]}" his question is under', ({"card": card}, {"card": CARD})) for card in [output.get("thread_card")] if card),
     ]
@@ -1115,7 +1124,7 @@ def asked(output: dict) -> tuple[dict, list[tuple[str, tuple[dict, dict[str, Nou
 
 
 def requests(output: dict) -> list[tuple[dict, dict[str, Noul]]]:
-    """Jev's requests on a post, each within REQUEST_CHARS by his words "jev should be getting like 10k chars at most for any call" and each opening with the state `asked` gives: every item Jev cannot weigh the post without, whole, in the first request with room for it, so reads too long for one request together go to Jev in several, never cut, dropped or read as unbacked, then the findings beside his words in one request as room allows; only a request asking Jev something."""
+    """Jev's requests on a post, each within REQUEST_CHARS by his words "jev should be getting like 10k chars at most for any call" and each opening with the state `asked` gives: every item Jev cannot weigh the post without, whole, in the first request with room for it, so reads too long for one request together go to Jev in several, and one too long for a request alone in the parts `parted` cuts it into, never dropped or read as unbacked, then the findings beside his words in one request as room allows; only a request asking Jev something."""
     base, weighs, rest = asked(output)
     packed: list[tuple[dict, dict[str, Noul]]] = []
     for _, item in weighs:
@@ -1154,8 +1163,37 @@ def backed(reads: dict[str, dict], number: int, claim: dict) -> tuple[dict, dict
     return {"claims": {key: {"claim": claim["claim"], "read": held["id"]}}, "reads": {held["id"]: {"call": call, "result": result}}}, {f"{key}.backed": asking(BACKED, read=held["id"], claim=key), **spans}
 
 
+def parted(base: dict, item: tuple[dict, dict[str, Noul]]) -> list[tuple[dict, dict[str, Noul]]]:
+    """A read's item, its claims beside it, as Jev's requests take it: whole when it fits one request beside the post's own words, else in parts by whole lines in order, each as many lines as a request holds beside the claims, the read's call and how many lines its output holds, each line under its number, blank lines aside, and each claim asked BACKED_LINES of each part, so a read too long for one request, such as a report's whole body, reaches Jev whole across several, by his words "jev should be getting like 10k chars at most for any call" and his pick f9e9302 "Jev checks each claim against that read, whole", and a claim stands on the part backing it most; a question on the call alone, such as SPANS, goes with the first part."""
+    if size(*together([(base, {}), item])) <= REQUEST_CHARS:
+        return [item]
+    state, questions = item
+    [(read, held)] = state["reads"].items()
+    lines = held["result"].splitlines()
+
+    def part(index: int, numbered: dict[str, str]) -> tuple[dict, dict[str, Noul]]:
+        return (
+            {"claims": state["claims"], "reads": {read: {"call": held["call"], "lines": len(lines), "result": numbered}}},
+            {f"{key}.{index}": asking(BACKED_LINES, read=read, claim=key.partition(".")[0]) for key in questions if key.endswith(".backed")}
+            | ({key: noul for key, noul in questions.items() if not key.endswith(".backed")} if index == 1 else {}),
+        )
+
+    parts: list[dict[str, str]] = [{}]
+    room = REQUEST_CHARS - size(*together([(base, {}), part(1, {})]))
+    for number, line in enumerate(lines, 1):
+        if not line.strip():
+            continue
+        entry = len(json.dumps({str(number): line}, ensure_ascii=False))
+        if parts[-1] and entry > room:
+            parts.append({})
+            room = REQUEST_CHARS - size(*together([(base, {}), part(len(parts), {})]))
+        parts[-1][str(number)] = line
+        room -= entry
+    return [part(index, numbered) for index, numbered in enumerate(parts, 1)]
+
+
 def unfit(output: dict) -> tuple[int, list[tuple[str, int]]]:
-    """The characters the post's own words take in each of Jev's requests, and each item `asked` names that no request holds whole beside them within REQUEST_CHARS, by his words "jev should be getting like 10k chars at most for any call", beside the words naming it and the characters the request holding it alone takes, largest first, such as a report's whole body under the claims naming it, so the refusal names what to narrow; none when each fits, so no claim, sentence or card is ever weighed in part or read as unbacked for want of room."""
+    """The characters the post's own words take in each of Jev's requests, and each item `asked` names that no request holds whole beside them within REQUEST_CHARS, by his words "jev should be getting like 10k chars at most for any call", beside the words naming it and the characters the request holding it alone takes, largest first, such as a part of a read holding one line longer than a request, so the refusal names what to narrow; none when each fits, so no claim, sentence or card is ever read as unbacked for want of room."""
     base, weighs, _ = asked(output)
     alone = ((named, size(*together([(base, {}), item]))) for named, item in weighs)
     return size(base, {}), sorted(((named, chars) for named, chars in alone if chars > REQUEST_CHARS), key=lambda pair: -pair[1])

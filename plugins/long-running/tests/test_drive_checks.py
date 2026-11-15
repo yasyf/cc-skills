@@ -178,7 +178,7 @@ def test_a_post_jev_gives_no_verdict_on_holds_only_for_a_finding_a_count_decides
     assert settled.post_verdict(handled(CLAIM["claim"]))["note"].startswith("message_limits: Jev gave no verdict (no jev decision within 20s) on whether each claim of this post stands")
 
 
-def test_a_read_and_a_card_too_long_for_one_request_together_reach_jev_whole_in_two_and_a_read_no_request_holds_is_named_by_its_size(jev: Jev) -> None:
+def test_a_read_and_a_card_too_long_for_one_request_together_reach_jev_whole_in_two(jev: Jev) -> None:
     query = "400  rows, err := r.postgres.Query(ctx, selectInbox, agentID)"
 
     def lines(count: int) -> str:
@@ -197,12 +197,32 @@ def test_a_read_and_a_card_too_long_for_one_request_together_reach_jev_whole_in_
     assert settled.post_verdict(filled) == PASSES
     assert sorted(list(request["questions"]) for request in jev.asked) == [["c1.backed"], ["card"]]
     assert all(settled.size(request["state"], request["questions"]) <= settled.REQUEST_CHARS for request in jev.asked)
-    post, parts = settled.unfit(handled(CLAIM["claim"], [READ | {"quote": f"{CALL_READ}\n{lines(500)}"}]))
-    assert (post, [label for label, _ in parts]) == (settled.size({"post": {"text": CLAIM["claim"], "written": CLAIM["claim"]}}, {}), ['read:1 "cloudrunner/inbox.go" beside the claim naming it'])
-    assert parts[0][1] > settled.REQUEST_CHARS
 
 
-def test_a_reports_whole_body_beside_a_narrow_read_reaches_jev_whole_in_a_request_of_its_own_and_only_a_body_no_request_holds_is_named(jev: Jev) -> None:
+def test_a_read_too_long_for_one_request_reaches_jev_whole_in_parts_by_line_its_claim_standing_on_the_part_backing_it(jev: Jev) -> None:
+    only = {"claim": "Only the cloud's inbox reader queries Postgres straight.", "read": "read:1"}
+    result = "\n".join([*(f"{line}  ok := cache.Hit(key)" for line in range(1, 500)), "", "501  rows, err := r.postgres.Query(ctx, selectInbox, agentID)"])
+    output = handled(only["claim"], [READ | {"quote": f"{CALL_READ}\n{result}"}], [only])
+    assert settled.unfit(output)[1] == []
+    assert settled.post_verdict(output)["verdict"] == "hold"
+    parts = sorted(jev.asked, key=lambda request: int(next(iter(request["state"]["reads"]["read:1"]["result"]))))
+    assert len(parts) > 1
+    assert all(settled.size(request["state"], request["questions"]) <= settled.REQUEST_CHARS for request in parts)
+    assert [line for request in parts for line in request["state"]["reads"]["read:1"]["result"].items()] == [(str(number), line) for number, line in enumerate(result.splitlines(), 1) if line]
+    assert {(request["state"]["reads"]["read:1"]["call"], request["state"]["reads"]["read:1"]["lines"]) for request in parts} == {(CALL_READ, 501)}
+    assert [request["questions"] for request in parts] == [
+        {"c1.backed.1": settled.asking(settled.BACKED_LINES, read="read:1", claim="c1"), "c1.spans": settled.asking(settled.SPANS, read="read:1", claim="c1")},
+        *({f"c1.backed.{index}": settled.asking(settled.BACKED_LINES, read="read:1", claim="c1")} for index in range(2, len(parts) + 1)),
+    ]
+    jev.breaks("c1", f"backed.{len(parts)}", settled.BACKS)
+    assert settled.post_verdict(output) == PASSES
+    long_line = handled(CLAIM["claim"], [READ | {"quote": f"{CALL_READ}\n{RESULT}\n{'ok := cache.Hit(key) ' * 500}"}])
+    post, unfit = settled.unfit(long_line)
+    assert (post, [label for label, _ in unfit]) == (settled.size({"post": {"text": CLAIM["claim"], "written": CLAIM["claim"]}}, {}), ['read:1 "cloudrunner/inbox.go" beside the claim naming it'])
+    assert unfit[0][1] > settled.REQUEST_CHARS
+
+
+def test_a_reports_whole_body_beside_a_narrow_read_reaches_jev_whole_in_a_request_of_its_own_and_a_longer_body_in_parts(jev: Jev) -> None:
     def body(count: int) -> str:
         return "\n".join(f"716852 line {line}: the five old-design builders stopped" for line in range(1, count))
 
@@ -216,5 +236,11 @@ def test_a_reports_whole_body_beside_a_narrow_read_reaches_jev_whole_in_a_reques
     assert settled.post_verdict(output) == PASSES
     assert sorted(sorted(request["state"]["reads"]) for request in jev.asked) == [["read:2"], ["record:716852"]]
     assert next(request["state"]["reads"]["record:716852"]["result"] for request in jev.asked if "record:716852" in request["state"]["reads"]) == body(100)
-    longer = wide | {"quote": f"cci show 716852\n{body(220)}"}
-    assert [label for label, _ in settled.unfit(handled(text, [longer, narrow], claims))[1]] == ['record:716852 "716852" beside the 5 claims naming it']
+    longer = handled(text, [wide | {"quote": f"cci show 716852\n{body(220)}"}, narrow], claims)
+    assert settled.unfit(longer)[1] == []
+    jev.asked.clear()
+    assert settled.post_verdict(longer) == PASSES
+    parts = [request for request in jev.asked if "record:716852" in request["state"]["reads"]]
+    assert len(parts) > 1
+    assert sorted(line for request in parts for line in request["state"]["reads"]["record:716852"]["result"].values()) == sorted(body(220).splitlines())
+    assert all(set(request["state"]["claims"]) == {"c1", "c2", "c3", "c4", "c5"} for request in parts)
