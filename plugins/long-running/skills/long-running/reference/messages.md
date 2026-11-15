@@ -823,13 +823,17 @@ restating it.
   is never the reason, since a session reaches another through SendMessage while cci is down, by
   [records.md](records.md). When he asks why, give the mechanism in one or two sentences and quote
   back the instruction he gave, then the fix and when it is live. The post hook and `record_lines`
-  find a line naming such a failure, a late or overdue line included, or citing the defect record the drive filed for one, in a
-  post naming no order or PR but the ones it is about and drawing no PR card, and only warn the session sending it, which posts as written: the same words
-  tell the product's own refusals too, such as a pod its check refused, by his pick "1 and then if
-  we kepe getting false rejects move to 3", whose third option reads "Cause and plain-words findings
-  only warn the session". On that warning, a line that does tell a failure of the drive's is
-  reworded in place naming the fix and its order, and Jev reads such a line as within his words,
-  never as work outside them.
+  find a line whose writer's own words, its references, links, quotes and code names left out, name
+  such a failure, a late or overdue line included, or that cites the defect record the drive filed
+  for one, in a post naming no order or PR but the ones it is about and drawing no PR card.
+  `record_lines` only warns the session sending the report, which posts as written. The post hook
+  hands each such line to Jev as a finding under this rule, which also says a line on what the
+  product, a customer's run or a PR's own checks and tests did needs nothing, so Jev holds a line
+  telling a failure of the drive's and passes one telling that a pod's own check refused it or that
+  a PR's own test failed, by his pick "1 and then if we kepe getting false rejects move to 3", whose
+  first option has Jev rule on each finding by that finding's own rule. A held line is reworded in
+  place naming the fix and its order, and Jev reads such a line as within his words, never as work
+  outside them.
 - A second ask for a post he ordered. His order to post, in his DM, in a terminal or by a tap on a
   card, is his permission for one post in the place he named. No card asks him to approve it, no line
   says a hook needs his Yes, and a card already up asking that is closed the moment it is seen.

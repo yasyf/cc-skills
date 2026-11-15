@@ -427,11 +427,6 @@ def say(transcript: Path, **tool_input: object) -> str | None:
     return message_limits.deny_reason(call("slack_dm_status", transcript, **tool_input) | {"tool_name": message_limits.SAY})
 
 
-def warning(transcript: Path, **tool_input: object) -> str | None:
-    found = message_limits.checked(call("slack_dm_status", transcript, **tool_input) | {"tool_name": message_limits.SAY})[0]
-    return found if isinstance(found, message_limits.Warned) else None
-
-
 def link(ts: str) -> str:
     return f"https://acme.slack.com/archives/{DM}/p{ts.replace('.', '')}"
 
@@ -1483,7 +1478,7 @@ def test_jev_judges_each_finding_by_the_rule_it_names_and_an_order_or_job_id_ref
     assert "the pool" not in unjudged and "'the drive'" not in unjudged
 
 
-def test_a_post_telling_him_the_drive_failed_goes_out_warning_the_session_until_it_names_the_order_or_pr_preventing_it_on_any_line_or_draws_its_card(talker: str, transcript: Path) -> None:
+def test_a_post_telling_him_the_drive_failed_is_a_finding_a_line_jev_weighs_until_it_names_the_order_or_pr_preventing_it_on_any_line_or_draws_its_card(talker: str, transcript: Path) -> None:
     failed = "Its card was refused: nobody checked that PR against your words."
     disconnected = "The meta session's cci disconnected, so your order never reached it."
     fix = "<https://github.com/yasyf/cc-skills/pull/4460|the card hook fix>"
@@ -1500,10 +1495,10 @@ def test_a_post_telling_him_the_drive_failed_goes_out_warning_the_session_until_
     assert refs.unprevented(said, {}, set()) == []
     told = f"{failed}\n{disconnected}"
     assert refs.unprevented(told, {}, set()) == [failed, disconnected]
-    assert say(transcript, text=told) is None
-    warned = warning(transcript, text=told)
-    assert warned.startswith("message_limits: this post goes out as written") and "6a6edbf" in warned
-    assert warned.endswith(f"The lines: {failed} | {disconnected}")
+    refused = say(transcript, text=told)
+    assert refused.startswith("refused: these lines tell him") and refused.endswith(f"The lines: {failed} | {disconnected}")
+    assert refused.rule == message_limits.PREVENTION_RULE and "6a6edbf" in refused.rule
+    assert refused.findings == [{"rule": message_limits.PREVENTION_RULE, "found": line} for line in (failed, disconnected)]
     with state.edit("demo") as data:
         data["prs"]["yasyf/cc-skills#4460"] = state.new_pr("https://github.com/yasyf/cc-skills/pull/4460", "j1", "o1")
     assert message_limits.checked(call("slack_dm_status", transcript, text=told, tap_prs=["https://github.com/yasyf/cc-skills/pull/4460"]) | {"tool_name": message_limits.SAY})[0] is None
@@ -1511,7 +1506,7 @@ def test_a_post_telling_him_the_drive_failed_goes_out_warning_the_session_until_
     assert message_limits.checked(call("slack_dm_status", transcript, text=prevented) | {"tool_name": message_limits.SAY})[0] is None
 
 
-def test_a_line_telling_what_the_product_refuses_goes_out_with_a_warning_jev_never_judges(
+def test_a_line_telling_what_the_product_refuses_reaches_jev_beside_the_rule_that_a_product_refusal_needs_nothing(
     talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     old_pod = (
@@ -1521,17 +1516,20 @@ def test_a_line_telling_what_the_product_refuses_goes_out_with_a_warning_jev_nev
     )
     staging = "The drive's staging request was refused by SandSQL's own check, which reads only rows of its env."
     for text in (old_pod, staging):
-        assert say(transcript, text=text) is None, text
-        assert warning(transcript, text=text).endswith(f"The lines: {text}")
+        assert say(transcript, text=text).findings == [{"rule": message_limits.PREVENTION_RULE, "found": text}], text
+    assert "what the product, a customer's run or a PR's own checks and tests did tells no failure of the drive's" in message_limits.PREVENTION_RULE
     monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(call("slack_dm_status", transcript, text=old_pod) | {"tool_name": message_limits.SAY})))
     message_limits.main()
     printed = json.loads(capsys.readouterr().out)
-    assert printed["hookSpecificOutput"] == {"hookEventName": "PreToolUse", "additionalContext": warning(transcript, text=old_pod)}
+    assert printed["hookSpecificOutput"]["permissionDecision"] == "deny" and "additionalContext" not in printed["hookSpecificOutput"]
+    assert printed["findings"] == [{"rule": message_limits.PREVENTION_RULE, "found": old_pod}] and printed["post"]["text"] == old_pod
+    assert "counted" not in printed
     refused = say(transcript, text=f"{old_pod}\nThe runs failed because the pool was full")
-    assert refused.startswith("refused: a line naming a cause") and old_pod not in refused and refused.rule == message_limits.CAUSE_RULE
+    assert [finding["rule"] for finding in refused.findings] == [message_limits.CAUSE_RULE, message_limits.PREVENTION_RULE]
+    assert refused.findings[1]["found"] == old_pod
 
 
-def test_a_line_reading_as_a_drive_failure_or_citing_a_defect_record_warns_the_session_it_owes_the_fix_preventing_it(
+def test_a_line_reading_as_a_drive_failure_or_citing_a_defect_record_is_a_finding_owing_the_fix_preventing_it(
     talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     shown = {
@@ -1549,8 +1547,25 @@ def test_a_line_reading_as_a_drive_failure_or_citing_a_defect_record_warns_the_s
     assert refs.unprevented(said, refs.resolved("demo", said), set()) == [proof, uncited, cited, passive, defect]
     assert refs.unprevented(f"{said}\n{cited} {fix} counts each table row on its own.", refs.resolved("demo", said), set()) == []
     told = f"{cited}\n{defect}"
-    assert say(transcript, text=told) is None
-    assert warning(transcript, text=told).endswith(f"The lines: {cited} | {defect}")
+    assert say(transcript, text=told).findings == [{"rule": message_limits.PREVENTION_RULE, "found": line} for line in (cited, defect)]
+
+
+def test_only_the_writers_own_words_tell_a_drive_failure_never_a_reference_link_or_code_and_a_prs_own_red_test_reaches_jev_as_its_line(
+    talker: str, transcript: Path
+) -> None:
+    titled = "{pr:5426|the fix for refused cards} is red on its own `test_card_was_refused_late` in `tests/test_card.py`."
+    linked = "<https://github.com/yasyf/cc-skills/pull/5426|the check that refused late cards> is red on its own test."
+    coded = "Its own test asserts `the card hook refused the post` and fails on the new title."
+    stated = "Its card was refused: nobody checked that PR against your words."
+    on_it = {"#5426"}
+    for line in (titled, linked, coded):
+        assert refs.unprevented(line, {}, on_it) == [], line
+        assert not refs.prevented(f"{line}\n{{order:o2}} makes it pass.")
+    own = "Its own `test_message_limits.py` check never ran before the push, so the PR went up red."
+    assert refs.unprevented(f"{titled}\n{own}\n{stated}", {}, on_it) == [own, stated]
+    refused = say(transcript, text=f"{coded}\n{own}")
+    assert refused.rule == message_limits.PREVENTION_RULE and refused.findings == [{"rule": message_limits.PREVENTION_RULE, "found": own}]
+    assert "a PR's own checks and tests did tells no failure of the drive's and needs nothing" in refused.rule
 
 
 def test_a_late_line_naming_only_the_order_or_pr_it_reports_on_owes_the_order_fixing_it() -> None:
@@ -1668,7 +1683,7 @@ def test_a_typed_clock_time_is_past_only_at_or_before_its_write_on_the_day_writt
 def test_say_refuses_a_time_typed_for_past_work_and_passes_a_jobs_start_from_its_stamp_and_a_promise(talker: str, transcript: Path) -> None:
     with state.edit("demo") as data:
         data["jobs"]["j1"] = state.new_job("o1", "builder", "fix the replication sync", [], state.stamp())
-    refused = say(transcript, text="The fix job started at 4:55 AM, about 25 minutes late.")
+    refused = say(transcript, text="The fix job started at 4:55 AM.")
     assert refused is not None and refused.startswith('refused: "4:55 AM" is a time typed for work already done')
     assert refused.rule == agents.TYPED_TIME_RULE
     assert say(transcript, text="The fix job started at {started:j1}; next line by 5:40 AM.") is None
