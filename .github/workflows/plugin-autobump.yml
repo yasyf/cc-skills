@@ -21,6 +21,9 @@ on:
       lockstep-check:
         type: string
         default: ""
+      release-check:
+        type: string
+        default: ""
       script-ref:
         type: string
         default: "plugin-v1"
@@ -71,4 +74,5 @@ jobs:
           AUTOBUMP_STRICT: ${{ github.event_name == 'schedule' || inputs.strict }}
           AUTOBUMP_LOCKSTEP: ${{ inputs.lockstep }}
           AUTOBUMP_LOCKSTEP_CHECK: ${{ inputs.lockstep-check }}
+          AUTOBUMP_RELEASE_CHECK: ${{ inputs.release-check }}
         run: uv run .autobump-src/.github/scripts/plugin_autobump.py
