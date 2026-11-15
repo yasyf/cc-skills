@@ -1563,7 +1563,7 @@ def refuse_a_shared_at_once_part(parts: list[str]) -> None:
 
 
 def job_set(args: argparse.Namespace) -> int:
-    """Change a job; a state it already holds changes nothing, stopped is the one state set by hand, done only on a design a builder carries, and any other --state is refused with nothing changed, since the job's return sets it, but for a done or failed job given a part it does not hold, which runs, since it has not returned on that part, unless it is a reader or design given a build order's part whose kept Researched: block brief.kept_research reads as that part's research; a --said opening with a result word is refused unless it sets the state the job keeps, since a said line reading DONE on a running job is a result it never returned; an order it carries reworks only the PRs of the job --rework names, and each other open card of his on the job's PRs is named and left up; an agent --agent binds is refused, nothing changed, while a launch starts the job's next lane, by state.launch_in_flight, the rule agents.free applies to an agent's own steps."""
+    """Change a job; a state it already holds changes nothing, stopped is the one state set by hand, done only on a design a builder carries, and any other --state is refused with nothing changed, since the job's return sets it; --part, --parts and --carries change the parts it delivers and never its state, so a finished job runs again only once drive job launch or resume starts its lane; a --said opening with a result word is refused unless it sets the state the job keeps, since a said line reading DONE on a running job is a result it never returned; an order it carries reworks only the PRs of the job --rework names, and each other open card of his on the job's PRs is named and left up; an agent --agent binds is refused, nothing changed, while a launch starts the job's next lane, by state.launch_in_flight, the rule agents.free applies to an agent's own steps."""
     name = state.resolve(args.drive)
     known = state.load(name)
     found = find(known["jobs"], args.id, "job")
@@ -1609,7 +1609,6 @@ def job_set(args: argparse.Namespace) -> int:
             state.join_card(data, args.id, args.card)
         waits = merged_waits(data, job, [state.change_wait(data, wait, args.id, job) for wait in args.waits], args.no_waits, found)
         job["waits"] = [wait for wait in waits if not (state.builds_nothing(job) and wait == state.SLOT_WAIT)]
-        held = {order_id: set(state.job_parts(job, order_id)) for order_id in [job["order"], *args.carries]}
         if args.carries:
             if args.parts:
                 raise DriveError("--parts replaces the parts of the job's own order; name a carried order's parts with --part")
@@ -1627,9 +1626,6 @@ def job_set(args: argparse.Namespace) -> int:
             job["parts"] = named if args.parts else list(dict.fromkeys([*job["parts"], *named]))
             refuse_a_shared_at_once_part(job["parts"])
             refuse_a_second_change_job(data, args.id, job["order"], named)
-        gained = [order_id for order_id, parts in held.items() if set(state.job_parts(job, order_id)) - parts]
-        if job["state"] in ("done", "failed") and gained and not brief.kept_research(name, data, args.id, gained):
-            job["state"] = "running"
         if args.agent and args.agent == job.get("dispatch"):
             job.update(lane, where="remote", agent=None)
         elif lane:
@@ -5861,7 +5857,7 @@ def parser() -> argparse.ArgumentParser:
         action="append",
         default=[],
         metavar="ORDER",
-        help="another order whose part this job delivers, until it is done, refused for a builder or codex job while another unfinished one carries that part, as --part and --parts are; a reader or design carrying a build order's part is that part's research, so its kept Researched: block starts the part's builder, designer or codex lane with no reader of its own, and a done one keeps its state; it names each open card of his carrying the job's PRs and leaves it up, since its stack can meet his words already: only --rework withdraws one",
+        help="another order whose part this job delivers, until it is done, refused for a builder or codex job while another unfinished one carries that part, as --part and --parts are; a reader or design carrying a build order's part is that part's research, so its kept Researched: block starts the part's builder, designer or codex lane with no reader of its own, and it changes no job's state, as --part and --parts change none; it names each open card of his carrying the job's PRs and leaves it up, since its stack can meet his words already: only --rework withdraws one",
     )
     verb.add_argument(
         "--rework", action="append", default=[], type=rework_mark, metavar="PR=LINK", help=f"{REWORK_HELP}, to the one --carries order or else the job's own; refused for a PR of another job"

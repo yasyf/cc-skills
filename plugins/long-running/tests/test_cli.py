@@ -5125,7 +5125,7 @@ def test_replayed_715027_a_builder_starts_on_another_orders_readers_research_onc
     builder_id = out.splitlines()[0]
     assert (code, state.load("demo")["jobs"][builder_id]["waits"]) == (0, [])
     refusal = brief.brief_refusal("demo", state.load("demo"), builder_id, f"Drive: demo, order o2, job {builder_id}")
-    assert f'drive job set <that reader or design> --carries o2 --part "{call}" for another order\'s' in refusal
+    assert f'drive job set <that reader or design> --carries o2 --part "{call}"' in refusal
     assert run("job", "set", "j1", "--carries", "o2", "--part", call)[0] == 0
     assert state.load("demo")["jobs"]["j1"]["state"] == "done"
     code, out = run("job", "brief", builder_id, "--serves", "his order", "--done-when", "merged", "--where", "yasyf/cc-skills main")
@@ -5321,7 +5321,7 @@ def test_a_build_jobs_research_is_a_reader_of_its_own_part_a_designs_change_coun
     assert brief.brief_refusal("demo", data, "j7", "Researched: j1\nDrive: demo, order o1, job j7") is None
     assert brief.brief_refusal("demo", data, "j7", "Researched: j3\nDrive: demo, order o1, job j7") == (
         "Researched: j3 names no reader or design of j7's part of o1 that kept a Researched: line and under it rulings:, exists: and open: lines in its report"
-        "; a reader or design that already kept that block on this work, on another order or this one, is this part's research once it holds the part, with no second reader: drive job set <that reader or design> --carries o1 --part \"the reads through it\" for another order's, drive job set <that reader or design> --part \"the reads through it\" for one of o1"
+        "; a reader or design of another order that already kept that block on this work is this part's research once it carries the part, with no second reader: drive job set <that reader or design> --carries o1 --part \"the reads through it\""
     )
 
 
@@ -9758,16 +9758,15 @@ def test_an_answer_orders_reporter_is_told_once_its_answer_is_posted_and_never_a
     assert run("order", "told", "o1", note) == (0, f"o1: told in the reporter's thread, {note}")
 
 
-def test_a_finished_job_given_a_part_it_does_not_hold_runs_and_one_given_a_part_it_holds_stays_finished(run: Run, demo: str) -> None:
+def test_a_finished_job_given_a_part_it_does_not_hold_keeps_its_state_since_only_a_launch_or_resume_runs_it_again(run: Run, demo: str) -> None:
     run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "why does the search worker OOM?", "--parts", "cause", "fix")
     run("job", "add", "reader", "--order", "o1", "--part", "cause", "--goal", "find the cause")
     for finished in ("done", "failed"):
         with state.edit("demo") as data:
             data["jobs"]["j1"].update(state=finished, parts=["cause"])
-        run("job", "set", "j1", "--part", "cause")
-        assert state.load(demo)["jobs"]["j1"]["state"] == finished
         run("job", "set", "j1", "--part", "fix")
-        assert state.load(demo)["jobs"]["j1"]["state"] == "running"
+        job = state.load(demo)["jobs"]["j1"]
+        assert (job["state"], job["parts"]) == (finished, ["cause", "fix"])
 
 
 def test_a_report_naming_parts_delivers_each_whatever_its_posts_words_say_and_the_holder_marks_a_part_by_any_post_of_the_drive(
@@ -9790,7 +9789,7 @@ def test_a_report_naming_parts_delivers_each_whatever_its_posts_words_say_and_th
     assert {part: held["posted"] for part, held in state.load("demo")["orders"]["o1"]["parts"].items()} == dict.fromkeys(parts, line)
 
 
-def test_job_set_parts_replaces_the_parts_a_job_delivers_so_a_done_builder_given_a_part_it_did_not_build_runs_again(
+def test_job_set_parts_replaces_the_parts_a_job_delivers_and_a_done_builder_given_a_part_it_did_not_build_stays_done_with_that_part_undelivered(
     run: Run, demo: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
     main = "an incident never goes five quiet minutes without a line"
@@ -9803,7 +9802,7 @@ def test_job_set_parts_replaces_the_parts_a_job_delivers_so_a_done_builder_given
     assert f'the "{state.IMMEDIATE_FIX}" part is a job of its own' in capsys.readouterr().err
     assert run("job", "set", "j1", "--parts", main)[0] == 0
     data = state.load("demo")
-    assert (data["jobs"]["j1"]["parts"], data["jobs"]["j1"]["state"], state.delivered(data, "o1", main), state.delivered(data, "o1", state.IMMEDIATE_FIX)) == ([main], "running", False, False)
+    assert (data["jobs"]["j1"]["parts"], data["jobs"]["j1"]["state"], state.delivered(data, "o1", main), state.delivered(data, "o1", state.IMMEDIATE_FIX)) == ([main], "done", False, False)
 
 
 def test_pr_set_part_on_a_done_builders_merged_pr_gives_its_job_a_part_of_its_order_it_shipped_unheld_which_only_its_passing_proof_delivers_as_431352e_ruled(

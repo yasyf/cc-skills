@@ -532,12 +532,6 @@ def filled(block: dict[str, str]) -> bool:
     return all(block.get(key) for key in KEYS)
 
 
-def kept_research(name: str, data: dict, job_id: str, order_ids: list[str]) -> bool:
-    """Whether a reader or design given parts of these orders is their research already: each is a build order, and its kept report holds a filled Researched: block, which readers counts for those parts as it stands, so it keeps its state, as state.share_research gives a split part to its reader, rather than run again."""
-    job = data["jobs"][job_id]
-    return job["kind"] in RESEARCH_KINDS and all(data["orders"][order_id]["kind"] == "build" for order_id in order_ids) and filled(researched(state.report_text(name, job_id)))
-
-
 def researches(name: str, data: dict, order_id: str, parts: list[str], besides: str | None = None) -> Iterator[tuple[str, str]]:
     """Each reader or design of these parts of the order but the job besides names, whose kept report carries a filled Researched: block, newest first, with that report."""
     for job_id in reversed(readers(data, order_id, parts)):
@@ -708,11 +702,10 @@ def part_flags(parts: list[str]) -> str:
 
 
 def carried_research(order_id: str, parts: list[str]) -> str:
-    """The drive job set that makes a reader or design whose kept report already holds the block research of these parts, by readers, with no second reader restating it: one of another order carrying them, or one of this order holding them."""
+    """The drive job set that makes another order's reader or design whose kept report already holds the block research of these parts, by readers, with no second reader restating it: it carries them."""
     return (
-        "a reader or design that already kept that block on this work, on another order or this one, is this part's research once it holds the part,"
-        f" with no second reader: drive job set <that reader or design> --carries {order_id} {part_flags(parts)} for another order's,"
-        f" drive job set <that reader or design> {part_flags(parts)} for one of {order_id}"
+        f"a reader or design of another order that already kept that block on this work is this part's research once it carries the part, with no second reader:"
+        f" drive job set <that reader or design> --carries {order_id} {part_flags(parts)}"
     )
 
 
