@@ -564,10 +564,14 @@ PR checks that everyone hits".
   [the records page](records.md). Its freeze names its job, with `tools/ci release freeze --with-staging
   --holder <drive>/<job>` once on `dev`, by his pick e3c9bbd, "The freeze names its job; soak, Mac box proof, agent
   proof, pass-box run, cluster job and break-glass refuse another job's freeze".
-- **What holds the PR.** The pass the merge requires is the drive's, never GitHub's: each PR waits on a
-  part of its own, `<order>:staging test of #N before it lands`, added with `drive order set <order>
-  --add-part "staging test of #N before it lands"`, never on the testing job, so the lander lands it once that job's `DONE` keeps the test's proof
-  as its first `CHECK:` line, by [the jobs page](jobs.md). The monorepo hooks into the drive through its
+- **What holds the PR.** The pass the merge requires is the drive's, never GitHub's. The one step is the
+  builder's: its `READY` or `PUSHED` naming a Forge-AI/monorepo PR carries `STAGING: #N <cases>`, which
+  `drive job report` turns into the part `<order>:staging test of #N before it lands`, the PR's wait on
+  it and its tester, never a wait on the testing job, so the lander lands it once that tester's `DONE`
+  keeps the test's proof as its first `CHECK:` line, by [the jobs page](jobs.md). That pass takes back an
+  Approve he gave before it, on every open PR waiting on the part, and his card asks again, so only an
+  Approve he gives after the pass lands the PR, by 27ea387, "merging or rleasing dangerous things should
+  only be done wehn the human is present". The monorepo hooks into the drive through its
   `.claude/long-running.toml`, never through CI.
 
 ## Before any change FDEs could see

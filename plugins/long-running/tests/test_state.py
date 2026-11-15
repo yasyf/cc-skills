@@ -1395,6 +1395,31 @@ def test_a_full_pass_by_the_builder_of_the_pr_it_tests_delivers_its_staging_part
     assert [held, (data["jobs"]["j1"]["state"], staging_reads(data))] == [("waiting", (True, PROOF, "j1")), ("done", (True, PROOF, "j1"))]
 
 
+APPROVE = {"label": "Approve", "at": "2026-11-14T10:30:00-08:00", "head": "aaaaaaa111", "source": "slack", "picks": {}}
+
+
+def test_a_staging_tests_full_pass_takes_back_his_approve_given_before_it_on_each_open_pr_its_part_holds_so_only_an_approve_after_it_lands_the_pr(state_root: Path) -> None:
+    data = staging_drive("j1")
+    data["jobs"] |= {job_id: state.new_job("o1", "builder", "ship the writer", [], "2026-11-14T10:00:00-08:00") for job_id in ("j2", "j3")}
+    data["orders"]["o1"]["jobs"] += ["j2", "j3"]
+    tested, other = f"{MONOREPO}#42", f"{MONOREPO}#43"
+    data["prs"] = {
+        tested: state.new_pr(state.pr_url(tested), "j2", "o1") | {"tap": dict(APPROVE), "waits": [f"o1:{STAGING}"]},
+        other: state.new_pr(state.pr_url(other), "j3", "o1") | {"tap": dict(APPROVE)},
+    }
+    staging_return(data, "j1", "DONE #42 failed a case", "CASE a rollback refused: fail: the rollback went through\n")
+    failed = [data["prs"][key]["tap"] for key in (tested, other)]
+    staging_return(data, "j1", "DONE every case of #42 passed", "CASE a rollback refused: pass\n")
+    taken = (data["prs"][tested]["tap"], data["prs"][tested]["fundamental"], data["prs"][other]["tap"])
+    data["prs"][tested].update(tap=dict(APPROVE), fundamental=None)
+    staging_return(data, "j1", "DONE every case of #42 passed", "CASE a rollback refused: pass\n")
+    assert (failed, taken, data["prs"][tested]["tap"]) == (
+        [APPROVE, APPROVE],
+        (None, f"its staging test passed after your Approve, so only an Approve you give now lands it: {PROOF}", APPROVE),
+        APPROVE,
+    )
+
+
 def test_a_drive_saved_delivering_staging_test_parts_by_any_done_keeps_each_only_on_the_newest_tester_whose_full_pass_named_its_proof_once_as_j4832s_j4937s_and_j5048s_were_not(
     state_root: Path,
 ) -> None:
