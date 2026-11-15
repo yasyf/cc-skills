@@ -3303,7 +3303,7 @@ def test_a_resume_of_a_sprite_job_whose_brief_gained_a_mac_line_sends_its_live_w
         f"stopped {DISPATCH}\nj1: the message went to the job's next worker, relaunched in a fresh worktree on this Mac as dispatch dispatch-2 in a handoff"
         " carrying its brief, its branch, its last line, its report and its PRs; its lane on Sprite pool-one was stopped (its worker returned its line"
         " and still takes messages there), and what pool-one held on no remote is saved on GitHub as saved/demo-j1/wip at 1a2b3c4d5e;"
-        f" it moved to this Mac, since its brief, its last report or the message declares {J4455_STEP}, a step only this Mac runs",
+        f" it moved to this Mac, since its brief declares {J4455_STEP}, a step only this Mac runs",
     )
     assert (reclaimed, launched["route"], launched["workspace"], kept_transcripts) == ([(RUN, DISPATCH)], state.LOCAL_ROUTE, None, [("j1", DISPATCH)])
     assert f"which you act on now:\n\n{text}" in orca.brief_of(launched["brief"])
@@ -3388,7 +3388,7 @@ def test_a_resume_of_a_running_sprite_job_that_builds_nothing_and_declares_a_mac
     assert (code, out.splitlines()[0], reclaimed, launched["route"]) == (0, f"stopped {DISPATCH}", [(RUN, DISPATCH)], state.LOCAL_ROUTE)
     assert "relaunched in a fresh worktree on this Mac as dispatch dispatch-2" in out
     assert "its lane on Sprite pool-one was stopped (its worker was still at work there)" in out
-    assert out.endswith(f"; it moved to this Mac, since its brief, its last report or the message declares {J4507_STEP}, a step only this Mac runs")
+    assert out.endswith(f"; it moved to this Mac, since its brief declares {J4507_STEP}, a step only this Mac runs")
     job = state.load(remote)["jobs"]["j1"]
     assert (job["route"], job["dispatch"], state.SLOT_WAIT in job["waits"], kept_transcripts) == (state.LOCAL_ROUTE, "dispatch-2", False, [("j1", DISPATCH)])
 
@@ -3435,18 +3435,18 @@ J1134_PROVE = "PROVE: after that release, db-read `SELECT session_type, count(*)
         (
             None,
             f"READY https://github.com/Forge-AI/monorepo/pull/1134\n{J1134_PROVE}\nMac: ci db-read of the sessions created two days ago",
-            "ci db-read of the sessions created two days ago",
+            None,
         ),
         (
             None,
             f"READY https://github.com/Forge-AI/monorepo/pull/865\n{J865_PROVE}\nMac: a signed-in Iris chat on this Mac runs sand iris",
-            "a signed-in Iris chat on this Mac runs sand iris",
+            None,
         ),
         (None, f"READY https://github.com/Forge-AI/monorepo/pull/865\n{J865_PROVE}", None),
     ],
     ids=["j738-brief", "j1134-report", "j865-report", "undeclared"],
 )
-def test_a_resume_of_a_dead_sprite_lane_relaunches_it_here_exactly_when_its_brief_or_last_report_declares_a_step_only_this_mac_runs(
+def test_a_resume_of_a_dead_sprite_lane_relaunches_it_here_exactly_when_its_brief_declares_a_step_only_this_mac_runs_never_its_last_reports_mac_line(
     run: Run,
     remote: str,
     tmp_path: Path,
@@ -3470,7 +3470,7 @@ def test_a_resume_of_a_dead_sprite_lane_relaunches_it_here_exactly_when_its_brie
     code, out = run("job", "resume", "j1", "Handoff: the release is live; prove it")
     held = "its lane on Sprite sprite-old was dead (its worker exited), and what sprite-old held on no remote is saved on GitHub as saved/demo-j1/wip at 1a2b3c4d5e"
     where = "in a fresh worktree on this Mac" if declared else "on Sprite workspace-2"
-    moved = f"; it moved to this Mac, since its brief, its last report or the message declares {declared}, a step only this Mac runs" if declared else ""
+    moved = f"; it moved to this Mac, since its brief declares {declared}, a step only this Mac runs" if declared else ""
     assert (code, out) == (
         0,
         f"j1: the message went to the job's next worker, relaunched {where} as dispatch dispatch-2 in a handoff carrying its brief, its branch,"
@@ -3479,6 +3479,71 @@ def test_a_resume_of_a_dead_sprite_lane_relaunches_it_here_exactly_when_its_brie
     route = state.LOCAL_ROUTE if declared else None
     assert (launched["lane"], launched["route"], state.load(remote)["jobs"]["j1"]["route"]) == ("demo-j1-2", route, route)
     assert report in orca.brief_of(launched["brief"])
+
+
+def eight_builders_here(run: Run) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "build the parts", "--parts", *(f"part {number}" for number in range(1, 9)))
+    for number in range(1, 9):
+        run("job", "add", "builder", "--order", "o2", "--part", f"part {number}", "--goal", f"build part {number}", "--agent", f"b{number}")
+
+
+def test_a_pr_wake_of_a_red_pr_reaches_its_live_sprite_worker_while_eight_builders_hold_this_macs_slots_though_its_last_report_names_a_mac_step(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first = tmp_path / "first.md"
+    first.write_text(orca.vm_brief(remote, "j1", "Order (his words): sweep the stale sessions\nDrive: demo, order o1, job j1", None))
+    url = "https://github.com/Forge-AI/monorepo/pull/1134"
+    key = state.pr_key(url)
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(brief=str(first), prs=[url])
+        data["prs"][key] = state.new_pr(url, "j1", "o1")
+    report = f"READY {url}\n{J1134_PROVE}\nMac: ci db-read of the sessions created two days ago"
+    state.keep_report(remote, "j1", report.splitlines()[0], report)
+    eight_builders_here(run)
+    sent = []
+    monkeypatch.setattr(orca, "call", lambda *args: sent.append(args) or {})
+    monkeypatch.setattr(orca, "worker", lambda dispatch: LIVE_WORKER)
+    monkeypatch.setattr(orca, "reclaim", lambda *args: pytest.fail("a wake to a live Sprite lane its brief places there stops nothing"))
+    monkeypatch.setattr(orca, "launch", lambda *args: pytest.fail("a wake to a live Sprite lane its brief places there starts no worker"))
+    line = f"PR {key}: checks failed [o1 j1]"
+    assert run("pr", "wake", url, "--text", line) == (0, f"{key}: j1 {queued(DISPATCH)}")
+    assert [args[:9] for args in sent] == [("send", "--to", f"dispatch:{DISPATCH}", "--run", RUN, "--subject", f"{key}: its next step is yours", "--body", line)]
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["route"], job["dispatch"], job["waits"]) == (None, DISPATCH, [])
+
+
+def test_a_resume_of_an_agent_here_whose_brief_declares_a_mac_step_while_eight_builders_hold_this_macs_slots_holds_its_text_and_takes_over_at_its_turn(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    launched = agent_on_this_mac(run, demo, tmp_path, monkeypatch, ENDED_TURN, timedelta(seconds=30))
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["waits"] = []
+    brief = Path(state.load(demo)["jobs"]["j1"]["brief"])
+    brief.write_text(brief.read_text() + "Mac: proves the desktop change on a Mac box with ci mac-box prove\n")
+    eight_builders_here(run)
+    text = "PR #54870: checks failed"
+    assert cli.main(["job", "resume", "j1", text]) == 2
+    err = capsys.readouterr().err
+    assert err.startswith("drive: j1: refused, not launched: 8 builders already run on this Mac, its cap of 8 (j2 on o2, its agent b1 last wrote at ")
+    assert err.endswith(
+        "so j1 waits its turn for a builder slot on this Mac, 1 of 1 in line, and the watch hands it from its agent a1 to a lane here with drive job launch j1 --local"
+        " as its turn comes, its handoff carrying the texts the job holds\n"
+    )
+    data = state.load(demo)
+    job = data["jobs"]["j1"]
+    assert (launched, job["state"], job["waits"], job["agent"], [held["words"] for held in job["undelivered"]]) == ([], "waiting", [state.SLOT_WAIT], "a1", [text])
+    assert (place.waiting_builders(data), "j1" in place.local_builders(data, state.now())) == (["j1"], False)
+    with state.edit(demo) as data:
+        data["jobs"]["j2"]["state"] = "done"
+    detached: list[list[str]] = []
+    monkeypatch.setattr(state, "detach", lambda name, args, log: detached.append(args) or os.getpid())
+    moment = state.now()
+    watching = watch.Watcher(demo, offset=state.events_end(demo))
+    assert watch.waits_lines(watching, moment) == []
+    data = state.load(demo)
+    assert (detached, data["jobs"]["j1"]["waits"], data["jobs"]["j1"]["slot"]) == ([["job", "launch", "j1", "--local"]], [], state.stamp(moment))
+    assert place.local_builders(data, moment)["j1"] == f"j1 on o1, its turn to take over from its agent a1 came at {render.when(state.stamp(moment), seconds=True)}, its lane here not started yet"
+    assert place.crowded(data, "j1", moment) is None
 
 
 def test_a_takeover_of_a_job_whose_earlier_lanes_kept_their_attempts_starts_a_fresh_attempt_as_j795_needed(

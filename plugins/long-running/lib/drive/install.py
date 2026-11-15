@@ -915,9 +915,12 @@ def merged_done(name: str, data: dict, job_id: str) -> None:
     state.rewait(job, [])
 
 
-def add_prover(data: dict, job_id: str, reach: dict[str, dict], parts: dict[str, list[str]], staged: set[str]) -> str:
-    """Hand a builder whose PRs all merged outside yasyf/* to the builder proving them live on the release holding each merge, so each merged PR has one: each PR's prover, by prover_of, takes its parts, each list under the order holding it, the first order its own, and one no agent or lane took yet also takes the PRs it lacks and a merge handoff, or one proving them by their tests passing on dev when every PR changes only tests or CI config, by cli.release_reach's answer in reach; while a PR has no prover and none of theirs can take it, a new one, marked as building nothing, so it holds no builder slot, goes on those parts in the merged job's session on its brief flags, its Done when drive job prove's, its handoff naming each path its PRs change on go/ci's dev list, which a checkout of dev runs. A PR with no staging test before its merge, by state.staging_tested, releasing a target in staged, those tools/ci release live reads running on state.STAGING_ENV, gets a new prover, its handoff owing its after-merge staging pass on those targets first. A prover waits on no release the drive sets: it starts at the merge and sets its own release wait once it reads release live. That prover's id."""
+def add_prover(name: str, data: dict, job_id: str, reach: dict[str, dict], parts: dict[str, list[str]], staged: set[str]) -> str:
+    """Hand a builder whose PRs all merged outside yasyf/* to the builder proving them live on the release holding each merge, so each merged PR has one: each PR's prover, by prover_of, takes its parts, each list under the order holding it, the first order its own, and one no agent or lane took yet also takes the PRs it lacks and a merge handoff, or one proving them by their tests passing on dev when every PR changes only tests or CI config, by cli.release_reach's answer in reach; while a PR has no prover and none of theirs can take it, a new one, marked as building nothing, so it holds no builder slot, goes on those parts in the merged job's session on its brief flags, its Done when drive job prove's, its handoff naming each path its PRs change on go/ci's dev list, which a checkout of dev runs. A PR with no staging test before its merge, by state.staging_tested, releasing a target in staged, those tools/ci release live reads running on state.STAGING_ENV, gets a new prover, its handoff owing its after-merge staging pass on those targets first. A prover waits on no release the drive sets: it starts at the merge and sets its own release wait once it reads release live. The Mac: line of the merged job's newest return holding one, the step only this Mac runs that its PROVE: line needs, joins the Mac: flag of the prover a new or unstarted one gets, so that prover's brief places it here, while the merged job's own next lane goes where its brief alone places it. That prover's id."""
+    from drive import brief
+
     job = data["jobs"][job_id]
+    mac = next((step[1].strip() for taken in state.returns(name, job_id) if (step := brief.MAC.search(taken["body"]))), None)
     merges = merges_of(data, job_id)
     found = list(dict.fromkeys(filter(None, (prover_of(data, key) for key in merges))))
     keys = [key for key in merges if not prover_of(data, key)]
@@ -945,14 +948,14 @@ def add_prover(data: dict, job_id: str, reach: dict[str, dict], parts: dict[str,
     )
     lead = None if stagings else next((builder_id for builder_id in found if state.untaken(data["jobs"][builder_id])), None)
     for builder_id in found:
-        widen(data, builder_id, parts, *((keys, handoff) if builder_id == lead else ([], None)))
+        widen(data, builder_id, parts, *((keys, {"handoff": handoff, "mac": mac}) if builder_id == lead else ([], {})))
     if lead or not keys:
         return lead or found[0]
     (order_id, own), *carried = parts.items()
     builder_id = state.next_id(data["jobs"], "j")
     builder = data["jobs"][builder_id] = state.new_job(order_id, "builder", f"prove {', '.join(keys)} live", own, state.stamp()) | {
         "session": job.get("session"),
-        "brief_flags": (job.get("brief_flags") or {}) | {"handoff": handoff, "done_when": f"drive job prove {builder_id} runs your proof file and keeps its passing output as reports/{builder_id}.proof.txt, {PROVER_WAIT}"},
+        "brief_flags": joined((job.get("brief_flags") or {}) | {"handoff": handoff, "done_when": f"drive job prove {builder_id} runs your proof file and keeps its passing output as reports/{builder_id}.proof.txt, {PROVER_WAIT}"}, {"mac": mac}),
         "builds_nothing": True,
     }
     data["orders"][order_id]["jobs"].append(builder_id)
@@ -961,8 +964,8 @@ def add_prover(data: dict, job_id: str, reach: dict[str, dict], parts: dict[str,
     return builder_id
 
 
-def widen(data: dict, builder_id: str, parts: dict[str, list[str]], keys: list[str], handoff: str | None) -> None:
-    """Give a prover more parts, each list under the order holding it, and, while no agent or lane took it, the PRs keys in its goal and a handoff it lacks, so one prover proves each merged PR live; a prover at work or done takes the parts alone, its DONE delivering them."""
+def widen(data: dict, builder_id: str, parts: dict[str, list[str]], keys: list[str], flags: dict[str, str | None]) -> None:
+    """Give a prover more parts, each list under the order holding it, and, while no agent or lane took it, the PRs keys in its goal and each brief flag value it lacks, its handoff and Mac: step, so one prover proves each merged PR live; a prover at work or done takes the parts alone, its DONE delivering them."""
     builder = data["jobs"][builder_id]
     for order_id, held in parts.items():
         state.deliver(data, builder_id, order_id, held)
@@ -970,9 +973,14 @@ def widen(data: dict, builder_id: str, parts: dict[str, list[str]], keys: list[s
         return
     if keys:
         builder["goal"] = f"prove {', '.join([*proves(data, builder_id), *keys])} live"
-    flags = builder.get("brief_flags") or {}
-    if handoff and handoff not in (flags.get("handoff") or ""):
-        builder["brief_flags"] = flags | {"handoff": "; ".join(filter(None, [flags.get("handoff"), handoff]))}
+    held = builder.get("brief_flags") or {}
+    if (flagged := joined(held, flags)) != held:
+        builder["brief_flags"] = flagged
+
+
+def joined(held: dict, flags: dict[str, str | None]) -> dict:
+    """Brief flags held, each value given that a held one does not already carry joined after it."""
+    return held | {flag: "; ".join(filter(None, [held.get(flag), value])) for flag, value in flags.items() if value and value not in (held.get(flag) or "")}
 
 
 def prover_of(data: dict, key: str) -> str | None:

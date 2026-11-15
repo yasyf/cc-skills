@@ -4,7 +4,7 @@ import sys
 import time
 from datetime import datetime
 
-from drive import agents, brief, state, view, watch
+from drive import agents, brief, orca, state, view, watch
 from drive.render import when
 
 LIMIT_ENV = "HOOKS_ADMISSION_LOAD_PER_CORE"
@@ -45,8 +45,9 @@ def limit() -> float:
 
 
 def mac_step(text: str) -> str | None:
-    """The step only this Mac runs that a brief declares, as written: its Mac: line, which its writer gives drive job brief --mac for a step that signs in with this Mac's machine profile or Buildkite token, or that reaches this Mac's Claude Code or the drive's dashboard, else its Release: line, since a release starts with this Mac's Buildkite token; None for neither. No other words of a brief place its job, since its fields quote where his words were typed and what earlier jobs found."""
-    found = brief.MAC.search(text) or brief.RELEASE.search(text)
+    """The step only this Mac runs that a brief declares, as written: its Mac: line, which its writer gives drive job brief --mac for a step that signs in with this Mac's machine profile or Buildkite token, or that reaches this Mac's Claude Code or the drive's dashboard, else its Release: line, since a release starts with this Mac's Buildkite token; None for neither. No other words of a brief place its job, since its fields quote where his words were typed and what earlier jobs found, nor any of a takeover section after it, which quotes an earlier lane's report, whose Mac: line places the prover install.add_prover hands its merge to, and the messages it never read."""
+    own = orca.brief_of(text).partition(orca.TAKING_OVER)[0]
+    found = brief.MAC.search(own) or brief.RELEASE.search(own)
     return found[1].strip() if found else None
 
 
@@ -66,7 +67,7 @@ def at_cap(builders: dict[str, str]) -> str:
 
 
 def local_builders(data: dict, moment: datetime) -> dict[str, str]:
-    """The builders holding a slot on this Mac, each job beside its order and its agent's or lane's last write: a job here the agent_brief hook let start or the watch's FREE line gave its turn for a slot whose agent has not started yet, a job on a Sprite whose turn to move here came within the time a launch takes and whose lane here has not started, an agent here still in its turn, or an Orca lane started with --local that launches or has not ended. A builder that builds nothing, by state.builds_nothing, such as a merged PR's live proof, holds no checkout or compiler, so it holds no slot."""
+    """The builders holding a slot on this Mac, each job beside its order and its agent's or lane's last write: a job here the agent_brief hook let start or the watch's FREE line gave its turn for a slot whose agent has not started yet, a job on a Sprite, or one taking over from its agent here, whose turn to move here came within the time a launch takes and whose lane here has not started, an agent here still in its turn, or an Orca lane started with --local that launches or has not ended. A builder that builds nothing, by state.builds_nothing, such as a merged PR's live proof, holds no checkout or compiler, so it holds no slot."""
     return {
         job_id: f"{job_id} on {job['order']}, {work}"
         for job_id, job in data["jobs"].items()
@@ -75,8 +76,9 @@ def local_builders(data: dict, moment: datetime) -> dict[str, str]:
 
 
 def at_work_here(job_id: str, job: dict, data: dict, moment: datetime) -> str | None:
-    if on_sprite(job):
-        return f"its turn to move here from its Sprite came at {when(slot, seconds=True)}, its lane here not started yet" if (slot := job.get("slot")) and moment - state.parse_time(slot) < watch.RELAUNCH else None
+    if moves_here(job):
+        move = "move here from its Sprite" if on_sprite(job) else f"take over from its agent {job['agent']}"
+        return f"its turn to {move} came at {when(slot, seconds=True)}, its lane here not started yet" if (slot := job.get("slot")) and moment - state.parse_time(slot) < watch.RELAUNCH else None
     if job.get("where") != "remote" and not job["agent"] and watch.launching(job, moment):
         return f"its agent launching since {when(job['launching'], seconds=True)}"
     if job["state"] == "waiting":
@@ -148,17 +150,24 @@ def queueable(data: dict, job_id: str) -> bool:
 
 
 def queue(job: dict, moment: datetime) -> None:
-    """Hold a builder job waiting its turn for a slot on this Mac on builder-slot: one no agent or lane runs waiting, so the watch reads it waiting, never abandoned, until its FREE line names it, and one moving here from its Sprite in the state its lane there set, that lane running on, until the watch's turn starts its move."""
+    """Hold a builder job waiting its turn for a slot on this Mac on builder-slot: one no agent or lane runs, or one taking over here from its agent on this Mac, waiting, so the watch reads it waiting, never abandoned, until its FREE line names it or its turn starts the takeover, and one moving here from its Sprite in the state its lane there set, that lane running on, until the watch's turn starts its move."""
     waits = list(dict.fromkeys([*job["waits"], state.SLOT_WAIT]))
     if on_sprite(job):
         job.update(waits=waits, slot=None, updated=state.stamp(moment))
         return
-    job.update(state="waiting", where="local", waits=waits, said="waits its turn for a builder slot on this Mac", updated=state.stamp(moment))
+    job.update(state="waiting", where="local", waits=waits, slot=None, said="waits its turn for a builder slot on this Mac", updated=state.stamp(moment))
 
 
 def on_sprite(job: dict) -> bool:
     """Whether the job's lane runs on a Sprite, so a start here moves it from there."""
     return job.get("where") == "remote" and bool(job.get("dispatch")) and not state.on_mac(job)
+
+
+def moves_here(job: dict) -> bool:
+    """Whether a start here takes the job over from the worker it has, so the watch's turn starts it itself with drive job launch <j> --local: its lane on a Sprite, or its agent on this Mac, held on builder-slot only by a takeover crowded_here refused at the cap, or given its turn since that agent last started."""
+    if on_sprite(job):
+        return True
+    return job.get("where") == "local" and bool(job.get("agent")) and (state.SLOT_WAIT in job["waits"] or bool(job.get("slot")) and not state.started_after(job, job["slot"]))
 
 
 def turns(data: dict, moment: datetime) -> tuple[list[str], int]:
