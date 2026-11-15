@@ -217,9 +217,14 @@ session makes its parts `ORPHAN`s.
 
 ## Start one on a Sprite
 
-1. Make the same `job` call with `remote: true` on its `add`, then run `drive job launch <j>` from
-   the monorepo checkout's root with `run_in_background: true`, which sends its brief. A local job
-   no agent holds launches the same way.
+1. Add the job with a `job` call holding its `add` alone, `remote: true` on it, then brief and start
+   it in one command, `drive job launch <j> --serves "<…>" --done-when "<…>" --where "<repo and branch>"`,
+   with any other `drive job brief` flag it takes, from the monorepo checkout's root with
+   `run_in_background: true`. It writes the brief from those flags before it starts anything, so a
+   flag that fails to parse or that the brief's checks refuse starts no worker, where a brief call
+   and a launch run one after the other start the lane on a brief missing the refused call's lines.
+   Words holding quotes, such as his words in a `--handoff`, go in as `--handoff "$(cat <<'EOF'`,
+   the words, then `EOF` and `)"`. A local job no agent holds launches the same way.
 2. It starts the builder through the `orca` skill's launcher as an Orca worker on a Sprite, on an
    Orca Run of its own that only this drive's watch reads, and its notification says where it
    started or why it could not.
