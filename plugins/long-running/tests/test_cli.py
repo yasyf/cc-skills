@@ -3946,13 +3946,12 @@ def test_job_ask_hands_jev_his_order_from_his_slack_message_and_his_thread_words
     block = tmp_path / "ask.md"
     block.write_text(SHORT_ASK)
     assert run("job", "ask", "j1", str(block))[0] == 0
-    assert [(word_id, word["said"]) for word_id, word in handed(jev.asked[0]).items() if not word_id.startswith(("ruling:", "words:"))] == [("p1794200000000100", his)]
+    assert [(word_id, word["said"]) for word_id, word in handed(*jev.asked).items() if not word_id.startswith(("ruling:", "words:"))] == [("p1794200000000100", his)]
 
 
-def handed(request: dict) -> dict[str, dict]:
-    """Each of his words or rulings a card's request hands Jev, by its id, as the `words` slot its Nouls name holds it."""
-    slots = {key.partition(".")[2]: found[1] for key, noul in request["questions"].items() if (found := re.search(r"`words\.(w\d+)\.", noul.ask))}
-    return {word_id: request["state"]["words"][slot] for word_id, slot in slots.items()}
+def handed(*requests: dict) -> dict[str, dict]:
+    """Each of his words or rulings a card's requests hand Jev, by its id, as the `words` slot its Nouls name holds it, in whichever request `settled.batched` put it."""
+    return {key.partition(".")[2]: request["state"]["words"][found[1]] for request in requests for key, noul in request["questions"].items() if (found := re.search(r"`words\.(w\d+)\.", noul.ask))}
 
 
 def test_job_ask_keeps_a_card_whose_option_his_words_rule_out_and_prints_jevs_finding_to_the_agent(
@@ -4009,7 +4008,7 @@ def test_job_ask_hands_jev_the_words_of_his_an_order_the_drive_wrote_quotes(
     block = tmp_path / "ask.md"
     block.write_text(SHORT_ASK)
     assert run("job", "ask", "j1", str(block))[0] == 0
-    assert handed(jev.asked[0])["o1"]["said"] == '"keep each finished snapshot 30 days"'
+    assert handed(*jev.asked)["o1"]["said"] == '"keep each finished snapshot 30 days"'
 
 
 WAIT_RULING = {
@@ -4033,7 +4032,7 @@ def test_job_ask_reads_his_recorded_answers_ccn_ranks_nearest_and_a_card_asking_
     advice = capsys.readouterr().err
     assert f'as breaking 9992100, {WAIT_RULING["asked"]}, "{WAIT_RULING["said"]}". This finding refuses no card' in advice
     assert f'drive job ask: kept the card unsettled as "9992100: {settled.MARKED.format(option="the recommended option")}", asking him to lift 9992100, {WAIT_RULING["asked"]}, so it holds its PR' in advice
-    assert handed(jev.asked[-1])[WAIT_RULING["id"]] == {"asked": WAIT_RULING["asked"], "said": WAIT_RULING["said"]}
+    assert handed(*jev.asked)[WAIT_RULING["id"]] == {"asked": WAIT_RULING["asked"], "said": WAIT_RULING["said"]}
     question = state.load("demo")["jobs"]["j3"]["questions"][-1]
     assert (question["unsettled"], land.ship_held(state.load("demo"), "j3")) == (f"9992100: {settled.MARKED.format(option="the recommended option")}", [question["card"]])
     unsettled = "9992100: this card asks whether the incident overrides his wait"
@@ -4188,6 +4187,24 @@ def test_job_ask_draws_a_cited_answer_whose_order_the_recommended_option_starts_
     advice = capsys.readouterr().err
     assert ("orders the recommended option's" in advice, f'kept the card unsettled as "7ab1e20: {settled.MARKED.format(option="the recommended option")}"' in advice) == (False, True)
     assert state.load(demo)["jobs"][builder]["questions"][-1]["ordered"] == []
+
+
+def test_job_ask_draws_no_card_when_an_order_its_job_carries_says_ask_him_nothing_unless_the_card_asks_a_step_his_rules_keep_for_him(
+    run: Run, demo: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], jev: Jev
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "chat turns run out of memory on plat")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", 'adopt the stale lane, "Do this autonomously without asking me anything"')
+    run("job", "add", "builder", "--order", "o1", "--goal", "move js_func into its own helper process")
+    assert run("job", "set", "j1", "--carries", "o2")[0] == 0
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK)
+    jev.breaks("unasked", "o2")
+    assert cli.main(["job", "ask", "j1", str(block)]) == 2
+    assert settled.UNASKED.format(said='"Do this autonomously without asking me anything"', job="j1") in capsys.readouterr().err
+    assert state.load(demo)["jobs"]["j1"]["questions"] == []
+    jev.breaks("owed", "")
+    assert cli.main(["job", "ask", "j1", str(block)]) == 0
+    assert len(state.load(demo)["jobs"]["j1"]["questions"]) == 1
 
 
 def test_his_recorded_answers_reach_jev_as_ccn_ranks_them_nearest_to_the_whole_block_his_words_alone_never_a_tap_approving_a_pr(
@@ -11103,6 +11120,11 @@ def test_jev_names_the_recorded_answer_or_ruling_it_reads_at_yes_for_the_recomme
     assert capsys.readouterr().err.startswith(f'drive job ask: Jev is unsure whether option "{asked.options[0]}" goes against 7a1c0de')
     jev.picks("7a1c0de", 0.7)
     assert settled.judged(case, asked, [NOT_SPECIAL], [cited], {})[0] == (cited, "the recommended option")
+    capsys.readouterr()
+    jev.breaks("awaited", "7a1c0de")
+    assert settled.judged(case, asked, [NOT_SPECIAL], [cited], {})[0] is None
+    advice = capsys.readouterr().err
+    assert (settled.CARRIED.format(id="7a1c0de", asked=cited["asked"], said=cited["said"]) in advice, "breaking 7a1c0de" in advice, "against 7a1c0de" in advice) == (True, False, False)
 
 
 def test_jev_names_a_ruling_another_option_breaks_at_yes_beside_that_option_after_the_recommended_options_own(jev: Jev) -> None:

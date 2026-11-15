@@ -153,13 +153,13 @@ question, copies only in the same words: no wrong skips; each skip below becomes
 once kept settled with no card on another answer of his draws its card when its job asks it again.
 An answer he gives later still settles the older cards it decides, through `drive answer`.
 
-Every other question Jev reads in one request of at most 10,000 characters against his words on the
-order and his messages about it in its thread, without the lines he quoted from an alert or another's
-message. The request holds the card whole, then, filled by whole items while it fits, the recorded
-answers the card cites, his rulings beside them, then his other words, with one yes-or-no question
-for each option and each of his words that could rule it out, and Jev answers each as a probability
-of yes: code reads 0.7 or more as a finding, under 0.3 as none, and the band between as unsure,
-printed for the agent to weigh. It prints to the
+Every other question Jev reads in one request of at most 10,000 characters against his words on each
+order its job works and his messages about it in its thread, without the lines he quoted from an alert
+or another's message. The request holds the card whole, then, filled by whole items while it fits, the
+recorded answers the card cites, his rulings beside them, then his other words, with one yes-or-no
+question for each option and each of his words that could rule it out, and Jev answers each as a
+probability of yes: code reads 0.7 or more as a finding, under 0.3 as none, and the band between as
+unsure, printed for the agent to weigh. It prints to the
 agent each option they rule out and each amount or choice they name that the card offers no tap
 for, by his words "You didn't give me a tap for 30 day bonding how many times do I have to say this",
 naming each part and the words it breaks, and keeps the card, by his pick 320b7a7 "Advisory judge: drive job ask keeps every well-shaped card and prints Jev's finding to the agent; no card is refused on merits".
@@ -175,7 +175,15 @@ the recommended option names in backticks is his order carried out, never words 
 offers it as its Already answered tap, and the verb prints that his one tap settles the card and
 `drive job add --release "<release> --order <id>"` starts that release, by his pick 1bd8a74 "Your
 cited answer as a tap on the card: one tap settles it, nothing skipped unseen"
-([landing.md](landing.md#after-merge)). A tap approving a PR settles only that PR's landing. A block a refusal stops
+([landing.md](landing.md#after-merge)). Jev also reads, one yes-or-no question each, whether a
+cited answer made a step wait for something, such as a PR that waits for its own preview, that the
+card shows has now come. A card bringing what that answer waited for, read 0.7 or more, carries it
+out: no mark or finding names it. It also reads
+his words on every order the job works. When one tells the job to ask him nothing, as "Do
+this autonomously without asking me anything" does, the verb draws no card. It tells the agent to
+build the recommended option and quote those words on `RULINGS:`. That is his instruction for the
+work, not a reading of the card's merits. A card asking him to land a PR, release to production or
+post as him still draws. A tap approving a PR settles only that PR's landing. A block a refusal stops
 stays kept under `asks/` as the job's pending question with its refusal. No card draws from it,
 and `drive status` lists it refused. The watch says its job waits on a
 card never posted until the job asks it again, in its words or others sharing three rare words, or

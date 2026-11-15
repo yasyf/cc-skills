@@ -1231,7 +1231,7 @@ class Jev:
     picked: dict[str, str] = field(default_factory=dict)
 
     def picks(self, choice: str, probability: float = 0.9) -> None:
-        """Jev answers again, and every Noul whose key holds choice as one of its dotted parts reads yes at probability; none clears it."""
+        """Jev answers again, and every Noul whose key holds choice as one of its dotted parts reads yes at probability, but an awaited or unasked one, whose yes clears a mark or refuses the card, which only `breaks` sets; none clears it."""
         self.answer = 0.05
         self.chosen = None if choice == "none" else (choice, probability)
 
@@ -1265,7 +1265,7 @@ class Jev:
             return self.speaks.get(state["notes"][about.partition(".")[0]]["id"], 0.05)
         if key == "preference":
             return self.preference
-        if self.chosen and self.chosen[0] in key.split("."):
+        if self.chosen and self.chosen[0] in key.split(".") and question not in {"awaited", "unasked"}:
             return self.chosen[1]
         return self.answer
 
