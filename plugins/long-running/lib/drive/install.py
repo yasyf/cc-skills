@@ -755,21 +755,18 @@ def plugin_copies_first() -> str:
 
 
 def await_ci(merges: dict[str, str]) -> bool:
-    """Follow each workflow that ran on a merge's commit on its repository's default branch until one of its runs from that one on passed on a commit holding the merge, as ci_judged reads it and drive pr ci judges the merge, however many of those runs failed or were cancelled before it, since each run on that branch tests the merge again beside every merge after it. The runs are read again each time the receiver hears a workflow run complete on that branch, the repository hooked first when no hook of the receiver's sends those, and a read that fails is said and read again within POLL_SECONDS; no deadline cuts the wait, since the next push's run tests the merge again, so a proof waits through a red default branch until it passes. Whether a read found a workflow with no such pass yet."""
+    """Follow the CI of the push that carried each merge onto its repository's default branch until it passed the merge, as pushed_ci judges it and drive pr ci prints it, however many runs or statuses failed or were cancelled before it, since each one on that branch tests the merge again beside every merge after it; a merge no CI reported on, on its commit or any commit after it, waits on nothing. The verdict is read again each time the receiver hears a workflow run complete on that branch, the repository hooked first when no hook of the receiver's sends those, and a read that fails is said and read again within POLL_SECONDS; no deadline cuts the wait, since the next push's CI tests the merge again, so a proof waits through a red default branch until it passes. Whether a read found CI that had not passed the merge yet."""
     from drive import receiver
 
     waited = False
     for key, sha in merges.items():
-        repo, triggered, last = key.partition("#")[0], None, ""
+        repo, last = key.partition("#")[0], ""
         while True:
             heard, failed = receiver.heard(repo, "ci"), False
             try:
                 if receiver.unhooked({repo}):
                     receiver.hook(repo)
-                branch = github.default_branch(repo)
-                if triggered is None:
-                    triggered = ci_runs(repo, "runs", f"branch={branch}&head_sha={sha}")
-                if not (unpassed := [line for line, passed in ci_judged(repo, sha, branch, triggered) if not passed]):
+                if not (unpassed := [line for line, passed in pushed_ci(repo, sha) if not passed]):
                     break
                 waiting, waited = ", ".join(unpassed), True
             except github.GithubError as error:
@@ -790,17 +787,30 @@ def ci_runs(repo: str, listed: str, query: str) -> list[dict]:
 
 
 def ci_passed(run: dict) -> bool:
-    return run["status"] == "completed" and (run["conclusion"] or "").upper() in github.PASSED
+    """Whether a workflow run completed with a conclusion GitHub counts as passed, but skipped, since a run whose every job skipped tested nothing."""
+    return run["status"] == "completed" and (run["conclusion"] or "").upper() in github.PASSED - {"SKIPPED"}
+
+
+def ci_statuses(repo: str, commit: str) -> list[dict]:
+    jq = ".statuses[] | {context, state, target_url}"
+    return [json.loads(line) for line in github.read(f"{repo}'s commit statuses on {commit[:12]}", ["gh", "api", f"repos/{repo}/commits/{commit}/status", "--jq", jq]).splitlines()]
+
+
+def pushed(repo: str, sha: str, branch: str) -> Iterator[str]:
+    """The merge's commit at sha, then each commit GitHub's compare of it with branch lists after it, oldest first, that holds it: the commits its push and each push after it put on branch, the compare read only once one past the merge's is asked for."""
+    yield sha
+    later = github.read(f"the commits after {sha[:12]} on {repo}'s {branch}", ["gh", "api", f"repos/{repo}/compare/{sha}...{branch}", "--jq", ".commits[].sha"]).split()
+    yield from (commit for commit in later if github.holds(repo, commit, sha))
 
 
 def ci_judged(repo: str, sha: str, branch: str, triggered: list[dict]) -> list[tuple[str, bool]]:
-    """A line naming each workflow in triggered, the runs on a merge's commit, beside whether it passed the merge: once its run there passed, or else any of its runs on the branch from that one on, by run id, passed on a commit holding the merge, the line naming the first, since a run on the default branch tests every merge its commit holds, so a run before it that failed on another merge's change or was cancelled never decides it; else not yet, the line naming its newest run. Each workflow's runs are read on their own, since GitHub lists at most 1000 runs for a filtered read, which a busy default branch's runs of every workflow together pass within a day."""
+    """A line naming each workflow in triggered, the push-event runs on the commit the CI of the merge's push reported on, beside whether it passed the merge: once its run there passed, or else any of its push-event runs on the branch from that one on, by run id, passed on a commit holding the merge, the line naming the first, since a run on the default branch tests every merge its commit holds, so a run before it that failed on another merge's change or was cancelled never decides it; else not yet, the line naming its newest run. Each workflow's runs are read on their own, since GitHub lists at most 1000 runs for a filtered read, which a busy default branch's runs of every workflow together pass within a day."""
     owns: dict[int, dict] = {}
     for run in sorted(triggered, key=lambda run: run["id"]):
         owns.setdefault(run["workflow_id"], run)
     judged = []
     for workflow, own in owns.items():
-        listed = [own] if ci_passed(own) else ci_runs(repo, f"workflows/{workflow}/runs", f"branch={branch}&created=>={own['created_at']}")
+        listed = [own] if ci_passed(own) else ci_runs(repo, f"workflows/{workflow}/runs", f"branch={branch}&event=push&created=>={own['created_at']}")
         runs = sorted((run for run in listed if run["id"] >= own["id"]), key=lambda run: run["id"])
         passing = next((run for run in runs if ci_passed(run) and github.holds(repo, run["head_sha"], sha)), None)
         run = passing or runs[-1]
@@ -808,10 +818,34 @@ def ci_judged(repo: str, sha: str, branch: str, triggered: list[dict]) -> list[t
     return judged
 
 
-def ci_verdict(repo: str, sha: str) -> list[tuple[str, bool]]:
-    """How the CI of a merge at sha on repo's default branch judges it: ci_judged's line for each workflow that ran on that commit beside whether it passed; a commit no workflow ran on has not passed."""
+def statuses_judged(repo: str, statuses: list[dict], later: Iterator[str]) -> list[tuple[str, bool]]:
+    """A line naming each commit status in statuses, those on the commit the CI of the merge's push reported on, beside whether it passed the merge: once its state there is success, or else once a status of its context on a commit later yields after it, each holding the merge, is, the line naming the first, since each push's build tests every merge its commit holds; else not yet, the line naming its newest. A later commit is read only while a context has not passed."""
+    newest = {status["context"]: status for status in statuses}
+    passing = {context for context, status in newest.items() if status["state"] == "success"}
+    while len(passing) < len(newest) and (commit := next(later, None)):
+        for status in ci_statuses(repo, commit):
+            if status["context"] in newest.keys() - passing:
+                newest[status["context"]] = status
+                if status["state"] == "success":
+                    passing.add(status["context"])
+    return [(" ".join(filter(None, [context, status["target_url"], status["state"]])), context in passing) for context, status in newest.items()]
+
+
+def pushed_ci(repo: str, sha: str) -> list[tuple[str, bool]]:
+    """How the CI of the push that carried a merge at sha onto repo's default branch judges it, on the first commit from the merge's on, as pushed lists them, that any CI reported on: the merge's own when its push ended there, else that push's head, the one commit CI builds for a push. Its push-event workflow runs, as ci_judged judges them, and its commit statuses, such as Buildkite's buildkite/test, as statuses_judged judges them, each by a line beside whether it passed; a run of another event, such as a reviewer workflow's on issue_comment or check_run, which GitHub stamps with the branch's head whatever pushed it, is no CI, nor is a run that skipped. None before any CI reported."""
     branch = github.default_branch(repo)
-    return ci_judged(repo, sha, branch, ci_runs(repo, "runs", f"branch={branch}&head_sha={sha}")) or [(f"no workflow ran on {sha[:12]} on {branch}", False)]
+    line = pushed(repo, sha, branch)
+    for commit in line:
+        runs = [run for run in ci_runs(repo, "runs", f"branch={branch}&event=push&head_sha={commit}") if run["conclusion"] != "skipped"]
+        statuses = ci_statuses(repo, commit)
+        if runs or statuses:
+            return [*ci_judged(repo, sha, branch, runs), *statuses_judged(repo, statuses, line)]
+    return []
+
+
+def ci_verdict(repo: str, sha: str) -> list[tuple[str, bool]]:
+    """pushed_ci's lines for a merge at sha on repo's default branch, or, while no CI reported on its commit or any commit after it, one saying so that has not passed."""
+    return pushed_ci(repo, sha) or [(f"no CI reported on {sha[:12]} or any commit after it on {github.default_branch(repo)}", False)]
 
 
 def red_on_default(repo: str) -> list[str]:
@@ -1040,7 +1074,7 @@ def merge_commits(merges: dict[str, str]) -> list[str]:
 
 
 def prove(name: str, job_id: str, timeout: int) -> str:
-    """Prove live a builder's READY or PUSHED whose PRs all merged, the step the watch starts, on a builder that took BLOCKED, its own proof's among them, the newest READY or PUSHED its history keeps, which take_back puts it back on, so a failed proof runs again on the job that owns it: install each plugin a yasyf/* merge changes whose installs, binaries, Homebrew copy or Captain Hook.app lack it, its other merges taken at once, wait until the drive's dashboard runs the newest long-running installed, then run the job's proof file with the bin folders of those plugins' newest installs, read right before it runs, first on PATH, as newest_builds builds it, and the drive named, as proof_run does, with no wait for CI, since no install reads a CI run; when it fails while a workflow a yasyf/* merge ran on its default branch has passed in no run from the merge on whose commit holds it, as drive pr ci judges the merge, wait for such a pass with no deadline, as await_ci does, and run the file once more, as it does once ccx's GitHub rate-limit floor lifts for a run its timeout cut off while it waited that floor out, and run it again on the newer installs when it fails while a newer install of any of them landed, each run of the file given the whole timeout from its own start, as proof_run gives it, so neither the installs, the dashboard's handover, a wait on CI nor an earlier run shortens it, keep the last run's output in reports/<j>.proof.txt, take DONE on exit 0 with output, since a proof file printing nothing proves nothing, each Slack post or picture link it names opening, as brief.unopened reads it, so a stand-in permalink proves nothing either, that output proving each user story the job's brief names on his surface, as brief.story_gap reads it, and, once all that holds, each command its brief's After install: line names exiting 0, which after_steps runs, and BLOCKED otherwise, its line naming that file and quoting the run's last line opening FAIL, else saying it printed none, and a nonzero exit ending on a WAIT line with no FAIL line, or an install held for his card, which meet_helper's WAIT says, taking no result, any other install that fails, a merge no release will carry, or a dashboard still on an older install at the deadline taking BLOCKED naming it, and keep the close report on its order for the watch to post when DONE leaves the order nothing to do, but for a drive tooling order a session opened, which closes done on its proof with no line to him, and an open incident, which the watch closes once DONE records its fix live, each said on its PRs' lines; on a prover, a builder that opened no PR whose brief's Handoff names merged PRs and that waits on nothing, as handed_prs reads it, or a repair, one whose said line and Handoff name none, at work or waiting, or stopped or failed as take_back reopens it, its proof marked as this process's from its start, install only what a prover's yasyf/* merges change, run the file on the drive's own long-running when nothing is installed, take its DONE or BLOCKED as finish does, naming the job for its PRs and closing its order under the order's title, and on a WAIT keep the job waiting on a WAITING line quoting it, its proof marked waiting on it, said on the job's own line; refused for a job waiting on no such READY or PUSHED that is no such repair, or one proof_gap names, the job left as it was; nothing after another proof took the job's result first. When a newer install saved the drive while it installed, waited on CI or ran the proof file, that install's `drive finish` keeps the result through proof_kept."""
+    """Prove live a builder's READY or PUSHED whose PRs all merged, the step the watch starts, on a builder that took BLOCKED, its own proof's among them, the newest READY or PUSHED its history keeps, which take_back puts it back on, so a failed proof runs again on the job that owns it: install each plugin a yasyf/* merge changes whose installs, binaries, Homebrew copy or Captain Hook.app lack it, its other merges taken at once, wait until the drive's dashboard runs the newest long-running installed, then run the job's proof file with the bin folders of those plugins' newest installs, read right before it runs, first on PATH, as newest_builds builds it, and the drive named, as proof_run does, with no wait for CI, since no install reads a CI run; when it fails while the CI of the push that carried a yasyf/* merge onto its default branch has not passed it, as drive pr ci judges the merge, wait for it to pass with no deadline, as await_ci does, and run the file once more, as it does once ccx's GitHub rate-limit floor lifts for a run its timeout cut off while it waited that floor out, and run it again on the newer installs when it fails while a newer install of any of them landed, each run of the file given the whole timeout from its own start, as proof_run gives it, so neither the installs, the dashboard's handover, a wait on CI nor an earlier run shortens it, keep the last run's output in reports/<j>.proof.txt, take DONE on exit 0 with output, since a proof file printing nothing proves nothing, each Slack post or picture link it names opening, as brief.unopened reads it, so a stand-in permalink proves nothing either, that output proving each user story the job's brief names on his surface, as brief.story_gap reads it, and, once all that holds, each command its brief's After install: line names exiting 0, which after_steps runs, and BLOCKED otherwise, its line naming that file and quoting the run's last line opening FAIL, else saying it printed none, and a nonzero exit ending on a WAIT line with no FAIL line, or an install held for his card, which meet_helper's WAIT says, taking no result, any other install that fails, a merge no release will carry, or a dashboard still on an older install at the deadline taking BLOCKED naming it, and keep the close report on its order for the watch to post when DONE leaves the order nothing to do, but for a drive tooling order a session opened, which closes done on its proof with no line to him, and an open incident, which the watch closes once DONE records its fix live, each said on its PRs' lines; on a prover, a builder that opened no PR whose brief's Handoff names merged PRs and that waits on nothing, as handed_prs reads it, or a repair, one whose said line and Handoff name none, at work or waiting, or stopped or failed as take_back reopens it, its proof marked as this process's from its start, install only what a prover's yasyf/* merges change, run the file on the drive's own long-running when nothing is installed, take its DONE or BLOCKED as finish does, naming the job for its PRs and closing its order under the order's title, and on a WAIT keep the job waiting on a WAITING line quoting it, its proof marked waiting on it, said on the job's own line; refused for a job waiting on no such READY or PUSHED that is no such repair, or one proof_gap names, the job left as it was; nothing after another proof took the job's result first. When a newer install saved the drive while it installed, waited on CI or ran the proof file, that install's `drive finish` keeps the result through proof_kept."""
     from drive import brief, dashboard
 
     with state.edit(name) as data:

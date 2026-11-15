@@ -288,10 +288,11 @@ and waits ids, record seqs), never a technical name.
      on the installed surface, asserts its criteria and prints, for each, the path of the picture it saves or the live post's link
      it reads back: `drive job prove` takes `BLOCKED` on output showing fewer stories than the brief names, or one
      Jev reads with the file's criteria as the bare minimum. A fix to red CI proves itself in that file
-     with `drive pr ci <its PR's url>`, which exits 0 once each workflow that ran on its merge commit
-     passed in a run from that commit's own run on whose commit holds the merge, never by a local test
+     with `drive pr ci <its PR's url>`, which exits 0 once the CI of the push that carried its merge,
+     on the push's head when one push carried several merges, passed in a run or status from that
+     commit's own on whose commit holds the merge, never by a local test
      run, which passes while the default branch stays red, nor by a run the file picks itself, which
-     can be the run of a push merged before it; when the file fails while a workflow has no such pass,
+     can be the run of a push merged before it; when the file fails while that CI has not passed,
      `drive job prove` waits for one and runs it again. `drive job report` refuses the `READY` or
      `PUSHED` without one. A job that opens no PR, such as a repair of the drive's records or a builder proving another
      job's merge, keeps the same file and ends with `drive job prove <your job>` in place of `DONE`: it

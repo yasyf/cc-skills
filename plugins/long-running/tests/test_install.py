@@ -11,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from itertools import chain, repeat
 from pathlib import Path, PurePosixPath
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from conftest import REAL_PLUGIN_COPIES_FIRST, carrying, commit_files, git_in, Jev
@@ -2168,6 +2169,8 @@ def on_actions(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, triggered: list[
             return "main\n"
         if cmd[1:3] == ["pr", "view"]:
             return f"{SHA}\n"
+        if cmd[2].endswith("/status"):
+            return ""
         if f"/compare/{SHA}..." in cmd[2]:
             return "behind\n" if cmd[2].endswith(MERGED_BEFORE) else "ahead\n"
         runs = triggered if f"&head_sha={SHA}" in cmd[3] else [run for run in next(answers) if f"/actions/workflows/{run['workflow_id']}/runs?" in cmd[3]]
@@ -2235,13 +2238,15 @@ def test_tonights_proof_reads_its_merges_ci_once_per_workflow_run_finishing_on_m
     def read(what: str, cmd: list[str], max_age: str = "0s", text: bool = True) -> str:
         if cmd[-1] == ".default_branch":
             return "main\n"
-        reads.append(cmd[3])
+        reads.append(cmd[2])
+        if cmd[2].endswith("/status"):
+            return ""
         return "".join(json.dumps(run) + "\n" for run in ([running] if f"&head_sha={SHA}" in cmd[3] else next(polls)))
 
     monkeypatch.setattr(github, "read", read)
     start = install.clock()
     assert install.await_ci({f"{REPO}#7": SHA})
-    assert (git.now - start, len(git.heard), len(reads), git.sleeps) == (720, 4, 6, [])
+    assert (git.now - start, len(git.heard), len(reads), git.sleeps) == (720, 4, 3 * 5, [])
     assert len(capsys.readouterr().err.splitlines()) == 1
 
 
@@ -2255,6 +2260,8 @@ def test_a_ci_read_that_fails_is_read_again_within_poll_seconds_since_no_deliver
     def read(what: str, cmd: list[str], max_age: str = "0s", text: bool = True) -> str:
         if cmd[-1] == ".default_branch":
             return "main\n"
+        if cmd[2].endswith("/status"):
+            return ""
         if isinstance(answer := next(answers), Exception):
             raise answer
         return "".join(json.dumps(run) + "\n" for run in answer)
@@ -2292,6 +2299,94 @@ def test_drive_pr_ci_exits_1_while_a_workflow_of_the_merge_has_no_passing_run_ho
     assert cli.main(["pr", "ci", URL]) == 1
     newest, unrun = f"long-running CI https://github.com/{REPO}/actions/runs/43384815193 in_progress", f"Guides https://github.com/{REPO}/actions/runs/43384591254 completed cancelled"
     assert capsys.readouterr().out.splitlines() == [newest, unrun, f"yasyf/cc-skills#7 merged at {SHA[:12]}: not passed: {newest}; {unrun}"]
+
+
+STACK = {"56621": "6d44e8728ec14e65cb2c72daa980b46210acc4f4", "56685": "5f986a086f4d4520cda6dd92c1c97f646ba3c33e"}
+PUSH_HEAD = "15a282a500228429a32023e661baf2ee35cd2c01"
+NEXT_HEAD = "024e77d4156a4f36198b8a530ed7b5a93889066c"
+DEV = [*STACK.values(), PUSH_HEAD, NEXT_HEAD]
+REVIEWERS = [
+    {"id": 43711036649, "workflow_id": 201, "name": "PR Reviewer Commands", "event": "issue_comment", "head_sha": PUSH_HEAD, "created_at": "2026-11-15T11:53:02Z", "status": "completed", "conclusion": "skipped"},
+    {"id": 43711056525, "workflow_id": 202, "name": "PR Review Trigger", "event": "check_run", "head_sha": PUSH_HEAD, "created_at": "2026-11-15T11:53:10Z", "status": "completed", "conclusion": "success"},
+    {"id": 43711056530, "workflow_id": 203, "name": "FDE Docs", "event": "push", "head_sha": PUSH_HEAD, "created_at": "2026-11-15T11:52:44Z", "status": "completed", "conclusion": "skipped"},
+]
+
+
+def buildkite(build: int, state: str) -> dict:
+    return {"context": "buildkite/test", "state": state, "target_url": f"https://buildkite.com/forge/test/builds/{build}"}
+
+
+def on_dev(monkeypatch: pytest.MonkeyPatch, statuses: dict[str, list[dict]]) -> None:
+    def read(what: str, cmd: list[str], max_age: str = "0s", text: bool = True) -> str:
+        if cmd[1:3] == ["pr", "view"]:
+            return f"{STACK[cmd[3]]}\n"
+        if cmd[2].endswith("/status"):
+            return "".join(json.dumps(status) + "\n" for status in statuses.get(cmd[2].split("/")[-2], []))
+        if compared := re.search(r"/compare/(\w+)\.\.\.(\w+)$", cmd[2]):
+            base, head = compared.groups()
+            if cmd[-1] == ".status":
+                return "ahead\n" if DEV.index(head) > DEV.index(base) else "behind\n"
+            return "".join(f"{commit}\n" for commit in DEV[DEV.index(base) + 1 :])
+        asked = {field: values[0] for field, values in parse_qs(urlsplit(cmd[3]).query).items() if field in ("head_sha", "event")}
+        workflow = re.search(r"/workflows/(\d+)/runs", cmd[3])
+        runs = [run for run in REVIEWERS if all(run[field] == value for field, value in asked.items()) and (not workflow or run["workflow_id"] == int(workflow[1]))]
+        return "".join(json.dumps(run) + "\n" for run in runs)
+
+    monkeypatch.setattr(github, "read", read)
+    monkeypatch.setattr(github, "default_branch", lambda repo: "dev")
+
+
+@pytest.mark.parametrize("number", list(STACK))
+def test_drive_pr_ci_passes_each_pr_a_push_carried_below_its_head_on_the_buildkite_status_of_that_head(
+    number: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    on_dev(monkeypatch, {PUSH_HEAD: [buildkite(132334, "success")], NEXT_HEAD: [buildkite(132341, "failure")]})
+    assert cli.main(["pr", "ci", f"https://github.com/Forge-AI/monorepo/pull/{number}"]) == 0
+    assert capsys.readouterr().out.splitlines() == ["buildkite/test https://buildkite.com/forge/test/builds/132334 success", f"Forge-AI/monorepo#{number} merged at {STACK[number][:12]}: passed"]
+
+
+def test_drive_pr_ci_never_passes_a_merge_on_the_reviewer_and_skipped_runs_its_push_head_carries_alone(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    on_dev(monkeypatch, {})
+    assert cli.main(["pr", "ci", "https://github.com/Forge-AI/monorepo/pull/56621"]) == 1
+    unreported = "no CI reported on 6d44e8728ec1 or any commit after it on dev"
+    assert capsys.readouterr().out.splitlines() == [unreported, f"Forge-AI/monorepo#56621 merged at 6d44e8728ec1: not passed: {unreported}"]
+
+
+@pytest.mark.parametrize(("later", "code", "verdict"), [("success", 0, "passed"), ("pending", 1, "not passed: buildkite/test https://buildkite.com/forge/test/builds/132341 pending")])
+def test_drive_pr_ci_passes_a_merge_its_push_heads_build_failed_once_a_later_build_holding_it_passed_naming_that_one_else_the_newest(
+    later: str, code: int, verdict: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    on_dev(monkeypatch, {PUSH_HEAD: [buildkite(132334, "failure")], NEXT_HEAD: [buildkite(132341, later)]})
+    assert cli.main(["pr", "ci", "https://github.com/Forge-AI/monorepo/pull/56685"]) == code
+    assert capsys.readouterr().out.splitlines() == [f"buildkite/test https://buildkite.com/forge/test/builds/132341 {later}", f"Forge-AI/monorepo#56685 merged at 5f986a086f4d: {verdict}"]
+
+
+def test_a_proof_of_a_merge_its_push_carried_below_its_head_waits_on_the_ci_of_that_head(
+    fake: Callable[..., FakeGit], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    git = fake([BUILD], {BUILD})
+    running = ci(43375546307, "long-running CI", "2026-11-13T05:59:04Z", head=MERGED_AFTER)
+    polls = iter([[running], [running | {"status": "completed", "conclusion": "success"}]])
+
+    def read(what: str, cmd: list[str], max_age: str = "0s", text: bool = True) -> str:
+        if cmd[-1] == ".default_branch":
+            return "main\n"
+        if cmd[2].endswith("/status"):
+            return ""
+        if cmd[-1] == ".commits[].sha":
+            return f"{MERGED_AFTER}\n"
+        if cmd[-1] == ".status":
+            return "ahead\n"
+        if "/workflows/" in cmd[3]:
+            return "".join(json.dumps(run) + "\n" for run in next(polls))
+        return json.dumps(running) + "\n" if f"&head_sha={MERGED_AFTER}" in cmd[3] else ""
+
+    monkeypatch.setattr(github, "read", read)
+    assert install.await_ci({f"{REPO}#7": SHA})
+    assert git.heard == [f"{REPO} ci"]
+    assert capsys.readouterr().err.splitlines() == [f"drive job prove: waiting for {REPO}#7's CI at {SHA[:12]} to pass: long-running CI https://github.com/{REPO}/actions/runs/43375546307 in_progress"]
 
 
 def test_a_proof_file_passing_while_its_merges_ci_still_runs_takes_done_right_after_the_install_without_waiting_on_that_ci(
