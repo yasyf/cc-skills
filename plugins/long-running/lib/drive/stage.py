@@ -71,14 +71,14 @@ def uncarded(data: dict, key: str, cards: dict) -> str:
 
 
 def alone(data: dict, key: str, cards: dict) -> Stage:
-    """Every rule of own past the draw of his card; a PR its lander's try merged reads merged, owed by nobody, by land.merged_try, while the watch's last GitHub read still reads it open, so that try wakes no session; an unlanded PR whose own job's waits end at his open question cards, by asked(), reads blocked on him, naming them, so a lander's try made before that job waited wakes no session while he decides and reads unlanded again once he answers; a PR on the head of an open PR the drive does not track, by github.parent, reads behind that PR, owed outside the drive, ahead of its lander's tries and its red, since it lands only once that PR merges and the drive moves nothing there, so it has no deadline and wakes no one, and stall.chain ends at it; an open PR none of those rules holds on a repository that lets this account only read or triage it, by state.upstream, reads upstream, owed by nobody, since only that repository's maintainers merge it, with no deadline, so no session is woken to land what it cannot."""
+    """Every rule of own past the draw of his card; a PR its lander's try merged reads merged, owed by nobody, by land.merged_try, while the watch's last GitHub read still reads it open, so that try wakes no session; an unlanded PR whose own job's waits end at his open question cards, by asked(), reads blocked on him, naming them, so a lander's try made before that job waited wakes no session while he decides and reads unlanded again once he answers; a landing stands only while land.stopping() finds nothing stopping it, so a PR Trunk's merge queue holds reads what holds it the moment his words under its card take back his Approve, while land.halt takes it out of the queue; a PR on the head of an open PR the drive does not track, by github.parent, reads behind that PR, owed outside the drive, ahead of its lander's tries and its red, since it lands only once that PR merges and the drive moves nothing there, so it has no deadline and wakes no one, and stall.chain ends at it; an open PR none of those rules holds on a repository that lets this account only read or triage it, by state.upstream, reads upstream, owed by nobody, since only that repository's maintainers merge it, with no deadline, so no session is woken to land what it cannot."""
     pr = data["prs"][key]
     if pr["state"] != "open":
         return Stage(pr["state"], NOBODY, github.fold_line(pr) if pr["state"] == github.FOLDED else f"it is {pr['state']}")
     if land.merged_try(pr):
         lander = pr["lander"]
         return Stage("merged", NOBODY, f"its lander's try at {lander['head'][:7]}, started {lander['at']}, ended {lander['outcome']}")
-    if land.landing(pr):
+    if land.landing(pr) and not land.stopping(data, key, cards):
         return Stage("landing", LANDER, landing_why(pr))
     if (outside := pr["under"]) and outside not in data["prs"]:
         return Stage("behind", OUTSIDE, f"it sits on {pr['base']}, the head of {outside}, which the drive does not track, so it lands once that PR merges and GitHub moves it onto {pr['default']}")
@@ -187,7 +187,8 @@ def landing_why(pr: dict) -> str:
     if lander["outcome"] == land.QUEUED:
         flaky = pr["flaky"] if pr["flaky"] and pr["flaky"]["requeued"] and pr["flaky"]["head"] == lander["head"] else None
         requeued = f", requeued once {flaky['fix']}, the fix of its flaky test {flaky['test']}, merged" if flaky else ""
-        return f"queued for merge at {lander['head'][:7]} since {lander['at']}{requeued}"
+        taken = f"; pid {dequeuer['pid']} takes it out of the queue since {dequeuer['at']}, and it lands again after that" if (dequeuer := lander.get("dequeue")) else ""
+        return f"queued for merge at {lander['head'][:7]} since {lander['at']}{requeued}{taken}"
     if lander["outcome"]:
         return f"its lander's try at {lander['head'][:7]}, started {lander['at']}, {lander['outcome']}"
     return f"lander pid {lander['pid']} lands {lander['head'][:7]}, started {lander['at']}"

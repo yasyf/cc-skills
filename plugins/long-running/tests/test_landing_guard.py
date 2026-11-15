@@ -180,7 +180,7 @@ def test_a_pr_whose_staging_test_started_on_any_order_is_enqueued_by_no_session_
     enqueue = bash("stack-enqueue 42", session_id="sprite" if lane else SESSION)
     data = state.load("demo")
     assert landing_guard.deny_reason(enqueue) == landing_guard.STAGED_REASON.format(key=drive_pr, runs=runs)
-    assert land.held_landers(data, [drive_pr], view.NO_CARDS) == {os.getpid(): f"{land.WAITED}: {drive_pr} waits on {runs}"}
+    assert list(land.held_landings(data, [drive_pr], view.NO_CARDS).values()) == [f"{land.WAITED}: {drive_pr} waits on {runs}"]
     assert stage.waiting(data, drive_pr, view.NO_CARDS) == stage.Stage("waiting", "j2", "it waits on its staging run by j2, running")
     done = "DONE every case of #42 passed on staging"
     with state.edit("demo") as data:
@@ -189,7 +189,7 @@ def test_a_pr_whose_staging_test_started_on_any_order_is_enqueued_by_no_session_
     assert (taken["tap"], taken["fundamental"]) == (None, "its staging test passed after your Approve, so only an Approve you give now lands it: https://buildkite.com/forge/release/builds/16303")
     approve(drive_pr)
     data = state.load("demo")
-    assert (landing_guard.deny_reason(enqueue), land.held_landers(data, [drive_pr], view.NO_CARDS), stage.waiting(data, drive_pr, view.NO_CARDS)) == (None, {}, None)
+    assert (landing_guard.deny_reason(enqueue), land.held_landings(data, [drive_pr], view.NO_CARDS), stage.waiting(data, drive_pr, view.NO_CARDS)) == (None, {}, None)
 
 
 def test_a_sprite_lanes_landing_is_refused_while_the_coordinators_mac_does_not_answer(drive_pr: str, monkeypatch: pytest.MonkeyPatch, no_calls: None) -> None:
