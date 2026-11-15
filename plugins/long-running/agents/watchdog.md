@@ -45,8 +45,6 @@ anything truly stick which can go read transcript etc".
   an open card of his on the chain or naming a service it waits on; `NEXT` names no release step
   one rules out, and puts one to him instead unless an answer of his already settles it, as the
   next point says.
-  The watch reads a `NEXT` asking the holder for a release step through the drive's release check
-  and says its refusal in its place.
 - Each `Answered:` line is an answer of his that cc-notes ranks nearest the job's goal and the
   services its release waits wait on, with its id, the question he answered, and where he gave it.
   An answer settles all its words cover, never only the PR, cut or card he gave it on: one holding a

@@ -133,14 +133,6 @@ JOB_HELD = (
     " nothing of it: ask him with `drive job ask` whether to start it, record his answer with `drive answer`, and start the Job naming"
     " that answer's id in its `--reason`, which its build keeps for its gate's unblock to read"
 )
-RELEASE_WORDS = re.compile(r"\b(?:releas|hotfix|rollback|roll(?:ed|ing|s)?[\s-]+(?:\w+[\s-]+)?back\b)", re.IGNORECASE)
-RELEASE_ASKED = "refused: Jev reads this record as asking a session to take a step of a production release"
-RELEASE_UNSURE = "refused: Jev is unsure whether this record asks a session to take a step of a production release"
-NAMES_NO_RELEASE = (
-    ", and it names no release as one `tools/ci release start` or `hotfix` in backticks with `--order <his answer>`:"
-    f" name it so, or ask that session to put the release to him and start nothing until he answers. {RELEASE_APPROVAL}"
-)
-RELEASE_UNNAMED = RELEASE_ASKED + NAMES_NO_RELEASE
 RELEASE_NOTE_LABELS = ("release-order", "release")
 NOTE_REFS = re.compile(r"#(\d+)\b|\b((?=[0-9a-f]*[0-9])(?=[0-9a-f]*[a-f])[0-9a-f]{7,40})\b")
 NOTED = (
@@ -335,41 +327,6 @@ def hold_where(hold: dict, data: dict) -> str:
 def hold_words(hold: dict) -> str:
     """His words in his hold on every release, cut to settled.QUOTED_CHARS."""
     return cut(settled.his(hold["body"]), settled.QUOTED_CHARS)
-
-
-def release_ask_refusal(kind: str, to: list[str], words: str, data: dict) -> str | None:
-    """Why a handoff or release record may not go out: Jev reads it as asking the session it goes to for a step of a production release, at settled.YES or more or in the band between settled.NO and settled.YES, since a release started on a record unsure costs more than a record named again, or gives no reading, and it names in backticks no `ci release start` or `hotfix`, or one `drive job add --release` would refuse, his hold included; a record of any other kind, such as a report, note or evidence record or his owner and answer records, and a handoff naming no release, hotfix or rollback, pass unread."""
-    if not (kind == "release" or kind == "handoff" and RELEASE_WORDS.search(words)):
-        return None
-    record = {"kind": kind, "to": to, "text": words[: settled.BODY_CHARS]}
-    try:
-        asks = settled.reading(settled.jev({"record": record}, {"asks": settled.ASKS_RELEASE})["asks"])
-    except settled.Unheard as failure:
-        return f"refused: Jev did not say whether this record asks a session to take a step of a production release ({failure}); send it again once Jev answers"
-    if asks is False:
-        return None
-    asked = RELEASE_ASKED if asks else RELEASE_UNSURE
-    named = []
-    for found in limits.BACKTICKED.findall(words):
-        try:
-            if started(release := found.strip("`")):
-                named.append(release)
-        except ValueError:
-            continue
-    if not named:
-        return asked + NAMES_NO_RELEASE
-    for release in named:
-        if refused := release_refusal(release) or approval_refusal(release, data):
-            return f"{asked}, and `drive job add --release` would refuse `{release}`: {refused.removeprefix('refused: ')}"
-    return None
-
-
-def release_asks(posts: list[tuple[str, list[str], str]], data: dict) -> dict[int, str]:
-    """The refusal release_ask_refusal gives each record of a post, each its kind, lanes and words, by its place in the post, one of several naming that place, its kind and its first line, so the session knows which record to fix."""
-    refused = {index: why for index, (kind, to, words) in enumerate(posts) if (why := release_ask_refusal(kind, to, words, data))}
-    if len(posts) == 1:
-        return refused
-    return {index: f'record {index + 1} of {len(posts)}, the {posts[index][0]} "{cut(posts[index][2].strip().splitlines()[0], 120)}": {why}' for index, why in refused.items()}
 
 
 def release_notes(releases: list[str], data: dict) -> list[str]:
