@@ -15,7 +15,7 @@ from pathlib import Path
 import drive
 import pytest
 import spawnllm
-from conftest import ACME_CUT, CAP_RULING, CARD_BODY, CUT_PICK, CUT_TAP, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SAND_NEXT_NOTE, SANDSQL_NOTE, SETTLED_LINE_ANSWERS, SETTLED_LISTED, SETTLED_MATCHED, SETTLED_NOTE, SETTLED_RECORDED, SHORT_ASK, WRITTEN_AT, answered_cut, carrying, cloned, drawn_card, git_in, kept_research, Answers, explained, Checked, Chrome, Draws, Drawing, Heard, Images, Jev, Judge, MetaLaunches, Redraws, Thread, WatchProcess, Withdrawals
+from conftest import ACME_CUT, CAP_RULING, CARD_BODY, CUT_LINK, CUT_PICK, CUT_TAP, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SAND_NEXT_NOTE, SANDSQL_NOTE, SETTLED_LINE_ANSWERS, SETTLED_LISTED, SETTLED_MATCHED, SETTLED_NOTE, SETTLED_RECORDED, SHORT_ASK, WRITTEN_AT, answered_cut, carrying, cloned, drawn_card, git_in, kept_research, Answers, explained, Checked, Chrome, Draws, Drawing, Heard, Images, Jev, Judge, MetaLaunches, Redraws, Thread, WatchProcess, Withdrawals
 from drive import (
     agents,
     brief,
@@ -4002,7 +4002,7 @@ def test_job_ask_prints_each_release_note_jev_reads_as_speaking_to_a_start_any_o
     assert len(asked["questions"]) == 4
 
 
-def test_job_ask_never_asks_him_to_lift_a_cited_answer_whose_order_the_recommended_option_starts_by_the_release_gates_own_reading(
+def test_job_ask_draws_a_cited_answer_whose_order_the_recommended_option_starts_by_the_release_gates_own_reading_as_his_cards_already_answered_tap_never_asking_him_to_lift_it(
     run: Run, demo: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], jev: Jev, recorded: Answers
 ) -> None:
     answered_cut(run, demo, [CUT_PICK, CUT_TAP])
@@ -4013,17 +4013,30 @@ def test_job_ask_never_asks_him_to_lift_a_cited_answer_whose_order_the_recommend
     holds = "Holds: none: no option changes code any job builds"
     asked = SHORT_ASK.replace(described, f"  Starts `{release}`, which brings Acme's cluster to the api hotfix the others run.")
     block = tmp_path / "ask.md"
+    crowded = asked.replace("\n\nFindings:", "\n- Keep each file as it is: the page keeps guessing where each map starts\n  Nothing changes in `journal/upload.go` or `site/journal.js`; the run page keeps reading each file's last 24 bytes first.\n\nFindings:")
+    block.write_text(crowded.replace(holds, f"{holds}\n5d17d9c: option 1 carries out his pick"))
+    assert cli.main(["job", "ask", builder, "--check", str(block)]) == 2
+    assert f'his card adds the option "{limits.ALREADY_ANSWERED}" for his recorded answer 5d17d9c, which already answers it' in capsys.readouterr().err
     block.write_text(asked.replace(holds, f"{holds}\n5d17d9c: option 1 carries out his pick"))
     jev.breaks("says", "5d17d9c")
+    ordered = settled.ORDERED.format(id="5d17d9c", asked=CUT_PICK["title"], release=release)
+    assert cli.main(["job", "ask", builder, "--check", str(block)]) == 0
+    assert ordered in capsys.readouterr().err
     assert cli.main(["job", "ask", builder, str(block)]) == 0
     advice = capsys.readouterr().err
-    assert (settled.ORDERED.format(id="5d17d9c", asked=CUT_PICK["title"], release=release) in advice, "kept the card unsettled" in advice) == (True, False)
-    assert state.load(demo)["jobs"][builder]["questions"][-1]["unsettled"] is None
+    assert (ordered in advice, "kept the card unsettled" in advice) == (True, False)
+    tap = {"answer": "5d17d9c", "asked": CUT_PICK["title"], "words": CUT_PICK["body"], "link": CUT_LINK}
+    question = state.load(demo)["jobs"][builder]["questions"][-1]
+    assert (question["unsettled"], question["ordered"], question["recorded"]) == (None, [tap], [tap])
+    code, printed = run("job", "card", builder)
+    drawn = json.loads(printed)
+    assert (code, drawn["options"][-1], drawn["hints"][limits.ALREADY_ANSWERED]) == (0, limits.ALREADY_ANSWERED, f'"{CUT_PICK["body"]}" (<{CUT_LINK}|your answer>)')
     block.write_text(asked.replace(holds, f"{holds}\n7ab1e20: option 1 leaves out the full release"))
     jev.breaks("says", "7ab1e20")
     assert cli.main(["job", "ask", builder, str(block)]) == 0
     advice = capsys.readouterr().err
     assert ("orders the recommended option's" in advice, f'kept the card unsettled as "7ab1e20: {settled.MARKED.format(option="the recommended option")}"' in advice) == (False, True)
+    assert state.load(demo)["jobs"][builder]["questions"][-1]["ordered"] == []
 
 
 def test_his_recorded_answers_reach_jev_as_ccn_ranks_them_nearest_to_the_whole_block_his_words_alone_never_a_tap_approving_a_pr(
