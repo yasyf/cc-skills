@@ -2864,19 +2864,22 @@ def answer_first(name: str, order: dict, order_id: str, job_id: str) -> str:
 
 def job_brief(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
-    job = held_job(state.load(name), args.id)
     named = {flag: getattr(args, flag, None) for flag in state.BRIEF_FLAGS}
-    if not args.release_build:
-        line, payload = write_brief(name, args.id, named)
-        return emit(args, line, payload)
-    if not github.BUILD.fullmatch(args.release_build):
-        raise DriveError(f"--release-build {args.release_build} is no Buildkite build link, https://buildkite.com/<org>/<pipeline>/builds/<n>")
-    if not state.starts_cut(job):
-        raise DriveError(f"{args.id}: --release-build keeps the build of the release a drive job add --release started, and {args.id} was added with no --release")
-    if job["release_build"] not in (None, args.release_build):
-        raise DriveError(f"{args.id}: its add kept its release's build, {job['release_build']}: drive job brief {args.id} briefs it on that one")
-    replaced, line, payload = release_briefed(name, args.id, args.release_build, named)
+    replaced, line, payload = briefed(name, args.id, held_job(state.load(name), args.id), args.release_build, named)
     return emit(args, "\n".join([*replaced, line]), payload)
+
+
+def briefed(name: str, job_id: str, job: dict, build: str | None, named: dict) -> tuple[list[str], str, dict]:
+    """Write a job's brief with the lines named, by write_brief, first keeping --release-build's build as the release a drive job add --release started and kept none for, by release_briefed, for drive job brief and drive job launch alike; the lines for each job that replaced, then write_brief's line and payload."""
+    if not build:
+        return [], *write_brief(name, job_id, named)
+    if not github.BUILD.fullmatch(build):
+        raise DriveError(f"--release-build {build} is no Buildkite build link, https://buildkite.com/<org>/<pipeline>/builds/<n>")
+    if not state.starts_cut(job):
+        raise DriveError(f"{job_id}: --release-build keeps the build of the release a drive job add --release started, and {job_id} was added with no --release")
+    if job["release_build"] not in (None, build):
+        raise DriveError(f"{job_id}: its add kept its release's build, {job['release_build']}: drive job brief {job_id} briefs it on that one")
+    return release_briefed(name, job_id, build, named)
 
 
 def write_brief(name: str, job_id: str, named: dict) -> tuple[str, dict]:
@@ -3049,15 +3052,15 @@ def transcript_line(job_id: str, job: dict) -> str | None:
 
 
 def job_launch(args: argparse.Namespace) -> int:
-    """Start a job's next worker by the one relaunch launch and resume share, with no message: its first Orca lane, on a Sprite or with --local on this Mac, where a brief declaring a step only this Mac runs on its Mac: or Release: line starts, stamped as launching once nothing refuses it so the watch reads it as starting until the launch could have finished; the next lane of a job whose worker ended or returned its line, with --local moved from its Sprite to this Mac; a lane taking over from an agent on this Mac that stopped or whose session ended; or the worker an earlier launch of its brief started and never recorded, whose ready receipt the launcher keeps; never a finished pass of a standing part, which unrun refuses. Given drive job brief's flags, it first writes the job's brief from them by write_brief, so briefing and starting a job is one command and a flag argparse or write_brief refuses starts nothing; refused beside a brief file, which is the brief whole."""
+    """Start a job's next worker by the one relaunch launch and resume share, with no message: its first Orca lane, on a Sprite or with --local on this Mac, where a brief declaring a step only this Mac runs on its Mac: or Release: line starts, stamped as launching once nothing refuses it so the watch reads it as starting until the launch could have finished; the next lane of a job whose worker ended or returned its line, with --local moved from its Sprite to this Mac; a lane taking over from an agent on this Mac that stopped or whose session ended; or the worker an earlier launch of its brief started and never recorded, whose ready receipt the launcher keeps; never a finished pass of a standing part, which unrun refuses. Given drive job brief's flags, it first writes the job's brief from them by briefed, as drive job brief does, so briefing and starting a job is one command and a flag argparse or write_brief refuses starts nothing; refused beside a brief file, which is the brief whole."""
     name = state.resolve(args.drive)
-    if named := {flag: value for flag in state.BRIEF_FLAGS if (value := getattr(args, flag, None)) not in (None, [])}:
-        unrun(state.load(name), args.id)
+    if named := {flag: value for flag in (*state.BRIEF_FLAGS, "release_build") if (value := getattr(args, flag, None)) not in (None, [])}:
+        job = unrun(state.load(name), args.id)
         if args.brief:
             flags = ", ".join(f"--{flag.replace('_', '-')}" for flag in named)
             raise DriveError(f"{args.id}: refused, nothing written or started: {args.brief} is its brief whole, which {flags} cannot add a line to: drop the file or the flags")
-        line, payload = write_brief(name, args.id, named)
-        emit(args, f"{args.id}'s brief written at {payload['brief']}: {line.partition("\n")[2]}", payload)
+        replaced, line, payload = briefed(name, args.id, job, named.pop("release_build", None), named)
+        emit(args, "\n".join([*replaced, f"{args.id}'s brief written at {payload['brief']}: {line.partition("\n")[2]}"]), payload)
     if unrun(state.load(name), args.id)["kind"] == "codex":
         folder = codex_launch(name, args.id, args.brief)
         return emit(args, f"{args.id} started its codex-ask run in {folder}; the watch takes its result once it ends", {"id": args.id, "codex_run": str(folder)})
@@ -5438,6 +5441,11 @@ def parser() -> argparse.ArgumentParser:
     brief_opt.add_argument("--plan", help="the plan section this implements, quoted; a builder the drive added for a design's change holds its design's from that add")
     brief_opt.add_argument("--incident", help="an incident job's line, by reference/jobs.md")
     brief_opt.add_argument("--scratch", help="its scratch folder; default one in the drive")
+    brief_opt.add_argument(
+        "--release-build",
+        metavar="LINK",
+        help="the Buildkite build link a drive job add --release printed for a release it started and kept no build for: kept as the job's Release build: line, ending the designs it carries and each failed job it replaces as that add does, then the brief written",
+    )
 
     root = argparse.ArgumentParser(prog="drive", description="State and events of a long-running drive.")
     root.add_argument("--version", action="version", version=f"drive {state.VERSION}")
@@ -5990,11 +5998,6 @@ def parser() -> argparse.ArgumentParser:
         ),
     )
     verb.add_argument("id", help="the job")
-    verb.add_argument(
-        "--release-build",
-        metavar="LINK",
-        help="the Buildkite build link a drive job add --release printed for a release it started and kept no build for: kept as the job's Release build: line, ending the designs it carries and each failed job it replaces as that add does, then the brief written",
-    )
     verb.set_defaults(run=job_brief)
     verb = job.add_parser(
         "launch",
@@ -6012,7 +6015,7 @@ def parser() -> argparse.ArgumentParser:
             " --dispatch on its brief and --schema holding its final message to a state, line and report, which the watch takes as its"
             " return once the run ends. A finished pass of a standing part is refused, writing and starting nothing, naming the"
             " part's live pass or when the watch starts its next, since the watch alone starts each pass of one. It takes every"
-            " drive job brief flag but --release-build and writes the brief from them as that verb does before it starts anything, so a flag argparse"
+            " drive job brief flag and writes the brief from them as that verb does before it starts anything, so a flag argparse"
             " or the brief's checks refuse starts no worker; with none it starts on the brief the job holds."
         ),
     )

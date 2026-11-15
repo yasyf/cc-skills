@@ -1340,9 +1340,10 @@ def test_715797_a_release_add_that_dies_once_its_release_started_has_printed_and
         (["j2", "--release-build", "https://buildkite.com/forge/release"], "--release-build https://buildkite.com/forge/release is no Buildkite build link, https://buildkite.com/<org>/<pipeline>/builds/<n>"),
         (["j1", "--release-build", BUILD], "j1: --release-build keeps the build of the release a drive job add --release started, and j1 was added with no --release"),
     )
-    for argv, why in refusals:
-        assert cli.main(["job", "brief", *argv]) == 2
-        assert capsys.readouterr().err.strip() == f"drive: {why}"
+    for verb in ("brief", "launch"):
+        for argv, why in refusals:
+            assert cli.main(["job", verb, *argv]) == 2
+            assert capsys.readouterr().err.strip() == f"drive: {why}"
     code, out = run("job", "brief", "j2", "--release-build", BUILD, "--serves", "his order")
     assert (code, out.splitlines()[0]) == (0, f"Read your brief first: {written}")
     assert f"\nRelease: {J2666_START}\nRelease build: {BUILD}\n" in written.read_text()
