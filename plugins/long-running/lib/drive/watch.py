@@ -1101,7 +1101,7 @@ def gone_reads(name: str, job_id: str, job: dict, idle: list[str]) -> set[str]:
 
 
 def send_answers(name: str, run: str) -> list[tuple[str, orca.OrcaError | None]]:
-    """Send every answer kept on the Run's questions in one hold of the drive terminal's binding, binding the Run once for them all, whether the watch or the reader that just kept one sends them, so a lane gets its answer the moment its read ends, never once a pass of the watch reaches it. Each answer is read under the hold from what drive.json held once its reader was seen ended, so no other sender sends it twice and the cut-off answer a reader keeps before it runs never goes ahead of the one it finishes with; one past what one Orca relay message carries goes as a file on the lane's Sprite, by orca.sprite_answer. A question leaves its job's queue in the same hold once its answer goes through, or once Orca says it already holds another answer, since a lane whose wait ends waits again on the same question, or that the question's dispatch closed, since no lane waits on it then; any other refusal, a refused write to the Sprite included, leaves it for the watch's next pass. A sent answer whose read failed writes the event the watch hearing its job says as a `JOB` line. What came of each answer, by its job: the refusal, or None."""
+    """Send every answer kept on the Run's questions in one hold of the drive terminal's binding, binding the Run once for them all, whether the watch or the reader that just kept one sends them, so a lane gets its answer the moment its read ends, never once a pass of the watch reaches it. Each answer is read under the hold from what drive.json held once its reader was seen ended, so no other sender sends it twice and the cut-off answer a reader keeps before it runs never goes ahead of the one it finishes with; the hold makes Orca calls alone, since answer_read wrote any answer past one Orca relay message onto the lane's Sprite before it kept it, so no Sprite that cannot take a file holds every lane's answers behind the binding. A question leaves its job's queue in the same hold once its answer goes through, or once Orca says it already holds another answer, since a lane whose wait ends waits again on the same question, or that the question's dispatch closed, since no lane waits on it then; any other refusal leaves it for the watch's next pass. A sent answer whose read failed writes the event the watch hearing its job says as a `JOB` line. What came of each answer, by its job: the refusal, or None."""
     data = state.load(name)
     if not (owed := run_answers(name, data, run, running_reads(data))):
         return []
@@ -1113,7 +1113,7 @@ def send_answers(name: str, run: str) -> list[tuple[str, orca.OrcaError | None]]
                 job = data["jobs"][job_id]
                 said, why = job["read_answers"][message_id]
                 try:
-                    orca.call("reply", "--id", message_id, "--run", run, "--body", orca.sprite_answer(said, job, message_id))
+                    orca.call("reply", "--id", message_id, "--run", run, "--body", said)
                 except orca.OrcaError as error:
                     if error.code not in (orca.ANSWERED_ELSEWHERE, orca.DISPATCH_CLOSED):
                         refused.append((job_id, error))
@@ -1165,7 +1165,7 @@ def spawn_reader(name: str, job_id: str, message_id: str) -> int:
 
 
 def answer_read(name: str, job_id: str, message_id: str) -> list[str | None]:
-    """Run a lane's queued read here, keep its answer, and why it is no answer when it failed, under its message id, and send it by answer_kept. It first keeps the answer a reader stopped mid-run leaves, so no read runs twice, a `drive break-glass` in production included, and none that crashes starts again, with this reader's process id in the same save, so a watch whose own save of that id a newer install's save refused still reads it running. An answer past one Orca relay message that the lane's Sprite cannot take yet is kept whole, written there as it is sent."""
+    """Run a lane's queued read here, keep its answer, and why it is no answer when it failed, under its message id, and send it by answer_kept. It first keeps the answer a reader stopped mid-run leaves, so no read runs twice, a `drive break-glass` in production included, and none that crashes starts again, with this reader's process id in the same save, so a watch whose own save of that id a newer install's save refused still reads it running. An answer past one Orca relay message is written onto the lane's Sprite here, before any lock, and kept as the line naming that file; one the Sprite cannot take is answered with why, as a failed read is, so its question leaves the queue at its first reply and Orca, not a Sprite, says whether its lane still waits."""
     data = state.load(name)
     question = data["jobs"][job_id]["reads"][message_id]
     keep_answer(name, job_id, message_id, [reads.lane_exit(1, CUT_OFF) if reads.DRIVE.match(question) else f"{question}: {CUT_OFF}", CUT_OFF], reader=os.getpid())
@@ -1174,9 +1174,11 @@ def answer_read(name: str, job_id: str, message_id: str) -> list[str | None]:
     except reads.ReadError as error:
         kept = [f"{question}: {error}"] * 2
     else:
-        with contextlib.suppress(orca.OrcaError):
-            said = orca.sprite_answer(said, data["jobs"][job_id], message_id)
-        kept = [said, None]
+        try:
+            kept = [orca.sprite_answer(said, data["jobs"][job_id], message_id), None]
+        except orca.OrcaError as error:
+            why = f"{question.partition("\n")[0]}: its {len(said.encode())}-byte answer, past one Orca relay message, could not go to its Sprite: {error}"
+            kept = [orca.exit_line(said) + why, why]
     answer_kept(name, job_id, message_id, kept)
     return kept
 

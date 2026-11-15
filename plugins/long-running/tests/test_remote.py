@@ -4979,7 +4979,7 @@ def test_an_answer_goes_whole_while_its_relay_message_counted_as_orca_counts_it_
     assert (said, placed) == ((kept_on_sprite("relay_4ee9b39cd0c6", answer), ["relay_4ee9b39cd0c6.txt"]) if filed else (answer, []))
 
 
-def test_an_answer_past_one_relay_message_its_lanes_sprite_could_not_take_is_written_there_as_the_watch_replies_retried_like_a_refused_reply(
+def test_an_answer_past_one_relay_message_its_lanes_sprite_cannot_take_tells_its_lane_why_at_once_and_no_sprite_write_holds_the_binding(
     remote: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with state.edit(remote) as data:
@@ -4987,23 +4987,22 @@ def test_an_answer_past_one_relay_message_its_lanes_sprite_could_not_take_is_wri
     deliver(monkeypatch, [message("question", LONG_READ, id="relay_long")])
     monkeypatch.setattr(reads, "answer", lambda question, root, drive, job_id: LONG_ANSWER)
     refused = "writing .local/state/long-running/answers/relay_long.txt onto pool-one exited 255: ssh: connect to host pool-one port 22: Connection refused"
-    refusing = [True]
+    calls = []
 
     def put(workspace: str, folder: str, name: str, text: bytes) -> str:
-        if refusing[0]:
-            raise orca.Unfit(refused)
-        return f"/home/sprite/{folder}/{name}"
+        calls.append(("put", name))
+        raise orca.Unfit(refused)
 
     monkeypatch.setattr(orca, "put_on_sprite", put)
-    replies = []
-    monkeypatch.setattr(orca, "call", lambda *args: replies.append(args) or {})
+    monkeypatch.setattr(orca, "call", lambda *args: calls.append(args) or {})
+    why = f"DRIVE job replies j1: its {len(LONG_ANSWER.encode())}-byte answer, past one Orca relay message, could not go to its Sprite: {refused}"
     watching = watch.Watcher(remote, offset=state.events_end(remote))
-    assert [watch.run_pass(watching, T0 + timedelta(seconds=s)) for s in (0, 5)] == [[], [f"WATCH the answer to j1's read failed 3 times in a row: {refused}"]]
-    assert state.load(remote)["jobs"]["j1"]["read_answers"] == {"relay_long": [LONG_ANSWER, None]}
-    assert [args for args in replies if args[0] == "reply"] == []
-    refusing[0] = False
-    assert watch.run_pass(watching, T0 + timedelta(seconds=10)) == []
-    assert [args for args in replies if args[0] == "reply"] == [("reply", "--id", "relay_long", "--run", RUN, "--body", kept_on_sprite("relay_long", LONG_ANSWER))]
+    assert [watch.run_pass(watching, T0 + timedelta(seconds=s)) for s in (0, 5)] == [[f"JOB j1 o1 READ unanswered, its lane was told why: {why}"], []]
+    assert [args for args in calls if args[0] in ("put", "run-use", "reply")] == [
+        ("put", "relay_long.txt"),
+        ("run-use", "--id", RUN),
+        ("reply", "--id", "relay_long", "--run", RUN, "--body", f"drive exited 0\n{why}"),
+    ]
     assert state.load(remote)["jobs"]["j1"]["reads"] == {}
 
 
