@@ -222,6 +222,12 @@ from him. A hook refuses a line that opens with words to him. Add at most three 
 drive do not hold, such as a waits id, a record seq, a job id or a path; a fourth is sent back. Leave out the text you posted, a summary
 of it and what you read: the post is in Slack and the records are in cci.
 
+The drive owes a `POST` report a post until one carries it. When you end on one with no post, a
+`NOTHING` or `RECORDED` line gives it up: your line goes to the report's writer too. Any other line
+starts a fresh handler on it, its brief closing on a `Context:` line naming the line you ended on; a
+brief that already closes on one gives the report up when you end with no post too, so post what the
+handler before you could not, unless its line still holds.
+
 You do only what finishes in your turn. Once your line passes, the drive removes your session, and
 every background task and wakeup in it ends unrun with it, such as a `run_in_background` command, a
 `Monitor` or a `CronCreate`. So the hook refuses your line while Claude Code lists one. Before you

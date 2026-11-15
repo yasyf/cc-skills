@@ -580,14 +580,15 @@ def trunk_queue(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
 
 @pytest.fixture(autouse=True)
 def posts_to_communicator(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """The seq of each `POST` report to the communicator cci holds, each read from the drive's mark on, the drive's read starting at 0."""
     kept: list[str] = []
 
-    def read(name: str) -> list[str]:
-        seqs = list(kept)
-        kept.clear()
-        return seqs
+    def read(name: str, since: int) -> tuple[list[str], int]:
+        seqs = [seq for seq in dict.fromkeys(kept) if int(seq) > since]
+        return seqs, max(map(int, seqs), default=since)
 
     monkeypatch.setattr(agents, "posts", read)
+    monkeypatch.setattr(agents, "seeded", lambda name: 0)
     return kept
 
 

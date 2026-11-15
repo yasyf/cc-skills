@@ -12087,11 +12087,10 @@ def test_a_stall_on_a_drive_started_from_a_terminal_with_no_communicator_starts_
     assert (len(ready_records), len(ran)) == (1, 1)
 
 
-def test_the_watch_starts_a_handler_on_each_post_report_to_the_communicator_once_beside_whichever_session_holds_the_drive_and_reads_again_one_that_did_not_start(
+def test_the_watch_starts_a_handler_on_each_post_report_the_drive_owes_once_beside_whichever_session_holds_the_drive_and_its_mark_passes_only_carried_reports(
     demo: str, monkeypatch: pytest.MonkeyPatch, posts_to_communicator: list[str]
 ) -> None:
     ran: list[list[str]] = []
-    unread: list[str] = []
     refused = {"697102"}
 
     def run(argv: list[str], checkout: Path, env: dict | None = None, stdin: str | None = None) -> str:
@@ -12101,29 +12100,28 @@ def test_the_watch_starts_a_handler_on_each_post_report_to_the_communicator_once
         return ""
 
     monkeypatch.setattr(reads, "run", run)
-    monkeypatch.setattr(watch.agents, "unread", lambda name, seq: unread.append(seq))
     watching = watcher(demo)
     posts_to_communicator += ["697061", "697102", "697160"]
     assert watch.post_lines(watching, T0) == []
-    assert ([argv[-1] for argv in ran], unread) == ([f"Record: 697061 Drive: {demo} Scratch: {state.drive_dir(demo) / 'scratch' / 'post-697061'}" + UNFROZEN], ["697102"])
+    assert [argv[-1] for argv in ran] == [f"Record: {seq} Drive: {demo} Scratch: {state.drive_dir(demo) / 'scratch' / f'post-{seq}'}" + UNFROZEN for seq in ("697061", "697160")]
     refused.clear()
-    posts_to_communicator += ["697102", "697160"]
     assert watch.post_lines(watching, T0 + timedelta(seconds=5)) == []
-    assert [argv[-1].split()[1] for argv in ran] == ["697061", "697102", "697160"]
-    assert sorted(entry["holds"]["record"] for entry in state.load(demo)["handlers"].values()) == ["697061", "697102", "697160"]
+    assert [argv[-1].split()[1] for argv in ran] == ["697061", "697160", "697102"]
+    data = state.load(demo)
+    assert (sorted(entry["holds"]["record"] for entry in data["handlers"].values()), data["posts"]["mark"]) == (["697061", "697102", "697160"], 697060)
     with state.edit(demo) as data:
+        data["carried"] |= {"697061": "https://acme.slack.com/archives/D123/p1794200000000200", "697102": "https://acme.slack.com/archives/D123/p1794200000000300"}
         data["roles"]["communicator"] = {"session": "communicator-session", "terminal": None, "cwd": "/work", "started": state.stamp(T0)}
     posts_to_communicator.append("697200")
     assert watch.post_lines(watching, T0 + timedelta(seconds=10)) == []
     assert ([argv[-1].split()[1] for argv in ran][3:], json.loads(ran[-1][ran[-1].index("--settings") + 1])["env"]["CCI_PARENT_SESSION"]) == (["697200"], "communicator-session")
+    assert state.load(demo)["posts"]["mark"] == 697159
 
 
-def test_a_post_report_whose_handler_start_raised_what_the_drive_did_not_expect_stays_unread_with_no_handler_is_said_and_the_relay_starts_it_once_it_clears(
+def test_a_post_report_whose_handler_start_raised_what_the_drive_did_not_expect_stays_owed_with_no_handler_is_said_and_the_relay_starts_it_once_it_clears(
     demo: str, monkeypatch: pytest.MonkeyPatch, posts_to_communicator: list[str]
 ) -> None:
     serve(monkeypatch, {})
-    unread: list[str] = []
-    monkeypatch.setattr(watch.agents, "unread", lambda name, seq: unread.append(seq))
     monkeypatch.setattr(agents, "releases", lambda name, data: {}["answers"])
     relaying = watcher(demo)
     said = []
@@ -12131,7 +12129,7 @@ def test_a_post_report_whose_handler_start_raised_what_the_drive_did_not_expect_
         posts_to_communicator += ["717769", "717816"]
         said.append([line for line in watch.relay_pass(relaying, T0 + timedelta(seconds=seconds)) if "POST" in line])
     [quiet, still, [line]] = said
-    assert (quiet, still, unread, state.load(demo)["handlers"]) == ([], [], ["717769"] * 3, {})
+    assert (quiet, still, state.load(demo)["posts"]["mark"], state.load(demo)["handlers"]) == ([], [], 717768, {})
     assert line.startswith("WATCH start of the POST reports' handlers failed 3 times in a row: the handler on POST report 717769 did not start: KeyError at agents.py:")
     assert line.endswith(" in start_handler: 'answers'")
     started: list[str] = []
