@@ -36,6 +36,8 @@ EJECTED_LABEL = "trunk-failed"
 TRUNK_CHECK = "Trunk Merge Queue"
 RUN_URL = re.compile(r"/actions/runs/(?P<run>\d+)/")
 PRS_PER_QUERY = 25
+MERGEABILITY = "state headRefOid mergeable"
+MERGEABILITY_PER_QUERY = 100
 STACKS_AGE = "60s"
 STACK = "stack { baseRefName entries(first: 100) { nodes { position pullRequest { number state } } } }"
 DELETED_AUTHOR = "ghost"
@@ -129,14 +131,22 @@ def repo_of(key: str) -> str:
     return key.split("#")[0]
 
 
+def by_repository(keys: list[str], size: int) -> list[list[str]]:
+    """The keys cut into lists of at most size PRs of one repository each, in the order named within each, since a GraphQL query naming one repository alone runs on that repository's own token, as ccx gives a GitHub App's installation token to a query of its repositories alone, and costs GitHub's compute for that repository's PRs alone."""
+    grouped = [list(members) for _, members in groupby(sorted(keys, key=repo_of), key=repo_of)]
+    return [members[start : start + size] for members in grouped for start in range(0, len(members), size)]
+
+
+def repository_query(repo: str, fields: str) -> str:
+    owner, name = repo.split("/")
+    return f"query {{ r0: repository(owner: {json.dumps(owner)}, name: {json.dumps(name)}) {{ {fields} }} }}"
+
+
 def query(keys: list[str], fields: str = FIELDS, repository: str = "") -> str:
-    """One GraphQL query reading the fields of every PR in keys, aliased r<i> per repo and p<number> per PR, each check's isRequired asked for that PR, the only way GitHub answers it, and the repository fields of each repo."""
-    blocks = []
-    for index, (repo, members) in enumerate(groupby(sorted(keys, key=repo_of), key=repo_of)):
-        owner, name = repo.split("/")
-        pulls = " ".join(f"p{split(key)[2]}: pullRequest(number: {split(key)[2]}) {{ {fields.replace(NUMBER, str(split(key)[2]))} }}" for key in members)
-        blocks.append(f"r{index}: repository(owner: {json.dumps(owner)}, name: {json.dumps(name)}) {{ {repository} {pulls} }}")
-    return "query { " + " ".join(blocks) + " }"
+    """One GraphQL query reading the fields of every PR in keys, all of one repository, aliased r0 and p<number> per PR, each check's isRequired asked for that PR, the only way GitHub answers it, and the repository's fields."""
+    (repo,) = {repo_of(key) for key in keys}
+    pulls = " ".join(f"p{split(key)[2]}: pullRequest(number: {split(key)[2]}) {{ {fields.replace(NUMBER, str(split(key)[2]))} }}" for key in keys)
+    return repository_query(repo, f"{repository} {pulls}")
 
 
 def flatten(node: dict) -> dict:
@@ -251,7 +261,7 @@ def merge_method(repository: dict) -> str:
 
 
 def live(read: dict, stored: dict) -> dict:
-    """The drive's stored fields (state, the PR it folded into and the merge commit carrying it onto its repository's default branch, by landing(), its repository's default branch, checks, the checks that failed on its head, the required checks' verdict, review, head, its base and head branches, title, author, whether it carries the hold label, the PRs of its native GitHub stack that are not closed and that stack's trunk, the approving reviews its repository's rules require, the method its repository merges it by, conflict) of one fetched PR against its stored row; conflict while GitHub answers CONFLICTING, and through its UNKNOWN at the stored head, which is no answer while it works mergeability out again after a base move, so a conflict GitHub has not cleared never flips its stage; a new head reads no conflict until GitHub answers for it."""
+    """The drive's stored fields (state, the PR it folded into and the merge commit carrying it onto its repository's default branch, by landing(), its repository's default branch, checks, the checks that failed on its head, the required checks' verdict, review, head, its base and head branches, title, author, whether it carries the hold label, the PRs of its native GitHub stack that are not closed and that stack's trunk, the approving reviews its repository's rules require, the method its repository merges it by, conflict, by conflicts()) of one fetched PR against its stored row."""
     failed = sorted({*failed_before(stored, read["headRefOid"]), *failing(read["checks"])})
     fields = landing(read) | {
         "default": read["default"],
@@ -269,9 +279,14 @@ def live(read: dict, stored: dict) -> dict:
         "trunk": read["trunk"],
         "reviews_required": read["required_reviews"],
         "merge_method": read["merge_method"],
-        "conflict": read["mergeable"] == "CONFLICTING" or read["mergeable"] == "UNKNOWN" and read["headRefOid"] == stored["head"] and stored["conflict"],
+        "conflict": conflicts(read, stored),
     }
     return fields
+
+
+def conflicts(read: dict, stored: dict) -> bool:
+    """Whether a PR conflicts with its base, from GitHub's read of its head and mergeability against its stored row: while GitHub answers CONFLICTING, and through its UNKNOWN at the stored head, which is no answer while it works mergeability out again after a base move, so a conflict GitHub has not cleared never flips its stage; a new head reads no conflict until GitHub answers for it."""
+    return read["mergeable"] == "CONFLICTING" or read["mergeable"] == "UNKNOWN" and read["headRefOid"] == stored["head"] and stored["conflict"]
 
 
 def landing(read: dict) -> dict:
@@ -289,30 +304,29 @@ def fold_line(pr: dict) -> str:
     return f"merged into {pr['base']} (#{split(pr['into'])[2]}), not {pr['default']}"
 
 
-def repositories(payload: dict, keys: list[str]) -> dict[str, dict]:
-    """Each repository's node in the reply to query(keys), leaving out one GitHub answered none for."""
-    data = payload.get("data") or {}
-    return {repo: node for index, repo in enumerate(sorted({repo_of(key) for key in keys})) if (node := data.get(f"r{index}"))}
+def answered(payload: dict) -> dict:
+    """The repository's node in the reply to a query of one repository, empty when GitHub answered none for it."""
+    return (payload.get("data") or {}).get("r0") or {}
 
 
 def nodes(payload: dict, keys: list[str]) -> dict[str, dict]:
     """Each PR's node in the reply to query(keys), leaving out a PR GitHub answered none for."""
-    found = repositories(payload, keys)
-    return {key: node for key in keys if (node := (found.get(repo_of(key)) or {}).get(f"p{split(key)[2]}"))}
+    found = answered(payload)
+    return {key: node for key in keys if (node := found.get(f"p{split(key)[2]}"))}
 
 
 def parse(payload: dict, keys: list[str]) -> dict[str, dict]:
-    found = repositories(payload, keys)
+    repository = answered(payload)
     return {
         key: flatten(node)
         | {
             "key": key,
             "native": entries(repo_of(key), node["stack"]) if node["stack"] else [],
             "trunk": node["stack"]["baseRefName"] if node["stack"] else None,
-            "required_checks": rule_checks(found[repo_of(key)]),
-            "required_reviews": rule_reviews(found[repo_of(key)]),
-            "merge_method": merge_method(found[repo_of(key)]),
-            "default": found[repo_of(key)]["defaultBranchRef"]["name"],
+            "required_checks": rule_checks(repository),
+            "required_reviews": rule_reviews(repository),
+            "merge_method": merge_method(repository),
+            "default": repository["defaultBranchRef"]["name"],
             "base_pr": None,
         }
         for key, node in nodes(payload, keys).items()
@@ -352,10 +366,9 @@ def entries(repo: str, stack: dict) -> list[tuple[str, str]]:
 
 
 def stacks(keys: list[str]) -> dict[str, list[tuple[str, str]]]:
-    """Each PR's native GitHub stack, the one stack-enqueue lands, as entries() gives it, PRS_PER_QUERY PRs to a `gh api graphql` call read through ccx's cache up to STACKS_AGE old, since a card asks again for the same PRs within a post; a PR in no native stack is left out."""
+    """Each PR's native GitHub stack, the one stack-enqueue lands, as entries() gives it, PRS_PER_QUERY PRs of one repository to a `gh api graphql` call read through ccx's cache up to STACKS_AGE old, since a card asks again for the same PRs within a post; a PR in no native stack is left out."""
     found = {}
-    for start in range(0, len(keys), PRS_PER_QUERY):
-        chunk = keys[start : start + PRS_PER_QUERY]
+    for chunk in by_repository(keys, PRS_PER_QUERY):
         for key, node in nodes(graphql(query(chunk, STACK), f"the native stacks of {', '.join(chunk)}", STACKS_AGE), chunk).items():
             if node["stack"]:
                 found[key] = entries(repo_of(key), node["stack"])
@@ -408,24 +421,21 @@ def run_conclusion(run_id: str | None, job: str | None, repo: str | None, cwd: s
 
 
 def fetch(keys: list[str], into: dict[str, str] | None = None) -> tuple[dict[str, dict], GithubError | None]:
-    """Read every PR key ("owner/name#123"), its native GitHub stack, its repository's default branch, the checks the rules of that branch require and the method it merges by included, PRS_PER_QUERY to a `gh api graphql` call, since GitHub refuses a query past its resource limits, each with base_pr, the read of the PR whose head its base was: for a key into names, the PR the drive holds it folded into, read beside it; for any other GitHub reads merged into a base other than its repository's default, the one bases() finds. It gives the reads of every key whose reads all answered, and an error joining what the others could not read, so one refused call loses only its own PRs and those folded into them."""
+    """Read every PR key ("owner/name#123"), its native GitHub stack, its repository's default branch, the checks the rules of that branch require and the method it merges by included, PRS_PER_QUERY of one repository to a `gh api graphql` call, since GitHub refuses a query past its resource limits, each with base_pr, the read of the PR whose head its base was: for a key into names, the PR the drive holds it folded into, read beside it; for any other GitHub reads merged into a base other than its repository's default, the one bases() finds. It gives the reads of every key whose reads all answered, and an error joining what the others could not read, so one refused call loses only its own PRs and those folded into them."""
     into = into or {}
     asked = list(dict.fromkeys([*keys, *(into[key] for key in keys if key in into)]))
     found, refused = {}, []
-    for start in range(0, len(asked), PRS_PER_QUERY):
-        chunk = asked[start : start + PRS_PER_QUERY]
+    for chunk in by_repository(asked, PRS_PER_QUERY):
         try:
-            found |= parse(graphql(query(chunk, f"{FIELDS} {STACK}", RULES), f"{len(chunk)} PRs of {', '.join(sorted({repo_of(key) for key in chunk}))}"), chunk)
+            found |= parse(graphql(query(chunk, f"{FIELDS} {STACK}", RULES), f"{len(chunk)} PRs of {repo_of(chunk[0])}"), chunk)
         except GithubError as error:
             refused.append(str(error))
-    folds = [(key, read) for key, read in found.items() if key not in into and merged_off_default(read)]
-    for start in range(0, len(folds), PRS_PER_QUERY):
-        chunk = folds[start : start + PRS_PER_QUERY]
+    for chunk in by_repository([key for key, read in found.items() if key not in into and merged_off_default(read)], PRS_PER_QUERY):
         try:
-            bases(chunk)
+            bases([(key, found[key]) for key in chunk])
         except GithubError as error:
             refused.append(str(error))
-            for key, _ in chunk:
+            for key in chunk:
                 del found[key]
     while unread := [key for key in found if key in into and into[key] not in found]:
         for key in unread:
@@ -436,18 +446,27 @@ def fetch(keys: list[str], into: dict[str, str] | None = None) -> tuple[dict[str
     return {key: found[key] for key in keys if key in found}, GithubError("; ".join(refused)) if refused else None
 
 
+def mergeability(keys: list[str]) -> tuple[dict[str, dict], GithubError | None]:
+    """Each PR's state, head and mergeability, MERGEABLE, CONFLICTING or UNKNOWN while GitHub works it out again, MERGEABILITY_PER_QUERY PRs of one repository to a `gh api graphql` call: the read a push to a base owes the PRs on it, since it moves none of their heads, checks or reviews, only what GitHub merges each into. It gives the reads of every call that answered and an error joining what the others could not read, as fetch does."""
+    found, refused = {}, []
+    for chunk in by_repository(keys, MERGEABILITY_PER_QUERY):
+        try:
+            found |= nodes(graphql(query(chunk, MERGEABILITY), f"the mergeability of {len(chunk)} PRs of {repo_of(chunk[0])}"), chunk)
+        except GithubError as error:
+            refused.append(str(error))
+    return found, GithubError("; ".join(refused)) if refused else None
+
+
 def merged_off_default(read: dict) -> bool:
     return read["state"] == "MERGED" and read["baseRefName"] != read["default"]
 
 
 def bases(folds: list[tuple[str, dict]]) -> None:
-    """Set base_pr on each (key, read) of a PR GitHub reads merged into a base other than its repository's default: None while that default branch holds its merge commit, as it does for each PR of a native GitHub stack its parent landed with; else the same-repository PR whose head is that base and was open as it merged, its own base_pr found the same way in turn when it merged into another, one `gh api graphql` call a round."""
+    """Set base_pr on each (key, read) of a PR of one repository GitHub reads merged into a base other than its repository's default: None while that default branch holds its merge commit, as it does for each PR of a native GitHub stack its parent landed with; else the same-repository PR whose head is that base and was open as it merged, its own base_pr found the same way in turn when it merged into another, one `gh api graphql` call a round."""
     while folds:
-        repos = sorted({repo_of(key) for key, _ in folds})
-        data = graphql(bases_query(folds, repos), f"the PRs whose heads are the bases of {', '.join(key for key, _ in folds)}").get("data") or {}
+        repository = answered(graphql(bases_query(folds), f"the PRs whose heads are the bases of {', '.join(key for key, _ in folds)}"))
         onward = []
         for slot, (key, read) in enumerate(folds):
-            repository = data.get(f"r{repos.index(repo_of(key))}") or {}
             if ((repository.get("defaultBranchRef") or {}).get(f"c{slot}") or {}).get("status") in ON_DEFAULT:
                 continue
             pulls = (repository.get(f"o{slot}") or {"nodes": []})["nodes"]
@@ -474,47 +493,35 @@ def open_at(pull: dict, moment: str) -> bool:
     return not pull["isCrossRepository"] and pull["createdAt"] <= moment and (pull["closedAt"] is None or pull["closedAt"] > moment)
 
 
-def bases_query(folds: list[tuple[str, dict]], repos: list[str]) -> str:
-    """One GraphQL query for every (key, read) of folds: how its repository's default branch compares to its merge commit, and the PRs whose head is its base, newest first, aliased r<i> per repo and c<j> and o<j> per PR."""
-    blocks = []
-    for index, repo in enumerate(repos):
-        owner, name = repo.split("/")
-        mine = [(slot, read) for slot, (key, read) in enumerate(folds) if repo_of(key) == repo]
-        compares = " ".join(f"c{slot}: compare(headRef: {json.dumps(read['mergeCommit'])}) {{ status }}" for slot, read in mine)
-        pulls = " ".join(
-            f"o{slot}: pullRequests(headRefName: {json.dumps(read['baseRefName'])}, first: {OWNERS_PER_BASE}, orderBy: {{field: CREATED_AT, direction: DESC}}) {{ nodes {{ {OWNER} }} }}" for slot, read in mine
-        )
-        blocks.append(f"r{index}: repository(owner: {json.dumps(owner)}, name: {json.dumps(name)}) {{ defaultBranchRef {{ {compares} }} {pulls} }}")
-    return "query { " + " ".join(blocks) + " }"
+def bases_query(folds: list[tuple[str, dict]]) -> str:
+    """One GraphQL query for every (key, read) of folds, all of one repository: how its default branch compares to each merge commit, and the PRs whose head is each base, newest first, aliased r0 and c<j> and o<j> per PR."""
+    compares = " ".join(f"c{slot}: compare(headRef: {json.dumps(read['mergeCommit'])}) {{ status }}" for slot, (_, read) in enumerate(folds))
+    pulls = " ".join(
+        f"o{slot}: pullRequests(headRefName: {json.dumps(read['baseRefName'])}, first: {OWNERS_PER_BASE}, orderBy: {{field: CREATED_AT, direction: DESC}}) {{ nodes {{ {OWNER} }} }}" for slot, (_, read) in enumerate(folds)
+    )
+    (repo,) = {repo_of(key) for key, _ in folds}
+    return repository_query(repo, f"defaultBranchRef {{ {compares} }} {pulls}")
 
 
-def heads_query(heads: list[tuple[str, str]], repos: list[str]) -> str:
-    """One GraphQL query for the open PRs of every (owner/name, branch) head, aliased r<i> per repo and h<j> per head."""
-    blocks = []
-    for index, repo in enumerate(repos):
-        owner, name = repo.split("/")
-        pulls = " ".join(
-            f"h{slot}: pullRequests(headRefName: {json.dumps(branch)}, states: OPEN, first: 10) {{ nodes {{ number {FIELDS.replace(f' {REQUIRED}', '')} }} }}"
-            for slot, (other, branch) in enumerate(heads)
-            if other == repo
-        )
-        blocks.append(f"r{index}: repository(owner: {json.dumps(owner)}, name: {json.dumps(name)}) {{ {pulls} }}")
-    return "query { " + " ".join(blocks) + " }"
+def heads_query(repo: str, branches: list[str]) -> str:
+    """One GraphQL query for the open PRs of every branch of one repository, aliased r0 and h<j> per branch."""
+    return repository_query(repo, " ".join(f"h{slot}: pullRequests(headRefName: {json.dumps(branch)}, states: OPEN, first: 10) {{ nodes {{ number {FIELDS.replace(f' {REQUIRED}', '')} }} }}" for slot, branch in enumerate(branches)))
 
 
 def open_on(heads: list[tuple[str, str]]) -> dict[str, dict]:
-    """Every open PR whose head is one of the (owner/name, branch) heads, keyed "owner/name#123" with its branch, checks and review, in one `gh api graphql` call, however many heads there are."""
-    repos = sorted({repo for repo, _ in heads})
-    data = graphql(heads_query(heads, repos), f"the open PRs on running jobs' branches in {', '.join(repos)}").get("data") or {}
+    """Every open PR whose head is one of the (owner/name, branch) heads, keyed "owner/name#123" with its branch, checks and review, one `gh api graphql` call a repository, however many of its branches there are."""
     found = {}
-    for slot, (repo, branch) in enumerate(heads):
-        for node in ((data.get(f"r{repos.index(repo)}") or {}).get(f"h{slot}") or {}).get("nodes", []):
-            pulled = flatten(node)
-            found[f"{repo}#{node['number']}"] = {
-                "branch": branch,
-                "checks": checks(pulled["checks"], []),
-                "review": review(pulled),
-            }
+    for repo, named in groupby(sorted(heads), key=lambda head: head[0]):
+        branches = [branch for _, branch in named]
+        repository = answered(graphql(heads_query(repo, branches), f"the open PRs on running jobs' branches in {repo}"))
+        for slot, branch in enumerate(branches):
+            for node in (repository.get(f"h{slot}") or {}).get("nodes", []):
+                pulled = flatten(node)
+                found[f"{repo}#{node['number']}"] = {
+                    "branch": branch,
+                    "checks": checks(pulled["checks"], []),
+                    "review": review(pulled),
+                }
     return found
 
 

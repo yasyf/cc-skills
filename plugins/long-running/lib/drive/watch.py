@@ -40,6 +40,7 @@ LANDER = "LANDER "
 TAP_EVENT = re.compile(rf"TAP (?P<label>\S+) (?P<key>\S+)(?P<stalled> {NOT_LANDED})?")
 LANE = "watch"
 READS_LOG = "reads.log"
+CONFLICTS = "conflicts with its base"
 RELAUNCHES_LOG = "relaunches.log"
 PASS_DONE = (
     "this pass's round is done: it returns DONE naming what the round did and where the next round starts, which the watch quotes to the next"
@@ -90,6 +91,7 @@ class Watcher:
     page_shape: str | None = None
     cards: dict | None = None
     owed: set[str] | None = None
+    merging: set[str] = field(default_factory=set)
     stale: set[str] = field(default_factory=set)
     unhookable: set[str] = field(default_factory=set)
     agent_gaps: dict[str, str | None] = field(default_factory=dict)
@@ -160,7 +162,7 @@ def pr_changes(pr: dict, read: dict, entry: dict) -> list[str]:
     if fresh["review"] != pr["review"] and fresh["review"] in ("approved", "changes"):
         changes.append("approved" if fresh["review"] == "approved" else "changes requested")
     if fresh["conflict"] and not pr["conflict"]:
-        changes.append("conflicts with its base")
+        changes.append(CONFLICTS)
     if fresh["state"] != pr["state"]:
         changes.append(github.fold_line(fresh) if fresh["state"] == github.FOLDED else fresh["state"])
     lander = pr["lander"]
@@ -172,45 +174,59 @@ def pr_changes(pr: dict, read: dict, entry: dict) -> list[str]:
 
 
 def github_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Read from GitHub each heard unmerged PR the watch owes a read, and say what changed on each: every one at the watch's start, then each a delivery named, each never asked for, each a builder's PUSHED names unread since its take, each folded into another open PR's branch, beside the PR it folded into, every pass until that PR lands or closes, and again each whose read GitHub refused or whose mergeability it had not worked out yet, since no delivery says when it has. A PR GitHub answered nothing for stays stale, as its stage does, until a read answers for it. In the same call it reads each PR the drive does not track that carries a stopped builder's parts, by state.carrier_keys, once until GitHub answers for it and again each time a delivery names it, keeping only GitHub's state of it on the watcher for job_gap, and saying nothing of it."""
+    """Read from GitHub each heard unmerged PR the watch owes a read, and say what changed on each. It reads whole every one at a watch's start that no watch before it handed its owed reads to, then each a delivery named, each never asked for, each a builder's PUSHED names unread since its take, each folded into another open PR's branch, beside the PR it folded into, every pass until that PR lands or closes, and again each whose read GitHub refused. Of each open PR a push to its base named, and each whose mergeability GitHub had not worked out yet, since no delivery says when it has, it reads only the state, head and mergeability, by github.mergeability, saying a conflict that read starts, and reads whole in the same call each that read finds moved or ended. A PR GitHub answered nothing for stays stale, as its stage does, until a read answers for it. In the same call it reads each PR the drive does not track that carries a stopped builder's parts, by state.carrier_keys, once until GitHub answers for it and again each time a delivery names it, keeping only GitHub's state of it on the watcher for job_gap, and saying nothing of it. What it still owes is kept on the watcher only once the reads are saved, so a pass that ends before then hands the next watch the reads it owed."""
     data = state.load(watcher.name)
     pushed = {key for job_id in data["jobs"] if pushing(watcher, data, job_id) for key in state.unread_since_take(data, job_id)}
-    keys = [
+    heard = [key for key in state.unmerged_pr_keys(data) if hears(watcher, data, data["prs"][key]["order"])]
+    owed = [
         key
-        for key in state.unmerged_pr_keys(data)
-        if hears(watcher, data, data["prs"][key]["order"]) and (watcher.owed is None or key in watcher.owed or key in pushed or data["prs"][key]["state"] == github.FOLDED or (data["prs"][key]["required"] is None and key not in watcher.stale))
+        for key in heard
+        if watcher.owed is None or key in watcher.owed or key in pushed or data["prs"][key]["state"] == github.FOLDED or (data["prs"][key]["required"] is None and key not in watcher.stale)
     ]
+    remerge = [key for key in heard if key in watcher.merging and key not in owed and key not in watcher.stale and data["prs"][key]["state"] == "open"]
     carried = [key for key in state.carrier_keys(data) if watcher.owed is None or key not in watcher.untracked or key in watcher.owed or watcher.untracked[key] == github.FOLDED]
-    watcher.owed = set()
-    if not keys and not carried:
+    if not owed and not remerge and not carried:
+        watcher.owed, watcher.merging = set(), set()
         return []
-    reads, refused = github.fetch([*keys, *carried], {key: into for key in keys if (into := data["prs"][key]["into"])})
+    merged, unmerged = github.mergeability(remerge) if remerge else ({}, None)
+    moved = {key for key, read in merged.items() if read["state"] != "OPEN" or read["headRefOid"] != data["prs"][key]["head"]}
+    keys = [*owed, *(key for key in remerge if key in moved)]
+    reads, refused = github.fetch([*keys, *carried], {key: into for key in keys if (into := data["prs"][key]["into"])}) if keys or carried else ({}, None)
     carrying = {key: github.landing(reads.pop(key))["state"] for key in carried if key in reads}
-    watcher.untracked |= carrying
     unread = set(keys) - set(reads)
-    watcher.owed = (unread | set(carried) - set(carrying) if refused else set()) | {key for key, read in reads.items() if read["mergeable"] == "UNKNOWN"}
-    watcher.stale = watcher.stale - set(reads) | unread
-    lines = read_failed(watcher, "github", refused, moment) if refused else []
-    if not refused:
+    unanswered = set(remerge) - set(merged)
+    owes = (unread | set(carried) - set(carrying) if refused else set()) | (set() if unmerged else unanswered)
+    merging = (unanswered if unmerged else set()) | {key for key, read in reads.items() if read["mergeable"] == "UNKNOWN"} | {key for key, read in merged.items() if key not in moved and read["mergeable"] == "UNKNOWN"}
+    stale = watcher.stale - set(reads) | unread
+    failure = "; ".join(str(error) for error in (unmerged, refused) if error)
+    lines = read_failed(watcher, "github", github.GithubError(failure), moment) if failure else []
+    if not failure:
         watcher.failures.pop("github", None)
-    if not reads:
-        return lines
     foreign, redraws = {}, []
-    with state.edit(watcher.name) as data:
-        for key, read in reads.items():
-            pr = data["prs"][key]
-            unlanded = pr["state"] in github.UNLANDED
-            changes = pr_changes(pr, read, reads.get((pr["lander"] or {}).get("entry"), read))
-            pr["required"]["read"] = state.stamp(moment)
-            if why := state.foreign_pr(data, key):
-                foreign[key] = (pr["url"], pr["author"], f"{why} {ids(pr)}")
-                continue
-            if edited_since_undrawn(pr, read, watcher.cards):
-                redraws.append(pr["url"])
-            pr["updated"] = state.stamp(moment)
-            if unlanded or pr["state"] == "open":
-                lines.extend(f"PR {key}: {change} {ids(pr)}" for change in changes)
-    watcher.stale |= set(foreign)
+    if reads or merged:
+        with state.edit(watcher.name) as data:
+            for key, read in reads.items():
+                pr = data["prs"][key]
+                unlanded = pr["state"] in github.UNLANDED
+                changes = pr_changes(pr, read, reads.get((pr["lander"] or {}).get("entry"), read))
+                pr["required"]["read"] = state.stamp(moment)
+                if why := state.foreign_pr(data, key):
+                    foreign[key] = (pr["url"], pr["author"], f"{why} {ids(pr)}")
+                    continue
+                if edited_since_undrawn(pr, read, watcher.cards):
+                    redraws.append(pr["url"])
+                pr["updated"] = state.stamp(moment)
+                if unlanded or pr["state"] == "open":
+                    lines.extend(f"PR {key}: {change} {ids(pr)}" for change in changes)
+            for key, read in merged.items():
+                pr = data["prs"][key]
+                if key in moved or (conflict := github.conflicts(read, pr)) == pr["conflict"]:
+                    continue
+                if conflict:
+                    lines.append(f"PR {key}: {CONFLICTS} {ids(pr)}")
+                pr.update(conflict=conflict, updated=state.stamp(moment))
+    watcher.owed, watcher.merging, watcher.stale = owes, merging, stale | set(foreign)
+    watcher.untracked |= carrying
     for url in redraws:
         try:
             slack.redraw_pr_cards(url)
@@ -1100,12 +1116,14 @@ def event_line(event: dict, prs: dict) -> str:
 
 
 def event_lines(watcher: Watcher) -> list[str]:
-    """Each new event the watch hears: one is written with the lane of the coordinator session hearing its order then, so a binding or a refiling after it moves it to no other watch, and one written with no lane is the drive's own watch's. A delivery the receiver wrote is said by no line: it owes each watch a read of the PRs it names, which github_lines reads later in the same pass for the PRs that watch hears."""
+    """Each new event the watch hears: one is written with the lane of the coordinator session hearing its order then, so a binding or a refiling after it moves it to no other watch, and one written with no lane is the drive's own watch's. A delivery the receiver wrote is said by no line: it owes each watch a read of the PRs it names, which github_lines reads later in the same pass for the PRs that watch hears, a push to their base a read of their mergeability alone."""
     events = list(state.read_events(watcher.name, watcher.offset))
     if not events:
         return []
     if watcher.owed is not None:
-        watcher.owed |= {f"{event['repo']}#{number}" for event, _ in events if event["kind"] == receiver.DELIVERY for number in event["numbers"]}
+        delivered = [(f"{event['repo']}#{number}", event["event"] in receiver.REMERGES) for event, _ in events if event["kind"] == receiver.DELIVERY for number in event["numbers"]]
+        watcher.owed |= {key for key, remerges in delivered if not remerges}
+        watcher.merging |= {key for key, remerges in delivered if remerges}
     prs = state.load(watcher.name)["prs"]
     said = [event_line(event, prs) for event, _ in events if event["kind"] not in (*view.HISTORY_ONLY, receiver.DELIVERY) and event.get("lane", "root") == watcher.lane]
     watcher.offset = events[-1][1]
@@ -3483,7 +3501,9 @@ def main(drive_name: str | None = None, project: str | None = None) -> int:
         os.environ.update(launchd.session_env())
         while holder(state.monitor_pid_path(name)):
             time.sleep(POLL_SECONDS)
-        watching(Watcher(name, offset=state.watch_cursor(name, project), project=project, cards=view.live_cards(name), made=state.take_held_lines(name, project)))
+        held = state.take_held_reads(name, project)
+        owes = {"owed": set(held["owed"]), "merging": set(held["merging"]), "stale": set(held["stale"]), "untracked": held["untracked"]} if held else {}
+        watching(Watcher(name, offset=state.watch_cursor(name, project), project=project, cards=view.live_cards(name), made=state.take_held_lines(name, project), **owes))
     finally:
         release(name, project)
     return 0
@@ -3522,7 +3542,9 @@ def rests(name: str) -> Iterator[None]:
 
 
 def keep_unposted(watcher: Watcher) -> None:
-    """Move each line the watch made and has not posted, routed or not, to the watch process after it, which hands them on before its first pass and reads events from past the last one they were made from."""
+    """Move each line the watch made and has not posted, routed or not, to the watch process after it, which hands them on before its first pass and reads events from past the last one they were made from, and, once it read GitHub, the reads it still owes, so the watch after it reads those and the PRs the deliveries past that event name, never every PR again."""
     state.save_watch_cursor(watcher.name, watcher.offset, watcher.project)
     state.hold_lines(watcher.name, watcher.project, [LINE_BREAKS.sub(" ", line) for line in [*watcher.made, *(line for lines in watcher.unsent.values() for line in lines)]])
+    if watcher.owed is not None:
+        state.hold_reads(watcher.name, watcher.project, {"owed": sorted(watcher.owed), "merging": sorted(watcher.merging), "stale": sorted(watcher.stale), "untracked": watcher.untracked})
     watcher.made, watcher.unsent = [], {}

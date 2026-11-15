@@ -173,24 +173,32 @@ CACHE_WRITE = added("go/sand/AGENTS.md", b"- Ruled Nov 11: Key the cache on the 
 CACHE_GUIDE = "# Agents\n\n- Ruled Nov 11: Key the cache on the run id\n"
 
 
-def open_rows(demo: str, rows: dict[int, tuple[str, str]]) -> dict:
+def open_rows(demo: str, rows: dict[int, tuple[str, str, str]]) -> dict:
     with state.edit(demo) as data:
-        for number, (branch, held) in rows.items():
-            data["prs"][f"Forge-AI/monorepo#{number}"] = data["prs"][KEY] | {"url": f"https://github.com/Forge-AI/monorepo/pull/{number}", "branch": branch, "state": held}
+        for number, (branch, held, changes) in rows.items():
+            data["prs"][f"Forge-AI/monorepo#{number}"] = data["prs"][KEY] | {
+                "url": f"https://github.com/Forge-AI/monorepo/pull/{number}",
+                "branch": branch,
+                "state": held,
+                "checked": {"head": "head1", "read": "head1", "orders": ["o1"], "lines": {changes: "d"}},
+            }
     return state.load(demo)
 
 
 @pytest.mark.parametrize(
     ("rows", "holding", "diff", "owes"),
     [
-        pytest.param({45: ("fix/cache-b", "open")}, {"fix/cache-b"}, CACHE_CODE + CACHE_WRITE, [True], id="a higher-numbered head holding it leaves the write with the lowest PR writing it"),
-        pytest.param({40: ("fix/cache-a", "open")}, {"fix/cache-a"}, CACHE_CODE + CACHE_WRITE, [], id="a lower-numbered head holding it owes this copy to nobody"),
-        pytest.param({45: ("fix/cache-b", "open")}, {"fix/cache-b"}, CACHE_CODE, [], id="any open head holding it owes nothing to a PR not writing it"),
-        pytest.param({40: ("fix/cache-a", "closed"), 41: ("fix/cache-c", "merged")}, {"fix/cache-a", "fix/cache-c"}, CACHE_CODE, [False], id="no head but an open one counts"),
-        pytest.param({40: ("fix/cache-a", "open")}, {"dev"}, CACHE_CODE, [], id="the base branch's tip holding it owes it to nobody"),
+        pytest.param({45: ("fix/cache-b", "open", "AGENTS.md")}, {"fix/cache-b"}, CACHE_CODE + CACHE_WRITE, [True], id="a higher-numbered head holding it leaves the write with the lowest PR writing it"),
+        pytest.param({40: ("fix/cache-a", "open", "AGENTS.md")}, {"fix/cache-a"}, CACHE_CODE + CACHE_WRITE, [], id="a lower-numbered head holding it owes this copy to nobody"),
+        pytest.param({45: ("fix/cache-b", "open", "AGENTS.md")}, {"fix/cache-b"}, CACHE_CODE, [], id="any open head holding it owes nothing to a PR not writing it"),
+        pytest.param(
+            {40: ("fix/cache-a", "closed", "AGENTS.md"), 41: ("fix/cache-c", "merged", "AGENTS.md")}, {"fix/cache-a", "fix/cache-c"}, CACHE_CODE, [False], id="no head but an open one counts"
+        ),
+        pytest.param({40: ("fix/cache-a", "open", "AGENTS.md")}, {"dev"}, CACHE_CODE, [], id="the base branch's tip holding it owes it to nobody"),
+        pytest.param({40: ("fix/cache-a", "open", "go/sand/cache/key.go")}, {"fix/cache-a"}, CACHE_CODE, [False], id="an open head whose diff writes no AGENTS.md there is never read"),
     ],
 )
-def test_a_ruling_held_at_the_base_branchs_tip_or_an_open_pr_head_is_owed_only_by_the_lowest_numbered_pr_whose_head_holds_it_read_in_one_query(
+def test_a_ruling_held_at_the_base_branchs_tip_or_at_the_head_of_an_open_pr_whose_diff_changes_an_agents_md_above_its_code_is_owed_only_by_the_lowest_numbered_pr_whose_head_holds_it_read_in_one_query(
     run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch, recorded: Answers, rows: dict, holding: set[str], diff: bytes, owes: list[bool]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "key the cache on the run")
@@ -202,12 +210,30 @@ def test_a_ruling_held_at_the_base_branchs_tip_or_an_open_pr_head_is_owed_only_b
     monkeypatch.setattr(
         github, "graphql", lambda text, what, max_age="0s": asked.append(GUIDE_AT.findall(text)) or {"data": {"repository": {alias: {"text": CACHE_GUIDE} if branch in holding and path == "AGENTS.md" else None for alias, branch, path in asked[-1]}}}
     )
-    data = open_rows(demo, rows | {7: ("fix/elsewhere", "open")})
-    data["prs"]["yasyf/cc-skills#3"] = data["prs"][KEY] | {"branch": "fix/cache-other-repo"}
+    data = open_rows(demo, rows | {7: ("fix/elsewhere", "open", "go/other/AGENTS.md")})
+    data["prs"]["yasyf/cc-skills#3"] = data["prs"][KEY] | {"branch": "fix/cache-other-repo", "checked": data["prs"]["Forge-AI/monorepo#7"]["checked"] | {"lines": {"AGENTS.md": "d"}}}
     found = served.owed(data, KEY, ["c0de123"], {"base": "dev", "head": "head1", "diff": diff})
     assert [each["written"] for each in found] == owes
     read = {branch for _, branch, _ in asked[0]}
-    assert (len(asked), read) == (1, {"dev", "fix/elsewhere", *(branch for branch, held in rows.values() if held == "open")})
+    assert (len(asked), read) == (1, {"dev", *(branch for branch, held, changes in rows.values() if held == "open" and changes == "AGENTS.md")})
+
+
+@pytest.mark.parametrize("tracked", [1, 100])
+def test_the_agents_md_read_is_one_query_of_one_repository_naming_the_same_files_at_1_tracked_pr_and_at_100_since_only_the_heads_whose_diffs_change_them_are_read(
+    run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch, recorded: Answers, tracked: int
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "key the cache on the run")
+    run("job", "add", "builder", "--order", "o1", "--goal", "land")
+    run("pr", "add", URL, "--job", "j1", *LEAD)
+    recorded.shown |= {"c0de123": CACHE_RULING}
+    asked: list[str] = []
+    monkeypatch.setattr(github, "checkout_repo", lambda cwd: "Forge-AI/monorepo")
+    monkeypatch.setattr(github, "graphql", lambda text, what, max_age="0s": asked.append(text) or {"data": {"repository": {alias: None for alias, _, _ in GUIDE_AT.findall(text)}}})
+    idle = {1000 + n: (f"fix/idle-{n}", "open", f"go/idle/{n}.go") for n in range(tracked - 1)}
+    data = open_rows(demo, {40: ("fix/cache-a", "open", "go/sand/AGENTS.md")} | idle)
+    found = served.owed(data, KEY, ["c0de123"], {"base": "dev", "head": "head1", "diff": CACHE_CODE})
+    assert ([each["written"] for each in found], len(asked)) == ([False], 1)
+    assert (asked[0].count("repository("), len(GUIDE_AT.findall(asked[0])), {branch for _, branch, _ in GUIDE_AT.findall(asked[0])}) == (1, 8, {"dev", "fix/cache-a"})
 
 
 def test_an_answer_cc_notes_prints_with_no_tags_key_reads_as_ruling_no_code_so_a_pr_binding_it_owes_no_write(

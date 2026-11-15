@@ -26,6 +26,7 @@ EVENTS = ["pull_request", "pull_request_review", "check_run", "status", "push", 
 CARRYING = ("pull_request", "missed")
 MARKS = ("ci", "release")
 DELIVERY = "delivery"
+REMERGES = ("push",)
 LABEL = f"{launchd.LABEL}.receiver"
 WAIT_SECONDS = 5
 SLEPT_SECONDS = 60

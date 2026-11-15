@@ -977,6 +977,7 @@ def visibilities(monkeypatch: pytest.MonkeyPatch) -> dict[str, str | None]:
 def pr_reads(monkeypatch: pytest.MonkeyPatch) -> dict[str, dict]:
     reads: dict[str, dict] = {}
     monkeypatch.setattr(github, "fetch", lambda keys, into=None: ({key: reads[key] for key in keys if key in reads}, None))
+    monkeypatch.setattr(github, "mergeability", lambda keys: ({key: {field: reads[key][field] for field in ("state", "headRefOid", "mergeable")} for key in keys if key in reads}, None))
     return reads
 
 

@@ -343,6 +343,10 @@ def held_path(name: str, project: str | None = None) -> Path:
     return drive_dir(name) / f"watch{watch_suffix(project)}.held"
 
 
+def reads_path(name: str, project: str | None = None) -> Path:
+    return drive_dir(name) / f"watch{watch_suffix(project)}.reads"
+
+
 def cards_path(name: str) -> Path:
     return drive_dir(name) / "cards.json"
 
@@ -3050,6 +3054,24 @@ def take_held_lines(name: str, project: str | None = None) -> list[str]:
     lines = path.read_text().splitlines()
     path.unlink()
     return lines
+
+
+def hold_reads(name: str, project: str | None, reads: dict) -> None:
+    """Keep the GitHub reads a watch process still owes, as it hands itself to a newer install or stops, for the watch process after it, which owes those and the ones the deliveries past its cursor name, never a read of every PR."""
+    path = reads_path(name, project)
+    tmp = path.with_name(f"{path.name}.tmp")
+    tmp.write_text(json.dumps(reads))
+    os.replace(tmp, path)
+
+
+def take_held_reads(name: str, project: str | None = None) -> dict | None:
+    """The GitHub reads the watch process before this one held for it, once; None when it held none, as after a kill or on a first start, so this one reads every PR."""
+    path = reads_path(name, project)
+    if not path.exists():
+        return None
+    reads = json.loads(path.read_text())
+    path.unlink()
+    return reads
 
 
 def read_events(name: str, offset: int = 0) -> Iterator[tuple[dict, int]]:
