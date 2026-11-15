@@ -637,7 +637,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str, terminal: str
         "builder_goals_named": True,
         "members_kept": True,
         "open_dones_held": True,
-        "staging_proofs_owned": True,
+        "staging_passes_owned": True,
         "lines_kept": True,
         "replaced_ended": True,
         "change_builders_unwaited": True,
@@ -950,7 +950,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     if data["catch_up"]:
         data["catch_up"]["record"] = bare_seq(data["catch_up"]["record"])
     passes = (drive_dir(name) / "pictures" / picture.SOURCED, drive_dir(name) / "asks" / REBUILT_ASKS, drive_dir(name) / APPROVALS_LABELLED)
-    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated")) and bool(data.get("holds_owed")) and bool(data.get("near_answers_apart")) and bool(data.get("stack_writes_read")) and bool(data.get("builder_goals_named")) and bool(data.get("members_kept")) and bool(data.get("open_dones_held")) and bool(data.get("staging_proofs_owned")) and bool(data.get("lines_kept")) and bool(data.get("change_builders_unwaited"))
+    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated")) and bool(data.get("holds_owed")) and bool(data.get("near_answers_apart")) and bool(data.get("stack_writes_read")) and bool(data.get("builder_goals_named")) and bool(data.get("members_kept")) and bool(data.get("open_dones_held")) and bool(data.get("staging_passes_owned")) and bool(data.get("lines_kept")) and bool(data.get("change_builders_unwaited"))
     if (pictures := drive_dir(name) / "pictures").is_dir() and not (pictures / picture.SOURCED).exists():
         picture.fill(pictures, [*map(Path.read_text, sorted((drive_dir(name) / "asks").glob("*.md"))), *pr_bodies(name)])
     if cards_path(name).exists() and not (drive_dir(name) / "asks" / REBUILT_ASKS).exists():
@@ -1012,7 +1012,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         keep_members(name, data)
     if not data.get("open_dones_held"):
         hold_open_dones(name, data)
-    if not data.get("staging_proofs_owned"):
+    if not data.get("staging_passes_owned"):
         own_staging_proofs(name, data)
     if not data.get("change_builders_unwaited"):
         unwait_change_builders(data)
@@ -1066,16 +1066,15 @@ def hold_open_dones(name: str, data: dict) -> None:
 
 
 def own_staging_proofs(name: str, data: dict) -> None:
-    """Name as posted_by of each staging test part an older install delivered by a DONE's first CHECK: proof, whatever its cases read, the newest builder or codex job on it a DONE return of which names that proof first, read once from its returns, so the part stays delivered only while that job is its newest tester still holding that DONE, by staged; marked so this runs once."""
+    """Keep the proof of each staging test part an older install delivered by a DONE's first CHECK: proof, whatever its cases read, only beside the newest builder or codex job on it a full-pass DONE return of which names that proof, by full_pass, read once from its returns, so the part stays delivered only while that job is its newest tester still holding that DONE, by staged, and take it back from a part no full pass names; marked so this runs once."""
     for order_id, order in data["orders"].items():
         for part, held in order["parts"].items():
             if not (STAGING_PART.fullmatch(part) and held["posted"]):
                 continue
-            for job_id, job in part_jobs(data, order_id, part):
-                dones = [reply["body"] for reply in returns(name, job_id) if re.match(r"DONE\b", opening(reply["body"]))] if job["kind"] in CHANGE_KINDS else []
-                if held["posted"] in map(first_proof, dones):
-                    held["posted_by"] = job_id
-    data["staging_proofs_owned"] = True
+            passed = [job_id for job_id, job in part_jobs(data, order_id, part) if job["kind"] in CHANGE_KINDS and held["posted"] in (full_pass(reply["body"]) for reply in returns(name, job_id) if re.match(r"DONE\b", opening(reply["body"])))]
+            held.update(posted=held["posted"] if passed else None, posted_by=passed[-1] if passed else None)
+    data.pop("staging_proofs_owned", None)
+    data["staging_passes_owned"] = True
 
 
 def unwait_change_builders(data: dict) -> None:
@@ -2088,9 +2087,7 @@ def post_staging_proof(data: dict, job_id: str, line: str, report: str) -> None:
     job = data["jobs"][job_id]
     if job["kind"] not in CHANGE_KINDS or MERGED_LINE.match(line):
         return
-    cases = CASE_LINE.findall(report)
-    passed = bool(cases) and all(PASSED_CASE.match(verdict) for verdict in cases)
-    proof = first_proof(report) if passed else None
+    proof = full_pass(report)
     done = bool(re.match(r"DONE\b", line))
     for order_id, part in staging_parts(data, job):
         held = data["orders"][order_id]["parts"][part]
@@ -2100,10 +2097,13 @@ def post_staging_proof(data: dict, job_id: str, line: str, report: str) -> None:
             held.update(posted=None, posted_by=None)
 
 
-def first_proof(report: str) -> str | None:
-    """The first proof a report's CHECK: lines name."""
+def full_pass(report: str) -> str | None:
+    """The first proof a report's CHECK: lines name when its CASE lines, one or more, all read pass, else None."""
     from drive import brief
 
+    cases = CASE_LINE.findall(report)
+    if not (cases and all(PASSED_CASE.match(verdict) for verdict in cases)):
+        return None
     return next((found for check in brief.CHECK.findall(report) for found in brief.proofs(check)), None)
 
 
