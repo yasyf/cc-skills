@@ -5332,8 +5332,8 @@ def three_stacked(demo: str, monkeypatch: pytest.MonkeyPatch, native: bool = Tru
     monkeypatch.setattr(watch.view, "cards", lambda drive: watch.view.NO_CARDS)
     reads = {key: stacked_read(head) for key, head in zip(STACKED, ("aaaaaaa111", "bbbbbbb222", "ccccccc333"))}
     if not native:
-        for key, (base, branch) in zip(STACKED, (("main", "move-1"), ("move-1", "move-2"), ("move-2", "move-3"))):
-            reads[key] |= {"native": [], "baseRefName": base, "headRefName": branch}
+        for key, below, (base, branch) in zip(STACKED, (None, *STACKED[:2]), (("main", "move-1"), ("move-1", "move-2"), ("move-2", "move-3"))):
+            reads[key] |= {"native": [], "baseRefName": base, "headRefName": branch, "under": below}
     serve(monkeypatch, reads)
     return reads
 
