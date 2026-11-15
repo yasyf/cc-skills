@@ -46,7 +46,7 @@ for its repository says, then return `DONE <proof>`.
   `drive job ask` marks when any option it offers breaks one, holds it on an incident too. Outside an
   incident a PR a card of his holds gets no PR card asking his tap until he answers each card, by his
   pick "Buttons only after you answer each question". On an incident his Approve on the PR answers each card holding
-  it: his PR card names each with its recommended option, his Approve keeps those picks on its tap,
+  it: his Approve keeps each one's recommended option on its tap as its pick,
   and the lander's start, on his tap and on every watch pass, answers each card still open with its
   pick and closes it before it lands. His Approve stands until his words rework the PR or he taps Hold:
   a card that comes to hold the PR after his Approve holds it as held, owed by him and naming that
@@ -536,7 +536,7 @@ inherited one, restack onto a `dev` that has the fix, or fix it forward in its o
 a test flaked, whose cause may be in product code. The one exception is a `yasyf/*` test that main fails
 since a drive PR merged whose own run failed it: that merge's builder owns it, and the watch wakes it to
 fix main forward in a PR of its own, so build no second fix. Waiting on a fix in another PR, return `WAITING`
-naming it, which puts it on his card on yours, with the fix's own card when it waits on his Approve. On a conflict or
+naming it, which puts it on your PR's stage line, with the fix's own card when it waits on his Approve. On a conflict or
 a queue ejection, restack, read the entry's history and verification build, fix the cause, and enqueue
 once more. Fix a test that keeps failing at its root; never retry past it with `--flake` or a rerun. The
 `bash_guard` hook refuses `stack-enqueue --flake` in a drive session or agent, and reads the state of what each

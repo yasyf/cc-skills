@@ -169,12 +169,13 @@ def relay(text: str, under: str) -> dict:
 
 
 def pr_read(name: str, key: str) -> dict | None:
-    """The PR as its Slack card reads it, with its Show me section cut by the parser that card uses and the row his card would draw for it, its stage as his card on it draws; None for a PR GitHub refuses that was never read."""
+    """The PR as its Slack card reads it, with its Show me section cut by the parser that card uses and the row his card would draw for it, with what it lands once or what holds it, by card.standing; None for a PR GitHub refuses that was never read."""
     data = state.load(name)
     entry = data["prs"][key]
     if not (pr := card.read(key, entry)):
         return None
-    return pr | {"show_me": sections(body_of(pr)).get("show me", ""), "row": card.render(pr, card.drawn_entry(data, entry, view.live_cards(name)))["prs"][0]}
+    drawn = card.drawn_entry(data, entry, view.live_cards(name))
+    return pr | {"show_me": sections(body_of(pr)).get("show me", ""), "row": card.render(pr, drawn)["prs"][0] | card.standing(pr, drawn)}
 
 
 @functools.cache

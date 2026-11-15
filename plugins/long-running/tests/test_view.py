@@ -1095,33 +1095,6 @@ def test_an_alert_he_shared_is_titled_by_its_source_and_words_not_its_link() -> 
     ]
 
 
-QUESTION = "https://acme.slack.com/archives/D123/p1794200000000100"
-UNLISTED = "https://acme.slack.com/archives/D123/p1794200000000900"
-
-
-@pytest.mark.parametrize(
-    ("wait", "words"),
-    [
-        ("j3", "the build of prove the real run finishes"),
-        ("Forge-AI/monorepo#7", "[retry (flaky) uploads](https://github.com/Forge-AI/monorepo/pull/7) lands"),
-        ("release:dashboard:Forge-AI/monorepo#7", "the dashboard release carrying [retry (flaky) uploads](https://github.com/Forge-AI/monorepo/pull/7) is out"),
-        ("https://buildkite.com/forge/release/builds/14769", "[Buildkite build 14769 of forge/release](https://buildkite.com/forge/release/builds/14769) finishes or stops at an approve step"),
-        ("demo:j1-7-a", f"you answer [Pick a store?]({QUESTION}?thread_ts=1.2)"),
-        (UNLISTED, f"you answer [your question card]({UNLISTED})"),
-        ("demo:j1-9", "you answer your question card"),
-    ],
-)
-def test_each_wait_reads_on_his_card_as_what_it_waits_for_in_linked_words(wait: str, words: str) -> None:
-    created = "2026-11-09T08:00:00-08:00"
-    data = {
-        "orders": {"o1": state.new_order("prove the real run", "terminal", None, {}, created)},
-        "jobs": {"j3": state.new_job("o1", "builder", "prove the real run", [], created)},
-        "prs": {"Forge-AI/monorepo#7": state.new_pr("https://github.com/Forge-AI/monorepo/pull/7", "j3", "o1") | {"title": "Fix: retry [flaky] uploads"}},
-    }
-    listed = {"team_url": "", "pr_cards": [], "closed": [], "questions": [{"question": "Pick a store?", "url": f"{QUESTION}?thread_ts=1.2", "card": {"title": "Pick a store?", "waits": "demo:j1-7-a"}}]}
-    assert view.wait_words(data, wait, listed) == words
-
-
 def closed(url: str, minutes: int, waits: str = "", prs: list[str] = (), answer: dict | None = None, replaced_by: str = "", tapped: str = "") -> dict:
     return {"waits": waits, "title": "", "prs": list(prs), "asked": at(minutes), "url": url, "answer": answer, "tapped": tapped, "replaced_by": replaced_by}
 

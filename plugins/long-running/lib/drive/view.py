@@ -477,35 +477,6 @@ def waited_run(drive: dict, key: str) -> dict | None:
     return None
 
 
-def wait_words(drive: dict, wait: str, found: dict | None) -> str:
-    """What a PR's wait waits for, as his card says it to him: each PR, card or build by its title, linked in the markdown his card draws as a link, and its staging test by its tester and that tester's line, as its stage says it."""
-    if tester := state.staging_tester(drive, wait):
-        return f"its staging run by {tester} passes ({tester_line(drive, tester)})"
-    if wait in drive["jobs"]:
-        return f"the build of {cut(drive['jobs'][wait]['goal'], TITLE_CHARS)} finishes"
-    if returning := state.RETURN_WAIT.fullmatch(wait):
-        return f"the build of {cut(drive['jobs'][returning['job']]['goal'], TITLE_CHARS)} next reports"
-    if wait in drive["prs"]:
-        pr = drive["prs"][wait]
-        return f"{pr_link(pr)} lands" + (f", which waits on your Approve on {link('its card', card)}" if (card := tap_card(drive, pr, found)) else "")
-    if state.untracked_wait(drive, wait):
-        return f"{link(wait, state.pr_url(wait))} merges or closes"
-    if release := state.RELEASE_WAIT.fullmatch(wait):
-        return f"the {release['service']} release carrying {pr_link(drive['prs'][release['pr']])} is out" + (f" on {release['env']}" if release["env"] else "")
-    if staging := state.STAGING_WAIT.fullmatch(wait):
-        return f"{staging['env']} runs {staging['target']} at {staging['commit'][:12]} or a build carrying it"
-    if part := state.part_wait(drive, wait):
-        return f'"{cut(part[1], TITLE_CHARS)}" of your order "{order_title(drive["orders"][part[0]])}" is done'
-    if process := state.PID_WAIT.fullmatch(wait):
-        return f"process {process['pid']} on this Mac, which its job started, ends"
-    if build := github.BUILD.fullmatch(wait):
-        return f"{link(build_title(build), wait)} finishes or stops at an approve step"
-    listed = [*found["questions"], *found["pr_cards"]] if found else []
-    if card := next((card for card in listed if card["card"].get("waits") == wait or message_key(card["url"]) == message_key(wait)), None):
-        return f"you answer {link(card['card']['title'], card['url'])}"
-    return f"you answer {link('your question card', wait)}" if wait.startswith("https://") else "you answer your question card"
-
-
 def tester_line(drive: dict, tester: str) -> str:
     """What a staging tester says of itself to each PR it tests: its WAITING line while it waits, else its state."""
     job = drive["jobs"][tester]

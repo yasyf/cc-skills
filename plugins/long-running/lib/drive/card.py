@@ -83,7 +83,7 @@ RECORD_ID = re.compile(
 )
 HIS = re.compile(r"\bhis\b")
 HIM = re.compile(r"\bhim\b")
-Member = tuple[dict, dict, tuple[str, ...], tuple[str, ...], tuple[str, ...], tuple[tuple[str, str], ...]]
+Member = tuple[dict, dict, tuple[str, ...], tuple[str, ...]]
 REDRAWN = ("head", "staging")
 EMOJI_CATEGORIES = {"So", "Cf"}
 EMOJI_MARKS = {chr(0xFE0E), chr(0xFE0F), chr(0x20E3), *map(chr, range(0x1F3FB, 0x1F400))}
@@ -250,15 +250,22 @@ def tap_refused(pr: dict, entry: dict) -> str | None:
     return entry["tap_refused"]
 
 
-def waits_on(pr: dict, entry: dict, held: tuple[str, ...]) -> str:
-    """What the dashboard says under the PR: merged, folded into another open PR's branch or closed as read does, else its stage as stage.of names it when the card draws, in his card's words, with each of its waits that still holds, such as the PR fixing its red and that PR's card when it waits on his Approve, a check's objection included, which never takes his Approve off it; under his Hold or the hold label, which stop only its landing, that hold first, whatever its stage, then what its builder does while it is not green."""
+def standing(pr: dict, entry: dict) -> dict[str, str]:
+    """The dashboard's row lines on the PR's landing: lands, what it lands once while his Approve lands it, else blocks, what holds it, his Approve first when he gave it."""
+    if tap_refused(pr, entry) is None:
+        return {"lands": lands_after_tap(pr, entry), "blocks": ""}
+    return {"lands": "", "blocks": ("Approved by you. " if tap_label(entry) == "Approve" and pr["state"] == "OPEN" else "") + waits_on(pr, entry)}
+
+
+def waits_on(pr: dict, entry: dict) -> str:
+    """What the dashboard says under the PR: merged, folded into another open PR's branch or closed as read does, else its stage as stage.of names it, in his card's words; under his Hold or the hold label, which stop only its landing, that hold first, whatever its stage, then what its builder does while it is not green."""
     by = "Held by you" if tap_label(entry) == "Hold" else "Held by the hold label on GitHub" if entry["hold_label"] else ""
     if not by or pr["state"] != "OPEN":
-        return doing(pr, entry, held)
-    return by if entry["now"].name == "held" else f"{by}. {doing(pr, entry, held)}"
+        return doing(pr, entry)
+    return by if entry["now"].name == "held" else f"{by}. {doing(pr, entry)}"
 
 
-def doing(pr: dict, entry: dict, held: tuple[str, ...]) -> str:
+def doing(pr: dict, entry: dict) -> str:
     now, approved, key = entry["now"], tap_label(entry) == "Approve", state.pr_key(pr["url"])
     match pr["state"], now.name:
         case "MERGED", _:
@@ -268,9 +275,7 @@ def doing(pr: dict, entry: dict, held: tuple[str, ...]) -> str:
         case "CLOSED", _:
             return "Closed without merging"
         case _, "red" if entry["checks"] == "fail":
-            return "CI failed; the agent is fixing it" + (f", then it lands once {in_turn(list(held))}" if held else "")
-        case _, "blocked" if entry["checks"] == "fail" and held:
-            return "CI failed; it lands once " + in_turn(list(held))
+            return "CI failed; the agent is fixing it"
         case _, "red" if entry["draft"]:
             return "Still a draft; the agent is finishing it"
         case _, "red" if entry["review"] == "changes":
@@ -280,9 +285,7 @@ def doing(pr: dict, entry: dict, held: tuple[str, ...]) -> str:
         case _, "grading" if not approved:
             return "CI is still running"
         case _, "grading":
-            return "Lands once " + in_turn(["CI passes", *held])
-        case _, "held" | "waiting" | "blocked" if held:
-            return "Lands once " + in_turn(list(held))
+            return "Lands once CI passes"
         case _, "ready" | "landing" if state.queued_by_lander(key):
             return "CI passed; the drive queues it for merge"
         case _, "ready" | "landing" | "author":
@@ -291,14 +294,12 @@ def doing(pr: dict, entry: dict, held: tuple[str, ...]) -> str:
     return said[:1].upper() + said[1:]
 
 
-def lands_after_tap(pr: dict, entry: dict, held: tuple[str, ...], picked: tuple[tuple[str, str], ...] = ()) -> str:
-    """What the dashboard says the PR lands once: his Approve, lifting his Hold while he holds it, CI when it has not passed, the hold label coming off it on GitHub while it carries one, and each of its waits that still holds, alone while each PR above it in its stack is being reworked to his words, then each option his Approve picks on a card of his holding it, which land.start answers."""
+def lands_after_tap(pr: dict, entry: dict) -> str:
+    """What the dashboard says the PR lands once: his Approve, lifting his Hold while he holds it, CI when it has not passed and the hold label coming off it on GitHub while it carries one, alone while each PR above it in its stack is being reworked to his words."""
     approve = f"you approve, lifting your Hold of {when(entry['tap']['at'])}" if tap_label(entry) == "Hold" else "you approve"
-    lands = in_turn([approve, *([] if checks(pr, entry) == "pass" else ["CI passes"]), *(["the hold label comes off on GitHub"] if entry["hold_label"] else []), *held])
+    lands = in_turn([approve, *([] if checks(pr, entry) == "pass" else ["CI passes"]), *(["the hold label comes off on GitHub"] if entry["hold_label"] else [])])
     above = entry["reworked_above"]
-    alone = f", alone while {in_turn(list(above))} above it {'is' if len(above) == 1 else 'are'} reworked to your words" if above else ""
-    options = [f'"{option}" on {card}' for option, card in picked]
-    return lands + alone + (f"; your Approve also picks {in_turn(options)}" if options else "")
+    return lands + (f", alone while {in_turn(list(above))} above it {'is' if len(above) == 1 else 'are'} reworked to your words" if above else "")
 
 
 def in_turn(steps: list[str]) -> str:
@@ -330,8 +331,8 @@ def lead_words(entry: dict) -> str:
     return "\n".join([*reviewed, *(f"**{label}:** {lead[key]}" for key, label in LEAD_LABELS if lead.get(key))])
 
 
-def render(pr: dict, entry: dict, shown: tuple[str, ...] = (), held: tuple[str, ...] = (), undrawn: tuple[str, ...] = (), picked: tuple[tuple[str, str], ...] = (), charts: int = limits.CHARTS) -> dict:
-    """The cc-slack PR card for a `gh pr view` payload, the drive's entry for that PR, its drawn Show me pictures, what each of its waits that holds waits for, in his card's words, why each Show me picture left off it does not draw, the option and linked card of each card of his holding it that his Approve picks, by picks(), and how many ```chart fences its Show me may still draw on the card. It opens with the PR's lead, its headline alone as the title and its why, what and downstream as the body above the PR's own sections; a PR kept with no lead is titled from its own title as before. A flake fix asking his tap says under its body that it fixes a flaking test at its cause, by his ruling FLAKE_RULING, its words quoted."""
+def render(pr: dict, entry: dict, shown: tuple[str, ...] = (), undrawn: tuple[str, ...] = (), charts: int = limits.CHARTS) -> dict:
+    """The cc-slack PR card for a `gh pr view` payload, the drive's entry for that PR, its drawn Show me pictures, why each Show me picture left off it does not draw, and how many ```chart fences its Show me may still draw on the card. It opens with the PR's lead, its headline alone as the title and its why, what and downstream as the body above the PR's own sections; a PR kept with no lead is titled from its own title as before. A flake fix asking his tap says under its body that it fixes a flaking test at its cause, by his ruling FLAKE_RULING, its words quoted."""
     kind, plain = kind_and_title(pr["title"])
     body = body_of(pr)
     found = {heading: without_html(text) for heading, text in sections(body).items()}
@@ -351,15 +352,12 @@ def render(pr: dict, entry: dict, shown: tuple[str, ...] = (), held: tuple[str, 
         "pictures": list(shown),
         "plan": section_words(found, *PLAN_HEADINGS),
         "port": section_words(found, "port"),
-        "blocks": "",
-        "lands": "",
         "description": description(body),
     }
     card = {"status": "info", "title": headline(entry) or framed(f"{kind}: ", plain), "prs": [row]}
     if lead := lead_words(entry):
         card["body"] = lead
     if tap_refused(pr, entry) is None:
-        row["lands"] = lands_after_tap(pr, entry, held, picked)
         card |= {
             "status": "needs_you",
             "title": headline(entry) or framed(f"{kind}: approve ", plain, "?"),
@@ -371,8 +369,6 @@ def render(pr: dict, entry: dict, shown: tuple[str, ...] = (), held: tuple[str, 
             card["body"] = "\n\n".join(filter(None, [card.get("body"), f'Fixes a flaking test at its cause, by your ruling "{state.FLAKE_WORDS}"']))
     else:
         card["status"] = "done" if pr["state"] == "MERGED" else "info"
-    if not row["lands"]:
-        row["blocks"] = ("Approved by you. " if tap_label(entry) == "Approve" and pr["state"] == "OPEN" else "") + waits_on(pr, entry, (*held, *(f"you answer {card}" for _, card in picked)))
     if shown:
         card["pictures"] = list(shown)
     return card
@@ -405,7 +401,7 @@ def stack_words(pr: dict) -> tuple[str, str]:
 
 
 def render_stack(members: list[Member], siblings: bool) -> dict:
-    """One card for a stack of PRs, bottom first, or for sibling PRs of one request, which never sit on each other: a stack's title and summary from its bottom PR, siblings titled as that many PRs of one request and marked siblings, so cc-slack never words them a stack, the stack's title alone or else the bottom PR's headline once the bottom PR has a lead, each PR's lead above the summary under its headline, a section per PR, and one Approve for the PRs still asking his tap, each other's section saying what holds it, its PRs' Show me charts at most the ones one Slack message draws, since cc-slack posts the whole card as one."""
+    """One card for a stack of PRs, bottom first, or for sibling PRs of one request, which never sit on each other: a stack's title and summary from its bottom PR, siblings titled as that many PRs of one request and marked siblings, so cc-slack never words them a stack, the stack's title alone or else the bottom PR's headline once the bottom PR has a lead, each PR's lead above the summary under its headline, a section per PR, and one Approve for the PRs still asking his tap, its PRs' Show me charts at most the ones one Slack message draws, since cc-slack posts the whole card as one."""
     drawn, charts = [], limits.CHARTS
     for member in members:
         drawn.append(one := render(*member, charts=charts))
@@ -599,16 +595,8 @@ def siblings(known: dict[str, tuple[str, dict]], members: list[str], reads: dict
     return not any(known[key][1]["native"] for key in members) and len(chains(members, ends(known, members, reads))) == len(members)
 
 
-def holding(data: dict, entry: dict, found: dict | None) -> dict[str, str]:
-    """Each wait of the PR that still holds, each card of his holding it by land.pr_cards and each end of its waits only he moves by stage.asked, each card once, with what it waits for in his card's words."""
-    from drive import land, stage, view
-
-    waits = view.holding(data, state.job_waits(data, entry), found)
-    return {wait: view.wait_words(data, wait, found) for wait in view.stored_waits(data, [*waits, *stage.asked(data, state.pr_key(entry["url"]), waits, found), *land.pr_cards(data, entry)], found)}
-
-
 def picks(data: dict, entry: dict, found: dict | None) -> dict[str, dict]:
-    """Each card holding the PR by land.pr_cards, the one rule by which a card holds a PR, so never a card holding() names only at an end of its waits, drawn for an open question of the drive whose card recommends an option, the one the PR's builder builds: its waits id, its link, its title and that option, by the card cc-slack lists or else the one the drive keeps; none, reading no card, when no card holds it. His Approve on the PR keeps these on its tap, and land.start answers each still open with that option, so a PR built on his card's recommendation, an incident's repair included, never waits on a card his Approve already answered, by his e55b1cd "The repair lands on the recommendation"."""
+    """Each card holding the PR by land.pr_cards, the one rule by which a card holds a PR, so never a card that only ends its waits, drawn for an open question of the drive whose card recommends an option, the one the PR's builder builds: its waits id, its link, its title and that option, by the card cc-slack lists or else the one the drive keeps; none, reading no card, when no card holds it. His Approve on the PR keeps these on its tap, and land.start answers each still open with that option, so a PR built on his card's recommendation, an incident's repair included, never waits on a card his Approve already answered, by his e55b1cd "The repair lands on the recommendation"."""
     from drive import land, view
 
     if not (holding := land.pr_cards(data, entry)):
@@ -629,19 +617,9 @@ def untapped(drives: dict[str, dict], known: dict[str, tuple[str, dict]], reads:
     return "; ".join(f"{key}: {why}" if len(members) > 1 else why for key, why in refusals.items()) + ", so no PR card draws, since it would offer him no Approve"
 
 
-def member(data: dict, found: dict | None, pr: dict, entry: dict, picked: dict[str, dict], drawing: tuple[tuple[str, ...], tuple[str, ...]] = ((), ())) -> Member:
-    """The PR as his card draws it from the drive and his cards its caller read: GitHub's read of it, the drive's entry as drawn_entry gives it, its drawn Show me pictures and why each left off does not draw, each wait that holds it outside the cards his Approve picks, and those picks."""
-    from drive import view
-
-    held = holding(data, entry, found)
-    return (
-        pr,
-        drawn_entry(data, entry, found),
-        drawing[0],
-        tuple(words for wait, words in held.items() if wait not in picked),
-        drawing[1],
-        tuple((pick["option"], view.link(pick["title"], pick["url"])) for pick in picked.values()),
-    )
+def member(data: dict, found: dict | None, pr: dict, entry: dict, drawing: tuple[tuple[str, ...], tuple[str, ...]] = ((), ())) -> Member:
+    """The PR as his card draws it from the drive and his cards its caller read: GitHub's read of it, the drive's entry as drawn_entry gives it, its drawn Show me pictures and why each left off does not draw."""
+    return (pr, drawn_entry(data, entry, found), *drawing)
 
 
 def drawn_entry(data: dict, entry: dict, found: dict | None) -> dict:
@@ -657,7 +635,7 @@ def drawn_entry(data: dict, entry: dict, found: dict | None) -> dict:
 def drawn_lines(data: dict, key: str, found: dict | None) -> dict[str, str]:
     """The REDRAWN lines his card on the PR draws now from the drive's entry and his cards as its caller read them, no GitHub read and no read of the drive or his cards, which the watch holds against the card cc-slack last drew."""
     entry = data["prs"][key]
-    row = render(*member(data, found, watched(entry), entry, picks(data, entry, found)))["prs"][0]
+    row = render(*member(data, found, watched(entry), entry))["prs"][0]
     return {line: row[line] for line in REDRAWN}
 
 
@@ -725,9 +703,8 @@ def cards(asked: list[dict], redraw: bool = False) -> dict:
         taken: set[str] = set()
         drawings = {key: pictured(known[key][0], reads[key], state.pr_jobs(drives[known[key][0]], known[key][1]), taken) for key in members}
         founds = {name: view.live_cards(name) for name in drives}
-        picked = {key: picks(drives[known[key][0]], known[key][1], founds[known[key][0]]) for key in members}
         card = drawn_card(
-            [member(drives[known[key][0]], founds[known[key][0]], reads[key], known[key][1], picked[key], drawings[key]) for key in members],
+            [member(drives[known[key][0]], founds[known[key][0]], reads[key], known[key][1], drawings[key]) for key in members],
             siblings(known, members, reads),
         )
         remember(known, members)

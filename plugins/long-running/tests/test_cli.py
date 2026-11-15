@@ -11628,7 +11628,7 @@ def test_an_answer_lists_every_pr_of_its_order_not_yet_live_and_a_reopened_one_g
     assert data["answers"]["a1"]["cards"]["Forge-AI/monorepo#45"] == {"mark": "reopened", "job": "j1", "card": None}
 
 
-def test_his_answer_reopening_the_top_pr_of_a_two_pr_stack_card_cards_the_pr_it_leaves_standing_alone_saying_so_skipping_no_pr_cc_slack_did_not_ask_for_and_never_hands_his_tap_on_it_to_the_reworked_one(
+def test_his_answer_reopening_the_top_pr_of_a_two_pr_stack_card_cards_the_pr_it_leaves_standing_alone_skipping_no_pr_cc_slack_did_not_ask_for_and_never_hands_his_tap_on_it_to_the_reworked_one(
     run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, withdrawals: Withdrawals, native_stacks: dict[str, list[tuple[str, str]]]
 ) -> None:
     top, top_url = "Forge-AI/monorepo#44", "https://github.com/Forge-AI/monorepo/pull/44"
@@ -11655,7 +11655,6 @@ def test_his_answer_reopening_the_top_pr_of_a_two_pr_stack_card_cards_the_pr_it_
     drawn = card.respond({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})
     assert [([row["url"] for row in each["card"]["prs"]], each["card"]["waits"], each["card"]["options"]) for each in drawn["cards"]] == [([PR], f"merge:42:{state.ask_hash('abc')}", ["Approve", "Hold"])]
     assert drawn["skipped"] == []
-    assert f", alone while {view.pr_link(state.load('demo')['prs'][top])} above it is reworked to your words" in drawn["cards"][0]["card"]["prs"][0]["lands"]
     assert [state.load("demo")["prs"][key]["stack"] for key in stack] == [[designing], stack]
 
 

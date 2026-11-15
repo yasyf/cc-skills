@@ -118,9 +118,9 @@ stop doing the bare minimum", so no builder waits on a job holding its design.
    a card a job waits on otherwise only wakes it, so `drive pr set --waits` refuses a card. Outside an
    incident no PR card asks his tap while a card of his holds the PR, by his pick "Buttons only after
    you answer each question": `drive pr add`, `drive card` and the watch draw none, a card already up
-   is redrawn in place without its Approve, naming each card holding it, and Approve comes back once
-   he answers the last. On an incident his PR card names each card holding the repair and says his
-   Approve also picks that card's recommended option, which answers and closes the card. While a
+   is redrawn in place without its Approve, and Approve comes back once he answers the last. On an
+   incident his Approve on the repair also picks the recommended option of each card holding it,
+   which answers and closes the card. While a
    wait holds, `drive pr set --serves` and `drive card` draw no fresh card for it, his Approve lands it
    only once the last wait ends, and the watch says `FREE <pr>` once the last is answered; nothing is
    closed for this.
