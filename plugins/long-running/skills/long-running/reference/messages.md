@@ -755,10 +755,12 @@ restating it.
   of the code that does it, or the `{record:}` of the read that did, by his words "stop saying wrong
   shit bc you jsut guess and its probably misleading all your work" and "dont just take things for
   granted critically evakuate them". A code comment, a panic, error or log message, a doc, a PR body,
-  the brief, a record's words or an earlier answer is a claim to test against that code, never a
-  line to repeat, and the post says whether each claim it relies on holds. A line about every case
-  stands on a read of what decides it, a line of an absence read from one metric, span or log
-  series, such as no calls, zero rows or nothing since, stands also on a second source with no
+  the brief or an earlier answer is a claim to test against that code, never a line to repeat, and
+  the post says whether each claim it relies on holds. A record or a job's kept report is another
+  agent's reads: its line showing the read that measured it, the code by path and line or the call
+  and what it printed, backs a claim saying no more than that line, and any other line of it is a
+  claim to test. A line about every case stands on a read of what decides it, a line of an absence
+  read from one metric, span or log series, such as no calls, zero rows or nothing since, stands also on a second source with no
   shared emitter showing the same absence, such as the caller's client spans beside the server's
   trace metric, since one series can be sampled or dropped before it is stored, and a mechanism it
   proposes on a read or his words showing
@@ -1014,7 +1016,8 @@ line keeps its bold line and two sentences, as the status lines above show.
   goes out as written, and the session that posted it hears every finding beside it and rewords the post
   in place when one holds. His pick: "Refusals only warn when the judge cannot finish: no post ever
   waits, but it goes out unchecked, as twice this morning". A session's account of its own act or
-  mistake names no cause the cause rule asks a record for. An order or job id, such as o643 or j1700,
+  mistake, such as the handler its turn starts, and his words or an alert or error he shared,
+  restated, name no cause the cause rule asks a record for. An order or job id, such as o643 or j1700,
   comes back unposted with no judging unless a message of his the post passes as asked used it. His
   words: "stop hard coding it and just use jev evaluating my message and rules to see if it's ok to
   send" and, on a refusal Jev got wrong, "you need to fix the hookw henver it wrongly refuses yu".
