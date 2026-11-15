@@ -68,6 +68,8 @@ POST_ASK = cli.post_ask
 SETTLED_MATCHED = settled.matched
 SETTLED_RECORDED = settled.recorded
 SETTLED_LISTED = settled.listed
+SETTLED_LINE_ANSWERS = settled.line_answers
+CAP_RULING = {"id": "be7bf2e", "asked": "Should a cloud agent's tree be capped at its team's agent limit?", "said": "1 but make that team default 300 not 30", "link": None}
 TEAM = [
     {"name": "rowan", "real_name": "Rowan Vale", "email": "rowan@example.com"},
     {"name": "juniper.cole", "real_name": "Juniper Cole", "email": "juniper.cole@example.com"},
@@ -1071,6 +1073,7 @@ class Answers:
     unrecorded: set[str] = field(default_factory=set)
     matched: list[dict] = field(default_factory=list)
     listed: list[dict] = field(default_factory=list)
+    lined: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -1122,6 +1125,7 @@ def recorded(monkeypatch: pytest.MonkeyPatch) -> Answers:
 
     monkeypatch.setattr(settled, "shown", shown)
     monkeypatch.setattr(settled, "matched", lambda texts, data: answers.matched)
+    monkeypatch.setattr(settled, "line_answers", lambda lines, data, besides=frozenset(): [(line, [answer for answer in answers.lined if answer["id"] not in besides]) for line in lines])
     monkeypatch.setattr(settled, "listed", lambda label, cwd: sorted((answer for answer in answers.listed if label in answer["tags"]), key=lambda answer: answer["created_at"], reverse=True))
     return answers
 

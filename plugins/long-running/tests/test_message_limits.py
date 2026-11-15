@@ -9,8 +9,8 @@ from pathlib import Path
 
 import message_limits
 import pytest
-from conftest import DESCRIPTION, WRITTEN_AT, Checked, Thread, explained
-from drive import agents, limits, picture, refs, slack, state, talk, view
+from conftest import CAP_RULING, DESCRIPTION, WRITTEN_AT, Answers, Checked, Jev, Thread, explained
+from drive import agents, limits, picture, refs, settled, slack, state, talk, view
 from drive.state import DriveError
 
 Run = Callable[..., tuple[int, str]]
@@ -425,6 +425,11 @@ def posted(transcript: Path, **tool_input: object) -> str | None:
 
 def say(transcript: Path, **tool_input: object) -> str | None:
     return message_limits.deny_reason(call("slack_dm_status", transcript, **tool_input) | {"tool_name": message_limits.SAY})
+
+
+def warning(transcript: Path, **tool_input: object) -> str | None:
+    found = message_limits.checked(call("slack_dm_status", transcript, **tool_input) | {"tool_name": message_limits.SAY})[0]
+    return found if isinstance(found, message_limits.Warned) else None
 
 
 def link(ts: str) -> str:
@@ -1582,6 +1587,21 @@ def test_only_the_writers_own_words_tell_a_drive_failure_never_a_reference_link_
     refused = say(transcript, text=f"{coded}\n{own}")
     assert refused.rule == message_limits.PREVENTION_RULE and refused.findings == [{"rule": message_limits.PREVENTION_RULE, "found": own}]
     assert "a PR's own checks and tests did tells no failure of the drive's and needs nothing" in refused.rule
+
+
+def test_a_table_row_jev_reads_as_putting_up_for_removal_what_his_recorded_answer_orders_is_refused_naming_it_and_goes_out_warned_when_jev_gives_no_reading(
+    talker: str, transcript: Path, recorded: Answers, jev: Jev
+) -> None:
+    row = "Cloud tree own cap | up for removal"
+    told = f"Where the cloud tree stands:\n| Item | Now |\n|---|---|\n| {row} |\n| Same-root sends | skip safe mode |"
+    recorded.lined = [CAP_RULING]
+    jev.breaks(f"{settled.LINE_KEY}2", CAP_RULING["id"])
+    refused = say(transcript, text=told)
+    assert (refused.startswith(f'refused: as Jev reads it, the line "{row}" says no ruling of his covers'), refused.rule) == (True, settled.OVERRULED_RULE)
+    assert f'his answer {CAP_RULING["id"]}, "{CAP_RULING["asked"]}", orders or keeps: "{CAP_RULING["said"]}"' in refused
+    jev.answer = None
+    assert say(transcript, text=told) is None
+    assert warning(transcript, text=told) == f"message_limits: this post goes out as written; {settled.UNREAD_LINES.format(failure='no jev decision within 20s')}"
 
 
 def test_a_late_line_naming_only_the_order_or_pr_it_reports_on_owes_the_order_fixing_it() -> None:

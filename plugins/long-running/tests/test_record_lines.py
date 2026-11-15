@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 import record_lines
-from conftest import SHORT_ASK
+from conftest import CAP_RULING, SHORT_ASK, Answers, Jev
 from drive import agents, limits, reads, reports, settled, slack, state, view
 
 SESSION = "session-under-test"
@@ -153,6 +153,22 @@ def test_a_ready_record_is_refused_since_drive_pr_add_and_the_watch_draw_his_car
         assert record_lines.decision(post(kind="handoff", text=f"land {TAPPED}: {said}", to=["root@demo"])) is None
     for said in ("no longer waits on his tap", "he did tap Approve", "he tapped Approve"):
         assert record_lines.decision(post(kind="report", text=f"FYI {TAPPED} {said}", to=["root@demo"])) is None
+
+
+def test_a_handoff_whose_list_line_jev_reads_as_putting_up_for_change_what_his_recorded_answer_orders_is_refused_naming_it_and_goes_warned_when_jev_gives_no_reading(
+    run: Callable[..., tuple[int, str]], demo: str, recorded: Answers, jev: Jev
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: the cloud tree")
+    line = "drop the cloud tree's own cap"
+    handoff = post(kind="handoff", text="the cloud tree's next steps", body=f"Next steps:\n- {line}\n- keep the say judge's 20 s", to=["root@demo"], attrs={"order": "o1"})
+    recorded.lined = [CAP_RULING]
+    jev.breaks(f"{settled.LINE_KEY}1", CAP_RULING["id"])
+    reason = refusal(record_lines.decision(handoff))
+    assert (reason.startswith(f'refused: as Jev reads it, the line "{line}" says no ruling of his covers'), reason.rule) == (True, settled.OVERRULED_RULE)
+    assert "permissionDecision" not in (record_lines.decision(post(kind="report", text="FYI", body=f"- {line}", to=["root@demo"])) or {})
+    jev.answer = None
+    made = record_lines.decision(handoff)
+    assert ("permissionDecision" in made, made["additionalContext"]) == (False, f"record_lines: this handoff goes as written; {settled.UNREAD_LINES.format(failure='no jev decision within 20s')}")
 
 
 TO = ["communicator@demo"]
