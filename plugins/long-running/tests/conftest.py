@@ -31,6 +31,7 @@ from drive import (
     slack,
     stage,
     state,
+    story,
     talk,
     view,
     watch,
@@ -542,6 +543,12 @@ def judge(monkeypatch: pytest.MonkeyPatch) -> Judge:
     monkeypatch.setattr(served, "change", lambda key: {"title": f"Fix: {key}", "body": "", "head": card.drive_prs().get(key, ("", {"head": None}))[1]["head"], "diff": b""})
     monkeypatch.setattr(served, "judged", lambda name, said, changes: judging.asked.append((said, changes)) or list(judging.against))
     return judging
+
+
+@pytest.fixture(autouse=True)
+def unwritten_stories(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No dashboard writes a card's story with Claude: a test writes one with Writer.write."""
+    monkeypatch.setattr(story.Writer, "loop", lambda self: None)
 
 
 @pytest.fixture(autouse=True)
@@ -1061,7 +1068,7 @@ def recorded(monkeypatch: pytest.MonkeyPatch) -> Answers:
 
 @dataclass
 class Jev:
-    """settled.jev for tests: each request it was asked, and the probability of yes it gives each Noul by its key, a clear no unless a test says otherwise, a names Noul reading yes for a part named holds and a plain Noul the probability unexplained gives its name; answer None makes every request Unheard."""
+    """settled.jev for tests: each request it was asked, and the probability of yes it gives each Noul by its key, a clear no unless a test says otherwise, a names Noul reading yes for a part named holds and a plain Noul the probability unexplained gives its name, and the page Noul paged, its order's words kept in read_for_pages apart from asked; answer None makes every request Unheard."""
 
     asked: list[dict] = field(default_factory=list)
     answer: float | None = 0.05
@@ -1076,6 +1083,8 @@ class Jev:
     looked: list[dict] = field(default_factory=list)
     again: set[str] = field(default_factory=set)
     named: set[str] = field(default_factory=set)
+    paged: float = 0.05
+    read_for_pages: list[str] = field(default_factory=list)
 
     def picks(self, choice: str, probability: float = 0.9) -> None:
         """Jev answers again, and every Noul whose key holds choice as one of its dotted parts reads yes at probability; none clears it."""
@@ -1117,6 +1126,9 @@ def jev(monkeypatch: pytest.MonkeyPatch) -> Jev:
     judged = Jev()
 
     def answered(state: dict, questions: dict[str, settled.Noul], seconds: float = settled.DECIDE_SECONDS) -> dict[str, float]:
+        if settled.ASKS_PAGE in questions.values():
+            judged.read_for_pages.append(state["order"])
+            return {key: judged.paged for key in questions}
         if "illustrates" in questions:
             judged.illustrated.append("\n".join(state["code"].values()))
         elif "looks" in questions or any(key.startswith(limits.PLAIN) for key in questions):

@@ -913,6 +913,30 @@ def test_an_incident_order_records_a_job_on_each_part_and_names_every_open_incid
     assert run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why is the dashboard slow?") == (0, "o5")
 
 
+def test_an_order_asking_where_work_stands_gets_a_page_its_codex_job_starts_on_at_once_while_his_answer_stays_an_answer(run: Run, demo: str, jev: Jev) -> None:
+    jev.paged = 0.95
+    words = "where does the SandSQL cutover stand?"
+    code, out = run("order", "add", "--title", "SandSQL cutover", "--project", "The drive", "--workstream", "Drive tooling", words, "--kind", "answer")
+    written = state.drive_dir("demo") / "jobs" / "j1.brief.md"
+    assert (code, out) == (0, f'o1\nj1 on "page" builds the page his words ask for: start it now with drive job launch j1, its brief written at {written}')
+    data = state.load("demo")
+    order = data["orders"]["o1"]
+    assert (order["kind"], {part: held["answer"] for part, held in order["parts"].items()}, order["jobs"]) == ("build", {"SandSQL cutover": True, "page": False}, ["j1"])
+    assert (data["jobs"]["j1"]["kind"], data["jobs"]["j1"]["parts"], data["jobs"]["j1"]["waits"]) == ("codex", ["page"], [])
+    text = written.read_text()
+    assert "\nPlan: 1. Write strict user stories and acceptance criteria before implementation.\n" in text
+    assert "\nInteractions: open Pages on the dashboard and see the page listed live under its order" in text
+    assert "Pages lists now: none." in text
+    assert brief.job_refusal("demo", data, "o1", "codex", ["page"]) is None
+    assert brief.brief_refusal("demo", data, "j1", text) is None
+    run("job", "add", "reader", "--order", "o1", "--part", "SandSQL cutover", "--goal", "say where the cutover stands")
+    assert "\nAnswer: " in Path(run("job", "brief", "j2", "--done-when", "answered")[1].splitlines()[0].removeprefix("Read your brief first: ")).read_text()
+    jev.paged = 0.05
+    assert run("order", "add", "--title", "Flaky test", "--project", "The drive", "--workstream", "Drive tooling", "fix the flaky deploy test") == (0, "o2")
+    assert list(state.load("demo")["orders"]["o2"]["parts"]) == ["Flaky test"]
+    assert jev.read_for_pages == [words, "fix the flaky deploy test"]
+
+
 def test_an_incident_order_with_no_fix_part_is_refused_unless_it_joins_an_open_incident(
     run: Run, demo: str, capsys: pytest.CaptureFixture[str]
 ) -> None:

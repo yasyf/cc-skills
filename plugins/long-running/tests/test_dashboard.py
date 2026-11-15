@@ -462,21 +462,6 @@ COMPARED = "\n".join(
 
 
 @pytest.mark.parametrize(
-    ("options", "body", "format"),
-    [
-        (["Isolate the script: add a process", "Keep shared memory: no new work"], COMPARED, "lab"),
-        (["Isolate the script: add a process", "Keep shared memory: no new work"], "A run's memory decides which scripts can stop their neighbours.", "cockpit"),
-        (["Isolate it", "Keep it shared", "Cap it", "Retire it"], COMPARED, "interview"),
-    ],
-)
-def test_a_question_opens_in_the_format_its_card_carries(tmp_path: Path, options: list[str], body: str, format: str) -> None:
-    card = {"title": "*Where* may a large script fail?", "options": options, "body": body}
-    shown = web(tmp_path, f"JSON.stringify(decisionStory({json.dumps(card)}))")
-    assert (shown["format"], shown["headline"], shown["context"]) == (format, "Where may a large script fail?", "A run's memory decides which scripts can stop their neighbours.")
-    assert [option["label"] for option in shown["options"]] == options
-
-
-@pytest.mark.parametrize(
     ("cause", "shown"),
     [
         ("each new page re-reads 820,000 rows with OFFSET, so the export takes *22 minutes*", "each new page re-reads 820,000 rows with OFFSET, so the export takes 22 minutes"),
@@ -485,17 +470,7 @@ def test_a_question_opens_in_the_format_its_card_carries(tmp_path: Path, options
 )
 def test_a_question_shows_the_root_cause_its_card_draws_under_its_first_line(tmp_path: Path, cause: str, shown: str) -> None:
     body = limits.card_body(["Where should the nightly export page from?", "Each page waits on the one before it."], [], cause)
-    card = {"title": "Where should the nightly export page from?", "options": ["Keyset pages", "Keep OFFSET"], "body": body}
-    assert web(tmp_path, f"JSON.stringify(decisionStory({json.dumps(card)}).cause)") == shown
-
-
-def test_a_lab_reads_each_options_measured_values_from_its_cards_comparison_table(tmp_path: Path) -> None:
-    card = {"title": "Where may a large script fail?", "options": ["Isolate the script: add a process", "Keep shared memory: no new work"], "body": COMPARED}
-    shown = web(tmp_path, f"JSON.stringify(decisionStory({json.dumps(card)}).options)")
-    assert shown == [
-        {"label": card["options"][0], "title": "Isolate the script", "consequence": "Add a process", "metrics": [{"label": "Pods lost a day", "value": "0"}, {"label": "Code changed", "value": "2 files"}]},
-        {"label": card["options"][1], "title": "Keep shared memory", "consequence": "No new work", "metrics": [{"label": "Pods lost a day", "value": "8"}, {"label": "Code changed", "value": "none"}]},
-    ]
+    assert web(tmp_path, f"JSON.stringify(decisionCause({json.dumps(body)}))") == shown
 
 
 def test_every_address_in_a_line_shows_as_what_it_names_and_never_as_raw_text(tmp_path: Path) -> None:
@@ -727,10 +702,21 @@ FEATURE = {
     "created": "2026-11-10T20:00:00-08:00", "jobs": [], "parts": [], "where": None, "holdup": None, "heard": [],
 }
 
+TOLD = {
+    "format": "cockpit",
+    "headline": "Raise the limit?",
+    "beats": [{"label": "What happened", "text": "Writes hit the bucket's cap."}],
+    "ask": "",
+    "options": [
+        {"label": "Raise it", "title": "Raise it", "consequence": "One setting changes.", "priority": "", "metrics": []},
+        {"label": "Shard it", "title": "Shard it", "consequence": "Each journal writes under 16 prefixes.", "priority": "", "metrics": []},
+    ],
+}
 RAIL = {"failed": [], "conflict": False, "draft": False, "branch": "lane", "base": "main", "stack": [], "landing": None, "approve_waits": None, "parts": [], "job": None, "job_said": "", "job_at": None}
 QUESTION = {
     "priority": {"rank": 1, "incident": False, "overdue": False, "weight": 0}, "kind": "question", "tasks": [], "answer": "https://x.slack.com/archives/D1/p1794382453859209", "title": "Raise the limit?", "since": None, "holds": 0, "blocks": [], "thread": None,
     "card": {"title": "Raise the limit?", "body": "", "options": ["Raise it", "Shard it"], "recommended": "Raise it"},
+    "told": {"story": TOLD},
 }
 
 
@@ -1382,7 +1368,7 @@ done({
 
 
 def test_a_card_link_opens_that_card_and_the_queue_keeps_its_place_in_the_address(tmp_path: Path) -> None:
-    second = QUESTION | {"answer": "https://x.slack.com/archives/D1/p1794382453859300", "title": "Shard it?", "card": QUESTION["card"] | {"title": "Shard it?"}}
+    second = QUESTION | {"answer": "https://x.slack.com/archives/D1/p1794382453859300", "title": "Shard it?", "card": QUESTION["card"] | {"title": "Shard it?"}, "told": {"story": TOLD | {"headline": "Shard it?"}}}
     seen = browse(tmp_path, """
 location.hash = '#/queue/question/1794382453.859300';
 await wait(100);
@@ -1398,7 +1384,12 @@ done({ opened, moved: { title: document.querySelector('#item-title').textContent
 
 
 def test_the_lab_compares_every_path_against_its_cards_measured_columns(tmp_path: Path) -> None:
-    question = QUESTION | {"card": QUESTION["card"] | {"options": ["Raise it: one setting", "Shard it: 16 prefixes"], "recommended": "Raise it: one setting", "body": COMPARED.replace("Isolate it", "Raise it").replace("Keep it shared", "Shard it")}}
+    options = ["Raise it: one setting", "Shard it: 16 prefixes"]
+    told = TOLD | {"format": "lab", "options": [
+        {"label": options[0], "title": "Raise it", "consequence": "One setting", "priority": "", "metrics": [{"label": "Pods lost a day", "value": "0"}, {"label": "Code changed", "value": "2 files"}]},
+        {"label": options[1], "title": "Shard it", "consequence": "16 prefixes", "priority": "", "metrics": [{"label": "Pods lost a day", "value": "8"}, {"label": "Code changed", "value": "none"}]},
+    ]}
+    question = QUESTION | {"card": QUESTION["card"] | {"options": options, "recommended": options[0], "body": COMPARED}, "told": {"story": told}}
     seen = browse(tmp_path, """
 location.hash = '#/queue/all';
 await until(() => document.querySelector('[data-story-compare]'));
@@ -1408,6 +1399,28 @@ const table = document.querySelector('.story-lab table');
 done({ label, rows: table.querySelectorAll('tbody tr').length, headers: [...table.querySelectorAll('th')].map((cell) => cell.textContent), first: [...table.querySelectorAll('tbody tr:first-child td')].map((cell) => cell.textContent) });
 """, board(queue=[question]))
     assert seen == {"label": "Tradeoff lab", "rows": 2, "headers": ["Path", "What changes", "Pods lost a day", "Code changed"], "first": ["Raise it", "One setting", "0", "2 files"]}
+
+
+def test_an_interview_asks_his_priority_in_its_storys_words_then_shows_the_path_that_serves_it(tmp_path: Path) -> None:
+    told = TOLD | {"format": "interview", "ask": "What matters more this week?", "options": [option | {"priority": priority} for option, priority in zip(TOLD["options"], ["No new code", "Room to grow"], strict=True)]}
+    seen = browse(tmp_path, """
+location.hash = '#/queue/all';
+await wait(150);
+const asked = { label: document.querySelector('.decision-story .type-label').textContent, ask: document.querySelector('.story-interview h3').textContent, priorities: [...document.querySelectorAll('[data-story-priority] strong')].map((each) => each.textContent) };
+document.querySelector('[data-story-priority="1"]').click();
+await wait(50);
+done({ ...asked, outcome: document.querySelector('.story-outcome h3').textContent, beats: [...document.querySelectorAll('.story-beats p')].map((beat) => beat.textContent) });
+""", board(queue=[QUESTION | {"told": {"story": told}}]))
+    assert seen == {"label": "Decision interview", "ask": "What matters more this week?", "priorities": ["No new code", "Room to grow"], "outcome": "Shard it", "beats": ["What happened Writes hit the bucket's cap."]}
+
+
+def test_a_question_whose_story_is_still_being_written_says_so_and_still_takes_his_answer(tmp_path: Path) -> None:
+    seen = browse(tmp_path, """
+location.hash = '#/queue/all';
+await wait(150);
+done({ status: document.querySelector('#main .decision-story [role="status"]').textContent, choices: [...document.querySelectorAll('#main .decision-story [data-card]')].map((button) => button.dataset.label) });
+""", board(queue=[QUESTION | {"told": {"writing": True}}]))
+    assert seen == {"status": "Writing its story…", "choices": ["Raise it", "Shard it"]}
 
 
 def test_a_selected_path_stays_selected_when_the_pointer_leaves_and_does_not_send(tmp_path: Path) -> None:
@@ -1599,6 +1612,18 @@ done(measured);
     assert len({each["card"] for each in seen}) == 1
     assert len({each["bar"] for each in seen}) == 1
     assert [(each["tab"], each["shown"], each["frame"]) for each in seen] == [("show", True, False), ("change", True, True), ("context", True, False)]
+
+
+def test_a_pr_cards_written_story_titles_it_and_tells_its_beats_in_place_of_its_lead(tmp_path: Path) -> None:
+    lead = {"headline": "Held locks let go after 30 seconds", "why": "A held lock never lets go.", "what": "A held lock lets go after 30 s.", "downstream": "A slow writer can lose its lock."}
+    told = {"headline": "A stuck lock frees itself in 30 seconds", "beats": [{"label": "Why", "text": "A held lock never lets go."}, {"label": "Tested", "text": "Not yet on staging."}]}
+    led = browse(tmp_path, """
+location.hash = '#/queue/all';
+await until(() => document.querySelector('#main .pr-story strong')?.textContent === 'Why');
+const card = document.querySelector('#main .pr-card');
+done({ title: card.querySelector('.card-title').textContent, story: [...card.querySelector('.pr-story').children].map((part) => part.innerText.split('\\n').filter(Boolean)) });
+""", board(queue=[STACK], review=[entry | ({"lead": lead, "told": {"story": told}} if entry["key"].endswith("#41") else {"lead": None}) for entry in OPEN]), "1440,900", before=STAND_IN)
+    assert led == {"title": "A stuck lock frees itself in 30 seconds", "story": [["Why", "A held lock never lets go."], ["Tested", "Not yet on staging."]]}
 
 
 def test_a_pr_cards_lead_titles_it_and_tells_its_why_what_and_downstream_above_its_stack_with_nothing_to_open(tmp_path: Path) -> None:
@@ -1860,7 +1885,7 @@ done({ before, opened, closed: !evidence.open, selected: document.querySelector(
 
 
 def test_numbers_select_then_enter_reviews_and_only_an_explicit_send_submits_the_canonical_answer(tmp_path: Path) -> None:
-    second = QUESTION | {"answer": "https://x.slack.com/archives/D1/p1794382453859300", "title": "Shard it?", "card": QUESTION["card"] | {"title": "Shard it?"}}
+    second = QUESTION | {"answer": "https://x.slack.com/archives/D1/p1794382453859300", "title": "Shard it?", "card": QUESTION["card"] | {"title": "Shard it?"}, "told": {"story": TOLD | {"headline": "Shard it?"}}}
     seen = browse(tmp_path, """
 location.hash = '#/queue/all';
 await wait(150);

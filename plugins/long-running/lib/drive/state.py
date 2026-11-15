@@ -61,6 +61,8 @@ UNPOSTED_WORK = (
 )
 IMMEDIATE_FIX = "immediate fix"
 FOLLOW_UP = "follow-up"
+PAGE = "page"
+AT_ONCE = (IMMEDIATE_FIX, PAGE)
 INCIDENT_CHOICE = {
     "codex": (
         "a choice never stops it: write the ASK block to a file in your scratch, build its recommended option in the same run,"
@@ -3397,11 +3399,16 @@ def running_stops(data: dict, order_id: str) -> list[str]:
 
 
 def incident_job(data: dict, name: str, order_id: str, part: str, created: str) -> str:
+    job_id = codex_job(data, order_id, part, created)
+    return f'{job_id} on "{part}": start it now with drive job launch {job_id} -, its brief on stdin ending Drive: {name}, order {order_id}, job {job_id}'
+
+
+def codex_job(data: dict, order_id: str, part: str, created: str) -> str:
     order = data["orders"][order_id]
     job_id = next_id(data["jobs"], "j")
     data["jobs"][job_id] = new_job(order_id, "codex", f"{part}: {order['title']}", [part], created)
     order["jobs"].append(job_id)
-    return f'{job_id} on "{part}": start it now with drive job launch {job_id} -, its brief on stdin ending Drive: {name}, order {order_id}, job {job_id}'
+    return job_id
 
 
 def fix_shipper(data: dict, job_id: str) -> str | None:

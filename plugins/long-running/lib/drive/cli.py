@@ -98,6 +98,11 @@ TOLD_LINK = (
 ASKED_AGAIN = "Asked again on a newer card · answer that one"
 HIDDEN = "not visible in Orca, which hides the worktrees it did not make for this repository"
 PAGES = Path(__file__).resolve().parents[2] / "skills" / "long-running" / "reference"
+PAGE_STORIES = (
+    "open Pages on the dashboard and see the page listed live under its order, his goal as its line;"
+    " open the page and see in its first view where the work he named stands, from its orders, PRs and decisions as they are now;"
+    " answer a decision or approve a PR on the page and see the queue take it as it takes his tap, the page redrawn with it settled"
+)
 LIST_ITEM = re.compile(r"\s*(?:[-*] |\d+\. )")
 MANIFEST = Path(__file__).resolve().parents[2] / ".claude-plugin" / "plugin.json"
 LAUNCHED = ("run", "dispatch", "task", "terminal", "workspace", "environment", "lane", "sprite_config")
@@ -314,6 +319,7 @@ def added_order(args: argparse.Namespace, unfiled: bool = False) -> tuple[str, d
     if not (args.joins or args.incident or args.options_only or unfiled or args.kind == "answer"):
         args.joins = settled.repeats(state.load(name), args.words, tooling)
     project, workstream = (None, None) if unfiled or args.joins else filing(state.load(name), args.words, args.project, args.workstream)
+    paged = not (tooling or args.incident or args.joins) and settled.asks_page(args.words)
     with state.edit(name) as data:
         role = state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID"))
         if tooling and args.owner not in (None, "meta"):
@@ -357,16 +363,22 @@ def added_order(args: argparse.Namespace, unfiled: bool = False) -> tuple[str, d
             "note": joined and joined["note"],
             "joins": joined and (joined["joins"] or args.joins),
         }
+        if paged:
+            order["parts"][state.PAGE] = state.new_part()
+            state.sort_as_build(order, [state.PAGE], order["kind"] == "answer")
         if args.due:
             need_thread(order_id, order)
         started = [state.incident_job(data, name, order_id, part, created) for part in (order["parts"] if args.incident and not joined else [])]
         started += [state.INCIDENT_BRIEF] if started else []
+        page_job = paged and state.codex_job(data, order_id, state.PAGE, created)
         repeats = joined and not state.hurts_now(data, order)
         group = [other for other in state.feature_orders(data, order_id) if other != order_id] if repeats else []
         carriers = [job_id for job_id, job in state.orders_jobs(data, group).items() if job["state"] not in state.FINISHED_JOB_STATES]
         for job_id in carriers:
             state.carry(data, job_id, order_id, list(order["parts"]))
             state.hold_text(data["jobs"][job_id], f'His words, kept as {order_id} on the feature of {order["joins"]} this job carries: "{args.words}"', state.HIM)
+    if page_job:
+        started.append(page_brief(name, page_job))
     if joined:
         carried = (
             f"carried by {', '.join(carriers)}, each holding these words for its worker, so no job starts on it"
@@ -377,6 +389,20 @@ def added_order(args: argparse.Namespace, unfiled: bool = False) -> tuple[str, d
         )
         started.append(f"joins {args.joins}: {joined['note'] or 'no record'}; {carried}")
     return order_id, order, [*started, *state.asked_lines(data, args.words)], incidents
+
+
+def page_brief(name: str, job_id: str) -> str:
+    """Write the brief of the codex job building the page the drive adds to an order whose words name a goal or ask where work stands, which starts at once: planned by the Pages manual's Build one section, rebuilding the slug of a page Pages lists whose goal is his, done once `drive page add` registers it and each of PAGE_STORIES clicks on the installed dashboard; the line that starts it."""
+    listed = "; ".join(f"/pages/{page['slug']}/, {page['goal']}" for page in pages.listed(name)) or "none"
+    build = page_parts((PAGES / "pages.md").read_text(), "## Build one")[0].partition("\n1. ")[2].strip()
+    flags = dict.fromkeys(state.BRIEF_FLAGS) | {
+        "done_when": "drive page add registered the page on this order with its gate passed, and each story below clicks through on the installed dashboard",
+        "native": "the drive dashboard's Pages and the page at /pages/<its slug>/",
+        "interactions": PAGE_STORIES,
+        "plan": f"1. {build}\n\nPages lists now: {listed}. When one of them shows the work his words name, rebuild that slug with this order among its orders instead of adding a second page.",
+    }
+    _, written = write_brief(name, job_id, flags)
+    return f'{job_id} on "{state.PAGE}" builds the page his words ask for: start it now with drive job launch {job_id}, its brief written at {written["brief"]}'
 
 
 def held_order(data: dict, words: str, owner: str | None) -> str | None:
@@ -1451,7 +1477,11 @@ def unlandable(data: dict, keys: list[str]) -> str | None:
 
 def refuse_a_shared_at_once_part(parts: list[str]) -> None:
     """The immediate fix and a follow-up are each a job of its own, since each starts at once past the gates the order's other parts wait on: the immediate fix's PR lands while the proper fix's waits on his cards, and a follow-up's design starts while the PR it follows lands."""
-    for part, why in ((state.IMMEDIATE_FIX, "its PR lands at once, while the proper fix's waits on his cards"), (state.FOLLOW_UP, "its design starts at once, while the PR it follows lands")):
+    for part, why in (
+        (state.IMMEDIATE_FIX, "its PR lands at once, while the proper fix's waits on his cards"),
+        (state.FOLLOW_UP, "its design starts at once, while the PR it follows lands"),
+        (state.PAGE, "its codex job builds the page at once, while the order's other parts wait on research"),
+    ):
         if part in parts and len(parts) > 1:
             others = ", ".join(json.dumps(other, ensure_ascii=False) for other in parts if other != part)
             raise DriveError(f'the "{part}" part is a job of its own: {why}, so one job takes "{part}" and another {others}')
@@ -2752,6 +2782,7 @@ def rewrite_brief(name: str, job_id: str, flags: dict, over: dict | None) -> tup
     checkout_dir = Path(data["roles"]["coordinator"]["cwd"])
     earlier = [line for other in order["jobs"] if other != job_id and (line := transcript_line(other, data["jobs"][other]))]
     planned = order["kind"] == "build" and not order["incident"]
+    answers = job["kind"] == "reader" and all(order["kind"] == "answer" or order["parts"][part]["answer"] for part in job["parts"])
     found = brief.research(name, data, job["order"], job["parts"], job_id) if planned and job["kind"] in brief.RESEARCHED_KINDS else None
     ids, heard = brief.bound(name, data, job | {"brief_flags": flags})
     rulings = [*dict.fromkeys(ruling_words(answer_id, checkout_dir) for answer_id in ids), *heard]
@@ -2773,9 +2804,9 @@ def rewrite_brief(name: str, job_id: str, flags: dict, over: dict | None) -> tup
         "Handoff": flags["handoff"],
         "Decisions that bind": rulings or "none named; search his answers on the area",
         "Repo rules": state.repo_rules(data),
-        "Research": planned and job["kind"] == "reader" and READER_RESEARCH,
+        "Research": planned and job["kind"] == "reader" and not answers and READER_RESEARCH,
         "Researched": found and found[0],
-        "Answer": order["kind"] == "answer" and job["kind"] == "reader" and answer_first(name, order, job["order"], job_id),
+        "Answer": answers and answer_first(name, order, job["order"], job_id),
         "Native": flags["native"],
         "Interactions": flags["interactions"],
         "Would he ask": flags["would_he_ask"],
@@ -4472,7 +4503,8 @@ def answering(name: str, args: argparse.Namespace) -> Callable[[str], str]:
     def briefed(handler_id: str) -> str:
         words = agents.his_words(args.brief)
         order_id = added_order(parser().parse_args(["order", "add", words, "--from", held["link"], "--kind", "answer", "--complex", "--title", args.answer, "--drive", name]), unfiled=True)[0]
-        job_id = added_job(parser().parse_args(["job", "add", "reader", "--order", order_id, "--goal", args.answer, "--agent", handler_id, "--drive", name]))[0]
+        part = state.load(name)["orders"][order_id]["title"]
+        job_id = added_job(parser().parse_args(["job", "add", "reader", "--order", order_id, "--part", part, "--goal", args.answer, "--agent", handler_id, "--drive", name]))[0]
         data = with_cards(name, state.load(name))
         thread = state.own_thread(data["orders"][order_id])
         work = [

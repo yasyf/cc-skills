@@ -369,20 +369,20 @@ def build_goal(report: str) -> str | None:
 
 
 def waits_on_research(order: dict, kind: str, parts: list[str], lands: bool = False) -> bool:
-    """Whether a job of this kind on these parts starts only on its reader's research: a build order's builder, designer or codex lane, but on an incident, on the immediate fix, as a builder that builds nothing, one landing PRs he approved, starting a release, marked --builds-nothing such as a staging test of a built PR, or added with --branch on the branch an open PR already pushed, such as a migrated drive's, or as a follow-up's design, each of which starts at once."""
+    """Whether a job of this kind on these parts starts only on its reader's research: a build order's builder, designer or codex lane, but on an incident, on the immediate fix, on the page the drive adds when he names a goal or asks where work stands, as a builder that builds nothing, one landing PRs he approved, starting a release, marked --builds-nothing such as a staging test of a built PR, or added with --branch on the branch an open PR already pushed, such as a migrated drive's, or as a follow-up's design, each of which starts at once."""
     return (
         order["kind"] == "build"
         and not order["incident"]
         and kind in RESEARCHED_KINDS
-        and not (state.IMMEDIATE_FIX in parts or lands)
+        and not (set(state.AT_ONCE) & set(parts) or lands)
         and not (kind == "design" and state.FOLLOW_UP in parts)
     )
 
 
 def job_refusal(name: str, data: dict, order_id: str, kind: str, parts: list[str], lands: bool = False, waits: list[str] | None = None) -> str | None:
-    """Why a job of this kind may not start on the order: an order he limited to options gets no builder or codex job until he picks, an answer order is one reader's, and a build order's builder, designer or codex lane waits on the research of a reader or design of its own part, a change a design listed counting as that design's part, added at once waiting on such a reader still at work when --waits names it, so no part sits in no job while it reads,. A job of any kind may wait on his card, a drive PR or a release, which check_waits reads, and on any job still at work, a reader that just started included, which state.job_wait_refusal reads, stored as that job's newest open PR, each PR it opens taking the wait's place. The immediate fix of a bug hurting someone now, a red default branch's fix-forward among them, a builder landing PRs he approved and an open PR's builder added on the branch it pushed start at once past each of those, by his words: "always do the immediate fix (or rollback if prudent) in parallel to giving me options for the proper fix". A follow-up he orders to a PR gets its design job at once, doing its own research and waiting on nothing, beside landing that PR, by his words "start deisgnng the follow p right awya motherfucker dont wait"."""
+    """Why a job of this kind may not start on the order: an order he limited to options gets no builder or codex job until he picks, an answer order is one reader's, and a build order's builder, designer or codex lane waits on the research of a reader or design of its own part, a change a design listed counting as that design's part, added at once waiting on such a reader still at work when --waits names it, so no part sits in no job while it reads,. A job of any kind may wait on his card, a drive PR or a release, which check_waits reads, and on any job still at work, a reader that just started included, which state.job_wait_refusal reads, stored as that job's newest open PR, each PR it opens taking the wait's place. The immediate fix of a bug hurting someone now, a red default branch's fix-forward among them, a builder landing PRs he approved, an open PR's builder added on the branch it pushed and the page the drive adds when he names a goal or asks where work stands start at once past each of those, by his words: "always do the immediate fix (or rollback if prudent) in parallel to giving me options for the proper fix". A follow-up he orders to a PR gets its design job at once, doing its own research and waiting on nothing, beside landing that PR, by his words "start deisgnng the follow p right awya motherfucker dont wait"."""
     order = data["orders"][order_id]
-    at_once = state.IMMEDIATE_FIX in parts or lands
+    at_once = bool(set(state.AT_ONCE) & set(parts)) or lands
     immediate = (
         f'the immediate fix of a bug hurting someone now, or a red default branch\'s fix-forward, starts at once on its own "{state.IMMEDIATE_FIX}"'
         f' part, added with drive order set {order_id} --add-part "{state.IMMEDIATE_FIX}", a builder landing PRs he approved with --lands <each PR>,'
@@ -427,7 +427,7 @@ def job_refusal(name: str, data: dict, order_id: str, kind: str, parts: list[str
 
 
 def brief_refusal(name: str, data: dict, job_id: str, brief: str) -> str | None:
-    """Why this brief may not start its job's agent: its Runs as line, outside his double-quoted words and unless it opens none, proposes break-glass or the machine profile, which run on this Mac, for a write of a team's data, which runs only as a service account in the team's cluster; the lines its writer plans the job with ask him for a sign-in, Touch ID or cc-sudo on an AWS action this Mac's machine profile runs; a drive tooling brief aside from both, whose lines name the routes and sign-ins the drive's checks refuse, but whose builder needs an After install: line for a step its Goal names after the install, by after_install; an incident's codex lane or builder needs its kind's rule on a choice, by incident_refusal; a build order's builder, designer or codex lane needs the Researched: line naming a reader or design of its own part, unless it ships the immediate fix, builds nothing as a --builds-nothing builder such as a staging test of a built PR, starts a release, builds on the branch an open PR already pushed, or designs a follow-up he ordered, which starts at once doing its own research, and an answer order's one lane does its own research."""
+    """Why this brief may not start its job's agent: its Runs as line, outside his double-quoted words and unless it opens none, proposes break-glass or the machine profile, which run on this Mac, for a write of a team's data, which runs only as a service account in the team's cluster; the lines its writer plans the job with ask him for a sign-in, Touch ID or cc-sudo on an AWS action this Mac's machine profile runs; a drive tooling brief aside from both, whose lines name the routes and sign-ins the drive's checks refuse, but whose builder needs an After install: line for a step its Goal names after the install, by after_install; an incident's codex lane or builder needs its kind's rule on a choice, by incident_refusal; a build order's builder, designer or codex lane needs the Researched: line naming a reader or design of its own part, unless it ships the immediate fix or builds the page the drive adds, builds nothing as a --builds-nothing builder such as a staging test of a built PR, starts a release, builds on the branch an open PR already pushed, or designs a follow-up he ordered, which starts at once doing its own research, and an answer order's one lane does its own research."""
     tooling = SERVES_TOOLING.search(brief)
     runs = None if tooling else RUNS_AS.search(brief)
     if runs and (route := limits.proposed(FROM_THIS_MAC, limits.SAID.sub(lambda said: limits.MASK * len(said[0]), runs[1]))):
@@ -445,7 +445,7 @@ def brief_refusal(name: str, data: dict, job_id: str, brief: str) -> str | None:
     order = data["orders"][order_id]
     if order["incident"] and (rule := state.INCIDENT_CHOICE.get(job["kind"])):
         return incident_refusal(job_id, order_id, brief, rule)
-    if HANDOFF.search(brief) or order["incident"] or state.IMMEDIATE_FIX in job["parts"]:
+    if HANDOFF.search(brief) or order["incident"] or set(state.AT_ONCE) & set(job["parts"]):
         return None
     if job["kind"] == "design" and state.FOLLOW_UP in job["parts"]:
         return None
