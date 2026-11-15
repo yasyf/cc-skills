@@ -530,17 +530,17 @@ def tool(name: str) -> str:
 
 
 def checkout(drive: str, clone: str) -> Path:
-    """The checkout every session of the drive runs in and each lane's launch, save and release runs the orca plugin's scripts in, so each tools/ci a session or its agents run and every Sprite claim, refill and cleanup run the code and the cc-remote, config and tool payload its repository's default branch pins now: the worktree of clone's repository holding the branch drive-<drive>, which only the drive uses, moved with one fetch to that branch's head at each drive start, release start and freeze and before each launch, save and release, never a branch a lane checked out there at whatever commit and edits it carries. git's worktree list finds it; the first call cuts drive-<drive> at that head and makes it with ccx vcs worktree add, which checks an existing branch out as it stands, running none of its trunk fetch into refs/remotes/origin/<branch>, which loses that ref's lock to any other fetch of the shared clone, so it sits under ccx's worktree root, where its owner's mise trusts a worktree's mise.toml as the cc-remote shim needs. It is moved with no hook, since the monorepo's post-checkout hook warms node_modules that no launch reads, under the drive's checkout lock, since lanes launch at once; DriveError naming why it was not moved, or that the head holds no .orca.json."""
+    """The checkout every session of the drive runs in and each lane's launch, save and release runs the orca plugin's scripts in, so each tools/ci a session or its agents run and every Sprite claim, refill and cleanup run the code and the cc-remote, config and tool payload its repository's default branch pins now: the worktree of clone's repository in the folder drive-<drive>, which only the drive uses, detached at that branch's head with one fetch at each drive start, release start and freeze and before each launch, save and release, never a branch a lane checked out there at whatever commit and edits it carries. It holds no branch: the fetch writes no refs/remotes/origin/<branch>, so a branch moved there would read to the monorepo's Stop hook as commits past that stale ref, unpushed work no session there could end its turn on. git's worktree list finds it by its folder; the first call cuts the branch drive-<drive> at that head and makes it with ccx vcs worktree add, which checks an existing branch out as it stands, running none of its trunk fetch into refs/remotes/origin/<branch>, which loses that ref's lock to any other fetch of the shared clone, so it sits under ccx's worktree root, where its owner's mise trusts a worktree's mise.toml as the cc-remote shim needs. It is moved with no hook, since the monorepo's post-checkout hook warms node_modules that no launch reads, under the drive's checkout lock, since lanes launch at once; DriveError naming why it was not moved, or that the head holds no .orca.json."""
     lane = f"drive-{drive}"
     try:
         branch = github.default_branch(github.checkout_repo(clone))
         with state.flocked(state.drive_dir(drive) / CHECKOUT_LOCK):
             sha = github.fetched(clone, branch)
-            if not (kept := holder(clone, lane)):
+            if not (kept := worktree(clone, lane)):
                 github.run(["git", "-C", clone, "branch", "--force", lane, sha])
                 github.run(["ccx", "vcs", "worktree", "add", lane, "--jj", "none"], cwd=clone, timeout=CHECKOUT_SECONDS)
-                kept = holder(clone, lane)
-            github.run(["git", "-C", str(kept), "-c", "core.hooksPath=/dev/null", "-c", "checkout.workers=0", "checkout", "-q", "--force", "-B", lane, sha], timeout=CHECKOUT_SECONDS)
+                kept = worktree(clone, lane)
+            github.run(["git", "-C", str(kept), "-c", "core.hooksPath=/dev/null", "-c", "checkout.workers=0", "checkout", "-q", "--force", "--detach", sha], timeout=CHECKOUT_SECONDS)
     except github.GithubError as error:
         raise DriveError(f"the drive's checkout, the worktree of {clone}'s repository on {lane}, was not moved to the head of its default branch, so nothing ran from it: {error}") from None
     if not (kept / ".orca.json").is_file():
@@ -552,6 +552,12 @@ def holder(clone: str, branch: str) -> Path | None:
     """The worktree of clone's repository that has branch checked out, as git's worktree list names it."""
     entries = [entry.split("\n") for entry in github.run(["git", "-C", clone, "worktree", "list", "--porcelain"]).split("\n\n")]
     return next((Path(lines[0].removeprefix("worktree ")) for lines in entries if f"branch refs/heads/{branch}" in lines), None)
+
+
+def worktree(clone: str, folder: str) -> Path | None:
+    """The worktree of clone's repository in a folder of that name, detached or on any branch, as git's worktree list names it."""
+    paths = [Path(line.removeprefix("worktree ")) for line in github.run(["git", "-C", clone, "worktree", "list", "--porcelain"]).splitlines() if line.startswith("worktree ")]
+    return next((path for path in paths if path.name == folder), None)
 
 
 def sprite_config(checkout: Path) -> str:

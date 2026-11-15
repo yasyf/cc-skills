@@ -703,6 +703,20 @@ def test_a_first_launch_while_another_fetch_holds_the_clones_remote_tracking_ref
     assert (kept, git_in(kept, "rev-parse", "HEAD"), (ccx_worktrees / "made").read_text()) == (ccx_worktrees / "drive-demo", head, "drive-demo\n")
 
 
+def test_the_drives_checkout_sits_detached_at_origins_default_branch_head_past_the_clones_stale_remote_tracking_ref_and_the_next_move_reuses_its_worktree(
+    demo: str, tmp_path: Path, ccx_worktrees: Path
+) -> None:
+    clone = tmp_path / "clone"
+    stale = cloned(tmp_path, demo)
+    pushed, moved = [], []
+    for version in ("0.27.38", "0.27.39"):
+        pushed.append(cloned(tmp_path, demo, {"versions.toml": f"cc-remote {version}\n"}))
+        kept = orca.checkout(demo, str(clone))
+        moved.append((kept, git_in(kept, "rev-parse", "HEAD"), git_in(kept, "rev-parse", "--abbrev-ref", "HEAD")))
+    assert moved == [(ccx_worktrees / "drive-demo", head, "HEAD") for head in pushed]
+    assert (git_in(clone, "rev-parse", "refs/remotes/origin/main"), (ccx_worktrees / "made").read_text()) == (stale, "drive-demo\n")
+
+
 def test_a_sprite_brief_copies_in_no_drive_file_it_names_and_a_read_of_its_words_serves_each_a_lanes_report_kept_only_in_the_drive_included(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
