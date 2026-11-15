@@ -739,10 +739,10 @@ def test_his_card_on_a_pr_no_hook_delivers_from_is_redrawn_in_the_pass_whose_rea
     receiving.unadministered.add("Forge-AI/design-docs")
     watching = watcher(demo)
     watch.run_pass(watching, T0)
-    assert (redraws.asked.count(url), his_card_row(demo, docs)["lands"]) == (0, "you approve and CI passes")
+    assert (redraws.drawn.count(url), his_card_row(demo, docs)["lands"]) == (0, "you approve and CI passes")
     reads[docs] = read(checks=GREEN)
     watch.run_pass(watching, T0 + timedelta(seconds=60))
-    assert (redraws.asked.count(url), redraws.rows[url]["lands"], redraws.rows[url]["blocks"]) == (1, "you approve", "")
+    assert (redraws.asked.count(url), redraws.drawn.count(url), redraws.rows[url]["lands"], redraws.rows[url]["blocks"]) == (0, 1, "you approve", "")
 
 
 def test_a_receiver_that_does_not_answer_is_said_from_its_third_minute_in_a_row(demo: str, monkeypatch: pytest.MonkeyPatch, receiving: Receiver) -> None:
@@ -4311,13 +4311,13 @@ def test_a_pr_his_open_cards_hold_is_held_by_him_its_card_redrawn_as_each_closes
     watching = watcher(demo)
     watch.run_pass(watching, T0)
     assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == []
-    assert (state.load(demo)["prs"][KEY]["stage"]["why"], redraws.asked) == ("his cards demo:j1-7-a, demo:j1-7-b on its work are open", [state.pr_url(KEY)])
+    assert (state.load(demo)["prs"][KEY]["stage"]["why"], redraws.drawn) == ("his cards demo:j1-7-a, demo:j1-7-b on its work are open", [state.pr_url(KEY)])
     for answered, (kept, why) in enumerate((("demo:j1-7-b", "his cards demo:j1-7-b on its work are open"), (None, "green, waits on his Approve"))):
         with state.edit(demo) as data:
             data["jobs"]["j1"]["questions"][answered]["closed"] = state.new_close("answered", "Yes", None, seq=str(9 + answered))
         asking(monkeypatch, demo, *filter(None, [kept]), taps=[pr_card(KEY)])
         assert watch.run_pass(watching, T0 + timedelta(minutes=31 + answered)) == []
-        assert (state.load(demo)["prs"][KEY]["stage"]["why"], redraws.asked) == (why, [state.pr_url(KEY)] * (2 + answered))
+        assert (state.load(demo)["prs"][KEY]["stage"]["why"], redraws.drawn) == (why, [state.pr_url(KEY)] * (2 + answered))
     assert watch.run_pass(watching, T0 + timedelta(minutes=62)) == []
 
 
@@ -5007,41 +5007,53 @@ def test_a_wait_added_to_a_pr_he_approved_never_withdraws_his_card_and_the_watch
     with state.edit(demo) as data:
         data["prs"][KEY]["tap"] = {"label": "Approve", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "slack", "picks": {}}
     watching = carded(demo, shown := drawn_pr_card(demo, KEY))
-    assert (watch.redraw_lines(watching, T0), redraws.asked) == ([], [])
+    assert (watch.redraw_lines(watching, T0), redraws.asked, redraws.drawn) == ([], [], [])
     assert cli.main(["pr", "set", KEY, "--waits", "j1", "--drive", demo]) == 0
-    assert (withdrawals.asked, redraws.asked) == ([], [])
+    assert (withdrawals.asked, redraws.asked, redraws.drawn, "the build of" in shown["card"]["prs"][0]["blocks"]) == ([], [], [], False)
     assert watch.redraw_lines(watching, T0) == []
-    assert (redraws.asked, redraws.rows[state.pr_url(KEY)]) == ([state.pr_url(KEY)], card.drawn_lines(demo, state.load(demo), KEY))
-    assert ["the build of" in row["blocks"] for row in (shown["card"]["prs"][0], redraws.rows[state.pr_url(KEY)])] == [False, True]
+    assert (redraws.asked, redraws.drawn, redraws.rows[state.pr_url(KEY)]) == ([], [state.pr_url(KEY)], card.drawn_lines(demo, state.load(demo), KEY))
+    assert "the build of" in redraws.rows[state.pr_url(KEY)]["blocks"]
     assert cli.main(["pr", "set", KEY, "--tap", "--serves", "o1", "--design", "none", "--drive", demo]) == 0
     assert state.load(demo)["prs"][KEY]["wants_tap"] is True
 
 
-def test_his_pr_card_whose_row_went_stale_is_redrawn_in_place_once_and_asked_again_only_a_retry_later(demo: str, redraws: Redraws) -> None:
+def test_his_pr_card_whose_row_went_stale_has_its_lines_drawn_in_place_once_with_no_whole_redraw(demo: str, redraws: Redraws) -> None:
     stale = pr_card(KEY)
     stale["card"]["prs"][0] |= card.drawn_lines(demo, state.load(demo), KEY) | {"head": "0000000aaa", "review": "Commit 0000000 goes against your words: o1. Your Approve still lands it"}
     watching = carded(demo, stale)
-    assert (watch.redraw_lines(watching, T0), redraws.asked) == ([], [state.pr_url(KEY)])
-    assert (watch.redraw_lines(watching, T0 + served.RETRY - timedelta(seconds=1)), redraws.asked) == ([], [state.pr_url(KEY)])
-    assert (watch.redraw_lines(watching, T0 + served.RETRY), redraws.asked) == ([], [state.pr_url(KEY)] * 2)
-    assert (watch.redraw_lines(carded(demo, drawn_pr_card(demo, KEY)), T0), redraws.asked) == ([], [state.pr_url(KEY)] * 2)
+    assert (watch.redraw_lines(watching, T0), redraws.asked, redraws.drawn) == ([], [], [state.pr_url(KEY)])
+    assert redraws.rows[state.pr_url(KEY)] == card.drawn_lines(demo, state.load(demo), KEY)
+    assert (watch.redraw_lines(watching, T0 + timedelta(minutes=1)), redraws.asked, redraws.drawn) == ([], [], [state.pr_url(KEY)])
+
+
+def test_his_open_card_drawn_asking_his_tap_on_a_pr_that_no_longer_asks_it_is_redrawn_whole_before_its_lines_and_asked_again_while_that_fails(demo: str, redraws: Redraws) -> None:
+    with state.edit(demo) as data:
+        data["prs"][KEY]["wants_tap"] = True
+    asked = drawn_pr_card(demo, KEY)
+    with state.edit(demo) as data:
+        data["prs"][KEY]["tap"] = {"label": "Approve", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "slack", "picks": {}}
+    redraws.failure = "cc-slack exited 1"
+    assert (asked["card"]["prs"][0]["lands"] != "", watch.redraw_lines(carded(demo, asked), T0), redraws.asked, redraws.drawn) == (True, [], [state.pr_url(KEY)], [])
+    redraws.failure = None
+    assert (watch.redraw_lines(carded(demo, asked), T0), redraws.asked, redraws.drawn) == ([], [state.pr_url(KEY)] * 2, [state.pr_url(KEY)])
+    assert redraws.rows[state.pr_url(KEY)]["blocks"].startswith("Approved by you. ")
 
 
 def test_his_answered_pr_card_cc_slack_still_draws_is_redrawn_in_place_but_never_one_it_replaced_withdrew_or_whose_pr_ended(demo: str, redraws: Redraws) -> None:
     answered = {"waits": f"merge:42:{state.ask_hash('aaaaaaa111')}", "url": CARD, "prs": [state.pr_url(KEY)], "answer": {"label": "Approve"}, "replaced_by": "", "card": pr_card(KEY)["card"]}
     retired = {field: value for field, value in answered.items() if field != "card"}
-    assert (watch.redraw_lines(carded(demo, closed=(retired,)), T0), redraws.asked) == ([], [])
-    assert (watch.redraw_lines(carded(demo, closed=(answered,)), T0), redraws.asked) == ([], [state.pr_url(KEY)])
+    assert (watch.redraw_lines(carded(demo, closed=(retired,)), T0), redraws.drawn) == ([], [])
+    assert (watch.redraw_lines(carded(demo, closed=(answered,)), T0), redraws.asked, redraws.drawn) == ([], [], [state.pr_url(KEY)])
     with state.edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
-    assert (watch.redraw_lines(carded(demo, closed=(answered,)), T0), redraws.asked) == ([], [state.pr_url(KEY)])
+    assert (watch.redraw_lines(carded(demo, closed=(answered,)), T0), redraws.drawn) == ([], [state.pr_url(KEY)])
 
 
 def test_a_failed_redraw_of_his_stale_pr_card_is_tried_again_on_the_next_pass_and_said_from_its_third_failure(demo: str, redraws: Redraws) -> None:
     watching = carded(demo, pr_card(KEY))
     redraws.failure = "cc-slack exited 1"
     said = [watch.redraw_lines(watching, T0 + timedelta(minutes=minute)) for minute in range(3)]
-    assert (said[:2], len(redraws.asked)) == ([[], []], 3)
+    assert (said[:2], redraws.asked, len(redraws.drawn)) == ([[], []], [], 3)
     assert said[2] == [f"WATCH redraw of his card on {KEY} failed 3 times in a row: cc-slack exited 1"]
 
 
@@ -5836,10 +5848,10 @@ def test_replayed_55175_a_red_pr_whose_builder_waits_on_a_fix_that_waits_on_his_
     passes = []
 
     def at(minutes: int) -> None:
-        drawn = redraws.asked.count(state.pr_url(red_pr))
+        drawn = redraws.drawn.count(state.pr_url(red_pr))
         watch.run_pass(watcher(demo), T0 + timedelta(minutes=minutes))
         kept = state.load(demo)["prs"][red_pr]["stage"]
-        passes.append((minutes, kept["name"], kept["owner"], [key for key, _ in woken], redraws.asked.count(state.pr_url(red_pr)) > drawn))
+        passes.append((minutes, kept["name"], kept["owner"], [key for key, _ in woken], redraws.drawn.count(state.pr_url(red_pr)) > drawn))
         woken.clear()
 
     at(0)
@@ -5948,9 +5960,7 @@ def test_replayed_55571_a_red_pr_whose_builder_waits_on_its_own_open_question_wa
         data["orders"]["o1"]["jobs"].append("j2268")
         data["jobs"]["j2268"] = job(prs=[url], state="waiting", said=asked["title"], questions=[asked])
         data["prs"][red_pr] = state.new_pr(url, "j2268", "o1") | {"head": "a2d5a98aaa", "wants_tap": True, "checked": CHECKED | {"head": "a2d5a98aaa"}}
-    shown = {"head": "a2d5a98aaa"}
-    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [question(waits) | {"url": card_link}], "closed": [], "pr_cards": [pr_card(red_pr, head=shown["head"])]})
-    monkeypatch.setattr(watch.slack, "redraw_pr_cards", lambda pr: shown.update(head=state.load(demo)["prs"][red_pr]["head"]) or 1)
+    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [question(waits) | {"url": card_link}], "closed": [], "pr_cards": [pr_card(red_pr, head="a2d5a98aaa")]})
     reads: dict[str, dict] = {}
     serve(monkeypatch, reads)
     watching = watcher(demo)
@@ -5988,7 +5998,7 @@ def test_replayed_55571_a_red_pr_whose_builder_waits_on_its_own_open_question_wa
         (4, "blocked", stage.HIM, []),
         (6, "blocked", stage.HIM, []),
         (40, "blocked", stage.HIM, []),
-        (42, "uncarded", stage.WATCH, []),
+        (42, "held", stage.HIM, []),
         (44, "blocked", stage.HIM, []),
         (46, "red", stage.BUILDER, [red_pr]),
         (48, "blocked", stage.HIM, []),
@@ -9300,16 +9310,16 @@ def test_a_pr_github_closes_and_reopens_settles_his_card_at_the_close_read_and_i
     calls = serve(monkeypatch, reads)
     watching = watcher(demo)
     watch.run_pass(watching, T0)
-    assert (redraws.asked, state.load(demo)["prs"][KEY]["stage"]["name"]) == ([url], "card")
+    assert (redraws.asked, redraws.drawn, state.load(demo)["prs"][KEY]["stage"]["name"]) == ([], [url], "card")
     reads[KEY] = read(state="CLOSED", checks=GREEN, reviewDecision="APPROVED")
     assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == [f"PR {KEY}: closed [o1 j1]", f"CARD {CARD} settled in place: {KEY} closed"]
     assert watch.run_pass(watching, T0 + timedelta(minutes=2)) == []
-    assert (redraws.asked, state.load(demo)["prs"][KEY]["stage"]["name"]) == ([url], "closed")
+    assert (redraws.asked, state.load(demo)["prs"][KEY]["stage"]["name"]) == ([], "closed")
     reads[KEY] = read(checks=GREEN, reviewDecision="APPROVED")
     reopened = watch.run_pass(watching, T0 + timedelta(minutes=3))
     data = state.load(demo)
     assert (reopened, watch.wakes(reopened[0], data, NO_CARDS)) == ([f"PR {KEY}: open [o1 j1]"], False)
-    assert (redraws.asked, data["prs"][KEY]["state"], data["prs"][KEY]["stage"]["name"]) == ([url, url], "open", "uncarded")
+    assert (redraws.asked, data["prs"][KEY]["state"], data["prs"][KEY]["stage"]["name"]) == ([url], "open", "uncarded")
     assert calls == [[KEY]] * 4
     shown[:], shut[:] = [pr_card(KEY)], []
     watch.run_pass(watching, T0 + timedelta(minutes=4))
@@ -9350,7 +9360,7 @@ def test_a_new_head_on_a_pr_reworked_to_his_words_redraws_nothing_until_its_buil
     serve(monkeypatch, {KEY: read(headRefOid="bbbbbbb222", checks=GREEN, reviewDecision="APPROVED")})
     watch.run_pass(watching, T0 + timedelta(minutes=1))
     watch.run_pass(watching, T0 + timedelta(minutes=2))
-    assert (redraws.asked, state.load(demo)["prs"][KEY]["rework"]["by"]) == ([], "o2")
+    assert (redraws.asked, redraws.drawn, state.load(demo)["prs"][KEY]["rework"]["by"]) == ([], [], "o2")
 
 
 def test_his_open_card_that_left_a_show_me_picture_off_redraws_in_place_once_github_reads_the_body_edited_since_its_draw(

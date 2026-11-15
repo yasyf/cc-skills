@@ -154,6 +154,11 @@ def redraw_pr_cards(url: str) -> int:
     return cc_slack("redraw-pr-cards", "--pr", url)["redrawing"]
 
 
+def draw_pr_lines(lines: dict[str, dict[str, str]]) -> int:
+    """Write each PR's lines, by its URL, onto every row of it on his cards neither replaced nor withdrawn, which cc-slack redraws in place in the background, buttons kept; how many rows changed."""
+    return cc_slack("draw-pr-lines", stdin=json.dumps([{"url": url, **drawn} for url, drawn in lines.items()]))["drawn"]
+
+
 def order_threads(data: dict, order_id: str, order: dict) -> list[tuple[str, str]]:
     """The threads of an order: its own, then on an incident the own thread of each other order of it, the incident an alert's order joined and every alert joined to it, both ways, then each thread one of them keeps: each a post naming it went in, each card its jobs drew and each PR card drawn at his DM root for a PR it serves."""
     orders = [order, *(data["orders"][other] for other in state.feature_orders(data, order_id) if other != order_id)]

@@ -131,7 +131,6 @@ class Watcher:
     resumed: dict[str, str] = field(default_factory=dict)
     ci_marks: dict[str, str | None] = field(default_factory=dict)
     carried: dict[str, tuple[set[str], datetime]] = field(default_factory=dict)
-    redrawn: dict[str, tuple[dict[str, str], datetime]] = field(default_factory=dict)
     untracked: dict[str, str] = field(default_factory=dict)
     relayed: collections.deque[str] = field(default_factory=collections.deque)
     relay_error: Exception | None = None
@@ -3796,7 +3795,7 @@ def carried_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def redraw_lines(watcher: Watcher, moment: datetime, keys: set[str] | None = None) -> list[str]:
-    """Redraw in place each card of his on a heard open PR, or on those of keys alone, as github_lines asks for the PRs it just read, open or answered and neither replaced nor withdrawn, whose row cc-slack last drew differs from the card.REDRAWN lines drive card draws on it now, so its head, Where it stands, Waits on and staging line never stay stale; a redraw cc-slack refuses is asked again on the next pass, and one it answered for is asked again on the same lines only served.RETRY on, since cc-slack draws none for a PR changed since he answered."""
+    """Redraw in place each card of his on a heard open PR, or on those of keys alone, as github_lines asks for the PRs it just read, open or answered and neither replaced nor withdrawn, whose row cc-slack last drew differs from the card.REDRAWN lines drive card draws on it now, so its head, Where it stands, Waits on and staging line never stay stale: one slack.draw_pr_lines call writes those lines onto every row of each such PR, which cc-slack redraws in place in the background, buttons kept, and the watch's copy of his cards takes them too. A PR his open card drew asking his tap that no longer asks it is first redrawn whole from drive card, so the card gives up its Approve, and a whole redraw that fails leaves its lines unwritten, so the next pass asks both again."""
     from drive import card
 
     if watcher.cards is None:
@@ -3806,29 +3805,38 @@ def redraw_lines(watcher: Watcher, moment: datetime, keys: set[str] | None = Non
     for shown in [*watcher.cards["pr_cards"], *(closed for closed in watcher.cards["closed"] if "card" in closed)]:
         for row in shown["card"]["prs"]:
             rows.setdefault(state.pr_key(row["url"]), []).append(row)
-    lines = []
+    asking = {state.pr_key(row["url"]) for shown in watcher.cards["pr_cards"] for row in shown["card"]["prs"] if row.get("lands")}
+    lines, fresh = [], {}
     for key, drawn in rows.items():
         pr = data["prs"].get(key)
         if (keys is not None and key not in keys) or not pr or pr["state"] != "open" or not pr["head"] or pr["rework"] or key in watcher.stale or not hears(watcher, data, pr["order"]):
             continue
         now = card.drawn_lines(watcher.name, data, key)
         if all({line: row.get(line, "") for line in card.REDRAWN} == now for row in drawn):
-            watcher.redrawn.pop(key, None)
             continue
-        if (asked := watcher.redrawn.get(key)) and asked[0] == now and moment - asked[1] < served.RETRY:
-            continue
-        try:
-            slack.redraw_pr_cards(pr["url"])
-        except slack.SlackError as error:
-            lines += failed(watcher, "card redraw", f"redraw of his card on {key}", error, moment)
-            continue
-        watcher.failures.pop("card redraw", None)
-        watcher.redrawn[key] = (now, moment)
+        if key in asking and not now["lands"]:
+            try:
+                slack.redraw_pr_cards(pr["url"])
+            except slack.SlackError as error:
+                lines += failed(watcher, "card redraw", f"redraw of his card on {key}", error, moment)
+                continue
+            watcher.failures.pop("card redraw", None)
+        fresh[key] = now
+    if not fresh:
+        return lines
+    try:
+        slack.draw_pr_lines({data["prs"][key]["url"]: now for key, now in fresh.items()})
+    except slack.SlackError as error:
+        return lines + failed(watcher, "card lines", f"redraw of his card on {', '.join(fresh)}", error, moment)
+    watcher.failures.pop("card lines", None)
+    for key, now in fresh.items():
+        for row in rows[key]:
+            row.update(now)
     return lines
 
 
 def stage_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Keep each heard unmerged PR's stage, as stage.of names it from the approval, checks and head GitHub last answered for it, and act once on each open one that entered a stage or passed its deadline, leaving a PR never read, or whose last read failed, as it stands until a read answers for it: draw his card on each PR that entered uncarded, one card for the PRs of one card unit as drive card draws them, and never again while it stays there, or redraw in place the card cc-slack keeps closed on one, so it offers Approve again and no second card shares its waits id, unless github_lines asked its redraw in the same pass, and which redraw_lines then asks no second time on the same lines, or, once a card of the unit leaves off a PR of its stack, native or chained by base branch, by view.apart, draw one fresh card for the unit and those PRs, which cc-slack marks each older card of theirs replaced by, wake the builder answering for a PR rework or red owe, ask forge-pr-reviewer once for a review of a head grading an hour and then wake its builder, wake past its deadline the job a waiting or blocked PR names as owing it and the builder of one its author lands, wake the session holding its order on one unlanded and on any other past its deadline, uncarded included, and draw his card again, once per card unit, on the PRs that wait on him while they fix a live bug and whose card asks his tap, by state.asks_tap, with a line in its thread saying why it asks. A draw that fails, or leaves a PR that asks his tap with no card of his offering Approve at its head, as one cc-slack answers by linking a card he already answered does, clears the PR's stage, so the next read enters uncarded again and draws, and is said to the meta session from its third failure in a row."""
+    """Keep each heard unmerged PR's stage, as stage.of names it from the approval, checks and head GitHub last answered for it, and act once on each open one that entered a stage or passed its deadline, leaving a PR never read, or whose last read failed, as it stands until a read answers for it: draw his card on each PR that entered uncarded, one card for the PRs of one card unit as drive card draws them, and never again while it stays there, or redraw in place the card cc-slack keeps closed on one, so it offers Approve again and no second card shares its waits id, or, once a card of the unit leaves off a PR of its stack, native or chained by base branch, by view.apart, draw one fresh card for the unit and those PRs, which cc-slack marks each older card of theirs replaced by, wake the builder answering for a PR rework or red owe, ask forge-pr-reviewer once for a review of a head grading an hour and then wake its builder, wake past its deadline the job a waiting or blocked PR names as owing it and the builder of one its author lands, wake the session holding its order on one unlanded and on any other past its deadline, uncarded included, and draw his card again, once per card unit, on the PRs that wait on him while they fix a live bug and whose card asks his tap, by state.asks_tap, with a line in its thread saying why it asks. A draw that fails, or leaves a PR that asks his tap with no card of his offering Approve at its head, as one cc-slack answers by linking a card he already answered does, clears the PR's stage, so the next read enters uncarded again and draws, and is said to the meta session from its third failure in a row."""
     if watcher.cards is None:
         return []
     with state.edit(watcher.name) as data:
@@ -3862,7 +3870,7 @@ def stage_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 asked.setdefault(units[key], []).append(key)
             continue
         lines += acted(watcher, key, now, entered, line, moment)
-    from drive import card, talk
+    from drive import talk
 
     for keys in uncarded.values():
         standing = [key for key in keys if view.standing_card(data["prs"][key], watcher.cards)]
@@ -3872,9 +3880,7 @@ def stage_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 fresh = list(dict.fromkeys([*keys, *left]))
             else:
                 for key in standing:
-                    if (prior := watcher.redrawn.get(key)) is None or prior[1] != moment:
-                        slack.redraw_pr_cards(state.pr_url(key))
-                    watcher.redrawn[key] = (card.drawn_lines(watcher.name, state.load(watcher.name), key), moment)
+                    slack.redraw_pr_cards(state.pr_url(key))
                 fresh = [key for key in keys if key not in standing]
             if fresh:
                 link = talk.draw(watcher.name, fresh)
