@@ -538,7 +538,7 @@ def chained(known: dict[str, tuple[str, dict]], key: str, reads: dict[str, dict]
 
 
 def stack_of(prs: dict[str, dict], key: str) -> list[str]:
-    """The PRs of a drive's PR's stack as the watch last read them, bottom first, the one rule view.apart, state.reworked_under and member() read: its native GitHub stack, else its chain by base branch by chained()."""
+    """The PRs of a drive's PR's stack as the watch last read them, bottom first, the one rule view.apart, state.reworked_under and drawn_entry() read: its native GitHub stack, else its chain by base branch by chained()."""
     return prs[key]["native"] or chained({mate: ("", row) for mate, row in prs.items()}, key, {})
 
 
@@ -644,21 +644,28 @@ def untapped(known: dict[str, tuple[str, dict]], reads: dict[str, dict], members
 
 
 def member(name: str, data: dict, pr: dict, entry: dict, picked: dict[str, dict], drawing: tuple[tuple[str, ...], tuple[str, ...]] = ((), ())) -> Member:
-    """The PR as his card draws it: GitHub's read of it, the drive's entry with its stage and staging line now and a link to each open PR above it in its stack, by stack_of(), being reworked to his words, which cards() leaves off its card with every PR above it so his Approve lands it alone, its drawn Show me pictures and why each left off does not draw, each wait that holds it outside the cards his Approve picks, and those picks."""
-    from drive import stage, view
+    """The PR as his card draws it: GitHub's read of it, the drive's entry as drawn_entry gives it, its drawn Show me pictures and why each left off does not draw, each wait that holds it outside the cards his Approve picks, and those picks."""
+    from drive import view
 
-    key = state.pr_key(entry["url"])
     held = holding(name, entry)
-    stack = [mate for mate in stack_of(data["prs"], key) if mate in data["prs"] and data["prs"][mate]["state"] == "open"]
-    above = stack[stack.index(key) + 1 :] if key in stack else []
     return (
         pr,
-        entry | {"now": stage.on_card(data, key, view.live_cards(name)), "staging": view.staging(data, key), "reworked_above": tuple(view.pr_link(data["prs"][mate]) for mate in above if data["prs"][mate]["rework"])},
+        drawn_entry(name, data, entry),
         drawing[0],
         tuple(words for wait, words in held.items() if wait not in picked),
         drawing[1],
         tuple((pick["option"], view.link(pick["title"], pick["url"])) for pick in picked.values()),
     )
+
+
+def drawn_entry(name: str, data: dict, entry: dict) -> dict:
+    """The drive's entry with what render reads beside it, the one place that adds it, for his card and the dashboard's row alike: its stage and staging line now and a link to each open PR above it in its stack, by stack_of(), being reworked to his words, which cards() leaves off its card with every PR above it so his Approve lands it alone."""
+    from drive import stage, view
+
+    key = state.pr_key(entry["url"])
+    stack = [mate for mate in stack_of(data["prs"], key) if mate in data["prs"] and data["prs"][mate]["state"] == "open"]
+    above = stack[stack.index(key) + 1 :] if key in stack else []
+    return entry | {"now": stage.on_card(data, key, view.live_cards(name)), "staging": view.staging(data, key), "reworked_above": tuple(view.pr_link(data["prs"][mate]) for mate in above if data["prs"][mate]["rework"])}
 
 
 def drawn_lines(name: str, data: dict, key: str) -> dict[str, str]:
