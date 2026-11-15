@@ -2,8 +2,10 @@ import itertools
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
+import urllib.parse
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -71,6 +73,9 @@ REAL_SESSION_OF = orca.session_of
 REAL_SESSION_TERMINALS = orca.session_terminals
 SILENT_SPRITE = "ssh exited 255: Connection timed out during banner exchange"
 REAL_KEEP_TRANSCRIPTS = orca.keep_transcripts
+REAL_SPRITE_API = orca.sprite_api
+SPRITE_HOME = Path("/home/sprite")
+UNLISTED = "the Sprites API exited 56: curl: (56) The requested URL returned error: 404"
 REAL_REGISTER = agents.register
 REAL_CHECKOUT = orca.checkout
 REAL_SPRITE_CONFIG = orca.sprite_config
@@ -906,8 +911,36 @@ def sessions(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
 def kept_transcripts(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
     """Each lane whose Sprite's transcripts an end or a relaunch copied to the drive's folder, by job and dispatch."""
     kept: list[tuple[str, str]] = []
-    monkeypatch.setattr(orca, "keep_transcripts", lambda drive, job_id, job, dispatch: kept.append((job_id, dispatch)))
+    monkeypatch.setattr(orca, "keep_transcripts", lambda drive, job_id, job, dispatch, root: kept.append((job_id, dispatch)))
     return kept
+
+
+@pytest.fixture(autouse=True)
+def sprite_homes(monkeypatch: pytest.MonkeyPatch) -> dict[str, Path]:
+    """The folder each workspace's Sprite answers the Sprites file API from as its home, by workspace, as orca.sprite_api reads it: a recursive fs/list names each file and folder under a path with its mtime as its modTime, and fs/read copies a file to curl's -o; a workspace with none, or a path its home lacks, gets the 404 that API gives, unless a test puts one."""
+    homes: dict[str, Path] = {}
+
+    def answer(root: Path, workspace: str, call: str, *curl: str) -> str:
+        verb, _, query = call.partition("?")
+        asked = SPRITE_HOME / urllib.parse.parse_qs(query)["path"][0]
+        if workspace not in homes or not (held := homes[workspace] / asked.relative_to(SPRITE_HOME)).exists():
+            raise orca.OrcaError(UNLISTED)
+        if verb == "fs/read":
+            shutil.copyfile(held, curl[curl.index("-o") + 1])
+            return ""
+        entries = [
+            {
+                "path": str(SPRITE_HOME / found.relative_to(homes[workspace])),
+                "type": "directory" if found.is_dir() else "file",
+                "size": found.stat().st_size,
+                "modTime": datetime.fromtimestamp(found.stat().st_mtime, UTC).isoformat().replace("+00:00", "Z"),
+            }
+            for found in sorted(held.rglob("*"))
+        ]
+        return json.dumps({"path": str(asked), "entries": entries or None, "count": len(entries)})
+
+    monkeypatch.setattr(orca, "sprite_api", answer)
+    return homes
 
 
 @pytest.fixture

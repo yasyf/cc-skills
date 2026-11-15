@@ -90,6 +90,7 @@ REAP_AFTER = timedelta(hours=6)
 UNSTAFFED_FOR = timedelta(minutes=5)
 UNSTARTED_FOR = timedelta(minutes=1)
 RELAUNCH = timedelta(seconds=orca.LAUNCH_SECONDS)
+REWAKE = timedelta(seconds=orca.QUIET_SECONDS)
 RECLAIM = timedelta(seconds=orca.RECLAIM_SECONDS)
 TAIL_BYTES = 65536
 COMPACT_PAST_TOKENS = 120_000
@@ -2886,7 +2887,7 @@ def launching(job: dict, moment: datetime) -> bool:
 
 
 def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Each running job's gap from its agent or lane, with each PR it has open, a remote lane, running or waiting, whose worker died, and a running job's lane Orca could not reach three reads running, which wake hands to drive job resume, its failed reads neither counted nor said while busy reads another drive verb acting on the job, as the wake an earlier watch started does, and a running lane on this Mac whose last response ended on an API error, which resume_lane resumes through its terminal, while a job whose agent or lane on this Mac a model's safeguards stopped goes to safeguard_lines; a lane recorded by its dispatch alone gets its Run, Task and terminal from the worker-show read for its liveness, and a lane filed on this Mac whose worker-show names a Sprite is filed on that Sprite; a live lane whose job keeps texts queued has them settled by its mailbox each pass, by state.take_mail, and a remote lane whose worker finished or exited has the mail it never read held on its job once for its dispatch by unread_lines, before death_lines relaunches a running job's lane. A local agent that ended its turn on a result line its job never took is a gap, since only `drive job report` sets a job's state from its return; a codex job whose codex-ask run ended has no gap here, since the relay takes that run, by codex_takes."""
+    """Each running job's gap from its agent or lane, with each PR it has open, a remote lane, running or waiting, whose worker died, and a running job's lane Orca could not reach, which wake hands to drive job resume at the first failed read and again each REWAKE, its failed reads neither counted nor said while busy reads another drive verb acting on the job, as the wake an earlier watch started does, and a running lane on this Mac whose last response ended on an API error, which resume_lane resumes through its terminal, while a job whose agent or lane on this Mac a model's safeguards stopped goes to safeguard_lines; a lane recorded by its dispatch alone gets its Run, Task and terminal from the worker-show read for its liveness, and a lane filed on this Mac whose worker-show names a Sprite is filed on that Sprite; a live lane whose job keeps texts queued has them settled by its mailbox each pass, by state.take_mail, and a remote lane whose worker finished or exited has the mail it never read held on its job once for its dispatch by unread_lines, before death_lines relaunches a running job's lane. A local agent that ended its turn on a result line its job never took is a gap, since only `drive job report` sets a job's state from its return; a codex job whose codex-ask run ended has no gap here, since the relay takes that run, by codex_takes."""
     data = state.load(watcher.name)
     gaps, deaths, refusals, heads, found, finished, boxes, lost, lines = {}, {}, {}, {}, {}, {}, {}, {}, []
     read: set[str] = set()
@@ -2941,11 +2942,15 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 if running and orca.UNREACHABLE in str(error) and busy(watcher, job_id, moment):
                     continue
                 said = read_failed(watcher, source, error, moment)
-                if running and orca.UNREACHABLE in str(error) and watcher.failures[source] == FAILURES_BEFORE_SAYING:
+                woke = job.get("woken") or {}
+                if running and orca.UNREACHABLE in str(error) and (woke.get("dispatch") != job["dispatch"] or moment - state.parse_time(woke["at"]) >= REWAKE):
                     wake(watcher, job_id, moment)
+                    watcher.failure_said[source] = moment
                     said = [
                         f'LANE {job_id} {job["order"]} unreachable {orca.place(job)}: {error}, while it worked on "{cut(job["said"] or job["goal"], 60)}". The watch ran'
-                        f" drive job resume {job_id}, which wakes that Sprite and restarts the lane there, else on a fresh Sprite, its output in the drive's {RELAUNCHES_LOG}"
+                        f" drive job resume {job_id}, which wakes that Sprite and, when its worker no longer works, restarts the lane there, else on a fresh Sprite once that Sprite"
+                        f" answers no ssh and no transcript there was written in {orca.QUIET_SECONDS // 60} minutes; it runs again every {orca.QUIET_SECONDS // 60} minutes while Orca"
+                        f" cannot reach the lane, its output in the drive's {RELAUNCHES_LOG}"
                     ]
                 lines += said
                 continue
@@ -3445,7 +3450,9 @@ def relaunch(watcher: Watcher, job_id: str, moment: datetime) -> int:
 
 
 def wake(watcher: Watcher, job_id: str, moment: datetime) -> int:
-    """Run `drive job resume` with UNREACHED by start_verb on a running job whose lane Orca could not reach FAILURES_BEFORE_SAYING reads running: its lane_end wakes that lane's Sprite, then sends the text to a worker that takes messages again, or restarts the lane on that Sprite with the text in its handoff, else on a fresh one."""
+    """Run `drive job resume` with UNREACHED by start_verb on a running job whose lane Orca could not reach, at the first read that fails and again each REWAKE while Orca still cannot, its dispatch and the moment kept on its row's woken, so a watch an install restarted keeps that pace rather than counting reads again: its lane_end wakes that lane's Sprite, then sends the text to a worker that takes messages again, restarts the lane on that Sprite with the text in its handoff when its worker finished, or on a fresh one once that Sprite answers no ssh and no transcript there was written in orca.QUIET_SECONDS, and else restarts nothing, for the next wake to read again."""
+    with state.edit(watcher.name) as data:
+        data["jobs"][job_id]["woken"] = {"dispatch": data["jobs"][job_id]["dispatch"], "at": state.stamp(moment)}
     return start_verb(watcher, job_id, ["job", "resume", job_id, state.UNREACHED], moment)
 
 

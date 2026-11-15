@@ -3523,6 +3523,7 @@ def new_job(order_id: str, kind: str, goal: str, parts: list[str], created: str)
         "resumed": None,
         "worker_started": None,
         "lost_since": None,
+        "woken": None,
     }
 
 
