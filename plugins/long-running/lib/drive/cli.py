@@ -754,6 +754,12 @@ def change_parts(name: str, data: dict, order_id: str, added: list[str], dropped
     return [superseded.stopped_line(f"{job_id} stopped, left with no part: end its agent, or its lane with drive job end {job_id}", held) for job_id, held in stopped.items()]
 
 
+def pick_job_parts(name: str, data: dict, order_id: str, named: list[str]) -> list[str]:
+    """The parts a job takes on the order, each `port of #N` it names added to the order by change_parts when missing, so each old-tree port is a change of its own: its builder starts beside the builders of other ports, and its part is delivered, or flagged once its builder stops, on its own."""
+    change_parts(name, data, order_id, [part for part in dict.fromkeys(named) if state.PORT_PART.fullmatch(part) and part not in data["orders"][order_id]["parts"]], [])
+    return pick_parts(order_id, data["orders"][order_id], named)
+
+
 def apart_from_filing(order: dict) -> str:
     """The order apart from its project, workstream and title, so filing or titling it alone leaves the time it last moved, which the dashboard reads as when a done order went live."""
     return json.dumps({field: value for field, value in order.items() if field not in FILING}, sort_keys=True)
@@ -1343,7 +1349,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
     unworded = brief.unworded_return(args.kind, {"--goal": args.goal})
     with state.edit(name) as data:
         order = find(data["orders"], args.order, "order")
-        parts = pick_parts(args.order, order, args.part)
+        parts = pick_job_parts(name, data, args.order, args.part)
         refuse_a_shared_at_once_part(parts)
         session = os.environ.get("CLAUDE_CODE_SESSION_ID")
         waits = view.stored_waits(data, [state.change_wait(data, wait) for wait in args.waits], found)
@@ -1581,12 +1587,12 @@ def job_set(args: argparse.Namespace) -> int:
             for order_id in args.carries:
                 if order_id == job["order"]:
                     raise DriveError(f"{args.id} is {order_id}'s own job; add its parts with --part")
-                carried = find(data["orders"], order_id, "order")
-                parts = pick_parts(order_id, carried, args.part)
+                find(data["orders"], order_id, "order")
+                parts = pick_job_parts(name, data, order_id, args.part)
                 refuse_a_second_change_job(data, args.id, order_id, parts)
                 state.carry(data, args.id, order_id, parts)
         elif args.part or args.parts:
-            named = pick_parts(job["order"], data["orders"][job["order"]], args.parts or args.part)
+            named = pick_job_parts(name, data, job["order"], args.parts or args.part)
             job["parts"] = named if args.parts else list(dict.fromkeys([*job["parts"], *named]))
             refuse_a_shared_at_once_part(job["parts"])
             refuse_a_second_change_job(data, args.id, job["order"], named)
@@ -2843,7 +2849,7 @@ def job_brief(args: argparse.Namespace) -> int:
 
 
 def write_brief(name: str, job_id: str, named: dict) -> tuple[str, dict]:
-    """Write a job's brief from what the drive holds, by rewrite_brief, with the lines named, each flag left out kept from the job's earlier brief, each given as an empty value dropped from it, and each ruling named added to every ruling a brief of any job on its feature binds, every order joined with its order and each it carries, its own earlier ones included, by his approval "carried whole into every brief and handoff", its Serves: line drive tooling on a tooling order and his order on any other when neither names one; written again when another brief write saved the job's flags as this one ran, so a launch keeps every flag a drive job brief typed meanwhile."""
+    """Write a job's brief from what the drive holds, by rewrite_brief, with the lines named, each flag left out kept from the job's earlier brief, each given as an empty value dropped from it, and each ruling named added to every ruling a brief of any job on its feature binds, every order joined with its order and each it carries, its own earlier ones included, by his approval "carried whole into every brief and handoff", its Serves: line, when neither names one, each `port of #N` part the job takes, else drive tooling on a tooling order and his order on any other; written again when another brief write saved the job's flags as this one ran, so a launch keeps every flag a drive job brief typed meanwhile."""
     if named.get("after") == [""]:
         named = named | {"after": ""}
     data = state.load(name)
@@ -2855,7 +2861,7 @@ def write_brief(name: str, job_id: str, named: dict) -> tuple[str, dict]:
     bound = [answer_id for other in state.orders_jobs(data, state.job_feature(data, job)).values() for answer_id in (other.get("brief_flags") or {}).get("ruling") or []]
     ruled = [settled.shown(answer_id, data["roles"]["coordinator"]["cwd"])["id"] for answer_id in named.get("ruling") or []]
     flags = {flag: earlier_flags.get(flag) if named.get(flag) is None else named[flag] or None for flag in state.BRIEF_FLAGS} | {"ruling": [*dict.fromkeys([*bound, *ruled])]}
-    flags["serves"] = flags["serves"] or ("drive tooling" if state.tooling(order) else "his order")
+    flags["serves"] = flags["serves"] or " and ".join(part for part in job["parts"] if state.PORT_PART.fullmatch(part)) or ("drive tooling" if state.tooling(order) else "his order")
     if job["state"] == "waiting" and job["prs"] and not (job.get("agent") or job.get("dispatch") or named.get("handoff")):
         raise DriveError(
             f"{job_id} is an adopted PR's job, waiting with no agent on {', '.join(job['prs'])}: its builder starts only on an event"
@@ -5289,7 +5295,7 @@ def parser() -> argparse.ArgumentParser:
         ),
     )
     brief_opt = argparse.ArgumentParser(add_help=False)
-    brief_opt.add_argument("--serves", help='"port of #N", "drive tooling" or "his order"; default drive tooling on a tooling order, else his order')
+    brief_opt.add_argument("--serves", help='"port of #N", "drive tooling" or "his order"; default each "port of #N" part the job takes, else drive tooling on a tooling order, else his order')
     brief_opt.add_argument("--done-when", help="the check that proves it done")
     brief_opt.add_argument("--where", help="the repo, base branch, and any branch or PR to adopt")
     brief_opt.add_argument(
@@ -5632,7 +5638,7 @@ def parser() -> argparse.ArgumentParser:
         choices=codex.MODELS,
         help="the model a codex job's codex-ask run takes as -m, default codex-ask's own, sol; astra only on an order whose words name astra",
     )
-    verb.add_argument("--part", action="append", default=[], help="a part of the order this job delivers; default: its only part")
+    verb.add_argument("--part", action="append", default=[], help='a part of the order this job delivers, a "port of #N" the order lacks added to it; default: its only part')
     verb.add_argument(
         "--lands",
         action="append",
@@ -5678,7 +5684,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--repro", help="the job's pick-up-and-run reproduction file, kept in the drive")
     verb.add_argument("--pr", action="append", default=[], help="a PR it opened or took over; a PR the drive tracks then names it on its row, as drive pr add --job moves one; a PR the drive does not track, kept on a builder stopped before any agent took it, such as a teammate's open PR its reader found already doing its work, carries its parts while GitHub reads it open, and once it merged the part's ORPHAN line names the drive order posted that delivers it; one kept on a live job can wake it, its WAITING waiting on it until the watch's GitHub read finds it merged or closed")
     named = verb.add_mutually_exclusive_group()
-    named.add_argument("--part", action="append", default=[], help="another part of the order this job delivers, or of the one order --carries names")
+    named.add_argument("--part", action="append", default=[], help='another part of the order this job delivers, or of the one order --carries names, a "port of #N" that order lacks added to it')
     named.add_argument("--parts", nargs="+", type=str.strip, metavar="PART", help="the parts of its own order this job delivers, replacing its list")
     verb.add_argument(
         "--carries",
@@ -5860,7 +5866,7 @@ def parser() -> argparse.ArgumentParser:
             " earlier job on the order; Scratch, by default a folder of the drive's;"
             " the Drive line; a reader's on a build order, Research: the Researched: block this build needs; and each line"
             " the flags name. A flag left out keeps the job's earlier brief's, a flag given an empty value, such as --mac \"\", drops the earlier brief's, each --ruling adds to the rulings every brief on its order binds, and the output names each kept and each dropped;"
-            " a brief naming no --serves serves drive tooling on a tooling order and his order on any other. An adopted PR's job, waiting with no agent, is briefed only"
+            " a brief naming no --serves serves each port of #N part its job takes, else drive tooling on a tooling order and his order on any other. An adopted PR's job, waiting with no agent, is briefed only"
             " with --handoff for an event that needs action. Its first line, `Read your brief first: <path>`, is a local"
             " job's whole Agent prompt, which binds the agent to the job, and a remote job launches from it with drive job launch <j>."
         ),
