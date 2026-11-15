@@ -26,10 +26,9 @@ for its repository says, then return `DONE <proof>`.
   after the PR teaching its readers is live on every client, and its body links that PR.
 - While a question card of his on the change is unanswered, land and enqueue nothing, whatever order to
   land arrived, since its recommended option never stands in for his answer. `drive pr add`,
-  `drive pr land` and the `landing_guard` hook refuse a PR while a card of his is open whose `Holds:`
-  line names it by link, `#N` or whole branch name, or a design's or reader's naming a change the job its
-  row names builds from that design or research, never a card of a job it moved off; none holds a
-  `flake fix` or a `main fix`, since a card holds work only by its `Holds:` line and a card a job waits on otherwise only wakes it; the watch stops a lander already landing it when that card opens, and the lander
+  `drive pr land` and the `landing_guard` hook refuse a PR while a card of his is open, asked by a job on the PR's orders or by the staging tester of a part it waits on, whose `Holds:` line names it by link, `#N` or whole branch name, or a design's or reader's naming a change the job its
+  row names builds from that design or research, never a card of a job it moved off, or one its `DESIGN:` line cites, whatever job asked it; none holds a
+  `flake fix` or a `main fix`, since a card holds work only by its `Holds:` line or a `DESIGN:` cite and a card a job waits on otherwise only wakes it; the watch stops a lander already landing it when that card opens, and the lander
   dequeues what it queued. On a Sprite lane, which holds no copy of the drive, the hook asks this Mac
   with `drive job held --pr` first and refuses while it does not answer. Return `WAITING <the PR> waits on <the card>`, which
   the coordinator puts in front of him by [Design first](design.md). A started staging test holds its
@@ -41,7 +40,9 @@ for its repository says, then return `DONE <proof>`.
   wait of it came on, this one included. An incident's repair is the
   exception: it lands on the recommended option, the card stays open, and a different pick of his
   starts a follow-up job on the same order. A card asking him to lift a ruling of his, which
-  `drive job ask` marks when any option it offers breaks one, holds it on an incident too. His Approve on the PR answers each card holding
+  `drive job ask` marks when any option it offers breaks one, holds it on an incident too. Outside an
+  incident a PR a card of his holds gets no PR card asking his tap until he answers each card, by his
+  pick "Buttons only after you answer each question". On an incident his Approve on the PR answers each card holding
   it: his PR card names each with its recommended option, his Approve keeps those picks on its tap,
   and the lander's start, on his tap and on every watch pass, answers each card still open with its
   pick and closes it before it lands. His Approve stands until his words rework the PR or he taps Hold:

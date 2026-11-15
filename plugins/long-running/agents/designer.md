@@ -174,7 +174,7 @@ Replaces: <only on a question built on other open questions of his: each one's A
 - `Holds:` names, in each change's own words, every change of the order the options alter: a part
   of the order, one of the `Change:` lines your report lists, or a PR the drive tracks that builds it, by its link or `#N`, which `drive job ask` keeps as the parts that PR serves. His open card then holds from landing, among the PRs of jobs
   working a change it names, only those its design's builder, a job briefed on its research or a job
-  it names by id carries, besides each PR it names by link, `#N` or whole branch name and each PR whose `DESIGN:` line cites it, so a card on another subject holds no PR its options leave alone, and
+  it names by id carries, besides each PR on your job's orders, or waiting on a part it carries, as the PR a staging test tests, that it names by link, `#N` or whole branch name, and each PR whose `DESIGN:` line cites it, whatever its order, so a card on another subject holds no PR its options leave alone, and
   `Holds: none: <why>` holds nothing, whichever job waits on it or PR cites it, while a question kept with no `Holds:` line holds every change of those jobs. `drive job ask` refuses a block without the line, or one
   naming no part of its job's orders, unless they are your coming `Change:` lines. His pick: "Each question names the changes it holds,
   kept with it".

@@ -76,7 +76,7 @@ def answering(pr: dict) -> Callable[[list[str]], str]:
 
 def entry(wants_tap: bool = True, tap: str | None = None, exempt: str | None = None, pr_state: str = "open", checks: str = "pending", now: str | None = None) -> dict:
     named = now or default_stage(wants_tap, tap, exempt, pr_state, checks)
-    return {
+    kept = {
         "url": URL,
         "job": "j1",
         "order": "o1",
@@ -98,17 +98,20 @@ def entry(wants_tap: bool = True, tap: str | None = None, exempt: str | None = N
         "permission": "ADMIN",
         "checked": {"head": HEAD, "read": HEAD, "orders": ["o1"], "lines": {}, "beside": {}},
         "checker": None,
+        "design": None,
+        "waits": [],
         "updated": "2026-11-09T08:00:00-08:00",
         "native": [],
         "now": stage.Stage(named, "", ""),
         "staging": STAGING,
         "reworked_above": (),
     }
+    return kept | {"tap_refused": state.tap_refused(judged_job({"orders": {}, "jobs": {}}), kept)}
 
 
 def kept_entry(**fields: object) -> dict:
-    """A PR's row as drive.json keeps it: its entry with no stage and no reworked PRs above it, which card.render's callers give it from stage.of and the drive's rows."""
-    return {key: value for key, value in entry(**fields).items() if key not in ("now", "reworked_above")}
+    """A PR's row as drive.json keeps it: its entry with no stage, no reworked PRs above it and no tap refusal, which card.render's callers give it from stage.of, the drive's rows and state.tap_refused."""
+    return {key: value for key, value in entry(**fields).items() if key not in ("now", "reworked_above", "tap_refused")}
 
 
 def default_stage(wants_tap: bool, tap: str | None, exempt: str | None, pr_state: str, checks: str) -> str:
@@ -615,15 +618,6 @@ def test_prs_matches_the_lowercase_repo_cc_slack_asks_with(drive: str, monkeypat
     monkeypatch.setattr(card, "run", answering(pr_json()))
     reply = ask({"prs": [{"repo": "forge-ai/monorepo", "number": 42}]})
     assert [(drawn["repo"], drawn["number"]) for drawn in reply["cards"]] == [("Forge-AI/monorepo", 42)]
-
-
-def test_a_pr_his_open_design_card_holds_draws_its_card_with_approve_saying_it_lands_once_he_answers(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(card, "run", answering(pr_json()))
-    with state.edit(drive) as data:
-        data["jobs"]["j1"]["questions"] = [state.new_question(None, "Which store?", "2026-11-09T08:00:00-08:00", holds="the store, on #42") | {"waits": "demo:j1-7-a"}]
-    [drawn] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["cards"]
-    assert drawn["card"]["options"] == ["Approve", "Hold"]
-    assert drawn["card"]["prs"][0]["lands"].startswith("you approve") and "you answer" in drawn["card"]["prs"][0]["lands"]
 
 
 def test_a_pr_whose_wait_holds_redraws_his_open_card_with_its_buttons_saying_what_it_waits_on(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1164,7 +1158,7 @@ def test_a_card_that_comes_to_hold_his_approved_pr_holds_it_on_him_naming_that_c
     view.refresh_cards(drive)
     data = state.load(drive)
     now = stage.of(data, key, view.live_cards(drive))
-    assert (state.asks_tap(data["prs"][key]), now.name, now.owner, now.why) == (False, "held", stage.HIM, f"his cards {JOURNAL_CARD} on its work are open")
+    assert (state.asks_tap(data, data["prs"][key]), now.name, now.owner, now.why) == (False, "held", stage.HIM, f"his cards {JOURNAL_CARD} on its work are open")
     [drawn] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}], "redraw": True})["cards"]
     assert (drawn["card"]["status"], drawn["card"]["prs"][0]["blocks"]) == ("info", f"Approved by you. Lands once you answer [{JOURNAL_QUESTION}]({JOURNAL_CARD})")
     land.start(drive, [key], view.live_cards(drive))
@@ -1172,6 +1166,31 @@ def test_a_card_that_comes_to_hold_his_approved_pr_holds_it_on_him_naming_that_c
     assert ask({"answer": {"waits": waits, "url": JOURNAL_CARD, "label": JOURNAL_PICK, "action_ts": "1794626700.000100", "source": "pressed the button"}})["ok"]
     land.start(drive, [key], view.live_cards(drive))
     assert landers == [(key,)]
+
+
+def test_outside_an_incident_a_pr_his_open_question_card_holds_draws_no_card_asking_his_tap_and_its_redraw_offers_no_approve_until_he_answers(
+    drive: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    key, waits = "Forge-AI/monorepo#42", f"{drive}:j1-1794626572499"
+    with state.edit(drive) as data:
+        asked = state.new_question(None, JOURNAL_QUESTION, "2026-11-13T19:22:52-08:00", card=JOURNAL_CARD, holds="the journal heads, on #42")
+        data["jobs"]["j1"]["questions"] = [asked | {"waits": waits}]
+        data["prs"][key] |= {"checks": "pass", "review": "approved"}
+    shown = {"question": JOURNAL_QUESTION, "options": [JOURNAL_PICK, "Journal 14"], "recommended": JOURNAL_PICK, "url": JOURNAL_CARD, "card": {"title": JOURNAL_QUESTION, "body": "", "options": [JOURNAL_PICK, "Journal 14"], "recommended": JOURNAL_PICK, "waits": waits}}
+    monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS | {"questions": [shown]})
+    view.refresh_cards(drive)
+    monkeypatch.setattr(card, "run", answering(pr_json()))
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess([], 0, '{"seq": 661500}\n', ""))
+    monkeypatch.setattr(superseded, "answer_card", lambda card, words, link, settled, replaces=None: {})
+    held = f"his cards {JOURNAL_CARD} hold it until he answers each, by his pick {state.CARDS_FIRST}"
+    data = state.load(drive)
+    assert (state.tap_refused(data, data["prs"][key]), stage.own(data, key, view.live_cards(drive)).name) == (held, "held")
+    assert ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]}) == {"cards": [], "skipped": [{"repo": "Forge-AI/monorepo", "number": 42, "reason": f"{held}, so no PR card draws, since it would offer him no Approve"}]}
+    [drawn] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}], "redraw": True})["cards"]
+    assert (drawn["card"]["status"], "options" in drawn["card"], drawn["card"]["prs"][0]["blocks"]) == ("info", False, f"Lands once you answer [{JOURNAL_QUESTION}]({JOURNAL_CARD})")
+    assert ask({"answer": {"waits": waits, "url": JOURNAL_CARD, "label": JOURNAL_PICK, "action_ts": "1794626700.000100", "source": "pressed the button"}})["ok"]
+    data = state.load(drive)
+    assert state.asks_tap(data, data["prs"][key])
 
 
 def test_a_card_his_approve_picks_on_reads_as_his_answer_on_a_card_that_offers_no_approve() -> None:
@@ -1453,12 +1472,14 @@ def test_a_stack_with_one_pr_reworked_to_his_words_draws_the_prs_below_it_alone_
     assert drawn["card"]["prs"][1]["changed"] == 'Reworked to your words "Topology goes in the meta table": it reads the meta table'
 
 
-def test_a_stack_whose_every_pr_asking_his_tap_is_held_by_his_open_card_draws_one_card_saying_each_lands_once_he_answers(stacked: list[list[str]]) -> None:
+def test_outside_an_incident_a_stack_whose_every_pr_asking_his_tap_is_held_by_his_open_card_draws_no_card_naming_why_for_each(stacked: list[list[str]]) -> None:
     with state.edit("demo") as data:
         data["jobs"]["j1"]["questions"] = [state.new_question(None, "Which store?", "2026-11-09T08:00:00-08:00", holds="the store, on #41 and #42") | {"waits": "demo:j1-7-a"}]
         data["prs"]["Forge-AI/monorepo#43"]["wants_tap"] = False
-    [drawn] = ask(asks(41, 42, 43))["cards"]
-    assert all("you answer" in row["lands"] for row in drawn["card"]["prs"][:2])
+    held = f"his cards demo:j1-7-a hold it until he answers each, by his pick {state.CARDS_FIRST}"
+    why = f"Forge-AI/monorepo#41: {held}; Forge-AI/monorepo#42: {held}; Forge-AI/monorepo#43: its author or its own builder lands it with no tap, so no PR card draws, since it would offer him no Approve"
+    reply = ask(asks(41, 42, 43))
+    assert (reply["cards"], [(skipped["number"], skipped["reason"]) for skipped in reply["skipped"]]) == ([], [(41, why), (42, why), (43, why)])
 
 
 def test_a_redraw_of_one_pr_in_a_stack_redraws_the_whole_stack(stacked: list[list[str]]) -> None:

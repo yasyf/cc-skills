@@ -2772,8 +2772,8 @@ def register_named(name: str, job_id: str, line: str) -> list[str]:
     for key in dict.fromkeys(state.pr_key(found[0]) for found in state.PR_URL.finditer(line)):
         if key.casefold() in tracked:
             continue
-        pr, testers = add_pr(name, key, job_id, github_pr(key), lead={})
-        added += [f"{key}: registered on {job_id}{drawn_card(name, key, pr)}", *render.builder_lines(state.load(name), testers)]
+        _, testers = add_pr(name, key, job_id, github_pr(key), lead={})
+        added += [f"{key}: registered on {job_id}{drawn_card(name, key)}", *render.builder_lines(state.load(name), testers)]
     return added
 
 
@@ -3902,16 +3902,17 @@ def pr_add(args: argparse.Namespace) -> int:
     kept = state.load(name)["prs"].get(key, {}).get("lead")
     pr, testers = add_pr(name, key, args.job, github_pr(key), args.port_of, args.exempt, args.no_tap, lead, args.part)
     shown = view.card_for((view.live_cards(name) or view.NO_CARDS)["pr_cards"], pr["url"])
-    drawn = state.after_save(name, lambda: [releaded(pr) if pr["lead"] != kept else ""] if shown else [drawn_card(name, key, pr)])
+    drawn = state.after_save(name, lambda: [releaded(pr) if pr["lead"] != kept else ""] if shown else [drawn_card(name, key)])
     data = state.load(name)
     return emit(args, "\n".join([f"{key}{''.join(drawn)}", *render.builder_lines(data, testers)]), {"key": key, **data["prs"][key]})
 
 
-def drawn_card(name: str, key: str, pr: dict) -> str:
-    """Draw his card on a PR waiting on his tap in the call that registers it, so no session's turn stands between the PR and his card; what came of it. A draw that fails leaves its stage uncarded, which the watch draws on its next read."""
-    from drive import stage, talk
+def drawn_card(name: str, key: str) -> str:
+    """Draw his card on a PR waiting on his tap in the call that registers it, so no session's turn stands between the PR and his card, unless state.tap_refused finds it would offer no Approve, such as on a PR his open question card holds; what came of it. A draw that fails leaves its stage uncarded, which the watch draws on its next read."""
+    from drive import talk
 
-    if not stage.carded(pr) or pr["tap"]:
+    data = state.load(name)
+    if not state.asks_tap(data, data["prs"][key]):
         return ""
     try:
         return f", his card {talk.draw(name, [key])}"

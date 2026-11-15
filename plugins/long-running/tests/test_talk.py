@@ -358,6 +358,7 @@ def test_each_visual_goes_to_slack_as_a_picture_and_to_the_dashboard_as_its_sour
 def test_a_chart_goes_to_slack_as_its_fence_for_slack_to_draw_and_the_dashboard_draws_it_from_its_source(
     demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    own_pr(demo)
     monkeypatch.setattr(picture, "cached", lambda *drawn: pytest.fail(f"a chart was drawn as a picture: {drawn}"))
     encoding = {"y": {"field": "what", "type": "nominal"}, "x": {"field": "count", "type": "quantitative"}}
     spec = json.dumps({"data": {"values": [{"what": "Slack posts", "count": 384}, {"what": "distinct alerts", "count": 41}]}, "mark": "bar", "encoding": encoding})
@@ -1096,6 +1097,12 @@ def owe(name: str, *orders: str) -> str:
     return f"*Catch-up since {render.when(ASKED)}*\n"
 
 
+def own_pr(name: str) -> None:
+    with state.edit(name) as data:
+        data["orders"]["o1"] = state.new_order("show the run page's history", "terminal", None, {}, ASKED)
+        data["jobs"]["j1"] = state.new_job("o1", "builder", "show the run page's history", [], ASKED)
+
+
 def open_cards(name: str, counts: str = "1 question") -> str:
     return f"\n\n*<{dashboard.link(name)}#/|Your open cards: {counts}>*"
 
@@ -1103,6 +1110,7 @@ def open_cards(name: str, counts: str = "1 question") -> str:
 def test_a_catch_up_opens_with_its_title_from_the_time_he_was_last_heard_whatever_title_it_came_with_and_posts_once_for_each_one_owed(
     demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    own_pr(demo)
     report(monkeypatch, {"catch_up": "true"})
     owe(demo)
     talk.say(demo, {"text": "The run page fix is live.", "record": "660299"})
@@ -1118,6 +1126,7 @@ def test_a_catch_up_opens_with_its_title_from_the_time_he_was_last_heard_whateve
 
 
 def test_his_catch_up_carries_the_reports_held_for_it_and_lets_them_go(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
+    own_pr(demo)
     with state.edit(demo) as data:
         data["held"] = {seq: {"order": "o1", "at": state.stamp()} for seq in ("700", "702")}
     report(monkeypatch, {"orders": "o1"})
@@ -1180,6 +1189,7 @@ def test_a_post_citing_its_record_as_cci_prints_it_reads_its_corrections_by_the_
 def test_a_correction_of_a_held_report_rides_with_it_and_one_after_his_catch_up_names_the_post_to_reword(
     demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch, cci_amendments: dict[str, dict[str, list[str]]]
 ) -> None:
+    own_pr(demo)
     records = {"669952": {"kind": "correction", "re": 669950}, "669980": {"kind": "correction", "re": 669950}, "669999": {"kind": "report", "attrs": {"catch_up": "true"}}}
 
     def shown(argv: list[str], checkout: Path) -> str:
@@ -1220,6 +1230,7 @@ def test_a_correction_of_a_report_already_posted_names_the_post_it_went_out_in_t
 def test_a_held_report_its_writer_withdrew_goes_out_in_no_post_and_gives_back_the_close_it_claimed_on_an_open_order(
     demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch, cci_amendments: dict[str, dict[str, list[str]]]
 ) -> None:
+    own_pr(demo)
     with state.edit(demo) as data:
         data["held"] = {seq: {"order": order_id, "at": state.stamp()} for seq, order_id in (("695689", "o946"), ("695810", "o1015"))}
         for order_id, closed_on, done in (("o946", "695689", "open"), ("o1015", "695810", "open"), ("o771", "695689", "done")):

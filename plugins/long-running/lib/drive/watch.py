@@ -2945,7 +2945,7 @@ def stall_cards(data: dict, chain: dict[str, str], cards: dict) -> list[str]:
     subjects = list(chain)
     services = {found["service"] for link in subjects if (found := state.RELEASE_WAIT.fullmatch(link))}
     naming = re.compile(rf"(?<![\w-])(?:{'|'.join(map(re.escape, sorted(services)))})(?![\w-])") if services else None
-    taps = [f"his Approve on {key}, {url}" for key in subjects if (pr := data["prs"].get(key)) and (url := view.tap_card(pr, cards))]
+    taps = [f"his Approve on {key}, {url}" for key in subjects if (pr := data["prs"].get(key)) and (url := view.tap_card(data, pr, cards))]
     asks = [
         f'"{cut(card["question"], 300)}" {card["url"]}, asked by {card["job"] or "no job of the drive"}'
         for card in view.with_questions(data, cards)["questions"]
@@ -2993,9 +2993,9 @@ def stall_report(data: dict, thing: str, found: dict, held: dict, cards: dict, m
         f"The STUCK line went to {holder} at {when(held['said'])}, {said} minutes ago.",
         *(f"{label}: {answered[label]}" for label in ("WHY", "WHO", "NEXT", "UNREAD") if label in answered),
         *(
-            f"His card on {key} now: {view.tap_card(pr, cards) or 'none open at its head, so the watch draws or redraws it'}"
+            f"His card on {key} now: {view.tap_card(data, pr, cards) or 'none open at its head, so the watch draws or redraws it'}"
             for key in found["chain"]
-            if (pr := data["prs"].get(key)) and state.asks_tap(pr)
+            if (pr := data["prs"].get(key)) and state.asks_tap(data, pr)
         ),
     ]
     return {
@@ -3931,7 +3931,7 @@ def stage_lines(watcher: Watcher, moment: datetime) -> list[str]:
             uncarded.setdefault(units[key], []).append(key)
             continue
         if now.owner == stage.HIM and not entered:
-            if state.asks_tap(data["prs"][key]):
+            if state.asks_tap(data, data["prs"][key]):
                 asked.setdefault(units[key], []).append(key)
             continue
         lines += acted(watcher, key, now, entered, line, moment)
@@ -3949,8 +3949,8 @@ def stage_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 fresh = [key for key in keys if key not in standing]
             if fresh:
                 link = talk.draw(watcher.name, fresh)
-                drew, found = state.load(watcher.name)["prs"], view.live_cards(watcher.name)
-                if bare := [key for key in fresh if state.asks_tap(drew[key]) and not view.tap_card(drew[key], found)]:
+                drew, found = state.load(watcher.name), view.live_cards(watcher.name)
+                if bare := [key for key in fresh if state.asks_tap(drew, drew["prs"][key]) and not view.tap_card(drew, drew["prs"][key], found)]:
                     raise state.DriveError(f"it went out as {link}, which offers him no Approve at the head of {', '.join(bare)}")
         except (slack.SlackError, state.DriveError) as error:
             with state.edit(watcher.name) as data:

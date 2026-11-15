@@ -114,11 +114,13 @@ stop doing the bare minimum", so no builder waits on a job holding its design.
      rebuilding first wherever his pick differs from the option it built.
 4. **Nothing lands around an open card.** Work does not land with a question of his on it
    unanswered: the lander, the `landing_guard` hook, `drive pr add` and a `yasyf/*` PR's merge each
-   refuse while a card of his holds it: one whose question's `Holds:` line names it by link, `#N` or
-   whole branch name, or a design's card naming a change its job builds, since a card holds work only by its `Holds:` line and
-   a card a job waits on otherwise only wakes it. His open PR card names each card holding the PR, and
-   says his Approve also picks that card's recommended option, which answers and closes the card, or,
-   for a card recommending none, that it lands once he answers it, so `drive pr set --waits` refuses a card. While a
+   refuse while a card of his holds it: one asked by a job on the PR's orders or by the staging tester of a part it waits on, whose question's `Holds:` line names it by link, `#N` or whole branch name, or a design's card naming a change its job builds, or one its `DESIGN:` line cites, whatever job asked it, since a card holds work only by its `Holds:` line or a `DESIGN:` cite and
+   a card a job waits on otherwise only wakes it, so `drive pr set --waits` refuses a card. Outside an
+   incident no PR card asks his tap while a card of his holds the PR, by his pick "Buttons only after
+   you answer each question": `drive pr add`, `drive card` and the watch draw none, a card already up
+   is redrawn in place without its Approve, naming each card holding it, and Approve comes back once
+   he answers the last. On an incident his PR card names each card holding the repair and says his
+   Approve also picks that card's recommended option, which answers and closes the card. While a
    wait holds, `drive pr set --serves` and `drive card` draw no fresh card for it, his Approve lands it
    only once the last wait ends, and the watch says `FREE <pr>` once the last is answered; nothing is
    closed for this.
