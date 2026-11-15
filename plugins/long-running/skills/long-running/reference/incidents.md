@@ -304,8 +304,8 @@ check's verdict, or from the order when none ran.
   clock: no 10-minute silence again, a line every five quiet minutes from a handler reading the
   jobs; costs one handler session each". Five minutes after the newest drive post on any order of
   the open incidents in one thread, or after the newest of them opened, the watch's `quiet_lines`
-  sends the communicator one `report` carrying `quiet=true` and that thread, naming every incident
-  there with its orders, each job and each PR as the watch last read it from GitHub, never as an
+  sends the communicator one `report` carrying `quiet=true` and that thread, naming each incident
+  there that owes it with its orders, each job and each PR as the watch last read it from GitHub, never as an
   order's note says it stands, so two incidents in one thread get one line, not one each. It
   starts one handler on that report, which reads the jobs and posts where each incident stands in
   that thread; a handler already at work in the thread takes the report at its next step.
@@ -320,9 +320,12 @@ check's verdict, or from the order when none ran.
     report reaches a handler, so news a handler did not post goes out once, and the report names what
     moved and which jobs are at work. An incident whose every job waits, on his
     card, a release or a PR, gets no line until one of them moves. Every open order with a thread
-    shares this rule and its five-minute clock, by [When it goes out](messages.md#when-it-goes-out).
-  - It runs while he is away too. It restarts once a handler has the report, and only a post keeps
-    the facts, so a handler that cannot post leaves the same news owed five minutes on.
+    shares this rule and its five-minute clock, but a job of an order at work owes no line, in a
+    thread an incident shares too, and a job at work owes the incident's line only when it is a job
+    of that incident's own orders, by [When it goes out](messages.md#when-it-goes-out).
+  - It runs while he is away too. It restarts once a handler has the report, which keeps the facts
+    it tells as told, so a handler that cannot post loses that line and the next move, or a job of
+    the incident at work, brings the next.
   - It stops once an order of the incident keeps proof that users are unblocked, by his pick "Proof
     ends the line: none once users are unblocked; the incident stays open until its root fix is
     live.": a builder's `DONE` on its `stop` or `rollback` part keeps its proof as the order's

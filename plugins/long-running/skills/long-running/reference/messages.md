@@ -558,8 +558,11 @@ restating it.
   fail as before, nor a release or answer ending one wait of a job that still waits on another. Once
   five minutes have passed since the thread's last line or the watch's last report on it, the watch
   sends one `report` carrying `quiet=true` and the thread,
-  naming every step that moved in that time, and starts one handler, which posts what changed in that
-  thread, so no session writes a progress line of its own and a thread lined minutes before gets none. None goes out while he is away, since his catch-up
+  naming every step that moved in that time and each order and incident that owes the line, never an
+  order with nothing moved, and starts one handler, which posts what changed in that thread, so no
+  session writes a progress line of its own and a thread lined minutes before gets none. The report
+  keeps the steps it names as told, so a handler whose thread's last line already tells them returns
+  `NOTHING` and posts no line saying nothing moved. None goes out while he is away, since his catch-up
   carries it, nor once a report closing the order is kept or posted, whose post is its line. A job
   carrying a part of another order, and each PR registered on it, is a step in its own order's
   thread alone.
