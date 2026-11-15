@@ -7826,9 +7826,9 @@ def test_a_forge_ai_pr_he_approved_changing_sandsql_waits_for_his_next_word_whil
     ("part", "posted", "said"),
     [
         (state.STAGING_TEST.format(number=42), "https://poetic.slack.com/archives/C0STAGING/p1794600000000100", f"WAITING {state.pr_url(KEY)} to merge: DONE it soaked twice on staging"),
-        ("Has this been tested on staging? It's approved once it is", state.pr_url(KEY), f"WAITING {state.pr_url(KEY)} to merge: then it soaks on staging"),
+        ("Has this been tested on staging? It's approved once it is", "j5420 live: repro/j5420.sh exits 0 on no plugin of this Mac", f"WAITING {state.pr_url(KEY)} to merge: then it soaks on staging"),
     ],
-    ids=["its staging test part holds its tester's proof", "a post delivered his question part"],
+    ids=["its staging test part holds its tester's proof", "a proof delivered his question part"],
 )
 def test_replayed_717646_an_approved_dangerous_pr_whose_last_wait_ended_on_a_delivered_part_while_its_tester_returned_waiting_lands_only_at_his_next_word(
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, part: str, posted: str, said: str
