@@ -667,8 +667,8 @@ def test_a_record_names_the_one_seq_it_answers_and_one_naming_several_is_refused
     posted: list[list[dict]] = []
     monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: posted.append(json.loads(kwargs["input"])) or subprocess.CompletedProcess([], 0, '{"seq": 44}\n', ""))
     defect = {"kind": "defect", "text": "drive record crashes after posting"}
-    with pytest.raises(DriveError, match="re names one seq, not 2: cci stores one record per seq"):
-        tools.run("record", demo, {"records": [defect, defect | {"re": ["672196", "672234"]}]})
+    with pytest.raises(DriveError, match=r"^records\[1\]\.re takes one string, not a list: the seq this answers, .* whose own re reaches the rest; nothing ran$"):
+        cli.run_tool("record", {"records": [defect, defect | {"re": ["672196", "672234"]}], "drive": demo})
     assert posted == []
     assert tools.run("record", demo, {"records": [defect | {"re": "672234"}]}) == "1 defect 44"
     assert [[record["re"] for record in records] for records in posted] == [[["672234"]]]
@@ -2075,3 +2075,20 @@ def test_ops_or_their_items_sent_as_json_text_reach_the_tool_as_the_lists_they_s
     assert tools.parsed_arguments({"text": "[a line, not a list]"}, shapes["say"]) == {"text": "[a line, not a list]"}
     with pytest.raises(DriveError, match="ops is a list or object"):
         tools.parsed_arguments({"ops": "[{"}, shapes["pr"])
+
+
+def test_a_list_or_object_sent_for_a_field_whose_schema_takes_neither_is_refused_by_its_path_type_and_description() -> None:
+    shapes = {tool["name"]: tool["inputSchema"]["properties"] for tool in mcp.tool_list()}
+    owner = {"kind": "owner", "text": "ship it", "about": state.ABOUT_HIS_WORK}
+    with pytest.raises(DriveError, match=r"^records\[1\]\.to takes one string, not a list: the lane it goes to, alone or as <lane>@<drive>, "):
+        tools.parsed_arguments({"records": [owner, owner | {"to": ["root@demo"]}]}, shapes["record"])
+    with pytest.raises(DriveError, match=r"^records\[0\]\.to takes one string, not an object: the lane it goes to"):
+        tools.parsed_arguments({"records": [owner | {"to": {"lane": "root"}}]}, shapes["record"])
+    with pytest.raises(DriveError, match=r"^records\[0\]\.kind takes one owner \| answer \| handoff \| defect, not a list: handoff asks "):
+        tools.parsed_arguments({"records": [owner | {"kind": ["owner"]}]}, shapes["record"])
+    with pytest.raises(DriveError, match=r"^records\[0\]\.attrs\.job takes one string, not a list; nothing ran$"):
+        tools.parsed_arguments({"records": [owner | {"attrs": {"order": "o1", "job": ["j1", "j2"]}}]}, shapes["record"])
+    with pytest.raises(DriveError, match=r"^ops\[0\]\.set\.url takes one string, not a list: "):
+        tools.parsed_arguments({"ops": [{"set": {"url": ["Forge-AI/monorepo#42"]}}]}, shapes["pr"])
+    kept = {"records": [owner | {"re": 672234, "to": None, "attrs": {"order": "o1"}, "order": {"title": "a title"}}]}
+    assert tools.parsed_arguments(kept, shapes["record"]) == kept
