@@ -204,7 +204,10 @@ required fields: `state`, a result word of the table above but `DESIGN`, since a
 builder's own `codex-ask` call, `line`, the rest of the result line, and `report`, the return below it,
 so no reply lacks its state.
 
-Once the run ends, the watch reads it with `codex-ask --collect` and takes it as the job's return.
+Once the run ends, the watch's relay, which runs every 2 seconds beside its passes, takes it as the job's return,
+so the coordinator hears it within seconds however long a pass runs. The relay reads the run with `codex-ask --collect`
+only once the run folder holds the `status` file the run writes as it exits, or a `pid` file naming a process that
+is gone, so a run still going starts no process.
 A completed run's `state` and `line` set the state and said line by the table above, as every job's
 line does, so a `HANDOFF` stops the job and a `READY` waits on its PR, and the line and report are
 kept as the job's report. A reply `drive job report` would refuse, such as a cause naming no fix,

@@ -1486,7 +1486,7 @@ def relay(name: str, project: str | None, lines: int) -> int:
 
 
 def relay_pass(watcher: Watcher, moment: datetime) -> list[str]:
-    """Start a reader on each new read or `DRIVE` question a live lane asked, then send again each answer a reader kept that no reply took, by resend_lines, then start the handler on each line promised him by a time this pass's own clock has passed, by due_lines. Its first pass, and one after a failed read, first has this process's Orca calls speak as the drive's own terminal; a failed read goes again next pass, said as the watch says its reads."""
+    """Start a reader on each new read or `DRIVE` question a live lane asked, then send again each answer a reader kept that no reply took, by resend_lines, then take each ended codex-ask run, by codex_takes, then start the handler on each line promised him by a time this pass's own clock has passed, by due_lines. Its first pass, and one after a failed read, first has this process's Orca calls speak as the drive's own terminal; a failed read goes again next pass, said as the watch says its reads."""
     lines = []
     try:
         if watcher.read_at is None:
@@ -1497,7 +1497,29 @@ def relay_pass(watcher: Watcher, moment: datetime) -> list[str]:
         lines = read_failed(watcher, NEWEST_MAIL, error, moment)
     else:
         watcher.failures.pop(NEWEST_MAIL, None)
-    return lines + resend_lines(watcher, moment) + due_lines(watcher, moment)
+    lines += resend_lines(watcher, moment)
+    codex_takes(watcher)
+    return lines + due_lines(watcher, moment)
+
+
+def codex_takes(watcher: Watcher) -> None:
+    """Take as its result each running codex job's codex-ask run that ended, of the jobs this watch hears, by heard_job, so its returned event tells the coordinator within RELAY_SECONDS of the run's end however long a pass holds the watch, with where his card on its ASK stands and, for an incident fix job, the builder that ships its fix; codex_gap reads each run's status and pid files first, so a run that still goes starts no `codex-ask --collect`. A job another process took meanwhile is not taken again."""
+    data = state.load(watcher.name)
+    ended = {
+        job_id: gap
+        for job_id, job in data["jobs"].items()
+        if job["kind"] == "codex" and job["state"] == "running" and heard_job(watcher, data, job) and isinstance(gap := codex_gap(job_id, job), Answered)
+    }
+    if not ended:
+        return
+    shippers = {}
+    with state.edit(watcher.name) as data:
+        taken = [job_id for job_id in ended if data["jobs"][job_id]["state"] == "running"]
+        for job_id in taken:
+            if builder_id := ended[job_id].take(watcher.name, data, job_id):
+                shippers[job_id] = builder_id
+    for job_id in taken:
+        state.returned(watcher.name, data, job_id, "; ".join(filter(None, [data["jobs"][job_id]["said"], *codex_asks(watcher.name, job_id), *([fix_shipped(watcher.name, shippers[job_id])] if job_id in shippers else [])])))
 
 
 def start_reads(watcher: Watcher) -> None:
@@ -2498,22 +2520,22 @@ def agent_gap(job_id: str, job: dict, data: dict, moment: datetime) -> str | Non
 
 
 def codex_gap(job_id: str, job: dict) -> str | None:
-    """A running codex job's gap from the codex-ask run its launch recorded: its run once it ended, which the watch takes, none while it goes, and why when codex-ask cannot read it, when no launch started one, or when its ended run was taken before the job ran again, which only its next launch answers."""
+    """A running codex job's gap from the codex-ask run its launch recorded: none while it goes, by codex.ended_at, so only an ended run is read by `codex-ask --collect`, then its run, which the relay takes, and why when codex-ask cannot read it, when no launch started one, or when its ended run was taken before the job ran again, which only its next launch answers."""
     if not job.get("codex_run"):
         return f"{job_id} has no codex-ask run: drive job launch {job_id} starts it on its brief"
+    if (ended := codex.ended_at(Path(job["codex_run"]))) is None:
+        return None
+    if job.get("returned") and ended <= state.parse_time(job["returned"]).timestamp():
+        return f"{job_id}'s codex-ask run ended before its last return: drive job launch {job_id} starts its next"
     try:
         run = codex.run_of(job)
     except codex.CodexError as error:
         return f"{job_id}'s codex-ask run could not be read: {cut(str(error), 100)}"
-    if not run.ended:
-        return None
-    if job.get("returned") and run.reply.stat().st_mtime <= state.parse_time(job["returned"]).timestamp():
-        return f"{job_id}'s codex-ask run {run.state} before its last return: drive job launch {job_id} starts its next"
-    return Answered(job_id, run)
+    return Answered(job_id, run) if run.ended else None
 
 
 def codex_asks(name: str, job_id: str) -> list[str]:
-    """Keep the ASK block a codex job's reply names on its `ASK: <file>` line, or on an `ASK <file>` line it returned, as `drive job ask` keeps a builder's, in the pass its run is taken, so his card goes up as the lane returns while the recommended option it built ships, since a codex run is never resumed mid-run and an incident never stops on a choice; what its JOB line says of it: where his card stands, the settled line when he already answered that same question, or why it was not kept."""
+    """Keep the ASK block a codex job's reply names on its `ASK: <file>` line, or on an `ASK <file>` line it returned, as `drive job ask` keeps a builder's, as the relay takes its run, so his card goes up as the lane returns while the recommended option it built ships, since a codex run is never resumed mid-run and an incident never stops on a choice; what its JOB line says of it: where his card stands, the settled line when he already answered that same question, or why it was not kept."""
     from drive import cli
 
     if not (newest := state.returns(name, job_id)) or not (named := ASK_FIELD.search(newest[0]["body"])):
@@ -2700,9 +2722,9 @@ def launching(job: dict, moment: datetime) -> bool:
 
 
 def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Each running job's gap from its agent or lane, with each PR it has open, a remote lane, running or waiting, whose worker died, and a running job's lane Orca could not reach three reads running, which wake hands to drive job resume, its failed reads neither counted nor said while busy reads another drive verb acting on the job, as the wake an earlier watch started does, and a running lane on this Mac whose last response ended on an API error, which resume_lane resumes through its terminal, while a job whose agent or lane on this Mac a model's safeguards stopped goes to safeguard_lines; a lane recorded by its dispatch alone gets its Run, Task and terminal from the worker-show read for its liveness, and a lane filed on this Mac whose worker-show names a Sprite is filed on that Sprite; a live lane whose job keeps texts queued has them settled by its mailbox each pass, by state.take_mail, and a remote lane whose worker finished or exited has the mail it never read held on its job once for its dispatch by unread_lines, before death_lines relaunches a running job's lane. A local agent that ended its turn on a result line its job never took is a gap, since only `drive job report` sets a job's state from its return; a codex job no agent holds has its codex-ask run taken once that run ended, its returned event telling the coordinator the return, failed or not, with where his card on its ASK stands and, for an incident fix job, the builder that ships its fix."""
+    """Each running job's gap from its agent or lane, with each PR it has open, a remote lane, running or waiting, whose worker died, and a running job's lane Orca could not reach three reads running, which wake hands to drive job resume, its failed reads neither counted nor said while busy reads another drive verb acting on the job, as the wake an earlier watch started does, and a running lane on this Mac whose last response ended on an API error, which resume_lane resumes through its terminal, while a job whose agent or lane on this Mac a model's safeguards stopped goes to safeguard_lines; a lane recorded by its dispatch alone gets its Run, Task and terminal from the worker-show read for its liveness, and a lane filed on this Mac whose worker-show names a Sprite is filed on that Sprite; a live lane whose job keeps texts queued has them settled by its mailbox each pass, by state.take_mail, and a remote lane whose worker finished or exited has the mail it never read held on its job once for its dispatch by unread_lines, before death_lines relaunches a running job's lane. A local agent that ended its turn on a result line its job never took is a gap, since only `drive job report` sets a job's state from its return; a codex job whose codex-ask run ended has no gap here, since the relay takes that run, by codex_takes."""
     data = state.load(watcher.name)
-    gaps, deaths, refusals, heads, found, taken, shippers, finished, boxes, lost, lines = {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, []
+    gaps, deaths, refusals, heads, found, finished, boxes, lost, lines = {}, {}, {}, {}, {}, {}, {}, {}, []
     read: set[str] = set()
     for order_id, order in heard_orders(watcher, data).items():
         for job_id in order["jobs"]:
@@ -2726,12 +2748,8 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
                     continue
                 if running and job["kind"] != "codex" and job.get("agent") and session_of(job, data) is None:
                     lost[job_id] = f"no bound session holds its agent {job['agent']}"
-                gap = running and agent_gap(job_id, job, data, moment)
-                if isinstance(gap, Answered):
-                    taken[job_id] = gap
-                    heads.pop(job_id, None)
-                elif running:
-                    gaps[job_id] = gap
+                if running:
+                    gaps[job_id] = None if isinstance(gap := agent_gap(job_id, job, data, moment), Answered) else gap
                 continue
             if not job.get("dispatch"):
                 if running:
@@ -2795,18 +2813,13 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
                         lines += resume_lane(watcher, job_id, job, terminal, stop, moment)
                 if branch := ((worker.get("terminal") or {}).get("branch") or "").removeprefix("refs/heads/"):
                     heads.setdefault(job_id, set()).add((job.get("repo"), branch))
-    if found or taken or boxes:
+    if found or boxes:
         with state.edit(watcher.name) as data:
             for job_id, lane in found.items():
                 data["jobs"][job_id].update(lane)
             for job_id, (dispatch, box) in boxes.items():
                 if data["jobs"][job_id]["dispatch"] == dispatch:
                     state.take_mail(data["jobs"][job_id], box, False)
-            for job_id, gap in taken.items():
-                if builder_id := gap.take(watcher.name, data, job_id):
-                    shippers[job_id] = builder_id
-    for job_id in taken:
-        state.returned(watcher.name, data, job_id, "; ".join(filter(None, [data["jobs"][job_id]["said"], *codex_asks(watcher.name, job_id), *([fix_shipped(watcher.name, shippers[job_id])] if job_id in shippers else [])])))
     lines += unread_lines(watcher, finished, {job_id for job_id, job in finished.items() if job_id in deaths and job["state"] == "running"}, moment)
     watcher.made += lines
     gapped = {job_id: gap for job_id, gap in gaps.items() if gap}
