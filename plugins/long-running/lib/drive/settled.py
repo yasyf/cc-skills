@@ -36,6 +36,10 @@ REQUEST_CHARS = 10_000
 DECIDE_SECONDS = 20
 REFUSAL_SECONDS = 3
 REPEATS_ASKED = 30
+SANDSQL = "sandsql"
+HANDED_OVER = re.compile(r"\bhand(?:s|ed|ing)?(?:-|\s+(?:[\w'’-]+\s+){0,4})?overs?\b", re.IGNORECASE)
+UNHANDED = "this release ships sandsql, which hands SandSQL's writer over to a new one, and the card it answers names no such hand-over"
+UNCARDED = "this release ships sandsql, which hands SandSQL's writer over to a new one, and it answers no kept card, so no card he approved named that hand-over"
 
 
 class Noul(NamedTuple):
@@ -768,13 +772,16 @@ def asks_page(words: str) -> bool:
 
 
 def unordered(answer: dict, release: str, data: dict) -> str | None:
-    """Why his answer does not order this release, one `ci release start` or `hotfix`; None when it does, the one reading the release gates and `drive job ask` share. When the card his answer answers is kept, found through the link `drive answer` kept for it, and his leading option number or tap picks an option whose words name a release in backticks, code decides: each release read by shipped(), his answer orders a release shipping the change one of those ships, every flag the same but its places, `--from` and `--order`, and on staging alone under one on staging alone, as placed() reads it, its targets, `--only` and how it starts, on no place beyond that option's but those his words past the number name, by env id or by the name or displayName its infra/envs file gives that place's team. A picked option naming no release in backticks orders, in code too, a release its words name whole, as named() reads it. Any other answer Jev reads in one request, his words beside that card and the places the release runs on with their stages, one Noul whether his words have that release run and one whether it ships more than they order: it orders the release at YES on the first and under NO on the second, either in the band between refusing it as unsure; Unheard when Jev gave no answer."""
+    """Why his answer does not order this release, one `ci release start` or `hotfix`; None when it does, the one reading the release gates and `drive job ask` share. A release whose targets or `--only` name sandsql and that runs on a production place, as off_production() reads it, hands SandSQL's writer over, so it is ordered only by an answer to a kept card whose question, summary, options or Show me name that hand-over, HANDED_OVER finding it, never by words answering no such card. When the card his answer answers is kept, found through the link `drive answer` kept for it, and his leading option number or tap picks an option whose words name a release in backticks, code decides: each release read by shipped(), his answer orders a release shipping the change one of those ships, every flag the same but its places, `--from` and `--order`, and on staging alone under one on staging alone, as placed() reads it, its targets, `--only` and how it starts, on no place beyond that option's but those his words past the number name, by env id or by the name or displayName its infra/envs file gives that place's team. A picked option naming no release in backticks orders, in code too, a release its words name whole, as named() reads it. Any other answer Jev reads in one request, his words beside that card and the places the release runs on with their stages, one Noul whether his words have that release run and one whether it ships more than they order: it orders the release at YES on the first and under NO on the second, either in the band between refusing it as unsure; Unheard when Jev gave no answer."""
     from drive import brief
 
     said = his(answer["body"])
     asked = answered_card(data, answer)
     [flags] = map(shipped, brief.started(release))
     cwd = data["roles"]["coordinator"]["cwd"]
+    drawn = "\n".join([f"Question: {asked.title}", *asked.summary, *limits.offered(asked)]) if asked else ""
+    if SANDSQL in {*flags.get("targets", ()), *flags.get("only", ())} and not off_production(flags, cwd) and not (asked and HANDED_OVER.search("\n".join([drawn, *asked.show_me]))):
+        return UNHANDED if asked else UNCARDED
     if asked and (pick := picked_option(asked, said)):
         number, rest = pick
         option = asked.options[number - 1]
@@ -786,7 +793,7 @@ def unordered(answer: dict, release: str, data: dict) -> str | None:
             return f"it picks option {number} of the card it answers, {', '.join(f'`{command}`' for command in commands)}, {whys[0]}"
         if named(flags, words, rest, cwd):
             return None
-    card = {"card": "\n".join([f"Question: {asked.title}", *asked.summary, *limits.offered(asked)])} if asked else {}
+    card = {"card": drawn} if asked else {}
     read = jev({"action": f"start this release on {runs_on(flags, cwd)}: `{release}`", "answer": {"asked": answer["title"], "said": said}} | card, {f"orders.{answer['id'][:7]}": ORDERS, "more": SHIPS_MORE})
     orders, more = reading(read[f"orders.{answer['id'][:7]}"]), reading(read["more"])
     if orders and more is False:

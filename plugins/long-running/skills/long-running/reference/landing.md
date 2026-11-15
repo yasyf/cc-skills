@@ -702,7 +702,10 @@ the patch.
   production, its `infra/envs` file giving a stage and no `prod: true` as staging, sandbox and dev have, and a rollback
   run at any hour. A pick whose words
   order the release approves it whatever its card asked, by his words "if I apprtove a release dont
-  fuckl around kjust appriove it". The release gate and `drive job ask` read his answer one way: his
+  fuckl around kjust appriove it". A release whose targets or `--only` name `sandsql` and that runs
+  on a production place hands SandSQL's writer over to a new one, so it starts only on his answer to
+  a kept card whose question, summary, options or Show me name that hand-over; words answering no
+  such card order none, and a SandSQL release on staging or a sandbox alone reads as before. The release gate and `drive job ask` read his answer one way: his
   option number or tap on a kept card whose option names a release in backticks orders a release
   shipping that option's change, on that option's places and on those his words past the number name,
   by env id or by the team's name in that env's `infra/envs` file, so "1 and then get Acme to the

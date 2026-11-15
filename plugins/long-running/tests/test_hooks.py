@@ -19,7 +19,7 @@ import record_lines
 import role_rules
 import scratch_folder
 import session_start
-from conftest import ACME_CUT, CUT_PICK, CUT_TAP, LEAD, RESEARCH, SANDSQL_NOTE, SHORT_ASK, WRITTEN_AT, answered_cut, cloned, drawn_card, kept_brief, unheld, Answers, Jev, WatchProcess
+from conftest import ACME_CUT, ANSWERED_CUT, CUT_PICK, CUT_TAP, LEAD, RESEARCH, SANDSQL_NOTE, SHORT_ASK, WRITTEN_AT, answered_cut, cloned, drawn_card, kept_brief, unheld, Answers, Jev, WatchProcess
 from drive import agents, brief, cli, github, land, limits, orca, place, render, settled, state, tools, watch
 
 Run = Callable[..., tuple[int, str]]
@@ -1382,6 +1382,9 @@ def test_717905_a_manual_release_starts_with_no_json_and_its_job_keeps_the_deplo
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "release the sandbox")
     run("job", "add", "builder", "--order", "o1", "--goal", "build the sandbox")
+    envs = Path(state.load(demo)["roles"]["coordinator"]["cwd"]) / "infra" / "envs"
+    envs.mkdir(parents=True, exist_ok=True)
+    (envs / "plat-usw2-sandbox.yaml").write_text("id: plat-usw2-sandbox\nstage: sandbox\n")
     printed = "\n".join(f"echo '{line}'" for line in MANUAL_SAID)
     started = released(demo, f"""case "$*" in *--json*) echo "ci release: Unknown option '--json'" >&2; exit 1;; esac\n{printed}\nexec sleep 600""")
     recorded.shown = {CLOCK_PICK["id"][:7]: CLOCK_PICK}
@@ -1582,7 +1585,7 @@ def test_while_he_holds_every_release_a_drive_runs_none_but_on_his_exception_rec
         data["answers"]["15c4de1"] = {"words": RELEASE_HOLD["body"], "link": HOLD_LINK, "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {}}
     recorded.listed = [RELEASE_HOLD, SSQL_EXCEPTION, RELEASE_PICK | {"created_at": EARLIER}, INCIDENT_ORDER | {"created_at": EARLIER}, PR_TAP | {"created_at": "2026-11-13T19:50:00Z", "tags": ["scope:durable", "kind:approval"]}]
     recorded.shown = {answer["id"][:7]: answer for answer in recorded.listed}
-    start = "tools/ci release start sandsql --order {}"
+    start = "tools/ci release start executor --order {}"
     data = state.load("demo")
     assert [brief.approval_refusal(start.format(order), data) for order in ("5d0c4a1", "9e1f2b3")] == [
         held(start.format("5d0c4a1"), '`--order 5d0c4a1` names his answer to "Release the memory fix to production now?", recorded before the hold'),
@@ -1721,7 +1724,7 @@ def test_a_job_runs_the_release_its_brief_names_on_his_exception_while_he_holds_
 ) -> None:
     recorded.listed = [RELEASE_HOLD, SSQL_EXCEPTION, RELEASE_PICK | {"created_at": EARLIER}]
     recorded.shown = {answer["id"][:7]: answer for answer in recorded.listed}
-    release = "tools/ci release start sandsql --order 8b2e4f7"
+    release = "tools/ci release start executor --order 8b2e4f7"
     step = stepped(tmp_path, f"Release: {release}\nRelease build: {BUILD}\nDrive: demo, order o1, job j1")
     jev.picks("8b2e4f7")
     own = ("tools/ci release approve releases/2026-11-13/2 --via codex", "tools/ci release resume 15495", "tools/ci bk api -X PUT organizations/forge/pipelines/release/builds/15495/jobs/0190a1b2/unblock")
@@ -1732,7 +1735,7 @@ def test_a_job_runs_the_release_its_brief_names_on_his_exception_while_he_holds_
     assert landing_guard.deny_reason(bash(own[0]) | step) == brief.RELEASE_HELD.format(
         said=RELEASE_HOLD["body"], where="15c4de1", hold="15c4de1", release=release, why='`--order 8b2e4f7` names his answer to "Release the SandSQL fix to production?", and Jev does not read it as approving this release'
     )
-    stale = "tools/ci release start sandsql --order 5d0c4a1"
+    stale = "tools/ci release start executor --order 5d0c4a1"
     briefed = stepped(tmp_path, f"Release: {stale}\nDrive: demo, order o1, job j1")
     assert landing_guard.deny_reason(bash(own[0]) | briefed) == brief.RELEASE_HELD.format(
         said=RELEASE_HOLD["body"], where="15c4de1", hold="15c4de1", release=stale, why='`--order 5d0c4a1` names his answer to "Release the memory fix to production now?", recorded before the hold'
@@ -1759,7 +1762,7 @@ def test_a_codex_lane_runs_a_release_verb_only_on_the_exception_its_jobs_kept_br
     assert json.loads(hook_output(landing_guard, monkeypatch, capsys, json.dumps(lane))) == landing_guard.denial(refused)
     assert landing_guard.deny_reason(lane | {"tool_input": {"command": "tools/ci release cancel releases/2026-11-13/2"}}) == landing_guard.RELEASE_CANCEL
     assert jev.asked == []
-    release = "tools/ci release start sandsql --order 8b2e4f7"
+    release = "tools/ci release start executor --order 8b2e4f7"
     kept.write_text(f"Release: {release}\nDrive: demo, order o1, job j1\n")
     jev.picks("8b2e4f7")
     assert landing_guard.deny_reason(lane) is None
@@ -1808,13 +1811,13 @@ def test_drive_job_add_starts_no_release_his_hold_holds_and_starts_his_exception
     recorded.listed = [RELEASE_HOLD, SSQL_EXCEPTION, RELEASE_PICK | {"created_at": EARLIER}]
     recorded.shown = {answer["id"][:7]: answer for answer in recorded.listed}
     jev.picks("5d0c4a1")
-    stale = "tools/ci release start sandsql --order 5d0c4a1"
+    stale = "tools/ci release start executor --order 5d0c4a1"
     why = '`--order 5d0c4a1` names his answer to "Release the memory fix to production now?", recorded before the hold'
     assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "release the fix", "--release", stale]) == 2
     assert capsys.readouterr().err.strip() == "drive: refused, no job added: " + brief.RELEASE_HELD.format(said=RELEASE_HOLD["body"], where="15c4de1", hold="15c4de1", release=stale, why=why)
     jev.picks("8b2e4f7")
     released(demo, f"echo '{STARTED}'")
-    excepted = "tools/ci release start sandsql --order 8b2e4f7"
+    excepted = "tools/ci release start executor --order 8b2e4f7"
     assert run("job", "add", "builder", "--order", "o1", "--goal", "release the fix", "--release", excepted)[1].splitlines()[:2] == [
         "j1",
         f"j1 started `{excepted}` as {BUILD} and left it running: its agent follows it with `ci release watch {BUILD}` and reads its approve hold",
@@ -1870,7 +1873,7 @@ def test_his_number_on_a_kept_card_orders_the_release_its_option_names_on_the_pl
         ACME_CUT.format("5d17d9c"): None,
         "tools/ci release start --hotfix 101 --only api --without tnt-usw2-acme --order 5d17d9c": None,
         "tools/ci release start --order 5d17d9c": f"{picks}, and this release ships another change. {brief.RELEASE_APPROVAL}",
-        "tools/ci release start --hotfix 202 --only sandsql --order 5d17d9c": f"{picks}, and this release ships another change. {brief.RELEASE_APPROVAL}",
+        "tools/ci release start --hotfix 202 --only executor --order 5d17d9c": f"{picks}, and this release ships another change. {brief.RELEASE_APPROVAL}",
         "tools/ci release start --hotfix 101 --only api --env tnt-usw2-acme,tnt-usw2-north --order 5d17d9c": None,
         "tools/ci release start --hotfix 101 --only api --without plat-usw2-prod,tnt-usw2-north,tnt-usw2-acme --order 7ab1e20": (
             f'refused: `--order 7ab1e20` names his answer to "{CUT_TAP["title"]}", "The full release", and it picks option 2 of the card it answers,'
@@ -2051,12 +2054,14 @@ def test_his_standing_yes_to_soak_on_staging_orders_each_stack_restore_and_rollb
     picks = f'`--order 23eefb9` names his answer to "{STANDING_SOAK["title"]}", and it picks option 1 of the card it answers, `tools/ci release start --emergency --env plat-usw2-staging`'
     refused = {
         STAGING_ROLLBACK.replace("plat-usw2-staging", "plat-usw2-prod"): "and this release ships another change",
-        SPILL_STACKS.replace("sandsql/plat-usw2-staging", "sandsql/plat-usw2-prod"): "and this release ships another change",
-        SPILL_RESTORE.replace("plat-usw2-staging", "plat-usw2-staging,plat-usw2-prod"): "and this release ships another change",
         STAGING_ROLLBACK.replace("plat-usw2-staging", "plat-usw2-sandbox"): "and this release ships another change",
         STAGING_ROLLBACK.replace("plat-usw2-staging", "plat-gbl-staging"): "and this release also runs on plat-gbl-staging, which his words past its number do not name",
     }
     assert {release: brief.approval_refusal(release, data) for release in refused} == {release: held(release, f"{picks}, {why}") for release, why in refused.items()}
+    unhanded = (SPILL_STACKS.replace("sandsql/plat-usw2-staging", "sandsql/plat-usw2-prod"), SPILL_RESTORE.replace("plat-usw2-staging", "plat-usw2-staging,plat-usw2-prod"))
+    assert [brief.approval_refusal(release, data) for release in unhanded] == [
+        held(release, f'`--order 23eefb9` names his answer to "{STANDING_SOAK["title"]}", and {settled.UNHANDED}') for release in unhanded
+    ]
     assert jev.asked == []
 
 
@@ -2081,13 +2086,56 @@ def test_jev_reads_a_stack_release_on_the_places_its_stacks_name_so_his_words_to
     data = state.load(demo)
     jev.picks("orders")
     assert brief.approval_refusal(SANDBOX_TEST, data) is None
-    production = SANDBOX_TEST.replace("plat-usw2-sandbox", "plat-usw2-prod")
+    production = SANDBOX_TEST.replace("sandsql/plat-usw2-sandbox", "restate/plat-usw2-prod")
     jev.picks("none")
     assert brief.approval_refusal(production, data) == held(production, f'`--order 077d93a` names his answer to "{SANDBOX_TESTS["title"]}", and Jev does not read it as approving this release')
     assert [asked["state"]["action"] for asked in jev.asked] == [
         f"start this release on plat-usw2-sandbox (stage sandbox): `{SANDBOX_TEST}`",
         f"start this release on plat-usw2-prod (stage prod): `{production}`",
     ]
+
+
+HANDOVER_CARD = """ASK Should the SandSQL fix ship to production tonight, handing SandSQL's writer over to the new build?
+Drive tooling: your pick decides when the SandSQL fix reaches production.
+- Ship it tonight: the writer hands over once, pausing writes under a second (recommended)
+  Starts `release start sandsql --from 3ebaa825dbd7116cb00a2f799c91861371d9e4d8`, which hands SandSQL's writer over to the new build on every production place.
+- Wait for the next cut: nothing ships tonight
+  The fix rides the next full release.
+
+Findings:
+Root cause: none: a pick of when the fix ships
+Simplest: Wait for the next cut: nothing ships tonight
+Holds: none: no option changes code any job builds
+"""
+HANDOVER_SHIP = {
+    "id": "5ee1a5e" + "0" * 33,
+    "title": "Should the SandSQL fix ship to production tonight, handing SandSQL's writer over to the new build?",
+    "body": "1",
+    "tags": ["scope:durable"],
+    "created_at": "2026-11-15T20:00:00Z",
+}
+SANDSQL_SHIP = "tools/ci release start sandsql --from 3ebaa825dbd7116cb00a2f799c91861371d9e4d8 --order {}"
+
+
+def test_a_production_sandsql_release_starts_only_on_his_answer_to_a_card_naming_the_writer_hand_over_while_a_staging_one_reads_as_before(
+    demo: str, run: Run, recorded: Answers, jev: Jev
+) -> None:
+    answered_cut(run, demo, [HANDOVER_SHIP], HANDOVER_CARD)
+    recorded.shown = {answer["id"][:7]: answer for answer in (HANDOVER_SHIP, SSQL_EXCEPTION)}
+    data = state.load(demo)
+    assert brief.approval_refusal(SANDSQL_SHIP.format("5ee1a5e"), data) is None
+    (state.drive_dir(demo) / "asks" / "j1-cut.md").write_text(ANSWERED_CUT)
+    assert brief.approval_refusal(SANDSQL_SHIP.format("5ee1a5e"), data) == (
+        f'refused: `--order 5ee1a5e` names his answer to "{HANDOVER_SHIP["title"]}", "1", and {settled.UNHANDED}. {brief.RELEASE_APPROVAL}'
+    )
+    assert brief.approval_refusal(SANDSQL_SHIP.format("8b2e4f7"), data) == (
+        f'refused: `--order 8b2e4f7` names his answer to "{SSQL_EXCEPTION["title"]}", "{SSQL_EXCEPTION["body"]}", and {settled.UNCARDED}. {brief.RELEASE_APPROVAL}'
+    )
+    assert jev.asked == []
+    jev.picks("8b2e4f7")
+    assert brief.approval_refusal(SANDSQL_SHIP.format("8b2e4f7").replace(" --order", " --emergency --env plat-usw2-staging --order"), data) is None
+    phrases = ("the writer handover", "a hand-over of the writer", "hands SandSQL's writer over", "hand SandSQL's primaries over", "handing over writes", "handle overflow", "hand off the writer", "the handbook is over there")
+    assert [bool(settled.HANDED_OVER.search(words)) for words in phrases] == [True] * 5 + [False] * 3
 
 
 def test_a_stack_names_its_project_as_a_target_and_its_env_as_a_place_beside_env_so_a_manual_staging_deploy_ships_what_an_option_on_staging_names(
