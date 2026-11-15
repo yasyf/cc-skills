@@ -11,7 +11,7 @@ import tarfile
 import uuid
 from collections.abc import Iterator
 from pathlib import Path
-from typing import IO, NamedTuple
+from typing import NamedTuple
 
 from drive import agents, github, procs, reads, render, state
 from drive.install import config_dir
@@ -633,18 +633,6 @@ def reclaim(run: str, dispatch: str, checkout: Path) -> str:
 def release(drive: str, job_id: str, job: dict, checkout: Path) -> str:
     """Destroy the Sprite at the job's workspace, with its Orca environment and forward, once the reclaimer's --destroy has saved what it holds on no remote to GitHub as save does: what it saved and destroyed; OrcaError naming why its checkout could not be read, the save failed, what it still holds, or cc-remote's refusal, which keeps it."""
     return reclaimer(checkout, "--destroy", job["workspace"], lane_of(drive, job_id, job))
-
-
-def release_detached(drive: str, job_id: str, job: dict, checkout: Path, log: IO[str]) -> subprocess.Popen:
-    return reclaimer_detached(checkout, log, "--destroy", job["workspace"], lane_of(drive, job_id, job))
-
-
-def reclaim_detached(run: str, dispatch: str, checkout: Path, log: IO[str]) -> subprocess.Popen:
-    return reclaimer_detached(checkout, log, "--run", run, "--done", dispatch)
-
-
-def reclaimer_detached(checkout: Path, log: IO[str], *args: str) -> subprocess.Popen:
-    return subprocess.Popen([tool(RECLAIMER), *args], cwd=checkout, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
 
 
 def holds_sprite(job: dict) -> bool:

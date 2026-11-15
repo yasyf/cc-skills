@@ -2571,6 +2571,11 @@ def lane_ended(job: dict) -> bool:
     return bool((death := lane_death(job, "dispatch")) and death.get("ended"))
 
 
+def death_on(job: dict, lane: str) -> dict | None:
+    """The newest recorded death of a lane of the job on lane, a Sprite by its workspace or a lane on this Mac by its dispatch, which keeps the drive job reclaim the watch started on what that lane left; None when no death records it."""
+    return next((death for death in reversed(job.get("deaths", [])) if lane in (death.get("workspace"), death["dispatch"])), None)
+
+
 def whole_order(text: str) -> str:
     return " ".join(text.split())[:PART_CHARS].rstrip()
 
