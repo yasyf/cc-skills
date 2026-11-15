@@ -1607,3 +1607,69 @@ def test_j4060_a_builder_failing_after_the_builder_replacing_it_was_added_stops_
         state.take_result(data, "j1", "BLOCKED repro/j1.py exits 1")
     jobs = state.load("demo")["jobs"]
     assert {job_id: (job["state"], job["said"]) for job_id, job in jobs.items()} == {"j1": ("stopped", "replaced by j2"), "j2": ("running", None)}
+
+
+def test_j5802_a_failed_builder_stays_failed_beside_a_later_builder_that_already_ended(state_root: Path) -> None:
+    make("demo")
+    data = state.load("demo")
+    moment = state.stamp()
+    data["orders"] = {"o1": state.new_order("fix the proof", "terminal", None, {"fix the proof": state.new_part()}, moment) | {"jobs": ["j1", "j2"]}}
+    data["jobs"] = {
+        "j1": state.new_job("o1", "builder", "fix it", ["fix the proof"], moment) | {"state": "waiting", "said": "PUSHED https://github.com/yasyf/cc-slack/pull/406"},
+        "j2": state.new_job("o1", "builder", "land it", ["fix the proof"], moment) | {"state": "done", "said": "DONE https://github.com/yasyf/cc-slack/pull/406 merged; landed"},
+    }
+    state.create(data)
+    with state.edit("demo") as data:
+        state.take_result(data, "j1", "BLOCKED repro/j1.py exits 1")
+    jobs = state.load("demo")["jobs"]
+    assert {job_id: (job["state"], job["said"]) for job_id, job in jobs.items()} == {
+        "j1": ("failed", "BLOCKED repro/j1.py exits 1"),
+        "j2": ("done", "DONE https://github.com/yasyf/cc-slack/pull/406 merged; landed"),
+    }
+
+
+def test_j5802_a_drive_whose_failed_job_an_older_install_stopped_for_a_job_already_finished_reads_it_failed_on_its_line_and_takes_the_carries_it_folded_back(
+    state_root: Path,
+) -> None:
+    make("demo")
+    data = state.load("demo")
+    del data["finished_replacers_undone"]
+    now = state.now()
+    fix, thread = "fix the proof", "thread it"
+    data["orders"] = {
+        "o1": state.new_order("fix the proof", "terminal", None, {fix: state.new_part()}, state.stamp(now)) | {"jobs": ["j1", "j2", "j3", "j4"]},
+        "o2": state.new_order("thread the post", "terminal", None, {thread: state.new_part()}, state.stamp(now)) | {"jobs": ["j1", "j2"]},
+    }
+    data["jobs"] = {
+        "j1": state.new_job("o1", "builder", "prove it", [fix], state.stamp(now)) | {"state": "stopped", "said": "replaced by j2", "carries": {"o2": [thread]}},
+        "j2": state.new_job("o1", "builder", "land it", [fix], state.stamp(now)) | {"state": "done", "said": "DONE landed", "carries": {"o2": [thread]}, "updated": state.stamp(now - timedelta(hours=1))},
+        "j3": state.new_job("o1", "builder", "fix it", [fix], state.stamp(now)) | {"state": "stopped", "said": "replaced by j4", "updated": state.stamp(now - timedelta(hours=2))},
+        "j4": state.new_job("o1", "builder", "fix it again", [fix], state.stamp(now)) | {"state": "done", "said": "DONE fixed", "updated": state.stamp(now - timedelta(hours=1))},
+    }
+    state.create(data)
+    state.keep_report("demo", "j1", "BLOCKED repro/j1.sh exits 1", "BLOCKED repro/j1.sh exits 1\nCHECK: repro/j1.sh\n")
+    data = state.load("demo")
+    jobs = data["jobs"]
+    assert {job_id: (job["state"], job["said"]) for job_id, job in jobs.items()} == {
+        "j1": ("failed", "BLOCKED repro/j1.sh exits 1"),
+        "j2": ("done", "DONE landed"),
+        "j3": ("stopped", "replaced by j4"),
+        "j4": ("done", "DONE fixed"),
+    }
+    assert (jobs["j1"]["carries"], jobs["j2"]["carries"], data["finished_replacers_undone"]) == ({"o2": [thread]}, {}, True)
+
+
+def test_j5802_a_done_design_carries_no_part_a_builder_of_another_change_it_listed_holds(state_root: Path) -> None:
+    make("demo")
+    data = state.load("demo")
+    moment = state.stamp()
+    follow_up, pages, pin, replica = "a page map follow-up", "write a page map", "pin the fork", "open the replica"
+    parts = {follow_up: state.new_part()} | {part: state.new_part() | {"design": "j1"} for part in (pages, pin, replica)}
+    data["orders"] = {"o1": state.new_order("page maps", "terminal", None, parts, moment) | {"jobs": ["j1", "j2", "j3"]}}
+    data["jobs"] = {
+        "j1": state.new_job("o1", "design", "design it", [follow_up, pages, pin, replica], moment) | {"state": "done"},
+        "j2": state.new_job("o1", "builder", "build page maps", [pages, pin], moment) | {"state": "failed"},
+        "j3": state.new_job("o1", "builder", "build the replica", [replica], moment) | {"state": "running"},
+    }
+    assert state.design_builder(data, "j1") == "j3"
+    assert [[job_id for job_id, _ in state.carriers(data, "o1", part)] for part in (follow_up, pages, pin, replica)] == [["j1"], ["j2"], ["j2"], ["j3"]]
