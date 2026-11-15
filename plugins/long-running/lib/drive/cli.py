@@ -5151,17 +5151,19 @@ def run_show(checkout: Path) -> str:
 
 
 def only(data: dict, ids: list[str]) -> dict:
-    """The drive narrowed, never saved, to the orders the ids name, directly or through one of their jobs or PRs, with their jobs and PRs; data stays whole, since who carries a part is read across every job and order."""
+    """The drive narrowed, never saved, to the orders the ids name, directly or through one of their jobs or PRs, with their jobs and each PR those orders own or their jobs carry, as render.job_pr_lines draws it; data stays whole, since who carries a part is read across every job and order."""
     keys = set(ids)
     if unknown := keys - set(data["orders"]) - set(data["jobs"]) - set(data["prs"]):
         raise DriveError(f"no order, job or PR {', '.join(sorted(unknown))}; name {ID_FORMS}")
     named = {key if key in data["orders"] else (data["jobs"].get(key) or data["prs"][key])["order"] for key in keys}
     orders = {key: order for key, order in data["orders"].items() if key in named}
-    jobs = {job_id for order in orders.values() for job_id in order["jobs"]}
+    listed = {job_id for order in orders.values() for job_id in order["jobs"]}
+    jobs = {key: job for key, job in data["jobs"].items() if key in listed or job["order"] in named}
+    carried = {state.pr_key(url) for job in jobs.values() for url in job["prs"]}
     return data | {
         "orders": orders,
-        "jobs": {key: job for key, job in data["jobs"].items() if key in jobs or job["order"] in named},
-        "prs": {key: pr for key, pr in data["prs"].items() if pr["order"] in named},
+        "jobs": jobs,
+        "prs": {key: pr for key, pr in data["prs"].items() if pr["order"] in named or pr["job"] in jobs or key in carried},
     }
 
 
