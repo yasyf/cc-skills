@@ -41,6 +41,17 @@ def trimmed(record: dict) -> dict:
     return record if kept == named else record | {"attrs": kept}
 
 
+def amended(drive: dict, lane: str | None, record: dict) -> dict:
+    """The record as cci keeps it: a report to the communicator re the seq of a POST report its own lane sent there corrects that report, whatever kind its writer named, so the watch starts the handler that rewords the post it went out in, and no rule of reports, one a thread a turn included, holds it to the next turn."""
+    named = listed(record.get("re"))
+    if kind(record) != "report" or not addressed(record, "communicator") or len(named) != 1 or not named[0].isdigit():
+        return record
+    earlier = agents.shown(named[0])
+    if earlier["lane"] != lane or earlier["kind"] != "report" or not agents.posting(drive["name"], earlier):
+        return record
+    return record | {"kind": "correction"}
+
+
 def misaddressed(payload: dict, record: dict) -> str | None:
     """Why an agent's record goes to the wrong place: a reader or designer posting to him, or a handler posting a defect its return carries."""
     if (agent := payload.get("agent_type")) in SILENT_LANES and addressed(record, "owner"):
@@ -87,7 +98,7 @@ def posting_lane(data: dict, payload: dict, records: list[dict]) -> str:
 
 
 def decision(payload: dict) -> dict | None:
-    """What a drive session's post becomes: refused with the fix while a record in it, read with the text, kind, lanes and attrs cci stores for it, breaks a rule its kind keeps, an ask record carrying his card's ASK block, which only `drive job ask` keeps and draws, included, while any other ask, a question to another session's lane, goes out, else posted with a warning on each POST line telling him a failure of the drive's with no word on how it is prevented, and every record in it trimmed of the attrs it never carries and one line, the rest in its body for whoever acts on it, each record sent where its drive routes it, and the call posted as posting_lane names, a records list rewritten with each record whole, since a field cci filled in beside the list would put back what the record dropped."""
+    """What a drive session's post becomes: refused with the fix while a record in it, read with the text, kind, lanes and attrs cci stores for it, breaks a rule its kind keeps, an ask record carrying his card's ASK block, which only `drive job ask` keeps and draws, included, while any other ask, a question to another session's lane, goes out, else posted, each report re a POST report its own lane sent going out as the correction it is, with a warning on each POST line telling him a failure of the drive's with no word on how it is prevented, and every record in it trimmed of the attrs it never carries and one line, the rest in its body for whoever acts on it, each record sent where its drive routes it, and the call posted as posting_lane names, a records list rewritten with each record whole, since a field cci filled in beside the list would put back what the record dropped."""
     names = state.session_drives(payload.get("session_id") or "")
     if not names:
         return None
@@ -95,7 +106,8 @@ def decision(payload: dict) -> dict | None:
     given = posted(tool_input)
     drives = state.bound_drives(names)
     drive = drives[names[0]]
-    records = [trimmed(record) for record in given]
+    writer = state.session_lane(drive, payload.get("session_id"))
+    records = [amended(drive, writer, trimmed(record)) for record in given]
     stored = [limits.as_stored(record) for record in records]
     if refused := next(filter(None, refusals(payload, names, drives, stored)), None):
         return {"permissionDecision": "deny", "permissionDecisionReason": refused}

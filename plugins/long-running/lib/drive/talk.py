@@ -25,7 +25,7 @@ WORD = re.compile(r"\w+")
 
 
 def say(name: str, post: dict) -> str:
-    """Post one message to his DM through cc-slack, or in a thread outside it named by channel_id, such as an alert's, or with no thread at the root of the channel channel_id names, such as a staging claim to its members, or in the group DM of a person, him and the bot when channel_id is that person's user id, or reword one it made in any of those, and keep the same item on the drive's dashboard, in the words it was given, a catch-up's title, the count of his open cards it closes with and the cards asked since he was last heard its only additions; a post is recorded on the one order cli.post_order decides, never one its caller names, wherever it goes, and posts nothing from a caller but the communicator and its handlers, binding to its session the handler LONG_RUNNING_HANDLER names when its prompt's hook did not, delivering the parts its report record names, making the clock time its words promise his next line by the order's due, and adding its thread to the order's threads; a post at another channel's root, or a line in its thread, whose report names an end as until keeps that end on its order, from which the watch owes that thread its closing line. A report's post names each correction cci holds re it, which the post may lack, and a correction of a report held for his catch-up or carried by it posts nothing, naming where that report's copy is. A handler's result line is kept on its entry, for its done record to carry whole. What the drive's checks find in its words, the say hook hands Jev to judge against his words once this has posted them, before only a post a count or a mark refuses, such as one over its length or to him while he is away, and a dry run."""
+    """Post one message to his DM through cc-slack, or in a thread outside it named by channel_id, such as an alert's, or with no thread at the root of the channel channel_id names, such as a staging claim to its members, or in the group DM of a person, him and the bot when channel_id is that person's user id, or reword one it made in any of those, and keep the same item on the drive's dashboard, in the words it was given, a catch-up's title, the count of his open cards it closes with and the cards asked since he was last heard its only additions; a post is recorded on the one order cli.post_order decides, never one its caller names, wherever it goes, and posts nothing from a caller but the communicator and its handlers, binding to its session the handler LONG_RUNNING_HANDLER names when its prompt's hook did not, delivering the parts its report record names, making the clock time its words promise his next line by the order's due, and adding its thread to the order's threads; a post at another channel's root, or a line in its thread, whose report names an end as until keeps that end on its order, from which the watch owes that thread its closing line. A report's post names each correction cci holds re it, which the post may lack, and a correction of a report held for his catch-up, or of one a post carried, its own or his catch-up, posts nothing, naming where that report's copy is. A handler's result line is kept on its entry, for its done record to carry whole. What the drive's checks find in its words, the say hook hands Jev to judge against his words once this has posted them, before only a post a count or a mark refuses, such as one over its length or to him while he is away, and a dry run."""
     known = caller(name)
     if (close := post.get("close")) and (post.get("record") or post.get("edit")):
         raise DriveError("nothing posted: close answers the order of what your handler holds and writes its report itself, so pass no record or edit")
@@ -36,7 +36,7 @@ def say(name: str, post: dict) -> str:
         raise DriveError("nothing posted: close answers the order of the message of his or the record your handler holds, and no order holds it")
     if close:
         report = {"close": order, "writer": "communicator", "written": state.stamp()}
-    if refused := (order and cli.report_refusal(known, order, report)) or (close and cli.unfiled_refusal(known, order)) or held_refusal(known, seq, report) or unplaced(known, post, report) or unended(known, post, report):
+    if refused := held_refusal(known, seq, report) or (order and cli.report_refusal(known, order, report)) or (close and cli.unfiled_refusal(known, order)) or unplaced(known, post, report) or unended(known, post, report):
         raise DriveError(f"nothing posted: {refused}")
     if report.get("catch_up"):
         if known["catch_up"] is None:
@@ -67,15 +67,19 @@ def say(name: str, post: dict) -> str:
 
 
 def finished(name: str, said: dict, known: dict) -> str:
-    """What say does once its post went out, from what it kept of the post in said: its line, the handler's copy of it, its corrections, the catch-up it released, its record on its order and the order it closed. When a newer install saved the drive while the post went out, say hands said to the newest install's `drive say-finish`, which runs this, so a post never reads as unposted."""
+    """What say does once its post went out, from what it kept of the post in said: its line, the handler's copy of it, the post its report went out in, which a later correction of it rewords, its corrections, the catch-up it released, its record on its order and the order it closed. When a newer install saved the drive while the post went out, say hands said to the newest install's `drive say-finish`, which runs this, so a post never reads as unposted."""
     post, order, report, amended, reply = said["post"], said["order"], said["report"], said["amended"], said["reply"]
     seq, close = report.get("seq"), post.get("close")
     line = f"{'EDITED' if post.get('edit') else 'POSTED'} {reply['permalink']}"
     if card := reply.get("card_permalink"):
         line += f" CARD {card}"
-    if handler := state.handler_id(known, os.environ.get("CLAUDE_CODE_SESSION_ID")):
+    handler = state.handler_id(known, os.environ.get("CLAUDE_CODE_SESSION_ID"))
+    if handler or seq:
         with state.edit(name) as data:
-            data["handlers"][handler]["posted"].append(line)
+            if handler:
+                data["handlers"][handler]["posted"].append(line)
+            if seq:
+                data["carried"][seq] = reply["permalink"]
     if warning := reply.get("warning"):
         line += f" WARNING {warning}"
     if found := amended["correction"].get(seq):
@@ -241,14 +245,14 @@ def released(name: str, post: str, amended: dict[str, dict[str, list[str]]]) -> 
 
 
 def held_refusal(data: dict, seq: str | None, report: dict) -> str | None:
-    """Why a report's or a correction's post goes nowhere: the report is held for his catch-up, as the away check marks it whatever Jev then reads, or the report a correction corrects is, since the catch-up carries the correction with it, or went out in his catch-up, whose post the correction rewords."""
+    """Why a report's or a correction's post goes nowhere: the report is held for his catch-up, as the away check marks it whatever Jev then reads, or the report a correction corrects is, since the catch-up carries the correction with it, or went out in a post, its own or his catch-up, which the correction rewords."""
     if seq in data["held"]:
         return f"report {seq} is held for his catch-up, which carries it: return NOTHING held for his catch-up"
     corrected = report.get("corrects")
     if corrected in data["held"]:
         return f"record {seq} corrects report {corrected}, held for his catch-up, which carries this correction with it: return NOTHING held for his catch-up"
     if post := data["carried"].get(corrected):
-        return f"record {seq} corrects report {corrected}, which his catch-up {post} carried: reword that post with say(edit={post}, text=…)"
+        return f"record {seq} corrects report {corrected}, which went out in {post}: reword that post with say(edit={post}, text=…)"
     return None
 
 

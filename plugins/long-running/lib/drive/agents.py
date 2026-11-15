@@ -11,7 +11,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Self
 
-from drive import install, limits, procs, reads, render, slack, state, superseded
+from drive import install, limits, procs, reads, render, slack, state, superseded, view
 from drive.brief import BRIEF_JOB, carried, heavier
 
 HIS_KINDS = ("owner", "answer")
@@ -24,6 +24,7 @@ AMENDING = ("correction", "withdraw")
 AMENDMENT_BYTES = 1 << 20
 TRUNK_DRIVE = "trunk"
 POSTS_CURSOR = "watch-posts"
+POSTED_KINDS = ("report", "correction")
 POSTS_LOCK = ".posts.lock"
 TRUNK_FAILED = "failed in Trunk's merge queue"
 HANDLER = "long-running:handler"
@@ -76,6 +77,19 @@ UNOWNED = re.compile(
     re.IGNORECASE,
 )
 JOB_WORD = re.compile(r"\bj\d+\b")
+PROMISED_CARD = re.compile(
+    r"\bcards?\b(?:\s+[\w-]+){0,5}?\s+(?:(?:is|are)\s+)?(?:coming|on (?:its|the) way|follows|will (?:follow|come|go up|be drawn))\b"
+    r"|\b(?:will|['’]ll|going to|about to)\s+(?:\w+\s+)?(?:draw|send|post|put up)\s+(?:\w+\s+){0,3}?cards?\b"
+    r"|\b(?:you(?:['’]ll| will) (?:get|see)|expect)\s+(?:\w+\s+){0,3}?cards?\b",
+    re.IGNORECASE,
+)
+DENIED = re.compile(r"\b(?:no|not|never|nor|without)\b|n['’]t\b", re.IGNORECASE)
+CLAUSE_END = re.compile(r"[,;:.!?](?=\s|$)")
+UNPROMISED = (
+    'refused: "{line}" tells him a card is coming and names no open card of his as {{card:<waits id>}}; a card not drawn yet may never'
+    " come, as when an answer of his already settled its question, so draw it first, with `drive job ask` or a post's tap_prs, and name"
+    " it on that line, or drop the promise"
+)
 UNOWNED_RULE = (
     "A line never says work sits with no one on it: the session that saw it puts a job on it that turn and the line names that job, by his words"
     ' 94c20c6 "its unnaceptbale to just say that no one is workiong on it, get someone workong in it, for all of these"; a line saying no one'
@@ -199,6 +213,22 @@ def unowned_work(text: str) -> Ruled | None:
         " drive job resume for the one holding it, and name that job in the line, as {started:<j>} in a post to him",
         UNOWNED_RULE,
         found=f'"{found[0]}" says work has no one on it, and the line names no job',
+    )
+
+
+def unpromised(name: str, text: str) -> Unjudged | None:
+    """Why a line, a report to the communicator or a post to him, tells him a card is coming while it names no card of his open now as {card:<waits id>}, with his cards unread counting every card as open: a promised card the drive never draws never comes."""
+    for line in text.splitlines():
+        if promises_card(limits.REF.sub("it", line)) and not any(view.card_open(state.waits_of(name, ref[2]), view.live_cards(name)) for ref in limits.REF.finditer(line) if ref[1] == "card"):
+            return Unjudged(UNPROMISED.format(line=line.strip()))
+    return None
+
+
+def promises_card(line: str) -> bool:
+    """Whether the line says a card is coming in a clause that denies none of it, as "no card follows" does."""
+    return any(
+        not DENIED.search(line, max((end.end() for end in CLAUSE_END.finditer(line, 0, found.start())), default=0), found.end())
+        for found in PROMISED_CARD.finditer(line)
     )
 
 
@@ -330,13 +360,13 @@ def answering(name: str, seq: str) -> list[dict]:
 
 
 def posts(name: str) -> list[str]:
-    """The seq of each `POST` report to communicator@<drive> since the watch last read them, oldest first, through cci's POSTS_CURSOR, which cci moves past each record it prints. Seeded with itself, a POSTS_CURSOR not set yet starts at the drive's newest record rather than an hour back, so a drive whose communicator started those reports' handlers replays none, while one set never moves past a report agents.unread set it back to."""
-    argv = ["cci", "tail", "--drive", name, "--to", "communicator", "--kind", "report", "--cursor", POSTS_CURSOR, "--seed", POSTS_CURSOR, "--budget", str(AMENDMENT_BYTES), "--json"]
+    """The seq of each `POST` report or correction to communicator@<drive> since the watch last read them, oldest first, through cci's POSTS_CURSOR, which cci moves past each record it prints, so a correction of a report already posted gets the handler that rewords that post. Seeded with itself, a POSTS_CURSOR not set yet starts at the drive's newest record rather than an hour back, so a drive whose communicator started those reports' handlers replays none, while one set never moves past a report agents.unread set it back to."""
+    argv = ["cci", "tail", "--drive", name, "--to", "communicator", *(flag for kind in POSTED_KINDS for flag in ("--kind", kind)), "--cursor", POSTS_CURSOR, "--seed", POSTS_CURSOR, "--budget", str(AMENDMENT_BYTES), "--json"]
     try:
         lines = reads.run(argv, Path.cwd()).splitlines()
     except reads.ReadError as error:
         raise state.DriveError(f"the POST reports to communicator@{name} could not be read: {error}") from None
-    return [str(record["seq"]) for record in map(json.loads, lines) if record["text"].startswith("POST")]
+    return [str(record["seq"]) for record in map(json.loads, lines) if posting(name, record)]
 
 
 def unread(name: str, seq: str) -> None:
@@ -347,10 +377,9 @@ def unread(name: str, seq: str) -> None:
         raise state.DriveError(f"the POST reports' cursor could not move back to {seq}: {error}") from None
 
 
-def posted(name: str, seq: str) -> bool:
-    """Whether record seq is a `POST` report to communicator@<drive>, one POSTS_CURSOR reads."""
-    record = shown(seq)
-    return bool({"communicator", f"communicator@{name}"} & set(record.get("to", ()))) and record["kind"] == "report" and record["text"].startswith("POST")
+def posting(name: str, record: dict) -> bool:
+    """Whether a record cci holds is a `POST` report or correction to communicator@<drive>, one POSTS_CURSOR reads."""
+    return bool({"communicator", f"communicator@{name}"} & set(record.get("to", ()))) and record["kind"] in POSTED_KINDS and record["text"].startswith("POST")
 
 
 def start_posts(name: str, own: str | None = None, detached: bool = False) -> bool:
