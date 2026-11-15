@@ -589,8 +589,8 @@ def spec_lines(words: list[dict]) -> list[str]:
 
 
 def judging(words: list[dict]) -> list[dict]:
-    """His standing words as a judge's items, each keyed by its answer or order id, or else by its place for words he gave with none recorded."""
-    return [{"id": entry["id"] or f"heard{number}", "asked": entry["asked"], "said": entry["said"], "link": entry["link"]} for number, entry in enumerate(unreplaced(words), 1)]
+    """His standing words as a judge's items, each keyed by its answer or order id, or else by its place for words he gave with none recorded, with when he gave them."""
+    return [{"id": entry["id"] or f"heard{number}", "asked": entry["asked"], "said": entry["said"], "link": entry["link"], "at": entry["at"]} for number, entry in enumerate(unreplaced(words), 1)]
 
 
 def readers(data: dict, order_id: str, parts: list[str]) -> list[str]:
@@ -990,16 +990,20 @@ def unlisted_waits(listed: list[re.Match]) -> str | None:
 
 
 def narrowed_design(name: str, data: dict, job: dict, text: str) -> str | None:
-    """Why a design may not be kept, as Jev reads it whole against his words on its order and each order its job carries, his spec on its feature newest first, by spec, and his answer to each of its cards, beside the forks it asks him, in as many requests as settled.batched needs to read every word of his whole beside the whole design by sentence, its rulings: line beside it as `rulings`, never a sentence of it, since it quotes his words rather than builds anything: it leaves out, defers or narrows what one names with no fork asking him, or keeps, reuses or builds on what one set aside, at settled.YES or more, at the sentence flagged picks; or, where Jev reads several strategies doing one job at settled.YES or more, its first change is not the abstraction they share, under settled.NO. By his pick "Refuse a design only when Jev read all of it, quoting the sentence it flags; larger designs keep with a warning", a design past one Jev request of settled.REQUEST_CHARS // 2 characters is kept unread, and a reading in the band between, a pick of no sentence, or none, keeps it too, each said on stderr."""
-    words = [
-        *(word for order_id in [job["order"], *job["carries"]] for word in settled.order_words(data, order_id)),
-        *judging(spec(name, data, job)),
-        *(
-            {"id": f"q{number}", "asked": question["title"], "said": closed["words"]}
-            for number, question in enumerate(job["questions"], 1)
-            if (closed := question["closed"]) and closed["how"] == "answered" and closed["words"]
-        ),
-    ]
+    """Why a design may not be kept, as Jev reads it whole against his words on its order and each order its job carries, his spec on its feature, by spec, and his answer to each of its cards, all newest first, beside the forks it asks him, in as many requests as settled.batched needs to read every word of his whole beside the whole design by sentence, its rulings: line beside it as `rulings`, never a sentence of it, since it quotes his words rather than builds anything: it leaves out, defers or narrows what one names with no fork asking him, or keeps, reuses or builds on what one set aside, at settled.YES or more, at the sentence flagged picks beside his words given after it; or, where Jev reads several strategies doing one job at settled.YES or more, its first change is not the abstraction they share, under settled.NO. By his pick "Refuse a design only when Jev read all of it, quoting the sentence it flags; larger designs keep with a warning", a design past one Jev request of settled.REQUEST_CHARS // 2 characters is kept unread, and a reading in the band between, a pick of no sentence, or none, keeps it too, each said on stderr."""
+    words = sorted(
+        [
+            *(word for order_id in [job["order"], *job["carries"]] for word in settled.order_words(data, order_id)),
+            *judging(spec(name, data, job)),
+            *(
+                {"id": f"q{number}", "asked": question["title"], "said": closed["words"], "at": closed["at"]}
+                for number, question in enumerate(job["questions"], 1)
+                if (closed := question["closed"]) and closed["how"] == "answered" and closed["words"]
+            ),
+        ],
+        key=lambda word: state.parse_time(word["at"]),
+        reverse=True,
+    )
     ruled = {line for line in block_lines(text) if line.removeprefix("- ").casefold().startswith("rulings:")}
     sentences = {f"s{number}": sentence for number, sentence in enumerate((sentence for line in text.splitlines() if line.strip() not in ruled for sentence in settled.SENTENCE.split(line) if sentence.strip()), 1)}
     design = {"forks": [question["title"] for question in job["questions"] if not question["closed"]], "rulings": "\n".join(sorted(ruled)), "design": sentences}
@@ -1015,7 +1019,7 @@ def narrowed_design(name: str, data: dict, job: dict, text: str) -> str | None:
     try:
         read = settled.jev_all(settled.batched(design | {"words": {}}, {"strategies": settled.STRATEGIES, "first": settled.ABSTRACTION_FIRST}, weighs))
         flags = sorted(((question, word_id, sure) for key, sure in read.items() for question, _, word_id in [key.partition(".")] if question in ("narrows", "against") and sure >= settled.YES), key=lambda found: (found[0] != "narrows", -found[2]))
-        refused = next(filter(None, (flagged(design, question, items[word_id]) for question, word_id, _ in flags)), None)
+        refused = next(filter(None, (flagged(design, question, items[word_id], words) for question, word_id, _ in flags)), None)
     except settled.Unheard as failure:
         print(f"drive job report: Jev did not read the design against his words, so it is kept unchecked: {failure}", file=sys.stderr)
         return None
@@ -1037,15 +1041,24 @@ def narrowed_design(name: str, data: dict, job: dict, text: str) -> str | None:
     return None
 
 
-def flagged(design: dict, question: str, word: dict) -> str | None:
-    """The refusal of a design Jev reads as building less than his words name, or going against them, quoting the sentence of it Jev picks as doing so and the fix; None when it picks none, said on stderr, since a refusal quoting no sentence leaves the designer nothing to fix."""
+def flagged(design: dict, question: str, word: dict, words: list[dict]) -> str | None:
+    """The refusal of a design Jev reads as building less than his words name, or going against them, quoting the sentence of it Jev picks as doing so beside every word of his given after them, newest first, since the newer wins where two collide, and the fix; None when it picks none or his newer words run past one request beside it, said on stderr, since a refusal quoting no sentence leaves the designer nothing to fix."""
     pick = settled.NARROWED_AT if question == "narrows" else settled.CONTRADICTED_AT
     sentences = design["design"]
-    picked = settled.jev(design | {"words": {"asked": word["asked"], "said": word["said"]}}, {"sentence": pick._replace(options=pick.options | dict.fromkeys(sentences))})["sentence"]
     named = f", {word['id']}" if limits.ANSWER_ID.fullmatch(word["id"]) else ""
     said = f'his words "{cut(word["said"].strip('"“”'), settled.QUOTED_CHARS)}" ({word["asked"]}{named})'
-    if not (sentence := sentences.get(picked)):
-        print(f"drive job report: Jev reads this design as {'building less than' if question == 'narrows' else 'going against'} {said} but picks none of its sentences as doing so, so it is kept", file=sys.stderr)
+    reads = f"Jev reads this design as {'building less than' if question == 'narrows' else 'going against'} {said}"
+    newer = [other for other in words if state.parse_time(other["at"]) > state.parse_time(word["at"])]
+    request, asked, left = settled.fill(
+        design | {"words": {"asked": word["asked"], "said": word["said"]}, "newer": {}},
+        {"sentence": pick._replace(options=pick.options | dict.fromkeys(sentences))},
+        (({"newer": {f"n{number}": {"asked": other["asked"], "said": other["said"]}}}, {}) for number, other in enumerate(newer, 1)),
+    )
+    if left:
+        print(f"drive job report: {reads}, but {len(left)} of his {len(newer)} words given after them run past one Jev request beside it, so it is kept", file=sys.stderr)
+        return None
+    if not (sentence := sentences.get(settled.jev(request, asked)["sentence"])):
+        print(f"drive job report: {reads} but picks none of its sentences as doing so, so it is kept", file=sys.stderr)
         return None
     if question == "narrows":
         return (
