@@ -2026,27 +2026,28 @@ def renamed_change(name: str, data: dict, order_id: str, named: list[str], desig
 
 
 def staging_testers(data: dict, job_id: str, report: str) -> list[str]:
-    """Put each PR the drive tracks that a builder's READY or PUSHED stages on a `STAGING: #N <cases>` line on the `staging test of #N before it lands` part of the order tracking it, waiting on that part, and give each such part no unended job carries a tester of its own, a builder building nothing on this Mac in the builder's session, its goal the cases, as install.add_prover adds a prover; the testers added."""
-    from drive import view
-
-    job = data["jobs"][job_id]
+    """Stage each PR the drive tracks that a builder's READY or PUSHED names on a `STAGING: #N <cases>` line, by stage_pr, its tester in the builder's session; the testers added."""
     if not REPORTED_LINE.match(report.lstrip()):
         return []
-    added = []
-    for staging in STAGING_LINE.findall(report):
-        if not (staged := STAGED.fullmatch(staging)) or (key := f"{MONOREPO}#{staged['number']}") not in data["prs"]:
-            continue
-        pr = data["prs"][key]
-        order, part = data["orders"][pr["order"]], STAGING_TEST.format(number=staged["number"])
-        order["parts"].setdefault(part, new_part())
-        pr["waits"] = view.stored_waits(data, [*pr["waits"], f"{pr['order']}:{part}"])
-        if any(other["state"] not in ENDED_JOB_STATES for _, other in part_jobs(data, pr["order"], part)):
-            continue
-        tester_id = next_id(data["jobs"], "j")
-        data["jobs"][tester_id] = new_job(pr["order"], "builder", staged["cases"], [part], stamp()) | {"session": job.get("session"), "builds_nothing": True}
-        order["jobs"].append(tester_id)
-        added.append(tester_id)
-    return added
+    session = data["jobs"][job_id].get("session")
+    staged = [(key, found["cases"]) for staging in STAGING_LINE.findall(report) if (found := STAGED.fullmatch(staging)) and (key := f"{MONOREPO}#{found['number']}") in data["prs"]]
+    return [tester_id for key, cases in staged if (tester_id := stage_pr(data, key, cases, session))]
+
+
+def stage_pr(data: dict, key: str, cases: str, session: str | None) -> str | None:
+    """Put a Forge-AI/monorepo PR the drive tracks on the `staging test of #N before it lands` part of the order tracking it, waiting on that part, and give the part, when no unended job carries it, a tester of its own, a builder building nothing on this Mac in the session given, its goal the cases, as install.add_prover adds a prover; the tester added, else None."""
+    from drive import view
+
+    pr = data["prs"][key]
+    order, part = data["orders"][pr["order"]], STAGING_TEST.format(number=key.rpartition("#")[2])
+    order["parts"].setdefault(part, new_part())
+    pr["waits"] = view.stored_waits(data, [*pr["waits"], f"{pr['order']}:{part}"])
+    if any(other["state"] not in ENDED_JOB_STATES for _, other in part_jobs(data, pr["order"], part)):
+        return None
+    tester_id = next_id(data["jobs"], "j")
+    data["jobs"][tester_id] = new_job(pr["order"], "builder", cases, [part], stamp()) | {"session": session, "builds_nothing": True}
+    order["jobs"].append(tester_id)
+    return tester_id
 
 
 def left_changes(data: dict, builder_id: str, found: list[tuple[str, list[int]]]) -> list[str]:

@@ -3999,6 +3999,8 @@ def pr_set(args: argparse.Namespace) -> int:
             f"{key}: refused, nothing set: --flaky names the flaky test that failed it at its head, in its own checks or in Trunk's ejection of its lander's try,"
             f" and at {before['head'][:7]} none of its checks fail and Trunk ejected no try of its lander"
         )
+    if args.staging and key.rpartition("#")[0].casefold() != state.MONOREPO.casefold():
+        raise DriveError(f"{key}: refused, nothing set: --staging runs a {state.MONOREPO} PR's cases on plat-usw2-staging, and {key} is no {state.MONOREPO} PR")
     if args.exempt == state.FLAKE_FIX and args.tap is None:
         args.tap = flake_tap(key, state.guarded(key) or not state.tooling(known["orders"][before["order"]]))
     after = dict(before)
@@ -4059,6 +4061,8 @@ def pr_set(args: argparse.Namespace) -> int:
             serving += f"\nserves {args.serves}, his words: {find(data['orders'], args.serves, 'order')['text']}"
         set_pr(pr, args, answered)
         pr["waits"] = merged_waits(data, pr, args.waits, args.no_waits, found)
+        if args.staging and (tester_id := state.stage_pr(data, key, args.staging, data["jobs"][pr["job"]].get("session"))):
+            serving += "".join(f"\n{line}" for line in render.builder_lines(data, [tester_id]))
         if args.part:
             serving += f"\ndelivers {'; '.join(pr['parts'])}"
         for part in args.part if delivers else []:
@@ -4122,7 +4126,8 @@ def check_waits(name: str, waits: list[str]) -> dict | None:
             raise DriveError(f"--waits {wait}: the drive tracks no PR {pr}; drive pr add it to its job first")
         if (named := state.ORDER_PART.fullmatch(wait)) and named[1] in data["orders"] and not (state.part_wait(data, wait) and view.holds(data, wait, None)):
             left = [part for part in data["orders"][named[1]]["parts"] if view.holds(data, f"{named[1]}:{part}", None)]
-            raise DriveError(f"--waits {wait}: name a part of {named[1]} still to be delivered, word for word, as {named[1]}:<part>: {'; '.join(left) or 'none is left'}")
+            staging = f"; a PR's own staging test is added with its part, its wait and its tester by drive pr set {state.MONOREPO}#{found['number']} --staging \"<the cases it runs>\"" if (found := state.STAGING_PART.fullmatch(named[2])) else ""
+            raise DriveError(f"--waits {wait}: name a part of {named[1]} still to be delivered, word for word, as {named[1]}:<part>: {'; '.join(left) or 'none is left'}{staging}")
         if state.PID_WAIT.fullmatch(wait) and not state.pid_waits(wait):
             raise DriveError(f"--waits {wait}: no process on this Mac holds that number now, so nothing is left to wait on")
     cards = [wait for wait in waits if state.card_wait(data, wait)]
@@ -6059,6 +6064,14 @@ def parser() -> argparse.ArgumentParser:
         "--port-of", type=int, metavar="PR", help="a pure port of this PR number in its own repository, work that merged or that he approved: exempt, with no tap card, waiting on and landing after an original the drive tracks until it merges or he approves it; refused for an original the drive does not track that GitHub does not read merged, and for a PR changing a migration, schema or wire format, whose data model is a design part of his order"
     )
     verb.add_argument("--fundamental", help="what changed; clears his tap and any exemption")
+    verb.add_argument(
+        "--staging",
+        metavar="CASES",
+        help=(
+            "the cases a Forge-AI/monorepo PR's staging test runs, as a builder's `STAGING: #N <cases>` line gives them: adds the `staging test of #N before it lands` part"
+            " to its order, its wait on that part and, while no unended job carries the part, one tester building nothing on this Mac, whose start line it prints"
+        ),
+    )
     tapped = verb.add_mutually_exclusive_group()
     tapped.add_argument("--tapped", choices=state.TAP_LABELS, help="record a tap he gave elsewhere, redrawing his open card for it in place to show it")
     tapped.add_argument(

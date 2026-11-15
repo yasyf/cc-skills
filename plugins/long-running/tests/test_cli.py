@@ -828,7 +828,7 @@ def test_a_part_wait_open_prs_of_another_job_outside_its_stack_share_is_refused_
     assert cli.main(["pr", "set", second, "--waits", wait]) == 2
     refused = "Forge-AI/monorepo#7, Forge-AI/monorepo#9, of other jobs outside Forge-AI/monorepo#8's stack, wait on o2:every dangerous PR is held already"
     err = capsys.readouterr().err
-    assert (refused in err, 'drive order set o2 --add-part "staging test of #8 before it lands"' in err) == (True, True)
+    assert (refused in err, 'drive pr set Forge-AI/monorepo#8 --staging "<the cases it runs>"' in err) == (True, True)
     code, err = keep(monkeypatch, capsys, "j2", f"WAITING {second} waits on {wait}\n")
     assert (code, f"its WAITING puts Forge-AI/monorepo#8 on {wait}: {refused}" in err) == (2, True)
     data = state.load(demo)
@@ -6289,6 +6289,25 @@ def test_a_staging_testers_brief_runs_a_dashboard_prs_cases_on_a_mac_box_at_the_
     assert len(asked) == 4
     monkeypatch.setattr(github, "run", lambda cmd, cwd=None, **_: listed.splitlines()[0])
     assert (cli.main(["job", "brief", tester_id]), "lists no passed sand-next release" in capsys.readouterr().err) == (2, True)
+
+
+def test_pr_set_staging_stages_a_monorepo_pr_in_one_save_as_its_builders_staging_line_does_and_a_wait_on_its_unlisted_staging_part_names_it(
+    run: Run, with_pr: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    part, cases = state.STAGING_TEST.format(number=42), "run the migration twice and roll it back on plat-usw2-staging"
+    assert cli.main(["pr", "set", PR, "--waits", f"o1:{part}"]) == 2
+    assert f'drive pr set {with_pr} --staging "<the cases it runs>"' in capsys.readouterr().err
+    code, out = run("pr", "set", PR, "--staging", cases)
+    data = state.load("demo")
+    (tester_id, tester), = [(job_id, job) for job_id, job in data["jobs"].items() if job.get("builds_nothing")]
+    assert (code, f"{tester_id} builder on {json.dumps(part)}: start its agent now" in out) == (0, True)
+    assert (data["prs"][with_pr]["waits"], part in data["orders"]["o1"]["parts"], tester_id in data["orders"]["o1"]["jobs"]) == ([f"o1:{part}"], True, True)
+    assert (tester["kind"], tester["goal"], tester["parts"]) == ("builder", cases, [part])
+    assert run("pr", "set", PR, "--staging", cases)[0] == 0
+    assert [job_id for job_id, job in state.load("demo")["jobs"].items() if job.get("builds_nothing")] == [tester_id]
+    run("pr", "add", "https://github.com/yasyf/cc-skills/pull/7", "--job", "j1", *LEAD)
+    assert cli.main(["pr", "set", "https://github.com/yasyf/cc-skills/pull/7", "--staging", cases]) == 2
+    assert "yasyf/cc-skills#7: refused, nothing set: --staging runs a Forge-AI/monorepo PR's cases on plat-usw2-staging" in capsys.readouterr().err
 
 
 def test_a_builders_ready_counts_only_on_a_green_required_check_and_one_still_running_or_red_returns_pushed(

@@ -334,11 +334,10 @@ def pooled(drive: dict, key: str, wait: str) -> str:
     strangers = [other for other, (other_job, other_bottom) in kins.items() if other_job != job and other_bottom != bottom]
     if not strangers:
         return ""
-    order_id, number = wait.split(":", 1)[0], key.rsplit("#", 1)[1]
     return (
         f"{', '.join(strangers)}, of other jobs outside {key}'s stack, wait on {wait} already, and that part never frees while they do, since one job's DONE on it"
-        f' proves none of them: give {key} a part of its own, as drive order set {order_id} --add-part "{state.STAGING_TEST.format(number=number)}",'
-        f' carried by the job that proves it, then wait on "{order_id}:<that part>", or wait on the job or PR doing the work by its id or <owner>/<repo>#<n>'
+        f' proves none of them: give {key} a staging test of its own with drive pr set {key} --staging "<the cases it runs>", which adds its'
+        f' "{state.STAGING_TEST.format(number=key.rsplit("#", 1)[1])}" part, its wait on that part and its tester, or wait on the job or PR doing the work by its id or <owner>/<repo>#<n>'
     )
 
 
