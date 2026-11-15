@@ -1384,7 +1384,7 @@ def test_a_resume_with_no_text_from_another_session_posts_the_held_text_to_the_a
     assert state.load(demo)["jobs"]["j1"]["undelivered"] == []
 
 
-STOPPED_TEXT ="API Error: Opus 5.5's safeguards flagged this message (https://www.anthropic.com/legal/aup). This sometimes happens with safe, normal conversations."
+STOPPED_TEXT = "API Error: Opus 5.5's safeguards flagged this message (https://www.anthropic.com/legal/aup). This sometimes happens with safe, normal conversations."
 STOPPED = {
     "type": "assistant",
     "timestamp": "2026-11-12T20:44:05.907Z",
@@ -1502,6 +1502,30 @@ def test_a_resume_of_an_agent_here_whose_turn_ended_while_eight_builders_hold_th
     assert unheld(orca.brief_of(launched[0])).endswith("The message it never read, which you act on now:\n\nPR #54870: checks failed")
     job = state.load(demo)["jobs"]["j1"]
     assert (job["agent"], job["where"], job["route"], job["dispatch"]) == (None, "remote", None, "dispatch-2")
+
+
+@pytest.mark.parametrize("last", [STOPPED, ENDED_TURN], ids=["stopped", "woken"])
+def test_a_resume_with_no_text_of_an_agent_here_its_starter_no_longer_reaches_hands_each_held_text_to_its_next_worker_as_the_undelivered_line_names_it(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, last: dict
+) -> None:
+    launched = agent_on_this_mac(run, demo, tmp_path, monkeypatch, last, timedelta(seconds=30))
+    words = 'His answer on card demo:j1-7, verbatim: "drift only in a window you pick, and never past the release cut"'
+    held = {"seq": "699075", "words": words, "at": state.stamp(T0), "said": None, "request": "req-held", "sender": state.HIM}
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["undelivered"] = [held]
+    if last is ENDED_TURN:
+        run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "build the parts", "--parts", *(f"part {number}" for number in range(1, 9)))
+        for number in range(1, 9):
+            run("job", "add", "builder", "--order", "o2", "--part", f"part {number}", "--goal", f"build part {number}", "--agent", f"b{number}")
+    data = state.load(demo)
+    assert watch.unreached("j1", data["jobs"]["j1"], data, held, None).endswith(", and drive job resume j1 delivers it now")
+    said = "j1: the texts it held went to the job's next worker, started on Sprite workspace-2 as dispatch dispatch-2 in a handoff carrying them, taking over from its agent a1 on this Mac, which takes no message: "
+    code, out = run("job", "resume", "j1")
+    assert (code, out[: len(said)]) == (0, said)
+    assert out[len(said) :].startswith("its last response ended on refusal" if last is STOPPED else "its turn ended and 8 builders already run on this Mac")
+    assert words in launched[0]
+    job = state.load(demo)["jobs"]["j1"]
+    assert (job["agent"], job["dispatch"], job["undelivered"]) == (None, "dispatch-2", [])
 
 
 def test_a_pushed_builders_takeover_that_started_no_worker_keeps_its_agent_and_holds_the_text_so_the_next_resume_takes_it_over_as_j5992_could_not(
