@@ -575,12 +575,18 @@ def status(name: str, post: dict, stack: list[str], pictures: list[str], sent: s
 
 
 def draw(name: str, keys: list[str], again: bool = False) -> str:
-    """Post his card on the PRs at his DM root and in no order's thread, under the line `waits_line` writes from their records, as drive pr add draws it on the row it makes and the watch on a PR still uncarded, or `again` on PRs that wait on him while they fix a live bug, keep it as a said event, and store his cards as cc-slack lists them now, which view.tap_card reads; its link. A card drive card refuses for every one of them, or a line `plain` refuses, posts nothing and says why."""
+    """Post his card on the PRs at his DM root and in no order's thread, under the line `waits_line` writes from their records, as drive pr add draws it on the row it makes and the watch on a PR still uncarded, or `again` on PRs that wait on him while they fix a live bug, keep it as a said event, and store his cards as cc-slack lists them now, which view.tap_card reads; its link. A card drive card refuses for every one of them, a line `plain` refuses, or a card whose waits id names a card he answered, which cc-slack only links again while no PR on it changed since, posts nothing and says why."""
     from drive import card
 
     drawn = card.cards([{"repo": key.split("#")[0], "number": int(key.split("#")[1])} for key in keys])
     if not drawn["cards"]:
         raise DriveError("; ".join(f"{skip['repo']}#{skip['number']}: {skip['reason']}" for skip in drawn["skipped"]) or f"drive card drew no card on {', '.join(keys)}")
+    found = view.live_cards(name)
+    for each in drawn["cards"]:
+        waits = each["card"].get("waits")
+        closed = waits and not view.card_open(waits, found) and view.closed_card(found, waits)
+        if closed and closed["answer"] and not closed["answer"].get("withdrawn") and not closed["replaced_by"] and not any(row["changed"] for row in each["card"]["prs"]):
+            raise DriveError(f"nothing was posted: his card under {waits} is {closed['url']}, which he answered, and with no PR on it changed since, cc-slack would only link it again")
     line = waits_line(state.load(name), keys, [row["title"] for each in drawn["cards"] for row in each["card"]["prs"]], again)
     plain(line)
     reply = slack.cc_slack(*status(name, {}, keys, [], line))

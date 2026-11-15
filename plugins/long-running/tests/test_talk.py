@@ -410,6 +410,24 @@ def test_the_watchs_ask_again_on_a_stack_card_says_why_it_asks_where_it_posted_a
     assert said(demo)[0]["text"] == line
 
 
+def test_a_draw_of_his_card_under_the_waits_id_of_one_he_answered_posts_nothing_until_a_pr_on_it_changed_since(
+    demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Run page", "show a run's history")
+    building(demo)
+    tapped = "https://acme.slack.com/archives/D123/p1794300000000300"
+    closed = {"waits": "merge:yasyf:cc-skills:7", "title": "New: approve the run page history?", "prs": [PR_URL], "asked": ASKED, "url": tapped, "answer": {"label": "Approve", "at": AWAY}, "tapped": "", "replaced_by": None}
+    monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS | {"closed": [closed]})
+    view.refresh_cards(demo)
+    rows = [{"title": "the run page shows its history", "changed": ""}]
+    monkeypatch.setattr("drive.card.cards", lambda asked: {"cards": [{"repo": "yasyf/cc-skills", "number": 7, "card": {"title": "New: approve the run page history?", "waits": "merge:yasyf:cc-skills:7", "prs": rows}}], "skipped": []})
+    with pytest.raises(DriveError, match=f"nothing was posted: his card under merge:yasyf:cc-skills:7 is {tapped}, which he answered"):
+        DRAW(demo, ["yasyf/cc-skills#7"])
+    assert (posts, said(demo)) == ([], [])
+    rows[0]["changed"] = 'Reworked to your words "Own settings key per value": one indexed row per read'
+    assert DRAW(demo, ["yasyf/cc-skills#7"]) == POSTED
+
+
 def test_a_line_over_his_card_that_check_post_flags_and_jev_reads_as_shorthand_posts_nothing_and_one_jev_cannot_read_goes_out(
     demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, checked: Checked, jev: Jev
 ) -> None:
