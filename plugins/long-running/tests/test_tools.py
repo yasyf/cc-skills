@@ -161,7 +161,7 @@ def test_a_refusal_while_a_job_call_runs_writes_nothing_and_a_passing_call_saves
         tools.run("job", demo, {"ops": [{"add": {"kind": "reader", "order": order, "goal": "fix it"}}, {"add": lands}]})
     assert str(refused.value).splitlines() == [
         "refused, nothing written: 1 of 2 ops refused; fix each and send the whole call again",
-        '2 job add "read" refused: --lands names the PRs a builder lands, which only a builder does',
+        '2 job add "read" refused: --lands https://github.com/a/b/pull/1: the drive tracks no PR a/b#1; drive pr add https://github.com/a/b/pull/1 --job <j> tracks it first',
     ]
     assert (state.load(demo)["orders"], state.load(demo)["jobs"]) == ({}, {})
     saves: list[str] = []
@@ -190,7 +190,7 @@ def test_a_dry_run_refuses_each_op_the_call_refuses_prints_each_command_it_passe
             assert line.startswith(f"1 job set refused: --waits {wait}: name a job of this drive, the Slack link or waits id of a card of his still open")
     assert tools.run("job", demo, {"dry_run": True, "ops": [{"set": {"id": "j1", "said": "pushed"}}]}) == "1 drive job set j1 --said=pushed"
     assert state.load(demo)["jobs"]["j1"]["said"] is None
-    with pytest.raises(DriveError, match="1 pr set refused: no drive PR a/b#1: add it first"):
+    with pytest.raises(DriveError, match="1 pr set refused: the drive tracks no PR a/b#1; drive pr add"):
         tools.run("pr", demo, {"dry_run": True, "ops": [{"set": {"url": "https://github.com/a/b/pull/1", "tap": False, "why": "superseded"}}]})
     assert tools.run("status", demo, {"dry_run": True, "ids": ["o1", "j1"]}) == "1 drive status o1 j1"
     assert state.load(demo)["prs"] == {}
@@ -343,6 +343,9 @@ def test_a_sprite_lanes_verb_acting_on_another_job_or_drive_however_it_is_spelle
     monkeypatch.setenv(state.OWN_JOB_ENV, "j7")
     monkeypatch.setenv(state.DRIVE_ENV, demo)
     monkeypatch.setattr(reads, "break_glass", lambda *args: pytest.fail("a refused break-glass started a grant"))
+    with state.edit(demo) as data:
+        for number in (42, 43):
+            data["prs"][f"Forge-AI/monorepo#{number}"] = state.new_pr(f"https://github.com/Forge-AI/monorepo/pull/{number}", "j8", "o1")
     capsys.readouterr()
     assert cli.main(words) == 2
     assert capsys.readouterr().err.startswith(why)

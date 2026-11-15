@@ -48,7 +48,9 @@ THREAD_HELP = (
     " in the channel of the --from message, his DM for an order from the terminal; its lines to him go in a channel's thread only for an incident"
 )
 RULING = "ruling"
-ID_FORMS = "an order o<n>, a job j<n>, or a PR as owner/repo#N, its URL or its bare number"
+PR_FORMS = "owner/repo#N, its URL, #N or its bare number"
+ID_FORMS = f"an order o<n>, a job j<n>, or a PR as {PR_FORMS}"
+UNTRACKED_PRS = {("pr", "add"): "url", ("pr", "tapped"): "url", ("pr", "ci"): "url", ("job", "set"): "pr", ("job", "held"): "pr"}
 WAITS_CARD = re.compile(r"https://\S+/archives/\S+/p\d+\S*|[\w.-]+:[\w.-]+|merge:[\w.-]+:[\w.-]+:\d+(?:-\d+)?")
 WAITS_ARGS = ("waits", "redraws", "card", "via", "stands", "dropped", "settled", "superseded", "reopened")
 GO_CI = Path("tools", "ci")
@@ -1381,8 +1383,6 @@ def waiting_builder(name: str, data: dict, reader_id: str, created: str) -> str 
 def unlandable(data: dict, keys: list[str]) -> str | None:
     """Why a builder may not start on --lands alone: each PR it lands is a drive PR his Approve or an exempt class lets land, since only then does it build nothing his order's research would shape."""
     for key in keys:
-        if key not in data["prs"]:
-            return f"--lands {key}: no drive PR; add it with drive pr add {state.pr_url(key)} --job <the job that opened it>"
         may_land, why = tap_verdict(data["prs"][key])
         if not may_land:
             return f"--lands {key}: it may not land yet, {why}; a builder lands only a PR he approved or an exempt class lands"
@@ -3367,8 +3367,8 @@ def job_held(args: argparse.Namespace) -> int:
         refused = hold and brief.hold_refusal(args.release, data, hold)
         return emit(args, refused or f"no hold of his refuses {args.release}", {"id": job_id, "release": refused})
     if args.pr:
-        tracked = {stored.lower(): pr for stored, pr in data["prs"].items()}
-        held = {key: land.pr_cards(data, pr) if (pr := tracked.get(key.lower())) else [] for key in map(state.pr_key, args.pr)}
+        tracked = {stored.casefold(): pr for stored, pr in data["prs"].items()}
+        held = {key: land.pr_cards(data, pr) if (pr := tracked.get(key.casefold())) else [] for key in args.pr}
         line = "\n".join(f"{key}: {', '.join(cards)}" for key, cards in held.items() if cards)
         return emit(args, line or f"no open card of his holds {', '.join(held)}", {"id": job_id, "prs": held})
     cards = land.ship_held(data, job_id, args.exempt)
@@ -3649,13 +3649,9 @@ def pr_set(args: argparse.Namespace) -> int:
     if args.no_tapped and not args.why:
         raise DriveError("--no-tapped needs --why <reason>: why the hold the drive gave itself no longer stands, kept in the drive's events")
     known = state.load(name)
-    if key not in known["prs"]:
-        raise DriveError(f"no drive PR {key}: add it first with drive pr add {args.url} --job <j>, then set it")
     if why := state.foreign_pr(known, key):
         raise DriveError(f"{key}: refused, nothing set: {why}")
     before = known["prs"][key]
-    if args.flaky and (fix := state.pr_key(args.flaky[1])) not in known["prs"]:
-        raise DriveError(f"--flaky {args.flaky[1]}: the drive tracks no such PR, so it would never read that fix merge; drive pr add {state.pr_url(fix)} --job <j> tracks it first")
     if args.flaky and not (before["checks"] == "fail" or before["ejected"] and (before["lander"] or {}).get("head") == before["head"]):
         raise DriveError(
             f"{key}: refused, nothing set: --flaky names the flaky test that failed it at its head, in its own checks or in Trunk's ejection of its lander's try,"
@@ -4435,21 +4431,9 @@ def run_show(checkout: Path) -> str:
     )
 
 
-def drive_key(data: dict, key: str) -> str:
-    """The order, job or PR an id names; a bare number names the drive's one PR of that number."""
-    if "#" in key or "/pull/" in key:
-        return state.pr_key(key)
-    if not key.isdigit():
-        return key
-    numbered = [pr for pr in data["prs"] if pr.endswith(f"#{key}")]
-    if len(numbered) > 1:
-        raise DriveError(f"{key} is the number of {', '.join(numbered)}; name one as owner/repo#{key}")
-    return numbered[0] if numbered else key
-
-
 def only(data: dict, ids: list[str]) -> dict:
     """The drive narrowed, never saved, to the orders the ids name, directly or through one of their jobs or PRs, with their jobs and PRs; data stays whole, since who carries a part is read across every job and order."""
-    keys = {drive_key(data, key) for key in ids}
+    keys = set(ids)
     if unknown := keys - set(data["orders"]) - set(data["jobs"]) - set(data["prs"]):
         raise DriveError(f"no order, job or PR {', '.join(sorted(unknown))}; name {ID_FORMS}")
     named = {key if key in data["orders"] else (data["jobs"].get(key) or data["prs"][key])["order"] for key in keys}
@@ -5549,7 +5533,7 @@ def parser() -> argparse.ArgumentParser:
 
     pr = verbs.add_parser("pr", help="the drive's pull requests").add_subparsers(dest="action", required=True)
     verb = pr.add_parser("add", parents=both)
-    verb.add_argument("url", help="the PR's URL")
+    verb.add_argument("url", help=f"the PR, as {PR_FORMS}")
     verb.add_argument("--job", required=True, help="the job that opened or took it over")
     verb.add_argument("--why", help="with --no-tap, why it lands with no tap of his")
     verb.add_argument("--headline", help="the line his card opens with, at most 90 characters: what the change gets him, in plain words")
@@ -5564,7 +5548,7 @@ def parser() -> argparse.ArgumentParser:
     untapped.add_argument("--no-tap", action="store_true", help="it lands with no tap of his, outside Forge-AI; needs --why. Every other PR waits on his tap")
     verb.set_defaults(run=pr_add)
     verb = pr.add_parser("set", parents=[*both, dry_opt, waits_opt])
-    verb.add_argument("url", help="the PR's URL")
+    verb.add_argument("url", help=f"the PR, as {PR_FORMS}")
     verb.add_argument(
         "--tap", action=argparse.BooleanOptionalAction, help="waits on his tap; --no-tap withdraws his open card for it, needs --why"
     )
@@ -5610,14 +5594,14 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.set_defaults(run=rehearsed(pr_set))
     verb = pr.add_parser("tapped", parents=both)
-    verb.add_argument("url")
+    verb.add_argument("url", help=f"the PR, as {PR_FORMS}")
     verb.set_defaults(run=pr_tapped)
     verb = pr.add_parser(
         "land",
         parents=both,
         help="what the watch, his Approve and pr add start: queue PRs he approved through stack-enqueue --watch, or merge a yasyf/* PR with --admin and install it",
     )
-    verb.add_argument("urls", nargs="+", help="one PR, or a stack bottom first")
+    verb.add_argument("urls", nargs="+", help=f"one PR, or a stack bottom first, each as {PR_FORMS}")
     verb.add_argument("--dry-run", action="store_true", help="run stack-enqueue --check from a fresh worktree of the default branch, say what it would do, refusing as it would, and queue and record nothing")
     verb.add_argument("--outcome", help="land nothing and record this outcome, as a lander reopening on a newer install records what came of its landing")
     verb.add_argument("--below", action="append", default=[], metavar="PR", help="with --outcome, a PR below it without his Approve that held it; repeat for each")
@@ -5628,12 +5612,12 @@ def parser() -> argparse.ArgumentParser:
         parents=both,
         help="what the watch starts on a builder's READY: judge one PR his card waits on at its head against his words, and say CHECKED, which draws his card once it is green and approved, or NOT READY, which goes to its builder unless he approved the PR",
     )
-    verb.add_argument("url", help="the PR's URL")
+    verb.add_argument("url", help=f"the PR, as {PR_FORMS}")
     verb.set_defaults(run=pr_check)
     verb = pr.add_parser(
         "checked", parents=both, help="keep the outcome an older install's pr check reached, from the receipt it kept; that check runs it"
     )
-    verb.add_argument("url", help="the PR's URL")
+    verb.add_argument("url", help=f"the PR, as {PR_FORMS}")
     verb.add_argument("receipt", help="the receipt file the check kept under the drive's prs folder")
     verb.set_defaults(run=pr_checked)
     verb = pr.add_parser(
@@ -5646,14 +5630,14 @@ def parser() -> argparse.ArgumentParser:
             " rather than picking a run itself"
         ),
     )
-    verb.add_argument("url", help="the PR's URL")
+    verb.add_argument("url", help=f"the PR, as {PR_FORMS}")
     verb.set_defaults(run=pr_ci)
     verb = pr.add_parser(
         "wake",
         parents=both,
         help="what the watch starts on a PR whose stage its builder owes: send the builder answering for it its stage line, to its live lane without touching its job's ask or state, else to a fresh worker on its job",
     )
-    verb.add_argument("url", help="the PR's URL")
+    verb.add_argument("url", help=f"the PR, as {PR_FORMS}")
     verb.add_argument("--text", help="the line to send, the PR's stage line when left out")
     verb.set_defaults(run=pr_wake)
 
@@ -6025,19 +6009,21 @@ def main(argv: list[str] | None = None) -> int:
         install.reopen(sys.argv[1:])
     args = parsed(argv)
     detached = os.environ.pop(state.DETACHED_ENV, None)
-    if lane := os.environ.pop(reads.SPRITE_LANE, None):
-        own = os.environ[state.OWN_JOB_ENV]
-        if refusal := reads.lane_refusal(args, parsed, os.environ[state.DRIVE_ENV], own):
-            print(refusal, file=sys.stderr)
-            return 2
-        if args.verb == "status" and not args.ids:
-            args.ids = [own]
-    if "TMUX" in os.environ and (attached := orca.own_terminal()):
-        os.environ["ORCA_TERMINAL_HANDLE"] = attached
+    lane = os.environ.pop(reads.SPRITE_LANE, None)
     try:
+        keyed_prs(args)
         for key in WAITS_ARGS:
             if value := getattr(args, key, None):
                 setattr(args, key, folded_waits(getattr(args, "drive", None), value))
+        if lane:
+            own = os.environ[state.OWN_JOB_ENV]
+            if refusal := reads.lane_refusal(args, parsed, os.environ[state.DRIVE_ENV], own):
+                print(refusal, file=sys.stderr)
+                return 2
+            if args.verb == "status" and not args.ids:
+                args.ids = [own]
+        if "TMUX" in os.environ and (attached := orca.own_terminal()):
+            os.environ["ORCA_TERMINAL_HANDLE"] = attached
         return args.run(args)
     except state.NewerDrive as error:
         if not state.WROTE and argv is not None and install.upgraded():
@@ -6066,6 +6052,33 @@ def rehearsed(run: Callable[[argparse.Namespace], int]) -> Callable[[argparse.Na
         return code
 
     return rehearse
+
+
+def keyed_prs(args: argparse.Namespace) -> None:
+    """Name each PR the verb's arguments name by the drive's key for it, state.tracked_pr's: url, urls, --lands, --pr, --rework, --below, --flaky's FIX, --asked's PR, and each id and --waits value state.PR_WORD reads as a PR. The argument UNTRACKED_PRS names for its verb takes any PR as owner/repo#N or its URL, read without the drive, which pr ci never loads; an id takes an untracked one too, which only refuses naming every form an id takes."""
+    verb, given = (args.verb, getattr(args, "action", None)), vars(args)
+    prs = cache(lambda: state.load(state.resolve(given.get("drive")))["prs"])
+
+    def keyed(name: str, ref: str) -> str:
+        if UNTRACKED_PRS.get(verb) == name and not state.PR_NUMBERED.fullmatch(ref.strip()):
+            return state.pr_key(ref)
+        try:
+            return state.tracked_pr(prs(), ref, untracked=name == "ids")
+        except DriveError as error:
+            raise DriveError(str(error) if name in ("url", "urls", "ids") else f"--{name} {ref}: {error}") from None
+
+    if given.get("url"):
+        args.url = keyed("url", args.url)
+    for name in ("urls", "lands", "pr", "rework", "below"):
+        if given.get(name):
+            setattr(args, name, [keyed(name, ref) for ref in given[name]])
+    for name in ("ids", "waits"):
+        if isinstance(given.get(name), list):
+            setattr(args, name, [keyed(name, ref) if state.PR_WORD.fullmatch(ref) else ref for ref in given[name]])
+    if given.get("flaky"):
+        args.flaky = [args.flaky[0], keyed("flaky", args.flaky[1])]
+    if given.get("asked"):
+        args.asked = [[keyed("asked", pr), head] for pr, head in args.asked]
 
 
 def folded_waits(name: str | None, value: str | tuple | list) -> str | tuple | list:
