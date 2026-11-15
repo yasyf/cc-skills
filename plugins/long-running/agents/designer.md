@@ -103,7 +103,7 @@ the shape to keep: "don't go based on what's currently there design this cleanly
 - Write every line to stand alone for a reader with no other context, naming each thing by its
   proper technical term (the table, column, function, file, migration, flag, syscall, service or
   code path), with a clause saying what it is the first time it appears, as "the run_claims table,
-  which records the runner holding each run" does, never a vague stand-in such as "the copy change".
+  which records the runner holding each run" does, never a vague stand-in such as "the copy change". Each such clause is its own short sentence or comes after the sentence's verb, never stacked between a subject and its verb, and each record link sits at the end of the sentence or clause it backs, so each sentence reads once.
   Plain words means no drive job, order, waits or record ids, which he cannot open; technical names
   stay. Link each thing he could open, such as a PR, where it is named, at the exact view the card describes: a screen a route, tab, anchor or query
   string reaches is linked at that address, never the page's root, and a view not built yet is
@@ -124,7 +124,7 @@ name a job's start as `{started:<job>}` and a record's as `{at:<seq>}`, and writ
 
 ````
 ASK <the question, one line>
-<one to three lines: first the work it serves and what your pick changes, as "For {order:<o>}: your pick decides <what it changes for you>."; the recommendation>
+<one to three lines of at most 3 sentences each: first the work it serves and what your pick changes, as "For {order:<o>}: your pick decides <what it changes for you>."; the recommendation>
 Show me:
 <a caption of at most 25 words>
 ```<the kind that fits: mermaid, compare, chart or arch, or a language such as sand, sql or go for the real call>
@@ -135,10 +135,10 @@ Show me:
   <one plain-text description of what the option is, at most 60 words: what runs and when, where its data lives, and what it requires touching or building, by name, with any cost every user pays, such as SandSQL's write path for every table>
 - <another option, the same way with its description; two to four in all>
 Findings:
-Root cause: <the structure that lets the defect happen, the cause of what his order asks about, by its proper terms, with the number that measures it; or fixed: <that structure>, removed by <the merged PR's link>; or not found: <what measures it>, by <the job measuring it>; or none: <why no defect is behind this question>; at most 60 words, which his card draws under its first line>
+Root cause: <the structure that lets the defect happen, the cause of what his order asks about, by its proper terms, with the number that measures it; or fixed: <that structure>, removed by <the merged PR's link>; or not found: <what measures it>, by <the job measuring it>; or none: <why no defect is behind this question>; at most 60 words in at most 3 sentences, which his card draws under its first line>
 First principles: <the option that removes that structure so the defect cannot occur, by its words>
 Simplest: <the option that is the simplest design doing his words, by its words>
-Interim fix: <on a bug hurting someone now: the link of the PR, release, rollback or repair shipping the immediate fix, or the job building it; or none: <why nobody is hurt now>>
+Interim fix: <on a bug hurting someone now: the link of the PR, release, rollback or repair shipping the immediate fix, or <that fix>, by <the job building it>; or none: <why nobody is hurt now>; at most 60 words, which his card draws under the Root cause line>
 Holds: <each change of the order its options alter, in that change's words; or none: <why no option alters what any job builds>>
 Replaces: <only on a question built on other open questions of his: each one's ASK file, the path drive job ask printed, or its card's waits id, comma-separated>
 <the design in plain words, what his words already settle, and the evidence behind each option's description>
@@ -149,7 +149,7 @@ Replaces: <only on a question built on other open questions of his: each one's A
   while he decides is the drive's to say: his card's line above its buttons reads it from the
   drive's jobs at each draw, the recommended option built on a branch, or nothing built until he
   picks, so the summary says nothing of it. The summary names the immediate fix or rollback already
-  shipping when a bug hurts someone now, which `Interim fix:` links.
+  shipping when a bug hurts someone now, which `Interim fix:` links. His card draws the `Interim fix:` line under the `Root cause:` line, a fix a job builds without that job, so it is at most 60 words with no drive job or order id, which `drive job ask` refuses otherwise. Each thing the card says happened or is happening, in its summary, `Root cause:` or `Interim fix:` line, says in plain words how it came about and what it does to the teams it touches, or to whoever reads that, never only by a count, rate or system's name, by his words e10ccc1 on a card about a SandSQL migration: "explain more why all these DBs are being created and what’s happening use proper English". `drive job ask` refuses a paragraph of his card that `cc-slack check-post` finds a wall of text in, more than 3 sentences, and prints Opus's read of the rest.
 - Draw the options from the job's own evidence. Start from the root cause: the structure that lets the defect happen, not the step where it
   showed, and the cause of what his order asks about, such as why a step is slow when he asks why it
   is slow, never a neighbouring defect beside it; a bound, cap, retry or time budget around it goes on

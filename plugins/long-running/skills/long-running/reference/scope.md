@@ -260,9 +260,10 @@ words, this rule or a page's is printed to the agent, naming the part and the wo
 one in the band between 0.3 and 0.7 is printed as unsure; each refuses no
 card, by his pick 320b7a7 "Advisory judge: drive job ask keeps every well-shaped card and prints Jev's finding to the agent; no card is refused on merits". His ruling: "Update your skill to not just brush over the root cause ever". On a bug hurting
 someone now, an incident's or one a reporter shared, the findings' `Interim fix:` line links the
-immediate fix shipping while he picks (its PR, release, rollback, repair, or the job building it),
-or reads `Interim fix: none: <why nobody is hurt now>`; `drive job ask` and a reader's `DESIGN` are
-refused without it. The findings' `Holds:` line names each PR its options alter, by link or `#N`, and each branch
+immediate fix shipping while he picks (its PR, release, rollback or repair), reads `Interim fix: <that
+fix>, by <the job building it>`, or reads `Interim fix: none: <why nobody is hurt now>`; `drive job ask`
+and a reader's `DESIGN` are refused without it, and his card draws it under the `Root cause:` line
+without the job. The findings' `Holds:` line names each PR its options alter, by link or `#N`, and each branch
 building an option, in backticks by its whole name; a reader's or design's also names, in each change's
 own words, every change of the order its options alter; or it reads `Holds: none: <why>`. His open card
 holds from landing each PR it names, a PR of a branch it names included, and, among the PRs of jobs working a change it names,

@@ -412,7 +412,7 @@ prints and a remote lane's brief carries whole:
 - Every section stands alone, since he reads the card with no other context. A number, fraction,
   size or ratio says what it measures and why that value, with one example. A mechanism gets one
   plain sentence before it is used, and a table, column, function, file, migration or flag keeps its
-  proper term with a clause saying what it is the first time it appears. Nothing points at a list,
+  proper term with a clause saying what it is the first time it appears. Each such clause is its own short sentence or comes after the sentence's verb, never stacked between a subject and its verb, and each record link sits at the end of the sentence or clause it backs, so each sentence reads once. Nothing points at a list,
   finding, thread or PR the card does not show, and each PR, fix, build or release it names is linked where it is named.
 - His card draws each section as it stands, and nothing in a body holds a card, a tap, an enqueue
   or a merge: a body is fixed beside the landing, never before it. A stack of any size draws one
@@ -714,7 +714,7 @@ which closes the card in place. On a Sprite, ask with the path it prints as On a
 
 ````
 ASK <the question, one line>
-<one to three lines: first the work it serves and what your pick changes, as "For {order:<o>}: your pick decides <what it changes for you>."; the recommendation>
+<one to three lines of at most 3 sentences each: first the work it serves and what your pick changes, as "For {order:<o>}: your pick decides <what it changes for you>."; the recommendation>
 Show me:
 <a caption of at most 25 words>
 ```<the kind that fits: mermaid, compare, chart or arch, or a language such as sand, sql or go for the real call>
@@ -725,10 +725,10 @@ Show me:
   <one plain-text description of what the option is, at most 60 words: what runs and when, where its data lives, and what it requires touching or building, by name, with any cost every user pays, such as SandSQL's write path for every table>
 - <option, with its description>
 Findings:
-Root cause: <the structure that lets the defect happen, the cause of what his order asks about, by its proper terms, with the number that measures it; or fixed: <that structure>, removed by <the merged PR's link>; or not found: <what measures it>, by <the job measuring it>; or none: <why no defect is behind this question>; at most 60 words, which his card draws under its first line>
+Root cause: <the structure that lets the defect happen, the cause of what his order asks about, by its proper terms, with the number that measures it; or fixed: <that structure>, removed by <the merged PR's link>; or not found: <what measures it>, by <the job measuring it>; or none: <why no defect is behind this question>; at most 60 words in at most 3 sentences, which his card draws under its first line>
 First principles: <the option that removes that structure so the defect cannot occur, by its words>
 Simplest: <the option that is the simplest design doing his words, by its words>
-Interim fix: <on a bug hurting someone now: the link of the PR, release, rollback or repair shipping the immediate fix, or the job building it; or none: <why nobody is hurt now>>
+Interim fix: <on a bug hurting someone now: the link of the PR, release, rollback or repair shipping the immediate fix, or <that fix>, by <the job building it>; or none: <why nobody is hurt now>; at most 60 words, which his card draws under the Root cause line>
 Holds: <each PR its options alter, by link or #N, and each branch building an option, in backticks; or none: <why no option alters what any job builds>>
 Replaces: <only on a question built on other open questions of his: each one's ASK file, the path drive job ask printed, or its card's waits id, comma-separated>
 <the evidence, for the record: what was hit, what was measured, the cause, and what backs each option's description>
@@ -756,7 +756,7 @@ Replaces: <only on a question built on other open questions of his: each one's A
   settled, the recommended option is the one they choose. His ruling: "Update your skill to not just brush over the root cause ever". `drive job ask` refuses a block whose lines are out of this shape,
   and keeps every block in shape whatever Opus and Jev find, printing to you each option or part Opus answers 0.7 or more as breaking his words, his ruling that a team's data is read or written only as a service account, or what a page it links shows once Chrome opens it, with the words it breaks, each code name or run id Jev answers 0.7 or more as never said in plain words on the card, each of those it answers between 0.3 and 0.7 as unsure, the card itself when Jev, reading it cold, answers 0.7 or more that it uses a name as if he knew it, such as a Forbids line the drive coined, and each raw id `cc-slack check-post` finds on it, by his pick 320b7a7 "Advisory judge: drive job ask keeps every well-shaped card and prints Jev's finding to the agent; no card is refused on merits": when a finding holds, rewrite that part and ask the same question again, which redraws its card; when Opus reads any option the card offers as breaking a recorded answer or ruling of his, at 0.7 or more and the recommended one first, the verb keeps the card unsettled on it, asking him to lift those words, which holds its PR on an incident too, unless that answer orders a release the recommended option names in backticks, which the verb prints `drive job add --release` starts with no card. Opus reads his ruling on root causes once, against the card's recommended option and its `Root cause:` line, never an option offered beside it such as the `Simplest:` one. On an incident or a bug a reporter shared,
   `Interim fix:` links the immediate fix shipping while he picks, which his pick replaces, and the
-  summary names it; `drive job ask` refuses the block without it.
+  summary names it; `drive job ask` refuses the block without it. His card draws the `Interim fix:` line under the `Root cause:` line, a fix a job builds without that job, so it is at most 60 words with no drive job or order id, which `drive job ask` refuses otherwise. Each thing the card says happened or is happening, in its summary, `Root cause:` or `Interim fix:` line, says in plain words how it came about and what it does to the teams it touches, or to whoever reads that, never only by a count, rate or system's name, by his words e10ccc1 on a card about a SandSQL migration: "explain more why all these DBs are being created and what’s happening use proper English". `drive job ask` refuses a paragraph of his card that `cc-slack check-post` finds a wall of text in, more than 3 sentences, and prints Opus's read of the rest.
 - `Holds:` names each PR on your job's orders, or waiting on a part it carries, as the PR a staging test tests, that the options alter, by its link or `#N`, and each
   branch building an option, in backticks by its whole name, as `j1-remote-config`; `drive job ask`
   keeps a named PR with the parts it serves. His open card then holds from landing only the PRs it

@@ -190,6 +190,8 @@ summary of one feature is a line of at most 60 words.
   its summary or findings name the proper terms.
 - Each code name below the first line keeps its proper term, with a clause saying what it is the
   first time the card names it, as "the run_claims table, which records the runner holding each run" does,
+  that clause its own short sentence or after the sentence's verb, never stacked between a subject and
+  its verb, and each record link at the end of the sentence or clause it backs, so each sentence reads once,
   and the card names nothing by a word the drive coined for a rule, check, gate, line or judge, such
   as a Forbids line.
   `drive job ask` asks Jev of each code name in its question, summary, options, their descriptions
@@ -219,12 +221,25 @@ summary of one feature is a line of at most 60 words.
   summary: an `{order:<o>}` draws its order's title, so give it a few words of its own,
   `{order:<o>|<a few words>}`, when the card runs near 150. When the block has a Show me, a `*Show me*` line
   and the Show me follow as written.
+- Each thing the summary, `Root cause:` or `Interim fix:` line says happened or is happening says in
+  plain words how it came about and what it does to the teams it touches, or to whoever reads that,
+  never only by a count, rate or system's name, and each sentence reads once. `drive job ask` refuses
+  a paragraph his card draws that `cc-slack check-post` finds a wall of text in, more than 3
+  sentences, and prints Opus's read of the rest beside his words e10ccc1 on a card about a SandSQL
+  migration: "explain more why all these DBs are being created and what’s happening use proper English". That card failed it with "It made production's SandSQL system fleet, the
+  servers holding each team's platform databases, create 2,451 databases." Its redraw passes with
+  "SandSQL now upgrades those databases to the current schema, team by team at 3 a minute, because a
+  bug makes every database it closes look out of date."
 - His card draws the findings' `Root cause:` line under the summary's first line, as `*Root cause:*`
   and its words, a cause not found without the job measuring it, and counts it outside the 150 words:
   `drive job ask` refuses one over 60 words, a named cause with no number measuring it, and one
   holding a drive job or order id, by his words "this still doesnt tell us why its so slow/how to
   speed it up". It is the cause of what his order asks about, such as why a step is slow, and a
   bound, cap, retry or time budget around it goes on the `Interim fix:` line.
+- His card draws the `Interim fix:` line under the Root cause line, as `*Interim fix:*` and its words,
+  who is hurt now or the fix shipping while he picks, a fix a job builds without that job, and counts
+  it outside the 150 words too: `drive job ask` refuses one over 60 words or holding a drive job or
+  order id.
 - The card starts from the root cause, the structure that lets the defect happen, and one option is
   always the one that removes it so the defect cannot occur, recommended, every other option saying
   it keeps that structure and what that costs. The recommended option is the block's first, which `drive job ask` refuses otherwise. `drive job ask` refuses a block whose findings carry no `Simplest:` line
@@ -234,7 +249,8 @@ summary of one feature is a line of at most 60 words.
   found: <what measures it>, by <the job measuring it>` or `Root cause: none: <why>`, as on his approval of an action his rules
   hold for him (his ruling "Update your skill to not just brush over the root cause ever"), and, on a bug hurting someone now, an incident's
   or one a reporter shared, one whose findings carry no `Interim fix:` line linking the immediate fix
-  shipping while he picks, or `Interim fix: none: <why nobody is hurt now>`.
+  shipping while he picks, `Interim fix: <that fix>, by <the job building it>`, or `Interim fix: none:
+  <why nobody is hurt now>`.
 - The findings carry a `Holds:` line naming each PR its options alter, by link or `#N`, and each
   branch building an option, in backticks; a reader's or design's also names, in each change's own
   words, every change of the order its options alter, a part of the order or a design's `Change:`

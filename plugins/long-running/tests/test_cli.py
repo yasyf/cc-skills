@@ -1411,7 +1411,7 @@ def test_an_incident_job_waits_on_his_card_only_once_the_line_say_kept_in_the_in
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL mint endpoint failing", "--thread", "1794200000.000100", "--incident", "--parts", "fix", "first check")
     block = tmp_path / "ask.md"
-    block.write_text(SHORT_ASK + "Interim fix: j2 checks the fork copies first\n")
+    block.write_text(SHORT_ASK + "Interim fix: the fork copies checked first, by j2\n")
     assert run("job", "ask", "j2", str(block))[0] == 0
     card = drawn_card(1)
     assert cli.main(["job", "set", "j1", "--card", card]) == 2
@@ -2155,6 +2155,20 @@ def test_job_ask_keeps_a_card_showing_a_raw_id_prints_each_one_check_post_finds_
     [raw] = [line for line in capsys.readouterr().err.splitlines() if "raw ids he cannot open" in line]
     assert raw.startswith("drive job ask: kept, but his card shows cf78807, 01JBQZ8V7K3M5N2P4R6S8T0VWX, raw ids he cannot open: write a recorded answer of his as {answer:<id>}")
     assert jev.terms[-2:] == ["the drive", "run_claims"]
+
+
+def test_job_ask_refuses_a_card_holding_a_paragraph_check_post_finds_a_wall_of_text_in(
+    run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], checked: Checked
+) -> None:
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK)
+    checked.findings = ['2:1 wall-of-text "The drive started a dry run": 4 sentences in one paragraph; keep each paragraph to 3 sentences or fewer, and put steps and settings in a bulleted list']
+    assert cli.main(["job", "ask", asking, str(block)]) == 2
+    refusal = capsys.readouterr().err
+    assert 'his card draws a paragraph opening "The drive started a dry run" that is 4 sentences, more than the 3 cc-slack check-post lets one paragraph hold' in refusal
+    assert "bulleted list" not in refusal
+    checked.findings = []
+    assert cli.main(["job", "ask", asking, str(block)]) == 0
 
 
 def test_job_ask_keeps_a_choice_he_reads_about_with_no_screenshot(run: Run, asking: str, tmp_path: Path, jev: Jev) -> None:
@@ -3143,7 +3157,7 @@ def test_job_ask_on_an_open_incident_whose_thread_is_in_his_dm_draws_his_card_in
     sent: list[tuple[str, list[dict]]] = []
     monkeypatch.setattr(tools, "sent", lambda name, lane, posts: sent.append((lane, posts)) or ["672400"])
     block = tmp_path / "ask.md"
-    block.write_text(SHORT_ASK + "Interim fix: j2 checks the fork copies first\n")
+    block.write_text(SHORT_ASK + "Interim fix: the fork copies checked first, by j2\n")
     assert run("job", "ask", "j1", str(block))[1].split("\n", 1)[1] == f"his card {slack_card(1)} asks it under demo:j1-7"
     assert [argv[argv.index("--thread") + 1] for argv in slack_calls if argv[0] == "dm-status"] == ["1794200000.000100"]
     assert sent == []
@@ -3169,7 +3183,7 @@ def test_job_ask_by_a_finished_reader_on_an_open_incident_names_in_its_line_only
     sent: list[tuple[str, list[dict]]] = []
     monkeypatch.setattr(tools, "sent", lambda name, lane, posts: sent.append((lane, posts)) or ["672400"])
     block = tmp_path / "ask.md"
-    block.write_text(SHORT_ASK.replace("Holds: none: no option changes code any job builds", holds) + "Interim fix: j2 checks the fork copies first\n")
+    block.write_text(SHORT_ASK.replace("Holds: none: no option changes code any job builds", holds) + "Interim fix: the fork copies checked first, by j2\n")
     assert run("job", "ask", "j4", str(block))[0] == 0
     [(_, [report])] = sent
     assert report["text"] == f'POST his card {slack_card(1)} asks him "{SHORT_ASK.splitlines()[0].removeprefix("ASK ")}" for j4, on incident o1: {builds}'
@@ -3207,7 +3221,7 @@ def test_job_ask_sends_his_cards_line_outside_his_dm_again_only_once_what_it_blo
     line = f"https://acme.slack.com/archives/C0ALERT1/p1794200100000200?thread_ts={thread}"
 
     def ask(text: str, *redraws: str) -> None:
-        block.write_text(text + "Interim fix: j2 checks the fork copies first\n")
+        block.write_text(text + "Interim fix: the fork copies checked first, by j2\n")
         assert run("job", "ask", asking, str(block), *redraws)[0] == 0
 
     ask(SHORT_ASK)
@@ -4156,7 +4170,7 @@ def test_job_ask_reads_his_recorded_answers_ccn_ranks_nearest_and_a_card_asking_
     run("job", "add", "builder", "--order", "o1", "--part", "fix", "--goal", "move js_func into its own helper process")
     recorded.matched = [WAIT_RULING]
     jev.breaks("breaks1", WAIT_RULING["id"])
-    asked = SHORT_ASK.replace("Holds: none: no option changes code any job builds", "Holds: fix, built on `land-it`") + "Interim fix: j1 restarts the pods that ran out of memory\n"
+    asked = SHORT_ASK.replace("Holds: none: no option changes code any job builds", "Holds: fix, built on `land-it`") + "Interim fix: a restart of the pods that ran out of memory, by j1\n"
     block = tmp_path / "ask.md"
     block.write_text(asked)
     assert cli.main(["job", "ask", "j3", str(block)]) == 0
@@ -4213,11 +4227,11 @@ def test_job_ask_keeps_unsettled_a_card_that_says_its_recommended_option_replace
     run("job", "add", "builder", "--order", "o1", "--part", "fix", "--goal", "run each team's export")
     recorded.shown = {NIGHTLY_EXPORT["id"]: NIGHTLY_EXPORT}
     block = tmp_path / "ask.md"
-    block.write_text(SHORT_ASK.replace("Holds: none: no option changes code any job builds", f"Holds: fix, built on `j3-team-export`\n{DEPARTS}") + "Interim fix: j1 restarts the stalled exports\n")
+    block.write_text(SHORT_ASK.replace("Holds: none: no option changes code any job builds", f"Holds: fix, built on `j3-team-export`\n{DEPARTS}") + "Interim fix: a restart of the stalled exports, by j1\n")
     assert cli.main(["job", "ask", "j3", str(block)]) == 0
     assert "kept the card unsettled" not in capsys.readouterr().err
-    request = jev.asked[-1]
-    assert ("says.7a1c0de" in request["questions"], handed(request)["7a1c0de"]) == (True, {"asked": NIGHTLY_EXPORT["title"], "said": NIGHTLY_EXPORT["body"]})
+    [request] = [request for request in jev.asked if "says.7a1c0de" in request["questions"]]
+    assert handed(request)["7a1c0de"] == {"asked": NIGHTLY_EXPORT["title"], "said": NIGHTLY_EXPORT["body"]}
     assert DEPARTS in request["state"]["card"]["text"].splitlines()
     assert land.ship_held(state.load("demo"), "j3") == []
     jev.breaks("says", "7a1c0de")
@@ -4233,7 +4247,7 @@ def test_job_ask_keeps_unsettled_a_card_whose_other_option_breaks_his_ruling_so_
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "chat turns run out of memory on plat", "--incident", "--parts", "fix", "first check")
     run("job", "add", "builder", "--order", "o1", "--part", "fix", "--goal", "move js_func into its own helper process")
     recorded.matched = [WAIT_RULING]
-    asked = SHORT_ASK.replace("Holds: none: no option changes code any job builds", "Holds: fix, built on `j3-helper-process`") + "Interim fix: j1 restarts the pods that ran out of memory\n"
+    asked = SHORT_ASK.replace("Holds: none: no option changes code any job builds", "Holds: fix, built on `j3-helper-process`") + "Interim fix: a restart of the pods that ran out of memory, by j1\n"
     other = f'option "{limits.question(asked, kept=True).options[1]}"'
     jev.breaks("breaks2", WAIT_RULING["id"], 0.5)
     block = tmp_path / "ask.md"
@@ -5807,9 +5821,9 @@ def test_a_readers_design_on_a_reported_bug_names_the_immediate_fix_shipping_whi
     run("job", "add", "reader", "--order", "o1", "--part", "the copy", "--goal", "research: the copy")
     code, err = keep(monkeypatch, capsys, "j2", DESIGN_RESEARCH)
     assert (code, "a reader's DESIGN on a bug hurting someone now names its immediate fix" in err) == (2, True)
-    code, err = keep(monkeypatch, capsys, "j2", DESIGN_RESEARCH + "Interim fix: j1 repairs the stuck restores\n")
+    code, err = keep(monkeypatch, capsys, "j2", DESIGN_RESEARCH + "Interim fix: a repair of the stuck restores, by j1\n")
     assert (code, f"j2 traces the cause of o1's live bug, so {state.FIX_RULE}" in err) == (2, True)
-    assert keep(monkeypatch, capsys, "j2", DESIGN_RESEARCH + "Interim fix: j1 repairs the stuck restores\nFIX o1\n") == (0, "")
+    assert keep(monkeypatch, capsys, "j2", DESIGN_RESEARCH + "Interim fix: a repair of the stuck restores, by j1\nFIX o1\n") == (0, "")
 
 
 def test_a_cause_report_names_its_fix_whose_order_reads_live_from_it(
@@ -11579,7 +11593,7 @@ def test_jev_reads_every_option_of_a_card_in_one_request_one_noul_an_option_and_
     assert capsys.readouterr().err == ""
     [request] = jev.asked
     questions = request["questions"]
-    fact, team, worked, cause = limits.FACT_WORDS["id"], "ruling:32f49af", limits.WORKED_WORDS["id"], "ruling:0c59046"
+    fact, team, worked, cause, told = limits.FACT_WORDS["id"], "ruling:32f49af", limits.WORKED_WORDS["id"], "ruling:0c59046", "ruling:e10ccc1"
     assert list(questions) == [
         "releases",
         *(f"worked{number}.{worked}" for number in (1, 2, 3)),
@@ -11588,17 +11602,19 @@ def test_jev_reads_every_option_of_a_card_in_one_request_one_noul_an_option_and_
         f"card.{team}",
         *(f"breaks{number}.{fact}" for number in (1, 2, 3)),
         f"card.{fact}",
+        f"card.{told}",
         *(f"breaks{number}.{NOT_SPECIAL['id']}" for number in (1, 2, 3)),
         f"untapped.{NOT_SPECIAL['id']}",
         f"card.{NOT_SPECIAL['id']}",
     ]
-    assert questions[f"breaks2.{NOT_SPECIAL['id']}"] == settled.asking(settled.BREAKS, slot="w4", index=1)
+    assert questions[f"breaks2.{NOT_SPECIAL['id']}"] == settled.asking(settled.BREAKS, slot="w5", index=1)
     assert questions[f"worked3.{worked}"] == settled.asking(settled.WORKED, index=2)
     assert request["state"]["card"] == {"text": case, "options": asked.options, "recommended": asked.recommended, "show_me": asked.show_me}
     assert handed(request) == {
         cause: {"asked": limits.ROOT_CAUSE_WORDS["asked"], "said": limits.ROOT_CAUSE_QUOTE, "rule": limits.ROOT_CAUSE_RULES["found"]},
         team: {"asked": limits.TEAM_DATA_WORDS["asked"], "said": limits.TEAM_DATA_WORDS["said"]},
         fact: {"asked": limits.FACT_WORDS["asked"], "said": limits.FACT_WORDS["said"], "rule": limits.FACT_WORDS["rule"]},
+        told: {"asked": limits.TOLD_WORDS["asked"], "said": limits.TOLD_WORDS["said"], "rule": limits.TOLD_WORDS["rule"]},
         NOT_SPECIAL["id"]: {"asked": NOT_SPECIAL["asked"], "said": NOT_SPECIAL["said"]},
     }
     assert settled.size(request["state"], questions) <= settled.REQUEST_CHARS
@@ -11675,7 +11691,7 @@ def test_a_redrawn_card_is_judged_against_the_rulings_its_first_draft_was_never_
         assert capsys.readouterr().err == ""
         request = jev.asked[-1]
         offered.append(([key for key in request["questions"] if key.startswith("card.")], list(handed(request))))
-    assert offered == [(["card.ruling:0c59046", "card.ruling:32f49af", f"card.{limits.FACT_WORDS['id']}"], ["ruling:0c59046", "ruling:32f49af", limits.FACT_WORDS["id"]])] * 2
+    assert offered == [(["card.ruling:0c59046", "card.ruling:32f49af", f"card.{limits.FACT_WORDS['id']}", "card.ruling:e10ccc1"], ["ruling:0c59046", "ruling:32f49af", limits.FACT_WORDS["id"], "ruling:e10ccc1"])] * 2
     assert "story" not in settled.BREAKS_CARD.ask
 
 
