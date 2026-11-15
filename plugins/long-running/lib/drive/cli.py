@@ -3385,10 +3385,9 @@ def started_job(data: dict, job_id: str) -> dict:
 
 
 def held_job(data: dict, job_id: str) -> dict:
-    """The job a verb writes the brief of, or starts, wakes or messages the worker of, refused before that verb writes, holds, sends or starts anything when a session of the drive that does not hold the job's order calls it, the top coordinator and the meta session included, by state.held_elsewhere, the check drive job add makes, so no worker starts whose result goes to a session that never asked for it; a job starting a production cut is the top coordinator's on any order, a call in no session the drive binds, such as a verb the watch detached or a Sprite lane's, is refused nothing, and the session that started the agent running the job on this Mac, which state.agent_lane names and the job's lines reach, keeps it, by his pick "Keep with the starter: the agent finishes its job, your answers reach it at once"."""
+    """The job a verb writes the brief of, or starts, wakes or messages the worker of, refused before that verb writes, holds, sends or starts anything when a session of the drive that does not hold the job's order calls it, the top coordinator and the meta session included, by state.job_held_elsewhere, the check the Agent hook makes, so no worker starts whose result goes to a session that never asked for it; a job starting a production cut is the top coordinator's on any order, a call in no session the drive binds, such as a verb the watch detached or a Sprite lane's, is refused nothing, and the session that started the agent running the job on this Mac keeps it."""
     job = find(data["jobs"], job_id, "job")
-    session = os.environ.get("CLAUDE_CODE_SESSION_ID")
-    if state.session_lane(data, session) != state.agent_lane(data, job) and (refused := state.held_elsewhere(data, job["order"], session, state.starts_cut(job))):
+    if refused := state.job_held_elsewhere(data, job, os.environ.get("CLAUDE_CODE_SESSION_ID")):
         raise DriveError(f"{job_id}: refused, nothing written, sent or started: {refused}")
     return job
 

@@ -85,7 +85,7 @@ TAIL_BYTES = 65536
 COMPACT_PAST_TOKENS = 120_000
 COMPACT_WHEN_QUIET = timedelta(minutes=10)
 NOT_SLUG = re.compile(r"[^A-Za-z0-9]")
-AGENT_LINE = re.compile(r"^(?:STUCK|LANE) (?P<job>j\d+) ")
+NAMED_JOB = re.compile(r"^[A-Z]+ (?:[^\s#:]+ )??(?P<job>j\d+)\b")
 BUILD_FIELDS = (
     "state blocks: jobs(first: 10, type: [BLOCK], state: [BLOCKED]) { edges { node { ... on JobTypeBlock { label } } } }"
     " failed: jobs(first: 20, type: [COMMAND], passed: false) { edges { node { ... on JobTypeCommand { label retried } } } }"
@@ -2058,7 +2058,7 @@ def noted_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def answer_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Each answer of his that leaves a card still asking him, an order or part it lists of an order still open or a PR not yet live with no mark, standing, settled, dropped, superseded or reopened by it, or a live job it touches not yet sent his words, as hear_sent reads each SendMessage, again every ten minutes until each has one."""
+    """Each answer of his that leaves a card still asking him, an order or part it lists of an order still open or a PR not yet live with no mark, standing, settled, dropped, superseded or reopened by it, or a live job it touches not yet sent his words, as hear_sent reads each SendMessage, again every ten minutes until each has one: one line for each session owing a step on it, the session state.holding_lane names for the order of each card, order, part and PR, root's for a card no order holds, and the one state.job_lane names for each job, its header naming one of them so line_lane hands it to that session."""
     if watcher.cards is None or watcher.project:
         return []
     data = state.load(watcher.name)
@@ -2073,17 +2073,26 @@ def answer_lines(watcher: Watcher, moment: datetime) -> list[str]:
     with state.edit(watcher.name) as data:
         for answer_id in owed:
             data["answers"][answer_id]["said"] = state.stamp(moment)
-    return [
-        f'ANSWER {answer_id} "{cut(data["answers"][answer_id]["words"], 80)}": '
-        + "; ".join(
-            [
-                *([f"{superseded.counted(keys, asked[answer_id])} with no mark, standing, settled, dropped, superseded or reopened by it"] if keys else []),
-                *([f"{', '.join(jobs)} not sent his words"] if jobs else []),
-            ]
-        )
-        + f"; drive answer {answer_id} lists them"
-        for answer_id, (keys, jobs) in owed.items()
-    ]
+    lines = []
+    for answer_id, (keys, jobs) in owed.items():
+        owners: dict[str, tuple[str | None, list[str], list[str]]] = {}
+        for key in keys:
+            order_id = asked[answer_id][key]["order"]
+            owners.setdefault(state.holding_lane(data, data["orders"][order_id]) if order_id else "root", (order_id, [], []))[1].append(key)
+        for job_id in jobs:
+            owners.setdefault(state.job_lane(data, data["jobs"][job_id]), (job_id, [], []))[2].append(job_id)
+        lines += [
+            f"ANSWER {answer_id}{f' {named}' if named else ''} \"{cut(data['answers'][answer_id]['words'], 80)}\": "
+            + "; ".join(
+                [
+                    *([f"{superseded.counted(owned, asked[answer_id])} with no mark, standing, settled, dropped, superseded or reopened by it"] if owned else []),
+                    *([f"{', '.join(unheard)} not sent his words"] if unheard else []),
+                ]
+            )
+            + f"; drive answer {answer_id} lists them"
+            for named, owned, unheard in owners.values()
+        ]
+    return lines
 
 
 def session_transcript(holder: dict) -> Path:
@@ -3837,20 +3846,15 @@ def landed(watcher: Watcher, moment: datetime) -> None:
     watcher.failures.pop("pick answer", None)
 
 
-def line_lane(line: str, data: dict, own: str) -> str | None:
-    """The lane of the session a line is for when the watch's own coordinator does not act on it: a STUCK or LANE line, which the watch hearing the job's order makes, about a job whose agent another coordinator session runs on this Mac, to that session, the one whose SendMessage reaches it and whose watch makes the job's other lines; else holder_line's."""
-    if (found := AGENT_LINE.match(line)) and (job := data["jobs"].get(found["job"])) and (lane := state.agent_lane(data, job)) not in (None, own):
-        return lane
-    return holder_line(line, data)
-
-
-def holder_line(line: str, data: dict) -> str | None:
-    """The lane of the session holding the order a line is about, when that is the communicator or the meta session rather than a coordinator, and for a MOVED line the lane that lost its orders when that is one of them."""
+def line_lane(line: str, data: dict) -> str | None:
+    """The lane of the one session that acts on a line, whichever watch made it: the lane a MOVED line's orders left; for a line whose header names a job, as JOB, LANE, STUCK, DUE, FREE and ANSWER lines do, the session state.job_lane names, the one the Agent hook and the job verbs let start and message its worker; for any other line naming an order, by its header or a PR's trailing ids, the session state.holding_lane names; None for a line naming neither."""
     if moved := MOVED_LINE.match(line):
-        return moved["lane"] if moved["lane"] in state.HOLDERS else None
+        return moved["lane"]
+    if (named := NAMED_JOB.match(line)) and (job := data["jobs"].get(named["job"])):
+        return state.job_lane(data, job)
     found = ABOUT.search(line)
     order = found and data["orders"].get(found["order"] or found["named"])
-    return state.holder_lane(order) if order else None
+    return state.holding_lane(data, order) if order else None
 
 
 def needs_step(line: str, data: dict, cards: dict | None) -> bool:
@@ -3894,7 +3898,7 @@ def wakes(line: str, data: dict, cards: dict | None) -> bool:
 
 
 def handed(watcher: Watcher, lines: list[str], moment: datetime) -> list[str]:
-    """Hand each line to the one who acts on it: the lander's own failure, once however many PRs it held back, a job's STUCK or LANE line to the coordinator session whose agent runs it on this Mac, an order's the communicator or the meta session holds to that session, and the rest, returned, to the coordinator. Until it is handed, each line stays on the watcher, the coordinator's among its made lines and another session's among its unsent, so a newer install that takes the watch over meanwhile gets it."""
+    """Hand each line to the one who acts on it: the lander's own failure, once however many PRs it held back, to the meta session, each line line_lane names another session for to that session, and the rest, returned, to the watch's own coordinator. Until it is handed, each line stays on the watcher, the coordinator's among its made lines and another session's among its unsent, so a newer install that takes the watch over meanwhile gets it."""
     lines = [LINE_BREAKS.sub(" ", line) for line in lines]
     if not lines and not any(owed for lane, owed in watcher.unsent.items() if lane != watcher.lane):
         return []
@@ -3904,7 +3908,7 @@ def handed(watcher: Watcher, lines: list[str], moment: datetime) -> list[str]:
         if line.startswith(LANDER):
             if line not in [*watcher.unsent.get("meta", []), *(meta := routed.setdefault("meta", []))]:
                 meta.append(line)
-        elif lane := line_lane(line, data, watcher.lane):
+        elif (lane := line_lane(line, data)) not in (None, watcher.lane):
             routed.setdefault(lane, []).append(line)
         else:
             kept.append(line)

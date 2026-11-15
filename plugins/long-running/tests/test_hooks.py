@@ -1360,6 +1360,25 @@ def test_the_top_starts_and_hears_the_release_job_on_a_sub_coordinators_order_an
     assert [[watch.heard_job(watcher, data, data["jobs"][job_id]) for job_id in ("j1", "j2")] for watcher in watchers] == [[False, True], [True, False]]
 
 
+def test_the_top_starts_the_agent_of_a_sub_coordinators_job_only_once_it_started_the_agent_running_it_as_the_job_verbs_let_it(
+    demo: str, run: Run, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "Agents", "build the clock")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "platform-1")
+    run("start", "demo", "--role", "coordinator", "--project", "Platform")
+    run("job", "add", "builder", "--order", "o1", "--goal", "build the clock")
+    where = ("--serves", "his order", "--done-when", "live", "--where", "Forge-AI/monorepo dev")
+    code, out = run("job", "brief", "j1", *where)
+    assert code == 0
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "session-under-test")
+    assert cli.main(["job", "brief", "j1", *where]) == 2
+    held = capsys.readouterr().err.strip().removeprefix("drive: j1: refused, nothing written, sent or started: ")
+    assert scratch_folder.deny_reason(drive_agent("long-running:builder", out)) == f"refused, no agent started: {held}"
+    with state.edit(demo) as data:
+        data["jobs"]["j1"] |= {"agent": "a-1", "session": "session-under-test"}
+    assert [scratch_folder.deny_reason(drive_agent("long-running:builder", out, session=session)) for session in ("session-under-test", "platform-1")] == [None, None]
+
+
 RELEASE_PICK ={"id": "5d0c4a1" + "0" * 33, "title": "Release the memory fix to production now?", "body": "Release now (Recommended)\nNotes:\nA session's reading, not his words: the fix ships on the next cut.", "tags": ["scope:durable"]}
 INCIDENT_ORDER = {"id": "9e1f2b3" + "0" * 33, "title": "sand runs fail on core-usw2", "body": "runs are failing, fix it", "tags": ["scope:durable", "drive:demo", "incident"]}
 PR_TAP = {"id": "ac61348" + "0" * 33, "title": "Tap: #50203, canary diagnostics on the search", "body": "Approve at 4aca314\nNotes:\nTapped on the PR card.", "tags": ["scope:durable"]}
