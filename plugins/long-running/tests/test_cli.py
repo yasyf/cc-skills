@@ -2648,6 +2648,34 @@ def test_a_job_carrying_on_another_jobs_work_on_its_order_takes_over_that_jobs_o
     assert "--redraws demo:j1-685522: its question there ended answered" in capsys.readouterr().err
 
 
+def test_a_design_job_redraws_a_card_another_orders_job_asked_about_its_order_and_none_asking_about_neither(
+    run: Run, asking: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], slack_calls: list[tuple[str, ...]]
+) -> None:
+    run("order", "add", "--title", "Other title", "--project", "The drive", "--workstream", "Drive tooling", "design the status page")
+    about = SHORT_ASK.replace("Drive tooling: your pick decides", "For {order:o2|the status page}: your pick decides")
+    kept = state.drive_dir("demo") / "asks" / f"j1-{state.ask_hash(about)}.md"
+    kept.parent.mkdir(exist_ok=True)
+    kept.write_text(about)
+    with state.edit("demo") as data:
+        data["jobs"]["j1"].update(state="stopped", questions=[state.new_question(str(kept), about.splitlines()[0].removeprefix("ASK "), state.stamp(), card=slack_card(1)) | {"waits": "demo:j1-685522"}])
+    run("order", "add", "--title", "Third title", "--project", "The drive", "--workstream", "Drive tooling", "design the queue page")
+    run("job", "add", "design", "--order", "o3", "--goal", "design the queue page")
+    reworded = about.replace("Meanwhile nothing is built on either layout.", "Meanwhile the reader adds one more finding.")
+    monkeypatch.setattr("sys.stdin", io.StringIO(reworded))
+    assert cli.main(["job", "ask", "j2", "-", "--redraws", "demo:j1-685522"]) == 2
+    assert "--redraws demo:j1-685522: no question of o3 holds that card, which asks for o1, so j2 takes over none" in capsys.readouterr().err
+    run("job", "add", "design", "--order", "o2", "--goal", "design the status page")
+    monkeypatch.setattr("sys.stdin", io.StringIO(reworded))
+    again = state.drive_dir("demo") / "asks" / f"j3-{state.ask_hash(reworded)}.md"
+    assert run("job", "ask", "j3", "-", "--redraws", "demo:j1-685522") == (0, f"{again}\nhis card {slack_card(1)} asks it under demo:j1-685522")
+    assert drawn_waits(slack_calls) == ["demo:j1-685522"]
+    data = state.load("demo")
+    assert ([question["replaced"] for question in data["jobs"]["j1"]["questions"]], [(question["waits"], question["card"]) for question in data["jobs"]["j3"]["questions"]]) == (
+        [str(again)],
+        [("demo:j1-685522", slack_card(1))],
+    )
+
+
 def test_j4258_an_ask_jev_reads_as_asking_again_what_n_open_cards_ask_takes_the_newest_card_and_folds_the_other_n_minus_1_into_it_each_closed_asked_again(
     run: Run, asking: str, tmp_path: Path, jev: Jev, monkeypatch: pytest.MonkeyPatch, slack_calls: list[tuple[str, ...]]
 ) -> None:
