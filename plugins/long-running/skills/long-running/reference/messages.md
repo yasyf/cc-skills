@@ -816,9 +816,11 @@ restating it.
 - Numbers over adjectives: "129 of 476 passed, up from 100" beats "much better".
 - Answer his next question in the same message: why, did he already decide this, is it a port, what
   comes after, why it is held.
-- A line that says something waits on X says how long and whether X is running, or `record_lines`
-  refuses the report. Past two hours with nothing running, it reports a failure with its owner and
-  how it is prevented, because a wait that long is a failure, never a state.
+- A line that says something waits on X says how long it has waited, naming the job doing X as
+  `{started:<job>}` or the record the wait began on as `{at:<seq>}`, whose stamp `say` fills so no
+  time is typed, and whether X is running, or `record_lines` refuses the report. Past two hours with
+  nothing running, it reports a failure with its owner and how it is prevented, because a wait that
+  long is a failure, never a state.
 - Done means live and checked on the surface he uses: a recording of the click for a page, the live
   post for a card or message, the installed command's output for a tool. Data fetched from an API
   proves no screen. Say how you checked in a few words, with the link.

@@ -59,7 +59,11 @@ UNCARDED = "refused: this report says something waits on him and names no card; 
 WAITS_ON_OTHER = re.compile(r"\bwait(?:s|ing)? on (?!(?:him|his|your|you|he)\b)\S", re.IGNORECASE)
 WAITED = re.compile(r"\b\d+ ?(?:s|secs?|seconds?|m|mins?|minutes?|h|hrs?|hours?|d|days?)\b|\bsince \d", re.IGNORECASE)
 RUNNING = re.compile(r"\b(?:running|queued|idle|stopped|started|starting|in progress|not started)\b", re.IGNORECASE)
-VAGUE_WAIT = "refused: a line that says something waits on X says how long it has waited and whether X is running, such as \"waits on CI, 40 min, run 123 running\"; add both"
+VAGUE_WAIT = (
+    "refused: a line that says something waits on X says how long it has waited and whether X is running, such as \"waits on its staging test,"
+    " the test job running since {started:<job>}\": name the job doing X as {started:<job>} or the record the wait began on as {at:<seq>},"
+    " whose stamp say fills, so no time is typed; add both"
+)
 DM_URL = (
     "refused: a report's --url is the link of what it measured, such as a trace, notebook, log or build, which {{record:<seq>|…}}"
     " links in his posts, and {url} is a message in his DM, which --attr thread={thread} names; drop --url, or put that link there"
@@ -123,7 +127,7 @@ def report_refusals(payload: dict, drive: dict, records: list[dict], index: int)
     yield not_until(record)
     yield UNCARDED if WAITS_ON_HIM.search(text) and not attrs(record).get("waits") and not CARD_NAMED.search(f"{text}\n{record.get('body') or ''}") else None
     yield agents.unpromised(drive["name"], f"{text}\n{record.get('body') or ''}")
-    yield VAGUE_WAIT if WAITS_ON_OTHER.search(text) and not (WAITED.search(text) and RUNNING.search(text)) else None
+    yield VAGUE_WAIT if WAITS_ON_OTHER.search(text) and not ((WAITED.search(text) or any(found[1] in limits.STAMPED for found in limits.REF.finditer(text))) and RUNNING.search(text)) else None
     if thread and state.session_role(drive, payload.get("session_id")) in ("coordinator", "meta") and not payload.get("agent_id") and not state.open_incidents(drive, state.report_orders(drive, attrs(record))):
         yield second_report(payload, drive["name"], records, index, thread)
     yield agents.unread_job(payload, text)
