@@ -49,7 +49,6 @@ THREAD_HELP = (
     " in the channel of the --from message, his DM for an order from the terminal; its lines to him go in a channel's thread only for an incident"
 )
 RULING = "ruling"
-CODE_LABEL = "code:"
 ID_FORMS = "an order o<n>, a job j<n>, or a PR as owner/repo#N, its URL or its bare number"
 WAITS_CARD = re.compile(r"https://\S+/archives/\S+/p\d+\S*|[\w.-]+:[\w.-]+|merge:[\w.-]+:[\w.-]+:\d+(?:-\d+)?")
 WAITS_ARGS = ("waits", "redraws", "card", "via", "stands", "dropped", "settled", "superseded", "reopened")
@@ -3676,8 +3675,8 @@ def pr_set(args: argparse.Namespace) -> int:
         refuse_a_crossed_order(name, known, order, args.serves, f"{key} --serves")
     if (args.serves or args.design) and (refused := state.held_elsewhere(known, order, os.environ.get("CLAUDE_CODE_SESSION_ID"))):
         raise DriveError(f"{key}: refused, nothing set: {refused}")
-    if args.serves:
-        refuse_an_unwritten_rule(known, key)
+    if args.serves and (unwritten := served.unwritten(key, served.owed(known, key, brief.bound(name, known, known["jobs"][before["job"]])[0], served.change(key)))):
+        raise DriveError(f"{key}: refused, nothing set: {unwritten}; push and set it again")
     answered = served.answers(known, [args.design], view.live_cards(name)) if args.design else None
     if args.serves and not args.design and (known["prs"][key]["wants_tap"] if args.tap is None else args.tap):
         raise DriveError(
@@ -3751,37 +3750,6 @@ def refuse_a_part_its_job_lacks(data: dict, key: str, parts: list[str], delivers
         listed = ", ".join(f'"{part}"' for part in delivered)
         lacks = f"its order {pr['order']} has" if delivers else f"its job {pr['job']} delivers"
         raise DriveError(f"{key}: refused, nothing set: {lacks} no part {', '.join(unknown)}; its parts are {listed}")
-
-
-def refuse_an_unwritten_rule(data: dict, key: str) -> None:
-    """Refuse a PR serving its order while a ruling of his that its job's brief binds, labelled code:<dir> for the code it rules on, is not written in this PR, his words verbatim, into an AGENTS.md at or above that directory, where every later change to that code reads it."""
-    cwd = data["roles"]["coordinator"]["cwd"]
-    owed = [
-        (answer_id, ruled, tag.removeprefix(CODE_LABEL).strip("/") or ".")
-        for answer_id in (data["jobs"][data["prs"][key]["job"]].get("brief_flags") or {}).get("ruling") or []
-        for ruled in [settled.shown(answer_id, cwd)]
-        for tag in ruled["tags"]
-        if tag.startswith(CODE_LABEL)
-    ]
-    if not owed:
-        return
-    changed = served.files(served.change(key)["diff"])
-    for answer_id, ruled, directory in owed:
-        written = [
-            line[1:].strip().lstrip(">").strip()
-            for path, text in changed
-            if Path(path).name == "AGENTS.md" and Path(directory).is_relative_to(Path(path).parent)
-            for line in text.splitlines()
-            if line.startswith("+") and not line.startswith("+++")
-        ]
-        said = settled.his(ruled["body"]).partition("\n")[0]
-        words = quoted[0][1:-1] if (quoted := limits.QUOTED.findall(said)) else said
-        if " ".join(words.split()).casefold() not in " ".join(" ".join(written).split()).casefold():
-            raise DriveError(
-                f'{key}: refused, nothing set: his ruling {answer_id[:7]} on how {directory} must work, "{render.cut(words, 200)}", is not'
-                f" written in this PR into an AGENTS.md at or above {directory}. Add his words verbatim with their date to the"
-                f" AGENTS.md nearest {directory}, push, and set it again; his ruling 23ff059: \"And in general get in the habit of doing that\""
-            )
 
 
 def withdrawal(args: argparse.Namespace) -> str | None:
