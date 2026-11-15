@@ -1185,8 +1185,13 @@ def release_owners(data: dict) -> list[tuple[str, dict]]:
 
 
 def released(data: dict, owner: dict, own: str, cards: dict | None, out: dict[str, str]) -> str:
-    """Drop the waits of a job or PR that ended, a wait on a PR or its release whose PR, of a job other than own, closed unmerged taking that job's change in its place by state.change_wait; what ended, when nothing else holds it, a process by its number."""
-    waits = list(dict.fromkeys(state.change_wait(data, pr["job"]) if (pr := data["prs"].get(state.waited_pr(wait))) and pr["state"] == "closed" and pr["job"] != own else wait for wait in owner["waits"]))
+    """Drop the waits of a job or PR that ended, a wait on a PR or its release whose PR, of a job other than own, closed unmerged taking that job's change in its place by state.change_wait, unless that job builds nothing, as a staging tester or prover, whose closed PR, such as a flake fix it opened, leaves no change of it to wait on, so the wait ends rather than hold its owner behind that job's test, which a PR's wait on the job reads as testing it; what ended, when nothing else holds it, a process by its number."""
+    waits = list(
+        dict.fromkeys(
+            state.change_wait(data, pr["job"]) if (pr := data["prs"].get(state.waited_pr(wait))) and pr["state"] == "closed" and pr["job"] != own and not state.builds_nothing(data["jobs"][pr["job"]]) else wait
+            for wait in owner["waits"]
+        )
+    )
     holds = [wait for wait in view.holding(data, waits, cards) if wait not in out]
     ended = [wait for wait in waits if wait not in holds]
     owner["waits"] = holds

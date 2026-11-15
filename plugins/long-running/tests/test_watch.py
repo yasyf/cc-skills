@@ -586,6 +586,25 @@ def test_a_release_wait_on_a_pr_closed_unmerged_frees_the_job_that_opened_it_and
     assert [line for line in said if line.startswith("FREE ")] == [f"FREE j3 o1: {rebuilt} answered or done, nothing else holds it"]
 
 
+def test_a_wait_on_a_staging_testers_pr_closed_unmerged_ends_and_never_moves_onto_the_tester_whose_test_holds_no_such_pr(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    closed = "Forge-AI/monorepo#43"
+    serve(monkeypatch, {})
+    with state.edit(demo) as data:
+        data["jobs"]["j2"] = job(goal="run the staging test of Forge-AI/monorepo#44", state="waiting", parts=[state.STAGING_TEST.format(number=44)], builds_nothing=True)
+        data["jobs"]["j3"] = job(goal="build on the fix")
+    assert cli.main(["pr", "add", state.pr_url(closed), "--job", "j2", "--drive", demo, *LEAD]) == 0
+    with state.edit(demo) as data:
+        data["jobs"]["j3"].update(state="waiting", waits=[closed])
+        data["prs"][KEY]["waits"] = [closed]
+    serve(monkeypatch, {closed: read(state="CLOSED")})
+    watching = watcher(demo)
+    watch.run_pass(watching, T0)
+    watch.run_pass(watching, T0 + timedelta(seconds=61))
+    data = state.load(demo)
+    assert (data["jobs"]["j3"]["waits"], data["prs"][KEY]["waits"]) == ([], [])
+    assert not state.waits_on_job(data, data["prs"][KEY], "j2", data["jobs"]["j2"])
+
+
 def test_unchanged_pr_emits_nothing(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {KEY: read()})
     assert watch.run_pass(watcher(demo), T0) == []
