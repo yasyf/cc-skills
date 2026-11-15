@@ -142,6 +142,12 @@ worker started and its terminal waits idle; the next launch of the brief, on
 the local route too, reuses the attempt's worktree and the terminal its
 `terminal` file names and retries under that ID.
 
+Orca answers `runtime_timeout` with no request ID when its status check timed
+out before it sent anything, so the launcher runs that terminal call again as
+it was, and with the prompt request ID a `terminal send` carries once it may
+have sent, so the launcher runs it again with `--retry-request` and that ID,
+which Orca delivers once; both back off and stop as a busy call does.
+
 Prepare starts the Sprite's Orca runtime through its `orca` CLI, and Orca
 1.4.224 serves it on its managed server, `orcad`. The prepared task records that
 server's build as `managedServer`, read from the ready event `orca serve --json`

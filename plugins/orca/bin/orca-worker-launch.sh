@@ -247,6 +247,11 @@ busy() {
   jq -e '.error.code == "runtime_busy"' >/dev/null 2>&1
 }
 
+# Orca's runtime_timeout carries no request id when it timed out before sending, so the call runs again as it was; a terminal send that may have sent carries its prompt request id, which the retry names so Orca delivers that prompt once.
+unanswered() {
+  jq -e '.error.code | IN("runtime_busy", "runtime_timeout")' >/dev/null 2>&1
+}
+
 backoff() {
   [ $((SECONDS + $1)) -le "$busy_seconds" ] || return 1
   sleep "$1"
@@ -374,14 +379,15 @@ if [ "$route" = sprite ]; then
 fi
 
 orca_json() {
-  local out said pause=1
-  until out=$(orca "$@" --json); do
-    if busy <<<"$out" && backoff "$pause"; then
+  local out said request= pause=1
+  until out=$(orca "$@" ${request:+--retry-request "$request"} --json); do
+    if unanswered <<<"$out" && backoff "$pause"; then
       pause=$((pause < 8 ? pause * 2 : 15))
+      request=${request:-$(jq -r '.error.data.orchestrationRequestId // empty' <<<"$out")}
       continue
     fi
     said=$(jq -er '.error | select(.) | "\(.code): \(.message | gsub("\\s*\\n\\s*"; " "))"' <<<"$out" 2>/dev/null) || said=${out//$'\n'/ }
-    ! busy <<<"$out" || said+=" on each try until this launch's $busy_seconds s ran out"
+    ! unanswered <<<"$out" || said+=" on each try until this launch's $busy_seconds s ran out"
     echo "orca $1 $2 failed: $said" >&2
     return 1
   done

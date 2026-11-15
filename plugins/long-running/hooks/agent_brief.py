@@ -6,7 +6,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
 from drive import agents, brief, place, state, view
-from drive.render import cut, when
 
 BUILDER = "long-running:builder"
 BRIEFED = ("long-running:reader", BUILDER, agents.DESIGNER)
@@ -120,44 +119,20 @@ def overloaded(data: dict, text: str) -> str | None:
 
 
 def crowded(name: str, data: dict, text: str) -> str | None:
-    """Why no builder starts on this Mac now: a job waiting its turn for a builder slot starts only on the watch's FREE line naming it, and any other only while a slot is open, its cap's builders holding every other one, each named, and no builder waits its turn ahead of it, unless it builds for an open incident or an immediate fix, which starts at once. A job let start is stamped launching, so place.local_builders counts its slot before its agent's first step records the agent, and a burst of starts fills the cap rather than passing it. A refused job whose brief this Mac alone runs, by place.mac_step, and that no agent runs and nothing else holds is held waiting its turn, so the watch reads it waiting, never abandoned, and frees the earliest due as each slot opens; any other starts on a Sprite at once."""
+    """Why no builder starts on this Mac now: its cap's builders hold every other slot, each named, or builders wait their turn ahead of it, unless its brief declares a step only this Mac runs, by place.mac_step, or it builds for an open incident or an immediate fix, any of which starts at once; a refused one starts on a Sprite at once. A job let start is stamped launching, so place.local_builders counts its slot before its agent's first step records the agent, and a burst of starts fills the cap rather than passing it."""
     match = brief.BRIEF_JOB.search(text)
     job_id = match[1] if match and match[1] in data["jobs"] else None
     moment = state.now()
-    if job_id in (places := place.positions(data)):
-        why = f"{job_id} waits its turn for a builder slot on this Mac, {places[job_id]}"
-    elif not (why := place.crowded(data, job_id, moment)):
-        if job_id:
-            with state.edit(name) as data:
-                data["jobs"][job_id]["launching"] = state.stamp(moment)
-        return None
-    if job_id and not place.mac_step(text):
-        return agents.Unjudged(f"refused: {why}, so {job_id} starts on a Sprite at once, since its brief declares no step only this Mac runs on {place.MAC_LINES}: write this brief to a file and run drive job launch {job_id} <file>")
-    if job_id in places:
-        return agents.Unjudged(f"refused: {why}{line(data)}")
-    if job_id is None or not place.queueable(data, job_id):
-        return agents.Unjudged(f"refused: {why}, so this one waits: start it once a slot opens here with no builder waiting its turn{line(data)}")
-    with state.edit(name) as data:
-        place.queue(data["jobs"][job_id], moment)
-    return agents.Unjudged(f"refused: {why}, so {job_id} waits its turn for a builder slot on this Mac, {place.positions(data)[job_id]}{line(data)}")
-
-
-def line(data: dict) -> str:
-    waiting = "; ".join(in_line(data, job_id) for job_id in place.waiting_builders(data))
-    return (
-        f". The watch's FREE line names each job waiting its turn as a slot opens, earliest due first: {waiting or 'none'}."
-        f" Only a builder whose brief declares a step only this Mac runs, on {place.MAC_LINES}, waits here; start any other on a Sprite at once with drive job launch <j> <brief>"
-    )
-
-
-def in_line(data: dict, job_id: str) -> str:
-    job = data["jobs"][job_id]
-    due = place.promised(data, job)
-    return f'{job_id} ({f"due {when(due)}" if due else "no time promised"}) "{cut(job["goal"], 60)}"'
+    if why := place.crowded(data, job_id, moment, place.mac_step(text)):
+        return agents.Unjudged(f"refused: {why}, so {job_id or 'it'} starts on a Sprite at once: write this brief to a file and run drive job launch {job_id or '<j>'} <file>")
+    if job_id:
+        with state.edit(name) as data:
+            data["jobs"][job_id]["launching"] = state.stamp(moment)
+    return None
 
 
 def deny_reason(payload: dict) -> str | None:
-    """Why a drive session may not start this agent, in the shape `agents.shaped` gives its call: a handler starts with the drive's handler tool, a reader, builder or designer starts only on a brief the drive wrote, a build order's codex lane waits on its reader's research, a builder's brief says its scope, drive tooling is the meta session's alone, a builder starts on the watch's FREE line once its last wait ends, a monorepo builder starts here over this Mac's load limit only when its brief declares a step only this Mac runs, and a builder starts here only in its turn for one of this Mac's builder slots."""
+    """Why a drive session may not start this agent, in the shape `agents.shaped` gives its call: a handler starts with the drive's handler tool, a reader, builder or designer starts only on a brief the drive wrote, a build order's codex lane waits on its reader's research, a builder's brief says its scope, drive tooling is the meta session's alone, a builder starts on the watch's FREE line once its last wait ends, a monorepo builder starts here over this Mac's load limit only when its brief declares a step only this Mac runs, and a builder starts here only while one of this Mac's builder slots is open, unless its brief declares a step only this Mac runs."""
     if payload.get("agent_id"):
         return None
     session = payload.get("session_id") or ""

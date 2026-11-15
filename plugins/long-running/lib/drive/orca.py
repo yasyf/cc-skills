@@ -574,7 +574,7 @@ def sprite_config(checkout: Path) -> str:
 
 
 def launch(drive: str, lane: str, brief: Path, checkout: Path, run: str, route: str | None, workspace: str | None, session: str | None) -> dict:
-    """Start one builder through the orca plugin's launcher, on a fresh Sprite or on the workspace's own Sprite in the checkout it holds, there resuming the Claude session given, either way giving its `~/.local/bin` the `drive` that asks each verb of this Mac, or, on the local route, in the worktree on this Mac the workspace names, as it stands, else in a fresh worktree of the checkout's Orca repository, with `CCI_PARENT_SESSION` set, so cci binds the lane's session to no lane and its `cci post` as `root` or `builder` goes out as its brief says, and, under the launcher's `--strict-mcp-config`, the installed Datadog plugin's servers in a file beside the brief; its success line, with the Sprite's prepared server. Each run's whole output goes to the attempt's launch.log by launch_log, and a refusal names that file last."""
+    """Start one builder through the orca plugin's launcher, on a fresh Sprite or on the workspace's own Sprite in the checkout it holds, there resuming the Claude session given, either way giving its `~/.local/bin` the `drive` that asks each verb of this Mac, or, on the local route, in the worktree on this Mac the workspace names, as it stands, else in a fresh worktree of the checkout's Orca repository, with `CCI_PARENT_SESSION` set, so cci binds the lane's session to no lane and its `cci post` as `root` or `builder` goes out as its brief says, and, under the launcher's `--strict-mcp-config`, the installed Datadog plugin's servers in a file beside the brief; its success line, with the Sprite's prepared server. Each run's whole output goes to the attempt's launch.log by launch_log, and a refusal quotes the launcher's last stderr line, the one naming why it stopped, since a line before it, such as a sparse worktree's notice, says only how the launch went, and names that file last."""
     env = {**os.environ, "WORKER_RUN": run, "WORKER_ENV": LANE_ENV, "WORKER_BIND": f"{DRIVE} bound --drive {drive} {run} --"}
     if workspace:
         env["WORKER_WORKSPACE"] = workspace
@@ -604,7 +604,7 @@ def launch(drive: str, lane: str, brief: Path, checkout: Path, run: str, route: 
     kept = launch_log(attempt, f"exited {done.returncode}", done.stdout, done.stderr)
     lines = done.stdout.strip().splitlines()
     if done.returncode or not lines:
-        said = "; ".join(line.strip() for line in done.stderr.strip().splitlines()) or "no output"
+        said = (done.stderr.strip().splitlines() or ["no output"])[-1].strip()
         reason = said if len(said) <= LAUNCH_REASON_CHARS else "…" + said[-LAUNCH_REASON_CHARS:]
         if done.returncode == UNFIT:
             raise Unfit(reason + kept)

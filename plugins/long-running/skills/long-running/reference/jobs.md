@@ -30,35 +30,31 @@ Contents:
   does a launch that started no worker or a lane on a Sprite, nor a job freed from a card, PR or other wait whose agent has not started. `drive job add builder` past eight, or
   while builders wait their turn, records the job to start on a Sprite at once, `where` remote, and
   prints why, naming each builder it counted with its order and when its agent last wrote, and its
-  `drive job launch <j> <brief>`. Only a builder whose brief declares a step only this Mac runs, on
-  its `Mac:` or `Release:` line below, waits its turn for a slot, held on `builder-slot`;
-  `drive status` shows its place, and the watch reads the job waiting, never abandoned.
-  A builder on an open incident's order or on an `immediate fix` part never waits its turn: it
-  starts here at once past the cap and the line, and holds a slot against later builders once it
-  runs.
+  `drive job launch <j> <brief>`. A builder whose brief declares a step only this Mac runs, on its
+  `Mac:` or `Release:` line below, or on an open incident's order or an `immediate fix` part, never
+  waits its turn: it starts here at once past the cap and the line, by his picks "Decide at start:
+  a brief naming a Mac-only step starts here at any load" and "Start at once past the cap", since a
+  Sprite never runs that step, and holds a slot against later builders once it runs.
   A builder added with `drive job add builder --order <o> --goal "<goal>" --builds-nothing`, one whose whole work holds no
   checkout or compiler, such as a read, or one whose goal reads `prove <PRs> live`, a merged PR's
   live proof, marked or not, holds no slot at all: it starts
   here at once past the cap and the line, and no later builder counts it. `drive job set <j> --builds-nothing`
   marks a builder already added the same way, a waiting one included, so a message wakes it past a full
   cap and one waiting its turn leaves the line.
-  Each watch pass counts this Mac's builders once and gives each open slot to the builder job waiting
-  its turn that is due first: the earliest time promised him on an order it serves, then the oldest
-  added. Its `FREE` line goes once to the session holding its order, which starts its agent then. The
-  `agent_brief` hook refuses any other builder here while one waits its turn, naming each builder it
-  counted and the line: one whose brief declares no such step starts on a Sprite at once with
-  `drive job launch <j> <brief>`, and one whose brief declares one, that no agent runs, it holds waiting its
-  turn the same way, unless a wait, a card of his or an open PR of its still holds it.
+  A job a drive still holds on `builder-slot`, from before such a brief started at once, waits its
+  turn: `drive status` shows its place, the watch reads it waiting, never abandoned, and each watch
+  pass gives each open slot to the one due first, the earliest time promised him on an order it
+  serves, then the oldest added, its `FREE` line going once to the session holding its order, or
+  starting its move here itself with `drive job launch <j> --local`. The `agent_brief` hook refuses
+  any other builder here while one waits its turn, naming each builder it counted, and it starts on
+  a Sprite at once with `drive job launch <j> <brief>`.
   Every start here meets this one count, and no judge lifts its refusal: an Agent call, through the
-  `agent_brief` hook; `drive job launch --local`, for a first lane, which starts on a Sprite or
-  waits its turn the same way; a move from a Sprite, below, or a takeover from an agent here whose
-  brief declares such a step, which waits its turn on `builder-slot` whatever its worker, waits or PRs, its Sprite lane running on meanwhile and the texts the job holds
-  kept for the handoff, until the watch's turn stamps its slot and starts the move itself with
-  `drive job launch <j> --local`, a refusal of that launch reaching the coordinator as its
-  `relaunch_refused` event; and a SendMessage that would wake an agent here
-  whose turn ended, which the `communicator_calls` hook refuses while the slots are full, and after
-  which `drive job resume <j> "<the message>"` hands the job to a lane on a Sprite with the message
-  in its handoff, or holds the message for that takeover when its brief declares such a step.
+  `agent_brief` hook; `drive job launch --local`, for a first lane, which starts on a Sprite the
+  same way; a move from a Sprite or a takeover from an agent here, which only a brief declaring
+  such a step asks and so starts at once; and a SendMessage that would wake an agent here whose
+  turn ended, which the `communicator_calls` hook refuses while the slots are full unless its brief
+  declares such a step, and after which `drive job resume <j> "<the message>"` hands the job to a
+  lane on a Sprite with the message in its handoff.
 - A Forge-AI/monorepo builder is placed when it starts, from the step its brief declares, by his pick
   "Decide at start: a brief naming a Mac-only step starts here at any load, others keep the load
   check". `drive job add` never refuses one for load. The brief's writer names the step only this
@@ -82,8 +78,9 @@ Contents:
   report, a text it holds, the resume's text or a takeover section a handoff added, and a job declaring one moves to a fresh worktree here, as `--local` moves one,
   whatever its Sprite worker is doing and never in the Sprite's own Claude session: a worker still
   at work or still taking messages is stopped by `orca.reclaim`, as `drive job end` stops one, and
-  gets nothing, and every text the job holds goes in the handoff. A builder that builds nothing
-  moves at once past the cap. A builder return's `Mac:` line, the step its `PROVE:` needs, goes onto
+  gets nothing, and every text the job holds goes in the handoff. It moves at once past the cap,
+  and the job's route reads this Mac only from the receipt of the worker that started here, so a
+  move that starts none leaves the job on its Sprite for the next resume or relaunch to move. A builder return's `Mac:` line, the step its `PROVE:` needs, goes onto
   the brief of the prover added at its merge, so that prover starts here while a red check on the
   job's own PR reaches its Sprite lane. Such a brief starts here
   at any load, and `drive job launch <j>` refuses its Sprite start, naming the step: start it with
@@ -125,10 +122,8 @@ refuses a builder whose brief lacks `Serves:`
 or `Handoff:`, whose `Serves:` names none of the three, whose job no worker started while a wait of its still holds, as `drive job launch` refuses it, so it starts on its `FREE` line, or whose Goal's own action backfills,
 bulk-repairs, migrates, converts or repairs, or runs such a pass, with no `Runs as:` line; a Goal
 that only names a PR, stack or check for a pass is not one; and a builder, other than one on an
-open incident's order or an `immediate fix` part or building nothing, marked with `--builds-nothing` or its goal reading `prove <PRs> live`, while eight hold this Mac's builder slots or one
-waits its turn ahead of it, sending one whose brief declares no step only this Mac runs to a
-Sprite at once and holding one whose brief declares one, that no agent runs and nothing else holds, waiting
-its turn and naming the line, earliest due first. The `scratch_folder` hook refuses a build
+open incident's order or an `immediate fix` part, building nothing, marked with `--builds-nothing` or its goal reading `prove <PRs> live`, or whose brief declares a step only this Mac runs, while eight hold this Mac's builder slots or one
+waits its turn ahead of it, sending it to a Sprite at once. The `scratch_folder` hook refuses a build
 order's builder, designer or codex lane whose brief lacks the `Researched:` line the `brief` op
 writes once its reader's or design's research is kept, the one check of that research, since `drive job add`
 adds such a job at once, unless its job ships the order's `immediate fix` part or its `Handoff:` line hands it a PR

@@ -3,8 +3,9 @@ import os
 import sys
 import time
 from datetime import datetime
+from pathlib import Path
 
-from drive import agents, brief, orca, state, view, watch
+from drive import agents, brief, orca, state, watch
 from drive.render import when
 
 LIMIT_ENV = "HOOKS_ADMISSION_LOAD_PER_CORE"
@@ -49,6 +50,11 @@ def mac_step(text: str) -> str | None:
     own = orca.brief_of(text).partition(orca.TAKING_OVER)[0]
     found = brief.MAC.search(own) or brief.RELEASE.search(own)
     return found[1].strip() if found else None
+
+
+def kept_step(job: dict) -> str | None:
+    """The step only this Mac runs that the brief a job keeps declares, by mac_step; None for a job keeping no brief."""
+    return mac_step(Path(job["brief"]).read_text()) if job.get("brief") else None
 
 
 def verdict(share: float, ceiling: float, builders: dict[str, str]) -> tuple[str, str]:
@@ -113,10 +119,10 @@ def positions(data: dict) -> dict[str, str]:
     return {job_id: f"{number} of {len(line)} in line" for number, job_id in enumerate(line, 1)}
 
 
-def crowded(data: dict, job_id: str | None, moment: datetime) -> str | None:
-    """Why the builder job takes no slot on this Mac now, None when it may: the cap's builders hold every slot but its own, or builders wait their turn ahead of a job that holds none, since the watch's FREE line gives each open slot to the earliest due. A builder on an open incident's order or on an immediate fix part starts at once past both, counting against the cap for later builders once it runs, by his pick "Start at once past the cap", and one that builds nothing starts at once past both, holding no slot."""
+def crowded(data: dict, job_id: str | None, moment: datetime, step: str | None) -> str | None:
+    """Why the builder job takes no slot on this Mac now, None when it may: the cap's builders hold every slot but its own, or builders wait their turn ahead of a job that holds none, since the watch's FREE line gives each open slot to the earliest due. A builder whose brief declares the step given, one only this Mac runs as its caller read it by mac_step, or on an open incident's order or an immediate fix part starts at once past both, counting against the cap for later builders once it runs, by his picks "Decide at start: a brief naming a Mac-only step starts here at any load" and "Start at once past the cap", since a Sprite never runs that step and the cap exists to send work to one, and one that builds nothing starts at once past both, holding no slot."""
     job = data["jobs"].get(job_id)
-    if job and (state.builds_nothing(job) or state.open_incidents(data, orders := [job["order"], *job["carries"]]) or any(state.IMMEDIATE_FIX in state.job_parts(job, order_id) for order_id in orders)):
+    if step or job and (state.builds_nothing(job) or state.open_incidents(data, orders := [job["order"], *job["carries"]]) or any(state.IMMEDIATE_FIX in state.job_parts(job, order_id) for order_id in orders)):
         return None
     builders = local_builders(data, moment)
     others = {other: line for other, line in builders.items() if other != job_id}
@@ -132,30 +138,7 @@ def woken(data: dict, job_id: str, moment: datetime) -> str | None:
     job = data["jobs"][job_id]
     if job["kind"] != "builder" or job.get("where") == "remote" or not job.get("agent") or job_id in local_builders(data, moment):
         return None
-    return f"its turn ended and {why}" if (why := crowded(data, job_id, moment)) else None
-
-
-def queueable(data: dict, job_id: str) -> bool:
-    """Whether a builder job may wait its turn for a slot on this Mac: one that no agent or lane runs, not finished, and that nothing else holds, no wait, card of his or open PR of its, so the line never frees work held on something else."""
-    job = data["jobs"][job_id]
-    return (
-        job["kind"] == "builder"
-        and job["state"] not in state.FINISHED_JOB_STATES
-        and not job.get("agent")
-        and not job.get("dispatch")
-        and not job["waits"]
-        and not view.open_cards(job)
-        and not any(pr["job"] == job_id and pr["state"] == "open" for pr in data["prs"].values())
-    )
-
-
-def queue(job: dict, moment: datetime) -> None:
-    """Hold a builder job waiting its turn for a slot on this Mac on builder-slot: one no agent or lane runs, or one taking over here from its agent on this Mac, waiting, so the watch reads it waiting, never abandoned, until its FREE line names it or its turn starts the takeover, and one moving here from its Sprite in the state its lane there set, that lane running on, until the watch's turn starts its move."""
-    waits = list(dict.fromkeys([*job["waits"], state.SLOT_WAIT]))
-    if on_sprite(job):
-        job.update(waits=waits, slot=None, updated=state.stamp(moment))
-        return
-    job.update(state="waiting", where="local", waits=waits, slot=None, said="waits its turn for a builder slot on this Mac", updated=state.stamp(moment))
+    return f"its turn ended and {why}" if (why := crowded(data, job_id, moment, kept_step(job))) else None
 
 
 def on_sprite(job: dict) -> bool:
@@ -164,7 +147,7 @@ def on_sprite(job: dict) -> bool:
 
 
 def moves_here(job: dict) -> bool:
-    """Whether a start here takes the job over from the worker it has, so the watch's turn starts it itself with drive job launch <j> --local: its lane on a Sprite, or its agent on this Mac, held on builder-slot only by a takeover crowded_here refused at the cap, or given its turn since that agent last started."""
+    """Whether a start here takes the job over from the worker it has, so the watch's turn starts it itself with drive job launch <j> --local: its lane on a Sprite, or its agent on this Mac, held on builder-slot, or given its turn since that agent last started."""
     if on_sprite(job):
         return True
     return job.get("where") == "local" and bool(job.get("agent")) and (state.SLOT_WAIT in job["waits"] or bool(job.get("slot")) and not state.started_after(job, job["slot"]))

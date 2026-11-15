@@ -1276,6 +1276,20 @@ class LocalTest(LaunchTest):
                 calls = launch.local_calls()
                 self.assertEqual(launch.calls(), [*calls[:5], *[calls[5]] * sends, *(calls[6:] if sends == 2 else [])])
 
+    def test_a_local_terminal_send_orca_answers_runtime_timeout_runs_again_under_the_prompt_request_id_it_carries_else_as_it_was(self):
+        timeout = {"code": "runtime_timeout", "message": "Timed out waiting for the Orca runtime to respond."}
+        for carried, retry in ((None, []), (REQUEST, ["--retry-request", REQUEST])):
+            with self.subTest(carried=carried):
+                launch = self.fresh()
+                launch.local()
+                error = timeout | ({"data": {"orchestrationRequestId": carried}} if carried else {})
+                launch.reply("orca terminal send", {"rc": 1, "out": {"ok": False, "error": error}}, {"rc": 1, "out": {"ok": False, "error": error}}, {"out": {"ok": True}})
+                result = launch.run(model="fable", WORKER_LOCAL="1")
+                self.assertEqual((result.returncode, result.stderr), (0, f"{SPARSE}\n"))
+                calls = launch.local_calls()
+                resent = [*calls[5][:-1], *retry, "--json"]
+                self.assertEqual(launch.calls(), [*calls[:6], resent, resent, *calls[6:]])
+
     def test_a_new_local_worktree_is_sparse_with_the_requested_cone(self):
         self.launch.local()
         result = self.launch.run(model="fable", WORKER_LOCAL="1", WORKER_SPARSE="desktop common")
