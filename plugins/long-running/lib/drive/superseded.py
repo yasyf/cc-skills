@@ -490,11 +490,13 @@ def unheard(data: dict, kept: dict) -> list[str]:
 
 
 def delivery(data: dict, job_id: str, job: dict, text: str, what: str = "his words") -> tuple[str, str]:
-    """The one step by which a session of the drive gets this text to the job's worker, with the cci lane of the session that may take it, which every watch line names, drive pr wake hands its STAGE line to and the communicator_calls hook refuses a SendMessage by: a fresh builder for a text that carries nothing the job holds or owes to a builder that returned, by fresh_builder; drive job resume, from the session state.job_lane names, for a job any worker runs or ran, which sends the text to its lane, posts it whole to the cci address of a live agent on this Mac and tells the session that started it the SendMessage pointing the agent at that record, or hands the job and the text to a fresh worker of the holder for an agent whose starting session the drive no longer binds or one that takes no message; drive job launch, from the same session, for a job no worker runs yet, which carries his unheard answers to its first worker."""
+    """The one step by which a session of the drive gets this text to the job's worker, with the cci lane of the session that may take it, which every watch line names, drive pr wake hands its STAGE line to and the communicator_calls hook refuses a SendMessage by: a fresh builder for a text that carries nothing the job holds or owes to a builder that returned, by fresh_builder; drive job resume, from the session state.job_lane names, for a job any worker runs or ran, which sends the text to its lane, posts it whole to the cci address of a live agent on this Mac and tells the session that started it the SendMessage pointing the agent at that record, or hands the job and the text to a fresh worker of the holder for an agent whose starting session the drive no longer binds or one that takes no message; drive job launch --handoff with the text, from the same session, for an adopted PR's job, by state.adopted_pr_job, whose brief refuses no other start; drive job launch, from the same session, for any other job no worker runs yet, which carries his unheard answers to its first worker."""
     if fresh := fresh_builder(data, job_id, job, text, what):
         return fresh
     if job.get("agent") or job.get("dispatch"):
         return state.job_lane(data, job), f"drive job resume {job_id} with {what} verbatim"
+    if state.adopted_pr_job(job):
+        return state.job_lane(data, job), f"drive job launch {job_id} --handoff \"<{', '.join(job['prs'])}, its head and {what} verbatim>\", starting the first builder of its adopted PR"
     return state.job_lane(data, job), f"drive job launch {job_id} on its FREE line, which carries each answer of his it has not heard to its first worker"
 
 

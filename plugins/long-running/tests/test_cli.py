@@ -8777,6 +8777,24 @@ def test_the_immediate_fix_a_sub_coordinators_builder_runs_takes_no_second_chang
     assert list(state.load("demo")["jobs"]) == ["j1"]
 
 
+def test_order_set_refuses_a_part_change_from_a_session_that_does_not_hold_the_order_as_the_job_verbs_do(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "Agents", "fault the socket", "--parts", "one code path", "immediate fix")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "platform-1")
+    run("start", "demo", "--role", "coordinator", "--project", "Platform")
+    run("job", "add", "builder", "--order", "o1", "--part", "immediate fix", "--goal", "fault the socket", "--agent", "a1")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "session-under-test")
+    for change in (["--drop-part", "one code path"], ["--add-part", "a third"], ["--kind", "answer", "--part", "one code path"], ["--options-only"]):
+        assert cli.main(["order", "set", "o1", *change]) == 2
+        assert "o1: refused, nothing written: o1 is the sub-coordinator for Platform's order, session platform-1: only the sub-coordinator for Platform" in capsys.readouterr().err
+    assert list(state.load("demo")["orders"]["o1"]["parts"]) == ["one code path", "immediate fix"]
+    assert run("order", "set", "o1", "--note", "seen from the top")[0] == 0
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "platform-1")
+    assert run("order", "set", "o1", "--add-part", "a third")[0] == 0
+    assert list(state.load("demo")["orders"]["o1"]["parts"]) == ["one code path", "immediate fix", "a third"]
+
+
 @pytest.mark.parametrize(
     "argv",
     [
