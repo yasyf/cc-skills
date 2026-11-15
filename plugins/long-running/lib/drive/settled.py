@@ -7,6 +7,8 @@ import sys
 import time
 from collections.abc import Iterable, Iterator, Sequence
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import suppress
+from datetime import datetime
 from functools import cache
 from itertools import chain, zip_longest
 from pathlib import Path
@@ -166,6 +168,22 @@ SHIPS_MORE = Noul(
         " His words to get work built or tested on places order a release of that work there, on those places alone, whatever flags it starts with."
     ),
 )
+JOB_ORDERS = Noul(
+    "Do `answers.{slot}.said`, read with `answers.{slot}.card`, the rest of `answers` and his hold on every release in `hold`, have the Job in `job` start on `job.cluster` at `job.now`?",
+    yes=(
+        "His order, or his pick on a card, to run that CronJob's pass, dry run or repair on that cluster, his exception to the hold, with each time or condition"
+        " his words set holding at `job.now`, such as tonight once it is evening there, and no other answer of his in `answers` holding it back at that time."
+    ),
+    no=(
+        "Words that run it only on other clusters, such as staging, or once a time or condition that does not hold at `job.now`, such as after his hold lifts or later"
+        " that day; his Approve or tap on a pull request, a pick of a design, or words about another Job or a release order no Job."
+    ),
+)
+JOB_ABOUT = Noul(
+    "Do `answers.{slot}.said` speak to the Job in `job`: order, time or hold back that CronJob's pass, dry run or repair, on `job.cluster` alone or with other clusters?",
+    no="They are about other work, such as another pass, a release, a pull request or a design.",
+)
+ANSWER_REF = re.compile(r"\b(?=[0-9a-f]*[0-9])(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b")
 ASKS_RELEASE = Noul(
     "Does `record` ask the session it goes to, or a job or agent that session runs, to take a step of a production release itself: start, hotfix, resume, approve, rerun or roll back a release, now or once something holds?",
     yes="It asks for that step, whatever words of his it quotes.",
@@ -788,12 +806,60 @@ def unordered(answer: dict, release: str, data: dict) -> str | None:
             return f"it picks option {number} of the card it answers, {', '.join(f'`{command}`' for command in commands)}, {whys[0]}"
         if named(flags, words, rest, cwd):
             return None
-    card = {"card": "\n".join([f"Question: {asked.title}", *asked.summary, *limits.offered(asked)])} if asked else {}
+    card = {"card": card_text(asked)} if asked else {}
     read = jev({"action": f"start this release on {runs_on(flags, cwd)}: `{release}`", "answer": {"asked": answer["title"], "said": said}} | card, {f"orders.{answer['id'][:7]}": ORDERS, "more": SHIPS_MORE})
     orders, more = reading(read[f"orders.{answer['id'][:7]}"]), reading(read["more"])
     if orders and more is False:
         return None
     return UNORDERED if orders is False or more else f"{UNORDERED}: Jev is unsure"
+
+
+def card_text(asked: limits.Question) -> str:
+    """The card his answer answers as Jev reads it beside his words: its question, summary and options."""
+    return "\n".join([f"Question: {asked.title}", *asked.summary, *limits.offered(asked)])
+
+
+def job_unordered(job: dict, hold: dict, data: dict, moment: datetime) -> str | None:
+    """Why no answer of his recorded after his hold on every release orders this Job, a `tools/ci cluster-job` start of one CronJob on one cluster, at this moment; None when one does, the reading unordered() makes of a release for a Job, whose only words are its reason: each answer of his its reason names, as a release names its --order, and each `matched` ranks nearest the Job, read whole with shown(), those recorded after the hold Jev reads in as many requests as batched() packs them into, each with its card, beside the others, the hold and this moment in Pacific, ordering it when one JOB_ORDERS Noul reads YES. The why names each answer its reason names, each one recorded before the hold, and each Jev reads as speaking to the Job by JOB_ABOUT or is unsure of, with his words. Unheard when Jev gave no answer."""
+    cwd = data["roles"]["coordinator"]["cwd"]
+    action = f"start the {job['cronJob']} Job from its suspended CronJob on {job['cluster']}: {job['reason']}"
+    nearest = [shown(answer["id"], cwd) for answer in matched([action], data)]
+    named = [answer for typed in dict.fromkeys(ANSWER_REF.findall(job["reason"])) if (answer := answer_named(typed, cwd))]
+    named_ids = {answer["id"][:7] for answer in named}
+    read = {answer["id"][:7]: answer for answer in [*named, *nearest] if his(answer["body"])}
+    since = {slot: answer for slot, answer in read.items() if answer["created_at"] > hold["created_at"]}
+    said: dict[str, float] = {}
+    if since:
+        context = {"job": {"cronjob": job["cronJob"], "cluster": job["cluster"], "reason": job["reason"], "now": pacific(moment)}, "hold": {"said": his(hold["body"])[:BODY_CHARS], "at": pacific(state.parse_time(hold["created_at"]))}}
+        items = [({"answers": {slot: answer_words(answer, data)}}, {f"orders.{slot}": asking(JOB_ORDERS, slot=slot), f"about.{slot}": asking(JOB_ABOUT, slot=slot)}) for slot, answer in since.items()]
+        said = jev_all(batched(context, {}, items))
+        if any(reading(said.get(f"orders.{slot}")) for slot in since):
+            return None
+    early = [f'its reason names his answer {slot} to "{cut(answer["title"], 200)}", recorded before the hold' for slot, answer in read.items() if slot in named_ids and slot not in since]
+    spoken = [
+        f'his answer {slot} to "{cut(answer["title"], 200)}", "{cut(his(answer["body"]), QUOTED_CHARS)}", {"which Jev does not read as ordering it now" if reading(said.get(f"orders.{slot}")) is False else "which Jev is unsure orders it now"}'
+        for slot, answer in since.items()
+        if slot in named_ids or reading(said.get(f"about.{slot}")) is not False
+    ]
+    return "; ".join([*early, *spoken]) or "its reason names no answer of his, and Jev reads none of his answers recorded since that are nearest it as speaking to it"
+
+
+def answer_named(typed: str, cwd: str) -> dict | None:
+    """His answer a word of a Job's reason names by its id or a prefix of it, as shown() reads it; None when it names no answer, as a commit sha in the reason does."""
+    with suppress(DriveError):
+        return shown(typed, cwd)
+    return None
+
+
+def answer_words(answer: dict, data: dict) -> dict:
+    """One answer of his as Jev reads it beside a Job: its id, question, his words, when he gave them in Pacific and the card it answers, by answered_card()."""
+    asked = answered_card(data, answer)
+    return {"id": answer["id"][:7], "asked": answer["title"], "said": his(answer["body"])[:BODY_CHARS], "at": pacific(state.parse_time(answer["created_at"])), "card": card_text(asked) if asked else ""}
+
+
+def pacific(moment: datetime) -> str:
+    """A moment as he reads it, in Pacific with its weekday, so Jev can tell whether a time his words set, such as tonight, holds."""
+    return moment.astimezone(view.ZONE).strftime("%A %b %-d %Y, %-I:%M %p Pacific")
 
 
 def only_asks(title: str, options: list[str], words: str) -> bool:

@@ -443,10 +443,11 @@ check's verdict, or from the order when none ran.
   at once, beside the root fix that stops new ones, as a Job in the team's cluster started from
   its suspended CronJob with `tools/ci cluster-job`, never under `drive break-glass` from this Mac;
   with no service account that can make it, its job returns `BLOCKED` naming the grant it needs
-  while the root fix ships. While he is away, his last word or tap over 15 minutes old, the
-  `landing_guard` hook refuses that Job on any cluster but staging or sandbox, and its gate's
-  unblock or rerun, since it writes a team's data: its job returns `WAITING his word` and the
-  watch pages him. His words: "4, it is never ok to write from local or not use a service
+  while the root fix ships. On any cluster but staging or sandbox the `landing_guard` hook refuses
+  that Job, and its gate's unblock or rerun, since it writes a team's data, while he holds every
+  release and no answer of his recorded since orders it there now, as
+  [landing.md](landing.md#after-merge) says, and while he is away, his last word or tap over 15 minutes old,
+  whatever answer its reason names: its job returns `WAITING his word` and the watch pages him. His words: "4, it is never ok to write from local or not use a service
   agent or any things like this", and "it shouldnt be reading iris blobs at all locally only with a
   service account on a pass box".
 
