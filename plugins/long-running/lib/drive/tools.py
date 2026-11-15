@@ -193,14 +193,21 @@ def verb_tools() -> list[dict]:
                 " with it. A message of his and a thread each have one handler at a time: any brief, his words, a record or neither, in"
                 " a live handler's thread, a record's own thread, else the thread its brief's Link or Thread: line names, else its order's thread, on the message of his it"
                 " holds, or naming its record up a re chain or named by its record's, returns handed to <that handler's id>,"
-                " which takes it at its next step and covers it in its post; it refuses a brief while a live handler holds"
-                " the same record or the same message of his, a copy that needs nothing, and a POST report to the communicator"
-                " the drive read before the call, whose handler started then. For his read-only question, answer"
+                " which takes it at its next step and covers it in its post, a copy of the same record or the same message of his"
+                " a live handler holds included, which adds nothing to it; it refuses only a POST report to the communicator"
+                " the drive read before the call whose handler has ended on it. records, the record tool's owner records of his words"
+                " for an order or alert, go out first in the same call, so a card his words withdraw or change ends before the"
+                " handler starts, and the brief's Context: line names them, so the handler sends no second record of those words;"
+                " a ruling's record, whose cc-notes answer the handler adds first, stays the handler's. For his read-only question, answer"
                 " alone adds his answer order and the handler's reader job on it in the same call, so no job call follows,"
                 " and the handler files that order under the project and workstream it reads his question is about; a brief"
                 " handed over adds neither."
             ),
-            "inputSchema": {"type": "object", "properties": {**schema(leaf("handler", root=root))["properties"], "drive": DRIVE, "dry_run": DRY_RUN}, "required": ["brief"]},
+            "inputSchema": {
+                "type": "object",
+                "properties": {**schema(leaf("handler", root=root))["properties"], "records": {"type": "array", "items": item}, "drive": DRIVE, "dry_run": DRY_RUN},
+                "required": ["brief"],
+            },
         },
         {
             "name": "record",
@@ -297,9 +304,16 @@ def run(tool: str, name: str, arguments: dict) -> str:
         case "record":
             return record(name, listing(arguments, "records", "owner, answer, handoff or defect records"), dry_run)
         case "heard" | "handler" | "status" | "search_plan":
+            records = arguments.pop("records", None)
+            sent = record(name, records, dry_run).splitlines() if records else []
+            if sent and not dry_run:
+                arguments["brief"] += f"\nContext: his owner record went out with the handler call: {'; '.join(sent)}"
             said: list[str] = []
-            printed, _ = ran(name, said, 1, ONE_VERB[tool], arguments, dry_run) or ([], [])
-            return "\n".join(said if dry_run or not printed else printed)
+            try:
+                printed, _ = ran(name, said, 1, ONE_VERB[tool], arguments, dry_run) or ([], [])
+            except DriveError as error:
+                raise DriveError("\n".join([*sent, str(error)])) from None
+            return "\n".join([*sent, *(said if dry_run or not printed else printed)])
         case group:
             return batch(name, group, listing(arguments, "ops", ", ".join(OPS[group])), dry_run)
 

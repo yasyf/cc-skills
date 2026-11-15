@@ -533,7 +533,8 @@ When it is answered, replaced or redone:
   body, never in the message.
 
 **A confirmation of a skill update** goes out twice for each message of his that leads to one. The
-ack says the skill is being updated and what changes, in plain words; a summary then says it is
+ack says a self-retro on the lesson behind his words is rewriting the skill and what changes, in plain
+words, never offering him a retro; a summary then says it is
 merged and installed, listing each rule now in the skill.
 
 **A fix-live note in a bug report's thread.**
