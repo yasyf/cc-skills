@@ -1985,6 +1985,28 @@ def test_the_news_of_an_order_joined_to_another_keeping_no_thread_of_his_dm_goes
     assert (report["topic"], report["attr"]["thread"], body.splitlines()[0]) == ("watch-quiet-o1", O1114_THREAD, "Order o1, o2: ship the watch")
 
 
+def test_replaying_o1357_an_incident_joined_to_an_order_that_is_no_incident_owes_its_five_minute_line_in_its_own_thread_while_he_is_away_naming_its_jobs_alone(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with state.edit(demo) as data:
+        data["owner"] = {"heard": state.stamp(T0), "away": state.stamp(T0)}
+        data["orders"]["o1"].update(thread=["D123", O1114_THREAD])
+        data["orders"]["o2"] = order(text="the same alert again", incident=True, joins="o1", thread=["C0822AHFY3G", INCIDENT_THREAD], jobs=["j2"])
+        data["jobs"]["j2"] = job(order="o2", kind="codex")
+    calls = catching_up(monkeypatch, demo)
+    watching = watcher(demo)
+    assert watch.quiet_lines(watching, T0 + timedelta(minutes=4, seconds=59)) == []
+    assert calls == []
+    assert watch.quiet_lines(watching, T0 + timedelta(minutes=5)) == []
+    [(report, body), _] = calls
+    lines = body.splitlines()
+    assert (report["text"], report["topic"], report["attr"]["thread"]) == ("POST incident o2 has had no line to him in 5 minutes: post where it stands now in its thread", "watch-quiet-o2", INCIDENT_THREAD)
+    assert lines[0] == "Incident o2: the same alert again"
+    assert "Moved since the thread's last line or the watch's last report on it: nothing. At work: j2." in lines
+    assert lines[lines.index("Jobs: 1") + 1 :] == [f"- {render.job_line(state.load(demo), 'j2', state.load(demo)['jobs']['j2'])}"]
+    assert KEY not in body
+
+
 def test_a_quiet_incident_owes_a_line_while_a_job_works_then_one_when_it_returns_or_his_card_is_answered_and_none_while_every_job_waits(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
