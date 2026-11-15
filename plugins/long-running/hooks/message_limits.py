@@ -443,7 +443,9 @@ def unprevented(said: str, found: dict[str, dict], subject: set[str]) -> agents.
     return agents.Ruled(
         "refused: these lines tell him a card, check, hook, lane or session of the drive failed, refused, disconnected or left a gap, or"
         " that a line of it is late, with no word on how it is prevented: add the tool change, the {order:<o>} or {pr:<n>} carrying it and"
-        " when it is live, never the order or PR the post is about, or return a DEFECT line when no fix is started; a disconnect is no"
+        " when it is live, never the order or PR the post is about. When no fix is started, start it first: one record call, kind defect, its"
+        f' order the fields of drive order add for the "{state.TOOLING} <what failed>" order, which adds that order before the record goes out,'
+        " then name that {order:<o>} here as the fix started. A disconnect is no"
         f" excuse, since a session reaches another with SendMessage while cci is down. The lines: {' | '.join(lines)}",
         PREVENTION_RULE,
         findings=[{"rule": PREVENTION_RULE, "found": line} for line in lines],

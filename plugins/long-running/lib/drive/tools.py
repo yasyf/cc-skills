@@ -52,7 +52,9 @@ RECORD_ORDER = (
     ' ask for>" with its title, or his question in his own words with its title, project and workstream, added from his message at url in'
     " his thread, or the id of the open order the meta session holds that his words carry on, whatever its words open with, which takes"
     " them as a new part; left out, they carry on the open one the record's attr order, job or thread names, and with none the record is refused."
-    " The record goes out naming it as attr order, and the part it added as attr part, <o>:<part>. Only the communicator names it:"
+    f' On a defect, from any session, the fields of drive order add for the new "{state.TOOLING} <what failed>" order its fix goes to, with its title, the'
+    " record's thread naming the thread the post telling him that failure goes in, so that post names the order preventing it; the meta session starts its reader."
+    " The record goes out naming it as attr order, and the part it added as attr part, <o>:<part>. Only the communicator names it on words of his:"
     " any other session sends words of his it heard first with no order and no to, reaching the communicator, which takes them as his message"
 )
 RECORD = {
@@ -571,17 +573,18 @@ def record(name: str, records: list[dict], dry_run: bool) -> str:
         ruling = (made.get("attr") or {}).get("ruling")
         if (questions or ruling) and (unsaid := unheard(data, found, made, ruled.pop(ruling, []))):
             raise DriveError(f"{index}: refused, nothing posted: {unsaid}")
-    ordering = [state.meta_alone(role, made["kind"], made.get("attr") or {}) for made in posts]
+    fixes = [defect_order(item, made) for item, made in zip(records, posts, strict=True)]
+    ordering = [state.meta_alone(role, made["kind"], made.get("attr") or {}) or fix for made, fix in zip(posts, fixes, strict=True)]
     if unordered := [index for index, (item, alone) in enumerate(zip(records, ordering, strict=True), start=1) if "order" in item and not alone]:
         raise DriveError(
-            f"{unordered[0]}: refused, nothing posted: order is the order the communicator's owner record about the drive goes to; "
+            f"{unordered[0]}: refused, nothing posted: order is the order the communicator's owner record about the drive goes to, or the fields of the new \"{state.TOOLING} <what failed>\" order a defect's fix goes to; "
             + (
                 "name the order any other record serves as attrs.order"
                 if role == "communicator"
                 else "words of his this session heard first go with no order and no to, reaching the communicator, which takes them as his message, and words it passes on name the order they serve as attrs.order"
             )
         )
-    said = ordered_first(name, records, posts, [state.his_words(role, made["kind"]) for made in posts], dry_run)
+    said = ordered_first(name, records, posts, [state.his_words(role, made["kind"]) or fix for made, fix in zip(posts, fixes, strict=True)], dry_run)
     if dry_run:
         said += [f"{index} {lane}: {json.dumps(item, ensure_ascii=False)}" for index, item in enumerate(posts, start=1)]
         said += [
@@ -646,7 +649,7 @@ def keep_rulings(name: str, posts: list[dict], found: dict) -> list[str]:
 
 
 def ordered_first(name: str, records: list[dict], posts: list[dict], ordering: list[bool], dry_run: bool) -> list[str]:
-    """Write, under one save of the drive and before any record goes out, the order or part each communicator's owner record makes, so it stands even when cci is down and a resent call adds none twice; a refusal writes none and posts nothing. What each write did, a line each."""
+    """Write, under one save of the drive and before any record goes out, the order or part each communicator's owner record makes and the order each defect's fix goes to, so it stands even when cci is down and a resent call adds none twice; a refusal writes none and posts nothing. What each write did, a line each."""
     said: list[str] = []
     if not any(ordering):
         return said
@@ -654,16 +657,18 @@ def ordered_first(name: str, records: list[dict], posts: list[dict], ordering: l
         with state.batch(name, dry=dry_run) as after:
             for index, (item, made, alone) in enumerate(zip(records, posts, ordering, strict=True), start=1):
                 if alone:
-                    carried(name, said, index, item, made["attr"], dry_run)
+                    carried(name, said, index, item, made.setdefault("attr", {}), dry_run)
     except DriveError as error:
         raise DriveError(f"{error}; nothing posted and no order written: fix it and send the whole call again") from None
     return said + after
 
 
 def carried(name: str, said: list[str], index: int, item: dict, attrs: dict, dry_run: bool) -> None:
-    """Write the order or part the communicator's owner record makes before it goes out, so no word of his adding work goes unchased: about the drive, the new order the meta session holds that its order field's fields make, holding the reporter attr reporter names, else his words as a new part of the open order the meta session holds that its order field names or its attrs or thread serve, whatever its words open with, refused when it serves none, the order's own words naming its title's part; about his work, his words as a new part of the open order a coordinator holds that its attrs or thread serve, and none when it serves none, since the coordinator files his new order. Words sharing someone else's report, attr reporter, that serve an open order go to the order reporters_order names in place of a part. The record names the order as attr order, and a part it added as attr part."""
+    """Write the order or part the communicator's owner record makes before it goes out, so no word of his adding work goes unchased, and the order a defect's fix goes to, so the post telling him that failure names it: about the drive or on a defect, the new order the meta session holds that its order field's fields make, holding the reporter attr reporter names, else his words as a new part of the open order the meta session holds that its order field names or its attrs or thread serve, whatever its words open with, refused when it serves none, the order's own words naming its title's part; about his work, his words as a new part of the open order a coordinator holds that its attrs or thread serve, and none when it serves none, since the coordinator files his new order. Words sharing someone else's report, attr reporter, that serve an open order go to the order reporters_order names in place of a part. The record names the order as attr order, and a part it added as attr part."""
     named = item.get("order")
     if isinstance(named, dict):
+        if item["kind"] == "defect" and not named["words"].startswith(state.TOOLING):
+            raise DriveError(f'{index}: refused, a defect\'s order is the "{state.TOOLING} <what failed>" order its fix goes to')
         fields = {"kind": "build", "owner": "meta"} | sourced(item) | ({"reporter": attrs["reporter"]} if attrs.get("reporter") else {}) | named
         if fields["owner"] != "meta":
             raise DriveError(f"{index}: refused, his words about the drive go to an order the meta session holds, so leave order.owner out or name it meta")
@@ -712,6 +717,11 @@ def reporters_order(name: str, said: list[str], index: int, item: dict, attrs: d
     if added and job and job["state"] not in state.FINISHED_JOB_STATES and not state.tooling(data["orders"][job["order"]]):
         ran(name, said, index, ("job", "set"), {"id": attrs["job"], "carries": [added]}, dry_run)
     return added
+
+
+def defect_order(item: dict, made: dict) -> bool:
+    """Whether a record is a defect naming the fields of the "Drive tooling:" order its fix goes to, which goes in before the record goes out, so the post telling him that failure names the order preventing it in the same turn, by his ruling 6a6edbf "thats not acceptable to dsay without telling me how you will prevent it"."""
+    return made["kind"] == "defect" and isinstance(item.get("order"), dict)
 
 
 def sourced(item: dict) -> dict:
