@@ -2797,7 +2797,7 @@ def test_a_line_naming_a_clock_time_still_to_come_goes_out_while_he_is_away_and_
     heard = state.now() - timedelta(hours=2)
     with state.edit("demo") as data:
         data["owner"] = {"heard": state.stamp(heard), "away": state.stamp(heard + state.AWAY_AFTER)}
-    soon = message_limits.render.clock(state.now() + timedelta(minutes=20))
+    soon = message_limits.render.clock(limits.now() + timedelta(minutes=20))
     assert posted(transcript, text=f"The release freeze ends at {soon}.") is None
     reason = posted(transcript, text=f"The fix merged; next line by {soon}.")
     assert reason.startswith(
