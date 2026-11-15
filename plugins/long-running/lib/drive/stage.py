@@ -71,7 +71,7 @@ def uncarded(data: dict, key: str, cards: dict) -> str:
 
 
 def alone(data: dict, key: str, cards: dict) -> Stage:
-    """Every rule of own past the draw of his card; a PR its lander's try merged reads merged, owed by nobody, by land.merged_try, while the watch's last GitHub read still reads it open, so that try wakes no session; an unlanded PR whose own job's waits end at his open question cards, by asked(), reads blocked on him, naming them, so a lander's try made before that job waited wakes no session while he decides and reads unlanded again once he answers; a landing stands only while land.stopping() finds nothing stopping it, so a PR Trunk's merge queue holds reads what holds it the moment his words under its card take back his Approve, while land.halt takes it out of the queue; a PR on the head of an open PR the drive does not track, by github.parent, reads behind that PR, owed outside the drive, ahead of its lander's tries and its red, since it lands only once that PR merges and the drive moves nothing there, so it has no deadline and wakes no one, and stall.chain ends at it; an open PR none of those rules holds on a repository that lets this account only read or triage it, by state.upstream, reads upstream, owed by nobody, since only that repository's maintainers merge it, with no deadline, so no session is woken to land what it cannot."""
+    """Every rule of own past the draw of his card; a PR its lander's try merged reads merged, owed by nobody, by land.merged_try, while the watch's last GitHub read still reads it open, so that try wakes no session; an unlanded PR whose own job's waits end at his open question cards, by asked(), reads blocked on him, naming them, so a lander's try made before that job waited wakes no session while he decides and reads unlanded again once he answers; a landing stands only while land.stopping() finds nothing stopping it, so a PR Trunk's merge queue holds reads what holds it the moment his words under its card take back his Approve, while land.halt takes it out of the queue; a PR on the head of an open PR the drive does not track, by github.parent, reads behind that PR, owed outside the drive, ahead of its lander's tries and its red, since it lands only once that PR merges and the drive moves nothing there, so it has no deadline and wakes no one, and stall.chain ends at it; a PR on the branch of a job that has opened no PR there and whose work is still to come, by state.built_base, as a BUILT branch his open cards keep from becoming a PR or a running builder's branch, reads behind that job once its own head owes no red, owed by the session mover() names over that job, him while its walk ends at his open cards, so behind's lack of a deadline wakes no one and only a red at its own head wakes its builder, its line naming the branch and each end of that walk, and his card asks no Approve on it, by state.tap_refused, until that job's PR opens and GitHub reads the PR on it; an open PR none of those rules holds on a repository that lets this account only read or triage it, by state.upstream, reads upstream, owed by nobody, since only that repository's maintainers merge it, with no deadline, so no session is woken to land what it cannot."""
     pr = data["prs"][key]
     if pr["state"] != "open":
         return Stage(pr["state"], NOBODY, github.fold_line(pr) if pr["state"] == github.FOLDED else f"it is {pr['state']}")
@@ -90,6 +90,10 @@ def alone(data: dict, key: str, cards: dict) -> Stage:
         if waits := answered(data, key, step):
             return blocked(data, key, step, waits, cards)
         return Stage("rework", BUILDER, step) if pr["rework"] else flake_red(data, key, step, cards) or Stage("red", BUILDER, step)
+    if built := state.built_base(data, pr):
+        found = [end for end in ends(data, [built], cards, {key}) if end != built]
+        holds = f"waits on {', '.join(fix_words(data, end, cards) for end in found)}" if found else f"is {data['jobs'][built]['state']}"
+        return Stage("behind", mover(data, key, [built], cards), f"it sits on {pr['base']}, the branch of {built}, which {holds} and has opened no PR there yet; it lands with that PR once it opens")
     if holds := held(data, pr):
         return Stage("held", HIM, holds)
     if pending := grading(pr):
@@ -155,13 +159,14 @@ def ends(data: dict, waits: list[str], cards: dict | None, seen: set[str]) -> li
 
 
 def onward(data: dict, subject: str, cards: dict | None) -> list[str]:
-    """What a job, part of an order or PR waits on that still holds, which ends() and stall.chain walk: a job waiting or built its waits but each PR waiting on it, by state.unlooped, as a tester over several PRs waits on none of them, and the cards of its own questions open on him, by view.open_cards, a part of an order each job carrying it whose work is still to come, by state.part_jobs, as a staging test part leads to its tester, by state.part_testers, never a job following a release it started, and a PR its waits and his open cards holding it from landing, by land.pr_cards, since no wait names a card a job asked after its READY, PUSHED or WAITING or a builder asked mid-build, so a walk ends at his card wherever the drive keeps it; nothing for a job in any other state."""
+    """What a job, part of an order or PR waits on that still holds, which ends() and stall.chain walk: a job waiting or built its waits but each PR waiting on it, by state.unlooped, as a tester over several PRs waits on none of them, and the cards of its own questions open on him, by view.open_cards, a part of an order each job carrying it whose work is still to come, by state.part_jobs, as a staging test part leads to its tester, by state.part_testers, never a job following a release it started, and a PR its waits, his open cards holding it from landing, by land.pr_cards, since no wait names a card a job asked after its READY, PUSHED or WAITING or a builder asked mid-build, so a walk ends at his card wherever the drive keeps it, and the job whose branch it sits on before that job's PR opens, by state.built_base, since it lands only with that PR; nothing for a job in any other state."""
     if job := data["jobs"].get(subject):
         waits = [*state.unlooped(data, subject, job["waits"]), *view.open_cards(job)] if job["state"] in ("waiting", "built") else []
     elif part := state.part_wait(data, subject):
         waits = [job_id for job_id, _ in (state.part_testers if state.STAGING_PART.fullmatch(part[1]) else state.part_jobs)(data, *part)]
     else:
-        waits = [*pr_waits(data, data["prs"][subject]), *land.pr_cards(data, data["prs"][subject])]
+        pr = data["prs"][subject]
+        waits = [*pr_waits(data, pr), *land.pr_cards(data, pr), *filter(None, [state.built_base(data, pr)])]
     return view.holding(data, view.stored_waits(data, waits, cards), cards)
 
 
@@ -279,10 +284,10 @@ def waited_on(data: dict, wait: str) -> str:
 
 
 def red(data: dict, key: str) -> str:
-    """What its builder must fix at its head: a base other than its repository's default branch that no open PR heads, by github.parent, as a PR whose parent closed or merged without GitHub moving it leaves it, which the lander refuses to merge, so its builder restacks it onto that default branch, failing checks, those of a yasyf/* PR its builder reported only once its lander found one failing on its own change, by land.own_red(), while one failing only tests the default branch fails too merges, a conflict GitHub reads or refused the lander's merge for, named as conflicts_with() names it, with the restack that clears one in a native GitHub stack, a draft, changes a reviewer asked for, or, in a repository whose rules require an approving review before merging, a forge-pr-reviewer that finished on a green head and approved nothing, which holds it until each finding is fixed or its risk accepted."""
+    """What its builder must fix at its head: a base other than its repository's default branch that no open PR heads, by github.parent, and that no job whose work is still to come built before opening its PR there, by state.built_base, as a PR whose parent closed or merged without GitHub moving it leaves it, which the lander refuses to merge, so its builder restacks it onto that default branch, failing checks, those of a yasyf/* PR its builder reported only once its lander found one failing on its own change, by land.own_red(), while one failing only tests the default branch fails too merges, a conflict GitHub reads or refused the lander's merge for, named as conflicts_with() names it, with the restack that clears one in a native GitHub stack, a draft, changes a reviewer asked for, or, in a repository whose rules require an approving review before merging, a forge-pr-reviewer that finished on a green head and approved nothing, which holds it until each finding is fixed or its risk accepted."""
     pr = data["prs"][key]
     head = pr["head"][:7]
-    if pr["default"] and pr["base"] != pr["default"] and not pr["under"]:
+    if pr["default"] and pr["base"] != pr["default"] and not pr["under"] and not state.built_base(data, pr):
         return f"it sits on {pr['base']}, which no open PR heads, so restack it onto {pr['default']}"
     if pr["checks"] == "fail" and land.own_red(pr):
         return pr["lander"]["outcome"].removeprefix("not landed: ")

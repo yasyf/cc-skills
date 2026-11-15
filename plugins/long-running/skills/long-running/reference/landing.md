@@ -215,9 +215,13 @@ no failing test, such as a lint step, is the PR's own.
    running on it; a stacked PR reads `behind` until the PR below it merges; one on the head branch of
    an open PR the drive does not track, such as another drive's, reads `behind` that PR, owed by someone
    outside the drive, ahead of its lander's tries and its red, with no deadline and no wake, and no stall
-   reaches past it; one on a branch other than the default that no open PR heads reads `red`, for its
-   builder to restack onto the default branch; and the lander refuses one on a base other than the
-   default branch. Read the checks once they finish and fix one that fails
+   reaches past it; one on the branch of a job whose work is still to come and that has opened no PR
+   there yet, such as a `BUILT` branch his cards keep from becoming a PR or a running builder's branch,
+   reads `behind` that job once nothing at its own head is red, owed by him while that job waits on his
+   cards and by that job otherwise, with no deadline and no wake, and his card offers no Approve on it
+   until that job's PR opens under it; one on any other branch other than the default that no open PR
+   heads reads `red`, for its builder to restack onto the default branch; and the lander refuses one on
+   a base other than the default branch. Read the checks once they finish and fix one that fails
    after the merge forward in a follow-up PR.
 3. Install by hand only what the lander does not, from the merge sha
    (`gh pr view <n> -R <repo> --json mergeCommit`):

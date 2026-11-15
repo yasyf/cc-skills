@@ -9101,6 +9101,99 @@ def test_a_pr_on_a_base_no_open_pr_heads_reads_red_and_wakes_its_builder_to_rest
     )
 
 
+REPLAYED_56856 = "Forge-AI/monorepo#56856"
+OPENED_J94 = "Forge-AI/monorepo#56990"
+BUILT_J94 = "j94-sandsql-analytics-set"
+CARDS_J94 = {"demo:j94-1794746302727": "https://acme.slack.com/archives/D0OWNER01/p1794746303937229", "demo:j94-1794749653081": "https://acme.slack.com/archives/D0OWNER01/p1794749654424739"}
+ON_J94 = f"it sits on {BUILT_J94}, the branch of j94, which "
+NO_PR_ON_J94 = f"it sits on {BUILT_J94}, the branch of j94, which has opened no PR there yet, so his card asks Approve on it once that PR opens under it"
+REPLAYED_56907 = "Forge-AI/monorepo#56907"
+RUNNING_J6258 = "durable-agents-j6258"
+
+
+def staged_lines(watching: watch.Watcher, key: str, minutes: tuple[int, ...]) -> list[str]:
+    return [line for minute in minutes for line in watch.run_pass(watching, T0 + timedelta(minutes=minute)) if line.startswith((f"STAGE {key}", "STUCK"))]
+
+
+def test_replayed_56856_a_pr_on_j94s_built_branch_reads_behind_j94_owed_by_him_then_by_j94_waking_its_builder_only_for_its_own_red_and_gets_his_card_once_j94s_pr_opens_under_it(
+    demo: str, monkeypatch: pytest.MonkeyPatch, woken: list[tuple[str, str]], draws: Draws
+) -> None:
+    with state.edit(demo) as data:
+        data["prs"][KEY]["state"] = "merged"
+        data["orders"]["o1"]["jobs"] += ["j94", "j187"]
+        asked = [state.new_question(None, f"Pick {waits}?", state.stamp(T0)) | {"waits": waits, "card": link} for waits, link in CARDS_J94.items()]
+        data["jobs"]["j94"] = job(state="built", branch=BUILT_J94, waits=list(CARDS_J94), questions=asked)
+        data["jobs"]["j187"] = job(state="waiting", prs=[state.pr_url(REPLAYED_56856)])
+        data["prs"][REPLAYED_56856] = state.new_pr(state.pr_url(REPLAYED_56856), "j187", "o1") | {"head": "dc7f158000", "base": BUILT_J94, "wants_tap": True, "checked": CHECKED | {"head": "dc7f158000"}}
+    stacked = {"baseRefName": BUILT_J94, "headRefName": "yasyf/j187-duck-data-host", "default": "dev", "reviewDecision": "APPROVED"}
+    reads = {REPLAYED_56856: read(headRefOid="dc7f158000", checks=RED, **stacked)}
+    serve(monkeypatch, reads)
+    watching = watcher(demo)
+    assert staged_lines(watching, REPLAYED_56856, (0,)) == []
+    assert woken == [(REPLAYED_56856, f"{REPLAYED_56856} red since {state.stamp(T0)}, owed by its builder: its checks fail at dc7f158: test [o1 j187]")]
+    with state.edit(demo) as data:
+        data["prs"][REPLAYED_56856]["checked"] = CHECKED | {"head": "e26db8d000"}
+    reads[REPLAYED_56856] = read(headRefOid="e26db8d000", checks=GREEN, **stacked)
+    said = staged_lines(watching, REPLAYED_56856, (1, 31, 62, 93))
+    data = state.load(demo)
+    kept = data["prs"][REPLAYED_56856]["stage"]
+    cards = ", ".join(f"his answer on [his question card]({link})" for link in CARDS_J94.values())
+    assert ((kept["name"], kept["owner"], kept["why"]), said, len(woken), draws.keys) == (("behind", stage.HIM, f"{ON_J94}waits on {cards} and has opened no PR there yet; it lands with that PR once it opens"), [], 1, [])
+    assert (state.tap_refused(data, data["prs"][REPLAYED_56856]), REPLAYED_56856 in stall.chains(data, NO_CARDS, False, T0 + timedelta(minutes=93))) == (NO_PR_ON_J94, False)
+    with state.edit(demo) as data:
+        for seq, question in enumerate(data["jobs"]["j94"]["questions"]):
+            question["closed"] = state.new_close("answered", "Yes", None, seq=str(9 + seq))
+    said = staged_lines(watching, REPLAYED_56856, (94, 125, 150))
+    data = state.load(demo)
+    kept = data["prs"][REPLAYED_56856]["stage"]
+    assert ((kept["name"], kept["owner"], kept["why"]), said, len(woken), draws.keys) == (("behind", "j94", f"{ON_J94}is built and has opened no PR there yet; it lands with that PR once it opens"), [], 1, [])
+    chained = stall.chains(data, NO_CARDS, False, T0 + timedelta(minutes=150))[REPLAYED_56856]
+    assert ([link for link, _, _ in chained], state.tap_refused(data, data["prs"][REPLAYED_56856])) == ([REPLAYED_56856, "j94"], NO_PR_ON_J94)
+    with state.edit(demo) as data:
+        data["jobs"]["j94"].update(state="waiting", prs=[state.pr_url(OPENED_J94)])
+        data["prs"][OPENED_J94] = state.new_pr(state.pr_url(OPENED_J94), "j94", "o1") | {"head": "fc4544b027", "base": "dev", "wants_tap": True, "checked": CHECKED | {"head": "fc4544b027"}}
+    reads[OPENED_J94] = read(headRefOid="fc4544b027", baseRefName="dev", headRefName=BUILT_J94, default="dev", checks=GREEN, reviewDecision="APPROVED")
+    reads[REPLAYED_56856] = read(headRefOid="e26db8d000", checks=GREEN, under=OPENED_J94, **stacked)
+    watch.run_pass(watching, T0 + timedelta(minutes=151))
+    data = state.load(demo)
+    assert (state.built_base(data, data["prs"][REPLAYED_56856]), state.tap_refused(data, data["prs"][REPLAYED_56856]), [sorted(keys) for keys in draws.keys], len(woken)) == (
+        None,
+        None,
+        [sorted([OPENED_J94, REPLAYED_56856])],
+        1,
+    )
+
+
+def test_replayed_56907_a_pr_on_a_running_builders_branch_reads_behind_that_builder_wakes_only_its_own_builder_for_its_own_red_and_restacks_once_that_builder_is_done(
+    demo: str, monkeypatch: pytest.MonkeyPatch, woken: list[tuple[str, str]], draws: Draws
+) -> None:
+    with state.edit(demo) as data:
+        data["prs"][KEY]["state"] = "merged"
+        data["orders"]["o1"]["jobs"] += ["j6258", "j6317"]
+        data["jobs"]["j6258"] = job(branch=RUNNING_J6258)
+        data["jobs"]["j6317"] = job(prs=[state.pr_url(REPLAYED_56907)])
+        data["prs"][REPLAYED_56907] = state.new_pr(state.pr_url(REPLAYED_56907), "j6317", "o1") | {"head": "362d2966fb", "base": RUNNING_J6258, "wants_tap": True, "checked": CHECKED | {"head": "362d2966fb"}}
+    stacked = {"headRefOid": "362d2966fb", "baseRefName": RUNNING_J6258, "headRefName": "durable-agents-j6317", "default": "dev", "reviewDecision": "APPROVED"}
+    reads = {REPLAYED_56907: read(checks=RED, **stacked)}
+    serve(monkeypatch, reads)
+    watching = watcher(demo)
+    assert staged_lines(watching, REPLAYED_56907, (0,)) == []
+    reads[REPLAYED_56907] = read(checks=GREEN, **stacked)
+    said = staged_lines(watching, REPLAYED_56907, (1, 31, 62, 93))
+    data = state.load(demo)
+    kept = data["prs"][REPLAYED_56907]["stage"]
+    assert ((kept["name"], kept["owner"], kept["why"]), said, woken, draws.keys) == (
+        ("behind", "j6258", f"it sits on {RUNNING_J6258}, the branch of j6258, which is running and has opened no PR there yet; it lands with that PR once it opens"),
+        [],
+        [(REPLAYED_56907, f"{REPLAYED_56907} red since {state.stamp(T0)}, owed by its builder: its checks fail at 362d296: test [o1 j6317]")],
+        [],
+    )
+    assert (REPLAYED_56907 in stall.chains(data, NO_CARDS, False, T0 + timedelta(minutes=93)), state.asks_tap(data, data["prs"][REPLAYED_56907])) == (False, False)
+    with state.edit(demo) as data:
+        data["jobs"]["j6258"]["state"] = "done"
+    assert stage.red(state.load(demo), REPLAYED_56907) == f"it sits on {RUNNING_J6258}, which no open PR heads, so restack it onto dev"
+
+
 REPLAYED_4745_4756 = {"yasyf/cc-skills#4745": ("aa8d008", "FAILURE"), "yasyf/cc-skills#4756": ("ed25f62", "FAILURE"), "yasyf/cc-skills#4755": ("1120acd", None)}
 SOCKET = {"name": "Socket Security: Pull Request Alerts", "conclusion": "SUCCESS"}
 CC_SKILLS_RUNS = "https://github.com/yasyf/cc-skills/actions/runs"

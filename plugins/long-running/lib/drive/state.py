@@ -4803,7 +4803,7 @@ def against(pr: dict) -> str:
 
 
 def tap_refused(data: dict, pr: dict) -> str | None:
-    """Why his card on the PR offers no Approve; None when it does: open on a repository this account may merge on, since one by upstream() reads as merged outside the drive, waiting on his tap with no exempt class landing it, neither his Hold nor his Approve on it, and, outside an open incident, no question card of his holding it by land.pr_cards, by his pick CARDS_FIRST, so no tap on a PR card answers a design question he has not, whatever the check against his words says. His Approve stands until his words rework the PR or he taps Hold, so a card of his that came to hold it since he tapped, which his Approve did not answer, holds it as held, owed by him and naming that card, until his answer on it frees it. A red PR offers it, as does one the hold label on GitHub holds, and so does one the check objects to, the objection a line on the card; an incident's repair offers it beside the card that holds it, whose recommended option his Approve picks, by his pick e55b1cd."""
+    """Why his card on the PR offers no Approve; None when it does: open on a repository this account may merge on, since one by upstream() reads as merged outside the drive, waiting on his tap with no exempt class landing it, neither his Hold nor his Approve on it, and, outside an open incident, no question card of his holding it by land.pr_cards, by his pick CARDS_FIRST, so no tap on a PR card answers a design question he has not, whatever the check against his words says, and not on the branch of a job that has opened no PR there yet, by built_base, since it lands only with that job's PR, whose opening puts the two on one card. His Approve stands until his words rework the PR or he taps Hold, so a card of his that came to hold it since he tapped, which his Approve did not answer, holds it as held, owed by him and naming that card, until his answer on it frees it. A red PR offers it, as does one the hold label on GitHub holds, and so does one the check objects to, the objection a line on the card; an incident's repair offers it beside the card that holds it, whose recommended option his Approve picks, by his pick e55b1cd."""
     from drive import land
 
     if pr["state"] != "open":
@@ -4822,7 +4822,30 @@ def tap_refused(data: dict, pr: dict) -> str | None:
     job = data["jobs"][pr["job"]]
     if not open_incidents(data, [job["order"], *job["carries"]]) and (holding := land.pr_cards(data, pr)):
         return f"his cards {', '.join(holding)} hold it until he answers each, by his pick {CARDS_FIRST}"
+    if built := built_base(data, pr):
+        return f"it sits on {pr['base']}, the branch of {built}, which has opened no PR there yet, so his card asks Approve on it once that PR opens under it"
     return None
+
+
+def built_base(data: dict, pr: dict) -> str | None:
+    """The job whose branch an open PR sits on before that job opens its own PR there: a base other than the PR's default branch that no open PR heads, by github.parent, listed among the branches a job recorded, as a builder's BUILT line or drive job set --branch records them, in the PR's repository, or in any for a job that records none, since such a job pushes to whichever repository it works in, that job never having had a PR of the drive on that branch and its work still to come, by view.coming, as a BUILT branch his open cards keep from becoming a PR or a running builder's branch before its PR; None for any other base, a dead parent among them."""
+    from drive import view
+
+    if pr["under"] or not pr["default"] or pr["base"] == pr["default"]:
+        return None
+    repo = github.repo_of(pr_key(pr["url"])).casefold()
+    return next(
+        (
+            job_id
+            for job_id, job in data["jobs"].items()
+            if job["branch"]
+            and pr["base"] in job["branch"].split(", ")
+            and (job.get("repo") or repo).casefold() == repo
+            and not any(opened["branch"] == pr["base"] for url in job["prs"] if (opened := data["prs"].get(pr_key(url))))
+            and view.coming(data, job_id)
+        ),
+        None,
+    )
 
 
 def upstream(pr: dict) -> bool:
