@@ -1793,16 +1793,47 @@ def test_say_refuses_a_handlers_line_saying_a_job_is_being_started_until_it_name
         assert " and no handoff asking for one is kept on order o1: name the job that started as {started:<j>}, or first send" in refused
         assert refused.rule == message_limits.PROMISE_RULE
     with state.edit("demo") as data:
-        data["orders"]["o1"]["handoffs"].append({"seq": "701640", "text": "start a job reading why that blob is missing", "at": state.stamp(state.now() - timedelta(minutes=2))})
+        data["orders"]["o1"]["handoffs"].append({"seq": "701640", "text": "start a job reading why that blob is missing", "at": state.stamp(state.now() - timedelta(minutes=2)), "job": None})
     for text in promises:
         assert say(transcript, text=text, thread_ts="1.2") is None, text
     with state.edit("demo") as data:
         data["jobs"]["j1"] = state.new_job("o1", "reader", "read why that blob is missing", [part], state.stamp())
         data["orders"]["o1"]["jobs"].append("j1")
-    assert say(transcript, text=promises[0], thread_ts="1.2") is not None
+    assert ", while the handoff asking for one kept on order o1 is answered by j1, made since: name the job that started as {started:<j>}" in say(transcript, text=promises[0], thread_ts="1.2")
     assert say(transcript, text="{started:j1} reads why that blob is missing, and a builder is being put on the fix once it returns.", thread_ts="1.2") is None
     for text in ("A fix is being written.", "The builder is building this now.", "The release job is finishing the switch.", "A follow-up is starting to go back."):
         assert say(transcript, text=text, thread_ts="1.2") is None, text
+
+
+def test_say_holds_a_handoff_owed_while_another_job_of_its_busy_order_restarts_a_worker_until_the_job_it_names_starts(talker: str, transcript: Path) -> None:
+    part = "milestone reads fail with blob not found"
+    promise = "A builder is being put on the fix."
+    asked = state.stamp(state.now() - timedelta(minutes=2))
+    with state.edit("demo") as data:
+        data["orders"]["o1"] = state.new_order(part, "terminal", (DM, "1.2"), {part: state.new_part()}, state.stamp())
+        data["jobs"]["j1"] = state.new_job("o1", "reader", "read why that blob is missing", [part], state.stamp(state.now() - timedelta(minutes=9)))
+        data["orders"]["o1"]["jobs"].append("j1")
+        data["orders"]["o1"]["handoffs"].append({"seq": "718999", "text": "start a builder on the fix", "at": asked, "job": None})
+        state.start(data["jobs"]["j1"])
+    assert say(transcript, text=promise, thread_ts="1.2") is None
+    with state.edit("demo") as data:
+        data["orders"]["o1"]["handoffs"] = [{"seq": "718999", "text": "resume j1 on the fix", "at": asked, "job": "j1"}]
+    assert "no handoff asking for one is kept on order o1" in say(transcript, text=promise, thread_ts="1.2")
+
+
+def test_say_reads_an_edit_on_the_order_its_post_went_out_on_and_not_another_order_sharing_its_thread(talker: str, transcript: Path) -> None:
+    parts = ("milestone reads fail with blob not found", "the run page card drops its PRs")
+    promise = "A job reading why that blob is missing is being started."
+    thread = "1794440505.483109"
+    post = f"{link('1794766194.173939')}?thread_ts={thread}&cid={DM}"
+    with state.edit("demo") as data:
+        for order_id, part in zip(("o1", "o2"), parts, strict=True):
+            data["orders"][order_id] = state.new_order(part, "terminal", (DM, thread), {part: state.new_part()}, state.stamp())
+    state.append_event("demo", "said", text="Reading why.", channel=DM, thread=thread, url=post, card=None, order="o2", visuals=[], prs=[], edited=False)
+    assert "no handoff asking for one is kept on order o2" in say(transcript, edit=post, text=promise)
+    with state.edit("demo") as data:
+        data["orders"]["o2"]["handoffs"].append({"seq": "719016", "text": "start a job reading why that blob is missing", "at": state.stamp(state.now() - timedelta(minutes=2)), "job": None})
+    assert say(transcript, edit=post, text=promise) is None
 
 
 @pytest.mark.parametrize(

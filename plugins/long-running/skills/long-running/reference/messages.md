@@ -626,7 +626,7 @@ restating it.
   posts each step, started by the watch on news": a job returning its finding, a PR going up with his
   card, its state or checks settling, Trunk ejecting it from the merge queue or taking his tap, a card
   of his opening or closing, and a `handoff` the communicator's side sent five minutes before with no
-  job of the order made or started since. A PR's stage relabelled with none of those changed, such as
+  job of the order made, nor the job it names started, since. A PR's stage relabelled with none of those changed, such as
   red to behind once a PR below it in its stack goes red, is no step, nor is a new commit whose checks
   fail as before, nor a release or answer ending one wait of a job that still waits on another. Once
   five minutes have passed since the thread's last line or the watch's last report on it, the watch
@@ -933,7 +933,8 @@ restating it.
   only once the `handoff` asking for it is kept on the order it goes to. The `record` tool keeps
   each `handoff` the communicator's side sends on the order it serves, and five quiet minutes after
   it the watch owes that order's thread a line naming it and each record re it, whatever the session
-  it went to answered, until a job of that order is made or started, by his words b4b64f5 "fix your
+  it went to answered, until a job of that order is made or the job it names starts, since another
+  job of a busy order restarting does none of its step, by his words b4b64f5 "fix your
   toolking so tracking this stuff beciomes deterministic and it cant get lost at the whims of an
   agent". `say` refuses a handler's line saying a job is being started with neither.
 - A card promised before it is drawn. A line saying a card or its buttons are coming, being added

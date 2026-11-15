@@ -2122,7 +2122,7 @@ def test_a_job_only_carrying_an_order_and_its_pr_owe_that_orders_thread_no_line_
 
 
 @pytest.mark.parametrize("incident", [False, True])
-def test_a_handoff_asking_for_a_job_owes_its_thread_one_line_five_quiet_minutes_after_the_line_promising_it_whatever_was_answered_naming_each_record_re_it_until_a_job_of_its_order_is_made_or_started(
+def test_a_handoff_asking_for_a_job_owes_its_thread_one_line_five_quiet_minutes_after_the_line_promising_it_whatever_was_answered_naming_each_record_re_it_until_a_job_of_its_order_is_made_or_the_job_it_names_starts(
     demo: str, monkeypatch: pytest.MonkeyPatch, incident: bool
 ) -> None:
     """The o1102 thread: a handler promised "A job reading why that blob is missing is being started" on handoff 701640 alone, the coordinator answered it with evidence 701688 and started no job, and the thread had no line for five and a half hours."""
@@ -2143,7 +2143,7 @@ def test_a_handoff_asking_for_a_job_owes_its_thread_one_line_five_quiet_minutes_
 
     def handed(seq: str, moment: datetime) -> None:
         with state.edit(demo) as data:
-            data["orders"]["o1"]["handoffs"].append({"seq": seq, "text": "start a job reading why that blob is missing", "at": state.stamp(moment)})
+            data["orders"]["o1"]["handoffs"].append({"seq": seq, "text": "start a job reading why that blob is missing", "at": state.stamp(moment), "job": None})
 
     def owed(moment: datetime) -> list[str]:
         data = state.load(demo)
@@ -2160,7 +2160,7 @@ def test_a_handoff_asking_for_a_job_owes_its_thread_one_line_five_quiet_minutes_
     lines = body.splitlines()
     assert "Moved since the thread's last line or the watch's last report on it: handoff 701640. At work: no job." in lines
     assert lines[-3:] == [
-        "Handoffs no job of their order was made or started after: 1. Say in its thread what each asked for, what each record re it answered, and that no job of its order started since, then send the work it asked for on as work no job holds, so a job is put on it.",
+        "Handoffs no job of their order was made after, nor the job each names started: 1. Say in its thread what each asked for, what each record re it answered, and that no job of its order started since, then send the work it asked for on as work no job holds, so a job is put on it.",
         f"- handoff 701640, sent {render.when(state.stamp(T0 + timedelta(minutes=2)))}: start a job reading why that blob is missing",
         f"  - 701688 evidence from platform re it: {evidence['text']}",
     ]
@@ -2172,6 +2172,10 @@ def test_a_handoff_asking_for_a_job_owes_its_thread_one_line_five_quiet_minutes_
     assert owed(T0 + timedelta(minutes=46)) == ["handoff 701640", "handoff 701700"]
     with state.edit(demo) as data:
         state.start(data["jobs"]["j1"])
+    assert owed(BACK) == ["handoff 701640", "handoff 701700"]
+    with state.edit(demo) as data:
+        data["jobs"]["j2"] = state.new_job("o1", "reader", "read why that blob is missing", data["jobs"]["j1"]["parts"], state.stamp(BACK))
+        data["orders"]["o1"]["jobs"].append("j2")
     assert owed(BACK) == []
     handed("701750", BACK + timedelta(minutes=1))
     assert owed(BACK + timedelta(minutes=6)) == ["handoff 701750"]

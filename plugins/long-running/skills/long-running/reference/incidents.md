@@ -326,7 +326,7 @@ check's verdict, or from the order when none ran.
     it, a job by its state, whether anything holds it,
     returned line or the cards of his its questions are open on, a PR by its state, head, checks,
     Trunk ejection, card or his tap, a `handoff` the communicator's side sent five minutes before
-    with no job of its order made or started since, never which waits hold a job, so a release ending one of
+    with no job of its order made, nor the job it names started, since, never which waits hold a job, so a release ending one of
     several is no news, nor a PR's stage relabelled with none of those changed, such as red to behind once a PR below it goes red. The watch keeps those facts on each incident at its first pass after each line and once each
     report reaches a handler, so news a handler did not post goes out once, and the report names what
     moved and which jobs are at work. An incident whose every job waits, on his

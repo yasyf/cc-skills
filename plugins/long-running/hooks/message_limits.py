@@ -728,15 +728,19 @@ def members_findings(payload: dict, dm: str) -> str | None:
 
 
 def unbacked_start(payload: dict, drive: dict, said: str, order_id: str | None) -> agents.Ruled | None:
-    """Why a handler's line says a job is being started while it names no job as {started:<j>} and no handoff state.owed_handoffs names is kept on the orders of the incident or order it goes to: the promise then rests on a session's answer alone, which nothing tracks."""
+    """Why a handler's line says a job is being started while it names no job as {started:<j>} and no handoff state.owed_handoffs names is kept on the orders of the incident or order it goes to: the promise then rests on a session's answer alone, which nothing tracks; the refusal names each job made since the newest handoff kept there, the one the line should name."""
     if not payload.get("agent_id") or not (found := PROMISED_START.search(said)) or any(match[1] == "started" for match in limits.REF.finditer(said)):
         return None
     posted = posted_order(drive, payload["tool_input"], order_id)
-    if posted and state.owed_handoffs(drive, state.feature_orders(drive, posted)):
+    group = state.feature_orders(drive, posted) if posted else []
+    if state.owed_handoffs(drive, group):
         return None
-    unstarted = (
-        f'"{found[0]}" says a job is being started, and the line names no job as {{started:<j>}} and no handoff asking for one is kept on'
-        f" {f'order {posted}' if posted else 'the order it goes to'}"
+    handed = max((handoff["at"] for each in group for handoff in drive["orders"][each]["handoffs"]), key=state.parse_time, default=None)
+    made = [job_id for job_id, job in state.orders_jobs(drive, group).items() if handed and state.made_after(job, handed)]
+    unstarted = f'"{found[0]}" says a job is being started, and the line names no job as {{started:<j>}}' + (
+        f", while the handoff asking for one kept on order {posted} is answered by {', '.join(made)}, made since"
+        if made
+        else f" and no handoff asking for one is kept on {f'order {posted}' if posted else 'the order it goes to'}"
     )
     return agents.Ruled(
         f"refused: {unstarted}: name the job that started as {{started:<j>}}, or first send the coordinator a"
@@ -847,11 +851,21 @@ def card_edit(payload: dict, drive: dict) -> str | None:
 
 
 def said_order(payload: dict, drive: dict) -> tuple[dict, str | None]:
-    """The report a post carries and the one order say records it on, as cli.post_order decides it for the posting session, a handler's own `claude --bg` session included; a post through another tool goes on none."""
+    """The report a post carries and the one order its checks read: the order say records it on, as cli.post_order decides it for the posting session, a handler's own `claude --bg` session included, or for an edit, which say records on none, the order the post it rewords went out on; a post through another tool goes on none."""
     tool_input = payload["tool_input"]
     report = cli.report_attrs(seq) if (seq := tool_input.get("record")) else {}
+    if payload["tool_name"] != SAY:
+        return report, None
+    if tool_input.get("edit"):
+        return report, edited_order(drive["name"], tool_input["edit"])
     session = payload.get("handler_session") or payload.get("session_id")
-    return report, cli.post_order(drive, session, tool_input, report) if payload["tool_name"] == SAY else None
+    return report, cli.post_order(drive, session, tool_input, report)
+
+
+def edited_order(name: str, link: str) -> str | None:
+    """The order the post at link went out on, as the said event say kept when it made that post names it."""
+    key = view.message_key(link)
+    return next((event["order"] for event, _ in state.read_events(name) if event["kind"] == "said" and not event.get("edited") and view.message_key(event["url"]) == key), None)
 
 
 def posted_order(drive: dict, tool_input: dict, order_id: str | None) -> str | None:

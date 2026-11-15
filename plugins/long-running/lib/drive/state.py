@@ -878,6 +878,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         order.setdefault("recovered", None)
         order.setdefault("prove_said", None)
         order.setdefault("handoffs", [])
+        for handoff in order["handoffs"]:
+            handoff.setdefault("job", None)
         order.setdefault("paged", None)
         if order.pop("fixed", None) and order["recovered"] and order["state"] not in CLOSED_ORDER_STATES:
             order.update(recovered=None, proof=None)
@@ -1747,12 +1749,13 @@ def started_after(job: dict, moment: str) -> bool:
 
 
 def owed_handoffs(data: dict, group: list[str]) -> list[dict]:
-    """Each handoff the communicator's side recorded on these orders asking for a step, such as starting a job, after which no job of its order was made or started, so the watch owes its thread a line on it whatever the session it went to answered, by his words b4b64f5 "fix your toolking so tracking this stuff beciomes deterministic and it cant get lost at the whims of an agent"."""
+    """Each handoff the communicator's side recorded on these orders asking for a step, such as starting a job, after which no job of its order was made and no worker of the job it names started, since a worker of another job of a busy order restarting does no step it asked for, so the watch owes its thread a line on it whatever the session it went to answered, by his words b4b64f5 "fix your toolking so tracking this stuff beciomes deterministic and it cant get lost at the whims of an agent"."""
     return [
         handoff
         for order_id in group
         for handoff in data["orders"][order_id]["handoffs"]
-        if not any(started_after(data["jobs"][job_id], handoff["at"]) for job_id in data["orders"][order_id]["jobs"])
+        if not any(made_after(data["jobs"][job_id], handoff["at"]) for job_id in data["orders"][order_id]["jobs"])
+        and not (handoff["job"] and started_after(data["jobs"][handoff["job"]], handoff["at"]))
     ]
 
 
