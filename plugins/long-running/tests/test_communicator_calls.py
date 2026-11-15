@@ -98,6 +98,20 @@ def test_the_communicator_runs_only_its_own_calls_and_starts_a_handler_for_the_r
     assert hook_output(monkeypatch, capsys, {**call(SLACK + "slack_thread"), "session_id": "someone-else"}) == ""
 
 
+def test_his_order_for_a_subagent_of_the_communicator_is_a_handler_and_its_agent_call_is_refused_for_its_real_reasons(
+    communicator: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    output = json.loads(hook_output(monkeypatch, capsys, call("Agent", subagent_type="general-purpose", prompt="fix every card", run_in_background=True)))
+    reason = output["hookSpecificOutput"]["permissionDecisionReason"]
+    assert (output["hookSpecificOutput"]["permissionDecision"], output["judged"]) == ("deny", False)
+    assert reason.startswith("Refused on purpose: the communicator starts no agent with the Agent tool. His order for a subagent of the communicator")
+    assert "is a handler: start it with the drive's handler tool, its brief his words verbatim in its lines, Record:, Message (his words):" in reason
+    assert "and no owner record" in reason
+    assert '"drive handler starts each as a claude --bg session that ends by posting one cci line' in reason and "2,232 characters" in reason
+    assert "holds his next message" not in reason
+    assert communicator_calls.deny_reason({**call("Agent", subagent_type="general-purpose", prompt="x"), "agent_id": "a-1"}) is None
+
+
 def test_the_communicator_sends_every_record_on_the_drives_record_tool_and_makes_no_other_cci_call_but_cci_drive_use(
     communicator: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
