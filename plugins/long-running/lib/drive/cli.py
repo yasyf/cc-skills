@@ -4947,7 +4947,7 @@ def handler(args: argparse.Namespace) -> int:
         )
     if re.search(rf"^{re.escape(agents.HIS_WORDS)}:", args.brief, re.MULTILINE):
         watch.hear(name, state.now(), args.away)
-    briefed = answering(name, args) if args.answer else None
+    briefed = answering(name, args) if args.answer else in_thread(name, args.brief)
     if (named := agents.RECORD.search(args.brief)) and agents.posting(name, agents.shown(named[1])):
         handler_id, handed = agents.handle_report(name, named[1], args.brief, once=True, detached=True, briefed=briefed)
     else:
@@ -4991,19 +4991,26 @@ def answering(name: str, args: argparse.Namespace) -> Callable[[str], str]:
         order_id = added_order(parser().parse_args(["order", "add", words, "--from", held["link"], "--kind", "answer", "--complex", "--title", args.answer, "--drive", name]), unfiled=True)[0]
         part = state.load(name)["orders"][order_id]["title"]
         job_id = added_job(parser().parse_args(["job", "add", "reader", "--order", order_id, "--part", part, "--goal", args.answer, "--agent", handler_id, "--drive", name]))[0]
-        data = with_cards(name, state.load(name))
-        thread = state.own_thread(data["orders"][order_id])
-        work = [
-            line
-            for other_id, other in state.open_orders(data).items()
-            if other_id != order_id and thread in slack.order_threads(data, other_id, other)
-            for line in render.order_block(data, other_id, other)
-        ]
-        return "\n".join(
-            [args.brief.strip(), f"{agents.ORDER}: {order_id}, job {job_id}", f"{agents.PAIRS}: {pairs_in_use(data)}", f"{agents.IN_THREAD}:{'' if work else ' none'}", *work]
-        )
+        data = state.load(name)
+        return "\n".join([args.brief.strip(), f"{agents.ORDER}: {order_id}, job {job_id}", f"{agents.PAIRS}: {pairs_in_use(data)}", *thread_work(name, data, held["thread"], order_id)])
 
     return briefed
+
+
+def in_thread(name: str, brief: str) -> Callable[[str], str] | None:
+    """The brief of a handler whose brief names a Thread, with the work of that thread added by thread_work, so the handler answers from that thread's work alone and reads no drive status; None for a brief naming none."""
+    if not (line := agents.THREAD.search(brief)):
+        return None
+    return lambda _: "\n".join([brief.strip(), *thread_work(name, state.load(name), line[1])])
+
+
+def thread_work(name: str, data: dict, thread: str | None, but: str | None = None) -> list[str]:
+    """A handler brief's In his thread block: each open order but the one named that has a thread at ts thread, with its jobs, questions and PRs as drive status draws them, the cards of those alone read by with_cards, else none."""
+    ids = [order_id for order_id, order in state.open_orders(data).items() if order_id != but and any(ts == thread for _, ts in slack.order_threads(data, order_id, order))]
+    if ids:
+        with_cards(name, data, only(data, ids))
+    work = [line for order_id in ids for line in render.order_block(data, order_id, data["orders"][order_id])]
+    return [f"{agents.IN_THREAD}:{'' if work else ' none'}", *work]
 
 
 def with_cards(name: str, data: dict, within: dict | None = None) -> dict:

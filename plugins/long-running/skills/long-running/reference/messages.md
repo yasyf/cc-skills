@@ -70,7 +70,11 @@ his words "your messages need to be way shorter rewrite this for a human".
 
 - Lead with what changed for him, in his words, never with how the machinery got there.
 - Write a bold line and at most two sentences; use a table only for three or more parallel items.
-- Keep every card and line in a feature's thread about that feature. Post drive tooling, such as a
+- Keep every card and line in a thread about that thread's work alone: the open orders with a
+  thread there, their jobs and the cards and PRs those wait on, as a handler's `In his thread:`
+  line lists them. A line there reaches past that work only when his words there name more, such as
+  a project or the whole drive. His words: "Why the fuck do you keep asking me about everything in
+  the drive we're talking about the work this thread is about Jesus". Post drive tooling, such as a
   fix to the launcher its builders start from, in the thread his words ordering it came in, else at
   his DM root under its own words, its later lines replying under that first one, never in a
   feature's thread it only unblocks, because a tooling line he did not ask for there makes no sense
@@ -703,8 +707,8 @@ restating it.
   and is very obtrusive". No writer lists a card in the catch-up: a card the text names is not
   drawn twice, and the 120 words count the text alone, never the cards `say` adds, so none is cut
   to fit. The catch-up never goes in
-  the thread of the message that brought him back, because a thread gets only lines about its own
-  order.
+  the thread of the message that brought him back, because every line in a thread is about that
+  thread's work alone, by the thread rule in "The short form".
 - The minute a job built on a card's recommended option starts waiting on that card, the watch
   replies once under that card, in plain words: its recommended answer is built and paused on his
   pick, his tap ships it, and another pick rebuilds it first. The reply names no card, since it sits
