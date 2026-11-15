@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import NamedTuple, Self
 
 from drive import agents, brief, codex, dashboard, github, install, land, launchd, orca, page, place, procs, reads, receiver, refs, render, served, settled, slack, stage, stall, state, superseded, view
-from drive.install import PROOF_FAILED, add_prover, config_dir, done_unproven, merged_done, merged_ready, merged_said, product, proof_gap, proofless, proved_prs, prover_of, proves, reported_prs, upgraded, watch_proves, widen
+from drive.install import PROOF_FAILED, add_prover, config_dir, done_before_proofs, done_unproven, merged_done, merged_ready, merged_said, product, proof_gap, proofless, proved_prs, prover_of, proves, reported_prs, upgraded, watch_proves, widen
 from drive.render import cut, when
 
 POLL_SECONDS = 5
@@ -3278,6 +3278,8 @@ def job_gap(watcher: Watcher, job_id: str, job: dict, data: dict, order_id: str,
             return f"{job_id}'s DONE is no full pass of its PR, a CASE line of it reading other than pass, none there or no line naming the PR, so the part waits on a rerun: drive job add builder --order {order_id} --part {shlex.quote(part)} --goal '<rerun it>'"
         if done_unproven(data, job_id):
             return None if proving(data, job_id) else merged_gap(job_id, data)
+        if done_before_proofs(data, job_id):
+            return None
         if state.unposted_answer(data, job_id):
             return f"{job_id} answered and the answer is not posted to him"
         if state.design_builder(data, job_id):
@@ -3317,12 +3319,14 @@ def unposted_card(job_id: str, job: dict, data: dict) -> tuple[str, dict] | None
 
 
 def merged_gap(job_id: str, data: dict) -> str:
-    """Who proves live a builder's READY or PUSHED whose PRs all merged, a DONE of a job's own on work no proof delivered, or a repair's or prover's marked proof, that the watch neither took DONE on at its merge nor proves: who proof_gap names, else a run again of the proof that ended with no result."""
+    """Who proves live a builder's READY or PUSHED whose PRs all merged, a DONE of a job's own on work no proof delivered, or a repair's or prover's marked proof, that the watch neither took DONE on at its merge nor proves: who proof_gap names, else a run again of the proof that ended with no result, or of one that took a result on the line its job was put back on, which no install runs again."""
     if (why := proof_gap(data, job_id)) and done_unproven(data, job_id):
         return f"{job_id} returned DONE, which delivers its part only once drive job prove runs its proof file and sees it exit 0: {why}"
     if why:
         return f"{job_id}'s PRs all merged and nothing proves them live: {why}" if proved_prs(data, job_id) else f"nothing proves {job_id}'s repair: {why}"
     proof = data["jobs"][job_id]["proof"]
+    if "result" in proof:
+        return f"{job_id} was put back on the line its proof, drive job prove pid {proof['pid']}, took a result on, so no install runs it again: drive job prove {job_id} runs it again"
     return f"{job_id}'s proof, drive job prove pid {proof['pid']}, ended with no result, its output in the drive's {PROOFS_LOG}: drive job prove {job_id} runs it again"
 
 
@@ -3394,7 +3398,7 @@ def unproved(data: dict, job_id: str) -> dict[str, list[str]]:
 
 
 def proof_due(data: dict, job_id: str) -> bool:
-    """Whether the watch starts the job's proof: a builder still waiting on a READY or PUSHED whose PRs all merged, a yasyf/* one among them, each merged diff checked for the parts it carries, none a PR a lander still merges or installs, a DONE of a job's own on work no proof delivered, or a repair waiting on the proof its drive job prove marked, keeping an executable proof file, and no proof started on that line, one that waits on his next word once he is heard after it started, or one that ended with no result before a newer long-running's watch read it."""
+    """Whether the watch starts the job's proof: a builder still waiting on a READY or PUSHED whose PRs all merged, a yasyf/* one among them, each merged diff checked for the parts it carries, none a PR a lander still merges or installs, a DONE of a job's own on work no proof delivered, or a repair waiting on the proof its drive job prove marked, keeping an executable proof file, and no proof started on that line, one that waits on his next word once he is heard after it started, or one that ended with no result before a newer long-running's watch read it, never one that took a pass or a fail, which proof_kept marks on it as its result, so an install reruns no proof that ran to its end, one whose job was put back on the line it ran on included."""
     job = data["jobs"][job_id]
     if not watch_proves(data, job_id) or judging(data, job_id) or proof_gap(data, job_id) or any(land.running(data["prs"][key]) for key in reported_prs(data, job_id)):
         return False
@@ -3404,7 +3408,7 @@ def proof_due(data: dict, job_id: str) -> bool:
     if proof.get("waits"):
         heard = data["owner"]["heard"]
         return not state.alive(proof["pid"]) and bool(heard) and state.parse_time(heard) > state.parse_time(proof["at"])
-    return proof["version"] != state.VERSION and not state.alive(proof["pid"])
+    return "result" not in proof and proof["version"] != state.VERSION and not state.alive(proof["pid"])
 
 
 def proving(data: dict, job_id: str) -> bool:
@@ -3523,7 +3527,7 @@ def part_gap(watcher: Watcher, data: dict, order_id: str, part: str, moment: dat
         return None
     if any(job["state"] == "stopped" and (job["said"] or "").startswith(SAFEGUARDED) for _, job in jobs):
         return None
-    if carried := [gaps[job_id] for job_id, job in state.carriers(data, order_id, part) if not (job["kind"] in state.CHANGE_KINDS and job["state"] == "done" and state.work(data, order_id, part) and not state.STAGING_PART.fullmatch(part)) or judging(data, job_id) or done_unproven(data, job_id)]:
+    if carried := [gaps[job_id] for job_id, job in state.carriers(data, order_id, part) if not (job["kind"] in state.CHANGE_KINDS and job["state"] == "done" and state.work(data, order_id, part) and not state.STAGING_PART.fullmatch(part)) or judging(data, job_id) or done_unproven(data, job_id) or done_before_proofs(data, job_id)]:
         return None if None in carried else SETTLING if SETTLING in carried else carried[-1]
     if jobs:
         return SETTLING if SETTLING in gaps.values() else unbuilt(data, order_id, part, jobs)
