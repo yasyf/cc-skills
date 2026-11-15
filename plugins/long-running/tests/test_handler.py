@@ -78,6 +78,11 @@ def stop(
     return capsys.readouterr().out
 
 
+def step(monkeypatch: pytest.MonkeyPatch, tool: str = agents.FIRST_LINE_TOOLS[0]) -> None:
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"tool_name": tool})))
+    handed_records.main()
+
+
 def test_drive_handler_starts_its_own_claude_bg_session_and_records_that_he_wrote(
     communicator: str, run: Run, tmp_path: Path, started: list[list[str]], launched_sessions: list[str]
 ) -> None:
@@ -544,11 +549,11 @@ def test_a_record_for_a_busy_handlers_thread_reaches_that_handler_at_its_next_st
     transcript = tmp_path / "h-session.jsonl"
     bind(monkeypatch, handler, "h-session")
     capsys.readouterr()
-    handed_records.main()
+    step(monkeypatch)
     context = json.loads(capsys.readouterr().out)["hookSpecificOutput"]["additionalContext"]
     assert context.startswith("drive handler handed you 3 more briefs") and all(brief in context for brief in handed)
-    handed_records.main()
-    assert capsys.readouterr().out == ""
+    step(monkeypatch)
+    assert "drive handler handed you" not in capsys.readouterr().out
 
     late = f"Record: 668291 Drive: demo Scratch: {tmp_path / 'late'}"
     assert tools.run("handler", "demo", {"brief": late}) == f"handed to {handler}"
@@ -571,6 +576,33 @@ def test_a_record_for_a_busy_handlers_thread_reaches_that_handler_at_its_next_st
     assert restarted not in state.load("demo")["handlers"]
 
 
+def test_a_handler_that_has_posted_nothing_reads_the_time_since_his_message_each_step_and_past_its_minute_may_only_post(
+    communicator: str, tmp_path: Path, started: list[list[str]], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    handler = tools.run("handler", "demo", {"brief": HIS_MESSAGE.format(scratch=tmp_path / "h1")}).removeprefix("started ")
+    bind(monkeypatch, handler, "h-session")
+    sent = slack.sent_at({"ts": "1794446196.220659"})
+    monkeypatch.setattr(state, "now", lambda: sent + timedelta(seconds=40))
+    capsys.readouterr()
+    step(monkeypatch, "Bash")
+    assert json.loads(capsys.readouterr().out)["hookSpecificOutput"]["additionalContext"].startswith(
+        "40 s since his message and you have posted nothing: post your first line in his thread with say and no record within 1 min of it"
+    )
+    monkeypatch.setattr(state, "now", lambda: sent + timedelta(minutes=10, seconds=30))
+    step(monkeypatch, "Bash")
+    refused = json.loads(capsys.readouterr().out)["hookSpecificOutput"]
+    assert refused["permissionDecision"] == "deny"
+    assert refused["permissionDecisionReason"].startswith(
+        "10 min since his message and you have posted nothing: your first line in his thread, owed 1 min after it, is 9 min over,"
+    )
+    step(monkeypatch)
+    assert "permissionDecision" not in json.loads(capsys.readouterr().out)["hookSpecificOutput"]
+    with state.edit("demo") as data:
+        data["handlers"][handler]["posted"].append(LINE)
+    step(monkeypatch, "Bash")
+    assert capsys.readouterr().out == ""
+
+
 def test_a_handlers_done_record_leads_with_the_ts_of_each_message_of_his_it_took_by_handover_ahead_of_its_posts(
     communicator: str, tmp_path: Path, started: list[list[str]], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -580,7 +612,7 @@ def test_a_handlers_done_record_leads_with_the_ts_of_each_message_of_his_it_took
     assert tools.run("handler", "demo", {"brief": later}) == f"handed to {handler}"
     transcript = tmp_path / "h-session.jsonl"
     bind(monkeypatch, handler, "h-session")
-    handed_records.main()
+    step(monkeypatch)
     capsys.readouterr()
     reply = "https://acme.slack.com/archives/D123/p1794447012004417?thread_ts=1794440505.483109&cid=D123"
     monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": reply, "thread_ts": "1794440505.483109"})
@@ -1121,7 +1153,7 @@ def test_a_handler_an_api_error_ended_past_its_four_resumes_is_handed_again_each
     transcript = tmp_path / "h-session.jsonl"
     bind(monkeypatch, handler, "h-session")
     capsys.readouterr()
-    handed_records.main()
+    step(monkeypatch)
     assert briefs["690461"] in capsys.readouterr().out
     assert tools.run("handler", "demo", {"brief": briefs["690475"]}) == f"handed to {handler}"
     monkeypatch.setattr(agents.subprocess, "Popen", lambda argv, **kwargs: None)

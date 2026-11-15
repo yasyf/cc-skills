@@ -1505,6 +1505,23 @@ def test_his_owner_words_under_a_question_card_end_its_question_when_about_its_w
     ]
 
 
+def test_his_owner_words_under_a_question_card_ordering_other_work_beside_it_go_out_with_their_url_and_leave_the_card_asking(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, jev: Jev
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
+    run("job", "add", "builder", "--order", "o1", "--goal", "build it")
+    posted: list[list[dict]] = []
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: posted.append(json.loads(kwargs["input"])) or subprocess.CompletedProcess([], 0, '{"seq": 61}\n', ""))
+    answered = open_cards(monkeypatch, "demo:j1-7")
+    beside = {"kind": "owner", "text": "Why is 1 recommended? Also the status page is blank, fix it", "url": UNDER_CARD, "thread_card": "demo:j1-7", "about": "his work"}
+    jev.beside.add(beside["text"])
+    assert tools.run("record", demo, {"records": [beside]}) == "1 owner 61"
+    assert (answered, len(view.open_questions(state.load(demo)["jobs"]["j1"])), posted[-1][0]["url"]) == ([], 1, UNDER_CARD)
+    jev.beside.clear()
+    withdrawn = beside | {"text": "Drop the ring question, the run page ships without it"}
+    assert tools.run("record", demo, {"records": [withdrawn]}).splitlines()[1] == '1 j1\'s question "Which ring?" ended withdrawn by 61'
+
+
 def test_his_words_withdrawing_a_card_go_out_with_the_handler_call_so_its_question_ends_before_the_handler_starts(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -56,6 +56,8 @@ LANE_RULES_ENV = {"CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD": "1"}
 LANE_RULES_HOLE = "<lane rules>"
 TOP_SEATS = ("coordinator", "communicator", "meta")
 SEAT = re.compile(r"^cci session register <drive>-(\S+) ")
+FIRST_LINE = timedelta(minutes=1)
+FIRST_LINE_TOOLS = (f"{render.DRIVE_TOOLS}say", "ToolSearch")
 RESUMED = "Resumed: an API error ended your last turn before it was done, so do now what the prompt it answered asked, from where it stopped."
 MESSAGE_ORIGIN = "coordinator"
 DESIGNER = "long-running:designer"
@@ -1249,18 +1251,38 @@ def due_rules(data: dict, session: str) -> str | None:
     return role
 
 
-def take_handed(name: str, handler: str) -> list[str]:
-    """The briefs drive handler handed the handler since its last step, moved to the ones it took so each reaches it once and a restart hands them again."""
-    if not state.saved(name)["handlers"][handler]["handed"]:
-        return []
+def take_handed(name: str, handler: str) -> tuple[list[str], dict]:
+    """The briefs drive handler handed the handler since its last step, moved to the ones it took so each reaches it once and a restart hands them again, beside the handler's entry as this step read it."""
+    if not (entry := state.saved(name)["handlers"][handler])["handed"]:
+        return [], entry
 
-    def take(data: dict) -> list[str]:
+    def take(data: dict) -> tuple[list[str], dict]:
         entry = data["handlers"][handler]
         briefs, entry["handed"] = entry["handed"], []
         entry["took"] += briefs
-        return briefs
+        return briefs, entry
 
     return state.update(name, (("handlers", handler),), take)
+
+
+def unposted(entry: dict) -> tuple[str, bool] | None:
+    """The line each step of a handler that has posted nothing reads while the entry holds a message of his, by his words 92abf2c, "add something in our tooling so the agent can see whenever it takes an action, how long since it last messaged the user / gave an update, and how far over it's SLA is it": the time since his message and how far its first line, owed FIRST_LINE after it, is over, beside True once that minute is past, when the hook refuses every tool but FIRST_LINE_TOOLS until it posts."""
+    if entry["posted"] or not (message := (entry["holds"] or {}).get("message")):
+        return None
+    since = state.now() - slack.sent_at({"ts": message})
+    if (over := since - FIRST_LINE) <= timedelta():
+        return (
+            f"{since.seconds} s since his message and you have posted nothing: post your first line in his thread with say and no record"
+            f" within {FIRST_LINE // timedelta(minutes=1)} min of it, what you are doing and when he hears next, then record after it;"
+            " past that minute every tool but say is refused until it posts.",
+            False,
+        )
+    return (
+        f"{since // timedelta(minutes=1)} min since his message and you have posted nothing: your first line in his thread, owed"
+        f" {FIRST_LINE // timedelta(minutes=1)} min after it, is {over // timedelta(minutes=1)} min over, so every tool but say is refused"
+        " until it posts. Post it now with say and no record, what you are doing and when he hears next, then record after it.",
+        True,
+    )
 
 
 def end_handler(payload: dict, refused: Callable[[dict], str | None]) -> str | None:

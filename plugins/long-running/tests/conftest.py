@@ -1335,6 +1335,7 @@ class Jev:
     read_for_pages: list[str] = field(default_factory=list)
     speaks: dict[str, float] = field(default_factory=dict)
     asks: set[str] = field(default_factory=set)
+    beside: set[str] = field(default_factory=set)
     weighed: list[str] = field(default_factory=list)
     preference: float = 0.95
     details: list[dict] = field(default_factory=list)
@@ -1367,6 +1368,8 @@ class Jev:
             return self.whole
         if key == "answers_nothing":
             return 0.95 if state["his_words"] in self.asks else 0.05
+        if key == "beside":
+            return 0.95 if state["his_words"] in self.beside else 0.05
         if question.startswith("again") and not about:
             return 0.95 if state["open"][f"a{question.removeprefix('again')}"] in self.again else 0.05
         if question == "supersedes":
