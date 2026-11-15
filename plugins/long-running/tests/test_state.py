@@ -413,6 +413,26 @@ def test_a_drive_saved_holding_his_answer_on_jobs_not_owed_it_drops_each_copy_on
         assert drive["holds_owed"] is True
 
 
+def test_a_drive_saved_with_his_message_repeated_in_an_answer_keeps_it_once_and_marks_sent_each_listed_job_given_it_once(state_root: Path) -> None:
+    make("demo")
+    data = state.load("demo")
+    del data["messages_kept_once"]
+    said, retro = "build it from scratch, reusing none of the existing HA code", "and do a self retro"
+    data["jobs"] = {job_id: state.new_job("o1", "builder", "build it", [], "2026-11-15T03:00:00-08:00") | {"agent": f"agent-{job_id}"} for job_id in ("j1", "j2")}
+    at = state.stamp()
+    data["answers"] = {
+        answer_id: {"words": words, "link": "https://acme.slack.com/archives/D1/p1794742432520639", "at": at, "said": at, "cards": {}, "jobs": {"j1": None, "j2": None}}
+        for answer_id, words in (("4177bd8", " … ".join([said] * 3)), ("5a1e0f2", f"{said} … {retro}"))
+    }
+    state.create(data)
+    (state.drive_dir("demo") / "jobs").mkdir(exist_ok=True)
+    (state.drive_dir("demo") / "jobs" / "j1-2.md").write_text(f'His words, verbatim: "{said}"')
+    drive = state.load("demo")
+    assert ({answer_id: (kept["words"], kept["jobs"]) for answer_id, kept in drive["answers"].items()}, drive["messages_kept_once"]) == (
+        {"4177bd8": (said, {"j1": {"mark": "sent"}, "j2": None}), "5a1e0f2": (f"{said} … {retro}", {"j1": None, "j2": None})},
+        True,
+    )
+
 def test_a_drive_saved_before_say_kept_lines_keeps_on_each_carded_question_the_newest_reply_of_each_thread_linking_its_card(state_root: Path) -> None:
     make("demo")
     data = state.load("demo")

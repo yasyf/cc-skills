@@ -100,6 +100,7 @@ EXEMPT_CLASSES = ("pure port", "test-only", "ci-only", FLAKE_FIX, MAIN_FIX, "inc
 FLAKE_RULING = "532cd3d"
 FLAKE_WORDS = "and ffs fix these flaky tgests how many times do I have to tell yoiu"
 SUBJECT_LABEL = ', recorded on the subject of "'
+MESSAGES_JOINED = " … "
 TAP_LABELS = ("Approve", "Hold")
 TOOLING = "Drive tooling:"
 TOOLING_DETAILS_RULING = "43aa665"
@@ -677,6 +678,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str) -> dict:
         "proofs_proven": True,
         CARDS_NOTED: True,
         "finished_texts_dropped": True,
+        "messages_kept_once": True,
     }
 
 
@@ -997,7 +999,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     if data["catch_up"]:
         data["catch_up"]["record"] = bare_seq(data["catch_up"]["record"])
     passes = (drive_dir(name) / "pictures" / picture.SOURCED, drive_dir(name) / "asks" / REBUILT_ASKS, drive_dir(name) / APPROVALS_LABELLED)
-    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated")) and bool(data.get("holds_owed")) and bool(data.get("near_answers_apart")) and bool(data.get("stack_writes_read")) and bool(data.get("builder_goals_named")) and bool(data.get("members_kept")) and bool(data.get("open_dones_held")) and bool(data.get("staging_passes_named")) and bool(data.get("lines_kept")) and bool(data.get("change_builders_unwaited")) and bool(data.get("finished_replacers_undone")) and bool(data.get("finished_texts_dropped")) and bool(data.get("proofs_proven"))
+    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated")) and bool(data.get("holds_owed")) and bool(data.get("near_answers_apart")) and bool(data.get("stack_writes_read")) and bool(data.get("builder_goals_named")) and bool(data.get("members_kept")) and bool(data.get("open_dones_held")) and bool(data.get("staging_passes_named")) and bool(data.get("lines_kept")) and bool(data.get("change_builders_unwaited")) and bool(data.get("finished_replacers_undone")) and bool(data.get("finished_texts_dropped")) and bool(data.get("proofs_proven")) and bool(data.get("messages_kept_once"))
     for flag in ("may_settle_per_answer", "may_settle_skips_approvals", "may_settle_by_subject", "may_settle_by_jev", "delivered_by_prs", "delivered_restored", "proofs_posted"):
         data.pop(flag, None)
     data["slack"].pop("channel", None)
@@ -1065,6 +1067,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         post_proofs(data)
     if not data.get("finished_texts_dropped"):
         drop_finished_texts(data)
+    if not data.get("messages_kept_once"):
+        keep_messages_once(data)
     return data, keep and not unkept and not unkinded
 
 
@@ -1158,6 +1162,19 @@ def post_proofs(data: dict) -> None:
         if job["state"] == "done" and (proven := PROVEN_LINE.match(job["said"] or "")):
             deliver_proven(data, job_id, proven["proof"])
     data["proofs_proven"] = True
+
+
+def keep_messages_once(data: dict) -> None:
+    """Keep once each message of his an answer's words repeat, since an older keep_rulings joined one per record naming its ruling, so three records of one message kept it three times and no text quoting him once carried it, and hear again what each job it lists unmarked was given; marked so this runs once."""
+    from drive import superseded
+
+    for kept in data["answers"].values():
+        if len(messages := kept["words"].split(MESSAGES_JOINED)) == len(once := list(dict.fromkeys(messages))):
+            continue
+        kept["words"] = MESSAGES_JOINED.join(once)
+        for job_id in [job_id for job_id, mark in kept["jobs"].items() if mark is None]:
+            superseded.hear_start(data, job_id)
+    data["messages_kept_once"] = True
 
 
 def undo_finished_replacers(name: str, data: dict) -> None:

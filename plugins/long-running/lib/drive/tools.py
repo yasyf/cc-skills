@@ -113,7 +113,7 @@ RECORD = {
             "description": (
                 "a ruling's cc-notes answer id, as attr ruling, whose words above Notes: his messages at the urls of the call's records"
                 " naming it, his messages in a row in one thread, must hold; on an owner or answer record with url, his owner ruling on"
-                " his work included, the call keeps it as one drive answer, their texts joined with … at the first url, listing each card"
+                " his work included, the call keeps it as one drive answer, the text at each url once, joined with … at the first url, listing each card"
                 " asking him, part undelivered and PR not yet live it could change, which the watch's ANSWER line chases until drive"
                 " answer <id> marks each, --dropped for each his words remove"
             ),
@@ -644,14 +644,14 @@ def card_drive(name: str, records: list[dict]) -> str:
 
 
 def keep_rulings(name: str, posts: list[dict], found: dict) -> list[str]:
-    """Keep each ruling the owner or answer records of his words name as his drive answer, their words joined with … at the first one's link, beside each card asking him, part undelivered and PR not yet live it could change, as drive answer records one, so the watch's ANSWER line chases each until drive answer marks it; a ruling kept already is left as it is. Its listing each."""
+    """Keep each ruling the owner or answer records of his words name as his drive answer, each message of his once, by its url, joined with … at the first one's link, beside each card asking him, part undelivered and PR not yet live it could change, as drive answer records one, so the watch's ANSWER line chases each until drive answer marks it; a ruling kept already is left as it is. Its listing each."""
     said = []
     for ruling, named in rulings(posts).items():
         data = state.load(name)
         if ruling in data["answers"]:
             continue
         made = named[0]
-        words = " … ".join(other["text"] for other in named)
+        words = state.MESSAGES_JOINED.join({other["url"]: other["text"] for other in named}.values())
         asked = superseded.asking(data, found, made["url"])
         bound = superseded.binding(data, made["url"], asked, data["roles"]["coordinator"]["cwd"])
         with state.edit(name) as data:
