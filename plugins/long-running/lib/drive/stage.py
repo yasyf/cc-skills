@@ -117,12 +117,14 @@ def alone(data: dict, key: str, cards: dict) -> Stage:
 
 
 def waiting(data: dict, key: str, cards: dict) -> Stage | None:
-    """The stage of a PR the lander would land now while a PR, job or release of the drive it waits on still holds, which every ready rule of alone reads first, so the lander lands none of them until the watch frees it: blocked, owed by him and naming each, while an end of those waits is his by asked(), so it wakes no one, else waiting, owed by the session mover() names, each wait on its staging test named as its staging run by its tester and that tester's line; each of its waits by pr_waits, its job's staging tests included; None once nothing it waits on holds."""
+    """The stage of a PR the lander would land now while a PR, job or release of the drive it waits on still holds, which every ready rule of alone reads first, so the lander lands none of them until the watch frees it: blocked, owed by him and naming each, while an end of those waits is his by asked(), so it wakes no one, else red, owed by its builder, while a staging test it waits on has no tester, which its builder's `STAGING: #N <cases>` line adds, else waiting, owed by the session mover() names, each wait on its staging test named as its staging run by its tester and that tester's line; each of its waits by pr_waits, its job's staging tests included; None once nothing it waits on holds."""
     if not (standing := view.holding(data, pr_waits(data, data["prs"][key]), cards)):
         return None
     if mine := asked(data, key, standing, cards):
         return Stage("blocked", HIM, f"it waits on {', '.join(fix_words(data, wait, cards) for wait in dict.fromkeys([*standing, *mine]))}")
     testers = {wait: tester for wait in standing if (tester := state.staging_tester(data, wait))}
+    if untested := [wait for wait in standing if wait not in testers and (part := state.part_wait(data, wait)) and state.STAGING_PART.fullmatch(part[1])]:
+        return Stage("red", BUILDER, f"it waits on {', '.join(untested)}, which no staging tester runs: return PUSHED with {state.STAGING_CASES}")
     words = ", ".join(f"its staging run by {testers[wait]}, {view.tester_line(data, testers[wait])}" if wait in testers else wait for wait in standing)
     if len(testers) < len(standing):
         return Stage("waiting", mover(data, key, standing, cards), f"it waits on {words}, and the watch frees it once each ends")

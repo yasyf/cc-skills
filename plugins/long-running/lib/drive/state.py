@@ -167,9 +167,9 @@ DANGEROUS_GOAL = (
     "test {key} on staging before it lands, since its head changes {changes}, each a dangerous change by AGENTS.md as the repository's {rules} lists its paths:"
     " run the cases its builder's `STAGING: #{number}` line names, which reach you as it returns them, beside those its body and these files call for"
 )
+STAGING_CASES = "a line `STAGING: #N <the cases its staging test runs>` for each, the goal of the tester on this Mac its `staging test of #N before it lands` part gets"
 STAGING_RULE = (
-    "end your report with a line `STAGING: #N <the cases its staging test runs>` for each, which puts it on its `staging test of #N before it lands` part with a tester"
-    " on this Mac running those cases, or one line `STAGING: none: <why AGENTS.md's dangerous rule misses it>`, by his words"
+    f"end your report with {STAGING_CASES}, or one line `STAGING: none: <why AGENTS.md's dangerous rule misses it>`, by his words"
     ' "anything we are doing dangerous … needs to be thoroughly tested in staging … before we merge" (eedf451)'
 )
 FREED = "FREE"
@@ -957,6 +957,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         pr.setdefault("answers", None)
         pr.setdefault("paths_at", None)
         pr.setdefault("unstaged", None)
+        pr.setdefault("reached", False)
         pr.pop("stall", None)
         pr.setdefault("graded", pr["state"] == "merged")
         if checked := pr["checked"]:
@@ -1748,7 +1749,7 @@ def result_refusal(data: dict, job_id: str, line: str, report: str) -> str | Non
 
 
 def staging_refusal(data: dict, job_id: str, line: str, report: str) -> str | None:
-    """Why a builder's READY or PUSHED naming a Forge-AI/monorepo PR by link may not be taken: a `STAGING:` line of its report names no such PR as `#N <cases>` nor opens `none: <why>`, or no line stages each such PR and none says none, as fix_refusal asks a FIX line, the tooling only helping the builder keep the prose rule, by his words 17f763e."""
+    """Why a builder's READY or PUSHED naming a Forge-AI/monorepo PR by link may not be taken: a `STAGING:` line of its report names no such PR as `#N <cases>` nor opens `none: <why>`, a PR the release reach put on its staging test, by reach_staging, has no `#N <cases>` line giving its tester's cases, which no `none` line stands in for, or another such PR has neither, as fix_refusal asks a FIX line, the tooling only helping the builder keep the prose rule, by his words 17f763e."""
     if data["jobs"][job_id]["kind"] != "builder" or not REPORTED_LINE.match(line):
         return None
     named = [found[3] for found in PR_URL.finditer(line) if f"{found[1]}/{found[2]}".casefold() == MONOREPO.casefold()]
@@ -1757,7 +1758,10 @@ def staging_refusal(data: dict, job_id: str, line: str, report: str) -> str | No
     stagings = STAGING_LINE.findall(report)
     if wrong := [staging for staging in stagings if not UNSTAGED.match(staging) and not ((found := STAGED.fullmatch(staging)) and found["number"] in named)]:
         return f"its STAGING line `{wrong[0]}` neither stages a {MONOREPO} PR its first line names, as `#N <cases>`, nor reads `none: <why AGENTS.md's dangerous rule misses it>`"
-    if any(UNSTAGED.match(staging) for staging in stagings) or not (unstaged := set(named) - {STAGED.fullmatch(staging)["number"] for staging in stagings}):
+    staged = {STAGED.fullmatch(staging)["number"] for staging in stagings if not UNSTAGED.match(staging)}
+    if untested := sorted({number for number in named if (pr := data["prs"].get(f"{MONOREPO}#{number}")) and pr["reached"]} - staged):
+        return f"{', '.join(f'{MONOREPO}#{number}' for number in untested)} waits on its staging test before it lands, since its paths reach a component staging runs, so no `STAGING: none` line stands for it: end your report with {STAGING_CASES}"
+    if any(UNSTAGED.match(staging) for staging in stagings) or not (unstaged := set(named) - staged):
         return None
     return f"it names {', '.join(f'{MONOREPO}#{number}' for number in sorted(unstaged))}, so {STAGING_RULE}"
 
@@ -2067,14 +2071,10 @@ def staging_testers(data: dict, job_id: str, report: str) -> list[str]:
 
 
 def stage_pr(data: dict, key: str, goal: str, session: str | None) -> str | None:
-    """Put a Forge-AI/monorepo PR the drive tracks on the `staging test of #N before it lands` part of the order tracking it, waiting on that part, and give the part a tester when no unended job carries it, a builder building nothing on this Mac in the session given, its goal the one given, as install.add_prover adds a prover; else hold that goal on the unended job carrying it, unless it is that job's goal, so its next worker hears it, or, when that job is a tester mark_dangerous gave it that finished before its builder named these cases, give the part a tester of these; staging it ends any lift unstage kept; the tester added, or None."""
-    from drive import view
-
+    """Put a Forge-AI/monorepo PR the drive tracks on its staging test, by wait_on_staging, and give the part a tester when no unended job carries it, a builder building nothing on this Mac in the session given, its goal the one given, as install.add_prover adds a prover; else hold that goal on the unended job carrying it, unless it is that job's goal, so its next worker hears it, or, when that job is a tester mark_dangerous gave it that finished before its builder named these cases, give the part a tester of these; the tester added, or None."""
+    wait_on_staging(data, key)
     pr = data["prs"][key]
-    pr["unstaged"] = None
     order, part = data["orders"][pr["order"]], STAGING_TEST.format(number=key.split("#")[1])
-    order["parts"].setdefault(part, new_part())
-    pr["waits"] = view.stored_waits(data, [*pr["waits"], f"{pr['order']}:{part}"])
     testing = next((other for _, other in reversed(part_jobs(data, pr["order"], part)) if other["state"] not in ENDED_JOB_STATES), None)
     if testing and not (testing["state"] == "done" and testing["goal"] != goal and testing["goal"].startswith(DANGEROUS_GOAL.partition("{changes}")[0].format(key=key))):
         if testing["goal"] != goal:
@@ -2118,6 +2118,23 @@ def mark_dangerous(data: dict, key: str, head: str, paths: list[str]) -> str | N
         return None
     changes = "; ".join(f"{kind}: {', '.join(made[:DANGEROUS_SHOWN])}{f' and {len(made) - DANGEROUS_SHOWN} more' if len(made) > DANGEROUS_SHOWN else ''}" for kind, made in classes.items())
     return stage_pr(data, key, DANGEROUS_GOAL.format(key=key, number=key.split("#")[1], changes=changes, rules=REPO_RULES), data["jobs"][pr["job"]].get("session"))
+
+
+def wait_on_staging(data: dict, key: str) -> None:
+    """Put the open Forge-AI/monorepo PR at key on its order's `staging test of #N before it lands` part and that part's wait, ending any lift unstage kept, so it lands only once that test passes: what stage_pr and reach_staging both do."""
+    from drive import view
+
+    pr = data["prs"][key]
+    pr["unstaged"] = None
+    part = STAGING_TEST.format(number=key.split("#")[1])
+    data["orders"][pr["order"]]["parts"].setdefault(part, new_part())
+    pr["waits"] = view.stored_waits(data, [*pr["waits"], f"{pr['order']}:{part}"])
+
+
+def reach_staging(data: dict, key: str) -> None:
+    """Put a PR whose paths reach a component staging runs, as cli.staging_reach finds, on its staging test, by wait_on_staging, marked reached, so no `STAGING: none` of its builder lifts it, by staging_refusal, since the lander would put it back."""
+    wait_on_staging(data, key)
+    data["prs"][key]["reached"] = True
 
 
 def left_changes(data: dict, builder_id: str, found: list[tuple[str, list[int]]]) -> list[str]:
@@ -2584,12 +2601,16 @@ def job_waits(data: dict, pr: dict) -> list[str]:
 
 
 def staging_runs(data: dict, pr: dict) -> list[str]:
-    """Each `staging test of #N before it lands` part naming a Forge-AI/monorepo PR, on any order, that a job started on and that is not delivered, as `<order>:<part>`, whatever waits the PR was given, so it lands only once that run passes and its proof is posted, by his ruling 0048b14 that a started staging test is finished before its PR merges."""
+    """Each `staging test of #N before it lands` part naming a Forge-AI/monorepo PR, on any order, that a job started on or the PR waits on, by wait_on_staging, and that is not delivered, as `<order>:<part>`, so it lands only once that run passes and its proof is posted, by his ruling 0048b14 that a started staging test is finished before its PR merges."""
     repo, number = pr_key(pr["url"]).split("#")
     if repo.lower() != MONOREPO.lower():
         return []
     part = STAGING_TEST.format(number=number)
-    return [f"{order_id}:{part}" for order_id, order in data["orders"].items() if part in order["parts"] and part_jobs(data, order_id, part) and not delivered(data, order_id, part)]
+    return [
+        f"{order_id}:{part}"
+        for order_id, order in data["orders"].items()
+        if part in order["parts"] and (part_jobs(data, order_id, part) or f"{order_id}:{part}" in pr["waits"]) and not delivered(data, order_id, part)
+    ]
 
 
 def staging_tester(data: dict, wait: str) -> str | None:
@@ -4530,5 +4551,6 @@ def new_pr(url: str, job_id: str, order_id: str) -> dict:
         "answers": None,
         "paths_at": None,
         "unstaged": None,
+        "reached": False,
         "updated": stamp(),
     }

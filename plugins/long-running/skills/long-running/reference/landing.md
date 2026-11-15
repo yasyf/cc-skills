@@ -34,7 +34,9 @@ for its repository says, then return `DONE <proof>`.
   with `drive job held --pr` first and refuses while it does not answer. Return `WAITING <the PR> waits on <the card>`, which
   the coordinator puts in front of him by [Design first](design.md). A started staging test holds its
   PR the same way, by his ruling 0048b14. While any order's `staging test of #N before it lands` part
-  has a job on it and is not delivered, the PR reads waiting on that run. `drive pr land` and the hook
+  has a job on it, or the PR waits on it, and is not delivered, the PR reads waiting on that run, and
+  red, owed by its builder, while no tester runs it. `drive pr add`, `drive pr set` and the lander put
+  each PR waiting on his tap whose paths reach a component, whatever its exempt class, on that part. `drive pr land` and the hook
   refuse it on this Mac and on a Sprite lane. The watch stops a lander that queued a PR before any
   wait of it came on, this one included. An incident's repair is the
   exception: it lands on the recommended option, the card stays open, and a different pick of his
@@ -583,7 +585,7 @@ PR checks that everyone hits".
   [the records page](records.md). Its freeze names its job, with `tools/ci release freeze --with-staging
   --holder <drive>/<job>` once on `dev`, by his pick e3c9bbd, "The freeze names its job; soak, Mac box proof, agent
   proof, pass-box run, cluster job and break-glass refuse another job's freeze".
-- **What holds the PR.** The pass the merge requires is the drive's, never GitHub's. Two things start
+- **What holds the PR.** The pass the merge requires is the drive's, never GitHub's. Three things start
   it, so it never rests on the builder's word alone. The builder's `READY` or `PUSHED` naming a
   Forge-AI/monorepo PR carries `STAGING: #N <cases>`, which `drive job report` turns into the part
   `<order>:staging test of #N before it lands`, the PR's wait on it and its tester, or
@@ -592,9 +594,11 @@ PR checks that everyone hits".
   brought it, read the files the PR changes against the `[[dangerous]]` tables of the monorepo's
   `.claude/long-running.toml`, each a class of AGENTS.md's dangerous rule with the globs of its paths,
   leaving out test files and its `[skip]` globs, and give a PR that changes one the same part, wait and
-  tester, its goal naming each class and file, before his card draws. A builder's later `STAGING: #N`
-  line reaches that tester as a held text, and its `STAGING: none: <why>` lifts a test no job took up,
-  its why shown on his card, while a test a job took up runs to its end, by 0048b14. It is never a wait
+  tester, its goal naming each class and file, before his card draws. And `drive pr add`, `drive pr set`
+  and the lander put each PR waiting on his tap whose paths reach a component `tools/ci release select
+  --pr` lists on that part and its wait, whatever its exempt class, by his pick bb9cf91. A builder's later
+  `STAGING: #N` line reaches that tester as a held text, and its `STAGING: none: <why>` lifts a test no
+  job took up and the release reach did not give, its why shown on his card, while a test a job took up runs to its end, by 0048b14. It is never a wait
   on the testing job: the lander lands it once that tester's `DONE` keeps the test's proof as its first
   `CHECK:` line, by [the jobs page](jobs.md). That pass takes back an
   Approve he gave before it, on every open PR waiting on the part, and his card asks again, so only an
