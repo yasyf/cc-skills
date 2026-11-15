@@ -4,6 +4,8 @@ import re
 import shutil
 import subprocess
 import sys
+import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -163,7 +165,7 @@ def test_a_write_waiting_past_the_drive_lock_wait_changes_nothing_and_names_the_
     assert state.load("demo")["terminal"] == "term-1"
 
 
-def test_load_gives_each_picture_drawn_before_pictures_kept_their_source_its_kept_question_or_pr_fence_once(state_root: Path) -> None:
+def test_migrate_gives_each_picture_drawn_before_pictures_kept_their_source_its_kept_question_or_pr_fence_once_and_load_never_does(state_root: Path) -> None:
     make("demo")
     drive = state_root / "demo"
     (drive / "asks").mkdir()
@@ -175,14 +177,16 @@ def test_load_gives_each_picture_drawn_before_pictures_kept_their_source_its_kep
         home.mkdir(parents=True)
         (home / "show-me.png").write_bytes(b"\x89PNG\r\n")
     state.load("demo")
+    assert not (asked / "source.json").exists()
+    state.migrate("demo")
     assert json.loads((asked / "source.json").read_text()) == {"kind": "code:rust", "source": "fn main() {}\n"}
     assert json.loads((landed / "source.json").read_text()) == {"kind": "code:sand", "source": "browser::click(@page, @b) -> @r\n"}
     (asked / "source.json").unlink()
-    state.load("demo")
+    state.migrate("demo")
     assert not (asked / "source.json").exists()
 
 
-def test_load_rebuilds_from_his_stored_card_the_ask_file_a_question_never_kept_word_for_word_once(state_root: Path) -> None:
+def test_migrate_rebuilds_from_his_stored_card_the_ask_file_a_question_never_kept_word_for_word_once_and_load_never_does(state_root: Path) -> None:
     data = state.new_drive("demo", "coordinator", None, "/work")
     data["jobs"]["j1"] = state.new_job("o1", "design", "row counts", [], "2026-11-10T21:00:00-08:00")
     data["jobs"]["j1"]["questions"] = [state.new_question(None, "Should row counts be exact?", "2026-11-10T21:00:00-08:00") | {"waits": "demo:j1-7"}]
@@ -196,6 +200,8 @@ def test_load_rebuilds_from_his_stored_card_the_ask_file_a_question_never_kept_w
     card = {"title": "Should row counts be exact?", "body": body, "options": ["Exact: one query per table", "Estimate: the planner's numbers"], "recommended": "Exact: one query per table", "waits": "demo:j1-7"}
     (drive / "cards.json").write_text(json.dumps({"closed": [], "pr_cards": [], "questions": [{"card": card}], "source": "live", "team_url": ""}))
     kept = drive / "asks" / "j1-7.md"
+    assert state.load("demo")["jobs"]["j1"]["questions"][0]["file"] is None
+    state.migrate("demo")
     assert state.load("demo")["jobs"]["j1"]["questions"][0]["file"] == str(kept)
     assert kept.read_text() == (
         "ASK Should row counts be exact?\nCounting reads every row.\nRecommended: exact.\nShow me:\nOne query per table:\n```sql\n"
@@ -203,11 +209,12 @@ def test_load_rebuilds_from_his_stored_card_the_ask_file_a_question_never_kept_w
         "- Estimate: the planner's numbers\nFindings:\nRoot cause: none: rebuilt from the posted card\nHolds: none: rebuilt from the posted card\n"
     )
     kept.unlink()
+    state.migrate("demo")
     assert state.load("demo")["jobs"]["j1"]["questions"][0]["file"] is None
     assert not kept.exists()
 
 
-def test_load_rebuilds_no_ask_file_for_his_stored_card_holding_a_picture_the_drive_keeps_no_file_of(state_root: Path) -> None:
+def test_migrate_rebuilds_no_ask_file_for_his_stored_card_holding_a_picture_the_drive_keeps_no_file_of(state_root: Path) -> None:
     data = state.new_drive("demo", "coordinator", None, "/work")
     data["jobs"]["j1"] = state.new_job("o1", "design", "row counts", [], "2026-11-10T21:00:00-08:00")
     data["jobs"]["j1"]["questions"] = [state.new_question(None, "Should row counts be exact?", "2026-11-10T21:00:00-08:00") | {"waits": "demo:j1-7"}]
@@ -215,24 +222,44 @@ def test_load_rebuilds_no_ask_file_for_his_stored_card_holding_a_picture_the_dri
     image = {"key": f"cc-slack/pictures/T1/{'0' * 64}.png", "title": "option-a.png"}
     card = {"title": "Should row counts be exact?", "body": "Counting reads every row.", "options": ["Exact", "Estimate"], "recommended": "Exact", "waits": "demo:j1-7", "images": [image]}
     (state_root / "demo" / "cards.json").write_text(json.dumps({"closed": [], "pr_cards": [], "questions": [{"card": card}], "source": "live", "team_url": ""}))
+    state.migrate("demo")
     assert state.load("demo")["jobs"]["j1"]["questions"][0]["file"] is None
     assert not (state_root / "demo" / "asks" / "j1-7.md").exists()
 
 
-def test_load_labels_his_old_taps_approving_a_pr_in_the_coordinators_checkout_once_and_never_for_a_drive_state_create_built(state_root: Path, backfilled: list[str]) -> None:
+def test_migrate_labels_his_old_taps_approving_a_pr_in_the_coordinators_checkout_once_and_never_for_a_drive_state_create_built_while_load_never_does(
+    state_root: Path, backfilled: list[str]
+) -> None:
     make("demo")
-    state.load("demo")
+    state.migrate("demo")
     assert backfilled == []
     (state.drive_dir("demo") / state.APPROVALS_LABELLED).unlink()
     state.load("demo")
-    state.load("demo")
+    assert backfilled == []
+    state.migrate("demo")
+    state.migrate("demo")
     assert backfilled == ["/work"]
     state.create(state.new_drive("talk", "communicator", None, "/talk"))
-    state.load("talk")
+    state.migrate("talk")
     assert backfilled == ["/work"]
 
 
-def test_a_copy_of_a_drive_runs_only_the_once_only_passes_a_load_of_the_drive_would(
+def test_migrations_run_at_once_take_turns_so_only_the_first_makes_the_change(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    make("demo")
+    (state.drive_dir("demo") / state.APPROVALS_LABELLED).unlink()
+    labelled: list[str] = []
+
+    def slow_backfill(cwd: str) -> None:
+        labelled.append(cwd)
+        time.sleep(0.05)
+
+    monkeypatch.setattr(settled, "backfill", slow_backfill)
+    with ThreadPoolExecutor() as pool:
+        list(pool.map(lambda _: state.migrate("demo"), range(4)))
+    assert labelled == ["/work"]
+
+
+def test_a_copy_of_a_drive_migrates_only_the_once_only_passes_a_migrate_of_the_drive_would(
     state_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, backfilled: list[str]
 ) -> None:
     make("demo")
@@ -240,10 +267,10 @@ def test_a_copy_of_a_drive_runs_only_the_once_only_passes_a_load_of_the_drive_wo
     (state.drive_dir("demo") / state.APPROVALS_LABELLED).unlink()
     state.clone("demo", tmp_path / "unlabelled")
     monkeypatch.setenv("LONG_RUNNING_STATE", str(tmp_path / "labelled"))
-    state.load("demo")
+    state.migrate("demo")
     assert backfilled == []
     monkeypatch.setenv("LONG_RUNNING_STATE", str(tmp_path / "unlabelled"))
-    state.load("demo")
+    state.migrate("demo")
     assert backfilled == ["/work"]
 
 

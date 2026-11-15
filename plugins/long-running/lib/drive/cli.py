@@ -144,6 +144,7 @@ def start(args: argparse.Namespace) -> int:
             data["roles"][args.role] = fresh["roles"][args.role]
         watched_channels = data["slack"].setdefault("watch", [])
         watched_channels.extend(channel for channel in dict.fromkeys(args.watch) if channel not in watched_channels)
+    state.migrate(args.name)
     held = fresh["roles"][args.role]
     registered = "" if state.scratch() else f"{agents.register(args.name, args.role, args.project, held['cwd'], held['session'])}\n"
     seen = orca_place(held, run_show)
@@ -4938,6 +4939,12 @@ def reload_plugins(args: argparse.Namespace) -> int:
     return install.reload_main(args.drive, args.seat, args.force)
 
 
+def migrate_drives(args: argparse.Namespace) -> int:
+    for name in state.names():
+        state.migrate(name)
+    return 0
+
+
 def default_bin_dir() -> Path:
     if xdg := os.environ.get("XDG_BIN_HOME"):
         return Path(xdg)
@@ -6202,6 +6209,8 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--seat", help="the one seat of --drive whose reload this process types, as the process an install starts does")
     verb.add_argument("--force", action="store_true", help="with --seat, type it even when the seat already reloaded onto the newest plugin install, as a bare drive reload does")
     verb.set_defaults(run=reload_plugins)
+    verb = verbs.add_parser("migrate", help="make each one-time change an older install still owes to every drive on this Mac, as `drive install` does before it reloads sessions")
+    verb.set_defaults(run=migrate_drives)
 
     verb = verbs.add_parser("setup")
     verb.add_argument("--bin-dir")

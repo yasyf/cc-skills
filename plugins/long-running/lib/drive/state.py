@@ -744,7 +744,7 @@ def bound(data: dict) -> dict:
 
 
 def load(name: str) -> dict:
-    """Read a drive, bringing a drive saved by an older install up to the fields this one reads, from what is on this Mac alone; one a newer install saved is refused before any of it is read, since this code may misread its shapes. Inside a batch, the batch's copy as its writes so far left it."""
+    """Read a drive, bringing a drive saved by an older install up to the fields this one reads, in memory and from what is on this Mac alone; one a newer install saved is refused before any of it is read, since this code may misread its shapes. Inside a batch, the batch's copy as its writes so far left it. It writes nothing: a one-time change to the drive's files is `migrate`'s, since every drive command, hook and watch pass reads through here at once."""
     if name in BATCHED:
         return marshal.loads(BATCHED[name])
     if not (path := database_path(name)).exists():
@@ -951,12 +951,6 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         data["catch_up"]["record"] = bare_seq(data["catch_up"]["record"])
     passes = (drive_dir(name) / "pictures" / picture.SOURCED, drive_dir(name) / "asks" / REBUILT_ASKS, drive_dir(name) / APPROVALS_LABELLED)
     keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated")) and bool(data.get("holds_owed")) and bool(data.get("near_answers_apart")) and bool(data.get("stack_writes_read")) and bool(data.get("builder_goals_named")) and bool(data.get("members_kept")) and bool(data.get("open_dones_held")) and bool(data.get("staging_passes_owned")) and bool(data.get("lines_kept")) and bool(data.get("change_builders_unwaited"))
-    if (pictures := drive_dir(name) / "pictures").is_dir() and not (pictures / picture.SOURCED).exists():
-        picture.fill(pictures, [*map(Path.read_text, sorted((drive_dir(name) / "asks").glob("*.md"))), *pr_bodies(name)])
-    if cards_path(name).exists() and not (drive_dir(name) / "asks" / REBUILT_ASKS).exists():
-        rebuild_asks(name, data)
-    if "coordinator" in data["roles"] and not (drive_dir(name) / APPROVALS_LABELLED).exists():
-        label_approvals(name, data["roles"]["coordinator"]["cwd"])
     for flag in ("may_settle_per_answer", "may_settle_skips_approvals", "may_settle_by_subject", "may_settle_by_jev"):
         data.pop(flag, None)
     data["slack"].pop("channel", None)
@@ -1292,6 +1286,18 @@ def rebuilt_ask(name: str, waits: str) -> Path:
 def ask_hash(text: str) -> str:
     """What `drive job ask` names a kept ASK file by, after its job, and the card's line it sends the communicator by, after the card's waits id: the hash of its words, so a file whose words no longer hash to its name changed since, and a line sent again unchanged names the record cci already holds."""
     return hashlib.sha256(text.encode()).hexdigest()[:8]
+
+
+def migrate(name: str) -> None:
+    """Make each one-time change to the drive's files that an older install's drive still owes, each skipped once its mark exists; `drive install` runs it from the new install before any session reloads onto it and `drive start` on the drive it makes, and two at once take turns, the second finding each mark written."""
+    with flocked(drive_dir(name) / ".migrate.lock"):
+        data = load(name)
+        if (pictures := drive_dir(name) / "pictures").is_dir() and not (pictures / picture.SOURCED).exists():
+            picture.fill(pictures, [*map(Path.read_text, sorted((drive_dir(name) / "asks").glob("*.md"))), *pr_bodies(name)])
+        if cards_path(name).exists() and not (drive_dir(name) / "asks" / REBUILT_ASKS).exists():
+            rebuild_asks(name, data)
+        if "coordinator" in data["roles"] and not (drive_dir(name) / APPROVALS_LABELLED).exists():
+            label_approvals(name, data["roles"]["coordinator"]["cwd"])
 
 
 def label_approvals(name: str, cwd: str) -> None:
@@ -2671,7 +2677,7 @@ def pointed(name: str, data: dict) -> None:
 
 
 def clone(name: str, folder: Path) -> None:
-    """Copy the drive's saved state into folder, as the drive of its name there, read in one transaction, with the mark of each once-only pass its loads already ran, so a load of the copy runs only the passes a load of the drive would."""
+    """Copy the drive's saved state into folder, as the drive of its name there, read in one transaction, with the mark of each once-only pass `migrate` already made on it, so a load or migrate of the copy reads it as one of the drive would."""
     (folder / name).mkdir(parents=True)
     for mark in (APPROVALS_LABELLED, f"asks/{REBUILT_ASKS}", f"pictures/{picture.SOURCED}"):
         if (drive_dir(name) / mark).exists():
@@ -2851,7 +2857,7 @@ def edit_or_create(name: str, fresh: dict) -> Iterator[dict]:
 
 
 def create(data: dict) -> None:
-    """Save a drive built whole in code, as a proof or a test builds one, marked as needing no label_approvals pass, since its coordinator's cwd may be no checkout at all and every tap `drive answer` records for it is labelled already; `drive start` makes its drives through edit_or_create, whose first load labels the older taps of the checkout it starts in."""
+    """Save a drive built whole in code, as a proof or a test builds one, marked as needing no label_approvals pass, since its coordinator's cwd may be no checkout at all and every tap `drive answer` records for it is labelled already; `drive start` makes its drives through edit_or_create, then migrates each, which labels the older taps of the checkout it starts in."""
     with writing(data["name"]):
         save(data["name"], data)
         (drive_dir(data["name"]) / APPROVALS_LABELLED).touch()
