@@ -3630,6 +3630,13 @@ def held_elsewhere(data: dict, order_id: str, session: str | None, cut: bool = F
     )
 
 
+def job_held_elsewhere(data: dict, job: dict, session: str | None) -> str | None:
+    """Why a session may not start, wake, brief or message a job's worker, by held_elsewhere on its order, the top coordinator's for a job starting a production cut, unless it started the agent running the job on this Mac, which agent_lane names, so the session job_lane sends the job's lines to may act on them, by his pick "Keep with the starter: the agent finishes its job, your answers reach it at once"."""
+    if session_lane(data, session) == agent_lane(data, job):
+        return None
+    return held_elsewhere(data, job["order"], session, starts_cut(job))
+
+
 def pr_held_elsewhere(data: dict, key: str, job_id: str) -> str | None:
     """Why a job may not take a PR the drive tracks: a job on an order another lane holds has it, and the PR's order sends its check, stage lines and wakes to that lane; compared by holding lane rather than session role, so two sub-coordinators, both of role coordinator, and a Sprite lane's call, with no session, are told apart. A job already carrying the PR, such as the one that opened it, takes it back."""
     pr = data["prs"].get(key)

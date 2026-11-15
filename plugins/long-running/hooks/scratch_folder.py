@@ -22,17 +22,18 @@ def named_job(payload: dict) -> tuple[str, dict, str, str] | None:
 
 
 def deny_reason(payload: dict) -> str | None:
-    """Why a drive session may not start this agent: a codex agent relaying a codex job, whose codex-ask run `drive job launch` starts itself, the job its brief names is on an order another session of the drive holds, which for a builder serving drive tooling started by the meta session names the brief that gives it the order, or its brief lacks what the job's kind needs."""
+    """Why a drive session may not start this agent: a codex agent relaying a codex job, whose codex-ask run `drive job launch` starts itself, the job its brief names is another session's by state.job_held_elsewhere, the check the job verbs make, which for a builder serving drive tooling started by the meta session names the brief that gives it the order, or its brief lacks what the job's kind needs."""
     if (named := named_job(payload)) is None:
         return None
     name, data, job_id, text = named
-    if data["jobs"][job_id]["kind"] == "codex" and str(payload["tool_input"].get("subagent_type") or "").startswith(CODEX_AGENTS):
+    job = data["jobs"][job_id]
+    if job["kind"] == "codex" and str(payload["tool_input"].get("subagent_type") or "").startswith(CODEX_AGENTS):
         return (
             f"refused, no agent started: {job_id} is a codex job, whose codex-ask run drive job launch {job_id} starts itself on its brief,"
             " its reply's state a field codex cannot leave out, so no agent relays it"
         )
-    order_id = data["jobs"][job_id]["order"]
-    held = state.held_elsewhere(data, order_id, payload["session_id"], state.starts_cut(data["jobs"][job_id]))
+    order_id = job["order"]
+    held = state.job_held_elsewhere(data, job, payload["session_id"])
     if held and state.session_role(data, payload["session_id"]) == "meta" and brief.SERVES_TOOLING.search(text):
         held = f"{order_id} is the {state.title(data['orders'][order_id]['owner'])}'s order, but a builder serving drive tooling is the meta session's alone: {brief.gives_tooling(job_id, order_id)}, then start it again"
     refused = held or brief.brief_refusal(name, data, job_id, text)

@@ -946,14 +946,38 @@ def test_the_lines_of_an_order_the_meta_session_holds_go_to_it_and_never_the_coo
         ("LANE j1 o1 died on Sprite s1: its worker exited", "meta"),
         ("STUCK j1 o1: j1 unmoved 61 minutes: j1 waiting on j2", "meta"),
         (f"PR {KEY}: merged [o1 j1]", "meta"),
+        ('ANSWER undelivered j1: "ship it", held at 9:00 AM, has not reached j1 [o1 j1]', "meta"),
+        ('ANSWER 8427b3c o1 "ship it": 1 card with no mark; drive answer 8427b3c lists them', "meta"),
+        ('ANSWER 8427b3c j1 "ship it": j1 not sent his words; drive answer 8427b3c lists them', "meta"),
+        ('ANSWER 8427b3c "ship it": 1 card with no mark; drive answer 8427b3c lists them', None),
         (f"TAP Approve {KEY}", None),
         ("EVENT relaunch job=j1", None),
         ("WATCH post to the coordinator failed 3 times in a row", None),
     ],
 )
-def test_every_line_whose_header_names_an_order_goes_to_the_session_holding_it_with_no_list_of_line_kinds(demo: str, line: str, holder: str | None) -> None:
+def test_every_line_naming_a_job_or_an_order_goes_to_the_session_holding_it_with_no_list_of_line_kinds(demo: str, line: str, holder: str | None) -> None:
     tooling_order(demo, "running")
-    assert watch.holder_line(line, state.load(demo)) == holder
+    assert watch.line_lane(line, state.load(demo)) == holder
+
+
+def test_a_line_about_a_sub_coordinators_job_goes_to_it_from_any_watch_unless_another_coordinators_agent_runs_the_job(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    sub_coordinated(demo)
+    with state.edit(demo) as data:
+        data["jobs"]["j2"] = job(agent="a-2", where="local", session="session-under-test")
+        data["orders"]["o1"]["jobs"].append("j2")
+        data["answers"]["a1"] = {"words": "one new tool", "link": f"{CARD}9", "at": state.stamp(T0), "said": state.stamp(T0), "cards": {}, "jobs": {"j1": None, "j2": None}}
+        data["jobs"]["j1"].update(agent="a-1", where="local", session="iris-1")
+    sent = posts(monkeypatch)
+    watching = watcher(demo)
+    watching.cards = NO_CARDS
+    lines = watch.answer_lines(watching, T0 + timedelta(minutes=10))
+    assert lines == [
+        'ANSWER a1 j1 "one new tool": j1 not sent his words; drive answer a1 lists them',
+        'ANSWER a1 j2 "one new tool": j2 not sent his words; drive answer a1 lists them',
+    ]
+    prover = "JOB j1 o1 added, proves Forge-AI/monorepo#42: start its agent now"
+    assert watch.handed(watching, [prover, *lines], T0) == [lines[1]]
+    assert posted(sent) == [("handoff", f"iris@{demo}", prover), ("handoff", f"iris@{demo}", lines[0])]
 
 
 def test_a_handoff_the_meta_session_did_not_get_goes_again_and_says_so_from_the_third_failure(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2423,7 +2447,9 @@ def test_the_drives_watch_keeps_a_projects_lines_until_a_sub_coordinator_is_boun
     iris = watch.Watcher(demo, offset=state.watch_cursor(demo, "Iris"), project="Iris")
     reads[KEY] = read(state="MERGED", mergeCommit="ccc333", checks=RED)
     later = T0 + timedelta(minutes=2)
-    assert watch.run_pass(top, later) == [f"TAP Hold {KEY} [o1 j1]", moved("o1", "root", "iris", "j1")]
+    sent = posts(monkeypatch)
+    assert watch.run_pass(top, later) == [moved("o1", "root", "iris", "j1")]
+    assert posted(sent) == [("handoff", f"iris@{demo}", f"TAP Hold {KEY} [o1 j1]")]
     assert watch.run_pass(iris, later) == [
         f"TAP Approve {KEY} [o1 j1]",
         f"PR {KEY}: merged [o1 j1]",
@@ -8638,7 +8664,7 @@ def test_an_answer_leaving_a_card_unmarked_or_a_job_unsent_his_words_says_so_eve
     def said(minutes: int) -> list[str]:
         return [line for line in watch.run_pass(watching, T0 + timedelta(minutes=minutes)) if line.startswith("ANSWER")]
 
-    line = 'ANSWER a1 "one new tool": 1 card with no mark, standing, settled, dropped, superseded or reopened by it; drive answer a1 lists them'
+    line = 'ANSWER a1 o1 "one new tool": 1 card with no mark, standing, settled, dropped, superseded or reopened by it; drive answer a1 lists them'
     assert (said(5), said(10), said(15), said(20)) == ([], [line], [], [line])
     assert watch.wakes(line, state.load(demo), NO_CARDS)
     with state.edit(demo) as data:
@@ -8647,7 +8673,7 @@ def test_an_answer_leaving_a_card_unmarked_or_a_job_unsent_his_words_says_so_eve
     with state.edit(demo) as data:
         data["jobs"]["j1"].update(agent="a1", where="local", session="session-under-test")
         data["answers"]["a1"]["jobs"]["j1"] = None
-    assert said(50) == ['ANSWER a1 "one new tool": j1 not sent his words; drive answer a1 lists them']
+    assert said(50) == ['ANSWER a1 j1 "one new tool": j1 not sent his words; drive answer a1 lists them']
     send_message(demo, "j1", "He wants one new tool")
     assert said(70) == []
     assert state.load(demo)["answers"]["a1"]["jobs"] == {"j1": {"mark": "sent"}}
@@ -9155,7 +9181,7 @@ def test_a_job_clock_is_said_once_when_it_runs_out_while_its_job_still_runs_and_
     assert [job["due"] for job in state.load(demo)["jobs"].values()] == [None, None]
     assert watch.wakes(line, state.load(demo), NO_CARDS)
     tooling_order(demo, "running")
-    assert watch.holder_line(line, state.load(demo)) == "meta"
+    assert watch.line_lane(line, state.load(demo)) == "meta"
 
 
 def test_an_answer_posted_to_him_whose_asker_has_not_heard_it_is_said_once_ten_minutes_after_his_line(demo: str) -> None:
@@ -9191,7 +9217,7 @@ def test_a_fix_proven_live_whose_bug_report_has_not_heard_it_is_fixed_is_said_on
     assert watch.tell_lines(watching, T0 + timedelta(minutes=40)) == []
     assert watch.wakes(line, state.load(demo), NO_CARDS)
     tooling_order(demo, "running")
-    assert watch.holder_line(line, state.load(demo)) == "meta"
+    assert watch.line_lane(line, state.load(demo)) == "meta"
 
 
 def test_a_fix_proven_live_names_every_reporters_thread_not_yet_told_on_one_tell_and_a_reporter_added_later_on_its_own(demo: str) -> None:
