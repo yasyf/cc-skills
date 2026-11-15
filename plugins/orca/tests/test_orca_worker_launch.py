@@ -1243,11 +1243,28 @@ class LocalTest(LaunchTest):
         self.assert_refused(self.launch, self.launch.run(model="gpt-6.1-sol", WORKER_LOCAL="1"), "the local route starts only claude, and codex runs gpt-6.1-sol; nothing launched", [])
 
     def test_the_local_route_refuses_sprite_checkout_settings(self):
-        for env in ({"WORKER_REF": "dev"}, {"WORKER_EXPECT_BASE": BASE}, {"WORKER_WORKSPACE": WORKSPACE}, {"WORKER_SESSION": SESSION}):
+        refused = "WORKER_REF, WORKER_EXPECT_BASE and WORKER_SESSION pick a Sprite's checkout or session; the local route takes WORKER_BASE_BRANCH, or WORKER_WORKSPACE to continue in a worktree; nothing launched"
+        for env, line in (
+            ({"WORKER_REF": "dev"}, refused),
+            ({"WORKER_EXPECT_BASE": BASE}, refused),
+            ({"WORKER_SESSION": SESSION}, refused),
+            ({"WORKER_WORKSPACE": WORKSPACE}, f"WORKER_WORKSPACE on the local route is the absolute path of the worktree to continue in, not {WORKSPACE}; nothing launched"),
+        ):
             with self.subTest(env=env):
                 launch = self.fresh()
                 launch.local()
-                self.assert_refused(launch, launch.run(model="fable", WORKER_LOCAL="1", **env), "WORKER_REF, WORKER_EXPECT_BASE, WORKER_WORKSPACE and WORKER_SESSION pick a Sprite's checkout or session; the local route takes WORKER_BASE_BRANCH; nothing launched", [])
+                self.assert_refused(launch, launch.run(model="fable", WORKER_LOCAL="1", **env), line, [])
+
+    def test_a_local_launch_given_a_worktree_continues_in_it_as_it_stands(self):
+        held = "/w/j1-head"
+        self.launch.local()
+        self.launch.reply("orca terminal create", {"out": {"ok": True, "result": {"terminal": {"handle": LOCAL_TERMINAL}}}})
+        result = self.launch.run(model="fable", WORKER_LOCAL="1", WORKER_WORKSPACE=held)
+        self.assertEqual((result.returncode, result.stderr), (0, ""))
+        started = [[word.replace(LOCAL_WORKTREE, held) for word in call] for call in self.launch.local_calls(cone=())[-4:]]
+        self.assertEqual(self.launch.calls(), [CURRENT, ["orca", "terminal", "create", "--worktree", f"path:{held}", "--title", LANE, "--json"], *started])
+        self.assertEqual(json.loads(result.stdout)["worktree"], held)
+        self.assertEqual(self.launch.kept(), sorted(["request.json", *START_KEPT]))
 
     def test_the_local_worktree_takes_a_name_scoped_to_the_run(self):
         self.launch.local()

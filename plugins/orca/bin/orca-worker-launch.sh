@@ -107,7 +107,9 @@ if [ "$route" = sprite ]; then
   fi
 else
   [ "$kind" = claude ] || die "the local route starts only claude, and codex runs $model_id; nothing launched"
-  [ -z "$ref$expect$continued$session" ] || die "WORKER_REF, WORKER_EXPECT_BASE, WORKER_WORKSPACE and WORKER_SESSION pick a Sprite's checkout or session; the local route takes WORKER_BASE_BRANCH; nothing launched"
+  [ -z "$ref$expect$session" ] || die "WORKER_REF, WORKER_EXPECT_BASE and WORKER_SESSION pick a Sprite's checkout or session; the local route takes WORKER_BASE_BRANCH, or WORKER_WORKSPACE to continue in a worktree; nothing launched"
+  [ -z "$continued" ] || [[ $continued == /* ]] ||
+    die "WORKER_WORKSPACE on the local route is the absolute path of the worktree to continue in, not $continued; nothing launched"
   repo=${WORKER_REPO:-$(repo_value repo)} base=${WORKER_BASE_BRANCH:-$(repo_value baseBranch)}
   [ -n "$repo" ] || die "set WORKER_REPO, or repo in .orca.json, to the Orca repository the local route adds its worktree to; nothing launched"
   [ -n "$base" ] || die "set WORKER_BASE_BRANCH, or baseBranch in .orca.json, to the branch a local worktree starts from; nothing launched"
@@ -360,7 +362,8 @@ cutting() {
     jq -Rne --arg tail "/$worktree" 'any(inputs; startswith("worktree ") and endswith($tail))' >/dev/null
 }
 
-existing=$(worktree_path)
+existing=$continued
+[ -n "$existing" ] || existing=$(worktree_path)
 if [ -z "$existing" ]; then
   for cut in "$dir"/*.worker/worktree; do
     name=
@@ -387,7 +390,7 @@ if [ -z "$wt" ]; then
   said=$(jq -r 'select(.ok == false) | "\(.error.code): \(.error.message | rtrimstr("."))"' <<<"$made" 2>/dev/null) || said=${made##*$'\n'}
   die "orca worktree create made no worktree named $worktree${said:+ and answered $said}, and git lists none under $main; launching this brief again creates it under that name"
 fi
-printf '%s\n' "$worktree" >"$attempt/worktree"
+[ -n "$continued" ] || printf '%s\n' "$worktree" >"$attempt/worktree"
 sparse=
 read -ra cone <<<"$(repo_value sparse) ${WORKER_SPARSE:-}"
 if [ -z "$existing" ] && [ ${#cone[@]} -gt 0 ]; then
