@@ -25,7 +25,7 @@ failing or stopped that the drive did not cause, such as after a teammate's rele
 customer's own build, is no incident and pages nobody, yet he hears it at once in his DM, while he
 is away too: one `report` to `communicator@<drive>` names the team, what fails since when and the
 alert's link, and it and every later report on that outage, on any order, a reader's answer
-included, carry `--attr incident=true`, which the away hold lets through. No job starts on it until
+included, carry `--attr customer_outage=true`, which the away hold lets through. No job starts on it until
 his words order one. His pick: "Only the drive's own outages page you; a teammate's customer outage
 posts at once in your DM, paging nobody". Anything else he asks you to fix is an
 ordinary order, by [coordinator.md](coordinator.md). When his words on an order ask for options or
