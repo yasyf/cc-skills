@@ -129,7 +129,7 @@ First principles: <the option that removes that structure so the defect cannot o
 Simplest: <the option that is the simplest design doing his words, by its words>
 Interim fix: <on a bug hurting someone now: the link of the PR, release, rollback or repair shipping the immediate fix, or the job building it; or none: <why nobody is hurt now>>
 Holds: <each change of the order its options alter, in that change's words; or none: <why no option alters what any job builds>>
-Replaces: <only on a question built on another open question of his: the path drive job ask printed for that question's ASK file>
+Replaces: <only on a question built on other open questions of his: each one's ASK file, the path drive job ask printed, or its card's waits id, comma-separated>
 <the design in plain words, what his words already settle, and the evidence behind each option's description>
 ````
 
@@ -167,13 +167,14 @@ Replaces: <only on a question built on another open question of his: the path dr
   `Holds: none: <why>` holds nothing, whichever job waits on it or PR cites it, while a question kept with no `Holds:` line holds every change of those jobs. `drive job ask` refuses a block without the line, or one
   naming no part of its job's orders, unless they are your coming `Change:` lines. His pick: "Each question names the changes it holds,
   kept with it".
-- A question built on another open question of his, such as a ceiling that assumes his pick on
-  where the rows are counted, asks both choices on that question's card, its options pairing the
-  picks, two to four in all, with `Replaces: <that question's ASK file>` under `Findings:`.
-  `drive job ask` then gives this question that card and its waits id, and redraws that card where
-  it sits, and keeps the other open, folded into this one, drawing no card of its
-  own, until his one answer ends both. It refuses a file whose question his answer or a withdraw
-  already closed.
+- A question built on other open questions of his, such as a ceiling that assumes his pick on
+  where the rows are counted, asks every choice on the first one's card, its options pairing the
+  picks, two to four in all, with `Replaces:` under `Findings:` naming each, comma-separated, by its
+  ASK file or its card's waits id: every card on the subject, so none keeps asking him.
+  `drive job ask` then gives this question the first card and its waits id, and redraws that card where
+  it sits, shows each other named card asked again with a link to it and no buttons, and keeps each
+  named question open, folded into this one, drawing no card of its own, until his one answer ends
+  them all. It refuses a name whose question his answer or a withdraw already closed.
 - The summary tells the decision's story, by his words "its almost like each one needs to tell a
   story": its first line says what the card is, the work it serves, as `{order:<o>}`, which his
   card draws as his order's own words linked to its thread, `port of #N` as the text of that PR's
