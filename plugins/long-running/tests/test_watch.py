@@ -15,7 +15,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from conftest import DRIVE_TERMINAL, LEAD, RESEARCH, SHORT_ASK, UNFROZEN, Answers, CodexAsk, drawn_card, Draws, Jev, Judge, Receiver, Redraws, Thread, WatchProcess, Withdrawals, carrying, codex_reply, commit_files, git_in, said_lines, staged
+from conftest import DRIVE_TERMINAL, HELD_RELEASES, LEAD, RESEARCH, SHORT_ASK, UNFROZEN, Answers, CodexAsk, drawn_card, Draws, Jev, Judge, Receiver, Redraws, Thread, WatchProcess, Withdrawals, carrying, codex_reply, commit_files, git_in, said_lines, staged
 from drive import agents, card, cli, codex, github, install, land, launchd, limits, orca, place, reads, receiver, render, served, settled, slack, stage, stall, state, superseded, talk, view, watch
 
 KEY = "Forge-AI/monorepo#42"
@@ -1431,6 +1431,18 @@ def test_an_open_incident_with_no_line_for_five_minutes_owes_him_one_through_a_r
         data["handlers"].clear()
     assert watch.quiet_lines(watching, T0 + timedelta(minutes=12)) == []
     assert (len(calls), calls[3][0][-1]) == (4, f"Record: 903 Drive: {demo} Scratch: {state.drive_dir(demo) / 'scratch' / 'quiet-903'}" + UNFROZEN)
+
+
+def test_the_watch_starts_the_handler_on_a_quiet_incident_while_he_holds_every_release_its_prompt_closing_on_his_hold(
+    demo: str, monkeypatch: pytest.MonkeyPatch, recorded: Answers
+) -> None:
+    quiet_incident(demo)
+    recorded.listed = [HELD_RELEASES]
+    calls = catching_up(monkeypatch, demo)
+    assert watch.quiet_lines(watcher(demo), T0 + timedelta(minutes=7)) == []
+    [_, (start, _)] = calls
+    assert start[-1].splitlines()[-1] == 'Release freezes: his hold 15c4de1 on every release stands: "no releases until I say we can again"'
+    assert state.load(demo)["orders"]["o1"]["quiet"]["handler"] in state.load(demo)["handlers"]
 
 
 def test_a_quiet_incident_whose_thread_a_handler_holds_restarts_its_clock_with_no_second_handler_its_promised_time_says_no_due_and_its_live_fix_ends_it(
