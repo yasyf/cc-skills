@@ -30,18 +30,18 @@ PLAIN_QUESTION = (
 
 
 def say(name: str, post: dict) -> str:
-    """Post one message to his DM through cc-slack, or in a thread outside it named by channel_id, such as an alert's, or with no thread at the root of the channel channel_id names, such as a staging claim to its members, or in the group DM of a person, him and the bot when channel_id is that person's user id, or reword one it made in any of those, and keep the same item on the drive's dashboard, in the words it was given, a catch-up's title, the count of his open cards it closes with and the cards asked since he was last heard its only additions; a post is recorded on the one order cli.post_order decides, never one its caller names, wherever it goes, and posts nothing from a session that may not record it there, such as a handler's session the drive binds to nothing, delivering the parts its report record names, making the clock time its words promise his next line by the order's due, and adding its thread to the order's threads; a post at another channel's root, or a line in its thread, whose report names an end as until keeps that end on its order, from which the watch owes that thread its closing line. A report's post names each correction cci holds re it, which the post may lack, and a correction of a report held for his catch-up or carried by it posts nothing, naming where that report's copy is. A handler's result line is kept on its entry, for its done record to carry whole. What the drive's checks find in its words, the say hook hands Jev to judge against his words once this has posted them, before only a post a count or a mark refuses, such as one over its length or to him while he is away, and a dry run."""
+    """Post one message to his DM through cc-slack, or in a thread outside it named by channel_id, such as an alert's, or with no thread at the root of the channel channel_id names, such as a staging claim to its members, or in the group DM of a person, him and the bot when channel_id is that person's user id, or reword one it made in any of those, and keep the same item on the drive's dashboard, in the words it was given, a catch-up's title, the count of his open cards it closes with and the cards asked since he was last heard its only additions; a post is recorded on the one order cli.post_order decides, never one its caller names, wherever it goes, and posts nothing from a caller but the communicator and its handlers, binding to its session the handler LONG_RUNNING_HANDLER names when its prompt's hook did not, delivering the parts its report record names, making the clock time its words promise his next line by the order's due, and adding its thread to the order's threads; a post at another channel's root, or a line in its thread, whose report names an end as until keeps that end on its order, from which the watch owes that thread its closing line. A report's post names each correction cci holds re it, which the post may lack, and a correction of a report held for his catch-up or carried by it posts nothing, naming where that report's copy is. A handler's result line is kept on its entry, for its done record to carry whole. What the drive's checks find in its words, the say hook hands Jev to judge against his words once this has posted them, before only a post a count or a mark refuses, such as one over its length or to him while he is away, and a dry run."""
+    known = caller(name)
     if (close := post.get("close")) and (post.get("record") or post.get("edit")):
         raise DriveError("nothing posted: close answers the order of what your handler holds and writes its report itself, so pass no record or edit")
     report = cli.report_attrs(post["record"]) if post.get("record") else {}
     seq = report.get("seq")
-    known = state.load(name)
     order = cli.post_order(known, os.environ.get("CLAUDE_CODE_SESSION_ID"), post, report)
     if close and not order:
         raise DriveError("nothing posted: close answers the order of the message of his or the record your handler holds, and no order holds it")
     if close:
         report = {"close": order, "writer": "communicator", "written": state.stamp()}
-    if refused := (order and (cli.recording_refusal(known, order) or cli.report_refusal(known, order, report))) or (close and cli.unfiled_refusal(known, order)) or held_refusal(known, seq, report) or unplaced(known, post, report) or unended(known, post, report):
+    if refused := (order and cli.report_refusal(known, order, report)) or (close and cli.unfiled_refusal(known, order)) or held_refusal(known, seq, report) or unplaced(known, post, report) or unended(known, post, report):
         raise DriveError(f"nothing posted: {refused}")
     if report.get("catch_up"):
         if known["catch_up"] is None:
@@ -91,6 +91,20 @@ def finished(name: str, said: dict, known: dict) -> str:
     if close:
         line += closed(name, order, report["seq"], reply["permalink"], post.get("text") or "")
     return line
+
+
+def caller(name: str) -> dict:
+    """The drive once say's caller reads as the communicator or its handler, binding to this session the handler LONG_RUNNING_HANDLER names when its prompt's hook did not; any other caller posts nothing."""
+    session = os.environ.get("CLAUDE_CODE_SESSION_ID")
+    drive, _, handler = os.environ.get(state.HANDLER_ENV, "").partition("/")
+    known = state.load(name)
+    if drive == name and session and (held := known["handlers"].get(handler)) and not held["session"]:
+        transcript = next((install.config_dir() / "projects").glob(f"*/{session}.jsonl"), None)
+        agents.bind_handler({"session_id": session, "transcript_path": transcript and str(transcript), "cwd": os.getcwd()}, f"{name}/{handler}")
+        known = state.load(name)
+    if refused := cli.recording_refusal(known, f"only the communicator's handlers post to him: send these words as a report record to communicator@{name}, whose handler posts and records them"):
+        raise DriveError(f"nothing posted: {refused}")
+    return known
 
 
 def recording(name: str, receipt: dict, closing: dict | None = None) -> str:

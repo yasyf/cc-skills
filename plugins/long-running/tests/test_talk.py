@@ -39,7 +39,7 @@ FOOTERS = "why didnt our release footers whatever catch this and bring ssql alon
 
 
 @pytest.fixture
-def posts(demo: str, monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, ...]]:
+def posts(communicator: str, monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, ...]]:
     sent: list[tuple[str, ...]] = []
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "https://acme.slack.com/", "questions": [question_card(CARD_URL, QUESTION, WAITS)], "pr_cards": [], "closed": []})
 
@@ -50,7 +50,7 @@ def posts(demo: str, monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, ...]]:
         return {"permalink": POSTED, "thread_ts": "1794300000.000900"}
 
     monkeypatch.setattr(slack, "cc_slack", cc_slack)
-    with state.edit(demo) as data:
+    with state.edit(communicator) as data:
         data["prs"]["yasyf/cc-skills#7"] = state.new_pr(PR_URL, "j1", "o1") | {"title": "New: \U0001f680 the run page shows its history"}
     return sent
 
@@ -182,7 +182,7 @@ def test_a_pr_card_he_tapped_links_by_its_waits_id_from_cc_slacks_closed_cards_i
 def test_an_order_links_its_thread_in_slack_or_else_its_dashboard_page_under_his_words(
     demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]]
 ) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "a verb for owners", "--thread", "1794200000.000100")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "a verb for owners", "--thread", "1794200000.000100", "--owner", "coordinator")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: one owner per order")
     view.refresh_cards(demo)
     talk.say(demo, {"text": "{order:o1} is live; {order:o2} is next."})
@@ -358,7 +358,7 @@ def building(demo: str) -> None:
 def test_a_stack_card_names_each_pr_by_its_url_and_the_dashboard_keeps_the_stack(
     demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]]
 ) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Run page", "show a run's history")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Run page", "show a run's history", "--owner", "coordinator")
     building(demo)
     with pytest.raises(DriveError, match=r"tap_prs names yasyf/cc-skills#8, which the drive holds no PR for"):
         talk.say(demo, {"text": "land these", "tap_prs": [PR_URL, "https://github.com/yasyf/cc-skills/pull/8"]})
@@ -371,7 +371,7 @@ def test_a_stack_card_names_each_pr_by_its_url_and_the_dashboard_keeps_the_stack
 def test_the_drives_own_draw_of_his_card_goes_at_his_dm_root_under_a_line_saying_it_waits_on_his_approve_and_what_its_prs_do(
     demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, checked: Checked
 ) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Run page", "show a run's history", "--thread", "1794200000.000100")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Run page", "show a run's history", "--thread", "1794200000.000100", "--owner", "coordinator")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: the watch draws the PR card")
     building(demo)
     tooling = "https://github.com/yasyf/cc-skills/pull/8"
@@ -393,7 +393,7 @@ def test_the_watchs_ask_again_on_a_stack_card_says_why_it_asks_where_it_posted_a
         "order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Agents",
         "so basicaltyl `ask_user_question` should do a normal agent-to-agent message to the root", "--thread", "1794200000.000100",
     )
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Agents", "a subagent's question never reaches the operator")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Agents", "a subagent's question never reaches the operator", "--owner", "coordinator")
     building(demo)
     stack = ["yasyf/cc-skills#7", "yasyf/cc-skills#8", "yasyf/cc-skills#9"]
     with state.edit(demo) as data:
@@ -413,7 +413,7 @@ def test_the_watchs_ask_again_on_a_stack_card_says_why_it_asks_where_it_posted_a
 def test_a_line_over_his_card_that_check_post_flags_and_jev_reads_as_shorthand_posts_nothing_and_one_jev_cannot_read_goes_out(
     demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, checked: Checked, jev: Jev
 ) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Run page", "show a run's history")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Run page", "show a run's history", "--owner", "coordinator")
     building(demo)
     monkeypatch.setattr("drive.card.cards", lambda asked: {"cards": [{"repo": "yasyf/cc-skills", "number": 7, "card": {"title": "Fix: approve the desk?", "prs": [{"title": "the desk sheds j12"}]}}], "skipped": []})
     checked.findings = ["1:28 drive-term 'desk': name the role by what it does"]
@@ -430,10 +430,10 @@ def test_a_line_over_his_card_that_check_post_flags_and_jev_reads_as_shorthand_p
 def test_a_pr_card_goes_in_the_thread_of_each_open_order_its_pr_carries_out_so_the_one_he_reads_carries_its_link(
     demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]]
 ) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Run page", "show a run's history", "--thread", "1794200000.000100")
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Run page", "There's no approval button", "--thread", "1794300000.000100")
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Run page", "why is the page slow?", "--thread", "1794400000.000100")
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Run page", "one more check", "--from", "slack:C9TEAM/1794500000.000100")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Run page", "show a run's history", "--thread", "1794200000.000100", "--owner", "coordinator")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Run page", "There's no approval button", "--thread", "1794300000.000100", "--owner", "coordinator")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Run page", "why is the page slow?", "--thread", "1794400000.000100", "--owner", "coordinator")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Run page", "one more check", "--from", "slack:C9TEAM/1794500000.000100", "--owner", "coordinator")
     building(demo)
     with state.edit(demo) as data:
         for order_id in ("o2", "o3", "o4"):
@@ -460,9 +460,9 @@ def test_a_pr_card_goes_in_the_thread_of_each_open_order_its_pr_carries_out_so_t
 def test_a_stack_cards_thread_is_a_thread_of_each_order_its_prs_carry_out_not_only_the_order_that_opened_them(
     demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Run page", "show a run's history")
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Run page", "the list fix")
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Run page", "an unrelated page", "--thread", "1794450000.000100")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Run page", "show a run's history", "--owner", "coordinator")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Run page", "the list fix", "--owner", "coordinator")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Run page", "an unrelated page", "--thread", "1794450000.000100", "--owner", "coordinator")
     building(demo)
     with state.edit(demo) as data:
         state.carry(data, "j1", "o2", list(data["orders"]["o2"]["parts"]))
@@ -478,8 +478,8 @@ def test_a_stack_cards_thread_is_a_thread_of_each_order_its_prs_carry_out_not_on
 def test_a_pr_cards_line_that_fails_in_a_later_thread_says_the_card_went_out_so_none_is_posted_again(
     demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Run page", "show a run's history", "--thread", "1794200000.000100")
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Run page", "There's no approval button", "--thread", "1794300000.000100")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Run page", "show a run's history", "--thread", "1794200000.000100", "--owner", "coordinator")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Run page", "There's no approval button", "--thread", "1794300000.000100", "--owner", "coordinator")
     building(demo)
     with state.edit(demo) as data:
         state.carry(data, "j1", "o2", list(data["orders"]["o2"]["parts"]))
@@ -518,24 +518,54 @@ def test_a_local_image_goes_to_slack_as_a_copy_named_for_the_title_slack_gives_i
             "nothing posted: this session runs handler 31957310 and is unbound: the drive binds no handler 31957310 to it, so it is bound to the drive as nothing,"
             " while only the communicator and a handler bound to it record a post on an order or take back a part's mark; post no copy, and return a DEFECT line quoting this",
         ),
-        (None, "nothing posted: only the communicator records a post in an order's thread or takes back a part's mark: send the post's facts as a report record to communicator@demo"),
+        (None, "nothing posted: only the communicator's handlers post to him: send these words as a report record to communicator@demo, whose handler posts and records them"),
     ],
 )
-def test_705235_a_post_its_session_may_not_record_on_its_order_goes_nowhere_and_names_an_unbound_handlers_session(
+def test_705235_a_post_from_a_session_neither_the_communicator_nor_its_bound_handler_goes_nowhere_with_or_without_a_record_and_names_an_unbound_handlers_session(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, posts: list[tuple[str, ...]], unrecorded: list[str], handler: str | None, refusal: str
 ) -> None:
     thread = "1794261099.160079"
-    run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "SandSQL", "why app actions fail", "--thread", thread)
+    run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "SandSQL", "why app actions fail", "--thread", thread, "--owner", "coordinator")
     with state.edit(demo) as data:
-        data["roles"]["coordinator"]["session"] = "elsewhere"
+        data["roles"]["communicator"]["session"] = "communicator-session"
     if handler:
         monkeypatch.setenv(state.HANDLER_ENV, handler)
     report(monkeypatch, {"order": "o1", "stall": "true", "thread": thread}, lane="watch")
-    post = {"text": "The copy still stalls on the lock.", "thread_ts": thread, "record": "705228"}
-    for each in (post | {"dry_run": True}, post):
-        with pytest.raises(DriveError, match=f"^{re.escape(refusal)}"):
+    line = {"text": "The copy still stalls on the lock.", "thread_ts": thread}
+    for each in (line | {"record": "705228", "dry_run": True}, line | {"record": "705228"}, line | {"dry_run": True}, line):
+        with pytest.raises(DriveError, match=f"^{re.escape(refusal)}$"):
             talk.say(demo, each)
     assert (posts, said(demo), unrecorded, state.load(demo)["orders"]["o1"]["last_line"]) == ([], [], [], None)
+
+
+def test_a_handler_its_prompt_hook_left_unbound_is_bound_from_its_own_environment_when_it_says_so_its_post_goes_out_and_is_recorded(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread, unrecorded: list[str], tmp_path: Path
+) -> None:
+    thread = "1794200000.000100"
+    run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "Releases", "did it get released?", "--thread", thread, "--parts", "did it get released?")
+    run("start", "demo", "--role", "communicator")
+    with state.edit(demo) as data:
+        data["roles"]["communicator"]["session"] = "communicator-session"
+        data["roles"]["coordinator"]["session"] = "elsewhere"
+    handling(demo, "o1", "1794201723.677000")
+    with state.edit(demo) as data:
+        data["handlers"]["h1"]["session"] = None
+    transcript = tmp_path / "config" / "projects" / "-Users-yasyf-src" / f"{os.environ['CLAUDE_CODE_SESSION_ID']}.jsonl"
+    transcript.parent.mkdir(parents=True)
+    transcript.touch()
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv(state.HANDLER_ENV, "demo/h1")
+    answer = slack_thread.post(state.now(), from_claude=True)
+    monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": answer, "thread_ts": thread})
+    assert talk.say(demo, {"text": "No, the fix is not live: its hotfix was rolled back.", "thread_ts": thread}) == f"POSTED {answer}; o1 progress line, no part delivered: {answer}"
+    data = state.load(demo)
+    assert (data["handlers"]["h1"]["session"], data["handlers"]["h1"]["transcript"], data["handlers"]["h1"]["posted"], data["orders"]["o1"]["last_line"] is not None, unrecorded) == (
+        os.environ["CLAUDE_CODE_SESSION_ID"],
+        str(transcript),
+        [f"POSTED {answer}"],
+        True,
+        [],
+    )
 
 
 @pytest.mark.parametrize(
@@ -651,6 +681,7 @@ def test_a_handlers_post_with_no_record_goes_on_the_order_of_his_message_it_hold
     assert (data["orders"]["o1"]["last_line"], data["orders"]["o2"]["last_line"] is not None, said(demo)[-1]["order"]) == (None, True, "o2")
     with state.edit(demo) as data:
         del data["handlers"]["h1"]
+        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
     assert talk.say(demo, post) == f"POSTED {answer}"
     assert (said(demo)[-1]["order"], unrecorded) == (None, [])
 
@@ -1178,7 +1209,7 @@ TICKET = {"ticket_id": "t1", "ticket_tree": "tree1", "ticket_agent": "agent1", "
 
 def alert_order(run: Callable[..., tuple[int, str]], slack_thread: Thread) -> None:
     slack_thread.messages.append({"ts": ALERT, "from_user": False})
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the release failed", "--from", f"slack:C0ALERT1/{ALERT}", "--incident", "--parts", "fix", "first check")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the release failed", "--from", f"slack:C0ALERT1/{ALERT}", "--incident", "--parts", "fix", "first check", "--owner", "coordinator")
 
 
 def communicating(run: Callable[..., tuple[int, str]], name: str) -> None:
@@ -1191,7 +1222,6 @@ def test_a_line_in_an_alerts_thread_goes_out_through_cc_slack_reply_with_the_tic
     demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread
 ) -> None:
     alert_order(run, slack_thread)
-    communicating(run, demo)
     report(monkeypatch, {"order": "o1"})
     line = {"text": "The release failed on the migration.", "channel_id": "C0ALERT1", "thread_ts": ALERT, "record": "683597"}
     assert talk.say(demo, line | {"dry_run": True}) == f"DRY thread {ALERT} of channel C0ALERT1, 0 pictures: The release failed on the migration.; o1 progress line, no part delivered"
@@ -1212,7 +1242,6 @@ def test_a_reports_post_naming_no_place_goes_nowhere_when_its_line_has_a_thread_
     demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread
 ) -> None:
     alert_order(run, slack_thread)
-    communicating(run, demo)
     report(monkeypatch, {"order": "o1", "thread": ALERT})
     line = {"text": "The release failed on the migration.", "record": "683597"}
     with pytest.raises(DriveError, match=f"^nothing posted: report 683597's line goes in thread {ALERT} of channel C0ALERT1, never his DM root: pass channel_id C0ALERT1 and thread_ts {ALERT}, "):
@@ -1462,12 +1491,9 @@ def test_a_pr_card_drawn_at_his_dm_root_is_a_thread_of_the_order_its_pr_serves_s
     demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread
 ) -> None:
     question, card = "1794520890.022349", "1794526059.841239"
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "give the sprite what it needs")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "give the sprite what it needs", "--owner", "coordinator")
     building(demo)
-    run("start", "demo", "--role", "communicator")
     with state.edit(demo) as data:
-        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
-        data["roles"]["coordinator"]["session"] = "elsewhere"
         data["jobs"]["j1"]["questions"].append(state.new_question(None, QUESTION, state.stamp()) | {"waits": WAITS})
     cli.follow_card(demo, WAITS, set(), f"https://acme.slack.com/archives/D123/p{question.replace('.', '')}")
     sent = slack.cc_slack
@@ -1488,7 +1514,7 @@ def test_the_watchs_paused_reply_under_his_question_card_goes_in_the_cards_threa
     demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]], his_dm: str
 ) -> None:
     question = "1794579637.319519"
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "one communicator for every drive")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "one communicator for every drive", "--owner", "coordinator")
     building(demo)
     with state.edit(demo) as data:
         data["jobs"]["j1"]["questions"].append(state.new_question(None, QUESTION, state.stamp()) | {"waits": WAITS})
