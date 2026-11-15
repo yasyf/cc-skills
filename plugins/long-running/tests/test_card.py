@@ -94,14 +94,16 @@ def entry(wants_tap: bool = True, tap: str | None = None, exempt: str | None = N
         "checked": {"head": HEAD, "read": HEAD, "orders": ["o1"], "lines": {}, "beside": {}},
         "checker": None,
         "updated": "2026-11-09T08:00:00-08:00",
+        "native": [],
         "now": stage.Stage(named, "", ""),
         "staging": STAGING,
+        "reworked_above": (),
     }
 
 
 def kept_entry(**fields: object) -> dict:
-    """A PR's row as drive.json keeps it: its entry with no stage, which card.render's callers give it from stage.of."""
-    return {key: value for key, value in entry(**fields).items() if key != "now"}
+    """A PR's row as drive.json keeps it: its entry with no stage and no reworked PRs above it, which card.render's callers give it from stage.of and the drive's rows."""
+    return {key: value for key, value in entry(**fields).items() if key not in ("now", "reworked_above")}
 
 
 def default_stage(wants_tap: bool, tap: str | None, exempt: str | None, pr_state: str, checks: str) -> str:
@@ -1321,9 +1323,9 @@ def test_a_stack_with_one_pr_reworked_to_his_words_draws_the_prs_below_it_alone_
     with state.edit("demo") as data:
         state.rework(data["prs"]["Forge-AI/monorepo#42"], "o2", "Topology goes in the meta table", "https://acme.slack.com/archives/D123/p1794300000000600")
     reason = 'Forge-AI/monorepo#42 is being reworked to his words "Topology goes in the meta table", so no card asks his tap until its builder\'s READY says how they are met'
-    for drawn in (ask(asks(41, 42, 43)), ask(asks(42) | {"redraw": True})):
+    for drawn, skips in ((ask(asks(41, 42, 43)), [(42, reason), (43, reason)]), (ask(asks(42) | {"redraw": True}), [(42, reason)])):
         assert [([row["url"] for row in each["card"]["prs"]], each["card"]["waits"]) for each in drawn["cards"]] == [([stack_url(41)], asked_waits(41))]
-        assert [(skipped["number"], skipped["reason"]) for skipped in drawn["skipped"]] == [(42, reason), (43, reason)]
+        assert [(skipped["number"], skipped["reason"]) for skipped in drawn["skipped"]] == skips
     assert state.load("demo")["prs"]["Forge-AI/monorepo#41"]["stack"] == ["Forge-AI/monorepo#41"]
     with state.edit("demo") as data:
         data["prs"]["Forge-AI/monorepo#42"].update(rework=None, fundamental='Reworked to your words "Topology goes in the meta table": it reads the meta table')

@@ -279,10 +279,12 @@ def waits_on(pr: dict, entry: dict, held: tuple[str, ...]) -> str:
 
 
 def lands_after_tap(pr: dict, entry: dict, held: tuple[str, ...], picked: tuple[tuple[str, str], ...] = ()) -> str:
-    """What his card says the PR lands once: his Approve, CI when it has not passed, the hold label coming off it on GitHub while it carries one, and each of its waits that still holds, then each option his Approve picks on a card of his holding it, which land.start answers."""
+    """What his card says the PR lands once: his Approve, CI when it has not passed, the hold label coming off it on GitHub while it carries one, and each of its waits that still holds, alone while each PR above it in its native stack is being reworked to his words, then each option his Approve picks on a card of his holding it, which land.start answers."""
     lands = in_turn(["you approve", *([] if checks(pr, entry) == "pass" else ["CI passes"]), *(["the hold label comes off on GitHub"] if entry["hold_label"] else []), *held])
+    above = entry["reworked_above"]
+    alone = f", alone while {in_turn(list(above))} above it {'is' if len(above) == 1 else 'are'} reworked to your words" if above else ""
     options = [f'"{option}" on {card}' for option, card in picked]
-    return lands + (f"; your Approve also picks {in_turn(options)}" if options else "")
+    return lands + alone + (f"; your Approve also picks {in_turn(options)}" if options else "")
 
 
 def in_turn(steps: list[str]) -> str:
@@ -596,14 +598,16 @@ def untapped(known: dict[str, tuple[str, dict]], reads: dict[str, dict], members
 
 
 def member(name: str, data: dict, pr: dict, entry: dict, picked: dict[str, dict], drawing: tuple[tuple[str, ...], tuple[str, ...]] = ((), ())) -> Member:
-    """The PR as his card draws it: GitHub's read of it, the drive's entry with its stage and staging line now, its drawn Show me pictures and why each left off does not draw, each wait that holds it outside the cards his Approve picks, and those picks."""
+    """The PR as his card draws it: GitHub's read of it, the drive's entry with its stage and staging line now and a link to each open PR above it in its native stack being reworked to his words, which cards() leaves off its card with every PR above it so his Approve lands it alone, its drawn Show me pictures and why each left off does not draw, each wait that holds it outside the cards his Approve picks, and those picks."""
     from drive import stage, view
 
     key = state.pr_key(entry["url"])
     held = holding(name, entry)
+    native = [mate for mate in entry["native"] if mate in data["prs"] and data["prs"][mate]["state"] == "open"]
+    above = native[native.index(key) + 1 :] if key in native else []
     return (
         pr,
-        entry | {"now": stage.on_card(data, key, view.live_cards(name)), "staging": view.staging(data, key)},
+        entry | {"now": stage.on_card(data, key, view.live_cards(name)), "staging": view.staging(data, key), "reworked_above": tuple(view.pr_link(data["prs"][mate]) for mate in above if data["prs"][mate]["rework"])},
         drawing[0],
         tuple(words for wait, words in held.items() if wait not in picked),
         drawing[1],
@@ -641,7 +645,7 @@ def on_his_card(known: dict[str, tuple[str, dict]], reads: dict[str, dict], memb
 
 
 def cards(asked: list[dict], redraw: bool = False) -> dict:
-    """One card per stack the asked PRs form, by groups(), bottom PR first, cut below its lowest PR reworked to his words, which with every PR above it is refused by reworked() since none lands without it, each card drawn kept on its PRs and asking under ask_waits, so Approve lands exactly the PRs it asks, and a fresh one only when tap_refused finds one of them asking his Approve, the same check that puts Approve on a card. A redraw of a card cc-slack already posted draws it as the PRs stand now, a wait that holds back a fresh Approve shown on it rather than refusing it. A PR body's sections are drawn as they stand and never hold a card, a Show me picture that does not draw included, such as an arch diagram whose store node names a medium the drawing does not know: it is left off, the card's Show me saying why in one line, which `drawn` tells the session hearing its order."""
+    """One card per stack the asked PRs form, by groups(), bottom PR first, cut below its lowest PR reworked to his words, which with every PR above it is refused by reworked() since none lands without it, each card drawn kept on its PRs and asking under ask_waits, so Approve lands exactly the PRs it asks, and a fresh one only when tap_refused finds one of them asking his Approve, the same check that puts Approve on a card. A redraw of a card cc-slack already posted draws it as the PRs stand now, a wait that holds back a fresh Approve shown on it rather than refusing it. A PR body's sections are drawn as they stand and never hold a card, a Show me picture that does not draw included, such as an arch diagram whose store node names a medium the drawing does not know: it is left off, the card's Show me saying why in one line, which `drawn` tells the session hearing its order. The reply skips only PRs it was asked for, since cc-slack refuses a whole draw or redraw whose reply skips any PR, so a stack mate refused beside an asked PR, such as the reworked PR above it, never keeps the asked PR's card from drawing."""
     at, known = state.stamp(), drive_prs()
     asked_keys = keys_of(asked, known)
     for key in asked_keys:
@@ -688,7 +692,7 @@ def cards(asked: list[dict], redraw: bool = False) -> dict:
         drawn(known, {key: undrawn for key, (_, undrawn) in drawings.items()}, at)
         repo, number = members[0].split("#")
         found.append({"repo": repo, "number": int(number), "card": card})
-    return {"cards": found, "skipped": skipped}
+    return {"cards": found, "skipped": [each for each in skipped if f"{each['repo']}#{each['number']}" in asked_keys]}
 
 
 def numbered(numbers: list[int]) -> dict:
