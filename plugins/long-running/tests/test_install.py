@@ -645,6 +645,39 @@ def test_a_merge_on_a_line_that_changed_a_release_path_since_the_newest_tag_wait
     assert len(released) == 1
 
 
+def manifest_released(origin: Path, subject: str) -> str:
+    commit_files(origin, "Ship the release tag workflow", {RELEASE_TAG_WORKFLOW: RELEASE_TAG + f"        {INBOX_MANIFEST}\n"})
+    tag_release(origin, "0.54.27")
+    commit_files(origin, subject, {INBOX_MANIFEST: json.dumps({"version": "0.54.27", "mcpServers": {}})})
+    return commit_files(origin, "Docs: name the channel's launcher", {"AGENTS.md": "The channel runs the plugin's own cci."})
+
+
+def test_a_release_s_own_manifest_sync_on_main_owes_no_release_where_the_manifest_is_a_release_path(
+    inbox: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    merge = manifest_released(inbox, "chore(release): sync cci.binrun + manifest to v0.54.27")
+    monkeypatch.setattr(install, "sleep", lambda seconds: pytest.fail("waited for a release no workflow cuts"))
+    assert install.main("cc-inbox@cc-inbox", merge, INBOX, 120, None) == 0
+    assert capsys.readouterr().out.splitlines() == [
+        f"no release: no commit from v0.54.27 to {merge[:12]} changes a path {RELEASE_TAG_WORKFLOW} tags a cc-inbox release from, so the next release that does carries it"
+    ]
+
+
+def test_a_manifest_fix_where_the_manifest_is_a_release_path_waits_for_the_release_that_carries_it(
+    inbox: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    merge = manifest_released(inbox, "Fix: the channel server runs the plugin's own cci (#570)")
+    released: list[str] = []
+
+    def release_next(seconds: float) -> None:
+        tag_release(inbox, "0.54.28")
+        released.append(merge_release(inbox, "0.54.28"))
+
+    monkeypatch.setattr(install, "sleep", release_next)
+    install.await_release(str(tmp_path / "clone"), INBOX, "cc-inbox", merge, install.clock() + 120, 120)
+    assert len(released) == 1
+
+
 def test_installing_cc_inbox_moves_the_cci_daemon_onto_the_new_build(fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]) -> None:
     git = fake(["unused"], set())
     assert install.main("cc-inbox@skills", None, None, 900, None) == 0

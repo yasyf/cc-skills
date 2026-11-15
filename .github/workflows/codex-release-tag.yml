@@ -20,5 +20,6 @@ jobs:
         plugins/codex/AGENTS.md
         plugins/codex/lanes
         plugins/codex/schemas
+        plugins/codex/.claude-plugin/plugin.json
         .goreleaser.yaml
         :(exclude)plugins/codex/*_test.go

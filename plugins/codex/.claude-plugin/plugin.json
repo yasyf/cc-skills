@@ -16,8 +16,11 @@
   ],
   "mcpServers": {
     "channel": {
-      "command": "codex-ask",
+      "command": "python3",
       "args": [
+        "-I",
+        "-c",
+        "import json, os, pathlib, subprocess, sys\nconfig = pathlib.Path(os.environ.get(\"CLAUDE_CONFIG_DIR\") or pathlib.Path.home() / \".claude\")\ninstalls = json.loads((config / \"plugins\" / \"installed_plugins.json\").read_text())[\"plugins\"].get(\"codex@skills\")\nif not installs:\n    raise SystemExit(\"codex-ask: the codex@skills plugin is not installed\")\nnewest = max(installs, key=lambda entry: entry.get(\"lastUpdated\") or entry.get(\"installedAt\") or \"\")\nbinary = str(pathlib.Path(newest[\"installPath\"]) / \"bin\" / \"codex-ask\")\nsubprocess.run([binary, \"--version\"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)\nos.execv(binary, [binary, *sys.argv[1:]])\n",
         "channel",
         "--no-tools"
       ],

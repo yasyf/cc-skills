@@ -28,6 +28,7 @@ CASKS = {"cco": "cc-orchestrate"}
 TAP = "yasyf/tap"
 RELEASE_VERSION = re.compile(r"\d+\.\d+\.\d+")
 VERSION_TAG = re.compile(r"refs/tags/(v(\d+)\.(\d+)\.(\d+))")
+RELEASE_SUBJECT = re.compile(r"^chore\((release|plugins)\)")
 WORKFLOWS = ".github/workflows/"
 RELEASE_TAG_JOB = re.compile(r" *uses: *\S*/plugin-release-tag\.yml(?:@\S+)?\s*")
 RELOADS = "reloads.json"
@@ -275,7 +276,7 @@ def newest_tag(clone: str, deadline: float) -> str | None:
 
 
 def unreleased(clone: str, plugin: str, entry: dict, alone: bool, sha: str, deadline: float) -> str | None:
-    """Why no release of the plugin will hold sha, or None when one will, as release_tag.py plans at sha for each plugin-release-tag.yml job of the repo at sha that releases it, one that names a path in its folder or the marketplace's only plugin: a job naming no paths tags on any change; else it tags when a commit on sha's first-parent line since the newest v* tag changes one of its paths, unless that tag already holds sha. A plugin no such job releases, such as one Autobump bumps, is owed its release as before."""
+    """Why no release of the plugin will hold sha, or None when one will, as release_tag.py plans at sha for each plugin-release-tag.yml job of the repo at sha that releases it, one that names a path in its folder or the marketplace's only plugin: a job naming no paths tags on any change; else it tags when a commit on sha's first-parent line since the newest v* tag changes one of its paths, unless that tag already holds sha or the commit is a release's own, whose subject RELEASE_SUBJECT matches as release_tag.py skips it. A plugin no such job releases, such as one Autobump bumps, is owed its release as before."""
     folder = PurePosixPath(folder_of(entry))
     jobs = [(workflow, paths) for workflow, paths in release_tag_jobs(clone, sha, deadline) if alone or any(PurePosixPath(path).is_relative_to(folder) for path in paths)]
     if not jobs or any(not paths for _, paths in jobs):
@@ -285,7 +286,7 @@ def unreleased(clone: str, plugin: str, entry: dict, alone: bool, sha: str, dead
         return f"no release: the repo has no v* tag for {workflows} to version a {plugin} release from, so its first release is tagged by hand"
     if holds(clone, tag, sha, deadline):
         return None
-    if any(git(clone, "log", "--first-parent", "--format=%H", f"{tag}..{sha}", "--", *paths, deadline=deadline).strip() for _, paths in jobs):
+    if any(not RELEASE_SUBJECT.match(subject) for _, paths in jobs for subject in git(clone, "log", "--first-parent", "--format=%s", f"{tag}..{sha}", "--", *paths, deadline=deadline).splitlines()):
         return None
     return f"no release: no commit from {tag} to {sha[:12]} changes a path {workflows} tags a {plugin} release from, so the next release that does carries it"
 
