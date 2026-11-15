@@ -598,6 +598,17 @@ def open_on(heads: list[tuple[str, str]]) -> dict[str, dict]:
     return found
 
 
+def branch_heads(heads: list[tuple[str, str]]) -> dict[tuple[str, str], str | None]:
+    """The commit each (owner/name, branch) head points at on GitHub, None for a branch its repository does not hold, one `gh api graphql` call a repository, however many of its branches there are."""
+    found = {}
+    for repo, named in groupby(sorted(heads), key=lambda head: head[0]):
+        branches = [branch for _, branch in named]
+        refs = " ".join(f"h{slot}: ref(qualifiedName: {json.dumps(f'refs/heads/{branch}')}) {{ target {{ oid }} }}" for slot, branch in enumerate(branches))
+        repository = answered(graphql(repository_query(repo, refs), f"the heads of built branches in {repo}"))
+        found |= {(repo, branch): ((repository.get(f"h{slot}") or {}).get("target") or {}).get("oid") for slot, branch in enumerate(branches)}
+    return found
+
+
 def repo_name(remote: str) -> str:
     owner, name = re.split(r"[/:]", remote.strip().removesuffix("/").removesuffix(".git"))[-2:]
     return f"{owner}/{name}"
