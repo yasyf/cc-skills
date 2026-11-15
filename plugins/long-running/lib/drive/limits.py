@@ -499,7 +499,7 @@ class Question:
     recommended: str
     hints: dict[str, str]
     holds: str | None
-    replaces: str = ""
+    replaces: tuple[str, ...] = ()
     cause: str = ""
 
     def card(self, drive: str, waits: str, meanwhile: str = "") -> dict:
@@ -784,7 +784,6 @@ def question_problems(text: str, kept: bool = False, unsettled: str | None = Non
     options = [RECOMMENDED.sub("", option) for option in options]
     hints = {option: "\n".join(lines) for option, lines in zip(options, described, strict=True) if lines}
     held = HOLDS.search(findings[0]) if findings else None
-    replaces = REPLACES.search(findings[0]) if findings else None
     asked = Question(
         title,
         summary,
@@ -793,7 +792,7 @@ def question_problems(text: str, kept: bool = False, unsettled: str | None = Non
         RECOMMENDED.sub("", marked[0]) if len(marked) == 1 else "",
         hints,
         None if held is None else "" if NONE_WHY.match(held[1]) else held[1],
-        replaces[1] if replaces else "",
+        replaced(findings[0]) if findings else (),
         drawn_cause(findings[0]) if findings else "",
     )
     if kept:
@@ -870,6 +869,10 @@ def question_problems(text: str, kept: bool = False, unsettled: str | None = Non
         problems += interim_fix_problems("".join(findings[:1]))
     return asked, problems
 
+
+def replaced(text: str) -> tuple[str, ...]:
+    """The earlier questions a block's `Replaces:` lines name, comma-separated, each by the ASK file it is kept in or its card's waits id, in the order named."""
+    return tuple(dict.fromkeys(ref.strip() for line in REPLACES.findall(text) for ref in line.split(",") if ref.strip()))
 
 def unread(asked: Question) -> str | None:
     """Why a question goes to him without a picture of each option, by his ruling 0d2b7df: Jev reads its options as differing in how a screen looks, at settled.YES or more, so he picks by seeing each, and an option has no picture line captioned with its number, `![N · …](path)`. In the same request Jev reads each code name `code_terms` finds anywhere on his card, its question, summary, options, their descriptions and its Show me outside its fences, one Noul a name, and each one it reads at settled.YES or more as never said in plain words on the card is printed on stderr, refusing nothing, by his pick 320b7a7. The options, then the Show me, then each name fill the request whole; a reading in the band between settled.NO and settled.YES is said on stderr as unsure, and a name the request has no room for, or Jev giving no reading, lets the question up unread."""

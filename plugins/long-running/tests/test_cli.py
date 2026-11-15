@@ -2796,6 +2796,39 @@ def test_j4258_an_ask_jev_reads_as_asking_again_what_n_open_cards_ask_takes_the_
     assert [data["jobs"][job_id]["waits"] for job_id in ("j1", "j2", "j3")] == [["demo:j2-2"]] * 3
 
 
+def test_j4050_a_replaces_line_naming_two_cards_redraws_the_first_shows_the_second_asked_again_linking_it_and_his_one_answer_ends_both(
+    run: Run, asking: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, slack_calls: list[tuple[str, ...]]
+) -> None:
+    for _ in range(3):
+        run("job", "add", "reader", "--order", "o1", "--goal", "research the run page")
+    titles = ["Which layout should a finished run's files take?", "Where should a finished run's files go so its page opens?", "How are a finished run's files laid out for its page?"]
+    cards = [f"https://acme.slack.com/archives/D123/p{1794300000000100 + n}" for n in (1, 2, 3)]
+    waits = ["demo:j1-1", "demo:j2-2", "demo:j3-3"]
+    with state.edit("demo") as data:
+        for job_id, title, card, wait in zip(("j1", "j2", "j3"), titles, cards, waits):
+            data["jobs"][job_id].update(waits=[wait], questions=[state.new_question(str(tmp_path / f"{job_id}.md"), title, state.stamp(), card=card) | {"waits": wait}])
+    text = SHORT_ASK.replace("(1) ", f"Replaces: demo:j1-1, {tmp_path / 'j2.md'}\n(1) ")
+    monkeypatch.setattr("sys.stdin", io.StringIO(text))
+    kept = state.drive_dir("demo") / "asks" / f"j4-{state.ask_hash(text)}.md"
+    assert run("job", "ask", "j4", "-") == (
+        0,
+        f"{kept}\nhis card {slack_card(1)} asks it under demo:j1-1; demo:j2-2: his card {cards[1]} now shows his words with no buttons, its question superseded",
+    )
+    assert drawn_waits(slack_calls) == ["demo:j1-1"]
+    assert [argv for argv in slack_calls if argv[0] == "card-answer"] == [("card-answer", "--card", cards[1], "--label", cli.ASKED_AGAIN, "--withdrawn", "--via", slack_card(1))]
+    data = state.load("demo")
+    assert [(job_id, question["waits"], question["card"], question["replaced"], question["closed"]) for job_id in ("j1", "j2", "j3", "j4") for question in data["jobs"][job_id]["questions"]] == [
+        ("j1", "demo:j1-1", slack_card(1), str(kept), None),
+        ("j2", "demo:j1-1", slack_card(1), str(kept), None),
+        ("j3", "demo:j3-3", cards[2], None, None),
+        ("j4", "demo:j1-1", slack_card(1), None, None),
+    ]
+    assert [data["jobs"][job_id]["waits"] for job_id in ("j1", "j2", "j3")] == [["demo:j1-1"], ["demo:j1-1"], ["demo:j3-3"]]
+    closed = state.new_close("answered", "One snapshot file", slack_card(1))
+    with state.edit("demo") as data:
+        ended = superseded.end(data, "j4", data["jobs"]["j4"]["questions"][-1], closed)
+    assert sorted(job_id for job_id, _ in ended) == ["j1", "j2", "j4"]
+
 def test_j4258_a_reader_whose_card_another_jobs_redraws_took_draws_nothing_for_it_on_a_later_design_return_in_its_old_words_or_new_ones(
     run: Run, meta: str, jev: Jev, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], slack_calls: list[tuple[str, ...]]
 ) -> None:
