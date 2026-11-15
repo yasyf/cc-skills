@@ -6,7 +6,7 @@ from collections.abc import Callable, Iterable
 from datetime import datetime
 
 from drive import slack
-from drive.state import DRIVE_TOOLING, FREED, REPO_RULES, ROLES, SLOT_WAIT, VERSION, alias, card_wait, carriers, delivered, exempted, lane_death, may_tell, now, open_orders, orphan_stands, owed_at_return, parse_time, part_jobs, pass_due, passes, pr_key, pr_url, project_lane, promise_thread, repo_rules, resumed, standing_passes, title, untracked_carriers, work
+from drive.state import DRIVE_TOOLING, FREED, REPO_RULES, ROLES, SLOT_WAIT, VERSION, alias, card_wait, carriers, delivered, exempted, lane_death, may_tell, now, open_orders, orphan_stands, owed, owed_at_return, parse_time, part_jobs, pass_due, passes, pr_key, pr_url, project_lane, promise_thread, repo_rules, resumed, standing_passes, title, untracked_carriers, work
 
 SLACK_TOOLS = "mcp__plugin_cc-slack_cc-slack__"
 REWORKING = "no card while its builder reworks it to his words, until its READY says how they are met"
@@ -344,7 +344,7 @@ def prs_by_job(drive: dict) -> dict[str, list[str]]:
 
 
 def order_line(drive: dict, order_id: str, order: dict, limit: int = 120, thread: tuple[str, str] | None = None) -> str:
-    due = f" due {when(order['due'])}{', waiting on his return' if owed_at_return(drive, order, now()) else ''}" if order.get("due") else ""
+    due = f" due {when(order['due'])}{', waiting on his return' if owed_at_return(drive, order, now()) else ''}" if owed(order) else ""
     where = f", its lines go in {thread[0]} thread {thread[1]}" if thread else ""
     return f"{order_id} {order['state']}{' incident' if order['incident'] else ''}{due}{where}{reporter_said(drive, order)}: {cut(order['text'], limit)}"
 
