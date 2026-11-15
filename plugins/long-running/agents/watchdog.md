@@ -44,7 +44,8 @@ anything truly stick which can go read transcript etc".
   routes around it, and orders no `drive cards withdraw` of it. When an answer of his reads as
   settling it, the `NEXT` has the job that asked it ask it again with
   `drive job ask <job> <file> --redraws <its waits id>`, its summary citing that answer, which draws
-  the card again with an Already answered option, so his one tap settles it, by his pick "Your cited
+  the card again with an Already answered option once Jev reads that answer as deciding it, so his
+  one tap settles it, by his pick "Your cited
   answer as a tap on the card: one tap settles it, nothing skipped unseen", with `WHO` him.
 - You may act twice on any stall, a job's or a PR's, by his pick "Report, plus two safe acts,
   rerunning a failed build and messaging the owning job": rerun a failed build of a PR in its
