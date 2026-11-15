@@ -1030,9 +1030,26 @@ def test_a_say_of_a_record_retried_after_cc_slack_posted_and_failed_hands_cc_sla
         talk.say(demo, post)
     line = talk.say(demo, post)
     [link] = held.values()
-    assert keys == ["1794388096896-demo.690001"] * 2
+    assert keys[0] == keys[1] and keys[0].startswith("1794388096896-demo.690001.")
     assert line == f"POSTED {link}; o1 progress line, no part delivered: {link}"
     assert [(kept["url"], kept["order"]) for kept in said(demo)] == [(link, "o1")]
+
+
+def test_a_records_post_keys_on_its_words_so_a_second_line_on_one_record_goes_out_while_a_retry_of_one_line_does_not(
+    demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    thread = "1794200000.000100"
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why the copy stalls", "--thread", thread)
+    run("start", "demo", "--role", "communicator")
+    with state.edit(demo) as data:
+        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
+        data["roles"]["coordinator"]["session"] = "elsewhere"
+    report(monkeypatch, {"order": "o1", "thread": thread}, lane="communicator", kind="owner")
+    for text in ("The copy stalls on the lock.", "The copy stalls on the lock.", "The lock is released."):
+        talk.say(demo, {"text": text, "thread_ts": thread, "record": "690001"})
+    keys = [argv[argv.index("--request-key") + 1] for argv in posts]
+    assert keys[0] == keys[1] != keys[2]
+    assert all(key.startswith("1794388096896-demo.690001.") for key in keys)
 
 
 def test_a_handlers_post_of_no_record_keys_on_his_message_it_holds_and_its_words(demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]]) -> None:
@@ -1391,7 +1408,7 @@ def test_a_line_in_an_alerts_thread_goes_out_through_cc_slack_reply_with_the_tic
     assert posts == [
         (
             "reply", "--agent", "claude", "--channel", "C0ALERT1", "--thread", ALERT, "--text", "The release failed on the migration.",
-            "--request-key", "1794388096896-demo.683597", "--ticket", "t1", "--ticket-tree", "tree1", "--ticket-agent", "agent1", "--ticket-call", "call1", "--ticket-fingerprint", "print1",
+            "--request-key", "1794388096896-demo.683597.ed6ee70d9e1d9efd", "--ticket", "t1", "--ticket-tree", "tree1", "--ticket-agent", "agent1", "--ticket-call", "call1", "--ticket-fingerprint", "print1",
         )
     ]
     assert said(demo)[0]["channel"] == "C0ALERT1"
