@@ -2953,6 +2953,8 @@ def test_job_ask_asking_his_card_again_sends_its_line_again_only_once_jev_reads_
     line = f"https://acme.slack.com/archives/C0ALERT1/p1794200100000200?thread_ts={thread}"
     words = f"<{slack_card(1)}|Your card on the run layout> blocks incident o1's fix; it builds on one snapshot file per finished run meanwhile."
     talk.keep_line("demo", thread, line, words)
+    with state.edit("demo") as data:
+        data["prs"]["acme/app#42"] = state.new_pr("https://github.com/acme/app/pull/42", asking, "o1") | {"state": "merged", "title": "Fix: one snapshot file per finished run"}
     if changed:
         jev.breaks("told", changed)
     block.write_text(SHORT_ASK.replace("Meanwhile nothing is built on either layout.", "Meanwhile the reader adds one more finding.") + "Interim fix: j2 checks the fork copies first\n")
@@ -2960,6 +2962,7 @@ def test_job_ask_asking_his_card_again_sends_its_line_again_only_once_jev_reads_
     read = [request for request in jev.asked if "releases" in request["questions"]][-1]
     told = read["state"]["told"]
     assert (code, [key for key in read["questions"] if key.startswith("told.")], told["line"], set(told["now"]), told["now"]["builds"]["jobs"]) == (0, ["told.asks", "told.blocks", "told.builds"], words, {"asks", "blocks", "builds"}, [asking])
+    assert told["now"]["builds"]["prs"] == ["https://github.com/acme/app/pull/42: one snapshot file per finished run (merged)"]
     [first, *again] = [report["text"] for report in kept.values()]
     if changed:
         assert again == [f"{first}; since its line {line}, what it blocks changed"]

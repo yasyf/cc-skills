@@ -102,7 +102,7 @@ ORDERS = Noul(
 )
 TOLD = Noul(
     "Does `told.line`, the line a thread of his holds from when the drive last told him of this card, say something about {what} that `told.now`, the card as it is asked again now, shows no longer holds, so the thread must hear of it?",
-    no="All of that still holds, the card's words reworded or worked out further included; a PR's checks, review or tap moving on is no change to the line.",
+    no="All of that still holds, the card's words reworded or worked out further included; a PR's checks, review, tap or merge moving on is no change to the line.",
 )
 TOLD_CHANGES = {"asks": "what the card asks him", "blocks": "what it blocks", "builds": "what is built meanwhile or as which PR"}
 STILL_HOLDS = "holds"
