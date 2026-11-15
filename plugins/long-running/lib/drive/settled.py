@@ -121,6 +121,11 @@ ASKS_RELEASE = Noul(
         " CronJob in a team's cluster and ships no change."
     ),
 )
+SPEAKS_TO_START = Noul(
+    "Does release note `notes.{note}` speak to the release start `starts.{start}`, its rule binding a cut of the start's targets, or of a target the note says ships with them, on the places the start runs?",
+    yes="It names a change such a cut must not carry, must carry first or must name as a hazard on his card, whatever commit the start cuts.",
+    no="It is about other targets or places, only reports what a release did, or says its rule no longer binds.",
+)
 AFTER_INSTALL = Noul(
     "Does `goal`, the goal of a builder in one of his own repositories, name a step to take once its change is merged and installed, beyond proving that the installed change works, such as redrawing or posting a card, resuming or closing another job or order, or rerunning another job's proof?",
     no="Its only step after the install is that proof, or every step it names is part of the change itself.",

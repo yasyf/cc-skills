@@ -15,7 +15,7 @@ from pathlib import Path
 import drive
 import pytest
 import spawnllm
-from conftest import ACME_CUT, CARD_BODY, CUT_PICK, CUT_TAP, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SETTLED_LISTED, SETTLED_MATCHED, SETTLED_NOTE, SETTLED_RECORDED, SHORT_ASK, WRITTEN_AT, answered_cut, cloned, drawn_card, git_in, kept_research, Answers, explained, Checked, Chrome, Draws, Drawing, Heard, Images, Jev, Judge, MetaLaunches, Redraws, Thread, WatchProcess, Withdrawals
+from conftest import ACME_CUT, CARD_BODY, CUT_PICK, CUT_TAP, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SAND_NEXT_NOTE, SANDSQL_NOTE, SETTLED_LISTED, SETTLED_MATCHED, SETTLED_NOTE, SETTLED_RECORDED, SHORT_ASK, WRITTEN_AT, answered_cut, cloned, drawn_card, git_in, kept_research, Answers, explained, Checked, Chrome, Draws, Drawing, Heard, Images, Jev, Judge, MetaLaunches, Redraws, Thread, WatchProcess, Withdrawals
 from drive import (
     agents,
     brief,
@@ -3904,6 +3904,35 @@ def test_job_ask_keeps_unsettled_a_card_whose_other_option_breaks_his_ruling_so_
     assert cli.main(["job", "ask", "j3", str(block)]) == 0
     assert "kept the card unsettled" not in capsys.readouterr().err
     assert (state.load("demo")["jobs"]["j3"]["questions"][-1]["unsettled"], land.ship_held(state.load("demo"), "j3")) == (None, [])
+
+
+def test_job_ask_prints_each_release_note_jev_reads_as_speaking_to_a_start_any_option_offers_with_what_git_finds_at_its_commit_refusing_nothing(
+    asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], jev: Jev, release_noted: list[dict], pr_reads: dict[str, dict]
+) -> None:
+    base = cloned(tmp_path, "demo")
+    merge = cloned(tmp_path, "demo", {"catalog.rs": "the catalog change"})
+    later = cloned(tmp_path, "demo", {"other.rs": "a later change"})
+    clone = state.load("demo")["roles"]["coordinator"]["cwd"]
+    pr_reads[f"{github.checkout_repo(clone)}#55980"] = {"state": "MERGED", "mergeCommit": merge, "base_pr": None}
+    release_noted.extend([SANDSQL_NOTE, SAND_NEXT_NOTE])
+    jev.speaks = {"3e6822d": 0.9}
+    snapshot = "  When a run finishes, the uploader in `journal/snapshot.go` writes one snapshot.ltx to the team's bucket with its page map at a fixed place, and the run page's reader in `site/journal.js` reads that map, then 2 page ranges; a backfill writes one for each old run."
+    beside = "  Each journal upload in `journal/upload.go` also writes a map object beside its file in the team's bucket, and `site/journal.js` reads each map, then its page range; every journal upload pays one more object write."
+    block = tmp_path / "ask.md"
+    block.write_text(
+        SHORT_ASK.replace(snapshot, f"{snapshot} It ships with `release start --targets sandsql --from {later}`.").replace(beside, f"{beside} It ships with `release start --targets sandsql --from {base}`.")
+    )
+    assert cli.main(["job", "ask", asking, "--check", str(block)]) == 0
+    captured = capsys.readouterr()
+    assert captured.out == "ready\n"
+    assert captured.err == (
+        f'drive job ask: Jev reads release note 3e6822d, "{SANDSQL_NOTE["title"]}", as speaking to `ci release start --targets sandsql --from {later}`'
+        f" (at {later}: holds #55980 ({merge[:12]})); `ci release start --targets sandsql --from {base}` (at {base}: lacks #55980 ({merge[:12]})). Nothing is refused:"
+        f" follow its words before you offer or start one, and `ccn note show 3e6822d` prints them whole: {SANDSQL_NOTE['body'].strip()}\n"
+    )
+    [asked] = [asked for asked in jev.asked if any(key.startswith("speaks.") for key in asked["questions"])]
+    assert [note["id"] for note in asked["state"]["notes"].values()] == ["3e6822d", "1510272"]
+    assert len(asked["questions"]) == 4
 
 
 def test_job_ask_never_asks_him_to_lift_a_cited_answer_whose_order_the_recommended_option_starts_by_the_release_gates_own_reading(

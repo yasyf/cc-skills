@@ -203,7 +203,7 @@ READ_ONLY = {
     "orca": ("orchestration task-list", "orchestration worker-show", "orchestration request-show", "terminal show", "repo show", "diagnostics memory"),
     "cc-slack": ("thread", "history", "users", "whoami", "check-post", "card render", "drive-cards"),
     "cci": ("show", "grep", "find", "digest", "state"),
-    "ccn": ("answer show", "answer list", "answer match", "answer search"),
+    "ccn": ("answer show", "answer list", "answer match", "answer search", "note list"),
     "ci": ("release select",),
     "security": ("find-generic-password",),
     "gh": ("pr view", "pr list", "pr checks", "pr diff", "run view", "run list", "repo view"),
