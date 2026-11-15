@@ -803,15 +803,17 @@ restating it.
   that read's id, so claims sharing a read add only their own words. Each request to Jev is at most 10,000
   characters, by his words "jev should be getting like 10k chars at most for any call", and say asks Jev at once as
   many as the post needs, each opening with the post, so reads too long for one request together never crowd each other
-  out: every part Jev cannot weigh the post without goes whole, never cut, into the first request with room for it, each
-  read the claims name beside every claim naming it, each sentence the claims together do not hold word for word, and,
-  on an answer to his question under a card, that card's first line beside his question. Each finding beside its rule
-  and his words the post answers, the checks' own picks first, then each newest first, go into one more request as room
-  allows, so a long thread never refuses a post, and a word of his with no room is only left out. A post with a part no
-  request holds beside the post's own words is refused before say runs, naming each such part beside the characters its
-  request takes, largest first, such as a report's whole body under the claims naming that report, so no claim is
-  weighed in part or held as unbacked for want of room, and the handler makes narrower calls, such as a grep, a jq filter
-  or a line range, and names those, never a `cci read` with a smaller budget, which cuts a record's end unseen, and never
+  out: every part Jev cannot weigh the post without goes whole into the first request with room for it, each read the
+  claims name beside every claim naming it, each sentence the claims together do not hold word for word, and, on an
+  answer to his question under a card, that card's first line beside his question. A read too long for one request
+  alone, such as a report's whole body, goes in parts by whole lines in order, each part beside every claim naming that
+  read, and a claim stands on the part backing it most, so a long read never refuses a post. Each finding beside its
+  rule and his words the post answers, the checks' own picks first, then each newest first, go into one more request as
+  room allows, so a long thread never refuses a post, and a word of his with no room is only left out. A post with a
+  part no request holds beside the post's own words, such as one line of a read longer than a request, is refused
+  before say runs, naming each such part beside the characters its request takes, largest first, so no claim is held as
+  unbacked for want of room, and the handler makes narrower calls, such as a grep, a jq filter or a line range, and
+  names those, never a `cci read` with a smaller budget, which cuts a record's end unseen, and never
   a true line of the post dropped to fit, or says the post in fewer claims on that read. Jev answers yes-or-no questions
   as probabilities of yes, and code decides, by his pick "The handler names the read behind each claim; Jev checks each
   claim against that read, whole, and holds only unbacked claims": a claim whose read backs it under 0.45 holds the post
