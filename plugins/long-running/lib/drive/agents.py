@@ -38,6 +38,7 @@ WATCHDOG_RUNS = (
     ("drive", "status"),
     ("drive", "job", "replies"),
     ("cc-transcript",),
+    ("cci", "grep"),
     ("gh", "pr", "view"),
     ("gh", "pr", "checks"),
     ("gh", "run", "view"),

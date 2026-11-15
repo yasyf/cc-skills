@@ -364,7 +364,9 @@ def test_the_watchdog_runs_its_reads_and_two_acts_and_reruns_only_what_failed(de
     monkeypatch.setenv(state.WATCHDOG_ENV, demo)
     url = "https://github.com/Forge-AI/monorepo/pull/42"
     for command in (
+        f"cci grep '(o1|j1|#42)\\b' --drive {demo} --limit 30",
         f"drive status o1 j1 --drive {demo}",
+        f"gh pr view {url} --json state,mergedAt,headRefOid,statusCheckRollup",
         "gh run view 123 --log-failed | tail -n 80",
         "gh run rerun 43473590671 --failed",
         "tools/ci bk rerun test 128914 --unit test",
