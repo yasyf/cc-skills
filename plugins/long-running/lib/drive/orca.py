@@ -834,7 +834,7 @@ def place_tools(workspace: str) -> None:
 
 
 def sprite_answer(answer: str, job: dict, message_id: str) -> str:
-    """What a Sprite lane's question gets through Orca: the answer whole when one Orca relay message carries it, else a line naming the file on the lane's Sprite that holds it, after the `drive exited` line a DRIVE answer opens with, so a lane's drive that reads no such line still exits with the verb's status. Orca keeps a reply past what its relay carries as the question's answer and never relays it; OrcaError when the Sprite cannot take the file."""
+    """What a Sprite lane's question gets through Orca: the answer whole when one Orca relay message carries it, else a line naming the file on the lane's Sprite that holds it, after its exit_line, so a lane's drive that reads no such line still exits with the verb's status. Orca keeps a reply past what its relay carries as the question's answer and never relays it; OrcaError when the Sprite cannot take the file within CALL_SECONDS."""
     text = answer.encode()
     if state.on_mac(job) or relay_bytes(message_id, answer) <= RELAY_BYTES:
         return answer
@@ -842,8 +842,12 @@ def sprite_answer(answer: str, job: dict, message_id: str) -> str:
         path = put_on_sprite(job["workspace"], SPRITE_ANSWERS, f"{message_id}.txt", text)
     except (OSError, subprocess.TimeoutExpired) as error:
         raise OrcaError(f"writing {SPRITE_ANSWERS}/{message_id}.txt onto {job['workspace']}: {error}") from None
-    opening = status[0] if (status := DRIVE_STATUS.match(answer)) else ""
-    return f"{opening}{KEPT_ANSWER}{path} ({len(text)} bytes, SHA-256 {hashlib.sha256(text).hexdigest()}); read it in full\n"
+    return f"{exit_line(answer)}{KEPT_ANSWER}{path} ({len(text)} bytes, SHA-256 {hashlib.sha256(text).hexdigest()}); read it in full\n"
+
+
+def exit_line(answer: str) -> str:
+    """The `drive exited` line a DRIVE answer opens with, or nothing for any other answer."""
+    return status[0] if (status := DRIVE_STATUS.match(answer)) else ""
 
 
 def relay_bytes(message_id: str, answer: str) -> int:
@@ -852,9 +856,9 @@ def relay_bytes(message_id: str, answer: str) -> int:
 
 
 def put_on_sprite(workspace: str, folder: str, name: str, text: bytes) -> str:
-    """Write the text to the folder under the home of the workspace's Sprite over the ssh forward cc-remote keeps for it, through stdin, since a handoff outgrows one command line; the path it landed at, or Unfit when the Sprite did not keep exactly these bytes."""
+    """Write the text to the folder under the home of the workspace's Sprite over the ssh forward cc-remote keeps for it, through stdin, since an answer outgrows one command line; the path it landed at, or Unfit when the Sprite did not keep exactly these bytes, and subprocess.TimeoutExpired past CALL_SECONDS, so a Sprite that takes the connection and never answers holds its lane's answer a minute, never half an hour."""
     target = f'"$HOME/{folder}/{name}"'
-    done = on_sprite(workspace, f'mkdir -p "$HOME/{folder}" && cat >{target} && sha256sum {target}', text, LAUNCH_SECONDS)
+    done = on_sprite(workspace, f'mkdir -p "$HOME/{folder}" && cat >{target} && sha256sum {target}', text, CALL_SECONDS)
     said = done.stdout.decode().split()
     if done.returncode or len(said) != 2 or said[0] != hashlib.sha256(text).hexdigest():
         why = done.stderr.decode().strip().splitlines()
