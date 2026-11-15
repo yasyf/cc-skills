@@ -876,9 +876,10 @@ def report_refusal(name: str, data: dict, job_id: str, text: str) -> str | None:
     if job["kind"] in state.CHANGE_KINDS and opening == "DONE" and (staging := state.staging_parts(data, job)) and not state.CASE_LINE.search(text):
         return (
             f'{job_id} holds "{staging[0][1]}", so its DONE names each case of the staging test on a line of its own, CASE <case>: <verdict>,'
-            " pass or what it found instead, such as fail: <what>, skipped or not exercised; only a DONE whose every CASE line reads pass delivers the part whose PR it names"
+            " pass or what it found instead, such as fail: <what>, skipped or not exercised: <why>; only a DONE whose CASE lines for a PR read pass, one or more, and each other pass or not exercised delivers the part whose PR it names,"
+            " and a DONE testing several PRs in turn heads each PR's CASE lines with a CHECK: line naming that PR and the build that put it on staging"
         )
-    if job["kind"] in state.CHANGE_KINDS and opening == "DONE" and staging and all(state.PASSED_CASE.match(verdict) for verdict in state.case_verdicts(text)) and not any(state.tests_named(text, part) for _, part in staging):
+    if job["kind"] in state.CHANGE_KINDS and opening == "DONE" and staging and state.passing(state.case_lines(text)) and not any(state.tests_named(text, part) for _, part in staging):
         return (
             f'{job_id} holds "{staging[0][1]}", and its DONE names no PR its staging test tested, so it delivers none of its staging test parts:'
             " name each PR the passing test tested, by link or #N, and leave out each it did not test, which waits on a rerun"

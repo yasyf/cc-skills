@@ -1442,29 +1442,30 @@ def staging_reads(data: dict) -> tuple[bool, str | None, str | None]:
 
 
 @pytest.mark.parametrize(
-    ("cases", "passed"),
+    ("cases", "read"),
     [
-        ("CASE a rollback refused: pass\nCASE a write lands: PASS on the cut\n", True),
-        ("CASE a rollback refused: pass\nCASE a write lands: fail: the writer kept the old row\n", False),
-        ("CASE a rollback refused: pass\nCASE a write lands: not exercised\n", False),
-        ("CASE a write lands: skipped\n", False),
-        ("Case 5 a write lands: fail: the writer kept the old row\n", False),
-        ("CASE line sent to root on topic staging-slots {at:718168}\nCASE a write on staging:plat-usw2-staging lands: pass\n", True),
-        ('CASE rollback semantics: the release reads mode dry-run, rollback true: pass\nCASE the key published ("ci-go: linux-amd64 is already published"): pass\n', True),
-        ("CASE B the first blob mint on lapsed keys: pass: run run_01m7 on the soak\n", True),
-        ("CASE rollback semantics: the release reads mode dry-run: fail: rollback false\n", False),
+        ("CASE a rollback refused: pass\nCASE a write lands: PASS on the cut\n", (True, PROOF, "j1")),
+        ("CASE a rollback refused: pass\nCASE a write lands: fail: the writer kept the old row\n", (False, None, "j1")),
+        ("CASE a rollback refused: pass\nCASE a write lands: not exercised: staging signs in as one account\n", (True, PROOF, "j1")),
+        ("CASE a write lands: not exercised\nCASE a rollback refused: not exercised: this job only followed the release\n", (False, None, None)),
+        ("CASE a write lands: skipped\n", (False, None, "j1")),
+        ("Case 5 a write lands: fail: the writer kept the old row\n", (False, None, None)),
+        ("CASE line sent to root on topic staging-slots {at:718168}\nCASE a write on staging:plat-usw2-staging lands: pass\n", (True, PROOF, "j1")),
+        ('CASE rollback semantics: the release reads mode dry-run, rollback true: pass\nCASE the key published ("ci-go: linux-amd64 is already published"): pass\n', (True, PROOF, "j1")),
+        ("CASE B the first blob mint on lapsed keys: pass: run run_01m7 on the soak\n", (True, PROOF, "j1")),
+        ("CASE rollback semantics: the release reads mode dry-run: fail: rollback false\n", (False, None, "j1")),
     ],
-    ids=["every-case-passes", "a-case-fails", "a-case-not-exercised", "a-case-skipped", "no-case-line", "a-prose-line-opening-case", "a-verdict-after-what-ran", "a-verdict-before-what-ran", "a-failing-verdict-after-what-ran"],
+    ids=["every-case-passes", "a-case-fails", "a-case-not-exercised", "every-case-not-exercised", "a-case-skipped", "no-case-line", "a-prose-line-opening-case", "a-verdict-after-what-ran", "a-verdict-before-what-ran", "a-failing-verdict-after-what-ran"],
 )
-def test_a_staging_test_part_is_delivered_by_its_testers_done_only_when_every_case_line_reads_pass_as_j4832s_and_j4850s_were_not(
-    state_root: Path, cases: str, passed: bool
+def test_a_staging_test_part_is_delivered_by_its_testers_done_only_when_a_case_passes_and_each_other_passes_or_was_not_exercised_as_j164s_was_not(
+    state_root: Path, cases: str, read: tuple[bool, str | None, str | None]
 ) -> None:
     data = staging_drive("j1")
     staging_return(data, "j1", "DONE ran the staging test of #42 on cut 1", cases)
-    assert (data["jobs"]["j1"]["state"], staging_reads(data)) == ("done", (True, PROOF, "j1") if passed else (False, None, None))
+    assert (data["jobs"]["j1"]["state"], staging_reads(data)) == ("done", read)
 
 
-def test_a_staging_test_parts_full_pass_holds_only_while_its_tester_is_the_newest_not_stopped_and_still_holds_that_done(state_root: Path) -> None:
+def test_a_staging_test_parts_full_pass_holds_only_while_its_tester_still_holds_that_done_and_no_newer_tester_is_at_work_or_failed(state_root: Path) -> None:
     data = staging_drive("j1")
     staging_return(data, "j1", "DONE every case of #42 passed", "CASE a rollback refused: pass\n")
     passed = staging_reads(data)
@@ -1484,9 +1485,9 @@ def test_a_staging_test_parts_full_pass_holds_only_while_its_tester_is_the_newes
         (True, PROOF, "j1"),
         (False, PROOF, "j1"),
         (True, PROOF, "j1"),
-        (False, None, None),
+        (False, None, "j1"),
         (True, newer, "j2"),
-        (False, None, None),
+        (False, None, "j2"),
     ]
 
 
@@ -1550,8 +1551,29 @@ def test_a_staging_tests_done_frees_the_prs_held_on_it_only_by_a_check_build_tha
     assert halved.startswith("j2's DONE frees Forge-AI/monorepo#4202 from waiting")
     assert f"git cherry finds Forge-AI/monorepo#4202's {tip[:12]} missing from {half[:12]}, which https://buildkite.com/forge/release/builds/16085 deployed to plat-usw2-staging" in halved
     assert "16090 deployed nothing to staging" in prod
-    assert none.endswith("they name no Buildkite build. Name on a CHECK: line the release build that deployed a commit carrying each one's head to staging, or return WAITING on what still holds them, such as staging:<target>/<env>@<commit> while staging does not run it yet")
+    assert none.endswith(
+        "they name no Buildkite build. Name on a CHECK: line the release build that deployed a commit carrying each one's head to staging,"
+        " heading the CASE lines of that PR's run and naming the PR when the DONE tests several in turn, or return WAITING on what still holds them,"
+        " such as staging:<target>/<env>@<commit> while staging does not run it yet"
+    )
     assert [done("j2", "16086"), done("j2", "16203", "16086"), done("j1", "16203")] == [None, None, None]
+    tested = {key: state.STAGING_TEST.format(number=key.rsplit("#", 1)[1]) for key in keys}
+    data["orders"]["o1"]["parts"] |= {each: state.new_part() for each in tested.values()}
+    data["jobs"]["j2"]["parts"] = [part, *tested.values()]
+
+    def in_turn(*numbers: str) -> str | None:
+        report = (
+            f"DONE {' and '.join(f'#{number}' for number in numbers)} each passed on staging\n"
+            "CHECK: https://buildkite.com/forge/release/builds/16085\nCASE a layout reads its key ranges: pass\n"
+            "CHECK: https://buildkite.com/forge/release/builds/16086\nCASE a layout reads its key ranges: pass\n"
+        )
+        return state.result_refusal(data, "j2", report.splitlines()[0], report)
+
+    swapped = in_turn("4202", "4201")
+    assert in_turn("4201", "4202") is None
+    assert swapped.startswith("j2's DONE frees Forge-AI/monorepo#4202 from waiting on its staging test, and no build the CHECK: lines heading its cases name deployed")
+    assert f"git cherry finds Forge-AI/monorepo#4202's {tip[:12]} missing from {half[:12]}, which https://buildkite.com/forge/release/builds/16085 deployed to plat-usw2-staging" in swapped
+    data["jobs"]["j2"]["parts"] = [part]
     data["jobs"]["j2"]["goal"] = "read the layout's key ranges"
     assert done("j2", "16203") is None
 
@@ -1606,8 +1628,8 @@ def test_a_drive_saved_reading_staging_passes_by_prose_case_lines_and_release_fo
     state_root: Path,
 ) -> None:
     data = staging_drive()
-    del data["staging_passes_reread"]
-    data["staging_passes_named"] = True
+    del data["staging_runs_reread"]
+    data |= {"staging_passes_named": True, "staging_passes_reread": True}
     created, passed = "2026-11-14T10:00:00-08:00", "2026-11-14T11:00:00-08:00"
     prose, followed, rerun, uncased, unnamed = (state.STAGING_TEST.format(number=number) for number in (42, 43, 44, 45, 46))
     followed_soak = "staging:monorepo/plat-usw2-staging@70f5e5b"
@@ -1642,11 +1664,62 @@ def test_a_drive_saved_reading_staging_passes_by_prose_case_lines_and_release_fo
         (True, PROOF, "j2", state.stamp(state.parse_time(passed))),
         (False, PROOF, "j4", state.stamp(state.parse_time(passed))),
         (False, None, None, None),
-        (False, None, None, None),
+        (False, None, "j7", None),
     ]
     assert ([(data["prs"][key]["tap"] or {}).get("at") for key in approves], parts[followed]["soak"]) == ([None, "2026-11-14T11:30:00-08:00"], "staging:monorepo/plat-usw2-staging@346fcf4")
     with state.edit("demo") as drive:
-        assert (drive["staging_passes_reread"], "staging_passes_named" in drive) == (True, False)
+        assert (drive["staging_runs_reread"], "staging_passes_named" in drive, "staging_passes_reread" in drive) == (True, False, False)
+
+
+J164 = """DONE #56799 and #56775 each answered all 22 staging cases exactly as dev's code did
+CHECK: https://buildkite.com/forge/release/builds/16698
+CASE good token: pass
+CASE token issued to another user: not exercised: a staging soak signs in only as the smoke-test account
+CASE DuckDB route with attachments: not exercised: no staging sandsql server sets analytics = true
+CHECK: https://buildkite.com/forge/release/builds/16721
+CASE good token: pass
+CASE token issued to another user: not exercised: a staging soak signs in only as the smoke-test account
+CASE DuckDB slow-statement log line: fail: no line logged
+PR: https://github.com/Forge-AI/monorepo/pull/56799 (head c5dca80ed9be032855993e8dd9b000c2e4ef8665)
+PR: https://github.com/Forge-AI/monorepo/pull/56775 (head 2c18705b7744b2df71a0f2103b86e3b8a2f17d83)
+"""
+
+
+def test_a_done_testing_two_prs_in_turn_keeps_each_prs_own_cases_build_and_soak_commit_on_its_part_as_j164s_did_not(state_root: Path) -> None:
+    data = staging_drive("j1")
+    parts = {number: state.STAGING_TEST.format(number=number) for number in ("56799", "56775")}
+    heads = {"56799": "c5dca80ed9be032855993e8dd9b000c2e4ef8665", "56775": "2c18705b7744b2df71a0f2103b86e3b8a2f17d83"}
+    data["orders"]["o1"]["parts"] = {part: state.new_part() for part in parts.values()}
+    data["jobs"]["j1"]["parts"] = list(parts.values())
+    data["prs"] = {f"{MONOREPO}#{number}": state.new_pr(state.pr_url(f"{MONOREPO}#{number}"), "j1", "o1") | {"head": head} for number, head in heads.items()}
+    soaks = [f"staging:sandsql/plat-usw2-staging@{commit}" for commit in ("833e4cd4388f", heads["56799"], heads["56775"])]
+    data["jobs"]["j1"]["waits"] = soaks
+    state.take_result(data, "j1", J164.splitlines()[0], J164)
+    held = data["orders"]["o1"]["parts"]
+    assert [(state.delivered(data, "o1", part), held[part]["posted"], held[part]["posted_by"], held[part]["soak"]) for part in parts.values()] == [
+        (True, "https://buildkite.com/forge/release/builds/16698", "j1", soaks[1]),
+        (False, None, "j1", soaks[2]),
+    ]
+    assert (state.unexercised(held[parts["56799"]]), state.unpassed(held[parts["56775"]])) == (
+        [("token issued to another user", "a staging soak signs in only as the smoke-test account"), ("DuckDB route with attachments", "no staging sandsql server sets analytics = true")],
+        "CASE DuckDB slow-statement log line: fail: no line logged",
+    )
+    named = J164.replace("builds/16698\n", "builds/16698 for #56775\n").replace("builds/16721\n", "builds/16721 for #56799\n")
+    assert [state.part_run(data, "j1", report, parts["56799"])[1] for report in (J164, named)] == [["https://buildkite.com/forge/release/builds/16698"], ["https://buildkite.com/forge/release/builds/16721"]]
+
+
+def test_a_builder_only_following_a_release_another_job_started_neither_stands_in_for_the_tester_nor_holds_its_pass_its_cases_not_exercised_as_j6240s_did(state_root: Path) -> None:
+    data = staging_drive("j1", "j2")
+    data["jobs"]["j1"]["state"] = "running"
+    data["jobs"]["j2"] |= {"goal": "follow the staging release radiant-tudor to applied", "builds_nothing": True, "state": "running"}
+    named = (state.part_tester(data, "o1", STAGING), state.staging_tester(data, f"o1:{STAGING}"))
+    followed = "DONE APPLIED: radiant-tudor serves cloudrunner-next on plat-usw2-staging at 346fcf4a024d"
+    staging_return(data, "j2", followed, "CASE a rollback refused for #42: not exercised: this job only followed the release; j1 runs the case\n")
+    before = staging_reads(data)
+    staging_return(data, "j1", "DONE every case of #42 passed", "CASE a rollback refused: pass\n")
+    passed = staging_reads(data)
+    staging_return(data, "j2", followed, "CASE a rollback refused for #42: not exercised: this job only followed the release; j1 runs the case\n")
+    assert [named, before, passed, staging_reads(data), state.part_tester(data, "o1", STAGING)] == [("j1", "j1"), (False, None, None), (True, PROOF, "j1"), (True, PROOF, "j1"), "j1"]
 
 
 def test_a_part_an_older_install_saved_with_spaces_around_its_name_loads_trimmed_wherever_a_job_or_pr_names_it(state_root: Path) -> None:

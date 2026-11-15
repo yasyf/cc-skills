@@ -160,9 +160,10 @@ AFTER_MERGE_PASS = "after-merge staging pass"
 PID_WAIT = re.compile(r"pid:(?P<pid>\d+)(?:@(?P<started>\d+))?")
 STAGING_GOAL = re.compile(r"\bstaging\b", re.IGNORECASE)
 APPLY_STEP = re.compile(r"apply-(?P<target>.+?)--(?P<env>.+)")
-CASE_LINE = re.compile(r"^CASE[ \t]+.+?:(?:[ \t]+|$)(.*?)[ \t]*$", re.MULTILINE)
+CASE_LINE = re.compile(r"^CASE[ \t]+(?P<case>.+?):(?:[ \t]+|$)(?P<rest>.*?)[ \t]*$", re.MULTILINE)
 PASSED_CASE = re.compile(r"pass(?:ed)?\b", re.IGNORECASE)
 CASE_VERDICT = re.compile(r"(?:pass(?:ed)?|fail(?:ed)?|skipped|not exercised)\b", re.IGNORECASE)
+UNEXERCISED_CASE = re.compile(r"not exercised\b[ \t]*:?[ \t]*", re.IGNORECASE)
 RETURN_WAIT = re.compile(r"(?P<job>j\d+)@(?P<returned>\d+)")
 LINE_JOB = re.compile(r"(?<![\w:/.-])j\d+(?![\w@-])")
 SLOT_WAIT = "builder-slot"
@@ -685,7 +686,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str) -> dict:
         "builder_goals_named": True,
         "members_kept": True,
         "open_dones_held": True,
-        "staging_passes_reread": True,
+        "staging_runs_reread": True,
         "lines_kept": True,
         "replaced_ended": True,
         "change_builders_unwaited": True,
@@ -889,6 +890,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
             part.setdefault("standing", None)
             part.setdefault("posted_by", None)
             part.setdefault("passed_at", None)
+            part.setdefault("cases", [])
             part.setdefault("soak", None)
             part.setdefault("follow", None)
     mail = data.pop("lane_mail", {})
@@ -1021,7 +1023,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     if data["catch_up"]:
         data["catch_up"]["record"] = bare_seq(data["catch_up"]["record"])
     passes = (drive_dir(name) / "pictures" / picture.SOURCED, drive_dir(name) / "asks" / REBUILT_ASKS, drive_dir(name) / APPROVALS_LABELLED)
-    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated")) and bool(data.get("holds_owed")) and bool(data.get("near_answers_apart")) and bool(data.get("stack_writes_read")) and bool(data.get("builder_goals_named")) and bool(data.get("members_kept")) and bool(data.get("open_dones_held")) and bool(data.get("staging_passes_reread")) and bool(data.get("lines_kept")) and bool(data.get("change_builders_unwaited")) and bool(data.get("finished_replacers_undone")) and bool(data.get("finished_texts_dropped")) and bool(data.get("proofs_proven")) and bool(data.get("messages_kept_once")) and bool(data.get("proof_results_marked")) and bool(data.get("reader_prs_handed")) and bool(data.get("stale_queued_dropped"))
+    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated")) and bool(data.get("holds_owed")) and bool(data.get("near_answers_apart")) and bool(data.get("stack_writes_read")) and bool(data.get("builder_goals_named")) and bool(data.get("members_kept")) and bool(data.get("open_dones_held")) and bool(data.get("staging_runs_reread")) and bool(data.get("lines_kept")) and bool(data.get("change_builders_unwaited")) and bool(data.get("finished_replacers_undone")) and bool(data.get("finished_texts_dropped")) and bool(data.get("proofs_proven")) and bool(data.get("messages_kept_once")) and bool(data.get("proof_results_marked")) and bool(data.get("reader_prs_handed")) and bool(data.get("stale_queued_dropped"))
     for flag in ("may_settle_per_answer", "may_settle_skips_approvals", "may_settle_by_subject", "may_settle_by_jev", "delivered_by_prs", "delivered_restored", "proofs_posted"):
         data.pop(flag, None)
     data["slack"].pop("channel", None)
@@ -1081,8 +1083,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         keep_members(name, data)
     if not data.get("open_dones_held"):
         hold_open_dones(name, data)
-    if not data.get("staging_passes_reread"):
-        reread_staging_passes(name, data)
+    if not data.get("staging_runs_reread"):
+        reread_staging_runs(name, data)
     if not data.get("change_builders_unwaited"):
         unwait_change_builders(data)
     if not data.get("proof_results_marked"):
@@ -1146,21 +1148,21 @@ def hold_open_dones(name: str, data: dict) -> None:
     data["open_dones_held"] = True
 
 
-def reread_staging_passes(name: str, data: dict) -> None:
-    """Read each staging test part's pass again from every kept return opening with a result of each builder or codex job testing it, by part_testers, oldest first, by keep_pass, as post_staging_proof now keeps one, each dated when it was kept, so a part an older install read a prose line opening CASE or a release follower's DONE on keeps its tester's pass and an Approve he gave after that pass stands, its soak the staging wait the testers' returns last named, else one a tester still waits on, never a follower's; marked so this runs once."""
+def reread_staging_runs(name: str, data: dict) -> None:
+    """Read each staging test part's run again from every kept return opening with a result of each builder or codex job testing it, by part_testers, oldest first, by keep_pass, as post_staging_proof now keeps one, each dated when it was kept, so a part an older install read a not exercised case, a release follower's DONE or another PR's run of the same DONE on keeps its tester's pass, read from that PR's own run by part_run, and an Approve he gave after that pass stands, its soak the staging wait the testers' returns last named for its PR, by part_soak, else one a tester still waits on; marked so this runs once."""
     for order_id, order in data["orders"].items():
         for part, held in order["parts"].items():
             if not STAGING_PART.fullmatch(part):
                 continue
             testers = [(job_id, job) for job_id, job in part_testers(data, order_id, part) if job["kind"] in CHANGE_KINDS]
             kept = sorted(((parse_time(reply["created_at"]), job_id, reply["body"]) for job_id, _ in testers for reply in returns(name, job_id) if reported(opening(reply["body"]))), key=lambda each: each[0])
-            held.update(posted=None, posted_by=None, passed_at=None, soak=next((wait for _, job in reversed(testers) for wait in job["waits"] if STAGING_WAIT.fullmatch(wait)), None))
+            held.update(posted=None, posted_by=None, passed_at=None, cases=[], soak=next((soak for _, job in reversed(testers) if (soak := part_soak(data, job["waits"], part))), None))
             for moment, job_id, body in kept:
                 keep_pass(data, order_id, part, job_id, line := opening(body), body, stamp(moment))
-                held["soak"] = (found := STAGING_WAIT.search(line)) and found[0] or held["soak"]
-    data.pop("staging_passes_owned", None)
-    data.pop("staging_passes_named", None)
-    data["staging_passes_reread"] = True
+                held["soak"] = part_soak(data, [found[0] for found in STAGING_WAIT.finditer(line)], part) or held["soak"]
+    for mark in ("staging_passes_owned", "staging_passes_named", "staging_passes_reread"):
+        data.pop(mark, None)
+    data["staging_runs_reread"] = True
 
 
 def unwait_change_builders(data: dict) -> None:
@@ -1991,8 +1993,8 @@ def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
         for key in job["waited"]["owed"]:
             data["prs"][key]["waits"] = view.stored_waits(data, [*data["prs"][key]["waits"], *(wait for wait in job["waited"]["waits"] if not card_wait(data, wait))])
     job["waits"] = unlooped(data, job_id, job["waits"])
-    if soak := next((wait for wait in job["waits"] if STAGING_WAIT.fullmatch(wait)), None):
-        for order_id, part in staging_parts(data, job):
+    for order_id, part in staging_parts(data, job):
+        if soak := part_soak(data, job["waits"], part):
             data["orders"][order_id]["parts"][part]["soak"] = soak
     if waiting := WAITING_LINE.match(line):
         for key in named_prs(data, job["order"], waiting["prs"]):
@@ -2164,9 +2166,9 @@ def staging_testers(data: dict, job_id: str, report: str) -> list[str]:
 
 
 def stage_pr(data: dict, key: str, goal: str, session: str | None) -> str | None:
-    """Put a Forge-AI/monorepo PR the drive tracks on its staging test, by wait_on_staging, and give the part a tester when no unended job testing it, by part_testers, carries it, a builder building nothing on this Mac in the session given, its goal the one given, as install.add_prover adds a prover; else hold that goal on the unended job carrying it, unless it is that job's goal, so its next worker hears it, or, when that job is a tester mark_dangerous gave it that finished before its builder named these cases, give the part a tester of these; the tester added, or None."""
+    """Put a Forge-AI/monorepo PR the drive tracks on its staging test, by wait_on_staging, and give the part a tester when no job tests it, by part_tester, a builder building nothing on this Mac in the session given, its goal the one given, as install.add_prover adds a prover; else hold that goal on that tester, unless it is that job's goal, so its next worker hears it, or, when that job is a tester mark_dangerous gave it that finished before its builder named these cases, give the part a tester of these; the tester added, or None."""
     order_id, part = wait_on_staging(data, key)
-    testing = next((other for _, other in reversed(part_testers(data, order_id, part)) if other["state"] not in ENDED_JOB_STATES), None)
+    testing = data["jobs"][tester] if (tester := part_tester(data, order_id, part)) else None
     if testing and not (testing["state"] == "done" and testing["goal"] != goal and testing["goal"].startswith(DANGEROUS_GOAL.partition("{changes}")[0].format(key=key))):
         if testing["goal"] != goal:
             hold_text(testing, f"The staging test of {key} also runs: {goal}", None)
@@ -2637,7 +2639,7 @@ def part_testers(data: dict, order_id: str, part: str) -> list[tuple[str, dict]]
 
 
 def post_staging_proof(data: dict, job_id: str, line: str, report: str) -> None:
-    """Keep on each staging test part a builder or codex job holds the first proof its DONE's CHECK: lines name, beside the job as posted_by, replacing an older job's, when its CASE lines, one or more, all read pass and it names the part's PR, by full_pass, so the PR waiting on that part lands while the job's DONE waits on the PR's merge, a pass it newly keeps, by keep_pass, dated when the job first returned it and taking back each Approve he gave before that, or that same second, on each open PR waiting on the part by job_waits, since he gave it before the test and a dangerous change merges only on a tap he gives once its test passed, by his ruling 27ea387, "merging or rleasing dangerous things should only be done wehn the human is present"; its DONE with a case reading anything else takes the part's proof back, and so does its next return other than DONE the proof it kept, as take_result takes back an order's proof_by, but a DONE naming no case, as the watch's at a merge and drive job prove's are, leaves it, by keep_pass."""
+    """Keep on each staging test part a builder or codex job holds the run of its cases the job's DONE reports for that part's PR, by part_run, beside the job as posted_by, replacing an older job's, and the first proof the run's CHECK: lines name as posted when the run is a full pass, by full_pass, so the PR waiting on that part lands while the job's DONE waits on the PR's merge, a pass it newly keeps, by keep_pass, dated when the job first returned it and taking back each Approve he gave before that, or that same second, on each open PR waiting on the part by job_waits, since he gave it before the test and a dangerous change merges only on a tap he gives once its test passed, by his ruling 27ea387, "merging or rleasing dangerous things should only be done wehn the human is present"; a DONE whose run is no full pass takes the part's proof back, and so does the next return other than DONE of the job whose run it holds, as take_result takes back an order's proof_by, but a DONE that ran no case of the part, naming none or each not exercised, as the watch's at a merge, drive job prove's and a job's following a release another job started are, leaves the part as it was, by keep_pass."""
     job = data["jobs"][job_id]
     if job["kind"] in CHANGE_KINDS:
         for order_id, part in staging_parts(data, job):
@@ -2645,43 +2647,112 @@ def post_staging_proof(data: dict, job_id: str, line: str, report: str) -> None:
 
 
 def keep_pass(data: dict, order_id: str, part: str, job_id: str, line: str, report: str, moment: str) -> None:
-    """Keep or take back a staging test part's pass on one return of a job testing it, kept at moment, as post_staging_proof says: a full pass it newly keeps is dated passed_at, when the job's first DONE carrying that proof was kept, so a WAITING between two DONEs of the same cases keeps the first's time, and takes back each Approve given before it or at that moment; a DONE with a case not passing or naming none of the part's PR takes it back, and so does any other return of the job that kept it, but a DONE naming no case, as the watch's at a merge and drive job prove's are, which ran none, leaves it."""
-    held, done = data["orders"][order_id]["parts"][part], bool(re.match(r"DONE\b", line))
-    if done and (proof := full_pass(report, part)):
-        if (held["posted"], held["posted_by"]) == (proof, job_id):
-            return
-        moment = min([moment, *(reply["created_at"] for reply in replies(data["name"], job_id) if re.match(r"DONE\b", body := reply["body"] or reply["subject"]) and full_pass(body, part) == proof)], key=parse_time)
-        for pr in data["prs"].values():
-            if pr["state"] == "open" and (tap := pr["tap"] or {}).get("label") == "Approve" and parse_time(tap["at"]) <= parse_time(moment) and f"{order_id}:{part}" in job_waits(data, pr):
-                pr.update(tap=None, fundamental=f"its staging test passed after your Approve, so only an Approve you give now lands it: {proof}", updated=moment)
-        held.update(posted=proof, posted_by=job_id, passed_at=moment)
-    elif CASE_LINE.search(report) if done else held["posted_by"] == job_id:
-        held.update(posted=None, posted_by=None, passed_at=None)
+    """Keep or take back a staging test part's run on one return of a job testing it, kept at moment, as post_staging_proof says: a DONE running a case of the part keeps its cases and the job as posted_by, and its proof when they make a full pass, which, newly kept, is dated passed_at, when the job's first DONE carrying that proof was kept, so a WAITING between two DONEs of the same cases keeps the first's time, and takes back each Approve given before it or at that moment; any other return of the job whose run the part holds takes its proof back, and a DONE running none of its cases leaves it."""
+    held = data["orders"][order_id]["parts"][part]
+    if not re.match(r"DONE\b", line):
+        if held["posted_by"] == job_id:
+            held.update(posted=None, passed_at=None)
+        return
+    cases, proof = full_pass(data, job_id, report, part)
+    if all(UNEXERCISED_CASE.match(verdict) for _, verdict in cases):
+        return
+    kept = (held["posted"], held["posted_by"]) == (proof, job_id)
+    held.update(posted_by=job_id, cases=[[case, verdict] for case, verdict in cases])
+    if not proof:
+        held.update(posted=None, passed_at=None)
+        return
+    if kept:
+        return
+    moment = min([moment, *(reply["created_at"] for reply in replies(data["name"], job_id) if re.match(r"DONE\b", body := reply["body"] or reply["subject"]) and full_pass(data, job_id, body, part)[1] == proof)], key=parse_time)
+    for pr in data["prs"].values():
+        if pr["state"] == "open" and (tap := pr["tap"] or {}).get("label") == "Approve" and parse_time(tap["at"]) <= parse_time(moment) and f"{order_id}:{part}" in job_waits(data, pr):
+            pr.update(tap=None, fundamental=f"its staging test passed after your Approve, so only an Approve you give now lands it: {proof}", updated=moment)
+    held.update(posted=proof, passed_at=moment)
 
 
-def full_pass(report: str, part: str) -> str | None:
-    """The first proof a report's CHECK: lines name when its CASE lines, one or more, all read pass and it names the Forge-AI/monorepo PR the staging test part tests, by tests_named, else None."""
+def full_pass(data: dict, job_id: str, report: str, part: str) -> tuple[list[tuple[str, str]], str | None]:
+    """The cases a tester's report ran for a staging test part, by part_run, beside the first proof its CHECK: lines name for them when they make a full pass, by passing, and the report names the Forge-AI/monorepo PR the part tests, by tests_named, else None."""
+    cases, proofs = part_run(data, job_id, report, part)
+    return cases, proofs[0] if proofs and passing(cases) and tests_named(report, part) else None
+
+
+def passing(cases: list[tuple[str, str]]) -> bool:
+    """Whether a run's cases make a full pass: one or more reads pass and each other reads not exercised, which the PR's card names, by view.staging, so his Approve lands it without them."""
+    return any(PASSED_CASE.match(verdict) for _, verdict in cases) and all(PASSED_CASE.match(verdict) or UNEXERCISED_CASE.match(verdict) for _, verdict in cases)
+
+
+def part_run(data: dict, job_id: str, report: str, part: str) -> tuple[list[tuple[str, str]], list[str]]:
+    """The cases a tester's report ran for one staging test part, by case_lines, beside the proofs its CHECK: lines name for them: the whole report's while it holds one run of cases, by case_runs; else each run whose CHECK: lines name the part's PR, else, of the runs naming none of the PRs the job tests, the one in the turn the report first names the part's PR among the PRs no run names, while those runs and PRs are as many, as a DONE testing two PRs in turn under two builds names neither on its CHECK: lines, else all of them."""
     from drive import brief
 
-    cases = case_verdicts(report)
-    if not (cases and all(PASSED_CASE.match(verdict) for verdict in cases) and tests_named(report, part)):
-        return None
-    return next((found for check in brief.CHECK.findall(report) for found in brief.proofs(check)), None)
+    runs = case_runs(report)
+    if len(runs) < 2:
+        return case_lines(report), [found for check in brief.CHECK.findall(report) for found in brief.proofs(check)]
+    number, tested = STAGING_PART.fullmatch(part)["number"], {STAGING_PART.fullmatch(each)["number"] for _, each in staging_parts(data, data["jobs"][job_id])}
+    named = [[found for found in named_numbers(checks) if found in tested] for checks, _ in runs]
+    if not (mine := [run for run, numbers in zip(runs, named) if number in numbers]):
+        loose = [run for run, numbers in zip(runs, named) if not numbers]
+        left = [found for found in named_numbers(report) if found in tested and not any(found in numbers for numbers in named)]
+        mine = [loose[left.index(number)]] if number in left and len(loose) == len(left) else loose
+    return [case for _, cases in mine for case in cases], [found for checks, _ in mine for check in brief.CHECK.findall(checks) for found in brief.proofs(check)]
 
 
-def case_verdicts(report: str) -> list[str]:
-    """Each CASE line's verdict: the first piece after its case name, split at a colon and a space, that opens with pass, fail, skipped or not exercised, since a tester writes it before what ran, as CASE <case>: pass: <run>, or after it, as CASE <case>: <what ran>: pass, else all that follows the name."""
-    return [next((piece for piece in rest.split(": ") if CASE_VERDICT.match(piece)), rest) for rest in CASE_LINE.findall(report)]
+def case_runs(report: str) -> list[tuple[str, list[tuple[str, str]]]]:
+    """Each run of CASE lines a report holds, by case_lines, beside the CHECK: lines heading it: a CHECK: line after a CASE line opens the next run, as a DONE testing several PRs in turn reports each under the build that put it on staging."""
+    runs: list[tuple[list[str], list[str]]] = [([], [])]
+    for line in report.splitlines():
+        if line.startswith("CHECK:"):
+            if runs[-1][1]:
+                runs.append(([], []))
+            runs[-1][0].append(line)
+        elif CASE_LINE.fullmatch(line):
+            runs[-1][1].append(line)
+    return [("\n".join(checks), case_lines("\n".join(cases))) for checks, cases in runs if cases]
+
+
+def case_lines(report: str) -> list[tuple[str, str]]:
+    """Each CASE line as its case and its verdict, the verdict running from the first piece after the case name, split at a colon and a space, that opens with pass, fail, skipped or not exercised, to the line's end, since a tester writes it before what ran, as CASE <case>: pass: <run>, or after it, as CASE <case>: <what ran>: pass, else all that follows the name, and the case all before it."""
+    lines = []
+    for case, rest in CASE_LINE.findall(report):
+        pieces = [case, *rest.split(": ")]
+        at = next((index for index, piece in enumerate(pieces) if index and CASE_VERDICT.match(piece)), 1)
+        lines.append((": ".join(pieces[:at]), ": ".join(pieces[at:])))
+    return lines
+
+
+def unexercised(held: dict) -> list[tuple[str, str]]:
+    """Each case the run a staging test part holds did not exercise, by keep_pass, beside why, as its CASE line says it."""
+    return [(case, verdict[found.end() :]) for case, verdict in held["cases"] if (found := UNEXERCISED_CASE.match(verdict))]
+
+
+def unpassed(held: dict) -> str:
+    """Why the run a staging test part holds is no full pass, by keep_pass: each of its CASE lines reading neither pass nor not exercised, else that its DONE names no proof heading them or no line naming the PR."""
+    failed = [f"CASE {case}: {verdict}" for case, verdict in held["cases"] if not (PASSED_CASE.match(verdict) or UNEXERCISED_CASE.match(verdict))]
+    return "; ".join(failed) or "its CASE lines pass, and its DONE names no CHECK: proof heading them or no line naming the PR"
 
 
 def tests_named(report: str, part: str) -> bool:
-    """Whether a report names the Forge-AI/monorepo PR a staging test part tests, by link, key or bare #N."""
+    """Whether a report names the Forge-AI/monorepo PR a staging test part tests, by named_numbers."""
+    return STAGING_PART.fullmatch(part)["number"] in named_numbers(report)
+
+
+def named_numbers(text: str) -> list[str]:
+    """The number of each Forge-AI/monorepo PR a text names, by link, key or bare #N, in the turn it first names each."""
+    keys = (f"{MONOREPO}#{found.groups()[-1]}" if found.groups()[-1] else pr_key(found[0]) for found in PR_REF.finditer(text))
+    return list(dict.fromkeys(number for repo, _, number in (key.rpartition("#") for key in keys) if repo.casefold() == MONOREPO.casefold()))
+
+
+def part_soak(data: dict, waits: list[str], part: str) -> str | None:
+    """The staging wait among a tester's waits that soaks one staging test part: the one at a commit the head of the PR it tests opens with, else the first at a commit no other PR the drive tracks has for its head, so a tester of two PRs in turn keeps each one's own commit; None when neither."""
     key = f"{MONOREPO}#{STAGING_PART.fullmatch(part)['number']}".casefold()
-    return any((f"{MONOREPO}#{found.groups()[-1]}" if found.groups()[-1] else pr_key(found[0])).casefold() == key for found in PR_REF.finditer(report))
+    heads = {other.casefold(): pr["head"] or "" for other, pr in data["prs"].items()}
+    commits = [(wait, found["commit"]) for wait in waits if (found := STAGING_WAIT.fullmatch(wait))]
+    own = next((wait for wait, commit in commits if heads.get(key, "").startswith(commit)), None)
+    return own or next((wait for wait, commit in commits if not any(head.startswith(commit) for other, head in heads.items() if other != key)), None)
 
 
 def unstaged(data: dict, job_id: str, line: str, report: str) -> str | None:
-    """Why a staging test's DONE may not free the PRs held for it, naming the fix: a builder or codex job whose goal names staging or that holds a `staging test of #N before it lands` part, whose DONE, taken as take_result takes it, ends every wait an open PR holds on the job or a part it holds, never one following a release it started, by starts_cut, frees that PR only when a Buildkite build its CHECK: lines name passed an apply step on an env its infra/envs file marks `stage: staging` at a commit carrying the PR's head, read with one `bk build view` of each build and one git cherry of each freed PR in the coordinator's checkout, since a soak that tested what staging already ran, or a cut built without the PRs, proves none of them; None for any other result."""
+    """Why a staging test's DONE may not free the PRs held for it, naming the fix: a builder or codex job whose goal names staging or that holds a `staging test of #N before it lands` part, whose DONE, taken as take_result takes it, ends every wait an open PR holds on the job or a part it holds, never one following a release it started, by starts_cut, frees that PR only when a Buildkite build the CHECK: lines heading the PR's own run of cases name, by part_run, or every CHECK: line for a PR it tests no staging part of, passed an apply step on an env its infra/envs file marks `stage: staging` at a commit carrying the PR's head, read with one `bk build view` of each build and one git cherry of each freed PR in the coordinator's checkout, since a soak that tested what staging already ran, or a cut built without the PRs, proves none of them; None for any other result."""
     from drive import brief, settled, view
 
     job = data["jobs"][job_id]
@@ -2696,19 +2767,22 @@ def unstaged(data: dict, job_id: str, line: str, report: str) -> str | None:
     if not (freed := [key for key, waits in held.items() if not view.holding(taken, waits, None)]):
         return None
     clone = data["roles"]["coordinator"]["cwd"]
-    builds = list(dict.fromkeys(found[0] for check in brief.CHECK.findall(report) for proof in brief.proofs(check) if (found := github.BUILD.match(proof))))
-    deployed, said, lacking = [], [], {}
+    tested = {f"{MONOREPO}#{STAGING_PART.fullmatch(part)['number']}".casefold(): part for _, part in staging_parts(data, job)}
+    every = [proof for check in brief.CHECK.findall(report) for proof in brief.proofs(check)]
+    runs = {key: [found[0] for proof in (part_run(data, job_id, report, tested[key.casefold()])[1] if key.casefold() in tested else every) if (found := github.BUILD.match(proof))] for key in freed}
+    deployed, said, lacking = {}, [], {}
     try:
-        for build in builds:
+        for build in dict.fromkeys(build for builds in runs.values() for build in builds):
             named = github.BUILD.match(build)
             read = github.build(named["pipeline"], named["number"])
             if envs := sorted({step["env"] for ran in read.get("jobs", []) if ran.get("state") == "passed" and (step := APPLY_STEP.fullmatch(ran.get("step_key") or "")) and settled.stage(step["env"], clone) == settled.STAGING}):
-                deployed.append((build, read["commit"], envs))
+                deployed[build] = (read["commit"], envs)
             else:
                 said.append(f"{build} deployed nothing to staging, passing no apply step on an env its infra/envs file marks stage: staging")
         for key in freed:
             misses = []
-            for build, commit, envs in deployed:
+            for build in (build for build in runs[key] if build in deployed):
+                commit, envs = deployed[build]
                 if not (missing := github.uncarried(clone, commit, data["prs"][key]["head"])):
                     break
                 misses.append(f"git cherry finds {key}'s {', '.join(sha[:12] for sha in missing)} missing from {commit[:12]}, which {build} deployed to {', '.join(envs)}")
@@ -2720,21 +2794,27 @@ def unstaged(data: dict, job_id: str, line: str, report: str) -> str | None:
         return None
     said.extend(miss for misses in lacking.values() for miss in misses)
     return (
-        f"{job_id}'s DONE frees {', '.join(lacking)} from waiting on its staging test, and no build its CHECK: lines name deployed a commit carrying"
+        f"{job_id}'s DONE frees {', '.join(lacking)} from waiting on its staging test, and no build the CHECK: lines heading its cases name deployed a commit carrying"
         f" {'them' if len(lacking) > 1 else 'it'} to staging: {'; '.join(said) or 'they name no Buildkite build'}. Name on a CHECK: line the release build"
-        " that deployed a commit carrying each one's head to staging, or return WAITING on what still holds them, such as staging:<target>/<env>@<commit>"
+        " that deployed a commit carrying each one's head to staging, heading the CASE lines of that PR's run and naming the PR when the DONE tests several in turn, or return WAITING on what still holds them, such as staging:<target>/<env>@<commit>"
         " while staging does not run it yet"
     )
 
 
 def staged(data: dict, order_id: str, part: str) -> bool:
-    """Whether a staging test part holds the proof of a full pass its newest tester still stands on: posted_by names the newest builder or codex job testing the part, by part_testers, not stopped, which is done or waits on its own PRs' merge with that DONE by hold_done."""
+    """Whether a staging test part holds the proof of a full pass its tester still stands on: posted_by names a builder or codex job testing the part, by part_testers, done or waiting on its own PRs' merge with that DONE by hold_done, and each tester after it is done, as one following a release another job started is, its DONE running no case of the part, by keep_pass, or stopped, so only a newer tester at work, waiting or failed holds the pass from the PR."""
     held = data["orders"][order_id]["parts"][part]
-    testers = [(job_id, job) for job_id, job in part_testers(data, order_id, part) if job["kind"] in CHANGE_KINDS and job["state"] != "stopped"]
-    if not (held["posted"] and testers and testers[-1][0] == held["posted_by"]):
+    testers = [(job_id, job) for job_id, job in part_testers(data, order_id, part) if job["kind"] in CHANGE_KINDS]
+    ran = next((index for index, (job_id, _) in enumerate(testers) if job_id == held["posted_by"]), None)
+    if not held["posted"] or ran is None:
         return False
-    tester = testers[-1][1]
-    return tester["state"] == "done" or tester["state"] == "waiting" and bool(HELD_DONE.match(tester["said"] or ""))
+    (_, tester), *after = testers[ran:]
+    return done_or_held(tester) and all(done_or_held(job) or job["state"] == "stopped" for _, job in after)
+
+
+def done_or_held(job: dict) -> bool:
+    """Whether a job is done, or waits on its own PRs' merge with its DONE, by hold_done."""
+    return job["state"] == "done" or job["state"] == "waiting" and bool(HELD_DONE.match(job["said"] or ""))
 
 
 def job_waits(data: dict, pr: dict) -> list[str]:
@@ -2757,17 +2837,26 @@ def staging_runs(data: dict, pr: dict) -> list[str]:
 
 
 def staging_tester(data: dict, wait: str) -> str | None:
-    """The job running the staging test a PR's wait names: the job it names while that job carries a `staging test of #N before it lands` part, or builds nothing, proves no merge live and follows no release it started, as a tester over several PRs does, or the newest tester on the staging test part it names, by part_testers, that neither failed nor stopped; None for any other wait."""
+    """The job running the staging test a PR's wait names: the job it names while that job carries a `staging test of #N before it lands` part, or builds nothing, proves no merge live and follows no release it started, as a tester over several PRs does, or the tester of the staging test part it names, by part_tester; None for any other wait."""
     if job := data["jobs"].get(wait):
         testing = any(STAGING_PART.fullmatch(part) for order_id in [job["order"], *job["carries"]] for part in job_parts(job, order_id))
         return wait if (testing or builds_nothing(job) and not PROVER_GOAL.fullmatch(job["goal"])) and not starts_cut(job) else None
     if (part := part_wait(data, wait)) and STAGING_PART.fullmatch(part[1]):
-        return next((job_id for job_id, job in reversed(part_testers(data, *part)) if job["state"] not in ENDED_JOB_STATES), None)
+        return part_tester(data, *part)
     return None
 
 
+def part_tester(data: dict, order_id: str, part: str) -> str | None:
+    """The job testing a staging test part: its oldest tester not finished, by part_testers, so a job following a release another job started, added after it, never stands in its place, else the tester whose DONE last ran its cases, posted_by, while it neither failed nor stopped; None when neither."""
+    testers = part_testers(data, order_id, part)
+    if working := next((job_id for job_id, job in testers if job["state"] not in FINISHED_JOB_STATES), None):
+        return working
+    ran = data["orders"][order_id]["parts"][part]["posted_by"]
+    return ran if ran in dict(testers) and data["jobs"][ran]["state"] not in ENDED_JOB_STATES else None
+
+
 def delivered(data: dict, order_id: str, part: str) -> bool:
-    """Whether a part is delivered: never a standing part, which the watch starts its next pass on once each ends, so its order stays open; a staging test of a PR only by the full pass its newest tester kept on it, by staged, never by a done job or a post; any other once its posted field holds what delivered it, on work he ordered only the passing proof drive job prove ran, by deliver_proven, so the post that answered a part sorted as an answer stops delivering it once a builder, codex or design job takes it on as work, and on words he reads the post that answered it; no job's state, merge or PR link delivers a part."""
+    """Whether a part is delivered: never a standing part, which the watch starts its next pass on once each ends, so its order stays open; a staging test of a PR only by the full pass its tester kept on it, by staged, never by a done job or a post; any other once its posted field holds what delivered it, on work he ordered only the passing proof drive job prove ran, by deliver_proven, so the post that answered a part sorted as an answer stops delivering it once a builder, codex or design job takes it on as work, and on words he reads the post that answered it; no job's state, merge or PR link delivers a part."""
     held = data["orders"][order_id]["parts"][part]
     if held["standing"]:
         return False
@@ -2777,7 +2866,7 @@ def delivered(data: dict, order_id: str, part: str) -> bool:
 
 
 def owed_work(data: dict, job_id: str) -> list[tuple[str, str]]:
-    """Each open order and part of work he ordered that a job works on, on its own order and each it carries, that no proof delivered yet and no later job holds, by superseded, but a staging test part, which only its newest tester's full pass delivers, by post_staging_proof."""
+    """Each open order and part of work he ordered that a job works on, on its own order and each it carries, that no proof delivered yet and no later job holds, by superseded, but a staging test part, which only its tester's full pass delivers, by post_staging_proof."""
     job = data["jobs"][job_id]
     return [
         (order_id, part)
@@ -3006,7 +3095,7 @@ def new_order(text: str, source: str, thread: tuple[str, str] | None, parts: dic
 
 def new_part() -> dict:
     """A part of an order, undelivered and not standing: a standing part holds the goal each pass of it runs on, which drive order set --standing keeps."""
-    return {"posted": None, "posted_by": None, "passed_at": None, "orphan_said": None, "orphan_gap": None, "design": None, "answer": False, "standing": None, "soak": None, "follow": None}
+    return {"posted": None, "posted_by": None, "passed_at": None, "cases": [], "orphan_said": None, "orphan_gap": None, "design": None, "answer": False, "standing": None, "soak": None, "follow": None}
 
 
 def following(part: dict) -> bool:

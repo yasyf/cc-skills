@@ -5547,7 +5547,7 @@ def test_a_done_on_a_staging_test_part_names_its_cases_and_one_whose_case_failed
     assert keep(monkeypatch, capsys, "j1", failed)[0] == 0
     data = state.load("demo")
     assert (data["jobs"]["j1"]["state"], state.delivered(data, "o1", staging)) == ("done", False)
-    with pytest.raises(state.DriveError, match="a staging test part is delivered only by the DONE of its newest tester"):
+    with pytest.raises(state.DriveError, match="a staging test part is delivered only by the DONE of its tester whose CASE lines for its PR read pass"):
         cli.answered_by("demo", "o1", staging, "https://github.com/Forge-AI/monorepo/pull/42")
 
 

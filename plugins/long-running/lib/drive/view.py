@@ -376,7 +376,7 @@ def coming(drive: dict, job_id: str) -> bool:
 
 
 def staging(drive: dict, key: str) -> str:
-    """What a PR's cards say of its staging test, read from the `staging test of #N before it lands` part an order holds for it, the soak its tester last waited on and the newest tester on it, by state.part_testers: tested on staging with its env, commit and result, a pass with when its tester returned it, testing while its job runs, or not on staging and why, the why of its builder's `STAGING: none` among them."""
+    """What a PR's cards say of its staging test, read from the `staging test of #N before it lands` part an order holds for it, the soak its tester last waited on for this PR and its testers, by state.part_testers: tested on staging with its env, commit and result, a pass with when its tester returned it and each case it did not exercise with why, which his Approve lands it without, testing while a tester is at work, or not on staging and why, each CASE line of the run it holds that did not pass, a tester's DONE that ran none of its cases and the why of its builder's `STAGING: none` among them."""
     repo, _, number = key.rpartition("#")
     if repo.lower() != state.MONOREPO.lower():
         return f"Not on staging: {repo} has no staging env"
@@ -390,13 +390,22 @@ def staging(drive: dict, key: str) -> str:
     where = f"{soak['env']} at {soak['commit'][:7]}, " if soak else ""
     if passed := next((each for each in parts if each["posted"]), None):
         at = f" at {when(passed['passed_at'])}" if passed["passed_at"] else ""
-        return f"Tested on staging: {where}passed{at}, " + (link("proof", passed["posted"]) if passed["posted"].startswith("https://") else "its proof a file on the Mac")
-    jobs = sorted((job for order_id in held for _, job in state.part_testers(drive, order_id, part)), key=lambda job: job["created"])
+        untested = "; ".join(f"{case} ({cut(why, TITLE_CHARS)})" if why else case for case, why in state.unexercised(passed))
+        proof = link("proof", passed["posted"]) if passed["posted"].startswith("https://") else "its proof a file on the Mac"
+        return f"Tested on staging: {where}passed{at}, {proof}" + (f". Land it without what staging did not exercise? {untested}. Approve lands it without them; Hold keeps it from landing" if untested else "")
+    jobs = sorted(((job_id, job) for order_id in held for job_id, job in state.part_testers(drive, order_id, part)), key=lambda pair: pair[1]["created"])
     if not jobs:
         return "Not on staging: its staging test has not started"
-    if jobs[-1]["state"] not in state.FINISHED_JOB_STATES:
-        return f"Not on staging yet: waiting for {soak['env']} to run {soak['commit'][:7]}" if soak and soak[0] in jobs[-1]["waits"] else f"Testing on staging: {where}running"
-    result = "stopped with no result" if jobs[-1]["state"] == "stopped" else f"no pass: {cut(without_records(jobs[-1]['said'] or ''), NOW_CHARS)}"
+    ran = next((each for each in parts if each["posted_by"]), None)
+    job_id, job = next(((job_id, job) for job_id, job in reversed(jobs) if job["state"] != "done" or ran and job_id == ran["posted_by"]), jobs[-1])
+    if job["state"] not in state.FINISHED_JOB_STATES:
+        return f"Not on staging yet: waiting for {soak['env']} to run {soak['commit'][:7]}" if soak and soak[0] in job["waits"] else f"Testing on staging: {where}running"
+    if job["state"] == "stopped":
+        result = "stopped with no result"
+    elif ran and job_id == ran["posted_by"]:
+        result = f"no pass: {cut(state.unpassed(ran), NOW_CHARS)}"
+    else:
+        result = f"no pass: {job_id}'s DONE ran none of its cases" if job["state"] == "done" else f"no pass: {cut(without_records(job['said'] or '') or job['state'], NOW_CHARS)}"
     return f"Tested on staging: {where}{result}" if soak else f"Not on staging: its test ended, {result}"
 
 
