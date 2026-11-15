@@ -406,6 +406,10 @@ def held_path(name: str, project: str | None = None) -> Path:
     return drive_dir(name) / f"watch{watch_suffix(project)}.held"
 
 
+def overdue_path(name: str, caller: str) -> Path:
+    return drive_dir(name) / "overdue" / caller
+
+
 def reads_path(name: str, project: str | None = None) -> Path:
     return drive_dir(name) / f"watch{watch_suffix(project)}.reads"
 
@@ -4394,6 +4398,21 @@ def held_clocks(name: str, session: str, agent: str | None) -> dict:
     """The owner row and the clocks row's orders a session or a job's agent holds, an agent's alone when the call is a subagent's, both read in one transaction with no lock; none from a drive no install writing the row saved since."""
     saved = stored(name, (CLOCKS, "owner"))
     return saved | {CLOCKS: [entry for entry in saved.get(CLOCKS, []) if (agent in entry["agents"] if agent else session in entry["sessions"])]}
+
+
+def show_overdue(name: str, caller: str, shown: list[list]) -> bool:
+    """Whether the overdue block render.overdue drew shows other orders or steps than the caller's last one, a session's or a job agent's, keeping what this one shows when it does, in a file of the caller's own, written lock-free under a name of this process's own, since parallel calls draw at once; a caller holding no order keeps none, so its next order shows."""
+    path = overdue_path(name, caller)
+    if not shown:
+        path.unlink(missing_ok=True)
+        return False
+    if path.exists() and json.loads(path.read_text()) == shown:
+        return False
+    path.parent.mkdir(exist_ok=True)
+    tmp = path.with_name(f"{caller}.{os.getpid()}")
+    tmp.write_text(json.dumps(shown))
+    os.replace(tmp, path)
+    return True
 
 
 def open_incidents(data: dict, order_ids: list[str]) -> list[str]:

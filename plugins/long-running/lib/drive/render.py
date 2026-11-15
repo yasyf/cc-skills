@@ -239,6 +239,8 @@ JOB = {
 REPROS_SHOWN = 5
 OVERDUE_HEADING = "Orders he waits on a line from, most overdue first; due is the time promised him, else five quiet minutes after the thread's last line while a job of the order runs:"
 OVERDUE_TITLE_CHARS = 60
+OVERDUE_SHOWN = 5
+OVERDUE_STEP = timedelta(minutes=15)
 FILED = "The projects and workstreams in use, which a new order reuses where it fits, one home a subject, since drive order add and set refuse a name other orders file only as the other of the two: drive order unfiled lists each pair."
 WHOLE = sys.maxsize
 REPO_RULES_HEADING = f"The rules of the repository this drive works in, which its {REPO_RULES} holds at its default branch's head, and every session and job of every drive working in it follows:"
@@ -326,21 +328,25 @@ def clock(moment: datetime, seconds: bool = False) -> str:
     return moment.strftime("%-I:%M:%S %p" if seconds else "%-I:%M %p")
 
 
-def overdue(drive: dict, moment: datetime) -> list[str]:
-    """A line for each order of the clocks row state.held_clocks kept, those a session or job holds, most overdue first, by his words "add something in our tooling so the agent can see whenever it takes an action, how long since it last messaged the user / gave an update, and how far over it's SLA is it": the minutes since its thread's last line to him, its due, and the minutes past it he read present, an incident's every minute, since the watch owes its line while he is away too; one he is away from now says his catch-up carries it."""
+def overdue(drive: dict, moment: datetime) -> tuple[list[list], list[str]]:
+    """The block of the orders of the clocks row state.held_clocks kept, those a session or job holds, most overdue first, by his words "add something in our tooling so the agent can see whenever it takes an action, how long since it last messaged the user / gave an update, and how far over it's SLA is it", beside what it shows for state.show_overdue to draw it by: the five most overdue and how many more, each with the minutes since its thread's last line to him, its due, and the minutes past it he read present, an incident's every minute, since the watch owes its line while he is away too, one he is away from now saying his catch-up carries it; what it shows is each of those five beside its step, none before its due, one more once past due and at each fifteen minutes past it, and while he is away none for a line that shows no minutes, so a block repeats only when the five or a step change."""
     if not (held := drive[CLOCKS]):
-        return []
+        return [], []
     away = owner_away(drive, moment)
     late = {entry["order"]: max(timedelta(), moment - parse_time(entry["due"]) if entry["incident"] else present(drive, parse_time(entry["due"]), moment)) for entry in held}
-    lines = [OVERDUE_HEADING]
-    for entry in sorted(held, key=lambda entry: (-late[entry["order"]], parse_time(entry["due"]))):
+    lines, shown = [OVERDUE_HEADING], []
+    for entry in sorted(held, key=lambda entry: (-late[entry["order"]], parse_time(entry["due"])))[:OVERDUE_SHOWN]:
         quiet = int((moment - parse_time(entry["since"])).total_seconds() // 60)
         if away and not entry["incident"]:
-            standing = "; he is away, so his catch-up post on his return carries it"
+            standing, step = "; he is away, so his catch-up post on his return carries it", None
         else:
             standing = f", {int(late[entry['order']].total_seconds() // 60)} min past due" if late[entry["order"]] else ", not past due"
+            step = 1 + late[entry["order"]] // OVERDUE_STEP if late[entry["order"]] else 0
         lines.append(f"- {entry['order']} {cut(entry['title'], OVERDUE_TITLE_CHARS)}: {quiet} min since its thread's last line to him, due {when(entry['due'])}{standing}")
-    return lines
+        shown.append([entry["order"], step])
+    if len(held) > OVERDUE_SHOWN:
+        lines.append(f"- and {len(held) - OVERDUE_SHOWN} more")
+    return shown, lines
 
 
 def when(iso: str, seconds: bool = False) -> str:
