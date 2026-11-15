@@ -701,12 +701,12 @@ restating it.
   line of his words.
 - Name a ruling of his as `{answer:<id>}`, which `say` draws as when he said it and its first words,
   linked to the ack of them in his DM, since the id cc-notes keeps it under means nothing to him.
-- State a cause, a number or a state only through the read that measured it: a record, as `{record:<seq>}`
-  on the same line, or, in a handler's post, a read of its own its `claims` list beside that line. `say` links what the record measured, its `--url`, under the first clause of the record's own
-  words, at most ten, or under the words after a |, as `{record:<seq>|the memory graph}`, so the
-  measuring lane's evidence is one tap away and its whole text never joins the post or its length:
+- State a cause, a number or a state only through the read that measured it: a record, as
+  `{record:<seq>|<what that read measured>}` on the same line, or, in a handler's post, a read of its own its `claims` list beside that line. `say` links what the record measured, its `--url`, under the words after its |, as `{record:<seq>|the memory graph}`, so the
+  measuring lane's evidence is one tap away and none of the record's own words join the post or its length:
   on Nov 10 a line at 8:46 PM blamed "the change that started the failures" without naming it, and a
-  card he tapped at 9:49 PM carried a false "disk full". `say` posts nothing while a line outside a
+  card he tapped at 9:49 PM carried a false "disk full". `say` refuses a bare `{record:<seq>}`, naming the
+  record's opening it would have drawn, words its poster never wrote. `say` posts nothing while a line outside a
   fence or quote names a cause, such as "because" or "caused", with no `{record:}` on it, unless a
   handler's post lists it in `claims`, where Jev checks it against the read beside it.
 - A line telling him a state of work, that it is fixed, covers his case, merged, landed, queued,
@@ -944,8 +944,8 @@ GET 2 page ranges
   words: "stop hard coding it and just use jev evaluating my message and rules to see if it's ok to
   send" and, on a refusal Jev got wrong, "you need to fix the hookw henver it wrongly refuses yu".
 - What the session passed `say` is what he reads: `say` adds no words of its own and checks nothing
-  again. Check-post reads the words under each link, so a card, PR, order or record title it flags is
-  named in the post's own words, `{pr:<number>|<words>}` or `{record:<seq>|<words>}`.
+  again. Check-post reads the words under each link, so a card, PR or order title it flags is
+  named in the post's own words, `{pr:<number>|<words>}`, as every record is, `{record:<seq>|<words>}`.
 - A post that answers him passes each message of his in `asked`, word for word or by its permalink
   in his DM, and check-post gets each message's words as `--asked`, so a drive word he used there,
   such as "the drive" in his question about the drive, passes in the answer, and so does an internal

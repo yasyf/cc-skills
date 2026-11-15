@@ -154,7 +154,7 @@ REWORDINGS = [
         " minutes, so splitting large tables would not have changed tonight. Production still serves from the old replica."
         " A fix is being written; next line by 3:25 AM."),
         ("*Table size was not the cause.* The new replica restored the snapshot from the bucket, which ends at write 22, but"
-        " its readiness check needs write 23, so it never passed and logged no error (see {record:661300}).\n\nThe largest"
+        " its readiness check needs write 23, so it never passed and logged no error (see {record:661300|restore log}).\n\nThe largest"
         " database (13 GB) caught up in about two minutes, so splitting large tables would not have changed tonight. Production still serves from"
         " the old replica. A fix is being written; next line by 3:25 AM."),
     ),
@@ -174,7 +174,7 @@ REWORDINGS = [
         " the release tool refuses to retry it. Next line by 3:50 AM."),
         ("*Two causes are being traced.* Acme's snapshot was uploaded at `1:23 AM` Nov 9 and its LTX files in the bucket were"
         " gone by 3:15 AM Nov 10; the bucket's delete log is refused to us, so who removed them is open. The aborted rollout"
-        " blocked the resume because the release tool refuses to retry it (see {record:661300}). Next line by 3:50 AM."),
+        " blocked the resume because the release tool refuses to retry it (see {record:661300|restore log}). Next line by 3:50 AM."),
     ),
 ]
 
@@ -1047,7 +1047,7 @@ def test_a_record_the_post_cites_or_a_claim_names_reaches_jev_as_the_handlers_ne
     one = ("Bash", {"command": "cci show 675300"}, "675300 report root>communicator DONE lower.rs:300 reads")
     for each in (both, narrower, one):
         tool(lane_of(transcript), *each)
-    text = "2,723 refusals across 11 teams ({record:675192}), as {record:675111} found."
+    text = "2,723 refusals across 11 teams ({record:675192|the count}), as {record:675111|the audit} found."
     claims = [{"claim": "A pack deletes the run's values in its range", "read": "record:675300"}]
     reads = evidence(transcript, monkeypatch, capsys, text=text, thread_ts="1.2", record="673870", claims=claims)
     assert [(read["id"], read["source"], read["quote"]) for read in reads] == [
@@ -1438,7 +1438,7 @@ def test_a_line_waiting_on_his_pick_with_no_card_is_judged_by_his_card_rule_and_
 def test_a_line_naming_a_cause_with_no_record_is_found_its_handlers_claim_and_his_own_words_are_not(talker: str, transcript: Path) -> None:
     caused = "Merged.\nThe runs failed because the pool was full"
     assert say(transcript, text=caused) == (
-        "refused: a line naming a cause or telling him a state of work carries {record:<seq>} of the read that measured it, on that line, or, in a"
+        "refused: a line naming a cause or telling him a state of work carries {record:<seq>|<what that read measured>} of the read that measured it, on that line, or, in a"
         " handler's post, sits in claims beside the read behind it; a state no read of this turn measured says unverified: The runs failed because the pool was full"
     )
     assert say(transcript, text=caused, claims=[{"claim": "The runs failed because the pool was full", "read": "pool.go:40-52"}]) is None
@@ -1539,11 +1539,11 @@ def test_a_line_reading_as_a_drive_failure_or_citing_a_defect_record_warns_the_s
     monkeypatch.setattr(refs.reads, "run", lambda argv, checkout: json.dumps(shown[argv[2]]))
     proof = "The one refused request was this drive's own proof job starting a staging cloud agent."
     uncited = "Its card was refused: nobody checked that PR against your words."
-    cited = "The say hook refused the table post, {record:671981}."
+    cited = "The say hook refused the table post, {record:671981|the defect}."
     passive = "The drive's staging request was refused by SandSQL."
-    defect = "Tables post as Slack tables again, {record:671981}."
+    defect = "Tables post as Slack tables again, {record:671981|the table check}."
     fix = "<https://github.com/yasyf/cc-skills/pull/4486|the say fix>"
-    said = "\n".join((proof, uncited, cited, passive, defect, "SandSQL's answer is in {record:672190}."))
+    said = "\n".join((proof, uncited, cited, passive, defect, "SandSQL's answer is in {record:672190|its log}."))
     assert refs.unprevented(said, refs.resolved("demo", said), set()) == [proof, uncited, cited, passive, defect]
     assert refs.unprevented(f"{said}\n{cited} {fix} counts each table row on its own.", refs.resolved("demo", said), set()) == []
     told = f"{cited}\n{defect}"

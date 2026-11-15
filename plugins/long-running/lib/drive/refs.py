@@ -51,7 +51,7 @@ RECORD_WORDS = 10
 
 
 def resolved(name: str, text: str) -> dict[str, dict]:
-    """Each reference the text holds, read from the drive: {card:<waits id>}, {pr:<number, owner/repo#number or URL>}, {order:<id>}, {record:<seq>}, {answer:<id>}, and {started:<job>} and {at:<seq>}, the time a job started, labelled as the job's start, and the time a record went out, with the words that name it, the words after a | when it has them beside its own title, and where it opens; one that names nothing, or a reference or link inside a raw link's words, refuses the post."""
+    """Each reference the text holds, read from the drive: {card:<waits id>}, {pr:<number, owner/repo#number or URL>}, {order:<id>}, {record:<seq>|<what that read measured>}, {answer:<id>}, and {started:<job>} and {at:<seq>}, the time a job started, labelled as the job's start, and the time a record went out, with the words that name it, the words after a | when it has them beside its own title, and where it opens; one that names nothing, a {record:<seq>} with no words of the poster's after its |, or a reference or link inside a raw link's words, refuses the post."""
     if refusal := nested(text):
         raise DriveError(refusal)
     found = {}
@@ -71,7 +71,7 @@ def resolved(name: str, text: str) -> dict[str, dict]:
             case "order":
                 found[match[0]] = order(name, data, match[2])
             case "record":
-                found[match[0]] = record(name, match[2])
+                found[match[0]] = record(name, match[2], label)
             case "answer":
                 found[match[0]] = answer(data, match[2])
             case "started":
@@ -221,16 +221,21 @@ def order(name: str, data: dict, order_id: str) -> dict:
     return {"kind": "order", "title": view.plain(data["orders"][order_id]["text"], view.TITLE_CHARS), "url": url, "board": board}
 
 
-def record(name: str, seq: str) -> dict:
-    """A cci record under the opening of its own words, so a cause links the measurement behind it in a few words and the record's whole text never joins the post: a link to what the record measured, its url, which report_refusals keeps off a report naming his message, or those words alone when it links nothing."""
+def record(name: str, seq: str, label: str) -> dict:
+    """A cci record under the poster's words after its |, saying what that read measured, linked to what the record measured, its url, which report_refusals keeps off a report naming his message, or those words alone when it links nothing; a bare {record:<seq>} would draw the record's own opening, words its poster never wrote, such as a bare PR number check-post refuses, and refuses the post naming them."""
     found = shown(name, "record", seq)
+    if not label:
+        raise DriveError(
+            f"{{record:{seq}}} would draw that record's own words, \"{opening(found['text'])}\", which you never wrote: say what that read"
+            f" measured after a |, as {{record:{seq}|<what that read measured>}}"
+        )
     url = found["refs"].get("url")
-    return {"kind": "record", "title": opening(found["text"]), "url": url, "board": url, "defect": found["kind"] == "defect"}
+    return {"kind": "record", "title": label, "url": url, "board": url, "defect": found["kind"] == "defect"}
 
 
 def records(name: str, text: str) -> dict[str, dict]:
-    """Each {record:<seq>} reference the text holds, read from cci as resolved reads it."""
-    return {match[0]: record(name, match[2]) for match in REF.finditer(text) if match[1] == "record"}
+    """Whether each {record:<seq>} reference the text holds cites a defect record, read from cci."""
+    return {match[0]: {"defect": shown(name, "record", match[2])["kind"] == "defect"} for match in REF.finditer(text) if match[1] == "record"}
 
 
 def answer(data: dict, answer_id: str) -> dict:
@@ -280,7 +285,7 @@ def shown(name: str, kind: str, seq: str) -> dict:
 
 
 def opening(text: str) -> str:
-    """The first clause of a record's first line, at most ten words, which a link's words in his posts rarely pass."""
+    """The first clause of a record's first line, at most ten words, the words a bare {record:<seq>} would draw."""
     words = CLAUSE_END.split(view.plain(text, len(text)), maxsplit=1)[0].split()
     return " ".join(words[:RECORD_WORDS]) + ("…" if len(words) > RECORD_WORDS else "")
 

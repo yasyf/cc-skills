@@ -67,7 +67,7 @@ UNREAD = (
 )
 DRIVE_ID = re.compile(r"^\d+:\d+ drive-term '[oj]\d+'")
 CAUSE_RULE = (
-    "State a cause, a number or a state only through the read that measured it, as {record:<seq>} on the same line or, in a handler's post, in claims beside that read: on"
+    "State a cause, a number or a state only through the read that measured it, as {record:<seq>|<what that read measured>} on the same line or, in a handler's post, in claims beside that read: on"
     ' Nov 10 a line at 8:46 PM blamed "the change that started the failures" without naming it, and a card he tapped at'
     ' 9:49 PM carried a false "disk full". It covers why a system, tool, run or session did something, or a number or state one'
     " measured, a cause the session worked out from code, logs or a trace included, never the session's own act or mistake told in"
@@ -401,7 +401,7 @@ def unbacked(payload: dict, said: str) -> str | None:
     if not (lines := [*causes, *states]):
         return None
     return agents.Ruled(
-        "refused: a line naming a cause or telling him a state of work carries {record:<seq>} of the read that measured it, on that line, or, in a"
+        "refused: a line naming a cause or telling him a state of work carries {record:<seq>|<what that read measured>} of the read that measured it, on that line, or, in a"
         f" handler's post, sits in claims beside the read behind it; a state no read of this turn measured says unverified: {' | '.join(lines)}",
         CAUSE_RULE,
         found=f"these lines name a cause or tell him a state of work with no {{record:<seq>}} of the read that measured it: {' | '.join(lines)}",
