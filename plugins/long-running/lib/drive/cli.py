@@ -2603,7 +2603,7 @@ def remote_job(data: dict, job_id: str) -> dict:
         restore = f", or put it back on its lane with drive job set {job_id} --agent {job['dispatch']}, then resume it" if job.get("dispatch") else ""
         raise DriveError(f"{job_id} runs on this Mac as agent {job['agent']}; resume it with SendMessage{restore}")
     if job["kind"] == "codex":
-        raise DriveError(f"{job_id} runs as codex-ask runs on this Mac, which no agent or lane relays: drive job resume {job_id} \"<text>\" gives its next run a text")
+        raise DriveError(f"{job_id} runs as codex-ask runs on this Mac, which no agent or lane relays: drive job resume {job_id} \"<text>\" gives its run a text")
     raise DriveError(
         f"{job_id} has no agent and no lane yet: start it on a Sprite with drive job launch {job_id} <brief>, as an Orca"
         f" worker on this Mac with drive job launch {job_id} <brief> --local, or start an Agent here whose brief ends Drive: <drive>, order <order>, job {job_id}"
@@ -2861,7 +2861,7 @@ def job_resume(args: argparse.Namespace) -> int:
 
 
 def codex_resume(args: argparse.Namespace, name: str) -> int:
-    """Give a codex job the text, and every other text it holds, at its next codex-ask run, each under the heading state.held_since gives its sender, the text under its sender's role, since codex-ask runs codex exec on a question it reads whole as the run starts, and a run that goes takes no text: held while a run goes or its result waits to be taken, which the watch's launch carries once the job returns and stays open, else carried by a run started now, the text held when that start is refused. A stopped job is refused as any resume is."""
+    """Give a codex job the text, and every other text it holds, each under the heading state.held_since gives its sender, the text under its sender's role: held while a run goes or its result waits to be taken, which landing_guard hands the run at its next Bash call, since codex-ask runs codex exec on a question it reads whole as the run starts and that hook is the one thing a running run hears from outside it, and which the watch's launch carries once the job returns and stays open when the run ends first; else carried by a run started now, the text held when that start is refused. A stopped job is refused as any resume is."""
     data = state.load(name)
     job = data["jobs"][args.id]
     unstopped(args.id, job)
@@ -2872,7 +2872,7 @@ def codex_resume(args: argparse.Namespace, name: str) -> int:
         return emit(args, f"{args.id} holds no message to send", {"id": args.id, "how": None})
     under = " and ".join(dict.fromkeys(state.since_heading(who) for who in [*(kept["sender"] for kept in job["undelivered"]), *([sender] if args.text is not None else [])]))
     if job["state"] == "running":
-        line = f"{args.id}: held for its next codex-ask run under {under}, since the run that goes reads no text; the watch starts that run with it once this one returns with the job still open"
+        line = f"{args.id}: held under {under} for its codex-ask run, which landing_guard hands it at the run's next Bash call; the watch's next launch carries it if the run ends first"
         return emit(args, line, {"id": args.id, "how": "held"})
     try:
         folder = codex_launch(name, args.id, None)
@@ -3444,9 +3444,14 @@ def job_held(args: argparse.Namespace) -> int:
 
 
 def job_wake(args: argparse.Namespace) -> int:
-    """Send the text to the job's lane as a message to its Dispatch while Orca holds its worker taking messages, under the job's own lock as drive pr wake sends one, and refuse, sending and starting nothing, a job that is stopped, whose lane ended or that no lane Orca holds runs: the one way the watchdog's agent messages the job answering for a stall, by his pick "Report, plus two safe acts, rerunning a failed build and messaging the owning job", never starting a worker."""
+    """Send the text to the job's lane as a message to its Dispatch while Orca holds its worker taking messages, under the job's own lock as drive pr wake sends one, or hold it by codex_resume for a codex job whose codex-ask run goes, which hears it at its next Bash call, and refuse, sending and starting nothing, a job that is stopped, whose lane or codex-ask run ended or that no lane Orca holds runs: the one way the watchdog's agent messages the job answering for a stall, by his pick "Report, plus two safe acts, rerunning a failed build and messaging the owning job", never starting a worker."""
     name = state.resolve(args.drive)
-    if not find(state.load(name)["jobs"], args.id, "job").get("dispatch"):
+    job = find(state.load(name)["jobs"], args.id, "job")
+    if job["kind"] == "codex":
+        if job["state"] != "running":
+            raise DriveError(f"{args.id}: refused, nothing sent or started: no codex-ask run of it goes, and drive job wake reaches only a run that goes")
+        return codex_resume(args, name)
+    if not job.get("dispatch"):
         raise DriveError(f"{args.id}: refused, nothing sent: no lane Orca holds runs it, and an agent on this Mac takes a message only from its own session")
     with state.job_locked(name, args.id, orca.LAUNCH_SECONDS):
         job = state.load(name)["jobs"][args.id]
@@ -5486,8 +5491,8 @@ def parser() -> argparse.ArgumentParser:
             "relaunch meanwhile carries every held text in its handoff; a relaunch Orca refuses exits 2 with Orca's refusal, "
             "the text still held. With no text, it sends what the job holds now. A job held by an Agent another session started, which this session cannot "
             "SendMessage, gets a handoff brief instead, carrying the same, and prints its `Read your brief first:` line: an agent "
-            "this session starts on it takes the job as this session's. A codex job takes the text at its next codex-ask run, under the heading naming its sender, "
-            "since a run that goes reads no text: held while one goes, for the watch's launch once the job returns still open, else carried by a run started now."
+            "this session starts on it takes the job as this session's. A codex job takes the text under the heading naming its sender: held while a codex-ask run "
+            "goes, which landing_guard hands that run at its next Bash call, the watch's launch carrying it once the job returns still open when the run ended first, else carried by a run started now."
         ),
     )
     verb.add_argument("id")
@@ -5532,7 +5537,7 @@ def parser() -> argparse.ArgumentParser:
         help="instead, why his hold on every release refuses this release, a `ci release start` or `hotfix` as the job runs it, or a release verb naming none; the landing_guard hook on a Sprite lane asks it before the lane starts, resumes, approves, reruns or rolls back a release",
     )
     verb.set_defaults(run=job_held)
-    verb = job.add_parser("wake", parents=both, help="send the job's lane a message while it takes messages, starting no worker: the watchdog's agent's one way to message the job answering for a stall")
+    verb = job.add_parser("wake", parents=both, help="send the job's lane a message while it takes messages, or hold it for a codex job's run that goes, which hears it at its next Bash call, starting no worker: the watchdog's agent's one way to message the job answering for a stall")
     verb.add_argument("id", help="the job")
     verb.add_argument("--text", required=True, help="the message")
     verb.set_defaults(run=job_wake)

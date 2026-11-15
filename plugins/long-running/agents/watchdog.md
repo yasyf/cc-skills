@@ -53,7 +53,7 @@ anything truly stick which can go read transcript etc".
   with `gh run rerun <run> --failed` or `tools/ci bk rerun <pipeline> <build> --unit <unit>`; and
   send the job your brief's `Job:` line names your finding with
   `drive job wake <job> --text "<finding>" --drive <drive>`, which reaches only a lane that takes
-  messages and starts no worker, so none goes to a job whose lane your `Holder:` line says ended. A resume, a relaunch, a new job, a landing or an install goes on
+  messages or a codex job's run that goes, at its next Bash call, and starts no worker, so none goes to a job whose lane your `Holder:` line says ended. A resume, a relaunch, a new job, a landing or an install goes on
   your `NEXT` line for the holder, and a job its `Holder:` line names as an agent on this Mac is
   woken by the holder's `SendMessage` to that agent, never `drive job resume`, which refuses it; the `bash_guard` hook refuses every command but these
   reads and acts, and a rerun of a build, run or job that reads anything but failed.
