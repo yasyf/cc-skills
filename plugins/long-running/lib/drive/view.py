@@ -75,7 +75,7 @@ ANSWER_WAIT = timedelta(minutes=2)
 OWED_WAIT = timedelta(minutes=10)
 CARD_WAIT = timedelta(hours=48)
 APPROVED_WAIT = timedelta(hours=24)
-SWEEP_BARS = ("answers", "owed", "reasks", "cards", "approved")
+SWEEP_BARS = ("answers", "owed", "cards", "approved")
 SWEARS = re.compile(r"\b(?:fuck\w*|shit\w*|bullshit\w*|damn\w*|goddamn\w*|wtf|crap\w*|hell)\b", re.IGNORECASE)
 HISTORY_EVENTS = ("tap", "refused", "said", "answered", "undone")
 BOARD_EVENTS = (*HISTORY_EVENTS, "asked")
@@ -1283,28 +1283,20 @@ def bar_cell(bar: str, waits: list[dict]) -> dict:
 
 
 def slack_waits(drive: dict, said: Iterable[dict], owed: list[dict], moment: datetime) -> dict[str, list[dict]]:
-    """What the daily Slack sweep measures of the back-and-forth with him in these events and the messages of his cc-slack owes, by bar, each wait with its `link`, `at`, when it began, and the `project` it is filed under, by `filed_project`, oldest first: `answers`, each message of his a post answered, with its `wait` from his message to the first post answering it; `owed`, each message of his still owed an answer past OWED_WAIT; `reasks`, each re-ask posted at a channel's root rather than in its card's thread; `approved`, each PR still open past APPROVED_WAIT after his Approve. `crossing` says whether they cross their bar."""
-    from drive import talk
-
+    """What the daily Slack sweep measures of the back-and-forth with him in these events and the messages of his cc-slack owes, by bar, each wait with its `link`, `at`, when it began, and the `project` it is filed under, by `filed_project`, oldest first: `answers`, each message of his a post answered, with its `wait` from his message to the first post answering it; `owed`, each message of his still owed an answer past OWED_WAIT; `approved`, each PR still open past APPROVED_WAIT after his Approve. `crossing` says whether they cross their bar."""
     channels = {channel: project for project in state.projects(drive) if (channel := slack.project_channel(drive["name"], project)) != slack.dm()}
-    answers, reasks = {}, []
+    answers = {}
     for event in said:
-        if event["kind"] != "said" or event["edited"]:
-            continue
-        reask = event["text"].startswith(talk.ASKING_AGAIN) and (message := state.slack_message(event["url"])) and message[1] == message[2]
-        if not (reask or event.get("answers")):
+        if event["kind"] != "said" or event["edited"] or not event.get("answers"):
             continue
         project = filed_project(drive, channels, [event["order"], *(order_id for key in event["prs"] if key in drive["prs"] for order_id in state.served_orders(drive, drive["prs"][key]))], event["channel"])
         for ts in event.get("answers", []):
             asked = slack.sent_at({"ts": ts})
             answers.setdefault(ts, {"link": event["url"], "at": asked.isoformat(), "project": project, "wait": state.parse_time(event["at"]) - asked})
-        if reask:
-            reasks.append({"link": event["url"], "at": event["at"], "project": project})
     late = [(reply, state.slack_message(reply["permalink"])) for reply in owed if moment - slack.sent_at(reply) > OWED_WAIT]
     waits = {
         "answers": list(answers.values()),
         "owed": [{"link": reply["permalink"], "at": slack.sent_at(reply).isoformat(), "project": filed_project(drive, channels, [state.message_order(drive, channel, thread, ts)], channel)} for reply, (channel, ts, thread) in late],
-        "reasks": reasks,
         "approved": [
             {"link": pr["url"], "at": tap["at"], "project": filed_project(drive, channels, state.served_orders(drive, pr), None)}
             for pr in drive["prs"].values()

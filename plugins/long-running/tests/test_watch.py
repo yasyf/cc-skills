@@ -17,7 +17,7 @@ from types import SimpleNamespace
 
 import pytest
 from conftest import DRIVE_TERMINAL, HELD_RELEASES, LEAD, REAL_SCRATCH, RESEARCH, SHORT_ASK, UNFROZEN, Answers, CodexAsk, drawn_card, Draws, Jev, Judge, Receiver, Redraws, Thread, WatchProcess, Withdrawals, codex_reply, commit_files, git_in, said_lines, staged
-from drive import agents, card, cli, codex, github, install, land, launchd, limits, orca, place, reads, receiver, render, served, settled, slack, stage, stall, state, superseded, talk, view, watch
+from drive import agents, card, cli, codex, dashboard, github, install, land, launchd, limits, orca, place, reads, receiver, render, served, settled, slack, stage, stall, state, superseded, talk, view, watch
 
 KEY = "Forge-AI/monorepo#42"
 OTHER = "Forge-AI/monorepo#43"
@@ -6256,7 +6256,7 @@ def test_a_pr_whose_card_draw_goes_out_with_no_open_card_at_its_head_is_a_failed
     sent = posts(monkeypatch)
     link = "https://forge.slack.com/archives/D123/p1794379200123456"
     drawn: list[list[str]] = []
-    monkeypatch.setattr(talk, "draw", lambda name, keys, again=False: drawn.append(keys) or link)
+    monkeypatch.setattr(talk, "draw", lambda name, keys: drawn.append(keys) or link)
     watching = watcher(demo)
     for minute in range(3):
         watch.run_pass(watching, T0 + timedelta(minutes=minute))
@@ -6578,58 +6578,49 @@ def test_a_restack_moving_a_head_under_his_card_draws_no_other_card(demo: str, m
     assert (draws.keys, state.load(demo)["prs"][OTHER]["head"]) == ([list(STACKED)], "ddddddd444")
 
 
-def test_a_live_bugs_stack_waiting_on_his_card_is_asked_again_once_for_its_card_each_time_he_is_heard_after_that_card_went_up(
-    demo: str, monkeypatch: pytest.MonkeyPatch, draws: Draws
-) -> None:
+def test_a_live_bugs_stack_waiting_on_his_card_is_drawn_once_and_never_asked_again(demo: str, monkeypatch: pytest.MonkeyPatch, draws: Draws) -> None:
     three_stacked(demo, monkeypatch)
     with state.edit(demo) as data:
         for order_id in ("o1", "o2"):
             data["orders"][order_id]["reporters"] = [state.reporter(REPORTED)]
     watching = watcher(demo)
-    for minutes, heard in ((0, None), (10, None), (40, None), (70, None), (100, 80), (130, None), (160, None), (190, 165), (220, None)):
-        if heard is not None:
-            with state.edit(demo) as data:
-                data["owner"]["heard"] = state.stamp(T0 + timedelta(minutes=heard))
-        moment = T0 + timedelta(minutes=minutes)
-        draws.link = f"https://forge.slack.com/archives/D123/p{int(moment.timestamp() * 1_000_000)}"
-        watch.run_pass(watching, moment)
-    assert (draws.keys, draws.again) == ([list(STACKED)] * 3, [False, True, True])
+    for minutes in (0, 10, 39, 40, 69, 70):
+        watch.run_pass(watching, T0 + timedelta(minutes=minutes))
+    assert draws.keys == [list(STACKED)]
 
 
-def test_his_card_on_a_pr_is_asked_again_only_once_he_was_heard_after_it_went_up_and_after_the_last_wake_on_it(demo: str) -> None:
-    with state.edit(demo) as data:
-        data["prs"][KEY]["wants_tap"] = True
-    found = NO_CARDS | {"pr_cards": [pr_card(KEY, url=CARD, head="aaaaaaa111")]}
-    shown = datetime.fromtimestamp(int(view.message_key(CARD)) / 1_000_000).astimezone()
-    woke = state.stamp(shown - timedelta(hours=1))
-    data = state.load(demo)
-    assert watch.heard_since_shown(data, [KEY], found, woke) is False
-    for heard, again in ((shown - timedelta(minutes=1), False), (shown + timedelta(minutes=1), True)):
-        data["owner"]["heard"] = state.stamp(heard)
-        assert watch.heard_since_shown(data, [KEY], found, woke) is again
-    assert watch.heard_since_shown(data, [KEY], found, state.stamp(shown + timedelta(minutes=2))) is False
-    assert watch.heard_since_shown(data, [KEY], NO_CARDS, woke) is True
-    assert watch.heard_since_shown(data, [KEY], NO_CARDS, state.stamp(shown + timedelta(minutes=2))) is False
-
-
-def test_a_live_bugs_stack_he_held_is_asked_again_as_a_stack_waiting_on_his_card_is_since_its_card_asks_the_approve_that_lifts_his_hold(
-    demo: str, monkeypatch: pytest.MonkeyPatch, draws: Draws
+def test_the_one_post_in_each_place_saying_what_waits_on_him_goes_up_once_a_card_waits_there_and_is_edited_in_place_as_its_cards_change(
+    demo: str, monkeypatch: pytest.MonkeyPatch, unposted_waits: Callable[..., dict[str, str]]
 ) -> None:
-    three_stacked(demo, monkeypatch)
+    monkeypatch.setattr(talk, "waiting_posts", unposted_waits)
+    monkeypatch.setattr(slack, "operator_channels", lambda: [{"id": "C777", "name": "demo-iris"}, {"id": "C888", "name": "demo-sandsql"}])
+    posts: list[dict] = []
+    monkeypatch.setattr(talk, "posted", lambda name, post: posts.append(post) or {"permalink": post.get("edit") or f"https://acme.slack.com/archives/{post.get('channel_id', 'D123')}/p1794400200000100"})
     with state.edit(demo) as data:
-        for order_id in ("o1", "o2"):
-            data["orders"][order_id]["reporters"] = [state.reporter(REPORTED)]
-        for key, head in zip(STACKED, ("aaaaaaa111", "bbbbbbb222", "ccccccc333"), strict=True):
-            data["prs"][key]["tap"] = state.new_tap("Hold", head, "pressed the button", at=state.stamp(T0))
+        data["orders"]["o2"] = order(project="Iris", jobs=["j2"])
+        data["orders"]["o3"] = order(jobs=["j3"], reporters=[state.reporter(REPORTED)])
+        data["jobs"]["j2"] = job(order="o2")
+        data["jobs"]["j3"] = job(order="o3")
+    waits = [*(f"demo:j1-{number}-a" for number in range(1, 6)), "demo:j3-1-a", "demo:j2-1-a"]
+    cards = {each: question(each) | {"url": f"https://acme.slack.com/archives/D123/p179440010000010{index}"} for index, each in enumerate(waits)}
     watching = watcher(demo)
-    for minutes, heard in ((0, None), (10, None), (40, None), (70, None), (100, 80), (130, None), (160, None), (190, 165), (220, None)):
-        if heard is not None:
-            with state.edit(demo) as data:
-                data["owner"]["heard"] = state.stamp(T0 + timedelta(minutes=heard))
-        moment = T0 + timedelta(minutes=minutes)
-        draws.link = f"https://forge.slack.com/archives/D123/p{int(moment.timestamp() * 1_000_000)}"
-        watch.run_pass(watching, moment)
-    assert (state.load(demo)["prs"][KEY]["stage"]["owner"], draws.keys, draws.again) == (stage.HIM, [list(STACKED)] * 3, [False, True, True])
+    board = dashboard.link(demo)
+
+    def passes(*shown: str) -> list[dict]:
+        watching.cards = view.NO_CARDS | {"questions": [cards[each] for each in shown]}
+        posts.clear()
+        assert watch.waiting_post_lines(watching, T0) == []
+        return posts
+
+    in_dm = f"*<{board}#/queue/all|Waiting on you: 6 questions>*\n" + "\n".join(f"{{card:{each}}}" for each in [waits[5], *waits[:4]])
+    in_iris = f"*<{board}#/queue/all?project=Iris|Waiting on you: 1 question>*\n{{card:demo:j2-1-a}}"
+    assert passes(*waits) == [{"text": in_iris, "channel_id": "C777"}, {"text": in_dm}]
+    assert passes(*waits) == []
+    dm_post, iris_post = "https://acme.slack.com/archives/D123/p1794400200000100", "https://acme.slack.com/archives/C777/p1794400200000100"
+    fixed = f"*<{board}#/queue/all|Waiting on you: 5 questions>*\n" + "\n".join(f"{{card:{each}}}" for each in waits[:5])
+    assert passes(*waits[:5], waits[6]) == [{"edit": dm_post, "text": fixed}]
+    assert passes() == [{"edit": iris_post, "text": talk.NO_CARDS}, {"edit": dm_post, "text": talk.NO_CARDS}]
+    assert state.load(demo)["slack"]["waiting"] == {"C777": {"message": iris_post, "words": talk.NO_CARDS}, "D123": {"message": dm_post, "words": talk.NO_CARDS}}
 
 
 def test_a_pr_on_another_open_prs_branch_draws_one_card_with_it_before_either_is_checked(demo: str, monkeypatch: pytest.MonkeyPatch, draws: Draws) -> None:
@@ -12195,9 +12186,6 @@ def test_the_daily_sweep_files_a_drive_tooling_order_per_bar_crossed_and_an_orde
     for wait, url in ((1, POSTED), (2, f"{POSTED}1"), (6, f"{POSTED}2")):
         state.append_event(demo, "said", text="It is up.", channel=None, thread=None, url=url, card=None, order=None, visuals=[], prs=[], edited=False, answers=[f"{(posted - timedelta(minutes=wait)).timestamp():.6f}"])
     state.append_event(demo, "said", text="It is in.", channel=None, thread=None, url=POSTED, card=None, order=None, visuals=[], prs=[], edited=True, answers=[f"{(posted - timedelta(minutes=50)).timestamp():.6f}"])
-    reask = f"{talk.ASKING_AGAIN} a reported bug: Fix: the watch reads each PR once"
-    state.append_event(demo, "said", text=reask, channel=None, thread="1794200000.000300", url=CARD, card=CARD, order=None, visuals=[], prs=[KEY], edited=False)
-    state.append_event(demo, "said", text=reask, channel=None, thread="1794200000.000100", url=f"{POSTED}?thread_ts=1794200000.000100", card=CARD, order=None, visuals=[], prs=[KEY], edited=False)
     end = state.events_end(demo)
     assert REAL_SWEEP(watching, T0 + timedelta(hours=23)) == []
     assert len(state.load(demo)["orders"]) == 3
@@ -12205,7 +12193,6 @@ def test_the_daily_sweep_files_a_drive_tooling_order_per_bar_crossed_and_an_orde
     second = state.load(demo)
     assert [(order_id, order["title"], order["note"]) for order_id, order in second["orders"].items() if order_id not in first["orders"]] == [
         ("o4", "Answers slower than 2 minutes", f"3 answers, 90th percentile 6.0 min, slowest 6.0 min: {POSTED}2"),
-        ("o5", "Card asked again at a channel's top level", f"1 re-asks, the first {CARD}"),
     ]
     assert second["orders"]["o3"]["note"] == f"2 PRs: {KEY}, {OTHER}"
     assert second["slack"]["swept"] == {"at": state.stamp(T0 + timedelta(days=1)), "offset": end}

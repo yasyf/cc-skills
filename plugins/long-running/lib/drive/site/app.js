@@ -35,7 +35,6 @@ const UNFILED = 'Unfiled';
 const SWEEP_BARS = [
   ['answers', 'Answers', 'p90 over 2 min · last day', 'Answers slower than 2 minutes'],
   ['owed', 'Owed', 'over 10 min · now', 'Message unanswered past 10 minutes'],
-  ['reasks', 'Re-asks', 'at the root · last day', "Card asked again at a channel's top level"],
   ['cards', 'Cards', 'over 48 h · now', 'Card open past 48 hours'],
   ['approved', 'Approved', 'open over 24 h · now', 'Approved pull request open past 24 hours'],
 ];
@@ -889,9 +888,9 @@ function slackBars(project) {
 function sweepCell(key, cell, unread) {
   if (unread) return `<span class="sb-cell is-unknown"><b>Unread: ${esc(unread)}</b></span>`;
   if (!cell.count) return `<span class="sb-cell is-empty"><b>${key === 'answers' ? 'No answers' : 'None'}</b></span>`;
-  const value = key === 'answers' ? `${(cell.p90 / 60).toFixed(1)} min` : key === 'reasks' ? counted(cell.count, 're-ask') : String(cell.count);
-  const note = key === 'answers' ? counted(cell.count, 'answer') : key === 'reasks' ? '' : `oldest ${ago(cell.since)}`;
-  return `<a class="sb-cell${cell.crossed ? ' is-crossed' : ''}" href="${esc(cell.link)}" target="_blank" rel="noopener" title="${key === 'answers' ? 'Open the slowest answer' : 'Open the oldest'}"><b>${esc(value)}</b>${note ? `<small>· ${esc(note)}</small>` : ''}</a>`;
+  const value = key === 'answers' ? `${(cell.p90 / 60).toFixed(1)} min` : String(cell.count);
+  const note = key === 'answers' ? counted(cell.count, 'answer') : `oldest ${ago(cell.since)}`;
+  return `<a class="sb-cell${cell.crossed ? ' is-crossed' : ''}" href="${esc(cell.link)}" target="_blank" rel="noopener" title="${key === 'answers' ? 'Open the slowest answer' : 'Open the oldest'}"><b>${esc(value)}</b><small>· ${esc(note)}</small></a>`;
 }
 
 function prStatus(scope) {

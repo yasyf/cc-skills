@@ -799,7 +799,6 @@ def redraws(monkeypatch: pytest.MonkeyPatch) -> Redraws:
 @dataclass
 class Draws:
     keys: list[list[str]] = field(default_factory=list)
-    again: list[bool] = field(default_factory=list)
     failure: str | None = None
     link: str = "https://forge.slack.com/archives/D123/p1794379200123456"
 
@@ -808,9 +807,8 @@ class Draws:
 def draws(monkeypatch: pytest.MonkeyPatch) -> Draws:
     drew = Draws()
 
-    def draw(name: str, keys: list[str], again: bool = False) -> str:
+    def draw(name: str, keys: list[str]) -> str:
         drew.keys.append(list(keys))
-        drew.again.append(again)
         if drew.failure:
             raise slack.SlackError(drew.failure)
         data = state.load(name)
@@ -823,6 +821,14 @@ def draws(monkeypatch: pytest.MonkeyPatch) -> Draws:
 
     monkeypatch.setattr(talk, "draw", draw)
     return drew
+
+
+@pytest.fixture(autouse=True)
+def unposted_waits(monkeypatch: pytest.MonkeyPatch) -> Callable[..., dict[str, str]]:
+    """No watch pass posts what waits on him; a test of that post puts back talk.waiting_posts, which this returns."""
+    real = talk.waiting_posts
+    monkeypatch.setattr(talk, "waiting_posts", lambda name, data, found, moment: {})
+    return real
 
 
 @pytest.fixture(autouse=True)
