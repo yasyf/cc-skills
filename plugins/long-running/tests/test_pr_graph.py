@@ -7,7 +7,7 @@ from drive.pr_graph import PrGraph
 
 def rows() -> dict[str, dict]:
     return {
-        key: {"state": status, "native": native, "branch": branch, "base": base}
+        key: state.new_pr(state.pr_url(key), "j1", "o1") | {"state": status, "native": native, "branch": branch, "base": base}
         for key, status, native, branch, base in [
             ("one/repo#1", "open", [], "first", "main"),
             ("one/repo#2", "open", [], "second", "first"),
