@@ -254,6 +254,22 @@ def test_a_read_naming_a_drive_folder_lists_each_file_under_it_by_the_path_a_rea
     )
 
 
+@pytest.mark.parametrize("named", ["jobs", "jobs/", "{folder}/jobs", "~/long-running/demo/jobs/"])
+def test_a_read_naming_a_carried_folder_itself_lists_what_it_holds_one_level_deep(named: str, state_root: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    folder = state.drive_dir("demo")
+    (folder / "jobs" / "j3441.d7.transcripts" / "subagents").mkdir(parents=True)
+    (folder / "jobs" / "j3441.d7.transcripts" / "main.jsonl").write_text("{}\n")
+    (folder / "jobs" / "j3441.brief.md").write_text("Order (his words): list it\n")
+    (folder / "asks").mkdir()
+    (folder / "asks" / "key.pem").symlink_to(tmp_path)
+    assert reads.answer(f"READ which files are in {named.format(folder=folder)}, asks and repro?", tmp_path, "demo", "j7") == (
+        "# Drive folder jobs/\n\njobs/j3441.brief.md (27 bytes)\njobs/j3441.d7.transcripts/\n\n"
+        "# Drive folder asks/\n\nan empty folder\n\n"
+        "# Drive folder repro/\n\nthe drive keeps no such file inside its folder"
+    )
+
+
 def test_a_read_reaching_outside_the_drive_folder_gets_none_of_the_outside_file(state_root: Path, tmp_path: Path) -> None:
     folder = state.drive_dir("demo")
     outside = tmp_path / "key.pem"

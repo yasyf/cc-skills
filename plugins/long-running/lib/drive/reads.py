@@ -299,16 +299,36 @@ def record_read(argv: list[str], checkout: Path) -> str:
 
 
 def read_drive_files(command: str, drive: str) -> str:
-    """Each file of the drive's folder the read names whole under its heading, each folder it names as the list of files under it, or saying the drive keeps none; a read naming none is refused with the reads that run."""
+    """Each file of the drive's folder the read names whole under its heading, each folder it names as the list of files under it, each carried folder it names itself as carried_folders lists it, or saying the drive keeps none; a read naming none is refused with the reads that run."""
     from drive import orca
 
-    if not (files := orca.drive_files(drive, command)):
+    if not (files := orca.drive_files(drive, command) | carried_folders(command, drive)):
         allowed = ", ".join(" ".join(verb) for verb in READ_VERBS)
         raise ReadError(
-            f"only these reads run here: {allowed}; a file of the drive's folder under {orca.CARRIED.replace('|', '/, ')}/ reads as READ <its path>,"
-            " and a drive verb such as drive status or drive job report runs as that drive command on the Sprite"
+            f"only these reads run here: {allowed}; a file or folder of the drive's folder under {orca.CARRIED.replace('|', '/, ')}/ reads as READ <its path>,"
+            " each of those folders itself, such as READ jobs/, lists what it holds, and a drive verb such as drive status or drive job report runs as that drive command on the Sprite"
         )
     return "\n\n".join(f"# {heading}\n\n{text if text is not None else 'the drive keeps no such file inside its folder'}" for heading, text in files.items())
+
+
+def carried_folders(command: str, drive: str) -> dict[str, str | None]:
+    """Each of the drive's carried folders a word of the read names itself, as `jobs`, `asks/` or its path on this Mac, absolute or from `~`, under its `Drive folder <name>/` heading, listing what it holds one level deep, a file by its path from the drive's folder and its size and a folder by that path and a `/`, which a READ of it lists at any depth; an entry resolving outside the drive's folder is left out, and a carried folder the drive keeps none of has no text."""
+    from drive import orca
+
+    folder = state.drive_dir(drive)
+    inside = folder.resolve()
+    listed: dict[str, str | None] = {}
+    for word in read_words(command):
+        named = folder / os.path.expanduser(orca.PATH_END.sub("", word))
+        if named.parent != folder or named.name not in orca.CARRIED.split("|"):
+            continue
+        if not (named.is_dir() and named.resolve().is_relative_to(inside)):
+            listed[f"Drive folder {named.name}/"] = None
+            continue
+        held = sorted(entry for entry in named.iterdir() if (entry.is_file() or entry.is_dir()) and entry.resolve().is_relative_to(inside))
+        lines = [f"{entry.relative_to(folder)}/" if entry.is_dir() else f"{entry.relative_to(folder)} ({entry.stat().st_size:,} bytes)" for entry in held]
+        listed[f"Drive folder {named.name}/"] = "\n".join(lines) or "an empty folder"
+    return listed
 
 
 def read_words(command: str) -> list[str]:
