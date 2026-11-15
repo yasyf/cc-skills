@@ -1340,6 +1340,8 @@ if [ "$1" = --dispatch ]; then
     exit 1
   fi
   mkdir -p "$run"
+  rm -f "$run/status"
+  printf '%s' "$PPID" > "$run/pid"
   printf '%s\\n' "$@" > "$run/argv"
   printf '%s %s\\n' "$LONG_RUNNING_OWN_JOB" "$CLAUDE_LONG_RUNNING_DRIVE" > "$run/env"
   cat > "$run/question"
@@ -1353,9 +1355,12 @@ printf '{"lane":".","state":"%s","reply_file":"%s","reply_size":1,"log_file":"%s
 """
 
 
+STATUSES = {"completed": "0", "failed": "1", "died": "75"}
+
+
 @dataclass
 class CodexAsk:
-    """Run folders shaped as codex-ask writes them, made by a codex-ask whose `--dispatch` starts a run going and whose `--collect` prints the state each folder's `state` file holds."""
+    """Run folders shaped as codex-ask writes them, made by a codex-ask whose `--dispatch` starts a run going, its pid file naming this test's process, and whose `--collect` prints the state each folder's `state` file holds; an ended run holds the status file its worker writes, a died one codex-ask's lost-worker status."""
 
     runs: Path
     made: int = 0
@@ -1368,6 +1373,9 @@ class CodexAsk:
         (folder / f"codex-q-{self.made}.log").write_text(log)
         (folder / "meta").write_text(f"{folder / f'codex-r-{self.made}'}\n{folder / f'codex-q-{self.made}.log'}\n{{}}\n")
         (folder / "state").write_text(state)
+        (folder / "pid").write_text(str(os.getpid()))
+        if state in STATUSES:
+            (folder / "status").write_text(STATUSES[state])
         return folder
 
     def end(self, folder: Path, state: str, reply: str = "", log: str = "") -> None:
@@ -1375,6 +1383,8 @@ class CodexAsk:
         Path(reply_file).write_text(reply)
         Path(log_file).write_text(log)
         (folder / "state").write_text(state)
+        if state in STATUSES:
+            (folder / "status").write_text(STATUSES[state])
 
 
 def codex_reply(state: str, line: str, report: str = "") -> str:

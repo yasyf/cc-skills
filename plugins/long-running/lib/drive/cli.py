@@ -2496,12 +2496,13 @@ def question_card(name: str, path: Path, waits: str) -> dict:
 
 
 def meanwhile(data: dict, job_id: str, holds: str, unsettled: str | None) -> str:
-    """What the drive builds while he decides, read from its jobs for his card's line above its buttons, so no agent writes it: being built when the card holds a part `state.work` says only a builder carries, every part of a build order or an incident among them, whose builder starts beside the card, or when the asking job is a builder, which keeps running on its own parts to build the recommended option; that build lands on the recommendation on an open incident, unless the card asks him to lift a ruling of his, and waits on his pick otherwise; nothing is built until he picks on an order he limited to options, an answer order, or a part only research held. `Holds:` words naming no part of its orders, `none` and a design's changes not yet parts among them, leave the asking job's own parts to count, which a builder's always do."""
+    """What the drive builds while he decides, read from its jobs for his card's line above its buttons, so no agent writes it: being built when the card holds a part `state.work` says only a builder carries, every part of a build order or an incident among them, that a builder or codex job neither failed nor stopped holds, as `building` reads the jobs building a card's recommended option, the builder a build order's reader is added with included, or that a design asks on, whose return adds a builder for each change it lists; that build lands on the recommendation on an open incident, unless the card asks him to lift a ruling of his, and waits on his pick otherwise; nothing is built until he picks on an order he limited to options, an answer order, a part only research held, or a part no such job holds, such as a finished reader's with no builder beside it. `Holds:` words naming no part of its orders, `none` and a design's changes not yet parts among them, leave the asking job's own parts to count, which a builder's always do."""
     job = data["jobs"][job_id]
     orders = [job["order"], *job["carries"]]
     own = job["kind"] == "builder" or not state.names_part(holds, (part for order_id in orders for part in data["orders"][order_id]["parts"]))
     if not any(
         state.work(data, order_id, part)
+        and (job["kind"] == "design" or any(other["kind"] in state.CHANGE_KINDS and other["state"] not in state.ENDED_JOB_STATES for _, other in state.part_jobs(data, order_id, part)))
         for order_id in orders
         for part in data["orders"][order_id]["parts"]
         if state.names_part(holds, [part]) or own and part in state.worked(data, job_id, order_id)

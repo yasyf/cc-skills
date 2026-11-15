@@ -135,6 +135,22 @@ def replaced(path: Path, text: str) -> None:
     os.replace(fresh, path)
 
 
+def ended_at(folder: Path) -> float | None:
+    """When the codex-ask run in the folder ended, read from the status and pid files its worker writes, never by codex-ask, so reading a run that still goes starts no process: its status file's time once the worker exits, else its pid file's once the process it names is gone, killed before it could write a status, or the epoch for a folder holding neither, which no run started in; None while that process runs."""
+    status, pid = folder / "status", folder / "pid"
+    if status.exists():
+        return status.stat().st_mtime
+    if not pid.exists():
+        return 0.0
+    try:
+        os.kill(int(pid.read_text()), 0)
+    except ProcessLookupError:
+        return pid.stat().st_mtime
+    except PermissionError:
+        pass
+    return None
+
+
 def run_of(job: dict) -> Run:
     """The codex job's run, read by `codex-ask --collect` on the run folder its launch recorded."""
     try:

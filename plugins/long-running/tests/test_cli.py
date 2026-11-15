@@ -2482,6 +2482,14 @@ def test_his_cards_meanwhile_line_says_a_build_only_where_the_drive_builds_its_r
     assert cli.meanwhile(data, reader, "", None) == limits.NOTHING_BUILT
     with state.edit("demo") as data:
         data["orders"]["o2"]["kind"] = "build"
+        data["jobs"][reader]["state"] = "done"
+    assert cli.meanwhile(state.load("demo"), reader, part, None) == limits.NOTHING_BUILT
+    with state.edit("demo") as data:
+        data["orders"]["o2"].update(incident=True)
+    assert cli.meanwhile(state.load("demo"), reader, part, None) == limits.NOTHING_BUILT
+    with state.edit("demo") as data:
+        data["orders"]["o2"].update(incident=False)
+    assert run("job", "add", "builder", "--order", "o2", "--goal", "build: keeping a run's files")[0] == 0
     assert cli.meanwhile(state.load("demo"), reader, part, None) == limits.BUILT_PAUSED
     assert cli.meanwhile(state.load("demo"), reader, "", None) == limits.BUILT_PAUSED
     with state.edit("demo") as data:

@@ -4104,11 +4104,19 @@ def test_a_codex_job_whose_run_codex_ask_cannot_read_names_its_error(demo: str, 
 
 def test_a_codex_job_run_again_after_its_run_was_taken_waits_on_its_next_launch_rather_than_retaking_the_old(demo: str, codex_ask: CodexAsk) -> None:
     folder = codex_ask.run("completed", codex_reply("DONE", "reviewed"))
-    reply = folder / "codex-r-1"
-    taken = state.stamp(datetime.fromtimestamp(reply.stat().st_mtime).astimezone() + timedelta(seconds=1))
+    taken = state.stamp(datetime.fromtimestamp((folder / "status").stat().st_mtime).astimezone() + timedelta(seconds=1))
     job_of = {"kind": "codex", "codex_run": str(folder), "returned": None}
     assert REAL_CODEX_GAP("j1", job_of) == "j1's codex-ask run completed and its result is not recorded"
-    assert REAL_CODEX_GAP("j1", job_of | {"returned": taken}) == "j1's codex-ask run completed before its last return: drive job launch j1 starts its next"
+    assert REAL_CODEX_GAP("j1", job_of | {"returned": taken}) == "j1's codex-ask run ended before its last return: drive job launch j1 starts its next"
+
+
+def test_a_codex_run_whose_process_is_gone_with_no_status_written_reads_as_ended(demo: str, codex_ask: CodexAsk) -> None:
+    folder = codex_ask.run("died")
+    (folder / "status").unlink()
+    gone = subprocess.Popen(["true"])
+    gone.wait()
+    (folder / "pid").write_text(str(gone.pid))
+    assert REAL_CODEX_GAP("j1", {"kind": "codex", "codex_run": str(folder)}) == "j1's codex-ask run died and its result is not recorded"
 
 
 def test_an_incidents_second_lane_builder_is_judged_by_its_transcript_until_the_codex_run_beside_it_ends(
@@ -4150,12 +4158,17 @@ def codex_running(demo: str, folder: Path) -> None:
         data["jobs"]["j1"].update(kind="codex", agent=None, codex_run=str(folder), updated=state.stamp(state.now() - timedelta(minutes=10)))
 
 
+def codex_taken(watching: watch.Watcher) -> list[str]:
+    watch.codex_takes(watching)
+    return watch.event_lines(watching)
+
+
 def test_the_watch_takes_a_codex_jobs_result_from_the_state_line_and_report_its_completed_run_returned(
     demo: str, monkeypatch: pytest.MonkeyPatch, codex_ask: CodexAsk
 ) -> None:
     monkeypatch.setattr(watch, "codex_gap", REAL_CODEX_GAP)
     codex_running(demo, codex_ask.run("completed", codex_reply("DONE", "two of three findings hold", "Finding 1\n")))
-    assert watch.run_pass(watcher(demo), state.now()) == ["JOB j1 o1 DONE two of three findings hold"]
+    assert codex_taken(watcher(demo)) == ["JOB j1 o1 DONE two of three findings hold"]
     job = state.load(demo)["jobs"]["j1"]
     assert (job["state"], job["said"], state.report_text(demo, "j1")) == ("done", "DONE two of three findings hold", "DONE two of three findings hold\nFinding 1\n")
 
@@ -4164,7 +4177,7 @@ def test_the_watch_tells_the_coordinator_of_a_codex_run_that_died_before_its_fir
     monkeypatch.setattr(watch, "codex_gap", REAL_CODEX_GAP)
     died = "Error: thread/start: thread/start failed: error creating thread: Fatal error: Failed to initialize session: required MCP servers failed to initialize: datadog: MCP client startup timed out after 30s (code -32603)"
     codex_running(demo, codex_ask.run("failed", log=f"Reading prompt from stdin...\n{died}\n"))
-    assert watch.run_pass(watcher(demo), state.now()) == [f"JOB j1 o1 BLOCKED codex-ask failed: {died}"]
+    assert codex_taken(watcher(demo)) == [f"JOB j1 o1 BLOCKED codex-ask failed: {died}"]
     assert state.load(demo)["jobs"]["j1"]["state"] == "failed"
 
 
@@ -4178,7 +4191,7 @@ def test_a_codex_lane_that_built_its_recommended_option_has_the_ask_block_it_nam
     block.write_text(SHORT_ASK)
     codex_running(demo, codex_ask.run("completed", codex_reply("DONE", "built one snapshot file per finished run on branch snapshot-file", f"ASK: {block}")))
     kept = state.drive_dir(demo) / "asks" / f"j1-{state.ask_hash(SHORT_ASK)}.md"
-    assert watch.run_pass(watcher(demo), state.now()) == [
+    assert codex_taken(watcher(demo)) == [
         f"JOB j1 o1 DONE built one snapshot file per finished run on branch snapshot-file; its ASK is kept in {kept},"
         f" his card {drawn_card(1)} asks it under demo:j1-7, and the recommended option it built ships meanwhile"
     ]
@@ -4194,7 +4207,7 @@ def test_a_codex_job_that_said_nothing_before_its_run_returned_an_ask_is_heard_o
     codex_running(demo, codex_ask.run("completed", codex_reply("ASK", str(block))))
     with state.edit(demo) as data:
         data["jobs"]["j1"]["said"] = None
-    assert said_lines(watch.agent_lines, watcher(demo), state.now()) == [
+    assert codex_taken(watcher(demo)) == [
         f"JOB j1 o1 its ASK: {block} is not kept: [Errno 2] No such file or directory: '{block}'; keep it with drive job ask j1 {block}"
     ]
     assert state.load(demo)["jobs"]["j1"]["state"] == "waiting"
@@ -4219,7 +4232,7 @@ def test_an_incident_codex_fix_jobs_return_with_its_fix_not_live_adds_the_claude
 ) -> None:
     monkeypatch.setattr(watch, "codex_gap", REAL_CODEX_GAP)
     incident_codex_running(demo, codex_ask.run("completed", reply), state.INCIDENT_FIX)
-    lines = said_lines(watch.agent_lines, watcher(demo), state.now())
+    lines = codex_taken(watcher(demo))
     data = state.load(demo)
     written = state.drive_dir(demo) / "jobs" / "j2.brief.md"
     assert lines == [
@@ -4234,9 +4247,59 @@ def test_an_incident_codex_fix_jobs_return_with_its_fix_not_live_adds_the_claude
 def test_an_incident_codex_jobs_return_on_a_part_other_than_its_fix_adds_no_builder(demo: str, monkeypatch: pytest.MonkeyPatch, codex_ask: CodexAsk) -> None:
     monkeypatch.setattr(watch, "codex_gap", REAL_CODEX_GAP)
     incident_codex_running(demo, codex_ask.run("completed", codex_reply("HANDOFF", "the first check is left on branch first-check")), "first check")
-    lines = said_lines(watch.agent_lines, watcher(demo), state.now())
+    lines = codex_taken(watcher(demo))
     data = state.load(demo)
     assert (lines, list(data["jobs"])) == ([f"JOB j1 o1 {data['jobs']['j1']['said']}"], ["j1"])
+
+
+def test_the_relay_takes_a_codex_run_that_ended_while_a_pass_that_began_before_it_still_runs_and_that_pass_says_its_return(
+    demo: str, monkeypatch: pytest.MonkeyPatch, codex_ask: CodexAsk
+) -> None:
+    serve(monkeypatch, {})
+    monkeypatch.setattr(watch, "codex_gap", REAL_CODEX_GAP)
+    folder = codex_ask.run("running")
+    codex_running(demo, folder)
+    relaying = watcher(demo)
+
+    def ended_and_relayed() -> None:
+        codex_ask.end(folder, "completed", codex_reply("DONE", "two of three findings hold"))
+        watch.relay_pass(relaying, state.now())
+
+    mid_pass(monkeypatch, ended_and_relayed)
+    assert watch.run_pass(watcher(demo), state.now()) == ["JOB j1 o1 DONE two of three findings hold"]
+    assert state.load(demo)["jobs"]["j1"]["state"] == "done"
+
+
+def test_agent_lines_takes_no_codex_run_since_the_relay_takes_each(demo: str, monkeypatch: pytest.MonkeyPatch, codex_ask: CodexAsk) -> None:
+    monkeypatch.setattr(watch, "codex_gap", REAL_CODEX_GAP)
+    codex_running(demo, codex_ask.run("completed", codex_reply("DONE", "reviewed")))
+    assert said_lines(watch.agent_lines, watcher(demo), state.now()) == []
+    assert state.load(demo)["jobs"]["j1"]["state"] == "running"
+
+
+def test_only_the_watch_hearing_a_codex_job_takes_its_ended_run(demo: str, monkeypatch: pytest.MonkeyPatch, codex_ask: CodexAsk) -> None:
+    monkeypatch.setattr(watch, "codex_gap", REAL_CODEX_GAP)
+    codex_running(demo, codex_ask.run("completed", codex_reply("DONE", "reviewed")))
+    sub_coordinated(demo)
+    assert codex_taken(watcher(demo)) == []
+    assert codex_taken(watch.Watcher(demo, offset=state.events_end(demo), project="Iris")) == ["JOB j1 o1 DONE reviewed"]
+
+
+@pytest.mark.parametrize("going", [1, 100])
+def test_a_relay_pass_runs_codex_ask_collect_only_on_the_run_that_ended_however_many_codex_runs_go(
+    demo: str, monkeypatch: pytest.MonkeyPatch, codex_ask: CodexAsk, going: int
+) -> None:
+    monkeypatch.setattr(watch, "codex_gap", REAL_CODEX_GAP)
+    collected = []
+    collect = codex.run_of
+    monkeypatch.setattr(codex, "run_of", lambda job_of: collected.append(job_of["codex_run"]) or collect(job_of))
+    ended = codex_ask.run("completed", codex_reply("DONE", "reviewed"))
+    codex_running(demo, ended)
+    with state.edit(demo) as data:
+        for at in range(going):
+            data["jobs"][f"j{100 + at}"] = data["jobs"]["j1"] | {"prs": [], "codex_run": str(codex_ask.run("running"))}
+            data["orders"]["o1"]["jobs"].append(f"j{100 + at}")
+    assert (codex_taken(watcher(demo)), collected) == (["JOB j1 o1 DONE reviewed"], [str(ended)])
 
 
 def test_a_local_agent_a_sub_coordinator_started_is_judged_by_its_transcript_under_that_session(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
