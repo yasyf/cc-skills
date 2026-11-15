@@ -642,6 +642,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str, terminal: str
         "lines_kept": True,
         "replaced_ended": True,
         "change_builders_unwaited": True,
+        "finished_replacers_undone": True,
         CARDS_NOTED: True,
         "delivered_by_prs": True,
     }
@@ -952,7 +953,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     if data["catch_up"]:
         data["catch_up"]["record"] = bare_seq(data["catch_up"]["record"])
     passes = (drive_dir(name) / "pictures" / picture.SOURCED, drive_dir(name) / "asks" / REBUILT_ASKS, drive_dir(name) / APPROVALS_LABELLED)
-    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated")) and bool(data.get("holds_owed")) and bool(data.get("near_answers_apart")) and bool(data.get("stack_writes_read")) and bool(data.get("builder_goals_named")) and bool(data.get("members_kept")) and bool(data.get("open_dones_held")) and bool(data.get("staging_passes_owned")) and bool(data.get("lines_kept")) and bool(data.get("change_builders_unwaited"))
+    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated")) and bool(data.get("holds_owed")) and bool(data.get("near_answers_apart")) and bool(data.get("stack_writes_read")) and bool(data.get("builder_goals_named")) and bool(data.get("members_kept")) and bool(data.get("open_dones_held")) and bool(data.get("staging_passes_owned")) and bool(data.get("lines_kept")) and bool(data.get("change_builders_unwaited")) and bool(data.get("finished_replacers_undone"))
     for flag in ("may_settle_per_answer", "may_settle_skips_approvals", "may_settle_by_subject", "may_settle_by_jev"):
         data.pop(flag, None)
     data["slack"].pop("channel", None)
@@ -1002,6 +1003,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     if not data.get("replaced_ended"):
         end_replaced(data, data["orders"], stamp())
         data["replaced_ended"] = True
+    if not data.get("finished_replacers_undone"):
+        undo_finished_replacers(name, data)
     if unkept := any("threads" not in order for order in data["orders"].values()):
         keep_threads(name, data)
     if not data.get("members_kept"):
@@ -1097,6 +1100,21 @@ def posted_from_jobs(data: dict) -> None:
             if merged := [key for job_id, _ in done for key in opened_or_proven(data, job_id) if data["prs"][key]["merged_sha"]]:
                 held["posted"] = data["prs"][merged[0]]["url"]
     data["delivered_by_prs"] = True
+
+
+def undo_finished_replacers(name: str, data: dict) -> None:
+    """Put back as failed, on its newest return's line, each job an older install stopped as replaced by a job already finished by then, whose result says nothing of the failed one's, taking off that job each order and part the stop folded onto it from the failed job's carries, so the failure reads on its part again; marked so this runs once."""
+    for job_id, job in data["jobs"].items():
+        replaced = re.fullmatch(r"replaced by (j\d+)", job["said"] or "") if job["state"] == "stopped" else None
+        if not replaced or (into := data["jobs"][replaced[1]])["state"] not in FINISHED_JOB_STATES or parse_time(into["updated"]) > parse_time(job["updated"]):
+            continue
+        for order_id, parts in job["carries"].items():
+            if order_id != into["order"] and order_id in into["carries"]:
+                into["carries"][order_id] = [part for part in into["carries"][order_id] if part not in parts]
+                if not into["carries"][order_id]:
+                    del into["carries"][order_id]
+        job.update(state="failed", said=next((opening(reply["body"]) for reply in returns(name, job_id)), job["said"]), updated=stamp())
+    data["finished_replacers_undone"] = True
 
 
 def cite_returned_designs(name: str, data: dict) -> None:
@@ -1967,7 +1985,7 @@ def end_carried_designs(data: dict, order_id: str, moment: str) -> None:
 
 
 def end_replaced(data: dict, order_ids: Iterable[str], moment: str) -> list[str]:
-    """Stop each failed builder or codex job of these orders that a later job replaces, said replaced by it, folding each order it carries and each open PR it answers for onto that job, so a failed job whose work has a new owner draws no order blocked and no lane writes another job; a line for each."""
+    """Stop each failed builder or codex job of these orders that a later unfinished job replaces, by replacer, said replaced by it, folding each order it carries and each open PR it answers for onto that job, so a failed job whose work has a new owner draws no order blocked and no lane writes another job; a line for each."""
     ended = []
     for order_id in dict.fromkeys(order_ids):
         for job_id in list(data["orders"][order_id]["jobs"]):
@@ -1980,14 +1998,14 @@ def end_replaced(data: dict, order_ids: Iterable[str], moment: str) -> list[str]
 
 
 def replacer(data: dict, job_id: str) -> str | None:
-    """The newest builder or codex job added after this one and not stopped that carries every part this one holds on its order."""
+    """The newest builder or codex job added after this one and not finished that carries every part this one holds on its order, so a failed job ends only for work still to come, never for a job that already ended, whose result says nothing of the failed one's."""
     job = data["jobs"][job_id]
     later = [
         other_id
         for other_id in data["orders"][job["order"]]["jobs"]
         if int(other_id[1:]) > int(job_id[1:])
         and (other := data["jobs"][other_id])["kind"] in CHANGE_KINDS
-        and other["state"] != "stopped"
+        and other["state"] not in FINISHED_JOB_STATES
         and set(job["parts"]) <= set(job_parts(other, job["order"]))
     ]
     return max(later, key=lambda other_id: int(other_id[1:]), default=None)
@@ -2155,11 +2173,15 @@ def work(data: dict, order_id: str, part: str) -> bool:
 
 
 def carriers(data: dict, order_id: str, part: str) -> list[tuple[str, dict]]:
-    """The jobs on a part that can carry it: every job on words he reads, but on work he ordered only a builder, codex or design job, a done design only while the builder design_builder names carries it."""
+    """The jobs on a part that can carry it: every job on words he reads, but on work he ordered only a builder, codex or design job, a done design never on a change it listed, which the builder holding that change carries itself, so a builder of another change carries none of it, and on its own part only while the builder design_builder names carries it."""
     jobs = part_jobs(data, order_id, part)
     if not work(data, order_id, part):
         return jobs
-    return [(job_id, job) for job_id, job in jobs if job["kind"] in WORK_KINDS and (job["kind"] != "design" or job["state"] != "done" or design_builder(data, job_id))]
+    return [
+        (job_id, job)
+        for job_id, job in jobs
+        if job["kind"] in WORK_KINDS and (job["kind"] != "design" or job["state"] != "done" or part not in designed(data, job_id, order_id) and design_builder(data, job_id))
+    ]
 
 
 def change_job(data: dict, order_id: str, parts: list[str], waits: list[str] = (), job_id: str | None = None) -> tuple[str, dict, str] | None:
