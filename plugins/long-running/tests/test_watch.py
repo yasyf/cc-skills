@@ -4126,6 +4126,20 @@ def test_a_codex_lane_that_built_its_recommended_option_has_the_ask_block_it_nam
     assert (job["state"], [question["file"] for question in job["questions"]], kept.read_text()) == ("waiting", [str(kept)], SHORT_ASK)
 
 
+def test_a_codex_job_that_said_nothing_before_its_run_returned_an_ask_is_heard_on_its_ask_line_alone_rather_than_stopping_the_watch_as_j6704s_did(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, codex_ask: CodexAsk
+) -> None:
+    monkeypatch.setattr(watch, "codex_gap", REAL_CODEX_GAP)
+    block = tmp_path / "scratch" / "ask.md"
+    codex_running(demo, codex_ask.run("completed", codex_reply("ASK", str(block))))
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["said"] = None
+    assert said_lines(watch.agent_lines, watcher(demo), state.now()) == [
+        f"JOB j1 o1 its ASK: {block} is not kept: [Errno 2] No such file or directory: '{block}'; keep it with drive job ask j1 {block}"
+    ]
+    assert state.load(demo)["jobs"]["j1"]["state"] == "waiting"
+
+
 def incident_codex_running(demo: str, folder: Path, part: str) -> None:
     codex_running(demo, folder)
     with state.edit(demo) as data:
