@@ -20,7 +20,7 @@ import role_rules
 import scratch_folder
 import session_start
 from conftest import ACME_CUT, CUT_PICK, CUT_TAP, LEAD, RESEARCH, SANDSQL_NOTE, SHORT_ASK, WRITTEN_AT, answered_cut, cloned, drawn_card, kept_brief, unheld, Answers, Jev, WatchProcess
-from drive import agents, brief, cli, github, land, limits, orca, place, render, settled, state, tools, watch
+from drive import agents, brief, cli, github, land, limits, orca, place, render, settled, slack, state, tools, watch
 
 Run = Callable[..., tuple[int, str]]
 PR = "https://github.com/Forge-AI/monorepo/pull/42"
@@ -164,10 +164,31 @@ def test_a_session_gets_its_roles_rules_whole_once_at_its_next_call_after_an_ins
     changed = (*render.RULES["communicator"][:3], "Pass answer alone.", *render.RULES["communicator"][4:])
     monkeypatch.setitem(render.RULES, "communicator", changed)
     context = rules_at_next_call(monkeypatch, capsys, {"session_id": "talker"})
-    assert context.startswith(f"Your communicator rules changed since this session's block drew them: long-running {state.VERSION}'s replace them whole")
+    assert context.startswith(f"Your communicator rules or held channels changed since this session's block drew them: long-running {state.VERSION}'s replace them whole")
     assert context.endswith("\n".join(render.rules(state.load("demo"), "communicator")))
     assert "\n4. Pass answer alone.\n" in context
     assert rules_at_next_call(monkeypatch, capsys, {"session_id": "talker"}) is None
+
+
+def test_a_communicator_holds_each_channel_drive_channels_made_from_its_next_call_and_a_sub_coordinator_still_holds_none(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
+    run("start", "demo", "--role", "communicator")
+    assert rules_at_next_call(monkeypatch, capsys, {"session_id": "talker"}) is None
+    made = [{"id": "G0DRIVE", "name": "demo-drive"}]
+    monkeypatch.setattr(slack, "cc_slack", lambda verb, channel: made[0])
+    monkeypatch.setattr(slack, "operator_channels", lambda: made)
+    run("channels")
+    context = rules_at_next_call(monkeypatch, capsys, {"session_id": "talker"})
+    assert context.splitlines()[1] == "Hold with slack_watch: his DM D123, #demo-drive G0DRIVE"
+    assert rules_at_next_call(monkeypatch, capsys, {"session_id": "talker"}) is None
+    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
+    run("start", "demo", "--role", "coordinator", "--project", "Iris")
+    with state.edit("demo") as data:
+        del data["subcoordinators"]["Iris"]["rules"]
+    assert rules_at_next_call(monkeypatch, capsys, {"session_id": "iris-1"}).splitlines()[1] == "Hold no Slack channel: the top coordinator holds the drive's."
 
 
 def test_a_session_gets_its_rules_whole_once_at_its_next_call_after_its_repositorys_rules_change(

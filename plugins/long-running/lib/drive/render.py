@@ -488,7 +488,9 @@ def held_channels(drive: dict, role: str) -> list[str]:
     return drive["slack"].get("watch", []) if role == "coordinator" else []
 
 
-def hold_line(drive: dict, role: str) -> str:
+def hold_line(drive: dict, role: str, project: str | None = None) -> str:
+    if project:
+        return "Hold no Slack channel: the top coordinator holds the drive's."
     channels = held_channels(drive, role)
     if not channels:
         return "Hold no Slack channel."
@@ -590,7 +592,7 @@ def opening(drive: dict, role: str, project: str | None) -> list[str]:
             f"Your cci lane is {lane}: post with --lane {lane}; the watch for {project} and the communicator's records reach"
             f" you at {lane}@{drive['name']}."
         ),
-        "Hold no Slack channel: the top coordinator holds the drive's.",
+        hold_line(drive, role, project),
     ]
 
 

@@ -13,8 +13,9 @@ def main() -> None:
     if payload.get("agent_id") or not (names := state.session_drives(session)):
         return
     if role := agents.hold_rules(names[0], session):
-        changed = f"Your {state.title(role)} rules changed since this session's block drew them: long-running {state.VERSION}'s replace them whole, and win where any older text disagrees."
-        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": "\n".join([changed, *render.rules(state.saved(names[0]), role)])}}))
+        changed = f"Your {state.title(role)} rules or held channels changed since this session's block drew them: long-running {state.VERSION}'s replace them whole, and win where any older text disagrees."
+        data = state.load(names[0])
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": "\n".join([changed, render.hold_line(data, role, state.session_project(data, session)), *render.rules(data, role)])}}))
 
 
 if __name__ == "__main__":
