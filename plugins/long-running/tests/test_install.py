@@ -1470,13 +1470,13 @@ def handing(config: Path, tmp_path: Path, git: FakeGit, exits: int, job: dict) -
     return script
 
 
-def test_a_prover_of_a_merge_outside_yasyf_its_own_agent_proves_installs_nothing_takes_done_naming_the_pr_and_keeps_the_orders_proof(
+def test_a_prover_of_a_merge_outside_yasyf_its_own_agent_proves_installs_nothing_takes_done_naming_the_pr_and_its_release_and_keeps_the_orders_proof(
     config: Path, tmp_path: Path, fake: Callable[..., FakeGit]
 ) -> None:
     git = fake([BUILD], {BUILD})
-    script = handing(config, tmp_path, git, 0, {"state": "running", "said": None})
+    script = handing(config, tmp_path, git, 0, {"state": "running", "said": None, "shipped": ["release:platy:Forge-AI/monorepo#9"]})
     kept = state.proof_path("demo", "j1")
-    versions = f"long-running {state.VERSION}"
+    versions = "the platy release of Forge-AI/monorepo#9"
     checked = f"{install.PROVEN} on {versions}: {script} exits 0, its output {kept}"
     proven = f"{checked}; its close report of o1 waits on the order for the watch, which posts it to the communicator on its next read and again each read until cci takes it"
     assert install.prove("demo", "j1", 900) == f"j1: {proven}"
@@ -1487,7 +1487,7 @@ def test_a_prover_of_a_merge_outside_yasyf_its_own_agent_proves_installs_nothing
     assert kept.read_text().startswith("ran on ")
     assert data["orders"]["o1"]["proof"] == str(kept)
     report = data["orders"]["o1"]["close_report"]
-    assert (report["text"], report["body"]) == ("POST Fix: the product change is live", f"Fixed: Fix: the product change, {PRODUCT}\nProof: {checked}\n")
+    assert (report["text"], report["body"]) == (f"POST Fix: the product change is live in {versions}", f"Fixed: Fix: the product change, {PRODUCT}\nLive: {versions}\nProof: {checked}\n")
     assert proof_events() == [("Forge-AI/monorepo#9", proven)]
 
 

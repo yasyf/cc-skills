@@ -6208,6 +6208,31 @@ def test_a_waiting_line_naming_a_process_that_runs_on_this_mac_waits_on_it_pinne
         observer.wait()
 
 
+def test_a_prover_waiting_on_nothing_is_refused_a_waiting_on_a_watcher_of_its_own_and_told_to_end_on_drive_job_prove(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the run page")
+    run("job", "add", "builder", "--order", "o1", "--goal", "prove Forge-AI/monorepo#9 live")
+    with state.edit("demo") as data:
+        data["prs"]["Forge-AI/monorepo#9"] = state.new_pr("https://github.com/Forge-AI/monorepo/pull/9", "j0", "o1") | {"state": "merged", "merged_sha": "fedcba"}
+        data["jobs"]["j1"]["brief_flags"] = {"handoff": "Forge-AI/monorepo#9 at fedcba merged: prove it live"}
+    watcher = subprocess.Popen(["sleep", "600"])
+    waiting = f"WAITING the next freeze posts, waits on pid:{watcher.pid}\n"
+    told = "run drive job prove j1, which runs its proof file now and, on its WAIT line, keeps j1 waiting and runs it again once he is next heard"
+    try:
+        code, err = keep(monkeypatch, capsys, "j1", waiting)
+        assert (code, "j1 proves Forge-AI/monorepo#9 live and waits on nothing" in err, f"keep an executable proof file with drive job set j1 --repro <file>, then {told}" in err) == (2, True, True)
+        kept_proof(tmp_path, "j1")
+        code, err = keep(monkeypatch, capsys, "j1", waiting)
+        assert (code, f"stop the one its WAITING names, {told}" in err) == (2, True)
+        with state.edit("demo") as data:
+            data["jobs"]["j1"]["waits"] = ["release:api:Forge-AI/monorepo#9"]
+        assert keep(monkeypatch, capsys, "j1", waiting) == (0, "")
+    finally:
+        watcher.kill()
+        watcher.wait()
+
+
 def test_a_waiting_waits_only_on_what_its_first_line_names_that_still_holds_never_its_body_as_j3122s_codex_reply_citing_merged_prs_did(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
