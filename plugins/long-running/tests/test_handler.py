@@ -425,6 +425,29 @@ def test_a_record_for_a_busy_handlers_thread_reaches_that_handler_at_its_next_st
     assert restarted not in state.load("demo")["handlers"]
 
 
+def test_a_handlers_done_record_leads_with_the_ts_of_each_message_of_his_it_took_by_handover_ahead_of_its_posts(
+    communicator: str, tmp_path: Path, started: list[list[str]], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    handler = tools.run("handler", "demo", {"brief": HIS_MESSAGE.format(scratch=tmp_path / "h1")}).removeprefix("started ")
+    status = "https://acme.slack.com/archives/D123/p1794446901330512?thread_ts=1794440505.483109&cid=D123"
+    later = f"Message (his words): Status?\nLink: {status}\nThread: D123 1794440505.483109\nDrive: demo\nScratch: {tmp_path / 'h2'}"
+    assert tools.run("handler", "demo", {"brief": later}) == f"handed to {handler}"
+    transcript = tmp_path / "h-session.jsonl"
+    bind(monkeypatch, handler, "h-session")
+    handed_records.main()
+    capsys.readouterr()
+    reply = "https://acme.slack.com/archives/D123/p1794447012004417?thread_ts=1794440505.483109&cid=D123"
+    monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": reply, "thread_ts": "1794440505.483109"})
+    with monkeypatch.context() as scoped:
+        scoped.setenv("CLAUDE_CODE_SESSION_ID", "h-session")
+        talk.say("demo", {"text": "It only happens on the new tree.", "thread_ts": "1794440505.483109"})
+    monkeypatch.setattr(agents.subprocess, "Popen", lambda argv, **kwargs: None)
+    monkeypatch.setattr(reads, "run", lambda argv, checkout, env=None: started.append(argv) or "")
+    monkeypatch.setattr(agents, "background_job", lambda session: (BACKGROUND_JOB, {"sessionId": session}))
+    assert stop(monkeypatch, capsys, "h-session", transcript, "POSTED https://acme.slack.com/archives/D123/p1794447012004417; his Status? too", HIS_MESSAGE.format(scratch=tmp_path / "h1")) == ""
+    assert started[-1][-1] == f"TOOK 1794446901.330512; POSTED {reply}; his Status? too"
+
+
 def test_the_watchs_brief_names_its_record_by_the_bare_seq_the_communicators_brief_names_so_both_hold_the_same_record(
     communicator: str, tmp_path: Path, started: list[list[str]], cci_records: dict[str, dict]
 ) -> None:
