@@ -197,15 +197,21 @@ def pr_changes(pr: dict, read: dict, entry: dict) -> list[str]:
     return changes
 
 
-def github_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Read from GitHub each heard unmerged PR the watch owes a read, and say what changed on each. It reads whole every one at a watch's start that no watch before it handed its owed reads to, then each a delivery named, each open one on a repository no hook delivers from every READ_EVERY, as receiver_lines owes it, each never asked for, each a builder's PUSHED names unread since its take, each folded into another open PR's branch, beside the PR it folded into, every pass until that PR lands or closes, and again each whose read GitHub refused. Of each open PR a push to its base named, and each whose mergeability GitHub had not worked out yet, since no delivery says when it has, it reads only the state, head and mergeability, by github.mergeability, saying a conflict that read starts, and reads whole in the same call each that read finds moved or ended. A PR GitHub answered nothing for stays stale, as its stage does, until a read answers for it. In the same call it reads each PR the drive does not track that carries a stopped builder's parts or that a live job keeps or waits on, by state.carrier_keys, once until GitHub answers for it and again each time a delivery names it, keeping only GitHub's state of it on the watcher for job_gap and out_because, and saying nothing of it. What it still owes is kept on the watcher only once the reads are saved, so a pass that ends before then hands the next watch the reads it owed. Once they are saved it redraws in place, by redraw_lines, his card on each PR it read that the read left drawn stale, so a read that turns a PR green takes "CI passes" off his card in the same pass, never at the next pass's redraw_lines minutes later."""
+def github_lines(watcher: Watcher, moment: datetime, polled: bool = False) -> list[str]:
+    """Read from GitHub each heard unmerged PR the watch owes a read, and say what changed on each. It reads whole every one at a watch's start that no watch before it handed its owed reads to, then each a delivery named, each open one on a repository the receiver holds no hook for on each READ_EVERY pass, polled, ahead of that pass's stage_lines, since no delivery ever says it changed, each never asked for, each any waiting builder's PUSHED names unread since its take, whichever watch hears that builder, each folded into another open PR's branch, beside the PR it folded into, every pass until that PR lands or closes, and again each whose read GitHub refused. Of each open PR a push to its base named, and each whose mergeability GitHub had not worked out yet, since no delivery says when it has, it reads only the state, head and mergeability, by github.mergeability, saying a conflict that read starts, and reads whole in the same call each that read finds moved or ended. A PR GitHub answered nothing for stays stale, as its stage does, until a read answers for it. In the same call it reads each PR the drive does not track that carries a stopped builder's parts or that a live job keeps or waits on, by state.carrier_keys, once until GitHub answers for it and again each time a delivery names it, keeping only GitHub's state of it on the watcher for job_gap and out_because, and saying nothing of it. What it still owes is kept on the watcher only once the reads are saved, so a pass that ends before then hands the next watch the reads it owed. Once they are saved it redraws in place, by redraw_lines, his card on each PR it read that the read left drawn stale, so a read that turns a PR green takes "CI passes" off his card in the same pass, never at the next pass's redraw_lines minutes later."""
     data = state.load(watcher.name)
-    pushed = {key for job_id in data["jobs"] if pushing(watcher, data, job_id) for key in state.unread_since_take(data, job_id)}
+    pushed = {key for job_id, job in data["jobs"].items() if awaits_checks(job) for key in state.unread_since_take(data, job_id)}
     heard = [key for key in state.unmerged_pr_keys(data) if hears(watcher, data, data["prs"][key]["order"])]
+    hookless = set(receiver.unhooked({github.repo_of(key) for key in heard})) if polled and not state.scratch() else set()
     owed = [
         key
         for key in heard
-        if watcher.owed is None or key in watcher.owed or key in pushed or data["prs"][key]["state"] == github.FOLDED or (data["prs"][key]["required"] is None and key not in watcher.stale)
+        if watcher.owed is None
+        or key in watcher.owed
+        or key in pushed
+        or github.repo_of(key) in hookless and data["prs"][key]["state"] == "open"
+        or data["prs"][key]["state"] == github.FOLDED
+        or (data["prs"][key]["required"] is None and key not in watcher.stale)
     ]
     remerge = [key for key in heard if key in watcher.merging and key not in owed and key not in watcher.stale and data["prs"][key]["state"] == "open"]
     carried = [key for key in state.carrier_keys(data) if watcher.owed is None or key not in watcher.untracked or key in watcher.owed or watcher.untracked[key] == github.FOLDED]
@@ -384,7 +390,12 @@ def settles(watcher: Watcher, data: dict, job_id: str) -> tuple[str, list[tuple[
 def pushing(watcher: Watcher, data: dict, job_id: str) -> bool:
     """Whether a builder's PUSHED the watch hears waits on the checks of the PRs it names."""
     job = data["jobs"][job_id]
-    return job["kind"] == "builder" and job["state"] == "waiting" and bool(state.PUSHED_LINE.match(job["said"] or "")) and heard_job(watcher, data, job)
+    return awaits_checks(job) and heard_job(watcher, data, job)
+
+
+def awaits_checks(job: dict) -> bool:
+    """Whether a builder waits on a PUSHED, which waits on the checks of the PRs it names, whichever watch hears it."""
+    return job["kind"] == "builder" and job["state"] == "waiting" and bool(state.PUSHED_LINE.match(job["said"] or ""))
 
 
 def dropped_lines(watcher: Watcher, foreign: dict[str, tuple[str, str, str]], moment: datetime) -> list[str]:
@@ -2224,7 +2235,7 @@ def dashboard_lines(watcher: Watcher) -> list[str]:
 
 
 def receiver_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Keep the receiver taking GitHub's deliveries for every PR the watch hears and every release a job or PR it hears waits on: its launch agent loaded, and a webhook pointing at it on each of their repositories this account administers, each new one owing a read of that repository's PRs, since GitHub delivered nothing of them before it. A repository it does not administer, such as an upstream project, is asked once and never hooked. Each open PR it hears on a repository no hook of the receiver's sends EVENTS from, one never hooked or whose hook failed, is owed a read every READ_EVERY, since no delivery ever says it changed. Each repository is tried whatever another's hook did, and one that cannot be kept, or a receiver not answering on loopback, is said as a failed read is, naming the gh call; a proof's drive leaves it alone."""
+    """Keep the receiver taking GitHub's deliveries for every PR the watch hears and every release a job or PR it hears waits on: its launch agent loaded, and a webhook pointing at it on each of their repositories this account administers, each new one owing a read of that repository's PRs, since GitHub delivered nothing of them before it. A repository it does not administer, such as an upstream project, is asked once and never hooked, and github_lines reads its open PRs every READ_EVERY. Each repository is tried whatever another's hook did, and one that cannot be kept, or a receiver not answering on loopback, is said as a failed read is, naming the gh call; a proof's drive leaves it alone."""
     if state.scratch():
         return []
     data = state.load(watcher.name)
@@ -2243,8 +2254,6 @@ def receiver_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 watcher.unhookable.add(repo)
         except (github.GithubError, state.DriveError) as error:
             errors.append(str(error))
-    hookless = set(receiver.unhooked({github.repo_of(key) for key in heard}))
-    watcher.owed |= {key for key in heard if github.repo_of(key) in hookless and data["prs"][key]["state"] == "open"}
     if not receiver.answering():
         errors.append(f"nothing answers on its port {receiver.PORT}; its log is {receiver.log_path()}")
     if errors:
@@ -3598,7 +3607,7 @@ def stages(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
         view.refresh_cards(watcher.name)
         found, source = view.stored_cards(watcher.name)
         watcher.cards = found if source == "live" else None
-        yield github_lines(watcher, moment)
+        yield github_lines(watcher, moment, polled=True)
         yield main_lines(watcher, moment)
         yield carried_lines(watcher, moment)
         checks(watcher, moment)

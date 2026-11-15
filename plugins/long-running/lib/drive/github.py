@@ -18,7 +18,7 @@ FIELDS = (
     "commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes { "
     f"... on CheckRun {{ name conclusion detailsUrl {REQUIRED} checkSuite {{ workflowRun {{ workflow {{ name }} }} }} }} ... on StatusContext {{ context state targetUrl {REQUIRED} }} }} }} }} }} }} }}"
 )
-RULES = "defaultBranchRef { name rules(first: 50) { nodes { type parameters { ... on RequiredStatusChecksParameters { requiredStatusChecks { context } } ... on PullRequestParameters { requiredApprovingReviewCount allowedMergeMethods } } } } } squashMergeAllowed rebaseMergeAllowed mergeCommitAllowed"
+RULES = "defaultBranchRef { name rules(first: 50) { nodes { type parameters { ... on RequiredStatusChecksParameters { requiredStatusChecks { context } } ... on PullRequestParameters { requiredApprovingReviewCount allowedMergeMethods } } } } } squashMergeAllowed rebaseMergeAllowed mergeCommitAllowed viewerPermission"
 METHODS = {"squash": "squashMergeAllowed", "rebase": "rebaseMergeAllowed", "merge": "mergeCommitAllowed"}
 PR_STATES = {"OPEN": "open", "MERGED": "merged", "CLOSED": "closed"}
 FOLDED = "folded"
@@ -278,7 +278,7 @@ def merge_method(repository: dict) -> str:
 
 
 def live(read: dict, stored: dict) -> dict:
-    """The drive's stored fields (state, the PR it folded into and the merge commit carrying it onto its repository's default branch, by landing(), its repository's default branch, checks, the checks that failed on its head, the required checks' verdict, review, head, its base and head branches, title, author, whether it carries the hold label, the PRs of its native GitHub stack that are not closed and that stack's trunk, the approving reviews its repository's rules require, the method its repository merges it by, conflict, by conflicts()) of one fetched PR against its stored row."""
+    """The drive's stored fields (state, the PR it folded into and the merge commit carrying it onto its repository's default branch, by landing(), its repository's default branch, checks, the checks that failed on its head, the required checks' verdict, review, head, its base and head branches, title, author, whether it carries the hold label, the PRs of its native GitHub stack that are not closed and that stack's trunk, the approving reviews its repository's rules require, the method its repository merges it by, what its repository lets this account do, as GitHub's viewerPermission reads it, conflict, by conflicts()) of one fetched PR against its stored row."""
     failed = sorted({*failed_before(stored, read["headRefOid"]), *failing(read["checks"])})
     fields = landing(read) | {
         "default": read["default"],
@@ -296,6 +296,7 @@ def live(read: dict, stored: dict) -> dict:
         "trunk": read["trunk"],
         "reviews_required": read["required_reviews"],
         "merge_method": read["merge_method"],
+        "permission": read["permission"],
         "conflict": conflicts(read, stored),
     }
     return fields
@@ -343,6 +344,7 @@ def parse(payload: dict, keys: list[str]) -> dict[str, dict]:
             "required_checks": rule_checks(repository),
             "required_reviews": rule_reviews(repository),
             "merge_method": merge_method(repository),
+            "permission": repository["viewerPermission"],
             "default": repository["defaultBranchRef"]["name"],
             "base_pr": None,
         }
@@ -443,7 +445,7 @@ def run_conclusion(run_id: str | None, job: str | None, repo: str | None, cwd: s
 
 
 def fetch(keys: list[str], into: dict[str, str] | None = None) -> tuple[dict[str, dict], GithubError | None]:
-    """Read every PR key ("owner/name#123"), its native GitHub stack, its repository's default branch, the checks the rules of that branch require and the method it merges by included, PRS_PER_QUERY of one repository to a `gh api graphql` call, since GitHub refuses a query past its resource limits, each with base_pr, the read of the PR whose head its base was: for a key into names, the PR the drive holds it folded into, read beside it; for any other GitHub reads merged into a base other than its repository's default, the one bases() finds. It gives the reads of every key whose reads all answered, and an error joining what the others could not read, so one refused call loses only its own PRs and those folded into them."""
+    """Read every PR key ("owner/name#123"), its native GitHub stack, its repository's default branch, the checks the rules of that branch require, the method it merges by and what the repository lets this account do included, PRS_PER_QUERY of one repository to a `gh api graphql` call, since GitHub refuses a query past its resource limits, each with base_pr, the read of the PR whose head its base was: for a key into names, the PR the drive holds it folded into, read beside it; for any other GitHub reads merged into a base other than its repository's default, the one bases() finds. It gives the reads of every key whose reads all answered, and an error joining what the others could not read, so one refused call loses only its own PRs and those folded into them."""
     into = into or {}
     asked = list(dict.fromkeys([*keys, *(into[key] for key in keys if key in into)]))
     found, refused = {}, []

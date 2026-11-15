@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 from conftest import Cci, Chrome, Images, Jev, Judge, Redraws
-from drive import card, cli, github, land, limits, picture, stage, state, superseded, view, watch
+from drive import card, cli, github, land, limits, picture, stage, stall, state, superseded, view, watch
 from drive.github import GithubError
 
 URL = "https://github.com/Forge-AI/monorepo/pull/42"
@@ -91,6 +91,7 @@ def entry(wants_tap: bool = True, tap: str | None = None, exempt: str | None = N
         "hold_label": False,
         "conflict": False,
         "merged_sha": None,
+        "permission": "ADMIN",
         "checked": {"head": HEAD, "read": HEAD, "orders": ["o1"], "lines": {}, "beside": {}},
         "checker": None,
         "updated": "2026-11-09T08:00:00-08:00",
@@ -656,6 +657,28 @@ def test_a_card_that_waits_on_no_tap_draws_without_what_he_will_hate_most(drive:
     monkeypatch.setattr(card, "run", answering(pr_json(body=body, pr_state="MERGED")))
     [drawn] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}], "redraw": True})["cards"]
     assert drawn["card"]["status"] == "done"
+
+
+def test_an_open_pr_only_its_upstream_maintainers_merge_waits_on_them_with_no_card_deadline_or_stall_while_red_still_wakes_its_builder(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    key, url = "stablyai/orca#40518", "https://github.com/stablyai/orca/pull/40518"
+    with state.edit(drive) as data:
+        data["prs"][key] = kept_entry(wants_tap=False, checks="pass") | {"url": url, "permission": "READ", "reviews_required": 0}
+        data["jobs"]["j1"] |= {"state": "waiting", "said": f"PUSHED {url}"}
+    data = state.load(drive)
+    now = stage.of(data, key, view.NO_CARDS)
+    assert (now.name, now.owner, now.why) == ("upstream", stage.NOBODY, "waits on stablyai's maintainers to merge it")
+    assert not stage.overdue(data, data["prs"][key], now, datetime.now().astimezone() + timedelta(days=7))
+    assert stall.chain(data, view.NO_CARDS, False, key, set()) is None
+    monkeypatch.setattr(card, "run", answering(pr_json(url=url)))
+    assert ask({"prs": [{"repo": "stablyai/orca", "number": 40518}]})["skipped"] == [
+        {"repo": "stablyai/orca", "number": 40518, "reason": "stablyai's maintainers merge it, outside the drive, so no PR card draws, since it would offer him no Approve"}
+    ]
+    [drawn] = ask({"prs": [{"repo": "stablyai/orca", "number": 40518}], "redraw": True})["cards"]
+    assert ("options" in drawn["card"], drawn["card"]["prs"][0]["blocks"]) == (False, "Waits on stablyai's maintainers to merge it")
+    with state.edit(drive) as data:
+        data["prs"][key] |= {"checks": "fail", "failed_checks": ["test"]}
+    red = stage.of(state.load(drive), key, view.NO_CARDS)
+    assert (red.name, red.owner) == ("red", stage.BUILDER)
 
 
 def test_numbers_lists_every_drive_pr_with_that_number(drive: str) -> None:

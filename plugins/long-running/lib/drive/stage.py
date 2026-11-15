@@ -70,7 +70,7 @@ def uncarded(data: dict, key: str, cards: dict) -> str:
 
 
 def alone(data: dict, key: str, cards: dict) -> Stage:
-    """Every rule of own past the draw of his card; a PR its lander's try merged reads merged, owed by nobody, by land.merged_try, while the watch's last GitHub read still reads it open, so that try wakes no session; an unlanded PR whose own job's waits end at his open question cards, by asked(), reads blocked on him, naming them, so a lander's try made before that job waited wakes no session while he decides and reads unlanded again once he answers."""
+    """Every rule of own past the draw of his card; a PR its lander's try merged reads merged, owed by nobody, by land.merged_try, while the watch's last GitHub read still reads it open, so that try wakes no session; an unlanded PR whose own job's waits end at his open question cards, by asked(), reads blocked on him, naming them, so a lander's try made before that job waited wakes no session while he decides and reads unlanded again once he answers; an open PR none of those rules holds on a repository that lets this account only read or triage it, by state.upstream, reads upstream, owed by nobody, since only that repository's maintainers merge it, with no deadline, so no session is woken to land what it cannot."""
     pr = data["prs"][key]
     if pr["state"] != "open":
         return Stage(pr["state"], NOBODY, github.fold_line(pr) if pr["state"] == github.FOLDED else f"it is {pr['state']}")
@@ -93,6 +93,8 @@ def alone(data: dict, key: str, cards: dict) -> Stage:
         return Stage("held", HIM, holds)
     if pending := grading(pr):
         return Stage("grading", GRADERS, pending)
+    if state.upstream(pr):
+        return Stage("upstream", NOBODY, f"waits on {state.upstream_owner(pr)}'s maintainers to merge it")
     if state.ships_untapped(data, key):
         return waiting(data, key, cards) or Stage("ready", LANDER, f"its builder reported it and every check at {pr['head'][:7]} finished, so the lander merges it with --admin unless one fails on its own change")
     if (flaky := land.flaked(pr)) and not flaky["failed_checks"] and data["prs"][flaky["fix"]]["state"] == "open":

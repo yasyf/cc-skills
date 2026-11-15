@@ -163,6 +163,7 @@ def read(**overrides: object) -> dict:
         "required_checks": ["buildkite/test"],
         "required_reviews": 1,
         "merge_method": "squash",
+        "permission": "ADMIN",
         "default": "main",
         "base_pr": None,
     }
@@ -570,7 +571,7 @@ def test_a_push_to_their_base_reads_only_the_mergeability_of_the_prs_it_names_sa
 
 PULLED = re.compile(r"p(\d+): pullRequest\(number: \d+\)")
 NAMED_REPOSITORY = re.compile(r'repository\(owner: "([^"]+)", name: "([^"]+)"\)')
-MERGES = {"squashMergeAllowed": True, "rebaseMergeAllowed": True, "mergeCommitAllowed": True, "defaultBranchRef": {"name": "dev", "rules": {"nodes": []}}}
+MERGES = {"squashMergeAllowed": True, "rebaseMergeAllowed": True, "mergeCommitAllowed": True, "viewerPermission": "ADMIN", "defaultBranchRef": {"name": "dev", "rules": {"nodes": []}}}
 
 
 def pull_node(head: str) -> dict:
@@ -688,7 +689,7 @@ def test_a_repository_this_account_does_not_administer_is_asked_once_and_a_hook_
         [f"WATCH upkeep of the receiver failed 3 times in a row: {refusal}"],
         ["Forge-AI/litestream", "Forge-AI/monorepo", "stablyai/orca", "Forge-AI/litestream", "Forge-AI/litestream"],
         ["Forge-AI/monorepo"],
-        [[KEY, broken, upstream, shut], [KEY, broken, upstream], [broken, upstream], [broken, upstream]],
+        [[KEY, broken, upstream, shut], [KEY], [broken, upstream], [broken, upstream]],
     )
 
 
