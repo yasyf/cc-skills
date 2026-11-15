@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
-from conftest import REAL_DOWN_MAC_BOXES, carrying
+from conftest import REAL_DOWN_MAC_BOXES
 from drive import github, install, reads, render, served, settled, stage, state
 from drive.state import DriveError
 
@@ -581,6 +581,35 @@ def test_a_drive_saved_with_builders_whose_goal_is_their_readers_question_gives_
         ["build the copy; the proof", copied],
         "Order (his words): copy one store\nGoal: build the copy; the proof\nResearched: j1\n",
     )
+
+
+def test_a_drive_saved_before_proofs_posted_keeps_work_delivered_only_where_drive_job_prove_proved_it(state_root: Path) -> None:
+    make("demo")
+    data = state.load("demo")
+    del data["proofs_posted"]
+    proven, merged, ended, staging, answered = "the proven fix", "the merged fix", "the ended fix", "staging test of #7 before it lands", "why it broke"
+    link = "https://github.com/yasyf/cc-skills/pull/7"
+    post = "https://acme.slack.com/archives/D123/p1794200040000500"
+    build = "https://buildkite.com/forge/release/builds/16112"
+    parts = {proven: state.new_part(), merged: state.new_part() | {"posted": link}, ended: state.new_part(), staging: state.new_part() | {"posted": build}}
+    data["orders"] = {
+        "o1": state.new_order("fix it", "slack", None, parts, state.stamp()) | {"kind": "build", "jobs": ["j1", "j2", "j3"]},
+        "o2": state.new_order(answered, "slack", None, {answered: state.new_part() | {"posted": post}}, state.stamp()) | {"kind": "answer", "jobs": []},
+    }
+    data["jobs"] = {
+        "j1": state.new_job("o1", "builder", "prove it", [proven], state.stamp()) | {"state": "done", "said": f"DONE {link} live: repro/j1.sh exits 0 on long-running@skills 1.0.3"},
+        "j2": state.new_job("o1", "builder", "merge it", [merged, staging], state.stamp()) | {"state": "done", "said": f"DONE {link} merged: yasyf/cc-skills#7 at abc123"},
+        "j3": state.new_job("o1", "codex", "end it", [ended], state.stamp()) | {"state": "done", "said": "DONE checked by hand"},
+    }
+    state.create(data)
+    loaded = state.load("demo")
+    assert {part: loaded["orders"]["o1"]["parts"][part]["posted"] for part in parts} == {
+        proven: f"{link} live: repro/j1.sh exits 0 on long-running@skills 1.0.3",
+        merged: None,
+        ended: None,
+        staging: build,
+    }
+    assert (loaded["orders"]["o2"]["parts"][answered]["posted"], loaded["proofs_posted"]) == (post, True)
 
 
 def test_an_answer_saved_before_answers_listed_waiting_jobs_reads_with_no_job_to_mark(state_root: Path) -> None:
@@ -1227,7 +1256,7 @@ def test_a_drive_saved_with_a_builders_done_on_its_own_open_pr_puts_it_back_wait
 ) -> None:
     make("demo")
     data = state.load("demo")
-    del data["open_dones_held"], data["delivered_by_prs"]
+    del data["open_dones_held"]
     created = "2026-11-14T10:00:00-08:00"
     change, staging, read_part = "ship the writer", "staging test of #42 before it lands", "the reader"
     proof, open_url, merged_url = "https://buildkite.com/forge/release/builds/16112", "https://github.com/Forge-AI/monorepo/pull/42", "https://github.com/Forge-AI/monorepo/pull/43"
@@ -1248,59 +1277,9 @@ def test_a_drive_saved_with_a_builders_done_on_its_own_open_pr_puts_it_back_wait
     held, kept = data["jobs"]["j1"], data["jobs"]["j2"]
     assert (held["state"], held["said"], held["waits"], kept["state"], kept["said"]) == ("waiting", f"WAITING {open_url} to merge: {done}", ["Forge-AI/monorepo#42"], "done", "DONE the reader ships")
     posted = data["orders"]["o1"]["parts"][staging]
-    assert ([state.delivered(data, "o1", part) for part in (change, staging, read_part)], posted["posted"], posted["posted_by"]) == ([False, True, True], proof, "j1")
+    assert ([state.delivered(data, "o1", part) for part in (change, staging, read_part)], posted["posted"], posted["posted_by"]) == ([False, True, False], proof, "j1")
     with state.edit("demo") as drive:
         assert drive["open_dones_held"] is True
-
-
-def test_a_done_of_a_job_that_opened_and_proves_no_pr_delivers_each_part_its_words_name_as_an_act_while_a_part_it_only_holds_or_a_pr_openers_done_names_stays_open(
-    state_root: Path,
-) -> None:
-    make("demo")
-    data = state.load("demo")
-    created = "2026-11-14T10:00:00-08:00"
-    named, held = "rotate the staging key", "move the tokens table"
-    url = "https://github.com/Forge-AI/monorepo/pull/42"
-    data["orders"] = {"o1": state.new_order("rotate the key, move the table", "slack:D123/1794600000.000100", ("D123", "1794600000.000100"), {part: state.new_part() for part in (named, held)}, created)}
-    data["orders"]["o1"] |= {"kind": "build", "jobs": ["j1", "j2"]}
-    data["jobs"] = {
-        "j1": state.new_job("o1", "codex", "rotate it", [named, held], created),
-        "j2": state.new_job("o1", "builder", "move it", [held], created) | {"prs": [url]},
-    }
-    data["prs"] = {"Forge-AI/monorepo#42": state.new_pr(url, "j2", "o1") | {"state": "merged", "merged_sha": "fedcba9876543210", "head": "aaaaaaa111", "checker": carrying("aaaaaaa111", {"o1": []})}}
-    state.take_result(data, "j1", "DONE Rotate  the Staging key: the old one is revoked")
-    state.take_result(data, "j2", f"DONE move the tokens table: {url}")
-    parts = data["orders"]["o1"]["parts"]
-    assert ([state.delivered(data, "o1", part) for part in (named, held)], [parts[part]["posted_by"] for part in (named, held)]) == ([True, False], ["j1", None])
-
-
-def test_a_drive_saved_with_parts_a_done_job_held_undelivered_marks_each_a_merged_prs_check_or_a_return_names_once_and_leaves_a_part_a_job_only_holds_open(
-    state_root: Path,
-) -> None:
-    make("demo")
-    data = state.load("demo")
-    del data["delivered_restored"]
-    created = "2026-11-14T10:00:00-08:00"
-    writer, reader, key, table = "ship the writer", "ship the reader", "rotate the staging key", "move the tokens table"
-    url = "https://github.com/Forge-AI/monorepo/pull/43"
-    data["orders"] = {"o1": state.new_order("ship it all", "slack:D123/1794600000.000100", ("D123", "1794600000.000100"), {part: state.new_part() for part in (writer, reader, key, table)}, created)}
-    data["orders"]["o1"] |= {"kind": "build", "jobs": ["j1", "j2", "j3"]}
-    data["jobs"] = {
-        "j1": state.new_job("o1", "builder", "ship it", [writer, reader], created) | {"state": "done", "said": f"DONE {url} merged: Forge-AI/monorepo#43 at fedcba987654", "prs": [url]},
-        "j2": state.new_job("o1", "builder", "prove the writer", [writer], created) | {"state": "done", "said": "DONE proved live"},
-        "j3": state.new_job("o1", "codex", "rotate and move", [key, table], created) | {"state": "done", "said": "DONE rotated"},
-    }
-    data["prs"] = {"Forge-AI/monorepo#43": state.new_pr(url, "j1", "o1") | {"state": "merged", "merged_sha": "fedcba9876543210", "head": "aaaaaaa111", "checker": carrying("aaaaaaa111", {"o1": [writer, reader]})}}
-    state.create(data)
-    state.keep_report("demo", "j3", "DONE rotated", f"DONE rotated\nCHANGE: {key}, the old one revoked\n")
-    data = state.load("demo")
-    parts = data["orders"]["o1"]["parts"]
-    assert ([state.delivered(data, "o1", part) for part in (writer, reader, key, table)], parts[writer]["posted"], parts[key]["posted_by"], data["delivered_restored"]) == (
-        [True, False, True, False],
-        url,
-        "j3",
-        True,
-    )
 
 
 STAGING, PROOF = "staging test of #42 before it lands", "https://buildkite.com/forge/release/builds/16121"
@@ -1396,14 +1375,17 @@ def test_a_staging_tests_done_frees_the_prs_held_on_it_only_by_a_check_build_tha
     half = git_head(clone, "cherry-pick", bottom)
     git_head(clone, "switch", "-q", "-c", "cut", "dev")
     cut = git_head(clone, "cherry-pick", bottom, tip)
+    proof = tmp_path / "proof.sh"
+    proof.write_text("#!/bin/sh\nexit 0\n")
+    proof.chmod(0o755)
     data = state.new_drive("demo", "coordinator", None, str(clone))
     state.create(data)
     data = state.load("demo")
     created, part = "2026-11-14T10:00:00-08:00", "a table layout is key ranges over files"
     data["orders"] = {"o1": state.new_order("ship table layouts", "slack:D123/1794600000.000100", ("D123", "1794600000.000100"), {part: state.new_part()}, created) | {"kind": "build", "jobs": ["j1", "j2"]}}
     data["jobs"] = {
-        "j1": state.new_job("o1", "builder", "ship table layouts", [part], created) | {"state": "waiting"},
-        "j2": state.new_job("o1", "builder", "the stack deployed to staging, frozen there and thoroughly tested", [part], created) | {"state": "running", "builds_nothing": True},
+        "j1": state.new_job("o1", "builder", "ship table layouts", [part], created) | {"state": "waiting", "repro": str(proof)},
+        "j2": state.new_job("o1", "builder", "the stack deployed to staging, frozen there and thoroughly tested", [part], created) | {"state": "running", "builds_nothing": True, "repro": str(proof)},
     }
     keys = [f"{MONOREPO}#4201", f"{MONOREPO}#4202"]
     data["prs"] = {key: state.new_pr(f"https://github.com/{MONOREPO}/pull/{key.rsplit('#', 1)[1]}", "j1", "o1") | {"head": head, "waits": ["j2"]} for key, head in zip(keys, (bottom, tip))}

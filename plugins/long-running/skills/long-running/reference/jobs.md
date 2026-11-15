@@ -169,7 +169,7 @@ them, such as `WAITING staging:sandsql/plat-usw2-staging@044e8552b694`, never a 
 
 | First line | The job's state |
 |---|---|
-| `DONE`, or a reader's answer | done; a builder's or codex job's `DONE` while a PR it opened is open waits on that PR as `WAITING <its links> to merge: <the DONE>`, so its change is delivered by the watch's `DONE` at the merge and the builder proving it live, never before it lands |
+| `DONE`, or a reader's answer | done; a builder's or codex job's `DONE` while a PR it opened is open waits on that PR as `WAITING <its links> to merge: <the DONE>`, so its change is delivered only once they merge and `drive job prove` runs its proof file and sees it exit 0, never before it lands |
 | `READY`, `PUSHED` or `DESIGN` from any job but a reader, `WAITING`, `ASK` | waiting; an `ASK` keeps as its said line the question's title `drive job ask` set |
 | `BLOCKED` | failed |
 | `HANDOFF <path>`, a job its session stopped before done | stopped |

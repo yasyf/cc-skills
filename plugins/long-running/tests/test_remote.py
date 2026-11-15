@@ -5308,6 +5308,14 @@ def test_a_lane_questions_job_line_posts_the_question_whole_as_its_records_body(
     assert posted == [([*(["--path", "-"] if whole else []), "--text", line], question if whole else None)]
 
 
+def kept_proof(name: str, tmp_path: Path, job_id: str = "j1") -> None:
+    proof = tmp_path / "proof.sh"
+    proof.write_text("#!/bin/sh\nexit 0\n")
+    proof.chmod(0o755)
+    with state.edit(name) as data:
+        data["jobs"][job_id]["repro"] = str(proof)
+
+
 @pytest.mark.parametrize(
     ("status", "whole"),
     [
@@ -5337,8 +5345,9 @@ def test_a_lane_status_is_its_jobs_message_line_setting_nothing_and_its_record_c
     ],
 )
 def test_a_lane_question_opening_with_a_result_other_than_ask_is_that_result_and_never_unanswered(
-    sent: str, asked: str | None, taken: str, remote: str, monkeypatch: pytest.MonkeyPatch
+    sent: str, asked: str | None, taken: str, remote: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    kept_proof(remote, tmp_path)
     deliver(monkeypatch, [message("question", sent)])
     monkeypatch.setattr(github, "fetch", lambda keys, into=None: ({}, None))
     watching = watch.Watcher(remote, offset=state.events_end(remote))
@@ -6302,7 +6311,8 @@ def test_a_built_job_relaunched_on_his_answer_runs_none_of_the_mail_its_finished
     assert [reply["body"] for reply in history if reply["id"].startswith(state.REPORT_REPLY)] == [J2914_REPORT]
 
 
-def test_a_watch_whose_mail_mark_another_install_lost_takes_none_of_the_mail_its_job_kept(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_watch_whose_mail_mark_another_install_lost_takes_none_of_the_mail_its_job_kept(remote: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    kept_proof(remote, tmp_path)
     kept = [
         message("question", ASK_IN_SHAPE, id="msg_ask"),
         message("question", "READ ccn answer search x", id="msg_read"),
@@ -6634,11 +6644,12 @@ def test_one_read_hears_every_lane_whatever_run_orca_filed_its_mail_on(run: Run,
     assert calls == [None]
 
 
-def test_a_run_a_finished_job_shares_gives_each_job_its_own_workers_mail(run: Run, remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_run_a_finished_job_shares_gives_each_job_its_own_workers_mail(run: Run, remote: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     run("order", "set", "o1", "--add-part", "an earlier lane")
     run("job", "add", "builder", "--order", "o1", "--part", "an earlier lane", "--goal", "an earlier lane on the drive's old shared Run", "--remote")
     with state.edit(remote) as data:
         data["jobs"]["j2"].update(run=RUN, dispatch="ctx_lane0002", state="done")
+    kept_proof(remote, tmp_path, "j2")
     deliver(monkeypatch, [message("worker_done", "DONE earlier", id="msg_old", from_handle="dispatch:ctx_lane0002"), message("worker_done", "BLOCKED CI", id="msg_own")])
     assert said_lines(watch.lane_lines, watch.Watcher(remote, offset=state.events_end(remote)), T0) == ["JOB j2 o1 DONE earlier", "JOB j1 o1 BLOCKED CI"]
     assert [[reply["id"] for reply in state.replies(remote, job_id)] for job_id in ("j1", "j2")] == [["msg_own"], ["msg_old"]]

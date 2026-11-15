@@ -50,21 +50,21 @@ TEAMMATE_THREAD = "1794500000.000300"
 ASKED_TS = f"{T0.timestamp():.6f}"
 ASKED_TEAMMATE = f"https://acme.slack.com/archives/C0TEAM0001/p{ASKED_TS.replace('.', '')}"
 NO_BUILDER = "no builder carries this work, only "
-ANSWERED = f"answered by the post {REPORTED}, but it counts as work he ordered, which no post delivers, held by "
 READ = ("reader", "done")
+PROVEN = "DONE ship it live: repro/j9.sh exits 0 on long-running@skills 1.0.4"
 REPLAYED_685794 = [
     (685713, None, "Incident dd-334827919: API Envoy idle-socket 503s on agent asks", True, [READ], False, None),
     (685714, None, "status of every bug", True, [READ], True, None),
     (685715, None, "status of shipping the automatic split of large tables", True, [READ], True, None),
     (685716, None, "What's status of splitting agents into their own runners", True, [READ], False, None),
     (685717, None, "status of the File redesign", True, [READ], True, None),
-    (685718, None, "Why closed?", True, [READ, ("builder", "stopped")], False, f"{ANSWERED}reader j2 done, builder j3 stopped: "),
+    (685718, None, "Why closed?", True, [READ, ("builder", "stopped")], False, f"{NO_BUILDER}reader j2 done, builder j3 stopped: "),
     (685719, None, "why the files changes took all day", True, [], True, None),
     (685720, None, "And if they don't land for whatever reason still message the reviewer", True, [("reader", "waiting")], False, None),
     (685721, None, "What is a restore, and why did it take 5m?", True, [READ], False, None),
     (685722, None, "measure today's release against 5 to 7 minutes and name every step past it", True, [READ], True, None),
     (685723, None, "why a release like the last hotfix is not self-serve, and what makes it so", False, [("reader", "waiting")], True, None),
-    (685724, None, "Why so we have a lazy setting at all it should be the same everywhere", True, [("design", "done"), ("builder", "stopped")], False, f"{ANSWERED}design j2 done, builder j3 stopped: "),
+    (685724, None, "Why so we have a lazy setting at all it should be the same everywhere", True, [("design", "done"), ("builder", "stopped")], False, f"{NO_BUILDER}design j2 done, builder j3 stopped: "),
     (685725, None, "What? I'm saying do the automated version we built", True, [], False, None),
     (685726, None, "delete the repairs stub outright", True, [("builder", "waiting")], True, "j2 waits on"),
     (685727, None, "whats status of pre-signed bucket file upload stuff?", True, [READ], False, None),
@@ -78,31 +78,36 @@ REPLAYED_685794 = [
     (685735, None, "bringing this to me with optins and diagnosis on why it OOMed", True, [READ], True, None),
     (685736, None, "what teh fuyck are these solutins, its a server-side s3 copy right?", True, [READ], False, None),
     (685737, None, "whats blocking blob service now?", True, [READ], False, None),
-    (685738, "build", "auto partitioning on the same abstraction", True, [READ, ("design", "done")], True, f"{ANSWERED}reader j2 done, design j3 done: "),
-    (685739, "build", "auto partitioning status", True, [("design", "done")], True, f"{ANSWERED}design j2 done: "),
+    (685738, "build", "auto partitioning on the same abstraction", True, [READ, ("design", "done")], True, f"{NO_BUILDER}reader j2 done, design j3 done: "),
+    (685739, "build", "auto partitioning status", True, [("design", "done")], True, f"{NO_BUILDER}design j2 done: "),
     (685740, None, "bring me design options to make forks and restores as close to free as possible", True, [READ, ("design", "waiting"), ("builder", "waiting")], False, "j4 waits on"),
     (685741, "build", "increase the search worker's RAM", True, [], True, "no job"),
-    (685742, "build", "answer: did we cap each indexed entry to 1024 tokens as the plan said", True, [READ, READ], True, f"{ANSWERED}reader j2 done, reader j3 done: "),
-    (685743, "build", "look into S3's per-prefix request rate limiting", True, [READ], True, f"{ANSWERED}reader j2 done: "),
+    (685742, "build", "answer: did we cap each indexed entry to 1024 tokens as the plan said", True, [READ, READ], True, f"{NO_BUILDER}reader j2 done, reader j3 done: "),
+    (685743, "build", "look into S3's per-prefix request rate limiting", True, [READ], True, f"{NO_BUILDER}reader j2 done: "),
     (685744, None, "#54749 lands", True, [READ], True, None),
     (685745, None, "his pick on #52894 and #53584", False, [("reader", "waiting")], True, None),
     (685746, "build", "are we doing the ssql release foe it", True, [], True, "no job"),
     (685747, "build", "the release's npm publishing of @poeticapps/poetic removed for now", True, [("builder", "failed"), READ], True, "j2 failed"),
-    (685748, "build", "a card asking whether to tell the reporter it is live", True, [READ, READ], True, f"{ANSWERED}reader j2 done, reader j3 done: "),
+    (685748, "build", "a card asking whether to tell the reporter it is live", True, [READ, READ], True, f"{NO_BUILDER}reader j2 done, reader j3 done: "),
     (685749, None, "why a chat's subagents do not persist across a restart, answered in his thread", True, [READ], True, None),
     (685750, None, "status of the fixes", True, [READ], True, None),
     (685751, "build", "first check", True, [("codex", "failed")], True, "j2 failed"),
-    (685752, "build", "> `_app_action_invocations` tables in 15 minutes", True, [READ], True, f"{ANSWERED}reader j2 done: "),
+    (685752, "build", "> `_app_action_invocations` tables in 15 minutes", True, [READ], True, f"{NO_BUILDER}reader j2 done: "),
     (685753, "build", "what happened to the lost wiki pages and whether they can be recovered", False, [READ], False, f"{NO_BUILDER}reader j2 done: "),
     (685754, "build", "options for holding failed writes and replaying them", False, [READ], False, f"{NO_BUILDER}reader j2 done: "),
-    (685755, "build", "first check", True, [READ], True, f"{ANSWERED}reader j2 done: "),
-    (685756, "build", "status of the scratch and run-local databases, and whether a customer's runs could", True, [READ], True, f"{ANSWERED}reader j2 done: "),
-    (685757, "build", "how the prompts and the compiler push big reads to a scratch database", True, [READ], True, f"{ANSWERED}reader j2 done: "),
-    (685758, "build", "whether production runs still fail on SandSQL now, and which runs the stall", True, [READ], True, f"{ANSWERED}reader j2 done: "),
+    (685755, "build", "first check", True, [READ], True, f"{NO_BUILDER}reader j2 done: "),
+    (685756, "build", "status of the scratch and run-local databases, and whether a customer's runs could", True, [READ], True, f"{NO_BUILDER}reader j2 done: "),
+    (685757, "build", "how the prompts and the compiler push big reads to a scratch database", True, [READ], True, f"{NO_BUILDER}reader j2 done: "),
+    (685758, "build", "whether production runs still fail on SandSQL now, and which runs the stall", True, [READ], True, f"{NO_BUILDER}reader j2 done: "),
     (685759, "build", "fix this too", False, [READ, ("reader", "waiting")], False, f"{NO_BUILDER}reader j2 done, reader j3 waiting: "),
     (685760, "build", "a release plans restate on plat-usw2-prod past the route check", False, [("reader", "waiting")], False, f"{NO_BUILDER}reader j2 waiting: "),
     (685761, "build", "list the rest for me here", True, [], True, "no job"),
 ]
+
+
+def proven(data: dict, job_id: str = "j1", **fields: object) -> None:
+    data["jobs"][job_id].update(state="done", said=PROVEN, **fields)
+    state.deliver_proven(data, job_id, PROVEN.removeprefix("DONE "))
 
 
 def order(**overrides: object) -> dict:
@@ -128,13 +133,6 @@ def order(**overrides: object) -> dict:
 def job(**overrides: object) -> dict:
     base = {"order": "o1", "kind": "builder", "goal": "watch", "prs": [], "branch": None, "waits": [], "questions": [], "state": "running", "said": None, "created": state.stamp(T0), "updated": state.stamp(T0)}
     return {**base, **overrides}
-
-
-def done_merged(data: dict, job_id: str, **fields: object) -> None:
-    done = data["jobs"][job_id]
-    done.update(state="done", **fields)
-    for part in state.job_parts(done, done["order"]):
-        data["orders"][done["order"]]["parts"][part]["posted"] = state.pr_url(KEY)
 
 
 @pytest.fixture
@@ -2811,7 +2809,7 @@ def test_a_stranded_jobs_orphans_name_once_the_pr_its_line_names_moved_to_anothe
     moved = "Forge-AI/monorepo#55175"
     said = f"READY {state.pr_url(moved)} waits on j4's runbook"
     with state.edit(demo) as data:
-        done_merged(data, "j1", updated=earlier)
+        proven(data, updated=earlier)
         data["orders"]["o2"] = order(text=parts[0], jobs=["j2", "j3", "j4"], kind="build", parts={part: state.new_part() for part in parts}, updated=earlier)
         data["jobs"]["j2"] = job(order="o2", state="waiting", said=said, parts=parts, updated=earlier)
         data["jobs"]["j3"] = job(order="o2", parts=[], updated=earlier)
@@ -2863,10 +2861,10 @@ def test_a_done_design_leaves_its_own_part_with_the_builder_carrying_one_of_its_
     assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == [
         'ORPHAN o2 "redesign the moved tables": no builder carries this work, only design j2 done: start one with drive job add builder --order o2'
         " --part 'redesign the moved tables' --goal '<what it builds>', or add it to a builder with drive job set <builder> --part 'redesign the moved tables', adding --carries o2 for another order's builder; when it asks only for an answer,"
-        " drive order set o2 --kind answer --part 'redesign the moved tables'; when a merged PR delivered it, drive order posted o2 <its link> --part 'redesign the moved tables'",
+        " drive order set o2 --kind answer --part 'redesign the moved tables'",
         'ORPHAN o2 "the moved-table interface": no builder carries this work, only builder j3 stopped: start one with drive job add builder --order o2'
         " --part 'the moved-table interface' --goal '<what it builds>', or add it to a builder with drive job set <builder> --part 'the moved-table interface', adding --carries o2 for another order's builder; when it asks only for an answer,"
-        " drive order set o2 --kind answer --part 'the moved-table interface'; when a merged PR delivered it, drive order posted o2 <its link> --part 'the moved-table interface'",
+        " drive order set o2 --kind answer --part 'the moved-table interface'",
     ]
 
 
@@ -3104,8 +3102,8 @@ def merged_carrying(job_id: str, order_id: str, carried: dict[str, list[str]]) -
     return state.new_pr(state.pr_url(OTHER), job_id, order_id) | {"state": "merged", "merged_sha": "c0ffee1234", "head": "bbbbbbb222", "checker": carrying("bbbbbbb222", carried)}
 
 
-def test_a_part_another_orders_builder_carries_is_delivered_by_the_merged_pr_whose_checked_diff_carries_it_never_by_its_done_alone(
-    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+def test_a_part_another_orders_builder_carries_is_delivered_only_by_the_proof_of_that_builders_done_where_the_checked_diff_of_its_merged_pr_carries_it(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, provers: list[str], tmp_path: Path
 ) -> None:
     serve(monkeypatch, {})
     with state.edit(demo) as data:
@@ -3117,19 +3115,33 @@ def test_a_part_another_orders_builder_carries_is_delivered_by_the_merged_pr_who
     assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == []
     with state.edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
+        data["jobs"]["j1"]["repro"] = proof_file(tmp_path)
         state.take_result(data, "j1", "DONE carried it")
     assert not state.delivered(state.load(demo), "o2", "stack 2")
     with state.edit(demo) as data:
-        data["prs"][OTHER] = merged_carrying("j1", "o1", {"o1": ["ship the watch"], "o2": ["stack 2"]})
+        data["prs"][OTHER] = merged_carrying("j1", "o1", {"o2": ["stack 2"]})
         data["jobs"]["j1"]["prs"].append(state.pr_url(OTHER))
         state.take_result(data, "j1", f"DONE {state.pr_url(OTHER)} merged")
         data["orders"]["o2"]["updated"] = state.stamp(T0)
     data = state.load(demo)
-    assert (data["jobs"]["j1"]["carries"], data["orders"]["o2"]["jobs"], state.delivered(data, "o2", "stack 2"), data["orders"]["o2"]["parts"]["stack 2"]["posted"]) == (
-        {"o2": ["stack 2"]}, ["j2", "j1"], True, state.pr_url(OTHER)
-    )
-    assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == []
-    assert watch.run_pass(watching, T0 + timedelta(minutes=5)) == []
+    assert (data["jobs"]["j1"]["carries"], data["orders"]["o2"]["jobs"], state.delivered(data, "o2", "stack 2")) == ({"o2": ["stack 2"]}, ["j2", "j1"], False)
+    assert watch.run_pass(watching, T0 + watch.HANDOFF) == []
+    assert provers == ["j1"]
+    with state.edit(demo) as data:
+        install.finish(demo, data, "j1", f"DONE j1 live: {proof_file(tmp_path)} exits 0 on no plugin of this Mac", [], "", "")
+    data = state.load(demo)
+    assert [state.delivered(data, order_id, part) for order_id, part in (("o2", "stack 2"), ("o2", "stack 1"), ("o1", "ship the watch"))] == [True, False, False]
+
+
+def test_a_passing_proof_naming_no_pr_delivers_its_own_orders_part_and_never_one_it_carries_for_another_order(demo: str) -> None:
+    with state.edit(demo) as data:
+        files_order(data)
+        data["orders"]["o2"]["jobs"].append("j1")
+        data["jobs"]["j1"]["carries"] = {"o2": ["stack 2"]}
+    with state.edit(demo) as data:
+        proven(data)
+    data = state.load(demo)
+    assert [state.delivered(data, order_id, part) for order_id, part in (("o1", "ship the watch"), ("o2", "stack 2"))] == [True, False]
 
 
 def test_a_job_on_the_part_heals_the_orphan_once_its_handover_is_done(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -3182,18 +3194,18 @@ def test_a_job_on_the_immediate_fix_carries_the_orders_other_parts_until_it_is_d
     watching = watcher(demo)
     assert watch.run_pass(watching, T0) == []
     with state.edit(demo) as data:
-        done_merged(data, "j1")
+        proven(data)
     assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == ['ORPHAN o1 "ship the watch": no job']
 
 
 @pytest.mark.parametrize("kind", ["reader", "codex", "design"])
-def test_a_done_builder_whose_merged_pr_delivers_its_part_frees_it_and_a_done_reader_codex_or_design_job_waits_for_the_posted_answer(
+def test_a_proven_builder_delivers_its_part_and_a_done_reader_codex_or_design_job_waits_for_the_posted_answer(
     demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], slack_thread: "Thread", kind: str
 ) -> None:
     serve(monkeypatch, {})
     earlier = state.stamp(T0 - timedelta(minutes=10))
     with state.edit(demo) as data:
-        done_merged(data, "j1", updated=earlier)
+        proven(data, updated=earlier)
         data["orders"]["o2"] = order(text="why do old runs fail?", jobs=["j2"], kind="answer")
         data["jobs"]["j2"] = job(order="o2", kind=kind, state="done", updated=earlier)
     his = slack_thread.post(T0, from_user=True)
@@ -3217,32 +3229,28 @@ def test_work_he_ordered_is_carried_only_by_a_builder_never_by_research_his_card
     earlier = state.stamp(T0 - timedelta(minutes=10))
     merge = "get the inbox work merged"
     with state.edit(demo) as data:
-        done_merged(data, "j1", updated=earlier)
-        data["orders"]["o2"] = order(text=merge, jobs=["j2"], kind="build", parts={merge: state.new_part() | {"posted": REPORTED}}, updated=earlier)
+        proven(data, updated=earlier)
+        data["orders"]["o2"] = order(text=merge, jobs=["j2"], kind="build", parts={merge: state.new_part()}, updated=earlier)
         data["jobs"]["j2"] = job(order="o2", kind="reader", parts=[merge], updated=earlier)
     unbuilt = (
-        f"when it asked only for an answer, drive order set o2 --kind answer --part '{merge}' closes it; when it asks for a change,"
-        f" start its builder with drive job add builder --order o2 --part '{merge}' --goal '<what it builds>'{{waits}}"
+        f"start one with drive job add builder --order o2 --part '{merge}' --goal '<what it builds>'{{waits}}, or add it to a builder with drive job set <builder> --part '{merge}',"
+        f" adding --carries o2 for another order's builder; when it asks only for an answer, drive order set o2 --kind answer --part '{merge}'"
     )
     watching = watcher(demo)
-    assert watch.run_pass(watching, T0) == [f'ORPHAN o2 "{merge}": {ANSWERED}reader j2 running: {unbuilt.format(waits=" --waits j2")}']
+    assert watch.run_pass(watching, T0) == [f'ORPHAN o2 "{merge}": {NO_BUILDER}reader j2 running: {unbuilt.format(waits=" --waits j2")}']
     card = {"question": "Which inbox lands first?", "options": ["First", "Last"], "recommended": "First", "asked": state.stamp(T0), "url": f"{CARD}?thread_ts=1.2", "card": {"title": "Which inbox lands first?", "waits": "demo:j2-7-a"}}
     monkeypatch.setattr(watch.view, "cards", lambda name: {"team_url": "", "questions": [card], "closed": [], "pr_cards": []})
     with state.edit(demo) as data:
         data["jobs"]["j2"].update(kind="design", state="done", questions=[state.new_question(None, None, state.stamp(T0), card=CARD, holds=None)])
         data["orders"]["o2"]["parts"][merge]["orphan_said"] = None
-    assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == [f'ORPHAN o2 "{merge}": {ANSWERED}design j2 done, his card {CARD} open: {unbuilt.format(waits="")}']
+    assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == [f'ORPHAN o2 "{merge}": {NO_BUILDER}design j2 done, his card {CARD} open: {unbuilt.format(waits="")}']
     with state.edit(demo) as data:
         data["orders"]["o2"]["jobs"].append("j3")
         data["jobs"]["j3"] = job(order="o2", kind="codex", parts=[merge], updated=earlier)
     assert watch.run_pass(watching, T0 + timedelta(seconds=10)) == []
     with state.edit(demo) as data:
-        state.take_result(data, "j3", "DONE inbox work merged")
-        data["jobs"]["j3"]["updated"] = earlier
-        data["orders"]["o2"]["parts"][merge]["orphan_said"] = None
+        data["jobs"]["j3"].update(state="done", said="DONE merged it")
     assert not state.delivered(state.load(demo), "o2", merge)
-    [line] = watch.run_pass(watching, T0 + timedelta(minutes=1))
-    assert line.startswith(f'ORPHAN o2 "{merge}": {ANSWERED}design j2 done, codex j3 done; j3 merged no PR whose checked diff carries it, his card {CARD} open: ')
 
 
 @pytest.mark.parametrize(("kind", "part", "posted", "held", "built", "said"), [case[1:] for case in REPLAYED_685794], ids=[str(case[0]) for case in REPLAYED_685794])
@@ -3261,7 +3269,9 @@ def test_a_part_of_an_order_of_no_kind_only_research_ever_held_is_his_question_i
             due = state.stamp(T0 + timedelta(hours=1)) if (job_kind, job_state) == ("reader", "waiting") else None
             data["jobs"][job_id] = job(order="o2", kind=job_kind, state=job_state, parts=[part], due=due, updated=earlier)
         if built:
-            data["jobs"][jobs[-1]] = job(order="o2", state="done", parts=[other], updated=earlier)
+            data["jobs"][jobs[-1]] = job(order="o2", state="done", said=PROVEN, parts=[other], updated=earlier)
+    with state.edit(demo) as data:
+        state.post_proofs(data)
     drawn = [line for line in watch.run_pass(watcher(demo), T0) if line.startswith("ORPHAN o2 ")]
     assert [line.startswith(f'ORPHAN o2 "{render.cut(part, 80)}": {said}') for line in drawn] == ([True] if said else [])
 
@@ -3307,7 +3317,7 @@ def test_each_o1_spike_part_its_done_builders_delivered_names_their_undelivered_
         assert gaps[part].startswith(f"{NO_BUILDER}{listed}; {finished} merged no PR whose checked diff carries it: start one with drive job add builder --order o1 --part {shlex.quote(part)} "), part
 
 
-def test_a_part_sorted_as_an_answer_is_delivered_by_the_post_it_holds_and_one_a_builder_works_on_is_never_sorted(
+def test_a_part_sorted_as_an_answer_is_delivered_by_its_post_and_one_a_builder_works_on_is_never_sorted(
     demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     serve(monkeypatch, {})
@@ -3315,14 +3325,14 @@ def test_a_part_sorted_as_an_answer_is_delivered_by_the_post_it_holds_and_one_a_
     earlier = state.stamp(T0 - timedelta(minutes=10))
     asked, fix = "why do old runs fail?", "fix them"
     with state.edit(demo) as data:
-        done_merged(data, "j1", updated=earlier)
-        data["orders"]["o2"] = order(text=asked, jobs=["j2", "j3"], kind="build", parts={asked: state.new_part() | {"posted": REPORTED}, fix: state.new_part()}, updated=earlier)
+        proven(data, updated=earlier)
+        data["orders"]["o2"] = order(text=asked, jobs=["j2", "j3"], kind="build", parts={asked: state.new_part(), fix: state.new_part()}, updated=earlier)
         data["jobs"]["j2"] = job(order="o2", kind="reader", state="done", parts=[asked], updated=earlier)
         data["jobs"]["j3"] = job(order="o2", parts=[fix], updated=earlier)
     watching = watcher(demo)
     [line] = watch.run_pass(watching, T0)
-    assert line.startswith(f'ORPHAN o2 "{asked}": {ANSWERED}reader j2 done: ')
-    assert f"when it asked only for an answer, drive order set o2 --kind answer --part '{asked}' closes it;" in line
+    assert line.startswith(f'ORPHAN o2 "{asked}": {NO_BUILDER}reader j2 done: ')
+    assert line.endswith(f"when it asks only for an answer, drive order set o2 --kind answer --part '{asked}'")
     assert cli.main(["order", "set", "o2", "--part", asked, "--drive", demo]) == 2
     assert "--part: refused, it sorts a part of o2 with --kind answer" in capsys.readouterr().err
     assert cli.main(["order", "set", "o2", "--kind", "answer", "--part", fix, "--drive", demo]) == 2
@@ -3331,44 +3341,37 @@ def test_a_part_sorted_as_an_answer_is_delivered_by_the_post_it_holds_and_one_a_
     sorted_order = state.load(demo)["orders"]["o2"]
     assert (sorted_order["kind"], sorted_order["parts"][asked]["answer"], sorted_order["parts"][fix]["answer"]) == ("build", True, False)
     with state.edit(demo) as data:
-        data["orders"]["o2"]["parts"][asked]["orphan_said"] = None
+        data["orders"]["o2"]["parts"][asked].update(orphan_said=None, posted=REPORTED)
     assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == []
     assert state.delivered(state.load(demo), "o2", asked)
 
 
-def test_a_merged_pr_delivers_a_work_part_through_drive_order_posted_which_refuses_a_post_and_an_open_pr(
+def test_a_merged_pr_delivers_no_work_part_and_its_orphan_names_the_prover_while_drive_order_posted_refuses_it(
     demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     serve(monkeypatch, {})
     earlier = state.stamp(T0 - timedelta(minutes=10))
     lands, landed = "#43 lands", state.pr_url(OTHER)
     with state.edit(demo) as data:
-        done_merged(data, "j1", updated=earlier)
+        proven(data, updated=earlier)
         data["orders"]["o2"] = order(text=lands, jobs=["j2"], kind="build", parts={lands: state.new_part()}, updated=earlier)
         data["jobs"]["j2"] = job(order="o2", kind="reader", state="done", parts=[lands], updated=earlier)
         data["prs"][OTHER] = state.new_pr(landed, "j1", "o1") | {"state": "merged"}
     watching = watcher(demo)
     assert watch.run_pass(watching, T0) == [
         f'ORPHAN o2 "{lands}": no builder carries this work, only reader j2 done: start one with drive job add builder --order o2 --part \'{lands}\''
-        f" --goal '<what it builds>', or add it to a builder with drive job set <builder> --part '{lands}', adding --carries o2 for another order's builder; {OTHER} merged, so drive order posted o2 {landed} --part '{lands}' delivers it"
+        f" --goal '<what it builds>', or add it to a builder with drive job set <builder> --part '{lands}', adding --carries o2 for another order's builder; {watch.unproven_merge('o2', lands, OTHER)}"
     ]
-    assert cli.main(["order", "posted", "o2", REPORTED, "--part", lands, "--drive", demo]) == 2
-    assert f'--part "{lands}": refused, ' + state.UNPOSTED_WORK.format(order="o2", part=lands, holder="root@demo") in capsys.readouterr().err
-    serve(monkeypatch, {YASYF: read(), OTHER: read(state="MERGED")})
-    assert cli.main(["order", "posted", "o2", state.pr_url(YASYF), "--part", lands, "--drive", demo]) == 2
-    assert f'--part "{lands}": refused, {YASYF} is open, and only a PR merged into its default branch delivers work he ordered' in capsys.readouterr().err
-    assert cli.main(["order", "posted", "o2", landed, "--part", lands, "--drive", demo]) == 0
-    assert capsys.readouterr().out == f'o2 "{lands}": posted {landed}, the merged PR that delivered it\n'
-    serve(monkeypatch, {})
-    with state.edit(demo) as data:
-        data["orders"]["o2"]["parts"][lands]["orphan_said"] = None
-    assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == []
+    for link in (REPORTED, landed):
+        assert cli.main(["order", "posted", "o2", link, "--part", lands, "--drive", demo]) == 2
+        assert f'--part "{lands}": refused, ' + state.UNPOSTED_WORK.format(order="o2", part=lands) in capsys.readouterr().err
+    assert not state.delivered(state.load(demo), "o2", lands)
 
 
 @pytest.mark.parametrize(
     ("now", "said"),
     [
-        ("MERGED", f"{OTHER} merged, so drive order posted o2 {state.pr_url(OTHER)} --part 'port the fixes' delivers it"),
+        ("MERGED", watch.unproven_merge("o2", "port the fixes", OTHER)),
         ("CLOSED", f"{OTHER} closed unmerged, carrying nothing of j2's work: start its builder with drive job add builder --order o2 --part 'port the fixes' --goal 'port the fixes'"),
     ],
 )
@@ -3381,7 +3384,7 @@ def test_a_pr_the_drive_does_not_track_carries_the_part_of_the_stopped_builder_n
     earlier = state.stamp(T0 - timedelta(minutes=10))
     port = "port the fixes"
     with state.edit(demo) as data:
-        done_merged(data, "j1", updated=earlier)
+        proven(data, updated=earlier)
         data["orders"]["o2"] = order(text=port, jobs=["j2"], kind="build", parts={port: state.new_part()}, updated=earlier)
         data["jobs"]["j2"] = job(order="o2", goal=port, state="stopped", parts=[port], updated=earlier)
     assert cli.main(["job", "set", "j2", "--pr", state.pr_url(OTHER), "--drive", demo]) == 0
@@ -3465,16 +3468,17 @@ def test_only_the_session_an_orders_orphan_lines_reach_runs_drive_order_posted_a
     posted = ["order", "posted", "o2", landed, "--part", lands, "--drive", demo]
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
     assert cli.main(posted) == 2
-    assert "work a merged PR delivered, is marked from the root@demo session, the one its ORPHAN lines reach" in capsys.readouterr().err
+    assert "a part a post of the drive already answered is marked from the root@demo session, the one its ORPHAN lines reach" in capsys.readouterr().err
     with state.edit(demo) as data:
         data["orders"]["o2"]["project"] = "Iris"
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "session-under-test")
     assert cli.main(posted) == 2
-    assert "work a merged PR delivered, is marked from the iris@demo session, the one its ORPHAN lines reach" in capsys.readouterr().err
+    assert "a part a post of the drive already answered is marked from the iris@demo session, the one its ORPHAN lines reach" in capsys.readouterr().err
     assert state.load(demo)["orders"]["o2"]["parts"][lands]["posted"] is None
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
-    assert cli.main(posted) == 0
-    assert state.load(demo)["orders"]["o2"]["parts"][lands]["posted"] == landed
+    assert cli.main(posted) == 2
+    assert f'--part "{lands}": refused, ' + state.UNPOSTED_WORK.format(order="o2", part=lands) in capsys.readouterr().err
+    assert state.load(demo)["orders"]["o2"]["parts"][lands]["posted"] is None
 
 
 @pytest.mark.parametrize("ended", ["failed", "done"])
@@ -3484,7 +3488,7 @@ def test_an_open_incidents_fix_whose_jobs_ended_with_no_pr_has_no_fix_job_and_na
     serve(monkeypatch, {})
     earlier = state.stamp(T0 - timedelta(minutes=10))
     with state.edit(demo) as data:
-        done_merged(data, "j1", updated=earlier)
+        proven(data, updated=earlier)
         data["orders"]["o2"] = order(text="runs never start", incident=True, jobs=["j2"], parts={state.INCIDENT_FIX: state.new_part()}, updated=earlier)
         data["jobs"]["j2"] = job(order="o2", kind="codex", goal="fix: runs never start", state=ended, parts=[state.INCIDENT_FIX], updated=earlier)
     watching = watcher(demo)
@@ -3507,7 +3511,7 @@ def test_an_open_incident_with_no_fix_part_whose_jobs_ended_with_no_pr_card_or_p
     stopped = "runs stopped for one team at 05:01:42Z"
     earlier = state.stamp(T0 - timedelta(minutes=10))
     with state.edit(demo) as data:
-        done_merged(data, "j1", updated=earlier)
+        proven(data, updated=earlier)
         data["orders"]["o2"] = order(text=stopped, incident=True, jobs=["j2", "j3", "j4"], parts={stopped: state.new_part()}, updated=earlier)
         for job_id, kind, goal, minutes in (("j2", "builder", "stop the stopped runs", 30), ("j3", "builder", "fix the stopped runs", 20), ("j4", "codex", "cause, read only, at once", 40)):
             data["jobs"][job_id] = job(order="o2", kind=kind, goal=goal, state="done", parts=[stopped], created=state.stamp(T0 - timedelta(minutes=minutes)), updated=earlier)
@@ -3522,26 +3526,31 @@ def test_an_open_incident_with_no_fix_part_whose_jobs_ended_with_no_pr_card_or_p
         data["orders"]["o2"]["jobs"].append("j5")
         data["jobs"]["j5"] = job(order="o2", kind="reader", goal="read the queue", state="done", parts=[stopped], created=state.stamp(T0 - timedelta(minutes=5)), updated=earlier)
     assert watch.part_gap(watching, state.load(demo), "o2", stopped, T0) == idle
+    unbuilt = (
+        f"{NO_BUILDER}builder j2 done, builder j3 done, codex j4 done, reader j5 done; j2 and j3 and j4 merged no PR whose checked diff carries it:"
+        f" start one with drive job add builder --order o2 --part '{stopped}' --goal '<what it builds>', or add it to a builder with drive job set <builder> --part '{stopped}',"
+        f" adding --carries o2 for another order's builder; when it asks only for an answer, drive order set o2 --kind answer --part '{stopped}'"
+    )
     with state.edit(demo) as data:
         data["jobs"]["j2"]["questions"] = [state.new_question(None, "Which store?", earlier, card=CARD)]
-    assert watch.part_gap(watching, state.load(demo), "o2", stopped, T0) is None
+    assert watch.part_gap(watching, state.load(demo), "o2", stopped, T0) == unbuilt
     with state.edit(demo) as data:
         data["jobs"]["j2"]["questions"] = []
         data["orders"]["o2"]["parts"]["Status?"] = state.new_part()
         data["orders"]["o2"]["jobs"].append("j6")
         data["jobs"]["j6"] = job(order="o2", kind="reader", goal="where it stands", parts=["Status?"])
-    assert watch.part_gap(watching, state.load(demo), "o2", stopped, T0) is None
+    assert watch.part_gap(watching, state.load(demo), "o2", stopped, T0) == unbuilt
     with state.edit(demo) as data:
         data["jobs"]["j6"]["state"] = "done"
         data["jobs"]["j3"]["prs"] = [state.pr_url(OTHER)]
         data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j3", "o2")
-    assert watch.part_gap(watching, state.load(demo), "o2", stopped, T0) is None
+    assert watch.part_gap(watching, state.load(demo), "o2", stopped, T0) == unbuilt
     with state.edit(demo) as data:
         data["prs"][OTHER]["state"] = "closed"
     assert watch.part_gap(watching, state.load(demo), "o2", stopped, T0) == idle
     with state.edit(demo) as data:
         data["orders"]["o2"]["proof"] = "https://buildkite.com/forge/release/builds/15020"
-    assert watch.part_gap(watching, state.load(demo), "o2", stopped, T0) is None
+    assert watch.part_gap(watching, state.load(demo), "o2", stopped, T0) == unbuilt
 
 
 def test_a_waiting_job_lives_while_its_question_is_open_and_is_an_orphan_once_it_is_withdrawn_whose_card_the_watch_then_closes_once(
@@ -4381,7 +4390,7 @@ def test_a_pr_he_approved_that_waits_on_a_staging_test_is_owed_by_him_while_its_
     assert jobs == [(KEY, "j4")]
 
 
-def test_a_pr_he_approved_that_waits_on_a_part_of_an_order_lands_only_once_a_merged_pr_whose_checked_diff_carries_it_delivers_it_never_on_a_done_at_its_merge(
+def test_a_pr_he_approved_that_waits_on_a_part_of_an_order_lands_only_once_a_proof_delivers_it_by_a_merged_pr_whose_checked_diff_carries_it_never_on_a_done_at_its_merge_or_of_its_own(
     demo: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]
 ) -> None:
     with state.edit(demo) as data:
@@ -4403,6 +4412,9 @@ def test_a_pr_he_approved_that_waits_on_a_part_of_an_order_lands_only_once_a_mer
         data["prs"][OTHER] = merged_carrying("j2", "o2", {"o2": ["stack 1"]})
         data["jobs"]["j2"]["prs"].append(state.pr_url(OTHER))
         state.take_result(data, "j2", f"DONE {state.pr_url(OTHER)} merged, stack 1 ran on every cluster")
+    assert not [line for line in watch.run_pass(watching, T0 + timedelta(minutes=45)) if line.startswith("FREE ")]
+    with state.edit(demo) as data:
+        state.deliver_proven(data, "j2", "j2 live: repro/j2.sh exits 0 on no plugin of this Mac")
     assert f"FREE {KEY} j1 o1: o2:stack 1 answered or done, nothing else holds it" in watch.run_pass(watching, T0 + timedelta(minutes=60))
     assert landers == [(KEY,)]
 
@@ -4589,10 +4601,10 @@ def test_a_job_waiting_on_a_codex_job_holds_through_its_handoff_a_pointer_report
         data["prs"][OTHER] = merged_carrying("j3", "o2", {"o2": ["page kit"]})
         data["jobs"]["j3"]["prs"].append(state.pr_url(OTHER))
         codex.take(demo, data, "j3", completed_run(tmp_path / "codex-ask.2", codex_reply("DONE", f"built the page kit in {state.pr_url(OTHER)}, merged")))
-    assert [line for line in watch.run_pass(watching, T0 + timedelta(minutes=8)) if line.startswith("FREE ")] == [
-        "FREE j1 o1: j3 answered or done, nothing else holds it",
-        "FREE j4 o1: j2 answered or done, nothing else holds it",
-    ]
+    assert [line for line in watch.run_pass(watching, T0 + timedelta(minutes=8)) if line.startswith("FREE ")] == ["FREE j1 o1: j3 answered or done, nothing else holds it"]
+    with state.edit(demo) as data:
+        state.deliver_proven(data, "j3", "j3 live: repro/j3.sh exits 0 on no plugin of this Mac")
+    assert [line for line in watch.run_pass(watching, T0 + timedelta(minutes=10)) if line.startswith("FREE ")] == ["FREE j4 o1: j2 answered or done, nothing else holds it"]
 
 
 def test_a_builder_waiting_its_turn_for_a_slot_is_no_orphan_and_the_watch_frees_the_earliest_due_once_as_each_slot_opens_while_old_held_work_holds_none(
@@ -7938,7 +7950,7 @@ def test_a_merged_ready_product_job_takes_done_at_its_merge_and_the_watch_adds_t
         True,
         True,
     )
-    assert f"Handoff: {merged} merged: install it and prove it live by the INSTALL: and PROVE: lines of j1's return before its DONE, in reports/j1.md" in Path(builder["brief"]).read_text()
+    assert f"Handoff: {merged} merged: install it by the INSTALL: line of j1's return, in reports/j1.md, write its PROVE: line as a proof file, keep it with drive job set <your job> --repro <file> and run drive job prove <your job>, which runs that file, and only its exit 0 delivers the part" in Path(builder["brief"]).read_text()
     assert (data["jobs"]["j1"]["said"], data["orders"]["o1"]["proof"], data["orders"]["o1"]["close_report"]) == (f"DONE {state.pr_url(OTHER)} merged: {merged}", None, None)
     assert not [record for records in ready_records for record in records if (record.get("attr") or {}).get("close") == "o1"]
     assert provers == []
@@ -7963,14 +7975,15 @@ def test_a_merged_ready_job_whose_merged_diff_no_check_has_judged_starts_one_che
     assert (state.carried(data["prs"][OTHER]), state.delivered(data, "o1", "ship the watch"), "j2" in data["jobs"]) == ({}, False, False)
 
 
-def test_a_done_of_a_builders_own_on_a_merged_pr_no_check_judged_starts_its_check_which_delivers_the_parts_its_diff_carries_and_a_diff_carrying_none_leaves_its_orphan(
+def test_a_proven_done_on_a_merged_pr_no_check_judged_starts_its_check_whose_carried_parts_its_proof_delivers_and_a_diff_carrying_none_leaves_its_orphan(
     demo: str, monkeypatch: pytest.MonkeyPatch, checkers: list[str], judge: Judge
 ) -> None:
     serve(monkeypatch, {})
+    proof = f"{state.pr_url(YASYF)} live: repro/j1.sh exits 0 on long-running@skills 1.0.3"
     with state.edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
         data["prs"][YASYF] = state.new_pr(state.pr_url(YASYF), "j1", "o1") | {"state": "merged", "merged_sha": "ccc333ddd444eee", "head": "bbbbbbb222"}
-        data["jobs"]["j1"].update(state="done", said=f"DONE {state.pr_url(YASYF)} merged as ccc333ddd and installed", prs=[state.pr_url(YASYF)], updated=state.stamp(T0 - timedelta(hours=1)))
+        data["jobs"]["j1"].update(state="done", said=f"DONE {proof}", prs=[state.pr_url(YASYF)], updated=state.stamp(T0 - timedelta(hours=1)))
     watching = watcher(demo)
 
     def orphans(moment: datetime) -> list[str]:
@@ -7987,7 +8000,7 @@ def test_a_done_of_a_builders_own_on_a_merged_pr_no_check_judged_starts_its_chec
     judge.carried = None
     assert cli.main(["pr", "check", state.pr_url(YASYF), "--drive", demo]) == 0
     data = state.load(demo)
-    assert (state.carried(data["prs"][YASYF]), data["orders"]["o1"]["parts"]["ship the watch"]["posted"]) == ({"o1": ["ship the watch"]}, state.pr_url(YASYF))
+    assert (state.carried(data["prs"][YASYF]), data["orders"]["o1"]["parts"]["ship the watch"]["posted"]) == ({"o1": ["ship the watch"]}, proof)
     assert (orphans(T0 + timedelta(minutes=2)), checkers) == ([], [YASYF])
 
 
@@ -8003,6 +8016,9 @@ def test_a_done_at_its_merge_delivers_no_part_so_the_part_is_owed_until_the_buil
     assert (data["jobs"]["j1"]["state"], data["jobs"]["j2"]["state"], state.delivered(data, "o1", "ship the watch")) == ("done", "running", False)
     with state.edit(demo) as data:
         state.take_result(data, "j2", f"DONE {state.pr_url(OTHER)} live on the api release")
+    assert not state.delivered(state.load(demo), "o1", "ship the watch")
+    with state.edit(demo) as data:
+        state.deliver_proven(data, "j2", f"{state.pr_url(OTHER)} live: repro/j2.sh exits 0 on no plugin of this Mac")
     assert state.delivered(state.load(demo), "o1", "ship the watch")
 
 
@@ -8030,7 +8046,7 @@ def test_an_old_merge_never_proven_live_across_two_parts_has_its_merged_diff_che
     assert watch.wakes(said[0], data, NO_CARDS)
     assert not [line for line in lines if line.startswith(("FREE ", "ORPHAN "))]
     assert (builder["kind"], builder["state"], builder["waits"], builder["parts"], builder["carries"]) == ("builder", "running", [], ["ship the watch"], {"o2": [carried]})
-    assert f"Handoff: {merged} merged: install it and prove it live by the INSTALL: and PROVE: lines of j1's return before its DONE, in reports/j1.md" in Path(builder["brief"]).read_text()
+    assert f"Handoff: {merged} merged: install it by the INSTALL: line of j1's return, in reports/j1.md, write its PROVE: line as a proof file, keep it with drive job set <your job> --repro <file> and run drive job prove <your job>, which runs that file, and only its exit 0 delivers the part" in Path(builder["brief"]).read_text()
     assert not [line for line in watch.run_pass(watching, T0 + timedelta(minutes=31)) if line.startswith("JOB ")]
     assert (list(state.load(demo)["jobs"]), asked, provers) == (["j1", "j2"], [[], [KEY]], [])
 
@@ -8182,7 +8198,7 @@ def test_an_old_merge_whose_unstarted_prover_holds_one_of_its_parts_widens_that_
     live_reads(monkeypatch, [{"target": "api", "env": "plat-usw2-prod", "commit": "0ld0000"}])
     monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {KEY: {"components": ["api"], "touched": ["api"], "dev": [], "releases": ["api"]}})
     earlier, second = state.stamp(T0 - timedelta(days=2)), "ship the dashboard"
-    handoff = f"{KEY} at ccc333ddd444 merged: install it and prove it live by the INSTALL: and PROVE: lines of j1's return before its DONE, in reports/j1.md"
+    handoff = f"{KEY} at ccc333ddd444 merged: install it by the INSTALL: line of j1's return, in reports/j1.md, write its PROVE: line as a proof file, keep it with drive job set <your job> --repro <file> and run drive job prove <your job>, which runs that file, and only its exit 0 delivers the part"
     with state.edit(demo) as data:
         data["prs"][KEY] |= {"state": "merged", "merged_sha": "ccc333ddd444eee", "checker": carrying("aaaaaaa111", {"o1": ["ship the watch", second]})}
         data["orders"]["o1"]["parts"][second] = state.new_part()
@@ -8206,7 +8222,7 @@ def test_a_merge_sharing_a_pr_with_an_unstarted_prover_widens_it_to_its_parts_an
     live_reads(monkeypatch, [{"target": "api", "env": "plat-usw2-prod", "commit": "0ld0000"}])
     monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {KEY: {"components": ["api", "sandsql"], "touched": ["api", "sandsql"], "dev": [], "releases": ["api", "sandsql"]}, OTHER: {"components": ["web"], "touched": ["web"], "dev": [], "releases": ["web"]}})
     earlier, carried = state.stamp(T0 - timedelta(days=2)), "ship the dashboard"
-    first = f"{KEY} at ccc333ddd444 merged: install it and prove it live by the INSTALL: and PROVE: lines of j1's return before its DONE, in reports/j1.md"
+    first = f"{KEY} at ccc333ddd444 merged: install it by the INSTALL: line of j1's return, in reports/j1.md, write its PROVE: line as a proof file, keep it with drive job set <your job> --repro <file> and run drive job prove <your job>, which runs that file, and only its exit 0 delivers the part"
     with state.edit(demo) as data:
         data["prs"][KEY] |= {"state": "merged", "merged_sha": "ccc333ddd444eee", "checker": carrying("aaaaaaa111", {"o1": ["ship the watch"], "o2": [carried]})}
         data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j3", "o2") | {"state": "merged", "merged_sha": "aaa111bbb222ccc", "checker": carrying("", {"o2": [carried]})}
@@ -8226,7 +8242,7 @@ def test_a_merge_sharing_a_pr_with_an_unstarted_prover_widens_it_to_its_parts_an
     data = state.load(demo)
     prover = data["jobs"]["j2"]
     assert (list(data["jobs"]), prover["goal"], prover["carries"], prover["waits"]) == (["j1", "j2", "j3"], f"prove {KEY}, {OTHER} live", {"o2": [carried]}, [f"release:api:{KEY}"])
-    second = f"{KEY} at ccc333ddd444, {OTHER} at aaa111bbb222 merged: install it and prove it live by the INSTALL: and PROVE: lines of j3's return before its DONE, in reports/j3.md"
+    second = f"{KEY} at ccc333ddd444, {OTHER} at aaa111bbb222 merged: install it by the INSTALL: line of j3's return, in reports/j3.md, write its PROVE: line as a proof file, keep it with drive job set <your job> --repro <file> and run drive job prove <your job>, which runs that file, and only its exit 0 delivers the part"
     assert (prover["brief_flags"]["handoff"], "j2" in data["orders"]["o2"]["jobs"]) == (f"{first}; {second}", True)
     assert not [line for line in watch.run_pass(watching, T0 + timedelta(minutes=31)) if line.startswith(("JOB ", "ORPHAN "))]
     assert list(state.load(demo)["jobs"]) == ["j1", "j2", "j3"]
@@ -8240,7 +8256,7 @@ def test_a_second_unstarted_prover_of_a_pr_marked_or_not_folds_into_the_first_wh
     live_reads(monkeypatch, [{"target": service, "env": "plat-usw2-prod", "commit": "0ld0000"} for service in ("api", "web")])
     monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {})
     earlier, carried = state.stamp(T0 - timedelta(days=2)), "ship the dashboard"
-    first, second = (f"{merged} merged: install it and prove it live by the INSTALL: and PROVE: lines of j1's return" for merged in (KEY, f"{KEY}, {OTHER}"))
+    first, second = (f"{merged} merged: install it by the INSTALL: line of j1's return" for merged in (KEY, f"{KEY}, {OTHER}"))
     with state.edit(demo) as data:
         data["prs"][KEY] |= {"state": "merged", "merged_sha": "ccc333ddd444eee"}
         data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"state": "merged", "merged_sha": "aaa111bbb222ccc"}

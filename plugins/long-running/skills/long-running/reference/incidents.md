@@ -447,7 +447,7 @@ check's verdict, or from the order when none ran.
 ## What he hears
 
 Each line is a `report` to the communicator with `--attr progress=true`, or `--attr close=<o>` on the one closing the incident. An
-incident's first check and cause are the answers its diagnosis finds, which the report telling him delivers by naming each in its `part` attr; every other part, its `fix` among them, is work he ordered: each but its `fix` is delivered by its builder or codex job returning `DONE`, its `fix` only by a merged PR whose checked diff carries it, so
+incident's first check and cause are the answers its diagnosis finds, which the report telling him delivers by naming each in its `part` attr; every other part, its `fix` among them, is work he ordered, which only the proof file its builder or codex job keeps exiting 0 under `drive job prove` delivers, its `fix` only where the checked diff of a merged PR that proof proves carries it, so
 `record_lines` refuses a report naming one in its `part` attr and `say` marks none on a post; the incident lasts until every merged fix PR of it runs in production, by his words "werte still in incident until its fixed". The communicator posts it in his thread or
 the alert's thread, the alert's with `say(channel_id=<the alert's channel>, thread_ts=<its ts>)`, while he is away too. A report on an open incident goes out the moment it is written: the one
 report per thread per turn that `record_lines` holds the coordinator and the meta session to never holds one, by his words "this is incident so uyou should be faster and communicating more with
