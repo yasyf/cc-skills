@@ -4741,6 +4741,12 @@ def answer(args: argparse.Namespace) -> int:
     data = state.load(name)
     asked = superseded.asking(data, found, (args.link or [None])[0])
     cwd = data["roles"]["coordinator"]["cwd"]
+    for label in args.label:
+        if label.startswith(served.CODE_LABEL) and (folder := served.directory(path := served.labelled(label), cwd, [])) != path:
+            raise DriveError(
+                f"refused, nothing recorded: --label {label} names a file, and a code: label names the directory whose code his ruling governs, the one whose AGENTS.md the PR"
+                f" check asks to hold his words: label it {served.CODE_LABEL}{folder}"
+            )
     cited = settled.shown(args.id, cwd) if args.id else None
     if cited:
         args.id = cited["id"]

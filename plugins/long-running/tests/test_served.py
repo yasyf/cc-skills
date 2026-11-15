@@ -304,6 +304,34 @@ def test_a_ruling_held_at_the_base_branchs_tip_or_at_the_head_of_an_open_pr_whos
     assert (len(asked), read) == (1, {"dev", *(branch for branch, held, changes in rows.values() if held == "open" and changes == "go/sand/cache/AGENTS.md")})
 
 
+@pytest.mark.parametrize(
+    ("kept", "diff"),
+    [
+        pytest.param(["go/sand/cache/key.go"], added("go/sand/cache/lookup.go", b"func lookup() string { return run.ID }"), id="a file the coordinator's checkout holds, changed beside"),
+        pytest.param([], CACHE_CODE, id="a file only the change adds"),
+    ],
+)
+def test_a_ruling_labelled_with_a_file_rules_on_the_directory_holding_it_so_its_write_is_owed_in_that_directorys_agents_md(
+    run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch, recorded: Answers, tmp_path: Path, kept: list[str], diff: bytes
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "key the cache on the run")
+    run("job", "add", "builder", "--order", "o1", "--goal", "land")
+    run("pr", "add", URL, "--job", "j1", *LEAD)
+    for path in kept:
+        (tmp_path / path).parent.mkdir(parents=True)
+        (tmp_path / path).touch()
+    with state.edit(demo) as data:
+        data["roles"]["coordinator"]["cwd"] = str(tmp_path)
+    recorded.shown |= {"c0de123": CACHE_RULING | {"tags": ["scope:durable", "code:go/sand/cache/key.go"]}}
+    asked: list[list[tuple[str, str, str]]] = []
+    monkeypatch.setattr(github, "checkout_repo", lambda cwd: "Forge-AI/monorepo")
+    monkeypatch.setattr(github, "graphql", lambda text, what, max_age="0s": asked.append(GUIDE_AT.findall(text)) or {"data": {"repository": {alias: None for alias, _, _ in asked[-1]}}})
+    data = state.load(demo)
+    reads = {KEY: {"base": "dev", "head": "head1", "diff": diff}}
+    found = served.owed(data, KEY, served.coded(data, KEY, ["c0de123"], reads), reads)
+    assert ([(each["dir"], each["written"]) for each in found], [path for _, _, path in asked[0]]) == ([("go/sand/cache", False)], ["go/sand/cache/AGENTS.md"])
+
+
 @pytest.mark.parametrize("tracked", [1, 100])
 def test_the_agents_md_read_is_one_query_of_one_repository_naming_the_same_files_at_1_tracked_pr_and_at_100_since_only_the_heads_whose_diffs_change_them_are_read(
     run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch, recorded: Answers, tracked: int

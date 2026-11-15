@@ -362,23 +362,33 @@ def words(data: dict, prs: list[dict], orders: list[str], answered: list[str], n
 
 
 def coded(data: dict, key: str, bound: list[str], reads: dict[str, dict]) -> list[tuple[str, str, str]]:
-    """Each ruling of his in bound labelled code:<dir>, on how the code at <dir> must work, whose <dir> a PR of the stack, each as reads holds it, changes a file under, as its id, his words as an AGENTS.md quotes them and <dir>, each once however many ids name it: the one read of those labels, which owed() and the judge share, so a stack changing nothing under <dir> is never judged against a ruling on it. <dir> is a directory of the repository whose checkout keeps his answers, so a PR of any other repository reads none."""
+    """Each ruling of his in bound labelled code:<dir>, on how the code at <dir> must work, whose <dir> a PR of the stack, each as reads holds it, changes a file under, as its id, his words as an AGENTS.md quotes them and <dir>, each once however many ids name it: the one read of those labels, which owed() and the judge share, so a stack changing nothing under <dir> is never judged against a ruling on it. <dir> is a directory of the repository whose checkout keeps his answers, by directory(), so a PR of any other repository reads none."""
     cwd = data["roles"]["coordinator"]["cwd"]
     changed = [path for read in reads.values() for path, _ in files(read["diff"])]
     ruled = list(
         dict.fromkeys(
-            (answer["id"][:7], said(answer), directory)
+            (answer["id"][:7], said(answer), ruled_dir)
             for answer_id in bound
             for answer in [settled.shown(answer_id, cwd)]
             for tag in answer["tags"]
             if tag.startswith(CODE_LABEL)
-            for directory in [tag.removeprefix(CODE_LABEL).strip("/") or "."]
-            if under(directory, changed)
+            for ruled_dir in [directory(labelled(tag), cwd, changed)]
+            if under(ruled_dir, changed)
         )
     )
     if not ruled or github.repo_of(key).casefold() != github.checkout_repo(cwd).casefold():
         return []
     return ruled
+
+
+def labelled(tag: str) -> str:
+    """The path of the repository a code: label names, its root for none."""
+    return tag.removeprefix(CODE_LABEL).strip("/") or "."
+
+
+def directory(path: str, cwd: str, changed: list[str]) -> str:
+    """The directory a code: label's path rules on: the path, or the directory holding it when it is a file, one the checkout keeping his answers holds or a PR of the stack changes, so a ruling labelled with one file rules on the code beside it and is written into that directory's AGENTS.md, never a <file>/AGENTS.md that cannot exist."""
+    return str(Path(path).parent) if path in changed or Path(cwd, path).is_file() else path
 
 
 def under(directory: str, paths: list[str]) -> str | None:

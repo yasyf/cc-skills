@@ -11075,6 +11075,30 @@ def test_an_answer_tapped_on_a_pr_card_is_recorded_as_an_approval_and_his_words_
     ]
 
 
+def test_a_ruling_labelled_with_a_file_of_the_coordinators_checkout_is_refused_naming_its_directory_and_recorded_under_that_directory(
+    run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    cards_asking(monkeypatch, PR)
+    (tmp_path / "api/src/entities").mkdir(parents=True)
+    (tmp_path / "api/src/entities/CloudAgent.ts").touch()
+    with state.edit("demo") as data:
+        data["roles"]["coordinator"]["cwd"] = str(tmp_path)
+    added: list[list[str]] = []
+
+    def ccn(argv: list[str], input: str, **_: object) -> subprocess.CompletedProcess[str]:
+        added.append(argv)
+        return subprocess.CompletedProcess(argv, 0, json.dumps({"id": f"{len(added)}eb09e5f00d"}), "")
+
+    monkeypatch.setattr("drive.settled.subprocess", types.SimpleNamespace(run=ccn, TimeoutExpired=subprocess.TimeoutExpired))
+    monkeypatch.setattr(settled, "recorded", SETTLED_RECORDED)
+    asked = ["answer", "--title", "Which topology?", "--words", WORDS, "--link", PICK, "--label"]
+    assert cli.main([*asked, "code:api/src/entities/CloudAgent.ts"]) == 2
+    err = capsys.readouterr().err
+    assert ("--label code:api/src/entities/CloudAgent.ts names a file" in err, "label it code:api/src/entities\n" in err, added) == (True, True, [])
+    run(*asked, "code:api/src/entities")
+    assert [[arg for arg in argv if arg.startswith("--label=")] for argv in added] == [["--label=scope:durable", "--label=drive:demo", "--label=code:api/src/entities"]]
+
+
 def test_jev_is_asked_in_process_through_spawnllm_decide_sync_one_binary_a_noul_and_a_failed_call_or_a_declined_question_is_unheard_with_its_reason(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
