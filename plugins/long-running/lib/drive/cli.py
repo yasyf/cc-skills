@@ -4359,12 +4359,12 @@ def live_sand_next(checkout: Path) -> str:
 
 
 def staging_reach(name: str, data: dict, keys: list[str]) -> list[str]:
-    """Each PR among keys, the open Forge-AI/monorepo PRs waiting on his tap after flake_tap, whatever their exempt class, whose paths reach a component go/ci releases, by release_reach, so it lands only once its staging test passes, which state.wait_on_staging keeps in the edit that keeps the PR, by his words "a high-risk change marked as a flaky-test fix reaches my Approve card with no staging test waiting on it"; DriveError when that read fails, so its caller keeps nothing."""
+    """Each PR among keys, the open Forge-AI/monorepo PRs waiting on his tap after flake_tap, whatever their exempt class, whose paths reach a component go/ci releases through paths off go/ci's dev list, the releases of release_reach, so it lands only once its staging test passes, which state.wait_on_staging keeps in the edit that keeps the PR, by his words "a high-risk change marked as a flaky-test fix reaches my Approve card with no staging test waiting on it"; a PR changing only tools/ci and go/ci, the dev list's code, which its caller runs from a checkout and no release deploys to staging, reaches none, by his pick bb9cf91 "a change that plans like dev passes untested"; DriveError when that read fails, so its caller keeps nothing."""
     try:
         reach = release_reach(name, data, keys)
     except github.GithubError as error:
         raise DriveError(f"could not read which components the paths {', '.join(keys)} changes reach, so whether it waits on a staging test is unknown: {error}; run this again") from None
-    return [key for key in keys if (answer := reach.get(key)) and answer["touched"]]
+    return [key for key in keys if (answer := reach.get(key)) and answer["releases"]]
 
 
 def merged_waits(data: dict, owner: dict, waits: list[str], no_waits: bool, found: dict | None) -> list[str]:

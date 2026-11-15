@@ -150,7 +150,7 @@ HELD_DONE = re.compile(rf"WAITING (?:{PR_URL.pattern} )+to merge: DONE\b")
 PROOF = re.compile(r".+? live: \S+ exits 0 on .+")
 PROVEN_LINE = re.compile(rf"DONE (?P<proof>{PROOF.pattern})")
 POST_PROOFS_MERGED = datetime.fromisoformat("2026-11-15T06:49:27-08:00")
-MERGE_COMMIT = re.compile(r"https://github\.com/(?P<repo>[^/\s]+/[^/\s]+)/commit/[0-9a-f]{7,40}")
+COMMIT_LINK = re.compile(r"https://github\.com/(?P<repo>[^/\s]+/[^/\s]+)/commit/(?P<sha>[0-9a-f]{7,40})")
 RELEASE_WAIT = re.compile(r"release:(?P<service>[\w.-]+):(?P<pr>[^/\s#]+/[^/\s#]+#\d+)(?:@(?P<env>[\w.-]+))?")
 STAGING_WAIT = re.compile(r"staging:(?P<target>[\w.-]+)/(?P<env>[\w.-]+)@(?P<commit>[0-9a-f]{7,40})")
 STAGING_TEST = "staging test of #{number} before it lands"
@@ -684,6 +684,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str) -> dict:
         "members_kept": True,
         "open_dones_held": True,
         "staging_runs_reread": True,
+        "reaches_narrowed": True,
         "lines_kept": True,
         "replaced_ended": True,
         "change_builders_unwaited": True,
@@ -1849,7 +1850,7 @@ def kept_return(name: str, job_id: str, job: dict, line: str) -> bool:
 
 
 def result_refusal(data: dict, job_id: str, line: str, report: str) -> str | None:
-    """Why a job's returned line may not set its state, naming the fix: a line opening with no result sets nothing, a reader's READY, PUSHED or BUILT sets nothing, by unshipped, a builder's READY or PUSHED naming a yasyf/* PR keeps the proof file the watch runs once it merges, one the kernel can exec as unrunnable reads it, a builder's READY or PUSHED naming a Forge-AI/monorepo PR says how each is tested on staging, by staging_refusal, a prover's WAITING names no process of its own while drive job prove proves it, since that runs its proof file and the watch its WAIT, a builder's DONE on work he ordered no proof delivered yet keeps the proof file drive job prove runs to deliver it, and a WAITING holds on something that can wake it, by wakes, the rule drive job report, codex.take and the watch's stall check share, so a codex reply whose line names only lost logs or merged PRs is refused rather than freed a minute later and launched into the same wait again, never puts a PR on a part view.pooled refuses it, which open PRs of other jobs outside its stack wait on, a staging test's DONE frees no PR held for it that no build its CHECK: lines name deployed to staging, by unstaged, and a WAITING or BUILT of a job on an order of his product names no "Drive tooling:" order's work, by tooling_waits."""
+    """Why a job's returned line may not set its state, naming the fix: a line opening with no result sets nothing, a reader's READY, PUSHED or BUILT sets nothing, by unshipped, a builder's READY or PUSHED naming a yasyf/* PR keeps the proof file the watch runs once it merges, one the kernel can exec as unrunnable reads it, a builder's READY or PUSHED naming a Forge-AI/monorepo PR says how each is tested on staging, by staging_refusal, a prover's WAITING names no process of its own while drive job prove proves it, since that runs its proof file and the watch its WAIT, a builder's DONE on work he ordered no proof delivered yet keeps the proof file drive job prove runs to deliver it, and a WAITING holds on something that can wake it, by wakes, the rule drive job report, codex.take and the watch's stall check share, so a codex reply whose line names only lost logs or merged PRs is refused rather than freed a minute later and launched into the same wait again, never puts a PR on a part view.pooled refuses it, which open PRs of other jobs outside its stack wait on, a staging test's DONE frees no PR held for it that no build its CHECK: lines name deployed to staging, nor, for one changing only tools/ci and go/ci, a commit they link carries, by unstaged, and a WAITING or BUILT of a job on an order of his product names no "Drive tooling:" order's work, by tooling_waits."""
     from drive import install, place, view
 
     job = data["jobs"][job_id]
@@ -2305,6 +2306,17 @@ def reach_staging(data: dict, key: str) -> None:
     """Put a PR whose paths reach a component staging runs, as cli.staging_reach finds, on its staging test, by wait_on_staging, marked reached, so no `STAGING: none` of its builder lifts it, by staging_refusal, since the lander would put it back."""
     wait_on_staging(data, key)
     data["prs"][key]["reached"] = True
+
+
+def unreach(data: dict, key: str) -> list[str]:
+    """Take a PR the release reach put on its staging test, by reach_staging, off it once go/ci's map finds its paths reach no component a release deploys, as cli.staging_reach reads the reach since it counts no path on go/ci's dev list: unmarked reached, and its `staging test of #N before it lands` part off each order, by drop_part, with the PR's wait on it, whichever job took the test up, since a change that plans like dev passes untested, by his answer bb9cf91, and his ruling 0048b14 that a started staging test is finished binds a high-risk change, so his Approve on it stands; each job drop_part stopped."""
+    pr, part = data["prs"][key], STAGING_TEST.format(number=key.rpartition("#")[2])
+    pr["reached"] = False
+    stopped = []
+    for order_id in [order_id for order_id, order in data["orders"].items() if part in order["parts"]]:
+        stopped += drop_part(data, order_id, part, f"{key} changes only tools/ci and go/ci, code its caller runs from a checkout, so it needs no staging test")[1]
+        pr["waits"] = [wait for wait in pr["waits"] if wait != f"{order_id}:{part}"]
+    return stopped
 
 
 def left_changes(data: dict, builder_id: str, found: list[tuple[str, list[int]]]) -> list[str]:
@@ -2815,8 +2827,8 @@ def part_soak(data: dict, waits: list[str], part: str) -> str | None:
 
 
 def unstaged(data: dict, job_id: str, line: str, report: str) -> str | None:
-    """Why a staging test's DONE may not free the PRs held for it, naming the fix: a builder or codex job whose goal names staging or that holds a `staging test of #N before it lands` part, whose DONE, taken as take_result takes it, ends every wait an open PR holds on the job or a part it holds, never one following a release it started, by starts_cut, frees that PR only when a Buildkite build the CHECK: lines heading the PR's own run of cases name, by part_run, or every CHECK: line for a PR it tests no staging part of, passed, at a commit carrying the PR's head, an apply step on an env its infra/envs file marks `stage: staging` or the mac-box-approve step of a `tools/ci mac-box prove`, which signs in to staging a Mac box holding Iris Staging and sand-next built at that commit, the one staging test of a change only a Mac runs, which no staging deploy carries, read with one `bk build view` of each build and one git cherry of each freed PR in the coordinator's checkout, since a soak that tested what staging already ran, or a cut built without the PRs, proves none of them; None for any other result."""
-    from drive import brief, settled, view
+    """Why a staging test's DONE may not free the PRs held for it, naming the fix: a builder or codex job whose goal names staging or that holds a `staging test of #N before it lands` part, whose DONE, taken as take_result takes it, ends every wait an open PR holds on the job or a part it holds, never one following a release it started, by starts_cut, frees that PR only when a Buildkite build the CHECK: lines heading the PR's own run of cases name, by part_run, or every CHECK: line for a PR it tests no staging part of, passed, at a commit carrying the PR's head, an apply step on an env its infra/envs file marks `stage: staging` or the mac-box-approve step of a `tools/ci mac-box prove`, which signs in to staging a Mac box holding Iris Staging and sand-next built at that commit, the one staging test of a change only a Mac runs, which no staging deploy carries, read with one `bk build view` of each build and one git cherry of each freed PR in the coordinator's checkout, or, for a PR changing only tools/ci and go/ci, the code on go/ci's dev list its caller runs from a checkout, which no release deploys, by cli.release_reach's releases, the GitHub commit link of a commit carrying its head, the head that checkout ran, by one git cherry, since a soak that tested what staging already ran, or a cut built without the PRs, proves none of them; None for any other result."""
+    from drive import brief, cli, settled, view
 
     job = data["jobs"][job_id]
     if job["kind"] not in CHANGE_KINDS or not re.match(r"DONE\b", line) or MERGED_LINE.match(line) or starts_cut(job) or not (STAGING_GOAL.search(job["goal"]) or staging_parts(data, job)):
@@ -2832,7 +2844,8 @@ def unstaged(data: dict, job_id: str, line: str, report: str) -> str | None:
     clone = data["roles"]["coordinator"]["cwd"]
     tested = {f"{MONOREPO}#{STAGING_PART.fullmatch(part)['number']}".casefold(): part for _, part in staging_parts(data, job)}
     every = [proof for check in brief.CHECK.findall(report) for proof in brief.proofs(check)]
-    runs = {key: [found[0] for proof in (part_run(data, job_id, report, tested[key.casefold()])[1] if key.casefold() in tested else every) if (found := github.BUILD.match(proof))] for key in freed}
+    named = {key: part_run(data, job_id, report, tested[key.casefold()])[1] if key.casefold() in tested else every for key in freed}
+    runs = {key: [found[0] for proof in proofs if (found := github.BUILD.match(proof))] for key, proofs in named.items()}
     deployed, said, lacking = {}, [], {}
     try:
         for build in dict.fromkeys(build for builds in runs.values() for build in builds):
@@ -2852,15 +2865,25 @@ def unstaged(data: dict, job_id: str, line: str, report: str) -> str | None:
                 misses.append(f"git cherry finds {key}'s {', '.join(sha[:12] for sha in missing)} missing from {commit[:12]}, which {build} deployed to {', '.join(envs)}")
             else:
                 lacking[key] = misses
-    except github.GithubError as error:
-        return f"{job_id}'s DONE frees {', '.join(freed)} from waiting on its staging test, and what the builds its CHECK: lines name deployed could not be read: {error}; send this report again"
+        if lacking:
+            reach = cli.release_reach(data["name"], data, list(lacking))
+            for key in [key for key in lacking if key in reach and not reach[key]["releases"]]:
+                head = data["prs"][key]["head"]
+                commits = [found["sha"] for proof in named[key] if (found := COMMIT_LINK.fullmatch(proof)) and found["repo"].casefold() == github.repo_of(key).casefold()]
+                if any(not github.uncarried(clone, commit, head) for commit in commits):
+                    del lacking[key]
+                else:
+                    lacking[key].append(f"{key} changes only tools/ci and go/ci, code its caller runs from a checkout, and no CHECK: line heading its cases links a commit carrying its head {head[:12]}")
+    except (github.GithubError, DriveError) as error:
+        return f"{job_id}'s DONE frees {', '.join(freed)} from waiting on its staging test, and what the builds and commits its CHECK: lines name carry could not be read: {error}; send this report again"
     if not lacking:
         return None
     said.extend(miss for misses in lacking.values() for miss in misses)
     return (
         f"{job_id}'s DONE frees {', '.join(lacking)} from waiting on its staging test, and no build the CHECK: lines heading its cases name deployed a commit carrying"
         f" {'them' if len(lacking) > 1 else 'it'} to staging: {'; '.join(said) or 'they name no Buildkite build'}. Name on a CHECK: line the release build"
-        " that deployed a commit carrying each one's head to staging, or the `tools/ci mac-box prove` build that put it on a Mac box signed in to staging, heading the CASE lines of that PR's run"
+        " that deployed a commit carrying each one's head to staging, or the `tools/ci mac-box prove` build that put it on a Mac box signed in to staging,"
+        " or, for a PR changing only tools/ci and go/ci, the GitHub commit link of the head its checkout ran, heading the CASE lines of that PR's run"
         " and naming the PR when the DONE tests several in turn, or return WAITING on what still holds them, such as staging:<target>/<env>@<commit> while staging does not run it yet"
     )
 
@@ -3005,7 +3028,7 @@ def deliver_posted(data: dict, job_id: str, link: str, moment: str) -> None:
 
 def merge_proven(order: dict) -> bool:
     """Whether an open order keeps as its proof only merge commits outside yasyf/*, as the watch's DONE at a merge once kept with its close report, though a merge proves no fix live."""
-    commits = [MERGE_COMMIT.fullmatch(token) for token in (order["proof"] or "").split()]
+    commits = [COMMIT_LINK.fullmatch(token) for token in (order["proof"] or "").split()]
     return bool(commits) and all(commit and not merges_untapped(commit["repo"]) for commit in commits) and order["state"] not in CLOSED_ORDER_STATES
 
 

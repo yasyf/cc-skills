@@ -296,6 +296,29 @@ def dangerous_lines(watcher: Watcher, moment: datetime) -> list[str]:
     return [f"PR {key}: {line} {ids(data['prs'][key])}" for key, tester in added.items() for line in render.builder_lines(data, [tester])]
 
 
+def reach_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Read once a drive go/ci's map of each open PR the release reach put on its staging test, by cli.release_reach, and take each whose paths now reach no component a release deploys off it, by state.unreach, since cli.staging_reach counts no path on go/ci's dev list, ahead of the stage_lines that redraws his card on it: a drive kept before that rule holds PRs changing only tools/ci and go/ci on a test no release could deploy; each lift and each job it stopped said, the drive marked once the read passed."""
+    from drive import cli
+
+    data = state.load(watcher.name)
+    keys = [key for key, pr in data["prs"].items() if pr["state"] == "open" and pr["reached"]]
+    if data.get("reaches_narrowed") or not keys:
+        return []
+    try:
+        reach = cli.release_reach(watcher.name, data, keys)
+    except (state.DriveError, github.GithubError) as error:
+        return read_failed(watcher, "release reach", error, moment)
+    watcher.failures.pop("release reach", None)
+    with state.edit(watcher.name) as data:
+        lifted = {key: state.unreach(data, key) for key in keys if key in reach and not reach[key]["releases"] and data["prs"][key]["reached"]}
+        data["reaches_narrowed"] = True
+    lines = []
+    for key, stopped in lifted.items():
+        ended = f", and {', '.join(stopped)} stopped" if stopped else ""
+        lines.append(f"PR {key}: changes only tools/ci and go/ci, code its caller runs from a checkout, so it waits on no staging test{ended} {ids(data['prs'][key])}")
+    return lines
+
+
 def main_lines(watcher: Watcher, moment: datetime) -> list[str]:
     """Keep the tests each yasyf/* repository's main fails since a drive PR merged over a check main failed too, which the lander reads per check, never per test, each owned by the merge that broke it: once a heard merged PR's own run failed, each test its log names that main's last finished run before the merge passed, and no finished main run since has passed, is that PR's. Wake its builder to fix them forward, at once and again every 30 minutes while main fails one. A test clears once the newest finished main run created since its merge passes it, read again each time the receiver hears a run complete on main."""
     data = state.load(watcher.name)
@@ -3927,6 +3950,7 @@ def stages(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
         yield github_lines(watcher, moment, polled=True)
         yield main_lines(watcher, moment)
         yield dangerous_lines(watcher, moment)
+        yield reach_lines(watcher, moment)
         yield carried_lines(watcher, moment)
         checks(watcher, moment)
         yield stage_lines(watcher, moment)

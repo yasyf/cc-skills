@@ -853,7 +853,7 @@ def test_a_release_wait_on_a_service_the_prs_paths_never_reach_is_kept_with_a_no
     request, answer = tmp_path / "request.json", tmp_path / "answer.json"
     (checkout / "tools" / "ci").write_text(FAKE_SELECT.format(request=request, answer=answer))
     (checkout / "tools" / "ci").chmod(0o755)
-    answer.write_text(json.dumps({"components": ["executor", "cloudrunner-next", "sand-next", "k8s"], "touched": ["cloudrunner-next", "sand-next"]}))
+    answer.write_text(json.dumps({"components": ["executor", "cloudrunner-next", "sand-next", "k8s"], "touched": ["cloudrunner-next", "sand-next"], "dev": [], "releases": ["cloudrunner-next", "sand-next"]}))
     monkeypatch.setattr(github, "checkout_repo", lambda cwd: "Forge-AI/monorepo" if cwd == str(clone) else pytest.fail(cwd))
     monkeypatch.setattr(orca, "checkout", lambda name, cwd: checkout)
     monkeypatch.setattr(github, "files", lambda key: ["go/sand/next/cmd/main.go"] if key == "Forge-AI/monorepo#7" else pytest.fail(key))
@@ -869,7 +869,7 @@ def test_a_release_wait_on_a_service_the_prs_paths_never_reach_is_kept_with_a_no
     assert (f"note, kept: {said}; {reach}" in capsys.readouterr().err, state.load("demo")["prs"]["Forge-AI/monorepo#7"]["waits"]) == (True, [staged, "o1:staging test of #7 before it lands"])
     code, err = keep(monkeypatch, capsys, "j1", f"WAITING {executor} rides the next executor release\n")
     assert (code, f"note, kept: {executor}: executor's release never carries" in err, executor in state.load("demo")["jobs"]["j1"]["waits"]) == (0, True, True)
-    answer.write_text(json.dumps({"components": ["executor", "k8s"], "touched": []}))
+    answer.write_text(json.dumps({"components": ["executor", "k8s"], "touched": [], "dev": [], "releases": []}))
     assert keep(monkeypatch, capsys, "j1", "WAITING release:k8s:Forge-AI/monorepo#7 rides the next k8s release\n") == (0, "")
     monkeypatch.setattr(github, "files", lambda key: ["go/sand/next/cmd/main_test.go", ".buildkite/pipeline.yml"])
     assert cli.main(["job", "set", "j1", "--waits", "release:sand-next:Forge-AI/monorepo#7"]) == 0
@@ -6490,8 +6490,18 @@ def test_a_builders_ready_is_kept_whatever_its_pr_body_says(
     assert state.load("demo")["jobs"]["j1"]["state"] == "waiting"
 
 
+def test_staging_reach_counts_no_path_on_go_cis_dev_list_whose_code_only_its_caller_runs_as_it_counted_56826s_tools_ci_and_go_ci_change(monkeypatch: pytest.MonkeyPatch) -> None:
+    caller_run, released = f"{state.MONOREPO}#56826", f"{state.MONOREPO}#7"
+    reach = {
+        caller_run: {"components": ["api", "platy"], "touched": ["platy"], "dev": ["go/ci/internal/tenantsmoke/inside.go", "tools/ci"], "releases": []},
+        released: {"components": ["api", "platy"], "touched": ["api", "platy"], "dev": ["tools/ci"], "releases": ["api"]},
+    }
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {key: reach[key] for key in keys})
+    assert cli.staging_reach("demo", {}, [caller_run, released]) == [released]
+
+
 def reaching(monkeypatch: pytest.MonkeyPatch, *reached: str) -> None:
-    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {key: {"components": ["api", "web"], "touched": ["api"] if key in reached else []} for key in keys})
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {key: {"components": ["api", "web"], "touched": ["api"] if key in reached else [], "releases": ["api"] if key in reached else []} for key in keys})
 
 
 def test_a_builders_pushed_naming_a_monorepo_pr_on_its_staging_test_gives_its_one_tester_the_cases_briefed_on_this_mac_and_no_none_line_stands_for_it(

@@ -249,6 +249,28 @@ def test_the_watch_reads_the_changed_files_of_each_head_no_read_saw_once_and_sta
     assert (asked[-1], state.load(demo)["prs"][OTHER]["waits"]) == ([OTHER], [f"o1:{state.STAGING_TEST.format(number=43)}"])
 
 
+def test_the_watch_reads_the_reach_once_and_takes_each_pr_an_older_reach_staged_off_its_test_once_it_changes_only_tools_ci_and_go_ci_whoever_took_it_up_so_his_approve_stands_as_56826s_did_not(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    lifted, kept = state.STAGING_TEST.format(number=42), state.STAGING_TEST.format(number=43)
+    approve = state.new_tap("Approve", "aaaaaaa111", "slack", at=state.stamp(T0))
+    with state.edit(demo) as data:
+        del data["reaches_narrowed"]
+        data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"head": "ccccccc333"}
+        for key in (KEY, OTHER):
+            state.reach_staging(data, key)
+        data["jobs"]["j2"] = state.new_job("o1", "builder", "test #42 on staging", [lifted], state.stamp(T0)) | {"agent": "a2"}
+        data["prs"][KEY]["tap"] = approve
+    asked: list[list[str]] = []
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: asked.append(keys) or {KEY: {"touched": ["platy"], "releases": []}, OTHER: {"touched": ["api"], "releases": ["api"]}})
+    [line] = watch.reach_lines(watcher(demo), T0)
+    data = state.load(demo)
+    assert line == f"PR {KEY}: changes only tools/ci and go/ci, code its caller runs from a checkout, so it waits on no staging test, and j2 stopped {watch.ids(data['prs'][KEY])}"
+    assert (lifted in data["orders"]["o1"]["parts"], data["prs"][KEY]["waits"], data["prs"][KEY]["reached"], data["prs"][KEY]["tap"], data["jobs"]["j2"]["state"]) == (False, [], False, approve, "stopped")
+    assert (kept in data["orders"]["o1"]["parts"], data["prs"][OTHER]["waits"], data["prs"][OTHER]["reached"]) == (True, [f"o1:{kept}"], True)
+    assert (watch.reach_lines(watcher(demo), T0), asked) == ([], [[KEY, OTHER]])
+
+
 @pytest.mark.parametrize("wants_tap", [False, True])
 @pytest.mark.parametrize("job_state", ["running", "waiting"])
 def test_a_prs_moves_are_said_whatever_its_jobs_state_and_wake_no_one_while_the_watch_draws_his_card_on_one_waiting_on_his_tap(
@@ -7207,7 +7229,7 @@ def test_a_lander_lands_no_approved_pr_whose_paths_at_its_head_reach_a_component
         data["prs"][KEY] |= {"checks": "pass", "review": "approved"}
     enqueue_exiting(tmp_path, demo, 0)
     asked = []
-    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: asked.append(keys) or {key: {"components": ["api"], "touched": ["api"]} for key in keys})
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: asked.append(keys) or {key: {"components": ["api"], "touched": ["api"], "releases": ["api"]} for key in keys})
     part = f"o1:{state.STAGING_TEST.format(number=42)}"
     held = f"{land.WAITED}: {KEY} waits on its staging test before it lands, since its paths at its head reach a component staging runs"
     assert land.run(demo, [KEY], dry_run=True) == held
