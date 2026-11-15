@@ -27,7 +27,10 @@ PR = "https://github.com/Forge-AI/monorepo/pull/42"
 ORIGIN = "git@github.com:Forge-AI/monorepo.git"
 HANDOFF_START = "tools/ci release start sand sand-next cloudrunner-next --from 4f06b6d"
 RELEASE_ASK = f"Start the regular sand-next release carrying #55784 while he is away: `{HANDOFF_START}{{}}`"
-STALE_READY = "READY 4012 is stale: #101 moved to 0f1e2d3c4b5a, so the staging release it named would cut the old head. Do not START cut a1b2c3d4e5f6 (test build 2552, dry run 630)"
+STALE_READY = (
+    "READY 4012 is stale: #101 moved to 0f1e2d3c4b5a, j250 still running; j439 re-cuts, new READY follows.\n"
+    "Do not START cut a1b2c3d4e5f6 (test build 2552, dry run 630). j439 re-cuts once j250 returns its READY at #101's final head"
+)
 RELEASE_CUT_BUILD = "15495"
 CLUSTER_JOB_BUILD = "15699"
 
@@ -1709,6 +1712,13 @@ def test_a_record_asking_a_session_for_a_release_step_goes_out_only_naming_one_s
     made = record_lines.decision({"session_id": "talker", "tool_name": "mcp__plugin_cc-inbox_cci__post", "tool_input": handoff | {"to": "platform@demo"}})
     assert made == {"permissionDecision": "deny", "permissionDecisionReason": unordered}
     assert agents.ruled(made["permissionDecisionReason"]) == {"judged": False}
+    reader = {"kind": "handoff", "text": "start its reader", "attrs": {"order": "o1"}, "to": "platform@demo"}
+    batch = record_lines.decision({"session_id": "talker", "tool_name": "mcp__plugin_cc-inbox_cci__post", "tool_input": {"records": [reader, handoff | {"to": "platform@demo"}]}})
+    assert [record["text"] for record in batch["updatedInput"]["records"]] == ["start its reader"]
+    assert batch["additionalContext"].startswith('record_lines: the rest went out, but not record 2 of 2, the handoff "Start the regular sand-next release')
+    assert batch["additionalContext"].endswith(f": {unordered}")
+    both = record_lines.decision({"session_id": "talker", "tool_name": "mcp__plugin_cc-inbox_cci__post", "tool_input": {"records": [handoff | {"to": "platform@demo"}] * 2}})
+    assert both["permissionDecision"] == "deny" and both["permissionDecisionReason"].startswith('record 1 of 2, the handoff "Start the regular sand-next release')
     posted = f"cci post --kind handoff --lane communicator --to platform@demo --attr order=o1 '{RELEASE_ASK.format('')}'"
     assert landing_guard.deny_reason(bash(posted) | {"session_id": "talker", "agent_id": "a1"}) == unordered
     reads.clear()

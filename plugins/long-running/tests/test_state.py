@@ -1496,7 +1496,7 @@ def git_head(clone: Path, *args: str) -> str:
     return subprocess.run(["git", "-C", str(clone), "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
 
 
-def test_a_staging_tests_done_frees_the_prs_held_on_it_only_by_a_check_build_that_deployed_a_commit_carrying_their_heads_to_staging_as_j4507s_soak_build_did_not(
+def test_a_staging_tests_done_frees_the_prs_held_on_it_only_by_a_check_build_that_put_a_commit_carrying_their_heads_on_staging_or_a_mac_box_signed_in_to_it_as_j4507s_soak_build_did_not(
     state_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     clone = tmp_path / "monorepo"
@@ -1533,11 +1533,15 @@ def test_a_staging_tests_done_frees_the_prs_held_on_it_only_by_a_check_build_tha
     keys = [f"{MONOREPO}#4201", f"{MONOREPO}#4202"]
     data["prs"] = {key: state.new_pr(f"https://github.com/{MONOREPO}/pull/{key.rsplit('#', 1)[1]}", "j1", "o1") | {"head": head, "waits": ["j2"]} for key, head in zip(keys, (bottom, tip))}
     apply = {"state": "passed", "step_key": "apply-sandsql--plat-usw2-staging"}
+    boxed = [{"state": "passed", "step_key": step} for step in ("mac-box-iris", "mac-box-sand", "mac-box-approve")]
     builds = {
         "16203": {"commit": soak, "jobs": [{"state": "passed", "step_key": "soak-staging"}]},
         "16085": {"commit": half, "jobs": [apply]},
         "16090": {"commit": cut, "jobs": [{"state": "passed", "step_key": "apply-sandsql--plat-usw2-prod"}, {"state": "failed", "step_key": "apply-sandsql--plat-usw2-staging"}]},
         "16086": {"commit": cut, "jobs": [apply]},
+        "16300": {"commit": half, "jobs": boxed},
+        "16301": {"commit": cut, "jobs": [*boxed[:2], {"state": "failed", "step_key": "mac-box-approve"}]},
+        "16302": {"commit": cut, "jobs": boxed},
     }
     monkeypatch.setattr(github, "build", lambda pipeline, number: builds[number])
 
@@ -1546,17 +1550,20 @@ def test_a_staging_tests_done_frees_the_prs_held_on_it_only_by_a_check_build_tha
         return state.result_refusal(data, job_id, report.splitlines()[0], report)
 
     soaked, halved, prod, none = done("j2", "16203"), done("j2", "16085"), done("j2", "16090"), done("j2")
+    box_halved, unsigned = done("j2", "16300"), done("j2", "16301")
     assert "j2's DONE frees Forge-AI/monorepo#4201, Forge-AI/monorepo#4202 from waiting on its staging test" in soaked
     assert "https://buildkite.com/forge/release/builds/16203 deployed nothing to staging" in soaked
     assert halved.startswith("j2's DONE frees Forge-AI/monorepo#4202 from waiting")
     assert f"git cherry finds Forge-AI/monorepo#4202's {tip[:12]} missing from {half[:12]}, which https://buildkite.com/forge/release/builds/16085 deployed to plat-usw2-staging" in halved
     assert "16090 deployed nothing to staging" in prod
+    assert f"git cherry finds Forge-AI/monorepo#4202's {tip[:12]} missing from {half[:12]}, which https://buildkite.com/forge/release/builds/16300 deployed to a Mac box signed in to staging" in box_halved
+    assert "16301 deployed nothing to staging, passing no apply step on an env its infra/envs file marks stage: staging and no mac-box-approve step of a Mac box proof" in unsigned
     assert none.endswith(
         "they name no Buildkite build. Name on a CHECK: line the release build that deployed a commit carrying each one's head to staging,"
-        " heading the CASE lines of that PR's run and naming the PR when the DONE tests several in turn, or return WAITING on what still holds them,"
+        " or the `tools/ci mac-box prove` build that put it on a Mac box signed in to staging, heading the CASE lines of that PR's run and naming the PR when the DONE tests several in turn, or return WAITING on what still holds them,"
         " such as staging:<target>/<env>@<commit> while staging does not run it yet"
     )
-    assert [done("j2", "16086"), done("j2", "16203", "16086"), done("j1", "16203")] == [None, None, None]
+    assert [done("j2", "16086"), done("j2", "16203", "16086"), done("j2", "16302"), done("j1", "16203")] == [None, None, None, None]
     tested = {key: state.STAGING_TEST.format(number=key.rsplit("#", 1)[1]) for key in keys}
     data["orders"]["o1"]["parts"] |= {each: state.new_part() for each in tested.values()}
     data["jobs"]["j2"]["parts"] = [part, *tested.values()]

@@ -76,7 +76,6 @@ def refusals(payload: dict, names: list[str], drives: dict[str, dict], records: 
         yield unready(record)
         yield from report_refusals(payload, drive, records, index)
         yield relayed_time(record, drive)
-        yield agents.Unjudged(asked) if (asked := brief.release_ask_refusal(kind(record), listed(record.get("to")), record_words(record), drive)) else None
 
 
 def record_words(record: dict) -> str:
@@ -115,7 +114,7 @@ def posting_lane(data: dict, payload: dict, records: list[dict]) -> str:
 
 
 def decision(payload: dict) -> dict | None:
-    """What a drive session's post becomes: refused with the fix while a record in it, read with the text, kind, lanes and attrs cci stores for it, breaks a rule its kind keeps, an ask record carrying his card's ASK block, which only `drive job ask` keeps and draws, included, while any other ask, a question to another session's lane, goes out, or a handoff whose list line goes against a recorded answer of his, by overruled_handoffs, else posted, each report re a POST report its own lane sent going out as the correction it is, with a warning on each POST line telling him a failure of the drive's with no word on how it is prevented, and every record in it trimmed of the attrs it never carries and one line, the rest in its body for whoever acts on it, each record sent where its drive routes it, and the call posted as posting_lane names, a records list rewritten with each record whole, since a field cci filled in beside the list would put back what the record dropped."""
+    """What a drive session's post becomes: refused with the fix while a record in it, read with the text, kind, lanes and attrs cci stores for it, breaks a rule its kind keeps, an ask record carrying his card's ASK block, which only `drive job ask` keeps and draws, included, while any other ask, a question to another session's lane, goes out, or a handoff whose list line goes against a recorded answer of his, by overruled_handoffs, else posted, but a record brief.release_asks reads as asking a session for a step of a production release, which stays out while the rest of its post goes with its refusal said, the post refused once it holds no other, each report re a POST report its own lane sent going out as the correction it is, with a warning on each POST line telling him a failure of the drive's with no word on how it is prevented, and every record in it trimmed of the attrs it never carries and one line, the rest in its body for whoever acts on it, each record sent where its drive routes it, and the call posted as posting_lane names, a records list rewritten with each record whole, since a field cci filled in beside the list would put back what the record dropped."""
     names = state.session_drives(payload.get("session_id") or "")
     if not names:
         return None
@@ -128,10 +127,14 @@ def decision(payload: dict) -> dict | None:
     stored = [limits.as_stored(record) for record in records]
     if refused := next(filter(None, refusals(payload, names, drives, stored)), None):
         return {"permissionDecision": "deny", "permissionDecisionReason": refused}
+    asked = brief.release_asks([(kind(record), listed(record.get("to")), record_words(record)) for record in stored], drive)
+    if len(asked) == len(stored):
+        return {"permissionDecision": "deny", "permissionDecisionReason": agents.Unjudged("; ".join(asked.values()))}
+    records, stored = ([record for index, record in enumerate(kept) if index not in asked] for kept in (records, stored))
     overruled, unread = overruled_handoffs(drive, stored)
     if overruled:
         return {"permissionDecision": "deny", "permissionDecisionReason": overruled}
-    warned = [*unread, *(warning for record in stored if (warning := unprevented(drive, record)))]
+    warned = [*(f"record_lines: the rest went out, but not {why}" for why in asked.values()), *unread, *(warning for record in stored if (warning := unprevented(drive, record)))]
     context = {"additionalContext": "\n".join(warned)} if warned else {}
     made = [limits.shortened(routed) or routed for routed in (readdressed(drives, payload.get("session_id"), record) for record in records)]
     lane = posting_lane(drive, payload, made)
