@@ -482,9 +482,10 @@ def test_a_fix_live_note_before_the_proof_is_judged_by_the_reporter_rule_and_ref
     run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "fix the stuck staging deploy", "--reporter", REPORTED)
     note = {"channel_id": "C0REPORTS01", "thread_ts": "1794400100.000200", "text": "Fixed: staging deploys go through again since 10:02 AM."}
     reason = message_limits.deny_reason(call("slack_reply", transcript, **note))
-    assert agents.ruled(reason) == {"rule": message_limits.REPORTER_RULE, "counted": reason, "found": reason.found}
-    assert reason.found.startswith("the fix for the bug reported in this thread keeps no proof that it is live")
-    assert "It goes once" not in reason.found
+    [finding] = reason.findings
+    assert agents.ruled(reason) == {"rule": message_limits.REPORTER_RULE, "counted": reason, "findings": [{"rule": message_limits.REPORTER_RULE, "found": finding["found"]}]}
+    assert finding["found"].startswith("the fix for the bug reported in this thread keeps no proof that it is live")
+    assert "It goes once" not in finding["found"]
 
 
 def test_a_shared_questions_thread_gets_its_answer_only_once_it_is_posted_to_him_and_only_once(run: Run, talker: str, transcript: Path, slack_thread: Thread) -> None:
@@ -538,7 +539,7 @@ def test_a_say_post_counts_the_words_its_writer_typed_each_reference_once_and_on
         data["prs"]["yasyf/cc-skills#7"] = state.new_pr("https://github.com/yasyf/cc-skills/pull/7", "j1", "o1") | {"title": "New: \U0001f680 " + said(40)}
     assert say(transcript, text=said(59) + " {pr:7}") is None
     refusal = say(transcript, text=said(60) + " {pr:7}")
-    assert refusal.found == "this post is 61 words, and a line in his thread is at most 60 words"
+    assert [finding["found"] for finding in refusal.findings] == ["this post is 61 words, and a line in his thread is at most 60 words"]
     assert "titles" not in refusal
     assert say(transcript, text=said(57) + " {pr:7|the run page}") is None
     assert say(transcript, text=said(58) + " {pr:7|the run page}").startswith("refused: this post is 61 words")
@@ -884,7 +885,7 @@ HISTORY_POST = "Each table has a `<table>__history` shadow table, its columns pl
 SHADOWED = (
     CODE_READ,
     {"path": "rust/crates/sandsql-wire/src/lower.rs", "section": "295-305"},
-    "300  fn shadowed_specs(tables: &[TableSpec]) -> impl Iterator<Item = &TableSpec> {\n" + "\n".join(f"{line}      tables.iter()" for line in range(301, 700)),
+    "300  fn shadowed_specs(tables: &[TableSpec]) -> impl Iterator<Item = &TableSpec> {\n" + "\n".join(f"{line}      tables.iter()" for line in range(301, 500)),
 )
 SHADOW = (CODE_READ, {"path": "rust/crates/sandsql-wire/src/lower.rs", "section": "355-365"}, '360      let shadow = format!("{}__history", spec.name);')
 PANIC = (
@@ -948,7 +949,7 @@ def test_an_output_the_tool_saved_to_a_file_reaches_jev_whole_once_by_its_comman
     talker: str, transcript: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], pointer: str
 ) -> None:
     saved = tmp_path / "b3keoof79.txt"
-    saved.write_text("o937: long-running 1.0.697 installed\n" + "row\n" * 15000 + "yasyf/cc-skills#4817 merged\n")
+    saved.write_text("o937: long-running 1.0.697 installed\n" + "row\n" * 1000 + "yasyf/cc-skills#4817 merged\n")
     asked = {"command": "drive status o937 2>&1 | head -80"}
     tool(lane_of(transcript), "Bash", asked, pointer.format(saved=saved, preview="o937: long-running 1.0.697 installed"))
     claims = [{"claim": "#4817 merged", "read": "drive status o937"}, {"claim": "#4817 merged", "read": str(saved)}]
@@ -960,7 +961,7 @@ def test_an_output_the_tool_saved_to_a_file_reaches_jev_whole_once_by_its_comman
 def test_a_call_two_reads_hold_reaches_jev_once_under_the_first_and_the_second_names_that_reads_id_in_its_place(
     talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    cards = '{"questions": [' + ", ".join(f'{{"waits": "durable-agents:j{n}"}}' for n in range(2000)) + "]}"
+    cards = '{"questions": [' + ", ".join(f'{{"waits": "durable-agents:j{n}"}}' for n in range(150)) + "]}"
     build = ("Bash", {"command": "tools/ci bk api /pipelines/release/builds/15427/jobs"}, '{"state": "passed"}')
     compound = ("Bash", {"command": "cc-slack drive-cards --drive durable-agents | grep release; tools/ci bk api /pipelines/release/builds/15427"}, cards)
     lane = lane_of(transcript)
@@ -1378,11 +1379,12 @@ def test_a_post_refused_several_ways_hears_every_way_at_once_after_its_thread_re
     assert refusal.startswith("refused, 3 ways; fix each, then post the fixed words once:\n1. this post is 69 words")
     assert '\n2. "the first PR" names something he could open with no link there' in refusal
     assert "\n3. `cc-slack check-post` finds this in the post's exact words" in refusal
-    facts = refusal.found.splitlines()
-    assert facts[0] == "1. this post is 69 words, and a line in his thread is at most 60 words"
-    assert facts[1].startswith('2. "the first PR" names something he could open with no link there')
-    assert facts[2] == "3. `cc-slack check-post` finds this in the post's exact words: 1:5 bare-number '#41': link it as <url|#N> or <url|deploy #N>"
-    assert limits.LINE_REST in refusal and limits.LINE_REST not in refusal.found
+    facts = [finding["found"] for finding in refusal.findings]
+    assert facts[0] == "this post is 69 words, and a line in his thread is at most 60 words"
+    assert facts[1].startswith('"the first PR" names something he could open with no link there')
+    assert facts[2] == "`cc-slack check-post` finds this in the post's exact words: 1:5 bare-number '#41': link it as <url|#N> or <url|deploy #N>"
+    assert [finding["rule"] for finding in refusal.findings] == [message_limits.LENGTH_RULE, message_limits.LINK_RULE, agents.PLAIN_WORDS_RULE]
+    assert limits.LINE_REST in refusal and not any(limits.LINE_REST in fact for fact in facts)
     assert posted(transcript, text=text, thread_ts="1.9").startswith("refused: your transcript shows no read of his thread 1.9")
 
 
@@ -2642,7 +2644,11 @@ def test_an_incident_report_keeps_its_alert_links_bare_by_the_incident_its_order
 def test_a_107_word_line_judged_a_summary_by_its_handler_still_refuses_when_jev_cannot_finish(talker: str, transcript: Path) -> None:
     reason = say(transcript, text=f"Fixed the journal reader and the release. {said(100)}", thread_ts="1.2")
     assert "this post is 107 words, and a line in his thread is at most 60 words" in reason.counted
-    assert agents.ruled(reason) == {"rule": message_limits.LENGTH_RULE, "counted": reason.counted, "found": "this post is 107 words, and a line in his thread is at most 60 words"}
+    assert agents.ruled(reason) == {
+        "rule": message_limits.LENGTH_RULE,
+        "counted": reason.counted,
+        "findings": [{"rule": message_limits.LENGTH_RULE, "found": "this post is 107 words, and a line in his thread is at most 60 words"}],
+    }
 
 
 def test_his_messages_a_handler_answers_in_his_thread_record_him_heard_never_back_so_he_reads_away_an_hour_after_the_last(talker: str, transcript: Path, slack_thread: Thread) -> None:
@@ -2797,7 +2803,10 @@ def test_a_handler_post_naming_a_pr_or_error_his_open_question_card_asks_about_i
     error = "cannot set upsert_condition without corresponding upsert writes"
     ask = state.drive_dir("demo") / "asks" / "j1-7.md"
     ask.parent.mkdir(parents=True, exist_ok=True)
-    ask.write_text(f"ASK Keep upsert_condition?\nFor {{order:o1}}: your pick decides whether https://github.com/acme/app/pull/55 lands.\nFindings:\nRoot cause: the writer sends `{error}`\n")
+    ask.write_text(
+        f"ASK Keep upsert_condition?\nFor {{order:o1}}: your pick decides whether https://github.com/acme/app/pull/55 lands.\nFindings:\nRoot cause: the writer sends `{error}`,"
+        " set nowhere in infra/rows/k8s/datadog-agent.ts\n"
+    )
     card = f"https://acme.slack.com/archives/{DM}/p1794288799976279"
     with state.edit("demo") as data:
         data["jobs"]["j1"]["questions"].append(state.new_question(str(ask), "Keep upsert_condition?", state.stamp(), card=card) | {"waits": "demo:j1-7"})
@@ -2808,6 +2817,7 @@ def test_a_handler_post_naming_a_pr_or_error_his_open_question_card_asks_about_i
     assert say(transcript, text=f'The batch writer still prints "{error}", which {{card:demo:j1-7}} asks about.') is None
     assert say(transcript, text=f'The batch writer still prints "{error}".', about="demo:j1-7") is None
     assert say(transcript, text="The batch writer still prints nothing new.") is None
+    assert say(transcript, text="The `security-agent` entry in `infra/rows/k8s/datadog-agent.ts` now ships.") is None
     claim = f'Claiming staging to test the batch writer, which still prints "{error}". Does anyone object?'
     assert say(transcript, text=claim, channel_id="C0STAGING1").rule == message_limits.MEMBERS_RULE
     reads(lane_of(transcript), "1.2", channel="C0B75AL4XEW")

@@ -6,7 +6,8 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from drive import card, github, limits, picture, state
+from conftest import code_lines
+from drive import card, github, limits, picture, settled, state
 
 DOC = {
     "arch": 1,
@@ -478,13 +479,13 @@ def test_a_pr_cards_one_line_fence_value_flip_and_dropped_argument_show_as_code_
     jev.plain = {FLAG_FLIP, ARGUMENT_DROPPED}
     named = [Path(path).name for path in picture.pictures(tmp_path / "pictures", MIGRATION_SHOW_ME, set())[0]]
     assert (named, drawn) == (["The claim it keeps"], [CLAIM])
-    assert jev.illustrated == [FLAG_FLIP, ARGUMENT_DROPPED, CLAIM]
+    assert jev.illustrated == [code_lines(FLAG_FLIP), code_lines(ARGUMENT_DROPPED), code_lines(CLAIM)]
     assert card.show_me_words(MIGRATION_SHOW_ME, True, 2) == (
         "The new migration:\n\n```\nDROP TABLE session_claims;\n```\n\n"
         f"`formats.toml`, before and after\n```\n{FLAG_FLIP.rstrip()}\n```\n\n"
         f"The fixture's schema push, before and after\n```\n{ARGUMENT_DROPPED.rstrip()}\n```"
     )
-    assert jev.illustrated == [FLAG_FLIP, ARGUMENT_DROPPED, CLAIM]
+    assert jev.illustrated == [code_lines(FLAG_FLIP), code_lines(ARGUMENT_DROPPED), code_lines(CLAIM)]
 
 
 def test_a_pr_card_of_two_one_line_commands_and_a_map_entry_before_and_after_draws_no_picture(tmp_path, monkeypatch, jev) -> None:
@@ -520,7 +521,7 @@ def test_a_question_cards_fence_that_illustrates_nothing_stays_a_captioned_code_
         "![The flow",
     ]
     assert drawn == ["code:go", "mermaid"]
-    assert jev.illustrated == [FLAG_FLIP, CLAIM]
+    assert jev.illustrated == [code_lines(FLAG_FLIP), code_lines(CLAIM)]
 
 
 def test_jevs_verdict_on_a_fence_is_kept_so_every_draw_shows_the_same_pictures_and_a_fence_jev_gives_none_draws(jev, capsys) -> None:
@@ -528,9 +529,9 @@ def test_jevs_verdict_on_a_fence_is_kept_so_every_draw_shows_the_same_pictures_a
     assert not picture.illustrative("toml", FLAG_FLIP)
     jev.plain = set()
     assert not picture.illustrative("TOML", FLAG_FLIP)
-    assert jev.illustrated == [FLAG_FLIP]
+    assert jev.illustrated == [code_lines(FLAG_FLIP)]
     [kept] = (state.root() / picture.JUDGED).glob("*.json")
-    assert json.loads(kept.read_text()) == {"language": "toml", "source": FLAG_FLIP, "p_yes": 0.05, "illustrative": False}
+    assert json.loads(kept.read_text()) == {"language": "toml", "source": FLAG_FLIP, "model": settled.MODEL, "p_yes": 0.05, "illustrative": False}
     assert not picture.illustrative("go", "return lease, nil\n") and picture.illustrative("mermaid", "flowchart TD\n")
     jev.answer = None
     assert picture.illustrative("go", CLAIM)

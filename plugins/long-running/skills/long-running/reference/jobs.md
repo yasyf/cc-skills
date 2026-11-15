@@ -69,8 +69,8 @@ Contents:
   merge reaches no lane, so the brief's writer names each such step as a drive command with
   `drive job brief <j> --after "<command>"`, its `After install:` line, which `drive job prove`
   runs here once the proof file passes on the installed build, taking `DONE` only when each exits
-  0, and `brief_refusal` refuses its launch while Jev reads its Goal so and no `After install:` line
-  names one. A `Release:` line declares one too, since its
+  0, and `brief_refusal` refuses its launch while Jev answers 0.7 or more that its Goal does and no
+  `After install:` line names one. A `Release:` line declares one too, since its
   agent follows and approves the release with this Mac's Buildkite token. `place.mac_step` reads those two lines and no
   other word of the brief, since its fields quote where his words were typed, an alert he shared
   from Datadog, the `Incident:` rule's `tools/ci release start` and what earlier jobs found: no word

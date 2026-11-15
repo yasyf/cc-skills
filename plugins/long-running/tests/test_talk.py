@@ -417,11 +417,11 @@ def test_a_line_over_his_card_that_check_post_flags_and_jev_reads_as_shorthand_p
     building(demo)
     monkeypatch.setattr("drive.card.cards", lambda asked: {"cards": [{"repo": "yasyf/cc-skills", "number": 7, "card": {"title": "Fix: approve the desk?", "prs": [{"title": "the desk sheds j12"}]}}], "skipped": []})
     checked.findings = ["1:28 drive-term 'desk': name the role by what it does"]
-    jev.picks(talk.BREAKS)
+    jev.picks("holds")
     with pytest.raises(DriveError, match="nothing was posted: the line over his card breaks the plain-words rule"):
         DRAW(demo, ["yasyf/cc-skills#7"])
     assert (posts, said(demo)) == ([], [])
-    assert jev.asked[-1]["state"] == {"line": "Waits on your Approve: the desk sheds j12", "findings": checked.findings}
+    assert jev.asked[-1]["state"] == {"post": {"text": "Waits on your Approve: the desk sheds j12"}, "findings": {"f1": {"rule": agents.PLAIN_WORDS_RULE, "found": checked.findings[0]}}}
     jev.answer = None
     assert DRAW(demo, ["yasyf/cc-skills#7"]) == POSTED
     assert posts == [("dm-status", "--agent", "claude", "--drive", "demo", "--as-holder", "--tap-pr", PR_URL, "--", "Waits on your Approve: the desk sheds j12")]
