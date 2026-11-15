@@ -91,14 +91,19 @@ IDLE = "Close these 14 idle sessions and their terminals?"
 LAYOUT = "How should a finished run's files be laid out so its page opens without guessing?"
 
 
-def test_every_ask_record_a_drive_session_posts_is_refused_since_drive_job_ask_posts_it(demo: str, tmp_path: Path) -> None:
+def test_an_ask_record_carrying_his_cards_ask_block_is_refused_by_its_shape_since_drive_job_ask_posts_it_and_a_lane_question_goes_out(demo: str, tmp_path: Path) -> None:
     block = tmp_path / "ask.md"
     block.write_text(SHORT_ASK)
-    for attrs in ({}, {"ask": str(block), "job": "j1"}, {"ask": str(block), "job": "j1", "waits": "demo:j1-7"}):
-        assert refusal(record_lines.decision(post(kind="ask", text=LAYOUT, attrs=attrs))) == settled.HAND_ASK
+    for text, attrs in ((f"ASK {LAYOUT}", {}), (LAYOUT, {"ask": str(block), "job": "j1"}), (LAYOUT, {"waits": "demo:j1-7"}), (LAYOUT, {"ask": str(block), "job": "j1", "waits": "demo:j1-7"})):
+        refused = refusal(record_lines.decision(post(kind="ask", text=text, attrs=attrs)))
+        assert (refused, agents.ruled(refused)) == (settled.HAND_ASK, {"judged": False}), attrs
     assert refusal(record_lines.decision(post(kind="ask", path=str(block), attrs={"job": "j1"}))) == settled.HAND_ASK
-    assert refusal(record_lines.decision(post(records=[{"kind": "note", "text": "j12 merged"}, {"kind": "ask", "text": IDLE}]))) == settled.HAND_ASK
-    assert record_lines.decision(post(session="another-session", kind="ask", text=IDLE)) is None
+    assert refusal(record_lines.decision(post(records=[{"kind": "note", "text": "j12 merged"}, {"kind": "ask", "text": f"ASK {IDLE}"}]))) == settled.HAND_ASK
+    assert record_lines.decision(post(session="another-session", kind="ask", text=f"ASK {IDLE}")) is None
+    with state.edit(demo) as data:
+        data["subcoordinators"]["SandSQL"] = {"session": "sandsql-1", "terminal": None, "cwd": "/work", "started": state.stamp(), "from": 0}
+    for to, text in (("sandsql@demo", "Is the migration live on staging?"), ("communicator@demo", "Is he present right now?")):
+        assert record_lines.decision(post(kind="ask", to=[to], text=text)) is None, to
 
 
 def test_his_answer_at_his_message_on_his_open_question_goes_only_through_the_record_tool_while_a_record_linking_his_card_or_no_message_ends_nothing(

@@ -698,13 +698,13 @@ def shell_of(payload: dict) -> tuple[list[str], Shell]:
 
 
 def judged_reason(payload: dict) -> str | None:
-    """Why a drive session's Bash call looks wrong in a way Jev judges before it stands: it posts a drive's ask record, which no session posts since `drive job ask` draws his card itself, a report carrying a part in an attr other than part, which no post reads, or naming an attr a separator, a capital or one letter from one the drive reads, a record to a lane no session reads or to lanes other than the drive routes it to, a report to the communicator that the checks the cci `post` tool's hook runs refuse, such as one leaving out a part a finished job answered, a record a handler posts to him typing a clock time for work already done, or a record asking a session for a step of a production release that brief.release_ask_refusal() refuses, which blocks outright, or is the coordinator's or the meta session's own order work."""
+    """Why a drive session's Bash call looks wrong in a way Jev judges before it stands: it posts an ask record carrying his card's ASK block, which only `drive job ask` keeps and draws, refused by its shape alone while any other ask, a question to another session's lane, goes out, a report carrying a part in an attr other than part, which no post reads, or naming an attr a separator, a capital or one letter from one the drive reads, a record to a lane no session reads or to lanes other than the drive routes it to, a report to the communicator that the checks the cci `post` tool's hook runs refuse, such as one leaving out a part a finished job answered, a record a handler posts to him typing a clock time for work already done, or a record asking a session for a step of a production release that brief.release_ask_refusal() refuses, which blocks outright, or is the coordinator's or the meta session's own order work."""
     names, shell = shell_of(payload)
     session = shell.session
     command = payload["tool_input"]["command"]
     posts = cci_posts(command, shell)
-    if names and any(post["kind"] == "ask" for post in posts):
-        return settled.HAND_ASK
+    if names and (carded := next(filter(None, map(reports.hand_ask, posts)), None)):
+        return carded
     if names and (misnamed := next(filter(None, (reports.stray_parts(post["kind"], post["attrs"]) or limits.misnamed(post["kind"], post["attrs"]) for post in posts)), None)):
         return misnamed
     drives = state.bound_drives(names) if posts else {}

@@ -4774,9 +4774,9 @@ def move(args: argparse.Namespace) -> int:
     steps = [
         f"1. his word {args.his_word} recorded on the {args.role}{registered}",
         (
-            f'2. cci post --lane {mover} --kind ask --to {lanes[args.role]}@{name} --text "Moving you into an Orca terminal on his word:'
-            " run cc-slack unfollow for each of your Slack watches, cci unsubscribe, stop your drive watch Monitor if you run one, reply"
-            ' released, and take no more work." and wait for its reply'
+            f"2. on the cci `post` tool, `kind: ask`, `lane: {mover}`, `to: [{lanes[args.role]}@{name}]`, `text: Moving you into an Orca terminal"
+            " on his word: run cc-slack unfollow for each of your Slack watches, cci unsubscribe, stop your drive watch Monitor if you run one,"
+            " reply released, and take no more work.`, and wait for its reply"
         ),
         f"3. {ended}",
         f"4. wait {gone}",
