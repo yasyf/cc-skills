@@ -321,13 +321,20 @@ def kept_research(name: str, order_id: str, parts: list[str]) -> None:
     """Keep reader j0's research on these parts of the order, numbered below and stamped before every job a test adds, as a build order's reader keeps it before its builder starts."""
     with state.edit(name) as data:
         order = data["orders"][order_id]
-        reader = data["jobs"].setdefault(SEEDED_READER, state.new_job(order_id, "reader", "research: the order", [], SEEDED_AT) | {"state": "done"})
+        reader = data["jobs"].setdefault(SEEDED_READER, state.new_job(order_id, "reader", "research: the order", [], SEEDED_AT) | {"state": "done", "said": None})
         held = reader["parts"] if reader["order"] == order_id else reader["carries"].setdefault(order_id, [])
         held.extend(part for part in parts if part not in held)
         if SEEDED_READER not in order["jobs"]:
             order["jobs"].insert(0, SEEDED_READER)
     if not state.returns(name, SEEDED_READER):
         state.keep_report(name, SEEDED_READER, state.opening(SEEDED_RESEARCH), SEEDED_RESEARCH)
+
+
+def started(name: str, *job_ids: str) -> None:
+    """Start each job as its worker's start does, by state.start, so a job drive job add recorded not started runs."""
+    with state.edit(name) as data:
+        for job_id in job_ids:
+            state.start(data["jobs"][job_id])
 
 
 def flag_values(argv: tuple[str, ...], flag: str) -> list[str]:

@@ -835,7 +835,7 @@ def feature_state(order: dict, jobs: list[dict], prs: list[dict]) -> str:
         return "built"
     if all_merged(prs):
         return "merged"
-    if order["state"] == "waiting" or any(job["state"] == "waiting" for job in jobs):
+    if order["state"] == "waiting" or any(job["state"] == "waiting" and not state.unstarted(job) for job in jobs):
         return "waiting"
     return "not started"
 

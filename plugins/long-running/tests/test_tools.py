@@ -199,7 +199,7 @@ def test_a_dry_run_refuses_each_op_the_call_refuses_prints_each_command_it_passe
             assert head == "refused, nothing written: 1 of 1 ops refused; fix each and send the whole call again"
             assert line.startswith(f"1 job set refused: --waits {wait}: name a job of this drive, the Slack link or waits id of a card of his still open")
     assert tools.run("job", demo, {"dry_run": True, "ops": [{"set": {"id": "j1", "said": "pushed"}}]}) == "1 drive job set j1 --said=pushed"
-    assert state.load(demo)["jobs"]["j1"]["said"] is None
+    assert state.load(demo)["jobs"]["j1"]["said"] == state.NOT_STARTED
     with pytest.raises(DriveError, match="1 pr set refused: the drive tracks no PR a/b#1; drive pr add"):
         tools.run("pr", demo, {"dry_run": True, "ops": [{"set": {"url": "https://github.com/a/b/pull/1", "tap": False, "why": "superseded"}}]})
     assert tools.run("status", demo, {"dry_run": True, "ids": ["o1", "j1"]}) == "1 drive status o1 j1"
@@ -1733,6 +1733,7 @@ def test_his_rulings_are_kept_as_drive_answers_listing_each_card_part_and_pr_the
     drawn = list(zip(titles.items(), (CARD, sibling), strict=True))
     with state.edit(demo) as data:
         data["jobs"]["j1"]["agent"] = "agent-1"
+        state.start(data["jobs"]["j1"])
         data["prs"]["Forge-AI/monorepo#54101"]["parts"] = list(SANDSQL_PARTS)
         data["prs"]["Forge-AI/monorepo#54102"]["parts"] = [ELECTRON]
         for (waits, title), url in drawn:

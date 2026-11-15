@@ -228,7 +228,7 @@ def test_a_builder_added_to_build_nothing_such_as_an_agentinbox_live_proof_start
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "fix the AgentInbox", "--due", "+1h", "--thread", "1.3")
     assert run("job", "add", "builder", "--order", "o2", "--goal", "prove the AgentInbox fix live: a Datadog APM read", "--builds-nothing") == (0, "j10")
     proof = state.load(demo)["jobs"]["j10"]
-    assert (proof["state"], proof["waits"], proof["where"], proof["builds_nothing"]) == ("running", [], "local", True)
+    assert (proof["state"], proof["waits"], proof["where"], proof["builds_nothing"]) == ("waiting", [], "local", True)
     brief = "Order (his words): fix the AgentInbox\nServes: his order\nGoal: prove it live with a Datadog APM read\nDrive: demo, order o2, job j10"
     assert agent_brief.deny_reason(briefed("long-running:builder", brief)) is None
     run("job", "set", "j10", "--agent", "a10")
@@ -251,7 +251,7 @@ def test_a_builder_whose_goal_proves_merged_prs_live_builds_nothing_unmarked_so_
         run("job", "add", "builder", "--order", "o1", "--part", f"part {number}", "--goal", f"build part {number}", "--agent", f"a{number}")
     code, out = run("job", "add", "builder", "--order", "o1", "--part", "docs", "--goal", "prove Forge-AI/monorepo#42 live")
     proof = state.load(demo)["jobs"]["j9"]
-    assert (code, out.splitlines()[0], proof["state"], proof["waits"], proof["where"], bool(proof["builds_nothing"]), state.builds_nothing(proof)) == (0, "j9", "running", [], "local", False, True)
+    assert (code, out.splitlines()[0], proof["state"], proof["waits"], proof["where"], bool(proof["builds_nothing"]), state.builds_nothing(proof)) == (0, "j9", "waiting", [], "local", False, True)
     run("job", "set", "j9", "--agent", "a9")
     assert list(place.local_builders(state.load(demo), state.now())) == [f"j{number}" for number in range(1, 9)]
 

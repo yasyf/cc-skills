@@ -9,6 +9,7 @@ import subprocess
 import threading
 import uuid
 from collections.abc import Callable
+from contextlib import nullcontext
 from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import ANY
@@ -173,6 +174,7 @@ def remote(run: Run, demo: str) -> str:
     run("job", "add", "builder", "--order", "o1", "--goal", "remote builders", "--remote")
     with state.edit(demo) as data:
         data["jobs"]["j1"].update(run=RUN, dispatch=DISPATCH, ask=None, report=None)
+        state.start(data["jobs"]["j1"])
     return demo
 
 
@@ -182,6 +184,7 @@ def rooted(run: Run, demo: str) -> str:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the tooling root")
     run("job", "add", "builder", "--order", "o1", "--goal", "root tooling")
     with state.edit(demo) as data:
+        state.start(data["jobs"]["j1"])
         data["jobs"]["j1"].update(agent=ROOT_DISPATCH, where="local", said="root-tooling: dispatch ctx_ab821100f80b")
     return demo
 
@@ -990,7 +993,7 @@ def test_a_builder_launched_before_its_free_line_reads_starting_while_its_sprite
     monkeypatch.setattr(orca, "new_run", lambda drive, objective: RUN)
     monkeypatch.setattr(orca, "launch", launch)
     assert run("job", "launch", "j2") == (0, f"j2 started on Sprite workspace-1 as dispatch {DISPATCH}")
-    assert read == [(("running", None, []), [], [])]
+    assert read == [(("waiting", state.NOT_STARTED, []), [], [])]
 
 
 def test_a_readers_return_briefs_the_builder_waiting_on_it_with_each_ruling_the_readers_brief_binds_and_another_orders_builder_with_none(
@@ -6249,6 +6252,7 @@ def test_mail_orca_files_on_one_jobs_run_goes_to_the_job_whose_worker_sent_it_so
     run("job", "add", "builder", "--order", "o1", "--part", "staging test", "--goal", "staging test", "--remote")
     with state.edit(remote) as data:
         data["jobs"]["j2"].update(run="run_drive0002", dispatch="ctx_lane0002", ask=None, deaths=[{"dispatch": "ctx_e82dd7684e4e", "workspace": "local", "why": "x", "at": "y"}])
+        state.start(data["jobs"]["j2"])
     on_this_mac = {"from_handle": "term_d2dc361e", "payload": json.dumps({"taskId": "task_6d43da286a27", "dispatchId": "ctx_e82dd7684e4e"})}
     deliver(
         monkeypatch,
@@ -7281,6 +7285,7 @@ def test_the_watch_files_a_lane_recorded_on_this_mac_on_the_sprite_its_worker_sh
     run("job", "add", "builder", "--order", "o1", "--goal", "root tooling")
     with state.edit(demo) as data:
         data["jobs"]["j1"].update(state.local_lane(SPRITE_DISPATCH), run=RUN, task="task_sprite", terminal="term_sprite")
+        state.start(data["jobs"]["j1"])
     assert list(place.local_builders(state.load(demo), state.now())) == ["j1"]
     monkeypatch.setattr(orca, "worker", lambda dispatch: SPRITE_WORKER)
     watch.run_pass(watch.Watcher(demo, offset=state.events_end(demo)), T0)
@@ -7472,7 +7477,7 @@ def test_launch_local_records_a_lane_on_this_mac_that_reads_as_starting_while_it
 
     monkeypatch.setattr(orca, "launch", fake_launch)
     assert run("job", "launch", "j1", "brief.md", "--local") == (0, f"j1 started on this Mac as dispatch {DISPATCH}")
-    assert (launched["route"], launched["gaps"]) == (state.LOCAL_ROUTE, {"j1": None})
+    assert (launched["route"], launched["gaps"]) == (state.LOCAL_ROUTE, {})
     assert launched["brief"].startswith("Remote lane: drive demo, job j1. You are the long-running builder below, running as an Orca worker on this Mac")
     job = state.load(demo)["jobs"]["j1"]
     assert {field: job[field] for field in ("where", "route", "dispatch", "run", "task", "terminal", "lane", "workspace", "environment")} == {
@@ -7488,17 +7493,37 @@ def test_launch_local_records_a_lane_on_this_mac_that_reads_as_starting_while_it
     }
 
 
-@pytest.mark.parametrize(("ago", "gap"), [(timedelta(minutes=29), None), (timedelta(minutes=31), "j1 never started on its Sprite")])
-def test_a_job_with_no_dispatch_reads_as_starting_until_a_launch_would_have_finished(
-    run: Run, demo: str, ago: timedelta, gap: str | None
+@pytest.mark.parametrize(
+    ("ago", "held", "gap"),
+    [
+        (timedelta(minutes=29), True, watch.SETTLING),
+        (timedelta(minutes=29), False, "j1 not started 29 minutes after drive job add"),
+        (timedelta(minutes=31), True, "j1 not started 31 minutes after drive job add"),
+    ],
+)
+def test_a_job_with_no_dispatch_reads_as_starting_while_its_launch_holds_its_lock_until_that_launch_would_have_finished(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, ago: timedelta, held: bool, gap: str
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship it", "--remote")
     with state.edit(demo) as data:
-        data["jobs"]["j1"]["launching"] = state.stamp(T0 - ago)
-    watching = watch.Watcher(demo, offset=state.events_end(demo))
-    staged(watch.agent_lines, watching, T0)
-    assert watching.agent_gaps == {"j1": gap}
+        data["jobs"]["j1"].update(created=state.stamp(T0 - ago), updated=state.stamp(T0 - ago), launching=state.stamp(T0 - ago))
+    monkeypatch.setattr(state, "now", lambda: T0)
+    data = state.load(demo)
+    with state.job_locked(demo, "j1", 1) if held else nullcontext():
+        assert watch.job_gap(watch.Watcher(demo, offset=state.events_end(demo)), "j1", data["jobs"]["j1"], data, "o1", "ship it", T0) == gap
+
+
+def test_a_job_reads_launching_only_while_its_launch_holds_its_lock_so_one_whose_launcher_died_reads_not_started(run: Run, demo: str) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship it", "--remote")
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["launching"] = state.stamp()
+    data = state.load(demo)
+    with state.job_locked(demo, "j1", 1):
+        launching = render.job_line(data, "j1", data["jobs"]["j1"])
+    died = render.job_line(data, "j1", data["jobs"]["j1"])
+    assert ("launching since" in launching, "launching since" in died, state.NOT_STARTED in died) == (True, False, True)
 
 
 def test_a_job_added_or_set_waiting_on_a_pr_or_a_release_waits_unlaunched_until_free_names_its_launch(
@@ -7515,12 +7540,14 @@ def test_a_job_added_or_set_waiting_on_a_pr_or_a_release_waits_unlaunched_until_
     run("job", "add", "builder", "--order", "o1", "--part", "given its wait after", "--goal", "given its wait after", "--remote")
     run("job", "set", "j3", "--waits", key)
     jobs = state.load(demo)["jobs"]
-    assert [(jobs[job_id]["state"], jobs[job_id]["waits"]) for job_id in ("j2", "j3")] == [("waiting", [key, shipping]), ("waiting", [key])]
+    assert [(jobs[job_id]["state"], jobs[job_id]["said"], jobs[job_id]["waits"]) for job_id in ("j1", "j2", "j3")] == [
+        ("waiting", state.NOT_STARTED, []),
+        ("waiting", state.NOT_STARTED, [key, shipping]),
+        ("waiting", state.NOT_STARTED, [key]),
+    ]
     assert cli.main(["job", "launch", "j2"]) == 2
     assert f"j2 waits on {key}, {shipping}: launch it on the watch's FREE line" in capsys.readouterr().err
     watching = watch.Watcher(demo, offset=state.events_end(demo))
-    staged(watch.agent_lines, watching, T0)
-    assert watching.agent_gaps == {"j1": "j1 never started on its Sprite"}
     with state.edit(demo) as data:
         data["prs"][key].update(state="merged", merged_sha="abc123")
     shipped = f"tools/ci release live reads api on plat-usw2-prod serving {key}"

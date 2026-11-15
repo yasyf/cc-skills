@@ -588,7 +588,7 @@ def test_an_agent_of_another_kind_never_holds_the_job_its_brief_names(
         hook_output(no_file_tools, monkeypatch, capsys, json.dumps(file_call("Read") | named))
         hook_output(one_line_result, monkeypatch, capsys, json.dumps(agent_stop(f"{job_id} looks stuck", **named)))
     jobs = state.load("demo")["jobs"]
-    assert [(jobs[job_id]["agent"], jobs[job_id]["where"], jobs[job_id]["state"]) for job_id in ("j1", "j2")] == [(None, "local", "running"), ("a-1", "local", "done")]
+    assert [(jobs[job_id]["agent"], jobs[job_id]["where"], jobs[job_id]["state"]) for job_id in ("j1", "j2")] == [(None, "local", "waiting"), ("a-1", "local", "done")]
 
 
 def test_a_step_never_replaces_a_remote_jobs_dispatch(
@@ -761,7 +761,7 @@ def test_a_handler_whose_brief_or_record_names_a_job_never_holds_that_job_and_fi
         assert hook_output(no_file_tools, monkeypatch, capsys, json.dumps(bash(launch) | handler)) == ""
         assert hook_output(one_line_result, monkeypatch, capsys, json.dumps(agent_stop("RECORDED none; j1 started on a Sprite", **handler))) == ""
         job = state.load("demo")["jobs"]["j1"]
-        assert (job["agent"], job["where"], job["said"]) == (None, "remote", None)
+        assert (job["agent"], job["where"], job["said"]) == (None, "remote", state.NOT_STARTED)
     builder = stepped(tmp_path, f"Read your brief first: {written}", agent_type="long-running:builder")
     assert hook_output(no_file_tools, monkeypatch, capsys, json.dumps(bash("git status") | builder)) == ""
     assert state.load("demo")["jobs"]["j1"]["agent"] == "a-9"

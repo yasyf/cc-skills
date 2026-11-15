@@ -156,11 +156,10 @@ def request_key(name: str, known: dict, post: dict, report: dict) -> str | None:
 
 
 def awaiting(name: str, job_id: str, link: str) -> str:
-    """Keep the job waiting on the reply to the question a post at link asked a teammate for it, which the watch reads each minute until the first message after it from anyone but the drive and a bot frees the job; a job no agent or lane started is recorded waiting."""
+    """Keep the job waiting on the reply to the question a post at link asked a teammate for it, which the watch reads each minute until the first message after it from anyone but the drive and a bot frees the job."""
     with state.edit(name) as data:
         job = data["jobs"][job_id]
-        state.rewait(job, list(dict.fromkeys([*job["waits"], f"reply:{link}"])))
-        state.hold_unstarted(job)
+        job["waits"] = list(dict.fromkeys([*job["waits"], f"reply:{link}"]))
     return f"{job_id} waits on the reply to it"
 
 

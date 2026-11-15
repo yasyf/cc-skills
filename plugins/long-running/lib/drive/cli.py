@@ -1384,11 +1384,8 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         if folds:
             job_id, job, shared = held
             job.update({field: value for field, value in given.items() if value is not None}, updated=created)
-            state.rewait(job, list(dict.fromkeys([*job["waits"], *waits])))
+            job["waits"] = list(dict.fromkeys([*job["waits"], *waits]))
             state.deliver(data, job_id, args.order, parts)
-            if args.agent:
-                job["session"] = session
-                state.start(job)
             took.append(f"{job_id} carried {shared} and no worker took it, so this add folded into it, a part having one change job: its goal is this add's and its waits gained this add's")
         else:
             job_id = state.next_id(data["jobs"], "j")
@@ -1398,7 +1395,9 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
             took.append(state.hand_over(data, held, job_id, args.order, parts, created))
         if args.release:
             job["brief_flags"] = (job.get("brief_flags") or {}) | {"release": args.release}
-        state.hold_unstarted(job)
+        if args.agent:
+            job["session"] = session
+            state.start(job)
         if crowd := args.kind == "builder" and not args.remote and not job["agent"] and not job["waits"] and place.crowded(data, job_id, state.now()):
             job["where"] = "remote"
         builder_id = waiting_builder(data, job_id, created)
@@ -1408,7 +1407,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         replaced = [] if args.release else state.end_replaced(data, [args.order], created)
         named = state.named_prs(data, args.order, args.goal)
         history = {key: state.pr_orders(data, key, args.order) for key in named}
-    waiting = [f"{job_id} {job['said']}: start no agent for it until the watch's FREE line says its last wait ended"] if job["waits"] and not job["agent"] else []
+    waiting = [f"{job_id} waits on {', '.join(job['waits'])}: start no agent for it until the watch's FREE line says its last wait ended"] if job["waits"] and not job["agent"] else []
     waiting += render.builder_lines(data, [builder_id] if builder_id else [])
     if crowd:
         waiting.append(
@@ -1509,8 +1508,7 @@ def waiting_builder(data: dict, reader_id: str, created: str) -> str | None:
     if not brief.waits_on_research(data["orders"][reader["order"]], "builder", uncarried) or brief.job_refusal(data, reader["order"], "builder", uncarried, False, [reader_id]):
         return None
     builder_id = state.next_id(data["jobs"], "j")
-    builder = data["jobs"][builder_id] = state.new_job(reader["order"], "builder", state.parts_goal(uncarried), uncarried, created) | {"waits": [reader_id]}
-    state.hold_unstarted(builder)
+    data["jobs"][builder_id] = state.new_job(reader["order"], "builder", state.parts_goal(uncarried), uncarried, created) | {"waits": [reader_id]}
     data["orders"][reader["order"]]["jobs"].append(builder_id)
     return builder_id
 
@@ -1582,8 +1580,7 @@ def job_set(args: argparse.Namespace) -> int:
             hold_card(job, args.card, shown)
             state.join_card(data, args.id, args.card)
         waits = merged_waits(data, job, [state.change_wait(data, wait) for wait in args.waits], args.no_waits, found)
-        state.rewait(job, [wait for wait in waits if not (state.builds_nothing(job) and wait == state.SLOT_WAIT)])
-        state.hold_unstarted(job)
+        job["waits"] = [wait for wait in waits if not (state.builds_nothing(job) and wait == state.SLOT_WAIT)]
         held = {order_id: set(state.job_parts(job, order_id)) for order_id in [job["order"], *args.carries]}
         if args.carries:
             if args.parts:
@@ -1638,7 +1635,8 @@ def job_set(args: argparse.Namespace) -> int:
         for order_id in args.carries or ([job["order"]] if reworks else [])
         for line in rework_named_prs(name, order_id, reworks, cards, f"drive job set {args.id} --carries {order_id} --rework <PR>=<his permalink>")
     ]
-    return emit(args, already + render.job_line(data, args.id, job) + "".join(f"\n{line}" for line in [*replaced, *reworked]), {"id": args.id, **job})
+    stopping = [f"{args.id}'s lane launching since {render.when(job['launching'])} is ended as its worker starts"] if state.launch_in_flight(name, args.id, job) and overtaken(data, job) else []
+    return emit(args, already + render.job_line(data, args.id, job) + "".join(f"\n{line}" for line in [*stopping, *replaced, *reworked]), {"id": args.id, **job})
 
 
 def hear_opening(data: dict, job_id: str) -> None:
@@ -1780,7 +1778,7 @@ def follow_card(name: str, waits: str, asked: list[str], url: str) -> None:
                     question["card"] = url
                     state.join_card(data, job_id, url)
         for job in data["jobs"].values():
-            state.rewait(job, list(dict.fromkeys(waits if view.message_key(wait) in moved else wait for wait in job["waits"])))
+            job["waits"] = list(dict.fromkeys(waits if view.message_key(wait) in moved else wait for wait in job["waits"]))
 
 
 def job_ask(args: argparse.Namespace) -> int:
@@ -2238,7 +2236,7 @@ def wait_on(data: dict, asked: list[dict], waits: str) -> None:
 
     gone = {key for question in asked for key in (question["waits"], question["card"] and view.message_key(question["card"])) if key}
     for owner in [*data["jobs"].values(), *data["prs"].values()]:
-        state.rewait(owner, list(dict.fromkeys(waits if view.message_key(wait) in gone else wait for wait in owner["waits"])))
+        owner["waits"] = list(dict.fromkeys(waits if view.message_key(wait) in gone else wait for wait in owner["waits"]))
 
 
 def settled_note(name: str, data: dict, job_id: str, title: str, answer: dict) -> None:
@@ -2756,7 +2754,7 @@ def job_report(args: argparse.Namespace) -> int:
         shown = "\n".join([shown, *registered, *fixes, *withdrawn, *briefed, *render.builder_lines(data, added)])
         return emit(args, shown, {"id": args.id, "report": kept, "ask": asked and str(asked), "fixes": fixes, "builders": added})
     text = state.report_text(name, args.id, args.all)
-    if not text and not job["said"]:
+    if not text and job["said"] in (None, state.NOT_STARTED):
         raise DriveError(f"{args.id} kept no report and has returned nothing yet")
     if not text:
         return emit(args, f"{job['said']}\n({args.id} kept no report; this one-line result is all it returned)", {"id": args.id, "report": None, "said": job["said"]})
@@ -3217,6 +3215,9 @@ def relaunch(args: argparse.Namespace, name: str, text: str | None) -> int:
         agent = job.get("agent")
         started = launched(name, args.id, None if text is not None else args.brief, text is None and args.local, text, died)
         job = record_start(name, args.id, started, None, text)
+        if job["state"] != "running":
+            ended, _ = end_lane(name, args.id)
+            return emit(args, f"{args.id}: a wait or stop set while its first lane launched holds it, so that lane, started {orca.place(job)} as dispatch {started['dispatch']}, is ended\n{ended}", started)
     line = f"{args.id} started {orca.place(job)} as dispatch {started['dispatch']}"
     if text is not None:
         line = f"{args.id}: the message went to the job's next worker, started {orca.place(job)} as dispatch {started['dispatch']} in a handoff carrying it"
@@ -3359,7 +3360,7 @@ def unsent(args: argparse.Namespace, job: dict, held: list[dict], error: orca.Or
 
 
 def launched(name: str, job_id: str, brief_file: str | None, local: bool, text: str | None, died: str | None) -> dict:
-    """Start a job's first lane, briefed as drive job brief writes it when none was, or one taking over from an agent on this Mac that stopped, returned while the job holds texts, or that another session started and ended with, with the text in its handoff when a resume brought one, and, by answers_since, each text the job holds under the heading naming its sender and each answer of his it has not heard under His answers since: whose words its brief lacks; a lane taking over from an agent that stopped or returned starts on this Mac when its brief declares a step only this Mac runs, by place.mac_step over that brief alone, never the report, held texts or text its handoff adds, and one crowded_here refuses at this Mac's cap holds the text and waits its turn on builder-slot; a lane on this Mac starts in the worktree orca.pr_holder finds holding the branch of the job's open PR, its handoff naming it. Once nothing refuses it the job runs, stamped as launching, its line no longer naming the waits that ended, so the watch reads a builder whose reader finished before its FREE line as starting, never as waiting on nothing."""
+    """Start a job's first lane, briefed as drive job brief writes it when none was, or one taking over from an agent on this Mac that stopped, returned while the job holds texts, or that another session started and ended with, with the text in its handoff when a resume brought one, and, by answers_since, each text the job holds under the heading naming its sender and each answer of his it has not heard under His answers since: whose words its brief lacks; a lane taking over from an agent that stopped or returned starts on this Mac when its brief declares a step only this Mac runs, by place.mac_step over that brief alone, never the report, held texts or text its handoff adds, and one crowded_here refuses at this Mac's cap holds the text and waits its turn on builder-slot; a lane on this Mac starts in the worktree orca.pr_holder finds holding the branch of the job's open PR, its handoff naming it. Once nothing refuses it the job is stamped as launching, which the watch reads as starting, never as not started or waiting on nothing, until record_start runs it on its worker's receipt."""
     from drive import stage, view
 
     data = state.load(name)
@@ -3401,8 +3402,7 @@ def launched(name: str, job_id: str, brief_file: str | None, local: bool, text: 
         if taker or died:
             job.update(agent=None, dispatch=None, session=taker or job["session"])
         job.update(where="remote", route=state.LOCAL_ROUTE if local else None, launching=state.stamp(), researched=brief.research_links(data, job, written))
-        state.rewait(job, [wait for wait in view.holding(data, job["waits"], None) if wait != state.SLOT_WAIT])
-        state.start(job)
+        job["waits"] = [wait for wait in view.holding(data, job["waits"], None) if wait != state.SLOT_WAIT]
     kept.parent.mkdir(exist_ok=True)
     try:
         receipt = launch_attempt(name, job, kept.stem, kept, orca.vm_brief(name, job_id, written, job["route"]), root, holder and str(holder.path), None)
@@ -3465,6 +3465,8 @@ def launch_kept(name: str, job_id: str, started: dict | None, handoff: str | Non
         job = data["jobs"][job_id]
         if started is None:
             job["launching"] = None
+        elif overtaken(data, job):
+            job.update(started)
         elif job.get("dispatch") != started["dispatch"]:
             fresh = state.handed_texts(job, text)
             given = [*state.unreturned(job, "\n\n".join(fresh)), *({"words": words, "at": state.stamp()} for words in fresh)]
@@ -3472,6 +3474,14 @@ def launch_kept(name: str, job_id: str, started: dict | None, handoff: str | Non
             state.start(job)
             superseded.hear_start(data, job_id)
     return job
+
+
+def overtaken(data: dict, job: dict) -> bool:
+    """Whether a wait or stop set while a job's first lane launched holds it, any wait that holds being new since that launch refuses a job one holds, so that lane's worker must not run."""
+    from drive import view
+
+    stopped = job["state"] == "stopped" and state.parse_time(job["updated"]) >= state.parse_time(job["launching"])
+    return job["said"] == state.NOT_STARTED and (stopped or any(wait != state.SLOT_WAIT for wait in view.holding(data, job["waits"], None)))
 
 
 def launch_attempt(name: str, job: dict, attempt: str, kept: Path, brief: str, root: Path, workspace: str | None, session: str | None) -> dict:
@@ -3783,43 +3793,49 @@ def job_end(args: argparse.Namespace) -> int:
     """Free the Orca lane a job's row records by its dispatch and workspace, whatever its where names, so a job an agent on this Mac holds beside a lane a launch recorded frees that lane too: its Sprite, destroyed once what it holds on no remote is saved to GitHub, whatever the job's state, or its terminal and clean worktree on this Mac; refused, ending nothing, for a row that records no lane. The job keeps the state its line set, with its waits, PRs and carried parts, so a waiting job's next event starts its next lane and nothing waiting on it is freed. A lane whose death the watch recorded first has its Sprite's Orca runtime and worker logs copied to the drive's folder by orca.keep_logs, and every lane's Sprite has each Claude Code transcript it holds copied whole there by orca.keep_transcripts before anything can destroy it, kept on the lane's death. A job still at work first has what its Sprite holds that its next lane would not get saved to GitHub, by lane_saved, and its line, as that lane's handoff will, names each branch GitHub then holds under saved/<its lane>/, by one read, or, when GitHub holds none, what that save found; refused, ending nothing, when that Sprite cannot be read or the save fails, and for a running job, whose lane has returned no line, so its next event, never its end, comes next. The end holds the job's own lock, as a launch, resume or PR wake does, so it never destroys a Sprite a relaunch is starting the job's next lane on and refuses a job that relaunch set running. The end is recorded on the lane's dispatch before anything is saved, stopped or destroyed, so the watch reads none of it as the lane dying, and an end of a lane another end already ended changes nothing."""
     name = state.resolve(args.drive)
     with state.job_locked(name, args.id, orca.LAUNCH_SECONDS):
-        data = state.load(name)
-        job = find(data["jobs"], args.id, "job")
-        if not job.get("dispatch"):
-            raise DriveError(f"{args.id}: refused, nothing ended: its row records no Orca lane, on a Sprite or on this Mac, so nothing is left to end")
-        if job["state"] == "running":
+        line, ended = end_lane(name, args.id)
+    return emit(args, line, ended)
+
+
+def end_lane(name: str, job_id: str) -> tuple[str, dict]:
+    """drive job end's work under the job's lock its caller holds: the line it prints and what it ended."""
+    data = state.load(name)
+    job = find(data["jobs"], job_id, "job")
+    if not job.get("dispatch"):
+        raise DriveError(f"{job_id}: refused, nothing ended: its row records no Orca lane, on a Sprite or on this Mac, so nothing is left to end")
+    if job["state"] == "running":
+        raise DriveError(
+            f"{job_id}: refused, nothing ended: it is running, so its lane has returned no line to end it on; drive job resume {job_id} sends a lane that stopped"
+            f" without one its next event, and drive job set {job_id} --state stopped ends it unfinished"
+        )
+    root = orca.checkout(name, data["roles"]["coordinator"]["cwd"])
+    with state.edit(name) as data:
+        ended = data["jobs"][job_id]
+        if not (already := state.lane_ended(ended)):
+            fresh = state.lane_died(ended, job["dispatch"], "ended by drive job end", state.now())
+            state.lane_death(ended, "dispatch")["ended"] = {"pid": os.getpid(), "at": state.stamp()}
+    if already:
+        line = f"{job_id}'s lane was already ended by the drive job end of {state.lane_death(ended, "dispatch")['ended']['at']}, so nothing changed; {job_id} stays {ended['state']}"
+        return line, {"id": job_id, "state": ended["state"], "already": True}
+    if not (fresh or state.on_mac(job)):
+        orca.keep_logs(name, job_id, job, job["dispatch"])
+    saved = None
+    if job["state"] not in state.FINISHED_JOB_STATES:
+        try:
+            saved = lane_saved(name, job_id, job, root)
+        except orca.OrcaError as error:
+            install.finished(f"{job_id}: its lane's end", orca.LAUNCH_SECONDS, end_kept, name, job_id, {"failed": True, "fresh": fresh, "saved": None})
             raise DriveError(
-                f"{args.id}: refused, nothing ended: it is running, so its lane has returned no line to end it on; drive job resume {args.id} sends a lane that stopped"
-                f" without one its next event, and drive job set {args.id} --state stopped ends it unfinished"
-            )
-        root = orca.checkout(name, data["roles"]["coordinator"]["cwd"])
-        with state.edit(name) as data:
-            ended = data["jobs"][args.id]
-            if not (already := state.lane_ended(ended)):
-                fresh = state.lane_died(ended, job["dispatch"], "ended by drive job end", state.now())
-                state.lane_death(ended, "dispatch")["ended"] = {"pid": os.getpid(), "at": state.stamp()}
-        if already:
-            line = f"{args.id}'s lane was already ended by the drive job end of {state.lane_death(ended, 'dispatch')['ended']['at']}, so nothing changed; {args.id} stays {ended['state']}"
-            return emit(args, line, {"id": args.id, "state": ended["state"], "already": True})
-        if not (fresh or state.on_mac(job)):
-            orca.keep_logs(name, args.id, job, job["dispatch"])
-        saved = None
-        if job["state"] not in state.FINISHED_JOB_STATES:
-            try:
-                saved = lane_saved(name, args.id, job, root)
-            except orca.OrcaError as error:
-                install.finished(f"{args.id}: its lane's end", orca.LAUNCH_SECONDS, end_kept, name, args.id, {"failed": True, "fresh": fresh, "saved": None})
-                raise DriveError(
-                    f"{args.id}: refused, nothing ended: it is {job['state']}, and what {job['workspace']} holds on no remote could not be saved"
-                    f" to GitHub for its next lane: {error}. End it again once that Sprite answers"
-                ) from None
-        transcript = None if state.on_mac(job) else orca.keep_transcripts(name, args.id, job, job["dispatch"])
-        reclaimed = orca.reclaim(job["run"], job["dispatch"], root)
-        released = release_sprite(name, args.id, job, root)
-        ended = install.finished(f"{args.id}: its lane's end", orca.LAUNCH_SECONDS, end_kept, name, args.id, {"failed": False, "fresh": fresh, "saved": saved, "transcript": transcript and str(transcript)})
-        branches = orca.saved(name, args.id, job, root) if saved else []
-        line = f"{args.id}'s lane ended; {args.id} stays {ended['state']}" + (f", and what its Sprite held on no remote is saved on GitHub as {', '.join(branches)}" if branches else f", and {saved}" if saved else "")
-        return emit(args, "\n".join(filter(None, [reclaimed, released, line])), {"id": args.id, "reclaim": reclaimed, "released": released, "state": ended["state"], "saved": saved, "branches": branches})
+                f"{job_id}: refused, nothing ended: it is {job['state']}, and what {job['workspace']} holds on no remote could not be saved"
+                f" to GitHub for its next lane: {error}. End it again once that Sprite answers"
+            ) from None
+    transcript = None if state.on_mac(job) else orca.keep_transcripts(name, job_id, job, job["dispatch"])
+    reclaimed = orca.reclaim(job["run"], job["dispatch"], root)
+    released = release_sprite(name, job_id, job, root)
+    ended = install.finished(f"{job_id}: its lane's end", orca.LAUNCH_SECONDS, end_kept, name, job_id, {"failed": False, "fresh": fresh, "saved": saved, "transcript": transcript and str(transcript)})
+    branches = orca.saved(name, job_id, job, root) if saved else []
+    line = f"{job_id}'s lane ended; {job_id} stays {ended['state']}" + (f", and what its Sprite held on no remote is saved on GitHub as {', '.join(branches)}" if branches else f", and {saved}" if saved else "")
+    return "\n".join(filter(None, [reclaimed, released, line])), {"id": job_id, "reclaim": reclaimed, "released": released, "state": ended["state"], "saved": saved, "branches": branches}
 
 
 def end_kept(name: str, job_id: str, result: dict) -> dict:

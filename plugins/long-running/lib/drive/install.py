@@ -957,7 +957,7 @@ def merged_done(name: str, data: dict, job_id: str) -> None:
     whole = f"{line}\nPR: {urls}\nCHECK: {commits}\n"
     state.keep_report(name, job_id, line, whole)
     state.take_result(data, job_id, line, whole)
-    state.rewait(job, [])
+    job["waits"] = []
 
 
 def add_prover(name: str, data: dict, job_id: str, reach: dict[str, dict], parts: dict[str, list[str]], staged: set[str]) -> str:
@@ -1001,7 +1001,7 @@ def add_prover(name: str, data: dict, job_id: str, reach: dict[str, dict], parts
         return lead or found[0]
     (order_id, own), *carried = parts.items()
     builder_id = state.next_id(data["jobs"], "j")
-    builder = data["jobs"][builder_id] = state.new_job(order_id, "builder", f"prove {', '.join(keys)} live", own, state.stamp()) | {
+    data["jobs"][builder_id] = state.new_job(order_id, "builder", f"prove {', '.join(keys)} live", own, state.stamp()) | {
         "session": job.get("session"),
         "brief_flags": joined((job.get("brief_flags") or {}) | {"handoff": handoff, "done_when": f"drive job prove {builder_id} runs your proof file and keeps its passing output as reports/{builder_id}.proof.txt, {PROVER_WAIT}"}, {"mac": mac}),
         "builds_nothing": True,

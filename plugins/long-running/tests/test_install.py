@@ -1807,7 +1807,7 @@ def test_a_product_merge_on_a_build_order_of_several_parts_with_no_reader_takes_
     merged = "Forge-AI/monorepo#9 at fedcba987654"
     data = state.load("demo")
     builder = data["jobs"][builder_id]
-    assert (builder_id, builder["kind"], builder["state"], builder["goal"], builder["session"]) == ("j2", "builder", "running", "prove Forge-AI/monorepo#9 live", "s-1")
+    assert (builder_id, builder["kind"], builder["state"], builder["goal"], builder["session"]) == ("j2", "builder", "waiting", "prove Forge-AI/monorepo#9 live", "s-1")
     assert (builder["parts"], builder["carries"], builder["builds_nothing"]) == ([shipped], {"o2": [carried]}, True)
     assert builder["waits"] == []
     assert builder["brief_flags"]["handoff"] == f"{merged} merged: install it by the INSTALL: line of j1's return, in reports/j1.md, write its PROVE: line as a proof file, keep it with drive job set <your job> --repro <file> and run drive job prove <your job>, which runs that file, and only its exit 0 delivers the part"
@@ -1903,7 +1903,7 @@ def test_a_product_merge_whose_paths_reach_no_release_says_its_prover_in_one_lin
     assert asked == f'JOB j3 o1 added, proves Forge-AI/monorepo#10, {started} "Read your brief first: {data["jobs"]["j3"]["brief"]}"'
     assert merged == f'JOB j4 o1 added, proves Forge-AI/monorepo#9, {started} "Read your brief first: {data["jobs"]["j4"]["brief"]}"'
     assert "Handoff: Forge-AI/monorepo#10 at 0123456789ab merged: install it by the INSTALL: line of j2's return" in Path(data["jobs"]["j3"]["brief"]).read_text()
-    assert [data["jobs"][job_id]["state"] for job_id in ("j1", "j2", "j3", "j4")] == ["done", "done", "running", "running"]
+    assert [data["jobs"][job_id]["state"] for job_id in ("j1", "j2", "j3", "j4")] == ["done", "done", "waiting", "waiting"]
     assert (data["orders"]["o1"]["proof"], data["orders"]["o1"]["close_report"]) == (None, None)
 
 
@@ -1941,7 +1941,7 @@ def test_a_merge_with_no_staging_test_reaching_a_target_staging_runs_gets_a_prov
         "JOB j4 o1 added, proves Forge-AI/monorepo#10, owes its after-merge staging pass first:"
         f' start its agent now, run_in_background, on the prompt "Read your brief first: {data["jobs"]["j4"]["brief"]}"'
     )
-    assert [data["jobs"][job_id]["state"] for job_id in ("j3", "j4")] == ["running", "running"]
+    assert [data["jobs"][job_id]["state"] for job_id in ("j3", "j4")] == ["waiting", "waiting"]
 
 
 def test_an_incidents_fix_proven_live_keeps_no_close_and_leaves_its_close_to_the_watchs_read(config: Path, tmp_path: Path, fake: Callable[..., FakeGit]) -> None:
