@@ -1510,6 +1510,26 @@ def test_drive_answer_refuses_to_drop_a_merged_pr_or_supersede_a_part_and_droppi
     assert (drive["orders"]["o1"]["state"], drive["orders"]["o1"]["withdrawn"], list(drive["orders"]["o1"]["parts"]), drive["jobs"]["j1"]["state"]) == ("dropped", UNDER_CARD, list(SANDSQL_PARTS), "stopped")
 
 
+def test_drive_answer_marks_each_part_it_lists_after_their_builder_returned_done_and_says_why_it_refuses_a_key_marked_already(
+    demo: str, run: Callable[..., tuple[int, str]], capsys: pytest.CaptureFixture[str]
+) -> None:
+    parts = (*SANDSQL_PARTS, ELECTRON)
+    keys = [f"o1:{part}" for part in parts]
+    run("order", "add", "--title", "SandSQL supervisor", "--project", "Iris", "--workstream", "Durable agents", "move every helper under sandsql-proc", "--parts", *parts)
+    run("job", "add", "builder", "--order", "o1", "--goal", "build it", *(flag for part in parts for flag in ("--part", part)))
+    with state.edit(demo) as data:
+        data["answers"]["a1"] = {"words": DROPPED, "link": UNDER_CARD, "at": state.stamp(), "said": state.stamp(), "cards": dict.fromkeys(keys), "jobs": {}}
+        data["jobs"]["j1"]["state"] = "done"
+    view.refresh_cards(demo)
+    assert cli.main(["answer", "a1"]) == 2
+    assert "3 parts have no mark:" in capsys.readouterr().err
+    code, out = run("answer", "a1", "--dropped", keys[2], "--stands", *keys[:2])
+    assert (code, out.splitlines()[0]) == (0, "his answer a1 recorded: 2 standing, 1 dropped, 0 superseded, 0 reopened by it")
+    assert state.load(demo)["answers"]["a1"]["cards"] == {keys[0]: {"mark": "stands"}, keys[1]: {"mark": "stands"}, keys[2]: {"mark": "dropped", "job": None, "card": None}}
+    assert cli.main(["answer", "a1", "--stands", keys[0], keys[2]]) == 2
+    assert f"{keys[0]}: marked stands already; {keys[2]}: marked dropped already" in capsys.readouterr().err
+
+
 def test_a_brief_carries_his_order_and_each_rulings_words_without_the_drives_notes(demo: str, run: Callable[..., tuple[int, str]], recorded: Answers) -> None:
     recorded.shown["73060f0"] = ANSWER
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "do a pass on the tools", "--from", f"slack:D123/{THREAD}")

@@ -388,8 +388,11 @@ before it sends or starts.
   a worker needs, a full disk or a toolchain directory it cannot write: the launcher then destroys
   it and exits 76, and the relaunch prepares one fresh Sprite, failing with his answer unsent when
   that one refuses them too, his answer still held.
-- A delivered message, sent to a live worker or carried in the brief or handoff a worker started
-  on, marks the job sent each answer of his whose words it holds verbatim, and a first launch adds
+- A delivered message marks the job sent each answer of his given by then whose words it holds
+  verbatim: a text `drive job resume` sent its live worker, kept as `jobs/<j>.sent-<request>.md`
+  dated when it was held, or any launch, relaunch, resume or handoff text in `jobs/` a worker of the
+  job started on, an attempt whose launcher started no worker aside, each read again whenever an
+  answer of his lists the job later; a first launch adds
   each text the job holds that its brief lacks under the heading naming its sender, `His answers since:` for his alone, and each answer it has not heard that its brief lacks under `His answers since:`; a `SendMessage`
   from the coordinator session to its agent on this Mac does the same once that agent's transcript
   holds it, as a queued command while the agent works or a meta user row once it waits, which the
