@@ -460,21 +460,21 @@ def unheard(data: dict, kept: dict) -> list[str]:
     ]
 
 
-def delivery(data: dict, job_id: str, job: dict, text: str, what: str = "his words") -> str:
-    """The one step by which the session holding the job gets this text to its worker, which every watch line names and the communicator_calls hook refuses a SendMessage by: a fresh builder for a text that carries nothing the job holds or owes to a builder that returned, by fresh_builder; drive job resume for a job any worker runs or ran, which sends the text to its lane, posts it whole to the cci address of a live agent on this Mac and tells the session that started it the SendMessage pointing the agent at that record, or hands the job and the text to a fresh worker of the holder for an agent whose starting session the drive no longer binds or one that takes no message; drive job launch for a job no worker runs yet, which carries his unheard answers to its first worker."""
+def delivery(data: dict, job_id: str, job: dict, text: str, what: str = "his words") -> tuple[str, str]:
+    """The one step by which a session of the drive gets this text to the job's worker, with the cci lane of the session that may take it, which every watch line names, drive pr wake hands its STAGE line to and the communicator_calls hook refuses a SendMessage by: a fresh builder for a text that carries nothing the job holds or owes to a builder that returned, by fresh_builder; drive job resume, from the session state.job_lane names, for a job any worker runs or ran, which sends the text to its lane, posts it whole to the cci address of a live agent on this Mac and tells the session that started it the SendMessage pointing the agent at that record, or hands the job and the text to a fresh worker of the holder for an agent whose starting session the drive no longer binds or one that takes no message; drive job launch, from the same session, for a job no worker runs yet, which carries his unheard answers to its first worker."""
     if fresh := fresh_builder(data, job_id, job, text, what):
         return fresh
     if job.get("agent") or job.get("dispatch"):
-        return f"drive job resume {job_id} with {what} verbatim"
-    return f"drive job launch {job_id} on its FREE line, which carries each answer of his it has not heard to its first worker"
+        return state.job_lane(data, job), f"drive job resume {job_id} with {what} verbatim"
+    return state.job_lane(data, job), f"drive job launch {job_id} on its FREE line, which carries each answer of his it has not heard to its first worker"
 
 
-def fresh_builder(data: dict, job_id: str, job: dict, text: str, what: str) -> str | None:
-    """The fresh builder that takes a text in place of the job's agent: a builder that returned BUILT or DONE on an order no incident is takes each PR event, a red check, a stage line or a wake, on a fresh builder, since a resumed one re-reads everything it ever did on every event, by his pick "Fresh Opus fixer", while a text carrying an answer of his it holds or owes, read as hear reads it by delivered, reaches its agent as any job's does, by his pick "Keep with the starter: the agent finishes its job, your answers reach it at once"; None for any other job or text."""
+def fresh_builder(data: dict, job_id: str, job: dict, text: str, what: str) -> tuple[str, str] | None:
+    """The fresh builder that takes a text in place of the job's agent, with the cci lane of the session holding the job's order, the one whose drive job add builder state.held_elsewhere lets through: a builder that returned BUILT or DONE on an order no incident is takes each PR event, a red check, a stage line or a wake, on a fresh builder, since a resumed one re-reads everything it ever did on every event, by his pick "Fresh Opus fixer", while a text carrying an answer of his it holds or owes, read as hear reads it by delivered, reaches its agent as any job's does, by his pick "Keep with the starter: the agent finishes its job, your answers reach it at once"; None for any other job or text."""
     if job["kind"] != "builder" or job["state"] not in FRESH_STATES or data["orders"][job["order"]]["incident"] or any(delivered(data, job_id, text, state.now())):
         return None
     takes = f"which takes each PR {job_id} opened and stops it" if job["state"] == "built" else "`drive pr add <url> --job <new>` for each PR it takes over"
-    return (
+    return state.holding_lane(data, data["orders"][job["order"]]), (
         f"{job_id}'s builder already returned ({job['state']}), and a PR event after a builder returns goes to a fresh builder, since a resumed one"
         f" re-reads everything it ever did on every event: run `drive job add builder` for order {job['order']} and its parts, {takes}, and brief it"
         f" with a `Handoff:` line naming {what} and {job_id}'s transcript under `Transcripts:`"
@@ -591,7 +591,7 @@ def listing(answer_id: str, kept: dict, keys: list[str], asked: dict[str, dict],
     ]
     jobs = [
         f"  {job_id} waits on {', '.join([job['order'], *job['carries']])} and has not heard {answer_id}: "
-        + delivery(data, job_id, job, kept["words"])
+        + delivery(data, job_id, job, kept["words"])[1]
         + ", or mark it untouched"
         for job_id in unheard(data, kept)
         for job in [data["jobs"][job_id]]
