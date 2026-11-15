@@ -66,6 +66,17 @@ def communicator_call(payload: dict) -> agents.Unjudged:
             " seconds past the 5 to 10 his ack has. Post the ack with say(thread_ts=<his thread>, text=<the ack>),"
             " which Jev reads in about 0.2 s before it posts, and reword a post of yours with say(edit=<its permalink>, text=…)."
         )
+    if name == "Agent":
+        return agents.Unjudged(
+            "Refused on purpose: the communicator starts no agent with the Agent tool. His order for a subagent of the communicator,"
+            ' such as "do it in a subagent you start right now that is opus and is a personal subagent of the communicator" or'
+            ' "the communicator should spawn a read only subagent", is a handler: start it with the drive\'s handler tool, its brief'
+            f" his words verbatim in its lines, {', '.join(f'{label}:' for label in render.HANDLER_LABELS)}, and no owner record, since"
+            " the handler does that work in its own claude --bg session and its line comes back as one cci record. That is his"
+            ' Nov 11 pick, "drive handler starts each as a claude --bg session that ends by posting one cci line: compacting every'
+            ' 6.5 hours, 1.6 GB while one runs", and the Agent tool\'s launch result and finish notice added 2,232 characters to'
+            " the communicator's context per handler, 76,000 of the 147,000 tokens it grew an hour."
+        )
     return agents.Unjudged(
         f"Refused on purpose: the communicator does not run {name} itself, since work in its turn holds his"
         f" next message behind it: a read, draft or post of any kind is a handler's. Its own calls are {render.OWN_CALLS}."

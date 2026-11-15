@@ -22,7 +22,7 @@ This file holds the fundamental rules; one firing on one input is a tested refus
 - Build only a port of an old PR, his order, or drive tooling under its own order; an unordered finding becomes a question card. A port models its data the fundamentally right way for its target (`scope`).
 - An order is an answer, one job researching it, or a build, whose builder starts on a reader's or design's `Researched:` block, its immediate fix's at once.
 - A job returns facts, numbers, links, quotes and what is unproven, never a write-up: only handlers write for him.
-- The job that meets a blocker on his work resolves it. A rule forbidding one way of doing his pick never cancels it: build it the way the rule allows, asking nothing.
+- The job that meets a blocker on his work resolves it. A rule forbidding one way of doing his pick never cancels it: build it the way the rule allows, unasked; a rule replacing a mechanism his words name quotes them.
 
 ### Questions for him
 
