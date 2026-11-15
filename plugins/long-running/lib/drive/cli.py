@@ -2945,8 +2945,15 @@ def transcript_line(job_id: str, job: dict) -> str | None:
 
 
 def job_launch(args: argparse.Namespace) -> int:
-    """Start a job's next worker by the one relaunch launch and resume share, with no message: its first Orca lane, on a Sprite or with --local on this Mac, where a brief declaring a step only this Mac runs on its Mac: or Release: line starts, stamped as launching once nothing refuses it so the watch reads it as starting until the launch could have finished; the next lane of a job whose worker ended or returned its line, with --local moved from its Sprite to this Mac; a lane taking over from an agent on this Mac that stopped or whose session ended; or the worker an earlier launch of its brief started and never recorded, whose ready receipt the launcher keeps; never a finished pass of a standing part, which unrun refuses."""
+    """Start a job's next worker by the one relaunch launch and resume share, with no message: its first Orca lane, on a Sprite or with --local on this Mac, where a brief declaring a step only this Mac runs on its Mac: or Release: line starts, stamped as launching once nothing refuses it so the watch reads it as starting until the launch could have finished; the next lane of a job whose worker ended or returned its line, with --local moved from its Sprite to this Mac; a lane taking over from an agent on this Mac that stopped or whose session ended; or the worker an earlier launch of its brief started and never recorded, whose ready receipt the launcher keeps; never a finished pass of a standing part, which unrun refuses. Given drive job brief's flags, it first writes the job's brief from them by write_brief, so briefing and starting a job is one command and a flag argparse or write_brief refuses starts nothing; refused beside a brief file, which is the brief whole."""
     name = state.resolve(args.drive)
+    if named := {flag: value for flag in state.BRIEF_FLAGS if (value := getattr(args, flag, None)) not in (None, [])}:
+        unrun(state.load(name), args.id)
+        if args.brief:
+            flags = ", ".join(f"--{flag.replace('_', '-')}" for flag in named)
+            raise DriveError(f"{args.id}: refused, nothing written or started: {args.brief} is its brief whole, which {flags} cannot add a line to: drop the file or the flags")
+        line, payload = write_brief(name, args.id, named)
+        emit(args, f"{args.id}'s brief written at {payload['brief']}: {line.partition("\n")[2]}", payload)
     if unrun(state.load(name), args.id)["kind"] == "codex":
         folder = codex_launch(name, args.id, args.brief)
         return emit(args, f"{args.id} started its codex-ask run in {folder}; the watch takes its result once it ends", {"id": args.id, "codex_run": str(folder)})
@@ -5112,6 +5119,35 @@ def parser() -> argparse.ArgumentParser:
             " no slot of this Mac's builder cap, drops any turn it waits for one, and starts or takes a message here at once"
         ),
     )
+    brief_opt = argparse.ArgumentParser(add_help=False)
+    brief_opt.add_argument("--serves", help='"port of #N", "drive tooling" or "his order"; default drive tooling on a tooling order, else his order')
+    brief_opt.add_argument("--done-when", help="the check that proves it done")
+    brief_opt.add_argument("--where", help="the repo, base branch, and any branch or PR to adopt")
+    brief_opt.add_argument(
+        "--native",
+        help='where he sees or uses the result and what that platform already does for it, with links; "none" for work he never sees',
+    )
+    brief_opt.add_argument(
+        "--interactions",
+        help=f"his user stories on the result, one per `;`, each what he does and what he must then see, which its job writes strict acceptance criteria for before building and proves each on the installed surface with {brief.SEEN}; needed when --native names a surface",
+    )
+    brief_opt.add_argument("--would-he-ask", help="what he would still have to ask for if only his words were built")
+    brief_opt.add_argument("--runs-as", help="for a pass, a hand repair or any other write of a team's data: the service account in its cluster and how it starts; \"none: <why>\" for a job that writes none")
+    brief_opt.add_argument(
+        "--mac",
+        help="the step only this Mac runs that the job itself runs, such as drive break-glass, ci mac-box, ci devbox or a drive install no lander runs; drive job launch refuses its Sprite start and the agent_brief hook starts it here at any load, and no other words of the brief place it",
+    )
+    brief_opt.add_argument(
+        "--after",
+        action="append",
+        metavar="COMMAND",
+        help="a drive command drive job prove runs on this Mac once the job's merges are installed and its proof file passes on them, taking DONE only when it exits 0, such as drive cards redraw --waits <waits id> --post: a step its Goal names after the install; repeatable, run in order, its After install: line",
+    )
+    brief_opt.add_argument("--handoff", help="a PR event or freed built branch: the PRs or branch, its head, the event line, INSTALL: and PROVE:")
+    brief_opt.add_argument("--ruling", action="append", default=[], metavar="ANSWER", help="a cc-notes answer id of his that touches this, added to the rulings every brief on its order binds; its words go in whole")
+    brief_opt.add_argument("--plan", help="the plan section this implements, quoted; a builder the drive added for a design's change holds its design's from that add")
+    brief_opt.add_argument("--incident", help="an incident job's line, by reference/jobs.md")
+    brief_opt.add_argument("--scratch", help="its scratch folder; default one in the drive")
 
     root = argparse.ArgumentParser(prog="drive", description="State and events of a long-running drive.")
     root.add_argument("--version", action="version", version=f"drive {state.VERSION}")
@@ -5643,7 +5679,7 @@ def parser() -> argparse.ArgumentParser:
     verb.set_defaults(run=job_report)
     verb = job.add_parser(
         "brief",
-        parents=both,
+        parents=[*both, brief_opt],
         help="write a job's brief from his order's words, each ruling's words and the earlier jobs' transcripts, and print where",
         description=(
             "Write the brief reference/jobs.md shapes into the drive and print its path: Order from the words the order"
@@ -5658,38 +5694,10 @@ def parser() -> argparse.ArgumentParser:
         ),
     )
     verb.add_argument("id", help="the job")
-    verb.add_argument("--serves", help='"port of #N", "drive tooling" or "his order"; default drive tooling on a tooling order, else his order')
-    verb.add_argument("--done-when", help="the check that proves it done")
-    verb.add_argument("--where", help="the repo, base branch, and any branch or PR to adopt")
-    verb.add_argument(
-        "--native",
-        help='where he sees or uses the result and what that platform already does for it, with links; "none" for work he never sees',
-    )
-    verb.add_argument(
-        "--interactions",
-        help=f"his user stories on the result, one per `;`, each what he does and what he must then see, which its job writes strict acceptance criteria for before building and proves each on the installed surface with {brief.SEEN}; needed when --native names a surface",
-    )
-    verb.add_argument("--would-he-ask", help="what he would still have to ask for if only his words were built")
-    verb.add_argument("--runs-as", help="for a pass, a hand repair or any other write of a team's data: the service account in its cluster and how it starts; \"none: <why>\" for a job that writes none")
-    verb.add_argument(
-        "--mac",
-        help="the step only this Mac runs that the job itself runs, such as drive break-glass, ci mac-box, ci devbox or a drive install no lander runs; drive job launch refuses its Sprite start and the agent_brief hook starts it here at any load, and no other words of the brief place it",
-    )
-    verb.add_argument(
-        "--after",
-        action="append",
-        metavar="COMMAND",
-        help="a drive command drive job prove runs on this Mac once the job's merges are installed and its proof file passes on them, taking DONE only when it exits 0, such as drive cards redraw --waits <waits id> --post: a step its Goal names after the install; repeatable, run in order, its After install: line",
-    )
-    verb.add_argument("--handoff", help="a PR event or freed built branch: the PRs or branch, its head, the event line, INSTALL: and PROVE:")
-    verb.add_argument("--ruling", action="append", default=[], metavar="ANSWER", help="a cc-notes answer id of his that touches this, added to the rulings every brief on its order binds; its words go in whole")
-    verb.add_argument("--plan", help="the plan section this implements, quoted; a builder the drive added for a design's change holds its design's from that add")
-    verb.add_argument("--incident", help="an incident job's line, by reference/jobs.md")
-    verb.add_argument("--scratch", help="its scratch folder; default one in the drive")
     verb.set_defaults(run=job_brief)
     verb = job.add_parser(
         "launch",
-        parents=both,
+        parents=[*both, brief_opt],
         help="start a job's next worker: its first Orca lane on a Sprite, or on this Mac with --local, or the next of one that ended",
         description=(
             "Start a job's next worker by the one relaunch drive job resume shares, under the job's own lock, so a launch or resume"
@@ -5702,12 +5710,16 @@ def parser() -> argparse.ArgumentParser:
             " and the job is recorded as this session's lane. A codex job starts no worker: its codex-ask run starts here with"
             " --dispatch on its brief and --schema holding its final message to a state, line and report, which the watch takes as its"
             " return once the run ends. A finished pass of a standing part is refused, writing and starting nothing, naming the"
-            " part's live pass or when the watch starts its next, since the watch alone starts each pass of one."
+            " part's live pass or when the watch starts its next, since the watch alone starts each pass of one. It takes every"
+            " drive job brief flag and writes the brief from them as that verb does before it starts anything, so a flag argparse"
+            " or the brief's checks refuse starts no worker; with none it starts on the brief the job holds."
         ),
     )
     verb.add_argument("id", help="the job")
     verb.add_argument(
-        "brief", nargs="?", help="the file holding the job's brief, or - to read it from stdin; default the one drive job brief wrote"
+        "brief",
+        nargs="?",
+        help="the file holding the job's brief, or - to read it from stdin, refused beside a drive job brief flag; default the one drive job brief, or this launch's flags, wrote",
     )
     verb.add_argument(
         "--local",

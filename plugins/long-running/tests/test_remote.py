@@ -1069,6 +1069,42 @@ def test_a_launch_hands_its_receipt_to_the_newer_install_that_saved_meanwhile(
     assert (job["where"], job["dispatch"], job["run"], job["state"]) == ("remote", DISPATCH, RUN, "running")
 
 
+def test_a_launch_given_drive_job_briefs_flags_writes_its_brief_from_them_before_its_worker_starts(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cloned(tmp_path, demo)
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship it")
+    monkeypatch.setattr(orca, "new_run", lambda drive, objective: RUN)
+    launched: list[str] = []
+    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
+    monkeypatch.setattr(orca, "launch", lambda drive, lane, brief, *rest: launched.append(brief.read_text()) or {field: f"{field}-1" for field in fields} | {"dispatch": DISPATCH})
+    handoff = 'yasyf/cc-skills#7 at 7765bd2, his words: "Everything should be unified"'
+    code, out = run("job", "launch", "j1", "--done-when", "merged and installed", "--where", "yasyf/cc-skills main", "--handoff", handoff)
+    [brief] = launched
+    assert (code, out.startswith(f"j1's brief written at {state.drive_dir(demo) / 'jobs' / 'j1.brief.md'}: his words from o1,"), out.splitlines()[-1]) == (0, True, f"j1 started on Sprite workspace-1 as dispatch {DISPATCH}")
+    assert [line in brief for line in ("\nDone when: merged and installed\n", "\nWhere: yasyf/cc-skills main\n", f"\nHandoff: {handoff}\n")] == [True, True, True]
+
+
+def test_a_launch_whose_brief_flag_is_refused_or_fails_to_parse_writes_and_starts_nothing(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cloned(tmp_path, demo)
+    (tmp_path / "brief.md").write_text("Researched: j0\nDrive: demo, order o1, job j1\n")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship it")
+    monkeypatch.setattr(orca, "new_run", lambda drive, objective: pytest.fail("a refused launch made a Run"))
+    before = state.load(demo)["jobs"]["j1"]
+    with pytest.raises(SystemExit):
+        cli.main(["job", "launch", "j1", "--where", "yasyf/cc-skills main", "--handoff", "his words:", "Everything", "should", "be", "unified"])
+    assert "unrecognized arguments" in capsys.readouterr().err
+    assert cli.main(["job", "launch", "j1", "--done-when", "merged", "--after", "ls ~/.claude"]) == 2
+    assert '--after "ls ~/.claude" is no drive command' in capsys.readouterr().err
+    assert cli.main(["job", "launch", "j1", "brief.md", "--done-when", "merged"]) == 2
+    assert capsys.readouterr().err == "drive: j1: refused, nothing written or started: brief.md is its brief whole, which --done-when cannot add a line to: drop the file or the flags\n"
+    assert (state.load(demo)["jobs"]["j1"], (state.drive_dir(demo) / "jobs" / "j1.brief.md").exists()) == (before, False)
+
+
 @pytest.mark.parametrize(
     ("flag", "named"),
     [
