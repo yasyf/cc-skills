@@ -1927,6 +1927,64 @@ def test_his_standing_yes_on_a_card_another_drive_keeps_orders_a_staging_soak_on
     assert len(jev.asked) == 1
 
 
+SPILL_RESTORE = (
+    "tools/ci release start --stack runtime-api-next/plat-usw2-staging,cloudrunner-next/plat-usw2-staging,dashboard/plat-usw2-staging,sandsql/plat-usw2-staging"
+    " --commit afb881f9207650b5a87f1e2e10c6b4d53c2448d0 --manual --emergency --order 23eefb9"
+)
+STAGING_ROLLBACK = "tools/ci release start --manual --stack rsw-search/plat-usw2-staging --commit 5a6f43db99dd9671fd132bce1c939e33ac3a2b81 --rollback --order 23eefb9"
+
+
+def test_his_standing_yes_to_soak_on_staging_orders_each_stack_restore_and_rollback_there_and_no_stack_past_staging_with_no_jev_read(
+    demo: str, run: Run, recorded: Answers, jev: Jev
+) -> None:
+    answered_cut(run, demo, [STANDING_SOAK], STANDING_SOAK_CARD)
+    with state.edit(demo) as data:
+        data["answers"]["15c4de1"] = {"words": RELEASE_HOLD["body"], "link": HOLD_LINK, "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {}}
+    recorded.listed = [RELEASE_HOLD, STANDING_SOAK]
+    recorded.shown = {answer["id"][:7]: answer for answer in recorded.listed}
+    data = state.load(demo)
+    assert [brief.approval_refusal(release, data) for release in (SPILL_RESTORE, STAGING_ROLLBACK)] == [None, None]
+    picks = f'`--order 23eefb9` names his answer to "{STANDING_SOAK["title"]}", and it picks option 1 of the card it answers, `tools/ci release start --emergency --env plat-usw2-staging`'
+    refused = {
+        STAGING_ROLLBACK.replace("plat-usw2-staging", "plat-usw2-prod"): "and this release ships another change",
+        SPILL_RESTORE.replace("sandsql/plat-usw2-staging", "sandsql/plat-usw2-prod"): "and this release ships another change",
+        STAGING_ROLLBACK.replace("plat-usw2-staging", "plat-usw2-sandbox"): "and this release ships another change",
+        STAGING_ROLLBACK.replace("plat-usw2-staging", "plat-gbl-staging"): "and this release also runs on plat-gbl-staging, which his words past its number do not name",
+    }
+    assert {release: brief.approval_refusal(release, data) for release in refused} == {release: held(release, f"{picks}, {why}") for release, why in refused.items()}
+    assert jev.asked == []
+
+
+SANDBOX_TESTS = {
+    "id": "077d93a" + "0" * 33,
+    "title": "What should happen to the from-scratch SandSQL handoff stack while he sleeps, and who decides its merges?",
+    "body": "Heading to sleep but get everything built and tested on sandbox/staging and ready to merge and I can make any final decision in the morning",
+    "tags": ["scope:durable", "drive:demo"],
+    "created_at": "2026-11-15T12:04:59Z",
+}
+SANDBOX_TEST = "tools/ci release start --stack sandsql/plat-usw2-sandbox --commit 3ebaa825dbd7116cb00a2f799c91861371d9e4d8 --manual --emergency --order 077d93a"
+
+
+def test_jev_reads_a_stack_release_on_the_places_its_stacks_name_so_his_words_to_test_on_a_sandbox_reach_it_on_the_sandbox_and_a_production_stack_on_production(
+    demo: str, run: Run, recorded: Answers, jev: Jev
+) -> None:
+    answered_cut(run, demo, [STANDING_SOAK], STANDING_SOAK_CARD)
+    with state.edit(demo) as data:
+        data["answers"]["15c4de1"] = {"words": RELEASE_HOLD["body"], "link": HOLD_LINK, "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {}}
+    recorded.listed = [RELEASE_HOLD, SANDBOX_TESTS]
+    recorded.shown = {answer["id"][:7]: answer for answer in recorded.listed}
+    data = state.load(demo)
+    jev.picks("orders")
+    assert brief.approval_refusal(SANDBOX_TEST, data) is None
+    production = SANDBOX_TEST.replace("plat-usw2-sandbox", "plat-usw2-prod")
+    jev.picks("none")
+    assert brief.approval_refusal(production, data) == held(production, f'`--order 077d93a` names his answer to "{SANDBOX_TESTS["title"]}", and Jev does not read it as approving this release')
+    assert [asked["state"]["action"] for asked in jev.asked] == [
+        f"start this release on plat-usw2-sandbox (stage sandbox): `{SANDBOX_TEST}`",
+        f"start this release on plat-usw2-prod (stage prod): `{production}`",
+    ]
+
+
 def test_his_words_past_the_number_order_only_the_places_they_name(demo: str, run: Run, recorded: Answers) -> None:
     answered_cut(run, demo, [CUT_PICK])
     recorded.shown = {"5d17d9c": CUT_PICK}
