@@ -160,6 +160,8 @@ AFTER_MERGE_PASS = "after-merge staging pass"
 PID_WAIT = re.compile(r"pid:(?P<pid>\d+)(?:@(?P<started>\d+))?")
 STAGING_GOAL = re.compile(r"\bstaging\b", re.IGNORECASE)
 APPLY_STEP = re.compile(r"apply-(?P<target>.+?)--(?P<env>.+)")
+MAC_BOX_SIGNED_IN = "mac-box-approve"
+MAC_BOX = "a Mac box signed in to staging"
 CASE_LINE = re.compile(r"^CASE[ \t]+(?P<case>.+?):(?:[ \t]+|$)(?P<rest>.*?)[ \t]*$", re.MULTILINE)
 PASSED_CASE = re.compile(r"pass(?:ed)?\b", re.IGNORECASE)
 CASE_VERDICT = re.compile(r"(?:pass(?:ed)?|fail(?:ed)?|skipped|not exercised)\b", re.IGNORECASE)
@@ -2752,7 +2754,7 @@ def part_soak(data: dict, waits: list[str], part: str) -> str | None:
 
 
 def unstaged(data: dict, job_id: str, line: str, report: str) -> str | None:
-    """Why a staging test's DONE may not free the PRs held for it, naming the fix: a builder or codex job whose goal names staging or that holds a `staging test of #N before it lands` part, whose DONE, taken as take_result takes it, ends every wait an open PR holds on the job or a part it holds, never one following a release it started, by starts_cut, frees that PR only when a Buildkite build the CHECK: lines heading the PR's own run of cases name, by part_run, or every CHECK: line for a PR it tests no staging part of, passed an apply step on an env its infra/envs file marks `stage: staging` at a commit carrying the PR's head, read with one `bk build view` of each build and one git cherry of each freed PR in the coordinator's checkout, since a soak that tested what staging already ran, or a cut built without the PRs, proves none of them; None for any other result."""
+    """Why a staging test's DONE may not free the PRs held for it, naming the fix: a builder or codex job whose goal names staging or that holds a `staging test of #N before it lands` part, whose DONE, taken as take_result takes it, ends every wait an open PR holds on the job or a part it holds, never one following a release it started, by starts_cut, frees that PR only when a Buildkite build the CHECK: lines heading the PR's own run of cases name, by part_run, or every CHECK: line for a PR it tests no staging part of, passed, at a commit carrying the PR's head, an apply step on an env its infra/envs file marks `stage: staging` or the mac-box-approve step of a `tools/ci mac-box prove`, which signs in to staging a Mac box holding Iris Staging and sand-next built at that commit, the one staging test of a change only a Mac runs, which no staging deploy carries, read with one `bk build view` of each build and one git cherry of each freed PR in the coordinator's checkout, since a soak that tested what staging already ran, or a cut built without the PRs, proves none of them; None for any other result."""
     from drive import brief, settled, view
 
     job = data["jobs"][job_id]
@@ -2775,10 +2777,11 @@ def unstaged(data: dict, job_id: str, line: str, report: str) -> str | None:
         for build in dict.fromkeys(build for builds in runs.values() for build in builds):
             named = github.BUILD.match(build)
             read = github.build(named["pipeline"], named["number"])
-            if envs := sorted({step["env"] for ran in read.get("jobs", []) if ran.get("state") == "passed" and (step := APPLY_STEP.fullmatch(ran.get("step_key") or "")) and settled.stage(step["env"], clone) == settled.STAGING}):
+            passed = {ran.get("step_key") or "" for ran in read.get("jobs", []) if ran.get("state") == "passed"}
+            if envs := sorted({step["env"] for key in passed if (step := APPLY_STEP.fullmatch(key)) and settled.stage(step["env"], clone) == settled.STAGING}) + [MAC_BOX] * (MAC_BOX_SIGNED_IN in passed):
                 deployed[build] = (read["commit"], envs)
             else:
-                said.append(f"{build} deployed nothing to staging, passing no apply step on an env its infra/envs file marks stage: staging")
+                said.append(f"{build} deployed nothing to staging, passing no apply step on an env its infra/envs file marks stage: staging and no {MAC_BOX_SIGNED_IN} step of a Mac box proof")
         for key in freed:
             misses = []
             for build in (build for build in runs[key] if build in deployed):
@@ -2796,8 +2799,8 @@ def unstaged(data: dict, job_id: str, line: str, report: str) -> str | None:
     return (
         f"{job_id}'s DONE frees {', '.join(lacking)} from waiting on its staging test, and no build the CHECK: lines heading its cases name deployed a commit carrying"
         f" {'them' if len(lacking) > 1 else 'it'} to staging: {'; '.join(said) or 'they name no Buildkite build'}. Name on a CHECK: line the release build"
-        " that deployed a commit carrying each one's head to staging, heading the CASE lines of that PR's run and naming the PR when the DONE tests several in turn, or return WAITING on what still holds them, such as staging:<target>/<env>@<commit>"
-        " while staging does not run it yet"
+        " that deployed a commit carrying each one's head to staging, or the `tools/ci mac-box prove` build that put it on a Mac box signed in to staging, heading the CASE lines of that PR's run"
+        " and naming the PR when the DONE tests several in turn, or return WAITING on what still holds them, such as staging:<target>/<env>@<commit> while staging does not run it yet"
     )
 
 

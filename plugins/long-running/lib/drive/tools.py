@@ -570,7 +570,12 @@ def record(name: str, records: list[dict], dry_run: bool) -> str:
         )
     project = state.session_project(data, session)
     lane, other = {"communicator": ("communicator", "root"), "meta": ("meta", "communicator")}.get(role) or (state.project_lane(project) if project else "root", "communicator")
-    posts = [post(item, data, other, session) for item in records]
+    posts = []
+    for index, item in enumerate(records, start=1):
+        try:
+            posts.append(post(item, data, other, session))
+        except DriveError as error:
+            raise DriveError(f"{index}: {error}") from None
     for index, made in enumerate(posts, start=1):
         if made["kind"] != "answer" and not state.his_words(role, made["kind"]) and (refused := brief.claim_refusal(f"{made['text']}\n{made.get('body') or ''}", name, data)):
             raise DriveError(f"{index}: refused, nothing posted: {refused}")

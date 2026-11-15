@@ -170,7 +170,8 @@ ASKS_RELEASE = Noul(
     yes="It asks for that step, whatever words of his it quotes.",
     no=(
         "It only reports a release that ran, is running or a teammate says they will run, states that an approval or answer of his is pending, his Approve on a"
-        " pull request included, says nothing starts, withdraws a READY or calls one stale, tells that session not to start a cut, quotes a command, plan or refusal, asks for a plan, a dry run or a card redrawn, or asks that session to"
+        " pull request included, says nothing starts, withdraws a READY or calls one stale, tells that session not to start a cut, names or asks for only releases to a staging or sandbox env,"
+        " quotes a command, plan, refusal or log line, asks for a plan, a dry run or a card redrawn, or asks that session to"
         " put the release to him and start nothing until he answers. A step of drive work, such as resuming a job, rebasing a pull request or redrawing a card,"
         " is no release step, nor is a `tools/ci cluster-job` start or the unblock of the gate of the forge/release build it starts, which runs one suspended"
         " CronJob in a team's cluster and ships no change."

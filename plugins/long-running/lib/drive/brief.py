@@ -329,6 +329,14 @@ def release_ask_refusal(kind: str, to: list[str], words: str, data: dict) -> str
     return None
 
 
+def release_asks(posts: list[tuple[str, list[str], str]], data: dict) -> dict[int, str]:
+    """The refusal release_ask_refusal gives each record of a post, each its kind, lanes and words, by its place in the post, one of several naming that place, its kind and its first line, so the session knows which record to fix."""
+    refused = {index: why for index, (kind, to, words) in enumerate(posts) if (why := release_ask_refusal(kind, to, words, data))}
+    if len(posts) == 1:
+        return refused
+    return {index: f'record {index + 1} of {len(posts)}, the {posts[index][0]} "{cut(posts[index][2].strip().splitlines()[0], 120)}": {why}' for index, why in refused.items()}
+
+
 def release_notes(releases: list[str], data: dict) -> list[str]:
     """What the drive's release notes, by kept_notes(), say of these releases, each a `ci release start` or `hotfix`, by his ruling 17f763e that the tooling only helps the agent follow the prose rules: Jev reads every release against every note in SPEAKS_TO_START Nouls, in as many requests as settled.batched packs them into, so no note goes unread however many the drive keeps, and each note Jev does not read as silent on one, its unsure band included since a note missed is a cut it forbids offered or started, comes back as one NOTED line naming each release it speaks to with what git says of the PRs and commits its title names at the commit that release cuts, by note_facts(), and the note's words whole, so the agent offering or starting it follows them; one UNNOTED line when cc-notes or Jev gave no reading, or naming each note too large for any request alone. It refuses nothing."""
     from drive import github
