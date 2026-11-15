@@ -1,3 +1,4 @@
+import fcntl
 import json
 import os
 import re
@@ -323,6 +324,28 @@ def test_a_job_naming_a_pr_the_drive_keeps_no_row_for_is_judged_beside_only_the_
     assert served.verdict(demo, KEY).startswith(served.CHECKED)
     [(said, _)] = judge.asked
     assert "other open PRs" not in said
+
+
+def test_a_check_process_starts_once_the_drive_lock_is_let_go_and_its_pr_is_marked_with_that_process(run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "land it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "land")
+    run("pr", "add", URL, "--job", "j1", *LEAD)
+    with state.edit(demo) as data:
+        data["prs"][KEY] |= {"head": "head1", "checker": None}
+    held = []
+
+    def spawn(name: str, key: str) -> int:
+        with open(state.drive_dir(name) / ".lock", "a") as handle:
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                held.append(key)
+        return 4242
+
+    monkeypatch.setattr(served, "spawn", spawn)
+    served.start(demo, [KEY])
+    checker = state.load(demo)["prs"][KEY]["checker"]
+    assert (held, checker["head"], checker["pid"], checker["outcome"]) == ([], "head1", 4242, None)
 
 
 CLOCKS = ("self::sleep(seconds) is a clock timer that fires one inbox row", "self::watch sets a watch and then suspends", "each alarm is its own clock timer")
