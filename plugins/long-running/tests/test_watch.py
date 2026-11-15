@@ -3768,7 +3768,8 @@ def test_a_part_open_prs_of_two_jobs_outside_one_stack_wait_on_frees_neither_on_
         data["orders"]["o2"]["state"] = "working"
         data["prs"][KEY]["waits"] = ["o2:staging test of #42 before it lands"]
         data["prs"][OTHER]["waits"] = ["o2:staging test of #43 before it lands"]
-        state.take_result(data, "j4", "DONE every staging case of #42 passed on its cut")
+        passed = "DONE every staging case of #42 passed on its cut"
+        state.take_result(data, "j4", passed, f"{passed}\nCHECK: https://buildkite.com/forge/release/builds/16164\nCASE 1 release: pass\n")
     freed = [line for line in watch.run_pass(watching, T0 + timedelta(minutes=60)) if line.startswith("FREE ")]
     assert (freed, state.load(demo)["prs"][OTHER]["waits"], landers) == (
         [f"FREE {KEY} j1 o1: o2:staging test of #42 before it lands answered or done, nothing else holds it"],
@@ -3794,13 +3795,27 @@ def test_a_builders_done_while_its_own_pr_is_open_waits_on_that_pr_its_change_un
     watch.run_pass(watching, T0)
     done = f"DONE {proof} passed every staging case of #42 at aaaaaaa111"
     with state.edit(demo) as data:
-        state.take_result(data, "j1", done, f"{done}\nCHECK: {proof} https://buildkite.com/forge/release/builds/16062\n")
+        state.take_result(data, "j1", done, f"{done}\nCHECK: {proof} https://buildkite.com/forge/release/builds/16062\nCASE a rollback refused: pass {proof}\n")
     data = state.load(demo)
     builder = data["jobs"]["j1"]
     assert (builder["state"], builder["said"], builder["waits"]) == ("waiting", f"WAITING {state.pr_url(KEY)} to merge: {done}", [KEY])
     assert ([state.delivered(data, "o1", part) for part in (change, staging)], data["orders"]["o1"]["parts"][staging]["posted"]) == ([False, True], proof)
     freed = [line for line in watch.run_pass(watching, T0 + timedelta(minutes=30)) if line.startswith("FREE ")]
     assert (freed, landers) == ([f"FREE {KEY} j1 o1: o1:{staging} answered or done, nothing else holds it"], [(KEY,)])
+
+
+def test_a_done_tester_whose_staging_test_ran_no_full_pass_leaves_its_part_waiting_on_a_rerun(demo: str) -> None:
+    staging = "staging test of #43 before it lands"
+    failed = "DONE #43 failed a case on cut 1"
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["parts"][staging] = state.new_part()
+        data["orders"]["o1"]["jobs"].append("j2")
+        data["jobs"]["j2"] = job(parts=[staging], carries={})
+        state.take_result(data, "j2", failed, f"{failed}\nCHECK: https://buildkite.com/forge/release/builds/16164\nCASE 1 a write lands: fail: the writer kept the old row\n")
+    data = state.load(demo)
+    assert watch.part_gap(watcher(demo), data, "o1", staging, state.now() + timedelta(hours=1)) == (
+        f"j2's DONE is no full pass, a CASE line of it reading other than pass or none there, so the part waits on a rerun: drive job add builder --order o1 --part '{staging}' --goal '<rerun it>'"
+    )
 
 
 @pytest.mark.parametrize(

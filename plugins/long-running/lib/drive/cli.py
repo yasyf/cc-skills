@@ -950,10 +950,12 @@ def order_posted(args: argparse.Namespace) -> int:
 
 
 def answered_by(name: str, order_id: str, part: str, link: str) -> tuple[str, dict]:
-    """Deliver a part of the order from the session its watch lines reach, posting nothing: words he reads by the drive's post that already answered it, wherever it was made, and work he ordered, every part of a build order or an incident, but an incident's first check and cause and a part sorted as an answer that no builder, codex or design job holds, by the PR that delivered it once github.landing reads it merged, never one folded into another open PR's branch, since no post delivers work."""
+    """Deliver a part of the order from the session its watch lines reach, posting nothing: words he reads by the drive's post that already answered it, wherever it was made, and work he ordered, every part of a build order or an incident, but an incident's first check and cause and a part sorted as an answer that no builder, codex or design job holds, by the PR that delivered it once github.landing reads it merged, never one folded into another open PR's branch, since no post delivers work, and never a staging test part, which only its tester's full pass delivers."""
     data = state.load(name)
     order = data["orders"][order_id]
     [part] = pick_parts(order_id, order, [part])
+    if state.STAGING_PART.fullmatch(part):
+        raise DriveError(f'--part "{part}": refused, a staging test part is delivered only by the DONE of its newest tester whose CASE lines all read pass, never by a post or a merged PR')
     if not (work := state.work(data, order_id, part)):
         drive_post_at(link, data, order_id)
     elif not state.PR_URL.search(link):
