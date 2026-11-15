@@ -29,7 +29,7 @@ INCIDENT_EXEMPTION = "incident fix"
 UNLANDABLE = (
     "{key}: refused, nothing {done}: only his tap or an exempt class lands a Forge-AI PR, and this leaves it with neither, so no card"
     " of his would ask his Approve and the lander would never queue it. Keep it waiting on his tap, or record its class with"
-    " --exempt <class> or --port-of <N>; his order reworking it takes its card down with drive order set <o> --rework <url>"
+    " --exempt <class> or --port-of <N>; his order reworking it takes its card down with drive order set <o> --rework <url>=<his permalink>"
 )
 PORT_DATA_RULING = 'his Nov 12 words "port his visuals but always do it the fundamentally right way when it comes to modelng the data"'
 FILING = ("project", "workstream", "title")
@@ -86,9 +86,10 @@ ALERT_HELP = (
     " monitor every minute and closes the incident once all read OK"
 )
 REWORK_HELP = (
-    "a PR his words rework, by its url or key, named only once its stack's His words, step by step read against them leave"
-    " them unmet: it withdraws in the same call each open card of his carrying it, his words its reason, and no card, ready"
-    " or tap of his stands on it until the builder's READY says how his words are met; with none, every card stays up"
+    "a PR his words rework, by its url or key, and the permalink of those words, as <PR>=<his permalink>, named only once its"
+    " stack's His words, step by step read against them leave them unmet: it withdraws in the same call each open card of his"
+    " carrying it, his words there its reason, linked to them, and no card, ready or tap of his stands on it until the builder's"
+    " READY says how his words are met; with none, every card stays up"
 )
 TOLD_LINK = (
     "Link each card where the line names it, as <its permalink|your card on what it decides>, never as its bare permalink,"
@@ -206,28 +207,50 @@ def lane_posted(name: str, lane: str) -> bool:
 def order_add(args: argparse.Namespace) -> int:
     """Record his order, refusing a --parts name a part cannot hold, by state.unquotable_part; an incident order records a job on each of its parts, its fix among them, unless it joins the open incident on the same failing service; an order whose words Jev reads as on the feature an open build order of its side holds, drive tooling's or his work's, joins that order under its project and workstream, each unfinished job on the feature carrying it and holding his words, so one feature keeps one coordinator, one set of rulings and its jobs; it reworks only the PRs --rework names and names each other open PR card of his in its thread, which it leaves up, and names each open question card of his its words point at, by state.asked_lines."""
     name = state.resolve(args.drive)
-    refuse_unreworkable(state.load(name), args.rework)
+    reworks = heard_reworks(name, args.rework)
     order_id, order, started, incidents = added_order(args)
-    reworked = rework_named_prs(name, order_id, args.rework, thread_cards(name, order), f"drive order set {order_id} --rework <PR>")
+    reworked = rework_named_prs(name, order_id, reworks, thread_cards(name, order), f"drive order set {order_id} --rework <PR>=<his permalink>")
     return emit(args, "\n".join([order_id, *started, *incidents, *reworked]), {"id": order_id, **order, "incidents": incidents})
 
 
-def refuse_unreworkable(data: dict, urls: list[str], job_id: str | None = None) -> None:
-    for key in map(state.pr_key, urls):
+def rework_mark(text: str) -> tuple[str, str]:
+    url, _, link = text.partition("=")
+    if not url or not limits.PAGE_LINK.fullmatch(link):
+        raise argparse.ArgumentTypeError("say <PR>=<the permalink of his words that rework it>")
+    return url, link
+
+
+def heard_reworks(name: str, marks: list[tuple[str, str]], job_id: str | None = None) -> list[dict]:
+    """Each PR --rework names with his words at the permalink beside it, as settled.heard reads them, refused for a PR that is not an open one the drive tracks, of the job when one is named, or a permalink holding no words of his."""
+    from drive import view
+
+    data = state.load(name)
+    found = view.live_cards(name) if marks else None
+    reworks = []
+    for url, link in marks:
+        key = state.pr_key(url)
         if not (pr := data["prs"].get(key)) or pr["state"] != "open" or job_id not in (None, pr["job"]):
             raise DriveError(f"--rework {key}: refused, it names an open PR the drive tracks{f' of {job_id}' if job_id else ''}")
+        try:
+            words = settled.heard(link, found, data)
+        except slack.SlackError as error:
+            raise DriveError(f"--rework {key}={link}: his words there could not be read: {error}; run this again") from None
+        if words is None:
+            raise DriveError(f"--rework {key}={link}: refused, it is neither his own message nor a card he answered; name the permalink of his words that rework it")
+        reworks.append({"key": key, "words": words, "link": link})
+    return reworks
 
 
 def thread_cards(name: str, order: dict) -> list[dict]:
     return [card for card in fresh_pr_cards(name) if state.link_thread(card["url"]) == where] if (where := state.promise_thread(order)) else []
 
 
-def rework_named_prs(name: str, order_id: str, urls: list[str], cards: list[dict], how: str) -> list[str]:
-    """Rework to his order only the PRs --rework names, and name each other card of his it leaves up, since a stack can meet his words under its card already."""
-    keys = set(map(state.pr_key, urls))
+def rework_named_prs(name: str, order_id: str, reworks: list[dict], cards: list[dict], how: str) -> list[str]:
+    """Rework to his words only the PRs --rework names, and name each other card of his it leaves up, since a stack can meet his words under its card already."""
+    keys = {each["key"] for each in reworks}
     left = [card for card in cards if not keys & set(map(state.pr_key, card["prs"]))]
     return [
-        *(rework_prs(name, urls, order_id, state.load(name)["orders"][order_id]["text"]) if urls else []),
+        *rework_prs(name, reworks, order_id),
         *(
             f"left up his card {card['url']} on {', '.join(map(state.pr_key, card['prs']))}: read its stack's His words, step by step"
             f" against {order_id}'s words, and run {how} for each PR they leave unmet"
@@ -243,12 +266,13 @@ def fresh_pr_cards(name: str) -> list[dict]:
     return (view.live_cards(name) or view.NO_CARDS)["pr_cards"]
 
 
-def rework_prs(name: str, urls: list[str], by: str, words: str) -> list[str]:
-    """Mark the open drive PRs reworked to his words and withdraw in the same call, once the drive is saved, each open card of his carrying one, his words its reason, by his words "So why isn't this card withdrawn then? And why do I have to keep asking that?": no card asks his tap on one until its builder's READY says how his words are met, while his Approve stands; the watch wakes its builder with his words, and withdraws again a card whose withdrawal failed."""
+def rework_prs(name: str, reworks: list[dict], by: str) -> list[str]:
+    """Mark the open drive PRs reworked to his words, each kept with the link where he said them, and withdraw in the same call, once the drive is saved, each open card of his carrying one, his words its reason linked to them, by his words "So why isn't this card withdrawn then? And why do I have to keep asking that?": no card asks his tap on one until its builder's READY says how his words are met, while his Approve stands; the watch wakes its builder with his words, and withdraws again a card whose withdrawal failed."""
     with state.edit(name) as data:
-        keys = [key for key in dict.fromkeys(map(state.pr_key, urls)) if key in data["prs"] and data["prs"][key]["state"] == "open"]
-        for key in keys:
-            state.rework(data["prs"][key], by, words)
+        kept = {each["key"]: each for each in reworks if each["key"] in data["prs"] and data["prs"][each["key"]]["state"] == "open"}
+        for key, each in kept.items():
+            state.rework(data["prs"][key], by, each["words"], each["link"])
+        keys = list(kept)
     lines = [f"{key} reworked to {by}: its card stays down until its builder's READY says how his words are met" for key in keys]
     return lines + state.after_save(name, lambda: [said for key in keys for said in withdrawn_card(name, key)])
 
@@ -695,8 +719,8 @@ def order_set(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     withdrawn = his_words(args.withdrawn, "withdraw a promised line") if args.withdrawn else None
     unreported = his_words(args.no_reporter, "take the reporters off an order") if args.no_reporter else None
+    reworks = heard_reworks(name, args.rework)
     data = state.load(name)
-    refuse_unreworkable(data, args.rework)
     closing = args.state in state.CLOSED_ORDER_STATES and not withdrawn
     order = find(data["orders"], args.id, "order")
     refuse_unquotable_parts("--add-part", args.add_part)
@@ -824,7 +848,7 @@ def order_set(args: argparse.Namespace) -> int:
         if args.lined:
             order["last_line"] = order["updated"]
     cards = thread_cards(name, order) if args.rework or (order["kind"], order["thread"]) != aimed else []
-    reworked = rework_named_prs(name, args.id, args.rework, cards, f"drive order set {args.id} --rework <PR>")
+    reworked = rework_named_prs(name, args.id, reworks, cards, f"drive order set {args.id} --rework <PR>=<his permalink>")
     parts = [f"{args.id} {render.part_line(data, args.id, part)}" for part in dict.fromkeys([*sorted_parts, *standing])]
     turned += state.asked_lines(data, order["text"]) if turning else []
     return emit(args, render.order_line(data, args.id, order) + promised + "".join(f"\n{line}" for line in [*turned, *parts, *render.builder_lines(data, added), *reworked]), {"id": args.id, **order})
@@ -1467,9 +1491,9 @@ def job_set(args: argparse.Namespace) -> int:
     told_him(name, args)
     for order_id in args.carries:
         refuse_a_crossed_order(name, known, find(known["jobs"], args.id, "job")["order"], order_id, f"{args.id} --carries")
-    if args.rework and len(args.carries) != 1:
-        raise DriveError("--rework names the PRs one carried order reworks: name that order with one --carries <o>")
-    refuse_unreworkable(known, args.rework, args.id)
+    if args.rework and len(args.carries) > 1:
+        raise DriveError("--rework names the PRs one order's words rework: name at most one --carries <o>, else the job's own order")
+    reworks = heard_reworks(name, args.rework, args.id)
     shown = args.card and shown_card(name, args.card)
     lane = args.agent and args.agent.startswith(state.DISPATCH_PREFIX) and orca.receipt(args.agent)
     with state.edit(name) as data:
@@ -1524,7 +1548,9 @@ def job_set(args: argparse.Namespace) -> int:
     owned = {pr["url"] for pr in data["prs"].values() if pr["job"] == args.id}
     cards = [card for card in fresh_pr_cards(name) if owned & set(card["prs"])] if args.carries else []
     reworked = [
-        line for order_id in args.carries for line in rework_named_prs(name, order_id, args.rework, cards, f"drive job set {args.id} --carries {order_id} --rework <PR>")
+        line
+        for order_id in args.carries or ([job["order"]] if reworks else [])
+        for line in rework_named_prs(name, order_id, reworks, cards, f"drive job set {args.id} --carries {order_id} --rework <PR>=<his permalink>")
     ]
     return emit(args, already + render.job_line(args.id, job) + "".join(f"\n{line}" for line in [*replaced, *reworked]), {"id": args.id, **job})
 
@@ -4244,7 +4270,7 @@ def answer(args: argparse.Namespace) -> int:
             if mark == "reopened":
                 with state.edit(name) as data:
                     data["answers"][args.id]["cards"][key] = {"mark": mark, "job": job_id, "card": card}
-                done += [*rework_prs(name, [state.pr_url(key)], args.id, kept["words"]), f"{key} reopened by his answer {args.id}: {job_id} reworks it to his words, so brief {job_id} with them"]
+                done += [*rework_prs(name, [{"key": key, "words": kept["words"], "link": kept["link"]}], args.id), f"{key} reopened by his answer {args.id}: {job_id} reworks it to his words, so brief {job_id} with them"]
                 continue
             if card and card not in cleared or asked[key]["kind"] == "question" and not card:
                 ended_on(name, args.id, kept, key, card, "superseded")
@@ -4922,7 +4948,7 @@ def parser() -> argparse.ArgumentParser:
             " that card and leaves it up, since its stack can meet his words already: only --rework withdraws one"
         ),
     )
-    verb.add_argument("--rework", action="append", default=[], metavar="PR", help=REWORK_HELP)
+    verb.add_argument("--rework", action="append", default=[], type=rework_mark, metavar="PR=LINK", help=REWORK_HELP)
     verb.add_argument("--due", help="the time his ack promised a line by; from then the watch starts the handler that posts that line, until a line is in the thread")
     verb.add_argument("--parts", nargs="+", type=str.strip, metavar="PART", help="each deliverable his words name; default: one, the whole order")
     verb.add_argument(
@@ -5004,7 +5030,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--proof", help="the check that proves it done: its link, its saved file or its pasted output, never a one-line claim of what it showed")
     verb.add_argument("--from", dest="source", help=f"{FROM_HELP}; the order's thread stays unless --thread names another")
     verb.add_argument("--thread", help=f"{THREAD_HELP}, naming each open PR card of his rooted there as order add --thread does")
-    verb.add_argument("--rework", action="append", default=[], metavar="PR", help=REWORK_HELP)
+    verb.add_argument("--rework", action="append", default=[], type=rework_mark, metavar="PR=LINK", help=REWORK_HELP)
     verb.add_argument("--lined", action="store_true", help="a line just went in its thread")
     verb.add_argument(
         "--withdrawn", metavar="LINK", help="his Slack message calling off the promised time; the order then owes no line for it"
@@ -5254,7 +5280,9 @@ def parser() -> argparse.ArgumentParser:
         metavar="ORDER",
         help="another order whose part this job delivers, until it is done, refused for a builder or codex job while another unfinished one carries that part, as --part and --parts are; it names each open card of his carrying the job's PRs and leaves it up, since its stack can meet his words already: only --rework withdraws one",
     )
-    verb.add_argument("--rework", action="append", default=[], metavar="PR", help=f"with one --carries, {REWORK_HELP}; refused for a PR of another job")
+    verb.add_argument(
+        "--rework", action="append", default=[], type=rework_mark, metavar="PR=LINK", help=f"{REWORK_HELP}, to the one --carries order or else the job's own; refused for a PR of another job"
+    )
     verb.add_argument(
         "--card",
         help=(
@@ -6127,7 +6155,7 @@ def rehearsed(run: Callable[[argparse.Namespace], int]) -> Callable[[argparse.Na
 
 
 def keyed_prs(args: argparse.Namespace) -> None:
-    """Name each PR the verb's arguments name by the drive's key for it, state.tracked_pr's: url, urls, --lands, --pr, --rework, --below, --flaky's FIX, --asked's PR, and each id and --waits value state.PR_WORD reads as a PR. The argument UNTRACKED_PRS names for its verb takes any PR as owner/repo#N or its URL, read without the drive, which pr ci never loads; an id takes an untracked one too, which only refuses naming every form an id takes."""
+    """Name each PR the verb's arguments name by the drive's key for it, state.tracked_pr's: url, urls, --lands, --pr, --below, --rework's PR, --flaky's FIX, --asked's PR, and each id and --waits value state.PR_WORD reads as a PR. The argument UNTRACKED_PRS names for its verb takes any PR as owner/repo#N or its URL, read without the drive, which pr ci never loads; an id takes an untracked one too, which only refuses naming every form an id takes."""
     verb, given = (args.verb, getattr(args, "action", None)), vars(args)
     prs = cache(lambda: state.load(state.resolve(given.get("drive")))["prs"])
 
@@ -6141,9 +6169,11 @@ def keyed_prs(args: argparse.Namespace) -> None:
 
     if given.get("url"):
         args.url = keyed("url", args.url)
-    for name in ("urls", "lands", "pr", "rework", "below"):
+    for name in ("urls", "lands", "pr", "below"):
         if given.get(name):
             setattr(args, name, [keyed(name, ref) for ref in given[name]])
+    if given.get("rework"):
+        args.rework = [(keyed("rework", pr), link) for pr, link in args.rework]
     for name in ("ids", "waits"):
         if isinstance(given.get(name), list):
             setattr(args, name, [keyed(name, ref) if state.PR_WORD.fullmatch(ref) else ref for ref in given[name]])

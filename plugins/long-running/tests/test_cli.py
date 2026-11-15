@@ -1468,7 +1468,17 @@ def test_job_set_stores_each_pr_as_its_canonical_url(run: Run, demo: str) -> Non
 
 CARDED = "https://acme.slack.com/archives/D123/p1794300000000400"
 TOPOLOGY = "Topology should be local metadata in the sessions ssql server"
-REWORKING = f'Being reworked to your words "{TOPOLOGY}". A fresh card asks your tap once its builder says how they are met'
+SAID = "https://acme.slack.com/archives/D123/p1794300000000600?thread_ts=1794300000.000400&cid=D123"
+ON_SESSION = "Keep the topology on the session row, never in the api"
+REWORKING = f'Being reworked to your words "{ON_SESSION}". A fresh card asks your tap once its builder says how they are met'
+
+
+def said(slack_thread: Thread) -> None:
+    slack_thread.messages = [
+        {"ts": "1794300000.000400", "text": "New: land it?"},
+        {"ts": "1794300000.000500", "thread_ts": "1794300000.000400", "text": TOPOLOGY, "from_user": True},
+        {"ts": "1794300000.000600", "thread_ts": "1794300000.000400", "text": ON_SESSION, "from_user": True},
+    ]
 
 
 def carded(monkeypatch: pytest.MonkeyPatch, withdrawals: Withdrawals) -> None:
@@ -1485,31 +1495,39 @@ def test_his_order_in_his_pr_cards_thread_names_that_card_and_leaves_it_up_until
     run: Run, with_pr: str, monkeypatch: pytest.MonkeyPatch, slack_thread: Thread, withdrawals: Withdrawals
 ) -> None:
     carded(monkeypatch, withdrawals)
-    slack_thread.messages = [{"ts": "1794300000.000500", "thread_ts": "1794300000.000400"}]
+    said(slack_thread)
     code, out = run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Topology", TOPOLOGY, "--kind", "build", "--from", "slack:D123/1794300000.000500")
-    assert (code, out.splitlines(), withdrawals.asked) == (0, ["o2", left_up("drive order set o2 --rework <PR>")], [])
+    assert (code, out.splitlines(), withdrawals.asked) == (0, ["o2", left_up("drive order set o2 --rework <PR>=<his permalink>")], [])
     assert (stage.carded(pr := state.load("demo")["prs"][with_pr]), pr["rework"]) == (True, None)
-    code, out = run("order", "set", "o2", "--rework", PR)
+    code, out = run("order", "set", "o2", "--rework", f"{PR}={SAID}")
     assert (code, out.splitlines()[-2:]) == (0, [f"{with_pr} reworked to o2: its card stays down until its builder's READY says how his words are met", f"withdrew his card {CARDED}: {REWORKING}"])
-    assert withdrawals.asked == [(PR, REWORKING)]
-    pr = state.load("demo")["prs"][with_pr]
-    assert pr["rework"]["by"] == "o2"
+    assert (withdrawals.asked, withdrawals.vias) == ([(PR, REWORKING)], [SAID])
+    rework = state.load("demo")["prs"][with_pr]["rework"]
+    assert {field: rework[field] for field in ("by", "words", "link")} == {"by": "o2", "words": ON_SESSION, "link": SAID}
 
 
 def test_his_order_added_with_rework_withdraws_the_card_of_the_pr_it_names_in_the_same_call_with_his_words_as_the_why(
     run: Run, with_pr: str, monkeypatch: pytest.MonkeyPatch, slack_thread: Thread, withdrawals: Withdrawals, capsys: pytest.CaptureFixture[str]
 ) -> None:
     carded(monkeypatch, withdrawals)
-    slack_thread.messages = [{"ts": "1794300000.000500", "thread_ts": "1794300000.000400"}]
+    said(slack_thread)
     added = ["order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Topology", TOPOLOGY, "--kind", "build", "--from", "slack:D123/1794300000.000500"]
-    assert cli.main([*added, "--rework", "Forge-AI/monorepo#99"]) == 2
+    with pytest.raises(SystemExit):
+        cli.main([*added, "--rework", with_pr])
+    assert "say <PR>=<the permalink of his words that rework it>" in capsys.readouterr().err
+    assert cli.main([*added, "--rework", f"Forge-AI/monorepo#99={SAID}"]) == 2
     assert capsys.readouterr().err.strip() == "drive: --rework Forge-AI/monorepo#99: the drive tracks no PR Forge-AI/monorepo#99; drive pr add https://github.com/Forge-AI/monorepo/pull/99 --job <j> tracks it first"
-    code, out = run(*added, "--rework", with_pr)
+    assert cli.main([*added, "--rework", f"{with_pr}={CARDED}"]) == 2
+    assert capsys.readouterr().err.strip() == (
+        f"drive: --rework {with_pr}={CARDED}: refused, it is neither his own message nor a card he answered; name the permalink of his words that rework it"
+    )
+    assert "o2" not in state.load("demo")["orders"]
+    code, out = run(*added, "--rework", f"{with_pr}={SAID}")
     assert (code, out.splitlines()) == (
         0,
         ["o2", f"{with_pr} reworked to o2: its card stays down until its builder's READY says how his words are met", f"withdrew his card {CARDED}: {REWORKING}"],
     )
-    assert withdrawals.asked == [(PR, REWORKING)]
+    assert (withdrawals.asked, withdrawals.vias) == ([(PR, REWORKING)], [SAID])
 
 
 def test_his_question_in_his_pr_cards_thread_leaves_that_card_up_when_it_turns_out_to_need_a_build(
@@ -1519,24 +1537,37 @@ def test_his_question_in_his_pr_cards_thread_leaves_that_card_up_when_it_turns_o
     slack_thread.messages = [{"ts": "1794300000.000500", "thread_ts": "1794300000.000400"}]
     asked = "Why is topology going to the api?"
     code, out = run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Topology", asked, "--kind", "answer", "--from", "slack:D123/1794300000.000500")
-    assert (code, out.splitlines()) == (0, ["o2", left_up("drive order set o2 --rework <PR>")])
+    assert (code, out.splitlines()) == (0, ["o2", left_up("drive order set o2 --rework <PR>=<his permalink>")])
     code, out = run("order", "set", "o2", "--kind", "build")
-    assert (code, out.splitlines()[-1], withdrawals.asked) == (0, left_up("drive order set o2 --rework <PR>"), [])
+    assert (code, out.splitlines()[-1], withdrawals.asked) == (0, left_up("drive order set o2 --rework <PR>=<his permalink>"), [])
     assert (stage.carded(pr := state.load("demo")["prs"][with_pr]), pr["rework"]) == (True, None)
 
 
 def test_a_job_carrying_his_order_leaves_his_open_card_on_its_pr_up_until_rework_names_that_pr(
-    run: Run, with_pr: str, monkeypatch: pytest.MonkeyPatch, withdrawals: Withdrawals, capsys: pytest.CaptureFixture[str]
+    run: Run, with_pr: str, monkeypatch: pytest.MonkeyPatch, slack_thread: Thread, withdrawals: Withdrawals, capsys: pytest.CaptureFixture[str]
 ) -> None:
     carded(monkeypatch, withdrawals)
+    said(slack_thread)
     run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Topology", TOPOLOGY, "--kind", "build")
+    run("order", "add", "--title", "Other title", "--project", "Iris", "--workstream", "Topology", "Name the sessions table", "--kind", "build")
     code, out = run("job", "set", "j1", "--carries", "o2")
-    assert (code, out.splitlines()[-1], withdrawals.asked) == (0, left_up("drive job set j1 --carries o2 --rework <PR>"), [])
-    assert cli.main(["job", "set", "j1", "--rework", PR]) == 2
-    assert capsys.readouterr().err.strip() == "drive: --rework names the PRs one carried order reworks: name that order with one --carries <o>"
-    code, out = run("job", "set", "j1", "--carries", "o2", "--rework", PR)
+    assert (code, out.splitlines()[-1], withdrawals.asked) == (0, left_up("drive job set j1 --carries o2 --rework <PR>=<his permalink>"), [])
+    assert cli.main(["job", "set", "j1", "--carries", "o2", "--carries", "o3", "--rework", f"{PR}={SAID}"]) == 2
+    assert capsys.readouterr().err.strip() == "drive: --rework names the PRs one order's words rework: name at most one --carries <o>, else the job's own order"
+    code, out = run("job", "set", "j1", "--carries", "o2", "--rework", f"{PR}={SAID}")
     assert (code, out.splitlines()[-2:]) == (0, [f"{with_pr} reworked to o2: its card stays down until its builder's READY says how his words are met", f"withdrew his card {CARDED}: {REWORKING}"])
-    assert withdrawals.asked == [(PR, REWORKING)]
+    assert (withdrawals.asked, withdrawals.vias) == ([(PR, REWORKING)], [SAID])
+
+
+def test_a_job_reworks_its_own_pr_to_his_words_with_no_carried_order(
+    run: Run, with_pr: str, monkeypatch: pytest.MonkeyPatch, slack_thread: Thread, withdrawals: Withdrawals
+) -> None:
+    carded(monkeypatch, withdrawals)
+    said(slack_thread)
+    code, out = run("job", "set", "j1", "--rework", f"{with_pr}={SAID}")
+    assert (code, out.splitlines()[-2:]) == (0, [f"{with_pr} reworked to o1: its card stays down until its builder's READY says how his words are met", f"withdrew his card {CARDED}: {REWORKING}"])
+    assert (withdrawals.asked, withdrawals.vias) == ([(PR, REWORKING)], [SAID])
+    assert state.load("demo")["prs"][with_pr]["rework"]["words"] == ON_SESSION
 
 
 def test_job_set_waits_on_his_pr_card_by_its_slack_link_or_merge_waits_id_as_one_wait_until_he_taps_it(
@@ -9638,11 +9669,11 @@ def test_an_answer_lists_every_pr_of_its_order_not_yet_live_and_a_reopened_one_g
         f"{designing} reopened by his answer a1: j1 reworks it to his words, so brief j1 with them",
         "Forge-AI/monorepo#45 reopened by his answer a1: j1 reworks it to his words, so brief j1 with them",
     ]
-    assert (code, settled, withdrawals.asked) == (0, [ANSWERED], [(PR, reason)])
+    assert (code, settled, withdrawals.asked, withdrawals.vias) == (0, [ANSWERED], [(PR, reason)], [PICK])
     data = state.load("demo")
     reworked = data["prs"][designing]
     assert (reworked["wants_tap"], reworked["tap"], data["jobs"]["j1"]["state"]) == (True, None, "running")
-    assert reworked["rework"] | {"at": None} == {"by": "a1", "words": WORDS, "at": None}
+    assert reworked["rework"] | {"at": None} == {"by": "a1", "words": WORDS, "link": PICK, "at": None}
     assert data["answers"]["a1"]["cards"]["Forge-AI/monorepo#45"] == {"mark": "reopened", "job": "j1", "card": None}
 
 

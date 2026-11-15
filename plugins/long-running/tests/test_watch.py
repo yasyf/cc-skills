@@ -4889,7 +4889,7 @@ def test_the_prs_of_one_native_stack_waiting_on_his_tap_draw_one_card_and_one_re
 ) -> None:
     three_stacked(demo, monkeypatch)
     with state.edit(demo) as data:
-        state.rework(data["prs"][THIRD], "o2", "Split the stack by its native GitHub stack")
+        state.rework(data["prs"][THIRD], "o2", "Split the stack by its native GitHub stack", "https://acme.slack.com/archives/D123/p1794300000000600")
     watching = watcher(demo)
     watch.run_pass(watching, T0)
     assert draws.keys == [[KEY, OTHER]]
@@ -4974,7 +4974,7 @@ def test_a_pr_reworked_to_his_words_loses_the_card_left_up_wakes_its_builder_and
     waiting_job(demo)
     with state.edit(demo) as data:
         data["prs"][KEY]["wants_tap"] = True
-        state.rework(data["prs"][KEY], "o2", "Topology goes in the meta table")
+        state.rework(data["prs"][KEY], "o2", "Topology goes in the meta table", "https://acme.slack.com/archives/D123/p1794300000000600")
     shown = [pr_card(KEY)]
     monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [], "closed": [], "pr_cards": list(shown)})
     serve(monkeypatch, {KEY: read(checks=GREEN, reviewDecision="APPROVED")})
@@ -5416,7 +5416,7 @@ def test_replayed_56316_a_pr_reworked_to_his_words_whose_builder_waits_on_its_op
         data["orders"]["o1"]["jobs"].append("j4783")
         data["jobs"]["j4783"] = job(prs=[url], said=asked["title"], questions=[asked])
         data["prs"][reworked] = state.new_pr(url, "j4783", "o1") | {"head": "aaaaaaa111", "wants_tap": True, "checked": CHECKED}
-        state.rework(data["prs"][reworked], "o2", "The point of using staging is not to hold it there")
+        state.rework(data["prs"][reworked], "o2", "The point of using staging is not to hold it there", "https://acme.slack.com/archives/D123/p1794300000000600")
     monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [question(waits) | {"url": card_link}], "closed": [], "pr_cards": []})
     serve(monkeypatch, {reworked: read(checks=GREEN)})
     watching = watcher(demo)
@@ -5440,7 +5440,7 @@ def test_replayed_56316_a_pr_reworked_to_his_words_whose_builder_waits_on_its_op
     at(32)
     at(62)
     with state.edit(demo) as data:
-        state.rework(data["prs"][reworked], "o2", "Run the staging test from its pipeline")
+        state.rework(data["prs"][reworked], "o2", "Run the staging test from its pipeline", "https://acme.slack.com/archives/D123/p1794300000000600")
     at(64)
     report()
     at(66)
@@ -8395,7 +8395,7 @@ def test_his_card_cc_slack_keeps_closed_in_place_on_a_pr_that_asks_his_tap_again
 def test_a_new_head_on_a_pr_reworked_to_his_words_redraws_nothing_until_its_builders_ready(demo: str, monkeypatch: pytest.MonkeyPatch, redraws: Redraws) -> None:
     with state.edit(demo) as data:
         data["prs"][KEY]["wants_tap"] = True
-        state.rework(data["prs"][KEY], "o2", "bind it as @parent")
+        state.rework(data["prs"][KEY], "o2", "bind it as @parent", "https://acme.slack.com/archives/D123/p1794300000000600")
     monkeypatch.setattr(watch.view, "cards", lambda drive: watch.view.NO_CARDS)
     serve(monkeypatch, {KEY: read(checks=GREEN, reviewDecision="APPROVED")})
     watching = watcher(demo)

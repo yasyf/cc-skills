@@ -625,9 +625,10 @@ def plain(line: str) -> None:
 
 
 def withdraw(name: str, key: str) -> list[str]:
-    """Withdraw each open card of his carrying a PR reworked to his words, his words its reason, so no card asks his tap on it until its builder's READY says how they are met and the watch draws a fresh one; each card withdrawn."""
+    """Withdraw each open card of his carrying a PR reworked to his words, his words its reason, linked to the message he said them in, so no card asks his tap on it until its builder's READY says how they are met and the watch draws a fresh one, and redraw one withdrawn under another reason; each card withdrawn."""
     pr = state.load(name)["prs"][key]
-    withdrawn = slack.withdraw_pr_card(pr["url"], state.rework_reason(pr))
+    link = pr["rework"]["link"]
+    withdrawn = slack.withdraw_pr_card(pr["url"], state.rework_reason(pr), link if limits.PAGE_LINK.fullmatch(link) else "")
     view.refresh_cards(name)
     return withdrawn
 

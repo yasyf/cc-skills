@@ -919,6 +919,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         if (rework := pr.get("rework")) and "answer" in rework:
             pr["rework"] = {"by": rework["answer"], "words": rework["why"], "at": rework["at"]} if rework["head"] == pr["head"] else None
         pr.setdefault("rework", None)
+        if pr["rework"]:
+            pr["rework"].setdefault("link", "")
         if pr.get("fundamental"):
             pr["tap"] = None
         if (tap := pr["tap"]) and pr["state"] == "open" and tap.get("via"):
@@ -3824,10 +3826,10 @@ def asks_tap(pr: dict) -> bool:
     return tap_refused(pr) is None
 
 
-def rework(pr: dict, by: str, words: str) -> None:
-    """Mark a PR reworked to his words, by his order or answer, until its builder's READY says how they are met; his Approve stands until that READY, which drops it so a fresh card asks it for the reworked change."""
+def rework(pr: dict, by: str, words: str, link: str) -> None:
+    """Mark a PR reworked to his words, by his order or answer, kept with the link where he said them, until its builder's READY says how they are met; his Approve stands until that READY, which drops it so a fresh card asks it for the reworked change."""
     at = stamp()
-    pr.update(rework={"by": by, "words": words, "at": at}, updated=at)
+    pr.update(rework={"by": by, "words": words, "link": link, "at": at}, updated=at)
 
 
 def rework_reason(pr: dict) -> str:

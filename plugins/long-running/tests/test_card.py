@@ -1278,7 +1278,7 @@ def test_a_stack_with_one_pr_reworked_to_his_words_draws_the_prs_below_it_alone_
 ) -> None:
     ask(asks(41, 42, 43))
     with state.edit("demo") as data:
-        state.rework(data["prs"]["Forge-AI/monorepo#42"], "o2", "Topology goes in the meta table")
+        state.rework(data["prs"]["Forge-AI/monorepo#42"], "o2", "Topology goes in the meta table", "https://acme.slack.com/archives/D123/p1794300000000600")
     reason = 'Forge-AI/monorepo#42 is being reworked to his words "Topology goes in the meta table", so no card asks his tap until its builder\'s READY says how they are met'
     for drawn in (ask(asks(41, 42, 43)), ask(asks(42) | {"redraw": True})):
         assert [([row["url"] for row in each["card"]["prs"]], each["card"]["waits"]) for each in drawn["cards"]] == [([stack_url(41)], "merge:Forge-AI:monorepo:41")]
@@ -1415,7 +1415,7 @@ def test_a_chain_that_cuts_through_a_stored_stack_keeps_every_pr_on_one_card(sta
 def test_a_grown_stack_refused_keeps_the_stack_it_had(stacked: list[list[str]]) -> None:
     ask(asks(41, 42, 43))
     with state.edit("demo") as data:
-        state.rework(data["prs"]["Forge-AI/monorepo#41"], "o2", "Topology goes in the meta table")
+        state.rework(data["prs"]["Forge-AI/monorepo#41"], "o2", "Topology goes in the meta table", "https://acme.slack.com/archives/D123/p1794300000000600")
     assert ask(asks(41, 42, 43, 44))["cards"] == []
     keys = [f"Forge-AI/monorepo#{n}" for n in (41, 42, 43)]
     assert state.load("demo")["prs"]["Forge-AI/monorepo#41"]["stack"] == keys
