@@ -40,6 +40,7 @@ fi
 read -ra bind <<<"${WORKER_BIND:-}"
 bind_unstarted=75
 sprite_unfit=76
+busy_seconds=1200
 
 repo_value() {
   [ ! -f .orca.json ] || jq -r --arg key "$1" '.[$key] // empty | if type == "array" then join(" ") else . end' .orca.json
@@ -188,10 +189,13 @@ if [ -d "$attempt" ] && [ ! -L "$attempt" ] && { [ "$route" = sprite ] || [ -e "
     retire "whose Sprite $held Orca answers Unknown environment for, so nothing it started can run, and $(discard "$held")"
   fi
 fi
-reused= unsent=
+reused= unsent= terminal=
 if [ "$route" = local ] && [ ! -L "$attempt" ] && [ ! -e "$attempt/worker-start.json" ] &&
   kept=$(jq -er '.worktree | strings' "$attempt/request.json" 2>/dev/null); then
   worktree=$kept reused=1
+elif [ "$route" = local ] && [ -f "$attempt/worker-start.unsent" ] && read -r terminal 2>/dev/null <"$attempt/terminal"; then
+  worktree=$(jq -r .worktree "$attempt/request.json") reused=1
+  read -r unsent <"$attempt/worker-start.unsent"
 elif [ -e "$attempt" ] || [ -L "$attempt" ]; then
   [ "$route" = sprite ] && unstarted ||
     die "$attempt holds an earlier attempt of this brief, and a brief gets one attempt; inspect it instead"
@@ -238,12 +242,30 @@ unrecorded_request() {
   echo "$request"
 }
 
+# Orca answers runtime_busy before it dispatches anything, so a call it refused that way runs again; its CLI's own backoff sleeps 1 s doubling to 15 s.
+busy() {
+  jq -e '.error.code == "runtime_busy"' >/dev/null 2>&1
+}
+
+backoff() {
+  [ $((SECONDS + $1)) -le "$busy_seconds" ] || return 1
+  sleep "$1"
+}
+
+busy_request() {
+  busy <"$attempt/worker-start.json" && jq -er '.error.data.orchestrationRequestId | strings' "$attempt/worker-start.json"
+}
+
 start_worker() {
-  local spec=$1 status=0 error request=
+  local spec=$1 status=0 error request= crowded= pause=1
   shift
   rm -f "$attempt/worker-start.unsent"
   worker_start "$spec" "$@" ${unsent:+--retry-request "$unsent"} || status=$?
-  if [ "$status" -ne 0 ] && [ "$route" = sprite ] && request=$(unrecorded_request); then
+  while [ "$status" -ne 0 ] && crowded=$(busy_request) && backoff "$pause"; do
+    pause=$((pause < 8 ? pause * 2 : 15)) status=0
+    worker_start "$spec" "$@" --retry-request "$crowded" || status=$?
+  done
+  if [ "$status" -ne 0 ] && [ -z "$crowded" ] && [ "$route" = sprite ] && request=$(unrecorded_request); then
     status=0
     worker_start "$spec" "$@" --retry-request "$request" || status=$?
     if [ "$status" -ne 0 ]; then request=$(unrecorded_request) || request=; fi
@@ -254,6 +276,11 @@ start_worker() {
       echo >"$attempt/worker-start.unsent"
       error=$(tail -n 1 "$attempt/worker-start.err")
       die "no worker started on Sprite $workspace: WORKER_BIND refused before worker-start ran${error:+: $error}; its terminal $terminal waits idle, and launching this brief again retries worker-start in it"
+    fi
+    if [ -n "$crowded" ]; then
+      echo "$crowded" >"$attempt/worker-start.unsent"
+      error=$(jq -r '"\(.error.code): \(.error.message | sub("\\s*Orchestration mutation request ID: .*"; ""))"' "$attempt/worker-start.json")
+      die "no worker started in $wt${workspace:+ on Sprite $workspace}: Orca answered each orca orchestration worker-start with $error until this launch's $busy_seconds s ran out; its terminal $terminal waits idle, and launching this brief again retries worker-start in it"
     fi
     if [ -n "$request" ]; then
       echo "$request" >"$attempt/worker-start.unsent"
@@ -347,14 +374,18 @@ if [ "$route" = sprite ]; then
 fi
 
 orca_json() {
-  local out said
-  if out=$(orca "$@" --json); then
-    echo "$out"
-    return
-  fi
-  said=$(jq -er '.error | select(.) | "\(.code): \(.message | gsub("\\s*\\n\\s*"; " "))"' <<<"$out" 2>/dev/null) || said=${out//$'\n'/ }
-  echo "orca $1 $2 failed: $said" >&2
-  return 1
+  local out said pause=1
+  until out=$(orca "$@" --json); do
+    if busy <<<"$out" && backoff "$pause"; then
+      pause=$((pause < 8 ? pause * 2 : 15))
+      continue
+    fi
+    said=$(jq -er '.error | select(.) | "\(.code): \(.message | gsub("\\s*\\n\\s*"; " "))"' <<<"$out" 2>/dev/null) || said=${out//$'\n'/ }
+    ! busy <<<"$out" || said+=" on each try until this launch's $busy_seconds s ran out"
+    echo "orca $1 $2 failed: $said" >&2
+    return 1
+  done
+  echo "$out"
 }
 
 worktree_path() {
@@ -405,26 +436,28 @@ if [ -z "$existing" ] && [ ${#cone[@]} -gt 0 ]; then
   sparse=" This lane is sparse: widen with \`$widen\` before reading outside it."
 fi
 
-terminal=
-# worktree create opens a login shell in the new worktree without returning its handle; claude runs in that shell.
-[ -n "$existing" ] || terminal=$(orca_json terminal list --worktree "path:$wt" |
-  jq -r 'first(.result.terminals[] | select((.agentIdentity // "") == "") | .handle) // empty')
-# terminal create --command times out waiting for the handle while claude boots in a fresh worktree.
-[ -n "$terminal" ] || terminal=$(orca_json terminal create --worktree "path:$wt" --title "$lane" | jq -er '.result.terminal.handle')
-printf -v claude 'env %s claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions --disallowedTools %s --strict-mcp-config --no-chrome --model %q --effort %q' "$lane_env" "$lane_denied_tools" "$model_id" "$effort"
-[ -z "${WORKER_MCP_CONFIG:-}" ] || printf -v claude '%s --mcp-config %q' "$claude" "$WORKER_MCP_CONFIG"
-[ -z "${CLAUDE_LANE_SETTINGS:-}" ] || lane_settings=$(jq -c --argjson local "$CLAUDE_LANE_SETTINGS" '. + $local' <<<"$lane_settings")
-printf -v claude "%s --settings '%s'" "$claude" "$lane_settings"
-orca_json terminal send --terminal "$terminal" --enter --text "$claude" >/dev/null
+if [ -z "$terminal" ]; then
+  # worktree create opens a login shell in the new worktree without returning its handle; claude runs in that shell.
+  [ -n "$existing" ] || terminal=$(orca_json terminal list --worktree "path:$wt" |
+    jq -r 'first(.result.terminals[] | select((.agentIdentity // "") == "") | .handle) // empty')
+  # terminal create --command times out waiting for the handle while claude boots in a fresh worktree.
+  [ -n "$terminal" ] || terminal=$(orca_json terminal create --worktree "path:$wt" --title "$lane" | jq -er '.result.terminal.handle')
+  printf '%s\n' "$terminal" >"$attempt/terminal"
+  printf -v claude 'env %s claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions --disallowedTools %s --strict-mcp-config --no-chrome --model %q --effort %q' "$lane_env" "$lane_denied_tools" "$model_id" "$effort"
+  [ -z "${WORKER_MCP_CONFIG:-}" ] || printf -v claude '%s --mcp-config %q' "$claude" "$WORKER_MCP_CONFIG"
+  [ -z "${CLAUDE_LANE_SETTINGS:-}" ] || lane_settings=$(jq -c --argjson local "$CLAUDE_LANE_SETTINGS" '. + $local' <<<"$lane_settings")
+  printf -v claude "%s --settings '%s'" "$claude" "$lane_settings"
+  orca_json terminal send --terminal "$terminal" --enter --text "$claude" >/dev/null
 
-for _ in $(seq 120); do
-  agent=$(orca_json terminal show --terminal "$terminal" | jq -r '.result.terminal.agentIdentity')
-  [ "$agent" = claude ] && break
-  sleep 1
-done
-[ "$agent" = claude ] || die "claude never started in $terminal; kept it and worktree $wt"
-orca_json terminal wait --terminal "$terminal" --for tui-idle --timeout-ms 120000 >/dev/null ||
-  die "claude in $terminal never went idle; kept it and worktree $wt"
+  for _ in $(seq 120); do
+    agent=$(orca_json terminal show --terminal "$terminal" | jq -r '.result.terminal.agentIdentity')
+    [ "$agent" = claude ] && break
+    sleep 1
+  done
+  [ "$agent" = claude ] || die "claude never started in $terminal; kept it and worktree $wt"
+  orca_json terminal wait --terminal "$terminal" --for tui-idle --timeout-ms 120000 >/dev/null ||
+    die "claude in $terminal never went idle; kept it and worktree $wt"
+fi
 
 start_worker "Lane '$lane'. Your full brief is the file $brief: read it in full with the Read tool before anything else and execute it exactly (Orca truncates pasted specs). Your Orca worktree is $wt.$sparse You run in bypass-permissions mode; the brief's Escalate rules still hold." \
   --worktree "path:$wt" --terminal "$terminal"

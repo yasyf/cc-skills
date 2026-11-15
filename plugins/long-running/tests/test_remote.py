@@ -1556,10 +1556,11 @@ def test_a_job_whose_agent_on_this_mac_works_or_ended_its_own_turn_keeps_its_age
 @pytest.mark.parametrize(
     ("receipts", "said"),
     [
-        (("worker-start.status", "worker-start.unsent"), UNSENT),
+        (("worker-start.status", "worker-start.unsent"), f"{UNSENT}; the launcher's whole output is in {{attempt}}/launch.log"),
         (
             ("worker-start.status",),
-            f"orca-worker-launch.sh exited 1 after worker-start ran, so the lane may be live: {UNSENT}; read {{attempt}}/worker-start.json before starting it anywhere else",
+            f"orca-worker-launch.sh exited 1 after worker-start ran, so the lane may be live: {UNSENT}; read {{attempt}}/worker-start.json before starting it anywhere else;"
+            " the launcher's whole output is in {attempt}/launch.log",
         ),
     ],
 )
@@ -1575,9 +1576,12 @@ def test_a_launch_says_the_lane_may_be_live_only_when_orca_may_have_recorded_its
     monkeypatch.setattr(orca, "tool", lambda name: name)
     done = subprocess.CompletedProcess([], 1, stdout="", stderr=f"{UNSENT}\n")
     monkeypatch.setattr(orca.subprocess, "run", lambda argv, **kwargs: done)
+    monkeypatch.setattr(state, "stamp", lambda: "2026-11-15T01:53:00-08:00")
+    (attempt / orca.LAUNCH_LOG).write_text("== earlier run\n")
     with pytest.raises(orca.OrcaError) as raised:
         orca.launch("demo", "demo-j1", brief, tmp_path, RUN, None, None, None)
     assert str(raised.value) == said.format(attempt=attempt)
+    assert (attempt / orca.LAUNCH_LOG).read_text() == f"== earlier run\n== 2026-11-15T01:53:00-08:00 {orca.LAUNCHER} exited 1\n-- stdout\n-- stderr\n{UNSENT}\n"
 
 
 def test_resume_answers_the_open_question_then_sends_to_the_dispatch(
@@ -2724,7 +2728,7 @@ def test_a_launch_whose_sprite_took_no_tools_exits_2_naming_the_tool_step_and_st
     untooled(monkeypatch, orca.launch)
     assert cli.main(["job", "launch", "j1", "brief.md"]) == 2
     attempt = state.drive_dir(demo) / "jobs" / "j1.worker"
-    assert capsys.readouterr().err == f"drive: {orca.LAUNCHER} exited 1 before a worker started: {UNTOOLED.format(attempt=attempt)}; attempt in {attempt}\n"
+    assert capsys.readouterr().err == f"drive: {orca.LAUNCHER} exited 1 before a worker started: {UNTOOLED.format(attempt=attempt)}\n"
     job = state.load(demo)["jobs"]["j1"]
     assert (job["launching"], job.get("dispatch")) == (None, None)
 
@@ -2747,7 +2751,7 @@ def test_a_launch_whose_launcher_said_several_lines_quotes_each_in_its_refusal(
     said = subprocess.CompletedProcess([orca.LAUNCHER], 1, stdout="", stderr="\n".join(lines) + "\n")
     monkeypatch.setattr(orca.subprocess, "run", lambda argv, **kwargs: said if argv[0] == orca.LAUNCHER else ran(argv, **kwargs))
     assert cli.main(["job", "launch", "j1", "brief.md"]) == 2
-    assert capsys.readouterr().err == f"drive: {orca.LAUNCHER} exited 1 before a worker started: {lines[0]}; {lines[1]}; attempt in {attempt}\n"
+    assert capsys.readouterr().err == f"drive: {orca.LAUNCHER} exited 1 before a worker started: {lines[0]}; {lines[1]}\n"
 
 
 def test_a_first_launch_whose_fresh_sprite_prepare_failed_launches_once_more_and_records_the_worker_that_started(
@@ -2763,7 +2767,7 @@ def test_a_first_launch_whose_fresh_sprite_prepare_failed_launches_once_more_and
     def prepare_failed_once(drive: str, lane: str, brief: Path, checkout: Path, run_id: str, route: str | None, workspace: str | None, session: str | None) -> dict:
         launched.append((lane, run_id, workspace))
         if len(launched) == 1:
-            raise orca.Unstarted(f"{orca.LAUNCHER} exited 1 before a worker started: cc-remote orca prepare exited 1; attempt in {brief.with_suffix('.worker')}")
+            raise orca.Unstarted(f"{orca.LAUNCHER} exited 1 before a worker started: cc-remote orca prepare exited 1")
         return {field: f"{field}-1" for field in ("dispatch", "task", "terminal", "workspace", "environment", "lane")} | {"dispatch": DISPATCH}
 
     monkeypatch.setattr(orca, "launch", prepare_failed_once)
@@ -2780,7 +2784,7 @@ def test_a_resume_whose_fresh_sprite_took_no_tools_says_his_answer_held_naming_t
     untooled(monkeypatch, launch)
     assert cli.main(["job", "resume", "j1", "His answer, verbatim: Approve"]) == 0
     attempt = state.drive_dir(remote) / "jobs" / "j1-2.worker"
-    assert capsys.readouterr().out.startswith(f"j1: held, not sent yet: {orca.LAUNCHER} exited 1 before a worker started: {UNTOOLED.format(attempt=attempt)}; attempt in {attempt}; the job keeps")
+    assert capsys.readouterr().out.startswith(f"j1: held, not sent yet: {orca.LAUNCHER} exited 1 before a worker started: {UNTOOLED.format(attempt=attempt)}; the job keeps")
     data = state.load(remote)
     assert (data["jobs"]["j1"]["dispatch"], data["answers"]["a1"]["jobs"]) == (DISPATCH, {"j1": None})
 
