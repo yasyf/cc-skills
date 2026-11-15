@@ -4068,8 +4068,35 @@ def test_a_local_agent_from_another_session_or_with_no_transcript_is_gone(demo: 
     assert REAL_LOCAL_GAP("j1", {"session": "session-under-test", "agent": "a1"}, data, state.now()) == "j1's agent a1 has no transcript"
 
 
-def test_a_local_job_no_agent_ever_took_never_started_rather_than_ending_with_an_earlier_session(demo: str) -> None:
-    assert REAL_LOCAL_GAP("j1", {"session": None, "agent": None}, state.load(demo), state.now()) == "j1 never started: no agent has taken it, so start its agent now"
+@pytest.mark.parametrize("session", [None, "session-under-test", "46723e7e-879a-45ac-a21c-71b7ab11db5a"], ids=["no-session", "bound-session", "a-lanes-session"])
+def test_j135_a_local_job_no_worker_started_never_started_whatever_session_added_it(demo: str, session: str | None) -> None:
+    unstarted = {"session": session, "agent": None, "worker_started": None}
+    assert REAL_LOCAL_GAP("j1", unstarted, state.load(demo), state.now()) == "j1 never started: no agent has taken it, so start its agent now"
+
+
+def test_j135_a_local_job_a_worker_started_whose_agent_is_gone_reads_by_its_session_never_as_not_started(demo: str) -> None:
+    data = state.load(demo)
+    started = state.stamp(T0)
+    assert REAL_LOCAL_GAP("j1", {"session": "old", "agent": None, "worker_started": started}, data, state.now()) == "j1's agent ended with an earlier session"
+    assert REAL_LOCAL_GAP("j1", {"session": "session-under-test", "agent": None, "worker_started": started}, data, state.now()) == "j1 has no agent recorded"
+
+
+def test_j135_his_card_a_once_only_pass_ends_on_unstarted_change_builders_frees_each_with_the_passs_reason_once_and_sets_no_state(demo: str) -> None:
+    waits = "demo:j2-1794725828071"
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["jobs"] += ["j2", "j3", "j4"]
+        data["jobs"]["j2"] = job(kind="design", goal="cards: the copy", state="waiting", said="DESIGN the copy", questions=[state.new_question("/asks/j2-a.md", ASKED, state.stamp(T0)) | {"waits": waits}])
+        data["jobs"]["j3"] = job(goal="build j2's change: the reads", state="waiting", said=f"waits on {waits}", waits=[waits])
+        data["jobs"]["j4"] = job(goal="build j2's change: the writes", state="waiting", said=f"waits on {waits}, j3", waits=[waits, "j3"])
+        del data["change_builders_unwaited"]
+    watching = watcher(demo)
+    assert watch.waits_lines(watching, T0) == [f"FREE j3 o1: {waits} holds only the PR its Holds: line names, never a change builder's start, nothing else holds it"]
+    drive = state.load(demo)
+    assert {job_id: (drive["jobs"][job_id]["state"], drive["jobs"][job_id]["waits"], drive["jobs"][job_id]["said"]) for job_id in ("j3", "j4")} == {
+        "j3": ("waiting", [], state.NOT_STARTED),
+        "j4": ("waiting", ["j3"], state.NOT_STARTED),
+    }
+    assert (drive["dropped_waits"], drive["change_builders_unwaited"], watch.waits_lines(watching, T0 + timedelta(minutes=1))) == ({}, True, [])
 
 
 def ended_on(text: str) -> dict:
