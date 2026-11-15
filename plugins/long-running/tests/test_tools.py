@@ -361,6 +361,34 @@ def test_a_sprite_lanes_verb_acting_on_another_job_or_drive_however_it_is_spelle
     assert capsys.readouterr().err.startswith(why)
 
 
+def test_a_sprite_lanes_refusal_naming_a_drive_command_no_sprite_lane_runs_names_it_for_the_coordinator_and_one_naming_none_adds_nothing(
+    demo: str, run: Callable[..., tuple[int, str]], capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it", "--parts", "the fix", "the follow-on")
+    run("order", "add", "--title", "Staging rule", "--project", "The drive", "--workstream", "Drive tooling", "hold each PR", "--parts", "every dangerous PR is held")
+    run("job", "add", "builder", "--order", "o1", "--part", "the fix", "--goal", "ship")
+    run("job", "add", "builder", "--order", "o1", "--part", "the follow-on", "--goal", "ship more")
+    first, second = "https://github.com/Forge-AI/monorepo/pull/7", "https://github.com/Forge-AI/monorepo/pull/8"
+    run("pr", "add", first, "--job", "j1", *LEAD)
+    run("pr", "add", second, "--job", "j2", *LEAD)
+    wait = "o2:every dangerous PR is held"
+    run("pr", "set", first, "--waits", wait)
+    monkeypatch.setenv(reads.SPRITE_LANE, "1")
+    monkeypatch.setenv(state.OWN_JOB_ENV, "j2")
+    monkeypatch.setenv(state.DRIVE_ENV, demo)
+    capsys.readouterr()
+
+    def refusal(line: str) -> str:
+        monkeypatch.setattr("sys.stdin", io.StringIO(f"{line}\n"))
+        assert cli.main(["job", "report", "j2", "-"]) == 2
+        return capsys.readouterr().err
+
+    assert refusal(f"WAITING {second} waits on {wait}").splitlines()[-1] == (
+        "No Sprite lane runs drive pr set --staging: return BLOCKED naming each step and its command above, and the coordinator runs it on this Mac"
+    )
+    assert "No Sprite lane runs" not in refusal("WAITING its soak")
+
+
 def test_a_sprite_lane_reads_another_job_as_a_mac_lane_does_its_bare_status_reads_its_own_job_and_nothing_it_starts_carries_its_mark(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:

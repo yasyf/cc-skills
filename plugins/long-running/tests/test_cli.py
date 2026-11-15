@@ -3710,7 +3710,7 @@ def test_job_ask_refuses_a_question_another_jobs_open_card_asks_naming_the_wait_
     assert cli.main(["job", "ask", "j2", "-"]) == 2
     refusal = capsys.readouterr().err
     assert f"\n- j1 already asks him \"How should a finished run's files be laid out so its page opens without guessing?\" on its open card {link} (demo:j1-7)" in refusal
-    assert "drive job set j2 --waits demo:j1-7, which frees j2 at his answer" in refusal
+    assert "a report opening WAITING <what> waits on demo:j1-7, which frees j2 at his answer" in refusal
     assert state.load("demo")["jobs"]["j2"]["questions"] == []
 
 
@@ -7025,6 +7025,28 @@ def test_a_waiting_waits_only_on_what_its_first_line_names_that_still_holds_neve
     assert (tester["state"], tester["waits"], tester["waited"]["waits"]) == ("waiting", [soak], [soak])
     assert state.load(demo)["orders"]["o3"]["parts"][staging]["soak"] == soak
     assert view.staging(state.load(demo), "Forge-AI/monorepo#54680") == "Not on staging yet: waiting for plat-usw2-staging to run 044e855"
+
+
+def test_a_staging_testers_waiting_naming_the_builder_of_the_pr_waiting_on_its_test_waits_on_that_builders_next_report_as_job_set_does_never_on_that_pr(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    staging, url = "staging test of #7 before it lands", "https://github.com/Forge-AI/monorepo/pull/7"
+    run("order", "add", "--title", "Soak title", "--project", "The drive", "--workstream", "Drive tooling", "ship and soak it", "--parts", "the store", staging)
+    run("job", "add", "builder", "--order", "o1", "--part", "the store", "--goal", "ship #7")
+    run("job", "add", "builder", "--order", "o1", "--part", staging, "--goal", "soak #7")
+    assert run("pr", "add", url, "--job", "j1", *LEAD)[0] == 0
+    assert run("pr", "set", url, "--waits", f"o1:{staging}")[0] == 0
+    code, err = keep(monkeypatch, capsys, "j2", f"WAITING {url} fails its soak\n")
+    assert (code, "name with it the job whose work frees j2, as j<n>, which frees it once that job's change merges, or once that job next reports" in err) == (2, True)
+    assert keep(monkeypatch, capsys, "j2", f"WAITING {url} fails its soak, waits on j1's fix\n") == (0, "")
+    pinned = f"j1@{state.returned_second(state.load(demo)['jobs']['j1'])}"
+    assert state.load(demo)["jobs"]["j2"]["waits"] == [pinned]
+    assert run("job", "set", "j2", "--waits", "j1")[0] == 0
+    data = state.load(demo)
+    assert (data["jobs"]["j2"]["waits"], view.holding(data, [pinned], None)) == ([pinned], [pinned])
+    monkeypatch.setattr(state, "now", lambda: datetime.now().astimezone() + timedelta(minutes=1))
+    assert keep(monkeypatch, capsys, "j1", f"WAITING {url} waits on o1:{staging}\n") == (0, "")
+    assert view.holding(state.load(demo), [pinned], None) == []
 
 
 def test_job_set_refuses_any_state_but_stopped_changing_nothing(run: Run, demo: str, capsys: pytest.CaptureFixture[str]) -> None:

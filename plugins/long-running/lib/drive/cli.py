@@ -1353,7 +1353,8 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         parts = pick_job_parts(name, data, args.order, args.part)
         refuse_a_shared_at_once_part(parts)
         session = os.environ.get("CLAUDE_CODE_SESSION_ID")
-        waits = view.stored_waits(data, [state.change_wait(data, wait) for wait in args.waits], found)
+        fresh = state.new_job(args.order, args.kind, args.goal, parts, created)
+        waits = view.stored_waits(data, [state.change_wait(data, wait, None, fresh) for wait in args.waits], found)
         held = state.change_job(data, args.order, parts, waits) if args.kind in state.CHANGE_KINDS and not (lands or args.release) else None
         if refused := (
             state.held_elsewhere(data, args.order, session, bool(args.release))
@@ -1389,7 +1390,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
             took.append(f"{job_id} carried {shared} and no worker took it, so this add folded into it, a part having one change job: its goal is this add's and its waits gained this add's")
         else:
             job_id = state.next_id(data["jobs"], "j")
-            job = data["jobs"][job_id] = state.new_job(args.order, args.kind, args.goal, parts, created) | given | {"where": given["where"] or "local", "waits": waits}
+            job = data["jobs"][job_id] = fresh | given | {"where": given["where"] or "local", "waits": waits}
             order["jobs"].append(job_id)
         if held and not folds:
             took.append(state.hand_over(data, held, job_id, args.order, parts, created))
@@ -1579,7 +1580,7 @@ def job_set(args: argparse.Namespace) -> int:
         if args.card:
             hold_card(job, args.card, shown)
             state.join_card(data, args.id, args.card)
-        waits = merged_waits(data, job, [state.change_wait(data, wait) for wait in args.waits], args.no_waits, found)
+        waits = merged_waits(data, job, [state.change_wait(data, wait, args.id, job) for wait in args.waits], args.no_waits, found)
         job["waits"] = [wait for wait in waits if not (state.builds_nothing(job) and wait == state.SLOT_WAIT)]
         held = {order_id: set(state.job_parts(job, order_id)) for order_id in [job["order"], *args.carries]}
         if args.carries:
@@ -2331,7 +2332,7 @@ def asked_elsewhere(job_id: str, other: str, question: dict) -> str:
     wait = question["waits"] or "<its waits id, once its card is up>"
     return (
         f'{other} already asks him "{question["title"]}" on {where}, in the same words, and one question has'
-        f" one card, so his answer closes it everywhere. Wait on that card with drive job set {job_id} --waits {wait}, which frees {job_id}"
+        f" one card, so his answer closes it everywhere. Wait on that card with a report opening WAITING <what> waits on {wait}, which frees {job_id}"
         f" at his answer; take it over with drive job ask {job_id} <file> --redraws {wait} when {job_id} carries on {other}'s work on one"
         " of its orders; or ask only what it leaves open, under a question of its own"
     )
@@ -6654,13 +6655,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parsed(argv)
     detached = os.environ.pop(state.DETACHED_ENV, None)
     lane = os.environ.pop(reads.SPRITE_LANE, None)
+    own = lane and os.environ[state.OWN_JOB_ENV]
     try:
         keyed_prs(args)
         for key in WAITS_ARGS:
             if value := getattr(args, key, None):
                 setattr(args, key, folded_waits(getattr(args, "drive", None), value))
         if lane:
-            own = os.environ[state.OWN_JOB_ENV]
             if refusal := reads.lane_refusal(args, parsed, os.environ[state.DRIVE_ENV], own):
                 print(refusal, file=sys.stderr)
                 return 2
@@ -6675,9 +6676,9 @@ def main(argv: list[str] | None = None) -> int:
         if argv is None and (not state.WROTE or relaunching(args)):
             os.environ.update({mark: value for mark, value in ((reads.SPRITE_LANE, lane), (state.DETACHED_ENV, detached)) if value})
             install.reopen(sys.argv[1:], "".join(STDIN) if STDIN else None)
-        return refused(args, error, detached)
+        return refused(args, error, detached, own)
     except VERB_ERRORS as error:
-        return refused(args, error, detached)
+        return refused(args, error, detached, own)
 
 
 def rehearsed(run: Callable[[argparse.Namespace], int]) -> Callable[[argparse.Namespace], int]:
@@ -6741,9 +6742,11 @@ def relaunching(args: argparse.Namespace) -> bool:
     return args.run in (job_launch, job_resume)
 
 
-def refused(args: argparse.Namespace, error: Exception, detached: str | None) -> int:
+def refused(args: argparse.Namespace, error: Exception, detached: str | None, lane_job: str | None) -> int:
     """Print the verb's refusal and exit 2. A launch, resume or end state.detach started, which only the watch runs, also writes the refusal as an event of the watch hearing its job's order, naming the log its output went to, so it reaches the watch's lines, unless it stood down for another verb acting on its job, and so does a reclaim that kept a Sprite, which no watch asks for again, so it is said once; the job and its order are read from the drive as saved, which a newer install's save never refuses."""
     print(f"drive: {error}", file=sys.stderr)
+    if lane_job and (steps := reads.mac_steps(str(error), parser(), lane_job)):
+        print(steps, file=sys.stderr)
     if detached and (relaunching(args) or args.run is job_end or isinstance(error, Kept)) and not isinstance(error, StoodDown):
         name = state.resolve(args.drive)
         order = state.saved_row(name, "jobs", args.id)["order"]

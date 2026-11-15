@@ -293,7 +293,7 @@ def waits_id(drive: dict, listed: list[dict], wait: str) -> str:
 
 
 def holding(drive: dict, waits: list[str], found: dict | None) -> list[str]:
-    """The waits of a job or PR that still hold: each of his cards still open, each job whose work is still to come, each PR still open or folded into another open PR's branch, by github.landing, each PR the drive does not track until the watch's GitHub read finds it merged or closed, by state.untracked_wait, each part of an open order until it is delivered, or whatever any job's DONE and the order's state read while open PRs of other jobs outside one stack wait on it, since one DONE never proves each of them, each release until the watch sees it out while its PR is not closed unmerged, a staging test's soak commit until the watch sees its env's target serve it, each Buildkite build until the watch reads it finished or stopped at an approve step, each process on this Mac until it ends, each teammate's reply until the watch reads it, and a builder slot on this Mac until the watch gives the job its turn."""
+    """The waits of a job or PR that still hold: each of his cards still open, each job whose work is still to come, each job's next report until a report or its end comes, each PR still open or folded into another open PR's branch, by github.landing, each PR the drive does not track until the watch's GitHub read finds it merged or closed, by state.untracked_wait, each part of an open order until it is delivered, or whatever any job's DONE and the order's state read while open PRs of other jobs outside one stack wait on it, since one DONE never proves each of them, each release until the watch sees it out while its PR is not closed unmerged, a staging test's soak commit until the watch sees its env's target serve it, each Buildkite build until the watch reads it finished or stopped at an approve step, each process on this Mac until it ends, each teammate's reply until the watch reads it, and a builder slot on this Mac until the watch gives the job its turn."""
     return [wait for wait in waits if holds(drive, wait, found)]
 
 
@@ -309,6 +309,9 @@ def start_refusal(drive: dict, job_id: str, slot: bool) -> str | None:
 def holds(drive: dict, wait: str, found: dict | None) -> bool:
     if wait in drive["jobs"]:
         return coming(drive, wait)
+    if returning := state.RETURN_WAIT.fullmatch(wait):
+        job = drive["jobs"][returning["job"]]
+        return job["state"] not in state.FINISHED_JOB_STATES and state.returned_second(job) == int(returning["returned"])
     if wait in drive["prs"]:
         return drive["prs"][wait]["state"] in github.UNLANDED
     if part := state.part_wait(drive, wait):
@@ -399,6 +402,8 @@ def wait_words(drive: dict, wait: str, found: dict | None) -> str:
         return f"its staging run by {tester} passes ({tester_line(drive, tester)})"
     if wait in drive["jobs"]:
         return f"the build of {cut(drive['jobs'][wait]['goal'], TITLE_CHARS)} finishes"
+    if returning := state.RETURN_WAIT.fullmatch(wait):
+        return f"the build of {cut(drive['jobs'][returning['job']]['goal'], TITLE_CHARS)} next reports"
     if wait in drive["prs"]:
         pr = drive["prs"][wait]
         return f"{pr_link(pr)} lands" + (f", which waits on your Approve on {link('its card', card)}" if (card := tap_card(pr, found)) else "")
@@ -870,6 +875,8 @@ def names_card(card: dict, wait: str) -> bool:
 def wait_entry(drive: dict, wait: str, found: dict) -> dict:
     if wait in drive["jobs"]:
         return {"title": f"{wait}: {cut(drive['jobs'][wait]['goal'], TITLE_CHARS)}", "url": None}
+    if returning := state.RETURN_WAIT.fullmatch(wait):
+        return {"title": f"{returning['job']} next reporting: {cut(drive['jobs'][returning['job']]['goal'], TITLE_CHARS)}", "url": None}
     if wait in drive["prs"]:
         return {"title": f"{wait} merging: {cut(pr_title(drive['prs'][wait]), TITLE_CHARS)}", "url": state.pr_url(wait)}
     if state.untracked_wait(drive, wait):
