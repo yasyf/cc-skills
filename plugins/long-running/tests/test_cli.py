@@ -4150,7 +4150,7 @@ def test_each_line_reaches_jev_beside_his_answers_ccn_ranks_nearest_to_it_and_fi
     [(kept, found)] = SETTLED_LINE_ANSWERS([line], {"roles": {"coordinator": {"cwd": "/work"}}, "answers": {}, "jobs": {}}, frozenset({"c17ed00"}))
     assert calls == [
         (["ccn", "answer", "match", "-", "--label", "scope:durable", "--nearest", "--limit", "-1", "--json"], settled.read(line), "/work"),
-        (["ccn", "answer", "search", "Wait on the four queue", "--label", "scope:durable", "--limit", "0", "--json"], "", "/work"),
+        (["ccn", "answer", "search", "--label", "scope:durable", "--limit", "0", "--json", "--", "Wait on the four queue"], "", "/work"),
     ]
     assert (kept, found[0], [answer["id"] for answer in found[1:]]) == (line, WAIT_RULING | {"link": None}, ["0000009", "0000000", "0000008", "0000001", "0000007", "0000002", "0000006"])
 

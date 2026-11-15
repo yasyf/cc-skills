@@ -572,7 +572,7 @@ def line_answers(lines: list[str], data: dict, besides: frozenset[str] = frozens
     for line in lines:
         words = read(line)
         match = ccn(["ccn", "answer", "match", "-", "--label", "scope:durable", "--nearest", "--limit", "-1", "--json"], words, cwd, failure)
-        search = ccn(["ccn", "answer", "search", " ".join(words.split()[:LINE_WORDS]), "--label", "scope:durable", "--limit", "0", "--json"], "", cwd, failure)
+        search = ccn(["ccn", "answer", "search", "--label", "scope:durable", "--limit", "0", "--json", "--", " ".join(words.split()[:LINE_WORDS])], "", cwd, failure)
         matched, searched = ([answer for answer in json.loads(ranked) if APPROVAL not in answer["tags"] and his(answer["body"]) and answer["id"][:7] not in besides][:LINE_CANDIDATES] for ranked in (match, search))
         found: dict[str, dict] = {}
         for answer in (answer for pair in zip_longest(matched, searched) for answer in pair if answer):
