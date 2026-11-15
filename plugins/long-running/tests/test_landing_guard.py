@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
@@ -6,7 +7,7 @@ from pathlib import Path
 import landing_guard
 import pytest
 from conftest import LEAD, SESSION, SHORT_ASK, Answers
-from drive import agents, brief, land, limits, render, settled, shell, state, view
+from drive import agents, brief, land, limits, render, settled, shell, stage, state, view
 
 Run = Callable[..., tuple[int, str]]
 PR = "https://github.com/Forge-AI/monorepo/pull/42"
@@ -160,7 +161,32 @@ def test_a_sprite_lanes_landing_asks_the_coordinators_mac_and_is_refused_while_h
     assert len(sprite) == 1
     answer()
     assert landing_guard.deny_reason(lane) is None
-    assert run("job", "held", "--pr", PR) == (0, f"no open card of his holds {drive_pr}")
+    assert run("job", "held", "--pr", PR) == (0, f"no open card of his or staging test holds {drive_pr}")
+
+
+@pytest.mark.parametrize("lane", [False, True])
+def test_a_pr_whose_staging_test_started_on_any_order_is_enqueued_by_no_session_lane_or_lander_until_that_test_passes(
+    drive_pr: str, no_calls: None, lane: bool, request: pytest.FixtureRequest
+) -> None:
+    approve(drive_pr)
+    if lane:
+        request.getfixturevalue("sprite")
+    part = state.STAGING_TEST.format(number=42)
+    with state.edit("demo") as data:
+        data["orders"]["o2"] = state.new_order("test #42 on staging", "terminal", None, {part: state.new_part()}, state.stamp()) | {"jobs": ["j2"]}
+        data["jobs"]["j2"] = state.new_job("o2", "builder", "soak #42 on staging", [part], state.stamp()) | {"builds_nothing": True}
+        data["prs"][drive_pr]["lander"] = {"head": data["prs"][drive_pr]["head"], "pid": os.getpid(), "at": state.stamp(), "outcome": None, "was": None}
+    runs = f"o2:{part}"
+    enqueue = bash("stack-enqueue 42", session_id="sprite" if lane else SESSION)
+    data = state.load("demo")
+    assert landing_guard.deny_reason(enqueue) == landing_guard.STAGED_REASON.format(key=drive_pr, runs=runs)
+    assert land.held_landers(data, [drive_pr], view.NO_CARDS) == {os.getpid(): f"{land.WAITED}: {drive_pr} waits on {runs}"}
+    assert stage.waiting(data, drive_pr, view.NO_CARDS) == stage.Stage("waiting", "j2", "it waits on its staging run by j2, running")
+    done = "DONE every case of #42 passed on staging"
+    with state.edit("demo") as data:
+        state.take_result(data, "j2", done, f"{done}\nCHECK: https://buildkite.com/forge/release/builds/16303\nCASE a rollback refused: pass\n")
+    data = state.load("demo")
+    assert (landing_guard.deny_reason(enqueue), land.held_landers(data, [drive_pr], view.NO_CARDS), stage.waiting(data, drive_pr, view.NO_CARDS)) == (None, {}, None)
 
 
 def test_a_sprite_lanes_landing_is_refused_while_the_coordinators_mac_does_not_answer(drive_pr: str, monkeypatch: pytest.MonkeyPatch, no_calls: None) -> None:

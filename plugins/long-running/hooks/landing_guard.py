@@ -52,6 +52,10 @@ RELEASE_UNASKED = (
     " --release` whether his hold on every release refuses `{release}`, and the Mac did not say: {error}. Run it again once"
     " it answers"
 )
+STAGED_REASON = (
+    "Refused on purpose: {key} waits on its staging test {runs}, and a started staging test is finished before its PR merges,"
+    " by his ruling 0048b14. Land and enqueue nothing: the lander queues it once that test passes and its proof is posted"
+)
 UNASKED = (
     "Refused on purpose: this Sprite holds no copy of the drive, so it asked the coordinator's Mac with `drive job held --pr`"
     " whether his open cards hold {keys}, and the Mac did not say: {error}. Land and enqueue nothing until it answers, then"
@@ -391,6 +395,8 @@ def pr_reason(landing: Landing, key: str, shell: Shell) -> str | None:
     data = state.load(name)
     if shell.driving and (cards := land.pr_cards(data, pr)):
         return CARD_REASON.format(key=key, cards=", ".join(cards))
+    if testing := land.staged(data, pr):
+        return STAGED_REASON.format(key=key, runs=", ".join(testing))
     may_land, why = tap_verdict(data, pr)
     if not may_land:
         return f"{key}: {why}. {TAP_HINT}"
@@ -447,12 +453,14 @@ def landing_reason(landing: Landing, refs: list[str], options: dict[str, list[st
 
 
 def lane_reason(keys: list[str]) -> str | None:
-    """Why a Sprite lane may not land these PRs, which no drive here can judge: `drive job held --pr`, which the lane's `drive` asks of the coordinator's Mac, names his open cards holding one, as pr_reason() reads them there, or the Mac did not answer."""
+    """Why a Sprite lane may not land these PRs, which no drive here can judge: `drive job held --pr`, which the lane's `drive` asks of the coordinator's Mac, names his open cards or a started staging test holding one, as pr_reason() reads them there, or the Mac did not answer."""
     try:
-        held = land.lane_held(*(f"--pr={key}" for key in keys))["prs"]
+        held = land.lane_held(*(f"--pr={key}" for key in keys))
     except state.DriveError as error:
         return UNASKED.format(keys=", ".join(keys), error=error)
-    return next((CARD_REASON.format(key=key, cards=", ".join(cards)) for key, cards in held.items() if cards), None)
+    if testing := next(((key, runs) for key, runs in held["staged"].items() if runs), None):
+        return STAGED_REASON.format(key=testing[0], runs=", ".join(testing[1]))
+    return next((CARD_REASON.format(key=key, cards=", ".join(cards)) for key, cards in held["prs"].items() if cards), None)
 
 
 def cut_reason(words: list[str], shell: Shell) -> str | None:

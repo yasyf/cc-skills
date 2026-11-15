@@ -371,7 +371,7 @@ def test_a_job_agent_stops_once_its_newest_return_opens_with_its_line_whatever_i
     run("pr", "add", url, "--job", "j1", *LEAD)
     run("job", "set", "j1", "--said", "pushing the fix")
     assert one_line_result.block_reason(agent_stop(pushed)).startswith("Refused on purpose: j1's return is not kept in the drive")
-    monkeypatch.setattr("sys.stdin", io.StringIO(f"{pushed}\nCHANGE: x\n"))
+    monkeypatch.setattr("sys.stdin", io.StringIO(f"{pushed}\nCHANGE: x\nSTAGING: none: it changes no path AGENTS.md calls dangerous\n"))
     run("job", "report", "j1", "-")
     run("job", "set", "j1", "--said", "READY refused: Forge-AI/monorepo#8's required test failed")
     assert one_line_result.block_reason(agent_stop(pushed)) is None

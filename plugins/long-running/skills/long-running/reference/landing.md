@@ -32,7 +32,11 @@ for its repository says, then return `DONE <proof>`.
   `flake fix` or a `main fix`, since a card holds work only by its `Holds:` line and a card a job waits on otherwise only wakes it; the watch stops a lander already landing it when that card opens, and the lander
   dequeues what it queued. On a Sprite lane, which holds no copy of the drive, the hook asks this Mac
   with `drive job held --pr` first and refuses while it does not answer. Return `WAITING <the PR> waits on <the card>`, which
-  the coordinator puts in front of him by [Design first](design.md). An incident's repair is the
+  the coordinator puts in front of him by [Design first](design.md). A started staging test holds its
+  PR the same way, by his ruling 0048b14. While any order's `staging test of #N before it lands` part
+  has a job on it and is not delivered, the PR reads waiting on that run. `drive pr land` and the hook
+  refuse it on this Mac and on a Sprite lane. The watch stops a lander that queued a PR before any
+  wait of it came on, this one included. An incident's repair is the
   exception: it lands on the recommended option, the card stays open, and a different pick of his
   starts a follow-up job on the same order. A card asking him to lift a ruling of his, which
   `drive job ask` marks when any option it offers breaks one, holds it on an incident too. His Approve on the PR answers each card holding

@@ -48,6 +48,7 @@ T0 = state.parse_time("2026-11-09T07:30:00-08:00")
 RUN = "run_drive0001"
 FRESH_RUN = "run_relaunch1"
 DISPATCH = "ctx_lane0001"
+UNSTAGED = "STAGING: none: it changes no path AGENTS.md calls dangerous"
 J2914_BUILT = "BUILT sprite-volume-leaves-image-agents-and-mise, waits on c096bde8"
 J2914_REPORT = f"{J2914_BUILT}\nNATIVE: none: he never sees it\nUNPROVEN: the screenshot half\n"
 J2914_WORKER = "ctx_1f4d4c929c48"
@@ -5201,7 +5202,7 @@ def test_a_lanes_ready_is_kept_as_pushed_waking_no_one_until_a_read_after_it_fin
     monkeypatch.setattr(state, "now", lambda: T0)
     url = "https://github.com/Forge-AI/monorepo/pull/7"
     assert run("pr", "add", url, "--job", "j1", *LEAD)[0] == 0
-    deliver(monkeypatch, [message(kind, f"READY {url}\nPR: Fix: x")])
+    deliver(monkeypatch, [message(kind, f"READY {url}\nPR: Fix: x\n{UNSTAGED}")])
     watching = watch.Watcher(remote, offset=state.events_end(remote))
     assert watch.run_pass(watching, T0) == []
     job = state.load(remote)["jobs"]["j1"]
@@ -6005,8 +6006,8 @@ def test_every_worker_on_a_jobs_own_run_is_heard_one_it_never_recorded_included_
         monkeypatch,
         [
             message("question", "READ ccn answer search x", id="msg_read"),
-            message("worker_done", f"READY {pr}\nI edited only the body", id="msg_unrecorded", from_handle="dispatch:ctx_lane0002"),
-            message("worker_done", f"READY {pr}\nThis rewrote Show me", id="msg_newest", from_handle="dispatch:ctx_lane0003"),
+            message("worker_done", f"READY {pr}\nI edited only the body\n{UNSTAGED}", id="msg_unrecorded", from_handle="dispatch:ctx_lane0002"),
+            message("worker_done", f"READY {pr}\nThis rewrote Show me\n{UNSTAGED}", id="msg_newest", from_handle="dispatch:ctx_lane0003"),
         ],
     )
     monkeypatch.setattr(reads, "answer", lambda question, root, drive, job_id: pytest.fail(f"a replaced worker's read is never run: {question}"))
@@ -6016,7 +6017,7 @@ def test_every_worker_on_a_jobs_own_run_is_heard_one_it_never_recorded_included_
     assert staged(watch.lane_lines, watching, T0) == []
     assert [args for args in calls if args[0] == "reply"] == []
     job = state.load(remote)["jobs"]["j1"]
-    assert (job["state"], job["said"], job["report"], job["prs"]) == ("waiting", f"PUSHED {pr}", f"READY {pr}\nThis rewrote Show me", [pr])
+    assert (job["state"], job["said"], job["report"], job["prs"]) == ("waiting", f"PUSHED {pr}", f"READY {pr}\nThis rewrote Show me\n{UNSTAGED}", [pr])
     assert [reply["id"] for reply in state.replies(remote, "j1")] == ["msg_read", "msg_unrecorded", "msg_newest"]
 
 
@@ -6152,7 +6153,7 @@ def test_a_watch_whose_mail_mark_another_install_lost_takes_none_of_the_mail_its
     kept = [
         message("question", ASK_IN_SHAPE, id="msg_ask"),
         message("question", "READ ccn answer search x", id="msg_read"),
-        message("worker_done", "PUSHED https://github.com/Forge-AI/monorepo/pull/7", id="msg_pushed"),
+        message("worker_done", f"PUSHED https://github.com/Forge-AI/monorepo/pull/7\n{UNSTAGED}", id="msg_pushed"),
     ]
     done = message("worker_done", "DONE merged and installed", id="msg_done")
     deliver(monkeypatch, kept, [*kept, done])
@@ -6587,7 +6588,7 @@ def test_two_watches_reading_one_run_past_orcas_newest_hundred_each_take_every_m
 
 def test_a_lane_report_the_watch_takes_names_each_pr_the_drive_does_not_track_and_registers_none(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
     url = "https://github.com/Forge-AI/monorepo/pull/8"
-    deliver(monkeypatch, [message("worker_done", f"PUSHED {url}\nPR: Fix: x {url}\nrebased on https://github.com/Forge-AI/monorepo/pull/9")])
+    deliver(monkeypatch, [message("worker_done", f"PUSHED {url}\nPR: Fix: x {url}\nrebased on https://github.com/Forge-AI/monorepo/pull/9\n{UNSTAGED}")])
     assert said_lines(watch.lane_lines, watch.Watcher(remote, offset=state.events_end(remote)), T0) == [
         f"JOB j1 o1 PUSHED {url}; the drive tracks no {url}: drive pr add <url> --job j1 registers each"
     ]

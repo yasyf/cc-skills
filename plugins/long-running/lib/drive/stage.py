@@ -112,17 +112,21 @@ def alone(data: dict, key: str, cards: dict) -> Stage:
 
 
 def waiting(data: dict, key: str, cards: dict) -> Stage | None:
-    """The stage of a PR the lander would land now while a PR, job or release of the drive it waits on still holds, which every ready rule of alone reads first, so the lander lands none of them until the watch frees it: blocked, owed by him and naming each, while an end of those waits is his by asked(), so it wakes no one, else waiting, owed by the session mover() names; None once nothing it waits on holds."""
+    """The stage of a PR the lander would land now while a PR, job or release of the drive it waits on still holds, which every ready rule of alone reads first, so the lander lands none of them until the watch frees it: blocked, owed by him and naming each, while an end of those waits is his by asked(), so it wakes no one, else waiting, owed by the session mover() names, each wait on its staging test named as its staging run by its tester and that tester's line; each of its waits by pr_waits, its job's staging tests included; None once nothing it waits on holds."""
     if not (standing := view.holding(data, pr_waits(data, data["prs"][key]), cards)):
         return None
     if mine := asked(data, key, standing, cards):
         return Stage("blocked", HIM, f"it waits on {', '.join(fix_words(data, wait, cards) for wait in dict.fromkeys([*standing, *mine]))}")
-    return Stage("waiting", mover(data, key, standing, cards), f"it waits on {', '.join(standing)}, and the watch frees it once each ends")
+    testers = {wait: tester for wait in standing if (tester := state.staging_tester(data, wait))}
+    words = ", ".join(f"its staging run by {testers[wait]}, {view.tester_line(data, testers[wait])}" if wait in testers else wait for wait in standing)
+    if len(testers) < len(standing):
+        return Stage("waiting", mover(data, key, standing, cards), f"it waits on {words}, and the watch frees it once each ends")
+    return Stage("waiting", mover(data, key, standing, cards), f"it waits on {words}")
 
 
 def pr_waits(data: dict, pr: dict) -> list[str]:
-    """What a PR waits on: its own waits, and the original a pure port waits on until it merges or he approves it, by state.port_hold."""
-    return [*pr["waits"], *filter(None, [state.port_hold(data, pr)])]
+    """What a PR waits on: its waits by state.job_waits, its job's staging tests included, and the original a pure port waits on until it merges or he approves it, by state.port_hold."""
+    return [*state.job_waits(data, pr), *filter(None, [state.port_hold(data, pr)])]
 
 
 def asked(data: dict, key: str, waits: list[str], cards: dict | None) -> list[str]:
@@ -144,9 +148,9 @@ def ends(data: dict, waits: list[str], cards: dict | None, seen: set[str]) -> li
 
 
 def onward(data: dict, subject: str, cards: dict | None) -> list[str]:
-    """What a job, part of an order or PR waits on that still holds, which ends() and stall.chain walk: a job waiting or built its waits and the cards of its own questions open on him, by view.open_cards, a part of an order each job carrying it whose work is still to come, by state.part_jobs, as a staging test part leads to its tester, and a PR its waits and his open cards holding it from landing, by land.pr_cards, since no wait names a card a job asked after its READY, PUSHED or WAITING or a builder asked mid-build, so a walk ends at his card wherever the drive keeps it; nothing for a job in any other state."""
+    """What a job, part of an order or PR waits on that still holds, which ends() and stall.chain walk: a job waiting or built its waits but each PR waiting on it, by state.unlooped, as a tester over several PRs waits on none of them, and the cards of its own questions open on him, by view.open_cards, a part of an order each job carrying it whose work is still to come, by state.part_jobs, as a staging test part leads to its tester, and a PR its waits and his open cards holding it from landing, by land.pr_cards, since no wait names a card a job asked after its READY, PUSHED or WAITING or a builder asked mid-build, so a walk ends at his card wherever the drive keeps it; nothing for a job in any other state."""
     if job := data["jobs"].get(subject):
-        waits = [*job["waits"], *view.open_cards(job)] if job["state"] in ("waiting", "built") else []
+        waits = [*state.unlooped(data, subject, job["waits"]), *view.open_cards(job)] if job["state"] in ("waiting", "built") else []
     elif part := state.part_wait(data, subject):
         waits = [job_id for job_id, _ in state.part_jobs(data, *part)]
     else:
@@ -187,7 +191,7 @@ def landing_why(pr: dict) -> str:
 
 
 def unlanded(data: dict, key: str, cards: dict | None) -> str | None:
-    """How a lander's try at the PR's head ended without landing it, or None when no try at this head stands: none ran on it, a wait of the PR, set before the try or after it, still leads somewhere by ends(), which waiting() reads, Trunk holds it, GitHub refused its merge for a conflict with its base or it found a check failing on its own change, which red() owes its builder, GitHub refused() the merge Trunk's queue took, so the lander lands it again one PR at a time, or ejected it on a flaky test whose fix it waits on, by ejection(), what let it run moved since, nothing clearing it now while it waits on his card, as after drive pr set --no-exempt --tap, or his tap made after the try started, or what the try waited on moved since, a PR below it that is cleared or merged now, a newer install's save that ended it before it queued anything, a hold of his that it or halt() stopped it on, which held() reads while it stands, or the lander's own failure, stack-enqueue ending with no answer on the PR or a gh write GitHub gave no answer to, by land.unanswered(), or a GitHub read that failed before it queued or merged anything, the landing clone's fetch of the default branch included, so the lander tries again."""
+    """How a lander's try at the PR's head ended without landing it, or None when no try at this head stands: none ran on it, a wait of the PR, set before the try or after it, still leads somewhere by ends(), which waiting() reads, Trunk holds it, GitHub refused its merge for a conflict with its base or it found a check failing on its own change, which red() owes its builder, GitHub refused() the merge Trunk's queue took, so the lander lands it again one PR at a time, or ejected it on a flaky test whose fix it waits on, by ejection(), what let it run moved since, nothing clearing it now while it waits on his card, as after drive pr set --no-exempt --tap, or his tap made after the try started, or what the try waited on moved since, a PR below it that is cleared or merged now, a newer install's save that ended it before it queued anything, a hold of his that it or halt() stopped it on, which held() reads while it stands, a wait it or halt() stopped it on, which waiting() reads while it holds, or the lander's own failure, stack-enqueue ending with no answer on the PR or a gh write GitHub gave no answer to, by land.unanswered(), or a GitHub read that failed before it queued or merged anything, the landing clone's fetch of the default branch included, so the lander tries again."""
     pr = data["prs"][key]
     lander = pr["lander"]
     if not lander or lander["head"] != pr["head"] or ends(data, pr_waits(data, pr), cards, {key}) or land.running(pr) or land.refused(pr) or land.conflicted(pr) or land.own_red(pr):
