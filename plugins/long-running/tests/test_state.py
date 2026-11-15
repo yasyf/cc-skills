@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 from conftest import REAL_DOWN_MAC_BOXES
-from drive import github, install, reads, served, settled, stage, state
+from drive import github, install, reads, render, served, settled, stage, state
 from drive.state import DriveError
 
 REFERENCE = datetime(2026, 11, 9, 14, 0).astimezone()
@@ -1610,6 +1610,64 @@ def test_j4060_a_drive_saved_with_failed_builders_another_builder_took_over_stop
         "j5": ("stopped", None),
     }
     assert (data["prs"][key]["job"], jobs["j4"]["prs"], jobs["j4"]["carries"], data["replaced_ended"]) == ("j4", [state.pr_url(key)], {"o2": ["thread it"]}, True)
+
+
+def test_a_job_saved_done_or_stopped_drops_the_texts_it_holds_one_folded_into_another_hands_them_over_and_a_failed_one_keeps_them_for_its_relaunch(state_root: Path) -> None:
+    make("demo")
+    moment = state.stamp()
+    wake = "Your lane went quiet: carry on from your last step"
+    data = state.load("demo")
+    data["orders"] = {"o1": state.new_order("spike it", "terminal", None, {"spike": state.new_part()}, moment) | {"jobs": ["j1", "j2", "j3", "j4", "j5"]}}
+    data["jobs"] = {job_id: state.new_job("o1", "builder", "spike it", ["spike"], moment) for job_id in ("j1", "j2", "j3", "j4", "j5")}
+    state.create(data)
+    with state.edit("demo") as data:
+        for job in data["jobs"].values():
+            state.hold_text(job, wake, None)
+        state.hold_text(data["jobs"]["j4"], "rebase on main first", "coordinator")
+    with state.edit("demo") as data:
+        data["jobs"]["j1"].update(state="done", said="DONE the spike ran")
+        data["jobs"]["j2"].update(state="stopped", said="replaced by one job per part")
+        data["jobs"]["j3"].update(state="failed")
+        state.fold(data, "j4", "j5")
+        data["jobs"]["j4"].update(state="stopped", said="replaced by j5")
+    data = state.load("demo")
+    assert {job_id: [kept["words"] for kept in job["undelivered"]] for job_id, job in data["jobs"].items()} == {
+        "j1": [],
+        "j2": [],
+        "j3": [wake],
+        "j4": [],
+        "j5": [wake, "rebase on main first"],
+    }
+    assert ["holds to deliver" in render.job_line(data, job_id, data["jobs"][job_id]) for job_id in ("j1", "j2", "j4")] == [False, False, False]
+    with state.edit("demo") as data:
+        state.hold_text(data["jobs"]["j1"], "one more round", "coordinator")
+    assert [kept["words"] for kept in state.load("demo")["jobs"]["j1"]["undelivered"]] == ["one more round"]
+
+
+def test_a_drive_saved_while_its_done_and_stopped_jobs_hold_texts_drops_them_once_but_a_standing_parts_last_pass_keeps_its_for_the_next_pass(state_root: Path) -> None:
+    make("demo")
+    data = state.load("demo")
+    del data["finished_texts_dropped"]
+    moment = state.stamp()
+    box = "codex test box"
+    data["orders"] = {
+        "o1": state.new_order("spike it", "terminal", None, {"spike": state.new_part(), box: state.new_part() | {"standing": "test runs on the devbox, round after round"}}, moment)
+        | {"jobs": ["j7", "j10", "j20", "j30", "j40"]}
+    }
+    data["jobs"] = {
+        job_id: state.new_job("o1", kind, "spike it", [part], moment)
+        | {"state": job_state, "undelivered": [{"seq": None, "words": "Your lane went quiet: carry on", "sender": None, "at": moment, "said": None, "request": f"req-{job_id}"}]}
+        for job_id, kind, part, job_state in (
+            ("j7", "builder", "spike", "stopped"),
+            ("j10", "builder", "spike", "done"),
+            ("j20", "builder", "spike", "failed"),
+            ("j30", "builder", "spike", "waiting"),
+            ("j40", "codex", box, "stopped"),
+        )
+    }
+    state.create(data)
+    data = state.load("demo")
+    assert ({job_id: len(job["undelivered"]) for job_id, job in data["jobs"].items()}, data["finished_texts_dropped"]) == ({"j7": 0, "j10": 0, "j20": 1, "j30": 1, "j40": 1}, True)
 
 
 def test_j4060_a_builder_failing_after_the_builder_replacing_it_was_added_stops_at_its_result(state_root: Path) -> None:

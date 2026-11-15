@@ -3197,7 +3197,7 @@ def finished(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def folded_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Fold each prover no agent or lane took whose PRs another prover proves, by folded_into, into that prover, which widen gives its open parts and, while no agent or lane took it either, the PRs it lacks and its handoff, and stop it, one line saying each fold, so the provers two passes, two orders or a coordinator added for one PR become one."""
+    """Fold each prover no agent or lane took whose PRs another prover proves, by folded_into, into that prover, which widen gives its open parts and, while no agent or lane took it either, the PRs it lacks and its handoff, and hand_held the texts it holds, and stop it, one line saying each fold, so the provers two passes, two orders or a coordinator added for one PR become one."""
     if not doubled(state.load(watcher.name)):
         return []
     folds = []
@@ -3207,6 +3207,7 @@ def folded_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 continue
             job = data["jobs"][job_id]
             widen(data, first, open_served(data, job), [key for key in proves(data, job_id) if key not in proves(data, first)], (job.get("brief_flags") or {}).get("handoff"))
+            state.hand_held(data, job_id, first)
             job.update(state="stopped", said=f"folded into {first}", updated=state.stamp(moment))
             folds.append((first, job_id))
     return [merged_said(watcher.name, first, f"took the parts of {job_id}, a duplicate now stopped") for first, job_id in folds]
@@ -3237,7 +3238,7 @@ def unstarted(job: dict) -> bool:
 
 
 def part_gap(watcher: Watcher, data: dict, order_id: str, part: str, moment: datetime) -> str | None:
-    """Why a part of the order has no one carrying it, None when it is carried, delivered or waits on something named, such as his word on a job a model's safeguards stopped: work he ordered, every part of a build order or an incident, but an incident's first check and cause and a part drive order set --kind answer --part sorted as an answer that no builder, codex or design job holds, is carried only by a builder, codex or design job, never by research, his card or a post, nor by a builder or codex job done with no merged PR whose checked diff carries it, but while the check of its merged diffs runs or on a staging test part, which its tester's full pass delivers by state.staged, so it has no one the moment none is on it past its handover, and the gap names the builder to start; a change a design lists has no job only while the order asks for options only, waiting on his pick, which adds its builder, since drive job report adds one for each change as the design returns; a builder, codex or design job on the order's immediate fix part carries the order's other parts too until it is done; an open incident's fix is carried only by a live job, or an open or merged PR of a job on it, which the release train ships, never by a post, so once its jobs end otherwise the gap says it has no fix job and names the second one to start at once, by no_fix_job; a standing part, never delivered, is held only by an unfinished job on it, and once none is its gap is the Restart standing_lines starts its next pass on, by standing_gap."""
+    """Why a part of the order has no one carrying it, None when it is carried, delivered or waits on something named, such as his word on a job a model's safeguards stopped: work he ordered, every part of a build order or an incident, but an incident's first check and cause and a part drive order set --kind answer --part sorted as an answer that no builder, codex or design job holds, is carried only by a builder, codex or design job, never by research, his card, a post or a stopped job, by state.carriers, nor by a builder or codex job done with no merged PR whose checked diff carries it, but while the check of its merged diffs runs or on a staging test part, which its tester's full pass delivers by state.staged, so it has no one the moment none is on it past its handover, and the gap names the builder to start; a change a design lists has no job only while the order asks for options only, waiting on his pick, which adds its builder, since drive job report adds one for each change as the design returns; a builder, codex or design job on the order's immediate fix part carries the order's other parts too until it is done; an open incident's fix is carried only by a live job, or an open or merged PR of a job on it, which the release train ships, never by a post, so once its jobs end otherwise the gap says it has no fix job and names the second one to start at once, by no_fix_job; a standing part, never delivered, is held only by an unfinished job on it, and once none is its gap is the Restart standing_lines starts its next pass on, by standing_gap."""
     order = data["orders"][order_id]
     jobs = state.part_jobs(data, order_id, part)
     gaps = {job_id: job_gap(watcher, job_id, job, data, order_id, part, moment) for job_id, job in jobs}
@@ -3308,7 +3309,7 @@ def added_pass(data: dict, key: tuple[str, str], last: str | None, moment: datet
     }
     data["orders"][order_id]["jobs"].append(job_id)
     if last:
-        data["jobs"][job_id]["undelivered"], data["jobs"][last]["undelivered"] = data["jobs"][last]["undelivered"], []
+        state.hand_held(data, last, job_id)
         for _, kept in superseded.owed(data, last):
             kept["jobs"][job_id] = kept["jobs"].pop(last)
     return job_id
