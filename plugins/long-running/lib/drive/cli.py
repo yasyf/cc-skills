@@ -83,6 +83,7 @@ STAGING_MAC_BOX = (
 )
 STAGING_OWN_SAND = "; {tested} changes sand-next too, so run them again after `tools/ci mac-box prove <box> --commit <its head's full sha>`"
 LIVE_SAND_NEXT = re.compile(r"^#\d+\s+passed\s+(?:manual )?(?:release|hotfix|rollback)\s.*?\s(?P<commit>[0-9a-f]{7,40})\s+(?:not )?started\b", re.MULTILINE)
+MANUAL_STARTED = re.compile(rf"\S+ #\d+: (?P<build>{github.BUILD.pattern}) — follow it from anywhere: (?P<follow>.+)")
 PROMISED_TIME = re.compile(
     r"\bnext (?:line|update|post|summary)(?:\s+(?:by|before|at))?\s+(?:about\s+|around\s+)?([01]?\d|2[0-3]):([0-5]\d)(?![:\d])(?:\s*([AP])\.?M\b)?", re.IGNORECASE
 )
@@ -1421,13 +1422,15 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
 
 
 def started_release(name: str, job_id: str, command: str) -> list[str]:
-    """Start the release a job's --release names from the drive's checkout at the head of its default branch, leave it running once `ci release` names the build it started, print that build before any save, so a call that dies after the start still names it, and keep and brief the job on it by release_briefed; a start naming none keeps no job and refuses with what it said."""
+    """Start the release a job's --release names from the drive's checkout at the head of its default branch, `--json` added unless it starts `--manual`, which takes none, leave it running once `ci release` names the build it started, by release_answer, print that build before any save, so a call that dies after the start still names it, and keep and brief the job on it by release_briefed; a start naming none keeps no job and refuses with what it said."""
     said: list[str] = []
     answer: dict = {}
-    with subprocess.Popen([*simple_commands(command)[0], "--json"], cwd=orca.checkout(name, state.load(name)["roles"]["coordinator"]["cwd"]), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True) as release:
+    [words] = simple_commands(command)
+    manual = "manual" in brief.release_flags(words)
+    with subprocess.Popen(words if manual else [*words, "--json"], cwd=orca.checkout(name, state.load(name)["roles"]["coordinator"]["cwd"]), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True) as release:
         for line in release.stdout:
             said.append(line)
-            if answer := release_answer(said):
+            if answer := release_answer(said, manual):
                 break
         release.terminate()
     if not (build := answer.get("build", {}).get("url")):
@@ -1452,8 +1455,11 @@ def release_briefed(name: str, job_id: str, build: str, named: dict) -> tuple[li
     return replaced, line, payload
 
 
-def release_answer(said: list[str]) -> dict:
-    """The JSON object `ci release start --json` answers with: its first line once it stays with the build it started, else what it printed from its first line opening an object, as a refusal prints it; empty until that object closes."""
+def release_answer(said: list[str], manual: bool) -> dict:
+    """The build a `ci release start` started and the command that follows it, as its JSON object's `build.url` and `follow`: a `--manual` start's line naming the deploy build its cut triggered, which it prints as text once that build exists, by MANUAL_STARTED; any other start's JSON object `--json` answers with, its first line once it stays with the build it started, else what it printed from its first line opening an object, as a refusal prints it; empty until that line or object is whole."""
+    if manual:
+        found = MANUAL_STARTED.match(said[-1].strip())
+        return {"build": {"url": found["build"]}, "follow": found["follow"]} if found else {}
     opened = next((at for at, line in enumerate(said) if line.startswith("{")), len(said))
     try:
         return json.loads("".join(said[opened:])) if opened < len(said) else {}

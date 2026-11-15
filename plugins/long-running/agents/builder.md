@@ -451,7 +451,7 @@ event needs. The first five events then return as step 7 says.
   outside an incident, run `tools/ci release plan` at those flags first and name what each stack
   changes, since his go answers that command.
 - Your brief's `Release:` and `Release build:` lines name the release the top started for you and its
-  build. Follow it with `tools/ci release watch <build>` and pass the same `--order` to a resume or re-plan. His go approves
+  build. Follow it with `tools/ci release watch <build>`, `tools/ci release watch --manual <build>` for a `--manual` start, and pass the same `--order` to a resume or re-plan. His go approves
   starting that release, never the migrations, deletes and replaces its approve hold holds. While he is
   away, his last word or tap over 15 minutes old, the `landing_guard` hook refuses a resume or approve, and an
   incident's hotfix of pull requests that change nothing dangerous alone resumes: return `WAITING his word` with the

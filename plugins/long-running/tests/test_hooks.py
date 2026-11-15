@@ -1367,6 +1367,41 @@ def test_a_release_starts_from_the_drives_checkout_at_its_default_branchs_head_n
     assert started.read_text() == "release start platform runtime-api-next restate --order 5419ffd --json\n"
 
 
+MANUAL_START = "tools/ci release start --stack sandsql/plat-usw2-sandbox --commit b79714bb452c562078e4446680106140f721e8ed --manual --emergency --order 5419ffd"
+MANUAL_BUILD = "https://buildkite.com/forge/release/builds/16621"
+MANUAL_SAID = (
+    "release #16620 cuts the deploy branch: https://buildkite.com/forge/release/builds/16620",
+    "running    :scissors: cut the deploy branch",
+    f"release #16621: {MANUAL_BUILD} — follow it from anywhere: tools/ci release watch --manual 16621",
+)
+
+
+def test_717905_a_manual_release_starts_with_no_json_and_its_job_keeps_the_deploy_build_its_cut_triggered_and_a_local_one_is_refused(
+    demo: str, run: Run, no_calls: list[list[str]], recorded: Answers, jev: Jev, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "release the sandbox")
+    run("job", "add", "builder", "--order", "o1", "--goal", "build the sandbox")
+    printed = "\n".join(f"echo '{line}'" for line in MANUAL_SAID)
+    started = released(demo, f"""case "$*" in *--json*) echo "ci release: Unknown option '--json'" >&2; exit 1;; esac\n{printed}\nexec sleep 600""")
+    recorded.shown = {CLOCK_PICK["id"][:7]: CLOCK_PICK}
+    jev.picks("5419ffd")
+    add = ["job", "add", "builder", "--order", "o1", "--goal", "release the sandbox"]
+    local = MANUAL_START.replace("--manual", "--local").replace(" --emergency", "")
+    assert cli.main([*add, "--release", local]) == 2
+    assert capsys.readouterr().err.strip() == (
+        f"drive: refused, no job added: --release `{local}` deploys `--local`, whose plan and apply run in the shell that starts it and start no build its"
+        " job could follow, so no job starts it: a `--manual` or regular start names the build its job follows"
+    )
+    assert not started.exists()
+    code, out = run(*add, "--release", MANUAL_START)
+    assert code == 0
+    assert started.read_text() == MANUAL_START.removeprefix("tools/ci ") + "\n"
+    assert out.splitlines()[1] == (
+        f"j2 started `{MANUAL_START}` as {MANUAL_BUILD} and left it running: its agent follows it with `tools/ci release watch --manual 16621` and reads its approve hold"
+    )
+    assert state.load(demo)["jobs"]["j2"]["release_build"] == MANUAL_BUILD
+
+
 def test_the_top_starts_and_hears_the_release_job_on_a_sub_coordinators_order_and_the_sub_coordinator_none_of_it(
     demo: str, run: Run, no_calls: list[list[str]], recorded: Answers, jev: Jev, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
