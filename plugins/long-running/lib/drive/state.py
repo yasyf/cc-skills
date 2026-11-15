@@ -621,6 +621,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str, terminal: str
         "stand_ins": {},
         "held": {},
         "carried": {},
+        "mains": {},
         "catch_up": None,
         "launched": {},
         "closed_from_cards": True,
@@ -907,6 +908,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         pr.setdefault("design", None)
         pr.setdefault("answers", None)
         pr.pop("stall", None)
+        pr.setdefault("graded", pr["state"] == "merged")
         if checked := pr["checked"]:
             checked.pop("patch", None)
             checked.setdefault("lines", {})
@@ -940,6 +942,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     data["owner"].setdefault("absence", None)
     if isinstance(away := data["owner"]["away"], bool):
         data["owner"]["away"] = (heard := data["owner"]["heard"]) and stamp(parse_time(heard) + (timedelta() if away else AWAY_AFTER))
+    data.setdefault("mains", {})
     if "catch_up" not in data:
         data["catch_up"] = new_catch_up(min(mark["at"] for mark in data["held"].values()), [mark["order"] for mark in data["held"].values() if mark["order"]]) if data["held"] else None
     if data["catch_up"]:
@@ -3650,6 +3653,11 @@ def ships_untapped(data: dict, key: str) -> bool:
     return any(key in land.chain(under, top) for top in named)
 
 
+def grading(key: str, pr: dict) -> bool:
+    """Whether the watch has yet to read which tests a merged yasyf/* PR broke on main from the run its lander merged it on."""
+    return pr["state"] == "merged" and merges_untapped(key) and not pr["graded"]
+
+
 def guarded(key: str) -> bool:
     """Whether only his tap or an exempt class lands a PR of this repository, a Forge-AI one, whoever opened it."""
     return key.split("/")[0].lower() == GUARDED_OWNER
@@ -3894,6 +3902,7 @@ def new_pr(url: str, job_id: str, order_id: str) -> dict:
         "author": None,
         "checked": None,
         "undrawn": None,
+        "graded": False,
         "parts": [],
         "lead": None,
         "design": None,

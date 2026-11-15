@@ -2450,3 +2450,12 @@ def test_a_proof_whose_fetch_github_refused_for_its_commit_takes_blocked_at_once
     said = state.load("demo")["jobs"]["j1"]["said"]
     assert said.startswith(f"BLOCKED {URL}: not installed, so {script} did not run: git -C ")
     assert (said.endswith(f"exited 128: {missing}"), git.sleeps) == (True, [])
+
+
+def test_a_runs_failures_are_the_tests_each_failed_jobs_pytest_summary_names(monkeypatch: pytest.MonkeyPatch) -> None:
+    logs = {
+        "61": "2026-11-13T13:05:55.1Z FAILED tests/test_watch.py::test_a - AssertionError: assert 1 == 2\r\n2026-11-13T13:05:55.2Z FAILED (errors=2)\n",
+        "62": "2026-11-13T13:05:56.1Z ERROR tests/test_cli.py::test_b[x-y]\n2026-11-13T13:05:56.2Z ERROR tests/test_land.py\n2026-11-13T13:05:56.3Z ===== 1 failed, 2 errors in 9.1s =====\n",
+    }
+    monkeypatch.setattr(github, "read", lambda what, cmd, max_age="0s", text=True: "61\n62\n" if cmd[2].endswith("/jobs?filter=latest&per_page=100") else logs[cmd[2].split("/")[-2]])
+    assert install.run_failures(REPO, 9) == ["tests/test_cli.py::test_b[x-y]", "tests/test_land.py", "tests/test_watch.py::test_a"]
