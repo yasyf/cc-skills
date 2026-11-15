@@ -4097,6 +4097,12 @@ def asks_tap(pr: dict) -> bool:
     return tap_refused(pr) is None
 
 
+def reworked_under(prs: dict[str, dict], key: str) -> str | None:
+    """The lowest open PR at or below the PR in its native GitHub stack being reworked to his words, the PR itself included, which with every PR above it owes no tap and draws no card until its builder's READY says how they are met; None when none is."""
+    native = [mate for mate in prs[key]["native"] if mate in prs and prs[mate]["state"] == "open"]
+    return next((mate for mate in (native[: native.index(key) + 1] if key in native else [key]) if prs[mate]["rework"]), None)
+
+
 def rework(pr: dict, by: str, words: str, link: str) -> None:
     """Mark a PR reworked to his words, by his order or answer, kept with the link where he said them, until its builder's READY says how they are met; his Approve stands until that READY, which drops it so a fresh card asks it for the reworked change."""
     at = stamp()

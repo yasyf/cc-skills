@@ -51,9 +51,9 @@ def on_card(data: dict, key: str, cards: dict) -> Stage:
 
 
 def own(data: dict, key: str, cards: dict | None) -> Stage:
-    """The PR's stage by its own row, whatever the rest of its landing stack reads: uncarded, owed by the watch, only while state.asks_tap finds his card would offer Approve, the check every draw of his card makes, so the watch owes no draw the draw refuses, and no card of his offers it at its head, by view.tap_card, the one read of his card every line naming it makes, whole: none is drawn, the one open on it shows an older head, or cc-slack keeps the one drawn closed in place, either of which the watch redraws in place, or the one open on it leaves off a PR of its native stack, by view.apart, which the watch replaces with one card for the stack, so no stage names a card as his to tap that the say hook finds not open at its head; with his cards unread, whatever rule comes next."""
+    """The PR's stage by its own row, whatever the rest of its landing stack reads: uncarded, owed by the watch, only while neither it nor a PR below it in its native GitHub stack is being reworked to his words, by state.reworked_under, since drive card draws none of them, and state.asks_tap finds his card would offer Approve, the check every draw of his card makes, so the watch owes no draw the draw refuses, and no card of his offers it at its head, by view.tap_card, the one read of his card every line naming it makes, whole: none is drawn, the one open on it shows an older head, or cc-slack keeps the one drawn closed in place, either of which the watch redraws in place, or the one open on it leaves off a PR of its native stack, by view.apart, which the watch replaces with one card for the stack, so no stage names a card as his to tap that the say hook finds not open at its head; with his cards unread, whatever rule comes next."""
     pr = data["prs"][key]
-    if not pr["rework"] and cards is not None and state.asks_tap(pr) and (not view.tap_card(pr, cards) or view.apart(data, key, cards["pr_cards"])):
+    if not state.reworked_under(data["prs"], key) and cards is not None and state.asks_tap(pr) and (not view.tap_card(pr, cards) or view.apart(data, key, cards["pr_cards"])):
         return Stage("uncarded", WATCH, uncarded(data, key, cards))
     return alone(data, key, cards)
 
@@ -346,15 +346,16 @@ def grading(pr: dict) -> str:
 
 
 def behind(data: dict, key: str, cards: dict, now: Stage, under: dict[str, str | None] | None = None, stacks: dict[str, tuple[str, ...]] | None = None) -> Stage:
-    """The PR's stage now, unless another PR his Approve lands it with, by land.landed_with() bottom first, holds it: one under it that GitHub reads conflicting, with what conflicts_with() names, which every PR above it waits on whatever its own row reads, since none of them lands before it and their builders can fix nothing until its owner settles it, or, while it reads ready, one that does not by its own row; then that PR's stage, seen from this one, whose owner owes the step. A stage someone answers on the PR itself stands: his card to draw, a lander's try, his hold and a rework to his words."""
+    """The PR's stage now, unless another PR his Approve lands it with, by land.landed_with() bottom first, holds it: one under it that GitHub reads conflicting, with what conflicts_with() names, which every PR above it waits on whatever its own row reads, since none of them lands before it and their builders can fix nothing until its owner settles it, or, while it reads ready, one that does not by its own row, or, while it waits on his card, one under it being reworked to his words, by state.reworked_under, since no card asks his tap on it until that rework's READY; then that PR's stage, seen from this one, whose owner owes the step. A stage someone answers on the PR itself stands: his card to draw, a lander's try, his hold and a rework to his words."""
     if now.name in OWN_STEP:
         return now
     under = land.unders(data) if under is None else under
     stacks = land.landing_stacks(data, under) if stacks is None else stacks
     below = land.chain(under, key)
+    reworked = now.name == "card" and state.reworked_under(data["prs"], key)
     for member in land.landed_with(data, under, stacks, key):
         conflicts = member in below and data["prs"][member]["conflict"]
-        if member != key and (conflicts or now.name == "ready") and (other := own(data, member, cards)).name != "ready":
+        if member != key and (conflicts or now.name == "ready" or member == reworked) and (other := own(data, member, cards)).name != "ready":
             mates = land.together(data, stacks, member)
             where = "below it in its stack" if member in below else "on his card with it" if key in mates else f"on his card with {mates[0]}"
             base = f" conflicts with {conflicts_with(data['prs'][member])}," if conflicts else ","
