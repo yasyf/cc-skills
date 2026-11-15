@@ -26,11 +26,15 @@ READY_GONE = (
     " a PR still uncarded and redraws it in place as its stage moves; send none, and `drive status <pr>` names its stage"
 )
 LIMIT_ATTR = "max_words"
+STAGING_SLOTS = "staging-slots"
 
 
 def unready(record: dict) -> str | None:
-    """Why a ready record goes nowhere: his card on a PR is drawn by drive pr add and by the watch as the PR's stage moves, so no record draws it."""
-    return READY_GONE if kind(record) == "ready" else None
+    """Why a ready record goes nowhere: one naming a PR, whose card drive pr add draws and the watch redraws as the PR's stage moves, so no record draws it; a ready record naming no PR, or a staging pass's on topic staging-slots, is news between sessions and goes."""
+    if kind(record) != "ready" or record.get("topic") == STAGING_SLOTS:
+        return None
+    words = record_words(record)
+    return READY_GONE if record.get("pr") or state.PR_URL.search(words) or limits.PR_NUMBER.search(words) else None
 
 
 def trimmed(record: dict) -> dict:
