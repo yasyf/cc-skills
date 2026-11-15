@@ -2715,12 +2715,15 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
     """Each running job's gap from its agent or lane, with each PR it has open, a remote lane, running or waiting, whose worker died, and a running job's lane Orca could not reach three reads running, which wake hands to drive job resume, its failed reads neither counted nor said while busy reads another drive verb acting on the job, as the wake an earlier watch started does, and a running lane on this Mac whose last response ended on an API error, which resume_lane resumes through its terminal, while a job whose agent or lane on this Mac a model's safeguards stopped goes to safeguard_lines; a lane recorded by its dispatch alone gets its Run, Task and terminal from the worker-show read for its liveness, and a lane filed on this Mac whose worker-show names a Sprite is filed on that Sprite; a live lane whose job keeps texts queued has them settled by its mailbox each pass, by state.take_mail, and a remote lane whose worker finished or exited has the mail it never read held on its job once for its dispatch by unread_lines, before death_lines relaunches a running job's lane. A local agent that ended its turn on a result line its job never took is a gap, since only `drive job report` sets a job's state from its return; a codex job no agent holds has its codex-ask run taken once that run ended, its returned event telling the coordinator the return, failed or not, with where his card on its ASK stands and, for an incident fix job, the builder that ships its fix."""
     data = state.load(watcher.name)
     gaps, deaths, refusals, heads, found, taken, shippers, finished, boxes, lost, lines = {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, []
+    read: set[str] = set()
     for order_id, order in heard_orders(watcher, data).items():
         for job_id in order["jobs"]:
             job = data["jobs"][job_id]
             if job["order"] != order_id:
                 continue
             running = job["state"] == "running"
+            if running:
+                read.add(job_id)
             remote = job.get("where") == "remote"
             if running and job.get("branch") and (job.get("repo") or remote):
                 heads.setdefault(job_id, set()).add((job.get("repo"), job["branch"]))
@@ -2821,23 +2824,27 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
     gapped = {job_id: gap for job_id, gap in gaps.items() if gap}
     unlisted, failed = untracked_prs(watcher, data, {job_id: heads[job_id] for job_id in gapped if job_id in heads}, moment)
     watcher.agent_gaps = {job_id: stranded(job_id, data, gap, unlisted.get(job_id, {})) if gap else None for job_id, gap in gaps.items()}
-    return failed + death_lines(watcher, deaths, moment) + safeguard_lines(watcher, refusals, moment) + reaped_lines(watcher, data, lost, moment)
+    return failed + death_lines(watcher, deaths, moment) + safeguard_lines(watcher, refusals, moment) + reaped_lines(watcher, data, read, lost, moment)
 
 
-def reaped_lines(watcher: Watcher, data: dict, lost: dict[str, str], moment: datetime) -> list[str]:
-    """Fail each running job this pass found no live worker for, its agent's session gone, its lane never started, ended with no next lane or unreadable by Orca, once its row has not moved for REAP_AFTER and no relaunch the watch started on it still runs, whatever another drive verb's hold on its lock, so a job whose worker died never reads running for days; failed, its part's ORPHAN line names who starts its next worker and release_lanes ends its Sprite. One LANE line each."""
-    stale = {job_id: why for job_id, why in lost.items() if moment - state.parse_time(data["jobs"][job_id]["updated"]) >= REAP_AFTER}
-    if not stale:
+def reaped_lines(watcher: Watcher, data: dict, read: set[str], lost: dict[str, str], moment: datetime) -> list[str]:
+    """Fail each running job whose worker this pass and every pass for REAP_AFTER found gone, its recorded agent's session ended, its lane never started, ended with no next lane or unreadable by Orca, once no relaunch the watch started on it still runs, whatever another drive verb's hold on its lock, so a job whose worker died never reads running for days while one read Orca could not answer fails nobody: lost_since on its row stamps the first pass that found it so, kept across watches, and the first pass that reads it live clears it. Failed, its part's ORPHAN line names who starts its next worker and release_lanes ends its Sprite. One LANE line each."""
+    marking = {job_id for job_id in read if (job_id in lost) != bool(data["jobs"][job_id].get("lost_since"))}
+    due = {job_id: why for job_id, why in lost.items() if (since := data["jobs"][job_id].get("lost_since")) and moment - state.parse_time(since) >= REAP_AFTER}
+    if not marking and not due:
         return []
     lines = []
     with state.edit(watcher.name) as data:
-        for job_id, why in stale.items():
+        for job_id in marking:
+            if (job := data["jobs"][job_id])["state"] == "running":
+                job["lost_since"] = state.stamp(moment) if job_id in lost else None
+        for job_id, why in due.items():
             job = data["jobs"][job_id]
             relaunch = (state.lane_death(job) or {}).get("relaunch")
-            if job["state"] != "running" or moment - state.parse_time(job["updated"]) < REAP_AFTER or relaunch and state.alive(relaunch["pid"]) and moment - state.parse_time(relaunch["at"]) < RELAUNCH:
+            if job["state"] != "running" or not (since := job.get("lost_since")) or moment - state.parse_time(since) < REAP_AFTER or relaunch and state.alive(relaunch["pid"]) and moment - state.parse_time(relaunch["at"]) < RELAUNCH:
                 continue
-            said = f"failed: the watch found no live worker and no move since {when(job['updated'])} ({why})"
-            job.update(state="failed", said=said, updated=state.stamp(moment))
+            said = f"failed: the watch found no live worker on every read since {when(since)} ({why})"
+            job.update(state="failed", said=said, lost_since=None, updated=state.stamp(moment))
             lines.append(f"LANE {job_id} {job['order']} {said}; its part's ORPHAN line names who starts its next worker")
     return lines
 
