@@ -103,7 +103,7 @@ def test_merge_method_is_squash_else_rebase_else_merge_among_those_the_repositor
     settings: tuple[bool, bool, bool], allowed: list[str] | None, method: str
 ) -> None:
     rules = [{"type": "PULL_REQUEST", "parameters": {"requiredApprovingReviewCount": 0, "allowedMergeMethods": allowed}}] if allowed else []
-    repository = dict(zip(("squashMergeAllowed", "rebaseMergeAllowed", "mergeCommitAllowed"), settings)) | {"defaultBranchRef": {"name": "main", "rules": {"nodes": rules}}}
+    repository = dict(zip(("mergeCommitAllowed", "squashMergeAllowed", "rebaseMergeAllowed"), settings)) | {"defaultBranchRef": {"name": "main", "rules": {"nodes": rules}}}
     assert github.merge_method(repository) == method
 
 
