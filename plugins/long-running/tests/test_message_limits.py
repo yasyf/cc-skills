@@ -587,6 +587,7 @@ def test_jev_reads_a_refused_say_post_as_slack_gets_it_and_a_reference_nested_in
     talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     with state.edit("demo") as data:
+        data["jobs"]["j1"] = state.new_job("o1", "builder", "show the run page's history", [], state.stamp())
         data["prs"]["yasyf/cc-skills#7"] = state.new_pr("https://github.com/yasyf/cc-skills/pull/7", "j1", "o1") | {"title": "New: \U0001f680 the run page shows its history"}
     release = "https://buildkite.com/acme/release/builds/14765"
     long = call("slack_dm_status", transcript, text=said(60) + " {pr:7}", thread_ts="1.2") | {"tool_name": message_limits.SAY}
@@ -1070,6 +1071,25 @@ def test_a_handlers_answer_under_a_card_hands_jev_the_cards_first_line_beside_hi
         message_limits.main()
         handed.append(json.loads(capsys.readouterr().out).get("thread_card"))
     assert handed == [{"title": title, "asked": asked}, None]
+
+
+def test_a_handlers_post_in_a_thread_of_his_dm_holding_an_order_hands_jev_that_threads_work_beside_his_words_there_and_one_at_his_dm_root_none(
+    run: Run, talker: str, transcript: Path, slack_thread: Thread, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Copy fix", "--project", "The drive", "--workstream", "Copies", "fix the copy", "--from", f"https://acme.slack.com/archives/{DM}/p1794300000000100")
+    run("order", "add", "--title", "Run page", "--project", "The drive", "--workstream", "Runs", "show a run's history", "--from", f"https://acme.slack.com/archives/{DM}/p1794100000000100")
+    with state.edit("demo") as data:
+        data["orders"]["o1"]["thread"] = [DM, "1.2"]
+    asked = "Ok I approved that one, what else is waiting on me for this work"
+    slack_thread.messages[:] = [{"ts": "1794300000.000100", "user": "U1", "text": "fix the copy"}, {"ts": "1794300001.000100", "user": "U1", "text": asked}]
+    handed = []
+    for where in ({"thread_ts": "1.2"}, {}):
+        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(call("slack_dm_status", transcript, text="Only the copy fix is open here.", **where) | {"tool_name": message_limits.SAY})))
+        message_limits.main()
+        handed.append((json.loads(out) if (out := capsys.readouterr().out) else {}).get("thread_scope"))
+    scope, root = handed
+    assert scope["work"].startswith(f"{agents.IN_THREAD}:\n- o1 ") and "o2" not in scope["work"]
+    assert asked in scope["asked"].splitlines() and root is None
 
 
 def test_a_path_and_line_read_hands_jev_a_read_of_the_whole_file(

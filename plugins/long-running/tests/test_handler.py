@@ -86,7 +86,7 @@ def test_drive_handler_starts_its_own_claude_bg_session_and_records_that_he_wrot
     assert argv[:4] == ["claude", "--bg", "--agent", agents.HANDLER]
     env = json.loads(argv[argv.index("--settings") + 1])["env"]
     assert (env[state.HANDLER_ENV], env["CCI_PARENT_SESSION"], env["CLAUDE_LONG_RUNNING_DRIVE"]) == (f"demo/{handler}", os.environ["CLAUDE_CODE_SESSION_ID"], "demo")
-    assert argv[-1] == HIS_BRIEF.format(scratch=tmp_path / "scratch" / "h1") + UNFROZEN
+    assert argv[-1] == HIS_BRIEF.format(scratch=tmp_path / "scratch" / "h1") + f"\n{agents.IN_THREAD}: none" + UNFROZEN
     assert tools.run("handler", "demo", {"brief": f"Record: 663488 Drive: demo Scratch: {tmp_path / 'h2'}"}).startswith("started ")
     assert state.load("demo")["owner"] == data["owner"]
 
@@ -97,7 +97,7 @@ def test_a_handler_started_while_his_hold_on_every_release_stands_closes_its_pro
     recorded.listed = [HELD_RELEASES]
     start(run, tmp_path)
     [argv] = started
-    assert argv[-1] == HIS_BRIEF.format(scratch=tmp_path / "scratch" / "h1") + '\nRelease freezes: his hold 15c4de1 on every release stands: "no releases until I say we can again"'
+    assert argv[-1] == HIS_BRIEF.format(scratch=tmp_path / "scratch" / "h1") + f"\n{agents.IN_THREAD}: none" + '\nRelease freezes: his hold 15c4de1 on every release stands: "no releases until I say we can again"'
 
 
 def test_a_handler_session_starts_with_every_orca_lanes_env_settings_and_denied_tools_and_this_macs_lane_settings_over_them_but_the_datadog_plugin(
@@ -216,7 +216,18 @@ def test_his_read_only_questions_handler_starts_on_its_answer_order_and_one_say_
     assert not [argv for argv in started if argv[:2] == ["drive", "status"] or argv[0] in ("orca", "cc-slack")]
 
 
-@pytest.mark.parametrize("asked", [QUESTION_LINK, "1794200100.000100", " did the copy  fix ship? "])
+def test_a_handler_on_his_message_in_a_works_thread_starts_on_the_open_orders_of_that_thread_alone(communicator: str, run: Run, tmp_path: Path, started: list[list[str]]) -> None:
+    run("order", "add", "--title", "Copy fix", "--project", "The drive", "--workstream", "Copies", "fix the copy", "--from", f"https://acme.slack.com/archives/D123/p{THREAD.replace('.', '')}")
+    run("job", "add", "reader", "--order", "o1", "--goal", "trace the copy")
+    run("order", "add", "--title", "Run page", "--project", "The drive", "--workstream", "Runs", "show a run's history", "--from", "https://acme.slack.com/archives/D123/p1794100000000100")
+    brief = QUESTION_BRIEF.format(scratch=tmp_path / "h1")
+    tools.run("handler", "demo", {"brief": brief})
+    [argv] = started
+    assert argv[-1].startswith(f"{brief}\n{agents.IN_THREAD}:\n- o1 ")
+    assert "  - j1 " in argv[-1] and "o2" not in argv[-1] and agents.beyond_brief(argv[-1]) is None
+
+
+@pytest.mark.parametrize("asked",[QUESTION_LINK, "1794200100.000100", " did the copy  fix ship? "])
 def test_a_post_whose_asked_names_his_message_that_started_an_answer_order_closes_it_without_close(
     asked: str, communicator: str, run: Run, tmp_path: Path, started: list[list[str]], slack_thread: Thread, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -751,7 +762,9 @@ def test_a_handler_whose_launch_never_named_its_session_holds_its_thread_only_th
     left_mid_start(state.now() - agents.START_WINDOW)
     fresh = tools.run("handler", "demo", {"brief": his}).removeprefix("started ")
     assert {key: entry["handed"] for key, entry in state.load("demo")["handlers"].items()} == {fresh: [*([briefs["715733"]] if kept else []), briefs["716199"]]}
-    assert [argv[-1] for argv in started if argv[:2] == ["claude", "--bg"]] == [briefs["716199"] + UNFROZEN, his + UNFROZEN]
+    first, second = [argv[-1] for argv in started if argv[:2] == ["claude", "--bg"]]
+    assert first == briefs["716199"] + UNFROZEN
+    assert second.startswith(f"{his}\n{agents.IN_THREAD}:\n- o1512 ") and second.endswith(UNFROZEN)
 
 
 API_ERROR ="Please run /login · API Error: 403 Attention Required! | Cloudflare"
@@ -838,6 +851,7 @@ def test_a_handler_whose_four_resumes_an_api_error_ended_too_starts_again_as_its
 ) -> None:
     brief = brief.format(scratch=tmp_path / "h")
     handler = tools.run("handler", "demo", {"brief": brief}).removeprefix("started ")
+    [opened] = [argv[-1] for argv in started if argv[:2] == ["claude", "--bg"]]
     held = state.load("demo")["handlers"][handler]["holds"]
     removed: list[list[str]] = []
     monkeypatch.setattr(agents.subprocess, "Popen", lambda argv, **kwargs: removed.append(argv))
@@ -848,14 +862,14 @@ def test_a_handler_whose_four_resumes_an_api_error_ended_too_starts_again_as_its
         bind(monkeypatch, handler, session)
         if posted_first and attempt == 1:
             posts.append(said(monkeypatch, session, f"{HIS_DM}/p1794565600000200?thread_ts={ANSWER_THREAD}&cid=D0C4HQWPLCC"))
-        assert stop(monkeypatch, capsys, session, transcript, API_ERROR, brief, "StopFailure", outage(len(agents.OUTAGE_WAITS))) == ""
+        assert stop(monkeypatch, capsys, session, transcript, API_ERROR, opened, "StopFailure", outage(len(agents.OUTAGE_WAITS))) == ""
         starts = [argv for argv in started if argv[:2] == ["claude", "--bg"]]
-        assert [argv[-1] for argv in starts] == [brief.strip() + UNFROZEN] * (attempt + 1)
+        assert [argv[-1] for argv in starts] == [opened] * (attempt + 1)
         assert json.loads(starts[-1][starts[-1].index("--settings") + 1])["env"][state.HANDLER_ENV] == f"demo/{handler}"
         entry = state.load("demo")["handlers"][handler]
         assert (entry["session"], entry["holds"], entry["posted"]) == (launched_sessions[attempt], held, posts)
         assert removed == [["claude", "rm", BACKGROUND_JOB]] * attempt
-    assert agents.brief_path("demo", handler).read_text() == brief
+    assert agents.brief_path("demo", handler).read_text() == opened
     assert not [argv for argv in started if "done" in argv]
 
     transcript = tmp_path / "h-answered.jsonl"
