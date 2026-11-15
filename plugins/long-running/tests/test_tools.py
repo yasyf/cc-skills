@@ -1333,7 +1333,7 @@ def test_his_tap_and_an_answer_naming_his_card_by_its_waits_attr_each_post_under
     assert [(view.holds(data, wait, view.NO_CARDS), question["closed"]["seq"]) for wait, question in zip(("demo:j1-7", "demo:j2-8"), (data["jobs"]["j1"]["questions"][0], data["jobs"]["j2"]["questions"][0]), strict=True)] == [(False, "51"), (False, "52")]
 
 
-def test_his_words_under_a_card_of_another_drive_whose_sessions_ended_are_kept_on_that_drive_as_its_communicator_lane_as_his_tap_is(
+def test_his_words_under_a_card_of_another_drive_holding_no_communicator_are_kept_on_that_drive_as_its_communicator_lane_as_his_tap_is(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with monkeypatch.context() as ended:
@@ -1342,8 +1342,6 @@ def test_his_words_under_a_card_of_another_drive_whose_sessions_ended_are_kept_o
         run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page", "--drive", "other")
         run("job", "add", "builder", "--order", "o1", "--goal", "build it", "--drive", "other")
         run("job", "add", "builder", "--order", "o1", "--goal", "build the page", "--drive", "other")
-        ended.setenv("CLAUDE_CODE_SESSION_ID", "other-talker")
-        run("start", "other", "--role", "communicator")
     cards = (("j1", "other:j1-7", CARD), ("j2", "other:j2-8", f"{CARD[:-2]}01"))
     with state.edit("other") as data:
         for job_id, wait, url in cards:
