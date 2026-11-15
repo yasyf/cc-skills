@@ -11670,7 +11670,7 @@ def test_a_verb_a_newer_installs_save_refused_before_it_changed_anything_runs_ag
 @pytest.mark.parametrize(
     ("argv", "again"),
     [
-        (["job", "resume", "j1", watch.UNREACHED], True),
+        (["job", "resume", "j1", state.UNREACHED], True),
         (["job", "launch", "j1"], True),
         (["status"], False),
     ],
@@ -11699,7 +11699,7 @@ def test_a_resume_the_watch_ran_says_the_refusal_it_still_meets_in_the_watchs_li
     start = state.events_end("demo")
     state.store("demo", state.stored("demo") | {"saved_by": "9.9.9"})
     monkeypatch.setattr(install, "upgraded", lambda: None)
-    monkeypatch.setattr(cli.sys, "argv", ["drive", "job", "resume", asking, watch.UNREACHED, "--drive", "demo"])
+    monkeypatch.setattr(cli.sys, "argv", ["drive", "job", "resume", asking, state.UNREACHED, "--drive", "demo"])
     assert cli.main() == 2
     assert state.events_end("demo") == start
     monkeypatch.setenv(state.DETACHED_ENV, watch.RELAUNCHES_LOG)

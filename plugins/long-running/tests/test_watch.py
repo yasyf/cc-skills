@@ -2923,7 +2923,7 @@ def test_a_text_held_on_a_lane_orca_cannot_reach_while_another_verb_holds_its_lo
 ) -> None:
     with state.edit(demo) as data:
         data["jobs"]["j1"].update(where="remote", dispatch="ctx_99318cf15be2")
-        data["jobs"]["j1"]["undelivered"] = [{"seq": "717002", "words": watch.UNREACHED, "at": state.stamp(T0), "said": None, "request": "req-held"}]
+        data["jobs"]["j1"]["undelivered"] = [{"seq": "717002", "words": "ship the narrower fix", "at": state.stamp(T0), "said": None, "request": "req-held"}]
     down = "orca orchestration worker-show: remote_runtime_unavailable: Could not connect to the remote Orca runtime at ws://127.0.0.1:53245"
 
     def worker(dispatch: str) -> dict:
@@ -2933,7 +2933,7 @@ def test_a_text_held_on_a_lane_orca_cannot_reach_while_another_verb_holds_its_lo
     monkeypatch.setattr(state, "holders", lambda path: f"pid 49041 drive job resume j1 on {path.name}")
     watching = watcher(demo)
     held = (
-        f'ANSWER undelivered j1: "{render.cut(watch.UNREACHED, 80)}", held at {render.when(state.stamp(T0))}, has not reached j1; the watch sends it to a worker that'
+        f'ANSWER undelivered j1: "ship the narrower fix", held at {render.when(state.stamp(T0))}, has not reached j1; the watch sends it to a worker that'
         " takes messages, hands it to the next worker of one that returned and launches a builder never started with it"
     )
     with open(state.job_lock_path(demo, "j1"), "a") as holder:
