@@ -257,7 +257,7 @@ def waits_id(drive: dict, listed: list[dict], wait: str) -> str:
 
 
 def holding(drive: dict, waits: list[str], found: dict | None) -> list[str]:
-    """The waits of a job or PR that still hold: each of his cards still open, each job whose work is still to come, each PR still open or folded into another open PR's branch, by github.landing, each part of an open order until it is delivered, or whatever any job's DONE and the order's state read while open PRs of other jobs outside one stack wait on it, since one DONE never proves each of them, each release until the watch sees it out while its PR is not closed unmerged, a staging test's soak commit until the watch sees its env's target serve it, each process on this Mac until it ends, and a builder slot on this Mac until the watch gives the job its turn."""
+    """The waits of a job or PR that still hold: each of his cards still open, each job whose work is still to come, each PR still open or folded into another open PR's branch, by github.landing, each part of an open order until it is delivered, or whatever any job's DONE and the order's state read while open PRs of other jobs outside one stack wait on it, since one DONE never proves each of them, each release until the watch sees it out while its PR is not closed unmerged, a staging test's soak commit until the watch sees its env's target serve it, each Buildkite build until the watch reads it finished or stopped at an approve step, each process on this Mac until it ends, and a builder slot on this Mac until the watch gives the job its turn."""
     return [wait for wait in waits if holds(drive, wait, found)]
 
 
@@ -274,7 +274,7 @@ def holds(drive: dict, wait: str, found: dict | None) -> bool:
         return state.pid_runs(wait)
     if drawn := drawn_on(drive, wait):
         return any(question["closed"] is None for _, question in drawn)
-    return wait == state.SLOT_WAIT or bool(state.STAGING_WAIT.fullmatch(wait)) or card_open(wait, found)
+    return wait == state.SLOT_WAIT or bool(state.STAGING_WAIT.fullmatch(wait) or github.BUILD.fullmatch(wait)) or card_open(wait, found)
 
 
 def shared(drive: dict, wait: str) -> bool:
@@ -363,6 +363,8 @@ def wait_words(drive: dict, wait: str, found: dict | None) -> str:
         return f'"{cut(part[1], TITLE_CHARS)}" of your order "{order_title(drive["orders"][part[0]])}" is done'
     if process := state.PID_WAIT.fullmatch(wait):
         return f"process {process['pid']} on this Mac, which its job started, ends"
+    if build := github.BUILD.fullmatch(wait):
+        return f"{link(build_title(build), wait)} finishes or stops at an approve step"
     listed = [*found["questions"], *found["pr_cards"]] if found else []
     if card := next((card for card in listed if card["card"].get("waits") == wait or message_key(card["url"]) == message_key(wait)), None):
         return f"you answer {link(card['card']['title'], card['url'])}"
@@ -795,6 +797,8 @@ def wait_entry(drive: dict, wait: str, found: dict) -> dict:
         return {"title": f"{staging['env']} running {staging['target']} at {staging['commit'][:12]} or a build carrying it", "url": f"https://github.com/{state.MONOREPO}/commit/{staging['commit']}"}
     if part := state.part_wait(drive, wait):
         return {"title": f'{part[0]} delivering "{cut(part[1], TITLE_CHARS)}"', "url": None}
+    if build := github.BUILD.fullmatch(wait):
+        return {"title": build_title(build), "url": wait}
     if wait == state.SLOT_WAIT:
         return {"title": "a builder slot on this Mac", "url": None}
     if process := state.PID_WAIT.fullmatch(wait):
@@ -802,6 +806,10 @@ def wait_entry(drive: dict, wait: str, found: dict) -> dict:
     if card := asked_card(found, wait):
         return {"title": card["question"], "url": card["url"]}
     return {"title": "his question card", "url": wait if wait.startswith("https://") else None}
+
+
+def build_title(build: re.Match) -> str:
+    return f"Buildkite build {build['number']} of {build['pipeline']}"
 
 
 def waiting_on_him(drive: dict, found: dict) -> list[dict]:

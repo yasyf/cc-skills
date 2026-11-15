@@ -1446,7 +1446,7 @@ def kept_return(name: str, job_id: str, job: dict, line: str) -> bool:
 
 
 def result_refusal(data: dict, job_id: str, line: str, report: str) -> str | None:
-    """Why a job's returned line may not set its state, naming the fix: a line opening with no result sets nothing, a builder's READY or PUSHED naming a yasyf/* PR keeps the proof file the watch runs once it merges, one the kernel can exec as unrunnable reads it, and a WAITING holds on something the watch frees it on: a due time, a wait of the job's that still holds, or one result_waits reads off its line, the rule drive job report and codex.take share, so a codex reply whose line names only lost logs or merged PRs is refused rather than freed a minute later and launched into the same wait again, and never puts a PR on a part view.pooled refuses it, which open PRs of other jobs outside its stack wait on."""
+    """Why a job's returned line may not set its state, naming the fix: a line opening with no result sets nothing, a builder's READY or PUSHED naming a yasyf/* PR keeps the proof file the watch runs once it merges, one the kernel can exec as unrunnable reads it, and a WAITING holds on something the watch frees it on: a due time, a wait of the job's that still holds, or one result_waits reads off its line, the build a --release job started counting, the rule drive job report and codex.take share, so a codex reply whose line names only lost logs or merged PRs is refused rather than freed a minute later and launched into the same wait again, and never puts a PR on a part view.pooled refuses it, which open PRs of other jobs outside its stack wait on."""
     from drive import view
 
     job = data["jobs"][job_id]
@@ -1464,7 +1464,8 @@ def result_refusal(data: dict, job_id: str, line: str, report: str) -> str | Non
     if re.match(r"WAITING\b", line) and not (job["due"] or view.holding(data, unlooped(data, job_id, job["waits"]), None) or result_waits(data, job_id, line)):
         return (
             "its WAITING names nothing the watch frees it on: name on its first line, the only line its waits are read from, the release as"
-            " release:<service>:<owner>/<repo>#<n>, a staging test's soak commit as staging:<target>/<env>@<commit>, an open PR the drive tracks, a part of an order not yet delivered as <order>:<part>"
+            " release:<service>:<owner>/<repo>#<n>, a staging test's soak commit as staging:<target>/<env>@<commit>, a Buildkite build by its link, https://buildkite.com/<org>/<pipeline>/builds/<n>,"
+            " an open PR the drive tracks, a part of an order not yet delivered as <order>:<part>"
             f" or a process you started on this Mac that still runs as pid:<n>, which wakes {job_id} once it ends, since a PR that merged or closed, a part delivered and a process that ended free it at once,"
             f" and a PR waiting on a part {job_id} carries, as the PR its staging test tests, waits on {job_id} in turn,"
             f" or first give it what it waits on with drive job set {job_id} --waits <card or job> or a clock with --due <time>"
@@ -1529,10 +1530,11 @@ def fix_refusal(data: dict, job_id: str, line: str, report: str) -> str | None:
 
 
 def named_waits(data: dict, order_id: str, line: str) -> list[str]:
-    """The waits a result line names: each release:<service>:<owner>/<repo>#<n> of a PR the drive tracks, each staging:<target>/<env>@<commit>, each other drive PR it names, each part it names as <order>:<part>, and each process on this Mac it names as pid:<n> that runs now, by pid_waits."""
+    """The waits a result line names: each release:<service>:<owner>/<repo>#<n> of a PR the drive tracks, each staging:<target>/<env>@<commit>, each Buildkite build it links, by the build's own link, each other drive PR it names, each part it names as <order>:<part>, and each process on this Mac it names as pid:<n> that runs now, by pid_waits."""
     releases = [found[0] for found in RELEASE_WAIT.finditer(line) if found["pr"] in data["prs"]]
     stagings = [found[0] for found in STAGING_WAIT.finditer(line)]
-    return list(dict.fromkeys([*releases, *stagings, *named_prs(data, order_id, RELEASE_WAIT.sub("", line)), *named_parts(data, line), *pid_waits(line)]))
+    builds = [found[0] for found in github.BUILD.finditer(line)]
+    return list(dict.fromkeys([*releases, *stagings, *builds, *named_prs(data, order_id, RELEASE_WAIT.sub("", line)), *named_parts(data, line), *pid_waits(line)]))
 
 
 def pid_waits(words: str) -> list[str]:
@@ -1564,13 +1566,14 @@ def part_wait(data: dict, wait: str) -> tuple[str, str] | None:
 
 
 def result_waits(data: dict, job_id: str, line: str) -> list[str]:
-    """The waits a result's first line gives its job, never its body, which cites what the job read as j3122's codex reply cited six merged PRs: each PR and release a READY's or PUSHED's line names, each PR, release, staging soak commit, process on this Mac and part a WAITING's line names that view.holds says still holds, since a merged PR or a delivered part would free it at once, never on either line a PR waiting on a part the job carries, by unlooped, as the PR a staging tester tests or a builder's own PR waiting on its own staging test, which waits on the job in turn, and none for any other line."""
+    """The waits a result's first line gives its job, never its body, which cites what the job read as j3122's codex reply cited six merged PRs: each PR and release a READY's or PUSHED's line names, each PR, release, staging soak commit, Buildkite build, process on this Mac and part a WAITING's line names, and the build a --release job started, that view.holds says still holds, since a merged PR or a delivered part would free it at once, never on either line a PR waiting on a part the job carries, by unlooped, as the PR a staging tester tests or a builder's own PR waiting on its own staging test, which waits on the job in turn, and none for any other line."""
     from drive import view
 
-    order_id = data["jobs"][job_id]["order"]
+    job = data["jobs"][job_id]
     if re.match(r"WAITING\b", line):
-        return view.holding(data, unlooped(data, job_id, named_waits(data, order_id, line)), None)
-    return unlooped(data, job_id, named_waits(data, order_id, line)) if REPORTED_LINE.match(line) else []
+        started = [found[0]] if job["release_build"] and (found := github.BUILD.match(job["release_build"])) else []
+        return view.holding(data, unlooped(data, job_id, [*named_waits(data, job["order"], line), *started]), None)
+    return unlooped(data, job_id, named_waits(data, job["order"], line)) if REPORTED_LINE.match(line) else []
 
 
 def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
@@ -3460,9 +3463,15 @@ def open_prs(data: dict) -> list[dict]:
     return [data["prs"][key] for key in open_pr_keys(data)]
 
 
+def held_builds(data: dict) -> set[str]:
+    """Each Buildkite build a live job or open PR of the drive waits on, by its link."""
+    owners = [*(job for job in data["jobs"].values() if job["state"] not in FINISHED_JOB_STATES), *open_prs(data)]
+    return {wait for owner in owners for wait in owner["waits"] if github.BUILD.fullmatch(wait)}
+
+
 def card_wait(data: dict, wait: str) -> bool:
-    """Whether a wait names a card of his, by its Slack link or waits id, rather than a job, a PR, a part of an order, a release of the drive, a staging test's soak commit, a process on this Mac or a builder slot on this Mac."""
-    return wait not in data["jobs"] and wait not in data["prs"] and not part_wait(data, wait) and not RELEASE_WAIT.fullmatch(wait) and not STAGING_WAIT.fullmatch(wait) and not PID_WAIT.fullmatch(wait) and wait != SLOT_WAIT
+    """Whether a wait names a card of his, by its Slack link or waits id, rather than a job, a PR, a part of an order, a release of the drive, a staging test's soak commit, a process on this Mac, a Buildkite build or a builder slot on this Mac."""
+    return wait not in data["jobs"] and wait not in data["prs"] and not part_wait(data, wait) and not RELEASE_WAIT.fullmatch(wait) and not STAGING_WAIT.fullmatch(wait) and not PID_WAIT.fullmatch(wait) and not github.BUILD.fullmatch(wait) and wait != SLOT_WAIT
 
 
 def job_wait_refusal(data: dict, waits: list[str]) -> str | None:
