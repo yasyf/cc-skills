@@ -85,10 +85,13 @@ def messages(payload: dict, data: dict) -> list[tuple[str, str, str]]:
 
 
 def resumed_builder(payload: dict, data: dict, job_id: str, said: str) -> str | None:
-    """Why a SendMessage does not reach a builder: the step superseded.delivery names for its text, the one every watch line names, is a fresh builder, as for a PR event to a builder that returned BUILT or DONE outside an incident, so each SendMessage a watch line names goes through and none it does not name for a returned builder does."""
-    if payload["tool_name"] != "SendMessage" or not (step := superseded.fresh_builder(data, job_id, data["jobs"][job_id], said, "this message")):
+    """Why a SendMessage does not reach a builder: the step superseded.delivery names for its text, the one every watch line names, is a fresh builder, as for a PR event to a builder that returned BUILT or DONE outside an incident, so the SendMessage a resume prints pointing the agent at the record it posted goes through and none a watch line does not name for a returned builder does."""
+    if payload["tool_name"] != "SendMessage" or superseded.pointed(data, job_id, said) or not (step := superseded.fresh_builder(data, job_id, data["jobs"][job_id], said, "this message")):
         return None
-    return f"Refused on purpose: {step}. His answers it holds go to it verbatim in a SendMessage from the session that started its agent, which the watch's ANSWER undelivered line names."
+    return (
+        f"Refused on purpose: {step}. His answers it holds reach it by `drive job resume {job_id}` with his words verbatim, which the watch's ANSWER undelivered line names:"
+        " it posts them to the agent's cci address and prints the SendMessage pointing the agent at that record."
+    )
 
 
 def woken_builder(payload: dict, data: dict, job_id: str) -> str | None:

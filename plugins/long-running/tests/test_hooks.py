@@ -685,7 +685,7 @@ def test_resume_from_a_session_that_did_not_start_the_jobs_ended_agent_hands_the
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: a verb for owners")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it", "--agent", "a-1")
     run("job", "brief", "j1", "--serves", "drive tooling", "--done-when", "merged", "--where", "yasyf/cc-skills main")
-    assert cli.main(["job", "resume", "j1", "go"]) == 2
+    assert cli.main(["job", "launch", "j1"]) == 2
     assert capsys.readouterr().err == "drive: j1 runs on this Mac as agent a-1; resume it with SendMessage\n"
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "meta-session")
     run("start", "demo", "--role", "meta")

@@ -367,7 +367,7 @@ def test_job_set_agent_with_the_jobs_own_dispatch_puts_an_agent_held_job_back_on
 ) -> None:
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(workspace="pool-one", environment="pool-one", terminal="term_lane", agent="a-doctor", where="local")
-    assert cli.main(["job", "resume", "j1", "go"]) == 2
+    assert cli.main(["job", "launch", "j1"]) == 2
     assert capsys.readouterr().err == (
         f"drive: j1 runs on this Mac as agent a-doctor; resume it with SendMessage, or put it back on its lane with drive job set j1 --agent {DISPATCH}, then resume it\n"
     )
@@ -1080,20 +1080,52 @@ def test_a_resume_from_another_session_posts_the_text_to_the_session_that_starte
     posted = []
     monkeypatch.setattr(tools, "sent", lambda name, lane, posts: posted.extend((lane, post) for post in posts) or ["7"])
     text = "From j3904: the staging dry run it started, build 15531, passed\nits log is scratch/j3904/b15531.log"
+    pointer = 'j1: SendMessage a0b74915bac29cf3e "Read cci record 7 whole and act on it"'
     assert run("job", "resume", "j1", text) == (
         0,
-        f"j1: posted to platform@{demo} as handoff record 7, since agent a0b74915bac29cf3e takes SendMessage only from session platform-1, which started it",
+        f"j1: posted to agent a0b74915bac29cf3e's cci address as handoff record 7, and to platform@{demo}, whose SendMessage alone reaches it: {pointer}",
     )
-    [(lane, record)] = posted
-    assert (lane, record["kind"], record["to"], record["attr"]) == ("j1", "handoff", [f"platform@{demo}"], {"order": "o1", "job": "j1"})
-    assert record["body"] == f"j1 runs as agent a0b74915bac29cf3e of your session platform-1, whose SendMessage alone reaches it: send it this text verbatim\n\n{text}"
+    [(lane, record), (told, line)] = posted
+    assert (lane, record["kind"], record["to"], record["attr"], record["body"]) == ("j1", "handoff", ["peer:platform-1/a0b74915bac29cf3e"], {"order": "o1", "job": "j1"}, text)
+    assert (told, line, len(line["text"]) < 120) == ("j1", {"kind": "handoff", "to": [f"platform@{demo}"], "attr": {"order": "o1", "job": "j1"}, "text": pointer}, True)
+    assert (state.drive_dir(demo) / "jobs" / "j1.sent-7.md").read_text() == text
     job = state.load(demo)["jobs"]["j1"]
     assert (job["agent"], job["session"], job["undelivered"], job.get("handoff")) == ("a0b74915bac29cf3e", "platform-1", [], None)
     assert cli.main(["job", "launch", "j1"]) == 2
     assert capsys.readouterr().err == (
         "drive: j1: refused, not launched: it runs as agent a0b74915bac29cf3e of session platform-1, which still holds it and whose SendMessage alone"
-        f' reaches it, so the agent finishes its job: drive job resume j1 "<the event>" posts the event to platform@{demo}\n'
+        f' reaches it, so the agent finishes its job: drive job resume j1 "<the event>" posts the event to the agent\'s cci address and platform@{demo} the SendMessage pointing it there\n'
     )
+
+
+def test_a_resume_of_an_agent_the_communicator_started_posts_his_words_whole_to_that_agent_and_the_communicator_only_the_sendmessage_pointing_there(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    words = "Ring: ship the lighter card"
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the watch")
+    run("job", "add", "builder", "--order", "o1", "--goal", "watch")
+    held = {"seq": None, "words": words, "at": state.stamp(), "said": None, "request": "req-held", "sender": state.HIM}
+    with state.edit(demo) as data:
+        data["roles"]["communicator"] = {"session": "talker", "terminal": None, "cwd": "/talk", "started": state.stamp()}
+        data["jobs"]["j1"].update(agent="a3c1d2e4f5a6b7c8d", session="talker", where="local", undelivered=[held])
+        top = data["roles"]["coordinator"]["session"]
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", top)
+    monkeypatch.setattr(orca, "launch", lambda *args: pytest.fail("a live agent's job starts no second worker"))
+    posted = []
+    monkeypatch.setattr(tools, "sent", lambda name, lane, posts: posted.extend((lane, post) for post in posts) or ["8"])
+    pointer = 'j1: SendMessage a3c1d2e4f5a6b7c8d "Read cci record 8 whole and act on it"'
+    assert run("job", "resume", "j1", words) == (
+        0,
+        f"j1: posted to agent a3c1d2e4f5a6b7c8d's cci address as handoff record 8, and to communicator@{demo}, whose SendMessage alone reaches it: {pointer}",
+    )
+    assert [(lane, post["to"], post["text"]) for lane, post in posted] == [("root", ["peer:talker/a3c1d2e4f5a6b7c8d"], words), ("root", [f"communicator@{demo}"], pointer)]
+    assert state.load(demo)["jobs"]["j1"]["undelivered"] == []
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["state"] = "built"
+    posted.clear()
+    assert cli.main(["job", "resume", "j1", "PR #7: red: its required check test failed"]) == 2
+    assert capsys.readouterr().err.startswith("drive: j1: refused, nothing posted: j1's builder already returned (built)")
+    assert posted == []
 
 
 STOPPED_TEXT = "API Error: Opus 5.5's safeguards flagged this message (https://www.anthropic.com/legal/aup). This sometimes happens with safe, normal conversations."
@@ -1401,10 +1433,13 @@ def test_a_job_whose_agent_on_this_mac_works_or_ended_its_own_turn_keeps_its_age
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], last: dict, quiet: timedelta
 ) -> None:
     launched = agent_on_this_mac(run, demo, tmp_path, monkeypatch, last, quiet)
-    for argv in (("launch", "j1"), ("resume", "j1", "PR #54870: checks failed")):
-        assert cli.main(["job", *argv]) == 2
-        assert capsys.readouterr().err == "drive: j1 runs on this Mac as agent a1; resume it with SendMessage\n"
-    assert (launched, state.load(demo)["jobs"]["j1"]["agent"]) == ([], "a1")
+    assert cli.main(["job", "launch", "j1"]) == 2
+    assert capsys.readouterr().err == "drive: j1 runs on this Mac as agent a1; resume it with SendMessage\n"
+    posted = []
+    monkeypatch.setattr(tools, "sent", lambda name, lane, posts: posted.extend(post["to"] for post in posts) or ["8"])
+    assert run("job", "resume", "j1", "PR #54870: checks failed") == (0, 'j1: SendMessage a1 "Read cci record 8 whole and act on it"')
+    job = state.load(demo)["jobs"]["j1"]
+    assert (launched, job["agent"], posted) == ([], "a1", [[f"peer:{job['session']}/a1"]])
 
 
 @pytest.mark.parametrize(
@@ -3514,7 +3549,7 @@ def test_the_watch_neither_records_nor_relaunches_a_lane_death_while_another_dri
     )
 
 
-def test_a_pr_wake_for_a_builder_agent_hands_the_line_to_the_coordinator_session_that_started_it_by_sendmessage_else_to_the_session_holding_its_order_by_a_resume(
+def test_a_pr_wake_for_a_builder_agent_hands_the_line_and_its_resume_to_the_coordinator_session_that_started_it_else_to_the_session_holding_its_order(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the watch")
@@ -3534,7 +3569,7 @@ def test_a_pr_wake_for_a_builder_agent_hands_the_line_to_the_coordinator_session
     [record] = posted
     assert (record["to"], record["text"]) == (
         [f"platform@{demo}"],
-        f"STAGE {line}; for its builder j1, with this line alone: SendMessage it this line verbatim from platform@{demo}, the session platform-1 that started its agent a8e6e8443b2472bdb",
+        f"STAGE {line}; for its builder j1, with this line alone: drive job resume j1 with this line verbatim",
     )
     with state.edit(demo) as data:
         top = data["jobs"]["j1"]["session"] = data["roles"]["coordinator"]["session"]
@@ -3542,7 +3577,7 @@ def test_a_pr_wake_for_a_builder_agent_hands_the_line_to_the_coordinator_session
     posted.clear()
     assert run("pr", "wake", url, "--text", line) == (0, f"{key}: sent to root@{demo} for j1")
     assert [record["text"] for record in posted] == [
-        f"STAGE {line}; for its builder j1, with this line alone: SendMessage it this line verbatim from root@{demo}, the session {top} that started its agent a8e6e8443b2472bdb"
+        f"STAGE {line}; for its builder j1, with this line alone: drive job resume j1 with this line verbatim"
     ]
     with state.edit(demo) as data:
         data["jobs"]["j1"]["session"] = "ended-session"
