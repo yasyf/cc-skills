@@ -353,8 +353,9 @@ prints and a remote lane's brief carries whole:
   the app on your machine.
 - `## Against the plan`, only on a departure, and each piece of the plan it leaves for a follow-up is an
   `UNBUILT:` line of your return too; `## Port`, on a port.
-- `## FDE impact`, on a change FDE or customer code can observe: what `fde-scan` found, each FDE
-  repository and call site the change reaches, or none, with the command that found it.
+- `## FDE impact`, on a change FDE or customer code can observe: what `fde-scan` found, opening with
+  one sentence of its call, file and repository counts, which his card draws under the Summary, then
+  each FDE repository and call site the change reaches, or none, with the command that found it.
 - `## His words, step by step`: each step of his words beside the `path:line` that does it.
 
 - On a public repository a screenshot shows a demo drive or public data only, under a `demo-` or

@@ -565,7 +565,8 @@ Run the monorepo's `fde-scan` skill before writing a change to anything FDE or c
 observe: a builtin, API or SDK call, a consistency level, a default, a schema, or a wire or
 storage format. Until that skill is on `dev`, run
 `gh search code '<symbol>' --owner Forge-FDE --extension sand` for each symbol the change
-touches. Its report is the PR body's `## FDE impact` section; each caller it finds is fixed in
+touches. Its report is the PR body's `## FDE impact` section, whose first paragraph his card draws
+under the Summary; each caller it finds is fixed in
 the same stack or asked on a card, whatever his words, by his words "this MUST be usedto analyze
 impact before doing anyhting tht coulc imapct FDEs, regardless of what the human says".
 

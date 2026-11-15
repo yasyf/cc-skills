@@ -131,6 +131,7 @@ def row(**fields: str) -> dict:
         "changed": "",
         "review": "",
         "summary": SUMMARY,
+        "impact": "",
         "refresher": "When the network hiccups, we try again.",
         "surprise": "Uploads that fail once now retry instead of losing the file.",
         "show_me": "",
@@ -287,6 +288,12 @@ def test_a_summary_is_no_surprise_and_risk_stays_off_the_card() -> None:
 def test_what_he_will_hate_most_fills_its_line(heading: str) -> None:
     body = f"## Summary\nAdds a flag.\n\n## {heading}\nThe flag is on for every team at once.\n"
     assert card.render(pr_json(body=body), entry())["prs"][0]["hate_most"] == "The flag is on for every team at once."
+
+
+@pytest.mark.parametrize("heading", ["FDE impact", "FDE impact scan"])
+def test_what_the_change_reaches_in_fde_code_fills_its_line(heading: str) -> None:
+    body = f"## Summary\nReads default to consistency NONE.\n\n## {heading}\nread is called 2,412 times in 466 files across 32 of 254 FDE repositories.\n\n| Repository | Sand calls |\n|---|---|\n| app | 7 |\n"
+    assert card.render(pr_json(body=body), entry())["prs"][0]["impact"] == "read is called 2,412 times in 466 files across 32 of 254 FDE repositories."
 
 
 def test_drawn_pictures_ride_the_card_and_the_show_me_keeps_one_caption() -> None:
