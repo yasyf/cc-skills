@@ -3,12 +3,13 @@ import itertools
 import json
 import re
 import sys
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import agents, cli, install, limits, mcp, picture, refs, render, settled, slack, state, talk, tools, view, watch
+from drive import agents, cli, install, limits, mcp, picture, reads, refs, render, settled, slack, state, talk, tools, view, watch
 from drive.state import DriveError
 
 SLACK = "mcp__plugin_cc-slack_cc-slack__"
@@ -197,6 +198,7 @@ DOC_SOURCE = "; {docs} is a doc, which backs what that doc says and nothing abou
 CITED_SOURCE = "a record the post cites or a claim names, as the posting handler's newest call naming its seq"
 UNCLAIMED = {"id": "claims:none", "source": "the reads the posting handler's claims name", "quote": "none: the post names no claim and no read behind one"}
 CARRIED_SOURCE = "the report this post carries, another agent's words, as the posting handler's newest call naming its seq"
+ALONE_SOURCE = "; that call held more than this record, so this is the record alone, as cci show prints it"
 
 
 def his_drive(session: str) -> dict | None:
@@ -969,9 +971,9 @@ def denial(reason: str) -> dict:
 
 
 def read_evidence(payload: dict, claims: list[dict]) -> list[dict]:
-    """What Jev weighs every handler's say post by beside his words, whatever the checks found: for each read its claims name, its newest call that read names, and for each record a claim names or its text cites, the report it carries among them, its newest call naming that record's seq, each with its whole result, so a report it carries reaches Jev only when a line of it names that report, each call once under the first item naming it, since a line on where code lives, what it does, or a number or state stands only on the read behind it, and a record stands on the handler's own read of it, never its whole body, so a handler that reads again narrower hands Jev only that read, by his pick "The handler names the read behind each claim; Jev checks each claim against that read, whole"; none for any other post, such as the communicator's ack, or a card or PR card, which a record draws."""
+    """What Jev weighs every handler's say post by beside his words, whatever the checks found: for each read its claims name, its newest call that read names, and for each record a claim names or its text cites, the report it carries among them, its newest call naming that record's seq, each with its whole result, so a report it carries reaches Jev only when a line of it names that report, each call once under the first item naming it, since a line on where code lives, what it does, or a number or state stands only on the read behind it, and a record stands on the handler's own read of it, so a handler that reads again narrower hands Jev only that read, by his pick "The handler names the read behind each claim; Jev checks each claim against that read, whole"; a record is never weighed larger than itself, so a call that holds more than the record, such as a cci read of several seqs, hands Jev the record alone as `cci show` prints it; none for any other post, such as the communicator's ack, or a card or PR card, which a record draws."""
     tool_input = payload["tool_input"]
-    if payload["tool_name"] != SAY or not payload.get("agent_id") or tool_input.get("card") or tool_input.get("tap_prs") or his_drive(payload.get("session_id") or "") is None:
+    if payload["tool_name"] != SAY or not payload.get("agent_id") or tool_input.get("card") or tool_input.get("tap_prs") or (drive := his_drive(payload.get("session_id") or "")) is None:
         return []
     reads = list(dict.fromkeys(claim["read"].strip() for claim in claims))
     named = [read for read in reads if not RECORD_READ.fullmatch(read)]
@@ -985,9 +987,20 @@ def read_evidence(payload: dict, claims: list[dict]) -> list[dict]:
             called(f"read:{index}", read, NAMED_SOURCE.format(read=json.dumps(read, ensure_ascii=False)), calls, given)
             for index, read in enumerate(named, 1)
         ),
-        *(called(f"record:{seq}", seq, CARRIED_SOURCE if seq == tool_input.get("record") else CITED_SOURCE, calls, given) for seq in seqs),
+        *(
+            called(f"record:{seq}", seq, CARRIED_SOURCE if seq == tool_input.get("record") else CITED_SOURCE, calls, given, lambda seq=seq: record_alone(drive["name"], seq))
+            for seq in seqs
+        ),
         *([] if claims else [UNCLAIMED]),
     ]
+
+
+def record_alone(name: str, seq: str) -> str:
+    """One record as `cci show` prints it: its line, then the rest of its body, whole."""
+    try:
+        return f"cci show {seq}\n{reads.run(['cci', 'show', seq, '--drive', name], Path.cwd()).strip()}"
+    except reads.ReadError as error:
+        return f"none: cci holds no record {seq} on drive {name}: {error}"
 
 
 def own_calls(payload: dict) -> dict[str, str]:
@@ -1006,19 +1019,22 @@ def own_calls(payload: dict) -> dict[str, str]:
     return results
 
 
-def called(item: str, read: str, source: str, calls: dict[str, str], given: dict[str, str]) -> dict:
-    """Jev's item for one read the claims name, or one record by its seq: the newest call whose tool name and input hold every word of the read, case aside, a path's line numbers after its colon left out, since the handler copies a read's words from the call it means and each call's result goes whole, so a narrower read again stands in for a wide one and older calls its words also hold never crowd Jev's request; that call whole under the first item holding it, and a later item naming that item's id as given in its place, since one call under two reads doubled Jev's request; or none when no call does. Its source names each doc, such as a report or a brief, that call opens."""
+def called(item: str, read: str, source: str, calls: dict[str, str], given: dict[str, str], alone: Callable[[], str] | None = None) -> dict:
+    """Jev's item for one read the claims name, or one record by its seq: the newest call whose tool name and input hold every word of the read, case aside, a path's line numbers after its colon left out, since the handler copies a read's words from the call it means and each call's result goes whole, so a narrower read again stands in for a wide one and older calls its words also hold never crowd Jev's request; that call whole under the first item holding it, and a later item naming that item's id as given in its place, since one call under two reads doubled Jev's request; for a record, the record alone, as alone reads it, when that call is not given already and holds more, so a record weighs what it holds and never what the read that held it did; or none when no call does. Its source names each doc, such as a report or a brief, that call opens."""
     words = [json.dumps(word, ensure_ascii=False)[1:-1] for word in READ_WORDS.findall(LINE_NUMBERS.sub("", read.casefold()))]
     held = next((call for call in reversed(calls) if words and all(word in call.casefold() for word in words)), None)
     if held is None:
         return {"id": item, "read": read, "source": source, "quote": f"none: no call of the handler's own holds {json.dumps(read, ensure_ascii=False)}"}
+    whole = f"{held}\n{calls[held]}"
+    if alone and held not in given and len(record := alone()) < len(whole):
+        return {"id": item, "read": read, "source": source + ALONE_SOURCE, "quote": record}
     docs = list(dict.fromkeys(DOC_PATH.findall(held)))
     first = given.setdefault(held, item)
     return {
         "id": item,
         "read": read,
         "source": source + (DOC_SOURCE.format(docs=json.dumps(docs, ensure_ascii=False)) if docs else ""),
-        "quote": f"{held}\n{calls[held]}" if first == item else GIVEN.format(read=first),
+        "quote": whole if first == item else GIVEN.format(read=first),
     } | ({} if first == item else {"given": first})
 
 
@@ -1027,7 +1043,7 @@ def unroomed(unfit: list[tuple[str, int]]) -> agents.Unjudged:
     sizes = "; ".join(f"{read} is {chars:,} characters" for read, chars in unfit)
     return agents.Unjudged(
         f"refused: Jev weighs each claim against its read whole within {settled.REQUEST_CHARS:,} characters, and no room is left for {sizes}."
-        " Make a narrower read, a grep or a smaller `cci read` showing only what each claim needs, name it in claims, and call say again."
+        " Make a narrower read, a grep, a jq filter or a line range showing only the lines each claim needs, never a smaller `cci read` budget, which cuts a record's end unseen, name each in claims, keep every line of the post, and call say again."
     )
 
 
