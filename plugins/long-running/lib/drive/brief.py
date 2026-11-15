@@ -239,7 +239,7 @@ def approval_refusal(command: str, data: dict) -> str | None:
 def hold_refusal(release: str, data: dict, hold: dict) -> str | None:
     """Why a release may not run under his hold on every release: it is not a `ci release start` or `hotfix` naming one --order, his exception for that one release, recorded after the hold that `settled.unordered` reads as ordering it, never a tap on a PR card; an incident's order passes on no label, the hold included."""
     cwd = data["roles"]["coordinator"]["cwd"]
-    said, where = hold_words(hold, data)
+    where = ", ".join(filter(None, [hold["id"][:7], (data["answers"].get(hold["id"][:7]) or {}).get("link")]))
     named = started(release)
     orders = named[0].get("order") if len(named) == 1 else None
     try:
@@ -255,12 +255,12 @@ def hold_refusal(release: str, data: dict, hold: dict) -> str | None:
         why = f"his answers could not be read: {error}"
     except settled.Unheard as failure:
         why = f"Jev did not say whether his answer {orders[-1]} approves it ({failure}); run it again once Jev answers"
-    return RELEASE_HELD.format(said=said, where=where, hold=hold["id"][:7], release=release, why=why)
+    return RELEASE_HELD.format(said=hold_words(hold), where=where, hold=hold["id"][:7], release=release, why=why)
 
 
-def hold_words(hold: dict, data: dict) -> tuple[str, str]:
-    """His words in his hold on every release, cut to settled.QUOTED_CHARS, and where they are recorded: the hold's answer id and the link of his message."""
-    return cut(settled.his(hold["body"]), settled.QUOTED_CHARS), ", ".join(filter(None, [hold["id"][:7], (data["answers"].get(hold["id"][:7]) or {}).get("link")]))
+def hold_words(hold: dict) -> str:
+    """His words in his hold on every release, cut to settled.QUOTED_CHARS."""
+    return cut(settled.his(hold["body"]), settled.QUOTED_CHARS)
 
 
 def release_ask_refusal(kind: str, to: list[str], words: str, data: dict) -> str | None:
@@ -402,7 +402,7 @@ def freezes(name: str, data: dict) -> list[dict]:
 
 def standing(name: str, data: dict) -> list[tuple[str | None, str]]:
     """Each release freeze the release ledger holds standing now and his hold on every release, by id with its line, read at each use and never kept, so no brief, wait or post states a freeze that lifted or misses one set since; a ledger that could not be read stands under no id, which no words name."""
-    held = [(hold["id"][:7], f'his hold {hold["id"][:7]} on every release stands: "{hold_words(hold, data)[0]}"')] if (hold := settled.hold(data["roles"]["coordinator"]["cwd"])) else []
+    held = [(hold["id"][:7], f'his hold {hold["id"][:7]} on every release stands: "{hold_words(hold)}"')] if (hold := settled.hold(data["roles"]["coordinator"]["cwd"])) else []
     try:
         return [*((each["freeze"]["id"], each["text"]) for each in freezes(name, data)), *held]
     except (reads.ReadError, state.DriveError) as error:

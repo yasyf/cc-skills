@@ -10,7 +10,7 @@ import agent_brief
 import handed_records
 import one_line_result
 import pytest
-from conftest import LANE_SPEC, UNFROZEN, Thread
+from conftest import HELD_RELEASES, LANE_SPEC, UNFROZEN, Answers, Thread
 from drive import agents, orca, reads, slack, state, talk, tools, watch
 
 Run = Callable[..., tuple[int, str]]
@@ -89,6 +89,15 @@ def test_drive_handler_starts_its_own_claude_bg_session_and_records_that_he_wrot
     assert argv[-1] == HIS_BRIEF.format(scratch=tmp_path / "scratch" / "h1") + UNFROZEN
     assert tools.run("handler", "demo", {"brief": f"Record: 663488 Drive: demo Scratch: {tmp_path / 'h2'}"}).startswith("started ")
     assert state.load("demo")["owner"] == data["owner"]
+
+
+def test_a_handler_started_while_his_hold_on_every_release_stands_closes_its_prompt_on_his_hold(
+    communicator: str, run: Run, tmp_path: Path, started: list[list[str]], recorded: Answers
+) -> None:
+    recorded.listed = [HELD_RELEASES]
+    start(run, tmp_path)
+    [argv] = started
+    assert argv[-1] == HIS_BRIEF.format(scratch=tmp_path / "scratch" / "h1") + '\nRelease freezes: his hold 15c4de1 on every release stands: "no releases until I say we can again"'
 
 
 def test_a_handler_session_starts_with_every_orca_lanes_env_settings_and_denied_tools_and_this_macs_lane_settings_over_them_but_the_datadog_plugin(
