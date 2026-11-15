@@ -13,7 +13,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import NamedTuple
 
-from drive import agents, github, procs, reads, render, state
+from drive import agents, github, install, procs, reads, render, state
 from drive.install import config_dir
 from drive.state import DriveError
 
@@ -795,9 +795,12 @@ def gone(error: OrcaError) -> str | None:
 
 
 def lane_end(drive: str, job_id: str, job: dict, wake: bool = True) -> LaneEnd | None:
-    """None while the lane's worker takes messages; else why it does not, the branch its terminal was on, and, for a worker that finished, on its Sprite or on this Mac, the worktree, terminal and Run it finished in, where a next worker on this Mac starts, read from Orca, since a dispatch recorded by hand records neither. A finished worker is read before its liveness, which Orca cannot always tell once the worker is done, and its terminal is the one Orca recorded for it, since a worker-show that cannot tie that terminal to the worker's process shows none; one whose terminal Orca shows no longer connected ends as a dead one does. A lane whose Sprite Orca cannot reach is read again after woken wakes that Sprite; without wake, as a move to this Mac reads it, that lane, or one whose worker Orca cannot show live, ends unreached at once, its Sprite left as it is. A lane on this Mac that Orca cannot tell is live takes messages while typed finds its terminal. A lane a `drive job end` ended is read from the end its job records, never from Orca, since that end stopped its worker and destroyed its Sprite, which Orca then reads as a lane it no longer holds or pairs with. OrcaError when Orca cannot tell either way."""
-    if state.lane_ended(job):
-        return LaneEnd(f"the drive job end of {state.lane_death(job, 'dispatch')['ended']['at']} ended it", None, None, ended=True)
+    """None while the lane's worker takes messages; else why it does not, the branch its terminal was on, and, for a worker that finished, on its Sprite or on this Mac, the worktree, terminal and Run it finished in, where a next worker on this Mac starts, read from Orca, since a dispatch recorded by hand records neither. A finished worker is read before its liveness, which Orca cannot always tell once the worker is done, and its terminal is the one Orca recorded for it, since a worker-show that cannot tie that terminal to the worker's process shows none; one whose terminal Orca shows no longer connected ends as a dead one does. A lane whose Sprite Orca cannot reach is read again after woken wakes that Sprite; without wake, as a move to this Mac reads it, that lane, or one whose worker Orca cannot show live, ends unreached at once, its Sprite left as it is. A lane on this Mac that Orca cannot tell is live takes messages while typed finds its terminal. A lane a `drive job end` ended is read from the end its job records, never from Orca, since that end stopped its worker and destroyed its Sprite, which Orca then reads as a lane it no longer holds or pairs with, and a lane whose death records the end died kept is read from that end, never from Orca, so a resume, launch or PR wake after it, a run again after a newer install's save included, never shows or wakes that lane again. OrcaError when Orca cannot tell either way."""
+    death = state.lane_death(job, "dispatch") or {}
+    if ended := death.get("ended"):
+        return LaneEnd(f"the drive job end of {ended['at']} ended it", None, None, ended=True)
+    if kept := death.get("lane_end"):
+        return LaneEnd(**kept)
     try:
         return shown_end(job, worker(job["dispatch"]))
     except OrcaError as error:
@@ -833,7 +836,7 @@ def moved_here(job_id: str) -> str:
 
 
 def woken(drive: str, job_id: str, job: dict, unreached: str) -> LaneEnd | None:
-    """Wake the Sprite of a lane Orca cannot reach with the reclaimer's --wake from the drive's checkout, which reopens its forward and adopts the Orca runtime a cold boot started, then read the lane again, saying each step by state.said: None when its worker takes messages again, its end when its worker finished with its terminal held, and else what its Sprite says over cc-remote's ssh: the refusal again when something listens on the port Orca's runtime serves on there, since Orca then fails on this Mac and no lane restarts for it, and otherwise an unfit end, which restarts the lane on a fresh Sprite, by his pick "Wake and restart in place: on an unreachable lane the watch wakes its Sprite and restarts the lane there, else on a fresh Sprite": when it answers with nothing listening there, as when a full disk crash-loops that runtime, which saves the lane first, and when it does not answer, as a Sprite whose memory thrashes until its sshd sends no banner does, which restart asks nothing more and keeps, since every later step on it, a launcher's prepare --existing there included, waits on that same silence."""
+    """Wake the Sprite of a lane Orca cannot reach with the reclaimer's --wake from the drive's checkout, which reopens its forward and adopts the Orca runtime a cold boot started, then read the lane again, saying each step by state.said: None when its worker takes messages again, its end when its worker finished with its terminal held, and else what its Sprite says over cc-remote's ssh: the refusal again when something listens on the port Orca's runtime serves on there, since Orca then fails on this Mac and no lane restarts for it, and otherwise an unfit end, which restarts the lane on a fresh Sprite, by his pick "Wake and restart in place: on an unreachable lane the watch wakes its Sprite and restarts the lane there, else on a fresh Sprite": when it answers with nothing listening there, as when a full disk crash-loops that runtime, which saves the lane first, and when it does not answer, as a Sprite whose memory thrashes until its sshd sends no banner does, which restart asks nothing more and keeps, since every later step on it, a launcher's prepare --existing there included, waits on that same silence. Every end it comes to but a finished worker's is kept on the lane's death by died, so the wake runs once per death."""
     workspace = job["workspace"]
     state.said(job_id, f"Orca cannot reach its lane, so it wakes Sprite {workspace} with {RECLAIMER} --wake, for at most {RECLAIM_SECONDS} s")
     try:
@@ -846,12 +849,27 @@ def woken(drive: str, job_id: str, job: dict, unreached: str) -> LaneEnd | None:
             case True:
                 raise
             case False:
-                return LaneEnd(f"{unreached}, and its Sprite has nothing listening on the port Orca's runtime serves on there", None, None, unfit=True)
+                return died(drive, job_id, job["dispatch"], LaneEnd(f"{unreached}, and its Sprite has nothing listening on the port Orca's runtime serves on there", None, None, unfit=True))
             case silent:
-                return LaneEnd(f"{unreached}, and its Sprite did not answer: {silent}", None, None, unfit=True)
+                return died(drive, job_id, job["dispatch"], LaneEnd(f"{unreached}, and its Sprite did not answer: {silent}", None, None, unfit=True))
     if end is None or end.worktree:
         return end
-    return end._replace(why=f"{unreached}, and once it woke {end.why}", unreached=True)
+    return died(drive, job_id, job["dispatch"], end._replace(why=f"{unreached}, and once it woke {end.why}", unreached=True))
+
+
+def died(drive: str, job_id: str, dispatch: str, end: LaneEnd, **outcome: str | None) -> LaneEnd:
+    """Keep the end a step of a dead lane's restart came to on the death of its dispatch, recorded by state.lane_died if none is, with the outcome of that step, such as its save or its session's resume, through install.finished, since a wake, save or start may run while a newer install saves the drive, so lane_end and restart read it there and no step of that restart runs twice for one death; the end."""
+    install.finished(f"{job_id}: its lane's end", LAUNCH_SECONDS, death_kept, drive, job_id, dispatch, end.why, {"lane_end": end._asdict(), **outcome})
+    return end
+
+
+def death_kept(drive: str, job_id: str, dispatch: str, why: str, kept: dict) -> None:
+    """Keep on the death of the job's lane by its dispatch, recorded by state.lane_died for why if none is, what a step of its restart came to, unless a lane since replaced it."""
+    with state.edit(drive) as data:
+        job = data["jobs"][job_id]
+        if job.get("dispatch") == dispatch:
+            state.lane_died(job, dispatch, why, state.now())
+            state.lane_death(job, "dispatch").update(kept)
 
 
 def shown_end(job: dict, shown: dict) -> LaneEnd | None:

@@ -2524,6 +2524,54 @@ def test_a_lane_orca_could_not_reach_whose_woken_sprite_says_orcas_runtime_liste
     assert (job["dispatch"], "deaths" in job, [kept["words"] for kept in job["undelivered"]]) == (dispatch, False, [watch.UNREACHED])
 
 
+def test_j5668s_resume_run_again_once_a_newer_install_saved_the_drive_during_its_start_in_place_wakes_the_sprite_once_starts_there_once_and_then_on_a_fresh_sprite(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    workspace, dispatch, port = J1409_LANES["j242"]
+    wakes, launches = unreachable_lane(remote, tmp_path, monkeypatch, J1409_LANES["j242"], dead)
+    shows, saves, version = [], [], state.VERSION
+    show = orca.worker
+    monkeypatch.setattr(orca, "worker", lambda shown: shows.append(shown) or show(shown))
+    monkeypatch.setattr(orca, "save", lambda drive, job_id, job, root: saves.append(job["workspace"]) or NOTHING.format(job["workspace"]))
+    refusal = f"orca-worker-launch.sh exited 1 before a worker started: cc-remote orca prepare {workspace} --existing: {NO_WAKE}"
+
+    def launch(drive: str, lane: str, brief: Path, checkout: Path, run_id: str, route: str | None, workspace: str | None, session: str | None) -> dict:
+        launches.append({"workspace": workspace, "session": session, "brief": brief.read_text()})
+        if workspace:
+            monkeypatch.setattr(state, "VERSION", "0.0.1")
+            raise orca.Unstarted(refusal)
+        return {field: f"{field}-2" for field in ("dispatch", "task", "terminal", "environment", "lane")} | {"workspace": "workspace-2"}
+
+    newest, real = tmp_path / "newest" / "bin" / "drive", subprocess.run
+
+    def newer(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if argv[0] != str(newest):
+            return real(argv, **kwargs)
+        monkeypatch.setattr(state, "VERSION", version)
+        code = cli.main(argv[1:])
+        monkeypatch.setattr(state, "VERSION", "0.0.1")
+        return subprocess.CompletedProcess(argv, code, capsys.readouterr().out, "")
+
+    monkeypatch.setattr(orca, "launch", launch)
+    monkeypatch.setattr(cli.install, "upgraded", lambda: newest)
+    monkeypatch.setattr(cli.install.subprocess, "run", newer)
+    assert run("job", "resume", "j1", watch.UNREACHED)[0] == 2
+    death = state.saved_row(remote, "jobs", "j1")["deaths"][0]
+    assert (death["dispatch"], death["lane_end"]["unfit"], death["lane_end"]["why"].endswith(refusal)) == (dispatch, True, True)
+    monkeypatch.setattr(state, "VERSION", version)
+    code, out = run("job", "resume", "j1", watch.UNREACHED)
+    assert (code, out.startswith("j1: the message went to the job's next worker, relaunched on Sprite workspace-2 as dispatch dispatch-2")) == (0, True)
+    assert f"was dead ({unreachable(port)}, and once it woke its worker exited, and {refusal})" in out
+    assert (wakes, len(shows), [launched["workspace"] for launched in launches], saves) == ([("--wake", workspace)], 2, [workspace, None], [workspace])
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["dispatch"], job["workspace"], job["undelivered"], [(death["dispatch"], death["saved"]) for death in job["deaths"]]) == (
+        "dispatch-2",
+        "workspace-2",
+        [],
+        [(dispatch, NOTHING.format(workspace))],
+    )
+
+
 def reprepared(monkeypatch: pytest.MonkeyPatch, dispatch: str = "dispatch-2") -> list[tuple[str, str | None]]:
     """Each launch a resume of a finished Sprite lane starts, by lane and the workspace it continues on, its worker started on that Sprite."""
     monkeypatch.setattr(orca, "worker", lambda dispatch: FINISHED_WORKER)
@@ -2861,17 +2909,18 @@ def test_a_resume_whose_fresh_sprite_took_no_tools_says_his_answer_held_naming_t
     assert (data["jobs"]["j1"]["dispatch"], data["answers"]["a1"]["jobs"]) == (DISPATCH, {"j1": None})
 
 
-def test_a_resume_continuing_on_a_dead_lanes_sprite_that_refuses_the_tools_keeps_it_and_relaunches_on_a_fresh_one(
+def test_a_resume_continuing_on_a_dead_lanes_sprite_that_refuses_the_tools_keeps_it_and_relaunches_on_a_fresh_one_trying_its_save_once(
     run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    launched = answered_dead_lane(remote, tmp_path, monkeypatch, unsaveable(UNREAD), 1)
+    saves = []
+    launched = answered_dead_lane(remote, tmp_path, monkeypatch, lambda drive, job_id, job, root: saves.append(job["workspace"]) or unsaveable(UNREAD)(drive, job_id, job, root), 1)
     assert run("job", "resume", "j1", "His answer, verbatim: Approve") == (
         0,
         "j1: the message went to the job's next worker, relaunched on Sprite workspace-2 as dispatch dispatch-2 in a handoff"
         " carrying its brief, its branch, its last line, its report and its PRs; its lane on Sprite sprite-old was dead (its"
         f" worker exited, and {UNFIT_KEPT}), and sprite-old is kept, since what it holds on no remote could not be saved: {UNREAD}",
     )
-    assert launched == [("demo-j1-2", FRESH_RUN, "sprite-old"), ("demo-j1-2", FRESH_RUN, None)]
+    assert (launched, saves) == ([("demo-j1-2", FRESH_RUN, "sprite-old"), ("demo-j1-2", FRESH_RUN, None)], ["sprite-old"])
     assert state.load(remote)["answers"]["a1"]["jobs"] == {"j1": {"mark": "sent"}}
 
 
@@ -3934,7 +3983,7 @@ def test_a_job_wake_sends_a_waiting_jobs_live_lane_the_watchdogs_finding_and_lea
 @pytest.mark.parametrize(
     ("job", "refusal"),
     [
-        ({"state": "waiting", "workspace": "sprite-old"}, "j1: refused, nothing sent or started: its lane ended, and drive job wake sends only to a lane that takes messages"),
+        ({"state": "waiting", "workspace": "sprite-old"}, "j1: refused, nothing sent or started: its lane takes no messages (its worker exited), and drive job wake sends only to a lane that does"),
         ({"state": "stopped"}, "j1: refused, nothing sent: it is stopped"),
         ({"state": "waiting", "dispatch": None, "agent": "a1", "where": "local"}, "j1: refused, nothing sent: no lane Orca holds runs it, and an agent on this Mac takes a message only from its own session"),
     ],
@@ -3948,6 +3997,16 @@ def test_a_job_wake_refuses_a_job_no_live_lane_runs_and_starts_nothing(remote: s
     monkeypatch.setattr(orca, "launch", lambda *args: pytest.fail("a job wake starts no worker"))
     assert cli.main(["job", "wake", "j1", "--text", FINDING]) == 2
     assert refusal in capsys.readouterr().err
+
+
+def test_a_job_wake_to_a_lane_orca_cannot_reach_wakes_no_sprite_and_records_no_death(
+    remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    wakes, launches = unreachable_lane(remote, tmp_path, monkeypatch, J982_10, dead)
+    monkeypatch.setattr(orca, "call", lambda *args: pytest.fail(f"no lane is sent anything: {args}"))
+    assert cli.main(["job", "wake", "j1", "--text", FINDING]) == 2
+    assert f"j1: refused, nothing sent or started: its lane takes no messages ({unreachable(J982_10[2])}), and drive job wake sends only to a lane that does" in capsys.readouterr().err
+    assert (wakes, launches, "deaths" in state.load(remote)["jobs"]["j1"]) == ([], [], False)
 
 
 @pytest.mark.parametrize(
