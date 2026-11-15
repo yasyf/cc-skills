@@ -2697,3 +2697,13 @@ def test_a_runs_failures_are_the_tests_each_failed_jobs_pytest_summary_names(mon
     }
     monkeypatch.setattr(github, "read", lambda what, cmd, max_age="0s", text=True: "61\n62\n" if cmd[2].endswith("/jobs?filter=latest&per_page=100") else logs[cmd[2].split("/")[-2]])
     assert install.run_failures(REPO, 9) == ["tests/test_cli.py::test_b[x-y]", "tests/test_land.py", "tests/test_watch.py::test_a"]
+
+
+def test_a_workflow_with_no_finished_main_run_in_its_range_says_nothing_of_any_test(monkeypatch: pytest.MonkeyPatch) -> None:
+    def gh_printing_an_empty_runs_list(what: str, cmd: list[str], max_age: str = "0s", text: bool = True) -> str:
+        if cmd[-1] == ".default_branch":
+            return "main\n"
+        return "null\n" if cmd[-1].endswith("| tojson") else "\n"
+
+    monkeypatch.setattr(github, "read", gh_printing_an_empty_runs_list)
+    assert install.main_failures(REPO, 7, ">=2026-11-15T13:20:00Z") is None
