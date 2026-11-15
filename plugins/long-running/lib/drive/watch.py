@@ -1414,13 +1414,11 @@ def relaying(watcher: Watcher) -> Iterator[None]:
 
 
 def relay(watcher: Watcher, stop: threading.Event) -> None:
-    """A relay pass every RELAY_SECONDS beside the passes until the watch stops it, so no GitHub read, landing, Slack redraw or install that holds a pass for minutes holds a lane's answer or the handler on a line promised him by a time; its lines wait on the watcher for the pass after them to hand on. It keeps a Watcher of its own, so a failed Orca read of its own never reruns the pass's 60-second block, ends on a drive a newer install saved, as the watch does, and keeps any other error for the watch to stop on, so its launch agent starts both again."""
+    """A relay pass every RELAY_SECONDS beside the passes until the watch stops it, so no GitHub read, landing, Slack redraw or install that holds a pass for minutes holds a lane's answer or the handler on a line promised him by a time; its lines wait on the watcher for the pass after them to hand on. It keeps a Watcher of its own, so a failed Orca read of its own never reruns the pass's 60-second block, and keeps any error for the watch to stop on, so its launch agent starts both again."""
     relaying = Watcher(watcher.name, offset=watcher.offset, project=watcher.project)
     try:
         while not stop.wait(RELAY_SECONDS):
             watcher.relayed.extend(relay_pass(relaying, state.now()))
-    except state.NewerDrive:
-        return
     except Exception as error:
         watcher.relay_error = error
 
@@ -1473,7 +1471,7 @@ def drained(lines: collections.deque[str]) -> list[str]:
 
 
 def read_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Start `drive job read` here as its own process on each `READ`, `LOG` or `DRIVE` question a lane queued, since a Sprite holds no copy of the drive's records, which sends the answer it keeps, by answer_kept, for each question with neither an answer nor a reader still running whose lane may wait on it, a live lane's or one whose worker's turn is open whatever its job's state, as when the lane's own `drive job report` took its job done while its next question waited, so a drive command that runs for minutes holds up no pass; one the read cannot answer gets why as its answer and a `JOB` line saying so. A question no worker waits on leaves its queue with no line, never read and any answer kept for it never sent, so no write a lane asked runs after its lane gave up on it, even once a later move of its job makes it live again, by gone_reads, which send_answers reads too. A lane's `drive job report` wrote its returned event as it took the return, so the answer carries no line of its own, and the return may have moved its job out of the live states, so a kept answer goes whatever its job's state. A reader starts only on what drive.json held once its reader was seen ended, so no reader that finished since the watch last read drive.json starts again; then each Run holding an answer kept for a job this watch hears gets every answer a refused reply left by send_answers, which sends them again and never reruns the read, each refusal said once as read_failed says it. The relay's thread and the pass take turns here under RELAYING, each reading the drive afresh, so no question gets two readers."""
+    """Start `drive job read` here as its own process on each `READ`, `LOG` or `DRIVE` question a lane queued, since a Sprite holds no copy of the drive's records, which sends the answer it keeps, by send_answers, for each question with neither an answer nor a reader still running whose lane may wait on it, a live lane's or one whose worker's turn is open whatever its job's state, as when the lane's own `drive job report` took its job done while its next question waited, so a drive command that runs for minutes holds up no pass; one the read cannot answer gets why as its answer and a `JOB` line saying so. A question no worker waits on leaves its queue with no line, never read and any answer kept for it never sent, so no write a lane asked runs after its lane gave up on it, even once a later move of its job makes it live again, by gone_reads, which send_answers reads too. A lane's `drive job report` wrote its returned event as it took the return, so the answer carries no line of its own, and the return may have moved its job out of the live states, so a kept answer goes whatever its job's state. A reader starts only on what drive.json held once its reader was seen ended, so no reader that finished since the watch last read drive.json starts again; then each Run holding an answer kept for a job this watch hears gets every answer a refused reply left by send_answers, which sends them again and never reruns the read, each refusal said once as read_failed says it. The relay's thread and the pass take turns here under RELAYING, each reading the drive afresh, so no question gets two readers."""
     with RELAYING:
         running, data = ended_reads(watcher.name, state.load(watcher.name))
         unowed = {}
@@ -1582,7 +1580,7 @@ def spawn_reader(name: str, job_id: str, message_id: str) -> int:
 
 
 def answer_read(name: str, job_id: str, message_id: str) -> list[str | None]:
-    """Run a lane's queued read here, keep its answer, and why it is no answer when it failed, under its message id, and send it by answer_kept. It first keeps the answer a reader stopped mid-run leaves, so no read runs twice, a `drive break-glass` in production included, and none that crashes starts again, with this reader's process id in the same save, so a watch whose own save of that id a newer install's save refused still reads it running. An answer past one Orca relay message is written onto the lane's Sprite here, before any lock, and kept as the line naming that file; one the Sprite cannot take is answered with why, as a failed read is, so its question leaves the queue at its first reply and Orca, not a Sprite, says whether its lane still waits."""
+    """Run a lane's queued read here, keep its answer, and why it is no answer when it failed, under its message id, then send it with every other answer kept on its job's Run by send_answers, which leaves one Orca refuses for the watch's next pass. It first keeps the answer a reader stopped mid-run leaves, so no read runs twice, a `drive break-glass` in production included, and none that crashes starts again, with this reader's process id in the same save. An answer past one Orca relay message is written onto the lane's Sprite here, before any lock, and kept as the line naming that file; one the Sprite cannot take is answered with why, as a failed read is, so its question leaves the queue at its first reply and Orca, not a Sprite, says whether its lane still waits."""
     data = state.load(name)
     question = data["jobs"][job_id]["reads"][message_id]
     keep_answer(name, job_id, message_id, [reads.lane_exit(1, CUT_OFF) if reads.DRIVE.match(question) else f"{question}: {CUT_OFF}", CUT_OFF], reader=os.getpid())
@@ -1596,14 +1594,9 @@ def answer_read(name: str, job_id: str, message_id: str) -> list[str | None]:
         except orca.OrcaError as error:
             why = f"{question.partition("\n")[0]}: its {len(said.encode())}-byte answer, past one Orca relay message, could not go to its Sprite: {error}"
             kept = [orca.exit_line(said) + why, why]
-    install.finished(f"{job_id}: its read {message_id} ran", state.DRIVE_LOCK_SECONDS, answer_kept, name, job_id, message_id, kept)
-    return kept
-
-
-def answer_kept(name: str, job_id: str, message_id: str, kept: list[str | None]) -> None:
-    """Keep the answer a read came to, then send it with every other answer kept on its job's Run by send_answers, which leaves one Orca refuses for the watch's next pass; answer_read runs it through install.finished once the read ran, since a newer install may save the drive while it runs, so the read never runs again."""
     keep_answer(name, job_id, message_id, kept)
     send_answers(name, state.load(name)["jobs"][job_id]["run"])
+    return kept
 
 
 def keep_answer(name: str, job_id: str, message_id: str, kept: list[str | None], reader: int | None = None) -> None:
@@ -3904,7 +3897,7 @@ def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def passed(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
-    """The coordinator's lines of one pass as each stage returns, first none, as the communicator, the meta session and the coordinator are each sent again what failed to post to them before, then each stage's, its lines for the communicator or the meta session posted to them as it returns, so a pass that reads each lane from Orca for minutes says what GitHub and the lanes said in its first minute then, not at its end. A stage's lines join the watcher's made lines first, so a pass that ends early, in a crash or on a drive a newer install saved, leaves those not yet handed to the watch process after it."""
+    """The coordinator's lines of one pass as each stage returns, first none, as the communicator, the meta session and the coordinator are each sent again what failed to post to them before, then each stage's, its lines for the communicator or the meta session posted to them as it returns, so a pass that reads each lane from Orca for minutes says what GitHub and the lanes said in its first minute then, not at its end. A stage's lines join the watcher's made lines first, so a pass that ends early, in a crash, leaves those not yet handed to the watch process after it."""
     yield handed(watcher, [], moment)
     for lines in stages(watcher, moment):
         watcher.made += lines
@@ -3913,7 +3906,7 @@ def passed(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
 
 
 def stages(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
-    """The lines of each stage of one loop of the watch, as it returns: first the lines its relay made since the last pass, then the answer kept for each lane's read, so a pass a newer install ends while it reads every live lane's mail holds back none it already had, and new events, so a return `drive job report` took in another process is said in the pass its event wakes, then each part a job drive job add recorded not started leaves with no one, on every pass after the watch's first, so its ORPHAN comes on time whatever the length of a pass, then the drive's own Orca terminal every Orca call speaks as, his cards, the GitHub reads it owes, the staging test of each PR whose new head changes a dangerous class of file, his card on each kept question none drew yet, a lander on each PR his Approve covers that qualifies, the finish of each builder whose READY's PRs all merged, DONE at the merge of a product change or the proof of a yasyf/* one, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, where each merged PR a release wait or an incident fix names runs, each Buildkite build a wait names or a part follows that is newly held or a delivery of Buildkite's named, the status message of each build a part follows, the waits his answers, a job's end, that read or the Buildkite read release or hold again, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, each builder's PUSHED GitHub's read settles, agents, the chains of waits that stood unmoved, the texts jobs hold that no worker taking messages gets, the communicator's compaction, the status page, a coordinator whose process exited, a dashboard whose server exited, the receiver and each teammate thread an order watches every 60 s, his PR cards whose rows went stale, and GitHub again next poll after a failure, events written since, its own stages' among them, then the GitHub reads they and the rest owe while its last read answered, so a delivery is read in the pass it wakes, the catch-up owed him, the daily Slack sweep's drive tooling orders, claims whose end passed, the line owed in each thread whose order or incident has news, job clocks run out, his answers no resume has carried to their jobs, fixes proven live whose bug report has not heard, the next pass of each standing part no job holds, parts nothing carries, and a handler on each POST report to the communicator. A stage that keeps working after its save joins the lines it made by then to the watcher's made lines itself."""
+    """The lines of each stage of one loop of the watch, as it returns: first the lines its relay made since the last pass, then the answer kept for each lane's read, so a pass that crashes while it reads every live lane's mail holds back none it already had, and new events, so a return `drive job report` took in another process is said in the pass its event wakes, then each part a job drive job add recorded not started leaves with no one, on every pass after the watch's first, so its ORPHAN comes on time whatever the length of a pass, then the drive's own Orca terminal every Orca call speaks as, his cards, the GitHub reads it owes, the staging test of each PR whose new head changes a dangerous class of file, his card on each kept question none drew yet, a lander on each PR his Approve covers that qualifies, the finish of each builder whose READY's PRs all merged, DONE at the merge of a product change or the proof of a yasyf/* one, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, where each merged PR a release wait or an incident fix names runs, each Buildkite build a wait names or a part follows that is newly held or a delivery of Buildkite's named, the status message of each build a part follows, the waits his answers, a job's end, that read or the Buildkite read release or hold again, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, each builder's PUSHED GitHub's read settles, agents, the chains of waits that stood unmoved, the texts jobs hold that no worker taking messages gets, the communicator's compaction, the status page, a coordinator whose process exited, a dashboard whose server exited, the receiver and each teammate thread an order watches every 60 s, his PR cards whose rows went stale, and GitHub again next poll after a failure, events written since, its own stages' among them, then the GitHub reads they and the rest owe while its last read answered, so a delivery is read in the pass it wakes, the catch-up owed him, the daily Slack sweep's drive tooling orders, claims whose end passed, the line owed in each thread whose order or incident has news, job clocks run out, his answers no resume has carried to their jobs, fixes proven live whose bug report has not heard, the next pass of each standing part no job holds, parts nothing carries, and a handler on each POST report to the communicator. A stage that keeps working after its save joins the lines it made by then to the watcher's made lines itself."""
     yield drained(watcher.relayed)
     yield read_lines(watcher, moment)
     yield event_lines(watcher)
@@ -4405,7 +4398,7 @@ def main(drive_name: str | None = None, project: str | None = None) -> int:
 
 
 def watching(watcher: Watcher) -> None:
-    """Hand each pass's lines to whoever acts on them as each of its stages returns, first any a watch before this one held for it, and end before a pass once a newer long-running is installed, or the moment a pass finds the drive saved by one, so its launch agent starts the watch on that install and no pass runs older code on a drive a newer install saved; a crash wakes the coordinator session it posts to first, and an error that stopped its relay answering the lanes' reads stops it before its next pass. Every line made and not yet posted is held for the watch after this one, which hands it on before its first pass."""
+    """Hand each pass's lines to whoever acts on them as each of its stages returns, first any a watch before this one held for it, and end before a pass once a newer long-running is installed, so its launch agent starts the watch on that install; a crash wakes the coordinator session it posts to first, and an error that stopped its relay answering the lanes' reads stops it before its next pass. Every line made and not yet posted is held for the watch after this one, which hands it on before its first pass."""
     state.save_watch_cursor(watcher.name, watcher.offset, watcher.project)
     try:
         with relaying(watcher):
@@ -4422,8 +4415,6 @@ def watching(watcher: Watcher) -> None:
                     state.save_watch_cursor(watcher.name, watcher.offset, watcher.project)
     except Exception as error:
         keep_unposted(watcher)
-        if isinstance(error, state.NewerDrive) and upgraded():
-            return
         stopped(watcher, error)
         raise
     keep_unposted(watcher)

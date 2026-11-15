@@ -518,8 +518,7 @@ before it sends or starts.
   with no save. When that resume or that Sprite starts no worker, the relaunch runs on a
   fresh Sprite from the job's pushed branches, after the save above, and the old Sprite is kept when
   the save fails. The lane's death keeps what its wake, that start and the save came to, so a
-  resume, launch or PR wake after it, or the same one run again after a newer install's save, reads
-  the lane from that death and wakes, starts in place and saves once per death.
+  resume, launch or PR wake after it reads the lane from that death and wakes, starts in place and saves once per death.
 - A remote lane's text is held on the job's undelivered list under one Orca request id before any
   Orca call, so an outage delays it and never drops it. When Orca cannot tell whether the lane
   lives, or refuses the send, the resume exits 0 saying the text is held. A lane on this Mac that

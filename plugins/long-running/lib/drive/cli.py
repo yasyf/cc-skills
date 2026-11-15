@@ -1,6 +1,5 @@
 import argparse
 import html
-import importlib
 import json
 import os
 import re
@@ -58,8 +57,7 @@ GO_CI = Path("tools", "ci")
 CI_CONFIG = re.compile(r"^\.(?:buildkite|github)/")
 CLAUDE_BUILDS = Path.home() / ".local" / "share" / "claude" / "versions"
 READER_RESEARCH = "the Researched: block this build needs"
-VERB_ERRORS = (DriveError, state.NewerDrive, slack.SlackError, github.GithubError)
-STDIN: list[str] = []
+VERB_ERRORS = (DriveError, slack.SlackError, github.GithubError)
 ANSWER_FIRST = (
     "his answer goes to his thread the moment you have it proven, before any reproduction file or full report: one `report`"
     " record on the cci `post` tool, `to: [communicator@{drive}]`, `text: POST <the answer>`, `attrs: {attrs}`, with"
@@ -680,13 +678,7 @@ def named_file(source: str, what: str) -> Path:
 
 
 def named_text(source: str, what: str) -> str:
-    return stdin_text() if source == "-" else named_file(source, what).read_text()
-
-
-def stdin_text() -> str:
-    """What is left on stdin, kept in STDIN as well, so a verb run again on the newest install reads what this process already read."""
-    STDIN.append(sys.stdin.read())
-    return STDIN[-1]
+    return sys.stdin.read() if source == "-" else named_file(source, what).read_text()
 
 
 def his_words(link: str, deed: str) -> str:
@@ -1797,11 +1789,11 @@ def asked_on(name: str, waits: str) -> set[str]:
     return {view.message_key(entry["url"]) for entry in listed if entry["card"].get("waits") == waits} | {view.message_key(question["card"]) for question in kept}
 
 
-def follow_card(name: str, waits: str, asked: list[str], url: str) -> None:
+def follow_card(name: str, waits: str, asked: set[str], url: str) -> None:
     """Record the card cc-slack drew under the waits id as the card of each question asked under it, its thread joining each order of the job asking it, and point each wait of a job on a card it was drawn on before at its waits id: a card asked again under its waits id is redrawn where it sits, so a wait moves only off an older copy cc-slack retired for it."""
     from drive import view
 
-    moved = set(asked) - {view.message_key(url)}
+    moved = asked - {view.message_key(url)}
     with state.edit(name) as data:
         for job_id, job in data["jobs"].items():
             for question in job["questions"]:
@@ -2734,7 +2726,7 @@ def job_report(args: argparse.Namespace) -> int:
     data = state.load(name)
     job = find(data["jobs"], args.id, "job")
     if args.stdin:
-        whole = stdin_text()
+        whole = sys.stdin.read()
         if not whole.strip():
             raise DriveError(f"stdin held no report for {args.id}; pipe its whole return in: printf '%s\\n' '<line>' ... | drive job report {args.id} -")
         line = whole.strip().splitlines()[0].strip()
@@ -3369,14 +3361,14 @@ def messaged(args: argparse.Namespace, name: str, job: dict, held: list[dict], n
         except orca.OrcaError as error:
             return unsent(args, job, held[index:], error, note)
         hows.append(how)
-        install.finished(f"{args.id}: its worker took the text", state.DRIVE_LOCK_SECONDS, sent_kept, name, args.id, kept | {"ask": job.get("ask"), "queued": queued} | ({} if unfit else {"tools_on": workspace}))
+        sent_kept(name, args.id, kept | {"ask": job.get("ask"), "queued": queued} | ({} if unfit else {"tools_on": workspace}))
         job = {**job, "ask": None}
     how = "; ".join(hows) + (f"; its Sprite still lacks the drive forwarder: {unfit}" if unfit else "")
     return emit(args, f"{args.id}: {how}", {"id": args.id, "how": how})
 
 
 def sent_kept(name: str, job_id: str, sent: dict) -> dict:
-    """Keep on the job a held text its live worker took: written to jobs/<j>.sent-<request>.md beside the job's launch texts, dated when it was held, which superseded.hear_start reads whenever an answer of his lists the job later, kept among the texts its workers were given, which the handoff of a worker taking over before the job's next return carries, dropped from the job's held texts, and when Orca queued it in the mailbox of the Dispatch the job still runs on rather than answering the question it asked, kept on its queued list until a mailbox read state.take_mail makes finds it read or holds it again, its question closed when the text answered the one it still asks, each answer of his the text carries marked sent, and the tools on the Sprite tools_on names; messaged runs it through install.finished, since a newer install may save the drive while Orca takes the text, so the text is never sent twice."""
+    """Keep on the job a held text its live worker took: written to jobs/<j>.sent-<request>.md beside the job's launch texts, dated when it was held, which superseded.hear_start reads whenever an answer of his lists the job later, kept among the texts its workers were given, which the handoff of a worker taking over before the job's next return carries, dropped from the job's held texts, and when Orca queued it in the mailbox of the Dispatch the job still runs on rather than answering the question it asked, kept on its queued list until a mailbox read state.take_mail makes finds it read or holds it again, its question closed when the text answered the one it still asks, each answer of his the text carries marked sent, and the tools on the Sprite tools_on names."""
     given_text = state.drive_dir(name) / "jobs" / f"{job_id}.sent-{sent['request']}.md"
     given_text.write_text(sent["words"])
     held = state.parse_time(sent["at"]).timestamp()
@@ -3507,12 +3499,6 @@ def launch_brief(name: str, job_id: str, job: dict) -> Path:
 
 
 def record_start(name: str, job_id: str, started: dict | None, handoff: str | None, text: str | None = None) -> dict:
-    """Record a started worker's receipt on its job through install.finished, since launch_attempt lets a newer install save the drive while the worker starts, so the receipt lands either way."""
-    what = f"{job_id}: its worker started as dispatch {started['dispatch']}" if started else f"{job_id}: its launch started no worker"
-    return install.finished(what, orca.LAUNCH_SECONDS, launch_kept, name, job_id, started, handoff, text)
-
-
-def launch_kept(name: str, job_id: str, started: dict | None, handoff: str | None, text: str | None = None) -> dict:
     """Record a started worker's receipt on its job, the job on that worker's Orca lane in place of any agent a takeover started it from, its turn open until the watch takes that worker's worker_done or escalation, with the handoff a relaunch started it on, else the launch's brief, the Sprite its start put the tools on, the cc-remote config that Sprite was made from, none of the texts it held or queued in its last worker's mailbox, which that handoff or brief carries, each of those and the text given kept among the texts its workers were given beside those given since the job's last return, so a handoff taking over from this worker before the job's next return carries them, the question its last worker asked handed on by state.start, and the job sent each answer of his whose words that handoff or brief holds, or with no receipt clear the launching mark of a launch whose worker never started; a worker its job already records changes nothing."""
     with state.edit(name) as data:
         job = data["jobs"][job_id]
@@ -3520,7 +3506,7 @@ def launch_kept(name: str, job_id: str, started: dict | None, handoff: str | Non
             job["launching"] = None
         elif overtaken(data, job):
             job.update(started)
-        elif job.get("dispatch") != started["dispatch"]:
+        else:
             fresh = state.handed_texts(job, text)
             given = [*state.unreturned(job, "\n\n".join(fresh)), *({"words": words, "at": state.stamp()} for words in fresh)]
             job.update(started, handoff=handoff, **({"reads": {}} if handoff else {}), given=given, undelivered=[], queued=[], report=None, tools_on=started["workspace"], turn_open=True)
@@ -3538,7 +3524,7 @@ def overtaken(data: dict, job: dict) -> bool:
 
 
 def launch_attempt(name: str, job: dict, attempt: str, kept: Path, brief: str, root: Path, workspace: str | None, session: str | None) -> dict:
-    """Launch one attempt of a job's lane on a Run the drive's own terminal makes, since Orca binds a Run only to the terminal that made it: on a fresh Sprite, or on the workspace's own Sprite in the checkout it holds, there resuming the Claude session given; a fresh Sprite's receipt records the SHA-256 of the cc-remote config the checkout holds, which it is made from, and one on the workspace's own Sprite keeps the job's; a try whose worker-start sent nothing reuses the Sprite it prepared, a Run Orca cannot make starts nothing, and the launcher copies this brief onto it. When a newer install saved the drive while the launcher ran, record_start hands the receipt to that install. An attempt on a fresh Sprite that started no worker, since its prepare failed or its Sprite refused the tools a worker needs, launches once more, the launcher preparing another Sprite or retrying worker-start on the one it prepared; Unstarted when that one starts none either, or when the workspace's own Sprite or the Mac does."""
+    """Launch one attempt of a job's lane on a Run the drive's own terminal makes, since Orca binds a Run only to the terminal that made it: on a fresh Sprite, or on the workspace's own Sprite in the checkout it holds, there resuming the Claude session given; a fresh Sprite's receipt records the SHA-256 of the cc-remote config the checkout holds, which it is made from, and one on the workspace's own Sprite keeps the job's; a try whose worker-start sent nothing reuses the Sprite it prepared, a Run Orca cannot make starts nothing, and the launcher copies this brief onto it. An attempt on a fresh Sprite that started no worker, since its prepare failed or its Sprite refused the tools a worker needs, launches once more, the launcher preparing another Sprite or retrying worker-start on the one it prepared; Unstarted when that one starts none either, or when the workspace's own Sprite or the Mac does."""
     kept.write_text(brief)
     try:
         run = orca.new_run(name, f"drive {name} {attempt}: {job['goal']}")
@@ -3603,7 +3589,7 @@ def hand_over(args: argparse.Namespace, name: str, data: dict, session: str) -> 
 
 
 def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEnd, text: str | None, here: bool = False, declared: str | None = None) -> int:
-    """Start the job's next worker with a handoff, carrying the text when a resume brought one: in the terminal of a worker that finished on this Mac while Orca holds it, on that worker's Run; for one that finished on a Sprite, on that Sprite again in the checkout it left, on a Run this terminal makes, through the launcher's cc-remote orca prepare --existing, which gives it the tool payload and keys a fresh Sprite gets, since a worker started in the finished one's terminal runs on in the claude process and environment that Sprite's first prepare made, unless that Sprite faulted, refuses the tools a worker needs or was made from a cc-remote config other than the one the default branch holds now; else, on a Run this terminal makes, on a fresh Sprite, or on this Mac in the worktree orca.pr_holder finds holding the branch of the job's open PR, which git lets no fresh worktree check out, else in a fresh worktree. A lane's Sprite, whether its worker died or finished, unless a finished one's job moves to this Mac, first has its Orca runtime and worker logs copied to the drive's folder by orca.keep_logs, which the watch's LANE died line names; when they show that Sprite faulted, a kernel line at error level or worse after init or a full home volume, as when an nbd0 I/O error remounts its root disk read-only, no session resumes and no worker continues there, as on a Sprite that refused a worker's tools: the lane is saved and relaunched on a fresh Sprite, its why naming what the logs showed. A lane that died while its job ran keeps on its death the cause line keep_logs reads, which its next worker's brief and the line say, unless its Sprite failed on its own, a kernel error line after init with no OOM kill and its home volume not full, when that line goes in its why and the death counts against no job; when another lane of the job died with a cause since its last line, a second death with a cause starts no worker and the refusal names both causes, unless the job moves to this Mac. A Sprite that answers with the Claude session the dead lane's worker ran there resumes that session by resume_session, with nothing saved, moved or destroyed; a resume that starts no worker falls back to a relaunch, its why naming the refusal, on a fresh Sprite when that one refused a worker's tools. Otherwise every Claude Code transcript the lane's Sprite holds is first copied whole to the drive's folder by orca.keep_transcripts, kept on the lane's death. Before a relaunch it saves to GitHub what the dead lane's Sprite holds that a fresh one would not get, by lane_saved, and its line and handoff name each branch GitHub then holds under saved/<the dead lane>/, by one read, never the text any save printed, or, when GitHub holds none, what that save found: what it saved, that the Sprite held nothing unpushed or uncommitted, or that cc-remote records no such Sprite, so nothing on it was read or saved; when the save fails, the relaunch runs on that Sprite instead, in the checkout the dead lane left, unless it refused a worker's tools or started no worker, as a Sprite that will not prepare does, when it is kept and the relaunch runs on a fresh one. A Sprite whose logs keep_logs could not read, as one whose ssh gets no answer, is asked nothing more and kept: no session resumes, no transcript is copied and no save is tried there, and the lane relaunches on a fresh Sprite, since every later step on it, the launcher's prepare --existing included, waits on that same silence. A lane Orca could not reach, whose Sprite lane_end woke and that then answered, relaunches on that Sprite in the checkout it left with no save when that Sprite holds no session of it, and on a fresh one as a dead lane's when its session there or that Sprite starts no worker. The end each of those steps comes to and what the save found are kept on the lane's death by orca.died, which lane_end reads, so no step runs twice for one death, a run again after a newer install's save included. A relaunch on a fresh Sprite then destroys the dead lane's Sprite once what it holds on no remote is saved. A finished worker whose terminal or worktree Orca no longer finds starts its next worker as a dead one's would. A lane a `drive job end` ended, which lane_end reads from the end its job records, relaunches on a fresh Sprite, or in a fresh worktree on this Mac for a lane there, reading, saving and resuming nothing on its Sprite, since that end kept its transcripts and saved what it held on no remote before it destroyed it; its line and handoff say the lane ended and name what that save found. A relaunch an earlier restart of the same death started and never recorded is recorded from the ready receipt its attempt keeps, never launched twice. Here, which a launch with --local of a job on a Sprite asks, as does the step only this Mac runs declared, which its caller read by declared_step before sending or starting anything, moves the job to a fresh worktree on this Mac whether its worker finished, died, does not answer, returned its line and still takes messages or still works, a builder at this Mac's cap waiting its turn on builder-slot by crowded_here instead, and one that builds nothing moving at once; a worker that still takes messages is stopped by orca.reclaim, as drive job end stops one, once its transcripts are kept and before what its Sprite holds on no remote is saved; when that save fails it still moves, the Sprite kept rather than destroyed, its lane recorded dead so nothing of it is read or sent again, and the line and handoff name what every lane of the job saved on GitHub, so the next worker starts from the job's pushed and saved branches. The handoff carries every text a resume holds on the job, oldest first, then the text given, as the messages it never read, naming no sender, since the start it records clears what the job holds. Before each step that reads, saves or starts anything on the lane's Sprite, it stands down by yield_to_launch while a drive job launch --local waits for the job's lock, and each step that waits on that Sprite says itself and its bound as it starts, by state.said."""
+    """Start the job's next worker with a handoff, carrying the text when a resume brought one: in the terminal of a worker that finished on this Mac while Orca holds it, on that worker's Run; for one that finished on a Sprite, on that Sprite again in the checkout it left, on a Run this terminal makes, through the launcher's cc-remote orca prepare --existing, which gives it the tool payload and keys a fresh Sprite gets, since a worker started in the finished one's terminal runs on in the claude process and environment that Sprite's first prepare made, unless that Sprite faulted, refuses the tools a worker needs or was made from a cc-remote config other than the one the default branch holds now; else, on a Run this terminal makes, on a fresh Sprite, or on this Mac in the worktree orca.pr_holder finds holding the branch of the job's open PR, which git lets no fresh worktree check out, else in a fresh worktree. A lane's Sprite, whether its worker died or finished, unless a finished one's job moves to this Mac, first has its Orca runtime and worker logs copied to the drive's folder by orca.keep_logs, which the watch's LANE died line names; when they show that Sprite faulted, a kernel line at error level or worse after init or a full home volume, as when an nbd0 I/O error remounts its root disk read-only, no session resumes and no worker continues there, as on a Sprite that refused a worker's tools: the lane is saved and relaunched on a fresh Sprite, its why naming what the logs showed. A lane that died while its job ran keeps on its death the cause line keep_logs reads, which its next worker's brief and the line say, unless its Sprite failed on its own, a kernel error line after init with no OOM kill and its home volume not full, when that line goes in its why and the death counts against no job; when another lane of the job died with a cause since its last line, a second death with a cause starts no worker and the refusal names both causes, unless the job moves to this Mac. A Sprite that answers with the Claude session the dead lane's worker ran there resumes that session by resume_session, with nothing saved, moved or destroyed; a resume that starts no worker falls back to a relaunch, its why naming the refusal, on a fresh Sprite when that one refused a worker's tools. Otherwise every Claude Code transcript the lane's Sprite holds is first copied whole to the drive's folder by orca.keep_transcripts, kept on the lane's death. Before a relaunch it saves to GitHub what the dead lane's Sprite holds that a fresh one would not get, by lane_saved, and its line and handoff name each branch GitHub then holds under saved/<the dead lane>/, by one read, never the text any save printed, or, when GitHub holds none, what that save found: what it saved, that the Sprite held nothing unpushed or uncommitted, or that cc-remote records no such Sprite, so nothing on it was read or saved; when the save fails, the relaunch runs on that Sprite instead, in the checkout the dead lane left, unless it refused a worker's tools or started no worker, as a Sprite that will not prepare does, when it is kept and the relaunch runs on a fresh one. A Sprite whose logs keep_logs could not read, as one whose ssh gets no answer, is asked nothing more and kept: no session resumes, no transcript is copied and no save is tried there, and the lane relaunches on a fresh Sprite, since every later step on it, the launcher's prepare --existing included, waits on that same silence. A lane Orca could not reach, whose Sprite lane_end woke and that then answered, relaunches on that Sprite in the checkout it left with no save when that Sprite holds no session of it, and on a fresh one as a dead lane's when its session there or that Sprite starts no worker. The end each of those steps comes to and what the save found are kept on the lane's death by orca.died, which lane_end reads, so no step runs twice for one death. A relaunch on a fresh Sprite then destroys the dead lane's Sprite once what it holds on no remote is saved. A finished worker whose terminal or worktree Orca no longer finds starts its next worker as a dead one's would. A lane a `drive job end` ended, which lane_end reads from the end its job records, relaunches on a fresh Sprite, or in a fresh worktree on this Mac for a lane there, reading, saving and resuming nothing on its Sprite, since that end kept its transcripts and saved what it held on no remote before it destroyed it; its line and handoff say the lane ended and name what that save found. A relaunch an earlier restart of the same death started and never recorded is recorded from the ready receipt its attempt keeps, never launched twice. Here, which a launch with --local of a job on a Sprite asks, as does the step only this Mac runs declared, which its caller read by declared_step before sending or starting anything, moves the job to a fresh worktree on this Mac whether its worker finished, died, does not answer, returned its line and still takes messages or still works, a builder at this Mac's cap waiting its turn on builder-slot by crowded_here instead, and one that builds nothing moving at once; a worker that still takes messages is stopped by orca.reclaim, as drive job end stops one, once its transcripts are kept and before what its Sprite holds on no remote is saved; when that save fails it still moves, the Sprite kept rather than destroyed, its lane recorded dead so nothing of it is read or sent again, and the line and handoff name what every lane of the job saved on GitHub, so the next worker starts from the job's pushed and saved branches. The handoff carries every text a resume holds on the job, oldest first, then the text given, as the messages it never read, naming no sender, since the start it records clears what the job holds. Before each step that reads, saves or starts anything on the lane's Sprite, it stands down by yield_to_launch while a drive job launch --local waits for the job's lock, and each step that waits on that Sprite says itself and its bound as it starts, by state.said."""
     from drive import stage
 
     yield_to_launch(name, args.id)
@@ -3658,7 +3644,7 @@ def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEn
     except orca.OrcaError as error:
         saved, left = None, str(error)
     if saving:
-        install.finished(f"{args.id}: its lane's save", orca.LAUNCH_SECONDS, orca.death_kept, name, args.id, dispatch, end.why, {"saved": saved, "unsaved": left})
+        orca.death_kept(name, args.id, dispatch, end.why, {"saved": saved, "unsaved": left})
     unsaved = left if here else None
     branches = [] if finished or unreached else orca.saved(name, args.id, job, root, every=bool(unsaved))
     continued = None
@@ -3880,7 +3866,7 @@ def end_lane(name: str, job_id: str) -> tuple[str, dict]:
         try:
             saved = lane_saved(name, job_id, job, root)
         except orca.OrcaError as error:
-            install.finished(f"{job_id}: its lane's end", orca.LAUNCH_SECONDS, end_kept, name, job_id, {"failed": True, "fresh": fresh, "saved": None})
+            end_kept(name, job_id, {"failed": True, "fresh": fresh, "saved": None})
             raise DriveError(
                 f"{job_id}: refused, nothing ended: it is {job['state']}, and what {job['workspace']} holds on no remote could not be saved"
                 f" to GitHub for its next lane: {error}. End it again once that Sprite answers"
@@ -3888,14 +3874,14 @@ def end_lane(name: str, job_id: str) -> tuple[str, dict]:
     transcript = None if state.on_mac(job) else orca.keep_transcripts(name, job_id, job, job["dispatch"])
     reclaimed = orca.reclaim(job["run"], job["dispatch"], root)
     released = release_sprite(name, job_id, job, root)
-    ended = install.finished(f"{job_id}: its lane's end", orca.LAUNCH_SECONDS, end_kept, name, job_id, {"failed": False, "fresh": fresh, "saved": saved, "transcript": transcript and str(transcript)})
+    ended = end_kept(name, job_id, {"failed": False, "fresh": fresh, "saved": saved, "transcript": transcript and str(transcript)})
     branches = orca.saved(name, job_id, job, root) if saved else []
     line = f"{job_id}'s lane ended; {job_id} stays {ended['state']}" + (f", and what its Sprite held on no remote is saved on GitHub as {', '.join(branches)}" if branches else f", and {saved}" if saved else "")
     return "\n".join(filter(None, [reclaimed, released, line])), {"id": job_id, "reclaim": reclaimed, "released": released, "state": ended["state"], "saved": saved, "branches": branches}
 
 
 def end_kept(name: str, job_id: str, result: dict) -> dict:
-    """Keep on the job what its lane's end came to once it saved, reclaimed and released: the branches saved and its kept transcript, its open question kept for the next worker's handoff to answer, the job left unstamped, since the end of a lane at rest changes nothing it does and so says none of its parts again, or, when the save failed, the end mark taken back, so the lane reads as it did; job_end runs it through install.finished, since a newer install may save the drive while the lane's Sprite is saved and released, so the end is never left half kept."""
+    """Keep on the job what its lane's end came to once it saved, reclaimed and released: the branches saved and its kept transcript, its open question kept for the next worker's handoff to answer, the job left unstamped, since the end of a lane at rest changes nothing it does and so says none of its parts again, or, when the save failed, the end mark taken back, so the lane reads as it did."""
     with state.edit(name) as data:
         ended = data["jobs"][job_id]
         death = state.lane_death(ended, "dispatch")
@@ -4914,16 +4900,6 @@ def say_record(args: argparse.Namespace) -> int:
     return emit(args, talk.record_kept(state.resolve(args.drive), Path(args.receipt)), {"receipt": args.receipt})
 
 
-def finish(args: argparse.Namespace) -> int:
-    """Run on this install the drive writes an older install's verb made once its outside work went out, from the receipt install.finished kept when this install saved the drive while that work ran."""
-    name, receipt = state.resolve(args.drive), Path(args.receipt)
-    kept = json.loads(receipt.read_text())
-    module, _, function = kept["keep"].partition(":")
-    result = install.finished(kept["what"], kept["seconds"], getattr(importlib.import_module(module), function), name, *kept["args"])
-    receipt.unlink()
-    return emit(args, f"{kept['what']}: kept by long-running {state.VERSION}", {"result": result})
-
-
 def handler_start(args: argparse.Namespace) -> int:
     return emit(args, agents.start_kept(state.resolve(args.drive), args.id), {"handler": args.id})
 
@@ -5254,7 +5230,7 @@ def tool_command(args: argparse.Namespace) -> int:
     if args.help:
         print(tools.described(mcp.tool_named(args.tool)))
         return 0
-    print(run_tool(args.tool, json.loads(stdin_text())))
+    print(run_tool(args.tool, json.loads(sys.stdin.read())))
     return 0
 
 
@@ -5274,7 +5250,7 @@ def datadog_command(args: argparse.Namespace) -> int:
     from drive import datadog
 
     try:
-        status, said = datadog.run(args.tool, json.loads(stdin_text()) if args.stdin else None)
+        status, said = datadog.run(args.tool, json.loads(sys.stdin.read()) if args.stdin else None)
     except reads.ReadError as error:
         raise DriveError(f"datadog {args.tool}: {error}") from None
     print(said)
@@ -6131,7 +6107,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument(
         "text",
         nargs="?",
-        type=lambda value: stdin_text() if value == "-" else value,
+        type=lambda value: sys.stdin.read() if value == "-" else value,
         help="his answer, or the event the lane acts on next, or - to read it from stdin; left out, the texts the job holds",
     )
     verb.set_defaults(run=job_resume)
@@ -6549,11 +6525,6 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("arguments", nargs="+", help="after --, what tools/ci fde-scan takes, such as --symbol raw_sql --pr 42")
     verb.set_defaults(run=fde_scan)
-    verb = verbs.add_parser(
-        "finish", parents=both, help="run the drive writes an older install's verb made once its outside work went out, from the receipt it kept when this install saved the drive meanwhile; that verb runs it"
-    )
-    verb.add_argument("receipt", help="the receipt file the verb kept under the drive's finish folder")
-    verb.set_defaults(run=finish)
     verb = verbs.add_parser("say-record", parents=both, help="record a post say made on its order from the receipt say kept; say runs it detached")
     verb.add_argument("receipt", help="the receipt file say kept under the drive's posts folder")
     verb.set_defaults(run=say_record)
@@ -6771,7 +6742,7 @@ def parsed(argv: list[str] | None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Run one verb in the newest installed drive when this process started from an older install, such as a launch's bind prefix. A Sprite lane's verb, which reads.lane_drive marks as a SPRITE_LANE run as its job's own lane, runs only when reads.lane_refusal finds nothing in what it parsed writing to another job or acting on another drive, a bare `status` reading the lane's own job, and nothing it starts carries that mark. A verb a newer install's save refused before this process changed anything, a drive row, a post or any command but a read, by state.WROTE, and a launch or resume refused whatever it changed, by relaunching, runs again on the newest install with the stdin it read, its lane's mark and the mark of the process state.detach started; one run inside another verb, as an MCP call's ops are, raises for that call to run again whole while it changed nothing. A refusal that remains exits 2 by refused, which a launch or resume state.detach started also writes on the drive's events for the watch, but for a stand-down."""
+    """Run one verb in the newest installed drive when this process started from an older install, such as a launch's bind prefix. A Sprite lane's verb, which reads.lane_drive marks as a SPRITE_LANE run as its job's own lane, runs only when reads.lane_refusal finds nothing in what it parsed writing to another job or acting on another drive, a bare `status` reading the lane's own job, and nothing it starts carries that mark. A refusal exits 2 by refused, which a launch or resume state.detach started also writes on the drive's events for the watch, but for a stand-down."""
     if argv is None:
         install.reopen(sys.argv[1:])
     args = parsed(argv)
@@ -6792,13 +6763,6 @@ def main(argv: list[str] | None = None) -> int:
         if "TMUX" in os.environ and (attached := orca.own_terminal()):
             os.environ["ORCA_TERMINAL_HANDLE"] = attached
         return args.run(args)
-    except state.NewerDrive as error:
-        if not state.WROTE and argv is not None and install.upgraded():
-            raise
-        if argv is None and (not state.WROTE or relaunching(args)):
-            os.environ.update({mark: value for mark, value in ((reads.SPRITE_LANE, lane), (state.DETACHED_ENV, detached)) if value})
-            install.reopen(sys.argv[1:], "".join(STDIN) if STDIN else None)
-        return refused(args, error, detached, own)
     except VERB_ERRORS as error:
         return refused(args, error, detached, own)
 
@@ -6859,17 +6823,12 @@ def folded_waits(name: str | None, value: str | tuple | list) -> str | tuple | l
     return [folded_waits(name, each) for each in value]
 
 
-def relaunching(args: argparse.Namespace) -> bool:
-    """Whether the verb is a launch or resume, which runs again whole on the newest install after a newer install's save refused it, whatever it changed: each step it takes before a worker starts is kept once, a lane's death once per dispatch with what its wake, its start in place and its save came to, a held text once under its Orca request id, a worker an earlier run started is adopted from the receipt its attempt keeps and never started twice, and a refusal after a worker started hands its receipt to the newest install's `drive finish`."""
-    return args.run in (job_launch, job_resume)
-
-
 def refused(args: argparse.Namespace, error: Exception, detached: str | None, lane_job: str | None) -> int:
     """Print the verb's refusal and exit 2. A launch, resume or end state.detach started, which only the watch runs, also writes the refusal as an event of the watch hearing its job's order, naming the log its output went to, so it reaches the watch's lines, unless it stood down for another verb acting on its job, and so does a reclaim that kept a Sprite, which no watch asks for again, so it is said once; the job and its order are read from the drive as saved, which a newer install's save never refuses."""
     print(f"drive: {error}", file=sys.stderr)
     if lane_job and (steps := reads.mac_steps(str(error), parser(), lane_job)):
         print(steps, file=sys.stderr)
-    if detached and (relaunching(args) or args.run is job_end or isinstance(error, Kept)) and not isinstance(error, StoodDown):
+    if detached and (args.run in (job_launch, job_resume, job_end) or isinstance(error, Kept)) and not isinstance(error, StoodDown):
         name = state.resolve(args.drive)
         order = state.saved_row(name, "jobs", args.id)["order"]
         heard = state.heard_lane(state.saved(name) | state.stored(name, ("orders",)), order)

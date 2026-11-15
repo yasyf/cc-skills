@@ -443,7 +443,7 @@ def meet_helper(key: str, floor: str, deadline: float, drive: str | None) -> Non
             drives = [state.resolve(drive)]
             approved = helper_approved(drives, release)
             card = helper_card(drives, release)
-        except (github.GithubError, state.DriveError, state.NewerDrive) as error:
+        except (github.GithubError, state.DriveError) as error:
             raise InstallError(f"{key} needs captain-hook {floor}, above the release Captain Hook.app runs, and whether he approved its restart did not read: {error}") from None
         if not at_least(release, floor):
             raise InstallError(f"{key} needs captain-hook {floor}, and its newest release is {release}")
@@ -489,25 +489,6 @@ def newest_drive() -> Path:
     return Path(newest([entry for key, entries in plugins.items() if key.partition("@")[0] == LONG_RUNNING for entry in entries])["installPath"]) / "bin" / "drive"
 
 
-def finished[T](what: str, seconds: float, keep: Callable[..., T], name: str, *args: object) -> T:
-    """Run keep(name, *args), the drive writes a verb makes once its outside work went out, such as a Slack post, an Orca launch or send, a lane's save, a proof, a judge or a lane's read, here, or, when a newer install saved the drive while that work ran, as the newest install's `drive finish` on the receipt kept under the drive's finish folder, which runs the same function from its own code, so what the verb did lands either way and nothing outside runs twice; keep's return, or a refusal naming the receipt, which stays."""
-    try:
-        return keep(name, *args)
-    except state.NewerDrive:
-        if not (newer := upgraded()):
-            raise
-    receipt = state.drive_dir(name) / "finish" / f"{uuid.uuid4().hex}.json"
-    receipt.parent.mkdir(parents=True, exist_ok=True)
-    receipt.write_text(json.dumps({"keep": f"{keep.__module__}:{keep.__qualname__}", "args": args, "what": what, "seconds": seconds}))
-    try:
-        done = subprocess.run([str(newer), "finish", str(receipt), "--drive", name, "--json"], capture_output=True, text=True, check=False, timeout=seconds)
-    except subprocess.TimeoutExpired:
-        raise state.DriveError(f"{what}, and {newer} did not record it within {seconds:g}s; its receipt is kept in {receipt}") from None
-    if done.returncode:
-        raise state.DriveError(f"{what}, and {newer} did not record it: {done.stderr.strip()}; its receipt is kept in {receipt}")
-    return json.loads(done.stdout)["result"]
-
-
 def upgraded() -> Path | None:
     """The drive of the newest installed long-running, when this code runs from the plugin cache and a newer one is installed."""
     if not DRIVE.is_relative_to((config_dir() / "plugins" / "cache").resolve()):
@@ -516,28 +497,10 @@ def upgraded() -> Path | None:
     return None if drive.resolve() == DRIVE else drive
 
 
-def reopen(argv: list[str], stdin: str | None = None) -> None:
-    """Run `drive <argv>` from the newest install in place of this process when a newer one is installed, so what this process reads and writes of a drive from here on runs on the newest install: a verb at its start, a verb a newer install's save refused before it wrote anything, given as stdin what it already read of its own, and a process that outlives its verb before each step, argv saying what it already did."""
-    if not (newer := upgraded()):
-        return
-    if stdin is not None:
-        with tempfile.TemporaryFile("w+") as given:
-            given.write(stdin)
-            given.seek(0)
-            os.dup2(given.fileno(), 0)
-    os.execv(newer, [str(newer), *argv])
-
-
-def rechecked(hook: str, payload: dict) -> bool:
-    """Run the newest install's copy of a drive hook on its payload in place of this one, as reopen runs a verb, when a newer one is installed and this hook changed nothing, as one a newer install's save refused mid-check: its output and exit code become this hook's; whether it ran."""
-    if state.WROTE or not (newer := upgraded()):
-        return False
-    done = subprocess.run([sys.executable, "-I", str(newer.parents[1] / "hooks" / hook)], input=json.dumps(payload), capture_output=True, text=True, check=False)
-    sys.stdout.write(done.stdout)
-    sys.stderr.write(done.stderr)
-    if done.returncode:
-        raise SystemExit(done.returncode)
-    return True
+def reopen(argv: list[str]) -> None:
+    """Run `drive <argv>` from the newest install in place of this process when a newer one is installed, so what this process reads and writes of a drive from here on runs on the newest install: a verb at its start, and a process that outlives its verb before each step, argv saying what it already did."""
+    if newer := upgraded():
+        os.execv(newer, [str(newer), *argv])
 
 
 def newest(entries: list[dict]) -> dict:
@@ -1119,7 +1082,7 @@ def merge_commits(merges: dict[str, str]) -> list[str]:
 
 
 def prove(name: str, job_id: str, timeout: int) -> str:
-    """Prove live a builder's READY or PUSHED whose PRs all merged, the step the watch starts, on a builder that took BLOCKED, its own proof's among them, the newest READY or PUSHED its history keeps, which take_back puts it back on, so a failed proof runs again on the job that owns it: install each plugin a yasyf/* merge changes whose installs, binaries, Homebrew copy or Captain Hook.app lack it, its other merges taken at once, wait until the drive's dashboard runs the newest long-running installed, then run the job's proof file with the bin folders of those plugins' newest installs, read right before it runs, first on PATH, as newest_builds builds it, and the drive named, as proof_run does, with no wait for CI, since no install reads a CI run; when it fails while the CI of the push that carried a yasyf/* merge onto its default branch has not passed it, as drive pr ci judges the merge, wait for it to pass with no deadline, as await_ci does, and run the file once more, as it does once ccx's GitHub rate-limit floor lifts for a run its timeout cut off while it waited that floor out, and run it again on the newer installs when it fails while a newer install of any of them landed, each run of the file given the whole timeout from its own start, as proof_run gives it, so neither the installs, the dashboard's handover, a wait on CI nor an earlier run shortens it, keep the last run's output in reports/<j>.proof.txt, take DONE on exit 0 with output, since a proof file printing nothing proves nothing, each Slack post or picture link it names opening, as brief.unopened reads it, so a stand-in permalink proves nothing either, that output proving each user story the job's brief names on his surface, as brief.story_gap reads its lines in code, each gap it finds said on a line closing the output kept, and, once all that holds, each command its brief's After install: line names exiting 0, which after_steps runs, and BLOCKED otherwise, its line naming that file and quoting the run's last line opening FAIL, else saying it printed none, and a nonzero exit ending on a WAIT line with no FAIL line, or an install held for his card, which meet_helper's WAIT says, taking no result, any other install that fails, a merge no release will carry, or a dashboard still on an older install at the deadline taking BLOCKED naming it, but only on a run the watch started, as the proof mark it wrote naming this process's pid shows, a session's failing run, the job's own agent's included, keeping its output and saying it on its PRs' lines while putting back the state, said line and proof mark it found, so its lane keeps its job and its Mac box, and keep the close report on its order for the watch to post when DONE leaves the order nothing to do, but for a drive tooling order a session opened, which closes done on its proof with no line to him, and an open incident, which the watch closes once DONE records its fix live, each said on its PRs' lines; on a prover, a builder that opened no PR briefed to prove merged PRs, by its brief's Handoff, else, marked as building nothing, by its goal, and that waits on nothing but its own after-merge staging waits, as handed_prs reads it, or a repair, one whose said line names none and that was briefed to prove none, at work or waiting, or stopped or failed as take_back reopens it, its proof marked as this process's from its start, install only what a prover's yasyf/* merges change, run the file on the drive's own long-running when nothing is installed, take its DONE or BLOCKED as finish does, naming the job for its PRs and closing its order under the order's title, and on a WAIT keep the job waiting on a WAITING line quoting it, its proof marked waiting on it, said on the job's own line; refused for a job waiting on no such READY or PUSHED that is no such repair, or one proof_gap names, the job left as it was; nothing after another proof took the job's result first. When a newer install saved the drive while it installed, waited on CI or ran the proof file, that install's `drive finish` keeps the result through proof_kept."""
+    """Prove live a builder's READY or PUSHED whose PRs all merged, the step the watch starts, on a builder that took BLOCKED, its own proof's among them, the newest READY or PUSHED its history keeps, which take_back puts it back on, so a failed proof runs again on the job that owns it: install each plugin a yasyf/* merge changes whose installs, binaries, Homebrew copy or Captain Hook.app lack it, its other merges taken at once, wait until the drive's dashboard runs the newest long-running installed, then run the job's proof file with the bin folders of those plugins' newest installs, read right before it runs, first on PATH, as newest_builds builds it, and the drive named, as proof_run does, with no wait for CI, since no install reads a CI run; when it fails while the CI of the push that carried a yasyf/* merge onto its default branch has not passed it, as drive pr ci judges the merge, wait for it to pass with no deadline, as await_ci does, and run the file once more, as it does once ccx's GitHub rate-limit floor lifts for a run its timeout cut off while it waited that floor out, and run it again on the newer installs when it fails while a newer install of any of them landed, each run of the file given the whole timeout from its own start, as proof_run gives it, so neither the installs, the dashboard's handover, a wait on CI nor an earlier run shortens it, keep the last run's output in reports/<j>.proof.txt, take DONE on exit 0 with output, since a proof file printing nothing proves nothing, each Slack post or picture link it names opening, as brief.unopened reads it, so a stand-in permalink proves nothing either, that output proving each user story the job's brief names on his surface, as brief.story_gap reads its lines in code, each gap it finds said on a line closing the output kept, and, once all that holds, each command its brief's After install: line names exiting 0, which after_steps runs, and BLOCKED otherwise, its line naming that file and quoting the run's last line opening FAIL, else saying it printed none, and a nonzero exit ending on a WAIT line with no FAIL line, or an install held for his card, which meet_helper's WAIT says, taking no result, any other install that fails, a merge no release will carry, or a dashboard still on an older install at the deadline taking BLOCKED naming it, but only on a run the watch started, as the proof mark it wrote naming this process's pid shows, a session's failing run, the job's own agent's included, keeping its output and saying it on its PRs' lines while putting back the state, said line and proof mark it found, so its lane keeps its job and its Mac box, and keep the close report on its order for the watch to post when DONE leaves the order nothing to do, but for a drive tooling order a session opened, which closes done on its proof with no line to him, and an open incident, which the watch closes once DONE records its fix live, each said on its PRs' lines; on a prover, a builder that opened no PR briefed to prove merged PRs, by its brief's Handoff, else, marked as building nothing, by its goal, and that waits on nothing but its own after-merge staging waits, as handed_prs reads it, or a repair, one whose said line names none and that was briefed to prove none, at work or waiting, or stopped or failed as take_back reopens it, its proof marked as this process's from its start, install only what a prover's yasyf/* merges change, run the file on the drive's own long-running when nothing is installed, take its DONE or BLOCKED as finish does, naming the job for its PRs and closing its order under the order's title, and on a WAIT keep the job waiting on a WAITING line quoting it, its proof marked waiting on it, said on the job's own line; refused for a job waiting on no such READY or PUSHED that is no such repair, or one proof_gap names, the job left as it was; nothing after another proof took the job's result first."""
     from drive import brief, dashboard
 
     with state.edit(name) as data:
@@ -1196,7 +1159,7 @@ def prove(name: str, job_id: str, timeout: int) -> str:
             if code == 0
             else f"BLOCKED {urls}: {job['repro']} exits {code} on {versions}, its output {state.proof_path(name, job_id)}: {tail[:SAID_CHARS]}"
         )
-    return finished(f"{job_id}: its proof", state.DRIVE_LOCK_SECONDS, proof_kept, name, job_id, {"line": line, "output": output, "versions": versions, "code": code, "found": None if (found["proof"] or {}).get("pid") == os.getpid() else {"proof": found["proof"]}})
+    return proof_kept(name, job_id, line, output, versions, code, None if (found["proof"] or {}).get("pid") == os.getpid() else {"proof": found["proof"]})
 
 
 def after_steps(name: str, steps: list[str], path: str, timeout: int) -> tuple[str, tuple[str, str] | None]:
@@ -1238,7 +1201,7 @@ def waited(code: int | str, output: str) -> str | None:
 
 
 def proof_run(name: str, repro: str, path: str, timeout: int) -> subprocess.CompletedProcess:
-    """Run the proof file as subprocess.run would, in the folder the drive's coordinator runs in, the drive's checkout, read from its saved sessions by state.saved, so a newer install that saved the drive meanwhile refuses nothing, never the folder drive job prove was started in, such as the drive's state folder, which no git repository holds, so a proof calling git, ccn or tools/ci by relative path runs as its builder ran it, its output read as text, PATH set to `path`, the one newest_builds builds, DRIVE_ENV naming the drive it proves, so each drive call in it that names no drive acts on that one whatever session or drives this Mac holds, and PROOF_DEADLINE_ENV the Unix second its deadline, `timeout` seconds from its start, falls at, so a proof that waits prints its WAIT line before it, but as a process group of its own, which reads.end ends at that deadline with SIGINT, the signal that unwinds a Python proof, one run with -I included, so it writes what it printed before it exits, and SIGKILL reads.STOP_GRACE seconds on; the TimeoutExpired raised then holds everything the group wrote."""
+    """Run the proof file as subprocess.run would, in the folder the drive's coordinator runs in, the drive's checkout, read from its saved sessions by state.saved, never the folder drive job prove was started in, such as the drive's state folder, which no git repository holds, so a proof calling git, ccn or tools/ci by relative path runs as its builder ran it, its output read as text, PATH set to `path`, the one newest_builds builds, DRIVE_ENV naming the drive it proves, so each drive call in it that names no drive acts on that one whatever session or drives this Mac holds, and PROOF_DEADLINE_ENV the Unix second its deadline, `timeout` seconds from its start, falls at, so a proof that waits prints its WAIT line before it, but as a process group of its own, which reads.end ends at that deadline with SIGINT, the signal that unwinds a Python proof, one run with -I included, so it writes what it printed before it exits, and SIGKILL reads.STOP_GRACE seconds on; the TimeoutExpired raised then holds everything the group wrote."""
     from drive import reads
 
     with subprocess.Popen(
@@ -1257,12 +1220,11 @@ def proof_run(name: str, repro: str, path: str, timeout: int) -> subprocess.Comp
     return subprocess.CompletedProcess([repro], running.returncode, out, err)
 
 
-def proof_kept(name: str, job_id: str, result: dict) -> str:
-    """Keep what a proof came to on its job, its output in reports/<j>.proof.txt, and say it on the job's PRs' lines, a repair's on its own, nothing after another proof took the job's result first; a run waited on his next word, a WAIT line ending a nonzero exit with no FAIL line, takes no result, so the job stays waiting on its READY or PUSHED, a repair taking the WAITING that quotes it, and marks its proof waiting, which the watch runs again once he is heard after the run started; a failed run the watch did not start, as found holds the fields prove changed before it ran, a session's such as the job's own agent's, takes no result either, the job put back on the state, said line and proof mark it found, so a save never reads it failed and takes down the Mac box its lane still works on; prove runs it through finished, since an install the proof made saves the drive while it runs, so the proof never runs twice."""
+def proof_kept(name: str, job_id: str, line: str, output: str, versions: str, code: int | str, found: dict | None) -> str:
+    """Keep what a proof came to on its job, its output in reports/<j>.proof.txt, and say it on the job's PRs' lines, a repair's on its own, nothing after another proof took the job's result first; a run waited on his next word, a WAIT line ending a nonzero exit with no FAIL line, takes no result, so the job stays waiting on its READY or PUSHED, a repair taking the WAITING that quotes it, and marks its proof waiting, which the watch runs again once he is heard after the run started; a failed run the watch did not start, as found holds the fields prove changed before it ran, a session's such as the job's own agent's, takes no result either, the job put back on the state, said line and proof mark it found, so a save never reads it failed and takes down the Mac box its lane still works on."""
     from drive import brief
 
     kept = state.proof_path(name, job_id)
-    line, output, versions, code = result["line"], result["output"], result["versions"], result["code"]
     with state.edit(name) as data:
         job = data["jobs"][job_id]
         then = {field: job.get(field) for field in ("state", "said", "updated")}
@@ -1279,8 +1241,8 @@ def proof_kept(name: str, job_id: str, result: dict) -> str:
                 state.take_result(data, job_id, said)
             job["proof"] = (job.get("proof") or {"pid": os.getpid(), "at": state.stamp(), "version": state.VERSION}) | {"said": job["said"], "waits": wait}
             change = f"{PROOF_WAITS}: {line.removeprefix('BLOCKED ')}"
-        elif code and result["found"] is not None:
-            job.update(then | result["found"])
+        elif code and found is not None:
+            job.update(then | found)
             change = f"{PROOF_FAILED}: {line.removeprefix('BLOCKED ')}; {job_id} stays {job['state']} on its line, since only a proof the watch starts takes its failure as the job's result"
         else:
             job["proof"] = (job.get("proof") or {"pid": os.getpid(), "at": state.stamp(), "version": state.VERSION}) | {"said": job["said"], "result": line}
@@ -1494,7 +1456,7 @@ def attached(drive: str, alias: str, session: str, show: str, resumed: str) -> s
 
 
 def reload_sessions(drives: list[str], force: bool) -> list[str]:
-    """Reload every session bound to each drive: the communicator, the top coordinator, the meta session and each sub-coordinator, read from each drive's saved bindings alone, since a newer install than this code may have saved the drive since its update, each in an Orca terminal one read of Orca and the process tree finds it runs in."""
+    """Reload every session bound to each drive: the communicator, the top coordinator, the meta session and each sub-coordinator, read from each drive's saved bindings alone, each in an Orca terminal one read of Orca and the process tree finds it runs in."""
     from drive import orca
 
     seats = [(name, seat, held) for name in drives for seat, held in state.bound_sessions(state.saved(name)).items()]

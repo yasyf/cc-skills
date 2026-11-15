@@ -42,7 +42,7 @@ from conftest import (
     staged,
     unheld,
 )
-from drive import agents, artifacts, cli, github, install, orca, place, reads, render, state, superseded, tools, view, watch
+from drive import agents, artifacts, cli, github, orca, place, reads, render, state, superseded, tools, view, watch
 
 pytestmark = pytest.mark.usefixtures("ccx_worktrees")
 
@@ -1099,42 +1099,6 @@ def test_a_readers_return_briefs_the_builder_waiting_on_it_with_each_answer_its_
     assert "5e0c41a8" not in brief
 
 
-def test_a_launch_hands_its_receipt_to_the_newer_install_that_saved_meanwhile(
-    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    cloned(tmp_path, demo)
-    (tmp_path / "brief.md").write_text("Researched: j0\nDrive: demo, order o1, job j1\n")
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
-    run("job", "add", "builder", "--order", "o1", "--goal", "ship it")
-    monkeypatch.setattr(orca, "new_run", lambda drive, objective: RUN)
-    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane", "worktree")
-    handed = []
-    newest, version = tmp_path / "newest" / "bin" / "drive", state.VERSION
-
-    def launch(*args: object) -> dict:
-        monkeypatch.setattr(state, "VERSION", "0.0.1")
-        return {field: f"{field}-1" for field in fields} | {"dispatch": DISPATCH}
-
-    real = subprocess.run
-
-    def newer(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-        if argv[0] != str(newest):
-            return real(argv, **kwargs)
-        handed.append(argv[1:])
-        monkeypatch.setattr(state, "VERSION", version)
-        code = cli.main(argv[1:])
-        return subprocess.CompletedProcess(argv, code, capsys.readouterr().out, "")
-
-    monkeypatch.setattr(orca, "launch", launch)
-    monkeypatch.setattr(cli.install, "upgraded", lambda: newest)
-    monkeypatch.setattr(cli.install.subprocess, "run", newer)
-    assert run("job", "launch", "j1", "brief.md") == (0, f"j1 started on Sprite workspace-1 as dispatch {DISPATCH}")
-    [argv] = handed
-    assert (argv[0], Path(argv[1]).parent, argv[2:], Path(argv[1]).exists()) == ("finish", state.drive_dir(demo) / "finish", ["--drive", demo, "--json"], False)
-    job = state.load(demo)["jobs"]["j1"]
-    assert (job["where"], job["dispatch"], job["run"], job["state"]) == ("remote", DISPATCH, RUN, "running")
-
-
 def test_a_launch_given_drive_job_briefs_flags_writes_its_brief_from_them_before_its_worker_starts(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1970,7 +1934,6 @@ SAVED = (
 )
 SAVED_BRANCHES = ["saved/demo-j1/conflict-tallies at 1a2b3c4d5e", "saved/demo-j1/stash at 2b3c4d5e6f", "saved/demo-j1/tallies-final at 3c4d5e6f70"]
 ON_GITHUB = ", ".join(SAVED_BRANCHES)
-RESTACK = "commits on no remote on restack, saved to Forge-AI/monorepo under saved/demo-j1/"
 UNREAD = "orca-reclaim.py exited 1: ssh to pool-sleeping could not read /home/sprite/monorepo: i/o timeout"
 NOTHING = "{} held nothing unpushed or uncommitted, so nothing was saved"
 UNRECORDED = "cc-remote records no Sprite {}, so nothing on it was read or saved"
@@ -2640,54 +2603,6 @@ def test_a_lane_orca_could_not_reach_whose_woken_sprite_says_orcas_runtime_liste
     assert len(watch.undelivered_lines(watch.Watcher(remote, offset=state.events_end(remote)), T0 + timedelta(hours=1))) == len(held)
 
 
-def test_j5668s_resume_run_again_once_a_newer_install_saved_the_drive_during_its_start_in_place_wakes_the_sprite_once_starts_there_once_and_then_on_a_fresh_sprite(
-    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    workspace, dispatch, port = J1409_LANES["j242"]
-    wakes, launches = unreachable_lane(remote, tmp_path, monkeypatch, J1409_LANES["j242"], dead)
-    shows, saves, version = [], [], state.VERSION
-    show = orca.worker
-    monkeypatch.setattr(orca, "worker", lambda shown: shows.append(shown) or show(shown))
-    monkeypatch.setattr(orca, "save", lambda drive, job_id, job, root: saves.append(job["workspace"]) or NOTHING.format(job["workspace"]))
-    refusal = f"orca-worker-launch.sh exited 1 before a worker started: cc-remote orca prepare {workspace} --existing: {NO_WAKE}"
-
-    def launch(drive: str, lane: str, brief: Path, checkout: Path, run_id: str, route: str | None, workspace: str | None, session: str | None) -> dict:
-        launches.append({"workspace": workspace, "session": session, "brief": brief.read_text()})
-        if workspace:
-            monkeypatch.setattr(state, "VERSION", "0.0.1")
-            raise orca.Unstarted(refusal)
-        return {field: f"{field}-2" for field in ("dispatch", "task", "terminal", "environment", "lane", "worktree")} | {"workspace": "workspace-2"}
-
-    newest, real = tmp_path / "newest" / "bin" / "drive", subprocess.run
-
-    def newer(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-        if argv[0] != str(newest):
-            return real(argv, **kwargs)
-        monkeypatch.setattr(state, "VERSION", version)
-        code = cli.main(argv[1:])
-        monkeypatch.setattr(state, "VERSION", "0.0.1")
-        return subprocess.CompletedProcess(argv, code, capsys.readouterr().out, "")
-
-    monkeypatch.setattr(orca, "launch", launch)
-    monkeypatch.setattr(cli.install, "upgraded", lambda: newest)
-    monkeypatch.setattr(cli.install.subprocess, "run", newer)
-    assert run("job", "resume", "j1", state.UNREACHED)[0] == 2
-    death = state.saved_row(remote, "jobs", "j1")["deaths"][0]
-    assert (death["dispatch"], death["lane_end"]["unfit"], death["lane_end"]["why"].endswith(refusal)) == (dispatch, True, True)
-    monkeypatch.setattr(state, "VERSION", version)
-    code, out = run("job", "resume", "j1", state.UNREACHED)
-    assert (code, out.startswith("j1: the message went to the job's next worker, relaunched on Sprite workspace-2 as dispatch dispatch-2")) == (0, True)
-    assert f"was dead ({unreachable(port)}, and once it woke its worker exited, and {refusal})" in out
-    assert (wakes, len(shows), [launched["workspace"] for launched in launches], saves) == ([("--wake", workspace)], 2, [workspace, None], [workspace])
-    job = state.load(remote)["jobs"]["j1"]
-    assert (job["dispatch"], job["workspace"], job["undelivered"], [(death["dispatch"], death["saved"]) for death in job["deaths"]]) == (
-        "dispatch-2",
-        "workspace-2",
-        [],
-        [(dispatch, NOTHING.format(workspace))],
-    )
-
-
 def reprepared(monkeypatch: pytest.MonkeyPatch, dispatch: str = "dispatch-2") -> list[tuple[str, str | None]]:
     """Each launch a resume of a finished Sprite lane starts, by lane and the workspace it continues on, its worker started on that Sprite."""
     monkeypatch.setattr(orca, "worker", lambda dispatch: FINISHED_WORKER)
@@ -3051,40 +2966,6 @@ def test_a_message_to_a_live_sprite_lane_no_recorded_start_put_the_tools_on_plac
     assert run("job", "resume", "j1", "PR #7 merged") == (0, f"j1: {queued(DISPATCH)}")
     assert (tooled, len(sent)) == (["pool-1895"], 2)
     assert state.load(remote)["jobs"]["j1"]["tools_on"] == "pool-1895"
-
-
-def test_a_resume_to_a_live_worker_hands_the_text_it_took_to_the_newer_install_that_saved_meanwhile_so_it_goes_out_once(
-    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    with state.edit(remote) as data:
-        data["jobs"]["j1"].update(state="waiting", ask="q-1")
-    sent, handed = [], []
-    newest, version = tmp_path / "newest" / "bin" / "drive", state.VERSION
-
-    def took(verb: str, *args: object) -> dict:
-        sent.append(verb)
-        if verb == "reply":
-            monkeypatch.setattr(state, "VERSION", "0.0.1")
-        return {}
-
-    real = subprocess.run
-
-    def newer(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-        if argv[0] != str(newest):
-            return real(argv, **kwargs)
-        handed.append(argv[1:])
-        monkeypatch.setattr(state, "VERSION", version)
-        code = cli.main(argv[1:])
-        return subprocess.CompletedProcess(argv, code, capsys.readouterr().out, "")
-
-    monkeypatch.setattr(orca, "call", took)
-    monkeypatch.setattr(cli.install, "upgraded", lambda: newest)
-    monkeypatch.setattr(cli.install.subprocess, "run", newer)
-    assert run("job", "resume", "j1", "PR #7 merged") == (0, "j1: answered its question q-1")
-    [argv] = handed
-    assert (argv[0], argv[2:], Path(argv[1]).exists(), sent.count("reply")) == ("finish", ["--drive", remote, "--json"], False, 1)
-    job = state.load(remote)["jobs"]["j1"]
-    assert (job["ask"], job["state"], job["undelivered"]) == (None, "running", [])
 
 
 def test_a_live_sprite_lane_whose_sprite_refuses_the_tools_still_gets_its_message_and_the_next_one_places_them_again(
@@ -4879,43 +4760,6 @@ def test_end_frees_a_waiting_lane_and_the_job_keeps_waiting_with_its_waits_prs_a
     assert state.load(remote)["jobs"]["j2"]["waits"] == ["j1"]
 
 
-def test_an_end_hands_its_end_to_the_newer_install_that_saved_meanwhile(
-    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], saved_on_github: dict[str, list[str]]
-) -> None:
-    cloned(tmp_path, remote)
-    saved_on_github["demo-j1"] = ["saved/demo-j1/restack at 1a2b3c4d5e"]
-    carrying(run, remote)
-    run("job", "add", "builder", "--order", "o1", "--goal", "restack onto the fix", "--remote", "--waits", "j1")
-    with state.edit(remote) as data:
-        data["jobs"]["j1"].update(state="waiting", said="WAITING CI", ask="a question", workspace="pool-one")
-    handed = []
-    newest, version = tmp_path / "newest" / "bin" / "drive", state.VERSION
-
-    def saved(drive: str, job_id: str, job: dict, root: Path) -> str:
-        monkeypatch.setattr(state, "VERSION", "0.0.1")
-        return RESTACK
-
-    real = subprocess.run
-
-    def newer(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-        if argv[0] != str(newest):
-            return real(argv, **kwargs)
-        handed.append(argv[1:])
-        monkeypatch.setattr(state, "VERSION", version)
-        code = cli.main(argv[1:])
-        return subprocess.CompletedProcess(argv, code, capsys.readouterr().out, "")
-
-    monkeypatch.setattr(orca, "save", saved)
-    monkeypatch.setattr(orca, "reclaim", lambda run_id, dispatch, root: "destroyed pool-one dispatch ctx_lane0001")
-    monkeypatch.setattr(cli.install, "upgraded", lambda: newest)
-    monkeypatch.setattr(cli.install.subprocess, "run", newer)
-    assert run("job", "end", "j1")[1].endswith("j1's lane ended; j1 stays waiting, and what its Sprite held on no remote is saved on GitHub as saved/demo-j1/restack at 1a2b3c4d5e")
-    [argv] = handed
-    assert (argv[0], argv[2:], Path(argv[1]).exists()) == ("finish", ["--drive", remote, "--json"], False)
-    job = state.load(remote)["jobs"]["j1"]
-    assert (job["ask"], job["deaths"][-1]["saved"], job["deaths"][-1]["why"]) == (None, RESTACK, "ended by drive job end")
-
-
 def test_end_refuses_while_the_sprite_of_a_job_still_at_work_cannot_be_saved(
     remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -5763,7 +5607,7 @@ def test_a_read_answer_orca_refuses_its_reader_is_retried_by_the_watch_until_it_
     assert state.load(remote)["jobs"]["j1"]["reads"] == {}
 
 
-def test_a_kept_answer_goes_at_the_start_of_the_pass_before_any_lane_mail_is_read_so_a_newer_install_saving_mid_sweep_holds_it_back_no_longer(
+def test_a_kept_answer_goes_at_the_start_of_the_pass_before_any_lane_mail_is_read_so_a_pass_crashing_mid_sweep_holds_it_back_no_longer(
     remote: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with state.edit(remote) as data:
@@ -5771,13 +5615,12 @@ def test_a_kept_answer_goes_at_the_start_of_the_pass_before_any_lane_mail_is_rea
     calls = []
     monkeypatch.setattr(orca, "call", lambda *args: calls.append(args) or {})
 
-    def newer_install_saves(after: int | None) -> list[dict]:
+    def crashes(after: int | None) -> list[dict]:
         calls.append(("inbox", after))
-        state.store(remote, state.stored(remote) | {"saved_by": "9.9.9"})
-        return []
+        raise RuntimeError("the pass crashed")
 
-    monkeypatch.setattr(orca, "mail", newer_install_saves)
-    with pytest.raises(state.NewerDrive):
+    monkeypatch.setattr(orca, "mail", crashes)
+    with pytest.raises(RuntimeError):
         watch.run_pass(watch.Watcher(remote, offset=state.events_end(remote)), T0)
     assert [args for args in calls if args[0] in ("reply", "inbox")] == [("reply", "--id", "relay_kept", "--run", RUN, "--body", "m2065"), ("inbox", None)]
     assert state.stored(remote)["jobs"]["j1"]["reads"] == {}
@@ -5997,40 +5840,6 @@ def test_a_read_stopped_before_it_finished_is_answered_as_cut_off_and_never_run_
     assert ("reply", "--id", "relay_read", "--run", RUN, "--body", sent) in replies
     job = state.load(remote)["jobs"]["j1"]
     assert (job["reads"], job["read_answers"]) == ({}, {})
-
-
-def test_a_read_a_newer_installs_save_overtook_keeps_and_sends_its_answer_through_the_newest_installs_drive_finish_and_never_runs_again(
-    remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    deliver(monkeypatch, [message("question", "READ cci show 2065", id="relay_newer")])
-    monkeypatch.setattr(watch, "spawn_reader", lambda name, job_id, message_id: os.getpid())
-    replies = []
-    monkeypatch.setattr(orca, "call", lambda *args: replies.append(args) or {})
-    assert staged(watch.lane_lines, watch.Watcher(remote, offset=state.events_end(remote)), T0) == []
-
-    def answered_as_an_install_lands(question: str, root: Path, drive: str, job_id: str) -> str:
-        state.store(drive, state.stored(drive) | {"saved_by": "9.9.9"})
-        return "m2065 the field facts"
-
-    newest, real = tmp_path / "cache" / "9.9.9" / "bin" / "drive", subprocess.run
-
-    def newer(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-        if argv[0] != str(newest):
-            return real(argv, **kwargs)
-        state.store(remote, state.stored(remote) | {"saved_by": state.VERSION})
-        monkeypatch.setattr(reads, "answer", lambda *args: pytest.fail("the newest install ran the read again"))
-        code = cli.main(argv[1:])
-        return subprocess.CompletedProcess(argv, code, capsys.readouterr().out, "")
-
-    monkeypatch.setattr(reads, "answer", answered_as_an_install_lands)
-    monkeypatch.setattr(install, "upgraded", lambda: newest)
-    monkeypatch.setattr(install.subprocess, "run", newer)
-    said = watch.answer_read(remote, "j1", "relay_newer")
-    assert said[0].endswith("m2065 the field facts")
-    assert [args for args in replies if args[0] == "reply"] == [("reply", "--id", "relay_newer", "--run", RUN, "--body", said[0])]
-    job = state.load(remote)["jobs"]["j1"]
-    assert (job["reads"], job["read_answers"]) == ({}, {})
-    assert not [*(state.drive_dir(remote) / "finish").iterdir()]
 
 
 def test_a_read_still_running_holds_its_answer_starts_no_second_reader_and_its_reader_sends_its_answer_the_moment_it_is_kept(
@@ -6729,7 +6538,7 @@ def test_a_worker_started_on_a_new_dispatch_drops_the_texts_queued_for_the_last_
     handoff.write_text("the handoff")
     with state.edit(remote) as data:
         data["jobs"]["j1"]["queued"] = [{"words": J93_TEXT, "sender": "coordinator", "at": state.stamp(T0)}]
-    assert cli.launch_kept(remote, "j1", {"dispatch": J2914_NEXT_WORKER, "workspace": None}, str(handoff))["queued"] == []
+    assert cli.record_start(remote, "j1", {"dispatch": J2914_NEXT_WORKER, "workspace": None}, str(handoff))["queued"] == []
     cli.sent_kept(remote, "j1", {"words": "rebase first", "sender": "coordinator", "request": str(uuid.uuid4()), "at": state.stamp(T0), "ask": None, "queued": DISPATCH})
     assert state.load(remote)["jobs"]["j1"]["queued"] == []
 
@@ -7301,23 +7110,6 @@ def test_a_drive_opening_its_terminal_holds_no_drive_lock_while_orca_creates_it_
 
     monkeypatch.setattr(orca, "request", orca_request)
     assert (REAL_DRIVE_TERMINAL(remote), state.load(remote)["terminal"], taken) == ("term_opened", "term_opened", [0])
-
-
-def test_bound_keeps_the_worker_start_receipt_and_status_when_a_newer_install_saves_the_drive_while_it_runs(
-    remote: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    calls = []
-    monkeypatch.setattr(orca, "call", lambda *args, caller=None: calls.append(args) or {})
-    receipt = json.dumps({"ok": True, "result": {"state": "ready", "dispatchId": DISPATCH}})
-
-    def worker_start(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
-        state.store(remote, state.stored(remote) | {"saved_by": "9.9.9"})
-        return subprocess.CompletedProcess(argv, 0, receipt, "")
-
-    monkeypatch.setattr(orca.subprocess, "run", worker_start)
-    assert cli.main(["bound", "--drive", remote, RUN, "--", "orca", "orchestration", "worker-start"]) == 0
-    assert capsys.readouterr().out == receipt
-    assert calls == []
 
 
 NO_RUN = "orca orchestration run-use: run_not_found: no such Run"
