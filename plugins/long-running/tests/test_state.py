@@ -1323,17 +1323,19 @@ def test_a_full_pass_by_the_builder_of_the_pr_it_tests_delivers_its_staging_part
     assert [held, (data["jobs"]["j1"]["state"], staging_reads(data))] == [("waiting", (True, PROOF, "j1")), ("done", (True, PROOF, "j1"))]
 
 
-def test_a_drive_saved_delivering_staging_test_parts_by_any_done_keeps_each_only_on_the_newest_tester_whose_done_named_its_proof_once_as_j4832s_j4937s_and_j5048s_were_not(
+def test_a_drive_saved_delivering_staging_test_parts_by_any_done_keeps_each_only_on_the_newest_tester_whose_full_pass_named_its_proof_once_as_j4832s_j4937s_and_j5048s_were_not(
     state_root: Path,
 ) -> None:
     data = staging_drive()
-    del data["staging_proofs_owned"]
+    del data["staging_passes_owned"]
+    data["staging_proofs_owned"] = True
     created = "2026-11-14T10:00:00-08:00"
-    owned, rerun, running, unposted = (state.STAGING_TEST.format(number=number) for number in (42, 43, 44, 45))
-    data["orders"]["o1"]["parts"] = {part: state.new_part() | {"posted": PROOF if part != unposted else None} for part in (owned, rerun, running, unposted)}
-    for part in data["orders"]["o1"]["parts"].values():
-        del part["posted_by"]
-    testers = {"j1": owned, "j2": rerun, "j3": rerun, "j4": running, "j5": unposted}
+    owned, rerun, running, unposted, compared = (state.STAGING_TEST.format(number=number) for number in (42, 43, 44, 45, 46))
+    data["orders"]["o1"]["parts"] = {part: state.new_part() | {"posted": PROOF if part != unposted else None} for part in (owned, rerun, running, unposted, compared)}
+    for part in (owned, rerun, running, unposted):
+        del data["orders"]["o1"]["parts"][part]["posted_by"]
+    data["orders"]["o1"]["parts"][compared]["posted_by"] = "j6"
+    testers = {"j1": owned, "j2": rerun, "j3": rerun, "j4": running, "j5": unposted, "j6": compared}
     data["orders"]["o1"]["jobs"] = list(testers)
     done = f"DONE {PROOF} ran the staging test"
     data["jobs"] = {job_id: state.new_job("o1", "builder", "run the staging test", [part], created) | {"state": "done", "said": done} for job_id, part in testers.items()}
@@ -1341,12 +1343,19 @@ def test_a_drive_saved_delivering_staging_test_parts_by_any_done_keeps_each_only
     data["jobs"]["j4"] |= {"state": "running", "said": None}
     state.create(data)
     for job_id in ("j1", "j2", "j4", "j5"):
-        state.keep_report("demo", job_id, done, f"{done}\nCHECK: {PROOF}\n")
+        state.keep_report("demo", job_id, done, f"{done}\nCHECK: {PROOF}\nCASE a rollback refused: pass\n")
+    state.keep_report("demo", "j6", done, f"{done}\nCHECK: {PROOF}\n")
     data = state.load("demo")
     parts = data["orders"]["o1"]["parts"]
-    assert [(state.delivered(data, "o1", part), parts[part]["posted_by"]) for part in (owned, rerun, running, unposted)] == [(True, "j1"), (False, "j2"), (False, "j4"), (False, None)]
+    assert [(state.delivered(data, "o1", part), parts[part]["posted"], parts[part]["posted_by"]) for part in (owned, rerun, running, unposted, compared)] == [
+        (True, PROOF, "j1"),
+        (False, PROOF, "j2"),
+        (False, PROOF, "j4"),
+        (False, None, None),
+        (False, None, None),
+    ]
     with state.edit("demo") as drive:
-        assert drive["staging_proofs_owned"] is True
+        assert (drive["staging_passes_owned"], "staging_proofs_owned" in drive) == (True, False)
 
 
 def test_a_part_an_older_install_saved_with_spaces_around_its_name_loads_trimmed_wherever_a_job_or_pr_names_it(state_root: Path) -> None:
