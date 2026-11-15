@@ -145,3 +145,16 @@ def test_a_long_read_reaches_jev_by_the_lines_its_claim_cites_most_first_in_line
     call = f'ccx_code_read {{"path": "{"cloudrunner/" * 1000}inbox.go"}}'
     own = len(json.dumps({"state": {"reads": {"read:1": {"call": call, "lines": 1, "result": {}}}}, "questions": {}}, ensure_ascii=False))
     assert settled.unfit_reads(handled(CLAIM["claim"], [READ | {"quote": f"{call}\n{RESULT}"}])) == [('read:1 "cloudrunner/inbox.go"', own)]
+
+
+def test_each_claim_on_one_long_read_gets_its_best_line_before_another_claims_lines_sharing_only_common_words(jev: Jev) -> None:
+    rows = [f"- j{job} reader done: its report is on the drive and waits on nothing" for job in range(1000, 1200)]
+    building = "- j4479 builder running: build state.delivered in plugins/long-running"
+    claims = [{"claim": "j1000 is done and waits on nothing", "read": "record:711222"}, {"claim": "j4479 builds state.delivered", "read": "record:711222"}]
+    quiet = {"id": "record:711222", "read": "711222", "source": "the report this post carries", "quote": "cci show 711222\n" + "\n".join([*rows, building])}
+    output = {"post": {"text": "j1000 is done; j4479 builds state.delivered.", "claims": claims}, "reads": [quiet], "his_words": []}
+    jev.picks("backed", 0.9)
+    assert settled.post_verdict(output) == {"verdict": "pass", "note": ""}
+    request = jev.asked[-1]
+    assert request["state"]["reads"]["record:711222"]["result"][str(len(rows) + 1)] == building
+    assert settled.size(request["state"], request["questions"]) <= settled.REQUEST_CHARS
