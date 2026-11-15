@@ -628,9 +628,11 @@ restating it.
 
 **The Waiting on you post.** You never write it either: the watch keeps one post at the root of his
 DM and of each operator channel, posted when a card first waits on him there and edited in place
-whenever what waits there changes, so it never pings him again. It counts the open cards whose
-project posts there, linking that queue on the dashboard, then links the first five, those fixing a
-bug hurting someone now first. Once nothing waits there it reads "No open cards".
+whenever what waits there changes, so it never pings him again. The watch pins it to its
+conversation once, through `cc-slack pin`, so it stays in that conversation's pinned list however
+far other posts push it up. It counts the open cards whose project posts there, linking that queue
+on the dashboard, then links the first five, those fixing a bug hurting someone now first. Once
+nothing waits there it reads "No open cards".
 
 ## When it goes out
 

@@ -6620,13 +6620,15 @@ def test_a_live_bugs_stack_waiting_on_his_card_is_drawn_once_and_never_asked_aga
     assert draws.keys == [list(STACKED)]
 
 
-def test_the_one_post_in_each_place_saying_what_waits_on_him_goes_up_once_a_card_waits_there_and_is_edited_in_place_as_its_cards_change(
+def test_the_one_post_in_each_place_saying_what_waits_on_him_goes_up_once_a_card_waits_there_is_pinned_once_and_is_edited_in_place_as_its_cards_change(
     demo: str, monkeypatch: pytest.MonkeyPatch, unposted_waits: Callable[..., dict[str, str]]
 ) -> None:
     monkeypatch.setattr(talk, "waiting_posts", unposted_waits)
     monkeypatch.setattr(slack, "operator_channels", lambda: [{"id": "C777", "name": "demo-iris"}, {"id": "C888", "name": "demo-sandsql"}])
     posts: list[dict] = []
     monkeypatch.setattr(talk, "posted", lambda name, post: posts.append(post) or {"permalink": post.get("edit") or f"https://acme.slack.com/archives/{post.get('channel_id', 'D123')}/p1794400200000100"})
+    pins: list[str] = []
+    monkeypatch.setattr(slack, "pin", pins.append)
     with state.edit(demo) as data:
         data["orders"]["o2"] = order(project="Iris", jobs=["j2"])
         data["orders"]["o3"] = order(jobs=["j3"], reporters=[state.reporter(REPORTED)])
@@ -6646,12 +6648,40 @@ def test_the_one_post_in_each_place_saying_what_waits_on_him_goes_up_once_a_card
     in_dm = f"*<{board}#/queue/all|Waiting on you: 6 questions>*\n" + "\n".join(f"{{card:{each}}}" for each in [waits[5], *waits[:4]])
     in_iris = f"*<{board}#/queue/all?project=Iris|Waiting on you: 1 question>*\n{{card:demo:j2-1-a}}"
     assert passes(*waits) == [{"text": in_iris, "channel_id": "C777"}, {"text": in_dm}]
-    assert passes(*waits) == []
     dm_post, iris_post = "https://acme.slack.com/archives/D123/p1794400200000100", "https://acme.slack.com/archives/C777/p1794400200000100"
+    assert pins == [iris_post, dm_post]
+    assert passes(*waits) == []
     fixed = f"*<{board}#/queue/all|Waiting on you: 5 questions>*\n" + "\n".join(f"{{card:{each}}}" for each in waits[:5])
     assert passes(*waits[:5], waits[6]) == [{"edit": dm_post, "text": fixed}]
     assert passes() == [{"edit": iris_post, "text": talk.NO_CARDS}, {"edit": dm_post, "text": talk.NO_CARDS}]
-    assert state.load(demo)["slack"]["waiting"] == {"C777": {"message": iris_post, "words": talk.NO_CARDS}, "D123": {"message": dm_post, "words": talk.NO_CARDS}}
+    assert pins == [iris_post, dm_post]
+    assert state.load(demo)["slack"]["waiting"] == {"C777": {"message": iris_post, "words": talk.NO_CARDS, "pinned": True}, "D123": {"message": dm_post, "words": talk.NO_CARDS, "pinned": True}}
+
+
+def test_a_waiting_post_kept_unpinned_is_pinned_on_the_next_pass_with_no_new_post_and_a_refused_pin_goes_again(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    dm_post = "https://acme.slack.com/archives/D123/p1794400200000100"
+    with state.edit(demo) as data:
+        data["slack"]["waiting"]["D123"] = {"message": dm_post, "words": talk.NO_CARDS}
+    posts: list[dict] = []
+    monkeypatch.setattr(talk, "posted", lambda name, post: posts.append(post) or {"permalink": dm_post})
+    monkeypatch.setattr(talk, "waiting_posts", lambda name, data, found, moment: {"D123": talk.NO_CARDS})
+    refusals = [slack.SlackError("cc-slack can't pin here (ratelimited)")]
+    pins: list[str] = []
+
+    def pin(link: str) -> None:
+        if refusals:
+            raise refusals.pop()
+        pins.append(link)
+
+    monkeypatch.setattr(slack, "pin", pin)
+    watching = watcher(demo)
+    watching.cards = view.NO_CARDS
+    assert watch.waiting_post_lines(watching, T0) == []
+    assert (pins, state.load(demo)["slack"]["waiting"]["D123"]["pinned"]) == ([], False)
+    assert watch.waiting_post_lines(watching, T0 + timedelta(minutes=1)) == []
+    assert (posts, pins, state.load(demo)["slack"]["waiting"]["D123"]["pinned"]) == ([], [dm_post], True)
+    assert watch.waiting_post_lines(watching, T0 + timedelta(minutes=2)) == []
+    assert pins == [dm_post]
 
 
 def test_a_pr_on_another_open_prs_branch_draws_one_card_with_it_before_either_is_checked(demo: str, monkeypatch: pytest.MonkeyPatch, draws: Draws) -> None:
