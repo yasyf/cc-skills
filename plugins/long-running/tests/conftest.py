@@ -17,6 +17,7 @@ from drive import (
     cli,
     dashboard,
     github,
+    install,
     land,
     launchd,
     limits,
@@ -57,6 +58,7 @@ REAL_REGISTER = agents.register
 REAL_CHECKOUT = orca.checkout
 REAL_SPRITE_CONFIG = orca.sprite_config
 REAL_UNREAD = orca.unread
+REAL_PLUGIN_COPIES_FIRST = install.plugin_copies_first
 SPRITE_CONFIG = "4b925c205080" + "0" * 52
 LANE_SPEC = Path(__file__).resolve().parents[2] / "orca" / "lib" / "lane.json"
 SETTLED_NOTE = cli.settled_note
@@ -439,6 +441,12 @@ def mac_boxes_downed(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     downed: list[str] = []
     monkeypatch.setattr(state, "down_mac_boxes", lambda name, data, finished: downed.extend(f"{name}/{job_id}" for job_id in finished))
     return downed
+
+
+@pytest.fixture(autouse=True)
+def plugin_copies(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every process the drive detaches keeps the test's own PATH, never one led by this Mac's plugin installs."""
+    monkeypatch.setattr(install, "plugin_copies_first", lambda: os.environ["PATH"])
 
 
 @pytest.fixture(autouse=True)
