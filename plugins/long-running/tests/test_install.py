@@ -112,7 +112,7 @@ class FakeGit:
         self.changed = f"{FOLDER}/lib/drive/install.py"
         self.drive_status = subprocess.CompletedProcess([], 0, "", "")
         self.tried: list[tuple[list[str], dict]] = []
-        self.refusal = subprocess.CompletedProcess([], 2, "", "drive: no order, job or PR j0; name an order o<n>, a job j<n>, or a PR as owner/repo#N, its URL or its bare number\n")
+        self.refusal = subprocess.CompletedProcess([], 2, "", "drive: no order, job or PR j0; name an order o<n>, a job j<n>, or a PR as owner/repo#N, its URL, #N or its bare number\n")
         self.refusals: list[list[str]] = []
 
     @property

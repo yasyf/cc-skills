@@ -127,11 +127,11 @@ def test_an_edit_carrying_what_an_edit_of_a_slack_message_cannot_change_edits_no
 def test_a_reference_to_nothing_the_drive_holds_refuses_the_post_and_sends_nothing(demo: str, posts: list[tuple[str, ...]]) -> None:
     with pytest.raises(DriveError, match=r"\{card:demo:j9-1\} names no card"):
         talk.say(demo, {"text": "see {card:demo:j9-1}"})
-    with pytest.raises(DriveError, match=r"\{pr:8\} names no PR"):
+    with pytest.raises(DriveError, match=r"\{pr:8\}: the drive tracks no PR numbered 8"):
         talk.say(demo, {"text": "see {pr:8}"})
     with state.edit(demo) as data:
         data["prs"]["Forge-AI/monorepo#7"] = state.new_pr("https://github.com/Forge-AI/monorepo/pull/7", "j1", "o1")
-    with pytest.raises(DriveError, match=r"could be yasyf/cc-skills#7 or Forge-AI/monorepo#7"):
+    with pytest.raises(DriveError, match=r"\{pr:7\}: 7 is the number of yasyf/cc-skills#7, Forge-AI/monorepo#7; name one as owner/repo#7"):
         talk.say(demo, {"text": "{pr:7}"})
     assert (posts, said(demo)) == ([], [])
     talk.say(demo, {"text": "{pr:Forge-AI/monorepo#7}"})

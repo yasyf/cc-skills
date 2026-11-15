@@ -196,15 +196,15 @@ def card(cards: dict, data: dict, waits: str) -> dict:
 
 def pr(prs: dict, ref: str, label: str) -> dict:
     """A PR the drive holds, named by what it does, or any other PR named by its owner/repo#number or URL, which has no title of its own here, under the words the post gives it."""
-    number = ref.removeprefix("#")
-    keys = [key for key in prs if key.endswith(f"#{number}")] if number.isdigit() else [state.pr_key(ref)]
-    if len(keys) > 1:
-        raise DriveError(f"{{pr:{ref}}} could be {' or '.join(keys)}: name it as owner/repo#{number}")
-    if keys and keys[0] in prs:
-        found = prs[keys[0]]
-        return {"kind": "pr", "title": view.pr_title(found) if found["title"] else keys[0], "url": found["url"], "board": found["url"]}
-    if keys and label:
-        url = state.pr_url(keys[0])
+    try:
+        key = state.tracked_pr(prs, ref, untracked=True)
+    except DriveError as error:
+        raise DriveError(f"{{pr:{ref}}}: {error}") from None
+    if key in prs:
+        found = prs[key]
+        return {"kind": "pr", "title": view.pr_title(found) if found["title"] else key, "url": found["url"], "board": found["url"]}
+    if label:
+        url = state.pr_url(key)
         return {"kind": "pr", "title": "", "url": url, "board": url}
     raise DriveError(
         f"{{pr:{ref}}} names no PR of the drive's, which drive status lists; name any other PR as"

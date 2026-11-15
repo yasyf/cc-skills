@@ -1476,7 +1476,7 @@ def test_his_order_added_with_rework_withdraws_the_card_of_the_pr_it_names_in_th
     slack_thread.messages = [{"ts": "1794300000.000500", "thread_ts": "1794300000.000400"}]
     added = ["order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Topology", TOPOLOGY, "--kind", "build", "--from", "slack:D123/1794300000.000500"]
     assert cli.main([*added, "--rework", "Forge-AI/monorepo#99"]) == 2
-    assert capsys.readouterr().err.strip() == "drive: --rework Forge-AI/monorepo#99: refused, it names an open PR the drive tracks"
+    assert capsys.readouterr().err.strip() == "drive: --rework Forge-AI/monorepo#99: the drive tracks no PR Forge-AI/monorepo#99; drive pr add https://github.com/Forge-AI/monorepo/pull/99 --job <j> tracks it first"
     code, out = run(*added, "--rework", with_pr)
     assert (code, out.splitlines()) == (
         0,
@@ -1534,7 +1534,7 @@ def test_job_set_waits_on_his_pr_card_by_its_slack_link_or_merge_waits_id_as_one
         " card or a PR card still waiting on his tap, whose waits id is merge:<owner>:<repo>:<n>, a PR of this drive as"
     ) in capsys.readouterr().err
     assert cli.main(["job", "set", "j1", "--waits", "acme/app#9"]) == 2
-    assert "--waits acme/app#9: the drive tracks no PR acme/app#9; drive pr add it to its job first" in capsys.readouterr().err
+    assert "--waits acme/app#9: the drive tracks no PR acme/app#9; drive pr add https://github.com/acme/app/pull/9 --job <j> tracks it first" in capsys.readouterr().err
 
 
 def test_job_set_repro_keeps_a_copy_in_the_drive_and_status_shows_it(
@@ -4696,7 +4696,7 @@ def test_a_builder_landing_prs_he_approved_starts_with_no_research(run: Run, wit
     assert cli.main(["job", "add", "builder", "--order", "o1", "--lands", PR, "--goal", "land it"]) == 2
     assert f"--lands {with_pr}: it may not land yet, no tap from him yet" in capsys.readouterr().err
     assert cli.main(["job", "add", "builder", "--order", "o1", "--lands", "https://github.com/Forge-AI/monorepo/pull/43", "--goal", "land it"]) == 2
-    assert "--lands Forge-AI/monorepo#43: no drive PR" in capsys.readouterr().err
+    assert "--lands https://github.com/Forge-AI/monorepo/pull/43: the drive tracks no PR Forge-AI/monorepo#43; drive pr add https://github.com/Forge-AI/monorepo/pull/43 --job <j> tracks it first" in capsys.readouterr().err
     run("pr", "set", PR, "--tapped", "Approve", "--tap-source", "https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794173216327589")
     assert run("job", "add", "builder", "--order", "o1", "--lands", PR, "--goal", "land it")[0] == 0
 
@@ -6471,7 +6471,7 @@ def test_pr_set_no_tap_withdraws_his_open_card_showing_why(
 
 def test_pr_set_on_a_pr_the_drive_does_not_track_names_drive_pr_add(run: Run, demo: str, capsys: pytest.CaptureFixture[str]) -> None:
     assert cli.main(["pr", "set", PR, "--no-tap", "--why", "not his order"]) == 2
-    assert f"no drive PR Forge-AI/monorepo#42: add it first with drive pr add {PR} --job <j>, then set it" in capsys.readouterr().err
+    assert f"the drive tracks no PR Forge-AI/monorepo#42; drive pr add {PR} --job <j> tracks it first" in capsys.readouterr().err
 
 
 def test_pr_add_refuses_a_title_his_card_cannot_name_the_kind_of(run: Run, demo: str, on_github: dict, capsys: pytest.CaptureFixture[str]) -> None:
@@ -7027,11 +7027,42 @@ def test_status_reads_a_tracked_pr_by_its_bare_number_and_names_the_forms_an_id_
     code, out = run("status", "42")
     assert (code, "land it" in out, "something else" in out) == (0, True, False)
     assert cli.main(["status", "53615"]) == 2
-    assert "no order, job or PR 53615; name an order o<n>, a job j<n>, or a PR as owner/repo#N, its URL or its bare number" in capsys.readouterr().err
+    assert "the drive tracks no PR numbered 53615; name it as owner/repo#53615 or by its URL" in capsys.readouterr().err
     with state.edit("demo") as data:
         data["prs"]["Forge-AI/sand#42"] = data["prs"][with_pr] | {"url": "https://github.com/Forge-AI/sand/pull/42"}
     assert cli.main(["status", "42"]) == 2
     assert "42 is the number of Forge-AI/monorepo#42, Forge-AI/sand#42; name one as owner/repo#42" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("ref", ["42", "#42", f"{PR}/files", "forge-ai/MONOREPO#42"])
+def test_pr_set_lands_waits_and_status_take_a_tracked_pr_by_its_number_hash_number_url_or_key_in_any_case(run: Run, with_pr: str, ref: str) -> None:
+    source = "https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794173216327589"
+    assert run("pr", "set", ref, "--tapped", "Approve", "--tap-source", source)[0] == 0
+    assert state.load("demo")["prs"][with_pr]["tap"]["source"] == source
+    assert run("job", "add", "builder", "--order", "o1", "--lands", ref, "--goal", "land it")[0] == 0
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "after it")
+    code, out = run("job", "add", "builder", "--order", "o2", "--waits", ref, "--goal", "after it")
+    added = out.splitlines()[0]
+    assert (code, state.load("demo")["jobs"][added]["waits"]) == (0, [with_pr])
+    assert run("job", "set", added, "--no-waits", "--waits", ref)[0] == 0
+    assert state.load("demo")["jobs"][added]["waits"] == [with_pr]
+    code, out = run("status", ref)
+    assert (code, out.splitlines()[0].startswith("demo: 1 open of 1 orders"), "land it" in out) == (0, True, True)
+
+
+def test_a_number_two_tracked_prs_share_or_none_has_is_refused_on_pr_set_lands_waits_and_status(run: Run, with_pr: str, capsys: pytest.CaptureFixture[str]) -> None:
+    with state.edit("demo") as data:
+        data["prs"]["Forge-AI/sand#42"] = data["prs"][with_pr] | {"url": "https://github.com/Forge-AI/sand/pull/42"}
+    shared = "is the number of Forge-AI/monorepo#42, Forge-AI/sand#42; name one as owner/repo#42"
+    for argv, said in (
+        (["pr", "set", "#42", "--no-tap", "--why", "not his order"], f"drive: #42 {shared}"),
+        (["job", "add", "builder", "--order", "o1", "--lands", "42", "--goal", "land it"], f"drive: --lands 42: 42 {shared}"),
+        (["job", "set", "j1", "--waits", "#42"], f"drive: --waits #42: #42 {shared}"),
+        (["status", "42"], f"drive: 42 {shared}"),
+        (["pr", "add", "43", "--job", "j1"], "drive: the drive tracks no PR numbered 43; name it as owner/repo#43 or by its URL"),
+        (["job", "set", "j1", "--waits", "#43"], "drive: --waits #43: the drive tracks no PR numbered 43; name it as owner/repo#43 or by its URL"),
+    ):
+        assert (cli.main(argv), capsys.readouterr().err.strip()) == (2, said)
 
 
 def test_order_show_and_job_show_print_what_status_prints(run: Run, with_pr: str) -> None:

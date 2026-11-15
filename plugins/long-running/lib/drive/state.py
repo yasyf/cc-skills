@@ -141,6 +141,8 @@ DATADOG_MONITOR = re.compile(r"https://(?:[\w-]+\.)*datadoghq\.(?:com|eu)/monito
 SENTRY_ISSUE = re.compile(r"https://(?:[\w-]+\.)*sentry\.io/(?:organizations/[\w-]+/)?issues/[\w-]+(?:[/?#]\S*)?")
 KEPT_ASK = re.compile(r"(?P<job>[\w.-]+)-(?P<hash>[0-9a-f]{8})")
 PR_REF = re.compile(rf"{PR_URL.pattern}|{PR_KEY.pattern}|#(\d+)\b")
+PR_NUMBERED = re.compile(r"#?(\d+)")
+PR_WORD = re.compile(rf"{PR_NUMBERED.pattern}|[\w.-]+/[\w.-]+#\d+|{PR_URL.pattern}\S*")
 QUOTED_SPAN = re.compile(r"[`'\"“”‘’]([^`'\"“”‘’\n]{24,})[`'\"“”‘’]")
 CARD_LINK = re.compile(r"/archives/([A-Z0-9]+)/p(\d{10})(\d{6})(?:\?thread_ts=([\d.]+))?")
 SLACK_SOURCE = re.compile(r"slack:([A-Z0-9]+)/(\d+\.\d+)(?:/(\d+\.\d+))?")
@@ -558,6 +560,23 @@ def pr_key(ref: str) -> str:
     if not match:
         raise DriveError(f"not a GitHub PR url: {ref}")
     return f"{match[1]}/{match[2]}#{match[3]}"
+
+
+def tracked_pr(prs: dict, ref: str, untracked: bool = False) -> str:
+    """The drive's key of the PR a bare number, #number, owner/repo#number in any case or URL names: refused for a number several of its PRs share, and for a PR it does not track unless untracked lets an owner/repo#number or URL name one, keyed as given."""
+    if numbered := PR_NUMBERED.fullmatch(ref.strip()):
+        keys = [key for key in prs if key.endswith(f"#{numbered[1]}")]
+        if len(keys) > 1:
+            raise DriveError(f"{ref} is the number of {', '.join(keys)}; name one as owner/repo#{numbered[1]}")
+        if not keys:
+            raise DriveError(f"the drive tracks no PR numbered {numbered[1]}; name it as owner/repo#{numbered[1]} or by its URL")
+        return keys[0]
+    key = pr_key(ref)
+    if tracked := next((each for each in prs if each.casefold() == key.casefold()), None):
+        return tracked
+    if untracked:
+        return key
+    raise DriveError(f"the drive tracks no PR {key}; drive pr add {pr_url(key)} --job <j> tracks it first")
 
 
 def pr_url(key: str) -> str:

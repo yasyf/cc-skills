@@ -4827,7 +4827,7 @@ def test_a_pr_waiting_on_another_prs_merge_is_freed_when_it_merges_while_that_pr
 ) -> None:
     other = "Forge-AI/monorepo#43"
     assert cli.main(["pr", "set", KEY, "--waits", other, "--drive", demo]) == 2
-    assert f"--waits {other}: the drive tracks no PR {other}; drive pr add it to its job first" in capsys.readouterr().err
+    assert f"--waits {other}: the drive tracks no PR {other}; drive pr add {state.pr_url(other)} --job <j> tracks it first" in capsys.readouterr().err
     with state.edit(demo) as data:
         data["jobs"]["j2"] = job(goal="fix the shm lock and prove it live")
         data["prs"][other] = state.new_pr(state.pr_url(other), "j2", "o1")
@@ -6438,7 +6438,7 @@ def test_replayed_55582_a_pr_trunk_ejected_on_a_flaky_test_outside_its_diff_is_q
 ) -> None:
     ejected_on_a_flake(demo, monkeypatch)
     assert cli.main(["pr", "set", EJECTED, "--flaky", FLAKY, "Forge-AI/monorepo#99999", "--drive", demo]) == 2
-    assert "the drive tracks no such PR" in capsys.readouterr().err
+    assert "--flaky Forge-AI/monorepo#99999: the drive tracks no PR Forge-AI/monorepo#99999" in capsys.readouterr().err
     assert cli.main(["pr", "set", KEY, "--flaky", FLAKY, state.pr_url(FLAKE_FIX), "--drive", demo]) == 2
     assert "at aaaaaaa none of its checks fail and Trunk ejected no try of its lander" in capsys.readouterr().err
     assert cli.main(["pr", "set", EJECTED, "--flaky", FLAKY, state.pr_url(FLAKE_FIX), "--drive", demo]) == 0
