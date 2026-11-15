@@ -5956,9 +5956,8 @@ def parser() -> argparse.ArgumentParser:
         parents=[drive_opt],
         help="run one command holding only a stack's admin credentials, minted on this Mac's machine profile to end with its break-glass grant",
         description=(
-            "Start the forge/break-glass grant with bk build create at the commit Pulumi last applied identity at on"
-            " core-gbl-identity, as that one stack's newest successful update in the Pulumi state bucket records it, read on this Mac's"
-            " release-operator profile, its reason the job or order and --reason, which may not be"
+            "Start the forge/break-glass grant with bk build create at dev's newest commit, reading nothing first,"
+            " its reason the job or order and --reason, which may not be"
             " blank, once aws sts assume-role mints the env's account admin role, <namespace>-<account>-admin in the account and region"
             " the env's infra/envs files name, from the profile in ~/.aws/config that reaches frg-core-gbl-identity-devops from a"
             " credential_process, never an SSO sign-in, so an env whose admin role STS refuses this Mac's machine posts no grant,"

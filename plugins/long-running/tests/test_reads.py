@@ -88,38 +88,6 @@ ASSUME = ["aws", "sts", "assume-role", "--profile", "tf", "--role-arn", "arn:aws
 PROBE = [*ASSUME, "--duration-seconds", "900", "--output", "json"]
 DEVOPS_SESSION = "arn:aws:sts::111:assumed-role/frg-core-gbl-identity-devops/machine"
 WINDOW_ASSUME = ["aws", "sts", "assume-role", "--profile", "machine", "--role-arn", "arn:aws:iam::111:role/frg-core-gbl-identity-studio-break-glass"]
-APPLIED = "6c751b8b101597fbef4464a3cc7dee314ef778a1"
-EARLIER = "648dbdcf19be2f65ea3c3c05f35ef9b46b8381a2"
-BACKEND = json.dumps({"backend": {"bucket": "demo-pulumi-state", "region": "us-west-2", "prefix": "pulumi"}, "roles": {}})
-STATE = "s3://demo-pulumi-state/"
-IDENTITY = "pulumi/.pulumi/history/identity/core-gbl-identity/"
-SIGNED = ["--profile", "release-operator", "--region", "us-west-2"]
-LIST_IDENTITY = ["aws", "s3api", "list-objects-v2", *SIGNED, "--bucket", "demo-pulumi-state", "--prefix", IDENTITY, "--query", "Contents[].Key", "--output", "json"]
-
-
-def history(stamp: int, suffix: str = ".history.json") -> str:
-    return f"{IDENTITY}core-gbl-identity-{stamp}{suffix}"
-
-
-def read_history(stamp: int) -> list[str]:
-    return ["aws", "s3", "cp", *SIGNED, f"{STATE}{history(stamp)}", "-"]
-
-
-def update(commit: str, kind: str = "update", result: str = "succeeded") -> dict:
-    return {"kind": kind, "result": result, "config": {"aws:region": "us-west-2", "identity:commit": commit, "identity:release": "releases/2026-11-12/60"}}
-
-
-HISTORIES = {history(1794537795603724270): update(EARLIER), history(1794564460244448753): update(APPLIED)}
-LISTED = sorted(
-    [
-        *HISTORIES,
-        history(1794537795603724270, ".checkpoint.json"),
-        history(1794564460244448753, ".checkpoint.json"),
-        f"{IDENTITY}digests/90842e8cc1eb8afe222ff758ca813b8faf27a568055db8dc62977f232627d481.json.gz",
-    ]
-)
-
-
 @pytest.mark.parametrize(
     ("body", "question"),
     [
@@ -334,8 +302,6 @@ class Granted:
         self.envs: list[dict[str, str]] = []
         self.configs: list[str] = []
         self.expiration = "2026-11-12T12:21:00+00:00"
-        self.listed: list[str] | None = LISTED
-        self.histories = HISTORIES
         self.refusals = 0
         self.refuses: set[str] = set()
 
@@ -345,7 +311,6 @@ def grantable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config: str, ende
     envs.mkdir(parents=True)
     (envs / "plat-usw2-prod.yaml").write_text("id: plat-usw2-prod\ncloud:\n  kind: aws\n  account: plat-gbl-prod\n  region: us-west-2\n  namespace: frg\nnet: {}\n")
     (envs / "plat-gbl-prod.yaml").write_text('id: plat-gbl-prod\ncloud:\n  kind: aws\n  account: plat-gbl-prod\n  accountId: "222"\n  region: us-west-2\n  namespace: frg\n')
-    (tmp_path / "infra" / "backend.json").write_text(BACKEND)
     (tmp_path / "aws").write_text(config)
     monkeypatch.setenv("AWS_CONFIG_FILE", str(tmp_path / "aws"))
     monkeypatch.setenv("AWS_ACCESS_KEY_ID", "a-key-of-this-mac")
@@ -355,10 +320,6 @@ def grantable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config: str, ende
 
     def fake(argv: list[str], checkout: Path, env: dict[str, str] | None = None, bounded: bool = True) -> str:
         granted.calls.append(argv)
-        if argv[:3] == ["aws", "s3api", "list-objects-v2"]:
-            return json.dumps(granted.listed)
-        if argv[:3] == ["aws", "s3", "cp"]:
-            return json.dumps(granted.histories[argv[-2].removeprefix(STATE)])
         if argv[:3] == ["bk", "build", "create"]:
             return f"Build created: {GRANT}\n"
         if argv[:3] == ["bk", "build", "view"]:
@@ -394,9 +355,7 @@ def test_a_break_glass_grant_runs_its_command_holding_only_the_stacks_and_the_ma
     why = "demo j7: count rows, read only"
     assert granted.calls == [
         PROBE,
-        LIST_IDENTITY,
-        read_history(1794564460244448753),
-        ["bk", "build", "create", "-p", "forge/break-glass", "-b", "dev", "-c", APPLIED, "-m", why]
+        ["bk", "build", "create", "-p", "forge/break-glass", "-b", "dev", "-m", why]
         + ["-e", f"BREAK_GLASS_REASON={why}", "-e", "BREAK_GLASS_STACK=sandsql/plat-usw2-prod", "--no-input", "-y"],
         ["started", GRANT],
         ["bk", "build", "watch", "1926", "-p", "forge/break-glass", "--interval", "2"],
@@ -458,16 +417,6 @@ case "$1 $2" in
 esac
 """)
     bk.chmod(0o755)
-    (tmp_path / "infra").mkdir()
-    (tmp_path / "infra" / "backend.json").write_text(BACKEND)
-    aws = tmp_path / "bin" / "aws"
-    aws.write_text(f"""#!/bin/sh
-case "$1 $2" in
-  "s3api list-objects-v2") echo '{json.dumps(LISTED)}' ;;
-  "s3 cp") echo '{json.dumps(update(APPLIED))}' ;;
-esac
-""")
-    aws.chmod(0o755)
     monkeypatch.setenv("PATH", f"{bk.parent}{os.pathsep}{os.environ['PATH']}")
     monkeypatch.setattr(reads, "READ_SECONDS", reads.READ_SECONDS / replay_speedup)
     started: list[str] = []
@@ -480,7 +429,7 @@ def test_a_grant_ending_before_the_shortest_credentials_sts_mints_runs_nothing(n
     granted = grantable(tmp_path, monkeypatch, MACHINE + WINDOW, now=now)
     with pytest.raises(reads.ReadError, match=f"^the break-glass grant {GRANT} ends at .*, too soon for the 15 minutes the shortest AWS credentials last, so nothing ran"):
         glass(tmp_path)
-    assert [argv[0] for argv in granted.calls] == ["aws", "aws", "aws", "bk", "bk", "bk"]
+    assert [argv[0] for argv in granted.calls] == ["aws", "bk", "bk", "bk"]
 
 
 def test_credentials_sts_stamps_past_the_grants_end_are_never_used(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -505,7 +454,7 @@ def test_a_window_sts_refuses_while_the_grants_trust_propagates_is_minted_again_
     naps = slept(monkeypatch)
     glass(tmp_path)
     window = [*WINDOW_ASSUME, "--role-session-name", "operator@example.com", "--duration-seconds", "3535", "--output", "json"]
-    assert granted.calls[6:] == [[*ASSUME, "--duration-seconds", "3535", "--output", "json"], window, window, window, ["aws", "sts", "get-caller-identity"]]
+    assert granted.calls[4:] == [[*ASSUME, "--duration-seconds", "3535", "--output", "json"], window, window, window, ["aws", "sts", "get-caller-identity"]]
     assert naps == [5, 5]
 
 
@@ -524,55 +473,11 @@ def test_a_window_sts_still_refuses_once_the_trust_had_time_to_settle_runs_nothi
     assert granted.envs == []
 
 
-def test_a_grant_builds_at_the_newest_identity_update_that_succeeded_reading_back_past_a_refresh_and_a_failed_update(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    granted = grantable(tmp_path, monkeypatch, MACHINE + WINDOW)
-    granted.histories = {
-        **HISTORIES,
-        history(1794571000000000000): update("1d3a8c3275e6535a27523397133745f39d097cc1", result="failed"),
-        history(1794572000000000000): update(APPLIED, kind="refresh"),
-    }
-    granted.listed = sorted([*granted.histories, history(1794571000000000000, ".checkpoint.json")])
-    glass(tmp_path)
-    assert granted.calls[:6] == [
-        PROBE,
-        LIST_IDENTITY,
-        read_history(1794572000000000000),
-        read_history(1794571000000000000),
-        read_history(1794564460244448753),
-        ["bk", "build", "create", "-p", "forge/break-glass", "-b", "dev", "-c", APPLIED, "-m", "demo j7: count rows, read only"]
-        + ["-e", "BREAK_GLASS_REASON=demo j7: count rows, read only", "-e", "BREAK_GLASS_STACK=sandsql/plat-usw2-prod", "--no-input", "-y"],
-    ]
-
-
-@pytest.mark.parametrize(
-    ("listed", "histories", "reads_made"),
-    [
-        (None, {}, 1),
-        ([history(1794564460244448753), history(1794571000000000000)], {history(1794564460244448753): update(APPLIED, result="failed"), history(1794571000000000000): update(APPLIED, kind="refresh")}, 3),
-    ],
-)
-def test_a_grant_whose_grantor_stack_records_no_update_that_succeeded_posts_no_grant(
-    listed: list[str] | None, histories: dict, reads_made: int, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    granted = grantable(tmp_path, monkeypatch, MACHINE + WINDOW)
-    granted.listed, granted.histories = listed, histories
-    with pytest.raises(reads.ReadError) as refused:
-        glass(tmp_path)
-    assert str(refused.value) == (
-        "the Pulumi state bucket demo-pulumi-state records no update of identity on core-gbl-identity that succeeded,"
-        " whose IAM the grantor role holds, so no grant started"
-    )
-    assert granted.calls[0] == PROBE
-    assert [argv[0] for argv in granted.calls] == ["aws"] * (1 + reads_made)
-
-
 def test_a_break_glass_grant_that_does_not_pass_runs_nothing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     granted = grantable(tmp_path, monkeypatch, MACHINE + WINDOW, ended="failed")
     with pytest.raises(reads.ReadError, match=f"^the break-glass grant {GRANT} failed, so nothing ran$"):
         glass(tmp_path)
-    assert [argv[0] for argv in granted.calls] == ["aws", "aws", "aws", "bk", "bk", "bk"]
+    assert [argv[0] for argv in granted.calls] == ["aws", "bk", "bk", "bk"]
 
 
 @pytest.mark.parametrize(
