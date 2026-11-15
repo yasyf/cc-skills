@@ -1215,6 +1215,34 @@ def test_his_words_on_an_open_card_end_its_question_and_close_it_in_the_same_cal
     assert len(posted) == 2
 
 
+def test_his_question_under_a_card_asking_only_for_facts_posts_nothing_and_leaves_the_card_asking_while_why_not_just_x_answers_it(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, jev: Jev
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page", "--parts", "the run", "the page")
+    run("job", "add", "builder", "--order", "o1", "--part", "the run", "--goal", "build it")
+    run("job", "add", "builder", "--order", "o1", "--part", "the page", "--goal", "build the page")
+    with state.edit(demo) as data:
+        data["jobs"]["j2"]["waits"] = ["demo:j1-7"]
+    posted: list[list[dict]] = []
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: posted.append(json.loads(kwargs["input"])) or subprocess.CompletedProcess([], 0, '{"seq": 51}\n', ""))
+    answered = open_cards(monkeypatch, "demo:j1-7")
+    asked = "Expand on 1 and 2 and how does the replica fit in?"
+    jev.asks.add(asked)
+    facts = {"kind": "answer", "text": asked, "url": UNDER_CARD, "waits": "demo:j1-7", "attrs": {"maps": "none"}}
+    for record in (facts, {"kind": "owner", "text": asked, "url": UNDER_CARD, "thread_card": "demo:j1-7", "about": "his work"}):
+        with pytest.raises(DriveError, match="1: refused, nothing posted: Jev reads his words as only asking the card for facts"):
+            tools.run("record", demo, {"records": [record]})
+    data = state.load(demo)
+    assert (answered, posted, len(view.open_questions(data["jobs"]["j1"])), data["jobs"]["j2"]["waits"], data["jobs"]["j2"]["undelivered"]) == ([], [], 1, ["demo:j1-7"], [])
+    assert jev.weighed == [asked, asked]
+    proposed = facts | {"text": "why not just keep one replica?"}
+    heard, jev.answer = jev.answer, None
+    with pytest.raises(DriveError, match=r"1: refused, nothing posted: Jev did not read whether his words pick or direct \(no jev decision within 20s\)"):
+        tools.run("record", demo, {"records": [proposed]})
+    jev.answer = heard
+    assert tools.run("record", demo, {"records": [proposed]}).splitlines()[:2] == ["1 answer 51", '1 j1\'s question "Which ring?" ended answered by 51']
+
+
 def test_his_answer_ends_its_question_before_cci_takes_the_record_and_the_call_sent_again_after_a_refusal_posts_it(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:

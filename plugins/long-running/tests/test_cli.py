@@ -3420,6 +3420,11 @@ def test_a_question_asked_again_after_he_answered_its_card_is_kept_settled_in_th
         data["jobs"]["j1"]["questions"][0]["closed"] = state.new_close("answered", "Yes", link)
     reworded = SHORT_ASK.replace("opens in 3 requests", "opens in 3 calls")
     monkeypatch.setattr("sys.stdin", io.StringIO(reworded))
+    assert run("job", "ask", asking, "--check", "-", "--redraws", "demo:j1-7") == (
+        0,
+        f"no card: he already answered this same question, asked in the same words, at {link}, so drive job ask keeps it settled on his words, checking nothing and drawing no card",
+    )
+    monkeypatch.setattr("sys.stdin", io.StringIO(reworded))
     again = str(state.drive_dir("demo") / "asks" / f"j1-{state.ask_hash(reworded)}.md")
     assert run("job", "ask", asking, "-") == (
         0,

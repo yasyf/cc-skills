@@ -63,6 +63,11 @@ DECIDING = Noul(
     no="The card still asks something his answer does not settle. " + UNSAID_HERE,
 )
 AGAIN = Noul("Does `card.text` ask him again, in other words, what `open.{slot}` asks, so one answer of his settles both?", no="It asks something that card leaves open, or a choice that card does not offer.")
+ANSWERS_NOTHING = Noul(
+    "Do `his_words`, written under `card`, only ask it for facts, tradeoffs, details or more options, or only remark on it, so they pick none of `card.options` and direct no work?",
+    yes='His words "Expand on 1 and 2 and how does the replica fit in?" and "Like how does 1 do it without those acks, and why can\'t we do 1 but the other is a replica" only ask.',
+    no='They pick an option, order or direct the work, or propose a way as a question, as "why not just X?" orders X built.',
+)
 ADVISED = (
     "drive job ask: Jev reads {part} as breaking {id}, {asked}, \"{said}\".{rule} This finding refuses no card, by his pick"
     " 320b7a7 that drive job ask keeps every well-shaped card and prints Jev's finding to the agent: when it holds, rewrite"
@@ -639,6 +644,11 @@ def unordered(answer: dict, release: str, data: dict) -> str | None:
     if orders and more is False:
         return None
     return UNORDERED if orders is False or more else f"{UNORDERED}: Jev is unsure"
+
+
+def only_asks(title: str, options: list[str], words: str) -> bool:
+    """Whether his words under a card only ask it for facts, tradeoffs, details or options, or remark on it, as Jev reads them beside its question and options at YES or more, so they answer nothing; Unheard when Jev gave no answer."""
+    return reading(jev({"card": {"question": title, "options": options}, "his_words": words[:BODY_CHARS]}, {"answers_nothing": ANSWERS_NOTHING})["answers_nothing"]) is True
 
 
 def answered_card(data: dict, answer_id: str) -> limits.Question | None:

@@ -1147,6 +1147,8 @@ class Jev:
     paged: float = 0.05
     read_for_pages: list[str] = field(default_factory=list)
     speaks: dict[str, float] = field(default_factory=dict)
+    asks: set[str] = field(default_factory=set)
+    weighed: list[str] = field(default_factory=list)
 
     def picks(self, choice: str, probability: float = 0.9) -> None:
         """Jev answers again, and every Noul whose key holds choice as one of its dotted parts reads yes at probability; none clears it."""
@@ -1167,6 +1169,8 @@ class Jev:
             return self.looks
         if key == limits.WHOLE:
             return self.whole
+        if key == "answers_nothing":
+            return 0.95 if state["his_words"] in self.asks else 0.05
         if question.startswith("again") and not about:
             return 0.95 if state["open"][f"a{question.removeprefix('again')}"] in self.again else 0.05
         if question == "supersedes":
@@ -1200,6 +1204,8 @@ def jev(monkeypatch: pytest.MonkeyPatch) -> Jev:
         elif "looks" in questions or limits.WHOLE in questions or any(key.startswith(limits.PLAIN) for key in questions):
             judged.looked += [state] if "looks" in questions else []
             judged.terms += list(state.get("names", {}).values())
+        elif "answers_nothing" in questions:
+            judged.weighed.append(state["his_words"])
         else:
             judged.asked.append({"state": state, "questions": questions})
         if judged.answer is None:

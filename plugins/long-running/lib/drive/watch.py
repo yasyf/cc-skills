@@ -1920,11 +1920,11 @@ def unreached(job_id: str, job: dict, data: dict, answer: dict) -> str:
 
 
 def owed_answers(watcher: Watcher, data: dict, moment: datetime) -> list[tuple[str, dict]]:
-    """Each text a live job an agent or lane started holds that was last said ten minutes ago or more; a job none started gets its texts from the launch that starts it, which carries them, and a finished job's is its ORPHAN's, since no resume carries it."""
+    """Each text a live job an agent or lane started holds that was last said ten minutes ago or more, while none of its waits holds; a job none started gets its texts from the launch that starts it, which carries them, one whose waits hold gets them from the watch once they end, and a finished job's is its ORPHAN's, since no resume carries it."""
     return [
         (job_id, answer)
         for job_id, job in data["jobs"].items()
-        if job["state"] not in state.FINISHED_JOB_STATES and (job.get("agent") or job.get("dispatch")) and heard_job(watcher, data, job)
+        if job["state"] not in state.FINISHED_JOB_STATES and (job.get("agent") or job.get("dispatch")) and heard_job(watcher, data, job) and not view.holding(data, job["waits"], watcher.cards)
         for answer in job["undelivered"]
         if moment - state.parse_time(answer["said"] or answer["at"]) >= DUE_EVERY
     ]
