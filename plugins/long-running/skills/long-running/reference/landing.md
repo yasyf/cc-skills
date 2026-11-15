@@ -583,6 +583,14 @@ PR checks that everyone hits".
   release stamps SandSQL's staging Rollout with the soaked head", and its `--fail` puts staging back, by
   cf6fc93, "Redeploy the soaked stacks at latest-green-rc when --fail ends the soak". `tools/ci
   staging-smoke soak` runs the agent's scenarios on staging as the smoke-test account.
+- **Its restore.** Staging goes back to the commit it served before the test, the cut's base, with
+  `tools/ci release start <each soaked target> --from <restore commit> --emergency --env plat-usw2-staging --order 23eefb9`,
+  where the restore commit is an empty commit on the base, `git commit-tree <base>^{tree} -p <base>`,
+  pushed on a branch of its own, such as `<job>-staging-restore-<base>`, so `buildkite/test` grades it
+  before the off-dev emergency start needs it green. Never name the base itself: the soaked cut descends
+  from it, and go/ci reads a commit the live one descends from as already carried, so
+  `--from <base>` is refused as already shipped and `--manual --stack … --commit <base>` plans every
+  stack as already live and applies nothing.
 - **Its claim.** The test claims staging as the monorepo's `staging-claim` [repo rule](concepts.md) says,
   which quotes his 33de0fc and 1e8a8d5 whole, in a claim whose `until` the watch's `DUE` line follows, by
   [the records page](records.md). Its freeze names its job, with `tools/ci release freeze --with-staging
@@ -688,14 +696,15 @@ the patch.
   option number or tap on a kept card whose option names a release in backticks orders a release
   shipping that option's change, on that option's places and on those his words past the number name,
   by env id or by the team's name in that env's `infra/envs` file, so "1 and then get Acme to the
-  same" orders option 1's hotfix on Acme's env. A release's places are the env of each
-  `--stack <component>/<env>` it names, else each `--env` place, else production. When that option's
+  same" orders option 1's hotfix on Acme's env. Each `--stack <project>/<env>` a release names reads
+  as its project among the targets and its env among the `--env` places, and `--commit` as `--from`,
+  so a release's places are its `--env` places and its stacks' envs, else production. When that option's
   release and this one both run on staging alone, each place one its `infra/envs` file marks
-  `stage: staging`, as go/ci's `StagingOnly` reads it, the release picks its own targets, `--only`
-  and `--stack` where the option's names none, and starts with `--emergency`, `--manual` or
+  `stage: staging`, as go/ci's `StagingOnly` reads it, the release picks its own targets and `--only`
+  where the option's names none, and starts with `--emergency`, `--manual` or
   `--rollback` or not, so his standing yes to soak any dangerous branch on staging, whose option starts
   `tools/ci release start --emergency --env plat-usw2-staging`, orders each soak's start there, the
-  `--manual --stack` restore or rollback that returns staging after it, and none past staging. On an option naming no release in backticks, his number
+  restore or rollback that returns staging after it, and none past staging. On an option naming no release in backticks, his number
   or tap orders a `release start` carrying only targets, `--env`, `--without`, `--from` or `--commit`, `--order` and
   `--emergency`, with a target and a place, when the option's words name each target and they or his
   words past the number name each place it runs on, so his "1" on a card whose option deploys the

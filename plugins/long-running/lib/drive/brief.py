@@ -246,7 +246,7 @@ def away_refusal(verb: str, release: str, data: dict, moment: datetime) -> str |
     """Why a production release may not start, resume or pass its approve hold now, by a release verb or a `ci bk api` write to its build such as unblocking that hold: he is not present, by state.absence, and it is dangerous by the root AGENTS.md's rule, as every approve hold is, since it holds a migration, delete or replace, and every cut but harmless() ones, since a cut of the default branch carries changes nobody read; a release naming only places off production, by settled.off_production(), such as a staging or sandbox step, a rollback, a rerun or any other verb runs."""
     if verb not in PRESENT_CUTS or not (away := state.absence(data, moment)):
         return None
-    if (releases := started(release)) and all(settled.off_production(flags, data["roles"]["coordinator"]["cwd"]) for flags in releases):
+    if (releases := started(release)) and all(settled.off_production(settled.shipped(flags), data["roles"]["coordinator"]["cwd"]) for flags in releases):
         return None
     if verb not in HOLD_PASSES and harmless(release, data):
         return None
@@ -403,8 +403,8 @@ def note_facts(releases: set[str], titles: dict[str, str], cwd: str) -> dict[tup
     landed = {key: github.landing(read) for key, read in reads.items()}
     facts = {}
     for release, note_id in itertools.product(releases, titles):
-        [flags] = started(release)
-        given = (flags.get("from") or flags.get("commit") or (None,))[-1]
+        [flags] = map(settled.shipped, started(release))
+        given = (flags.get("from") or (None,))[-1]
         if given is None and "hotfix" in flags:
             facts[release, note_id] = " (a hotfix cuts from the build live now, which git here cannot name)"
             continue

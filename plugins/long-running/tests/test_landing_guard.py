@@ -262,6 +262,7 @@ def test_a_release_resume_waits_for_his_next_word_once_he_last_wrote_15_minutes_
     for production in ("plat-usw2-prod", "plat-usw2-staging,plat-usw2-prod", "plat-usw2-staging,tnt-usw2-acme"):
         assert brief.away_refusal("start", staging.replace("plat-usw2-staging", production), data, state.now()) == refused
     assert brief.away_refusal("start", sandbox.replace("plat-usw2-sandbox", "plat-usw2-prod"), data, state.now()) == refused
+    assert brief.away_refusal("start", f"{sandbox} --env plat-usw2-prod", data, state.now()) == refused
     with state.edit(demo) as data:
         data["owner"]["heard"] = state.stamp(state.now() - timedelta(minutes=5))
     assert landing_guard.deny_reason(bash(RESUME, session_id="sprite")) is None

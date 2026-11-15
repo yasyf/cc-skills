@@ -27,6 +27,7 @@ PR = "https://github.com/Forge-AI/monorepo/pull/42"
 ORIGIN = "git@github.com:Forge-AI/monorepo.git"
 HANDOFF_START = "tools/ci release start sand sand-next cloudrunner-next --from 4f06b6d"
 RELEASE_ASK = f"Start the regular sand-next release carrying #55784 while he is away: `{HANDOFF_START}{{}}`"
+STALE_READY = "READY 4012 is stale: #101 moved to 0f1e2d3c4b5a, so the staging release it named would cut the old head. Do not START cut a1b2c3d4e5f6 (test build 2552, dry run 630)"
 RELEASE_CUT_BUILD = "15495"
 CLUSTER_JOB_BUILD = "15699"
 
@@ -1684,6 +1685,7 @@ def test_a_record_asking_a_session_for_a_release_step_goes_out_only_naming_one_s
     )
     reads["asks"] = False
     assert brief.release_ask_refusal("handoff", to, RELEASE_ASK.format(""), data) is None
+    assert brief.release_ask_refusal("handoff", ["root@demo"], STALE_READY, data) is None
     reads |= {"asks": True, "orders": True}
     with state.edit(demo) as held_data:
         held_data["answers"]["15c4de1"] = {"words": RELEASE_HOLD["body"], "link": HOLD_LINK, "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {}}
@@ -2028,10 +2030,11 @@ def test_his_standing_yes_on_a_card_another_drive_keeps_orders_a_staging_soak_on
     assert len(jev.asked) == 1
 
 
-SPILL_RESTORE = (
+SPILL_STACKS = (
     "tools/ci release start --stack runtime-api-next/plat-usw2-staging,cloudrunner-next/plat-usw2-staging,dashboard/plat-usw2-staging,sandsql/plat-usw2-staging"
     " --commit afb881f9207650b5a87f1e2e10c6b4d53c2448d0 --manual --emergency --order 23eefb9"
 )
+SPILL_RESTORE = "tools/ci release start runtime-api-next cloudrunner-next dashboard sandsql --from 8ab0e2526f06587a3086ca246aff87f7b4ac005b --emergency --env plat-usw2-staging --order 23eefb9"
 STAGING_ROLLBACK = "tools/ci release start --manual --stack rsw-search/plat-usw2-staging --commit 5a6f43db99dd9671fd132bce1c939e33ac3a2b81 --rollback --order 23eefb9"
 
 
@@ -2044,11 +2047,12 @@ def test_his_standing_yes_to_soak_on_staging_orders_each_stack_restore_and_rollb
     recorded.listed = [RELEASE_HOLD, STANDING_SOAK]
     recorded.shown = {answer["id"][:7]: answer for answer in recorded.listed}
     data = state.load(demo)
-    assert [brief.approval_refusal(release, data) for release in (SPILL_RESTORE, STAGING_ROLLBACK)] == [None, None]
+    assert [brief.approval_refusal(release, data) for release in (SPILL_STACKS, SPILL_RESTORE, STAGING_ROLLBACK)] == [None, None, None]
     picks = f'`--order 23eefb9` names his answer to "{STANDING_SOAK["title"]}", and it picks option 1 of the card it answers, `tools/ci release start --emergency --env plat-usw2-staging`'
     refused = {
         STAGING_ROLLBACK.replace("plat-usw2-staging", "plat-usw2-prod"): "and this release ships another change",
-        SPILL_RESTORE.replace("sandsql/plat-usw2-staging", "sandsql/plat-usw2-prod"): "and this release ships another change",
+        SPILL_STACKS.replace("sandsql/plat-usw2-staging", "sandsql/plat-usw2-prod"): "and this release ships another change",
+        SPILL_RESTORE.replace("plat-usw2-staging", "plat-usw2-staging,plat-usw2-prod"): "and this release ships another change",
         STAGING_ROLLBACK.replace("plat-usw2-staging", "plat-usw2-sandbox"): "and this release ships another change",
         STAGING_ROLLBACK.replace("plat-usw2-staging", "plat-gbl-staging"): "and this release also runs on plat-gbl-staging, which his words past its number do not name",
     }
@@ -2084,6 +2088,30 @@ def test_jev_reads_a_stack_release_on_the_places_its_stacks_name_so_his_words_to
         f"start this release on plat-usw2-sandbox (stage sandbox): `{SANDBOX_TEST}`",
         f"start this release on plat-usw2-prod (stage prod): `{production}`",
     ]
+
+
+def test_a_stack_names_its_project_as_a_target_and_its_env_as_a_place_beside_env_so_a_manual_staging_deploy_ships_what_an_option_on_staging_names(
+    demo: str, run: Run, recorded: Answers
+) -> None:
+    answered_cut(run, demo, [CUT_PICK])
+    cwd = state.load(demo)["roles"]["coordinator"]["cwd"]
+    [option] = map(settled.shipped, brief.started("tools/ci release start sandsql --from 3ebaa825dbd7 --emergency --env plat-usw2-staging"))
+    manual = "tools/ci release start --stack sandsql/plat-usw2-staging --commit 3ebaa825dbd7 --manual --emergency"
+    assert settled.shipped(brief.started(f"{manual} --env plat-usw2-sandbox")[0]) == {
+        "targets": ("sandsql",),
+        "env": ("plat-usw2-sandbox", "plat-usw2-staging"),
+        "from": ("3ebaa825dbd7",),
+        "manual": ("true",),
+        "emergency": ("true",),
+    }
+    assert {
+        release: settled.placed(settled.shipped(brief.started(release)[0]), option, "", cwd)
+        for release in (manual, manual.replace("sandsql/", "restate/"), manual.replace("sandsql/plat-usw2-staging", "sandsql/plat-usw2-staging,sandsql/plat-gbl-staging"))
+    } == {
+        manual: None,
+        manual.replace("sandsql/", "restate/"): "and this release ships another change",
+        manual.replace("sandsql/plat-usw2-staging", "sandsql/plat-usw2-staging,sandsql/plat-gbl-staging"): "and this release also runs on plat-gbl-staging, which his words past its number do not name",
+    }
 
 
 def test_his_words_past_the_number_order_only_the_places_they_name(demo: str, run: Run, recorded: Answers) -> None:
