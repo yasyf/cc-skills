@@ -1828,7 +1828,7 @@ def incident_pr_lines(name: str, group: list[str]) -> list[str]:
 
     data = cli.with_cards(name, state.load(name))
     jobs = state.orders_jobs(data, group)
-    lines = [render.pr_line(key, data["prs"][key], data["prs"][key]["card_state"]) if key in data["prs"] else state.pr_url(key) for key in incident_prs(data, group, jobs, render.prs_by_job(data))]
+    lines = [render.pr_line(data, key, data["prs"][key]["card_state"]) if key in data["prs"] else state.pr_url(key) for key in incident_prs(data, group, jobs, render.prs_by_job(data))]
     return [f"PRs, as the watch last read them from GitHub: {len(lines)}", *(f"- {line}" for line in lines)]
 
 

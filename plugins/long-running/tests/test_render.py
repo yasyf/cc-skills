@@ -229,17 +229,25 @@ def test_status_text_lists_each_jobs_pr_urls_and_registered_prs_once() -> None:
     pr_lines = [line for line in lines if line.startswith("    - ")]
     assert pr_lines == [
         "    - https://github.com/yasyf/cc-skills/pull/10",
-        '    - yasyf/cc-skills#9 "New: drive" open, checks pass, review none, wants tap, his card never drawn',
-        '    - yasyf/cc-skills#11 "New: drive" open, checks pass, review none, wants tap, his card never drawn',
+        '    - yasyf/cc-skills#9 "New: drive" open, checks pass, review none, wants tap, his card never drawn; Not on staging: yasyf/cc-skills has no staging env',
+        '    - yasyf/cc-skills#11 "New: drive" open, checks pass, review none, wants tap, his card never drawn; Not on staging: yasyf/cc-skills has no staging env',
     ]
 
 
 def test_a_pr_line_names_the_stage_its_row_keeps_only_while_the_pr_is_open() -> None:
     unlanded = {"name": "unlanded", "owner": "the session holding its order", "why": "its lander's try at 987c0fe ended not landed", "since": state.stamp(), "woke": None}
     pr = state.new_pr("https://github.com/yasyf/cc-skills/pull/4998", "j1", "o1") | {"stage": unlanded}
-    lines = [render.pr_line("yasyf/cc-skills#4998", pr | {"state": now}, None) for now in ("open", "merged", "closed")]
+    lines = [render.pr_line({"prs": {"yasyf/cc-skills#4998": pr | {"state": now}}}, "yasyf/cc-skills#4998", None) for now in ("open", "merged", "closed")]
     assert ["owed by" in line for line in lines] == [True, False, False]
     assert lines[1].startswith("yasyf/cc-skills#4998 merged, checks pending")
+
+
+def test_a_monorepo_prs_status_line_says_its_staging_test_and_result_as_his_card_does() -> None:
+    drive = sample()
+    proof = "https://buildkite.com/forge/staging/builds/9"
+    drive["orders"]["o1"]["parts"][state.STAGING_TEST.format(number=42)] = state.new_part() | {"soak": "staging:sandsql/plat-usw2-staging@f3a6f23059917549d64ca2fdbdb5034f34289019", "posted": proof}
+    drive["prs"] = {"Forge-AI/monorepo#42": drive["prs"]["yasyf/cc-skills#9"] | {"url": "https://github.com/Forge-AI/monorepo/pull/42"}}
+    assert render.pr_line(drive, "Forge-AI/monorepo#42", None).endswith(f"his card never drawn; Tested on staging: plat-usw2-staging at f3a6f23, passed, [proof]({proof})")
 
 
 def test_status_text_counts_open_orders() -> None:

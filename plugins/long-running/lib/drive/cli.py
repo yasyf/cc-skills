@@ -3879,7 +3879,7 @@ def pr_set(args: argparse.Namespace) -> int:
     found = found if source == "live" else None
     now = state.load(name)
     stage.shown(now, found, [key] if now["prs"][key]["state"] == "open" else [])
-    line = render.pr_line(key, now["prs"][key], view.pr_card_words(found, source, now["prs"][key])) + serving + untapped + "".join(told)
+    line = render.pr_line(now, key, view.pr_card_words(found, source, now["prs"][key])) + serving + untapped + "".join(told)
     return emit(args, line, {"key": key, "withdrawn": withdrawn, **pr})
 
 
