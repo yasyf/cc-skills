@@ -1040,7 +1040,7 @@ def order_posted(args: argparse.Namespace) -> int:
         return emit(args, *record_post(name, args.id, args.link, report))
     [undone] = pick_parts(args.id, order, [args.part] if args.part else [])
     with state.edit(name) as data:
-        data["orders"][args.id]["parts"][undone]["posted"] = None
+        data["orders"][args.id]["parts"][undone].update(posted=None, posted_by=None)
     return emit(args, f'{args.id} "{undone}": not delivered', {"id": args.id, "part": undone, "posted": None})
 
 

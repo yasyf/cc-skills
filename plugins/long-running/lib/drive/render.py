@@ -238,8 +238,9 @@ FIRST_CALL = {
         "mcp__plugin_long-running_drive__order"
     ),
     "coordinator": (
-        "The watch runs as its own process and posts its lines to you over cci: a line you act on now as a handoff"
-        " record, the rest as evidence records together at most every five minutes; arm no Monitor for it, and run"
+        "The watch runs as its own process and posts the lines each stage of its pass makes for you over cci as one"
+        " record, a handoff when any line asks you to act now, else evidence that arrives with others at most every five minutes; a record of"
+        " several lines counts them by kind and carries each in its body, read whole; arm no Monitor for it, and run"
         " no drive watch for a WATCH stopped line, since its launch agent starts it again. A compaction keeps"
         " every tool you loaded before it, even one the deferred-tools list names, so call Monitor, SendMessage, TaskStop and"
         " answer_add with no ToolSearch first. The drive's order, job, pr, incident and status tools load once, the first"
