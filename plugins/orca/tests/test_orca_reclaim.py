@@ -21,6 +21,15 @@ orca_gc = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader
 sys.modules[loader.name] = orca_gc
 loader.exec_module(orca_gc)
 
+
+def setUpModule():
+    state = tempfile.TemporaryDirectory()
+    unittest.addModuleCleanup(state.cleanup)
+    patched = mock.patch.object(orca_gc, "DESTROYING", Path(state.name) / "destroying")
+    patched.start()
+    unittest.addModuleCleanup(patched.stop)
+
+
 NOW = 10_000_000_000
 WT = "/w/repo/v3-lane-base"
 WT2 = "/w/repo/v3-lane-next"
@@ -975,6 +984,13 @@ class SpriteTest(unittest.TestCase):
         self.assertEqual((tally, cc_remote.destroyed, orca.calls), ({"destroyed": 1}, ["pool-abc"], []))
         self.assertIn("destroyed pool-abc dispatch ctx_s", out)
 
+    def test_a_pass_keeps_a_sprite_another_reclaim_is_destroying(self):
+        cc_remote = FakeCcRemote(self.hosted)
+        with orca_gc.one_destroy("pool-abc"):
+            tally, out = run_gc(FakeOrca([sprite_row("ctx_s")]), FakeGit({}), cc_remote=cc_remote)
+        self.assertEqual((tally, cc_remote.destroyed), ({"keep": 1}, []))
+        self.assertIn("keep pool-abc another orca-reclaim is destroying pool-abc, so this one changed nothing", out)
+
     def test_a_sprite_no_cc_remote_task_ties_to_the_dispatch_is_never_touched(self):
         cc_remote = FakeCcRemote({(SPRITE_WT, "term_other"): SPRITE})
         tally, _ = run_gc(FakeOrca([sprite_row("ctx_s")]), FakeGit({}), cc_remote=cc_remote)
@@ -1140,6 +1156,28 @@ class DestroyTest(unittest.TestCase):
         cc_remote = self.hosting(checkout(SPRITE.root))
         self.assertIsNone(orca_gc.destroy("pool-other", "demo-j1", cc_remote))
         self.assertEqual(cc_remote.destroyed, [])
+
+    def test_a_destroy_while_another_destroys_the_same_sprite_reads_and_destroys_nothing(self):
+        cc_remote = self.hosting(checkout(SPRITE.root))
+        with orca_gc.one_destroy("pool-abc"), mock.patch.object(cc_remote, "checkout", wraps=cc_remote.checkout) as read:
+            with self.assertRaisesRegex(orca_gc.Unsaved, "^another orca-reclaim is destroying pool-abc, so this one changed nothing$"):
+                orca_gc.destroy("pool-abc", "demo-j1", cc_remote)
+            self.assertEqual((read.call_count, cc_remote.destroyed), (0, []))
+        with orca_gc.one_destroy("pool-other"):
+            self.assertEqual(orca_gc.destroy("pool-abc", "demo-j1", cc_remote), "destroyed pool-abc")
+        self.assertEqual(cc_remote.destroyed, ["pool-abc"])
+
+    def test_a_cc_remote_destroy_that_never_answers_is_killed_and_keeps_the_sprite(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        stub, started = Path(tmp.name) / "cc-remote", Path(tmp.name) / "pid"
+        stub.write_text(f"#!/bin/sh\ntrap '' TERM\necho $$ > {started}\nexec sleep 60\n")
+        stub.chmod(0o755)
+        with mock.patch.object(orca_gc, "CC_REMOTE", str(stub)), mock.patch.object(orca_gc, "DESTROY_S", 2):
+            said = orca_gc.CcRemote().destroy(SPRITE)
+        self.assertEqual(said, "cc-remote destroy pool-abc gave no answer in 2 s, so it was killed")
+        with self.assertRaises(ProcessLookupError):
+            os.kill(int(started.read_text()), 0)
 
     def test_destroy_saves_a_finished_lanes_unpushed_branch_to_github_then_frees_its_sprite(self):
         tmp = tempfile.TemporaryDirectory()
