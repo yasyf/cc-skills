@@ -4,7 +4,7 @@ A page is a one-off live dashboard built for an order and its scoped work, such 
 
 ## Build one
 
-Naming a goal to prioritize or asking for a page adds a page part on its existing build order; there is no separate page job or order kind. A `codex` job builds the page in a scratch folder outside any checkout:
+When Jev reads the words of his order as naming a goal or asking where a project or body of work stands, `drive order add` adds a `page` part to it, an answer order becoming a build whose other parts stay answers, and a `codex` job on that part, briefed by the drive with this section as its plan. The job starts at once, past the research the order's other parts wait on, and builds the page in a scratch folder outside any checkout:
 
 1. Write strict user stories and acceptance criteria before implementation.
 2. Build the page using `/kit/kit.js`, `/kit/kit.css`, and the shared kit renderers.
@@ -70,7 +70,7 @@ Do not show raw record lines or wrap arbitrary blocks inside a kit component cla
 
 ## The kit
 
-`/kit/renderers.js` is the one owner of the text both the main dashboard and `/kit/kit.js` draw: `createRenderers` returns rich prose, tables, links, option choices and timeline moments, and the module exports the decision-story parsing and PR state facts beside it. Each surface draws its own cards from them.
+`/kit/renderers.js` is the one owner of the text both the main dashboard and `/kit/kit.js` draw: `createRenderers` returns rich prose, tables, links, option choices and timeline moments, and the module exports option parsing, plain card text and PR state facts beside it. Each surface draws its own cards from them.
 
 `/kit/kit.js` is a JavaScript module styled by `/kit/kit.css`. Keep key UI regions in stable containers: use `patch(host, html)` for live content and mount `diagram(host, archDoc, options)` in its own dedicated host rather than replacing the whole page on each update.
 

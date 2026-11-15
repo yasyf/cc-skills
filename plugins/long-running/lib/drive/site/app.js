@@ -247,7 +247,7 @@ function prose(text, cite) { return sharedRenderers.prose(text, cite); }
 function table(lines, cite) { return sharedRenderers.table(lines, cite); }
 function optionParts(option) { return sharedRenderers.optionParts(option); }
 function decisionPlain(text) { return sharedRenderers.decisionPlain(text); }
-function decisionStory(card) { return sharedRenderers.decisionStory(card); }
+function decisionCause(body) { return sharedRenderers.decisionCause(body); }
 
 function sourceLink(cite, path, from, to) {
   const [repo] = cite.split('#');
@@ -385,11 +385,15 @@ function slice(url) {
 
 function opened(item) {
   const read = item.answer && slice(`/api/card?${new URLSearchParams({ answer: item.answer })}`);
-  return read?.ok ? { ...item, card: read.card, rail: read.rail } : item;
+  return read?.ok ? { ...item, card: read.card, rail: read.rail, told: read.told } : item;
 }
 
 function notRead(read) {
   return read ? `<p class="refused">${esc(read.error)}</p>` : '<p class="empty small">Reading…</p>';
+}
+
+function untold(told) {
+  return told.writing ? '<p class="empty small" role="status">Writing its story…</p>' : `<p class="refused">No story yet: ${esc(told.error)}</p>`;
 }
 
 function prKey(url) {
@@ -545,28 +549,28 @@ function decisionRail(item) {
 
 function decisionCard(item, at, total) {
   const key = item.answer;
-  if (item.card.body === undefined) return `<div class="queue-layout story-layout"><article class="focus-card decision-story" aria-labelledby="item-title" tabindex="-1"><div class="card-content"><div class="card-top"><span class="type-label">Decision</span>${counter(at, total)}</div><h2 class="card-title" id="item-title">${esc(decisionPlain(item.card.title))}</h2>${notRead(slice(`/api/card?${new URLSearchParams({ answer: key })}`))}</div></article>${decisionRail(item)}</div>`;
-  const story = decisionStory(item.card);
+  const story = item.told?.story;
+  if (!story) return `<div class="queue-layout story-layout"><article class="focus-card decision-story" aria-labelledby="item-title" tabindex="-1"><div class="card-content"><div class="card-top"><span class="type-label">Decision</span>${counter(at, total)}</div><h2 class="card-title" id="item-title">${esc(decisionPlain(item.card.title))}</h2>${item.told ? `${untold(item.told)}${choices(item, true)}` : notRead(slice(`/api/card?${new URLSearchParams({ answer: key })}`))}</div></article>${decisionRail(item)}</div>`;
   if (!decisionStates.has(key)) decisionStates.set(key, { selected: Math.max(0, item.card.options.indexOf(item.card.recommended)), step: 0, compare: false });
   const state = decisionStates.get(key);
   const showing = picked?.card === key ? picked.index : state.selected;
   const option = story.options[showing];
   const recommended = option.label === item.card.recommended;
-  const metrics = option.metrics?.length ? `<dl class="story-metrics">${option.metrics.map((metric) => `<div><dd>${esc(metric.value)}</dd><dt>${esc(metric.label)}</dt></div>`).join('')}</dl>` : '';
+  const cause = decisionCause(item.card.body);
+  const metrics = option.metrics.length ? `<dl class="story-metrics">${option.metrics.map((metric) => `<div><dd>${esc(metric.value)}</dd><dt>${esc(metric.label)}</dt></div>`).join('')}</dl>` : '';
   const outcome = `<section class="story-outcome" aria-live="polite"><span class="eyebrow">${recommended ? 'Recommended outcome' : showing === state.selected ? 'Selected outcome' : 'Previewed outcome'}</span><h3>${esc(option.title)}</h3>${option.consequence ? `<p>${esc(option.consequence)}</p>` : ''}${metrics}${item.card.hints?.[option.label] ? `<div class="story-hint">${prose(item.card.hints[option.label])}</div>` : ''}</section>`;
-  const options = `<div class="story-options" role="group" aria-label="Choose a path">${story.options.map((choice, i) => `<button class="story-option" data-story-pick="${i}" data-story-card="${esc(key)}" aria-pressed="${i === state.selected}"><kbd>${i + 1}</kbd><span><strong>${esc(choice.title)}</strong>${choice.label === item.card.recommended ? '<em>Recommended</em>' : ''}${story.format === 'lab' && choice.metrics?.length ? `<span class="option-metrics">${choice.metrics.map((metric) => `<span><b>${esc(metric.value)}</b>${esc(metric.label)}</span>`).join('')}</span>` : `<small>${esc(choice.consequence)}</small>`}</span><span aria-hidden="true">→</span></button>`).join('')}</div>`;
+  const options = `<div class="story-options" role="group" aria-label="Choose a path">${story.options.map((choice, i) => `<button class="story-option" data-story-pick="${i}" data-story-card="${esc(key)}" aria-pressed="${i === state.selected}"><kbd>${i + 1}</kbd><span><strong>${esc(choice.title)}</strong>${choice.label === item.card.recommended ? '<em>Recommended</em>' : ''}${story.format === 'lab' ? `<span class="option-metrics">${choice.metrics.map((metric) => `<span><b>${esc(metric.value)}</b>${esc(metric.label)}</span>`).join('')}</span>` : `<small>${esc(choice.consequence)}</small>`}</span><span aria-hidden="true">→</span></button>`).join('')}</div>`;
   const given = answers.get(key);
   const action = given?.done ? `<p class="answered">✓ ${esc(given.label)}</p>` : `<div class="story-action"><button class="btn" data-story-review="${esc(key)}"${given && !given.error ? ' disabled' : ''}>Review this choice <kbd>↵</kbd></button><small>Choose first. Review before sending.</small>${given?.error ? `<p role="alert">${esc(given.error)}</p>` : ''}</div>`;
-  const lab = `<div class="story-lab">${options}${action}${outcome}<button class="linkish" data-story-compare="${esc(key)}" aria-expanded="${state.compare}">${state.compare ? 'Close comparison' : 'Compare every path'}</button>${state.compare ? table([['Path', 'What changes', ...(story.options[0].metrics ?? []).map((metric) => metric.label)], ...story.options.map((choice) => [choice.title, choice.consequence, ...(choice.metrics ?? []).map((metric) => metric.value)])]) : ''}</div>`;
-  const interview = `<div class="story-interview"><div class="story-steps" aria-label="Step ${state.step + 1} of 2"><span class="on">1 · Your priority</span><span class="${state.step ? 'on' : ''}">2 · Your path</span></div>${state.step ? `<button class="linkish" data-story-back="${esc(key)}">← Change my priority</button>${outcome}${action}` : `<h3>What matters most here?</h3><div class="story-options">${story.options.map((choice, i) => `<button class="story-option" data-story-priority="${i}" data-story-card="${esc(key)}"><kbd>${i + 1}</kbd><span><strong>${esc(choice.consequence || choice.title)}</strong>${choice.consequence ? `<small>${esc(choice.title)}</small>` : ''}</span><span aria-hidden="true">→</span></button>`).join('')}</div>`}</div>`;
-  return `<div class="queue-layout story-layout"><article class="focus-card decision-story ${story.format}" aria-labelledby="item-title" tabindex="-1" data-story="${esc(key)}" data-format="${story.format}"><div class="card-content"><div class="card-top"><span class="type-label">${{ cockpit: 'Decision cockpit', lab: 'Tradeoff lab', interview: 'Decision interview' }[story.format]}</span>${counter(at, total)}</div><h2 class="card-title" id="item-title">${esc(story.headline)}</h2><p class="story-context">${esc(story.context)}</p>${story.cause ? `<p class="story-cause"><b>Root cause:</b> ${esc(story.cause)}</p>` : ''}${restored.has(key) ? '<p class="restored" role="status">Restored. This is being asked again.</p>' : ''}${story.format === 'lab' ? lab : story.format === 'interview' ? interview : `<div class="story-cockpit">${options}<div>${outcome}${action}</div></div>`}</div></article>${decisionRail(item)}</div>`;
+  const lab = `<div class="story-lab">${options}${action}${outcome}<button class="linkish" data-story-compare="${esc(key)}" aria-expanded="${state.compare}">${state.compare ? 'Close comparison' : 'Compare every path'}</button>${state.compare ? table([['Path', 'What changes', ...story.options[0].metrics.map((metric) => metric.label)], ...story.options.map((choice) => [choice.title, choice.consequence, ...choice.metrics.map((metric) => metric.value)])]) : ''}</div>`;
+  const interview = `<div class="story-interview"><div class="story-steps" aria-label="Step ${state.step + 1} of 2"><span class="on">1 · Your priority</span><span class="${state.step ? 'on' : ''}">2 · Your path</span></div>${state.step ? `<button class="linkish" data-story-back="${esc(key)}">← Change my priority</button>${outcome}${action}` : `<h3>${esc(story.ask)}</h3><div class="story-options">${story.options.map((choice, i) => `<button class="story-option" data-story-priority="${i}" data-story-card="${esc(key)}"><kbd>${i + 1}</kbd><span><strong>${esc(choice.priority)}</strong><small>${esc(choice.title)}</small></span><span aria-hidden="true">→</span></button>`).join('')}</div>`}</div>`;
+  return `<div class="queue-layout story-layout"><article class="focus-card decision-story ${story.format}" aria-labelledby="item-title" tabindex="-1" data-story="${esc(key)}" data-format="${story.format}"><div class="card-content"><div class="card-top"><span class="type-label">${{ cockpit: 'Decision cockpit', lab: 'Tradeoff lab', interview: 'Decision interview' }[story.format]}</span>${counter(at, total)}</div><h2 class="card-title" id="item-title">${esc(story.headline)}</h2><div class="story-beats">${story.beats.map((beat) => `<p><strong>${esc(beat.label)}</strong> ${esc(beat.text)}</p>`).join('')}</div>${cause ? `<p class="story-cause"><b>Root cause:</b> ${esc(cause)}</p>` : ''}${restored.has(key) ? '<p class="restored" role="status">Restored. This is being asked again.</p>' : ''}${story.format === 'lab' ? lab : story.format === 'interview' ? interview : `<div class="story-cockpit">${options}<div>${outcome}${action}</div></div>`}</div></article>${decisionRail(item)}</div>`;
 }
 
 function reviewDecision(key) {
   const item = model.queue.find((each) => each.answer === key);
   if (!item) return;
-  const card = opened(item).card;
-  const story = decisionStory(card);
+  const story = opened(item).told.story;
   const option = story.options[decisionStates.get(key).selected];
   const dialog = $('#decision-review');
   dialog.innerHTML = `<span class="eyebrow">Review your decision</span><h2 id="decision-review-title">${esc(story.headline)}</h2><h3>${esc(option.title)}</h3><p>${esc(option.consequence)}</p><details><summary>The exact answer</summary><p>${esc(option.label)}</p></details><div class="story-action"><button class="btn" data-card="${esc(key)}" data-label="${esc(option.label)}">Send this answer</button><button class="btn ghost" data-story-close>Keep thinking</button></div>`;
@@ -725,9 +729,11 @@ function prCard(item, at, total, embedded = false) {
   const lead = entry?.lead;
   const read = prReads.get(pr);
   const tab = prTabs.get(key) ?? 'show';
-  const title = lead?.headline ?? decisionPlain(read?.pr?.title ?? row.title).replace(/^./, (c) => c.toUpperCase());
+  const told = slice(`/api/told?${new URLSearchParams({ pr })}`)?.told;
+  const title = told?.story?.headline ?? lead?.headline ?? decisionPlain(read?.pr?.title ?? row.title).replace(/^./, (c) => c.toUpperCase());
   const context = read?.pr?.body?.match(/^## Context\s*\n([\s\S]*?)(?=^## |$(?![\s\S]))/m)?.[1]?.trim();
-  const story = [['Why this exists', lead?.why ?? context ?? row.refresher], ['What changes', lead?.what ?? row.summary], ['Downstream', lead?.downstream ?? row.hate_most]].map(([label, text]) => `<div><strong>${label}</strong><p>${text ? inline(text, pr) : 'The author has not supplied this explanation yet.'}</p></div>`).join('');
+  const beats = told?.story?.beats.map((beat) => [beat.label, beat.text]) ?? [['Why this exists', lead?.why ?? context ?? row.refresher], ['What changes', lead?.what ?? row.summary], ['Downstream', lead?.downstream ?? row.hate_most]];
+  const story = beats.map(([label, text]) => `<div><strong>${esc(label)}</strong><p>${text ? inline(text, pr) : 'The author has not supplied this explanation yet.'}</p></div>`).join('');
   const stack = rows.length > 1 ? `<ol class="stack" aria-label="The PRs on this card, in the order they land">${rows.map((each, i) => stackRow(each, i, i === chosen, key)).join('')}</ol>` : '';
   const tabs = PR_TABS.map(([id, label]) => `<button role="tab" class="${id === tab ? 'on' : ''}" aria-selected="${id === tab}" data-prtab="${id}" data-item="${esc(key)}">${label}</button>`).join('');
   const panes = PR_TABS.map(([id]) => `<div class="pr-pane ${id}" role="tabpanel"${id === tab ? '' : ' hidden'}>${prPane(id, row, pr, head, read, embedded)}</div>`).join('');
@@ -737,6 +743,7 @@ function prCard(item, at, total, embedded = false) {
         <div class="card-top"><span class="type-label">Pull request <a href="${esc(row.url)}" target="_blank" rel="noopener" data-github data-tip="Open it on GitHub"${embedded ? '' : ' data-key="o"'}>${esc(pr)}</a></span>${embedded ? '' : counter(at, total)}</div>
         <h2 class="card-title" id="item-title">${esc(title)}</h2>
         <div class="pr-story">${story}</div>
+        ${told && !told.story ? untold(told) : ''}
         ${stack}
         <div class="facts">${prFacts(item, row, read)}</div>
       </div>

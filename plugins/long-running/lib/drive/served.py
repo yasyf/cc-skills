@@ -530,24 +530,27 @@ def judged(name: str, said: str, changes: dict[str, dict]) -> list[dict]:
     for key, read in changes.items():
         fetched(clone, key, read["head"])
     prompt = f"<his_words>\n{said}\n</his_words>\n\n<change>\n{shown(changes)}\n</change>"
+    return structured(name, RULES.format(clone=clone), prompt, VERDICT, JUDGE_SECONDS, f"judging {', '.join(changes)} against his words", [f"Bash(git -C {clone} show:*)", f"Bash(git -C {clone} grep:*)"])["against"]
+
+
+def structured(name: str, rules: str, prompt: str, schema: dict, seconds: int, doing: str, reads: list[str] | None = None) -> dict:
+    """What a Claude session given no tools but the Bash commands reads allows answers the prompt with under the rules, in the schema's shape; refused, naming what it was doing, past the seconds or with no structured answer."""
     argv = [
-        "claude", "-p", "--model", MODEL, "--effort", EFFORT, "--restricted", "--strict-mcp-config", "--tools", "Bash", "--disable-slash-commands",
-        "--no-session-persistence", "--system-prompt", RULES.format(clone=clone), "--output-format", "json", "--json-schema", json.dumps(VERDICT),
-        "--permission-mode", "dontAsk", "--allowedTools", f"Bash(git -C {clone} show:*)", f"Bash(git -C {clone} grep:*)",
+        "claude", "-p", "--model", MODEL, "--effort", EFFORT, "--restricted", "--strict-mcp-config", "--tools", "Bash" if reads else "", "--disable-slash-commands",
+        "--no-session-persistence", "--system-prompt", rules, "--output-format", "json", "--json-schema", json.dumps(schema),
+        *(["--permission-mode", "dontAsk", "--allowedTools", *reads] if reads else []),
     ]
     try:
-        ran = subprocess.run(
-            argv, input=prompt, cwd=state.drive_dir(name), env=os.environ | {"DISABLE_AUTOUPDATER": "1"}, capture_output=True, text=True, timeout=JUDGE_SECONDS, check=False
-        )
+        ran = subprocess.run(argv, input=prompt, cwd=state.drive_dir(name), env=os.environ | {"DISABLE_AUTOUPDATER": "1"}, capture_output=True, text=True, timeout=seconds, check=False)
     except subprocess.TimeoutExpired:
-        raise DriveError(f"judging {', '.join(changes)} against his words ran past {JUDGE_SECONDS} seconds; run this again") from None
+        raise DriveError(f"{doing} ran past {seconds} seconds; run this again") from None
     try:
         result = json.loads(ran.stdout)
     except json.JSONDecodeError:
         result = {"result": ran.stderr or ran.stdout}
     if ran.returncode or result.get("is_error") or "structured_output" not in result:
-        raise DriveError(f"judging {', '.join(changes)} against his words failed: {cut(str(result.get('result')), 300)}; run this again")
-    return result["structured_output"]["against"]
+        raise DriveError(f"{doing} failed: {cut(str(result.get('result')), 300)}; run this again")
+    return result["structured_output"]
 
 
 def fetched(clone: str, key: str, head: str) -> None:

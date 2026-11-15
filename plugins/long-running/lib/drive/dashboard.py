@@ -37,6 +37,7 @@ from drive import (
     slack,
     stage,
     state,
+    story,
     view,
 )
 from drive.card import body_of, sections
@@ -300,14 +301,15 @@ class Board:
         self.records = 0
         self.timings: dict[str, float] = {}
         self.pages: tuple[int, list[dict]] = (0, [])
+        self.stories = story.Writer(name)
 
     def stamp(self) -> tuple[int, ...]:
-        """What the board is built from, as it stands: the database's data_version on this board's own connection, which changes with each commit another connection makes, the time drive.json and his stored cards last changed, and how many events of the board's history the events log holds, each new one read here, so an event the board never shows rebuilds nothing."""
+        """What the board is built from, as it stands: the database's data_version on this board's own connection, which changes with each commit another connection makes, the time drive.json, his stored cards, the pages and the stories written for his cards last changed, and how many events of the board's history the events log holds, each new one read here, so an event the board never shows rebuilds nothing."""
         if self.database is None and state.database_path(self.name).exists():
             self.database = state.connect(state.database_path(self.name))
         committed = self.database.execute("PRAGMA data_version").fetchone()[0] if self.database else 0
         self.read_history()
-        paths = (state.state_path(self.name), state.cards_path(self.name), pages.pages_dir(self.name))
+        paths = (state.state_path(self.name), state.cards_path(self.name), pages.pages_dir(self.name), self.stories.folder)
         return (committed, *(path.stat().st_mtime_ns if path.exists() else 0 for path in paths), len(self.events), self.records)
 
     def read_history(self) -> None:
@@ -343,6 +345,7 @@ class Board:
                 "repo": repo,
                 "pages": pages.shown(drive, self.pages[1]),
             }
+        self.stories.tell(model)
         built = time.thread_time()
         self.show(model)
         self.timings = {"prepare_ms": (prepared - started) * 1000, "load_ms": (loaded - prepared) * 1000, "model_ms": (built - loaded) * 1000, "publish_ms": (time.thread_time() - built) * 1000}
@@ -426,6 +429,8 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
                 self.card(asked["answer"])
             elif where.path == "/api/task":
                 self.task(asked["id"])
+            elif where.path == "/api/told":
+                self.told(asked["pr"])
             elif where.path == "/api/story":
                 self.answered(200, {"moments": view.story(board.model, set(asked["ids"].split(",")) if "ids" in asked else None)})
             elif where.path == "/api/history":
@@ -512,7 +517,14 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
                 self.answered(404, {"error": GONE})
                 return
             drawn = {path: json.loads(source.read_text()) for path in card_pictures(found["card"]) if (source := Path(path).with_name("source.json")).is_file()}
-            self.answered(200, {"card": found["card"], "rail": found.get("rail"), "visuals": drawn})
+            self.answered(200, {"card": found["card"], "rail": found.get("rail"), "told": found.get("told"), "visuals": drawn})
+
+        def told(self, key: str) -> None:
+            found = next((entry for entry in board.model["review"] if entry["key"] == key), None)
+            if found:
+                self.answered(200, {"told": found.get("told")})
+            else:
+                self.answered(404, {"error": f"{key} is not an open PR of this drive"})
 
         def task(self, order_id: str) -> None:
             found = next((entry for group in board.model["status"] for entry in group["features"] if entry["id"] == order_id), None)

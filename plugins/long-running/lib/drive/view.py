@@ -1235,11 +1235,11 @@ def outline(entry: dict) -> dict:
 
 
 def summary(model: dict) -> dict:
-    """The board without its history and lanes, each card at a glance without its rail and each feature without its order's words and jobs."""
+    """The board without its history and lanes, each card at a glance without its rail or story and each feature without its order's words and jobs."""
     rest = {key: value for key, value in model.items() if key not in ("history", "work")}
     return rest | {
-        "queue": [{key: value for key, value in item.items() if key != "rail"} | {"card": glance(item["card"])} if item.get("card") else item for item in model["queue"]],
-        "review": [entry | {"card": entry["card"] and glance(entry["card"])} for entry in model["review"]],
+        "queue": [{key: value for key, value in item.items() if key not in ("rail", "told")} | {"card": glance(item["card"])} if item.get("card") else item for item in model["queue"]],
+        "review": [{key: value for key, value in entry.items() if key != "told"} | {"card": entry["card"] and glance(entry["card"])} for entry in model["review"]],
         "status": [group | {"features": [outline(entry) for entry in group["features"]]} for group in model["status"]],
     }
 

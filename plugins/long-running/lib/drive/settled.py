@@ -184,6 +184,12 @@ TEAM_NAME = re.compile(r"^[ -] (?:name|displayName): *(.+?) *$", re.MULTILINE)
 STAGE = re.compile(r"^stage: *(\S+) *$", re.MULTILINE)
 STAGING = "staging"
 PRODUCTION = "production, every environment except staging"
+ASKS_PAGE = Noul(
+    "Does `order` name a goal he wants worked toward or prioritized, such as \"let's prioritize\" a project, link or outcome or getting a set of changes merged,"
+    " ask where a project, feature or body of work stands, or ask for a page or dashboard of it?",
+    yes="He follows that work over days, and the drive builds a live page of it.",
+    no="It orders one bounded thing built, fixed, released or answered, asking nothing of where the larger work stands.",
+)
 APPROVAL = "kind:approval"
 INCIDENT = "incident"
 RELEASE_HOLD = "release-hold"
@@ -572,6 +578,15 @@ def repeats(data: dict, words: str, tooling: bool) -> str | None:
     if reading(read[surest]) is None:
         print(f"drive order add: Jev is unsure whether these words are on the feature of {order_id}; name it with --joins {order_id} when they are", file=sys.stderr)
     return order_id if read[surest] >= YES else None
+
+
+def asks_page(words: str) -> bool:
+    """Whether his order's words name a goal or ask where work stands, so the drive adds a page to it, as Jev reads them at YES; refused when Jev gives no answer, since an order added unread would lose its page."""
+    try:
+        read = jev({"order": words[:BODY_CHARS]}, {"page": ASKS_PAGE})
+    except Unheard as failure:
+        raise DriveError(f"no order added: Jev did not read whether these words name a goal or ask where work stands ({failure}), so its page would go unbuilt; run it again") from None
+    return read["page"] >= YES
 
 
 def unordered(answer: dict, release: str, data: dict) -> str | None:
