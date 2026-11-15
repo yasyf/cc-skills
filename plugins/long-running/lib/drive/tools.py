@@ -138,14 +138,15 @@ RECORD = {
         "to": {
             "type": "string",
             "description": (
-                "the lane it goes to, alone or as <lane>@<drive>, in place of the default, the coordinator's from the communicator and the communicator's"
-                " from any other session; a defect goes to the meta session, the communicator's owner record about the drive"
-                " to the meta session alone, its answer or handoff record, and any other session's handoff, naming a job by attrs.job"
-                " or waits to the coordinator session whose agent runs that job on this Mac, its answer or handoff record naming no"
-                " job to the coordinator that wrote the record its re answers, and its other owner, answer or handoff record, and"
-                " any other session's handoff, to the session holding the order its attrs.order names, else the order of the job it"
-                " answers, else its thread's newest order, whatever lane this names; a lane no session of the drive reads, such as"
-                " coordinator, is refused"
+                "the lane it goes to, alone or as <lane>@<drive>, in place of the default, the coordinator's from the communicator, and"
+                " from any other session the communicator's but for a handoff, whose default is the coordinator session whose agent"
+                " runs the job it names on this Mac, else the session holding the order it serves; a defect goes to the meta session,"
+                " the communicator's owner record about the drive to the meta session alone, its answer or handoff record naming a job"
+                " by attrs.job or waits to the coordinator session whose agent runs that job on this Mac, its answer or handoff record"
+                " naming no job to the coordinator that wrote the record its re answers, and its other owner, answer or handoff record"
+                " to the session holding the order its attrs.order names, else the order of the job it answers, else its thread's"
+                " newest order, whatever lane this names; any other session's record goes to the lane this names, and a lane no"
+                " session of the drive reads, such as coordinator, is refused"
             ),
         },
         "attrs": {
@@ -208,7 +209,8 @@ def verb_tools() -> list[dict]:
                 " (handoff) or a tool's refusal (defect) to another session of the drive in one call, as this session's role,"
                 " a handler's included: a defect reaches the meta session, an answer or handoff naming a job the coordinator session"
                 " whose agent runs it on this Mac, the communicator's handoff naming no job the coordinator that wrote the record its"
-                " re answers, else, as any other session's handoff, the session holding the order its attrs.order names,"
+                " re answers, else the session holding the order its attrs.order names, as does any other session's handoff naming"
+                " no to, while any other session's record naming a to reaches that lane,"
                 " a to lane no session of the drive reads is refused, and an owner record names about, refused without it: the drive's owner record"
                 " about the drive, a ruling on how it works included, reaches the meta session alone holding its order, which"
                 " the call adds first, a new order the meta session holds or his words as a part of the open one they carry on, as its"
@@ -517,7 +519,7 @@ def ran(name: str, said: list[str], index: int, words: tuple[str, ...], given: d
 
 
 def record(name: str, records: list[dict], dry_run: bool) -> str:
-    """Post the records as one cci batch from this session's lane, a sub-coordinator's its project's, to the lane each names, else the communicator, the coordinator's for the communicator, each sent where the drive routes it."""
+    """Post the records as one cci batch from this session's lane, a sub-coordinator's its project's, to the lane each names, else the communicator, the coordinator's for the communicator and the session its order's job's agent or holder reaches for another session's handoff, each sent where the drive routes it."""
     data = state.load(name)
     session = os.environ.get("CLAUDE_CODE_SESSION_ID")
     role = state.session_role(data, session)
@@ -837,7 +839,7 @@ def sent(name: str, lane: str, posts: list[dict]) -> list[str]:
 
 
 def post(item: dict, data: dict, other: str, session: str | None) -> dict:
-    """The cci record an item posts as, to the lane it names, alone or as <lane>@<drive> of this drive, else other, a defect's or handoff's long text cut to one line with the whole at the top of its body, as the post hook cuts a record, and sent where the drive routes it: a defect to the meta session, the communicator's owner record about the drive to the meta session alone, its answer or handoff record, and any other session's handoff, naming a job by attr job or waits id, whatever lane it names, to the coordinator session whose agent runs that job on this Mac, its answer or handoff record naming no job, whatever lane it names, to the coordinator that wrote the record its re answers, and its other owner, answer or handoff record, and any other session's handoff, to the session holding the order its attr order names, else the order of the job it answers, else the newest order in its thread; an owner record naming no about, an item whose re names several seqs, one to a lane no session of the drive reads, or a record asking a session for a step of a production release that brief.release_ask_refusal() refuses, is refused."""
+    """The cci record an item posts as, to the lane it names, alone or as <lane>@<drive> of this drive, else other, a defect's or handoff's long text cut to one line with the whole at the top of its body, as the post hook cuts a record, and sent where the drive routes it: a defect to the meta session, the communicator's owner record about the drive to the meta session alone, its answer or handoff record naming a job by attr job or waits id, whatever lane it names, to the coordinator session whose agent runs that job on this Mac, its answer or handoff record naming no job, whatever lane it names, to the coordinator that wrote the record its re answers, and its other owner, answer or handoff record to the session holding the order its attr order names, else the order of the job it answers, else the newest order in its thread, where any other session's handoff naming no lane goes too, after the coordinator session whose agent runs the job it names; an owner record naming no about, an item whose re names several seqs, one to a lane no session of the drive reads, or a record asking a session for a step of a production release that brief.release_ask_refusal() refuses, is refused."""
     drive = data["name"]
     if item["kind"] not in RECORD["properties"]["kind"]["enum"]:
         raise DriveError(f"record posts owner, answer, handoff and defect records; a {item['kind']} goes through the cci `post` tool, whose hook reads it")
@@ -870,7 +872,8 @@ def post(item: dict, data: dict, other: str, session: str | None) -> dict:
         attrs["ruling"] = settled.shown(ruling, data["roles"]["coordinator"]["cwd"])["id"]
     if unsaid := state.unabout(item["kind"], attrs):
         raise DriveError(unsaid)
-    lane, _, named = (item.get("to") or other).partition("@")
+    held = item["kind"] == "handoff" and (order_id := state.served_order(data, attrs)) and (state.starter_lane(data, attrs) or state.holding_lane(data, data["orders"][order_id]))
+    lane, _, named = (item.get("to") or (held if held and held != state.session_lane(data, session) else other)).partition("@")
     if named not in ("", drive):
         raise DriveError(f"to {item['to']}: names no lane of drive {drive}, which this call posts in; name its lane alone or as <lane>@{drive}")
     made["to"] = state.routed({drive: data}, session, item["kind"], attrs, [f"{lane}@{drive}"], made.get("re") or [])
