@@ -174,6 +174,55 @@ def test_a_write_waiting_past_the_drive_lock_wait_changes_nothing_and_names_the_
     assert state.load("demo")["terminal"] == "term-1"
 
 
+def test_a_batch_holds_no_lock_while_its_writes_run_and_its_one_save_keeps_what_another_write_changed_meanwhile(state_root: Path) -> None:
+    make("demo")
+    created = state.stamp()
+    with state.batch("demo"):
+        with state.edit("demo") as data:
+            data["terminal"] = "term-1"
+            data["orders"]["o1"] = state.new_order("order o1", "terminal", None, {"order o1": state.new_part()}, created)
+        with open(state.drive_dir("demo") / ".lock", "a") as free:
+            fcntl.flock(free, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            time.sleep(0.1)
+            fcntl.flock(free, fcntl.LOCK_UN)
+        saved = state.stored("demo")
+        saved["orders"]["o2"] = state.new_order("order o2", "terminal", None, {"order o2": state.new_part()}, created)
+        state.save("demo", saved | {"binder": "term-2"})
+    data = state.load("demo")
+    assert (data["terminal"], data["binder"], list(data["orders"])) == ("term-1", "term-2", ["o2", "o1"])
+    with state.batch("demo"):
+        with state.edit("demo") as data:
+            data["orders"]["o1"]["jobs"].append("j1")
+        saved = state.stored("demo")
+        saved["orders"]["o1"]["jobs"] += ["j2", "j1"]
+        state.save("demo", saved)
+    assert state.load("demo")["orders"]["o1"]["jobs"] == ["j2", "j1"]
+    with pytest.raises(DriveError, match=r"refused, nothing kept: another write changed orders\.o1\.text differently while this call ran, so send it again$"), state.batch("demo"):
+        with state.edit("demo") as data:
+            data["orders"]["o1"]["text"] = "order o1, here"
+        saved = state.stored("demo")
+        saved["orders"]["o1"]["text"] = "order o1, there"
+        state.save("demo", saved)
+    assert state.load("demo")["orders"]["o1"]["text"] == "order o1, there"
+    with pytest.raises(DriveError, match=r"so send it again once you have checked what it started as it ran: true$"), state.batch("demo"):
+        with state.edit("demo") as data:
+            data["terminal"] = "term-3"
+        subprocess.run(["true"], check=True)
+        state.save("demo", state.stored("demo") | {"terminal": "term-4"})
+    assert state.load("demo")["terminal"] == "term-4"
+
+
+def test_a_hold_of_the_drive_lock_past_its_stuck_seconds_logs_the_line_it_holds_on_while_it_still_holds(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    make("demo")
+    monkeypatch.setattr(state, "STUCK_HOLD_SECONDS", 0.05)
+    with state.edit("demo") as data:
+        data["terminal"] = "term-1"
+        time.sleep(0.5)
+        logged = (state.drive_dir("demo") / "locks.log").read_text()
+    assert "still holds the lock 0.05s on: drive " in logged
+    assert "in test_a_hold_of_the_drive_lock_past_its_stuck_seconds_logs_the_line_it_holds_on_while_it_still_holds" in logged
+
+
 def test_migrate_gives_each_picture_drawn_before_pictures_kept_their_source_its_kept_question_or_pr_fence_once_and_load_never_does(state_root: Path) -> None:
     make("demo")
     drive = state_root / "demo"

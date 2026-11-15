@@ -40,7 +40,9 @@ its user.
   the whole call again. The check takes no lock on the drive. Then it runs them in order, printing
   a line per op. `order`, `job` and `pr` save the drive once for the call, each read the check made
   answered as it was then, so a refusal while it runs writes nothing either, and a call killed past
-  its time says whether that save kept its ops; `incident` keeps each op before a refusal, since
+  its time says whether that save kept its ops. The run takes no lock either: the save merges the
+  call's changes into the drive as it stands then, and refuses, keeping nothing, a call that changed a
+  field another write changed meanwhile, naming each command the call started; `incident` keeps each op before a refusal, since
   `open` and `freeze` start an evidence record and a freeze, and names the ops left unrun.
 - Several ops from Bash go as one `drive tool <tool>` call with `{"ops": [...]}` on stdin, never a
   chain of `drive order add` calls, each its own write.

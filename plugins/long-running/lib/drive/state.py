@@ -15,7 +15,7 @@ import traceback
 import uuid
 from calendar import monthrange
 from collections.abc import Callable, Iterable, Iterator
-from contextlib import AbstractContextManager, closing, contextmanager, nullcontext, suppress
+from contextlib import AbstractContextManager, closing, contextmanager, suppress
 from contextvars import ContextVar
 from datetime import date, datetime, timedelta
 from fnmatch import fnmatchcase
@@ -240,9 +240,12 @@ HOLDER_CHARS = 200
 HOLDERS_SECONDS = 5
 DRIVE_LOCK_SECONDS = 300
 SLOW_HOLD_SECONDS = 2
+STUCK_HOLD_SECONDS = 30
 AFTER_SAVE: dict[str, list[Callable[[], list[str]]]] = {}
 REHEARSING: set[str] = set()
 MEMO: dict[str, object] = {}
+WENT: list[str] = []
+ABSENT = object()
 READ_ONLY = {
     "tmux": ("show-environment", "list-clients", "list-panes"),
     "orca": ("orchestration task-list", "orchestration worker-show", "orchestration request-show", "terminal show", "terminal list", "repo show", "diagnostics memory"),
@@ -275,6 +278,10 @@ class DriveError(Exception):
     pass
 
 
+class Raced(Exception):
+    """The path into the drive that a batch and another write both changed, to different values."""
+
+
 class Rehearsed(BaseException):
     """A dry run's op reached a command that does more than read, which a dry run never starts: every check before it passed. A BaseException, so no handler's `except Exception` takes it for the command failing."""
 
@@ -292,11 +299,14 @@ def reads_only(argv: list[str]) -> bool:
 
 
 def outside(event: str, args: tuple) -> None:
-    """In a dry run, stop its op with Rehearsed at the first command it starts that does more than read, such as a Slack post, a cci record or an Orca send; in a call that remembers its reads, forget them all at such a command, since it may change what they read."""
-    if event != "subprocess.Popen" or not (REHEARSING or MEMO) or reads_only(argv := [*args[1]]):
+    """In a dry run, stop its op with Rehearsed at the first command it starts that does more than read, such as a Slack post, a cci record or an Orca send; in a batch, keep each such command in WENT, which a refused save names, since sending the call again starts it twice; in a call that remembers its reads, forget them all at such a command, since it may change what they read."""
+    if event != "subprocess.Popen" or not (REHEARSING or MEMO or BATCHED) or reads_only(argv := [*args[1]]):
         return
+    started = " ".join([Path(argv[0]).name, *argv[1:3]])
     if REHEARSING:
-        raise Rehearsed(" ".join([Path(argv[0]).name, *argv[1:3]]))
+        raise Rehearsed(started)
+    if BATCHED:
+        WENT.append(started)
     MEMO.clear()
 
 
@@ -3575,10 +3585,14 @@ def locked(name: str) -> Iterator[None]:
         if not taken(handle, DRIVE_LOCK_SECONDS):
             raise DriveError(f"{name}'s drive lock is still held after {DRIVE_LOCK_SECONDS}s, so this changed nothing: {holders(path)}")
         got = time.monotonic()
+        stuck = threading.Timer(STUCK_HOLD_SECONDS, kept_stack, (name, threading.get_ident()))
+        stuck.daemon = True
+        stuck.start()
         try:
             moved_reports(name)
             yield
         finally:
+            stuck.cancel()
             if (held := time.monotonic() - got) >= SLOW_HOLD_SECONDS:
                 kept_hold(name, held, got - asked)
 
@@ -3588,6 +3602,14 @@ def kept_hold(name: str, held: float, waited: float) -> None:
     holder = next(frame for frame in reversed(traceback.extract_stack()[:-1]) if Path(frame.filename).name not in ("state.py", "contextlib.py"))
     with open(drive_dir(name) / "locks.log", "a") as log:
         log.write(f"{stamp()} pid {os.getpid()} held {held:.1f}s after waiting {waited:.1f}s in {holder.name} ({Path(holder.filename).name}:{holder.lineno}): drive {' '.join(sys.argv[1:])[:HOLDER_CHARS]}\n")
+
+
+def kept_stack(name: str, thread: int) -> None:
+    """Log to locks.log the stack of the thread still holding the drive's lock STUCK_HOLD_SECONDS after it took it, so a hold that jams every writer names the line it waits on while it still holds, before kept_hold can, or if it never lets go; nothing when that thread let go and ended as the timer fired."""
+    if (frame := sys._current_frames().get(thread)) is None:
+        return
+    with open(drive_dir(name) / "locks.log", "a") as log:
+        log.write(f"{stamp()} pid {os.getpid()} still holds the lock {STUCK_HOLD_SECONDS}s on: drive {' '.join(sys.argv[1:])[:HOLDER_CHARS]}\n{''.join(traceback.format_stack(frame))}")
 
 
 def binding(name: str) -> AbstractContextManager[None]:
@@ -3659,7 +3681,7 @@ def writing(name: str) -> Iterator[None]:
 
 @contextmanager
 def edit(name: str) -> Iterator[dict]:
-    """Load the drive under its lock, yield it for changes, and save it atomically on exit, telling each session the save took open orders from; inside a batch, which holds the lock already, keep the changes for the batch's one save."""
+    """Load the drive under its lock, yield it for changes, and save it atomically on exit, telling each session the save took open orders from; inside a batch, keep the changes on its copy for its one save."""
     if name in BATCHED:
         data = load(name)
         yield data
@@ -3675,28 +3697,36 @@ def edit(name: str) -> Iterator[dict]:
 
 @contextmanager
 def batch(name: str, dry: bool = False) -> Iterator[list[str]]:
-    """Hold the drive's lock across a call of several writes, each load and edit inside it reading and changing one copy in memory, saved once when the call ends and never when it raises, so a refused write leaves drive.json as it was, and that save tells each session the call took open orders from; what a write does outside the drive runs after that save, its lines added to the list it yields, each such effect running even when one before it failed, and the failures raised together once all have run, after the lines of the rest. A batch opened inside one joins it. A dry batch, a dry run's, runs every check its writes make and keeps none: it takes no lock, saves nothing, drops what its writes would do outside the drive, and stops at Rehearsed each command they start that does more than read."""
+    """Run a call of several writes on one copy of the drive in memory, each load and edit inside it reading and changing that copy, with no lock held, so a model call, process or network read the call makes holds no writer of the drive behind it; saved once when the call ends and never when it raises, so a refused write leaves the drive as it was. The save takes the lock for itself alone, merging the call's changes into the drive as it stands then, by merged, and that save tells each session the call took open orders from; a field another write changed differently meanwhile refuses the call, keeping nothing and naming each command the call started that does more than read, by WENT. What a write does outside the drive runs after that save, its lines added to the list it yields, each such effect running even when one before it failed, and the failures raised together once all have run, after the lines of the rest. A batch opened inside one joins it. A dry batch, a dry run's, runs every check its writes make and keeps none: it saves nothing, drops what its writes would do outside the drive, and stops at Rehearsed each command they start that does more than read."""
     if name in BATCHED:
         yield []
         return
     after: list[str] = []
-    with nullcontext() if dry else writing(name):
-        loaded = load(name)
-        before = holding_lanes(loaded)
-        BATCHED[name] = marshal.dumps(loaded)
-        AFTER_SAVE[name] = []
-        if dry:
-            REHEARSING.add(name)
+    loaded = load(name)
+    BATCHED[name] = marshal.dumps(loaded)
+    AFTER_SAVE[name] = []
+    WENT.clear()
+    if dry:
+        REHEARSING.add(name)
+    try:
+        yield after
+        mine, effects = marshal.loads(BATCHED[name]), AFTER_SAVE[name]
+    finally:
+        del BATCHED[name], AFTER_SAVE[name]
+        REHEARSING.discard(name)
+    if dry:
+        return
+    with writing(name):
+        now = load(name)
         try:
-            yield after
-            if not dry:
-                saved = marshal.loads(BATCHED[name])
-                save(name, saved | {CLOCKS: clocks(saved)})
-                tell_moved(name, saved, before)
-            effects = [] if dry else AFTER_SAVE[name]
-        finally:
-            del BATCHED[name], AFTER_SAVE[name]
-            REHEARSING.discard(name)
+            saved = merged(loaded, mine, now)
+        except Raced as raced:
+            raise DriveError(
+                f"refused, nothing kept: another write changed {'.'.join(raced.args[0])} differently while this call ran, so send it again"
+                + (f" once you have checked what it started as it ran: {', '.join(dict.fromkeys(WENT))}" if WENT else "")
+            ) from None
+        save(name, saved | {CLOCKS: clocks(saved)})
+        tell_moved(name, saved, holding_lanes(now))
     failed: list[str] = []
     for effect in effects:
         try:
@@ -3705,6 +3735,20 @@ def batch(name: str, dry: bool = False) -> Iterator[list[str]]:
             failed.append(str(error))
     if failed:
         raise DriveError("\n".join([*after, *failed]))
+
+
+def merged(base: object, mine: object, now: object, path: tuple[str, ...] = ()) -> object:
+    """A batch's changes to the drive since it loaded base, mine, laid over now, the drive as another write may have changed it meanwhile, key by key down each dict both changed, and a list both only appended to as now's with each item mine appended that now did not; Raced at the first path both changed to different values."""
+    if mine == base or now == mine:
+        return now
+    if now == base:
+        return mine
+    if isinstance(base, list) and isinstance(mine, list) and isinstance(now, list) and mine[: len(base)] == base == now[: len(base)]:
+        return now + [item for item in mine[len(base) :] if item not in now[len(base) :]]
+    if not (isinstance(base, dict) and isinstance(mine, dict) and isinstance(now, dict)):
+        raise Raced(path)
+    kept = {key: merged(base.get(key, ABSENT), mine.get(key, ABSENT), now.get(key, ABSENT), (*path, key)) for key in dict.fromkeys([*now, *mine])}
+    return {key: value for key, value in kept.items() if value is not ABSENT}
 
 
 def unrehearsed(name: str, run: Callable[[], str], stand_in: str) -> str:

@@ -400,13 +400,14 @@ def start_posts(name: str, own: str | None = None, detached: bool = False) -> bo
 
 
 def handle_report(name: str, seq: str, brief: str, once: bool = False, detached: bool = False, briefed: Callable[[str], str] | None = None) -> tuple[str, bool]:
-    """Start or hand over the handler on report seq as handle does, in one hold of the drive's POSTS_LOCK after start_posts passes seq, so the watch's read never starts a second handler on it, and a start that fails sets the cursor back to seq for that read to start. Once, as the handler tool starts one on a POST report, a report the cursor had passed goes to the handler whichever starter read it first started, still at work on it or still starting, starts again as handle starts it once that handler never started, and is refused once that handler ended, since it posted the report; a stage of the watch starts its own report's again, as it does for a report whose handler never took it."""
+    """Start or hand over the handler on report seq as handle does, in one hold of the drive's POSTS_LOCK after start_posts passes seq, so the watch's read never starts a second handler on it, and a start that fails sets the cursor back to seq for that read to start. Once, as the handler tool starts one on a POST report, a report the cursor had passed goes to the handler whichever starter read it first started, still at work on it or still starting, starts again as handle starts it once that handler never started, and is refused once that handler ended, naming the post the drive kept its report going out in, or its line held for his catch-up, or that it kept neither; a stage of the watch starts its own report's again, as it does for a report whose handler never took it."""
     with state.flocked(state.drive_dir(name) / POSTS_LOCK):
         read = start_posts(name, seq, detached)
         if once and not read:
             data = state.load(name)
             if not (held := holder(data, threaded(data, holds(brief)))):
-                raise state.DriveError(f"refused, no handler started: the drive read POST report {seq} before this call, and the handler it started then has ended on it")
+                went = f"posting it at {link}" if (link := data["carried"].get(seq)) else "its line held for his catch-up" if seq in data["held"] else "with no post of it kept"
+                raise state.DriveError(f"refused, no handler started: the drive read POST report {seq} before this call, and the handler it started then has ended on it, {went}")
             if (entry := data["handlers"][held])["session"] or not gone(entry):
                 return held, True
         try:

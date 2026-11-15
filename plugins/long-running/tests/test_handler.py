@@ -533,7 +533,11 @@ def test_a_post_report_gets_one_handler_whichever_of_the_handler_tool_and_the_wa
     with state.edit("demo") as data:
         data["handlers"].clear()
     assert watch.post_lines(watching, state.now()) == []
-    with pytest.raises(state.DriveError, match="the drive read POST report 706845 before this call, and the handler it started then has ended on it"):
+    with pytest.raises(state.DriveError, match="the drive read POST report 706845 before this call, and the handler it started then has ended on it, with no post of it kept"):
+        tools.run("handler", "demo", {"brief": f"Record: 706845 Drive: demo Scratch: {tmp_path / 'handler-706845'}"})
+    with state.edit("demo") as data:
+        data["carried"]["706845"] = "https://forge.slack.com/archives/D0/p1794494004895129"
+    with pytest.raises(state.DriveError, match="has ended on it, posting it at https://forge.slack.com/archives/D0/p1794494004895129"):
         tools.run("handler", "demo", {"brief": f"Record: 706845 Drive: demo Scratch: {tmp_path / 'handler-706845'}"})
     assert [argv[-1].split()[1] for argv in started if argv[:2] == ["claude", "--bg"]] == ["706844", "706845"]
 
