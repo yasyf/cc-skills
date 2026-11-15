@@ -377,7 +377,7 @@ def answer_picks(name: str, keys: list[str]) -> list[str]:
 def halt(name: str, keys: list[str], cards: dict | None) -> list[str]:
     """Stop each landing of a Forge-AI/monorepo unit with a PR among keys that stopping() stops, or that unattended() holds while he is not present, read before the drive's lock is taken since it reads GitHub, so a unit queued before he went quiet leaves the queue: a lander still running on it by ending its process group, which dequeues what it queued, recording that on each PR of its unit, and a unit Trunk's merge queue holds after its lander ended by unqueue(), a process of its own that takes it out of the queue and records it; each PR reads that hold until he answers, waiting until the wait ends or away until his next word, and lands then; the PRs stopped."""
     data = state.load(name)
-    away = {key: f"{AWAY}: {why}" for key in keys if landing(pr := data["prs"][key]) and not dequeuing(pr) and (why := unattended(data, key, state.now()))}
+    away = {key: f"{AWAY}: {why}" for key in keys if landing(pr := data["prs"][key]) and not dequeuing(pr) and not stopping(data, key, cards) and (why := unattended(data, key, state.now()))}
     if not held_landings(data, keys, cards, away):
         return []
     with state.edit(name) as data:

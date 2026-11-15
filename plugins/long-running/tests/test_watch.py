@@ -7669,7 +7669,7 @@ def test_a_forge_ai_pr_he_approved_changing_sandsql_waits_for_his_next_word_whil
     assert land.unattended(state.load(demo), EJECTED, T0 + timedelta(minutes=10)) is None
     monkeypatch.setattr(state, "now", lambda: away)
     with state.edit(demo) as data:
-        data["prs"][EJECTED]["lander"] = {"head": "bb28d680bf", "pid": 1, "at": state.stamp(away), "outcome": f"{land.AWAY}: {refused}", "below": [], "entry": EJECTED}
+        data["prs"][EJECTED]["lander"] = {"head": "bb28d680bf", "base": data["prs"][EJECTED]["base"], "pid": 1, "at": state.stamp(away), "outcome": f"{land.AWAY}: {refused}", "below": [], "entry": EJECTED}
     assert stage.of(state.load(demo), EJECTED, NO_CARDS) == stage.Stage("waiting", stage.HIM, f"green and cleared, and its lander's try at bb28d68 ended {land.AWAY}: {refused}")
     assert stage.of(state.load(demo), FLAKE_FIX, NO_CARDS).name == "ready"
     with state.edit(demo) as data:
