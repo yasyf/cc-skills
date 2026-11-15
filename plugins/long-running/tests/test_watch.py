@@ -238,7 +238,7 @@ def test_the_watch_reads_the_changed_files_of_each_head_no_read_saw_once_and_sta
     monkeypatch.setattr(github, "paths", lambda keys: asked.append(keys) or {key: changed[key] for key in keys})
     [line] = watch.dangerous_lines(watcher(demo), T0)
     data, part = state.load(demo), state.STAGING_TEST.format(number=42)
-    (tester_id,) = [job_id for job_id, job in data["jobs"].items() if job.get("builds_nothing")]
+    (tester_id,) = [job_id for job_id, job in data["jobs"].items() if state.builds_nothing(job)]
     assert line.startswith(f'PR {KEY}: {tester_id} builder on "{part}"') and line.endswith(" [o1 j1]")
     assert (asked, data["prs"][KEY]["waits"], data["prs"][OTHER]["waits"], data["prs"][OTHER]["paths_at"]) == ([[KEY, OTHER]], [f"o1:{part}"], [], "ccccccc333")
     assert "changes a builtin: go/sand/internal/builtin/http.go, each a dangerous change" in data["jobs"][tester_id]["goal"]

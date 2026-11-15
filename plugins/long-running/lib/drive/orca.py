@@ -772,10 +772,15 @@ def task_title(run: str, task: str) -> str:
 
 
 def receipt(dispatch: str) -> dict:
-    """What a job records of the worker on a dispatch, as Orca shows it: the dispatch, its Run, task and terminal, the lane its task is titled after, and where it runs, with no cc-remote config, which Orca does not show, so a finished worker's next starts on a fresh Sprite."""
+    """What a job records of the worker on a dispatch, as Orca shows it: the dispatch, its Run, task and terminal, the lane its task is titled after, the worktree it started in, and where it runs, with no cc-remote config, which Orca does not show, so a finished worker's next starts on a fresh Sprite."""
     shown = worker(dispatch)
     held = run_of(shown)
-    return {"dispatch": dispatch, **held, "lane": task_title(held["run"], held["task"]), **placement(shown), "sprite_config": None}
+    return {"dispatch": dispatch, **held, "lane": task_title(held["run"], held["task"]), "worktree": worktree_path(shown["worker"]["startOptions"]["worktree"]), **placement(shown), "sprite_config": None}
+
+
+def worktree_path(selector: str) -> str:
+    """The path of the worktree an Orca selector names, `path:<path>` or `id:<repo>::<path>`."""
+    return selector.partition(":")[2].rpartition("::")[2]
 
 
 def adopted(brief: Path) -> dict | None:
@@ -946,6 +951,7 @@ def start_after(drive: str, lane: str, brief: Path, end: LaneEnd) -> dict:
         "dispatch": receipt["dispatchId"],
         "task": receipt["taskId"],
         "lane": lane,
+        "worktree": worktree_path(end.worktree),
         "sprite_config": None,
     }
 

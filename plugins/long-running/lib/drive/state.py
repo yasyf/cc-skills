@@ -221,6 +221,7 @@ PART_ITEMS = re.compile(r"\s*;\s*(?=o\d+:)")
 ORDER_PART = re.compile(r"(o\d+):\s*(.+)", re.DOTALL)
 ROUTED_KINDS = ("owner", "answer", "handoff", "refused")
 APPROVALS_LABELLED = ".approvals-labelled-by-question"
+LANE_WORKTREES = ".lane-worktrees-recorded"
 READ_MARK = hashlib.sha256(f"{github.READ} {github.RULES}".encode()).hexdigest()[:12]
 UNSTARTED_WAITING = ".unstarted-jobs-waiting"
 CARDS_NOTED = "card_answers_noted"
@@ -1488,6 +1489,8 @@ def migrate(name: str) -> None:
             label_approvals(name, data["roles"]["coordinator"]["cwd"])
         if not (drive_dir(name) / UNSTARTED_WAITING).exists():
             wait_unstarted(name, data)
+        if not (drive_dir(name) / LANE_WORKTREES).exists():
+            record_lane_worktrees(name, data)
 
 
 def wait_unstarted(name: str, data: dict) -> None:
@@ -1497,6 +1500,23 @@ def wait_unstarted(name: str, data: dict) -> None:
             for job_id in stale:
                 data["jobs"][job_id].update(state="waiting", said=NOT_STARTED)
     (drive_dir(name) / UNSTARTED_WAITING).touch()
+
+
+def record_lane_worktrees(name: str, data: dict) -> None:
+    """Record on each live Orca lane on this Mac launched before a launch recorded its worktree the worktree Orca shows its worker started in, so place.at_work_here reads its turn there, and record dead, as the watch would, one Orca no longer holds; marked so this runs once."""
+    from drive import orca
+
+    if unrecorded := [job_id for job_id, job in data["jobs"].items() if on_mac(job) and job.get("dispatch") and not job["worktree"] and job["state"] not in FINISHED_JOB_STATES and not lane_death(job)]:
+        with edit(name) as data:
+            for job_id in unrecorded:
+                job = data["jobs"][job_id]
+                try:
+                    job["worktree"] = orca.worktree_path(orca.worker(job["dispatch"])["worker"]["startOptions"]["worktree"])
+                except orca.OrcaError as error:
+                    if not (why := orca.gone(error)):
+                        raise
+                    lane_died(job, job["dispatch"], why, now())
+    (drive_dir(name) / LANE_WORKTREES).touch()
 
 
 def label_approvals(name: str, cwd: str) -> None:
@@ -1706,8 +1726,9 @@ def unstarted(job: dict) -> bool:
 
 
 def builds_nothing(job: dict) -> bool:
-    """Whether a builder holds no checkout or compiler, so no slot of this Mac's builder cap: one marked with --builds-nothing on drive job add or drive job set, or one whose goal reads prove <PRs> live, as the prover the watch adds at a merge writes it, marked or not."""
-    return job["kind"] == "builder" and (bool(job.get("builds_nothing")) or bool(PROVER_GOAL.fullmatch(job["goal"])))
+    """Whether a builder compiles nothing on this Mac, so holds no slot of its builder cap, which counts compiler work only: one marked with --builds-nothing on drive job add or drive job set, one whose goal reads prove <PRs> live, as the prover the watch adds at a merge writes it, or one whose every part is a staging test, whose work is git, pushes and Buildkite builds, marked or not."""
+    parts = [*job["parts"], *(part for carried in job["carries"].values() for part in carried)]
+    return job["kind"] == "builder" and (bool(job.get("builds_nothing")) or bool(PROVER_GOAL.fullmatch(job["goal"])) or bool(parts) and all(STAGING_PART.fullmatch(part) for part in parts))
 
 
 def unstarted_builder(data: dict, job: dict) -> bool:
@@ -2174,7 +2195,7 @@ def stage_pr(data: dict, key: str, goal: str, session: str | None) -> str | None
             hold_text(testing, f"The staging test of {key} also runs: {goal}", None)
         return None
     tester_id = next_id(data["jobs"], "j")
-    data["jobs"][tester_id] = new_job(order_id, "builder", goal, [part], stamp()) | {"session": session, "builds_nothing": True}
+    data["jobs"][tester_id] = new_job(order_id, "builder", goal, [part], stamp()) | {"session": session}
     data["orders"][order_id]["jobs"].append(tester_id)
     return tester_id
 

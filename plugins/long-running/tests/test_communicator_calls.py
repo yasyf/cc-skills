@@ -279,7 +279,7 @@ def test_the_coordinator_wakes_no_builder_here_whose_turn_ended_while_eight_hold
         run("job", "add", "builder", "--order", "o2", "--part", f"part {number}", "--goal", f"build part {number}", "--agent", f"b{number}")
     reason = communicator_calls.deny_reason(call("SendMessage", transcript(tmp_path), to="a-7", message="He picked Approve"))
     assert reason.startswith(
-        "Refused on purpose: j1's agent on this Mac takes no message now: its turn ended and 8 builders already run on this Mac, its cap of 8"
+        "Refused on purpose: j1's agent on this Mac takes no message now: its turn ended and 8 builders already run on this Mac, its cap of 8 on builders that compile here, where a staging tester, a merged PR's prover or another builder marked --builds-nothing holds no slot"
         " (j2 on o2, its agent b1 last wrote at "
     )
     assert reason.endswith(

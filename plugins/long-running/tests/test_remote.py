@@ -251,7 +251,7 @@ def test_place_counts_only_running_builders_on_this_mac(
     monkeypatch.setattr(watch, "last_write", lambda job, data: (T0, None))
     wrote = render.when(state.stamp(T0), seconds=True)
     counted = "; ".join(f"j{number} on o1, its agent {agent} last wrote at {wrote}" for number, agent in [*((n, "a") for n in range(1, 8)), (11, "e")])
-    assert run("place")[1] == f"remote: 8 builders already run on this Mac, its cap of 8 ({counted})"
+    assert run("place")[1] == f"remote: 8 builders already run on this Mac, its cap of 8 on builders that compile here, where a staging tester, a merged PR's prover or another builder marked --builds-nothing holds no slot ({counted})"
 
 
 def test_a_launch_local_while_eight_builders_hold_this_macs_slots_starts_on_a_sprite_or_waits_its_turn_when_its_brief_runs_on_this_mac(
@@ -267,12 +267,12 @@ def test_a_launch_local_while_eight_builders_hold_this_macs_slots_starts_on_a_sp
     (tmp_path / "sprite.md").write_text("Order (his words): ship it\nServes: his order\nResearched: j0\nDrive: demo, order o1, job j1\n")
     (tmp_path / "mac.md").write_text("Order (his words): ship it\nServes: his order\nMac: prove it on a Mac box with ci mac-box prove\nResearched: j0\nDrive: demo, order o1, job j2\n")
     monkeypatch.setattr(orca, "new_run", lambda drive, objective: RUN)
-    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
+    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane", "worktree")
     launched: list[str] = []
     monkeypatch.setattr(orca, "launch", lambda drive, lane, *rest: launched.append(lane) or {field: f"{field}-1" for field in fields} | {"dispatch": DISPATCH})
     assert cli.main(["job", "launch", "j1", "sprite.md", "--local"]) == 2
     err = capsys.readouterr().err
-    assert err.startswith("drive: j1: refused, not launched: 8 builders already run on this Mac, its cap of 8 (j3 on o2, its agent b1 last wrote at ")
+    assert err.startswith("drive: j1: refused, not launched: 8 builders already run on this Mac, its cap of 8 on builders that compile here, where a staging tester, a merged PR's prover or another builder marked --builds-nothing holds no slot (j3 on o2, its agent b1 last wrote at ")
     assert err.endswith("so it starts on a Sprite at once: drive job launch j1, with no --local\n")
     assert cli.main(["job", "launch", "j2", "mac.md", "--local"]) == 2
     assert capsys.readouterr().err.endswith("so j2 waits its turn for a builder slot on this Mac, 1 of 1 in line, and the watch's FREE line names it as a slot opens\n")
@@ -297,7 +297,7 @@ def test_a_resume_of_a_builder_none_started_waiting_its_turn_holds_its_text_for_
     brief = tmp_path / "mac.md"
     brief.write_text("Order (his words): prove it on a Mac\nServes: his order\nMac: prove it on a Mac box with ci mac-box prove\nResearched: j0\nDrive: demo, order o1, job j1\n")
     monkeypatch.setattr(orca, "new_run", lambda drive, objective: RUN)
-    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
+    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane", "worktree")
     launched: list[str] = []
     monkeypatch.setattr(orca, "launch", lambda drive, lane, kept, *rest: launched.append(kept.read_text()) or {field: f"{field}-1" for field in fields} | {"dispatch": DISPATCH})
     assert cli.main(["job", "launch", "j1", "mac.md", "--local"]) == 2
@@ -349,6 +349,59 @@ def test_place_counts_a_builder_here_only_while_its_agent_is_in_its_turn(
         os.utime(path, (T0.timestamp(), T0.timestamp()))
     wrote = render.when(state.stamp(T0.astimezone()), seconds=True)
     assert place.local_builders(data, state.now()) == {"j1": f"j1 on o1, its agent a1 last wrote at {wrote}"}
+
+
+def test_place_counts_a_lane_on_this_mac_only_while_the_newest_transcript_in_the_worktree_its_launch_recorded_is_in_its_turn(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
+    parts = ("mid-turn", "returned", "booting")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "three", "--parts", *parts)
+    for part in parts:
+        run("job", "add", "builder", "--order", "o1", "--part", part, "--goal", part, "--remote")
+    with state.edit(demo) as data:
+        for number in (1, 2, 3):
+            data["jobs"][f"j{number}"].update(state.local_lane(f"ctx_lane{number}"), state="running", worktree=f"/work/demo-j{number}")
+    rows = {
+        "returned": {"type": "assistant", "message": {"stop_reason": "end_turn", "content": [{"type": "text", "text": "WAITING on Forge-AI/monorepo#7"}]}},
+        "mid-turn": {"type": "assistant", "message": {"stop_reason": "tool_use", "content": [{"type": "tool_use", "name": "Bash"}]}},
+    }
+    for number, session, row, at in ((1, "earlier", "returned", T0 - timedelta(hours=1)), (1, "newest", "mid-turn", T0), (2, "newest", "returned", T0)):
+        path = tmp_path / "config" / "projects" / watch.NOT_SLUG.sub("-", f"/work/demo-j{number}") / f"{session}.jsonl"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(rows[row]) + "\n")
+        os.utime(path, (at.timestamp(), at.timestamp()))
+    wrote = render.when(state.stamp(T0.astimezone()), seconds=True)
+    assert place.local_builders(state.load(demo), state.now()) == {
+        "j1": f"j1 on o1, its Orca lane ctx_lane1 last wrote at {wrote}",
+        "j3": "j3 on o1, its Orca lane ctx_lane3, its session not started yet",
+    }
+
+
+def test_migrate_records_each_live_lane_on_this_macs_worktree_once_from_orca_and_records_one_orca_no_longer_holds_dead(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    parts = ("live", "gone", "finished")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "three", "--parts", *parts)
+    for part in parts:
+        run("job", "add", "builder", "--order", "o1", "--part", part, "--goal", part, "--remote")
+    with state.edit(demo) as data:
+        for number, job_state in ((1, "running"), (2, "running"), (3, "done")):
+            data["jobs"][f"j{number}"].update(state.local_lane(f"ctx_lane{number}"), state=job_state)
+
+    def shown(dispatch: str) -> dict:
+        if dispatch == "ctx_lane2":
+            raise orca.OrcaError("orca orchestration worker-show: dispatch_not_found: no dispatch ctx_lane2")
+        assert dispatch == "ctx_lane1"
+        return ROOT_WORKER
+
+    monkeypatch.setattr(orca, "worker", shown)
+    (state.drive_dir(demo) / state.LANE_WORKTREES).unlink()
+    state.migrate(demo)
+    jobs = state.load(demo)["jobs"]
+    assert [(jobs[job_id]["worktree"], bool(state.lane_death(jobs[job_id]))) for job_id in ("j1", "j2", "j3")] == [("/work/root-tooling", False), (None, True), (None, False)]
+    monkeypatch.setattr(orca, "worker", lambda dispatch: pytest.fail("a migration that ran reads no lane again"))
+    state.migrate(demo)
 
 
 def test_place_counts_a_builder_lane_started_on_this_mac_while_it_launches_or_runs(
@@ -554,7 +607,7 @@ def test_launch_composes_the_vm_brief_and_records_the_lane(
 
     def fake_launch(drive: str, lane: str, brief: Path, checkout: Path, run_id: str, route: str | None, workspace: str | None, session: str | None) -> dict:
         launched.update(lane=lane, brief=brief.read_text(), checkout=checkout, run=run_id)
-        fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
+        fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane", "worktree")
         return {field: f"{field}-1" for field in fields} | {"dispatch": DISPATCH}
 
     monkeypatch.setattr(orca, "launch", fake_launch)
@@ -593,7 +646,7 @@ def test_a_first_launch_marks_its_job_sent_the_answer_its_brief_carries_and_carr
         for answer_id, words in (("a1", heard), ("a2", unsaid)):
             data["answers"][answer_id] = {"words": words, "link": link, "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {"j1": None}}
     monkeypatch.setattr(orca, "new_run", lambda drive, objective: RUN)
-    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
+    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane", "worktree")
     monkeypatch.setattr(orca, "launch", lambda *args: {field: f"{field}-1" for field in fields})
     assert run("job", "launch", "j1", "brief.md")[0] == 0
     answers = state.load(demo)["answers"]
@@ -615,7 +668,7 @@ def test_a_lane_whose_brief_names_a_report_holding_his_words_still_owes_them_onc
     state.keep_report(demo, "j1", "DONE the reader's findings", f"DONE the reader's findings\nResearched:\nrulings: none on the area\nexists: none\nopen: none\nHis answer, verbatim: \"{words}\"\n")
     (tmp_path / "brief.md").write_text("Order (his words): ship it\nResearched: j1\nDrive: demo, order o1, job j2\n")
     monkeypatch.setattr(orca, "new_run", lambda drive, objective: RUN)
-    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
+    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane", "worktree")
     monkeypatch.setattr(orca, "launch", lambda *args: {field: f"{field}-1" for field in fields})
     assert run("job", "launch", "j2", "brief.md")[0] == 0
     launched = (state.drive_dir(demo) / "jobs" / "j2.md").read_text()
@@ -683,7 +736,7 @@ def test_launch_runs_from_the_drives_own_worktree_made_once_with_ccx_and_moved_w
     fetches, pins = [], []
     fetched = github.fetched
     monkeypatch.setattr(github, "fetched", lambda clone, branch: fetches.append(branch) or fetched(clone, branch))
-    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
+    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane", "worktree")
 
     def launch(drive: str, lane: str, brief: Path, checkout: Path, *rest: object) -> dict:
         pins.append((checkout, git_in(checkout, "rev-parse", "HEAD"), (checkout / "versions.toml").read_text()))
@@ -831,7 +884,7 @@ def test_a_builder_added_waiting_on_his_card_with_no_lane_starts_on_his_tap_from
     assert run("answer", "a1") == (0, "his answer a1 recorded: 0 standing, 0 superseded, 0 reopened by it")
     assert run("job", "brief", "j2", "--serves", "his order", "--done-when", "merged", "--where", "a new branch", "--plan", "finding 1 is j1's")[0] == 0
     monkeypatch.setattr(orca, "new_run", lambda drive, objective: RUN)
-    monkeypatch.setattr(orca, "launch", lambda *args: {field: f"{field}-1" for field in ("task", "terminal", "workspace", "environment", "lane")} | {"dispatch": DISPATCH})
+    monkeypatch.setattr(orca, "launch", lambda *args: {field: f"{field}-1" for field in ("task", "terminal", "workspace", "environment", "lane", "worktree")} | {"dispatch": DISPATCH})
     assert run("job", "launch", "j2") == (0, f"j2 started on Sprite workspace-1 as dispatch {DISPATCH}")
     data = state.load(demo)
     assert (data["answers"]["a1"]["jobs"], data["jobs"]["j2"]["waits"]) == ({"j2": {"mark": "sent"}}, [])
@@ -860,7 +913,7 @@ def test_launch_of_a_brief_naming_a_finished_jobs_report_file_as_j2722s_named_j2
     (folder / "scratch" / "j1" / "researched.md").write_text("the research\n")
     monkeypatch.setattr(orca, "new_run", lambda drive, objective: RUN)
     briefs = []
-    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
+    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane", "worktree")
     monkeypatch.setattr(orca, "launch", lambda drive, lane, brief, *rest: briefs.append(brief.read_text()) or {field: f"{field}-1" for field in fields} | {"dispatch": DISPATCH})
     assert run("job", "launch", "j2", "brief.md") == (0, f"j2 started on Sprite workspace-1 as dispatch {DISPATCH}")
     assert "the delete half NOT PROVEN" not in briefs[0]
@@ -888,7 +941,7 @@ def test_launch_of_a_brief_naming_a_jobs_repro_by_a_suffix_glob_as_j2817s_named_
     )
     monkeypatch.setattr(orca, "new_run", lambda drive, objective: RUN)
     briefs = []
-    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
+    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane", "worktree")
     monkeypatch.setattr(orca, "launch", lambda drive, lane, brief, *rest: briefs.append(brief.read_text()) or {field: f"{field}-1" for field in fields} | {"dispatch": DISPATCH})
     assert run("job", "launch", "j2", "brief.md") == (0, f"j2 started on Sprite workspace-1 as dispatch {DISPATCH}")
     assert "raise SystemExit(1)" not in briefs[0]
@@ -932,7 +985,7 @@ def test_launch_starts_a_job_added_with_no_agent_as_a_remote_lane(
         " worker on this Mac with drive job launch j1 <brief> --local, or start an Agent here whose brief ends Drive: <drive>, order <order>, job j1\n"
     )
     monkeypatch.setattr(orca, "new_run", lambda drive, objective: RUN)
-    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
+    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane", "worktree")
     monkeypatch.setattr(orca, "launch", lambda *args: {field: f"{field}-1" for field in fields} | {"dispatch": DISPATCH})
     assert run("job", "launch", "j1", "brief.md") == (0, f"j1 started on Sprite workspace-1 as dispatch {DISPATCH}")
     job = state.load(demo)["jobs"]["j1"]
@@ -950,7 +1003,7 @@ def test_a_launch_briefs_a_builder_none_briefed_and_carries_each_answer_it_holds
         data["jobs"]["j1"]["undelivered"] = [{"seq": "9", "words": words, "at": state.stamp(), "said": None, "request": "req-ring"}]
     monkeypatch.setattr(orca, "new_run", lambda drive, objective: RUN)
     launched: list[str] = []
-    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
+    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane", "worktree")
     monkeypatch.setattr(orca, "launch", lambda drive, lane, brief, *rest: launched.append(brief.read_text()) or {field: f"{field}-1" for field in fields} | {"dispatch": DISPATCH})
     assert run("job", "launch", "j1") == (0, f"j1 started on Sprite workspace-1 as dispatch {DISPATCH}")
     [brief] = launched
@@ -973,7 +1026,7 @@ def test_a_readers_return_briefs_the_builder_waiting_on_it_so_its_free_line_laun
     assert ("Serves: his order\n" in brief, "Researched: j1\n" in brief, "Done when:" in brief) == (True, True, False)
     assert watch.waits_lines(watch.Watcher(demo, offset=state.events_end(demo)), T0) == [f"FREE j2 o1: j1 answered or done, nothing else holds it; Read your brief first: {jobs['j2']['brief']}"]
     monkeypatch.setattr(orca, "new_run", lambda drive, objective: RUN)
-    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
+    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane", "worktree")
     monkeypatch.setattr(orca, "launch", lambda *args: {field: f"{field}-1" for field in fields} | {"dispatch": DISPATCH})
     assert run("job", "launch", "j2") == (0, f"j2 started on Sprite workspace-1 as dispatch {DISPATCH}")
     assert run("job", "brief", "j2", "--plan", "the run page section")[0] == 0
@@ -990,7 +1043,7 @@ def test_a_builder_launched_before_its_free_line_reads_starting_while_its_sprite
     assert run("job", "report", "j1", "-")[0] == 0
     watching = watch.Watcher(demo, offset=state.events_end(demo))
     starting = state.now() + timedelta(minutes=3)
-    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
+    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane", "worktree")
     read: list[tuple] = []
 
     def launch(*args: object) -> dict:
@@ -1054,7 +1107,7 @@ def test_a_launch_hands_its_receipt_to_the_newer_install_that_saved_meanwhile(
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship it")
     monkeypatch.setattr(orca, "new_run", lambda drive, objective: RUN)
-    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
+    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane", "worktree")
     handed = []
     newest, version = tmp_path / "newest" / "bin" / "drive", state.VERSION
 
@@ -1090,7 +1143,7 @@ def test_a_launch_given_drive_job_briefs_flags_writes_its_brief_from_them_before
     run("job", "add", "builder", "--order", "o1", "--goal", "ship it")
     monkeypatch.setattr(orca, "new_run", lambda drive, objective: RUN)
     launched: list[str] = []
-    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
+    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane", "worktree")
     monkeypatch.setattr(orca, "launch", lambda drive, lane, brief, *rest: launched.append(brief.read_text()) or {field: f"{field}-1" for field in fields} | {"dispatch": DISPATCH})
     handoff = 'yasyf/cc-skills#7 at 7765bd2, his words: "Everything should be unified"'
     code, out = run("job", "launch", "j1", "--done-when", "merged and installed", "--where", "yasyf/cc-skills main", "--handoff", handoff)
@@ -1142,7 +1195,7 @@ def test_launch_starts_a_brief_declaring_a_step_only_this_mac_runs_only_on_this_
     run("job", "add", "builder", "--order", "o1", "--goal", "ship it")
     run("job", "brief", "j1", "--serves", "his order", "--done-when", "merged", "--where", "yasyf/cc-skills main", flag, named)
     monkeypatch.setattr(orca, "new_run", lambda drive, objective: RUN)
-    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
+    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane", "worktree")
     monkeypatch.setattr(orca, "launch", lambda *args: {field: f"{field}-1" for field in fields} | {"dispatch": DISPATCH})
     assert cli.main(["job", "launch", "j1"]) == 2
     assert capsys.readouterr().err == (
@@ -1175,7 +1228,7 @@ def test_launch_starts_on_a_sprite_a_brief_whose_mac_only_words_sit_only_in_his_
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "fix the retries")
     run("job", "add", "builder", "--order", "o1", "--goal", "retry forks the newest saved attempt")
     monkeypatch.setattr(orca, "new_run", lambda drive, objective: RUN)
-    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
+    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane", "worktree")
     monkeypatch.setattr(orca, "launch", lambda *args: {field: f"{field}-1" for field in fields} | {"dispatch": DISPATCH})
     assert run("job", "launch", "j1", "brief.md") == (0, f"j1 started on Sprite workspace-1 as dispatch {DISPATCH}")
 
@@ -1239,7 +1292,7 @@ def test_launch_local_from_a_session_that_did_not_start_the_jobs_ended_agent_sta
     run("start", "demo", "--role", "meta")
     monkeypatch.setattr(orca, "new_run", lambda drive, objective: RUN)
     launched: list[str] = []
-    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
+    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane", "worktree")
     monkeypatch.setattr(orca, "launch", lambda drive, lane, brief, *rest: launched.append(brief.read_text()) or {field: f"{field}-1" for field in fields} | {"dispatch": DISPATCH})
     assert run("job", "launch", "j1", "brief.md", "--local") == (0, f"j1 started on this Mac as dispatch {DISPATCH}")
     assert "Drive: demo, order o1, job j1\n\n## Taking over from an agent of another session\n\nThe agent that held this job, a-1 of session session-under-test," in launched[0]
@@ -1338,7 +1391,7 @@ def agent_on_this_mac(run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.M
     os.utime(path, (stamp, stamp))
     monkeypatch.setattr(orca, "new_run", lambda drive, objective: RUN)
     launched: list[str] = []
-    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
+    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane", "worktree")
     monkeypatch.setattr(orca, "launch", lambda drive, lane, brief, *rest: launched.append(brief.read_text()) or {field: f"{field}-2" for field in fields})
     return launched
 
@@ -1422,7 +1475,7 @@ def test_a_resume_of_an_agent_here_whose_turn_ended_while_eight_builders_hold_th
     code, out = run("job", "resume", "j1", "PR #54870: checks failed")
     assert (code, out[: len(said)]) == (0, said)
     assert out[len(said) :].startswith(
-        ", taking over from its agent a1 on this Mac, which takes no message: its turn ended and 8 builders already run on this Mac, its cap of 8 (j2 on o2, its agent b1 last wrote at "
+        ", taking over from its agent a1 on this Mac, which takes no message: its turn ended and 8 builders already run on this Mac, its cap of 8 on builders that compile here, where a staging tester, a merged PR's prover or another builder marked --builds-nothing holds no slot (j2 on o2, its agent b1 last wrote at "
     )
     assert unheld(orca.brief_of(launched[0])).endswith("The message it never read, which you act on now:\n\nPR #54870: checks failed")
     job = state.load(demo)["jobs"]["j1"]
@@ -1779,7 +1832,7 @@ def test_resume_to_a_dead_worker_relaunches_the_job_with_the_message_in_its_hand
 
     def fake_launch(drive: str, lane: str, brief: Path, checkout: Path, run_id: str, route: str | None, workspace: str | None, session: str | None) -> dict:
         launched.update(lane=lane, brief=brief.read_text(), run=run_id, workspace=workspace)
-        fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
+        fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane", "worktree")
         return {field: f"{field}-2" for field in fields}
 
     monkeypatch.setattr(orca, "launch", fake_launch)
@@ -1830,7 +1883,7 @@ def test_a_relaunch_rebuilds_the_brief_with_each_ruling_bound_now_and_keeps_each
 
     def fake_launch(drive: str, lane: str, brief: Path, checkout: Path, run_id: str, route: str | None, workspace: str | None, session: str | None) -> dict:
         launched.update(brief=brief.read_text())
-        return {field: f"{field}-2" for field in ("dispatch", "task", "terminal", "workspace", "environment", "lane")}
+        return {field: f"{field}-2" for field in ("dispatch", "task", "terminal", "workspace", "environment", "lane", "worktree")}
 
     monkeypatch.setattr(orca, "launch", fake_launch)
     assert run("job", "resume", "j1", "Ship it now")[0] == 0
@@ -1857,7 +1910,7 @@ def test_a_dead_lane_briefed_before_the_release_and_mac_flags_relaunches_on_its_
 
     def fake_launch(drive: str, lane: str, brief: Path, checkout: Path, run_id: str, route: str | None, workspace: str | None, session: str | None) -> dict:
         launched.update(brief=brief.read_text())
-        return {field: f"{field}-2" for field in ("dispatch", "task", "terminal", "workspace", "environment", "lane")}
+        return {field: f"{field}-2" for field in ("dispatch", "task", "terminal", "workspace", "environment", "lane", "worktree")}
 
     monkeypatch.setattr(orca, "launch", fake_launch)
     assert run("job", "resume", "j1", "PR #7 review: answer the bot's warning")[0] == 0
@@ -1893,7 +1946,7 @@ def test_a_resume_retried_after_its_bind_refused_relaunches_the_same_attempt_wit
 
     def started(drive: str, lane: str, brief: Path, checkout: Path, run_id: str, route: str | None, workspace: str | None, session: str | None) -> dict:
         launched.append((brief, brief.read_text(), run_id))
-        return {field: f"{field}-2" for field in ("dispatch", "task", "terminal", "workspace", "environment", "lane")}
+        return {field: f"{field}-2" for field in ("dispatch", "task", "terminal", "workspace", "environment", "lane", "worktree")}
 
     monkeypatch.setattr(orca, "launch", started)
     assert run("job", "resume", "j1", "PR #12 merged at abc123: prove it live") == (
@@ -1947,7 +2000,7 @@ def dead_lane_holding(remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPat
 
     def fake_launch(drive: str, lane: str, brief: Path, checkout: Path, run_id: str, route: str | None, workspace: str | None, session: str | None) -> dict:
         launched.update(lane=lane, brief=brief.read_text(), workspace=workspace)
-        return {field: f"{field}-2" for field in ("dispatch", "task", "terminal", "workspace", "environment", "lane")} | {"workspace": workspace or "workspace-2"}
+        return {field: f"{field}-2" for field in ("dispatch", "task", "terminal", "workspace", "environment", "lane", "worktree")} | {"workspace": workspace or "workspace-2"}
 
     monkeypatch.setattr(orca, "launch", fake_launch)
     return launched
@@ -2144,7 +2197,7 @@ def restarted_lane(remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
         launched.append((brief.name, brief.read_text(), workspace, session))
         if session and refusal:
             raise refusal
-        return {field: f"{field}-{len(launched) + 1}" for field in ("dispatch", "task", "terminal", "environment", "lane")} | {"workspace": workspace or "workspace-2"}
+        return {field: f"{field}-{len(launched) + 1}" for field in ("dispatch", "task", "terminal", "environment", "lane", "worktree")} | {"workspace": workspace or "workspace-2"}
 
     monkeypatch.setattr(orca, "launch", fake_launch)
     return launched
@@ -2455,7 +2508,7 @@ def unreachable_lane(remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatc
         launches.append({"workspace": workspace, "session": session, "brief": brief.read_text()})
         if workspace and after_wake is None:
             raise orca.Unstarted(f"orca-worker-launch.sh exited 1 before a worker started: cc-remote orca prepare {workspace} --existing: {NO_WAKE}")
-        return {field: f"{field}-2" for field in ("dispatch", "task", "terminal", "environment", "lane")} | {"workspace": workspace or "workspace-2"}
+        return {field: f"{field}-2" for field in ("dispatch", "task", "terminal", "environment", "lane", "worktree")} | {"workspace": workspace or "workspace-2"}
 
     monkeypatch.setattr(orca, "reclaimer", reclaimer)
     monkeypatch.setattr(orca, "worker", lambda shown: after_wake() if wakes and after_wake else down(shown))
@@ -2603,7 +2656,7 @@ def test_j5668s_resume_run_again_once_a_newer_install_saved_the_drive_during_its
         if workspace:
             monkeypatch.setattr(state, "VERSION", "0.0.1")
             raise orca.Unstarted(refusal)
-        return {field: f"{field}-2" for field in ("dispatch", "task", "terminal", "environment", "lane")} | {"workspace": "workspace-2"}
+        return {field: f"{field}-2" for field in ("dispatch", "task", "terminal", "environment", "lane", "worktree")} | {"workspace": "workspace-2"}
 
     newest, real = tmp_path / "newest" / "bin" / "drive", subprocess.run
 
@@ -2646,7 +2699,7 @@ def reprepared(monkeypatch: pytest.MonkeyPatch, dispatch: str = "dispatch-2") ->
 
     def fake_launch(drive: str, lane: str, brief: Path, checkout: Path, run_id: str, route: str | None, workspace: str | None, session: str | None) -> dict:
         launched.append((lane, workspace))
-        return {"dispatch": dispatch, "task": "task_2", "terminal": "term_fresh", "lane": lane, "workspace": workspace, "environment": workspace}
+        return {"dispatch": dispatch, "task": "task_2", "terminal": "term_fresh", "lane": lane, "workspace": workspace, "environment": workspace, "worktree": "/home/sprite/monorepo"}
 
     monkeypatch.setattr(orca, "launch", fake_launch)
     return launched
@@ -2682,7 +2735,7 @@ def test_resume_to_a_worker_that_finished_on_a_sprite_prepares_that_sprite_again
         attempt = Path(argv[-1]).with_suffix(".worker")
         attempt.mkdir()
         (attempt / "prepared.json").write_text(json.dumps({"environment": "pool-one"}))
-        receipt = {"state": "ready", "task": "task_2", "dispatch": "ctx_lane0002", "terminal": "term_fresh", "lane": argv[1], "workspace": "pool-one", "allocation": "existing"}
+        receipt = {"state": "ready", "task": "task_2", "dispatch": "ctx_lane0002", "terminal": "term_fresh", "lane": argv[1], "workspace": "pool-one", "worktree": "/home/sprite/monorepo", "allocation": "existing"}
         return subprocess.CompletedProcess(argv, 0, stdout=json.dumps(receipt) + "\n", stderr="")
 
     monkeypatch.setattr(orca, "grouped", launcher)
@@ -2735,7 +2788,7 @@ def test_resume_to_a_finished_worker_on_this_mac_whose_terminal_orca_no_longer_f
 
     def fake_launch(drive: str, lane: str, brief: Path, checkout: Path, run_id: str, route: str | None, workspace: str | None, session: str | None) -> dict:
         launched.update(lane=lane, brief=brief.read_text(), run=run_id, route=route, workspace=workspace)
-        return {field: f"{field}-2" for field in ("dispatch", "task", "terminal", "lane")} | {"workspace": None, "environment": None}
+        return {field: f"{field}-2" for field in ("dispatch", "task", "terminal", "lane", "worktree")} | {"workspace": None, "environment": None}
 
     monkeypatch.setattr(orca, "launch", fake_launch)
     assert run("job", "resume", "j1", "The review: one medium finding, fix it") == (
@@ -2775,7 +2828,7 @@ def test_a_relaunch_on_this_mac_continues_in_the_worktree_holding_its_open_prs_b
 
     def fake_launch(drive: str, lane: str, brief: Path, checkout: Path, run_id: str, route: str | None, workspace: str | None, session: str | None) -> dict:
         launched.update(brief=brief.read_text(), route=route, workspace=workspace)
-        return {field: f"{field}-2" for field in ("dispatch", "task", "terminal", "lane")} | {"workspace": None, "environment": None}
+        return {field: f"{field}-2" for field in ("dispatch", "task", "terminal", "lane", "worktree")} | {"workspace": None, "environment": None}
 
     monkeypatch.setattr(orca, "launch", fake_launch)
     assert run("job", "resume", "j1", "The review: one medium finding, fix it") == (
@@ -2816,7 +2869,7 @@ def test_a_finished_worker_whose_terminal_is_no_longer_connected_relaunches_the_
 
     def fake_launch(drive: str, lane: str, brief: Path, checkout: Path, run_id: str, route: str | None, workspace: str | None, session: str | None) -> dict:
         launched.update(lane=lane, run=run_id, workspace=workspace)
-        return {field: f"{field}-2" for field in ("dispatch", "task", "terminal", "workspace", "environment", "lane")}
+        return {field: f"{field}-2" for field in ("dispatch", "task", "terminal", "workspace", "environment", "lane", "worktree")}
 
     monkeypatch.setattr(orca, "launch", fake_launch)
     assert run("job", "resume", "j1", "TAP Approve") == (
@@ -2854,7 +2907,7 @@ def answered_dead_lane(remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPa
         launched.append((lane, run_id, workspace))
         if len(launched) <= refusals:
             raise orca.Unfit(UNFIT_KEPT if workspace else UNFIT)
-        return {field: f"{field}-2" for field in ("dispatch", "task", "terminal", "workspace", "environment", "lane")}
+        return {field: f"{field}-2" for field in ("dispatch", "task", "terminal", "workspace", "environment", "lane", "worktree")}
 
     monkeypatch.setattr(orca, "launch", fake_launch)
     return launched
@@ -2951,7 +3004,7 @@ def test_a_first_launch_whose_fresh_sprite_prepare_failed_launches_once_more_and
         launched.append((lane, run_id, workspace))
         if len(launched) == 1:
             raise orca.Unstarted(f"{orca.LAUNCHER} exited 1 before a worker started: cc-remote orca prepare exited 1")
-        return {field: f"{field}-1" for field in ("dispatch", "task", "terminal", "workspace", "environment", "lane")} | {"dispatch": DISPATCH}
+        return {field: f"{field}-1" for field in ("dispatch", "task", "terminal", "workspace", "environment", "lane", "worktree")} | {"dispatch": DISPATCH}
 
     monkeypatch.setattr(orca, "launch", prepare_failed_once)
     assert run("job", "launch", "j1", "brief.md") == (0, f"j1 started on Sprite workspace-1 as dispatch {DISPATCH}")
@@ -3089,7 +3142,7 @@ def test_a_finished_worker_whose_sprite_refuses_its_tools_starts_the_next_on_a_f
         launched.append((lane, brief.read_text(), workspace))
         if workspace:
             raise orca.Unfit(refusal)
-        return {field: f"{field}-2" for field in ("dispatch", "task", "terminal", "workspace", "environment", "lane")}
+        return {field: f"{field}-2" for field in ("dispatch", "task", "terminal", "workspace", "environment", "lane", "worktree")}
 
     monkeypatch.setattr(orca, "launch", fake_launch)
     assert run("job", "launch", "j1") == (
@@ -3128,7 +3181,7 @@ def test_a_finished_worker_whose_sprite_was_made_from_another_cc_remote_config_s
 
     def fake_launch(drive: str, lane: str, brief: Path, checkout: Path, run_id: str, route: str | None, workspace: str | None, session: str | None) -> dict:
         launched.append(workspace)
-        return {field: f"{field}-2" for field in ("dispatch", "task", "terminal", "workspace", "environment", "lane")}
+        return {field: f"{field}-2" for field in ("dispatch", "task", "terminal", "workspace", "environment", "lane", "worktree")}
 
     monkeypatch.setattr(orca, "launch", fake_launch)
     assert run("job", "launch", "j1") == (
@@ -3184,7 +3237,7 @@ def test_a_launch_local_of_a_job_whose_sprite_worker_finished_moves_nothing_here
         run("job", "add", "builder", "--order", "o2", "--part", f"part {number}", "--goal", f"build part {number}", "--agent", f"b{number}")
     assert cli.main(["job", "launch", "j1", "--local"]) == 2
     err = capsys.readouterr().err
-    assert err.startswith("drive: j1: refused, no worker started: 8 builders already run on this Mac, its cap of 8 (j2 on o2, its agent b1 last wrote at ")
+    assert err.startswith("drive: j1: refused, no worker started: 8 builders already run on this Mac, its cap of 8 on builders that compile here, where a staging tester, a merged PR's prover or another builder marked --builds-nothing holds no slot (j2 on o2, its agent b1 last wrote at ")
     assert err.endswith("so it starts on a Sprite at once: drive job launch j1, with no --local\n")
     job = state.load(remote)["jobs"]["j1"]
     assert (job["dispatch"], job["route"], job.get("deaths", [])) == (DISPATCH, None, [])
@@ -3208,7 +3261,7 @@ def test_a_launch_local_of_a_job_whose_sprite_worker_finished_saves_that_sprite_
 
     def fake_launch(drive: str, lane: str, brief: Path, checkout: Path, run_id: str, route: str | None, workspace: str | None, session: str | None) -> dict:
         launched.update(lane=lane, brief=brief.read_text(), route=route, workspace=workspace)
-        return {field: f"{field}-2" for field in ("dispatch", "task", "terminal", "workspace", "environment", "lane")}
+        return {field: f"{field}-2" for field in ("dispatch", "task", "terminal", "workspace", "environment", "lane", "worktree")}
 
     monkeypatch.setattr(orca, "launch", fake_launch)
     assert run("job", "launch", "j1", "--local") == (
@@ -3365,7 +3418,7 @@ def moving_launch(monkeypatch: pytest.MonkeyPatch) -> dict:
 
     def fake_launch(drive: str, lane: str, brief: Path, checkout: Path, run_id: str, route: str | None, workspace: str | None, session: str | None) -> dict:
         launched.update(lane=lane, brief=brief.read_text(), route=route, workspace=workspace)
-        return {field: f"{field}-2" for field in ("dispatch", "task", "terminal", "workspace", "environment", "lane")}
+        return {field: f"{field}-2" for field in ("dispatch", "task", "terminal", "workspace", "environment", "lane", "worktree")}
 
     monkeypatch.setattr(orca, "launch", fake_launch)
     return launched
@@ -3490,7 +3543,7 @@ def test_a_resume_of_a_sprite_job_declaring_a_mac_step_while_eight_builders_hold
     text = "Handoff: the staging slot is yours; run the cases"
     assert cli.main(["job", "resume", "j1", text]) == 2
     err = capsys.readouterr().err
-    assert err.startswith("drive: j1: refused, no worker started: 8 builders already run on this Mac, its cap of 8 (j2 on o2, its agent b1 last wrote at ")
+    assert err.startswith("drive: j1: refused, no worker started: 8 builders already run on this Mac, its cap of 8 on builders that compile here, where a staging tester, a merged PR's prover or another builder marked --builds-nothing holds no slot (j2 on o2, its agent b1 last wrote at ")
     assert err.endswith(
         "so j1 waits its turn for a builder slot on this Mac, 1 of 1 in line, and the watch moves it here from its Sprite with drive job launch j1 --local"
         " as its turn comes, its handoff carrying the texts the job holds\n"
@@ -3686,7 +3739,7 @@ def test_a_resume_of_an_agent_here_whose_brief_declares_a_mac_step_while_eight_b
     text = "PR #54870: checks failed"
     assert cli.main(["job", "resume", "j1", text]) == 2
     err = capsys.readouterr().err
-    assert err.startswith("drive: j1: refused, not launched: 8 builders already run on this Mac, its cap of 8 (j2 on o2, its agent b1 last wrote at ")
+    assert err.startswith("drive: j1: refused, not launched: 8 builders already run on this Mac, its cap of 8 on builders that compile here, where a staging tester, a merged PR's prover or another builder marked --builds-nothing holds no slot (j2 on o2, its agent b1 last wrote at ")
     assert err.endswith(
         "so j1 waits its turn for a builder slot on this Mac, 1 of 1 in line, and the watch hands it from its agent a1 to a lane here with drive job launch j1 --local"
         " as its turn comes, its handoff carrying the texts the job holds\n"
@@ -3723,7 +3776,7 @@ def test_a_takeover_of_a_job_whose_earlier_lanes_kept_their_attempts_starts_a_fr
     kept_attempt(demo, "j1", DISPATCH)
     kept_attempt(demo, "j1-2", "ctx_lane0002")
     started: list[tuple[str, str]] = []
-    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
+    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane", "worktree")
     monkeypatch.setattr(orca, "launch", lambda drive, lane, brief, *rest: started.append((lane, brief.name)) or {field: f"{field}-3" for field in fields})
     assert run("job", "launch", "j1") == (
         0,
@@ -3759,7 +3812,7 @@ def test_a_resume_arriving_while_another_starts_the_jobs_next_worker_waits_for_i
         launches.append(brief.read_text())
         launching.set()
         assert release.wait(10)
-        return {field: f"{field}-2" for field in ("dispatch", "task", "terminal", "workspace", "environment", "lane")}
+        return {field: f"{field}-2" for field in ("dispatch", "task", "terminal", "workspace", "environment", "lane", "worktree")}
 
     monkeypatch.setattr(state, "job_locked", job_locked)
     monkeypatch.setattr(orca, "launch", slow_launch)
@@ -3944,7 +3997,7 @@ def test_a_relaunch_carries_each_held_text_in_its_handoff_ahead_of_its_own(
         orca,
         "launch",
         lambda drive, lane, brief, checkout, run_id, route, workspace, session: launched.append(brief.read_text())
-        or {field: f"{field}-2" for field in ("dispatch", "task", "terminal", "workspace", "environment", "lane")},
+        or {field: f"{field}-2" for field in ("dispatch", "task", "terminal", "workspace", "environment", "lane", "worktree")},
     )
     assert run("job", "resume", "j1", state.CARRY_ON)[0] == 0
     [brief] = launched
@@ -3972,7 +4025,7 @@ def test_a_death_relaunch_carries_the_texts_its_dead_worker_was_started_on_and_e
         orca,
         "launch",
         lambda drive, lane, brief, checkout, run_id, route, workspace, session: launched.append(orca.brief_of(brief.read_text()))
-        or {field: f"{field}-{len(launched) + 1}" for field in ("dispatch", "task", "terminal", "workspace", "environment", "lane")},
+        or {field: f"{field}-{len(launched) + 1}" for field in ("dispatch", "task", "terminal", "workspace", "environment", "lane", "worktree")},
     )
     started_on = "Leave PR #7 alone until he answers his card"
     assert run("job", "resume", "j1", started_on)[0] == 0
@@ -4003,7 +4056,7 @@ def test_a_pr_wake_to_a_dead_lane_relaunches_its_job_with_the_line_in_its_handof
         orca,
         "launch",
         lambda drive, lane, brief, checkout, run_id, route, workspace, session: launched.append(brief.read_text())
-        or {field: f"{field}-2" for field in ("dispatch", "task", "terminal", "workspace", "environment", "lane")},
+        or {field: f"{field}-2" for field in ("dispatch", "task", "terminal", "workspace", "environment", "lane", "worktree")},
     )
     code, out = run("pr", "wake", url, "--text", "PR #7 is red: fix it")
     assert (code, out.startswith("j1: the message went to the job's next worker, relaunched on Sprite workspace-2")) == (0, True)
@@ -4289,7 +4342,7 @@ def test_a_second_pr_wake_arriving_while_the_first_relaunches_the_dead_lane_wait
         launches.append(brief.read_text())
         launching.set()
         assert release.wait(10)
-        return {field: f"{field}-2" for field in ("dispatch", "task", "terminal", "workspace", "environment", "lane")}
+        return {field: f"{field}-2" for field in ("dispatch", "task", "terminal", "workspace", "environment", "lane", "worktree")}
 
     monkeypatch.setattr(state, "job_locked", job_locked)
     monkeypatch.setattr(orca, "launch", slow_launch)
@@ -4962,7 +5015,7 @@ def test_end_saves_what_the_sprite_of_a_job_still_at_work_holds_and_its_next_lan
 
     def fake_launch(drive: str, lane: str, brief: Path, checkout: Path, run_id: str, route: str | None, workspace: str | None, session: str | None) -> dict:
         launched.update(brief=brief.read_text())
-        return {field: f"{field}-2" for field in ("dispatch", "task", "terminal", "workspace", "environment", "lane")}
+        return {field: f"{field}-2" for field in ("dispatch", "task", "terminal", "workspace", "environment", "lane", "worktree")}
 
     monkeypatch.setattr(orca, "launch", fake_launch)
     code, out = run("job", "resume", "j1", "Build #4412 failed: fix the lint")
@@ -5339,7 +5392,7 @@ def test_resume_or_launch_after_end_reads_the_end_never_orca_or_the_destroyed_sp
 
     def fake_launch(drive: str, lane: str, brief: Path, checkout: Path, run_id: str, route: str | None, workspace: str | None, session: str | None) -> dict:
         launched.update(lane=lane, brief=brief.read_text(), run=run_id, workspace=workspace)
-        fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
+        fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane", "worktree")
         return {field: f"{field}-2" for field in fields}
 
     monkeypatch.setattr(orca, "launch", fake_launch)
@@ -5406,7 +5459,7 @@ def test_a_resume_names_the_saved_branches_github_holds_never_the_garbled_save_a
 
     def fake_launch(drive: str, lane: str, brief: Path, checkout: Path, run_id: str, route: str | None, workspace: str | None, session: str | None) -> dict:
         launched.update(brief=brief.read_text())
-        return {field: f"{field}-2" for field in ("dispatch", "task", "terminal", "workspace", "environment", "lane")}
+        return {field: f"{field}-2" for field in ("dispatch", "task", "terminal", "workspace", "environment", "lane", "worktree")}
 
     monkeypatch.setattr(orca, "launch", fake_launch)
     code, out = run("job", "resume", "j1", "the stale reads fix merged: carry it on")
@@ -7383,7 +7436,7 @@ def test_a_launch_whose_kept_ready_receipt_names_a_sprite_orca_no_longer_knows_r
 
     monkeypatch.setattr(orca, "worker", forgotten)
     monkeypatch.setattr(orca, "new_run", lambda drive, objective: RUN)
-    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
+    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane", "worktree")
     monkeypatch.setattr(orca, "launch", lambda *args: {field: f"{field}-1" for field in fields} | {"dispatch": DISPATCH})
     assert run("job", "launch", "j1", "brief.md") == (0, f"j1 started on Sprite workspace-1 as dispatch {DISPATCH}")
     assert state.load(demo)["jobs"]["j1"]["dispatch"] == DISPATCH
@@ -7423,7 +7476,7 @@ def test_the_watch_files_a_lane_recorded_on_this_mac_on_the_sprite_its_worker_sh
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the tooling root")
     run("job", "add", "builder", "--order", "o1", "--goal", "root tooling")
     with state.edit(demo) as data:
-        data["jobs"]["j1"].update(state.local_lane(SPRITE_DISPATCH), run=RUN, task="task_sprite", terminal="term_sprite")
+        data["jobs"]["j1"].update(state.local_lane(SPRITE_DISPATCH), run=RUN, task="task_sprite", terminal="term_sprite", worktree="/home/sprite/monorepo")
         state.start(data["jobs"]["j1"])
     assert list(place.local_builders(state.load(demo), state.now())) == ["j1"]
     monkeypatch.setattr(orca, "worker", lambda dispatch: SPRITE_WORKER)
@@ -7612,14 +7665,14 @@ def test_launch_local_records_a_lane_on_this_mac_that_reads_as_starting_while_it
         watching = watch.Watcher(demo, offset=state.events_end(demo))
         staged(watch.agent_lines, watching, state.now())
         launched.update(route=route, brief=brief.read_text(), gaps=watching.agent_gaps)
-        return {"dispatch": DISPATCH, "task": "task_1", "terminal": "term_root", "lane": lane, "workspace": None, "environment": None}
+        return {"dispatch": DISPATCH, "task": "task_1", "terminal": "term_root", "lane": lane, "workspace": None, "environment": None, "worktree": "/work/demo-j1-1a2b3c4d"}
 
     monkeypatch.setattr(orca, "launch", fake_launch)
     assert run("job", "launch", "j1", "brief.md", "--local") == (0, f"j1 started on this Mac as dispatch {DISPATCH}")
     assert (launched["route"], launched["gaps"]) == (state.LOCAL_ROUTE, {})
     assert launched["brief"].startswith("Remote lane: drive demo, job j1. You are the long-running builder below, running as an Orca worker on this Mac")
     job = state.load(demo)["jobs"]["j1"]
-    assert {field: job[field] for field in ("where", "route", "dispatch", "run", "task", "terminal", "lane", "workspace", "environment")} == {
+    assert {field: job[field] for field in ("where", "route", "dispatch", "run", "task", "terminal", "lane", "worktree", "workspace", "environment")} == {
         "where": "remote",
         "route": "local",
         "dispatch": DISPATCH,
@@ -7627,6 +7680,7 @@ def test_launch_local_records_a_lane_on_this_mac_that_reads_as_starting_while_it
         "task": "task_1",
         "terminal": "term_root",
         "lane": "demo-j1",
+        "worktree": "/work/demo-j1-1a2b3c4d",
         "workspace": None,
         "environment": None,
     }
@@ -7738,6 +7792,7 @@ def test_resume_to_a_local_lane_that_finished_starts_the_next_worker_in_its_work
         "--spec": f"Lane 'demo-j1-2'. Your full brief is the file {kept}: read it in full with the Read tool before anything else and execute it exactly.",
         "--timeout-ms": "600000",
     }
+    assert state.load(rooted)["jobs"]["j1"]["worktree"] == "/work/root-tooling"
     assert "You continue the job in its terminal and checkout on this Mac, as it left them." in orca.brief_of(kept.read_text())
     job = state.load(rooted)["jobs"]["j1"]
     assert (job["run"], job["dispatch"], job["route"], job["terminal"], job["workspace"], job["state"]) == (RUN, "ctx_lane0002", "local", "term_root", None, "running")
