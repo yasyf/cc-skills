@@ -1457,6 +1457,26 @@ def test_a_jobs_own_done_on_work_delivers_its_part_only_once_drive_job_prove_run
     assert data["orders"]["o1"]["parts"][part]["posted"] == (f"j1 live: {script} exits 0 on long-running {state.VERSION}" if delivered else None)
 
 
+@pytest.mark.parametrize(("later", "owed"), [("done", False), ("failed", False), ("running", False), ("stopped", True)])
+def test_a_jobs_own_done_on_a_part_a_later_job_holds_is_never_proven_since_the_parts_one_proof_is_that_jobs_unless_it_was_stopped(
+    config: Path, tmp_path: Path, fake: Callable[..., FakeGit], later: str, owed: bool
+) -> None:
+    git = fake([BUILD], {BUILD})
+    repairing(config, tmp_path, git, 0, {"state": "done", "said": "DONE duckdb-spike-bulk-apply at d9bf4dd ran every case"})
+    part = "Drive tooling: prove each install"
+    with state.edit("demo") as data:
+        moved = state.stamp(state.parse_time(data["jobs"]["j1"]["created"]) + timedelta(minutes=1))
+        data["jobs"]["j2"] = state.new_job("o1", "builder", "move the branch on", [part], moved) | {"state": later, "said": "DONE duckdb-spike-bulk-apply at f05ceac"}
+        data["orders"]["o1"]["jobs"].append("j2")
+    data = state.load("demo")
+    assert (install.done_unproven(data, "j1"), state.owed_work(data, "j1"), install.done_unproven(data, "j2")) == (owed, [("o1", part)] if owed else [], later == "done")
+    if owed:
+        return
+    with pytest.raises(state.DriveError, match="owes no proof of a DONE of its own, so there is nothing to prove"):
+        install.prove("demo", "j1", 900)
+    assert (state.load("demo")["jobs"]["j1"]["state"], git.claude_calls()) == ("done", [])
+
+
 def test_a_repair_its_own_agent_proves_installs_nothing_takes_done_naming_no_pr_and_closes_its_order_under_the_orders_title(
     config: Path, tmp_path: Path, fake: Callable[..., FakeGit]
 ) -> None:

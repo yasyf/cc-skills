@@ -9430,20 +9430,30 @@ def test_job_set_parts_replaces_the_parts_a_job_delivers_so_a_done_builder_given
     assert (data["jobs"]["j1"]["parts"], data["jobs"]["j1"]["state"], state.delivered(data, "o1", main), state.delivered(data, "o1", state.IMMEDIATE_FIX)) == ([main], "running", False, False)
 
 
-def test_pr_set_part_refuses_a_part_its_job_never_held_and_delivers_none_on_a_done_builders_merged_pr(run: Run, demo: str, capsys: pytest.CaptureFixture[str]) -> None:
+def test_pr_set_part_on_a_done_builders_merged_pr_gives_its_job_a_part_of_its_order_it_shipped_unheld_which_only_its_passing_proof_delivers_as_431352e_ruled(
+    run: Run, demo: str, capsys: pytest.CaptureFixture[str]
+) -> None:
     main = "an incident never goes five quiet minutes without a line"
     run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", main, "--parts", main, state.IMMEDIATE_FIX)
     run("job", "add", "builder", "--order", "o1", "--part", state.IMMEDIATE_FIX, "--goal", "the line every five minutes", "--agent", "a")
     url = "https://github.com/yasyf/cc-skills/pull/4582"
     run("pr", "add", url, "--job", "j1", *LEAD)
     with state.edit("demo") as data:
-        data["jobs"]["j1"]["state"] = "done"
+        data["jobs"]["j1"].update(state="done", said=f"DONE {url} merged: yasyf/cc-skills#4582 at abc123")
         data["prs"]["yasyf/cc-skills#4582"]["state"] = "merged"
-    assert cli.main(["pr", "set", url, "--part", main]) == 2
-    assert f"yasyf/cc-skills#4582: refused, nothing set: its job j1 delivers no part {main}" in capsys.readouterr().err
-    assert run("pr", "set", url, "--part", state.IMMEDIATE_FIX)[0] == 0
+    assert cli.main(["pr", "set", url, "--part", "a part nobody ordered"]) == 2
+    assert f'yasyf/cc-skills#4582: refused, nothing set: its order o1 has no part a part nobody ordered; its parts are "{main}", "{state.IMMEDIATE_FIX}"' in capsys.readouterr().err
+    code, out = run("pr", "set", url, "--part", main)
     data = state.load("demo")
-    assert [state.delivered(data, "o1", part) for part in (main, state.IMMEDIATE_FIX)] == [False, False]
+    assert (code, data["jobs"]["j1"]["parts"], state.delivered(data, "o1", main)) == (0, [state.IMMEDIATE_FIX, main], False)
+    assert "j1 holds them, and drive job prove delivers them once its proof file exits 0" in out
+    proof = f"{url} live: repro/j1.sh exits 0 on long-running@skills 1.0.4"
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["said"] = f"DONE {proof}"
+    code, out = run("pr", "set", url, "--part", main)
+    data = state.load("demo")
+    assert (code, data["jobs"]["j1"]["parts"], [data["orders"]["o1"]["parts"][part]["posted"] for part in (main, state.IMMEDIATE_FIX)]) == (0, [state.IMMEDIATE_FIX, main], [proof, proof])
+    assert f"posted by j1's passing proof: {proof}" in out
 
 
 def test_one_post_delivers_each_part_its_report_names_on_every_order_an_item_names(

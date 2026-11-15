@@ -3976,7 +3976,7 @@ def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = N
         pr = registered(data["prs"].setdefault(key, state.new_pr(url, job_id, job["order"]) | {"wants_tap": wants_tap}), job["order"])
         state.take_pr(data, job_id, key)
         if parts:
-            refuse_a_part_its_job_lacks(data, key, parts, "added")
+            refuse_a_part_its_job_lacks(data, key, parts, False, "added")
             pr["parts"] = list(dict.fromkeys(parts))
         tester = state.mark_dangerous(data, key, read["headRefOid"], [changed["path"] for changed in read["files"]]) if read["state"] == "OPEN" and read["files"] else None
     note_third_person(key, read)
@@ -4035,8 +4035,9 @@ def pr_set(args: argparse.Namespace) -> int:
     if args.no_tapped:
         refuse_a_tap_of_his(name, key, dropped)
     order = known["prs"][key]["order"]
+    delivers = before["state"] == "merged" and known["jobs"][before["job"]]["state"] == "done"
     if args.part:
-        refuse_a_part_its_job_lacks(known, key, args.part, "set")
+        refuse_a_part_its_job_lacks(known, key, args.part, delivers, "set")
     if args.serves:
         refuse_a_crossed_order(name, known, order, args.serves, f"{key} --serves")
     if (args.serves or args.design) and (refused := state.held_elsewhere(known, order, os.environ.get("CLAUDE_CODE_SESSION_ID"))):
@@ -4088,6 +4089,8 @@ def pr_set(args: argparse.Namespace) -> int:
             serving += "".join(f"\n{line}" for line in render.builder_lines(data, [tester_id]))
         if args.part:
             serving += f"\ndelivers {'; '.join(pr['parts'])}"
+        if args.part and delivers:
+            serving += shipped(data, pr["job"], order, args.part)
     untapped = f"\ndropped the {dropped['label']} the drive gave itself ({dropped['source']}): {args.why}" if args.no_tapped else ""
     lane = state.heard_lane(data, order)
     withdrawn: list[str] = []
@@ -4114,14 +4117,26 @@ def set_outside(name: str, key: str, url: str, args: argparse.Namespace, dropped
     return [f"\nwithdrew his card {card}: {why}" for card in withdrawn]
 
 
-def refuse_a_part_its_job_lacks(data: dict, key: str, parts: list[str], done: str) -> None:
-    """Refuse a --part its job delivers on no order, since the PR's change is judged against the parts its job's PRs name."""
+def shipped(data: dict, job_id: str, order_id: str, parts: list[str]) -> str:
+    """Give a done job the parts of the order its merged PR shipped without holding, by his answer 431352e, so the job owes them and its passing proof delivers them, by state.deliver_proven, at once when its said line is that proof's DONE and else once drive job prove runs its proof file; the line saying which."""
+    job = data["jobs"][job_id]
+    held = job["parts"] if job["order"] == order_id else job["carries"].setdefault(order_id, [])
+    held += [part for part in parts if part not in held]
+    if not (proven := state.PROVEN_LINE.match(job["said"] or "")):
+        return f"\n{job_id} holds them, and drive job prove delivers them once its proof file exits 0"
+    state.deliver_proven(data, job_id, proven["proof"])
+    return f"\nposted by {job_id}'s passing proof: {proven['proof']}"
+
+
+def refuse_a_part_its_job_lacks(data: dict, key: str, parts: list[str], delivers: bool, done: str) -> None:
+    """Refuse a --part its job delivers on no order, since the PR's change is judged against the parts its job's PRs name; a merged PR whose job returned DONE names any part of its order, which its job then holds and its passing proof delivers, by shipped, since it shipped work its job was never given."""
     pr = data["prs"][key]
     job = data["jobs"][pr["job"]]
-    delivered = [*job["parts"], *(part for carried in job["carries"].values() for part in carried)]
+    delivered = list(data["orders"][pr["order"]]["parts"]) if delivers else [*job["parts"], *(part for carried in job["carries"].values() for part in carried)]
     if unknown := [part for part in parts if part not in delivered]:
         listed = ", ".join(f'"{part}"' for part in delivered)
-        raise DriveError(f"{key}: refused, nothing {done}: its job {pr['job']} delivers no part {', '.join(unknown)}; its parts are {listed}")
+        lacks = f"its order {pr['order']} has" if delivers else f"its job {pr['job']} delivers"
+        raise DriveError(f"{key}: refused, nothing {done}: {lacks} no part {', '.join(unknown)}; its parts are {listed}")
 
 
 def withdrawal(args: argparse.Namespace) -> str | None:
@@ -6101,7 +6116,10 @@ def parser() -> argparse.ArgumentParser:
         "--part",
         action="append",
         default=[],
-        help="a part of its job's orders this PR delivers, replacing the parts it named; the watch judges the PR against the parts it names, every part its job delivers when it names none",
+        help=(
+            "a part of its job's orders this PR delivers, replacing the parts it named, or on a merged PR whose job returned DONE any part of its order, which its job then holds"
+            " and its passing proof delivers; the watch judges the PR against the parts it names, every part its job delivers when it names none"
+        ),
     )
     exemption = verb.add_mutually_exclusive_group()
     exemption.add_argument("--exempt", choices=state.EXEMPT_CLASSES)
