@@ -1417,6 +1417,33 @@ def test_a_drive_saved_with_live_readers_holding_prs_hands_each_to_the_builder_o
     ) == (["j2", "j3", "j4"], [handed], [("done", [], f"PUSHED {handed}"), ("done", [], f"PUSHED {alone}")], True)
 
 
+def test_a_drive_saved_with_codex_proofs_copied_away_from_their_evidence_keeps_each_where_its_done_names_it_and_puts_back_on_that_done_a_job_its_copy_failed_once(state_root: Path) -> None:
+    make("demo")
+    data = state.load("demo")
+    del data["proofs_rehomed"]
+    created, done = "2026-11-15T10:00:00-08:00", "DONE 1,216 PRs checked at 27c34883bf69: 0 gaps; no readers added"
+    proofs = {job_id: state.drive_dir("demo") / "scratch" / job_id / "proof.py" for job_id in ("j1", "j2")}
+    for job_id, proof in proofs.items():
+        proof.parent.mkdir(parents=True)
+        proof.write_text("#!/bin/sh\n")
+        state.repro_path("demo", job_id, ".py").parent.mkdir(exist_ok=True)
+        shutil.copy(proof, state.repro_path("demo", job_id, ".py"))
+        state.keep_report("demo", job_id, done, f"{done}\nREPRO: {proof}\n")
+    failed = {"pid": 1, "at": created, "said": done, "version": "1.0.1", "result": "BLOCKED j1: repro/j1.py exits 1"}
+    data["orders"] = {"o1": state.new_order("keep the ports moving", "slack:D123/1794600000.000100", ("D123", "1794600000.000100"), {"old-tree ports": state.new_part()}, created) | {"kind": "build", "jobs": ["j1", "j2", "j3"]}}
+    data["jobs"] = {
+        "j1": state.new_job("o1", "codex", "the old-tree ports keep moving", ["old-tree ports"], created) | {"state": "stopped", "said": "replaced by j3", "repro": str(state.repro_path("demo", "j1", ".py")), "proof": failed},
+        "j2": state.new_job("o1", "codex", "the old-tree ports keep moving", ["old-tree ports"], created) | {"state": "done", "said": done, "repro": str(state.repro_path("demo", "j2", ".py"))},
+        "j3": state.new_job("o1", "codex", "the old-tree ports keep moving", ["old-tree ports"], created) | {"state": "running"},
+    }
+    state.create(data)
+    data = state.load("demo")
+    assert ([(data["jobs"][job_id]["state"], data["jobs"][job_id]["said"], data["jobs"][job_id]["repro"], data["jobs"][job_id].get("proof")) for job_id in proofs], data["proofs_rehomed"]) == (
+        [("done", done, str(proof), None) for proof in proofs.values()],
+        True,
+    )
+
+
 STAGING, PROOF = "staging test of #42 before it lands", "https://buildkite.com/forge/release/builds/16121"
 
 

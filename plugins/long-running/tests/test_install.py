@@ -1452,6 +1452,23 @@ def test_a_jobs_own_done_on_work_delivers_its_part_only_once_drive_job_prove_run
     assert (data["jobs"]["j1"]["proof"]["said"], data["jobs"]["j1"]["proof"]["result"]) == ("DONE checked it by hand", data["jobs"]["j1"]["said"])
 
 
+@pytest.mark.parametrize("exits", [0, 1])
+def test_a_jobs_own_done_citing_prs_other_jobs_opened_proves_only_itself_and_says_nothing_on_their_lines(config: Path, tmp_path: Path, fake: Callable[..., FakeGit], exits: int) -> None:
+    git = fake([BUILD], {BUILD})
+    cited = "DONE 1,216 PRs checked at 27c34883bf69: 0 gaps; no readers added. #41015 held by its o2 part and j5676/#56696"
+    watched = {"pid": os.getpid(), "at": state.stamp(), "said": cited, "version": state.VERSION}
+    script = repairing(config, tmp_path, git, exits, {"state": "done", "said": cited, "proof": watched})
+    with state.edit("demo") as data:
+        for number, job_id in (("41015", "j0"), ("56696", "j5676")):
+            data["prs"][f"Forge-AI/monorepo#{number}"] = state.new_pr(f"https://github.com/Forge-AI/monorepo/pull/{number}", job_id, "o1") | {"state": "merged", "merged_sha": "fedcba"}
+    data = state.load("demo")
+    assert (install.proved_prs(data, "j1"), install.repair(data, "j1"), install.prover_of(data, "Forge-AI/monorepo#56696")) == ([], True, None)
+    install.prove("demo", "j1", 900)
+    data = state.load("demo")
+    assert data["jobs"]["j1"]["said"].startswith("DONE j1 live: " if exits == 0 else "BLOCKED j1: ")
+    assert ([key for key, _ in proof_events()], install.prover_of(data, "Forge-AI/monorepo#56696")) == (["j1"], None)
+
+
 def test_a_proof_runs_in_the_drives_checkout_never_the_folder_drive_job_prove_started_in(
     config: Path, tmp_path: Path, fake: Callable[..., FakeGit], monkeypatch: pytest.MonkeyPatch
 ) -> None:

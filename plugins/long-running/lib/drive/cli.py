@@ -2837,14 +2837,14 @@ def unready(data: dict, job: dict, line: str) -> str | None:
 
 
 def keep_repro(name: str, job_id: str, kind: str, source: str) -> str:
-    """Where the drive keeps a job's reproduction file, copied there once the write naming it is kept, with the drive's own interpreter pinned in it as state.pin_interpreter pins it, so its bare python3 runs where the drive runs wherever it is run; refused, nothing kept, for a builder's file with its exec bit set that the kernel cannot exec, as state.unrunnable reads it, since drive job prove runs that file as the job's proof once its PRs merge, while a builder's file with no exec bit, such as the acceptance criteria of a change merging outside yasyf/*, which no drive job prove runs, is kept unchecked."""
+    """Where the drive keeps a job's reproduction file: where it lies when the drive's own folder holds it, such as the job's scratch folder, which the drive keeps, so a proof reading files beside it by a path from its own, as a pass's proof reads the evidence it captured, reads them wherever it runs, else in the drive's repro folder, copied there once the write naming it is kept; either way with the drive's own interpreter pinned in it as state.pin_interpreter pins it, so its bare python3 runs where the drive runs wherever it is run; refused, nothing kept, for a builder's file with its exec bit set that the kernel cannot exec, as state.unrunnable reads it, since drive job prove runs that file as the job's proof once its PRs merge, while a builder's file with no exec bit, such as the acceptance criteria of a change merging outside yasyf/*, which no drive job prove runs, is kept unchecked."""
     path = named_file(source, "reproduction file")
     if kind == "builder" and os.access(path, os.X_OK) and (why := state.unrunnable(str(path))):
         raise DriveError(
             f"{job_id}: refused, nothing kept: drive job prove runs a builder's executable file as its proof once its PRs merge, and {why}:"
             f" make its first line its #! line, naming a program on this Mac, such as #!/bin/sh, then keep it again with drive job set {job_id} --repro <file>"
         )
-    kept = state.repro_path(name, job_id, path.suffix)
+    kept = path.absolute() if path.resolve().is_relative_to(state.drive_dir(name).resolve()) else state.repro_path(name, job_id, path.suffix)
 
     def copied() -> list[str]:
         kept.parent.mkdir(exist_ok=True)

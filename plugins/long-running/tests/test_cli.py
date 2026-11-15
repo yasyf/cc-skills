@@ -5088,7 +5088,7 @@ def test_a_builder_proving_a_merged_pr_live_on_a_done_order_is_refused_naming_th
     key = "Forge-AI/monorepo#51852"
     with state.edit("demo") as data:
         data["orders"]["o1"] |= {"state": "done", "jobs": ["j1"]}
-        data["jobs"]["j1"] = state.new_job("o1", "builder", "prove it", list(data["orders"]["o1"]["parts"]), state.stamp()) | {"state": "done", "said": f"DONE {state.pr_url(key)} live on its release"}
+        data["jobs"]["j1"] = state.new_job("o1", "builder", "prove it", list(data["orders"]["o1"]["parts"]), state.stamp()) | {"state": "done", "said": f"DONE {state.pr_url(key)} live on its release", "prs": [state.pr_url(key)]}
         data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {"state": "merged", "merged_sha": "485f9f408150"}
     assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", f"prove {key} live"]) == 2
     assert f"refused, no job added: o1 is done and j1 proved {key} live, so no builder proves {key} live on it again" in capsys.readouterr().err

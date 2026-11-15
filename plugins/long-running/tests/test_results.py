@@ -2,6 +2,7 @@ import io
 import json
 import os
 import shlex
+import subprocess
 import sys
 import tomllib
 from collections.abc import Callable
@@ -406,6 +407,21 @@ def test_a_codex_cause_reply_naming_no_fix_is_taken_blocked_and_one_naming_it_re
     assert (job["state"], state.load(demo)["orders"]["o2"]["joins"], state.report_text(demo, "j2").strip()) == (taken, joins, f"DONE the handover delays the mint\n{report}".strip())
     if taken == "failed":
         assert job["said"].startswith(f"BLOCKED codex-ask completed, its reply refused: j2 traces the cause of o1's live bug, so {state.FIX_RULE}"[:200])
+
+
+def test_a_codex_done_keeps_its_proof_where_its_scratch_folder_holds_it_so_the_proof_still_reads_the_evidence_beside_it(demo: str, run: Run, codex_ask: CodexAsk) -> None:
+    codex_job(run)
+    scratch = state.drive_dir(demo) / "scratch" / "j1"
+    scratch.mkdir(parents=True)
+    (scratch / "census.txt").write_text("0 gaps\n")
+    proof = scratch / "proof.py"
+    proof.write_text("#!/usr/bin/env python3\nfrom pathlib import Path\nprint('PASS', (Path(__file__).resolve().parent / 'census.txt').read_text().strip())\n")
+    proof.chmod(0o755)
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["codex_run"] = str(codex_ask.run("completed", codex_reply("DONE", "0 gaps", f"CHECK: the census\nREPRO: {proof}")))
+        state.start(data["jobs"]["j1"])
+    job = watched(demo)
+    assert (job["repro"], subprocess.run([job["repro"]], capture_output=True, text=True, check=False).stdout) == (str(proof), "PASS 0 gaps\n")
 
 
 def test_a_reply_file_pointer_reported_on_a_codex_job_sets_no_state(demo: str, run: Run, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:

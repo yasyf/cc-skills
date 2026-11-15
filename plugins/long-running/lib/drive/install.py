@@ -602,11 +602,11 @@ def install(key: str, sha: str | None, repo: str | None, deadline: float, timeou
 
 
 def reported_prs(data: dict, job_id: str) -> list[str]:
-    """The drive PRs a builder's said line names, its READY or PUSHED's PRs, the ones its proof proves: a PR registered on the job that the line leaves out, such as one closed as superseded, owes the proof nothing; on a WAITING line, which names what it waits on, such as a release, rather than its PRs, each PR registered on the job but one closed unmerged."""
+    """The drive PRs a builder's said line names, its READY or PUSHED's PRs or those the DONE the watch took at their merge copies, the ones its proof proves: a PR registered on the job that the line leaves out, such as one closed as superseded, owes the proof nothing; on any other line, such as a WAITING, which names what it waits on, such as a release, or a DONE of its own, whose one-line proof may cite PRs other jobs opened, as a port-gap pass names the PRs holding each gap, each PR registered on the job but one closed unmerged, so a PR the line only cites is never its to prove."""
     job = data["jobs"][job_id]
-    if re.match(r"WAITING\b", job["said"] or ""):
-        return [key for key in dict.fromkeys(map(state.pr_key, job["prs"])) if key in data["prs"] and data["prs"][key]["state"] != "closed"]
-    return state.named_prs(data, job["order"], job["said"] or "")
+    if state.REPORTED_LINE.match(said := job["said"] or "") or state.MERGED_LINE.match(said):
+        return state.named_prs(data, job["order"], said)
+    return [key for key in dict.fromkeys(map(state.pr_key, job["prs"])) if key in data["prs"] and data["prs"][key]["state"] != "closed"]
 
 
 def merged_ready(data: dict, job_id: str) -> bool:
@@ -631,9 +631,9 @@ def briefed_prs(data: dict, job_id: str) -> list[str]:
 
 
 def repair(data: dict, job_id: str) -> bool:
-    """Whether the job is a builder that opened no PR, its said line naming none and briefed to prove none, as briefed_prs reads it, such as a hand repair of the drive's records: drive job prove installs nothing for it and runs its proof file alone, on its own agent's call while it runs, on one take_back reopens, or again on the proof it marked waiting."""
+    """Whether the job is a builder that opened no PR, its said line naming none of its own, as reported_prs reads it, and briefed to prove none, as briefed_prs reads it, such as a hand repair of the drive's records or a pass whose DONE only cites PRs: drive job prove installs nothing for it and runs its proof file alone, on its own agent's call while it runs, on one take_back reopens, or again on the proof it marked waiting."""
     job = data["jobs"][job_id]
-    return job["kind"] == "builder" and not job["prs"] and not state.named_prs(data, job["order"], job["said"] or "") and not briefed_prs(data, job_id)
+    return job["kind"] == "builder" and not job["prs"] and not reported_prs(data, job_id) and not briefed_prs(data, job_id)
 
 
 def handed_prs(data: dict, job_id: str) -> list[str]:
@@ -1018,7 +1018,7 @@ def joined(held: dict, flags: dict[str, str | None]) -> dict:
 
 
 def prover_of(data: dict, key: str) -> str | None:
-    """The one builder proving the merged PR at key live, on whatever order holds it, marked as building nothing or not: the earliest done, whose DONE proved it, then the earliest an agent or lane took, then the earliest none took yet, of the builders whose goal reads prove <PRs> live naming it or whose DONE names it, never the DONE the watch takes at a merge, which proves nothing live; else the earliest such prover that failed or stopped, so its part reads ORPHAN and the watch adds no second; None while no builder proves it."""
+    """The one builder proving the merged PR at key live, on whatever order holds it, marked as building nothing or not: the earliest done, whose DONE proved it, then the earliest an agent or lane took, then the earliest none took yet, of the builders whose goal reads prove <PRs> live naming it, or done on a DONE proving it, one briefed to prove it, as briefed_prs reads it, or one that opened it, as reported_prs reads it, never one whose DONE only cites it, nor the DONE the watch takes at a merge, which proves nothing live; else the earliest such prover that failed or stopped, so its part reads ORPHAN and the watch adds no second; None while no builder proves it."""
     number = key.rpartition("#")[2]
     found = [
         (rank, position, job_id)
@@ -1033,7 +1033,7 @@ def proof_rank(data: dict, job_id: str, key: str) -> int | None:
     if state.done_at_merge(job):
         return None
     if job["state"] == "done":
-        return 0 if key in proves(data, job_id) or key in state.named_prs(data, job["order"], job["said"] or "") else None
+        return 0 if key in proves(data, job_id) or key in briefed_prs(data, job_id) or key in reported_prs(data, job_id) else None
     if key not in proves(data, job_id):
         return None
     if job["state"] in state.ENDED_JOB_STATES:

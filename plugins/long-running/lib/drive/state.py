@@ -740,6 +740,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str) -> dict:
         "reader_prs_handed": True,
         "stale_queued_dropped": True,
         "staging_approves_restored": True,
+        "proofs_rehomed": True,
     }
 
 
@@ -1053,7 +1054,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     if data["catch_up"]:
         data["catch_up"]["record"] = bare_seq(data["catch_up"]["record"])
     passes = (drive_dir(name) / "pictures" / picture.SOURCED, drive_dir(name) / "asks" / REBUILT_ASKS, drive_dir(name) / APPROVALS_LABELLED)
-    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated")) and bool(data.get("holds_owed")) and bool(data.get("near_answers_apart")) and bool(data.get("stack_writes_read")) and bool(data.get("builder_goals_named")) and bool(data.get("members_kept")) and bool(data.get("open_dones_held")) and bool(data.get("staging_runs_reread")) and bool(data.get("lines_kept")) and bool(data.get("change_builders_unwaited")) and bool(data.get("finished_replacers_undone")) and bool(data.get("finished_texts_dropped")) and bool(data.get("work_proofs_owned")) and bool(data.get("messages_kept_once")) and bool(data.get("proof_results_marked")) and bool(data.get("reader_prs_handed")) and bool(data.get("stale_queued_dropped")) and bool(data.get("staging_approves_restored"))
+    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated")) and bool(data.get("holds_owed")) and bool(data.get("near_answers_apart")) and bool(data.get("stack_writes_read")) and bool(data.get("builder_goals_named")) and bool(data.get("members_kept")) and bool(data.get("open_dones_held")) and bool(data.get("staging_runs_reread")) and bool(data.get("lines_kept")) and bool(data.get("change_builders_unwaited")) and bool(data.get("finished_replacers_undone")) and bool(data.get("finished_texts_dropped")) and bool(data.get("work_proofs_owned")) and bool(data.get("messages_kept_once")) and bool(data.get("proof_results_marked")) and bool(data.get("reader_prs_handed")) and bool(data.get("stale_queued_dropped")) and bool(data.get("staging_approves_restored")) and bool(data.get("proofs_rehomed"))
     for flag in ("may_settle_per_answer", "may_settle_skips_approvals", "may_settle_by_subject", "may_settle_by_jev", "delivered_by_prs", "delivered_restored", "proofs_posted", "proofs_proven"):
         data.pop(flag, None)
     data["slack"].pop("channel", None)
@@ -1132,6 +1133,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         drop_stale_queued(data)
     if not data.get("staging_approves_restored"):
         restore_staging_approves(name, data)
+    if not data.get("proofs_rehomed"):
+        rehome_proofs(name, data)
     return data, keep and not unkept and not unkinded
 
 
@@ -1361,6 +1364,22 @@ def hand_reader_prs(data: dict) -> None:
                 take_pr(data, builder, key)
         job.update(state="done", waits=[], updated=stamp())
     data["reader_prs_handed"] = True
+
+
+def rehome_proofs(name: str, data: dict) -> None:
+    """Keep each codex job's proof where its DONE's REPRO: line names it, by keep_repro, since an older install kept a copy in the repro folder, away from the files beside it that it reads, and put back on that DONE, done, each such job whose proof failed on that copy and that failed or stopped since, such as a standing part's pass replaced on that failure, so the watch proves it again where it lies; marked so this runs once."""
+    from drive import cli, codex
+
+    for job_id, job in data["jobs"].items():
+        if job["kind"] != "codex" or not job.get("repro"):
+            continue
+        named = next((Path(found["path"]).expanduser() for reply in returns(name, job_id) if (found := codex.REPRO.search(reply["body"]))), None)
+        if not named or not named.is_file() or (kept := cli.keep_repro(name, job_id, job["kind"], str(named))) == job["repro"]:
+            continue
+        job["repro"] = kept
+        if job["state"] in ("failed", "stopped") and (proof := job.get("proof")) and proof.get("result", "").startswith("BLOCKED") and proof["said"].startswith("DONE"):
+            job.update(state="done", said=proof["said"], proof=None, updated=stamp())
+    data["proofs_rehomed"] = True
 
 
 def finish_asked_readers(name: str, data: dict) -> None:

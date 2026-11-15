@@ -54,6 +54,7 @@ LANE_MAIL = "lane mail"
 ANSWERS = "answers"
 LANE_WAIT = timedelta(seconds=reads.DRIVE_SECONDS)
 RELAUNCHES_LOG = "relaunches.log"
+PROOF_TAIL = 20
 PASS_DONE = (
     "this pass's round is done: it returns DONE naming what the round did and where the next round starts, which the watch quotes to the next"
     " pass, since drive status reads a pass's HANDOFF as stopped"
@@ -3694,12 +3695,15 @@ def launched_pass(name: str, key: tuple[str, str], last: str | None, job_id: str
 
 
 def pass_handoff(name: str, data: dict, key: tuple[str, str], last: str | None) -> str:
-    """The handoff a standing part's next pass starts on: its last pass's newest return whole, else that pass's line, else that it is the first pass, each line of the return quoted, so none reads as a line of the brief."""
+    """The handoff a standing part's next pass starts on: its last pass's newest return whole, else that pass's line, else that it is the first pass, and for a last pass that failed on its proof the last PROOF_TAIL lines that proof printed, so the next pass reads why, each line quoted, so none reads as a line of the brief."""
     standing = f'{key[0]}\'s standing part "{key[1]}"'
     if not last:
         return f"The watch started the first pass of {standing}: no pass of it ran before."
     returned = next(iter(state.returns(name, last)), None)
     quoted = returned["body"].strip() if returned else data["jobs"][last]["said"] or "nothing"
+    proof = state.proof_path(name, last)
+    if data["jobs"][last]["state"] == "failed" and proof.is_file():
+        quoted += "\n\nIts proof failed, the last lines it printed:\n" + "\n".join(proof.read_text().splitlines()[-PROOF_TAIL:])
     lines = "\n".join(f"> {line}".rstrip() for line in quoted.splitlines())
     return f"The watch started this pass of {standing} once its last pass, {last}, ended {data['jobs'][last]['state']}. Its return, verbatim:\n{lines}"
 
