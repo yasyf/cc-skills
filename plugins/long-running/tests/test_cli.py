@@ -1013,6 +1013,54 @@ def test_his_words_jev_reads_as_on_an_open_feature_join_it_under_its_coordinator
     assert state.load("demo")["jobs"][reader]["brief_flags"]["ruling"] == ["5abdd1a"]
 
 
+def test_order_set_unjoin_takes_his_order_off_the_feature_it_joined_so_it_files_alone_with_its_parts_unheld_and_its_reader_starts(
+    run: Run, demo: str, jev: Jev, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Staging tests", "--project", "Platform", "--workstream", "AGENTS.md guidance", "test each dangerous PR on staging before it lands")
+    run("order", "set", "o1", "--note", "the staging line waits on a slot")
+    tester = run("job", "add", "builder", "--order", "o1", "--goal", "test #56391 on staging")[1].splitlines()[0]
+    card = "https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794646350582239"
+    with state.edit("demo") as data:
+        data["jobs"][tester]["questions"].append(state.new_question(None, "Which slot?", state.stamp(), card=card))
+    jev.picks("o1")
+    release = "find a safe sha that has all the stuff tested in staging, then cut a release of whole platform"
+    assert run("order", "add", "--title", "Whole-platform release", "--project", "Platform", "--workstream", "Releases", release)[1].splitlines()[0] == "o2"
+    joined = state.load("demo")
+    carriers = joined["orders"]["o2"]["jobs"]
+    assert tester in carriers and [joined["jobs"][job_id]["carries"] for job_id in carriers] == [{"o2": ["Whole-platform release"]}] * len(carriers)
+    assert (joined["orders"]["o2"]["joins"], joined["orders"]["o2"]["workstream"], joined["orders"]["o2"]["note"]) == ("o1", "AGENTS.md guidance", "the staging line waits on a slot")
+    assert ["D0C4HQWPLCC", "1794646350.582239"] in [thread[:2] for thread in joined["orders"]["o2"]["threads"]]
+    run("start", "demo", "--role", "meta")
+    with state.edit("demo") as data:
+        data["roles"]["coordinator"]["session"] = "elsewhere"
+    assert cli.main(["order", "set", "o2", "--unjoin"]) == 2
+    assert "o2: refused, nothing written: --unjoin files it under its own project and workstream, never Platform / AGENTS.md guidance it took from o1: name --project and --workstream" in capsys.readouterr().err
+    assert state.load("demo")["orders"]["o2"]["joins"] == "o1"
+    lines = run("order", "set", "o2", "--unjoin", "--project", "Platform", "--workstream", "Releases")[1].splitlines()[1:]
+    assert lines == [
+        f"o2 joins o1 no longer: {', '.join(carriers)} carry it no more and hold its words no longer, so its parts are unheld",
+        "add its reader with drive job add reader --order o2",
+    ]
+    data = state.load("demo")
+    alone = data["orders"]["o2"]
+    assert (alone["joins"], alone["project"], alone["workstream"], alone["note"], alone["jobs"], alone["threads"]) == (None, "Platform", "Releases", None, [], [])
+    words = state.joined_words("o2", "o1", release)
+    assert words in [held["words"] for held in joined["jobs"][tester]["undelivered"]]
+    assert [(data["jobs"][job_id]["order"], data["jobs"][job_id]["carries"], data["jobs"][job_id]["undelivered"]) for job_id in carriers] == [
+        (joined["jobs"][job_id]["order"], {}, [held for held in joined["jobs"][job_id]["undelivered"] if held["words"] != words]) for job_id in carriers
+    ]
+    assert data["jobs"][tester]["state"] == joined["jobs"][tester]["state"] and data["orders"]["o1"]["note"] == "the staging line waits on a slot"
+    assert (state.feature_orders(data, "o1"), state.feature_orders(data, "o2")) == (["o1"], ["o2"])
+    assert cli.main(["order", "set", "o2", "--unjoin", "--project", "Platform", "--workstream", "Releases"]) == 2
+    assert "--unjoin: refused, nothing written: o2 joins no order" in capsys.readouterr().err
+    with state.edit("demo") as data:
+        data["roles"]["coordinator"]["session"], data["roles"]["meta"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"], "elsewhere"
+    reader = run("job", "add", "reader", "--order", "o2", "--goal", "research: a safe sha for the release")
+    assert reader[0] == 0
+    data = state.load("demo")
+    assert reader[1].splitlines()[0] in data["orders"]["o2"]["jobs"] and {data["jobs"][job_id]["order"] for job_id in data["orders"]["o2"]["jobs"]} == {"o2"}
+
+
 def test_an_answer_order_and_one_he_limits_to_options_join_no_feature(run: Run, demo: str, jev: Jev) -> None:
     run("order", "add", "--title", "Stuck jobs", "--project", "The drive", "--workstream", "Releases", "watch for stuck jobs")
     jev.picks("o1")

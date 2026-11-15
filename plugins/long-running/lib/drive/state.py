@@ -1576,6 +1576,36 @@ def carry(data: dict, job_id: str, order_id: str, parts: list[str]) -> None:
     order["updated"] = stamp()
 
 
+def joined_words(order_id: str, head: str, words: str) -> str:
+    """The text each job carrying an order joined to its feature holds for its worker, which drive order add's join keeps and unjoin drops."""
+    return f'His words, kept as {order_id} on the feature of {head} this job carries: "{words}"'
+
+
+def unjoin(data: dict, order_id: str) -> tuple[str, list[str], list[str]]:
+    """Take an order off the feature it joined, undoing drive order add's join: it joins none, its note no longer the head's it took, and each job of another order on the feature carries it no more, holds its words no longer and leaves its jobs, each question card thread those jobs joined to it taken off its threads but one a job left on it asks on, so it stands alone with its parts unheld, every other field of those jobs as it was; the head it joined, the jobs it came off and the unfinished ones of them that no longer held its words, whose worker already took them."""
+    order = data["orders"][order_id]
+    head = order["joins"]
+    feature = orders_jobs(data, [other for other in feature_orders(data, order_id) if other != order_id])
+    carriers = [job_id for job_id in order["jobs"] if job_id in feature and data["jobs"][job_id]["order"] != order_id]
+    words = joined_words(order_id, head, order["text"])
+    told = []
+    for job_id in carriers:
+        job = data["jobs"][job_id]
+        del job["carries"][order_id]
+        order["jobs"].remove(job_id)
+        held = [text for text in job["undelivered"] if text["words"] != words]
+        if len(held) == len(job["undelivered"]) and job["state"] not in FINISHED_JOB_STATES:
+            told.append(job_id)
+        job["undelivered"] = held
+    asked = {link_thread(question["card"]) for job_id in order["jobs"] for question in data["jobs"][job_id]["questions"] if question["card"]}
+    dropped = {link_thread(question["card"]) for job_id in carriers for question in data["jobs"][job_id]["questions"] if question["card"]} - asked
+    order["threads"] = [thread for thread in order["threads"] if thread[3] != "question" or (thread[0], thread[1]) not in dropped]
+    if order["note"] == data["orders"][head]["note"]:
+        order["note"] = None
+    order.update(joins=None, updated=stamp())
+    return head, carriers, told
+
+
 def deliver(data: dict, job_id: str, order_id: str, parts: list[str]) -> None:
     """Give a job these parts of an order: its own order's join its parts, another order's it carries."""
     job = data["jobs"][job_id]
