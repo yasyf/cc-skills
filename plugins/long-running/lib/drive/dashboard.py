@@ -78,6 +78,8 @@ PAGE_PATH = re.compile(r"/pages/([^/]+)/(.*)")
 REPO_FILE = re.compile(r"[\w.@-]+(?:/[\w.@-]+)+")
 BYTE_RANGE = re.compile(r"bytes=(\d+)-(\d*)")
 NOT_OWNER = "only the drive's owner can do this, and this device is not signed in to the tailnet as him"
+AUTOMATED = "nothing was sent: this browser is automated, its navigator.webdriver true, and an automated browser answers, taps, undoes and speaks for him on no card"
+WRITES = ("/api/answer", "/api/tap", "/api/undo", "/api/say")
 GONE = "this card no longer waits on that answer"
 ELSEWHERE = "that is not a card thread of this drive"
 MOVED = "the PR moved to a new head since your page drew it, so nothing was sent; read it again and tap it as it stands"
@@ -497,10 +499,12 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
             page = f"{'https' if isinstance(self.connection, ssl.SSLSocket) else 'http'}://{host}"
             if host not in hosts or self.headers.get("Origin") != page:
                 self.send_error(403)
-            elif self.path not in ("/api/answer", "/api/tap", "/api/undo", "/api/say", "/api/complete") and not REVIEW_PATH.fullmatch(self.path):
+            elif self.path not in (*WRITES, "/api/complete") and not REVIEW_PATH.fullmatch(self.path):
                 self.send_error(404)
             elif not owner_calling(self.client_address[0], net):
                 self.answered(403, {"error": NOT_OWNER})
+            elif self.path in WRITES and self.headers.get("Webdriver") != "false":
+                self.answered(403, {"error": AUTOMATED})
             elif found := REVIEW_PATH.fullmatch(self.path):
                 self.review(f"{found[1]}#{found[2]}")
             elif self.path == "/api/complete":

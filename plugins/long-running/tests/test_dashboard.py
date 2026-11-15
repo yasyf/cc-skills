@@ -162,10 +162,10 @@ def post_answer(port: int, origin: str, card: str, label: str) -> tuple[int, dic
     return post(port, origin, "/api/answer", {"card": card, "label": label})
 
 
-def post(port: int, origin: str, path: str, asked: dict) -> tuple[int, dict]:
+def post(port: int, origin: str, path: str, asked: dict, webdriver: str | None = "false") -> tuple[int, dict]:
     connection = http.client.HTTPConnection(dashboard.LOOPBACK, port, timeout=5)
     body = json.dumps(asked)
-    connection.request("POST", path, body=body, headers={"Host": f"box:{port}", "Origin": origin, "Content-Type": "application/json"})
+    connection.request("POST", path, body=body, headers={"Host": f"box:{port}", "Origin": origin, "Content-Type": "application/json", **({"Webdriver": webdriver} if webdriver else {})})
     reply = connection.getresponse()
     said = reply.read()
     connection.close()
@@ -424,6 +424,33 @@ def test_a_pr_asking_his_approve_opens_on_the_dashboard_with_the_lands_line_his_
     lands = dashboard.pr_read("demo", below)["row"]["lands"]
     assert lands == dashboard.card.drawn_lines("demo", state.load("demo"), below)["lands"]
     assert lands.endswith(f", alone while {view.pr_link(reworked)} above it is reworked to your words")
+
+
+@pytest.mark.parametrize("webdriver", ["true", None])
+def test_an_automated_browser_or_a_client_no_page_drew_sends_no_answer_tap_undo_or_words_and_is_never_heard_as_him(
+    state_root: Path, webdriver: str | None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    state.create(state.new_drive("demo", "coordinator", "s1", "/work"))
+    card, key = "https://acme.slack.com/archives/D1/p100", "yasyf/cc-skills#7"
+    board = dashboard.Board("demo", [])
+    board.answers, board.heads = {card: ["Approve", "Hold"]}, {key: "abc1234"}
+    reached = []
+    monkeypatch.setattr(dashboard, "answer_card", lambda *args: reached.append(args) or {})
+    monkeypatch.setattr(dashboard, "cc_slack", lambda *args: reached.append(args) or {})
+    monkeypatch.setattr(dashboard, "relay", lambda *args: reached.append(args) or {})
+    monkeypatch.setattr(dashboard.card, "answered", lambda ask: reached.append(ask) or {"ok": True})
+    server, port = serving(board)
+    page = f"http://box:{port}"
+    said = [
+        post(port, page, "/api/answer", {"card": card, "label": "Hold"}, webdriver),
+        post(port, page, "/api/tap", {"pr": key, "label": "Hold", "head": "abc1234"}, webdriver),
+        post(port, page, "/api/undo", {"card": card}, webdriver),
+        post(port, page, "/api/say", {"text": "hold it", "under": card}, webdriver),
+    ]
+    server.shutdown()
+    assert said == [(403, {"error": dashboard.AUTOMATED})] * 4
+    assert reached == []
+    assert list(state.read_events("demo")) == []
 
 
 def test_an_undo_cc_slack_refuses_says_why(monkeypatch: pytest.MonkeyPatch) -> None:
