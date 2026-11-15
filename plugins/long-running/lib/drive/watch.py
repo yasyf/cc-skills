@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import NamedTuple, Self
 
-from drive import agents, brief, codex, dashboard, github, install, land, launchd, orca, page, place, procs, reads, receiver, render, served, settled, slack, stage, stall, state, superseded, view
+from drive import agents, brief, codex, dashboard, github, install, land, launchd, orca, page, place, procs, reads, receiver, refs, render, served, settled, slack, stage, stall, state, superseded, view
 from drive.install import PROOF_FAILED, add_prover, config_dir, merged_done, merged_ready, merged_said, product, proof_gap, proofless, proved_prs, prover_of, proves, reported_prs, upgraded, watch_proves, widen
 from drive.render import cut, when
 
@@ -88,10 +88,13 @@ COMPACT_WHEN_QUIET = timedelta(minutes=10)
 NOT_SLUG = re.compile(r"[^A-Za-z0-9]")
 NAMED_JOB = re.compile(r"^[A-Z]+ (?:[^\s#:]+ )??(?P<job>j\d+)\b")
 BUILD_FIELDS = (
-    "state blocks: jobs(first: 10, type: [BLOCK], state: [BLOCKED]) { edges { node { ... on JobTypeBlock { label } } } }"
+    "state url message commit createdAt startedAt finishedAt blocks: jobs(first: 10, type: [BLOCK], state: [BLOCKED]) { edges { node { ... on JobTypeBlock { label } } } }"
     " failed: jobs(first: 20, type: [COMMAND], passed: false) { edges { node { ... on JobTypeCommand { label retried } } } }"
+    " running: jobs(first: 20, type: [COMMAND], state: [RUNNING]) { edges { node { ... on JobTypeCommand { label startedAt } } } }"
+    " steps: jobs(type: [COMMAND]) { count } done: jobs(type: [COMMAND], state: [FINISHED, CANCELED, TIMED_OUT, SKIPPED, BROKEN, EXPIRED]) { count }"
 )
 BUILD_ENDS = ("PASSED", "FAILED", "CANCELED", "BLOCKED", "SKIPPED", "NOT_RUN")
+FOLLOW_ENDS = tuple(end for end in BUILD_ENDS if end != "BLOCKED")
 ABOUT = re.compile(r"\[(?P<order>o\d+) (?P<job>j\d+)\]$|^[A-Z]+ (?:\S+ )?(?:j\d+ )?(?P<named>o\d+)\b")
 MOVED_LINE = re.compile(r"MOVED (?:o\d+, )*o\d+ from (?P<lane>\S+) to ")
 
@@ -489,9 +492,9 @@ def exited_text(name: str, job_id: str, exited: list[str]) -> str:
 
 
 def build_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Read from Buildkite, for waits_lines, each build a wait the watch follows names: once as it is first held, then again only once a delivery of Buildkite's to the receiver's /buildkite route names it. One `tools/ci bk graphql` call reads them all, spending go/ci's shared Buildkite budget, run in the drive's checkout as orca.checkout moves it to its default branch's head, and each answer is kept on the watcher as builds while the build is held, None for a build Buildkite answers none for; a read that fails is said as a failed read is and owed again next pass."""
+    """Read from Buildkite, for waits_lines and status_lines, each build a wait the watch follows names or a part of an order it hears follows: once as it is first held, then again only once a delivery of Buildkite's to the receiver's /buildkite route names it. One `tools/ci bk graphql` call reads them all, spending go/ci's shared Buildkite budget, run in the drive's checkout as orca.checkout moves it to its default branch's head, and each answer is kept on the watcher as builds while the build is held, None for a build Buildkite answers none for; a read that fails is said as a failed read is and owed again next pass."""
     data = state.load(watcher.name)
-    held = sorted({wait for wait in followed(watcher, data) if github.BUILD.fullmatch(wait)})
+    held = sorted({wait for wait in followed(watcher, data) if github.BUILD.fullmatch(wait)} | state.followed_builds(heard_orders(watcher, data)))
     watcher.builds = {link: read for link, read in watcher.builds.items() if link in held}
     watcher.builds_heard &= set(held)
     if not (due := [link for link in held if link not in watcher.builds or link in watcher.builds_heard]):
@@ -515,10 +518,91 @@ def build_said(link: str, read: dict | None) -> str | None:
         return f"Buildkite answers no build at {link}"
     if read["state"] not in BUILD_ENDS:
         return None
-    blocks = [f'"{edge["node"]["label"]}"' for edge in read["blocks"]["edges"]]
-    failed = list(dict.fromkeys(f'"{edge["node"]["label"]}"' for edge in read["failed"]["edges"] if not edge["node"]["retried"]))
+    blocks, failed = approve_steps(read), unpassed_steps(read)
     said = f"{link} reads {read['state']}" + (f" at its approve step {', '.join(blocks)}" if blocks else "")
     return said + (f", its steps that did not pass {', '.join(failed)}" if failed and read["state"] != "PASSED" else "")
+
+
+def approve_steps(read: dict) -> list[str]:
+    return [f'"{edge["node"]["label"]}"' for edge in read["blocks"]["edges"]]
+
+
+def unpassed_steps(read: dict) -> list[str]:
+    return list(dict.fromkeys(f'"{edge["node"]["label"]}"' for edge in read["failed"]["edges"] if not edge["node"]["retried"]))
+
+
+def status_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Keep his thread current on each Buildkite build a part of an open order the watch hears follows, by his pick "A live status message: one message in your thread, rewritten each minute with the running step, then an end line; one Buildkite read a minute": from the newest read build_lines holds, which Buildkite's deliveries to the receiver renew, one status message posted in the thread of his ask and rewritten whenever its words change, its running steps' minutes moving each pass, so no session's turn keeps it current and the follow makes no Buildkite read of its own; once the build ends, a report the handler the watch starts posts as the end line, which delivers the part. A failed post, write or start is said as a failed read is and tried again next pass, a start with the same report."""
+    lines = []
+    for order_id, order in heard_orders(watcher, state.load(watcher.name)).items():
+        for part, held in order["parts"].items():
+            if not (follow := held["follow"]) or not follow["record"] and (follow["ended"] or follow["build"] not in watcher.builds):
+                continue
+            source = f"follow {order_id} {follow['build']}"
+            try:
+                if seq := follow["record"] or status(watcher, order_id, order, part, follow, moment):
+                    agents.handle_report(watcher.name, seq, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'follow-{seq}'}")
+            except (slack.SlackError, reads.ReadError, state.DriveError) as error:
+                lines += failed(watcher, source, f"follow of {follow['build']} for {order_id}", error, moment)
+                continue
+            watcher.failures.pop(source, None)
+            if seq:
+                with state.edit(watcher.name) as data:
+                    data["orders"][order_id]["parts"][part]["follow"]["record"] = None
+    return lines
+
+
+def status(watcher: Watcher, order_id: str, order: dict, part: str, follow: dict, moment: datetime) -> str | None:
+    """Post the status message of the build a part follows, or rewrite it when its words changed, and once the build ended write the report owing its end line, kept on the follow until a handler has it; that report's seq, None while the build runs."""
+    from drive import talk
+
+    if (read := watcher.builds[follow["build"]]) is None:
+        raise state.DriveError(f"Buildkite answers no build at {follow['build']}")
+    words = status_words(read, moment)
+    message = follow["message"] or talk.posted(watcher.name, {"text": words, "thread_ts": follow["thread"]})["permalink"]
+    if follow["message"] and words != follow["words"]:
+        talk.posted(watcher.name, {"edit": message, "text": words})
+    kept = {"message": message, "words": words}
+    if read["state"] in FOLLOW_ENDS:
+        kept |= {"ended": state.stamp(moment), "record": end_report(watcher, order_id, order, part, follow | kept, read)}
+    with state.edit(watcher.name) as data:
+        data["orders"][order_id]["parts"][part]["follow"].update(kept)
+    return kept.get("record")
+
+
+def status_words(read: dict, moment: datetime) -> str:
+    """A followed build's status message: its title linked to it, then each step running with its minutes, or the approve step it stopped at, or once it ended its state, minutes and the steps that did not pass, then how many of its steps are done, such as "Staging release plangent-macdiarmid: Watch the tenant smoke on plat-usw2-staging, 4 min; 120 of 136 steps done"."""
+    title = cut(first_line(read["message"] or "") or "the build", 80).translate(refs.LINK_WORDS)
+    link = f"<{read['url']}|{title}>"
+    tally = f"{read['done']['count']} of {read['steps']['count']} steps done"
+    if read["state"] in FOLLOW_ENDS:
+        took = f" after {minutes(state.parse_time(read['finishedAt']) - state.parse_time(read['startedAt'] or read['createdAt']))} min" if read["finishedAt"] else ""
+        unpassed = unpassed_steps(read) if read["state"] != "PASSED" else []
+        return f"{link}: {read['state'].lower().replace('_', ' ')}{took}; {tally}" + (f"; did not pass: {', '.join(unpassed)}" if unpassed else "")
+    if blocks := approve_steps(read):
+        return f"{link}: stopped at its approve step {', '.join(blocks)}; {tally}"
+    running = [f"{edge['node']['label']}, {minutes(moment - state.parse_time(edge['node']['startedAt']))} min" for edge in read["running"]["edges"]]
+    return f"{link}: {'; '.join(running) or read['state'].lower()}; {tally}"
+
+
+def end_report(watcher: Watcher, order_id: str, order: dict, part: str, follow: dict, read: dict) -> str:
+    """Write the report owing him the end line of the build a part of the order follows, for the handler that posts it in the thread of his ask, where the line delivers the part; its seq."""
+    facts = [
+        f"His order {order_id}: {order['text']}",
+        f"His ask, the part the end line delivers: {part}",
+        f"The build: {follow['build']}, {read['state']}, at commit {read['commit']}" + (f", its steps that did not pass {', '.join(unpassed)}" if (unpassed := unpassed_steps(read)) else ""),
+        f"Its status message, which the watch kept current: {follow['message']}, now reading: {follow['words']}",
+        f"Read the build's failed steps and the jobs on {order_id}, then post one line in that thread: how the build ended and what his ask wants of its end, such as how confident we are to release the same commit further.",
+    ]
+    record = {
+        "kind": "report",
+        "topic": f"follow-{order_id}",
+        "attr": {"order": order_id, "part": f"{order_id}:{part}", "thread": follow["thread"]},
+        "text": f"POST the build {order_id} follows ended {read['state']}: post its end line in the thread of his ask",
+        "body": "\n".join(facts) + "\n",
+    }
+    [seq] = reported(watcher, [record])
+    return seq
 
 
 def build_line(watcher: Watcher, link: str) -> str:
@@ -3336,7 +3420,7 @@ def unstarted(job: dict) -> bool:
 
 
 def part_gap(watcher: Watcher, data: dict, order_id: str, part: str, moment: datetime) -> str | None:
-    """Why a part of the order has no one carrying it, None when it is carried, delivered or waits on something named, such as his word on a job a model's safeguards stopped: work he ordered, every part of a build order or an incident, but an incident's first check and cause and a part drive order set --kind answer --part sorted as an answer that no builder, codex or design job holds, is carried only by a builder, codex or design job, never by research, his card, a post or a stopped job, by state.carriers, nor by a builder or codex job done with no merged PR whose checked diff carries it, but while the check of its merged diffs runs or on a staging test part, which its tester's full pass delivers by state.staged, so it has no one the moment none is on it past its handover, and the gap names the builder to start; a change a design lists has no job only while the order asks for options only, waiting on his pick, which adds its builder, since drive job report adds one for each change as the design returns; a builder, codex or design job on the order's immediate fix part carries the order's other parts too until it is done; an open incident's fix is carried only by a live job, or an open or merged PR of a job on it, which the release train ships, never by a post, so once its jobs end otherwise the gap says it has no fix job and names the second one to start at once, by no_fix_job; a standing part, never delivered, is held only by an unfinished job on it, and once none is its gap is the Restart standing_lines starts its next pass on, by standing_gap."""
+    """Why a part of the order has no one carrying it, None when it is carried, delivered or waits on something named, such as his word on a job a model's safeguards stopped: work he ordered, every part of a build order or an incident, but an incident's first check and cause and a part drive order set --kind answer --part sorted as an answer that no builder, codex or design job holds, is carried only by a builder, codex or design job, never by research, his card, a post or a stopped job, by state.carriers, nor by a builder or codex job done with no merged PR whose checked diff carries it, but while the check of its merged diffs runs or on a staging test part, which its tester's full pass delivers by state.staged, so it has no one the moment none is on it past its handover, and the gap names the builder to start; a change a design lists has no job only while the order asks for options only, waiting on his pick, which adds its builder, since drive job report adds one for each change as the design returns; a builder, codex or design job on the order's immediate fix part carries the order's other parts too until it is done; an open incident's fix is carried only by a live job, or an open or merged PR of a job on it, which the release train ships, never by a post, so once its jobs end otherwise the gap says it has no fix job and names the second one to start at once, by no_fix_job; a standing part, never delivered, is held only by an unfinished job on it, and once none is its gap is the Restart standing_lines starts its next pass on, by standing_gap; a part whose followed build still runs is carried by the watch's follow."""
     order = data["orders"][order_id]
     jobs = state.part_jobs(data, order_id, part)
     gaps = {job_id: job_gap(watcher, job_id, job, data, order_id, part, moment) for job_id, job in jobs}
@@ -3344,6 +3428,8 @@ def part_gap(watcher: Watcher, data: dict, order_id: str, part: str, moment: dat
         return stuck[-1]
     if order["parts"][part]["standing"]:
         return standing_gap(jobs, gaps, moment)
+    if state.following(order["parts"][part]):
+        return None
     if fixer := no_fix_job(data, order_id, part, jobs):
         last, job = fixer
         idle = "" if part == state.INCIDENT_FIX else f", no job of {order_id} is at work or has his card open, and it keeps no proof users are unblocked"
@@ -3611,7 +3697,7 @@ def passed(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
 
 
 def stages(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
-    """The lines of each stage of one loop of the watch, as it returns: first the lines its relay made since the last pass, then the answer kept for each lane's read, so a pass a newer install ends while it reads every live lane's mail holds back none it already had, and new events, so a return `drive job report` took in another process is said in the pass its event wakes, then the drive's own Orca terminal every Orca call speaks as, his cards, the GitHub reads it owes, his card on each kept question none drew yet, a lander on each PR his Approve covers that qualifies, the finish of each builder whose READY's PRs all merged, DONE at the merge of a product change or the proof of a yasyf/* one, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, where each merged PR a release wait or an incident fix names runs, each Buildkite build a wait names that is newly held or a delivery of Buildkite's named, the waits his answers, a job's end, that read or the Buildkite read release or hold again, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, each builder's PUSHED GitHub's read settles, agents, the chains of waits that stood unmoved, the texts jobs hold that no worker taking messages gets, the communicator's compaction, the status page, a coordinator whose process exited, a dashboard whose server exited, the receiver and each teammate thread an order watches every 60 s, his PR cards whose rows went stale, and GitHub again next poll after a failure, events written since, its own stages' among them, then the GitHub reads they and the rest owe while its last read answered, so a delivery is read in the pass it wakes, the catch-up owed him, claims whose end passed, the line owed in each thread whose order or incident has news, job clocks run out, his answers no resume has carried to their jobs, fixes proven live whose bug report has not heard, the next pass of each standing part no job holds, parts nothing carries, and a handler on each POST report to the communicator. A stage that keeps working after its save joins the lines it made by then to the watcher's made lines itself."""
+    """The lines of each stage of one loop of the watch, as it returns: first the lines its relay made since the last pass, then the answer kept for each lane's read, so a pass a newer install ends while it reads every live lane's mail holds back none it already had, and new events, so a return `drive job report` took in another process is said in the pass its event wakes, then the drive's own Orca terminal every Orca call speaks as, his cards, the GitHub reads it owes, his card on each kept question none drew yet, a lander on each PR his Approve covers that qualifies, the finish of each builder whose READY's PRs all merged, DONE at the merge of a product change or the proof of a yasyf/* one, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, where each merged PR a release wait or an incident fix names runs, each Buildkite build a wait names or a part follows that is newly held or a delivery of Buildkite's named, the status message of each build a part follows, the waits his answers, a job's end, that read or the Buildkite read release or hold again, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, each builder's PUSHED GitHub's read settles, agents, the chains of waits that stood unmoved, the texts jobs hold that no worker taking messages gets, the communicator's compaction, the status page, a coordinator whose process exited, a dashboard whose server exited, the receiver and each teammate thread an order watches every 60 s, his PR cards whose rows went stale, and GitHub again next poll after a failure, events written since, its own stages' among them, then the GitHub reads they and the rest owe while its last read answered, so a delivery is read in the pass it wakes, the catch-up owed him, claims whose end passed, the line owed in each thread whose order or incident has news, job clocks run out, his answers no resume has carried to their jobs, fixes proven live whose bug report has not heard, the next pass of each standing part no job holds, parts nothing carries, and a handler on each POST report to the communicator. A stage that keeps working after its save joins the lines it made by then to the watcher's made lines itself."""
     yield drained(watcher.relayed)
     yield read_lines(watcher, moment)
     yield event_lines(watcher)
@@ -3637,6 +3723,7 @@ def stages(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
         yield follow_lines(watcher, moment)
         yield serving_lines(watcher, moment)
         yield build_lines(watcher, moment)
+        yield status_lines(watcher, moment)
         yield waits_lines(watcher, moment)
         yield folded_lines(watcher, moment)
         yield finished(watcher, moment)
