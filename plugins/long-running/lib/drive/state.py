@@ -1096,6 +1096,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         pr.setdefault("into", None)
         pr.setdefault("branch", None)
         pr.setdefault("under", None)
+        pr.setdefault("base_ahead", None)
         pr.setdefault("lander", None)
         if pr["lander"]:
             pr["lander"].setdefault("base", pr["base"])
@@ -5323,24 +5324,25 @@ def tap_refused(data: dict, pr: dict) -> str | None:
 
 
 def built_base(data: dict, pr: dict) -> str | None:
-    """The job whose branch an open PR sits on before that job opens its own PR there: a base other than the PR's default branch that no open PR heads, by github.parent, listed among the branches a job recorded, as a builder's BUILT line or drive job set --branch records them, in the PR's repository, or in any for a job that records none, since such a job pushes to whichever repository it works in, that job never having had a PR of the drive on that branch and its work still to come, by view.coming, as a BUILT branch his open cards keep from becoming a PR or a running builder's branch before its PR; None for any other base, a dead parent among them."""
+    """The job whose branch an open PR sits on before that job opens its own PR there: the first of base_builders() whose work is still to come, by view.coming, as a BUILT branch his open cards keep from becoming a PR or a running builder's branch before its PR; None for any other base, a dead parent among them."""
     from drive import view
 
+    return next((job_id for job_id in base_builders(data, pr) if view.coming(data, job_id)), None)
+
+
+def base_builders(data: dict, pr: dict) -> list[str]:
+    """Each job that built the branch an open PR sits on and never had a PR of the drive there: a base other than the PR's default branch that no open PR heads, by github.parent, listed among the branches a job recorded, as a builder's BUILT line or drive job set --branch records them, in the PR's repository, or in any for a job that records none, since such a job pushes to whichever repository it works in; none for any other base."""
     if pr["under"] or not pr["default"] or pr["base"] == pr["default"]:
-        return None
+        return []
     repo = github.repo_of(pr_key(pr["url"])).casefold()
-    return next(
-        (
-            job_id
-            for job_id, job in data["jobs"].items()
-            if job["branch"]
-            and pr["base"] in job["branch"].split(", ")
-            and (job.get("repo") or repo).casefold() == repo
-            and not any(opened["branch"] == pr["base"] for url in job["prs"] if (opened := data["prs"].get(pr_key(url))))
-            and view.coming(data, job_id)
-        ),
-        None,
-    )
+    return [
+        job_id
+        for job_id, job in data["jobs"].items()
+        if job["branch"]
+        and pr["base"] in job["branch"].split(", ")
+        and (job.get("repo") or repo).casefold() == repo
+        and not any(opened["branch"] == pr["base"] for url in job["prs"] if (opened := data["prs"].get(pr_key(url))))
+    ]
 
 
 def awaited_reviewers(pr: dict) -> list[str]:
@@ -5412,6 +5414,7 @@ def new_pr(url: str, job_id: str, order_id: str) -> dict:
         "into": None,
         "branch": None,
         "under": None,
+        "base_ahead": None,
         "draft": False,
         "merged_sha": None,
         "stage": None,

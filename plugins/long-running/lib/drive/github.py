@@ -299,7 +299,7 @@ def merge_method(repository: dict) -> str:
 
 
 def live(read: dict, stored: dict) -> dict:
-    """The drive's stored fields (state, the PR it folded into and the merge commit carrying it onto its repository's default branch, by landing(), its repository's default branch, checks, the checks that failed on its head, the required checks' verdict, review, head, its base and head branches, the open PR it sits on, by parent(), title, author, whether it carries the hold label, the PRs of its native GitHub stack that are not closed and that stack's trunk, the approving reviews its repository's rules require, the method its repository merges it by, what its repository lets this account do, as GitHub's viewerPermission reads it, conflict, by conflicts(), and whether its base is a branch its repository lands PRs on, by landing_base()) of one fetched PR against its stored row."""
+    """The drive's stored fields (state, the PR it folded into and the merge commit carrying it onto its repository's default branch, by landing(), its repository's default branch, checks, the checks that failed on its head, the required checks' verdict, review, head, its base and head branches, the open PR it sits on, by parent(), the commits its base holds that the default branch lacks, by ahead(), title, author, whether it carries the hold label, the PRs of its native GitHub stack that are not closed and that stack's trunk, the approving reviews its repository's rules require, the method its repository merges it by, what its repository lets this account do, as GitHub's viewerPermission reads it, conflict, by conflicts(), and whether its base is a branch its repository lands PRs on, by landing_base()) of one fetched PR against its stored row."""
     failed = sorted({*failed_before(stored, read["headRefOid"]), *failing(read["checks"])})
     fields = landing(read) | {
         "default": read["default"],
@@ -311,6 +311,7 @@ def live(read: dict, stored: dict) -> dict:
         "base": read["baseRefName"],
         "branch": read["headRefName"],
         "under": read["under"],
+        "base_ahead": read["base_ahead"],
         "title": read["title"],
         "author": read["author"],
         "hold_label": HOLD_LABEL in read["labels"],
@@ -371,6 +372,7 @@ def parse(payload: dict, keys: list[str]) -> dict[str, dict]:
             "default": repository["defaultBranchRef"]["name"],
             "landing_bases": landing_bases(repository),
             "under": parent(repo_of(key), landing_base(node["baseRefName"], repository["defaultBranchRef"]["name"], landing_bases(repository)), node["baseRef"]),
+            "base_ahead": None,
             "base_pr": None,
         }
         for key, node in nodes(payload, keys).items()
@@ -485,7 +487,7 @@ def run_conclusion(run_id: str | None, job: str | None, repo: str | None, cwd: s
 
 
 def fetch(keys: list[str], into: dict[str, str] | None = None) -> tuple[dict[str, dict], GithubError | None]:
-    """Read every PR key ("owner/name#123"), its native GitHub stack, its repository's default branch, the checks the rules of that branch require, the method it merges by and what the repository lets this account do included, PRS_PER_QUERY of one repository to a `gh api graphql` call, since GitHub refuses a query past its resource limits, each with base_pr, the read of the PR whose head its base was: for a key into names, the PR the drive holds it folded into, read beside it; for any other GitHub reads merged into a base that is no branch its repository lands PRs on, by landing_base(), the one bases() finds. It gives the reads of every key whose reads all answered, and an error joining what the others could not read, so one refused call loses only its own PRs and those folded into them."""
+    """Read every PR key ("owner/name#123"), its native GitHub stack, its repository's default branch, the checks the rules of that branch require, the method it merges by and what the repository lets this account do included, PRS_PER_QUERY of one repository to a `gh api graphql` call, since GitHub refuses a query past its resource limits, an open one on a base no open PR heads with base_ahead, by ahead(), each with base_pr, the read of the PR whose head its base was: for a key into names, the PR the drive holds it folded into, read beside it; for any other GitHub reads merged into a base that is no branch its repository lands PRs on, by landing_base(), the one bases() finds. It gives the reads of every key whose reads all answered, and an error joining what the others could not read, so one refused call loses only its own PRs and those folded into them."""
     into = into or {}
     asked = list(dict.fromkeys([*keys, *(into[key] for key in keys if key in into)]))
     found, refused = {}, []
@@ -494,6 +496,13 @@ def fetch(keys: list[str], into: dict[str, str] | None = None) -> tuple[dict[str
             found |= parse(graphql(query(chunk, READ, RULES), f"{len(chunk)} PRs of {repo_of(chunk[0])}"), chunk)
         except GithubError as error:
             refused.append(str(error))
+    for chunk in by_repository([key for key, read in found.items() if unheaded(read)], PRS_PER_QUERY):
+        try:
+            ahead([(key, found[key]) for key in chunk])
+        except GithubError as error:
+            refused.append(str(error))
+            for key in chunk:
+                del found[key]
     for chunk in by_repository([key for key, read in found.items() if key not in into and merged_off_landing_base(read)], PRS_PER_QUERY):
         try:
             bases([(key, found[key]) for key in chunk])
@@ -529,6 +538,19 @@ def paths(keys: list[str]) -> dict[str, tuple[str, list[str]]]:
             listed = [changed["path"] for changed in node["files"]["nodes"]]
             found[key] = (node["headRefOid"], listed if node["changedFiles"] <= len(listed) else files(key))
     return found
+
+
+def unheaded(read: dict) -> bool:
+    return read["state"] == "OPEN" and not landing_base(read["baseRefName"], read["default"], read["landing_bases"]) and not read["under"]
+
+
+def ahead(reads: list[tuple[str, dict]]) -> None:
+    """Set base_ahead on each (key, read) of an open PR of one repository whose base is no branch its repository lands PRs on, by landing_base(), and that no open PR heads: how many commits that base holds that the default branch lacks, as GitHub's compare of the two reads it, which a restack onto the default branch would drop, so its builder opens that base's PR instead; None once the base branch is gone. One `gh api graphql` call."""
+    refs = " ".join(f"b{slot}: ref(qualifiedName: {json.dumps('refs/heads/' + read['baseRefName'])}) {{ compare(headRef: {json.dumps(read['default'])}) {{ behindBy }} }}" for slot, (_, read) in enumerate(reads))
+    (repo,) = {repo_of(key) for key, _ in reads}
+    repository = answered(graphql(repository_query(repo, refs), f"the commits the bases of {', '.join(key for key, _ in reads)} hold that their default branch lacks"))
+    for slot, (_, read) in enumerate(reads):
+        read["base_ahead"] = ref["compare"]["behindBy"] if (ref := repository.get(f"b{slot}")) else None
 
 
 def merged_off_landing_base(read: dict) -> bool:
