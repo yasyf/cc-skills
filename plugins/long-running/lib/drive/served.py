@@ -25,6 +25,10 @@ READ_FIRST = ("card", "answer", "link", "record")
 NAMES = "his card's waits id, its permalink, the answer record as {record:<seq>} or the cc-notes answer id"
 NAMELESS = f"DESIGN: names no answer of his: beside each decision cite {NAMES}, or say DESIGN: none"
 PORT = re.compile(r"^SERVES:[ \t]*port of #\d+", re.MULTILINE | re.IGNORECASE)
+CODE_LABEL = "code:"
+GUIDE = "AGENTS.md"
+WRITES_RULING = "23ff059"
+WRITES_WORDS = "And in general get in the habit of doing that"
 LOG = "checks.log"
 CHECKED = "CHECKED"
 NOT_READY = "NOT READY"
@@ -52,7 +56,7 @@ VERDICT = {
     },
     "required": ["changed", "against"],
 }
-RULES = """You check a change before the drive puts it on his card for his Approve. <his_words> holds the words of each order the change serves, his own words verbatim, oldest first, with the parts of each this change delivers and, when its PRs name theirs, the parts other changes deliver, and, when this change is one PR of a job that has others, those PRs: the merged ones, which already deliver their share, and the open ones, each judged on its own; then his answers that bind them, those their job's brief carries and those the PRs cite for the design decisions they make, oldest first, each the question he was asked and his answer, the option he tapped or his own words, with the options each card the drive asked him offered, numbered as his card drew them, each with its description, and his durable answers recorded on that card's subject. <change> holds each pull request's title and diff, source files before tests. PR bodies are left out by his ruling: "Get rid of the fucking PR body check that's insane to delay on who cares about the body".
+RULES = """You check a change before the drive puts it on his card for his Approve. <his_words> holds the words of each order the change serves, his own words verbatim, oldest first, with the parts of each this change delivers and, when its PRs name theirs, the parts other changes deliver, and, when this change is one PR of a job that has others, those PRs: the merged ones, which already deliver their share, and the open ones, each judged on its own; then his answers that bind them, those their job's brief carries and those the PRs cite for the design decisions they make, oldest first, each the question he was asked and his answer, the option he tapped or his own words, with the options each card the drive asked him offered, numbered as his card drew them, each with its description, and his durable answers recorded on that card's subject; then each ruling of his this change owes written, his words verbatim, into an AGENTS.md at or above the code it rules on, which his answer on where such a rule is written down names. <change> holds each pull request's title and diff, source files before tests. PR bodies are left out by his ruling: "Get rid of the fucking PR body check that's insane to delay on who cares about the body".
 
 An answer of his is his words on this change as much as an order is: where an answer settles how or when an order's words are met, such as a step it leaves to a later change, judge the change against the answer. Where his answer picks an option of a card, by its number, as 1 or 1+2, or by its words, that option's own words and description are his words: they bind over the name of a part or anyone's reading of his pick, and a change that builds the option another way, such as one copying a whole file where the option lands only the pages a read needs, goes against them. His durable answers on a card's subject bind a change on that subject as much as his pick does: a change that keeps or adds what they rule out, such as a second code path where they ask for one, goes against them; one on another subject binds nothing here.
 
@@ -85,20 +89,23 @@ class Against(DriveError):
 
 
 def check(name: str, key: str, bound: list[str]) -> dict:
-    """Judge one PR's change, read whole from GitHub at its head, title and diff and never the body, against the words of the orders it serves, for the parts it carries, and against each answer of his kept on it for the design it makes and each bound names, read by answers with the options of each card of the drive's it answers and his durable answers on that card's subject, a flake fix against his ruling FLAKE_RULING in place of any order, and return the head it checked, or the one its head already holds, for verdict to keep; every other PR its job carries, and each job it was handed from, is named as delivering its own share, the merged ones marked merged and the closed ones left out, so neither a sibling's diff nor a part an earlier PR already landed refuses it. The judge first lists each change the diff makes to what already exists, before and after, then refuses each his words do not need, by his words "stop overrecahing and changing things people didnt ask you when you are asked to make a change". Refuse, naming each of his words the change goes against or beyond, so his card draws only on a change checked against his words, leaving out each objection to a file whose added and removed lines are those of the head the check last passed, while it serves no order that head was not checked against, so a verdict holds for the same change after a restack."""
+    """Judge one PR's change, read whole from GitHub at its head, title and diff and never the body, against the words of the orders it serves, for the parts it carries, and against each answer of his kept on it for the design it makes and each bound names, read by answers with the options of each card of the drive's it answers and his durable answers on that card's subject, a flake fix against his ruling FLAKE_RULING in place of any order, and each ruling write it owes, by owed, read beside his ruling WRITES_RULING as his words, one its diff lacks refused with no judge run, and return the head it checked, or the one its head already holds, for verdict to keep; every other PR its job carries, and each job it was handed from, is named as delivering its own share, the merged ones marked merged and the closed ones left out, so neither a sibling's diff nor a part an earlier PR already landed refuses it. The judge first lists each change the diff makes to what already exists, before and after, then refuses each his words do not need, by his words "stop overrecahing and changing things people didnt ask you when you are asked to make a change". Refuse, naming each of his words the change goes against or beyond, so his card draws only on a change checked against his words, leaving out each objection to a file whose added and removed lines are those of the head the check last passed, while it serves no order that head was not checked against, so a verdict holds for the same change after a restack."""
     data = state.load(name)
     pr = data["prs"][key]
     if state.checked(data, pr):
         return pr["checked"]
     orders = state.served_orders(data, pr)
     read = change(key)
+    owes = owed(data, key, bound, read)
     lines = digests(read["diff"])
     passed = pr["checked"]["lines"] if pr["checked"] and set(orders) <= set(pr["checked"]["orders"]) else {}
     flake = [state.FLAKE_RULING] if pr.get("exempt") == state.FLAKE_FIX else []
-    answered = list(dict.fromkeys([*kept_answers(name, data, key), *answers(data, [*bound, *flake], view.live_cards(name))]))
+    answered = list(dict.fromkeys([*kept_answers(name, data, key), *answers(data, [*bound, *flake, *([WRITES_RULING] if owes else [])], view.live_cards(name))]))
+    if lacking := unwritten(key, owes):
+        raise Against([key], lacking, answered)
     carried = (state.pr_key(url) for job in data["jobs"].values() if pr["url"] in job["prs"] for url in job["prs"])
     others = [other for other in dict.fromkeys(carried) if other != key and data["prs"][other]["state"] != "closed"]
-    if found := [item for item in judged(name, words(data, data["jobs"][pr["job"]], orders, pr["parts"], answered, others), {key: read}) if item["file"] not in lines or passed.get(item["file"]) != lines[item["file"]]]:
+    if found := [item for item in judged(name, words(data, data["jobs"][pr["job"]], orders, pr["parts"], answered, others, owes), {key: read}) if item["file"] not in lines or passed.get(item["file"]) != lines[item["file"]]]:
         raise Against([key], "; ".join(f'{item["order"]} "{item["words"]}": {item["change"]}' for item in found), answered)
     return {"head": read["head"], "read": read["head"], "orders": orders, "lines": lines}
 
@@ -216,7 +223,7 @@ def digests(diff: bytes) -> dict[str, str]:
 
 
 def change(key: str) -> dict:
-    """A PR's title, body, head and diff as GitHub has them now, the diff the bytes of GitHub's compare of the base and head just read, the diff `gh pr diff` gives with no cap on its files, so the head kept is the head judged."""
+    """A PR's title, body, base, head and diff as GitHub has them now, the diff the bytes of GitHub's compare of the base and head just read, the diff `gh pr diff` gives with no cap on its files, so the head kept is the head judged."""
     repo, number = key.split("#")
     try:
         read = json.loads(github.read(f"{key}'s title, body, base and head", ["gh", "pr", "view", number, "--repo", repo, "--json", "title,body,baseRefOid,headRefOid"]))
@@ -224,7 +231,7 @@ def change(key: str) -> dict:
         diff = github.read(f"{key}'s diff", ["gh", "api", compare, "-H", "Accept: application/vnd.github.diff", "--allow-escape-sequences"], text=False)
     except github.GithubError as error:
         raise DriveError(f"{key}: {error}; run this again") from None
-    return {"title": read["title"], "body": read["body"], "head": read["headRefOid"], "diff": diff}
+    return {"title": read["title"], "body": read["body"], "base": read["baseRefOid"], "head": read["headRefOid"], "diff": diff}
 
 
 def files(diff: bytes) -> list[tuple[str, str]]:
@@ -234,8 +241,8 @@ def files(diff: bytes) -> list[tuple[str, str]]:
     return [(match[1], text[match.start() : end]) for match, end in zip(found, [*(match.start() for match in found[1:]), len(text)][: len(found)], strict=True)]
 
 
-def words(data: dict, job: dict, orders: list[str], named: list[str], answered: list[str], others: list[str]) -> str:
-    """Each order's words, oldest first, with the parts of it the change carries, those its PR names, else every part of it the job delivers, shared with the job's other PRs when it has any, and the order's other parts left to other changes, so a PR is never judged on a part it does not carry; a carried part whose delivery record, as drive order posted keeps it, names a merged PR outside the job's PRs, such as a teammate's, is left to other changes with that PR named; an order the PR carries no part of is read whole. Then the job's merged PRs, which already deliver their share, and its other open PRs, each judged on its own; then each answer of his binding the PR or that it cites, as answers reads them."""
+def words(data: dict, job: dict, orders: list[str], named: list[str], answered: list[str], others: list[str], owes: list[dict]) -> str:
+    """Each order's words, oldest first, with the parts of it the change carries, those its PR names, else every part of it the job delivers, shared with the job's other PRs when it has any, and the order's other parts left to other changes, so a PR is never judged on a part it does not carry; a carried part whose delivery record, as drive order posted keeps it, names a merged PR outside the job's PRs, such as a teammate's, is left to other changes with that PR named; an order the PR carries no part of is read whole. Then the job's merged PRs, which already deliver their share, and its other open PRs, each judged on its own; then each answer of his binding the PR or that it cites, as answers reads them; then each ruling write the PR owes, by owed, as his ruling WRITES_RULING names it, so the judge reads that AGENTS.md hunk as his words."""
     lines = []
     delivers = "this change and its job's other PRs deliver" if others and not named else "this change delivers"
     for order_id in sorted(orders, key=lambda order_id: data["orders"][order_id]["created"]):
@@ -254,7 +261,75 @@ def words(data: dict, job: dict, orders: list[str], named: list[str], answered: 
             lines.append(said + "; ".join(f'{key} "{data["prs"][key]["title"]}"' if data["prs"][key]["title"] else key for key in held))
     if answered:
         lines += ["his answers that bind the PRs, those their brief carries and those they cite for the design they make:", *answered]
+    if owes:
+        lines.append(
+            f"by his answer {WRITES_RULING}, this change owes each of these rulings of his written, his words verbatim, into an AGENTS.md at or above the code it rules on,"
+            " since it changes that code and no AGENTS.md there holds them at its base, so that write is his words: "
+            + "; ".join(f'{each["id"]} on {each["dir"]}, "{each["words"]}"' for each in owes)
+        )
     return "\n".join(lines)
+
+
+def owed(data: dict, key: str, bound: list[str], read: dict) -> list[dict]:
+    """Each ruling of his in bound labelled code:<dir>, on how the code at <dir> must work, that the PR owes written, his words verbatim, into an AGENTS.md at or above <dir>, by his ruling WRITES_RULING, so every later change to that code reads it: <dir> is a directory of the repository whose checkout keeps his answers, so only a PR of that repository whose diff changes a file under <dir> owes it, and only while no AGENTS.md at or above <dir> holds his words at the PR's base, all of them read in one GitHub read; each ruling once for each directory however many ids name it, with the file it changes there and whether the diff's added lines in such an AGENTS.md write them. A ruling already written where its code is is owed by no later change, since his words ask the rule written once beside the code, never again in each change to it."""
+    cwd = data["roles"]["coordinator"]["cwd"]
+    ruled = dict.fromkeys(
+        (answer["id"][:7], said(answer), tag.removeprefix(CODE_LABEL).strip("/") or ".")
+        for answer_id in bound
+        for answer in [settled.shown(answer_id, cwd)]
+        for tag in answer["tags"]
+        if tag.startswith(CODE_LABEL)
+    )
+    if not ruled or github.repo_of(key).casefold() != github.checkout_repo(cwd).casefold():
+        return []
+    changed = files(read["diff"])
+    touched = [(answer_id, ruling, directory, path) for answer_id, ruling, directory in ruled if (path := next((path for path, _ in changed if Path(path).is_relative_to(directory)), None))]
+    if not touched:
+        return []
+    based = guides(key, read["base"], {guide for _, _, directory, _ in touched for guide in above(directory)})
+    return [
+        {"id": answer_id, "words": ruling, "dir": directory, "file": path, "written": held(ruling, [line[1:] for guide, text in changed if guide in above(directory) for line in text.splitlines() if line.startswith("+") and not line.startswith("+++")])}
+        for answer_id, ruling, directory, path in touched
+        if not any(held(ruling, based[guide].splitlines()) for guide in above(directory))
+    ]
+
+
+def said(answer: dict) -> str:
+    """His words in a ruling of his as an AGENTS.md quotes them: the first quoted span of the first line of his words, else that whole line."""
+    line = settled.his(answer["body"]).partition("\n")[0]
+    return quoted[0][1:-1] if (quoted := limits.QUOTED.findall(line)) else line
+
+
+def above(directory: str) -> list[str]:
+    """The path of each AGENTS.md at or above a directory of a repository, nearest first."""
+    return [str(Path(parent, GUIDE)) for parent in [Path(directory), *Path(directory).parents]]
+
+
+def held(ruling: str, lines: list[str]) -> bool:
+    """Whether these lines of an AGENTS.md hold his words, case, spacing, line breaks and a quote's > marks aside."""
+    return " ".join(ruling.split()).casefold() in " ".join(" ".join(line.strip().lstrip(">").strip() for line in lines).split()).casefold()
+
+
+def guides(key: str, base: str, paths: set[str]) -> dict[str, str]:
+    """The text of each AGENTS.md path at the PR's base commit, empty where it has none, read in one GraphQL query."""
+    owner, name, _ = github.split(key)
+    named = sorted(paths)
+    fields = " ".join(f"g{n}: object(expression: {json.dumps(f'{base}:{path}')}) {{ ... on Blob {{ text }} }}" for n, path in enumerate(named))
+    try:
+        found = github.graphql(f"query {{ repository(owner: {json.dumps(owner)}, name: {json.dumps(name)}) {{ {fields} }} }}", f"the AGENTS.md files at {key}'s base")["data"]["repository"]
+    except github.GithubError as error:
+        raise DriveError(f"{key}: {error}; run this again") from None
+    return {path: found[f"g{n}"]["text"] if found[f"g{n}"] else "" for n, path in enumerate(named)}
+
+
+def unwritten(key: str, owes: list[dict]) -> str:
+    """Each ruling write the PR owes and its diff lacks, as its builder makes it, as one line; empty when its diff makes every write it owes."""
+    return "; ".join(
+        f'{each["id"]} "{cut(each["words"], 200)}": {key} changes {each["file"]}, under {each["dir"]}, and no AGENTS.md at or above {each["dir"]} holds these words of his'
+        f' at its base or in its diff; add them verbatim with their date to the AGENTS.md nearest {each["dir"]}, by his ruling {WRITES_RULING}, "{WRITES_WORDS}"'
+        for each in owes
+        if not each["written"]
+    )
 
 
 def kept_answers(name: str, data: dict, key: str) -> list[str]:

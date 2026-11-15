@@ -9731,17 +9731,22 @@ def test_a_ruling_records_only_with_the_tooling_order_rewriting_the_skill_to_it(
         assert "refused, nothing recorded: a ruling's skill rewrite is owed the moment the ruling is recorded" in capsys.readouterr().err
 
 
-def test_a_pr_carrying_a_code_ruling_is_refused_until_it_writes_his_words_into_the_nearest_agents_md(
-    recorded: Answers, monkeypatch: pytest.MonkeyPatch
+def test_pr_set_serves_refuses_a_pr_changing_code_a_ruling_of_its_job_rules_on_until_it_writes_his_words_beside_that_code(
+    run: Run, with_pr: str, recorded: Answers, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    recorded.shown["23ff059"] = {"id": "23ff059", "title": "How should the cache key?", "body": '"Key the cache on the run id"\nNotes: cci owner 1', "tags": ["ruling", "code:go/sand/cache"]}
-    data = {"roles": {"coordinator": {"cwd": "/repo"}}, "prs": {"Forge-AI/monorepo#7": {"job": "j1"}}, "jobs": {"j1": {"brief_flags": {"ruling": ["23ff059"]}}}}
-    diff = b"diff --git a/go/sand/AGENTS.md b/go/sand/AGENTS.md\n--- a/go/sand/AGENTS.md\n+++ b/go/sand/AGENTS.md\n@@ -1 +1,2 @@\n # Sand\n+- Key the cache on the run id (Nov 11)\n"
-    monkeypatch.setattr(served, "change", lambda key: {"title": "Fix: cache key", "head": "aaaaaaa111", "diff": diff})
-    cli.refuse_an_unwritten_rule(data, "Forge-AI/monorepo#7")
-    diff = diff.replace(b"go/sand/AGENTS.md", b"go/sand/other/AGENTS.md")
-    with pytest.raises(state.DriveError, match='his ruling 23ff059 on how go/sand/cache must work, "Key the cache on the run id", is not written'):
-        cli.refuse_an_unwritten_rule(data, "Forge-AI/monorepo#7")
+    recorded.shown["c0de123"] = {"id": "c0de123", "title": "How should the cache key?", "body": '"Key the cache on the run id"\nNotes: cci owner 1', "tags": ["ruling", "code:go/sand/cache"]}
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["brief_flags"] = {"ruling": ["c0de123"]}
+    monkeypatch.setattr(github, "checkout_repo", lambda cwd: "Forge-AI/monorepo")
+    monkeypatch.setattr(github, "graphql", lambda text, what, max_age="0s": {"data": {"repository": {alias: None for alias in re.findall(r"(g\d+): object", text)}}})
+    diff = b"diff --git a/go/sand/cache/key.go b/go/sand/cache/key.go\n--- a/go/sand/cache/key.go\n+++ b/go/sand/cache/key.go\n@@ -1 +1 @@\n-return id\n+return run.ID\n"
+    monkeypatch.setattr(served, "change", lambda key: {"title": "Fix: cache key", "body": "", "base": "base1", "head": "abc", "diff": diff})
+    assert cli.main(["pr", "set", PR, "--serves", "o1", "--design", "none"]) == 2
+    assert f'{with_pr}: refused, nothing set: c0de123 "Key the cache on the run id": {with_pr} changes go/sand/cache/key.go, under go/sand/cache, and no AGENTS.md' in capsys.readouterr().err
+    assert state.load("demo")["prs"][with_pr].get("serves") is None
+    diff += b"diff --git a/go/sand/AGENTS.md b/go/sand/AGENTS.md\n--- a/go/sand/AGENTS.md\n+++ b/go/sand/AGENTS.md\n@@ -1 +1,2 @@\n # Sand\n+- Ruled Nov 11: Key the cache on the run id\n"
+    assert run("pr", "set", PR, "--serves", "o1", "--design", "none")[0] == 0
+    assert state.load("demo")["prs"][with_pr]["serves"] == "o1"
 
 
 def test_a_drive_started_from_an_older_install_hands_its_verb_to_the_newest_install_before_a_drive_json_it_saved_refuses_it(
