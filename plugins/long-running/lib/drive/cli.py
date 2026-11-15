@@ -3169,7 +3169,7 @@ def deliver(args: argparse.Namespace, name: str) -> int:
     try:
         return restart(args, name, job["dispatch"], end or live_end(job), None, declared=step)
     except orca.OrcaError as error:
-        return unsent(args, job, held, error)
+        return unsent(args, state.load(name)["jobs"][args.id], held, error)
 
 
 def declared_step(name: str, job_id: str, job: dict, text: str | None = None) -> str | None:

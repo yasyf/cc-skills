@@ -1215,6 +1215,14 @@ class LocalTest(LaunchTest):
         self.assertEqual(self.launch.calls(), self.launch.local_calls()[:-1])
         self.assertEqual(self.launch.kept(), ["request.json", "worktree"])
 
+    def test_a_local_terminal_call_orca_refuses_says_its_whole_reply_on_the_one_line_drive_reads(self):
+        refusal = {"id": "req_1", "ok": False, "error": {"code": "runtime_unavailable", "message": "Could not read Orca runtime metadata. Start the Orca app first."}}
+        self.launch.local()
+        self.launch.reply("orca terminal send", {"rc": 1, "out": json.dumps(refusal, indent=2)})
+        result = self.launch.run(model="fable", WORKER_LOCAL="1")
+        self.assert_failed(self.launch, result, f"{SPARSE}\norca terminal send failed: {json.dumps(refusal, separators=(',', ':'))}", self.launch.local_calls()[:-3])
+        self.assertEqual(self.launch.kept(), ["request.json", "worktree"])
+
     def test_a_new_local_worktree_is_sparse_with_the_requested_cone(self):
         self.launch.local()
         result = self.launch.run(model="fable", WORKER_LOCAL="1", WORKER_SPARSE="desktop common")

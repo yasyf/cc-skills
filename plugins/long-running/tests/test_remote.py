@@ -3319,6 +3319,32 @@ def test_a_resume_of_a_running_sprite_job_that_builds_nothing_and_declares_a_mac
     assert (job["route"], job["dispatch"], state.SLOT_WAIT in job["waits"], kept_transcripts) == (state.LOCAL_ROUTE, "dispatch-2", False, [("j1", DISPATCH)])
 
 
+def test_a_resume_moving_a_sprite_job_to_this_mac_whose_launch_started_no_worker_says_its_texts_wait_on_its_lane_here(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kept_transcripts: list[tuple[str, str]]
+) -> None:
+    cloned(tmp_path, remote)
+    first = tmp_path / "first.md"
+    first.write_text(orca.vm_brief(remote, "j1", f"Order (his words): run the staging cases\nMac: {J4507_STEP}\nDrive: demo, order o1, job j1", None))
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(brief=str(first), workspace="pool-one", environment="pool-one", lane="demo-j1", state="running")
+    monkeypatch.setattr(orca, "call", lambda *args: pytest.fail(f"nothing is sent to the Sprite worker of a job that moves here: {args}"))
+    stopping(monkeypatch)
+    moving_launch(monkeypatch)
+    refusal = "orca-worker-launch.sh exited 1 before a worker started: orca terminal send failed: {}"
+
+    def unstarted(*args: object) -> dict:
+        raise orca.Unstarted(refusal)
+
+    monkeypatch.setattr(orca, "launch", unstarted)
+    code, out = run("job", "resume", "j1", "Handoff: run the cluster steps of the staging cases here")
+    assert (code, out.splitlines()[-1]) == (
+        0,
+        f"j1: held, not sent yet: {refusal}; the job keeps its text under the Orca request id each was held with, the watch sends them"
+        " once Orca reads its lane on this Mac alive, and its next worker gets them in its handoff",
+    )
+    assert state.load(remote)["jobs"]["j1"]["route"] == state.LOCAL_ROUTE
+
+
 J738_PROVE = 'PROVE: once that release is live on cloudrunner-next, on a run that hits the claude-sonnet-4-5 pool, Datadog "llm call failed" stage llm_policy shows none'
 J865_PROVE = 'PROVE: after that release is live, have an Iris chat\'s agent run sand iris -p "hi" from bash, then open the sidebar: the new chat is absent there'
 J1134_PROVE = "PROVE: after that release, db-read `SELECT session_type, count(*) FROM sessions WHERE created_at < now() - interval '2 days'` counts none"

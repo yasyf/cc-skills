@@ -348,7 +348,7 @@ fi
 
 orca_json() {
   local out
-  out=$(orca "$@" --json) || { echo "orca $1 $2 failed: $out" >&2; return 1; }
+  out=$(orca "$@" --json) || { echo "orca $1 $2 failed: $(jq -c . <<<"$out" 2>/dev/null || echo "${out//$'\n'/ }")" >&2; return 1; }
   echo "$out"
 }
 
