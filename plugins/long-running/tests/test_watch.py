@@ -1306,6 +1306,39 @@ def test_the_lines_of_an_order_the_meta_session_holds_go_to_it_and_never_the_coo
     assert posted(sent) == [("handoff", f"meta@{demo}", f"TAP Hold {KEY} [o1 j1]")]
 
 
+def test_a_staging_window_goes_to_the_session_holding_the_order_of_each_live_job_it_names_and_a_freeze_holding_staging_for_one_once(
+    demo: str, monkeypatch: pytest.MonkeyPatch, staging_slots: tuple[list[dict], list[dict]]
+) -> None:
+    """sandsql's defect 708047: a LIFT addressed to platform reached sandsql's jobs 19 minutes late, as nothing told the session holding each job's order that its window opened."""
+    tooling_order(demo, "waiting")
+    serve(monkeypatch, {})
+    sent = posts(monkeypatch)
+    records, freezes = staging_slots
+    head = "LIFT slot 3: freeze d6cnpuxte3 lifted at 2:27:47 PM.\nWINDOW: open now until 2:50 PM. In this window:"
+    records += [
+        {"seq": 707875, "text": f"{head}\n- meta j1: its plan-only previews may run now.\n- sandsql j9: its fork cases may run now.\n- The codex test box's next round may start.", "fields": {"attrs": {"order": "o1513"}}},
+        {"seq": 707880, "text": "GRANT slot 4: open until 3:10 PM.", "fields": {"attrs": {"job": "j1"}}},
+    ]
+    until = T0 + timedelta(minutes=40)
+    freezes += [
+        {"id": "d6cnpuxte4", "until": until.isoformat(), "reason": "fork cases", "holders": [f"{demo}/j1", "other/j1"]},
+        {"id": "d6cnpuxte5", "until": until.isoformat(), "reason": "a soak no job holds"},
+    ]
+    watching = watcher(demo)
+    assert watch.run_pass(watching, T0) == []
+    assert posted(sent) == [
+        ("handoff", f"meta@{demo}", line)
+        for line in (
+            "FREE j1 o1: staging slot in record 707875: LIFT slot 3: freeze d6cnpuxte3 lifted at 2:27:47 PM. WINDOW: open now until 2:50 PM. In this window: - meta j1: its plan-only previews may run now.",
+            "FREE j1 o1: staging slot in record 707880: GRANT slot 4: open until 3:10 PM.",
+            f"FREE j1 o1: staging slot in freeze d6cnpuxte4, which holds staging for it until {render.clock(until.astimezone())}: fork cases",
+        )
+    ]
+    sent.clear()
+    watch.run_pass(watching, T0 + watch.LIVE_EVERY)
+    assert [text for _, _, text in posted(sent) if text.startswith("FREE")] == []
+
+
 @pytest.mark.parametrize(
     ("line", "holder"),
     [

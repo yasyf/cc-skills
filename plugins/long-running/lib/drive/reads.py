@@ -516,8 +516,8 @@ def live(group: int) -> bool:
 
 
 @contextlib.contextmanager
-def break_glass(stack: str, reason: str, asker: str, checkout: Path, started: Callable[[str], None]) -> Iterator[Grant]:
-    """The forge/break-glass grant for the stack, started in the asker's name, its link handed to `started` as grant says, and passed, with the environment a command under it runs in: the env's admin credentials and the WINDOW_PROFILE role the grant opens to this Mac's machine, which the SandSQL guards admit, minted once STS reads the trust the grant wrote, as opened says, each minted on this Mac's machine profile so nobody signs in and ending no later than the grant, as the two profiles its AWS config names, the admin one its default, every other AWS setting of this Mac left out, so a command naming another stack's profile finds none. A stack whose admin role STS refuses this Mac's machine, as it refuses core-gbl-identity's, or a Mac with no machine profile or no WINDOW_PROFILE, is refused before any grant posts; the credentials go when the block ends, and from their writing to their deletion drive's stop signals are recorded for run_granted rather than acted on, so a drive told to stop deletes them."""
+def break_glass(stack: str, reason: str, asker: str, holder: str | None, checkout: Path, started: Callable[[str], None]) -> Iterator[Grant]:
+    """The forge/break-glass grant for the stack, started in the asker's name for the <drive>/<job> holding it, its link handed to `started` as grant says, and passed, with the environment a command under it runs in: the env's admin credentials and the WINDOW_PROFILE role the grant opens to this Mac's machine, which the SandSQL guards admit, minted once STS reads the trust the grant wrote, as opened says, each minted on this Mac's machine profile so nobody signs in and ending no later than the grant, as the two profiles its AWS config names, the admin one its default, every other AWS setting of this Mac left out, so a command naming another stack's profile finds none. A stack whose admin role STS refuses this Mac's machine, as it refuses core-gbl-identity's, or a Mac with no machine profile or no WINDOW_PROFILE, is refused before any grant posts; the credentials go when the block ends, and from their writing to their deletion drive's stop signals are recorded for run_granted rather than acted on, so a drive told to stop deletes them."""
     if not (named := STACK.fullmatch(stack)):
         raise ReadError(f'"{stack}" is no stack: name it as <domain>/<env>, such as sandsql/plat-usw2-prod')
     profile = machine_profile(named[1], checkout)
@@ -527,7 +527,7 @@ def break_glass(stack: str, reason: str, asker: str, checkout: Path, started: Ca
         assume(profile, session, STS_SHORTEST, checkout)
     except ReadError as error:
         raise ReadError(f"STS minted this Mac's machine no {profile['role_arn']} credentials, so no grant started: {error}") from None
-    link, ends = grant(stack, f"{asker}: {reason}", checkout, started)
+    link, ends = grant(stack, f"{asker}: {reason}", holder, checkout, started)
     minted = [(profile, mint(profile, session, link, ends, checkout)), (window, opened(window, link, ends, checkout))]
     name = profile.name.removeprefix("profile ")
     with stop_signals() as stops, tempfile.TemporaryDirectory(prefix="drive-break-glass-") as kept:
@@ -546,11 +546,11 @@ def break_glass(stack: str, reason: str, asker: str, checkout: Path, started: Ca
         yield Grant(link, name, ends, {**isolated, "AWS_CONFIG_FILE": str(path), "AWS_SHARED_CREDENTIALS_FILE": os.devnull, "AWS_PROFILE": name}, stops)
 
 
-def grant(stack: str, why: str, checkout: Path, started: Callable[[str], None]) -> tuple[str, datetime]:
-    """The link of the forge/break-glass grant started at dev's newest commit with the reason once it passed, and the end its build records, an hour after it granted; the link goes to `started` the moment bk build create prints it, before the build grants and Platy posts the grant to #releases."""
+def grant(stack: str, why: str, holder: str | None, checkout: Path, started: Callable[[str], None]) -> tuple[str, datetime]:
+    """The link of the forge/break-glass grant started at dev's newest commit with the reason once it passed, naming the job holding it, which a staging freeze another job holds refuses, as its BREAK_GLASS_HOLDER, and the end its build records, an hour after it granted; the link goes to `started` the moment bk build create prints it, before the build grants and Platy posts the grant to #releases."""
     created = run(
         ["bk", "build", "create", "-p", BREAK_GLASS_PIPELINE, "-b", BREAK_GLASS_BRANCH, "-m", why]
-        + ["-e", f"BREAK_GLASS_REASON={why}", "-e", f"BREAK_GLASS_STACK={stack}", "--no-input", "-y"],
+        + ["-e", f"BREAK_GLASS_REASON={why}", "-e", f"BREAK_GLASS_STACK={stack}", *(["-e", f"BREAK_GLASS_HOLDER={holder}"] if holder else []), "--no-input", "-y"],
         checkout,
     )
     if not (build := BUILD_NUMBER.search(created)):

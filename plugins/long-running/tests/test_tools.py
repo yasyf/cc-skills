@@ -367,8 +367,8 @@ def test_drive_break_glass_grants_in_the_jobs_name_tells_root_whose_grant_it_is_
     granted, ran, posted = [], [], []
 
     @contextlib.contextmanager
-    def held(stack: str, reason: str, asker: str, checkout: object, started: Callable[[str], None]) -> Iterator[reads.Grant]:
-        granted.append((stack, reason, asker, str(checkout)))
+    def held(stack: str, reason: str, asker: str, holder: str | None, checkout: object, started: Callable[[str], None]) -> Iterator[reads.Grant]:
+        granted.append((stack, reason, asker, holder, str(checkout)))
         started(GLASS.link)
         yield GLASS
 
@@ -377,7 +377,7 @@ def test_drive_break_glass_grants_in_the_jobs_name_tells_root_whose_grant_it_is_
     monkeypatch.setattr(reads, "run_granted", lambda command, granted: ran.append((command, granted.env, len(posted))) or 3)
     assert run("break-glass", "j1", "--stack", "sandsql/plat-usw2-prod", "--reason", "count rows, read only", "--", "aws", "s3", "ls", "s3://forge-ci-logs/a b")[0] == 3
     coordinator = state.load(demo)["roles"]["coordinator"]["cwd"]
-    assert granted == [("sandsql/plat-usw2-prod", "count rows, read only", "demo j1", coordinator)]
+    assert granted == [("sandsql/plat-usw2-prod", "count rows, read only", "demo j1", "demo/j1", coordinator)]
     assert posted == [([*GLASS_RECORD, f"j1 [o1] break-glass grant {GLASS.link} on sandsql/plat-usw2-prod for: aws s3 ls 's3://forge-ci-logs/a b'; reason: count rows, read only"], "drive")]
     assert ran == [(["aws", "s3", "ls", "s3://forge-ci-logs/a b"], GLASS.env, 1)]
     assert run("break-glass", "j9", "--stack", "sandsql/plat-usw2-prod", "--reason", "x", "--", "aws", "s3", "ls")[0] == 2
@@ -397,7 +397,7 @@ def test_a_grant_whose_record_for_root_cci_refuses_runs_no_command(
     posted = []
 
     @contextlib.contextmanager
-    def held(stack: str, reason: str, asker: str, checkout: object, started: Callable[[str], None]) -> Iterator[reads.Grant]:
+    def held(stack: str, reason: str, asker: str, holder: str | None, checkout: object, started: Callable[[str], None]) -> Iterator[reads.Grant]:
         started(GLASS.link)
         yield GLASS
 

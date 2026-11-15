@@ -6232,7 +6232,7 @@ def page_frame(args: argparse.Namespace) -> int:
 
 
 def break_glass(args: argparse.Namespace) -> int:
-    """Run one command under the forge/break-glass grant for a stack, started in the job's or order's name with its reason, holding only the stack's env's admin credentials and the machine-break-glass role the grant opens to this Mac's machine, each minted on this Mac's machine profile to end no later than the grant, and stopped with every process left in its group by the grant's end or when drive is stopped: its output and exit status are the verb's, and nobody signs in. The moment bk build create prints the grant's link, before the grant shows in #releases, it posts root@<drive> one evidence record from lane break-glass naming the job and its order, the link, the stack, the command and the reason, so the top coordinator reads whose a grant is rather than asking every session; a post cci refuses runs nothing."""
+    """Run one command under the forge/break-glass grant for a stack, started in the job's or order's name with its reason, a job's as the <drive>/<job> holding it, so a staging freeze it holds admits it, holding only the stack's env's admin credentials and the machine-break-glass role the grant opens to this Mac's machine, each minted on this Mac's machine profile to end no later than the grant, and stopped with every process left in its group by the grant's end or when drive is stopped: its output and exit status are the verb's, and nobody signs in. The moment bk build create prints the grant's link, before the grant shows in #releases, it posts root@<drive> one evidence record from lane break-glass naming the job and its order, the link, the stack, the command and the reason, so the top coordinator reads whose a grant is rather than asking every session; a post cci refuses runs nothing."""
     name = state.resolve(args.drive)
     data = state.load(name)
     records, label = (data["jobs"], "job") if JOB_ID.fullmatch(args.id) else (data["orders"], "order")
@@ -6245,7 +6245,7 @@ def break_glass(args: argparse.Namespace) -> int:
         reads.run([*argv, "--text", reads.withheld(text)], Path.cwd(), reads.posting())
 
     try:
-        with reads.break_glass(args.stack, args.reason, f"{name} {args.id}", Path(data["roles"]["coordinator"]["cwd"]), started) as granted:
+        with reads.break_glass(args.stack, args.reason, f"{name} {args.id}", f"{name}/{args.id}" if label == "job" else None, Path(data["roles"]["coordinator"]["cwd"]), started) as granted:
             print(f"break-glass grant {granted.link} passed; running {args.command[0]} {reads.held(granted)}", file=sys.stderr, flush=True)
             return reads.run_granted(args.command, granted)
     except reads.ReadError as error:

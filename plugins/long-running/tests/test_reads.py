@@ -15,6 +15,7 @@ from drive.render import clock
 
 BUILD = "https://buildkite.com/forge/test/builds/121531"
 ASKER = "demo j7"
+HOLDER = "demo/j7"
 GRANT = "https://buildkite.com/forge/break-glass/builds/1926"
 PROOF = "long-running 1.0.639 from bin/../lib\nFAIL: GitHub lists no delivery the receiver answered 200 and logged\n"
 SED_PROOF = r'''#!/usr/bin/env bash
@@ -359,7 +360,7 @@ def grantable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, config: str, ende
 
 
 def glass(checkout: Path, stack: str = "sandsql/plat-usw2-prod", started: Callable[[str], None] = lambda link: None) -> str:
-    with reads.break_glass(stack, "count rows, read only", ASKER, checkout, started) as granted:
+    with reads.break_glass(stack, "count rows, read only", ASKER, HOLDER, checkout, started) as granted:
         return f"{granted.link} {reads.held(granted)}\n{reads.run(['aws', 'sts', 'get-caller-identity'], checkout, granted.env).strip()}"
 
 
@@ -372,7 +373,7 @@ def test_a_break_glass_grant_runs_its_command_holding_only_the_stacks_and_the_ma
     assert granted.calls == [
         PROBE,
         ["bk", "build", "create", "-p", "forge/break-glass", "-b", "dev", "-m", why]
-        + ["-e", f"BREAK_GLASS_REASON={why}", "-e", "BREAK_GLASS_STACK=sandsql/plat-usw2-prod", "--no-input", "-y"],
+        + ["-e", f"BREAK_GLASS_REASON={why}", "-e", "BREAK_GLASS_STACK=sandsql/plat-usw2-prod", "-e", f"BREAK_GLASS_HOLDER={HOLDER}", "--no-input", "-y"],
         ["started", GRANT],
         ["bk", "build", "watch", "1926", "-p", "forge/break-glass", "--interval", "2"],
         ["bk", "build", "view", "1926", "-p", "forge/break-glass", "-o", "json"],
@@ -436,7 +437,7 @@ esac
     monkeypatch.setenv("PATH", f"{bk.parent}{os.pathsep}{os.environ['PATH']}")
     monkeypatch.setattr(reads, "READ_SECONDS", reads.READ_SECONDS / replay_speedup)
     started: list[str] = []
-    assert reads.grant("sandsql/plat-usw2-prod", "count rows, read only", tmp_path, started.append) == (link, state.parse_time(ends))
+    assert reads.grant("sandsql/plat-usw2-prod", "count rows, read only", None, tmp_path, started.append) == (link, state.parse_time(ends))
     assert started == [link]
 
 
@@ -828,7 +829,7 @@ def test_a_break_glass_told_to_stop_and_stopped_again_while_it_ends_its_command_
         os.kill(os.getpid(), signal.SIGTERM)
 
     stopper = threading.Thread(target=stop_once_started)
-    with reads.break_glass("sandsql/plat-usw2-prod", "count rows, read only", ASKER, tmp_path, lambda link: None) as granted:
+    with reads.break_glass("sandsql/plat-usw2-prod", "count rows, read only", ASKER, HOLDER, tmp_path, lambda link: None) as granted:
         config = Path(granted.env["AWS_CONFIG_FILE"])
         stopper.start()
         status = reads.run_granted(["sh", "-c", f"trap 'kill -TERM $PPID; exit 0' TERM; sleep 60 & echo $! > {child}; wait"], granted)

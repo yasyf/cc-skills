@@ -135,6 +135,8 @@ BUILD_FIELDS = (
 )
 BUILD_ENDS = ("PASSED", "FAILED", "CANCELED", "BLOCKED", "SKIPPED", "NOT_RUN")
 FOLLOW_ENDS = tuple(end for end in BUILD_ENDS if end != "BLOCKED")
+SLOT_JOB = re.compile(r"^- (?:\S+ )?(?P<job>j\d+): ")
+SLOTS_TOPIC = "staging-slots"
 ABOUT = re.compile(r"\[(?P<order>o\d+) (?P<job>j\d+)\]$|^[A-Z]+ (?:\S+ )?(?:j\d+ )?(?P<named>o\d+)\b")
 MOVED_LINE = re.compile(r"MOVED (?:o\d+, )*o\d+ from (?P<lane>\S+) to ")
 
@@ -181,6 +183,8 @@ class Watcher:
     restacked: dict[str, tuple] = field(default_factory=dict)
     others: dict[str, Self] = field(default_factory=dict)
     joined_at: datetime | None = None
+    freezes_at: datetime | None = None
+    freezes: set[str] = field(default_factory=set)
 
     @property
     def lane(self) -> str:
@@ -909,6 +913,53 @@ def live_rows(watcher: Watcher, data: dict) -> tuple[Path, list[dict]]:
     watcher.live = live
     watcher.staged = {row["target"] for row in live if row["env"] == state.STAGING_ENV}
     return checkout, live
+
+
+def slot_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Hand each live job the watch hears the staging window it was given, as a FREE line to the session holding its order, which starts its agent while the window stands, since a job waiting on staging has usually ended its agent: its line in each t:staging-slots record naming it by its bare id, or the whole record whose job attr names it, each record read once, and each release freeze holding staging for <drive>/<job>, said once per freeze and job, read at most every LIVE_EVERY while the watch hears a live job, a failed read too."""
+    data = state.load(watcher.name)
+    live = {job_id: job for job_id, job in data["jobs"].items() if job["state"] not in state.FINISHED_JOB_STATES and heard_job(watcher, data, job)}
+    try:
+        records = slot_records(watcher.name, watcher.lane)
+    except reads.ReadError as error:
+        return read_failed(watcher, "staging slots", error, moment)
+    watcher.failures.pop("staging slots", None)
+    lines = []
+    for record in records:
+        head = record["text"].split("\n- ")[0]
+        named = {found["job"]: f" {line}" for line in record["text"].splitlines() if (found := SLOT_JOB.match(line))}
+        if attr := record["fields"].get("attrs", {}).get("job"):
+            named.setdefault(attr, "")
+        lines += [f"FREE {job_id} {live[job_id]['order']}: staging slot in record {record['seq']}: {head}{said}" for job_id, said in named.items() if job_id in live]
+    if not live or (watcher.freezes_at and moment - watcher.freezes_at < LIVE_EVERY):
+        return lines
+    watcher.freezes_at = moment
+    try:
+        freezes = held_freezes(watcher.name, data["roles"]["coordinator"]["cwd"])
+    except (state.DriveError, reads.ReadError) as error:
+        return lines + read_failed(watcher, "release freezes", error, moment)
+    watcher.failures.pop("release freezes", None)
+    held = {
+        f"{freeze['id']} {job_id}": f"FREE {job_id} {live[job_id]['order']}: staging slot in freeze {freeze['id']}, which holds staging for it until {render.clock(state.parse_time(freeze['until']).astimezone())}: {freeze['reason']}"
+        for freeze in freezes
+        for holder in freeze.get("holders", [])
+        if (job_id := holder.removeprefix(f"{watcher.name}/")) in live
+    }
+    told, watcher.freezes = watcher.freezes, set(held)
+    return lines + [line for key, line in held.items() if key not in told]
+
+
+def slot_records(name: str, lane: str) -> list[dict]:
+    """Each t:staging-slots record of the drive since the lane's watch last read them, oldest first, through cci's cursor for that lane, which cci moves past each record it prints; seeded with itself, a cursor not set yet starts at the drive's newest record, so a watch's first read replays no window that closed."""
+    cursor = f"watch-{SLOTS_TOPIC}-{lane}"
+    argv = ["cci", "tail", "--drive", name, "--topic", SLOTS_TOPIC, "--cursor", cursor, "--seed", cursor, "--json"]
+    return [json.loads(line) for line in reads.run(argv, Path.cwd()).splitlines()]
+
+
+def held_freezes(name: str, clone: str) -> list[dict]:
+    """Each release freeze standing now, as `tools/ci release freezes --json` prints it in the drive's checkout, orca.checkout moving it first."""
+    checkout = orca.checkout(name, clone)
+    return json.loads(reads.run([str(checkout / "tools" / "ci"), "release", "freezes", "--json"], checkout))
 
 
 def incident_fixes(watcher: Watcher, data: dict) -> dict[str, list[str]]:
@@ -5172,7 +5223,7 @@ def passed(watcher: Watcher, moment: datetime, until: Callable[[], object] = lam
 
 
 def stages(watcher: Watcher, moment: datetime, until: Callable[[], object] = lambda: None, lands: bool = False) -> Iterator[list[str]]:
-    """The lines of each stage of one loop of the watch, as it returns: first the lines its relay made since the last pass, so a pass that crashes while it reads every live lane's mail holds back none it already had, and new events, so a return `drive job report` took in another process is said in the pass its event wakes, then each part a job drive job add recorded not started leaves with no one, on every pass, a process's first included, so its ORPHAN comes on time however short a watch process lives, healing a gap that reads None only after the process's first read, since a gap a process reads before its agent_lines reads its lanes can read None and a part whose order a later stage closes is gone by the end's orphan_lines, then the drive's own Orca terminal every Orca call speaks as, his cards as the landing loop last stored them and the messages of his cc-slack owes an answer, or, in a pass run in-process, which lands, the landing stages, the finish of each builder whose READY's PRs all merged, DONE at the merge of a product change or the proof of a yasyf/* one, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, where each merged PR a release wait or an incident fix names runs, each Buildkite build a wait names or a part follows that is newly held or a delivery of Buildkite's named, the status message of each build a part follows, the waits his answers, a job's end, that read or the Buildkite read release or hold again, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, agents, the chains of waits that stood unmoved, the texts jobs hold that no worker taking messages gets, the communicator's compaction, the post in each place saying what waits on him, the status page, a coordinator whose process exited, a dashboard whose server exited, each teammate thread an order watches, each handoff the communicator withdrew and each message of his cc-slack owes an answer every 60 s, then events written since, its own stages' among them, and, in a pass that lands, the GitHub reads they and the rest owe while its last read answered, so a delivery is read in the pass it wakes, and each builder's PUSHED or lane's READY those settle, so one a lane sent this pass is taken in it, then the daily Slack sweep's drive tooling orders, claims whose end passed, job clocks run out, his answers no resume has carried to their jobs, each answer order left nothing owed, fixes proven live whose bug report has not heard, the next pass of each standing part no job holds, and parts nothing carries. Each stage after the orphans is named by its function: the pass starts those at the watcher's resume when one of them bears its name, so the watch after one that ended mid-pass for a newer install runs only the stages that one had not, and ends before the first one it reaches once until answers, keeping that one's name as the resume. A stage that keeps working after its save joins the lines it made by then to the watcher's made lines itself."""
+    """The lines of each stage of one loop of the watch, as it returns: first the lines its relay made since the last pass, so a pass that crashes while it reads every live lane's mail holds back none it already had, and new events, so a return `drive job report` took in another process is said in the pass its event wakes, then each part a job drive job add recorded not started leaves with no one, on every pass, a process's first included, so its ORPHAN comes on time however short a watch process lives, healing a gap that reads None only after the process's first read, since a gap a process reads before its agent_lines reads its lanes can read None and a part whose order a later stage closes is gone by the end's orphan_lines, then the drive's own Orca terminal every Orca call speaks as, his cards as the landing loop last stored them and the messages of his cc-slack owes an answer, or, in a pass run in-process, which lands, the landing stages, the finish of each builder whose READY's PRs all merged, DONE at the merge of a product change or the proof of a yasyf/* one, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, where each merged PR a release wait or an incident fix names runs, each Buildkite build a wait names or a part follows that is newly held or a delivery of Buildkite's named, the status message of each build a part follows, the staging window each live job was given, the waits his answers, a job's end, that read or the Buildkite read release or hold again, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, agents, the chains of waits that stood unmoved, the texts jobs hold that no worker taking messages gets, the communicator's compaction, the post in each place saying what waits on him, the status page, a coordinator whose process exited, a dashboard whose server exited, each teammate thread an order watches, each handoff the communicator withdrew and each message of his cc-slack owes an answer every 60 s, then events written since, its own stages' among them, and, in a pass that lands, the GitHub reads they and the rest owe while its last read answered, so a delivery is read in the pass it wakes, and each builder's PUSHED or lane's READY those settle, so one a lane sent this pass is taken in it, then the daily Slack sweep's drive tooling orders, claims whose end passed, job clocks run out, his answers no resume has carried to their jobs, each answer order left nothing owed, fixes proven live whose bug report has not heard, the next pass of each standing part no job holds, and parts nothing carries. Each stage after the orphans is named by its function: the pass starts those at the watcher's resume when one of them bears its name, so the watch after one that ended mid-pass for a newer install runs only the stages that one had not, and ends before the first one it reaches once until answers, keeping that one's name as the resume. A stage that keeps working after its save joins the lines it made by then to the watcher's made lines itself."""
     beat("drained", True)
     yield drained(watcher.relayed)
     beat("event_lines", True)
@@ -5204,6 +5255,7 @@ def stages(watcher: Watcher, moment: datetime, until: Callable[[], object] = lam
                     serving_lines,
                     build_lines,
                     status_lines,
+                    slot_lines,
                     waits_lines,
                     start_jobs,
                     folded_lines,

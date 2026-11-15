@@ -1029,6 +1029,21 @@ def unowed(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def staging_slots(monkeypatch: pytest.MonkeyPatch) -> tuple[list[dict], list[dict]]:
+    records: list[dict] = []
+    freezes: list[dict] = []
+
+    def read(name: str, lane: str) -> list[dict]:
+        unread = list(records)
+        records.clear()
+        return unread
+
+    monkeypatch.setattr(watch, "slot_records", read)
+    monkeypatch.setattr(watch, "held_freezes", lambda name, clone: list(freezes))
+    return records, freezes
+
+
+@pytest.fixture(autouse=True)
 def agents_at_work(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(watch, "local_gap", lambda job_id, job, data, moment: None)
     monkeypatch.setattr(watch, "codex_gap", lambda job_id, job: None)
