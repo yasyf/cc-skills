@@ -15,7 +15,7 @@ from pathlib import Path
 import drive
 import pytest
 import spawnllm
-from conftest import ACME_CUT, CARD_BODY, CUT_PICK, CUT_TAP, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SAND_NEXT_NOTE, SANDSQL_NOTE, SETTLED_LISTED, SETTLED_MATCHED, SETTLED_NOTE, SETTLED_RECORDED, SHORT_ASK, WRITTEN_AT, answered_cut, carrying, cloned, drawn_card, git_in, kept_research, Answers, explained, Checked, Chrome, Draws, Drawing, Heard, Images, Jev, Judge, MetaLaunches, Redraws, Thread, WatchProcess, Withdrawals
+from conftest import ACME_CUT, CAP_RULING, CARD_BODY, CUT_PICK, CUT_TAP, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SAND_NEXT_NOTE, SANDSQL_NOTE, SETTLED_LINE_ANSWERS, SETTLED_LISTED, SETTLED_MATCHED, SETTLED_NOTE, SETTLED_RECORDED, SHORT_ASK, WRITTEN_AT, answered_cut, carrying, cloned, drawn_card, git_in, kept_research, Answers, explained, Checked, Chrome, Draws, Drawing, Heard, Images, Jev, Judge, MetaLaunches, Redraws, Thread, WatchProcess, Withdrawals
 from drive import (
     agents,
     brief,
@@ -3961,7 +3961,8 @@ def test_job_ask_keeps_unsettled_a_card_whose_other_option_breaks_his_ruling_so_
     assert f'drive job ask: kept the card unsettled as "{marked}", asking him to lift 9992100, {WAIT_RULING["asked"]}, so it holds its PR' in capsys.readouterr().err
     question = state.load("demo")["jobs"]["j3"]["questions"][-1]
     assert (question["unsettled"], land.ship_held(state.load("demo"), "j3")) == (marked, [question["card"]])
-    jev.breaks("answers", WAIT_RULING["id"])
+    recorded.lined = [WAIT_RULING]
+    jev.breaks(f"{settled.LINE_KEY}2", WAIT_RULING["id"])
     assert cli.main(["job", "ask", "j3", str(block)]) == 0
     assert "kept the card unsettled" not in capsys.readouterr().err
     assert (state.load("demo")["jobs"]["j3"]["questions"][-1]["unsettled"], land.ship_held(state.load("demo"), "j3")) == (None, [])
@@ -4034,6 +4035,64 @@ def test_his_recorded_answers_reach_jev_as_ccn_ranks_them_nearest_to_the_whole_b
     found = SETTLED_MATCHED([block], {"roles": {"coordinator": {"cwd": "/work"}}, "answers": {}, "jobs": {}})
     assert calls == [(["ccn", "answer", "match", "-", "--label", "scope:durable", "--nearest", "--limit", "-1", "--json"], settled.read(block), "/work")]
     assert (found[0], len(found)) == (WAIT_RULING | {"link": None}, settled.CANDIDATES)
+
+
+def test_each_line_reaches_jev_beside_his_answers_ccn_ranks_nearest_to_it_and_finds_for_its_first_words_never_a_tap_a_provisional_pick_or_one_set_aside(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[list[str], str, str]] = []
+    tap = {"id": "a1" * 20, "title": "Tap Approve on Forge-AI/monorepo#7?", "body": "Approve", "tags": ["scope:durable", "kind:approval"]}
+    provisional = {"id": f"9a1b2c3{'0' * 33}", "title": "Which cap?", "body": f"{settled.PROVISIONAL}: the lane's recommendation", "tags": ["scope:durable"]}
+    cited = {"id": f"c17ed00{'0' * 33}", "title": "Cited already?", "body": "Yes", "tags": ["scope:durable"]}
+    ruling = {"id": f"{WAIT_RULING['id']}3{'0' * 32}", "title": WAIT_RULING["asked"], "body": f"{WAIT_RULING['said']}\nNotes: kept from his DM", "tags": ["scope:durable"]}
+    numbered = [{"id": f"{number:07d}{'0' * 33}", "title": f"Question {number}?", "body": "Yes", "tags": ["scope:durable"]} for number in range(10)]
+    ranked = {"match": [tap, provisional, cited, ruling, *numbered], "search": [cited, *reversed(numbered)]}
+    monkeypatch.setattr(settled, "ccn", lambda argv, text, cwd, failure: calls.append((argv, text, cwd)) or json.dumps(ranked[argv[2]]))
+    line = "Wait on <https://github.com/Forge-AI/monorepo/pull/7|the four queue PRs> before the helper process: up for removal"
+    [(kept, found)] = SETTLED_LINE_ANSWERS([line], {"roles": {"coordinator": {"cwd": "/work"}}, "answers": {}, "jobs": {}}, frozenset({"c17ed00"}))
+    assert calls == [
+        (["ccn", "answer", "match", "-", "--label", "scope:durable", "--nearest", "--limit", "-1", "--json"], settled.read(line), "/work"),
+        (["ccn", "answer", "search", "Wait on the four queue", "--label", "scope:durable", "--limit", "0", "--json"], "", "/work"),
+    ]
+    assert (kept, found[0], [answer["id"] for answer in found[1:]]) == (line, WAIT_RULING | {"link": None}, ["0000009", "0000000", "0000008", "0000001", "0000007", "0000002", "0000006"])
+
+
+def test_list_lines_are_each_bullet_numbered_item_and_table_row_but_its_rule_without_its_marker_once_each() -> None:
+    text = (
+        "Where each item stands:\n- the cloud tree's own cap\n* same-root sends skip safe mode\n• the say judge's 20 s\n2. the team default of 300\n3) the tap\n"
+        "| Item | Now |\n|---|:-:|\n| Cloud tree own cap | up for removal |\n- the cloud tree's own cap\n**Bold** words and a -dash are prose\n"
+    )
+    assert settled.list_lines(text) == [
+        "the cloud tree's own cap",
+        "same-root sends skip safe mode",
+        "the say judge's 20 s",
+        "the team default of 300",
+        "the tap",
+        "Item | Now",
+        "Cloud tree own cap | up for removal",
+    ]
+
+
+def test_job_report_refuses_a_readers_line_jev_reads_as_putting_up_for_change_what_his_recorded_answer_orders_and_keeps_it_with_a_warning_when_jev_gives_no_reading(
+    run: Run, meta: str, recorded: Answers, jev: Jev, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: the cloud tree")
+    run("job", "add", "reader", "--order", "o1", "--goal", "research: the cloud tree")
+    recorded.lined = [CAP_RULING]
+    undoing = "open: the cloud tree's own cap is up for removal"
+    returned = RESEARCH.replace("open: none", undoing)
+    jev.breaks(f"{settled.LINE_KEY}2", CAP_RULING["id"])
+    code, err = keep(monkeypatch, capsys, "j1", returned)
+    assert (code, err.startswith(f'drive: j1: refused, nothing kept: as Jev reads it, the line "{undoing}" says no ruling of his covers')) == (2, True)
+    assert f'his answer {CAP_RULING["id"]}, "{CAP_RULING["asked"]}", orders or keeps: "{CAP_RULING["said"]}"' in err
+    assert state.returns("demo", "j1") == []
+    [asked] = [request for request in jev.asked if any(key.startswith(settled.LINE_KEY) for key in request["questions"])]
+    lines = ["rulings: none on the copy path", undoing, "build: one store_copy_at call per stalled store"]
+    assert asked["state"] == {"against": settled.AGAINST, "lines": {f"l{number}": line for number, line in enumerate(lines, 1)}, "answers": {CAP_RULING["id"]: {key: CAP_RULING[key] for key in ("asked", "said")}}}
+    assert asked["questions"] == {f"{settled.LINE_KEY}{number}.{CAP_RULING['id']}": settled.asking(settled.LINE, line=f"l{number}", answer=CAP_RULING["id"]) for number in range(1, len(lines) + 1)}
+    jev.answer = None
+    code, err = keep(monkeypatch, capsys, "j1", returned)
+    assert (code, f"drive job report: {settled.UNREAD_LINES.format(failure='no jev decision within 20s')}" in err, len(state.returns("demo", "j1"))) == (0, True, 1)
 
 
 def test_his_card_answers_no_recorded_answer_holds_are_recorded_once_and_one_cc_notes_holds_under_that_question_keeps_its_id(
@@ -4125,8 +4184,8 @@ def test_job_ask_and_its_check_print_his_recorded_answer_jev_reads_as_already_an
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "chat turns run out of memory on plat")
     run("job", "add", "builder", "--order", "o1", "--goal", "move js_func into its own helper process")
-    recorded.matched = [WAIT_RULING | {"link": PICK}]
-    jev.breaks("answers", WAIT_RULING["id"])
+    recorded.lined = [WAIT_RULING | {"link": PICK}]
+    jev.breaks(f"{settled.LINE_KEY}2", WAIT_RULING["id"])
     block = tmp_path / "ask.md"
     block.write_text(SHORT_ASK)
     assert cli.main(["job", "ask", "j1", "--check", str(block)]) == 0
@@ -4136,6 +4195,13 @@ def test_job_ask_and_its_check_print_his_recorded_answer_jev_reads_as_already_an
     assert cli.main(["job", "ask", "j1", str(block)]) == 0
     assert f'Jev reads his answer 9992100 to "{WAIT_RULING["asked"]}" ({PICK}) as already answering this card: "{WAIT_RULING["said"]}"' in capsys.readouterr().err
     assert state.load("demo")["jobs"]["j1"]["questions"][-1]["card"]
+    lines = next(request["state"]["lines"] for request in jev.asked if "lines" in request["state"])
+    assert list(lines.values()) == [
+        "How should a finished run's files be laid out so its page opens without guessing?",
+        "One snapshot file per finished run, written when it ends, old runs backfilled: opens in 3 requests",
+        "A map file beside each journal file: no guessing, but one request per file and twice the objects",
+        "Map at the start of each file: changes the shared file format and still needs a length read first",
+    ]
 
 
 def test_his_thread_words_reach_only_the_order_they_are_about_never_another_order_sharing_its_thread(run: Run, demo: str, slack_thread: Thread) -> None:
@@ -9944,7 +10010,7 @@ def test_jev_reads_every_option_of_a_card_in_one_request_one_noul_an_option_and_
     assert settled.size(request["state"], questions) <= settled.REQUEST_CHARS
     jev.picks("none")
     jev.breaks("breaks2", NOT_SPECIAL["id"])
-    settled.judged(case, asked, [NOT_SPECIAL], [], {})
+    settled.judged(case, asked, [NOT_SPECIAL], [], {}, [])
     assert capsys.readouterr().err.startswith(f'drive job ask: Jev reads option "{asked.options[1]}" as breaking {NOT_SPECIAL["id"]}, {NOT_SPECIAL["asked"]}, "{NOT_SPECIAL["said"]}". This finding refuses no card')
     jev.breaks("breaks2", NOT_SPECIAL["id"], 0.5)
     settled.judged(case, asked, [NOT_SPECIAL], [], {})
@@ -10011,7 +10077,7 @@ def test_a_redrawn_card_is_judged_against_the_rulings_its_first_draft_was_never_
     offered = []
     for text in (PROOF_IDENTITY, PROOF_IDENTITY_REDRAWN):
         asked = limits.question(text, kept=True)
-        settled.judged(limits.ask_case(text, asked), asked, [], [], {})
+        settled.judged(limits.ask_case(text, asked), asked, [], [], {}, [])
         assert capsys.readouterr().err == ""
         request = jev.asked[-1]
         offered.append(([key for key in request["questions"] if key.startswith("card.")], list(handed(request))))
@@ -10031,11 +10097,11 @@ def test_jev_names_the_recorded_answer_or_ruling_it_reads_at_yes_for_the_recomme
     assert settled.judged(case, asked, [NOT_SPECIAL], [cited], {})[0] is None
     assert (jev.asked[-1]["questions"]["says.7a1c0de"], handed(jev.asked[-1])["7a1c0de"]) == (settled.asking(settled.SAYS, slot="w1"), {"asked": cited["asked"], "said": cited["said"]})
     jev.breaks("breaks1", NOT_SPECIAL["id"])
-    assert settled.judged(case, asked, [NOT_SPECIAL], [cited], {})[0] is None
+    assert settled.judged(case, asked, [NOT_SPECIAL], [cited], {}, [])[0] is None
     jev.breaks("breaks1", "ruling:32f49af")
-    assert settled.judged(case, asked, [NOT_SPECIAL], [cited], {})[0] == (limits.TEAM_DATA_WORDS, "the recommended option")
+    assert settled.judged(case, asked, [NOT_SPECIAL], [cited], {}, [])[0] == (limits.TEAM_DATA_WORDS, "the recommended option")
     jev.breaks("says", "7a1c0de")
-    assert settled.judged(case, asked, [NOT_SPECIAL], [cited], {})[0] == (cited, "the recommended option")
+    assert settled.judged(case, asked, [NOT_SPECIAL], [cited], {}, [])[0] == (cited, "the recommended option")
     capsys.readouterr()
     jev.ruled = {}
     jev.picks("7a1c0de", 0.55)
@@ -10051,9 +10117,9 @@ def test_jev_names_a_ruling_another_option_breaks_at_yes_beside_that_option_afte
     jev.breaks("breaks2", "ruling:32f49af", 0.5)
     assert settled.judged(case, asked, [NOT_SPECIAL], [], {})[0] is None
     jev.breaks("breaks2", "ruling:32f49af")
-    assert settled.judged(case, asked, [NOT_SPECIAL], [], {})[0] == (limits.TEAM_DATA_WORDS, f'option "{asked.options[1]}"')
+    assert settled.judged(case, asked, [NOT_SPECIAL], [], {}, [])[0] == (limits.TEAM_DATA_WORDS, f'option "{asked.options[1]}"')
     jev.breaks("breaks1", "ruling:32f49af")
-    assert settled.judged(case, asked, [NOT_SPECIAL], [], {})[0] == (limits.TEAM_DATA_WORDS, "the recommended option")
+    assert settled.judged(case, asked, [NOT_SPECIAL], [], {}, [])[0] == (limits.TEAM_DATA_WORDS, "the recommended option")
 
 
 def test_job_ask_says_on_stderr_that_jev_gave_no_answer_and_sends_the_question_to_him(

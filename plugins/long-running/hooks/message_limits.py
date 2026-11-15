@@ -210,6 +210,10 @@ CARRIED_SOURCE = "the report this post carries, another agent's words, as the po
 ALONE_SOURCE = "; that call held more than this record, so this is the record alone, as cci show prints it"
 
 
+class Warned(str):
+    """A finding the session hears beside its post, which goes out as written, such as list lines Jev gave no reading of against his recorded answers."""
+
+
 def his_drive(session: str) -> dict | None:
     """The drive this session is the communicator of, whose handlers write everything he reads in his DM with the app."""
     for name in state.session_drives(session):
@@ -555,7 +559,8 @@ def unsaid(parts: list[str], said: str) -> list[str]:
 
 
 def deny_reason(payload: dict) -> str | None:
-    return checked(payload)[0]
+    reason = checked(payload)[0]
+    return None if isinstance(reason, Warned) else reason
 
 
 def checked(payload: dict) -> tuple[str | None, dict]:
@@ -597,7 +602,7 @@ def claimed(claim: str, titled: dict[str, str]) -> str:
 
 
 def found_in(payload: dict, drive: dict, said: str, found: dict[str, dict]) -> str | None:
-    """What the drive's checks find in a post, which the say hook hands Jev to judge against his words: a bug report's thread gets one fix-live note once the fix is proven live, a question's thread one answer once it is posted to him, an edit of his question card redraws it, an edit of a post say made goes through say, a post in his DM goes through say, a thread outside his DM, such as an alert's, is named with its channel_id, a post to the people of a reporter's or watched teammate's thread or of another channel passes `cc-slack check-post`, a handler's line in his thread waits for its read of that thread, and then, every finding at once, the post keeps its length, links what it names, links the open question card of his asking about each PR or error it names, asks no tap that is not owed, backs each cause, and each state of work a session posting on its own tells him, with the record of the read that measured it, answers his order by no plan, record or answer of his that is missing, calls nothing by a word he corrected, tells him no coordinator is down that was not restarted, calls no job stuck or silent before its poster read that job's transcript, says no work sits with no one on it while it names no job on it now, tells him of no coming card but an open one it names or draws, types no clock time for work already done, says in a summary what a PR it names serves, which a PR card's line above its card already quotes, names in its writer's own words no failure of the drive's without the order or PR preventing it, and `cc-slack check-post` passes its exact words."""
+    """What the drive's checks find in a post, which the say hook hands Jev to judge against his words: a bug report's thread gets one fix-live note once the fix is proven live, a question's thread one answer once it is posted to him, an edit of his question card redraws it, an edit of a post say made goes through say, a post in his DM goes through say, a thread outside his DM, such as an alert's, is named with its channel_id, a post to the people of a reporter's or watched teammate's thread or of another channel passes `cc-slack check-post`, a handler's line in his thread waits for its read of that thread, and then, every finding at once, the post keeps its length, links what it names, links the open question card of his asking about each PR or error it names, asks no tap that is not owed, backs each cause, and each state of work a session posting on its own tells him, with the record of the read that measured it, answers his order by no plan, record or answer of his that is missing, calls nothing by a word he corrected, tells him no coordinator is down that was not restarted, calls no job stuck or silent before its poster read that job's transcript, says no work sits with no one on it while it names no job on it now, tells him of no coming card but an open one it names or draws, types no clock time for work already done, says in a summary what a PR it names serves, which a PR card's line above its card already quotes, names in its writer's own words no failure of the drive's without the order or PR preventing it, puts up for change in no line of a list an item a recorded answer of his orders or keeps, and `cc-slack check-post` passes its exact words."""
     dm = slack.dm()
     tool_input = payload["tool_input"]
     if PLACEHOLDER.fullmatch(text := (tool_input.get("text") or "").strip()):
@@ -645,7 +650,24 @@ def found_in(payload: dict, drive: dict, said: str, found: dict[str, dict]) -> s
             unbacked_start(payload, drive, said, order_id),
             agents.typed_time(said, drive),
             None if tool_input.get("tap_prs") else limits.kind_refusal(tool_input.get("text") or "", said, drive),
+            overruled_post(drive, written),
         ]
+    )
+
+
+def overruled_post(drive: dict, written: str) -> str | None:
+    """Why a line of a list in a post to him goes against his recorded answers: it says no ruling of his covers, puts up for change or asks him again an item a recorded answer of his orders or keeps, as settled.overruled reads it, naming that answer's id and words; a post Jev gives no reading of goes out with a warning."""
+    try:
+        picks = settled.overruled(settled.list_lines(written), drive)
+    except settled.Unheard as failure:
+        return Warned(f"message_limits: this post goes out as written; {settled.UNREAD_LINES.format(failure=failure)}")
+    if not picks:
+        return None
+    found = settled.overruling(picks)
+    return agents.Ruled(
+        f"refused: as Jev reads it, {found}. His words stand until he lifts them: keep each item as his answer orders, saying so, or leave it out",
+        settled.OVERRULED_RULE,
+        found=found,
     )
 
 
@@ -900,12 +922,13 @@ def unswitched(tool_input: dict, drive: dict) -> str | None:
 
 
 def every(refusals: list[str | None]) -> str | None:
-    """One refusal holding each check's, so a single rewrite fixes them all, its counted findings numbered as its refusals are and each check's findings beside its own rule, so Jev weighs each finding by its own; a refusal no Jev judges comes back alone."""
-    refused = [refusal for refusal in refusals if refusal]
+    """One refusal holding each check's, so a single rewrite fixes them all, its counted findings numbered as its refusals are and each check's findings beside its own rule, so Jev weighs each finding by its own; a refusal no Jev judges comes back alone, and a warning only when nothing refuses."""
+    found = [refusal for refusal in refusals if refusal]
+    refused = [refusal for refusal in found if not isinstance(refusal, Warned)]
     if unjudged := next((refusal for refusal in refused if isinstance(refusal, agents.Unjudged)), None):
         return unjudged
     if len(refused) < 2:
-        return next(iter(refused), None)
+        return next(iter(refused or found), None)
     listed = "\n".join(f"{index}. {refusal.removeprefix('refused: ')}" for index, refusal in enumerate(refused, 1))
     rules = "\n".join(f"{index}. {refusal.rule}" for index, refusal in enumerate(refused, 1) if isinstance(refusal, agents.Ruled))
     counted = "\n".join(f"{index}. {refusal.counted.removeprefix('refused: ')}" for index, refusal in enumerate(refused, 1) if isinstance(refusal, agents.Ruled) and refusal.counted)
@@ -1075,18 +1098,20 @@ def main() -> None:
         reads = [] if isinstance(reason, agents.Unjudged) else read_evidence(payload, sent.get("claims") or [])
         ids = {item["read"]: item["id"] for item in reads if item["id"].startswith("read:")}
         sent = sent | ({"claims": [claim | {"read": ids.get(claim["read"].strip(), claim["read"])} for claim in sent["claims"]]} if sent.get("claims") else {})
+        heard = {"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": reason}} if isinstance(reason, Warned) else {}
+        reason = "" if heard else reason
         judged = {"his_words": his_words(payload), "reads": reads, "post": sent} if (reason or reads) and not isinstance(reason, agents.Unjudged) else {}
         if unfit := judged and settled.unfit_reads(judged):
-            reason, judged = unroomed(unfit), {}
+            reason, heard, judged = unroomed(unfit), {}, {}
     except Exception as error:
         if isinstance(error, state.NewerDrive) and install.rechecked(Path(__file__).name, payload):
             return
-        reason, judged = (
+        reason, heard, judged = (
             f"refused: the drive's message check failed on this post with {type(error).__name__}: {error}, so it does not go"
             " out unchecked. Name it on a DEFECT line, and the post goes out once the check's fix is installed."
-        ), {}
+        ), {}, {}
     refused = denial(reason) | agents.ruled(reason) if reason else {}
-    if output := refused | judged:
+    if output := heard | refused | judged:
         print(json.dumps(output))
 
 

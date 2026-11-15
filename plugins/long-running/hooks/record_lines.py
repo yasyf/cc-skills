@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import agents, brief, install, limits, state, superseded
+from drive import agents, brief, install, limits, settled, state, superseded
 from drive.reports import CALL_FIELDS, addressed, attrs, hand_ask, kind, listed, posted, relayed_time, report_refusals, stray_parts, unprevented
 
 SILENT_LANES = {"long-running:reader", "long-running:designer"}
@@ -76,8 +76,25 @@ def refusals(payload: dict, names: list[str], drives: dict[str, dict], records: 
         yield unready(record)
         yield from report_refusals(payload, drive, records, index)
         yield relayed_time(record, drive)
-        words = "\n".join(filter(None, [record.get("text"), record.get("body"), record.get("path") and Path(record["path"]).read_text()]))
-        yield agents.Unjudged(asked) if (asked := brief.release_ask_refusal(kind(record), listed(record.get("to")), words, drive)) else None
+        yield agents.Unjudged(asked) if (asked := brief.release_ask_refusal(kind(record), listed(record.get("to")), record_words(record), drive)) else None
+
+
+def record_words(record: dict) -> str:
+    return "\n".join(filter(None, [record.get("text"), record.get("body"), record.get("path") and Path(record["path"]).read_text()]))
+
+
+def overruled_handoffs(drive: dict, records: list[dict]) -> tuple[str | None, list[str]]:
+    """Why a handoff record may not go, and what the session hears when it goes unread: a line of a list in a handoff's body says no ruling of his covers, puts up for change or asks him again an item a recorded answer of his orders or keeps, as settled.overruled reads it, naming that answer's id and words; a handoff Jev gives no reading of goes with a warning."""
+    if not (lines := [line for record in records if kind(record) == "handoff" for line in settled.list_lines(record_words(record))]):
+        return None, []
+    try:
+        picks = settled.overruled(list(dict.fromkeys(lines)), drive)
+    except settled.Unheard as failure:
+        return None, [f"record_lines: this handoff goes as written; {settled.UNREAD_LINES.format(failure=failure)}"]
+    if not picks:
+        return None, []
+    found = settled.overruling(picks)
+    return agents.Ruled(f"refused: as Jev reads it, {found}. His words stand until he lifts them: keep each item as his answer orders, saying so, or leave it out", settled.OVERRULED_RULE, found=found), []
 
 
 def readdressed(drives: dict[str, dict], session: str | None, record: dict) -> dict:
@@ -98,7 +115,7 @@ def posting_lane(data: dict, payload: dict, records: list[dict]) -> str:
 
 
 def decision(payload: dict) -> dict | None:
-    """What a drive session's post becomes: refused with the fix while a record in it, read with the text, kind, lanes and attrs cci stores for it, breaks a rule its kind keeps, an ask record carrying his card's ASK block, which only `drive job ask` keeps and draws, included, while any other ask, a question to another session's lane, goes out, else posted, each report re a POST report its own lane sent going out as the correction it is, with a warning on each POST line telling him a failure of the drive's with no word on how it is prevented, and every record in it trimmed of the attrs it never carries and one line, the rest in its body for whoever acts on it, each record sent where its drive routes it, and the call posted as posting_lane names, a records list rewritten with each record whole, since a field cci filled in beside the list would put back what the record dropped."""
+    """What a drive session's post becomes: refused with the fix while a record in it, read with the text, kind, lanes and attrs cci stores for it, breaks a rule its kind keeps, an ask record carrying his card's ASK block, which only `drive job ask` keeps and draws, included, while any other ask, a question to another session's lane, goes out, or a handoff whose list line goes against a recorded answer of his, by overruled_handoffs, else posted, each report re a POST report its own lane sent going out as the correction it is, with a warning on each POST line telling him a failure of the drive's with no word on how it is prevented, and every record in it trimmed of the attrs it never carries and one line, the rest in its body for whoever acts on it, each record sent where its drive routes it, and the call posted as posting_lane names, a records list rewritten with each record whole, since a field cci filled in beside the list would put back what the record dropped."""
     names = state.session_drives(payload.get("session_id") or "")
     if not names:
         return None
@@ -111,7 +128,10 @@ def decision(payload: dict) -> dict | None:
     stored = [limits.as_stored(record) for record in records]
     if refused := next(filter(None, refusals(payload, names, drives, stored)), None):
         return {"permissionDecision": "deny", "permissionDecisionReason": refused}
-    warned = [warning for record in stored if (warning := unprevented(drive, record))]
+    overruled, unread = overruled_handoffs(drive, stored)
+    if overruled:
+        return {"permissionDecision": "deny", "permissionDecisionReason": overruled}
+    warned = [*unread, *(warning for record in stored if (warning := unprevented(drive, record)))]
     context = {"additionalContext": "\n".join(warned)} if warned else {}
     made = [limits.shortened(routed) or routed for routed in (readdressed(drives, payload.get("session_id"), record) for record in records)]
     lane = posting_lane(drive, payload, made)

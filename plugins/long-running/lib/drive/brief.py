@@ -755,6 +755,25 @@ def report_refusal(name: str, data: dict, job_id: str, text: str) -> str | None:
     )
 
 
+def overruled_refusal(data: dict, job: dict, text: str) -> str | None:
+    """Why a reader's or design's return may not be kept: a line of its Researched: block but exists:, a Change: line or a line of a list says no ruling of his covers, puts up for change or asks him again an item a recorded answer of his orders or keeps, as settled.overruled reads it, naming that answer's id and words; kept with a warning on stderr when Jev gives no reading, and a reader's DESIGN is read as his card by drive job ask instead, whose finding refuses nothing, by his pick 320b7a7."""
+    if job["kind"] not in RESEARCH_KINDS or job["kind"] == "reader" and text.lstrip().startswith("DESIGN"):
+        return None
+    lines = [line for line in block_lines(text) if not line.removeprefix("- ").casefold().startswith("exists:")]
+    lines += [found[0].strip() for found in state.change_lines(job["kind"], text)] + settled.list_lines(text)
+    try:
+        picks = settled.overruled(list(dict.fromkeys(lines)), data)
+    except settled.Unheard as failure:
+        print(f"drive job report: {settled.UNREAD_LINES.format(failure=failure)}", file=sys.stderr)
+        return None
+    if not picks:
+        return None
+    return (
+        f"as Jev reads it, {settled.overruling(picks)}. His words stand until he lifts them: keep each item as his answer orders,"
+        " citing its id as standing, or put it to him as a card asking him to lift it"
+    )
+
+
 def reader_refusal(data: dict, job_id: str, job: dict, order: dict, text: str, lines: list[str]) -> str | None:
     """Why a reader's return may not be kept: research for a build order carries its filled Researched: block, and a DESIGN is a choice for him of two to four options, one recommended, starting from the root cause its evidence finds and offering the option that removes it, and on a bug hurting someone now names the immediate fix shipping while he picks."""
     block = researched(text)

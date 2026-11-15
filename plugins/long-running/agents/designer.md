@@ -44,9 +44,9 @@ the shape to keep: "don't go based on what's currently there design this cleanly
 - Read his recorded answers on the whole area the part touches (`answer_search` or
   `ccn answer search "<words>"`) beside the brief's `Order (his words):` and `Decisions that bind:`,
   since a ruling on a neighboring piece binds this part too. Your `rulings:` line quotes, by id,
-  each answer of his `ccn answer match` returns for the order's whole words and each
-  `scope:durable` answer on its area, as a reader's does, since every builder of your changes is
-  bound by it.
+  each `scope:durable` answer on its area, as a reader's does, since every builder of your changes
+  is bound by it, and `drive job report` reads your lines against his answers as it reads a
+  reader's.
 - What his words decide is settled: quote him on your `rulings:` line and ask nothing about it.
   He may already have answered a block's own question, asked in the same words, on or under its
   card or recorded under it. Then `drive job ask` keeps the block settled by that answer with no
