@@ -343,7 +343,7 @@ def added_order(args: argparse.Namespace, unfiled: bool = False) -> tuple[str, d
         check_tooling_words(name, args.words)
     if not (args.joins or args.incident or args.options_only or unfiled or args.kind == "answer"):
         args.joins = settled.repeats(state.load(name), args.words, tooling)
-    project, workstream = (None, None) if unfiled or args.joins else filing(state.load(name), args.words, args.project, args.workstream)
+    project, workstream = (None, None) if unfiled or args.joins else filing(state.load(name), args.words, args.project, args.workstream, "refused, no order added")
     paged = not (tooling or args.incident or args.joins) and settled.asks_page(args.words)
     with state.edit(name) as data:
         role = state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID"))
@@ -401,7 +401,7 @@ def added_order(args: argparse.Namespace, unfiled: bool = False) -> tuple[str, d
         carriers = [job_id for job_id, job in state.orders_jobs(data, group).items() if job["state"] not in state.FINISHED_JOB_STATES]
         for job_id in carriers:
             state.carry(data, job_id, order_id, list(order["parts"]))
-            state.hold_text(data["jobs"][job_id], f'His words, kept as {order_id} on the feature of {order["joins"]} this job carries: "{args.words}"', state.HIM)
+            state.hold_text(data["jobs"][job_id], state.joined_words(order_id, order["joins"], args.words), state.HIM)
     if page_job:
         started.append(page_brief(name, page_job))
     if joined:
@@ -604,7 +604,7 @@ def check_tooling_words(name: str, words: str) -> None:
         )
 
 
-def filing(data: dict, words: str, project: str | None, workstream: str | None) -> tuple[str, str]:
+def filing(data: dict, words: str, project: str | None, workstream: str | None, refused: str) -> tuple[str, str]:
     """The project and workstream the dashboard's Now screen files an order under: on a "Drive tooling:" order The drive and Drive tooling unless a flag names another, and on his order both named, refused naming the pairs in use, and refused by `one_home` for a name filing its subject elsewhere."""
     if words.startswith(state.TOOLING):
         project, workstream = project or TOOLING_FILING[0], workstream or TOOLING_FILING[1]
@@ -612,7 +612,7 @@ def filing(data: dict, words: str, project: str | None, workstream: str | None) 
         one_home(data, project, workstream)
         return project, workstream
     missing = " and ".join(f"--{field}" for field, value in (("project", project), ("workstream", workstream)) if not value)
-    raise DriveError(f"refused, no order added: name {missing}, which file his order on the dashboard's Now screen, reusing a pair in use where it fits: {pairs_in_use(data)}")
+    raise DriveError(f"{refused}: name {missing}, which file his order on the dashboard's Now screen, reusing a pair in use where it fits: {pairs_in_use(data)}")
 
 
 def unfiled_refusal(data: dict, order_id: str) -> str | None:
@@ -774,7 +774,7 @@ def refuse_unquotable_parts(flag: str, parts: list[str]) -> None:
 
 
 def order_set(args: argparse.Namespace) -> int:
-    """Change an order, reworking only the PRs --rework names and naming each open PR card of his in a thread it moves into or is sorted again in, which it leaves up; --add-part refuses a name a part cannot hold, by state.unquotable_part, and --add-part and --drop-part change only the parts they name, by change_parts; closing one that owes him a promised line reads its thread and refuses until the line is there or he withdrew the time, closing one done refuses while the bug report it fixes has not heard it is fixed, and --no-options-only, his pick, adds the builder of each change a design on it listed that no builder is on, as drive job report does once a design returns; --incident turns an open order into an incident by turned_incident and names each open question card of his its words point at, by state.asked_lines; --standing keeps each --part standing on its goal, or takes it out with an empty one, by standing_parts, which --part needs no --kind for; a change to its parts, kind, standing parts, options-only mark or incident mark from a session of the drive that does not hold the order is refused before anything is written, by state.held_elsewhere, the check every job verb makes, but for the communicator and its handlers, which file his words onto any order's parts and kind and are refused only the incident mark."""
+    """Change an order, reworking only the PRs --rework names and naming each open PR card of his in a thread it moves into or is sorted again in, which it leaves up; --add-part refuses a name a part cannot hold, by state.unquotable_part, and --add-part and --drop-part change only the parts they name, by change_parts; closing one that owes him a promised line reads its thread and refuses until the line is there or he withdrew the time, closing one done refuses while the bug report it fixes has not heard it is fixed, and --no-options-only, his pick, adds the builder of each change a design on it listed that no builder is on, as drive job report does once a design returns; --incident turns an open order into an incident by turned_incident and names each open question card of his its words point at, by state.asked_lines; --standing keeps each --part standing on its goal, or takes it out with an empty one, by standing_parts, which --part needs no --kind for; a change to its parts, kind, standing parts, options-only mark or incident mark from a session of the drive that does not hold the order is refused before anything is written, by state.held_elsewhere, the check every job verb makes, but for the communicator and its handlers, which file his words onto any order's parts and kind and are refused only the incident mark. --unjoin takes it off the order it joined, by state.unjoin, filed under its own project and workstream by filing, from any session, since it changes no part."""
     name = state.resolve(args.drive)
     withdrawn = his_words(args.withdrawn, "withdraw a promised line") if args.withdrawn else None
     unreported = his_words(args.no_reporter, "take the reporters off an order") if args.no_reporter else None
@@ -783,8 +783,8 @@ def order_set(args: argparse.Namespace) -> int:
     closing = args.state in state.CLOSED_ORDER_STATES and not withdrawn
     order = find(data["orders"], args.id, "order")
     session = os.environ.get("CLAUDE_CODE_SESSION_ID")
-    filing = state.session_role(data, session) == "communicator"
-    shaping = args.incident is not None or not filing and (args.add_part or args.drop_part or args.kind or args.standing is not None or args.options_only is not None)
+    communicating = state.session_role(data, session) == "communicator"
+    shaping = args.incident is not None or not communicating and (args.add_part or args.drop_part or args.kind or args.standing is not None or args.options_only is not None)
     if shaping and (refused := state.held_elsewhere(data, args.id, session)):
         raise DriveError(f"{args.id}: refused, nothing written: {refused}")
     refuse_unquotable_parts("--add-part", args.add_part)
@@ -803,6 +803,11 @@ def order_set(args: argparse.Namespace) -> int:
         check_proof(args.proof)
     if args.title is not None:
         titled(args.title)
+    if args.unjoin and not order["joins"]:
+        raise DriveError(f"--unjoin: refused, nothing written: {args.id} joins no order")
+    if args.unjoin:
+        refused = f"{args.id}: refused, nothing written: --unjoin files it under its own project and workstream, never {order['project']} / {order['workstream']} it took from {order['joins']}"
+        args.project, args.workstream = filing(data, order["text"], args.project, args.workstream, refused)
     alerts = alert_links(args.alerts)
     standing = standing_parts(name, data, args.id, args.add_part, args.drop_part, args.part, args.standing) if args.standing is not None else []
     sorted_parts = sorted_as(data, args.id, args.kind, args.part if args.kind or args.standing is None and not followed else [])
@@ -905,6 +910,7 @@ def order_set(args: argparse.Namespace) -> int:
             order["complex"] = args.complex
         if args.reporter or unreported:
             order["reporters"] = reporters
+        unjoined = unjoined_lines(args.id, *state.unjoin(data, args.id)) if args.unjoin else []
         filed = [field for field in FILING if getattr(args, field) is not None]
         for field in filed:
             order[field] = (getattr(args, field) or "").strip() or None
@@ -919,7 +925,16 @@ def order_set(args: argparse.Namespace) -> int:
     reworked = rework_named_prs(name, args.id, reworks, cards, f"drive order set {args.id} --rework <PR>=<his permalink>")
     parts = [f"{args.id} {render.part_line(data, args.id, part)}" for part in dict.fromkeys([*sorted_parts, *standing, *([followed[0]] if followed else [])])]
     turned += state.asked_lines(data, order["text"]) if turning else []
-    return emit(args, render.order_line(data, args.id, order) + promised + "".join(f"\n{line}" for line in [*turned, *parts, *stopped, *render.builder_lines(data, added), *reworked]), {"id": args.id, **order})
+    return emit(args, render.order_line(data, args.id, order) + promised + "".join(f"\n{line}" for line in [*turned, *unjoined, *parts, *stopped, *render.builder_lines(data, added), *reworked]), {"id": args.id, **order})
+
+
+def unjoined_lines(order_id: str, head: str, carriers: list[str], told: list[str]) -> list[str]:
+    """What --unjoin did: the jobs of the feature it left that carry the order no more, each worker that took its words before the unjoin, which no text takes back, and the reader its unheld parts now wait on."""
+    return [
+        f"{order_id} joins {head} no longer: {', '.join(carriers) or 'no job'} carry it no more and hold its words no longer, so its parts are unheld",
+        *([f"{', '.join(told)} took its words before the unjoin: tell each worker {order_id} is not its work"] if told else []),
+        f"add its reader with drive job add reader --order {order_id}",
+    ]
 
 
 def follow_ask(data: dict, order_id: str, build: str, ask: str, named: list[str]) -> tuple[str, dict]:
@@ -5648,6 +5663,16 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--once", action=argparse.BooleanOptionalAction, help="mark or unmark it as a repair he asked to run once, which puts up no PR")
     verb.add_argument("--project", metavar="NAME", help="the project the dashboard's Now screen files this order under; an empty name takes it out")
     verb.add_argument("--workstream", metavar="NAME", help="the workstream inside its project the Now screen files this order under; an empty name takes it out")
+    verb.add_argument(
+        "--unjoin",
+        action="store_true",
+        help=(
+            "take it off the order it joined, by drive order add --joins or Jev's read: it no longer takes that order's note, threads or jobs, each job of that"
+            " feature carries it no more and drops the words it held for its worker, and it files under its own --project and --workstream, both"
+            f' needed on his order and on a "{state.TOOLING}" order default {TOOLING_FILING[0]} and {TOOLING_FILING[1]}, so its parts are unheld'
+            " and its own reader can start; refused for an order that joins none"
+        ),
+    )
     verb.add_argument("--title", metavar="WORDS", help=f"the few words, at most {TITLE_CHARS} characters and no link, the dashboard names this order by")
     verb.add_argument(
         "--record",
