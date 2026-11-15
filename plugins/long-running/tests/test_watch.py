@@ -1,3 +1,4 @@
+import io
 import json
 import os
 import plistlib
@@ -3872,7 +3873,10 @@ def test_a_job_waiting_on_a_codex_job_holds_through_its_handoff_a_pointer_report
     data = state.load(demo)
     assert (data["jobs"]["j3"]["state"], data["jobs"]["j3"]["said"]) == ("stopped", handoff)
     pointer = "REPLY_FILE: /runs/codex-ask.1/codex-r-1"
-    assert state.result_refusal(data, "j3", pointer, f"{pointer}\n").startswith("j3 is stopped, so its work goes on in another job")
+    monkeypatch.setattr("sys.stdin", io.StringIO(f"{pointer}\n"))
+    assert cli.main(["job", "report", "j3", "-", "--drive", demo]) == 0
+    stopped = state.load(demo)["jobs"]["j3"]
+    assert (stopped["state"], stopped["said"], state.opening(state.report_text(demo, "j3"))) == ("stopped", handoff, pointer)
     watching = watcher(demo)
     for minute in (0, 2, 4):
         assert not [line for line in watch.run_pass(watching, T0 + timedelta(minutes=minute)) if line.startswith("FREE ")]

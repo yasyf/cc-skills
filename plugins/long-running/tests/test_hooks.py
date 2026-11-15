@@ -647,6 +647,22 @@ def test_a_fresh_agent_started_on_a_stopped_jobs_brief_runs_it_past_its_builder_
     assert state.load("demo")["jobs"]["j1"]["state"] == "done"
 
 
+def test_the_agent_a_stop_left_on_its_job_keeps_its_last_return_and_ends_on_its_first_stop_while_the_job_stays_stopped_where_j92_could_not(
+    demo: str, run: Run, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    run("job", "add", "builder", "--order", "o1", "--goal", "fix it", "--agent", "a-7")
+    dropped = "his answer dropped every part it delivered"
+    run("job", "set", "j1", "--state", "stopped", "--said", dropped)
+    handoff = "HANDOFF /scratch/j1/left.md"
+    assert one_line_result.block_reason(agent_stop(handoff)).startswith("Refused on purpose: j1's return is not kept in the drive")
+    monkeypatch.setattr("sys.stdin", io.StringIO(f"{handoff}\nBranch: lr-move, commit 7667b812e9c5, unpushed\n"))
+    assert run("job", "report", "j1", "-")[0] == 0
+    assert one_line_result.block_reason(agent_stop(handoff)) is None
+    job = state.load("demo")["jobs"]["j1"]
+    assert (job["agent"], job["state"], job["said"]) == ("a-7", "stopped", dropped)
+
+
 def test_a_fresh_agent_on_a_running_jobs_brief_takes_it_over_once_its_old_session_is_gone(
     demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
