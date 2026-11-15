@@ -797,12 +797,14 @@ restating it.
 - A line about code, where it lives, what it does or why, stands on the posting session's own read
   of the code that does it, or the `{record:}` of the read that did, by his words "stop saying wrong
   shit bc you jsut guess and its probably misleading all your work" and "dont just take things for
-  granted critically evakuate them". A code comment, a panic, error or log message, a doc, a PR body,
-  the brief or an earlier answer is a claim to test against that code, never a line to repeat, and
-  the post says whether each claim it relies on holds. A record or a job's kept report is another
-  agent's reads: its line showing the read that measured it, the code by path and line or the call
-  and what it printed, backs a claim saying no more than that line, and any other line of it is a
-  claim to test. A line about every case stands on a read of what decides it, a line of an absence
+  granted critically evakuate them". A code comment, a panic, error or log message, a doc, the
+  brief or an earlier answer is a claim to test against that code, never a line to repeat, and the
+  post says whether each claim it relies on holds. A PR's body, its builder's account of its diff,
+  backs a line saying what that PR changes. A record or a job's kept report is another agent's
+  reads: its line showing the read that measured it, the code by path and line or the call and
+  what it printed, backs a claim saying what that line states, in its words or others, such as
+  whose a red is to fix, and any other line of it is a claim to test. A line about every case
+  stands on a read of what decides it, a line of an absence
   read from one metric, span or log series, such as no calls, zero rows or nothing since, stands also on a second source with no
   shared emitter showing the same absence, such as the caller's client spans beside the server's
   trace metric, since one series can be sampled or dropped before it is stored, and a mechanism it
@@ -1053,10 +1055,10 @@ line keeps its bold line and two sentences, as the status lines above show.
   own `claude --bg` session are the communicator's or a writer's words, never his, whatever they
   quote. Jev judges only the line each finding names, by its rule, in one request of at most 10,000
   characters filled by whole items as above, with two yes-or-no questions a finding: whether its rule
-  holds against its line, and whether his words lift it. Code decides on each probability of yes: a
-  finding answered 0.7 or more whose lift is under 0.3 holds the post, with the finding and its rule
-  as Jev's reason; a finding under 0.3, or one his words lift at 0.7 or more, lets it stand; and an
-  answer in the band between only warns, naming the finding. No post is held for saying more than
+  holds against its line, and whether his words lift it. Code decides on each probability of yes:
+  a finding under 0.3, or one his words lift at 0.7 or more, lets the post stand, and every other
+  finding, one in the band between included, holds it, with the finding and its rule as Jev's
+  reason, as a refused call in the band waits. No post is held for saying more than
   his message asked, nor as unpermitted, since no post in his DM or
   its threads needs words of his permitting it and cc-slack's Slack permission hook judges each post
   anywhere else: an allow rests on the reads and rules it cites as fully as on his words. A held post

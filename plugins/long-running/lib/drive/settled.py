@@ -1288,13 +1288,13 @@ def size(state: dict, questions: dict[str, Noul]) -> int:
 
 BACKED = Noul(
     "Does `reads.{read}.result`, that call's whole output, show what `claims.{claim}.claim` says?",
-    yes="The read's own output holds what the claim says, as it stands now for a state told as it stands, or a record's or report's line in it shows the read that measured just that.",
-    no="The read does not hold it, or only a doc, PR body, comment or log line, or a record's or report's line showing no read, inside it says so about code.",
+    yes="The read's own output holds what the claim says, in its words or nearly, as it stands now for a state told as it stands, a record's or report's line in it showing the read behind it holding what that line states, such as whose a red is to fix, and a PR's body what that PR changes.",
+    no="The read does not hold it, or only a doc, comment or log line, or a record's or report's line showing no read, inside it says so about code.",
 )
 BACKED_LINES = Noul(
     "Do the lines of `reads.{read}.result`, one part of that call's output by line number out of its `reads.{read}.lines`, show what `claims.{claim}.claim` says?",
     yes=BACKED.yes,
-    no="These lines do not hold it, or only a doc, PR body, comment or log line, or a record's or report's line showing no read, inside them says so about code.",
+    no="These lines do not hold it, or only a doc, comment or log line, or a record's or report's line showing no read, inside them says so about code.",
 )
 SPANS = Noul(
     "Does `claims.{claim}.claim` say only, every, all, no, nobody or never of a set, such as the routes minting a key or the callers of a function, while `reads.{read}.call` reads one member of that set rather than what decides every member?",
@@ -1355,7 +1355,7 @@ def refusal_verdict(rule: str, call: dict, findings: list[dict], seconds: float 
 
 
 def post_verdict(output: dict, seconds: float = DECIDE_SECONDS) -> dict:
-    """Whether a post the drive's checks hand with his words holds, by the requests `requests` packs, asked of Jev at once, every item Jev cannot weigh the post without whole in one of them, a read too long for one request by whole lines across several, since `unfit` refuses a post before it reaches here when one item alone has no room: it holds for a claim whose read, or each part of it, is under BACKS or matched none of the handler's calls, a claim saying only, every, no or never of a set whose read reads one member rather than what decides every member at YES, a sentence no claim holds whole that states a fact beyond the claims at YES, a post answering his question under a card while leaving a term of the card's first line it turns on unexplained at YES, a post in a thread of his DM holding orders that tells him of work past that thread's while his words there name no more at YES, by his ruling 98c20ce "we're talking about the work this thread is about", and a finding that holds at YES with no lift at NO or more, by his pick f9e9302 "The handler names the read behind each claim; Jev checks each claim against that read, whole, and holds only unbacked claims"; a claim at BACKS or more stands, since every unbacked claim of the drive's recorded posts drew under it; any other Noul in the band between, or a finding with no room left, only warns, naming it; a post that goes out says so first and names what it warns of, never in a refusal's words, which would tell the session nothing went out. When Jev cannot finish, a finding a count or a mark decides still holds, since no judgment lifts it, and every other only warns, by his pick b80a8b1 "Refusals only warn when the judge cannot finish: no post ever waits, but it goes out unchecked, as twice this morning"."""
+    """Whether a post the drive's checks hand with his words holds, by the requests `requests` packs, asked of Jev at once, every item Jev cannot weigh the post without whole in one of them, a read too long for one request by whole lines across several, since `unfit` refuses a post before it reaches here when one item alone has no room: it holds for a claim whose read, or each part of it, is under BACKS or matched none of the handler's calls, a claim saying only, every, no or never of a set whose read reads one member rather than what decides every member at YES, a sentence no claim holds whole that states a fact beyond the claims at YES, a post answering his question under a card while leaving a term of the card's first line it turns on unexplained at YES, a post in a thread of his DM holding orders that tells him of work past that thread's while his words there name no more at YES, by his ruling 98c20ce "we're talking about the work this thread is about", and a finding Jev reads neither as a match its rule never meant, under NO, nor as lifted by his words, at YES, so a finding in the band holds as a refused call's does, by his pick f9e9302 "The handler names the read behind each claim; Jev checks each claim against that read, whole, and holds only unbacked claims"; a claim at BACKS or more stands, since every unbacked claim of the drive's recorded posts drew under it; any other Noul in the band between, or a finding with no room left, only warns, naming it; a post that goes out says so first and names what it warns of, never in a refusal's words, which would tell the session nothing went out. When Jev cannot finish, a finding a count or a mark decides still holds, since no judgment lifts it, and every other only warns, by his pick b80a8b1 "Refusals only warn when the judge cannot finish: no post ever waits, but it goes out unchecked, as twice this morning"."""
     reason = refusal_reason(output)
     reads = {item["id"]: item for item in output.get("reads") or []}
     claims = output["post"].get("claims") or []
@@ -1380,10 +1380,8 @@ def post_verdict(output: dict, seconds: float = DECIDE_SECONDS) -> dict:
         holds, lifted = read.get(f"f{number}.holds"), read.get(f"f{number}.lifted", 0.0)
         if holds is None:
             unsure.append(f"finding {finding['found']}, which had no room in Jev's {REQUEST_CHARS:,} characters")
-        elif reading(holds) and lifted < NO:
+        elif reading(holds) is not False and reading(lifted) is not True:
             held.append(f"{finding['found']}, by its rule: {finding['rule']}")
-        elif (rule := reading(holds)) is None or rule and reading(lifted) is None:
-            unsure.append(f"finding {finding['found']}")
     for index, sentence in uncovered(output):
         if (fact := reading(read[f"s{index}.fact"])) is True:
             held.append(f'"{sentence}" states a fact no claim holds whole: pass that sentence, or each part of it, as claims beside the read behind each')
