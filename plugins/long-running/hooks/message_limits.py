@@ -155,21 +155,30 @@ WHOLE = (
     " permalink, one per line."
 )
 MEMBERS_SAID = (
-    "this thread message saying we're done and what the result is was is good, we should always do that. Also those root messages should be a tad"
-    " more compact and plain English, formatting is good but jsut describe in plain words (not eli5 but not citing random files) what we are doing"
+    "this is so much worse completely useless message, fix it it should jsut be what's. Fucking human would type saying “testing change X in staging"
+    " for 30, lmk if anyone objects” kinda thing. Edit it then fix tooling"
 )
+CLOSING_SAID = "this thread message saying we're done and what the result is was is good, we should always do that"
 MEMBERS_READING = f'the coordinator\'s reading of his words on the drive\'s staging claims "{MEMBERS_SAID}"'
-MEMBERS_REST = "Say in a few plain sentences what the work does and until when, as a teammate would; the code stays in the PR it links."
+MEMBERS_REST = (
+    'Say it in one plain line a person would type, such as "testing X on staging for 30, lmk if anyone objects" for a claim or "done, staging is free'
+    ' again and X passed" for its closing line, with no PR list or formatting.'
+)
 MEMBERS_RULE = (
     "A post at the root of a channel outside his DM, such as a staging claim, and each line in its thread speak to that channel's members, never to"
-    f" him: the root is a few plain sentences, at most {limits.SUMMARY_WORDS} words, a line in its thread at most {limits.LINE_WORDS}, and each says in"
-    f' plain words what the work does, naming no file or function, by his words on those posts: "{MEMBERS_SAID}".'
+    f" him, each at most {limits.LINE_WORDS} words naming no file or function: the root is the one line a person would type, such as"
+    ' "testing X on staging for 30, lmk if anyone objects", citing the repository\'s rule for the claim, with no PR list or formatting, by his words on'
+    f' those posts: "{MEMBERS_SAID}"; the line closing its thread says the work is done and its result, by his words "{CLOSING_SAID}".'
 )
+BOLD = re.compile(r"(?<![\w*])\*[^*\n]+\*(?![\w*])")
 MEMBERS_WORDS = {
-    "id": "ruling:1e8a8d5",
+    "id": "ruling:de20702",
     "source": "his feedback on the drive's staging claims",
     "quote": MEMBERS_SAID,
-    "detail": "his words on a post at the root of a channel outside his DM, such as a staging claim, and on each line in its thread, which speak to that channel's members",
+    "detail": (
+        "his words on a post at the root of a channel outside his DM, such as a staging claim, which speaks to that channel's members; of the line"
+        f' closing its thread he said "{CLOSING_SAID}"'
+    ),
 }
 RECORD_READ = re.compile(r"record:(\d+)")
 READ_WORDS = re.compile(r"[^\s:]+")
@@ -610,19 +619,26 @@ def found_in(payload: dict, drive: dict, said: str, found: dict[str, dict]) -> s
 
 
 def members_findings(payload: dict, written: str, dm: str) -> str | None:
-    """What a reader's checks find in a say post speaking to a channel's members, at the root of a channel outside his DM, such as a staging claim, or in that post's thread, in place of every check of a line to him: `cc-slack check-post` passes its exact words, the root keeps to a summary's words and a line in its thread to a line's, counting the words its writer typed, written, an edit rewording its post at that post's length, and it names no file or function, each finding judged by Jev against his words on those posts."""
+    """What a reader's checks find in a say post speaking to a channel's members, at the root of a channel outside his DM, such as a staging claim, or in that post's thread, in place of every check of a line to him: `cc-slack check-post` passes its exact words, the root and each line in its thread keep to a line's words, counting the words its writer typed, written, an edit rewording its post at that post's length, the root is one line with no bold, and it names no file or function, each finding judged by Jev against his words on those posts."""
     tool_input = payload["tool_input"]
     text = tool_input.get("text") or ""
-    shape, limit = ("a line in the thread of a post to a channel's members", limits.LINE_WORDS) if talk.place(tool_input)[1] else ("a post at the root of a channel outside his DM", limits.SUMMARY_WORDS)
     try:
         findings = slack.post_findings(text, False)
-        long = limits.word_refusal(tool_input | {"text": written}, limit, shape, edited_words(payload, dm), MEMBERS_READING, MEMBERS_REST)
+        long = limits.word_refusal(tool_input | {"text": written}, limits.LINE_WORDS, "a line to a channel's members", edited_words(payload, dm), MEMBERS_READING, MEMBERS_REST)
     except slack.SlackError as error:
         return f"refused: this post's words could not be checked, by `cc-slack check-post` or against the post it edits, so it does not go out: {error}."
     named = ", ".join(limits.code_names(text))
+    lines = len(text.strip().splitlines())
+    bold = BOLD.search(text)
+    formatted = not talk.place(tool_input)[1] and (
+        f"this post at the root of a channel outside his DM runs over {lines} lines"
+        if lines > 1
+        else bold and f"this post at the root of a channel outside his DM sets {bold[0]} in bold"
+    )
     return every(
         [
             long and agents.Ruled(long, MEMBERS_RULE, long, found=long.found),
+            agents.Ruled(f"refused: {formatted}. {MEMBERS_REST}", MEMBERS_RULE, found=formatted) if formatted else None,
             agents.Ruled(
                 "refused: `cc-slack check-post` finds this in the post's exact words; fix each, then post the fixed words:\n" + "\n".join(findings),
                 agents.PLAIN_WORDS_RULE,
@@ -631,7 +647,7 @@ def members_findings(payload: dict, written: str, dm: str) -> str | None:
             if findings
             else None,
             agents.Ruled(
-                f"refused: this post names {named}; say in plain words what the work does, which the channel's members read, and leave the code to the PR it links",
+                f"refused: this post names {named}; say in plain words what the work does, which the channel's members read, and leave the code to its PR",
                 MEMBERS_RULE,
                 found=f"this post names {named}",
             )
