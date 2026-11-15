@@ -4836,7 +4836,7 @@ def install_plugin(args: argparse.Namespace) -> int:
 
 
 def reload_plugins(args: argparse.Namespace) -> int:
-    return install.reload_main()
+    return install.reload_main(args.drive, args.seat, args.force)
 
 
 def default_bin_dir() -> Path:
@@ -6104,7 +6104,13 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--repo")
     verb.add_argument("--timeout", type=int, default=900)
     verb.set_defaults(run=install_plugin)
-    verb = verbs.add_parser("reload", help="type /reload-plugins into each session of every drive on this Mac, queued behind a turn still running after 30 seconds")
+    verb = verbs.add_parser(
+        "reload",
+        parents=[drive_opt],
+        help="hand each session of the drive, or of every drive on this Mac, to the one process typing into its Orca terminal, which types /reload-plugins once when Claude Code reads its turn over",
+    )
+    verb.add_argument("--seat", help="the one seat of --drive whose reload this process types, as the process an install starts does")
+    verb.add_argument("--force", action="store_true", help="with --seat, type it even when the seat already reloaded onto the newest plugin install, as a bare drive reload does")
     verb.set_defaults(run=reload_plugins)
 
     verb = verbs.add_parser("setup")

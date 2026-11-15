@@ -1,10 +1,10 @@
+import fcntl
 import json
 import os
 import plistlib
 import re
 import shutil
 import subprocess
-import threading
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -60,9 +60,11 @@ CODEX_RELEASE_TAG = """jobs:
       release-workflow: codex-release.yml
       paths: "plugins/codex/*.go :(exclude)plugins/codex/*_test.go"
 """
-IDLE = {"ok": True, "result": {"wait": {"condition": "tui-idle", "satisfied": True, "status": "running", "exitCode": None}}}
-BUSY = {"ok": False, "error": {"code": "timeout", "message": "timeout"}}
 SENT = {"ok": True, "result": {"send": {"accepted": True}}}
+SEEDED_UPDATE = "2026-11-08T10:00:00.000Z"
+UPDATED = "2026-11-09T10:00:00.000Z"
+UNANSWERED = {"ok": False, "error": {"code": "runtime_busy", "message": "long-poll capacity reached; retry with backoff"}}
+RELOADED = {"type": "system", "subtype": "local_command", "content": "<local-command-stdout>Reloaded: 33 plugins · 51 skills</local-command-stdout>"}
 CREATED = {"ok": True, "result": {"terminal": {"handle": "term_shown"}}}
 TAP_DIR = "/opt/homebrew/Library/Taps/yasyf/homebrew-tap"
 BREW_TAP = ["brew", "--repository", "yasyf/tap"]
@@ -99,12 +101,14 @@ class FakeGit:
         self.delivered_every = 30.0
         self.orca_calls: list[list[str]] = []
         self.orca_timeouts: list[float] = []
-        self.waits: dict[str, dict] = {}
+        self.sends: dict[str, list[dict]] = {}
+        self.unreloaded: set[str] = set()
+        self.reloading: Callable[[], None] = lambda: None
+        self.detached: list[list[str]] = []
         self.exited: Callable[[], None] = lambda: None
         self.installed_sha: str | None = None
         self.bare: list[str] = []
         self.install_root = Path("/cache")
-        self.together = threading.Barrier(1)
         self.projects: list[str] = []
         self.repos: dict[str, str] = {}
         self.stuck: set[str] = set()
@@ -130,7 +134,7 @@ class FakeGit:
 
     def seed(self) -> None:
         def entry(scope: str, **fields: str) -> dict:
-            return {"scope": scope, "version": "1.0.2", "lastUpdated": "2026-11-08T10:00:00.000Z", "installPath": "/cache/1.0.2", "gitCommitSha": OLD_COMMIT} | fields
+            return {"scope": scope, "version": "1.0.2", "lastUpdated": SEEDED_UPDATE, "installPath": "/cache/1.0.2", "gitCommitSha": OLD_COMMIT} | fields
 
         gone = entry("project", projectPath="/gone/worktree", version="0.7.2119", lastUpdated="2026-11-12T10:00:00.000Z", installPath="/cache/old")
         plugins = {key: [gone, entry("user"), *(entry("project", projectPath=folder) for folder in self.projects)] for key in SEEDED}
@@ -149,7 +153,7 @@ class FakeGit:
         )
         if scope not in self.stuck:
             plugin = key.partition("@")[0]
-            moved |= {"version": self.versions.get(plugin, "1.0.3"), "lastUpdated": "2026-11-09T10:00:00.000Z", "installPath": str(self.install_root / plugin / "1.0.3"), "gitCommitSha": self.installed_sha or self.refs[0]}
+            moved |= {"version": self.versions.get(plugin, "1.0.3"), "lastUpdated": UPDATED, "installPath": str(self.install_root / plugin / "1.0.3"), "gitCommitSha": self.installed_sha or self.refs[0]}
         self.write_installed(plugins)
 
     def clock(self) -> float:
@@ -196,12 +200,23 @@ class FakeGit:
     def orca(self, cmd: list[str], timeout: float) -> subprocess.CompletedProcess:
         self.orca_calls.append(cmd)
         self.orca_timeouts.append(timeout)
-        if cmd[2] == "wait":
-            self.together.wait()
-        if "/exit" in cmd:
+        if cmd[2] == "create":
+            return subprocess.CompletedProcess(cmd, 0, json.dumps(CREATED), "")
+        replies = self.sends.get(cmd[4], [SENT])
+        reply = replies.pop(0) if len(replies) > 1 else replies[0]
+        if reply["ok"] and "/exit" in cmd:
             self.exited()
-        reply = self.waits.get(cmd[4], IDLE) if cmd[2] == "wait" else CREATED if cmd[2] == "create" else SENT
+        if reply["ok"] and "/reload-plugins" in cmd and cmd[4] not in self.unreloaded:
+            self.reloading()
+            path = watch.session_transcript(next(held for name in state.names() for held in state.bound_sessions(state.saved(name)).values() if held["terminal"] == cmd[4]))
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a") as transcript:
+                transcript.write(json.dumps({"type": "user", "message": {"role": "user", "content": "<command-name>/reload-plugins</command-name>"}}) + "\n" + json.dumps(RELOADED) + "\n")
         return subprocess.CompletedProcess(cmd, 0 if reply["ok"] else 1, json.dumps(reply), "")
+
+    def detach(self, name: str, args: list[str], log: str) -> int:
+        self.detached.append([*args, "--drive", name])
+        return 4242
 
     def typed_into(self, terminal: str) -> list[list[str]]:
         return [call for call in self.orca_calls if call[4] == terminal]
@@ -273,6 +288,7 @@ def fake(config: Path, monkeypatch: pytest.MonkeyPatch) -> Callable[..., FakeGit
         monkeypatch.setattr(install, "APP_PLIST", git.app)
         monkeypatch.setattr(install, "clock", git.clock)
         monkeypatch.setattr(install, "sleep", git.sleep)
+        monkeypatch.setattr(state, "detach", git.detach)
         monkeypatch.setattr(receiver, "hear", git.hear)
         monkeypatch.setattr(dashboard, "serving", lambda name, port: None)
         return git
@@ -793,71 +809,255 @@ def start_drive(name: str, **terminals: str | None) -> None:
     state.create(data)
 
 
-def waited(terminal: str, wait_ms: str) -> list[str]:
-    return ["orca", "terminal", "wait", "--terminal", terminal, "--for", "tui-idle", "--timeout-ms", wait_ms, "--json"]
+def running(*sessions: str, status: str = "idle", folder: str = "/work") -> None:
+    records = install.config_dir() / "sessions"
+    records.mkdir(exist_ok=True)
+    for pid, session in zip((os.getpid(), os.getppid(), 1), sessions, strict=False):
+        (records / f"{pid}.json").write_text(json.dumps({"pid": pid, "sessionId": session, "cwd": folder, "status": status}))
 
 
-def sent(terminal: str) -> list[str]:
-    return ["orca", "terminal", "send", "--terminal", terminal, "--text", "/reload-plugins", "--enter", "--wait-submit", "10", "--json"]
+def handed(drive: str, terminal: str) -> str:
+    return f"pid 4242 types /reload-plugins into {terminal} once its turn ends, said in {state.drive_dir(drive) / install.RELOADS_LOG}"
 
 
-def by_hand(terminal: str) -> str:
-    return f"send it with: orca terminal send --terminal {terminal} --text /reload-plugins --enter"
+def sent(terminal: str, text: str = "/reload-plugins") -> list[str]:
+    return ["orca", "terminal", "send", "--terminal", terminal, "--text", text, "--enter", "--retry-request"]
 
 
-def test_an_install_types_reload_plugins_into_both_drive_sessions_once_each_is_idle(
+def sends(git: FakeGit, terminal: str) -> list[list[str]]:
+    return [call[:-2] for call in git.typed_into(terminal)]
+
+
+def held(git: FakeGit, capsys: pytest.CaptureFixture[str]) -> list[str]:
+    while git.detached:
+        assert cli.main(git.detached.pop(0)) == 0
+    return [line.partition(" ")[2] for line in capsys.readouterr().out.splitlines()]
+
+
+def stamps(drive: str) -> dict[str, str]:
+    return {seat: stamp["onto"] for seat, stamp in json.loads((state.drive_dir(drive) / install.RELOADS).read_text()).items()}
+
+
+def test_an_install_hands_each_drive_session_to_one_process_that_types_reload_plugins_once_its_turn_ends(
     fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]
 ) -> None:
     start_drive("demo", communicator="term_comm", coordinator="term_coord")
+    running("demo-communicator", "demo-coordinator")
     git = fake(["unused"], set())
-    git.together = threading.Barrier(2, timeout=5)
     assert install.main("long-running@skills", None, None, 900, None) == 0
-    assert git.typed_into("term_comm") == [waited("term_comm", "30000"), sent("term_comm")]
-    assert git.typed_into("term_coord") == [waited("term_coord", "30000"), sent("term_coord")]
+    assert git.orca_calls == []
     assert capsys.readouterr().out.splitlines() == [
         "installed long-running@skills 1.0.3",
-        "demo communicator: reloaded in term_comm",
-        "demo coordinator: reloaded in term_coord",
+        f"demo communicator: {handed('demo', 'term_comm')}",
+        f"demo coordinator: {handed('demo', 'term_coord')}",
     ]
+    assert git.detached == [["reload", "--seat", "communicator", "--drive", "demo"], ["reload", "--seat", "coordinator", "--drive", "demo"]]
+    assert held(git, capsys) == [
+        "demo communicator: reloaded onto long-running@skills 1.0.3 in term_comm",
+        "demo coordinator: reloaded onto long-running@skills 1.0.3 in term_coord",
+    ]
+    assert sends(git, "term_comm") == [sent("term_comm")]
+    assert sends(git, "term_coord") == [sent("term_coord")]
+    assert stamps("demo") == {"communicator": UPDATED, "coordinator": UPDATED}
 
 
 def test_an_install_reloads_the_sessions_of_a_drive_a_newer_install_saved_after_its_update(fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]) -> None:
     start_drive("demo", communicator="term_comm", coordinator="term_coord")
     state.store("demo", state.stored("demo") | {"saved_by": "9.9.9"})
+    running("demo-communicator", "demo-coordinator")
     git = fake(["unused"], set())
-    git.together = threading.Barrier(2, timeout=5)
     assert install.main("long-running@skills", None, None, 900, None) == 0
+    assert capsys.readouterr().out.splitlines()[1:] == [f"demo communicator: {handed('demo', 'term_comm')}", f"demo coordinator: {handed('demo', 'term_coord')}"]
+    assert held(git, capsys) == [
+        "demo communicator: reloaded onto long-running@skills 1.0.3 in term_comm",
+        "demo coordinator: reloaded onto long-running@skills 1.0.3 in term_coord",
+    ]
+
+
+def test_an_install_that_changed_nothing_a_session_loads_types_nothing(fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]) -> None:
+    start_drive("demo", communicator="term_comm")
+    running("demo-communicator")
+    git = fake(["unused"], set())
+    assert install.main("long-running@skills", None, None, 900, None) == 0
+    capsys.readouterr()
+    held(git, capsys)
+    assert install.main("long-running@skills", None, None, 900, None) == 0
+    assert git.detached == []
+    assert capsys.readouterr().out.splitlines() == ["installed long-running@skills 1.0.3", "demo communicator: already reloaded onto long-running@skills 1.0.3"]
+    assert sends(git, "term_comm") == [sent("term_comm")]
+
+
+@pytest.mark.parametrize("status", ["busy", "waiting"])
+def test_the_process_holding_a_terminal_types_reload_plugins_only_once_claude_code_reads_its_turn_over(
+    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch, status: str
+) -> None:
+    start_drive("demo", communicator="term_comm")
+    running("demo-communicator", status=status)
+    git = fake(["unused"], set())
+    assert install.main("long-running@skills", None, None, 900, None) == 0
+    capsys.readouterr()
+
+    def turn_ends_after_3_seconds(seconds: float) -> None:
+        assert git.orca_calls == []
+        git.sleep(seconds)
+        if len(git.sleeps) == 3:
+            running("demo-communicator")
+
+    monkeypatch.setattr(install, "sleep", turn_ends_after_3_seconds)
+    assert held(git, capsys) == ["demo communicator: reloaded onto long-running@skills 1.0.3 in term_comm"]
+    assert git.sleeps == [1, 1, 1]
+    assert sends(git, "term_comm") == [sent("term_comm")]
+
+
+def test_an_install_finding_a_terminals_reload_lock_held_leaves_its_reload_to_that_process(fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]) -> None:
+    start_drive("demo", communicator="term_comm")
+    running("demo-communicator")
+    git = fake(["unused"], set())
+    with open(install.reload_lock("term_comm"), "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        assert install.main("long-running@skills", None, None, 900, None) == 0
+        assert git.detached == []
+        assert cli.main(["reload", "--seat", "communicator", "--drive", "demo"]) == 0
+    assert git.orca_calls == []
     assert capsys.readouterr().out.splitlines() == [
         "installed long-running@skills 1.0.3",
-        "demo communicator: reloaded in term_comm",
-        "demo coordinator: reloaded in term_coord",
+        "demo communicator: pending, as the process holding its reload lock (no holder found) types /reload-plugins into term_comm once its turn ends",
     ]
 
 
-def test_a_session_still_busy_after_the_wait_gets_reload_plugins_queued_behind_its_turn(
-    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]
-) -> None:
-    start_drive("demo", communicator="term_comm", coordinator="term_coord")
+def test_an_install_landing_while_a_reload_runs_is_reloaded_once_more_after_that_reload_shows(fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]) -> None:
+    start_drive("demo", communicator="term_comm")
+    running("demo-communicator")
     git = fake(["unused"], set())
-    git.together = threading.Barrier(2, timeout=5)
-    git.waits["term_coord"] = BUSY
     assert install.main("long-running@skills", None, None, 900, None) == 0
-    assert git.typed_into("term_comm") == [waited("term_comm", "30000"), sent("term_comm")]
-    assert git.typed_into("term_coord") == [waited("term_coord", "30000"), sent("term_coord")]
-    assert capsys.readouterr().out.splitlines()[1:] == [
-        "demo communicator: reloaded in term_comm",
-        "demo coordinator: busy for 30s, so /reload-plugins is queued in term_coord and runs when its turn ends",
+    capsys.readouterr()
+    pending: list[str] = []
+
+    def newer_install_lands() -> None:
+        if pending:
+            return
+        plugins = json.loads((git.config / "plugins" / "installed_plugins.json").read_text())["plugins"]
+        plugins["codex@skills"][1] |= {"version": "1.0.4", "lastUpdated": "2026-11-10T10:00:00.000Z"}
+        git.write_installed(plugins)
+        pending.append(install.reload_session("demo", "communicator", False))
+
+    git.reloading = newer_install_lands
+    assert held(git, capsys) == [
+        "demo communicator: reloaded onto long-running@skills 1.0.3 in term_comm",
+        "demo communicator: reloaded onto codex@skills 1.0.4 in term_comm",
     ]
+    assert pending == ["demo communicator: pending, as the process holding its reload lock (no holder found) types /reload-plugins into term_comm once its turn ends"]
+    assert sends(git, "term_comm") == [sent("term_comm"), sent("term_comm")]
+    assert stamps("demo") == {"communicator": "2026-11-10T10:00:00.000Z"}
 
 
-def exited(terminal: str) -> list[str]:
-    return ["orca", "terminal", "send", "--terminal", terminal, "--text", "/exit", "--enter", "--wait-submit", "10", "--json"]
+def test_an_install_finding_the_lock_held_while_its_holder_finds_nothing_left_is_reloaded_once_the_holder_lets_go(
+    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    start_drive("demo", communicator="term_comm")
+    running("demo-communicator")
+    git = fake(["unused"], set())
+    assert install.main("long-running@skills", None, None, 900, None) == 0
+    capsys.readouterr()
+    stamped, landed, pending = install.reloaded_onto, [], []
+
+    def another_holder_reloaded_then_an_install_landed(drive: str, seat: str) -> str:
+        with open(install.reload_lock("term_comm"), "a") as probe:
+            if landed or state.taken(probe, 0):
+                return stamped(drive, seat)
+        landed.append(seat)
+        (state.drive_dir(drive) / install.RELOADS).write_text(json.dumps({seat: {"onto": UPDATED, "at": state.stamp()}}))
+        plugins = json.loads((git.config / "plugins" / "installed_plugins.json").read_text())["plugins"]
+        plugins["codex@skills"][1] |= {"version": "1.0.4", "lastUpdated": "2026-11-10T10:00:00.000Z"}
+        git.write_installed(plugins)
+        pending.append(install.reload_session("demo", "communicator", False))
+        return UPDATED
+
+    monkeypatch.setattr(install, "reloaded_onto", another_holder_reloaded_then_an_install_landed)
+    assert held(git, capsys) == [
+        "demo communicator: already reloaded onto long-running@skills 1.0.3",
+        "demo communicator: reloaded onto codex@skills 1.0.4 in term_comm",
+    ]
+    assert pending == ["demo communicator: pending, as the process holding its reload lock (no holder found) types /reload-plugins into term_comm once its turn ends"]
+    assert sends(git, "term_comm") == [sent("term_comm")]
+    assert stamps("demo") == {"communicator": "2026-11-10T10:00:00.000Z"}
 
 
-def running_in(folder: str, session: str) -> None:
-    sessions = install.config_dir() / "sessions"
-    sessions.mkdir(exist_ok=True)
-    (sessions / f"{os.getpid()}.json").write_text(json.dumps({"pid": os.getpid(), "sessionId": session, "cwd": folder}))
+def test_a_send_orca_never_answered_is_reissued_under_its_retry_request_id_so_it_is_typed_once(fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]) -> None:
+    start_drive("demo", communicator="term_comm")
+    running("demo-communicator")
+    git = fake(["unused"], set())
+    git.sends["term_comm"] = [UNANSWERED, UNANSWERED, SENT]
+    assert install.main("long-running@skills", None, None, 900, None) == 0
+    capsys.readouterr()
+    assert held(git, capsys) == ["demo communicator: reloaded onto long-running@skills 1.0.3 in term_comm"]
+    first, *again = git.typed_into("term_comm")
+    assert again == [first, first]
+    assert git.sleeps == [1, 1]
+
+
+def test_a_send_orca_never_answers_names_the_retry_request_id_that_reissues_it_and_is_left_unstamped(fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]) -> None:
+    start_drive("demo", communicator="term_comm")
+    running("demo-communicator")
+    git = fake(["unused"], set())
+    git.sends["term_comm"] = [UNANSWERED]
+    assert install.main("long-running@skills", None, None, 900, None) == 0
+    capsys.readouterr()
+    lines = held(git, capsys)
+    request_id = git.typed_into("term_comm")[0][-2]
+    assert {call[-2] for call in git.typed_into("term_comm")} == {request_id}
+    assert len(git.typed_into("term_comm")) == install.RELOAD_WAIT_SECONDS + 1
+    assert lines == [
+        "demo communicator: not reloaded (orca terminal send: runtime_busy: long-poll capacity reached; retry with backoff;"
+        f" reissue it with: orca terminal send --terminal term_comm --text /reload-plugins --enter --retry-request {request_id})"
+    ]
+    assert not (state.drive_dir("demo") / install.RELOADS).exists()
+
+
+@pytest.mark.parametrize(
+    ("reply", "why"),
+    [
+        ({"ok": False, "error": {"code": "terminal_not_found", "message": "no terminal term_comm"}}, "terminal_not_found: no terminal term_comm"),
+        ({"ok": True, "result": {"send": {"accepted": False, "refusedReason": "agent_prompt_blocked"}}}, "refused: agent_prompt_blocked"),
+    ],
+    ids=["a terminal Orca cannot find", "a send Orca refuses"],
+)
+def test_a_send_orca_refuses_names_the_send_that_types_it_and_is_left_unstamped(
+    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str], reply: dict, why: str
+) -> None:
+    start_drive("demo", communicator="term_comm")
+    running("demo-communicator")
+    git = fake(["unused"], set())
+    git.sends["term_comm"] = [reply]
+    assert install.main("long-running@skills", None, None, 900, None) == 0
+    capsys.readouterr()
+    assert held(git, capsys) == [f"demo communicator: not reloaded (orca terminal send: {why}; send it with: orca terminal send --terminal term_comm --text /reload-plugins --enter)"]
+    assert len(git.typed_into("term_comm")) == 1
+    assert not (state.drive_dir("demo") / install.RELOADS).exists()
+
+
+def test_a_reload_whose_line_never_shows_while_its_session_sits_idle_is_left_unstamped_for_the_next_install(fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]) -> None:
+    start_drive("demo", communicator="term_comm")
+    running("demo-communicator")
+    git = fake(["unused"], set())
+    git.unreloaded = {"term_comm"}
+    assert install.main("long-running@skills", None, None, 900, None) == 0
+    capsys.readouterr()
+    transcript = watch.session_transcript(state.saved("demo")["roles"]["communicator"])
+    assert held(git, capsys) == [f"demo communicator: /reload-plugins typed in term_comm, but no Reloaded: line showed in {transcript} while it sat idle 30s"]
+    assert git.sleeps == [1] * install.RELOAD_WAIT_SECONDS
+    assert install.main("long-running@skills", None, None, 900, None) == 0
+    assert capsys.readouterr().out.splitlines()[1:] == [f"demo communicator: {handed('demo', 'term_comm')}"]
+
+
+def test_a_session_whose_claude_code_process_exited_is_typed_nothing_and_left_unstamped(fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]) -> None:
+    start_drive("demo", communicator="term_comm")
+    git = fake(["unused"], set())
+    assert install.main("long-running@skills", None, None, 900, None) == 0
+    capsys.readouterr()
+    assert held(git, capsys) == ["demo communicator: its Claude Code process exited, so it loads long-running@skills 1.0.3 once it starts again"]
+    assert git.orca_calls == []
+    assert not (state.drive_dir("demo") / install.RELOADS).exists()
 
 
 @pytest.mark.parametrize("incident", [False, True])
@@ -865,16 +1065,18 @@ def test_an_install_types_exit_into_a_session_cci_runs_outside_the_drives_checko
     fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str], registered: list[tuple[str, str, str]], tmux_shown: dict[str, str], incident: bool
 ) -> None:
     start_drive("demo", communicator="term_comm")
-    running_in("/old/durable-agents", "demo-communicator")
+    running("demo-communicator", folder="/old/durable-agents")
     tmux_shown["list-panes"] = f"{os.getppid()} demo-communicator\n"
     if incident:
         with state.edit("demo") as data:
             data["orders"]["o1"] = state.new_order("the journal fails to open", "him", None, {}, state.stamp()) | {"incident": True}
     git = fake(["unused"], set())
     assert install.main("long-running@skills", None, None, 900, None) == 0
-    assert git.typed_into("term_comm") == [waited("term_comm", "30000"), exited("term_comm")]
+    capsys.readouterr()
+    assert held(git, capsys) == ["demo communicator: /exit typed in term_comm, so cci session run resumes it in the drive's checkout /work"]
+    assert sends(git, "term_comm") == [sent("term_comm", "/exit")]
     assert registered == [("demo-communicator", "/work", "demo-communicator")]
-    assert capsys.readouterr().out.splitlines()[1:] == ["demo communicator: /exit typed in term_comm, so cci session run resumes it in the drive's checkout /work"]
+    assert stamps("demo") == {"communicator": UPDATED}
 
 
 def shown_in_orca(alias: str) -> list[str]:
@@ -885,16 +1087,17 @@ def test_an_idle_session_outside_the_drives_checkout_and_outside_cci_is_typed_ex
     fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str], registered: list[tuple[str, str, str]], tmux_shown: dict[str, str]
 ) -> None:
     start_drive("demo", communicator="term_comm")
-    running_in("/old/durable-agents", "demo-communicator")
+    running("demo-communicator", folder="/old/durable-agents")
     git = fake(["unused"], set())
     git.exited = lambda: tmux_shown.update({"list-panes": f"{os.getppid()} demo-communicator\n"})
     assert install.main("long-running@skills", None, None, 900, None) == 0
-    assert git.typed_into("term_comm") == [waited("term_comm", "30000"), exited("term_comm")]
-    assert git.orca_calls[2:] == [shown_in_orca("demo-communicator")]
-    assert registered == [("demo-communicator", "/work", "demo-communicator")]
-    assert capsys.readouterr().out.splitlines()[1:] == [
+    capsys.readouterr()
+    assert held(git, capsys) == [
         "demo communicator: /exit typed in term_comm, so cci session run resumes it in the drive's checkout /work under tmux session demo-communicator, shown in Orca terminal term_shown"
     ]
+    assert sends(git, "term_comm") == [sent("term_comm", "/exit")]
+    assert git.orca_calls[1:] == [shown_in_orca("demo-communicator")]
+    assert registered == [("demo-communicator", "/work", "demo-communicator")]
     assert state.saved("demo")["roles"]["communicator"]["terminal"] == "term_shown"
 
 
@@ -902,96 +1105,47 @@ def test_a_session_outside_cci_that_cci_has_not_resumed_in_tmux_after_the_wait_i
     fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str], tmux_shown: dict[str, str]
 ) -> None:
     start_drive("demo", communicator="term_comm")
-    running_in("/old/durable-agents", "demo-communicator")
+    running("demo-communicator", folder="/old/durable-agents")
     git = fake(["unused"], set())
     assert install.main("long-running@skills", None, None, 900, None) == 0
-    assert git.sleeps == [1] * install.RELOAD_WAIT_SECONDS
-    assert git.orca_calls[2:] == [shown_in_orca("demo-communicator")]
-    assert capsys.readouterr().out.splitlines()[1:] == [
+    capsys.readouterr()
+    assert held(git, capsys) == [
         "demo communicator: /exit typed in term_comm, so cci session run resumes it in the drive's checkout /work under tmux session demo-communicator, shown in Orca terminal term_shown"
     ]
+    assert git.sleeps == [1] * install.RELOAD_WAIT_SECONDS
+    assert git.orca_calls[1:] == [shown_in_orca("demo-communicator")]
     assert state.saved("demo")["roles"]["communicator"]["terminal"] == "term_shown"
-
-
-def test_a_busy_session_outside_the_drives_checkout_and_outside_cci_is_only_reloaded_so_no_exit_waits_behind_its_turn_with_nothing_to_show_it(
-    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str], registered: list[tuple[str, str, str]], tmux_shown: dict[str, str]
-) -> None:
-    start_drive("demo", communicator="term_comm")
-    running_in("/old/durable-agents", "demo-communicator")
-    git = fake(["unused"], set())
-    git.waits["term_comm"] = BUSY
-    assert install.main("long-running@skills", None, None, 900, None) == 0
-    assert git.typed_into("term_comm") == [waited("term_comm", "30000"), sent("term_comm")]
-    assert git.orca_calls[2:] == []
-    assert registered == [("demo-communicator", "/work", "demo-communicator")]
-    assert capsys.readouterr().out.splitlines()[1:] == [
-        "demo communicator: busy for 30s, so /reload-plugins is queued in term_comm and runs when its turn ends; it runs in /old/durable-agents until a reload"
-        " finds it idle, when it is typed /exit and cci session run resumes it in the drive's checkout /work, since no tmux session of cci's runs it"
-    ]
 
 
 def test_a_session_already_in_the_drives_checkout_is_only_reloaded(
     fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str], registered: list[tuple[str, str, str]], tmux_shown: dict[str, str]
 ) -> None:
     start_drive("demo", communicator="term_comm")
-    running_in("/work", "demo-communicator")
+    running("demo-communicator")
     tmux_shown["list-panes"] = f"{os.getppid()} demo-communicator\n"
     git = fake(["unused"], set())
     assert install.main("long-running@skills", None, None, 900, None) == 0
-    assert git.typed_into("term_comm") == [waited("term_comm", "30000"), sent("term_comm")]
+    capsys.readouterr()
+    assert held(git, capsys) == ["demo communicator: reloaded onto long-running@skills 1.0.3 in term_comm"]
+    assert sends(git, "term_comm") == [sent("term_comm")]
     assert registered == []
-    assert capsys.readouterr().out.splitlines()[1:] == ["demo communicator: reloaded in term_comm"]
 
 
-def test_an_install_near_its_deadline_waits_only_the_time_left(
-    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    start_drive("demo", communicator="term_comm")
-    git = fake(["unused"], set())
-    git.waits["term_comm"] = BUSY
-    installing = install.install
-
-    def ending_20s_before_its_deadline(key: str, sha: str | None, repo: str | None, deadline: float, timeout: int, drive: str | None) -> str:
-        version = installing(key, sha, repo, deadline, timeout, drive)
-        git.now = deadline - 20
-        return version
-
-    monkeypatch.setattr(install, "install", ending_20s_before_its_deadline)
-    assert install.main("long-running@skills", None, None, 900, None) == 0
-    assert git.typed_into("term_comm") == [waited("term_comm", "10000"), sent("term_comm")]
-    assert sorted(git.orca_timeouts) == [60, 70]
-    assert "demo communicator: busy for 10s" in capsys.readouterr().out
-
-
-def test_drive_reload_reloads_every_drive_session_an_install_already_reloaded(
-    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_drive_reload_types_reload_plugins_into_every_drive_session_an_install_already_reloaded(fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]) -> None:
     start_drive("demo", communicator="term_comm", coordinator="term_coord")
-    earlier = {"at": state.stamp(state.now() - timedelta(minutes=5)), "version": "1.0.2"}
-    (state.drive_dir("demo") / install.RELOADS).write_text(json.dumps({"communicator": earlier, "coordinator": earlier}))
+    running("demo-communicator", "demo-coordinator")
+    (state.drive_dir("demo") / install.RELOADS).write_text(json.dumps({seat: {"onto": SEEDED_UPDATE, "at": state.stamp()} for seat in ("communicator", "coordinator")}))
     git = fake(["unused"], set())
-    git.together = threading.Barrier(2, timeout=5)
-    assert install.reload_main() == 0
-    assert git.typed_into("term_comm") == [waited("term_comm", "30000"), sent("term_comm")]
-    assert git.typed_into("term_coord") == [waited("term_coord", "30000"), sent("term_coord")]
-    assert git.calls == []
-    assert capsys.readouterr().out.splitlines() == ["demo communicator: reloaded in term_comm", "demo coordinator: reloaded in term_coord"]
-
-
-def test_a_terminal_orca_cannot_find_or_that_shows_a_prompt_is_typed_nothing(
-    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]
-) -> None:
-    start_drive("demo", communicator="term_gone", coordinator="term_menu")
-    git = fake(["unused"], set())
-    git.together = threading.Barrier(2, timeout=5)
-    git.waits["term_gone"] = {"ok": False, "error": {"code": "terminal_not_found", "message": "no terminal term_gone"}}
-    git.waits["term_menu"] = {"ok": True, "result": {"wait": {"satisfied": False, "blockedReason": "agent-trust-workspace"}}}
-    assert install.main("long-running@skills", None, None, 900, None) == 0
-    assert [call[2] for call in git.orca_calls] == ["wait", "wait"]
-    assert capsys.readouterr().out.splitlines()[1:] == [
-        f"demo communicator: not reloaded (orca terminal wait: terminal_not_found: no terminal term_gone); {by_hand('term_gone')}",
-        f"demo coordinator: not reloaded (orca terminal wait: it shows agent-trust-workspace); {by_hand('term_menu')}",
+    assert cli.main(["reload"]) == 0
+    assert capsys.readouterr().out.splitlines() == [f"demo communicator: {handed('demo', 'term_comm')}", f"demo coordinator: {handed('demo', 'term_coord')}"]
+    assert git.detached == [["reload", "--seat", "communicator", "--force", "--drive", "demo"], ["reload", "--seat", "coordinator", "--force", "--drive", "demo"]]
+    assert held(git, capsys) == [
+        "demo communicator: reloaded onto long-running@skills 1.0.2 in term_comm",
+        "demo coordinator: reloaded onto long-running@skills 1.0.2 in term_coord",
     ]
+    assert sends(git, "term_comm") == [sent("term_comm")]
+    assert sends(git, "term_coord") == [sent("term_coord")]
+    assert git.calls == []
 
 
 def test_a_drive_session_with_no_terminal_recorded_is_skipped_with_a_line(
@@ -1001,32 +1155,30 @@ def test_a_drive_session_with_no_terminal_recorded_is_skipped_with_a_line(
     git = fake(["unused"], set())
     assert install.main("long-running@skills", None, None, 900, None) == 0
     assert git.orca_calls == []
+    assert git.detached == []
     assert capsys.readouterr().out.splitlines() == [
         "installed long-running@skills 1.0.3",
         "solo coordinator: no terminal recorded, skipped",
     ]
 
 
-def test_a_session_another_install_reloaded_after_this_update_is_not_reloaded_twice(
+def test_a_session_already_reloaded_onto_the_newest_install_is_not_reloaded_again(
     fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]
 ) -> None:
     start_drive("demo", communicator="term_comm", coordinator="term_coord")
+    running("demo-communicator", "demo-coordinator")
     reloads = state.drive_dir("demo") / install.RELOADS
-    stamps = {
-        "communicator": {"at": state.stamp(state.now() + timedelta(minutes=1)), "version": "1.0.3"},
-        "coordinator": {"at": state.stamp(state.now() - timedelta(hours=1)), "version": "1.0.2"},
-    }
-    reloads.write_text(json.dumps(stamps))
+    reloads.write_text(json.dumps({"communicator": {"onto": UPDATED, "at": state.stamp()}, "coordinator": {"onto": SEEDED_UPDATE, "at": state.stamp()}}))
     git = fake(["unused"], set())
     assert install.main("long-running@skills", None, None, 900, None) == 0
-    assert git.typed_into("term_comm") == []
-    assert git.typed_into("term_coord") == [waited("term_coord", "30000"), sent("term_coord")]
     assert capsys.readouterr().out.splitlines() == [
         "installed long-running@skills 1.0.3",
-        "demo communicator: already reloaded onto 1.0.3",
-        "demo coordinator: reloaded in term_coord",
+        "demo communicator: already reloaded onto long-running@skills 1.0.3",
+        f"demo coordinator: {handed('demo', 'term_coord')}",
     ]
-    assert json.loads(reloads.read_text())["coordinator"]["version"] == "1.0.3"
+    assert held(git, capsys) == ["demo coordinator: reloaded onto long-running@skills 1.0.3 in term_coord"]
+    assert sends(git, "term_comm") == []
+    assert stamps("demo") == {"communicator": UPDATED, "coordinator": UPDATED}
 
 
 def test_an_install_reloads_each_sub_coordinator_beside_both_roles_stamping_each_session(
@@ -1035,25 +1187,18 @@ def test_an_install_reloads_each_sub_coordinator_beside_both_roles_stamping_each
     start_drive("demo", communicator="term_comm", coordinator="term_coord")
     with state.edit("demo") as data:
         data["subcoordinators"]["Iris"] = {"session": "demo-iris", "terminal": "term_iris", "cwd": "/work", "started": state.stamp()}
+    running("demo-communicator", "demo-coordinator", "demo-iris")
     git = fake(["unused"], set())
-    git.together = threading.Barrier(3, timeout=5)
     assert install.main("long-running@skills", None, None, 900, None) == 0
-    assert git.typed_into("term_iris") == [waited("term_iris", "30000"), sent("term_iris")]
     assert capsys.readouterr().out.splitlines() == [
         "installed long-running@skills 1.0.3",
-        "demo communicator: reloaded in term_comm",
-        "demo coordinator: reloaded in term_coord",
-        "demo sub-coordinator Iris: reloaded in term_iris",
+        f"demo communicator: {handed('demo', 'term_comm')}",
+        f"demo coordinator: {handed('demo', 'term_coord')}",
+        f"demo sub-coordinator Iris: {handed('demo', 'term_iris')}",
     ]
-    assert json.loads((state.drive_dir("demo") / install.RELOADS).read_text())["sub-coordinator Iris"]["version"] == "1.0.3"
-
-
-def test_a_reload_never_sent_leaves_no_stamp_so_the_next_install_sends_it(fake: Callable[..., FakeGit]) -> None:
-    start_drive("demo", communicator="term_comm")
-    git = fake(["unused"], set())
-    git.waits["term_comm"] = {"ok": False, "error": {"code": "terminal_not_found", "message": "no terminal term_comm"}}
-    assert install.main("long-running@skills", None, None, 900, None) == 0
-    assert "communicator" not in json.loads((state.drive_dir("demo") / install.RELOADS).read_text())
+    assert held(git, capsys)[2] == "demo sub-coordinator Iris: reloaded onto long-running@skills 1.0.3 in term_iris"
+    assert sends(git, "term_iris") == [sent("term_iris")]
+    assert stamps("demo") == {"communicator": UPDATED, "coordinator": UPDATED, "sub-coordinator Iris": UPDATED}
 
 
 def test_a_long_running_release_whose_own_drive_status_fails_on_a_copy_of_a_drive_is_refused_before_any_scope_updates(

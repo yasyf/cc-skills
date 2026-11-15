@@ -246,20 +246,29 @@ commit the PR's run of it merged its head onto; one `main` fails there too merge
      script for each hook it registered at start, but loads a hook added since, and its skills, agents,
      and any plugin's tools, only on `/reload-plugins`. So the install then types that through Orca into
      every drive session's terminal on this Mac, the communicator's, the top coordinator's and each
-     sub-coordinator's, once each is idle. A session still
-     busy after 30 seconds gets it typed into its prompt, where Claude Code holds it until the turn ends,
-     since a turn can run for 20 minutes. It prints a line per session. A session another install
-     already reloaded after this update is not sent it again, so installs run at once reload a session
-     once. One showing a menu or refused by Orca names the `orca terminal send` command that types it:
-     run that once the session is idle. A session whose Claude Code process runs outside the drive's
-     checkout, the `drive-<drive>` worktree, gets `/exit` instead, once registered with cci there, so
-     cci resumes it in the checkout on the new install and every agent and `tools/ci` it runs reads the
-     default branch head, by his pick "Sessions run in the drive's dev-head checkout; every job
+     sub-coordinator's, once each is idle, and only into one that has not reloaded since the newest
+     `lastUpdated` in `installed_plugins.json`, which moves only when an install changes what a session
+     loads, so an install that changed nothing types nothing. Each terminal has one typist: the install
+     starts `drive reload --seat` detached, so no lander or verb waits on a turn, and that process holds
+     the terminal's lock in the state folder's `reloads/` while it waits for the session's own record,
+     `sessions/<pid>.json` in the Claude config directory, to read idle, the status Claude Code writes as
+     the turn ends, never typing into a busy prompt or a menu. It types `/reload-plugins` once and holds
+     the terminal until the transcript shows that reload's `Reloaded:` line, then types it again only when
+     an install landed meanwhile, so two never land joined as one typed message. An install finding the
+     lock held prints the session as pending on that process. It prints a line per session, and the
+     typist a line per reload in the drive's `reloads.log`. A send Orca never answered, busy or timed out,
+     is sent again under the same `orca terminal send --retry-request <id>`, which Orca replays rather
+     than types twice; one Orca refused, or never answered within 30 seconds, names the
+     `orca terminal send` command that types it, with that id when Orca never answered, and leaves the
+     session for the next install. A session whose Claude Code process runs outside the drive's
+     checkout, the `drive-<drive>` worktree, gets `/exit` instead, once idle and registered with cci
+     there, so cci resumes it in the checkout on the new install and every agent and `tools/ci` it runs
+     reads the default branch head, by his pick "Sessions run in the drive's dev-head checkout; every job
      inherits it", an open incident order included, since cci resumes it at once; when no tmux session
-     of cci's runs it, it gets `/exit` only once idle, and the reload then opens the `orca terminal create`
-     line of [Start or resume](start.md), whose `cci session attach` shows the tmux session cci resumes it
-     in, while a reload finding it busy queues `/reload-plugins` and moves it at a later reload. `drive reload` does the same for every drive session with no
-     install, whatever installs reloaded before. No post asks him to type `/reload-plugins`. A reload
+     of cci's runs it, the reload then opens the `orca terminal create` line of [Start or resume](start.md),
+     whose `cci session attach` shows the tmux session cci resumes it in. `drive reload` does the same for
+     every drive session with no install, whatever installs reloaded before. No post asks him to type
+     `/reload-plugins`. A reload
      draws no role block, so a session's role rules reach it at its next tool call instead: the
      `role_rules` check before each call of a drive session compares the digest its seat keeps, written
      whenever its block is drawn, with the installed rules, and hands it the rules whole once when they
