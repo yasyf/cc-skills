@@ -122,8 +122,8 @@ def on_open_order(data: dict, key: str) -> dict | None:
     return part_entry(data, order_id, part) if part in order["parts"] else None
 
 
-def record(data: dict, answer_id: str, words: str, link: str, asked: dict[str, dict], bound: dict[str, list[str]], moment: str) -> dict:
-    """Keep a new answer of his beside the cards asking him, parts undelivered and PRs not yet live that it could change, none marked yet: those of the job and order of the card it answers, each part a job of the card it answers delivers, the one he tapped or wrote under, still open or not, those its words name, an order included, and every card, part and PR of each order in bound, and the order itself, which a pick of his that card asked him to lift binds; and beside each job waiting on an order any of those belongs to, and each running builder whose own card he answered, which builds that card's recommended option while he decides, and each job with a question his tap closed that his words end in place of it, whatever its state, since it heard the tap, each marked heard only when the text its worker started on carries his words, as hear_start reads it. The card he tapped and the question card he wrote under are left out, since his answer ends them, but a PR whose card thread he wrote in is not, since his words end no PR card."""
+def record(data: dict, answer_id: str, words: str, link: str, asked: dict[str, dict], bound: dict[str, list[str]], moment: str, drive: bool) -> dict:
+    """Keep a new answer of his beside the cards asking him, parts undelivered and PRs not yet live that it could change, none marked yet: those of the job and order of the card it answers, each part a job of the card it answers delivers, the one he tapped or wrote under, still open or not, those its words name, an order included, and every card, part and PR of each order in bound, and the order itself, which a pick of his that card asked him to lift binds; and beside each job waiting on an order any of those belongs to, and each running builder whose own card he answered, which builds that card's recommended option while he decides, and each job with a question his tap closed that his words end in place of it, whatever its state, since it heard the tap, each marked heard only when a text its workers were given carries his words, as hear_answer reads it. The card he tapped and the question card he wrote under are left out, since his answer ends them, but a PR whose card thread he wrote in is not, since his words end no PR card. A ruling about the drive keeps only the work of "Drive tooling:" orders, by tooling_only, wherever his message sits."""
     answered = [entry for entry in asked.values() if entry["card"] and view.under(link, entry["card"])]
     drawn = {job_id: job["order"] for job_id, job in data["jobs"].items() for question in job["questions"] if ended_at(link, question)}
     taps = {question["closed"]["tap"] for job in data["jobs"].values() for question in job["questions"] if question["closed"] and question["closed"]["tap"] and view.answerable(question, link)}
@@ -153,9 +153,16 @@ def record(data: dict, answer_id: str, words: str, link: str, asked: dict[str, d
             if job["state"] == "waiting" and touched & {job["order"], *job["carries"]} or job_id in drawn and job["kind"] == "builder" and job["state"] == "running" or job_id in tapped
         },
     }
-    for job_id in kept["jobs"]:
-        hear_start(data, job_id)
+    if drive:
+        tooling_only(data, kept, asked)
+    hear_answer(data, answer_id, list(kept["jobs"]))
     return kept
+
+
+def tooling_only(data: dict, kept: dict, asked: dict[str, dict]) -> None:
+    """Take off a ruling of his about the drive each card, part and PR it lists unmarked that no "Drive tooling:" order holds, by what asks him for it, and each job it lists unmarked whose order is no such order, so his words on how the drive works ask nothing of his product's work and reach none of its builders, by his ruling de88d49: "Block in a fucking tooling question for core work is not fucnigbbacceotbale"."""
+    kept["cards"] = {key: mark for key, mark in kept["cards"].items() if mark or key in asked and asked[key]["order"] and state.tooling(data["orders"][asked[key]["order"]])}
+    kept["jobs"] = {job_id: mark for job_id, mark in kept["jobs"].items() if mark or state.tooling(data["orders"][data["jobs"][job_id]["order"]])}
 
 
 def binding(data: dict, link: str, asked: dict[str, dict], cwd: str) -> dict[str, list[str]]:
@@ -519,8 +526,9 @@ def pointed(data: dict, job_id: str, text: str) -> bool:
 
 def delivered(data: dict, job_id: str, text: str, written: datetime) -> tuple[list[dict], list[dict]]:
     """What a text reaching the job's worker, written at that moment, delivers of what the job waits to hear: each answer of his it owes whose words the text holds verbatim, and each text it holds whose held_answer words the text holds, his words alone for his answer, each once given by then, since a text written before, such as a brief quoting a card's option ahead of his tap, carried words he had not said yet."""
-    owes = [kept for answer_id, kept in owed(data, job_id) if carries(text, kept["words"]) and given(data, answer_id) <= written]
-    holds = [held for held in data["jobs"][job_id]["undelivered"] if carries(text, (said := held_answer(data, held))[0]) and said[1] <= written]
+    held = spaced(text)
+    owes = [kept for answer_id, kept in owed(data, job_id) if spaced(kept["words"]) in held and given(data, answer_id) <= written]
+    holds = [kept for kept in data["jobs"][job_id]["undelivered"] if spaced((said := held_answer(data, kept))[0]) in held and said[1] <= written]
     return owes, holds
 
 
@@ -539,13 +547,13 @@ def held_answer(data: dict, held: dict) -> tuple[str, datetime]:
     return (closed["words"], state.parse_time(closed["at"])) if closed else (held["words"], state.parse_time(held["at"]))
 
 
-def hear_start(data: dict, job_id: str) -> None:
-    """Hear every text the job's workers were given, each as it was written then: the handoff its newest relaunch or takeover kept, else the brief its launch or agent started on, and each launch, relaunch, resume and handoff text the drive keeps for it in its jobs folder, but one whose launcher attempt started no worker, and each text a resume sent its live worker, so his words any worker of the job got before his answer listed it read heard; a job no agent or lane started hears his words from the launch that starts it."""
+def given_texts(data: dict, job_id: str) -> list[tuple[Path, datetime]]:
+    """Every text the job's workers were given, with when it was written: the handoff its newest relaunch or takeover kept, else the brief its launch or agent started on, and each launch, relaunch, resume and handoff text the drive keeps for it in its jobs folder, but one whose launcher attempt started no worker, and each text a resume sent its live worker; none for a job no agent or lane started, which hears his words from the launch that starts it."""
     from drive import orca
 
     job = data["jobs"][job_id]
     if not (job.get("agent") or job.get("dispatch")):
-        return
+        return []
     newest = {Path(path)} if (path := job.get("handoff") or job.get("brief")) else set()
     folder = state.drive_dir(data["name"]) / "jobs"
     kept = {
@@ -553,8 +561,22 @@ def hear_start(data: dict, job_id: str) -> None:
         for path in folder.glob(f"{job_id}*.md")
         if (matched := GIVEN_TEXT.fullmatch(path.name)) and matched[1] == job_id and (not path.with_suffix(".worker").exists() or orca.kept_start(path))
     }
-    for given_text in sorted(newest | kept):
-        hear(data, job_id, given_text.read_text(), datetime.fromtimestamp(given_text.stat().st_mtime).astimezone())
+    return [(path, datetime.fromtimestamp(path.stat().st_mtime).astimezone()) for path in sorted(newest | kept)]
+
+
+def hear_start(data: dict, job_id: str) -> None:
+    """Hear every text the job's workers were given, by given_texts, each as it was written then, so each answer of his it owes and text it holds that one of them carries reads heard."""
+    for path, written in given_texts(data, job_id):
+        hear(data, job_id, path.read_text(), written)
+
+
+def hear_answer(data: dict, answer_id: str, job_ids: list[str]) -> None:
+    """Mark each of these jobs sent this one answer of his when a text its workers were given, by given_texts, carries his words, reading only a text written once he gave it, since none older can, so keeping or listing one answer reads no text for any other answer the drive keeps."""
+    kept = data["answers"][answer_id]
+    since = given(data, answer_id)
+    for job_id in job_ids:
+        if any(written >= since and carries(path.read_text(), kept["words"]) for path, written in given_texts(data, job_id)):
+            heard(data, job_id, kept, "sent")
 
 
 def heard(data: dict, job_id: str, kept: dict, mark: str) -> None:
@@ -567,7 +589,7 @@ def owe(data: dict, answer_id: str, job_id: str) -> None:
     """List the job as waiting to hear his answer, unless the text its worker started on already carried it."""
     if job_id not in (kept := data["answers"][answer_id])["jobs"]:
         kept["jobs"][job_id] = None
-        hear_start(data, job_id)
+        hear_answer(data, answer_id, [job_id])
 
 
 def given(data: dict, answer_id: str) -> datetime:
@@ -595,7 +617,12 @@ def standing[T](data: dict, answers: list[tuple[str, T]]) -> list[tuple[str, T]]
 
 def carries(text: str, words: str) -> bool:
     """Whether the text holds his words verbatim, spacing aside."""
-    return " ".join(words.split()) in " ".join(text.split())
+    return spaced(words) in spaced(text)
+
+
+def spaced(text: str) -> str:
+    """The text with each run of spacing one space, as carries compares it."""
+    return " ".join(text.split())
 
 
 def counted(keys: list[str], asked: dict[str, dict]) -> str:

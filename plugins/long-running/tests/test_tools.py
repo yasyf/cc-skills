@@ -630,6 +630,21 @@ def test_a_record_goes_to_the_other_session_and_a_tap_takes_its_job_and_waits_fr
         tools.run("record", demo, {"records": [{"kind": "answer", "text": "Approve", "waits": "merge:Forge-AI:monorepo:42"}]})
 
 
+def test_records_a_call_posted_before_it_ran_out_of_time_are_said_at_once_and_refused_when_sent_again(demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    posted: list[list[dict]] = []
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: posted.append(json.loads(kwargs["input"])) or subprocess.CompletedProcess([], 0, f'{{"seq": {719625 + len(posted)}}}\n', ""))
+    monkeypatch.setattr(tools, "POSTED_KEPT", 1)
+    timed_out, other = [{"kind": "defect", "text": "drive record ran past 180 seconds"}], [{"kind": "defect", "text": "its retry posted it twice"}]
+    assert tools.run("record", demo, {"records": timed_out}) == "1 defect 719626"
+    assert capsys.readouterr().err == "1 defect 719626\n"
+    for dry_run in (True, False):
+        with pytest.raises(DriveError, match=r"^refused, nothing posted: these records went out already, at \S+ as 719626; read those seqs rather than post them twice$"):
+            tools.run("record", demo, {"records": timed_out, "dry_run": dry_run})
+    assert tools.run("record", demo, {"records": other}) == "1 defect 719627"
+    assert tools.run("record", demo, {"records": timed_out}) == "1 defect 719628"
+    assert len(posted) == 3
+
+
 def test_a_drive_post_from_a_session_holding_no_lane_posts_as_another_sessions_lane_without_binding_it(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     envs: list[dict] = []
     monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: envs.append(kwargs["env"]) or subprocess.CompletedProcess(argv, 0, '{"seq": 41}\n', ""))
@@ -916,11 +931,11 @@ def test_his_badge_ask_of_record_672014_reaches_the_meta_session_holding_the_dri
     )
     more = asked | {"text": "and count the ones from yesterday too", "url": f"https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794480200000100?thread_ts={thread}"}
     assert tools.run("record", demo, {"records": [more]}).splitlines()[-1] == "1 owner 672016"
-    assert tools.run("record", demo, {"records": [more]}).splitlines() == ["1 owner 672017"]
+    with pytest.raises(DriveError, match=r"^refused, nothing posted: these records went out already, at \S+ as 672016;"):
+        tools.run("record", demo, {"records": [more]})
     assert (list(state.load(demo)["orders"]), list(state.load(demo)["orders"]["o1"]["parts"])) == (["o1"], [badge["title"], more["text"]])
     assert [(record["to"], record["attr"]["order"], record["attr"].get("part")) for record in posted] == [
         (["meta@demo"], "o1", None),
-        (["meta@demo"], "o1", f"o1:{more['text']}"),
         (["meta@demo"], "o1", f"o1:{more['text']}"),
     ]
     with pytest.raises(DriveError, match="1: refused, nothing posted: order is the order the communicator's owner record about the drive goes to"):
@@ -955,7 +970,8 @@ def test_his_hierarchical_coordinators_question_in_his_own_words_reaches_the_met
     later = {"kind": "owner", "about": "drive", "text": "or one coordinator per project?", "thread": "1794520000.000100"}
     question = {"words": later["text"], "title": "Coordinator per project", "kind": "answer", "project": "The drive", "workstream": "Skill and process"}
     assert tools.run("record", demo, {"records": [later | {"order": question}]}).splitlines() == ["1 order add: o3", "1 owner 677103"]
-    assert tools.run("record", demo, {"records": [later | {"order": question}]}).splitlines() == ["1 order add: o3; o3 already holds these words, so no order was added", "1 owner 677104"]
+    with pytest.raises(DriveError, match=r"^refused, nothing posted: these records went out already, at \S+ as 677103;"):
+        tools.run("record", demo, {"records": [later | {"order": question}]})
     orders = state.load(demo)["orders"]
     assert [(order_id, orders[order_id]["owner"], orders[order_id]["kind"], list(orders[order_id]["parts"])) for order_id in ("o2", "o3")] == [
         ("o2", "meta", "answer", ["Drive tooling: hierarchical coordinators"]),
@@ -964,7 +980,6 @@ def test_his_hierarchical_coordinators_question_in_his_own_words_reaches_the_met
     assert [(record["to"], record["attr"]["order"], record["attr"].get("part")) for record in posted] == [
         (["meta@demo"], "o2", "o2:Drive tooling: hierarchical coordinators"),
         (["meta@demo"], "o2", "o2:Drive tooling: hierarchical coordinators"),
-        (["meta@demo"], "o3", None),
         (["meta@demo"], "o3", None),
     ]
 
@@ -989,11 +1004,13 @@ def test_his_words_carrying_on_an_order_of_his_work_are_its_parts_the_watch_name
     dm = "https://poetic-technology.slack.com/archives/D0C4HQWPLCC"
     iterate = {"kind": "owner", "text": "rase the 1s test for now then keep iterating", "url": f"{dm}/p1794526841094869?thread_ts={thread}", "thread": thread, "about": "his work"}
     options = {"kind": "owner", "text": "YOU SAID YOU WERE BRINGING ME OPTIONS FOR 0 STALL", "url": f"{dm}/p1794528706341939?thread_ts={thread}", "thread": thread, "about": "his work"}
-    for words in (iterate, options, iterate):
+    for words in (iterate, options):
         tools.run("record", demo, {"records": [words]})
+    with pytest.raises(DriveError, match=r"^refused, nothing posted: these records went out already, at \S+ as 1;"):
+        tools.run("record", demo, {"records": [iterate]})
     assert list(state.load(demo)["orders"]["o1"]["parts"]) == [state.IMMEDIATE_FIX, iterate["text"], options["text"]]
     assert [(record["to"], record["attr"]["order"], record["attr"]["part"]) for record in posted] == [
-        (["root@demo"], "o1", f"o1:{words['text']}") for words in (iterate, options, iterate)
+        (["root@demo"], "o1", f"o1:{words['text']}") for words in (iterate, options)
     ]
     watching = watch.Watcher(demo, offset=state.events_end(demo))
     later = state.now() + timedelta(minutes=6)
@@ -1051,14 +1068,15 @@ def test_a_report_he_shares_into_an_open_order_as_records_686882_and_686891_did_
     shared["attrs"]["title"] = "Browser views on run details"
     said = tools.run("record", demo, {"records": [shared]}).splitlines()
     assert (said[0], said[1].startswith("1 job set: "), said[-1]) == ("1 order add: o2", True, "1 owner 1")
-    assert tools.run("record", demo, {"records": [shared]}).splitlines() == ["1 owner 2"]
+    with pytest.raises(DriveError, match=r"^refused, nothing posted: these records went out already, at \S+ as 1;"):
+        tools.run("record", demo, {"records": [shared]})
     orders, carries = state.load(demo)["orders"], state.load(demo)["jobs"]["j1"]["carries"]
     own = orders["o2"]
     assert (own["text"], own["title"], own["project"], own["workstream"], own["owner"], own["from"], [held["link"] for held in own["reporters"]]) == (
         shared["text"], "Browser views on run details", "Iris", "Run page", "coordinator", "slack:D123/1794548764.374189", [first_report]
     )
     assert (list(orders), list(orders["o1"]["parts"]), orders["o1"]["reporters"], carries) == (["o1", "o2"], ["Run page browser views"], [], {"o2": ["Browser views on run details"]})
-    assert [(record["to"], record["attr"]["order"], record["attr"].get("part"), record["attr"]["reporter"]) for record in posted] == [(["root@demo"], "o2", None, first_report)] * 2
+    assert [(record["to"], record["attr"]["order"], record["attr"].get("part"), record["attr"]["reporter"]) for record in posted] == [(["root@demo"], "o2", None, first_report)]
     second = shared | {
         "text": f"<{second_report}> Shared in <#C0TEAM>: the run page shows no screenshots either",
         "url": f"{dm}/p1794549100000200?thread_ts={thread}",
@@ -1681,7 +1699,7 @@ def test_drive_answer_lists_and_ends_the_question_his_tap_closed_once_his_words_
     answer_id = "a1c0ffee" + "0" * 32
     with state.edit(demo) as data:
         data["jobs"]["j1"]["state"] = "done"
-        kept = superseded.record(data, answer_id, "Knock, the bell is broken", words, superseded.asking(data, found, words), {}, state.stamp())
+        kept = superseded.record(data, answer_id, "Knock, the bell is broken", words, superseded.asking(data, found, words), {}, state.stamp(), False)
         ended = superseded.answer_cards(data, answer_id, kept)
     assert list(kept["jobs"]) == ["j1"]
     assert [(job_id, question["closed"]["answer"], question["closed"]["replaces"]["tap"]) for job_id, question in ended] == [("j1", answer_id, TAP)]
@@ -1895,6 +1913,88 @@ def test_his_rulings_are_kept_as_drive_answers_listing_each_card_part_and_pr_the
     assert [(pr["state"], pr["parts"]) for pr in drive["prs"].values()] == [("open", list(SANDSQL_PARTS)), ("closed", [])]
     assert [question["closed"]["how"] for question in drive["jobs"]["j1"]["questions"]] == ["withdrawn", "withdrawn"]
     assert watch.answer_lines(watching, state.now() + timedelta(minutes=30)) == []
+
+
+def owners_cards(demo: str, monkeypatch: pytest.MonkeyPatch) -> dict:
+    sibling = f"{CARD[:-2]}01"
+    drawn = {"demo:j1-684776": CARD, "demo:j1-684682": sibling}
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["agent"] = "agent-1"
+        state.start(data["jobs"]["j1"])
+        data["jobs"]["j1"]["questions"] += [state.new_question(None, waits, state.stamp(), card=url) | {"waits": waits} for waits, url in drawn.items()]
+    found = {
+        "team_url": "",
+        "questions": [{"card": {"waits": waits, "title": waits, "body": waits, "options": ["Yes", "No"], "recommended": "Yes"}, "url": url, "question": waits, "options": ["Yes", "No"]} for waits, url in drawn.items()],
+        "closed": [],
+        "pr_cards": [],
+    }
+    monkeypatch.setattr(view, "cards", lambda name: found)
+    view.refresh_cards(demo)
+    monkeypatch.setattr(slack, "cc_slack", lambda *argv: {})
+    return found
+
+
+def test_keeping_a_ruling_reads_his_words_and_holds_the_lock_as_often_however_many_other_answers_its_jobs_owe(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--title", "SandSQL supervisor", "--project", "Iris", "--workstream", "Durable agents", "move every helper under sandsql-proc", "--parts", *SANDSQL_PARTS)
+    run("job", "add", "builder", "--order", "o1", "--goal", "build it", *(flag for part in SANDSQL_PARTS for flag in ("--part", part)))
+    found = owners_cards(demo, monkeypatch)
+    with state.edit(demo) as data:
+        data["jobs"]["j2"] = state.new_job("o1", "builder", "build it", list(SANDSQL_PARTS), state.stamp()) | {"agent": "agent-2", "state": "waiting"}
+        data["orders"]["o1"]["jobs"].append("j2")
+    given = state.drive_dir(demo) / "jobs" / "j2-1.md"
+    given.parent.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess([], 0, '{"seq": 684800}\n', ""))
+    spaced: list[str] = []
+    held: list[str] = []
+    real_spaced, real_writing = superseded.spaced, state.writing
+    monkeypatch.setattr(superseded, "spaced", lambda text: spaced.append(text) or real_spaced(text))
+    monkeypatch.setattr(state, "writing", lambda name: held.append(name) or real_writing(name))
+
+    def keep(owed: int, ruling: str, words: str, waits: str, under: str) -> tuple[int, int]:
+        with state.edit(demo) as data:
+            data["answers"] |= {f"{owed}owed{n}": {"words": f"his answer {n}", "link": "terminal", "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {"j2": None}} for n in range(owed)}
+        given.write_text(f"His words, verbatim:\n\n{words}\n" + "and the rest of the brief\n" * 10000)
+        ahead = (datetime.now() + timedelta(hours=1)).timestamp()
+        os.utime(given, (ahead, ahead))
+        spaced.clear()
+        held.clear()
+        tools.run("record", demo, {"records": [{"kind": "owner", "text": words, "url": under, "thread_card": waits, "about": "his work", "ruling": ruling}]})
+        return len(spaced), len(held)
+
+    alone = keep(1, "8427b3c", RULED, "demo:j1-684776", UNDER_CARD)
+    found["questions"].pop(0)
+    view.refresh_cards(demo)
+    assert keep(100, "cabb099", DROPPED, "demo:j1-684682", "https://acme.slack.com/archives/D123/p1794200000000760?thread_ts=1794200000.000701") == alone
+    kept = state.load(demo)["answers"]
+    assert [kept[ruling]["jobs"]["j2"] for ruling in ("8427b3c", "cabb099")] == [{"mark": "sent"}] * 2
+    assert all(kept[f"100owed{n}"]["jobs"]["j2"] is None for n in range(100))
+
+
+def test_his_words_about_the_drive_list_none_of_a_product_orders_work_and_drive_answer_about_drive_takes_that_listing_off_one_kept_already(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--title", "SandSQL supervisor", "--project", "Iris", "--workstream", "Durable agents", "move every helper under sandsql-proc", "--parts", *SANDSQL_PARTS)
+    run("job", "add", "builder", "--order", "o1", "--goal", "build it", *(flag for part in SANDSQL_PARTS for flag in ("--part", part)))
+    run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/54101", "--job", "j1", *LEAD)
+    found = owners_cards(demo, monkeypatch)
+    posts = "Yup and didn't get any links for my approve"
+    sibling_thread = "https://acme.slack.com/archives/D123/p1794200000000760?thread_ts=1794200000.000701"
+    assert [
+        run("answer", "--title", f"Owner: {words}", "--words", words, "--link", link, *about)[0]
+        for words, link, about in ((posts, UNDER_CARD, ["--label", "header:post-feedback"]), (RULED, sibling_thread, []))
+    ] == [0, 2]
+    on_drive, on_work = (f"{n}c0ffee{'0' * 33}" for n in (1, 2))
+    kept = state.load(demo)["answers"]
+    assert (kept[on_drive]["cards"], kept[on_drive]["jobs"]) == ({}, {})
+    assert {f"o1:{part}" for part in SANDSQL_PARTS} | {"Forge-AI/monorepo#54101"} <= set(kept[on_work]["cards"]) and "j1" in kept[on_work]["jobs"]
+    assert run("answer", on_work, "--about", "drive")[0] == 0
+    kept = state.load(demo)["answers"][on_work]
+    assert (kept["cards"], kept["jobs"]) == ({}, {})
+    watching = watch.Watcher(demo, offset=state.events_end(demo))
+    watching.cards = found
+    assert watch.answer_lines(watching, state.now() + timedelta(minutes=11)) == []
 
 
 def test_drive_answer_refuses_to_drop_a_merged_pr_or_supersede_a_part_and_dropping_every_part_of_an_order_drops_the_order(
