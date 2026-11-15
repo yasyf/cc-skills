@@ -838,7 +838,28 @@ function nowScreen() {
   const side = task ? '' : `<aside class="now-side" aria-label="What is happening here">${scopeWork(scope, project ?? null, stream ?? null)}${story(scope, 'Latest movement')}</aside>`;
   return `<div class="now-head"><div><div class="eyebrow">Now · ${keys.length ? 'In focus' : 'Across the drive'}</div><h1 class="h1 zoom-title">${esc(keys.length ? fileName(keys.at(-1)) : 'What needs you')}</h1></div><div class="now-actions">${project !== undefined ? `<a class="map-btn" href="${zoomHref('now', ...keys.slice(0, -1))}">← Back</a>` : ''}<a class="map-btn primary" href="#/queue/all${scopeQuery(project ?? null, stream ?? null)}">Open queue →</a></div></div>
     <div class="now-metrics">${metrics.map(([label, count, tone, href]) => `<${href ? 'a' : 'div'} class="metric t-${tone}"${href ? ` href="${esc(href)}"` : ''}><span>${label}</span><b>${count}</b>${href ? '<span class="metric-arrow" aria-hidden="true">›</span>' : ''}</${href ? 'a' : 'div'}>`).join('')}</div>
+    ${prStatus(scope)}
     ${nowCanvas(tree, project, stream, task, side)}`;
+}
+
+function prStatus(scope) {
+  const urls = scope && new Set(scope.flatMap((entry) => entry.prs.map((pr) => pr.url)));
+  const since = (entry) => (entry.stage.since ? Date.parse(entry.stage.since) : Infinity);
+  const rows = model.review.filter((entry) => entry.on_him && (!urls || urls.has(entry.url))).sort((a, b) => since(a) - since(b));
+  if (!rows.length) return '';
+  return `<section class="pr-status" aria-labelledby="pr-status-title">
+    <div class="pr-status-head"><h2 class="eyebrow" id="pr-status-title">Approved or waiting on you <span class="reason-chip">${rows.length}</span></h2><span>Oldest stage first</span></div>
+    <div class="pr-status-scroll" role="region" aria-label="Open pull requests" tabindex="0"><table>
+      <thead><tr><th scope="col">PR</th><th scope="col">Stage</th><th scope="col">What holds it</th><th scope="col">Owner</th><th scope="col">Since</th></tr></thead>
+      <tbody>${rows.map(({ key, title, url, tap, stage }) => `<tr>
+        <td><a href="${esc(url)}">${esc(bare(title))}</a><small>${esc(key)}${tap === 'Approve' ? ' · Approved' : ''} · <button type="button" class="linkish" data-pr="${esc(key)}">Details</button></small></td>
+        <td><span class="state-pill">${esc(stage.name)}</span></td>
+        <td>${esc(stage.why)}</td>
+        <td${stage.owner === 'him' ? ' class="pr-owner-you"' : ''}>${esc(stage.owner === 'him' ? 'You' : stage.owner)}</td>
+        <td>${stage.since ? `<time datetime="${esc(stage.since)}">${esc(ago(stage.since))} ago</time><small>${esc(clock(stage.since))}</small>` : 'Just now'}</td>
+      </tr>`).join('')}</tbody>
+    </table></div>
+  </section>`;
 }
 
 function scopeWork(scope, project, stream) {

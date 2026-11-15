@@ -3856,7 +3856,7 @@ def test_a_yasyf_pr_its_builder_registers_below_the_one_its_taken_ready_names_sh
         (lambda reads, data: reads.update({KEY: read(checks=RED, reviewDecision="CHANGES_REQUESTED")}), "red", [1, 2]),
         (lambda reads, data: data["jobs"]["j1"].update(state="done"), "red", [1, 2]),
         (lambda reads, data: data["prs"][KEY].update(tap={"label": "Hold", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "pressed"}), "held", [1, 1]),
-        (lambda reads, data: reads.update({KEY: read(checks=GREEN, reviewDecision="APPROVED")}), "author", [1, 1]),
+        (lambda reads, data: reads.update({KEY: read(checks=GREEN, reviewDecision="APPROVED")}), "author", [1, 2]),
     ],
 )
 def test_a_red_prs_builder_is_woken_again_only_while_its_stage_stays_red(
@@ -3940,12 +3940,40 @@ def test_a_pr_he_approved_that_waits_on_a_running_job_waits_on_it_and_is_freed_w
     watching = watcher(demo)
     watch.run_pass(watching, T0)
     shown = state.load(demo)["prs"][KEY]["stage"]
-    assert (shown["name"], shown["owner"], shown["why"], landers) == ("waiting", "what it waits on", "it waits on j2, and the watch frees it once each ends", [])
+    assert (shown["name"], shown["owner"], shown["why"], landers) == ("waiting", "j2", "it waits on j2, and the watch frees it once each ends", [])
     assert watch.run_pass(watcher(demo), T0 + timedelta(minutes=90)) == []
     with state.edit(demo) as data:
         data["jobs"]["j2"]["state"] = "done"
     assert f"FREE {KEY} j1 o1: j2 answered or done, nothing else holds it" in watch.run_pass(watching, T0 + timedelta(minutes=120))
     assert watch.run_pass(watching, T0 + timedelta(minutes=121)) == []
+
+
+def test_a_pr_he_approved_that_waits_on_a_staging_test_is_owed_by_him_while_its_tester_waits_on_his_card_then_by_the_tester_which_its_deadline_wakes(
+    demo: str, monkeypatch: pytest.MonkeyPatch, woken: list[tuple[str, str]], landers: list[tuple[str, ...]]
+) -> None:
+    part = "staging test of #42 before it lands"
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["jobs"].append("j4")
+        data["orders"]["o1"]["parts"][part] = state.new_part()
+        data["jobs"]["j4"] = job(parts=[part], state="waiting", waits=["demo:j4-1"], questions=[state.new_question(None, "Soak it a day?", state.stamp(T0)) | {"waits": "demo:j4-1"}])
+    waits_on(demo, f"o1:{part}")
+    waiting_job(demo)
+    with state.edit(demo) as data:
+        data["prs"][KEY]["tap"] = {"label": "Approve", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "slack", "picks": {}}
+    serve(monkeypatch, {KEY: read(checks=GREEN, reviewDecision="APPROVED")})
+    watching = watcher(demo)
+    watch.run_pass(watching, T0)
+    assert (state.load(demo)["prs"][KEY]["stage"]["name"], state.load(demo)["prs"][KEY]["stage"]["owner"]) == ("blocked", stage.HIM)
+    with state.edit(demo) as data:
+        data["jobs"]["j4"] |= {"state": "running", "waits": []}
+        data["jobs"]["j4"]["questions"][0]["closed"] = state.new_close("answered", "Yes", None, seq="9")
+    watch.run_pass(watching, T0 + timedelta(minutes=1))
+    kept = state.load(demo)["prs"][KEY]["stage"]
+    assert (kept["name"], kept["owner"], woken, landers) == ("waiting", "j4", [], [])
+    jobs = []
+    monkeypatch.setattr(stage, "wake", lambda name, key, text, job_id=None: jobs.append((key, job_id)))
+    watch.run_pass(watching, T0 + timedelta(minutes=61))
+    assert jobs == [(KEY, "j4")]
 
 
 def test_a_pr_he_approved_that_waits_on_a_part_of_an_order_lands_only_once_a_builders_done_delivers_it_never_on_a_done_at_its_merge(
@@ -5316,7 +5344,7 @@ def test_replayed_55175_a_red_pr_whose_builder_waits_on_a_fix_that_waits_on_his_
         (46, "blocked", stage.HIM, [], False),
         (76, "blocked", stage.HIM, [], False),
         (106, "blocked", stage.HIM, [], False),
-        (144, "blocked", stage.WAITED, [], True),
+        (144, "blocked", "j2662", [], True),
         (150, "red", stage.BUILDER, [red_pr], True),
     ]
 
@@ -5354,7 +5382,7 @@ def test_replayed_j1180_a_red_pr_whose_builder_waits_on_other_prs_and_releases_w
 
     def at(minutes: int) -> None:
         watch.run_pass(watcher(demo), T0 + timedelta(minutes=minutes))
-        passes.append((minutes, [key for key, _ in woken]))
+        passes.append((minutes, [key for key, _ in woken if key in own]))
         woken.clear()
 
     at(0)
@@ -5374,7 +5402,7 @@ def test_replayed_j1180_a_red_pr_whose_builder_waits_on_other_prs_and_releases_w
     at(153)
     assert passes == [(0, list(own)), (30, []), (60, []), (90, []), (91, [own[0]]), (92, []), (122, []), (152, []), (153, list(own))]
     named = view.pr_link(state.load(demo)["prs"][other])
-    assert (kept["name"], kept["owner"], kept["why"]) == ("blocked", stage.WAITED, f"its checks fail at ce6d321: buildkite/test, and its builder waits on {release}, {named}")
+    assert (kept["name"], kept["owner"], kept["why"]) == ("blocked", stage.ORDER, f"its checks fail at ce6d321: buildkite/test, and its builder waits on {release}, {named}")
     assert [state.load(demo)["prs"][key]["stage"]["name"] for key in own] == ["red", "red"]
 
 
@@ -5550,7 +5578,7 @@ def test_replayed_56278_an_approved_pr_whose_waits_end_at_his_open_cards_reads_b
     assert stall.chain(state.load(demo), found, False, pr, set()) is None
     with state.edit(demo) as data:
         data["jobs"]["j4413"]["state"] = "running"
-        assert stage.of(data, pr, found) == stage.Stage("waiting", stage.WAITED, "it waits on j4413, and the watch frees it once each ends")
+        assert stage.of(data, pr, found) == stage.Stage("waiting", "j4413", "it waits on j4413, and the watch frees it once each ends")
         data["jobs"]["j4413"]["state"] = "waiting"
         for asked in data["jobs"]["j4413"]["questions"]:
             asked["closed"] = state.new_close("answered", "Yes", None, seq="9")
@@ -6917,7 +6945,7 @@ def test_replayed_55582_a_pr_trunk_ejected_on_a_flaky_test_outside_its_diff_is_q
     assert "at aaaaaaa none of its checks fail and Trunk ejected no try of its lander" in capsys.readouterr().err
     assert cli.main(["pr", "set", EJECTED, "--flaky", FLAKY, state.pr_url(FLAKE_FIX), "--drive", demo]) == 0
     waiting = f"Trunk ejected it from the merge queue at bb28d68 on its flaky test {FLAKY}; the lander requeues that commit once {FLAKE_FIX}, that test's fix, merges"
-    assert stage.of(state.load(demo), EJECTED, NO_CARDS) == stage.Stage("waiting", stage.WAITED, waiting)
+    assert stage.of(state.load(demo), EJECTED, NO_CARDS) == stage.Stage("waiting", "j1", waiting)
     assert land.start(demo, [EJECTED], NO_CARDS) == []
     with state.edit(demo) as data:
         data["prs"][FLAKE_FIX]["state"] = "merged"
@@ -6956,7 +6984,7 @@ ITS_FLAKY = "TestDB_AWriterDuringACheckpointOfALargeDatabaseWaitsUnderItsBusyTim
 VFS_RED = [{"name": "VFS Unit Test", "conclusion": "FAILURE"}, {"name": "Build", "conclusion": "SUCCESS"}]
 WAITS_ON_ITS_FLAKE_FIX = stage.Stage(
     "waiting",
-    stage.WAITED,
+    "j1",
     f"its checks fail at bc4822d: VFS Unit Test, on its flaky test {ITS_FLAKY} outside its diff; its builder restacks it onto {ITS_FLAKE_FIX}, that test's fix, once it merges",
 )
 
@@ -6983,21 +7011,21 @@ def red_on_a_flake(name: str, monkeypatch: pytest.MonkeyPatch, woken: list[tuple
     ("ended", "then"),
     [("MERGED", "merged, so restack it onto that fix"), ("CLOSED", "closed unmerged, so fix that test at its cause")],
 )
-def test_replayed_litestream_23_a_pr_red_at_its_own_head_on_a_flaky_test_waits_on_that_tests_fix_waking_nobody_then_wakes_its_builder_once_the_fix_ends(
+def test_replayed_litestream_23_a_pr_red_at_its_own_head_on_a_flaky_test_waits_on_that_tests_fix_waking_the_fixs_job_hourly_then_wakes_its_builder_once_the_fix_ends(
     demo: str, monkeypatch: pytest.MonkeyPatch, woken: list[tuple[str, str]], ended: str, then: str
 ) -> None:
     reads = red_on_a_flake(demo, monkeypatch, woken)
-    for minutes in (1, 31, 61, 91):
+    for minutes, wakes in ((1, 1), (31, 1), (61, 2), (91, 2)):
         watch.run_pass(watcher(demo), T0 + timedelta(minutes=minutes))
-        assert (stage.of(state.load(demo), RED_AT_ITS_HEAD, NO_CARDS), len(woken)) == (WAITS_ON_ITS_FLAKE_FIX, 1)
+        assert (stage.of(state.load(demo), RED_AT_ITS_HEAD, NO_CARDS), [key for key, _ in woken].count(RED_AT_ITS_HEAD)) == (WAITS_ON_ITS_FLAKE_FIX, wakes)
     reads[ITS_FLAKE_FIX] = read(headRefOid="746b968c20", checks=GREEN, required_checks=[], required_reviews=0, state=ended)
     watch.run_pass(watcher(demo), T0 + timedelta(minutes=95))
     red = f"its checks fail at bc4822d: VFS Unit Test; {ITS_FLAKE_FIX}, the fix of its flaky test {ITS_FLAKY}, {then}"
     data = state.load(demo)
     assert (stage.of(data, RED_AT_ITS_HEAD, NO_CARDS), land.requeues(data, data["prs"][RED_AT_ITS_HEAD])) == (stage.Stage("red", stage.BUILDER, red), False)
-    assert woken[1:] == [(RED_AT_ITS_HEAD, f"{RED_AT_ITS_HEAD} red since {state.stamp(T0 + timedelta(minutes=95))}, owed by its builder: {red} [o1 j1]")]
+    assert [wake for wake in woken if wake[0] == RED_AT_ITS_HEAD][2:] == [(RED_AT_ITS_HEAD, f"{RED_AT_ITS_HEAD} red since {state.stamp(T0 + timedelta(minutes=95))}, owed by its builder: {red} [o1 j1]")]
     watch.run_pass(watcher(demo), T0 + timedelta(minutes=100))
-    assert len(woken) == 2
+    assert [key for key, _ in woken].count(RED_AT_ITS_HEAD) == 3
 
 
 def test_a_pr_red_at_its_own_head_on_a_flaky_test_reads_red_again_once_a_check_its_flaky_record_lacks_fails_there(

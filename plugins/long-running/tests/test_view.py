@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 from conftest import SHORT_ASK
-from drive import land, limits, page, slack, stage, state, view, watch
+from drive import land, limits, page, render, slack, stage, state, view, watch
 from drive.render import when
 
 T0 = state.parse_time("2026-11-09T10:00:00-08:00")
@@ -1258,3 +1258,19 @@ def test_a_monorepo_prs_staging_words_name_its_env_commit_and_result_or_why_it_i
 
 def test_a_pr_outside_the_monorepo_says_its_repo_has_no_staging_env() -> None:
     assert view.staging(drive_of({}, {}, []), "yasyf/cc-skills#7") == "Not on staging: yasyf/cc-skills has no staging env"
+
+
+def test_his_prs_rows_each_open_pr_he_approved_or_whose_stage_he_owes_oldest_stage_first_as_drive_status_prs_prints_them() -> None:
+    approved = state.new_tap("Approve", "aaaaaaa111", "pressed the button", at=at(-400))
+    waits = {"name": "waiting", "owner": "j2", "why": "it waits on j2, and the watch frees it once each ends", "since": at(-300), "woke": None}
+    grading = {"name": "grading", "owner": stage.GRADERS, "why": "its checks run at aaaaaaa", "since": at(-10), "woke": None}
+    prs = [pr(5, "o1", wants_tap=True), pr(6, "o1", tap=approved, stage=waits), pr(7, "o1", stage=grading), pr(8, "o1", state="merged", tap=approved, stage=waits)]
+    data = drive_of({"o1": order("ship", ["j1"])}, {"j1": job("o1", "waiting")}, prs)
+    rows = view.his_prs(data)
+    assert [(row["key"], row["owner"]) for row in rows] == [("yasyf/cc-skills#6", "j2"), ("yasyf/cc-skills#5", stage.HIM)]
+    title = view.pr_title(data["prs"]["yasyf/cc-skills#6"])
+    assert render.his_prs(rows).splitlines()[:3] == [
+        "| PR | Stage | What holds it | Owner | Since |",
+        "|---|---|---|---|---|",
+        f"| [yasyf/cc-skills#6](https://github.com/yasyf/cc-skills/pull/6) {title} | waiting | it waits on j2, and the watch frees it once each ends | j2 | {when(at(-300))} |",
+    ]

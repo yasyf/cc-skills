@@ -3581,7 +3581,7 @@ def test_a_pr_wake_for_a_job_his_answer_stopped_starts_no_worker_and_hands_the_l
     [(lane, record)] = posted
     assert (lane, record["kind"], record["to"]) == ("watch", "handoff", [f"root@{remote}"])
     assert record["text"] == (
-        f"STAGE {line}; no live job answers for it and its job j1 is stopped, so no wake starts it: close it, or move it to a live job with"
+        f"STAGE {line}; no live job answers for it and j1 is stopped, so no wake starts it: close it, or move it to a live job with"
         f" drive pr add {url} --job <j>"
     )
     job = state.load(remote)["jobs"]["j1"]
@@ -3661,7 +3661,7 @@ def test_a_pr_wake_for_a_builder_agent_hands_the_line_and_its_resume_to_the_coor
     [record] = posted
     assert (record["to"], record["text"]) == (
         [f"platform@{demo}"],
-        f"STAGE {line}; for its builder j1, with this line alone: drive job resume j1 with this line verbatim",
+        f"STAGE {line}; for j1, with this line alone: drive job resume j1 with this line verbatim",
     )
     with state.edit(demo) as data:
         top = data["jobs"]["j1"]["session"] = data["roles"]["coordinator"]["session"]
@@ -3669,14 +3669,14 @@ def test_a_pr_wake_for_a_builder_agent_hands_the_line_and_its_resume_to_the_coor
     posted.clear()
     assert run("pr", "wake", url, "--text", line) == (0, f"{key}: sent to root@{demo} for j1")
     assert [record["text"] for record in posted] == [
-        f"STAGE {line}; for its builder j1, with this line alone: drive job resume j1 with this line verbatim"
+        f"STAGE {line}; for j1, with this line alone: drive job resume j1 with this line verbatim"
     ]
     with state.edit(demo) as data:
         data["jobs"]["j1"]["session"] = "ended-session"
     monkeypatch.delenv("CLAUDE_CODE_SESSION_ID")
     posted.clear()
     assert run("pr", "wake", url, "--text", line) == (0, f"{key}: sent to platform@{demo} for j1")
-    assert [record["text"] for record in posted] == [f"STAGE {line}; for its builder j1, with this line alone: drive job resume j1 with this line verbatim"]
+    assert [record["text"] for record in posted] == [f"STAGE {line}; for j1, with this line alone: drive job resume j1 with this line verbatim"]
 
 
 def test_a_pr_wake_for_a_builder_the_top_coordinator_started_that_returned_on_a_platform_order_hands_the_job_add_step_to_the_platform_session(
@@ -3699,7 +3699,7 @@ def test_a_pr_wake_for_a_builder_the_top_coordinator_started_that_returned_on_a_
     assert run("pr", "wake", url, "--text", line) == (0, f"{key}: sent to platform@{demo} for j1")
     [record] = posted
     assert record["to"] == [f"platform@{demo}"]
-    assert record["text"].startswith(f"STAGE {line}; for its builder j1, with this line alone: j1's builder already returned (built)")
+    assert record["text"].startswith(f"STAGE {line}; for j1, with this line alone: j1's builder already returned (built)")
     assert "run `drive job add builder` for order o1 and its parts, which takes each PR j1 opened and stops it" in record["text"]
     data = state.load(demo)
     assert state.held_elsewhere(data, "o1", "platform-1") is None

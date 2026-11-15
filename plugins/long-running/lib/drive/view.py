@@ -459,6 +459,23 @@ def stage_name(pr: dict) -> str | None:
     return (pr["stage"] or {}).get("name")
 
 
+def on_him(pr: dict) -> bool:
+    """Whether he approved the open PR or its stage, as stage.shown put it on, waits on him: a row of drive status --prs and of the dashboard's Now screen."""
+    from drive import stage
+
+    return (pr["tap"] or {}).get("label") == "Approve" or pr["stage"]["owner"] == stage.HIM
+
+
+def his_prs(drive: dict) -> list[dict]:
+    """One row per open PR on him, by on_him(), its stage oldest first: the PR, its stage, what holds it, who owes its next step and since when, None for a stage the watch has not kept yet."""
+    rows = [
+        {"key": key, "title": pr_title(pr), "url": pr["url"], "stage": pr["stage"]["name"], "holds": pr["stage"]["why"], "owner": pr["stage"]["owner"], "since": pr["stage"]["since"]}
+        for key in state.open_pr_keys(drive)
+        if on_him(pr := drive["prs"][key])
+    ]
+    return sorted(rows, key=lambda row: (row["since"] is None, row["since"] and state.parse_time(row["since"])))
+
+
 def pr_entry(pr: dict) -> dict:
     return {
         "title": pr_title(pr),
@@ -1008,6 +1025,7 @@ def review_entry(key: str, pr: dict, drive: dict, found: dict) -> dict:
         "review": pr["review"],
         "tap": tap_of(pr),
         "stage": pr["stage"],
+        "on_him": on_him(pr),
         "failed": pr["failed_checks"],
         "conflict": pr["conflict"],
         "draft": pr["draft"],
