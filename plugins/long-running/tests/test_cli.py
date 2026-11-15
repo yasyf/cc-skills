@@ -4261,6 +4261,25 @@ def test_job_report_refuses_a_readers_line_jev_reads_as_putting_up_for_change_wh
     assert (code, f"drive job report: {settled.UNREAD_LINES.format(failure='no jev decision within 20s')}" in err, len(state.returns("demo", "j1"))) == (0, True, 1)
 
 
+def test_job_report_reads_no_line_saying_only_none_against_his_answers_so_a_readers_bare_none_lines_keep_while_jev_reads_every_line_question_at_yes(
+    run: Run, meta: str, recorded: Answers, jev: Jev, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: the cloud tree")
+    run("job", "add", "reader", "--order", "o1", "--goal", "research: the cloud tree")
+    recorded.lined = [CAP_RULING]
+    for number in range(1, 5):
+        jev.breaks(f"{settled.LINE_KEY}{number}", CAP_RULING["id"])
+    code, err = keep(monkeypatch, capsys, "j1", RESEARCH)
+    assert (code, err.startswith('drive: j1: refused, nothing kept: as Jev reads it, the line "rulings: none on the copy path" says no ruling of his covers')) == (2, True)
+    [asked] = [request for request in jev.asked if any(key.startswith(settled.LINE_KEY) for key in request["questions"])]
+    assert asked["state"]["lines"] == {"l1": "rulings: none on the copy path", "l2": "build: one store_copy_at call per stalled store"}
+    jev.asked.clear()
+    bare = RESEARCH.replace("rulings: none on the copy path", "Rulings: None.").replace("one store_copy_at call per stalled store", "none") + "\nLeft open:\n- None.\n"
+    code, err = keep(monkeypatch, capsys, "j1", bare)
+    assert (code, len(state.returns("demo", "j1"))) == (0, 1)
+    assert [request for request in jev.asked if any(key.startswith(settled.LINE_KEY) for key in request["questions"])] == []
+
+
 def test_his_card_answers_no_recorded_answer_holds_are_recorded_once_and_one_cc_notes_holds_under_that_question_keeps_its_id(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, recorded: Answers
 ) -> None:
