@@ -4715,6 +4715,24 @@ def test_a_builds_nothing_builder_on_a_build_orders_staging_test_part_starts_and
     assert "its brief carries the line Researched:" in brief.brief_refusal("demo", data, "j1", "Drive: demo, order o1, job j1")
 
 
+def test_a_done_on_a_staging_test_part_names_its_cases_and_one_whose_case_failed_is_kept_with_the_part_left_open_which_no_merged_pr_delivers(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    staging = "staging test of #42 before it lands"
+    run("order", "add", "--title", "Soak it", "--project", "The drive", "--workstream", "Drive tooling", "soak it", "--kind", "build", "--parts", staging)
+    assert run("job", "add", "builder", "--order", "o1", "--part", staging, "--goal", "soak #42 on staging", "--builds-nothing")[0] == 0
+    results = tmp_path / "results.txt"
+    results.write_text("case 1 passed, case 2 kept the old row\n")
+    code, err = keep(monkeypatch, capsys, "j1", f"DONE ran the staging test of #42 on cut 1\nCHECK: {results}\n")
+    assert (code, f'j1 holds "{staging}", so its DONE names each case of the staging test on a line of its own, CASE <case>: <verdict>,' in err) == (2, True)
+    failed = f"DONE #42 failed a case on cut 1\nCHECK: {results}\nCASE 1 a rollback refused: pass\nCASE 2 a write lands: fail: the writer kept the old row\n"
+    assert keep(monkeypatch, capsys, "j1", failed)[0] == 0
+    data = state.load("demo")
+    assert (data["jobs"]["j1"]["state"], state.delivered(data, "o1", staging)) == ("done", False)
+    with pytest.raises(state.DriveError, match="a staging test part is delivered only by the DONE of its newest tester"):
+        cli.answered_by("demo", "o1", staging, "https://github.com/Forge-AI/monorepo/pull/42")
+
+
 def test_a_drive_tooling_yasyf_pr_wanting_no_tap_may_land_untapped_as_the_lander_lands_it(run: Run, with_pr: str, meta: str) -> None:
     run("order", "set", "o1", "--kind", "build")
     run("start", "demo", "--role", "meta")

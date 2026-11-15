@@ -1050,13 +1050,119 @@ def test_a_drive_saved_with_a_builders_done_on_its_own_open_pr_puts_it_back_wait
         "Forge-AI/monorepo#43": state.new_pr(merged_url, "j2", "o1") | {"state": "merged", "merged_sha": "fedcba9876543210"},
     }
     state.create(data)
-    state.keep_report("demo", "j1", done, f"{done}\nCHECK: {proof} https://buildkite.com/forge/release/builds/16121\n")
+    state.keep_report("demo", "j1", done, f"{done}\nCHECK: {proof} https://buildkite.com/forge/release/builds/16121\nCASE a rollback refused: pass {proof}\n")
     data = state.load("demo")
     held, kept = data["jobs"]["j1"], data["jobs"]["j2"]
     assert (held["state"], held["said"], held["waits"], kept["state"], kept["said"]) == ("waiting", f"WAITING {open_url} to merge: {done}", ["Forge-AI/monorepo#42"], "done", "DONE the reader ships")
-    assert ([state.delivered(data, "o1", part) for part in (change, staging, read_part)], data["orders"]["o1"]["parts"][staging]["posted"]) == ([False, True, True], proof)
+    posted = data["orders"]["o1"]["parts"][staging]
+    assert ([state.delivered(data, "o1", part) for part in (change, staging, read_part)], posted["posted"], posted["posted_by"]) == ([False, True, True], proof, "j1")
     with state.edit("demo") as drive:
         assert drive["open_dones_held"] is True
+
+
+STAGING, PROOF = "staging test of #42 before it lands", "https://buildkite.com/forge/release/builds/16121"
+
+
+def staging_drive(*testers: str) -> dict:
+    make("demo")
+    data = state.load("demo")
+    created = "2026-11-14T10:00:00-08:00"
+    data["orders"] = {"o1": state.new_order("soak the writer", "slack:D123/1794600000.000100", ("D123", "1794600000.000100"), {STAGING: state.new_part()}, created) | {"kind": "build", "jobs": list(testers)}}
+    data["jobs"] = {job_id: state.new_job("o1", "builder", "run the staging test of #42", [STAGING], created) for job_id in testers}
+    return data
+
+
+def staging_return(data: dict, job_id: str, line: str, cases: str, proof: str = PROOF) -> None:
+    state.take_result(data, job_id, line, f"{line}\nCHECK: {proof} https://buildkite.com/forge/release/builds/16062\n{cases}")
+
+
+def staging_reads(data: dict) -> tuple[bool, str | None, str | None]:
+    held = data["orders"]["o1"]["parts"][STAGING]
+    return state.delivered(data, "o1", STAGING), held["posted"], held["posted_by"]
+
+
+@pytest.mark.parametrize(
+    ("cases", "passed"),
+    [
+        ("CASE a rollback refused: pass\nCASE a write lands: PASS on the cut\n", True),
+        ("CASE a rollback refused: pass\nCASE a write lands: fail: the writer kept the old row\n", False),
+        ("CASE a rollback refused: pass\nCASE a write lands: not exercised\n", False),
+        ("CASE a write lands: skipped\n", False),
+        ("Case 5 a write lands: fail: the writer kept the old row\n", False),
+    ],
+    ids=["every-case-passes", "a-case-fails", "a-case-not-exercised", "a-case-skipped", "no-case-line"],
+)
+def test_a_staging_test_part_is_delivered_by_its_testers_done_only_when_every_case_line_reads_pass_as_j4832s_and_j4850s_were_not(
+    state_root: Path, cases: str, passed: bool
+) -> None:
+    data = staging_drive("j1")
+    staging_return(data, "j1", "DONE ran the staging test of #42 on cut 1", cases)
+    assert (data["jobs"]["j1"]["state"], staging_reads(data)) == ("done", (True, PROOF, "j1") if passed else (False, None, None))
+
+
+def test_a_staging_test_parts_full_pass_holds_only_while_its_tester_is_the_newest_not_stopped_and_still_holds_that_done(state_root: Path) -> None:
+    data = staging_drive("j1")
+    staging_return(data, "j1", "DONE every case of #42 passed", "CASE a rollback refused: pass\n")
+    passed = staging_reads(data)
+    data["jobs"]["j2"] = state.new_job("o1", "builder", "rerun the staging test of #42 at its new head", [STAGING], state.stamp())
+    data["orders"]["o1"]["jobs"].append("j2")
+    rerun = staging_reads(data)
+    data["jobs"]["j2"]["state"] = "stopped"
+    stopped = staging_reads(data)
+    state.take_result(data, "j1", "BLOCKED staging is frozen for an incident")
+    blocked = staging_reads(data)
+    data["jobs"]["j2"]["state"] = "running"
+    newer = "https://buildkite.com/forge/release/builds/16200"
+    staging_return(data, "j2", "DONE every case of #42 passed at its new head", "CASE a rollback refused: pass\n", newer)
+    replaced = staging_reads(data)
+    staging_return(data, "j2", "DONE #42 failed a case on its rerun", "CASE a rollback refused: fail: the rollback went through\n", newer)
+    assert [passed, rerun, stopped, blocked, replaced, staging_reads(data)] == [
+        (True, PROOF, "j1"),
+        (False, PROOF, "j1"),
+        (True, PROOF, "j1"),
+        (False, None, None),
+        (True, newer, "j2"),
+        (False, None, None),
+    ]
+
+
+def test_a_full_pass_by_the_builder_of_the_pr_it_tests_delivers_its_staging_part_while_its_done_waits_on_that_pr_and_after_the_watch_takes_its_merge(state_root: Path) -> None:
+    data = staging_drive("j1")
+    url = "https://github.com/Forge-AI/monorepo/pull/42"
+    data["jobs"]["j1"]["prs"] = [url]
+    data["prs"] = {"Forge-AI/monorepo#42": state.new_pr(url, "j1", "o1")}
+    done = "DONE every case of #42 passed"
+    staging_return(data, "j1", done, "CASE a rollback refused: pass\n")
+    held = (data["jobs"]["j1"]["state"], staging_reads(data))
+    data["prs"]["Forge-AI/monorepo#42"] |= {"state": "merged", "merged_sha": "fedcba9876543210"}
+    state.take_result(data, "j1", f"DONE {url} merged: Forge-AI/monorepo#42 at fedcba987654")
+    assert [held, (data["jobs"]["j1"]["state"], staging_reads(data))] == [("waiting", (True, PROOF, "j1")), ("done", (True, PROOF, "j1"))]
+
+
+def test_a_drive_saved_delivering_staging_test_parts_by_any_done_keeps_each_only_on_the_newest_tester_whose_done_named_its_proof_once_as_j4832s_j4937s_and_j5048s_were_not(
+    state_root: Path,
+) -> None:
+    data = staging_drive()
+    del data["staging_proofs_owned"]
+    created = "2026-11-14T10:00:00-08:00"
+    owned, rerun, running, unposted = (state.STAGING_TEST.format(number=number) for number in (42, 43, 44, 45))
+    data["orders"]["o1"]["parts"] = {part: state.new_part() | {"posted": PROOF if part != unposted else None} for part in (owned, rerun, running, unposted)}
+    for part in data["orders"]["o1"]["parts"].values():
+        del part["posted_by"]
+    testers = {"j1": owned, "j2": rerun, "j3": rerun, "j4": running, "j5": unposted}
+    data["orders"]["o1"]["jobs"] = list(testers)
+    done = f"DONE {PROOF} ran the staging test"
+    data["jobs"] = {job_id: state.new_job("o1", "builder", "run the staging test", [part], created) | {"state": "done", "said": done} for job_id, part in testers.items()}
+    data["jobs"]["j3"] |= {"state": "waiting", "said": "WAITING on a staging slot"}
+    data["jobs"]["j4"] |= {"state": "running", "said": None}
+    state.create(data)
+    for job_id in ("j1", "j2", "j4", "j5"):
+        state.keep_report("demo", job_id, done, f"{done}\nCHECK: {PROOF}\n")
+    data = state.load("demo")
+    parts = data["orders"]["o1"]["parts"]
+    assert [(state.delivered(data, "o1", part), parts[part]["posted_by"]) for part in (owned, rerun, running, unposted)] == [(True, "j1"), (False, "j2"), (False, "j4"), (False, None)]
+    with state.edit("demo") as drive:
+        assert drive["staging_proofs_owned"] is True
 
 
 def test_a_part_an_older_install_saved_with_spaces_around_its_name_loads_trimmed_wherever_a_job_or_pr_names_it(state_root: Path) -> None:
