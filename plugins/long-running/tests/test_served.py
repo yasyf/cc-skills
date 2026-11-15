@@ -167,10 +167,37 @@ def test_a_ruling_on_code_is_owed_once_by_a_change_to_that_code_its_missing_writ
     assert judged_at(5, code).startswith(served.CHECKED) and OWED not in judge.asked[-1][0]
     assert len(asked) == reads
 
-
 CACHE_CODE = added("go/sand/cache/key.go", b"func key() string { return run.ID }")
 CACHE_WRITE = added("go/sand/AGENTS.md", b"- Ruled Nov 11: Key the cache on the run id")
 CACHE_GUIDE = "# Agents\n\n- Ruled Nov 11: Key the cache on the run id\n"
+
+
+def test_a_pr_bound_to_a_ruling_on_a_directory_has_the_judge_read_that_directory_whole_at_its_head_so_code_there_its_diff_never_touches_refuses_it(
+    run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch, judge: Judge, recorded: Answers
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "key the cache on the run")
+    run("job", "add", "builder", "--order", "o1", "--goal", "land")
+    run("pr", "add", URL, "--job", "j1", *LEAD)
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["brief_flags"] = {"ruling": ["c0de123"]}
+    recorded.shown |= {"c0de123": CACHE_RULING, served.WRITES_RULING: WHERE_WRITTEN}
+    home = ["Forge-AI/monorepo"]
+    monkeypatch.setattr(github, "checkout_repo", lambda cwd: home[0])
+    monkeypatch.setattr(github, "graphql", lambda text, what, max_age="0s": {"data": {"repository": {alias: {"text": CACHE_GUIDE} for alias, _, _ in GUIDE_AT.findall(text)}}})
+
+    def judged_at(n: int) -> str:
+        with state.edit(demo) as data:
+            data["prs"][KEY]["head"] = f"head{n}"
+        monkeypatch.setattr(served, "change", lambda key: {"title": "Fix: key the cache", "body": "", "base": "dev", "head": f"head{n}", "diff": CACHE_CODE})
+        return served.verdict(demo, KEY)
+
+    judge.against = [{"order": "c0de123", "words": "Key the cache on the run id", "file": "go/sand/cache/lookup.go", "change": "go/sand/cache/lookup.go:12 at head1 still keys on the session id"}]
+    refused = judged_at(1)
+    whole = "each of these answers of his rules how all the code under its directory works, so the directory is judged as it stands at the head against it, never only the lines the diff touches: c0de123 on go/sand/cache"
+    assert (refused.startswith(served.NOT_READY), "lookup.go:12 at head1 still keys on the session id" in refused, whole in judge.asked[-1][0]) == (True, True, True)
+    home[0] = "yasyf/cc-skills"
+    judge.against = []
+    assert judged_at(2).startswith(served.CHECKED) and "rules how all the code under its directory works" not in judge.asked[-1][0]
 
 
 def open_rows(demo: str, rows: dict[int, tuple[str, str, str]]) -> dict:
@@ -212,7 +239,7 @@ def test_a_ruling_held_at_the_base_branchs_tip_or_at_the_head_of_an_open_pr_whos
     )
     data = open_rows(demo, rows | {7: ("fix/elsewhere", "open", "go/other/AGENTS.md")})
     data["prs"]["yasyf/cc-skills#3"] = data["prs"][KEY] | {"branch": "fix/cache-other-repo", "checked": data["prs"]["Forge-AI/monorepo#7"]["checked"] | {"lines": {"AGENTS.md": "d"}}}
-    found = served.owed(data, KEY, ["c0de123"], {KEY: {"base": "dev", "head": "head1", "diff": diff}})
+    found = served.owed(data, KEY, served.coded(data, KEY, ["c0de123"]), {KEY: {"base": "dev", "head": "head1", "diff": diff}})
     assert [each["written"] for each in found] == owes
     read = {branch for _, branch, _ in asked[0]}
     assert (len(asked), read) == (1, {"dev", *(branch for branch, held, changes in rows.values() if held == "open" and changes == "AGENTS.md")})
@@ -231,7 +258,7 @@ def test_the_agents_md_read_is_one_query_of_one_repository_naming_the_same_files
     monkeypatch.setattr(github, "graphql", lambda text, what, max_age="0s": asked.append(text) or {"data": {"repository": {alias: None for alias, _, _ in GUIDE_AT.findall(text)}}})
     idle = {1000 + n: (f"fix/idle-{n}", "open", f"go/idle/{n}.go") for n in range(tracked - 1)}
     data = open_rows(demo, {40: ("fix/cache-a", "open", "go/sand/AGENTS.md")} | idle)
-    found = served.owed(data, KEY, ["c0de123"], {KEY: {"base": "dev", "head": "head1", "diff": CACHE_CODE}})
+    found = served.owed(data, KEY, served.coded(data, KEY, ["c0de123"]), {KEY: {"base": "dev", "head": "head1", "diff": CACHE_CODE}})
     assert ([each["written"] for each in found], len(asked)) == ([False], 1)
     assert (asked[0].count("repository("), len(GUIDE_AT.findall(asked[0])), {branch for _, branch, _ in GUIDE_AT.findall(asked[0])}) == (1, 8, {"dev", "fix/cache-a"})
 
@@ -246,7 +273,7 @@ def test_an_answer_cc_notes_prints_with_no_tags_key_reads_as_ruling_no_code_so_a
     monkeypatch.setattr(settled, "shown", SHOWN)
     monkeypatch.setattr(settled, "ccn", lambda argv, text, cwd, failure: json.dumps(unlabelled))
     monkeypatch.setattr(github, "checkout_repo", lambda cwd: "Forge-AI/monorepo")
-    assert served.owed(state.load(demo), KEY, ["fd79b94"], {KEY: {"base": "dev", "head": "head1", "diff": CACHE_CODE}}) == []
+    assert served.coded(state.load(demo), KEY, ["fd79b94"]) == []
 
 
 CLOCKS = ("self::sleep(seconds) is a clock timer that fires one inbox row", "self::watch sets a watch and then suspends", "each alarm is its own clock timer")
@@ -495,7 +522,7 @@ REPLAYS = {
 @pytest.mark.parametrize("key", list(REPLAYS))
 def test_the_judge_refuses_dashed_uuidv7_ids_and_a_picked_option_built_as_whole_copies_and_passes_the_32_hex_fix_and_a_fix_his_words_need(key: str, demo: str) -> None:
     order, parts, answered, near, refused_in = REPLAYS[key]
-    said = served.words({"orders": {"o1": order | {"parts": {part: {"posted": None} for part in parts}}}, "jobs": {"j1": {"order": "o1", "parts": parts, "carries": {}, "prs": []}}}, [{"job": "j1", "parts": []}], ["o1"], answered, near, [], [])
+    said = served.words({"orders": {"o1": order | {"parts": {part: {"posted": None} for part in parts}}}, "jobs": {"j1": {"order": "o1", "parts": parts, "carries": {}, "prs": []}}}, [{"job": "j1", "parts": []}], ["o1"], answered, near, [], [], [])
     found = JUDGE(demo, said, {key: READ_CHANGE(key)})
     assert any(refused_in in item["change"] for item in found) if refused_in else found == [], found
 
@@ -513,7 +540,7 @@ REGRESSION_TEST = "https://github.com/Forge-AI/monorepo/pull/56227"
 )
 def test_a_part_a_merged_pr_outside_the_job_delivered_is_left_to_other_changes_naming_that_pr_and_one_its_own_pr_delivered_stays_its_own(job_prs: list[str], lines: str) -> None:
     order = {"created": "2026-11-13T18:40:00-08:00", "text": "fix the stuck chats", "parts": {"fix": {"posted": TEAMMATES_FIX}, "stop": {"posted": None}, "cause": {"posted": None}}}
-    said = served.words({"orders": {"o1": order}, "jobs": {"j1": {"order": "o1", "parts": ["fix"], "carries": {}, "prs": job_prs}}}, [{"job": "j1", "parts": []}], ["o1"], [], [], [], [])
+    said = served.words({"orders": {"o1": order}, "jobs": {"j1": {"order": "o1", "parts": ["fix"], "carries": {}, "prs": job_prs}}}, [{"job": "j1", "parts": []}], ["o1"], [], [], [], [], [])
     assert said == f'o1, 2026-11-13T18:40:00-08:00: "fix the stuck chats"\n{lines}'
 
 
@@ -618,7 +645,7 @@ FLAKE_FIXES = {
 @pytest.mark.parametrize("case", list(FLAKE_FIXES))
 def test_the_judge_passes_each_flake_fix_the_drive_turned_away_against_his_ruling_532cd3d_alone_and_refuses_a_retry_and_a_timeout_bump(case: str, demo: str) -> None:
     key, read = FLAKE_FIXES[case]
-    said = served.words({"orders": {}, "jobs": {"j1": {"order": "o1", "parts": [], "carries": {}, "prs": []}}}, [{"job": "j1", "parts": []}], [], [FLAKE_RULING], [], [], [])
+    said = served.words({"orders": {}, "jobs": {"j1": {"order": "o1", "parts": [], "carries": {}, "prs": []}}}, [{"job": "j1", "parts": []}], [], [FLAKE_RULING], [], [], [], [])
     found = JUDGE(demo, said, {key: read or READ_CHANGE(key)})
     assert {item["file"] for item in found} == {"dashboard/e2e/irisServe.e2e.ts"} if read else found == [], found
 
