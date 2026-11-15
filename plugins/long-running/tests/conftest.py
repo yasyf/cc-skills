@@ -774,7 +774,7 @@ def redraws(monkeypatch: pytest.MonkeyPatch) -> Redraws:
             raise slack.SlackError(redrawn.failure)
         key = state.pr_key(url)
         if (known := card.drive_prs().get(key)) and known[1]["head"]:
-            redrawn.rows[url] = card.drawn_lines(known[0], state.load(known[0]), key)
+            redrawn.rows[url] = card.drawn_lines(state.load(known[0]), key, view.live_cards(known[0]))
         return 1
 
     def draw(lines: dict[str, dict[str, str]]) -> int:
@@ -815,7 +815,7 @@ def draws(monkeypatch: pytest.MonkeyPatch) -> Draws:
         if drew.failure:
             raise slack.SlackError(drew.failure)
         data = state.load(name)
-        rows = [{"url": data["prs"][key]["url"], **(card.drawn_lines(name, data, key) if data["prs"][key]["head"] else {"head": None})} for key in keys]
+        rows = [{"url": data["prs"][key]["url"], **(card.drawn_lines(data, key, view.live_cards(name)) if data["prs"][key]["head"] else {"head": None})} for key in keys]
         posted = {"prs": [row["url"] for row in rows], "asked": state.stamp(), "url": drew.link, "card": {"title": "Fix: approve it?", "waits": f"merge:{keys[0]}", "prs": rows}}
         listed = view.cards
         monkeypatch.setattr(view, "cards", lambda name: (shown := listed(name)) | {"pr_cards": [*shown["pr_cards"], posted]})

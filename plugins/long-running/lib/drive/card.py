@@ -597,22 +597,20 @@ def siblings(known: dict[str, tuple[str, dict]], members: list[str], reads: dict
     return not any(known[key][1]["native"] for key in members) and len(chains(members, ends(known, members, reads))) == len(members)
 
 
-def holding(name: str, entry: dict) -> dict[str, str]:
+def holding(data: dict, entry: dict, found: dict | None) -> dict[str, str]:
     """Each wait of the PR that still holds, each card of his holding it by land.pr_cards and each end of its waits only he moves by stage.asked, each card once, with what it waits for in his card's words."""
     from drive import land, stage, view
 
-    data, found = state.load(name), view.live_cards(name)
     waits = view.holding(data, state.job_waits(data, entry), found)
     return {wait: view.wait_words(data, wait, found) for wait in view.stored_waits(data, [*waits, *stage.asked(data, state.pr_key(entry["url"]), waits, found), *land.pr_cards(data, entry)], found)}
 
 
-def picks(data: dict, entry: dict) -> dict[str, dict]:
+def picks(data: dict, entry: dict, found: dict | None) -> dict[str, dict]:
     """Each card holding the PR by land.pr_cards, the one rule by which a card holds a PR, so never a card holding() names only at an end of its waits, drawn for an open question of the drive whose card recommends an option, the one the PR's builder builds: its waits id, its link, its title and that option, by the card cc-slack lists or else the one the drive keeps; none, reading no card, when no card holds it. His Approve on the PR keeps these on its tap, and land.start answers each still open with that option, so a PR built on his card's recommendation, an incident's repair included, never waits on a card his Approve already answered, by his e55b1cd "The repair lands on the recommendation"."""
     from drive import land, view
 
     if not (holding := land.pr_cards(data, entry)):
         return {}
-    found = view.live_cards(data["name"])
     return {
         wait: {"waits": asked[-1]["waits"], "url": drawn["url"], "title": drawn["card"]["title"], "option": option}
         for wait in view.stored_waits(data, holding, found)
@@ -629,14 +627,14 @@ def untapped(drives: dict[str, dict], known: dict[str, tuple[str, dict]], reads:
     return "; ".join(f"{key}: {why}" if len(members) > 1 else why for key, why in refusals.items()) + ", so no PR card draws, since it would offer him no Approve"
 
 
-def member(name: str, data: dict, pr: dict, entry: dict, picked: dict[str, dict], drawing: tuple[tuple[str, ...], tuple[str, ...]] = ((), ())) -> Member:
-    """The PR as his card draws it: GitHub's read of it, the drive's entry as drawn_entry gives it, its drawn Show me pictures and why each left off does not draw, each wait that holds it outside the cards his Approve picks, and those picks."""
+def member(data: dict, found: dict | None, pr: dict, entry: dict, picked: dict[str, dict], drawing: tuple[tuple[str, ...], tuple[str, ...]] = ((), ())) -> Member:
+    """The PR as his card draws it from the drive and his cards its caller read: GitHub's read of it, the drive's entry as drawn_entry gives it, its drawn Show me pictures and why each left off does not draw, each wait that holds it outside the cards his Approve picks, and those picks."""
     from drive import view
 
-    held = holding(name, entry)
+    held = holding(data, entry, found)
     return (
         pr,
-        drawn_entry(name, data, entry),
+        drawn_entry(data, entry, found),
         drawing[0],
         tuple(words for wait, words in held.items() if wait not in picked),
         drawing[1],
@@ -644,20 +642,20 @@ def member(name: str, data: dict, pr: dict, entry: dict, picked: dict[str, dict]
     )
 
 
-def drawn_entry(name: str, data: dict, entry: dict) -> dict:
+def drawn_entry(data: dict, entry: dict, found: dict | None) -> dict:
     """The drive's entry with what render reads beside it, the one place that adds it, for his card and the dashboard's row alike: its stage and staging line now, why his card offers no Approve by state.tap_refused, and a link to each open PR above it in its stack, by PrGraph.stack(), being reworked to his words, which cards() leaves off its card with every PR above it so his Approve lands it alone."""
     from drive import stage, view
 
     key = state.pr_key(entry["url"])
     stack = [mate for mate in state.pr_graph(data).stack(key) if mate in data["prs"] and data["prs"][mate]["state"] == "open"]
     above = stack[stack.index(key) + 1 :] if key in stack else []
-    return entry | {"now": stage.on_card(data, key, view.live_cards(name)), "staging": view.staging(data, key), "reworked_above": tuple(view.pr_link(data["prs"][mate]) for mate in above if data["prs"][mate]["rework"]), "tap_refused": state.tap_refused(data, entry)}
+    return entry | {"now": stage.on_card(data, key, found), "staging": view.staging(data, key), "reworked_above": tuple(view.pr_link(data["prs"][mate]) for mate in above if data["prs"][mate]["rework"]), "tap_refused": state.tap_refused(data, entry)}
 
 
-def drawn_lines(name: str, data: dict, key: str) -> dict[str, str]:
-    """The REDRAWN lines his card on the PR draws now from the drive's entry alone, no GitHub read, which the watch holds against the card cc-slack last drew."""
+def drawn_lines(data: dict, key: str, found: dict | None) -> dict[str, str]:
+    """The REDRAWN lines his card on the PR draws now from the drive's entry and his cards as its caller read them, no GitHub read and no read of the drive or his cards, which the watch holds against the card cc-slack last drew."""
     entry = data["prs"][key]
-    row = render(*member(name, data, watched(entry), entry, picks(data, entry)))["prs"][0]
+    row = render(*member(data, found, watched(entry), entry, picks(data, entry, found)))["prs"][0]
     return {line: row[line] for line in REDRAWN}
 
 
@@ -685,6 +683,8 @@ def on_his_card(known: dict[str, tuple[str, dict]], reads: dict[str, dict], memb
 
 def cards(asked: list[dict], redraw: bool = False) -> dict:
     """One card per stack the asked PRs form, by groups(), bottom PR first, cut below its lowest PR reworked to his words, which with every PR above it is refused by reworked() since none lands without it, each card drawn kept on its PRs and asking under ask_waits, so Approve lands exactly the PRs it asks, and a fresh one only when tap_refused finds one of them asking his Approve, the same check that puts Approve on a card. A redraw of a card cc-slack already posted draws it as the PRs stand now, a wait that holds back a fresh Approve shown on it rather than refusing it. A PR body's sections are drawn as they stand and never hold a card, a Show me picture that does not draw included, such as an arch diagram whose store node names a medium the drawing does not know: it is left off, the card's Show me saying why in one line, which `drawn` tells the session hearing its order. The reply skips only PRs it was asked for, since cc-slack refuses a whole draw or redraw whose reply skips any PR, so a stack mate refused beside an asked PR, such as the reworked PR above it, never keeps the asked PR's card from drawing."""
+    from drive import view
+
     at, known = state.stamp(), drive_prs()
     asked_keys = keys_of(asked, known)
     for key in asked_keys:
@@ -722,9 +722,10 @@ def cards(asked: list[dict], redraw: bool = False) -> dict:
             continue
         taken: set[str] = set()
         drawings = {key: pictured(known[key][0], reads[key], state.pr_jobs(drives[known[key][0]], known[key][1]), taken) for key in members}
-        picked = {key: picks(drives[known[key][0]], known[key][1]) for key in members}
+        founds = {name: view.live_cards(name) for name in drives}
+        picked = {key: picks(drives[known[key][0]], known[key][1], founds[known[key][0]]) for key in members}
         card = drawn_card(
-            [member(known[key][0], drives[known[key][0]], reads[key], known[key][1], picked[key], drawings[key]) for key in members],
+            [member(drives[known[key][0]], founds[known[key][0]], reads[key], known[key][1], picked[key], drawings[key]) for key in members],
             siblings(known, members, reads),
         )
         remember(known, members)
@@ -785,12 +786,13 @@ def answered(ask: dict) -> dict:
     members = keys_of([{"repo": ask["repo"], "number": number} for number in asked[1].split(".")], known) if asked else [key]
     if ask["label"] == WORDS:
         return {"ok": True, "taken": taken_back(name, members, ask)}
+    found = view.live_cards(name)
     with state.edit(name) as data:
         for member in members:
             entry = data["prs"][member]
             if entry["state"] != "open" or len(members) > 1 and land.approved(entry) or ask["action_ts"] and (entry["tap"] or {}).get("action_ts") == ask["action_ts"]:
                 continue
-            picked = {wait: pick | {"seq": None} for wait, pick in picks(data, entry).items()} if ask["label"] == "Approve" else {}
+            picked = {wait: pick | {"seq": None} for wait, pick in picks(data, entry, found).items()} if ask["label"] == "Approve" else {}
             entry["tap"] = state.new_tap(ask["label"], ask["heads"].get(member, entry["head"]), ask["source"], ask["action_ts"], picks=picked)
             entry["fundamental"] = None
             entry["updated"] = entry["tap"]["at"]

@@ -4091,7 +4091,7 @@ def redraw_lines(watcher: Watcher, moment: datetime, keys: set[str] | None = Non
 
     if watcher.cards is None:
         return []
-    data = state.load(watcher.name)
+    data, found = state.load(watcher.name), view.live_cards(watcher.name)
     rows: dict[str, list[dict]] = {}
     for shown in [*watcher.cards["pr_cards"], *(closed for closed in watcher.cards["closed"] if "card" in closed)]:
         for row in shown["card"]["prs"]:
@@ -4110,7 +4110,7 @@ def redraw_lines(watcher: Watcher, moment: datetime, keys: set[str] | None = Non
                 continue
             watcher.failures.pop("card redraw", None)
             watcher.redrawn_whole.add(key)
-        now = card.drawn_lines(watcher.name, data, key)
+        now = card.drawn_lines(data, key, found)
         if all({line: row.get(line, "") for line in card.REDRAWN} == now for row in drawn):
             continue
         fresh[key] = now

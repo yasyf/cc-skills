@@ -174,7 +174,7 @@ def pr_read(name: str, key: str) -> dict | None:
     entry = data["prs"][key]
     if not (pr := card.read(key, entry)):
         return None
-    return pr | {"show_me": sections(body_of(pr)).get("show me", ""), "row": card.render(pr, card.drawn_entry(name, data, entry))["prs"][0]}
+    return pr | {"show_me": sections(body_of(pr)).get("show me", ""), "row": card.render(pr, card.drawn_entry(data, entry, view.live_cards(name)))["prs"][0]}
 
 
 @functools.cache
