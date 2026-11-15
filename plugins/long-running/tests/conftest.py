@@ -934,7 +934,7 @@ def visibilities(monkeypatch: pytest.MonkeyPatch) -> dict[str, str | None]:
 @pytest.fixture(autouse=True)
 def pr_reads(monkeypatch: pytest.MonkeyPatch) -> dict[str, dict]:
     reads: dict[str, dict] = {}
-    monkeypatch.setattr(github, "fetch", lambda keys: ({key: reads[key] for key in keys if key in reads}, None))
+    monkeypatch.setattr(github, "fetch", lambda keys, into=None: ({key: reads[key] for key in keys if key in reads}, None))
     return reads
 
 
