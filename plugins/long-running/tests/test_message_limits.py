@@ -1250,7 +1250,9 @@ def test_a_handlers_line_in_his_thread_waits_for_its_own_fresh_read_of_that_thre
     reads(lane_of(unread), "1.2", failed=True)
     assert posted(unread, text="Fixed.", thread_ts="1.2") == "refused: your slack_thread call on his thread 1.2 failed" + read_it
     reads(lane_of(unread), "1.2", age=timedelta(minutes=11))
-    assert posted(unread, text="Fixed.", thread_ts="1.2") == "refused: your last read of his thread 1.2 was 11 minutes ago, and a read counts for 10" + read_it
+    stale = posted(unread, text="Fixed.", thread_ts="1.2")
+    assert stale == "refused: your last read of his thread 1.2 was 11 minutes ago, and a read counts for 10" + read_it
+    assert isinstance(stale, agents.Unjudged)
     reads(lane_of(unread), "1.2", age=timedelta(minutes=9))
     assert posted(unread, text="Fixed.", thread_ts="1.2") is None
     assert message_limits.deny_reason(call("slack_reply", unread, channel_id=DM, thread_ts="1.4", text="Fixed.")).startswith(

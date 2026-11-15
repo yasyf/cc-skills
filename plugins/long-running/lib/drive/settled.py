@@ -29,6 +29,7 @@ CANDIDATES = 8
 MODEL = "jev-1.14.0"
 YES = 0.7
 NO = 0.3
+BACKS = 0.45
 REQUEST_CHARS = 10_000
 DECIDE_SECONDS = 20
 REFUSAL_SECONDS = 3
@@ -790,7 +791,7 @@ def refusal_verdict(rule: str, call: dict, seconds: float = REFUSAL_SECONDS) -> 
 
 
 def post_verdict(output: dict, sent: str, seconds: float = DECIDE_SECONDS) -> dict:
-    """Whether a post the drive's checks hand with his words holds, by one request filled by whole items: each claim beside the read it names, whole, one Noul whether that read backs it; each finding beside the rule it stands for, one Noul whether the rule holds against it and one whether his words lift it; each sentence of a handler's post no claim's words cover, one Noul whether it states a fact that stands only on a read; and his words, the checks' own picks first, then newest first. It holds for a claim whose read is under NO or matched none of the handler's calls, a finding that holds at YES with no lift at NO or more, or an uncovered fact at YES, by his pick f9e9302 "The handler names the read behind each claim; Jev checks each claim against that read, whole, and holds only unbacked claims"; a Noul in the band between, or an item with no room left, only warns, naming it. When Jev cannot finish, a finding a count or a mark decides still holds, since no judgment lifts it, and every other only warns, by his pick b80a8b1 "Refusals only warn when the judge cannot finish: no post ever waits, but it goes out unchecked, as twice this morning". With sent naming the post Slack already has, by his pick 7bd6634, a held post stays in his DM and its note says to reword it in place."""
+    """Whether a post the drive's checks hand with his words holds, by one request filled by whole items: each claim beside the read it names, whole, one Noul whether that read backs it; each finding beside the rule it stands for, one Noul whether the rule holds against it and one whether his words lift it; each sentence of a handler's post no claim's words cover, one Noul whether it states a fact that stands only on a read; and his words, the checks' own picks first, then newest first. It holds for a claim whose read is under BACKS or matched none of the handler's calls, a finding that holds at YES with no lift at NO or more, or an uncovered fact at YES, by his pick f9e9302 "The handler names the read behind each claim; Jev checks each claim against that read, whole, and holds only unbacked claims"; a claim at BACKS or more stands, since every unbacked claim of the drive's recorded posts drew under it and no claim's answer only warns; a finding's or sentence's Noul in the band between, or an item with no room left, only warns, naming it. When Jev cannot finish, a finding a count or a mark decides still holds, since no judgment lifts it, and every other only warns, by his pick b80a8b1 "Refusals only warn when the judge cannot finish: no post ever waits, but it goes out unchecked, as twice this morning". With sent naming the post Slack already has, by his pick 7bd6634, a held post stays in his DM and its note says to reword it in place."""
     post = output["post"]
     reason = (output.get("hookSpecificOutput") or {}).get("permissionDecisionReason") or ""
     findings = output.get("findings") or ([{"rule": reason, "found": reason.removeprefix("refused: ")}] if reason else [])
@@ -818,10 +819,8 @@ def post_verdict(output: dict, sent: str, seconds: float = DECIDE_SECONDS) -> di
             continue
         if (sure := read.get(f"c{number}.backed")) is None:
             unsure.append(f'claim "{claim["claim"]}", which had no room in Jev\'s {REQUEST_CHARS:,} characters')
-        elif (backs := reading(sure)) is False:
+        elif sure < BACKS:
             held.append(f'claim "{claim["claim"]}" does not stand on its read: make the read that shows it and name it in claims, or cut the line to what your reads show')
-        elif backs is None:
-            unsure.append(f'claim "{claim["claim"]}"')
     for number, finding in enumerate(findings, 1):
         holds, lifted = read.get(f"f{number}.holds"), read.get(f"f{number}.lifted", 0.0)
         if holds is None:
