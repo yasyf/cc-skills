@@ -15,9 +15,11 @@ from unittest.mock import ANY
 
 import pytest
 from conftest import (
+    BINDER_TERMINAL,
     DRIVE_TERMINAL,
     LEAD,
     LIVE_WORKER,
+    REAL_BINDER_TERMINAL,
     REAL_DRIVE_TERMINAL,
     REAL_KEEP_LOGS,
     REAL_KEEP_TRANSCRIPTS,
@@ -1592,9 +1594,7 @@ def test_resume_answers_the_open_question_then_sends_to_the_dispatch(
     assert state.load(remote)["jobs"]["j1"]["undelivered"] == []
     assert run("job", "resume", "j1", "PR checks failed")[0] == 0
     assert calls == [
-        ("run-use", "--id", RUN),
         ("reply", "--id", "msg_q1", "--run", RUN, "--body", Unheld("TAP Approve"), "--retry-request", ANY),
-        ("check", "--run", RUN),
         ("send", "--to", f"dispatch:{DISPATCH}", "--run", RUN, "--subject", "From the coordinator", "--body", Unheld("PR checks failed"), "--retry-request", ANY),
     ]
     job = state.load(remote)["jobs"]["j1"]
@@ -1610,11 +1610,10 @@ def test_resume_sends_to_the_dispatch_when_orca_already_holds_another_answer_to_
         data["jobs"]["j1"].update(ask="msg_q1", state="waiting")
     assert run("job", "resume", "j1", "PR checks failed") == (0, f"j1: {queued(DISPATCH)}")
     assert calls == [
-        ("run-use", "--id", RUN),
         ("reply", "--id", "msg_q1", "--run", RUN, "--body", Unheld("PR checks failed"), "--retry-request", ANY),
         ("send", "--to", f"dispatch:{DISPATCH}", "--run", RUN, "--subject", "From the coordinator", "--body", Unheld("PR checks failed"), "--retry-request", ANY),
     ]
-    assert calls[1][-1] != calls[2][-1]
+    assert calls[0][-1] != calls[1][-1]
     job = state.load(remote)["jobs"]["j1"]
     assert (job["ask"], job["state"]) == (None, "running")
 
@@ -5167,11 +5166,7 @@ def test_the_watch_answers_a_read_question_itself_and_keeps_the_job_as_it_was(
     watching = watch.Watcher(remote, offset=state.events_end(remote))
     assert watch.run_pass(watching, T0) == []
     assert asked == [("READ cci show 2065", tmp_path, remote, "j1")]
-    assert replies == [
-        ("run-use", "--id", RUN),
-        ("reply", "--id", "msg_read", "--run", RUN, "--body", "m2065 the field facts"),
-        ("check", "--run", RUN),
-    ]
+    assert replies == [("reply", "--id", "msg_read", "--run", RUN, "--body", "m2065 the field facts")]
     job = state.load(remote)["jobs"]["j1"]
     assert (job["ask"], job["state"], job["said"]) == (None, "running", None)
 
@@ -5227,7 +5222,7 @@ def test_a_relay_pass_reads_orcas_mail_once_however_many_sprite_lanes_are_live_a
     assert len(read) == mail_reads
 
 
-def test_every_answer_kept_on_a_run_goes_in_one_hold_of_the_drive_terminals_binding_bound_once(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_every_answer_kept_on_a_run_goes_in_a_reply_of_its_own_with_no_bind_and_leaves_its_queue_once(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(
             reads={"relay_one": "READ cci show 1", "relay_two": "READ cci show 2"},
@@ -5238,15 +5233,13 @@ def test_every_answer_kept_on_a_run_goes_in_one_hold_of_the_drive_terminals_bind
     monkeypatch.setattr(orca, "call", lambda *args: calls.append(args) or {})
     assert watch.send_answers(remote, RUN) == [("j1", None), ("j1", None)]
     assert calls == [
-        ("run-use", "--id", RUN),
         ("reply", "--id", "relay_one", "--run", RUN, "--body", "m1"),
         ("reply", "--id", "relay_two", "--run", RUN, "--body", "m2"),
-        ("check", "--run", RUN),
     ]
     job = state.load(remote)["jobs"]["j1"]
     assert (job["reads"], job["read_answers"], job["readers"]) == ({}, {}, {})
     assert watch.send_answers(remote, RUN) == []
-    assert len(calls) == 4
+    assert len(calls) == 2
 
 
 def test_a_log_question_a_lane_on_the_old_builder_rules_asks_gets_the_rule_back_with_no_job_line(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -5287,22 +5280,22 @@ def test_a_read_answer_orca_refuses_its_reader_is_retried_by_the_watch_until_it_
     monkeypatch.setattr(reads, "answer", lambda question, root, drive, job_id: "m2065")
     replies, refusals = [], iter(range(4))
 
-    def fenced_three_times(*args: str) -> dict:
+    def busy_three_times(*args: str) -> dict:
         if args[0] == "reply" and next(refusals, None) is not None:
-            raise orca.OrcaError("orca orchestration reply: consumer_fenced: This caller is bound to Run run_other")
+            raise orca.OrcaError("orca orchestration reply: runtime_busy: Orca is busy", "runtime_busy")
         replies.append(args)
         return {}
 
-    monkeypatch.setattr(orca, "call", fenced_three_times)
+    monkeypatch.setattr(orca, "call", busy_three_times)
     watching = watch.Watcher(remote, offset=state.events_end(remote))
     passes = [watch.run_pass(watching, T0 + timedelta(seconds=s)) for s in (0, 5)]
     assert passes == [
         [],
-        ["WATCH the answer to j1's read failed 3 times in a row: orca orchestration reply: consumer_fenced: This caller is bound to Run run_other"],
+        ["WATCH the answer to j1's read failed 3 times in a row: orca orchestration reply: runtime_busy: Orca is busy"],
     ]
     assert state.load(remote)["jobs"]["j1"]["reads"] == {"msg_read": "READ cci show 2065"}
     assert watch.run_pass(watching, T0 + timedelta(seconds=10)) == []
-    assert replies[-2:] == [("reply", "--id", "msg_read", "--run", RUN, "--body", "m2065"), ("check", "--run", RUN)]
+    assert replies[-1:] == [("reply", "--id", "msg_read", "--run", RUN, "--body", "m2065")]
     assert state.load(remote)["jobs"]["j1"]["reads"] == {}
 
 
@@ -5412,7 +5405,7 @@ def test_an_answer_goes_whole_while_its_relay_message_counted_as_orca_counts_it_
     assert (said, placed) == ((kept_on_sprite("relay_4ee9b39cd0c6", answer), ["relay_4ee9b39cd0c6.txt"]) if filed else (answer, []))
 
 
-def test_an_answer_past_one_relay_message_its_lanes_sprite_cannot_take_tells_its_lane_why_at_once_and_no_sprite_write_holds_the_binding(
+def test_an_answer_past_one_relay_message_its_lanes_sprite_cannot_take_tells_its_lane_why_at_once(
     remote: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with state.edit(remote) as data:
@@ -5433,7 +5426,6 @@ def test_an_answer_past_one_relay_message_its_lanes_sprite_cannot_take_tells_its
     assert [watch.run_pass(watching, T0 + timedelta(seconds=s)) for s in (0, 5)] == [[f"JOB j1 o1 READ unanswered, its lane was told why: {why}"], []]
     assert [args for args in calls if args[0] in ("put", "run-use", "reply")] == [
         ("put", "relay_long.txt"),
-        ("run-use", "--id", RUN),
         ("reply", "--id", "relay_long", "--run", RUN, "--body", f"drive exited 0\n{why}"),
     ]
     assert state.load(remote)["jobs"]["j1"]["reads"] == {}
@@ -5730,7 +5722,7 @@ def test_a_break_glass_answer_orca_refuses_is_sent_again_and_its_command_never_r
 
     def refused_twice(*args: str) -> dict:
         if args[0] == "reply" and next(refusals, None) is not None:
-            raise orca.OrcaError("orca orchestration reply: consumer_fenced: This caller is bound to Run run_other")
+            raise orca.OrcaError("orca orchestration reply: runtime_busy: Orca is busy", "runtime_busy")
         replies.append(args)
         return {}
 
@@ -6671,16 +6663,23 @@ class Started:
         return self.out, ""
 
 
-@pytest.mark.parametrize("given", [(), ("--retry-request", "req_launcher")])
-def test_a_reply_during_a_launch_waits_only_until_orca_takes_its_worker_start_request(remote: str, monkeypatch: pytest.MonkeyPatch, given: tuple[str, ...]) -> None:
-    binds, shown, started = [], [], []
+FENCED_START = json.dumps({"ok": False, "error": {"code": orca.FENCED}})
 
-    def orca_call(*args: str) -> dict:
+
+@pytest.mark.parametrize("given", [(), ("--retry-request", "req_launcher")])
+def test_a_reply_during_a_fenced_launch_waits_only_until_orca_takes_the_binders_worker_start_request(
+    remote: str, monkeypatch: pytest.MonkeyPatch, given: tuple[str, ...]
+) -> None:
+    binds, shown, tried, started = [], [], [], []
+
+    def orca_call(*args: str, caller: str | None = None) -> dict:
         if args[0] == "run-use":
-            binds.append(args[2])
+            binds.append((caller, args[2]))
+        if args[0] == "reply" and caller is None:
+            raise orca.OrcaError("orca orchestration reply: consumer_fenced: This caller does not coordinate Run run_other", orca.FENCED)
         if args[0] != "request-show":
             return {}
-        shown.append(args[2])
+        shown.append((caller, args[2]))
         return {"state": "absent" if len(shown) == 1 else "pending"}
 
     monkeypatch.setattr(orca, "call", orca_call)
@@ -6691,46 +6690,73 @@ def test_a_reply_during_a_launch_waits_only_until_orca_takes_its_worker_start_re
         replying.join(timeout=5)
         return json.dumps({"reply_waiting": replying.is_alive()})
 
-    monkeypatch.setattr(orca.subprocess, "Popen", lambda argv, **kwargs: started.append(argv) or Started(argv, running=ready))
+    monkeypatch.setattr(orca.subprocess, "run", lambda argv, **kwargs: tried.append(argv) or subprocess.CompletedProcess(argv, 1, FENCED_START, ""))
+    monkeypatch.setattr(orca.subprocess, "Popen", lambda argv, **kwargs: started.append((kwargs["env"]["ORCA_TERMINAL_HANDLE"], argv)) or Started(argv, running=ready))
     done = orca.bound_command(remote, RUN, ["orca", "orchestration", "worker-start", "--run", RUN, *given])
     replying.join()
-    [argv] = started
-    assert json.loads(done.stdout) == {"reply_waiting": False}
-    assert binds == [RUN, "run_other"]
-    assert (argv.count("--retry-request"), shown) == (1, [argv[argv.index("--retry-request") + 1]] * 2)
-    assert not given or shown[0] == "req_launcher"
+    [(terminal, argv)] = started
+    assert (json.loads(done.stdout), terminal, tried) == ({"reply_waiting": False}, BINDER_TERMINAL, [argv])
+    assert binds == [(BINDER_TERMINAL, RUN), (BINDER_TERMINAL, "run_other")]
+    assert (argv.count("--retry-request"), shown) == (1, [(BINDER_TERMINAL, argv[argv.index("--retry-request") + 1])] * 2)
+    assert not given or shown[0][1] == "req_launcher"
 
 
-def test_every_lane_call_speaks_as_the_drives_own_terminal_whatever_terminal_ran_it_and_binds_only_the_lane_run(
-    remote: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_every_lane_call_speaks_as_the_drives_own_terminal_whatever_terminal_ran_it_and_binds_no_run(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
     calls = []
 
-    def orca_call(*args: str) -> dict:
-        calls.append((os.environ["ORCA_TERMINAL_HANDLE"], *args[:3]))
-        if args[0] == "run-create":
-            return {"run": {"id": FRESH_RUN}}
-        if args[0] == "reply":
-            raise orca.OrcaError("orca orchestration reply: consumer_fenced: This caller is bound to Run run_other")
-        return {}
+    def orca_call(*args: str, caller: str | None = None) -> dict:
+        calls.append((caller or os.environ["ORCA_TERMINAL_HANDLE"], *args[:3]))
+        return {"run": {"id": FRESH_RUN}} if args[0] == "run-create" else {}
+
+    def worker_start(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+        calls.append((os.environ["ORCA_TERMINAL_HANDLE"], *argv[2:5]))
+        return subprocess.CompletedProcess(argv, 0, "{}", "")
 
     monkeypatch.setattr(orca, "call", orca_call)
-    monkeypatch.setattr(orca.subprocess, "Popen", lambda argv, **kwargs: Started(argv))
+    monkeypatch.setattr(orca.subprocess, "run", worker_start)
     assert orca.new_run(remote, "a lane") == FRESH_RUN
     monkeypatch.setenv("ORCA_TERMINAL_HANDLE", "term_coordinator")
     orca.bound_command(remote, RUN, ["orca", "orchestration", "worker-start", "--run", RUN])
     monkeypatch.setenv("ORCA_TERMINAL_HANDLE", "term_coordinator")
-    with pytest.raises(orca.OrcaError):
-        orca.reply(remote, RUN, "msg_1", "an answer")
+    orca.reply(remote, RUN, "msg_1", "an answer")
     monkeypatch.setenv("ORCA_TERMINAL_HANDLE", "term_coordinator")
     orca.send(remote, {"dispatch": "ctx_1", "run": RUN, "route": None}, "From the coordinator", "a message")
     assert calls == [
         (DRIVE_TERMINAL, "run-create", "--objective", "a lane"),
-        (DRIVE_TERMINAL, "run-use", "--id", RUN),
-        (DRIVE_TERMINAL, "run-use", "--id", RUN),
+        (DRIVE_TERMINAL, "worker-start", "--run", RUN),
         (DRIVE_TERMINAL, "reply", "--id", "msg_1"),
         (DRIVE_TERMINAL, "send", "--to", "dispatch:ctx_1"),
     ]
+
+
+def test_a_reply_orca_fences_for_the_drives_own_terminal_is_made_by_its_binder_once_the_binder_binds_the_run(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = []
+
+    def orca_call(*args: str, caller: str | None = None) -> dict:
+        calls.append((caller, *args[:3]))
+        if args[0] == "reply" and caller is None:
+            raise orca.OrcaError("orca orchestration reply: consumer_fenced: This caller does not coordinate Run run_old", orca.FENCED)
+        return {}
+
+    monkeypatch.setattr(orca, "call", orca_call)
+    orca.reply(remote, "run_old", "msg_1", "an answer")
+    assert calls == [(None, "reply", "--id", "msg_1"), (BINDER_TERMINAL, "run-use", "--id", "run_old"), (BINDER_TERMINAL, "reply", "--id", "msg_1")]
+
+
+def test_a_drives_binder_is_a_second_terminal_it_opens_and_keeps_beside_its_own(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    with state.edit(remote) as data:
+        data["terminal"] = "term_kept"
+        data["roles"]["coordinator"]["cwd"] = "/work"
+    opened = []
+
+    def orca_request(*args: str, seconds: float = orca.CALL_SECONDS) -> dict:
+        opened.append(args[2:])
+        return {"terminal": {"handle": "term_opened"}}
+
+    monkeypatch.setattr(orca, "request", orca_request)
+    assert REAL_BINDER_TERMINAL(remote) == "term_opened"
+    assert (state.load(remote)["terminal"], state.load(remote)["binder"]) == ("term_kept", "term_opened")
+    assert opened == [("--worktree", "path:/work", "--title", f"{remote}-binds")]
 
 
 @pytest.mark.parametrize(
@@ -6761,48 +6787,38 @@ def test_a_drive_speaks_as_the_terminal_it_keeps_while_orca_shows_its_pane_else_
 def test_bound_keeps_the_worker_start_receipt_and_status_when_a_newer_install_saves_the_drive_while_it_runs(
     remote: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    binds = []
-    monkeypatch.setattr(orca, "call", lambda *args: binds.append(args[2]) if args[0] == "run-use" else {})
+    calls = []
+    monkeypatch.setattr(orca, "call", lambda *args, caller=None: calls.append(args) or {})
     receipt = json.dumps({"ok": True, "result": {"state": "ready", "dispatchId": DISPATCH}})
 
-    def worker_start(argv: list[str], **kwargs: object) -> Started:
+    def worker_start(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
         state.store(remote, state.stored(remote) | {"saved_by": "9.9.9"})
-        return Started(argv, stdout=receipt)
+        return subprocess.CompletedProcess(argv, 0, receipt, "")
 
-    monkeypatch.setattr(orca.subprocess, "Popen", worker_start)
+    monkeypatch.setattr(orca.subprocess, "run", worker_start)
     assert cli.main(["bound", "--drive", remote, RUN, "--", "orca", "orchestration", "worker-start"]) == 0
     assert capsys.readouterr().out == receipt
-    assert binds == [RUN]
+    assert calls == []
 
 
 NO_RUN = "orca orchestration run-use: run_not_found: no such Run"
 
 
-@pytest.mark.parametrize(
-    ("refused", "starts", "binds"),
-    [
-        ("lane binding", 0, [RUN]),
-        ("lane binding after a fence", 1, [RUN, RUN]),
-    ],
-)
-def test_bound_exits_75_when_it_refuses_before_a_worker_start_could_start_anything(
-    remote: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], refused: str, starts: int, binds: list[str]
+def test_bound_exits_75_when_the_binder_cannot_bind_a_run_orca_fenced_before_its_worker_start_could_start_anything(
+    remote: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    bound = []
+    bound, started = [], []
 
-    def orca_call(*args: str) -> dict:
-        bound.append(args[2])
-        if bound == binds:
-            raise orca.OrcaError(NO_RUN)
-        return {}
+    def orca_call(*args: str, caller: str | None = None) -> dict:
+        bound.append((caller, args[2]))
+        raise orca.OrcaError(NO_RUN)
 
-    fenced = json.dumps({"ok": False, "error": {"code": orca.FENCED}})
-    started = []
     monkeypatch.setattr(orca, "call", orca_call)
-    monkeypatch.setattr(orca.subprocess, "Popen", lambda argv, **kwargs: started.append(argv) or Started(argv, stdout=fenced, returncode=1))
+    monkeypatch.setattr(orca.subprocess, "run", lambda argv, **kwargs: started.append(argv) or subprocess.CompletedProcess(argv, 1, FENCED_START, ""))
+    monkeypatch.setattr(orca.subprocess, "Popen", lambda argv, **kwargs: pytest.fail(f"{argv} ran again after the binder refused its Run"))
     assert cli.main(["bound", "--drive", remote, RUN, "--", "orca", "orchestration", "worker-start"]) == orca.UNSTARTED
     out, err = capsys.readouterr()
-    assert (out, err.startswith(f"drive: {NO_RUN}"), len(started), bound) == ("", True, starts, binds)
+    assert (out, err.startswith(f"drive: {NO_RUN}"), len(started), bound) == ("", True, 1, [(BINDER_TERMINAL, RUN)])
 
 
 def test_a_root_recorded_by_its_orca_dispatch_is_read_through_worker_show_and_its_run_mail_and_is_no_orphan(

@@ -141,8 +141,8 @@ class Holder(NamedTuple):
     pr_head: str
 
 
-def request(*args: str, seconds: float = CALL_SECONDS) -> dict:
-    """One `orca` call: its result, or OrcaError carrying Orca's own reason."""
+def request(*args: str, seconds: float = CALL_SECONDS, caller: str | None = None) -> dict:
+    """One `orca` call: its result, or OrcaError carrying Orca's own reason; with caller, it speaks as that terminal rather than as this process does."""
     verb = " ".join(args[:2])
     try:
         done = subprocess.run(
@@ -151,6 +151,7 @@ def request(*args: str, seconds: float = CALL_SECONDS) -> dict:
             text=True,
             timeout=seconds,
             check=False,
+            env=speaking_as(caller) if caller else None,
         )
     except (OSError, subprocess.TimeoutExpired) as error:
         raise OrcaError(f"orca {verb}: {error}") from None
@@ -169,8 +170,8 @@ def result_of(verb: str, done: subprocess.CompletedProcess) -> dict:
     return reply["result"]
 
 
-def call(*args: str) -> dict:
-    return request("orchestration", *args, "--full")
+def call(*args: str, caller: str | None = None) -> dict:
+    return request("orchestration", *args, "--full", caller=caller)
 
 
 def in_terminal() -> bool:
@@ -194,16 +195,31 @@ def speak_as_drive(drive: str) -> None:
         os.environ["ORCA_TERMINAL_HANDLE"] = terminal
 
 
+def speaking_as(terminal: str) -> dict[str, str]:
+    """This process's environment with every Orca call speaking as the terminal, as speak_as_drive sets it for the drive's own."""
+    return {**{key: value for key, value in os.environ.items() if key != "ORCA_PANE_KEY"}, "ORCA_TERMINAL_HANDLE": terminal}
+
+
 def drive_terminal(drive: str) -> str:
-    """The drive's own Orca terminal, a shell running no agent that makes, binds and answers every lane's Run, since Orca types a Run's "You have N orchestration messages" line into the terminal coordinating it only while that terminal runs an agent: the one the drive keeps while Orca still shows its pane, else one opened in the coordinator's checkout and kept, unless another process kept a fresh one first."""
-    kept = state.load(drive)["terminal"]
+    """The drive's own Orca terminal, a shell running no agent that makes and answers every lane's Run, since Orca types a Run's "You have N orchestration messages" line into the terminal coordinating it only while that terminal runs an agent, by kept_terminal."""
+    return kept_terminal(drive, "terminal", "lanes")
+
+
+def binder_terminal(drive: str) -> str:
+    """The drive's second Orca terminal running no agent, which binds with run-use each lane's Run the drive's own terminal does not coordinate, so the run-use, which unbinds every other Run its caller coordinates, never unbinds one of the drive terminal's, by kept_terminal."""
+    return kept_terminal(drive, "binder", "binds")
+
+
+def kept_terminal(drive: str, key: str, title: str) -> str:
+    """The agentless Orca terminal the drive keeps under key: the one kept while Orca still shows its pane, else one opened in the coordinator's checkout, titled after the drive and title, and kept, unless another process kept a fresh one first."""
+    kept = state.load(drive)[key]
     with contextlib.suppress(OrcaError):
         if kept and not terminal(kept)["orphaned"]:
             return kept
     with state.edit(drive) as data:
-        if data["terminal"] == kept:
-            data["terminal"] = request("terminal", "create", "--worktree", f"path:{data['roles']['coordinator']['cwd']}", "--title", f"{drive}-lanes")["terminal"]["handle"]
-        return data["terminal"]
+        if data[key] == kept:
+            data[key] = request("terminal", "create", "--worktree", f"path:{data['roles']['coordinator']['cwd']}", "--title", f"{drive}-{title}")["terminal"]["handle"]
+        return data[key]
 
 
 def reload_command(terminal: str, text: str, request_id: str | None = None) -> str:
@@ -327,7 +343,7 @@ def holds(tree: dict[int, int], root: int, pid: int) -> bool:
 
 
 def new_run(drive: str, objective: str) -> str:
-    """A fresh Run, made by the drive's own terminal, which coordinates it beside the Runs it already holds."""
+    """A fresh Run, made by the drive's own terminal, which coordinates it beside the Runs it already holds for as long as Orca keeps the Run, since run-create unbinds nothing and no call of the drive's binds that terminal with run-use."""
     speak_as_drive(drive)
     return call("run-create", "--objective", objective)["run"]["id"]
 
@@ -1028,20 +1044,25 @@ def keep_transcripts(drive: str, job_id: str, job: dict, dispatch: str) -> Path 
 
 
 def reply(drive: str, run: str, message_id: str, body: str, request: str | None = None) -> None:
-    """Answer a lane's question on its Run as the drive's own terminal; under a request id, a retry Orca already applied is replayed, never applied twice."""
-    with replying(drive, run):
-        call("reply", "--id", message_id, "--run", run, "--body", body, *retried(request))
+    """Answer a lane's question on its Run in one reply as the drive's own terminal, which coordinates every Run new_run made, so no reply waits on another; a Run Orca fences because that terminal does not coordinate it, such as one another terminal made, is answered by binder_terminal once binder binds it there. Under a request id, a retry Orca already applied is replayed, never applied twice."""
+    answering = ("reply", "--id", message_id, "--run", run, "--body", body, *retried(request))
+    speak_as_drive(drive)
+    try:
+        call(*answering)
+    except OrcaError as error:
+        if error.code != FENCED:
+            raise
+        with binder(drive, run) as terminal:
+            call(*answering, caller=terminal)
 
 
 @contextlib.contextmanager
-def replying(drive: str, run: str) -> Iterator[None]:
-    """Hold the drive terminal's binding on the Run for every reply made inside, binding it once, then mark the Run's unread mail handled once, since Orca's reply leaves the question it answers unread and the watch reads mail by sequence, never by Orca's read mark; one that Orca refuses only leaves Orca's count high. Orca takes a coordinator's reply only on the one Run its terminal is bound to, which a launch or another reply moves."""
-    speak_as_drive(drive)
+def binder(drive: str, run: str) -> Iterator[str]:
+    """Bind the Run to the drive's binder_terminal with run-use and hold the drive's binding lock for the calls made inside as that terminal, whose handle it gives, since a run-use moves the binder's binding off whatever Run it held."""
+    terminal = binder_terminal(drive)
     with state.binding(drive):
-        call("run-use", "--id", run)
-        yield
-        with contextlib.suppress(OrcaError):
-            call("check", "--run", run)
+        call("run-use", "--id", run, caller=terminal)
+        yield terminal
 
 
 def retried(request: str | None) -> tuple[str, ...]:
@@ -1049,26 +1070,22 @@ def retried(request: str | None) -> tuple[str, ...]:
 
 
 def bound_command(drive: str, run: str, argv: list[str]) -> subprocess.CompletedProcess:
-    """Run a command that needs the Run bound, such as a launch's worker-start, as the drive's own terminal, binding it again once if something outside this drive moved the binding first. A worker-start holds the binding only until Orca takes its request, which request-show then reads pending or done, since Orca checks the binding once, as it admits the start, and its wait for the worker to be ready runs on outside the lock; any other command holds it to its end. Unstarted when it refuses before anything the command starts, a fenced run included, since Orca starts nothing it fenced."""
+    """Run a command on a lane's Run, such as a launch's worker-start, as the drive's own terminal, which coordinates the Run from its run-create, so it runs at once; one Orca fences because that terminal does not coordinate the Run runs again as binder_terminal once binder binds the Run there. A worker-start holds that bind only until Orca takes its request, which request-show then reads pending or done, since Orca checks the binding once, as it admits the start, and its wait for the worker to be ready runs on outside the lock; any other command holds it to its end. Unstarted when it refuses before anything the command starts, a fenced run included, since Orca starts nothing it fenced."""
     argv, request = requested(argv)
     try:
         speak_as_drive(drive)
     except OrcaError as error:
         raise Unstarted(str(error), error.code) from None
-    with state.binding(drive):
-        for _ in range(2):
-            try:
-                call("run-use", "--id", run)
-            except OrcaError as error:
-                raise Unstarted(str(error), error.code) from None
-            command = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            if request and accepted(command, request):
-                break
-            done = completed(argv, command)
-            if FENCED not in done.stdout:
-                return done
-        else:
-            return done
+    done = subprocess.run(argv, capture_output=True, text=True, check=False)
+    if FENCED not in done.stdout:
+        return done
+    try:
+        with binder(drive, run) as terminal:
+            command = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=speaking_as(terminal))
+            if not (request and accepted(command, request, terminal)):
+                return completed(argv, command)
+    except OrcaError as error:
+        raise Unstarted(str(error), error.code) from None
     return completed(argv, command)
 
 
@@ -1082,11 +1099,11 @@ def requested(argv: list[str]) -> tuple[list[str], str | None]:
     return [*argv, "--retry-request", request], request
 
 
-def accepted(command: subprocess.Popen, request: str) -> bool:
-    """Whether Orca took the request while its worker-start still runs, asking request-show until it reads pending or completed; False once the process ends first, as a fenced start does, or once request-show refuses, so the start holds the binding to its end."""
+def accepted(command: subprocess.Popen, request: str, caller: str) -> bool:
+    """Whether Orca took the request while its worker-start still runs, asking request-show as the terminal that made it, which keeps the receipt under that caller, until it reads pending or completed; False once the process ends first, as a fenced start does, or once request-show refuses, so the start holds the binding to its end."""
     while command.poll() is None:
         try:
-            if call("request-show", "--request", request)["state"] != "absent":
+            if call("request-show", "--request", request, caller=caller)["state"] != "absent":
                 return True
         except OrcaError:
             return False

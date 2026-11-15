@@ -1359,35 +1359,29 @@ def gone_reads(name: str, job_id: str, job: dict, idle: list[str]) -> set[str]:
 
 
 def send_answers(name: str, run: str) -> list[tuple[str, orca.OrcaError | None]]:
-    """Send every answer kept on the Run's questions in one hold of the drive terminal's binding, binding the Run once for them all, whether the watch or the reader that just kept one sends them, so a lane gets its answer the moment its read ends, never once a pass of the watch reaches it. Each answer is read under the hold from what drive.json held once its reader was seen ended, so no other sender sends it twice and the cut-off answer a reader keeps before it runs never goes ahead of the one it finishes with; the hold makes Orca calls alone, since answer_read wrote any answer past one Orca relay message onto the lane's Sprite before it kept it, so no Sprite that cannot take a file holds every lane's answers behind the binding. A question leaves its job's queue in the same hold once its answer goes through, or once Orca says it already holds another answer, since a lane whose wait ends waits again on the same question, or that the question's dispatch closed, since no lane waits on it then; any other refusal leaves it for the watch's next pass. A sent answer whose read failed writes the event the watch hearing its job says as a `JOB` line. What came of each answer, by its job: the refusal, or None."""
-    data = state.load(name)
-    if not (owed := run_answers(name, data, run, running_reads(data))):
-        return []
-    sent, refused = [], []
-    try:
-        with orca.replying(name, run):
-            running, data = ended_reads(name, state.load(name))
-            for job_id, message_id in run_answers(name, data, run, running):
+    """Send every answer kept on the Run's questions, each in its own orca.reply as the drive's own terminal, which needs no bind of the Run, whether the watch or the reader that just kept one sends them, so a lane gets its answer the moment its read ends, never once a pass of the watch reaches it, and no answer waits on another lane's. Each answer is read from what drive.json held once its reader was seen ended, so the cut-off answer a reader keeps before it runs never goes ahead of the one it finishes with; answer_read wrote any answer past one Orca relay message onto the lane's Sprite before it kept it, so only Orca calls run here. Two senders sending one answer at once send the same text, which Orca takes as the answer it already holds, and only the one whose save takes the question off its job's queue writes its event. A question leaves that queue once its answer goes through, or once Orca says it already holds another answer, since a lane whose wait ends waits again on the same question, or that the question's dispatch closed, since no lane waits on it then; any other refusal leaves it for the watch's next pass. A sent answer whose read failed writes the event the watch hearing its job says as a `JOB` line. What came of each answer, by its job: the refusal, or None."""
+    running, data = ended_reads(name, state.load(name))
+    sent, refused, told = [], [], []
+    for job_id, message_id in run_answers(name, data, run, running):
+        said, why = data["jobs"][job_id]["read_answers"][message_id]
+        try:
+            orca.reply(name, run, message_id, said)
+        except orca.OrcaError as error:
+            if error.code not in (orca.ANSWERED_ELSEWHERE, orca.DISPATCH_CLOSED):
+                refused.append((job_id, error))
+                continue
+            why = None
+        sent.append((job_id, message_id, why))
+    if sent:
+        with state.edit(name) as data:
+            for job_id, message_id, why in sent:
                 job = data["jobs"][job_id]
-                said, why = job["read_answers"][message_id]
-                try:
-                    orca.call("reply", "--id", message_id, "--run", run, "--body", said)
-                except orca.OrcaError as error:
-                    if error.code not in (orca.ANSWERED_ELSEWHERE, orca.DISPATCH_CLOSED):
-                        refused.append((job_id, error))
-                        continue
-                    why = None
-                sent.append((job_id, message_id, why))
-            if sent:
-                with state.edit(name) as data:
-                    for job_id, message_id, _ in sent:
-                        for held in ("reads", "read_answers", "readers"):
-                            data["jobs"][job_id].get(held, {}).pop(message_id, None)
-    except orca.OrcaError as error:
-        return [(job_id, error) for job_id, _ in owed]
-    for job_id, _, why in sent:
-        if why:
-            state.append_event(name, READ_UNANSWERED, job=job_id, order=data["jobs"][job_id]["order"], why=why, lane=state.heard_job_lane(data, data["jobs"][job_id]))
+                if job.get("reads", {}).pop(message_id, None) is not None and why:
+                    told.append((job_id, why))
+                for held in ("read_answers", "readers"):
+                    job.get(held, {}).pop(message_id, None)
+    for job_id, why in told:
+        state.append_event(name, READ_UNANSWERED, job=job_id, order=data["jobs"][job_id]["order"], why=why, lane=state.heard_job_lane(data, data["jobs"][job_id]))
     return [(job_id, None) for job_id, _, _ in sent] + refused
 
 

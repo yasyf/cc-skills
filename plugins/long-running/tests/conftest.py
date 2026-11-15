@@ -50,6 +50,8 @@ LEAD = (
     "Builders write four short lines for each PR they open",
 )
 DRIVE_TERMINAL = "term_drive"
+BINDER_TERMINAL = "term_binder"
+REAL_BINDER_TERMINAL = orca.binder_terminal
 REAL_DRIVE_TERMINAL = orca.drive_terminal
 REAL_KEEP_LOGS = orca.keep_logs
 REAL_SAVED_BRANCHES = github.saved_branches
@@ -392,8 +394,9 @@ def lane_spec(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture(autouse=True)
 def drive_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Every drive speaks to Orca as a terminal of its own it already keeps, never one Orca opens for the test."""
+    """Every drive speaks to Orca as the terminals of its own it already keeps, never ones Orca opens for the test."""
     monkeypatch.setattr(orca, "drive_terminal", lambda drive: DRIVE_TERMINAL)
+    monkeypatch.setattr(orca, "binder_terminal", lambda drive: BINDER_TERMINAL)
 
 
 @pytest.fixture(autouse=True)
