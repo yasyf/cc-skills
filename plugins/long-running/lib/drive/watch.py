@@ -81,6 +81,7 @@ UNKEPT_ASK = "keep it with `drive job ask {job}`, which draws his card on it, si
 ASK_FIELD = re.compile(r"^ASK:?[ \t]+([/~]\S*)[ \t]*$", re.MULTILINE)
 PAUSED = "The recommended answer to this question is built and paused on your pick: tap it and the work ships; another pick rebuilds it first."
 QUIET_FOR = timedelta(minutes=30)
+REAP_AFTER = timedelta(hours=6)
 UNSTAFFED_FOR = timedelta(minutes=5)
 UNSTARTED_FOR = timedelta(minutes=1)
 RELAUNCH = timedelta(seconds=orca.LAUNCH_SECONDS)
@@ -2659,7 +2660,7 @@ def launching(job: dict, moment: datetime) -> bool:
 def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
     """Each running job's gap from its agent or lane, with each PR it has open, a remote lane, running or waiting, whose worker died, and a running job's lane Orca could not reach three reads running, which wake hands to drive job resume, its failed reads neither counted nor said while busy reads another drive verb acting on the job, as the wake an earlier watch started does, and a running lane on this Mac whose last response ended on an API error, which resume_lane resumes through its terminal, while a job whose agent or lane on this Mac a model's safeguards stopped goes to safeguard_lines; a lane recorded by its dispatch alone gets its Run, Task and terminal from the worker-show read for its liveness, and a lane filed on this Mac whose worker-show names a Sprite is filed on that Sprite; a live lane whose job keeps texts queued has them settled by its mailbox each pass, by state.take_mail, and a remote lane whose worker finished or exited has the mail it never read held on its job once for its dispatch by unread_lines, before death_lines relaunches a running job's lane. A local agent that ended its turn on a result line its job never took is a gap, since only `drive job report` sets a job's state from its return; a codex job no agent holds has its codex-ask run taken once that run ended, its returned event telling the coordinator the return, failed or not, with where his card on its ASK stands and, for an incident fix job, the builder that ships its fix."""
     data = state.load(watcher.name)
-    gaps, deaths, refusals, heads, found, taken, shippers, finished, boxes, lines = {}, {}, {}, {}, {}, {}, {}, {}, {}, []
+    gaps, deaths, refusals, heads, found, taken, shippers, finished, boxes, lost, lines = {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, []
     for order_id, order in heard_orders(watcher, data).items():
         for job_id in order["jobs"]:
             job = data["jobs"][job_id]
@@ -2678,6 +2679,8 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
                     else:
                         deaths[job_id] = (job["agent"], stopped_on(turn))
                     continue
+                if running and job["kind"] != "codex" and session_of(job, data) is None:
+                    lost[job_id] = f"no bound session holds its agent {job.get('agent') or 'none recorded'}"
                 gap = running and agent_gap(job_id, job, data, moment)
                 if isinstance(gap, Answered):
                     taken[job_id] = gap
@@ -2688,17 +2691,23 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
             if not job.get("dispatch"):
                 if running:
                     gaps[job_id] = None if launching(job, moment) else f"{job_id} never started {orca.ON_MAC if state.on_mac(job) else 'on its Sprite'}"
+                    if gaps[job_id]:
+                        lost[job_id] = gaps[job_id]
                 continue
             if job["state"] not in LIVE_JOB_STATES:
                 continue
             if ended := state.lane_death(job):
                 if running:
                     gaps[job_id] = ended_gap(job_id, job, ended, moment)
+                    if gaps[job_id]:
+                        lost[job_id] = f"its lane on {ended['dispatch']} ended: {ended['why']}"
                 continue
             source = f"lane of {job_id}"
             try:
                 worker = orca.worker(job["dispatch"])
             except orca.OrcaError as error:
+                if running:
+                    lost[job_id] = f"Orca cannot read its lane {job['dispatch']}: {orca.gone(error) or error}"
                 if why := orca.gone(error):
                     deaths[job_id] = (job["dispatch"], why)
                     continue
@@ -2758,7 +2767,25 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
     gapped = {job_id: gap for job_id, gap in gaps.items() if gap}
     unlisted, failed = untracked_prs(watcher, data, {job_id: heads[job_id] for job_id in gapped if job_id in heads}, moment)
     watcher.agent_gaps = {job_id: stranded(job_id, data, gap, unlisted.get(job_id, {})) if gap else None for job_id, gap in gaps.items()}
-    return failed + death_lines(watcher, deaths, moment) + safeguard_lines(watcher, refusals, moment)
+    return failed + death_lines(watcher, deaths, moment) + safeguard_lines(watcher, refusals, moment) + reaped_lines(watcher, data, lost, moment)
+
+
+def reaped_lines(watcher: Watcher, data: dict, lost: dict[str, str], moment: datetime) -> list[str]:
+    """Fail each running job this pass found no live worker for, its agent's session gone, its lane never started, ended with no next lane or unreadable by Orca, once its row has not moved for REAP_AFTER and no relaunch the watch started on it still runs, whatever another drive verb's hold on its lock, so a job whose worker died never reads running for days; failed, its part's ORPHAN line names who starts its next worker and release_lanes ends its Sprite. One LANE line each."""
+    stale = {job_id: why for job_id, why in lost.items() if moment - state.parse_time(data["jobs"][job_id]["updated"]) >= REAP_AFTER}
+    if not stale:
+        return []
+    lines = []
+    with state.edit(watcher.name) as data:
+        for job_id, why in stale.items():
+            job = data["jobs"][job_id]
+            relaunch = (state.lane_death(job) or {}).get("relaunch")
+            if job["state"] != "running" or moment - state.parse_time(job["updated"]) < REAP_AFTER or relaunch and state.alive(relaunch["pid"]) and moment - state.parse_time(relaunch["at"]) < RELAUNCH:
+                continue
+            said = f"failed: the watch found no live worker and no move since {when(job['updated'])} ({why})"
+            job.update(state="failed", said=said, updated=state.stamp(moment))
+            lines.append(f"LANE {job_id} {job['order']} {said}; its part's ORPHAN line names who starts its next worker")
+    return lines
 
 
 def unread_lines(watcher: Watcher, finished: dict[str, dict], relaunched: set[str], moment: datetime) -> list[str]:

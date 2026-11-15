@@ -3812,6 +3812,17 @@ def test_a_running_job_whose_agent_is_gone_is_an_orphan_naming_its_open_pr(demo:
     ]
 
 
+def test_a_running_job_with_no_live_worker_fails_once_its_row_sat_unmoved_past_the_reap_bound(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    serve(monkeypatch, {})
+    monkeypatch.setattr(watch, "local_gap", lambda job_id, job, data, moment: f"{job_id}'s agent ended with an earlier session")
+    assert staged(watch.agent_lines, watcher(demo), T0 + watch.REAP_AFTER - timedelta(minutes=1)) == []
+    assert state.load(demo)["jobs"]["j1"]["state"] == "running"
+    lines = staged(watch.agent_lines, watcher(demo), T0 + watch.REAP_AFTER)
+    said = "failed: the watch found no live worker and no move since " + watch.when(state.stamp(T0)) + " (no bound session holds its agent none recorded)"
+    assert lines == [f"LANE j1 o1 {said}; its part's ORPHAN line names who starts its next worker"]
+    assert (state.load(demo)["jobs"]["j1"]["state"], state.load(demo)["jobs"]["j1"]["said"]) == ("failed", said)
+
+
 def write_transcript(config: Path, entries: list[dict], quiet: timedelta) -> None:
     path = config / "projects" / "-work" / "session-under-test" / "subagents" / "agent-a1.jsonl"
     path.parent.mkdir(parents=True)
