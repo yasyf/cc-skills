@@ -471,7 +471,7 @@ def posted(name: str, post: dict, order: str | None = None) -> dict:
 
 
 def keep_line(name: str, thread: str, link: str, sent: str) -> None:
-    """Keep a post in a thread as the line that thread holds about each card of his its words link, on each question drawn on that card, by the thread, an edit's words in its post's place: `drive job ask` asking the card again sends that thread a line only once Jev reads this one as no longer true, and `drive job set --told` reads the line it names."""
+    """Keep a post in a thread as the line that thread holds about each card of his its words link, on each question drawn on that card, by the thread, an edit's words in its post's place: `drive job ask` names it in the report of the thread's next line on the card, by `cli.card_line`, and `drive job set --told` reads the line it names."""
     with state.edit(name) as data:
         for _, question in view.drawn_on(data, *view.SLACK_TS.findall(sent)):
             question["told"][thread] = {"link": link, "words": sent}

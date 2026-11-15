@@ -2903,7 +2903,7 @@ def test_job_ask_on_an_open_incident_draws_his_card_at_his_dm_root_alone_and_sen
     block = tmp_path / "ask.md"
     block.write_text(SHORT_ASK + "Interim fix: j2 checks the fork copies first\n")
     kept, said = run("job", "ask", "j1", str(block))[1].split("\n", 1)
-    assert said == f"his card {slack_card(1)} asks it under demo:j1-7; its line in thread 1794200000.000100 of channel D123 goes out from the communicator once for each change to it"
+    assert said == f"his card {slack_card(1)} asks it under demo:j1-7; its line in thread 1794200000.000100 of channel D123 goes out from the communicator once for each change to what the card blocks or whether a job builds its recommended option"
     assert [argv for argv in slack_calls if argv[0] == "dm-status" and "--thread" in argv] == []
     [(lane, [report])] = sent
     assert (lane, report["kind"], report["to"], report["attr"]) == ("root", "report", ["communicator@demo"], {"job": "j1", "waits": "demo:j1-7", "thread": "1794200000.000100"})
@@ -2953,34 +2953,8 @@ def test_job_ask_on_an_order_whose_own_thread_is_outside_his_dm_draws_his_card_i
     assert sent == []
 
 
-def test_job_ask_sends_his_cards_line_outside_his_dm_to_the_communicator_once_for_each_change_to_it(
+def test_job_ask_sends_his_cards_line_outside_his_dm_again_only_once_what_it_blocks_or_whether_a_job_builds_it_changed(
     run: Run, asking: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    with state.edit("demo") as data:
-        data["orders"]["o1"].update(thread=["C0ALERT1", "1794200000.000100"], incident=True)
-    monkeypatch.setattr(cli, "post_ask", POST_ASK)
-    monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": slack_card(1)} if argv[0] == "dm-status" else {})
-    kept: dict[str, dict] = {}
-    monkeypatch.setattr(tools, "sent", lambda name, lane, posts: [kept.setdefault(post["id"], post) and "672400" for post in posts])
-    block = tmp_path / "ask.md"
-    retitled = SHORT_ASK.replace("ASK How should", "ASK Where should")
-    for text, redraws in (
-        (SHORT_ASK, []),
-        (SHORT_ASK.replace("Meanwhile nothing is built on either layout.", "Meanwhile the reader adds one more finding."), []),
-        (retitled, ["--redraws", "demo:j1-7"]),
-        (retitled, ["--redraws", "demo:j1-7"]),
-    ):
-        block.write_text(text + "Interim fix: j2 checks the fork copies first\n")
-        assert run("job", "ask", asking, str(block), *redraws)[0] == 0
-    blocks = ", on incident o1: j1 builds its recommended option meanwhile, One snapshot file per finished run, written when it ends, old runs backfilled: opens in 3 requests"
-    assert [report["text"] for report in kept.values()] == [
-        f'POST his card {slack_card(1)} asks him "{text.splitlines()[0].removeprefix("ASK ")}" for j1{blocks}' for text in (SHORT_ASK, retitled)
-    ]
-
-
-@pytest.mark.parametrize("changed", [None, "blocks"])
-def test_job_ask_asking_his_card_again_sends_its_line_again_only_once_jev_reads_the_line_its_thread_holds_as_no_longer_true(
-    run: Run, asking: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, jev: Jev, changed: str | None
 ) -> None:
     thread = "1794200000.000100"
     with state.edit("demo") as data:
@@ -2990,28 +2964,33 @@ def test_job_ask_asking_his_card_again_sends_its_line_again_only_once_jev_reads_
     kept: dict[str, dict] = {}
     monkeypatch.setattr(tools, "sent", lambda name, lane, posts: [kept.setdefault(post["id"], post) and "672400" for post in posts])
     block = tmp_path / "ask.md"
-    block.write_text(SHORT_ASK + "Interim fix: j2 checks the fork copies first\n")
-    assert run("job", "ask", asking, str(block))[0] == 0
-    assert not [key for key in [request for request in jev.asked if "releases" in request["questions"]][-1]["questions"] if key.startswith("told.")]
+    retitled = SHORT_ASK.replace("ASK How should", "ASK Where should")
     line = f"https://acme.slack.com/archives/C0ALERT1/p1794200100000200?thread_ts={thread}"
-    words = f"<{slack_card(1)}|Your card on the run layout> blocks incident o1's fix; it builds on one snapshot file per finished run meanwhile."
-    talk.keep_line("demo", thread, line, words)
+
+    def ask(text: str, *redraws: str) -> None:
+        block.write_text(text + "Interim fix: j2 checks the fork copies first\n")
+        assert run("job", "ask", asking, str(block), *redraws)[0] == 0
+
+    ask(SHORT_ASK)
+    talk.keep_line("demo", thread, line, f"<{slack_card(1)}|Your card on the run layout> blocks incident o1's fix; it builds on one snapshot file per finished run meanwhile.")
     with state.edit("demo") as data:
         data["prs"]["acme/app#42"] = state.new_pr("https://github.com/acme/app/pull/42", asking, "o1") | {"state": "merged", "title": "Fix: one snapshot file per finished run"}
-    if changed:
-        jev.breaks("told", changed)
-    block.write_text(SHORT_ASK.replace("Meanwhile nothing is built on either layout.", "Meanwhile the reader adds one more finding.") + "Interim fix: j2 checks the fork copies first\n")
-    code, out = run("job", "ask", asking, str(block))
-    read = [request for request in jev.asked if "releases" in request["questions"]][-1]
-    told = read["state"]["told"]
-    assert (code, [key for key in read["questions"] if key.startswith("told.")], told["line"], set(told["now"]), told["now"]["builds"]["jobs"]) == (0, ["told.asks", "told.blocks", "told.builds"], words, {"asks", "blocks", "builds"}, [asking])
-    assert told["now"]["builds"]["prs"] == ["https://github.com/acme/app/pull/42: one snapshot file per finished run (merged)"]
-    [first, *again] = [report["text"] for report in kept.values()]
-    if changed:
-        assert again == [f"{first}; since its line {line}, what it blocks changed"]
-    else:
-        assert (again, out.endswith(f"its line {line} in thread {thread} of channel C0ALERT1 still holds for the card as asked now, so nothing goes to that thread")) == ([], True)
-    assert view.told_line(state.load("demo"), thread, slack_card(1)) == {"link": line, "words": words}
+    ask(SHORT_ASK.replace("Meanwhile nothing is built on either layout.", "Meanwhile the reader adds one more finding."))
+    ask(retitled, "--redraws", "demo:j1-7")
+    [first] = kept.values()
+    drive = state.load("demo")
+    card = {"waits": "demo:j1-7", "title": "Where should", "recommended": "One snapshot file per finished run"}
+    assert [cli.card_line(drive | {"jobs": drive["jobs"] | {asking: drive["jobs"][asking] | {"state": ended}}}, asking, card, slack_card(1))["id"] == first["id"] for ended in ("done", "stopped")] == [True, False]
+    run("order", "add", "--title", "Fork copies", "--project", "The drive", "--workstream", "Drive tooling", "the fork copies leak")
+    with state.edit("demo") as data:
+        data["orders"]["o2"]["incident"] = True
+        data["jobs"][asking]["carries"]["o2"] = ["Fork copies"]
+    ask(retitled, "--redraws", "demo:j1-7")
+    builds = "j1 builds its recommended option meanwhile, One snapshot file per finished run, written when it ends, old runs backfilled: opens in 3 requests"
+    assert [report["text"] for report in kept.values()] == [
+        f'POST his card {slack_card(1)} asks him "{SHORT_ASK.splitlines()[0].removeprefix("ASK ")}" for j1, on incident o1: {builds}',
+        f'POST his card {slack_card(1)} asks him "{retitled.splitlines()[0].removeprefix("ASK ")}" for j1, on incident o1, o2: {builds}; since its line {line}',
+    ]
 
 
 def test_job_ask_reads_terms_more_than_ten_of_the_drives_questions_use_as_naming_no_one_subject(run: Run, asking: str, tmp_path: Path) -> None:
@@ -10085,7 +10064,7 @@ def test_jev_reads_every_option_of_a_card_in_one_request_one_noul_an_option_and_
     assert settled.size(request["state"], questions) <= settled.REQUEST_CHARS
     jev.picks("none")
     jev.breaks("breaks2", NOT_SPECIAL["id"])
-    settled.judged(case, asked, [NOT_SPECIAL], [], {}, [])
+    settled.judged(case, asked, [NOT_SPECIAL], [], {})
     assert capsys.readouterr().err.startswith(f'drive job ask: Jev reads option "{asked.options[1]}" as breaking {NOT_SPECIAL["id"]}, {NOT_SPECIAL["asked"]}, "{NOT_SPECIAL["said"]}". This finding refuses no card')
     jev.breaks("breaks2", NOT_SPECIAL["id"], 0.5)
     settled.judged(case, asked, [NOT_SPECIAL], [], {})
@@ -10152,7 +10131,7 @@ def test_a_redrawn_card_is_judged_against_the_rulings_its_first_draft_was_never_
     offered = []
     for text in (PROOF_IDENTITY, PROOF_IDENTITY_REDRAWN):
         asked = limits.question(text, kept=True)
-        settled.judged(limits.ask_case(text, asked), asked, [], [], {}, [])
+        settled.judged(limits.ask_case(text, asked), asked, [], [], {})
         assert capsys.readouterr().err == ""
         request = jev.asked[-1]
         offered.append(([key for key in request["questions"] if key.startswith("card.")], list(handed(request))))
@@ -10172,11 +10151,11 @@ def test_jev_names_the_recorded_answer_or_ruling_it_reads_at_yes_for_the_recomme
     assert settled.judged(case, asked, [NOT_SPECIAL], [cited], {})[0] is None
     assert (jev.asked[-1]["questions"]["says.7a1c0de"], handed(jev.asked[-1])["7a1c0de"]) == (settled.asking(settled.SAYS, slot="w1"), {"asked": cited["asked"], "said": cited["said"]})
     jev.breaks("breaks1", NOT_SPECIAL["id"])
-    assert settled.judged(case, asked, [NOT_SPECIAL], [cited], {}, [])[0] is None
+    assert settled.judged(case, asked, [NOT_SPECIAL], [cited], {})[0] is None
     jev.breaks("breaks1", "ruling:32f49af")
-    assert settled.judged(case, asked, [NOT_SPECIAL], [cited], {}, [])[0] == (limits.TEAM_DATA_WORDS, "the recommended option")
+    assert settled.judged(case, asked, [NOT_SPECIAL], [cited], {})[0] == (limits.TEAM_DATA_WORDS, "the recommended option")
     jev.breaks("says", "7a1c0de")
-    assert settled.judged(case, asked, [NOT_SPECIAL], [cited], {}, [])[0] == (cited, "the recommended option")
+    assert settled.judged(case, asked, [NOT_SPECIAL], [cited], {})[0] == (cited, "the recommended option")
     capsys.readouterr()
     jev.ruled = {}
     jev.picks("7a1c0de", 0.55)
@@ -10192,9 +10171,9 @@ def test_jev_names_a_ruling_another_option_breaks_at_yes_beside_that_option_afte
     jev.breaks("breaks2", "ruling:32f49af", 0.5)
     assert settled.judged(case, asked, [NOT_SPECIAL], [], {})[0] is None
     jev.breaks("breaks2", "ruling:32f49af")
-    assert settled.judged(case, asked, [NOT_SPECIAL], [], {}, [])[0] == (limits.TEAM_DATA_WORDS, f'option "{asked.options[1]}"')
+    assert settled.judged(case, asked, [NOT_SPECIAL], [], {})[0] == (limits.TEAM_DATA_WORDS, f'option "{asked.options[1]}"')
     jev.breaks("breaks1", "ruling:32f49af")
-    assert settled.judged(case, asked, [NOT_SPECIAL], [], {}, [])[0] == (limits.TEAM_DATA_WORDS, "the recommended option")
+    assert settled.judged(case, asked, [NOT_SPECIAL], [], {})[0] == (limits.TEAM_DATA_WORDS, "the recommended option")
 
 
 def test_job_ask_says_on_stderr_that_jev_gave_no_answer_and_sends_the_question_to_him(

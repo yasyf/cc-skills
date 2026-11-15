@@ -383,15 +383,13 @@ Posting it:
   communicator, whose handler posts it with `say`, since only a `say` call carries the ticket
   cc-slack spends on a write outside his DM, so the line is the card's one message in that thread.
   `say` keeps each post it makes in a thread as the line that thread holds about each card of his it
-  links, on the card's question. A card asked again sends that thread a line only when the line it
-  holds is no longer true: `drive job ask` asks Jev, in the same request that weighs the card against
-  his words, one yes-or-no question for each of what the card asks, what it blocks and what is built
-  meanwhile and as which PR, each PR by its state, so a merge is that PR moving on, whether that
-  line no longer holds on it for the card as asked now, and sends no report when Jev answers each
-  under 0.3, by his pick "Owe a line only on news"; else its report names the earlier line and what
-  changed, the likeliest of those Jev answers 0.7 or more, or that Jev gave no clear reading. The record's cci id names the card's `waits` id and the
-  report's hash, so a redraw that leaves the report as it was returns the record cci already holds
-  and starts no handler. His tap comes back as an `answer` record, so "card posted" and "he
+  links, on the card's question. A card asked again sends that thread a line only on news, by his
+  pick "Owe a line only on news": the record's cci id names the card's `waits` id and the hash of
+  the two facts its line states that the drive's records hold, the open incidents the card blocks
+  and whether a job builds its recommended option, so a card asked again with neither changed, its
+  words reworded, its builder's PR merged or its builder handed on to another job, returns the
+  record cci already holds and starts no handler, and a change of either sends a report naming the
+  thread's earlier line. His tap comes back as an `answer` record, so "card posted" and "he
   answered" stay two states.
 - Every question card carries its `waits` id, `<drive>:<job>-<n>`, which `drive job ask` mints when
   it first keeps the question. One question keeps one `waits` id, which every copy of it in Slack and

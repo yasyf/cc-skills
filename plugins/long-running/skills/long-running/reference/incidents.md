@@ -235,13 +235,14 @@ changed and when, its findings the suspects, and its root cause the verdict.
   kept on the card's question when it posted in the incident's thread.
 - `drive job ask` sends that line the moment it draws the card, which draws at his DM root alone:
   on a job of an open incident order it sends the communicator a report record naming the card,
-  what it blocks and, from the drive's records, each unfinished builder or codex job building its
-  recommended option: the asker when it is one, each whose waits name the card and each whose
-  work the card holds by its `Holds:` line, else that nothing is built before his pick, with the
-  incident's thread as its `thread`, which its handler posts there. Asked again, the card sends
-  that thread a line unless Jev answers under 0.3 that the line it holds is no longer true for the
-  card as asked now on what it asks, what it blocks and who builds it, the report then naming that
-  line and what changed.
+  what it blocks and, from the drive's records, each builder or codex job building its
+  recommended option, none failed or stopped: the asker when it is one, each whose waits name the
+  card and each whose work the card holds by its `Holds:` line, else that nothing is built before
+  his pick, with the incident's thread as its `thread`, which its handler posts there. Asked again,
+  the card sends that thread a line only once the open incidents it blocks, or whether a job builds
+  its recommended option, changed since its last line, the report then naming that line: the
+  record's cci id hashes those two facts alone, so a card reworded, its PR merged or its builder
+  handed on returns the record cci already holds and starts no handler.
 - Its PR opens and lands on that recommendation while the card stays open: `drive pr add` takes
   it, `drive pr set --waits <card>` refuses on it, and a different pick of his starts a follow-up
   job on the same order. His pick: "The repair lands on the recommendation, the question stays
