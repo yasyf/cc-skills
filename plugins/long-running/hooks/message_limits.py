@@ -169,13 +169,13 @@ MEMBERS_SAID = (
 CLOSING_SAID = "this thread message saying we're done and what the result is was is good, we should always do that"
 MEMBERS_READING = f'the coordinator\'s reading of his words on the drive\'s staging claims "{MEMBERS_SAID}"'
 MEMBERS_REST = (
-    'Say it in one plain line a person would type, such as "testing X on staging for 30, lmk if anyone objects" for a claim or "done, staging is free'
+    'Say it in one plain line a person would type, such as "testing X on staging until 7:15 AM, lmk if anyone objects" for a claim or "done, staging is free'
     ' again and X passed" for its closing line, with no PR list or formatting.'
 )
 MEMBERS_RULE = (
     "A post at the root of a channel outside his DM, such as a staging claim, and each line in its thread speak to that channel's members, never to"
     f" him, each at most {limits.LINE_WORDS} words naming no file or function: the root is the one line a person would type, such as"
-    ' "testing X on staging for 30, lmk if anyone objects", citing the repository\'s rule for the claim, with no PR list or formatting, by his words on'
+    ' "testing X on staging until 7:15 AM, lmk if anyone objects", citing the repository\'s rule for the claim, with no PR list or formatting, by his words on'
     f' those posts: "{MEMBERS_SAID}"; the line closing its thread says the work is done and its result, by his words "{CLOSING_SAID}".'
 )
 BOLD = re.compile(r"(?<![\w*])\*[^*\n]+\*(?![\w*])")

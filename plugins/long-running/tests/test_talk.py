@@ -3,7 +3,7 @@ import os
 import re
 import subprocess
 from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -21,6 +21,7 @@ from drive import (
     slack,
     state,
     talk,
+    tools,
     view,
     watch,
 )
@@ -38,6 +39,7 @@ POSTS = agents.posts
 DRAW = talk.draw
 SSQL = "are we doing the ssql release foe it"
 FOOTERS = "why didnt our release footers whatever catch this and bring ssql along with API"
+PACIFIC = timezone(timedelta(hours=-8))
 
 
 @pytest.fixture
@@ -666,6 +668,11 @@ def test_a_post_on_an_order_goes_out_in_any_thread_and_a_thread_the_order_holds_
     data = state.load(demo)
     assert [[thread for _, thread, _, _ in data["orders"][order]["threads"]] for order in ("o1", "o2", "o3")] == [["1794400000.000100"], [], ["1794200000.000100"]]
     assert (state.thread_order(data, "1794400000.000100"), state.thread_order(data, "1794200000.000100")) == ("o1", "o3")
+
+
+def ended(minutes: int) -> str:
+    """An end that many minutes from now, as a writer names a claim's until: RFC 3339 in Pacific's offset."""
+    return (state.now() + timedelta(minutes=minutes)).astimezone(PACIFIC).isoformat(timespec="minutes")
 
 
 def report(monkeypatch: pytest.MonkeyPatch, attrs: dict[str, str], lane: str = "root", kind: str = "report") -> None:
@@ -1438,12 +1445,10 @@ def test_a_card_on_an_order_in_an_alerts_thread_goes_up_in_his_dm_and_its_line_g
     assert [(event["channel"], event["card"]) for event in said(demo)] == [(None, POSTED), ("C0ALERT1", POSTED), (None, None), ("C0ALERT1", POSTED)]
 
 
-@pytest.mark.parametrize(("channel", "where"), [("U0REPORTER", "the group DM of U0REPORTER, him and the bot"), ("C0STAGING1", "the root of channel C0STAGING1")])
-def test_a_post_with_no_thread_goes_out_through_cc_slack_send_at_a_channels_root_or_in_a_persons_group_dm_with_him_and_the_bot(
-    demo: str, posts: list[tuple[str, ...]], channel: str, where: str
-) -> None:
+def test_a_post_with_no_thread_naming_a_person_goes_out_through_cc_slack_send_in_their_group_dm_with_him_and_the_bot(demo: str, posts: list[tuple[str, ...]]) -> None:
+    channel = "U0REPORTER"
     note = {"text": "The run page shows its history again, since 6:40 PM.", "channel_id": channel}
-    assert talk.say(demo, note | {"dry_run": True}) == f"DRY {where}, 0 pictures: {note['text']}"
+    assert talk.say(demo, note | {"dry_run": True}) == f"DRY the group DM of {channel}, him and the bot, 0 pictures: {note['text']}"
     assert talk.say(demo, note | TICKET).startswith(f"POSTED {POSTED}")
     assert posts == [
         (
@@ -1532,14 +1537,18 @@ def test_a_report_say_posts_at_the_root_of_another_channel_joins_its_thread_as_m
     with state.edit(demo) as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
-    report(monkeypatch, {"progress": "true", "order": "o1"})
+    until = ended(30)
+    report(monkeypatch, {"progress": "true", "order": "o1", "until": until})
     root = f"https://acme.slack.com/archives/C0STAGING1/p{claim.replace('.', '')}"
     reply = f"https://acme.slack.com/archives/C0STAGING1/p1794689000000100?thread_ts={claim}&cid=C0STAGING1"
     away = "so it is no line to him and keeps no promised time"
     monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": root})
-    assert talk.say(demo, {"text": "Claiming staging for 30 minutes to test the batch writer.", "channel_id": "C0STAGING1", "record": "677158"} | TICKET) == (
-        f"POSTED {root}; o1 progress line, no part delivered: {root}, at the root of another channel, {away}, in thread {claim}, now one of its threads"
+    text = f"Claiming staging until {render.clock(state.parse_time(until))} to test the batch writer."
+    assert talk.say(demo, {"text": text, "channel_id": "C0STAGING1", "record": "677158"} | TICKET) == (
+        f"POSTED {root}; o1 progress line, no part delivered: {root}, at the root of another channel, {away}, in thread {claim}, now one of its threads,"
+        f" and its thread owes its closing line from {render.when(until)}"
     )
+    report(monkeypatch, {"progress": "true", "order": "o1"})
     before = state.load(demo)
     assert [[where[0], where[1], where[3]] for where in before["orders"]["o1"]["threads"]] == [["C0STAGING1", claim, "members"]]
     assert not talk.to_him(before, "C0STAGING1", claim) and talk.to_him(before, "C0STAGING1", "1794600000.000100") and talk.to_him(before, "D123", own)
@@ -1573,13 +1582,14 @@ def test_a_claim_at_a_channels_root_keeps_its_end_on_its_order_and_a_line_in_its
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread
 ) -> None:
     root, moved = "1794200100.000500", "1794203700.000600"
-    until, later = "2026-11-14T13:30:00-08:00", "2026-11-14T14:30:00-08:00"
+    until, later = ended(30), ended(90)
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "test the batch writer on staging")
     run("start", "demo", "--role", "communicator")
     with state.edit(demo) as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
-    claim = "Claiming staging until 1:30 PM to test the batch writer, as the repository's rule for claiming staging asks. Does anyone object?"
+    claim = f"Claiming staging until {render.clock(state.parse_time(until))} to test the batch writer, as the repository's rule for claiming staging asks. Does anyone object?"
+    moving = f"Still testing; staging stays claimed until {render.clock(state.parse_time(later))}."
     link = f"https://acme.slack.com/archives/C0STAGING1/p{root.replace('.', '')}"
     slack_thread.messages.append({"ts": root, "from_claude": True, "text": claim})
     monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": link})
@@ -1594,13 +1604,47 @@ def test_a_claim_at_a_channels_root_keeps_its_end_on_its_order_and_a_line_in_its
     assert [where[::3] for where in data["orders"]["o1"]["threads"]] == [["C0STAGING1", "members"]]
     assert data["orders"]["o1"]["claims"] == {root: {"channel": "C0STAGING1", "link": link, "until": until, "since": root, "said": None, "replies_read": None}}
     line = f"https://acme.slack.com/archives/C0STAGING1/p{moved.replace('.', '')}?thread_ts={root}"
-    slack_thread.messages.append({"ts": moved, "thread_ts": root, "from_claude": True, "text": "Still testing; staging stays claimed until 2:30 PM."})
+    slack_thread.messages.append({"ts": moved, "thread_ts": root, "from_claude": True, "text": moving})
     monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": line, "thread_ts": root})
     report(monkeypatch, {"progress": "true", "order": "o1", "until": later})
-    assert talk.say(demo, {"text": "Still testing; staging stays claimed until 2:30 PM.", "channel_id": "C0STAGING1", "thread_ts": root, "record": "677159"}) == (
+    assert talk.say(demo, {"text": moving, "channel_id": "C0STAGING1", "thread_ts": root, "record": "677159"}) == (
         f"POSTED {line}; o1 progress line, no part delivered: {line}, in a thread of another channel its members read, {unowed}, and its thread owes its closing line from {render.when(later)}"
     )
     assert state.load(demo)["orders"]["o1"]["claims"] == {root: {"channel": "C0STAGING1", "link": link, "until": later, "since": moved, "said": None, "replies_read": None}}
+
+
+def test_a_claim_at_a_channels_root_naming_no_end_or_a_past_one_posts_nothing_and_goes_back_to_its_writer_and_one_whose_words_miss_its_end_posts_nothing(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "test the release on staging")
+    run("start", "demo", "--role", "communicator")
+    with state.edit(demo) as data:
+        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
+        data["roles"]["coordinator"]["session"] = "elsewhere"
+    sent: list[tuple[str, list[dict]]] = []
+    monkeypatch.setattr(tools, "sent", lambda name, lane, posts: sent.append((lane, posts)) or [str(50 + len(sent))])
+    monkeypatch.setattr(slack, "cc_slack", lambda *argv: pytest.fail("a refused claim reached Slack"))
+    stale, later = ended(-5), ended(30)
+    unended = "Testing the release on staging, as the repository's rule for claiming staging asks. Does anyone object?"
+    back = "refused record 52 sent it back to root@demo, which wrote report 677158: post nothing and return NOTHING sent back to root@demo"
+    with pytest.raises(DriveError, match=re.escape("nothing posted: this post names no until attr") + ".*a claim goes out only on a report naming its end"):
+        talk.say(demo, {"text": unended, "channel_id": "C0STAGING1"})
+    assert sent == []
+    report(monkeypatch, {"progress": "true", "order": "o1"})
+    with pytest.raises(DriveError, match=re.escape("nothing posted: report 677158 names no until attr, the end of what a post at the root of a channel outside his DM")):
+        talk.say(demo, {"text": unended, "channel_id": "C0STAGING1", "record": "677158"})
+    report(monkeypatch, {"progress": "true", "order": "o1", "until": stale})
+    with pytest.raises(DriveError, match=re.escape(f"nothing posted: report 677158's until attr ends this claim at {render.when(stale)}, which passed before it went out at")) as refused:
+        talk.say(demo, {"text": f"Claiming staging until {render.clock(state.parse_time(stale))} to test the release.", "channel_id": "C0STAGING1", "record": "677158"})
+    assert str(refused.value).endswith(back)
+    assert [[(lane, {key: record[key] for key in ("kind", "re", "to")}) for record in posts] for lane, posts in sent] == [
+        [("communicator", {"kind": "refused", "re": ["677158"], "to": ["root@demo"]})]
+    ] * 2
+    assert f"ends this claim at {render.when(stale)}, which passed" in sent[1][1][0]["text"] + sent[1][1][0].get("body", "")
+    report(monkeypatch, {"progress": "true", "order": "o1", "until": later})
+    with pytest.raises(DriveError, match=re.escape(f'its words name no such time: say "until {render.clock(state.parse_time(later))}"')):
+        talk.say(demo, {"text": unended, "channel_id": "C0STAGING1", "record": "677158"})
+    assert len(sent) == 2 and state.load(demo)["orders"]["o1"]["claims"] == {}
 
 
 def test_an_incident_added_from_the_terminal_takes_its_first_line_at_his_dm_root_as_its_own_thread_so_its_next_line_replies_under_it(

@@ -23,7 +23,7 @@ RECORD_POLL_SECONDS = 0.05
 
 
 def say(name: str, post: dict) -> str:
-    """Post one message to his DM through cc-slack, or in a thread outside it named by channel_id, such as an alert's, or with no thread at the root of the channel channel_id names, such as a staging claim to its members, or in the group DM of a person, him and the bot when channel_id is that person's user id, or reword one it made in any of those, and keep the same item on the drive's dashboard, in the words it was given, a catch-up's title, the count of his open cards it closes with and the cards asked since he was last heard its only additions; a post is recorded on the one order cli.post_order decides, never one its caller names, wherever it goes, and posts nothing from a caller but the communicator and its handlers, binding to its session the handler LONG_RUNNING_HANDLER names when its prompt's hook did not, delivering the parts its report record names, making the clock time its words promise his next line by the order's due, and adding its thread to the order's threads; a post at another channel's root, or a line in its thread, whose report names an end as until keeps that end on its order, from which the watch owes that thread its closing line. A question to a teammate naming the job it is for keeps that job waiting on their reply. A report's post names each correction cci holds re it, which the post may lack, and a correction of a report held for his catch-up, or of one a post carried, its own or his catch-up, posts nothing, naming where that report's copy is. A handler's result line is kept on its entry, for its done record to carry whole. What the drive's checks find in its words, the say hook hands Jev to judge against his words once this has posted them, before only a post a count or a mark refuses, such as one over its length or to him while he is away, a post saying a release freeze lifted or a release may start while a freeze or his release hold it does not name stands, and a dry run."""
+    """Post one message to his DM through cc-slack, or in a thread outside it named by channel_id, such as an alert's, or with no thread at the root of the channel channel_id names, such as a staging claim to its members, or in the group DM of a person, him and the bot when channel_id is that person's user id, or reword one it made in any of those, and keep the same item on the drive's dashboard, in the words it was given, a catch-up's title, the count of his open cards it closes with and the cards asked since he was last heard its only additions; a post is recorded on the one order cli.post_order decides, never one its caller names, wherever it goes, and posts nothing from a caller but the communicator and its handlers, binding to its session the handler LONG_RUNNING_HANDLER names when its prompt's hook did not, delivering the parts its report record names, making the clock time its words promise his next line by the order's due, and adding its thread to the order's threads; a post at another channel's root, or a line in its thread, whose report names an end as until keeps that end on its order, from which the watch owes that thread its closing line; a claim at another channel's root goes out only on a report naming an end still to come, which its words name, and a report naming none or a past one goes back to its writer. A question to a teammate naming the job it is for keeps that job waiting on their reply. A report's post names each correction cci holds re it, which the post may lack, and a correction of a report held for his catch-up, or of one a post carried, its own or his catch-up, posts nothing, naming where that report's copy is. A handler's result line is kept on its entry, for its done record to carry whole. What the drive's checks find in its words, the say hook hands Jev to judge against his words once this has posted them, before only a post a count or a mark refuses, such as one over its length or to him while he is away, a post saying a release freeze lifted or a release may start while a freeze or his release hold it does not name stands, and a dry run."""
     known = caller(name)
     if (close := post.get("close")) and (post.get("record") or post.get("edit")):
         raise DriveError("nothing posted: close answers the order of what your handler holds and writes its report itself, so pass no record or edit")
@@ -41,7 +41,11 @@ def say(name: str, post: dict) -> str:
         report = {"close": order, "writer": "communicator", "written": state.stamp()}
         held = known["handlers"][state.handler_id(known, os.environ.get("CLAUDE_CODE_SESSION_ID"))]["holds"] or {}
         post = post | {"asked": [*slack.messages(post.get("asked") or ""), *filter(None, [held.get("link")])]}
-    if refused := held_refusal(known, seq, report) or (order and cli.report_refusal(known, order, report)) or (close and cli.unfiled_refusal(known, order)) or unplaced(known, post, report) or unended(known, post, report):
+    if refused := held_refusal(known, seq, report) or (order and cli.report_refusal(known, order, report)) or (close and cli.unfiled_refusal(known, order)) or unplaced(known, post, report):
+        raise DriveError(f"nothing posted: {refused}")
+    if refused := unclaimed(known, post, report):
+        raise DriveError(f"nothing posted: {refused}; {returned(name, post, report, refused)}")
+    if refused := unended(known, post, report):
         raise DriveError(f"nothing posted: {refused}")
     if refused := brief.claim_refusal(post.get("text") or "", name, known):
         raise DriveError(f"nothing posted: {refused}")
@@ -376,13 +380,50 @@ def unplaced(data: dict, post: dict, report: dict) -> str | None:
     return f"report {report['seq']}'s line goes in thread {thread} of his DM, never his DM root: pass thread_ts {thread}"
 
 
+def unclaimed(data: dict, post: dict, report: dict) -> str | None:
+    """Why a post to a channel's members goes back to the writer of its report: the repository's staging-claim rule has each claim say how long it holds, so a post at the root of a channel outside his DM, such as a staging claim, goes out only on a report whose until attr names that end, and a claim or a line in its thread moving it only while that end is still to come; the end is the writer's to set, never the handler's to drop."""
+    if post.get("edit") or not to_members(data, post):
+        return None
+    if until := report.get("until"):
+        if state.parse_time(until) > state.now():
+            return None
+        return f"report {report['seq']}'s until attr ends this claim at {render.when(until)}, which passed before it went out at {render.when(state.stamp())}"
+    if place(post)[1]:
+        return None
+    named = f"report {report['seq']}" if report.get("seq") else "this post"
+    return f"{named} names no until attr, the end of what a post at the root of a channel outside his DM, such as a staging claim, holds, which the repository's staging-claim rule has each claim say"
+
+
+def returned(name: str, post: dict, report: dict, refused: str) -> str:
+    """Send a claim's refusal to the session that wrote its report, as a refused record re that report, so that session sets the end again; the clause of say's refusal saying where it went, or would go on a dry run."""
+    if not report.get("seq"):
+        return "a claim goes out only on a report naming its end, so ask the session it is for to send one with --attr until=<its end in RFC 3339>"
+    to = f"{report['writer']}@{name}"
+    if post.get("dry_run"):
+        return f"say sends this back to {to}, which wrote report {report['seq']}"
+    from drive import tools
+
+    made = {"kind": "refused", "re": [report["seq"]], "to": [to], "text": f"report {report['seq']} posted nothing: {refused}; send it again with --attr until=<the end the work now needs>"}
+    [seq] = tools.sent(name, "communicator", [limits.shortened(made) or made])
+    return f"refused record {seq} sent it back to {to}, which wrote report {report['seq']}: post nothing and return NOTHING sent back to {to}"
+
+
 def unended(data: dict, post: dict, report: dict) -> str | None:
-    """Why a report naming an end goes nowhere: its until attr is the end of a post at the root of a channel outside his DM, such as a staging claim, or of a line in that post's thread moving it, from which the watch owes that thread its closing line, so a post anywhere else would keep no end."""
-    if not report.get("until") or to_members(data, post):
+    """Why a report naming an end goes nowhere: its until attr is the end of a post at the root of a channel outside his DM, such as a staging claim, or of a line in that post's thread moving it, from which the watch owes that thread its closing line, so a post anywhere else would keep no end, and one whose words leave out that end's clock time would tell the channel's members another end than the one the watch holds it to."""
+    if not (until := report.get("until")):
+        return None
+    if not to_members(data, post):
+        return (
+            f"report {report['seq']}'s until attr is the end of a post at the root of a channel outside his DM, such as a staging claim, or of"
+            " a line moving it in that post's thread, and this post goes to neither: pass that channel as channel_id, and that post's ts as thread_ts for a line in its thread"
+        )
+    end = state.parse_time(until)
+    if any((int(found[1]), int(found[2] or 0), found[3].upper()) == (int(end.strftime("%I")), end.minute, end.strftime("%p")[0]) for found in limits.CLOCK_TIME.finditer(post.get("text") or "")):
         return None
     return (
-        f"report {report['seq']}'s until attr is the end of a post at the root of a channel outside his DM, such as a staging claim, or of"
-        " a line moving it in that post's thread, and this post goes to neither: pass that channel as channel_id, and that post's ts as thread_ts for a line in its thread"
+        f'report {report["seq"]}\'s until attr ends this claim at {render.when(until)}, and its words name no such time: say "until {render.clock(end)}",'
+        " since the repository's staging-claim rule has each claim say how long it holds; an end you read as too short goes back to"
+        f" {report['writer']}, which wrote report {report['seq']}, as a refused record on the cci post tool re {report['seq']}, never left out"
     )
 
 
