@@ -216,6 +216,30 @@ def test_his_read_only_questions_handler_starts_on_its_answer_order_and_one_say_
     assert not [argv for argv in started if argv[:2] == ["drive", "status"] or argv[0] in ("orca", "cc-slack")]
 
 
+@pytest.mark.parametrize("asked", [QUESTION_LINK, "1794200100.000100", " did the copy  fix ship? "])
+def test_a_post_whose_asked_names_his_message_that_started_an_answer_order_closes_it_without_close(
+    asked: str, communicator: str, run: Run, tmp_path: Path, started: list[list[str]], slack_thread: Thread, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    handler = tools.run("handler", "demo", {"brief": QUESTION_BRIEF.format(scratch=tmp_path / "h1"), "answer": "Copy fix shipped"}).removeprefix("started ")
+    assert run("order", "set", "o1", "--project", "The drive", "--workstream", "Copies")[0] == 0
+    bind(monkeypatch, handler, "h-session")
+    answer = slack_thread.post(state.now(), from_claude=True)
+    calls: list[tuple[str, ...]] = []
+    monkeypatch.setattr(slack, "cc_slack", lambda *argv: calls.append(argv) or {"permalink": answer, "thread_ts": THREAD})
+    report = {"seq": 700001, "kind": "report", "lane": "communicator", "at": state.stamp(), "fields": {"attrs": {"close": "o1"}}}
+    replies = {"post": json.dumps({"seq": 700001}), "show": json.dumps(report)}
+    monkeypatch.setattr(reads, "run", lambda argv, checkout, env=None: started.append(argv) or replies.get(argv[1], ""))
+    monkeypatch.setattr(agents, "background_job", lambda session: (BACKGROUND_JOB, {"sessionId": session}))
+    monkeypatch.setattr(agents.subprocess, "Popen", lambda argv, **kwargs: None)
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "h-session")
+    line = talk.say("demo", {"text": "It shipped in 1.0.540.", "thread_ts": THREAD, "asked": [asked]})
+    result = f"POSTED {answer}"
+    assert line == f'{result}; o1 "Copy fix shipped": posted {answer}; o1 closed on report 700001; j1 keeps {result} as its return, the line you end on'
+    assert ["cci", "post", "--drive", "demo", "--lane", "communicator", "--kind", "report", "--attr", "close=o1", "--json", "--text", "It shipped in 1.0.540."] in started
+    assert [argv[argv.index("--answers") + 1] for argv in calls if "--answers" in argv] == [asked]
+    assert state.load("demo")["orders"]["o1"]["state"] == "done"
+
+
 def test_a_handlers_close_finishes_no_order_his_message_did_not_start_though_a_meta_order_came_last_into_his_thread(
     communicator: str, run: Run, tmp_path: Path, started: list[list[str]], slack_calls: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch
 ) -> None:

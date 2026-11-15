@@ -1210,17 +1210,28 @@ def report_refusal(data: dict, order_id: str, report: dict) -> str | None:
 
 
 def post_order(data: dict, session: str | None, post: dict, report: dict) -> str | None:
-    """The one order a say post is recorded on, which say decides and no caller names: a post carrying a record goes on the order that record is about, the report it relays or the record of his words it answers; a handler's close goes on the order the record it holds names, else the order his message it holds started, never another order that only shares the thread, which is not that message's to close; an edit, a card, a PR card, his catch-up, an answer in a teammate's watched thread and any other post with no record go on none."""
+    """The one order a say post is recorded on, which say decides and no caller names: a post carrying a record goes on the order that record is about, the report it relays or the record of his words it answers; a handler's close goes on the order the record it holds names, else the order his message it holds started, never another order that only shares the thread, which is not that message's to close; any other post with no record goes on the open answer order whose message its asked names, which it answers; an edit, a card, a PR card, his catch-up, an answer in a teammate's watched thread and a post with neither go on none."""
     if post.get("edit") or post.get("card") or post.get("tap_prs") or report.get("catch_up") or report.get("watch"):
         return None
     if post.get("record"):
         return state.report_order(data, report)
-    if not (post.get("close") and (handler := state.handler_id(data, session))):
+    if not post.get("close"):
+        return next((order_id for order_id in data["orders"] if answers_order(data, order_id, post)), None)
+    if not (handler := state.handler_id(data, session)):
         return None
     held = data["handlers"][handler]["holds"] or {}
     return (held.get("record") and state.named_order(data, agents.shown(held["record"])["fields"].get("attrs", {}))) or (
         held.get("message") and state.started_order(data, state.slack_message(held["link"])[0], held["message"])
     ) or None
+
+
+def answers_order(data: dict, order_id: str, post: dict) -> bool:
+    """Whether the post is the answer to an open answer order: its asked names his message that started the order, by permalink, ts or words, as cc-slack matches the owed reply it clears, so the post that answers it closes it."""
+    order = data["orders"][order_id]
+    if order["kind"] != "answer" or order["state"] in state.CLOSED_ORDER_STATES or not (started := state.slack_message(order["from"])):
+        return False
+    words = " ".join(order["text"].split())
+    return any((found[1] if (found := state.slack_message(message)) else message) == started[1] or " ".join(message.split()) == words for message in slack.messages(post.get("asked") or ""))
 
 
 def claim_close(name: str, report: dict) -> list[str]:
