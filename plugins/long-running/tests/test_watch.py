@@ -6127,6 +6127,59 @@ def test_a_red_prs_builder_whose_waiting_names_only_its_own_prs_is_woken_every_t
     assert (state.load(demo)["prs"][KEY]["stage"]["name"], len(woken)) == ("red", 2)
 
 
+def test_replayed_55591_a_red_pr_waiting_on_the_open_pr_its_builder_named_as_the_fix_wakes_no_one_until_that_pr_lands_or_its_head_moves(
+    demo: str, monkeypatch: pytest.MonkeyPatch, woken: list[tuple[str, str]]
+) -> None:
+    red_pr, fix = "Forge-AI/monorepo#55591", "Forge-AI/monorepo#55687"
+    card_link, waits = "https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794600000000001", "demo:j6448-1794600000000"
+    asked = state.new_question(None, "May the oncall fix land under your release hold?", state.stamp(T0), card=card_link, holds=state.pr_url(fix)) | {"waits": waits}
+    with state.edit(demo) as data:
+        data["orders"]["o573"] = order(jobs=["j6428", "j6448"])
+        data["jobs"] |= {"j6428": job(order="o573", prs=[state.pr_url(red_pr), state.pr_url(fix)]), "j6448": job(order="o573", state="waiting", said=asked["title"], questions=[asked])}
+        for key, head in ((red_pr, "2806e35aaa"), (fix, "c6bad1caaa")):
+            data["prs"][key] = state.new_pr(state.pr_url(key), "j6428", "o573") | {"head": head, "wants_tap": False, "checked": CHECKED | {"head": head, "orders": ["o573"]}}
+        data["prs"][red_pr]["waits"] = [fix]
+    monkeypatch.setattr(watch.view, "cards", lambda drive: NO_CARDS | {"questions": [question(waits) | {"url": card_link}]})
+    failing = [{"name": "buildkite/test", "conclusion": "FAILURE"}]
+    reads = {fix: read(headRefOid="c6bad1caaa", checks=GREEN, reviewDecision="APPROVED")}
+    serve(monkeypatch, reads)
+    waiting = f"WAITING {red_pr} waits on {state.pr_url(fix)}, whose stacked fix clears its eval gate"
+    passes = []
+
+    def at(minutes: int, head: str = "2806e35aaa") -> None:
+        reads[red_pr] = read(headRefOid=head, checks=failing)
+        watch.run_pass(watcher(demo), T0 + timedelta(minutes=minutes))
+        kept = state.load(demo)["prs"][red_pr]["stage"]
+        passes.append((minutes, kept["name"], kept["owner"], [key for key, _ in woken]))
+        woken.clear()
+
+    at(0)
+    with state.edit(demo) as data:
+        state.take_result(data, "j6428", waiting)
+    at(30)
+    behind_why = state.load(demo)["prs"][red_pr]["stage"]["why"]
+    for minutes in (60, 90, 120, 150):
+        at(minutes)
+    at(151, head="31a7e01aaa")
+    with state.edit(demo) as data:
+        state.take_result(data, "j6428", waiting)
+    at(152, head="31a7e01aaa")
+    reads[fix] = read(state="MERGED", mergeCommit="ddd555", headRefOid="c6bad1caaa", checks=GREEN, reviewDecision="APPROVED")
+    at(153, head="31a7e01aaa")
+    assert behind_why == f"its checks fail at 2806e35: buildkite/test, which its builder waits on {fix} to fix, held: his cards {card_link} on its work are open"
+    assert passes == [
+        (0, "red", stage.BUILDER, [red_pr]),
+        (30, "behind", stage.HIM, []),
+        (60, "behind", stage.HIM, []),
+        (90, "behind", stage.HIM, []),
+        (120, "behind", stage.HIM, []),
+        (150, "behind", stage.HIM, []),
+        (151, "red", stage.BUILDER, [red_pr]),
+        (152, "behind", stage.HIM, []),
+        (153, "red", stage.BUILDER, [red_pr]),
+    ]
+
+
 def test_replayed_55571_a_red_pr_whose_builder_waits_on_its_own_open_question_wakes_it_once_per_red_and_once_his_answer_closes_the_question(
     demo: str, monkeypatch: pytest.MonkeyPatch, woken: list[tuple[str, str]]
 ) -> None:

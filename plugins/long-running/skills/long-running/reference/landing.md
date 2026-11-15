@@ -215,7 +215,10 @@ no failing test, such as a lint step, is the PR's own.
    running on it; a stacked PR reads `behind` until the PR below it merges; one on the head branch of
    an open PR the drive does not track, such as another drive's, reads `behind` that PR, owed by someone
    outside the drive, ahead of its lander's tries and its red, with no deadline and no wake, and no stall
-   reaches past it; one on the branch of a job whose work is still to come and that has opened no PR
+   reaches past it; a red one whose own row waits on an open drive PR, while its builder's `WAITING` or
+   `ASK` answered that red and each wait it named still holds, reads `behind` that PR, owed by whoever
+   owes that PR's stage, with no deadline and no wake, until that PR lands or the red changes, as a push
+   of its head does; one on the branch of a job whose work is still to come and that has opened no PR
    there yet, such as a `BUILT` branch his cards keep from becoming a PR or a running builder's branch,
    reads `behind` that job once nothing at its own head is red, owed by him while that job waits on his
    cards and by that job otherwise, with no deadline and no wake, and his card offers no Approve on it
