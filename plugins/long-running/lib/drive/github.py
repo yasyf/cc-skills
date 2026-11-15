@@ -537,10 +537,10 @@ def saved_branches(repo: str, lane: str, every: bool = False) -> list[str]:
 
 
 def fetched(clone: str, branch: str) -> str:
-    """The sha of branch's head as origin holds it now, read with ls-remote and fetched by that sha into the clone's objects, writing no ref, so it never loses refs/remotes/origin/<branch>'s ref lock to another fetch of the shared clone, the lander's, a launch's or a session's, and needs no lock of its own."""
+    """The sha of branch's head as origin holds it now, read with ls-remote and fetched by that sha into the clone's objects, writing no ref, so it never loses refs/remotes/origin/<branch>'s ref lock to another fetch of the shared clone, the lander's, a launch's or a session's, and needs no lock of its own. The fetch starts no git maintenance: its detached worktree-prune task deletes a .git/worktrees entry holding neither gitdir nor locked, as the worktree add each caller runs next holds its own for a moment, and that add then fails writing its locked file."""
     git = ["git", "-C", clone]
     sha = run([*git, "ls-remote", "origin", f"refs/heads/{branch}"]).split()[0]
-    run([*git, "fetch", "-q", "--no-tags", "--no-write-fetch-head", "origin", sha])
+    run([*git, "fetch", "-q", "--no-tags", "--no-write-fetch-head", "--no-auto-maintenance", "origin", sha])
     return sha
 
 
