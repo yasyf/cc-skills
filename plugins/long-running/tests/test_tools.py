@@ -1681,7 +1681,7 @@ def test_drive_answer_lists_and_ends_the_question_his_tap_closed_once_his_words_
     answer_id = "a1c0ffee" + "0" * 32
     with state.edit(demo) as data:
         data["jobs"]["j1"]["state"] = "done"
-        kept = superseded.record(data, answer_id, "Knock, the bell is broken", words, superseded.asking(data, found, words), {}, state.stamp())
+        kept = superseded.record(data, answer_id, "Knock, the bell is broken", words, superseded.asking(data, found, words), {}, state.stamp(), False)
         ended = superseded.answer_cards(data, answer_id, kept)
     assert list(kept["jobs"]) == ["j1"]
     assert [(job_id, question["closed"]["answer"], question["closed"]["replaces"]["tap"]) for job_id, question in ended] == [("j1", answer_id, TAP)]
@@ -1895,6 +1895,88 @@ def test_his_rulings_are_kept_as_drive_answers_listing_each_card_part_and_pr_the
     assert [(pr["state"], pr["parts"]) for pr in drive["prs"].values()] == [("open", list(SANDSQL_PARTS)), ("closed", [])]
     assert [question["closed"]["how"] for question in drive["jobs"]["j1"]["questions"]] == ["withdrawn", "withdrawn"]
     assert watch.answer_lines(watching, state.now() + timedelta(minutes=30)) == []
+
+
+def owners_cards(demo: str, monkeypatch: pytest.MonkeyPatch) -> dict:
+    sibling = f"{CARD[:-2]}01"
+    drawn = {"demo:j1-684776": CARD, "demo:j1-684682": sibling}
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["agent"] = "agent-1"
+        state.start(data["jobs"]["j1"])
+        data["jobs"]["j1"]["questions"] += [state.new_question(None, waits, state.stamp(), card=url) | {"waits": waits} for waits, url in drawn.items()]
+    found = {
+        "team_url": "",
+        "questions": [{"card": {"waits": waits, "title": waits, "body": waits, "options": ["Yes", "No"], "recommended": "Yes"}, "url": url, "question": waits, "options": ["Yes", "No"]} for waits, url in drawn.items()],
+        "closed": [],
+        "pr_cards": [],
+    }
+    monkeypatch.setattr(view, "cards", lambda name: found)
+    view.refresh_cards(demo)
+    monkeypatch.setattr(slack, "cc_slack", lambda *argv: {})
+    return found
+
+
+def test_keeping_a_ruling_reads_his_words_and_holds_the_lock_as_often_however_many_other_answers_its_jobs_owe(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--title", "SandSQL supervisor", "--project", "Iris", "--workstream", "Durable agents", "move every helper under sandsql-proc", "--parts", *SANDSQL_PARTS)
+    run("job", "add", "builder", "--order", "o1", "--goal", "build it", *(flag for part in SANDSQL_PARTS for flag in ("--part", part)))
+    found = owners_cards(demo, monkeypatch)
+    with state.edit(demo) as data:
+        data["jobs"]["j2"] = state.new_job("o1", "builder", "build it", list(SANDSQL_PARTS), state.stamp()) | {"agent": "agent-2", "state": "waiting"}
+        data["orders"]["o1"]["jobs"].append("j2")
+    given = state.drive_dir(demo) / "jobs" / "j2-1.md"
+    given.parent.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess([], 0, '{"seq": 684800}\n', ""))
+    spaced: list[str] = []
+    held: list[str] = []
+    real_spaced, real_writing = superseded.spaced, state.writing
+    monkeypatch.setattr(superseded, "spaced", lambda text: spaced.append(text) or real_spaced(text))
+    monkeypatch.setattr(state, "writing", lambda name: held.append(name) or real_writing(name))
+
+    def keep(owed: int, ruling: str, words: str, waits: str, under: str) -> tuple[int, int]:
+        with state.edit(demo) as data:
+            data["answers"] |= {f"{owed}owed{n}": {"words": f"his answer {n}", "link": "terminal", "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {"j2": None}} for n in range(owed)}
+        given.write_text(f"His words, verbatim:\n\n{words}\n" + "and the rest of the brief\n" * 10000)
+        ahead = (datetime.now() + timedelta(hours=1)).timestamp()
+        os.utime(given, (ahead, ahead))
+        spaced.clear()
+        held.clear()
+        tools.run("record", demo, {"records": [{"kind": "owner", "text": words, "url": under, "thread_card": waits, "about": "his work", "ruling": ruling}]})
+        return len(spaced), len(held)
+
+    alone = keep(1, "8427b3c", RULED, "demo:j1-684776", UNDER_CARD)
+    found["questions"].pop(0)
+    view.refresh_cards(demo)
+    assert keep(100, "cabb099", DROPPED, "demo:j1-684682", "https://acme.slack.com/archives/D123/p1794200000000760?thread_ts=1794200000.000701") == alone
+    kept = state.load(demo)["answers"]
+    assert [kept[ruling]["jobs"]["j2"] for ruling in ("8427b3c", "cabb099")] == [{"mark": "sent"}] * 2
+    assert all(kept[f"100owed{n}"]["jobs"]["j2"] is None for n in range(100))
+
+
+def test_his_words_about_the_drive_list_none_of_a_product_orders_work_and_drive_answer_about_drive_takes_that_listing_off_one_kept_already(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--title", "SandSQL supervisor", "--project", "Iris", "--workstream", "Durable agents", "move every helper under sandsql-proc", "--parts", *SANDSQL_PARTS)
+    run("job", "add", "builder", "--order", "o1", "--goal", "build it", *(flag for part in SANDSQL_PARTS for flag in ("--part", part)))
+    run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/54101", "--job", "j1", *LEAD)
+    found = owners_cards(demo, monkeypatch)
+    posts = "Yup and didn't get any links for my approve"
+    sibling_thread = "https://acme.slack.com/archives/D123/p1794200000000760?thread_ts=1794200000.000701"
+    assert [
+        run("answer", "--title", f"Owner: {words}", "--words", words, "--link", link, *about)[0]
+        for words, link, about in ((posts, UNDER_CARD, ["--label", "header:post-feedback"]), (RULED, sibling_thread, []))
+    ] == [0, 2]
+    on_drive, on_work = (f"{n}c0ffee{'0' * 33}" for n in (1, 2))
+    kept = state.load(demo)["answers"]
+    assert (kept[on_drive]["cards"], kept[on_drive]["jobs"]) == ({}, {})
+    assert {f"o1:{part}" for part in SANDSQL_PARTS} | {"Forge-AI/monorepo#54101"} <= set(kept[on_work]["cards"]) and "j1" in kept[on_work]["jobs"]
+    assert run("answer", on_work, "--about", "drive")[0] == 0
+    kept = state.load(demo)["answers"][on_work]
+    assert (kept["cards"], kept["jobs"]) == ({}, {})
+    watching = watch.Watcher(demo, offset=state.events_end(demo))
+    watching.cards = found
+    assert watch.answer_lines(watching, state.now() + timedelta(minutes=11)) == []
 
 
 def test_drive_answer_refuses_to_drop_a_merged_pr_or_supersede_a_part_and_dropping_every_part_of_an_order_drops_the_order(

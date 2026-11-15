@@ -48,6 +48,7 @@ THREAD_HELP = (
     " in the channel of the --from message, his DM for an order from the terminal; its lines to him go in a channel's thread only for an incident"
 )
 RULING = "ruling"
+ON_THE_DRIVE = {RULING, "header:post-feedback", "header:drive-tooling"}
 PR_FORMS = "owner/repo#N, its URL, #N or its bare number"
 ID_FORMS = f"an order o<n>, a job j<n>, or a PR as {PR_FORMS}"
 UNTRACKED_PRS = {("pr", "add"): "url", ("pr", "tapped"): "url", ("pr", "ci"): "url", ("job", "set"): "pr", ("job", "held"): "pr"}
@@ -4677,6 +4678,7 @@ def answer(args: argparse.Namespace) -> int:
         if unsaid := settled.unsaid([args.words], args.link, found, data):
             raise DriveError(f"refused, nothing recorded: {unsaid}")
         args.id = settled.recorded(name, args.title, args.words, args.label, " and ".join(args.link), cwd)
+    drive = args.about == state.ABOUT_DRIVE or bool(ON_THE_DRIVE & {*(cited["tags"] if cited else args.label)})
     marking = args.stands or args.settled or args.dropped or args.superseded or args.reopened or args.others_stand or args.untouched
     done: list[str] = []
     if args.id not in data["answers"]:
@@ -4696,7 +4698,10 @@ def answer(args: argparse.Namespace) -> int:
             args.words = args.words or words
         bound = superseded.binding(data, args.link[0], asked, cwd)
         with state.edit(name) as data:
-            superseded.record(data, args.id, args.words, args.link[0], asked, bound, state.stamp())
+            superseded.record(data, args.id, args.words, args.link[0], asked, bound, state.stamp(), drive)
+    elif drive:
+        with state.edit(name) as data:
+            superseded.tooling_only(data, data["answers"][args.id], superseded.listed(data, data["answers"][args.id], asked))
     if not marking:
         done += replaced(name, args.id, asked, cwd)
         with state.edit(name) as data:
@@ -6442,6 +6447,14 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("id", nargs="?", help="his answer's cc-notes id; leave it out with --title on the first call to record it in cc-notes")
     verb.add_argument("--title", help="the question his answer settles, verbatim, as its cc-notes title; with no id, the first call records it there")
     verb.add_argument("--label", action="append", default=[], help="a cc-notes label beyond scope:durable and drive:<drive>, such as header:<topic> or from:owner")
+    verb.add_argument(
+        "--about",
+        choices=state.ABOUTS,
+        help=(
+            f"what his words are about, as the record tool's owner record names it: {state.ABOUT_DRIVE} lists only the cards, parts, PRs and jobs"
+            f" of \"Drive tooling:\" orders, as an answer labelled {', '.join(sorted(ON_THE_DRIVE))} does, and on an answer recorded already takes each other one it lists unmarked off"
+        ),
+    )
     verb.add_argument(
         "--rewrite",
         metavar="ORDER",

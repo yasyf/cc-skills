@@ -1261,12 +1261,11 @@ def keep_messages_once(data: dict) -> None:
     """Keep once each message of his an answer's words repeat, since an older keep_rulings joined one per record naming its ruling, so three records of one message kept it three times and no text quoting him once carried it, and hear again what each job it lists unmarked was given; marked so this runs once."""
     from drive import superseded
 
-    for kept in data["answers"].values():
+    for answer_id, kept in data["answers"].items():
         if len(messages := kept["words"].split(MESSAGES_JOINED)) == len(once := list(dict.fromkeys(messages))):
             continue
         kept["words"] = MESSAGES_JOINED.join(once)
-        for job_id in [job_id for job_id, mark in kept["jobs"].items() if mark is None]:
-            superseded.hear_start(data, job_id)
+        superseded.hear_answer(data, answer_id, [job_id for job_id, mark in kept["jobs"].items() if mark is None])
     data["messages_kept_once"] = True
 
 

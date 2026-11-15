@@ -239,7 +239,8 @@ def verb_tools() -> list[dict]:
                 " a PR card stays up, since only the coordinator's --rework naming its PR withdraws it; an answer"
                 " whose waits names a card no longer waiting on him is refused, since his answer there is"
                 " recorded already. A ruling an owner or answer record names with url is kept as his drive answer in the same"
-                " call, listing each card, part and PR it could change for drive answer <id> to mark. A defect's or handoff's"
+                " call, listing each card, part and PR it could change for drive answer <id> to mark, only those of \"Drive tooling:\""
+                " orders for one about the drive. A defect's or handoff's"
                 " text past one 120-character line goes as that line cut at a word, the whole text atop its body. Returns each"
                 " record's seq, then each card closed, then each ruling kept with its listing."
             ),
@@ -663,7 +664,7 @@ def card_drive(name: str, records: list[dict]) -> str:
 
 
 def keep_rulings(name: str, posts: list[dict], found: dict) -> list[str]:
-    """Keep each ruling the owner or answer records of his words name as his drive answer, each message of his once, by its url, joined with … at the first one's link, beside each card asking him, part undelivered and PR not yet live it could change, as drive answer records one, so the watch's ANSWER line chases each until drive answer marks it; a ruling kept already is left as it is. Its listing each."""
+    """Keep each ruling the owner or answer records of his words name as his drive answer, each message of his once, by its url, joined with … at the first one's link, beside each card asking him, part undelivered and PR not yet live it could change, only a "Drive tooling:" order's for a record about the drive, as drive answer records one, so the watch's ANSWER line chases each until drive answer marks it; a ruling kept already is left as it is. Its listing each."""
     said = []
     for ruling, named in rulings(posts).items():
         data = state.load(name)
@@ -674,7 +675,7 @@ def keep_rulings(name: str, posts: list[dict], found: dict) -> list[str]:
         asked = superseded.asking(data, found, made["url"])
         bound = superseded.binding(data, made["url"], asked, data["roles"]["coordinator"]["cwd"])
         with state.edit(name) as data:
-            kept = superseded.record(data, ruling, words, made["url"], asked, bound, state.stamp())
+            kept = superseded.record(data, ruling, words, made["url"], asked, bound, state.stamp(), made["attr"].get("about") == state.ABOUT_DRIVE)
         said.append(superseded.listing(ruling, kept, superseded.unmarked(kept, asked), asked, data) or f"his ruling {ruling} kept as a drive answer: nothing it could change asks him or waits on it")
     return said
 
