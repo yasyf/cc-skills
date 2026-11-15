@@ -192,8 +192,11 @@ def card_refusal(job_id: str, question: dict, file: Path) -> str | None:
 
 
 def recorded(name: str, title: str, words: str, labels: list[str], where: str, cwd: str) -> str:
-    """Record his answer on the drive in cc-notes, the question as its title as `titled` fits it, his words as its body with the whole question in its notes when its title is cut, and the drive's labels before these, and return its id; a refusal names his words, the question and the card or message where he gave them."""
+    """Record his answer on the drive in cc-notes, the question as its title as `titled` fits it, his words as its body with the whole question in its notes when its title is cut, and the drive's labels before these, and return its id; a standing answer cc-notes holds already under that title in those words, as a tap, a handler or an earlier call recorded it, is that answer, so its id comes back and nothing is added. A refusal names his words, the question and the card or message where he gave them."""
     handle = titled(title)
+    said = (plain(handle), plain(words))
+    if kept := next((answer["id"] for answer in listed("scope:durable", cwd) if (plain(answer["title"]), plain(his(answer["body"]))) == said), None):
+        return kept
     body = words if handle == title else f"{words}{NOTES} the whole question: {title}"
     add = ["ccn", "answer", "add", f"--title={handle}", "--body-file", "-", *(f"--label={label}" for label in ["scope:durable", f"drive:{name}", *kind(words), *labels]), "--json"]
     return json.loads(ccn(add, body, cwd, f'could not record in cc-notes his answer "{cut(words, 80)}" to "{cut(title, 120)}" on {where}'))["id"]
@@ -210,28 +213,18 @@ def titled(question: str) -> str:
 
 
 def note_cards(name: str) -> None:
-    """Record in cc-notes each answer of his that ended a question before his tap recorded it, as the tap records one through `recorded`, and keep its id on the question, so `matched` ranks every answer he gave a card, never an Already answered tap, whose words cc-notes holds already; one cc-notes holds already under that question in those words keeps that one's id, so a pass cut short records none twice; marked so this runs once."""
+    """Record in cc-notes each answer of his that ended a question before his tap recorded it, as the tap records one through `recorded`, and keep its id on the question, so `matched` ranks every answer he gave a card, never an Already answered tap, whose words cc-notes holds already; `recorded` keeps the id of one cc-notes holds already under that question in those words, so a pass cut short records none twice; marked so this runs once."""
     data = state.load(name)
     if data.get(state.CARDS_NOTED):
         return
     cwd = data["roles"]["coordinator"]["cwd"]
-    unnoted = [
-        (job_id, question)
+    noted = [
+        (job_id, question, recorded(name, question["title"], closed["words"], [], closed["link"] or question["card"] or (f"his card {question['waits']}" if question["waits"] else f"record {closed['seq']}"), cwd))
         for job_id, job in data["jobs"].items()
         for question in job["questions"]
         if (closed := question["closed"]) and closed["how"] == "answered" and closed["words"] and not (closed["answer"] or closed["ruling"] or closed["noted"]) and (question["card"] or question["waits"] or closed["seq"])
         and closed["words"] != "\n".join(dict.fromkeys(answer["words"] for answer in question["recorded"]))
     ]
-    every = json.loads(ccn(["ccn", "answer", "list", "--limit", "0", "--include-superseded", "--full", "--json"], "", cwd, "could not read his recorded answers")) if unnoted else []
-    kept = {(plain(answer["title"]), plain(his(answer["body"]))): answer["id"] for answer in every}
-    noted = []
-    for job_id, question in unnoted:
-        said = (plain(titled(question["title"])), plain(question["closed"]["words"]))
-        if said not in kept:
-            closed = question["closed"]
-            where = closed["link"] or question["card"] or (f"his card {question['waits']}" if question["waits"] else f"record {closed['seq']}")
-            kept[said] = recorded(name, question["title"], closed["words"], [], where, cwd)
-        noted.append((job_id, question, kept[said]))
     with state.edit(name) as data:
         for job_id, question, answer_id in noted:
             state.question_in(data["jobs"][job_id], question)["closed"]["noted"] = answer_id

@@ -3758,24 +3758,32 @@ def test_his_recorded_answers_reach_jev_as_ccn_ranks_them_nearest_to_the_whole_b
 
 
 def test_his_card_answers_no_recorded_answer_holds_are_recorded_once_and_one_cc_notes_holds_under_that_question_keeps_its_id(
-    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, noted: list[tuple[str, str, str]]
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, recorded: Answers
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the door")
     run("job", "add", "builder", "--order", "o1", "--goal", "hang the door")
-    kept = {"id": f"7ab1e20{'0' * 33}", "title": "Bell or knocker?", "body": "Bell\nNotes: kept from his tap", "tags": ["scope:durable"]}
-    listed: list[list[str]] = []
-    monkeypatch.setattr(settled, "ccn", lambda argv, text, cwd, failure: listed.append(argv) or json.dumps([kept]))
+    kept = {"id": f"7ab1e20{'0' * 33}", "title": "Bell or knocker?", "body": "Bell\nNotes: kept from his tap", "tags": ["scope:durable"], "created_at": "2026-11-12T08:00:00Z"}
+    recorded.listed = [kept]
+    added: list[tuple[str, str]] = []
+
+    def ccn(argv: list[str], text: str, cwd: str, failure: str) -> str:
+        added.append((argv[3].removeprefix("--title="), text))
+        recorded.listed.append({"id": f"{len(added)}c0ffee{'0' * 33}", "title": added[-1][0], "body": text, "tags": ["scope:durable"], "created_at": "2026-11-12T09:00:00Z"})
+        return json.dumps({"id": recorded.listed[-1]["id"]})
+
+    monkeypatch.setattr(settled, "ccn", ccn)
+    monkeypatch.setattr(settled, "recorded", SETTLED_RECORDED)
     given = f"c0de123{'0' * 33}"
-    with state.edit("demo") as data:
-        del data[state.CARDS_NOTED]
-        data["jobs"]["j1"]["questions"] = [
-            state.new_question("asks/j1-bell.md", "Bell or knocker?", "2026-11-12T08:00:00Z", card=DESIGN_CARD, closed=state.new_close("answered", "Bell", DESIGN_CARD)),
-            state.new_question("asks/j1-ring.md", "Ring or knock?", "2026-11-12T08:10:00Z", card=TAP_CARD, closed=state.new_close("answered", "Ring", TAP_CARD)),
-            state.new_question("asks/j1-door.md", "Which door?", "2026-11-12T08:20:00Z", card=PICK, closed=state.new_close("answered", "Front", PICK, answer=given)),
-        ]
     for _ in range(2):
+        with state.edit("demo") as data:
+            del data[state.CARDS_NOTED]
+            data["jobs"]["j1"]["questions"] = [
+                state.new_question("asks/j1-bell.md", "Bell or knocker?", "2026-11-12T08:00:00Z", card=DESIGN_CARD, closed=state.new_close("answered", "Bell", DESIGN_CARD)),
+                state.new_question("asks/j1-ring.md", "Ring or knock?", "2026-11-12T08:10:00Z", card=TAP_CARD, closed=state.new_close("answered", "Ring", TAP_CARD)),
+                state.new_question("asks/j1-door.md", "Which door?", "2026-11-12T08:20:00Z", card=PICK, closed=state.new_close("answered", "Front", PICK, answer=given)),
+            ]
         settled.note_cards("demo")
-    assert (noted, [argv[:3] for argv in listed]) == ([("demo", "Ring or knock?", "Ring")], [["ccn", "answer", "list"]])
+    assert added == [("Ring or knock?", "Ring")]
     assert [(question["closed"]["answer"], question["closed"]["noted"]) for question in state.load("demo")["jobs"]["j1"]["questions"]] == [(None, kept["id"]), (None, f"1c0ffee{'0' * 33}"), (given, None)]
 
 
@@ -3790,11 +3798,12 @@ def test_a_question_longer_than_a_cc_notes_title_is_recorded_under_it_cut_on_a_w
     def ccn(argv: list[str], text: str, cwd: str, failure: str) -> str:
         if argv[:3] == ["ccn", "answer", "list"]:
             return json.dumps(stored)
-        stored.append({"id": f"{len(stored)}c0ffee{'0' * 33}", "title": argv[3].removeprefix("--title="), "body": text, "tags": ["scope:durable"]})
+        stored.append({"id": f"{len(stored)}c0ffee{'0' * 33}", "title": argv[3].removeprefix("--title="), "body": text, "tags": ["scope:durable"], "created_at": "2026-11-12T08:00:00Z"})
         return json.dumps({"id": stored[-1]["id"]})
 
     monkeypatch.setattr(settled, "ccn", ccn)
     monkeypatch.setattr(settled, "recorded", SETTLED_RECORDED)
+    monkeypatch.setattr(settled, "listed", SETTLED_LISTED)
     for _ in range(2):
         with state.edit("demo") as data:
             del data[state.CARDS_NOTED]
@@ -3807,6 +3816,8 @@ def test_a_question_longer_than_a_cc_notes_title_is_recorded_under_it_cut_on_a_w
     assert state.load("demo")["jobs"]["j1"]["questions"][0]["closed"]["noted"] == answer["id"]
 
     def refused(argv: list[str], text: str, cwd: str, failure: str) -> str:
+        if argv[:3] == ["ccn", "answer", "list"]:
+            return "[]"
         raise state.DriveError(f"{failure}: usage: title is empty")
 
     monkeypatch.setattr(settled, "ccn", refused)
@@ -8849,7 +8860,7 @@ def test_an_answer_stays_unfinished_until_each_card_asking_him_is_marked_and_a_s
 ) -> None:
     settled = cards_asking(monkeypatch, PR)
     assert cli.main(["answer", "a1", "--stands", "demo:j2-7"]) == 2
-    assert "run it with --words and --link alone first" in capsys.readouterr().err
+    assert "the drive keeps no link for it: run drive answer a1 --link <the permalink of his message or the card he tapped> alone first" in capsys.readouterr().err
     assert cli.main(["answer", "a1", "--words", WORDS, "--link", PICK]) == 2
     listed = capsys.readouterr().err
     assert "  demo:j2-7  " not in listed
@@ -8946,16 +8957,36 @@ def test_an_answer_with_no_id_records_his_words_in_cc_notes_first_and_goes_on_by
     assert list(state.load("demo")["answers"]) == ["beb09e5f00d"]
 
 
-def test_an_answer_his_tap_on_the_card_recorded_already_goes_on_by_that_id_and_records_none_again(
-    run: Run, designing: str, recorded: Answers, noted: list[tuple[str, str, str]], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+def test_j5263_an_answer_cc_notes_holds_under_that_question_in_those_words_is_his_answer_recorded_so_none_is_added(
+    run: Run, designing: str, recorded: Answers, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     cards_asking(monkeypatch, PR)
-    tapped = f"beb09e5f00d{'0' * 29}"
-    recorded.shown["beb09e5"] = {"id": tapped, "title": "Which topology?", "body": WORDS, "tags": [], "created_at": "2026-11-12T11:33:00Z"}
-    with state.edit("demo") as data:
-        data["jobs"]["j2"]["questions"].append(state.new_question("asks/j2-topology.md", "Which topology?", "2026-11-12T11:00:00Z", card=PICK, closed=state.new_close("answered", WORDS, PICK, noted=tapped)))
-    cli.main(["answer", "--title", "Which topology?", "--words", WORDS, "--link", PICK])
-    assert (f"his answer {tapped} " in capsys.readouterr().err, noted) == (True, [])
+    kept = f"66243b9{'7' * 33}"
+    recorded.listed = [
+        {"id": f"ea427ff{'0' * 33}", "title": "Which topology?", "body": "Tree", "tags": ["scope:durable"], "created_at": "2026-11-12T11:00:00Z"},
+        {"id": kept, "title": "Which  topology", "body": f"{WORDS}.\nNotes: kept by a handler", "tags": ["scope:durable"], "created_at": "2026-11-12T11:33:00Z"},
+    ]
+    monkeypatch.setattr(settled, "recorded", SETTLED_RECORDED)
+    monkeypatch.setattr(settled, "ccn", lambda argv, text, cwd, failure: pytest.fail(f"cc-notes got a second answer: {argv}"))
+    assert cli.main(["answer", "--title", "Which topology?", "--words", WORDS, "--link", PICK]) == 2
+    assert f"his answer {kept} " in capsys.readouterr().err
+    assert (list(state.load("demo")["answers"]), state.load("demo")["answers"][kept]["link"]) == ([kept], PICK)
+
+
+def test_j5263_an_answer_cc_notes_holds_and_the_drive_lacks_is_kept_by_its_id_with_link_alone_its_words_read_above_notes(
+    run: Run, designing: str, recorded: Answers, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], heard: Heard
+) -> None:
+    cards_asking(monkeypatch, PR)
+    kept = f"66243b9{'7' * 33}"
+    recorded.shown[kept] = {"id": kept, "title": "Which topology?", "body": f"{WORDS}\nNotes: kept by a handler", "tags": ["scope:durable"], "created_at": "2026-11-12T11:33:00Z"}
+    for marks in (["--others-stand"], []):
+        assert cli.main(["answer", kept[:7], *marks]) == 2
+        assert f"cc-notes holds {kept}; the drive keeps no link for it: run drive answer {kept} --link <the permalink of his message or the card he tapped> alone first" in capsys.readouterr().err
+    assert kept not in state.load("demo")["answers"]
+    assert cli.main(["answer", kept[:7], "--link", PICK]) == 2
+    assert f"his answer {kept} " in capsys.readouterr().err
+    answer = state.load("demo")["answers"][kept]
+    assert ((answer["words"], answer["link"]), heard.checked) == ((WORDS, PICK), [(WORDS, [PICK]), (WORDS, [PICK])])
 
 
 def test_j3986_his_ruling_kept_under_its_full_id_is_found_by_any_prefix_and_never_kept_twice(
