@@ -1973,6 +1973,39 @@ def test_an_id_inside_a_branch_path_file_or_waits_id_keeps_its_proper_name(named
 
 
 @pytest.mark.parametrize(
+    ("coded", "plain", "refused"),
+    [
+        (
+            "ASK Should the memory move's recheck re-project each skipped memory's search readers and expiry from iris_memory_states?",
+            "ASK Should a memory the move skipped get its search and expiry rebuilt?",
+            "the question names iris_memory_states, which tell him nothing of what the card is",
+        ),
+        (
+            "ASK Should 0002_run_claims_chain_journal, adding two run_claims columns, mark itself readable by dev's sandsql so a staging restore works?",
+            "ASK Should the migration adding two run columns mark itself readable by the dev database, so a staging restore works?",
+            "the question names 0002_run_claims_chain_journal, run_claims, which tell him nothing of what the card is",
+        ),
+        (
+            "ASK Where should each store copy run?\nDrive tooling: your pick decides where `store_copy_at` runs.",
+            "ASK Where should each store copy run?\nDrive tooling: your pick decides where each store copy runs, on the primary or on a worker.",
+            "the summary's first line names store_copy_at, which tell him nothing of what the card is",
+        ),
+    ],
+)
+def test_j5473_a_new_card_names_no_code_in_its_question_or_summarys_first_line_leaving_it_to_the_lines_after(coded: str, plain: str, refused: str) -> None:
+    def block(opening: str) -> str:
+        first = "" if "\n" in opening else "\nDrive tooling: your pick decides whether a skipped memory is searchable after the move."
+        return explained(
+            f"{opening}{first}\nThe recheck reads `iris_memory_states` in go/sand/internal/iris/memory.go.\n- rebuild them (recommended)\n- leave them\nFindings:\n"
+            "Root cause: none: a design pick\nSimplest: rebuild them\nHolds: none: no option changes code any job builds\n"
+        )
+
+    assert [problem for problem in limits.question_problems(block(coded))[1] if problem.startswith(refused)] != []
+    assert limits.question_problems(block(coded), kept=True)[1] == []
+    assert limits.question_problems(block(plain))[1] == []
+
+
+@pytest.mark.parametrize(
     ("ask", "found"),
     [
         (options_ask("server-side copy (recommended)", "copy in batches").replace("`lib/drive/cli.py`", "branch j3700", 1), "j3700"),

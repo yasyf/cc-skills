@@ -557,6 +557,10 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
   kept, so write no report file, and your final line is sent back until it is; others read it
   with `drive job report <your job>`. `drive job ask` keeps an `ASK` block, and an `ASK` that ends
   your run is kept as your report too.
+- Name in it each open card of yours your work still waits on, by its waits id, permalink or ASK
+  file: `drive job report` withdraws each other open card of your job but one holding an open PR
+  from landing, so a card your work went on without stops asking him, and prints the
+  `drive job ask --redraws` line that asks it again; a `HANDOFF` withdraws none.
 - Its first line is exactly one result line below. The lines after it are the inputs a handler writes
   his message from, one fact a line, unpolished, never the write-up itself, plus any exact quote,
   number or path the message needs. Name when a job started as `{started:<job>}` and when a record
@@ -710,7 +714,11 @@ Replaces: <only on a question built on another open question of his: the path dr
   up now, and each option's description its downstream impact. The question is a whole sentence,
   never a cut headline, and nothing on the card is a raw link, path or id. `drive job ask` refuses a
   first line missing either, by his words on a card that opened on its findings: "what is this and
-  what the fuck are you talking about". It counts the words his card draws for each
+  what the fuck are you talking about". Neither the question nor that first line names code, a
+  table, column, function, file or flag: say what he would see go wrong or what his pick changes in
+  the words he uses for it, such as the memory move or expiry, and leave the code to the summary's
+  later lines and the findings; `drive job ask` refuses one that names any, by his feedback 3a053f1, "What the fuck is this?", on a card asking whether "the memory move's recheck" should
+  "re-project each skipped memory's search readers and expiry from iris_memory_states". It counts the words his card draws for each
   reference too: an `{order:<o>}` draws its order's first 100 characters, so on a card near 150
   words give it a few words of its own, `{order:<o>|<a few words>}`.
 - Each option is one line of what he gets and what it costs, then one plain-text description
