@@ -429,8 +429,9 @@ against his words says, whatever head he tapped it on, by his words "why the fuc
 lands with no second check. A `NOT READY` at the PR's head clears no tap and holds no landing: his
 card keeps Approve and draws the objection whole under Where it stands, and its `PR … NOT READY`
 line goes to the builder answering for each PR it faults through `drive pr wake`, once a head and one to each job,
-only while nothing of his holds the stack: under his Approve, his Hold, the hold label or an open card of his on any
-PR of the stack it wakes nobody, so no builder changes what he approved or what his answer may change. His order to merge a PR as it
+only while neither his Approve nor an open card of his holds the stack: under either on any
+PR of the stack it wakes nobody, so no builder changes what he approved or what his answer may change, while his Hold
+and the hold label stop only the landing, so a builder under them still hears it. His order to merge a PR as it
 stands is his Approve. Each head gets one try, but a try that fails on the lander's own step says nothing of
 the PR: one whose `stack-enqueue --check` or `--watch` exited 5, its own failure, such as a GitHub read that
 timed out, or failed before it printed an answer, as when mise refuses the landing worktree's config, and a

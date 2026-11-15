@@ -6022,7 +6022,7 @@ def parser() -> argparse.ArgumentParser:
     verb = pr.add_parser(
         "check",
         parents=both,
-        help="what the watch starts on a builder's READY: judge one PR his card waits on at its head against his words, and say CHECKED, which draws his card once it is green and approved, or NOT READY, which goes once a head to the builders of the PRs it faults while nothing of his holds their stack",
+        help="what the watch starts on a builder's READY: judge one PR his card waits on at its head against his words, and say CHECKED, which draws his card once it is green and approved, or NOT READY, which goes once a head to the builders of the PRs it faults while neither his Approve nor an open card of his holds their stack",
     )
     verb.add_argument("url", help=f"the PR, as {PR_FORMS}")
     verb.set_defaults(run=pr_check)

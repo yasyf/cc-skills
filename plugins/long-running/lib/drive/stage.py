@@ -86,8 +86,6 @@ def alone(data: dict, key: str, cards: dict) -> Stage:
         if mine := asked(data, key, [pr["job"]], cards):
             return Stage("blocked", HIM, f"its builder {pr['job']} waits on {', '.join(fix_words(data, wait, cards) for wait in mine)}")
         return Stage("unlanded", ORDER, ended)
-    if stops := stopped(pr):
-        return Stage("held", HIM, stops)
     if step := owed(data, key):
         if waits := answered(data, key, step):
             return blocked(data, key, step, waits, cards)
@@ -240,7 +238,7 @@ def flake_red(data: dict, key: str, failing: str, cards: dict | None) -> Stage |
 
 
 def stopped(pr: dict) -> str:
-    """What stops the PR whatever its checks read: his Hold, on which his card offers no Approve, or the hold label on GitHub, on which it still does, so a red PR under either wakes no builder."""
+    """What of his stops the PR landing: his Hold, on which his card offers no Approve, or the hold label on GitHub, on which it still does; neither stops its builder, so a red or conflicted PR under either reads red, rework, blocked or behind and the watch wakes its builder to keep it rebased and green until he lifts it."""
     if (pr["tap"] or {}).get("label") == "Hold":
         return f"held by his Hold of {pr['tap']['at']}"
     if pr["hold_label"]:
@@ -249,7 +247,7 @@ def stopped(pr: dict) -> str:
 
 
 def held(data: dict, pr: dict) -> str:
-    """What of his holds the PR: what stops it, or a question card of his open on the work of the job its row names whose `Holds:` line holds it, or that the PR's `DESIGN:` line cites, by land.pr_cards; a red PR one of his cards holds reads red, so its builder keeps it green while he decides."""
+    """What of his holds the PR from landing, which the lander, drive pr land, the landing_guard hook and his card read: what stops it, or a question card of his open on the work of the job its row names whose `Holds:` line holds it, or that the PR's `DESIGN:` line cites, by land.pr_cards; a red PR any of them holds reads red, so its builder keeps it green while he decides."""
     if stops := stopped(pr):
         return stops
     if asking := land.pr_cards(data, pr):
@@ -258,11 +256,11 @@ def held(data: dict, pr: dict) -> str:
 
 
 def holds_now(data: dict, job_id: str) -> str:
-    """The block that ends every handoff, resume brief and resume text a job's worker gets: the drive's one read, as that worker starts or hears it, of each wait of the job still holding by view.holding, the cards its own open questions are drawn on among them, each card of his by its question and link, and what of his holds each of its open PRs by held(), so no worker takes an older line, report or message for what holds them now."""
+    """The block that ends every handoff, resume brief and resume text a job's worker gets: the drive's one read, as that worker starts or hears it, of each wait of the job still holding by view.holding, the cards its own open questions are drawn on among them, each card of his by its question and link, and what of his holds each of its open PRs from landing by held(), which its worker still keeps rebased and green, so no worker takes an older line, report or message for what holds them now."""
     job = data["jobs"][job_id]
     waits = view.holding(data, view.stored_waits(data, [*job["waits"], *view.open_cards(job)]), None)
     lines = [f"- It waits on {waited_on(data, wait)}." for wait in waits if wait != state.SLOT_WAIT]
-    lines += [f"- {pr['url']}: {held(data, pr) or 'nothing of his holds it'}." for pr in data["prs"].values() if pr["url"] in job["prs"] and pr["state"] == "open"]
+    lines += [f"- {pr['url']}: {f'{holds}, which holds only its landing, so keep it rebased and green' if (holds := held(data, pr)) else 'nothing of his holds it'}." for pr in data["prs"].values() if pr["url"] in job["prs"] and pr["state"] == "open"]
     return f"{state.HOLDS_NOW}\n\nWhat holds this job and its PRs as the drive reads it now, over any line, report or message above:\n" + ("\n".join(lines) or "- Nothing: it waits on nothing and has no open PR.") + "\n"
 
 

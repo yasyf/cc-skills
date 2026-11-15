@@ -4246,7 +4246,7 @@ def test_a_yasyf_pr_its_builder_registers_below_the_one_its_taken_ready_names_sh
     [
         (lambda reads, data: reads.update({KEY: read(checks=RED, reviewDecision="CHANGES_REQUESTED")}), "red", [1, 2]),
         (lambda reads, data: data["jobs"]["j1"].update(state="done"), "red", [1, 2]),
-        (lambda reads, data: data["prs"][KEY].update(tap={"label": "Hold", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "pressed"}), "held", [1, 1]),
+        (lambda reads, data: data["prs"][KEY].update(tap={"label": "Hold", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "pressed"}), "red", [1, 2]),
         (lambda reads, data: reads.update({KEY: read(checks=GREEN, reviewDecision="APPROVED")}), "author", [1, 2]),
         (lambda reads, data: reads.update({KEY: read(checks=GREEN, reviewDecision="APPROVED", permission="READ")}), "upstream", [1, 1]),
     ],
@@ -5245,7 +5245,7 @@ def test_a_not_ready_on_a_pr_he_approved_is_drawn_on_his_card_and_wakes_no_build
     assert (woken, state.against(state.load(demo)["prs"][KEY])) == ([], 'o1 "ship the watch": watch.py stops the watch')
 
 
-def test_a_not_ready_on_a_stack_wakes_each_job_it_faults_once_a_head_and_none_while_his_hold_is_on_any_pr_of_the_stack(demo: str, woken: list[tuple[str, str]]) -> None:
+def test_a_not_ready_on_a_stack_wakes_each_job_it_faults_once_a_head_under_his_hold_and_none_while_his_approve_is_on_any_pr_of_the_stack(demo: str, woken: list[tuple[str, str]]) -> None:
     refused = f"{served.NOT_READY}: {OTHER}, {THIRD} go against his words"
     with state.edit(demo) as data:
         data["orders"]["o1"]["jobs"] = ["j1", "j2"]
@@ -5255,12 +5255,12 @@ def test_a_not_ready_on_a_stack_wakes_each_job_it_faults_once_a_head_and_none_wh
                 "head": "aaaaaaa111", "branch": branch, "base": base, "under": under, "wants_tap": True,
                 "checker": {"head": "aaaaaaa111", "pid": 1, "at": state.stamp(T0), "orders": ["o1"], "answers": [], "outcome": refused, "against": "o1 \"ship the watch\": it stops", "faulted": [OTHER, THIRD]},
             }
-        data["prs"][KEY]["tap"] = state.new_tap("Hold", "aaaaaaa111", "pressed the button", "1.2")
+        data["prs"][KEY]["tap"] = state.new_tap("Approve", "aaaaaaa111", "pressed the button", "1.2")
     watching = watcher(demo)
     watch.objections(watching)
     assert (woken, [state.load(demo)["prs"][key]["objected"] for key in (KEY, OTHER, THIRD)]) == ([], [None] * 3)
     with state.edit(demo) as data:
-        data["prs"][KEY]["tap"] = None
+        data["prs"][KEY]["tap"] = state.new_tap("Hold", "aaaaaaa111", "pressed the button", "1.2")
     watch.objections(watching)
     watch.objections(watching)
     assert (woken, [state.load(demo)["prs"][key]["objected"] for key in (KEY, OTHER, THIRD)]) == ([(OTHER, f"PR {OTHER}: {refused} [o1 j2]")], [None, "aaaaaaa111", "aaaaaaa111"])
@@ -5758,21 +5758,30 @@ def test_a_held_green_approved_pr_is_never_said_to_have_no_card(demo: str, monke
     assert watch.run_pass(watching, T0 + timedelta(minutes=300)) == []
 
 
-def test_a_held_red_pr_wakes_no_builder_while_his_hold_stands_and_its_builder_at_once_when_the_hold_lifts(
-    demo: str, monkeypatch: pytest.MonkeyPatch, woken: list[tuple[str, str]]
+@pytest.mark.parametrize(
+    ("tap", "labels", "says"),
+    [
+        ({"label": "Hold", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "pressed the button"}, [], "Held by you"),
+        ({"label": "Approve", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "slack", "picks": {}}, [github.HOLD_LABEL], "Approved by you. Held by the hold label on GitHub"),
+    ],
+    ids=["his hold", "the hold label on a pr he approved"],
+)
+def test_a_red_pr_his_hold_or_the_hold_label_holds_reads_red_and_wakes_its_builder_every_thirty_minutes_while_no_lander_starts_and_his_card_says_held(
+    demo: str, monkeypatch: pytest.MonkeyPatch, woken: list[tuple[str, str]], landers: list[tuple[str, ...]], tap: dict | None, labels: list[str], says: str
 ) -> None:
-    hold(demo)
     waiting_job(demo)
-    serve(monkeypatch, {KEY: read(checks=RED)})
+    with state.edit(demo) as data:
+        data["prs"][KEY] |= {"wants_tap": True, "tap": tap}
+    serve(monkeypatch, {KEY: read(checks=RED, labels=labels)})
+    monkeypatch.setattr(watch.view, "cards", lambda drive: NO_CARDS | {"pr_cards": [pr_card(KEY)]})
     watching = watcher(demo)
     watch.run_pass(watching, T0)
-    assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == []
-    assert (state.load(demo)["prs"][KEY]["stage"]["name"], woken) == ("held", [])
-    with state.edit(demo) as data:
-        data["prs"][KEY]["tap"] = None
-    monkeypatch.setattr(watch.view, "cards", lambda drive: NO_CARDS | {"pr_cards": [pr_card(KEY)]})
-    watch.run_pass(watching, T0 + timedelta(minutes=31))
-    assert (state.load(demo)["prs"][KEY]["stage"]["name"], [key for key, _ in woken]) == ("red", [KEY])
+    watch.run_pass(watching, T0 + timedelta(minutes=30))
+    data = state.load(demo)
+    kept = data["prs"][KEY]["stage"]
+    assert (kept["name"], kept["owner"], [key for key, _ in woken], landers) == ("red", stage.BUILDER, [KEY, KEY], [])
+    assert land.held(data, [KEY]) == f"{KEY}: {stage.stopped(data['prs'][KEY])}"
+    assert his_card_row(demo, KEY)["blocks"] == f"{says}. CI failed; the agent is fixing it"
 
 
 def test_a_red_pr_his_card_holds_wakes_its_builder_at_once_and_every_thirty_minutes_while_his_card_stays_up(
@@ -9943,10 +9952,16 @@ def test_watchdog_agents_count_those_still_searching_and_those_started_within_th
     [
         (lambda data: None, False, [KEY, "j1"]),
         (lambda data: None, True, []),
-        (lambda data: data["prs"][KEY].update(hold_label=True), False, ["j1"]),
+        (lambda data: data["prs"][KEY].update(hold_label=True), False, [KEY, "j1"]),
+        (lambda data: data["prs"][KEY].update(tap={"label": "Hold", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "pressed"}), False, [KEY, "j1"]),
         (lambda data: data["prs"][KEY].update(stage=ON_HIS_APPROVE), False, ["j1"]),
         (lambda data: data["jobs"]["j1"].update(waits=[OTHER]) or data["prs"][OTHER].update(stage=ON_HIS_APPROVE), False, []),
-        (lambda data: data["jobs"]["j1"].update(waits=[OTHER]) or data["prs"][OTHER].update(tap={"label": "Hold", "at": state.stamp(T0), "head": "bbbbbbb222", "source": "pressed"}), False, []),
+        (
+            lambda data: data["jobs"]["j1"].update(waits=[OTHER])
+            or data["prs"][OTHER].update(tap={"label": "Hold", "at": state.stamp(T0), "head": "bbbbbbb222", "source": "pressed"}, stage={"name": "held", "owner": stage.HIM, "why": f"held by his Hold of {state.stamp(T0)}", "since": state.stamp(T0), "woke": None}),
+            False,
+            [],
+        ),
         (lambda data: data["jobs"]["j1"].update(waits=[CARD]), False, []),
         (lambda data: data["jobs"]["j1"]["questions"].append(state.new_question(None, "Which store?", state.stamp(T0), card=CARD) | {"waits": "demo:j1-1"}), False, []),
         (
@@ -9959,7 +9974,7 @@ def test_watchdog_agents_count_those_still_searching_and_those_started_within_th
         (lambda data: data["orders"]["o1"].update(due=state.stamp(T0 + timedelta(hours=2))), False, []),
         (lambda data: data["jobs"].update(j2=job()) or data["jobs"]["j1"].update(waits=["j2"]), False, []),
     ],
-    ids=["unstopped", "his hold on every release", "hold label", "his card", "a pr he owes", "a pr he holds", "his question card", "his question card no wait names", "his question card holding the pr", "due ahead", "running job"],
+    ids=["unstopped", "his hold on every release", "red under the hold label", "red under his hold", "his card", "a pr he owes", "a green pr he holds", "his question card", "his question card no wait names", "his question card holding the pr", "due ahead", "running job"],
 )
 def test_no_chain_is_aged_past_a_step_of_his_a_time_to_come_or_a_running_job(demo: str, stops: Callable[[dict], None], on_hold: bool, subjects: list[str]) -> None:
     with state.edit(demo) as data:

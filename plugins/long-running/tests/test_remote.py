@@ -3793,7 +3793,7 @@ def test_a_live_send_ends_on_what_holds_now_and_its_retry_sends_the_block_its_fi
         data["prs"][state.pr_key(pr)]["hold_label"] = False
     monkeypatch.setattr(orca, "call", lambda *args: sent.append(args) or {})
     assert run("job", "resume", "j1") == (0, f"j1: {queued(DISPATCH)}")
-    held = f"PR checks failed\n\n{state.HOLDS_NOW}\n\nWhat holds this job and its PRs as the drive reads it now, over any line, report or message above:\n- {pr}: held by the hold label on GitHub.\n"
+    held = f"PR checks failed\n\n{state.HOLDS_NOW}\n\nWhat holds this job and its PRs as the drive reads it now, over any line, report or message above:\n- {pr}: held by the hold label on GitHub, which holds only its landing, so keep it rebased and green.\n"
     assert [args[8] for args in sent if args[0] == "send"] == [held, held]
 
 
@@ -3866,7 +3866,7 @@ def test_a_death_relaunch_carries_the_texts_its_dead_worker_was_started_on_and_e
     assert run("job", "resume", "j1", watch.CARRY_ON)[0] == 0
     holds = (
         f"{state.HOLDS_NOW}\n\nWhat holds this job and its PRs as the drive reads it now, over any line, report or message above:\n"
-        f'- It waits on his question card "May a builder touch a held PR?", {card}.\n- {pr}: held by the hold label on GitHub.'
+        f'- It waits on his question card "May a builder touch a held PR?", {card}.\n- {pr}: held by the hold label on GitHub, which holds only its landing, so keep it rebased and green.'
     )
     assert launched[1].endswith(f"{orca.UNFINISHED}\n\n{started_on}\n\nThe messages it never read, which you act on now:\n\n{watch.CARRY_ON}\n\n{holds}")
 

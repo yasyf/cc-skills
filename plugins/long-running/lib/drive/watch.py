@@ -922,7 +922,7 @@ def checks(watcher: Watcher, moment: datetime) -> None:
 
 
 def objections(watcher: Watcher) -> None:
-    """Send through drive pr wake each NOT READY the check against his words keeps at a head of a PR the watch hears and faults, once a head and once to each job the PRs it faults belong to, while nothing of his holds any PR of its stack, by his_hold, so the finding wakes only a builder that owes a step now and waits on his hold or question until it lifts; the head told is kept as the PR's objected, outside its checker, so a check run again at that head, or a newer install dropping its checker, tells it no second time."""
+    """Send through drive pr wake each NOT READY the check against his words keeps at a head of a PR the watch hears and faults, once a head and once to each job the PRs it faults belong to, while neither his Approve nor an open card of his holds any PR of its stack, by his_hold, so the finding wakes only a builder that owes a step now and waits on his Approve or question, never on his Hold or the hold label, which stop only its landing; the head told is kept as the PR's objected, outside its checker, so a check run again at that head, or a newer install dropping its checker, tells it no second time."""
     told: dict[tuple[str, str], tuple[str, str]] = {}
     with state.edit(watcher.name) as data:
         stacks = land.landing_stacks(data)
@@ -939,8 +939,8 @@ def objections(watcher: Watcher) -> None:
 
 
 def his_hold(data: dict, pr: dict) -> bool:
-    """Whether his Approve, his Hold, the hold label or an open card of his holds the PR, a card on an open incident's work included, by state.part_cards, since his answer to it can change what its builder does."""
-    return land.approved(pr) or bool(stage.stopped(pr)) or bool(state.part_cards(data, pr["job"], pr))
+    """Whether his Approve or an open card of his holds the PR, a card on an open incident's work included, by state.part_cards, since his answer to it can change what its builder does; his Hold and the hold label stop only its landing, so a builder still hears an objection under either."""
+    return land.approved(pr) or bool(state.part_cards(data, pr["job"], pr))
 
 
 def check_owed(name: str, key: str, pr: dict, data: dict, unit: tuple[str, ...], moment: datetime) -> bool:

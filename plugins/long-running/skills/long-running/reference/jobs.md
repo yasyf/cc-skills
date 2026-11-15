@@ -448,8 +448,9 @@ before it sends or starts.
   leaves its next one the texts it was started on.
 - Every handoff, resumed session's brief and message to a live worker ends with one `## Holds now`
   block, the drive's read as it sends it. It names each wait of the job still holding, each card of
-  his by its question and link, and what of his holds each of the job's open PRs: his Hold, the hold
-  label or his open cards on its work. A worker reads it over any older line, report or message.
+  his by its question and link, and what of his holds each of the job's open PRs from landing: his
+  Hold, the hold label or his open cards on its work, none of which stops its worker keeping it
+  rebased and green. A worker reads it over any older line, report or message.
 - A dead lane whose Sprite answers with the Claude session its worker ran there, found by the
   dispatch id in that session's transcript, as after the Sprite's VM restarts, is resumed instead,
   unless that Sprite faulted, as below:
