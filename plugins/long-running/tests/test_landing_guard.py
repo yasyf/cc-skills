@@ -233,7 +233,7 @@ def test_a_sprite_lanes_release_verb_asks_the_coordinators_mac_whether_his_hold_
     assert len(sprite) == 2
 
 
-def test_a_release_resume_waits_for_his_next_word_once_he_last_wrote_15_minutes_ago_while_a_rollback_and_an_incidents_harmless_hotfix_run(
+def test_a_release_resume_waits_for_his_next_word_once_he_last_wrote_15_minutes_ago_while_a_rollback_an_incidents_harmless_hotfix_and_a_staging_or_sandbox_start_run(
     run: Run, demo: str, sprite: list[list[str]], recorded: Answers, no_calls: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "release the fix")
@@ -252,6 +252,16 @@ def test_a_release_resume_waits_for_his_next_word_once_he_last_wrote_15_minutes_
     assert brief.away_refusal("approve", hotfix, data, state.now()) == refused
     assert brief.away_refusal("start", hotfix.replace("56101", "56102"), data, state.now()) == refused
     assert brief.away_refusal("start", "tools/ci release start sandsql --order 8b2e4f7", data, state.now()) == refused
+    envs = Path(data["roles"]["coordinator"]["cwd"]) / "infra" / "envs"
+    envs.mkdir(parents=True, exist_ok=True)
+    for place, marked in (("plat-usw2-sandbox", "sandbox"), ("plat-usw2-staging", "staging"), ("plat-usw2-prod", "prod\nprod: true")):
+        (envs / f"{place}.yaml").write_text(f"id: {place}\nstage: {marked}\n")
+    sandbox = "tools/ci release start --stack sandsql/plat-usw2-sandbox --commit 3ebaa825dbd7 --manual --order 8b2e4f7"
+    staging = "tools/ci release start runtime-api-next cloudrunner-next dashboard sandsql --env plat-usw2-staging --order 8b2e4f7"
+    assert [brief.away_refusal(verb, release, data, state.now()) for verb in ("start", "approve") for release in (sandbox, staging)] == [None] * 4
+    for production in ("plat-usw2-prod", "plat-usw2-staging,plat-usw2-prod", "plat-usw2-staging,tnt-usw2-acme"):
+        assert brief.away_refusal("start", staging.replace("plat-usw2-staging", production), data, state.now()) == refused
+    assert brief.away_refusal("start", sandbox.replace("plat-usw2-sandbox", "plat-usw2-prod"), data, state.now()) == refused
     with state.edit(demo) as data:
         data["owner"]["heard"] = state.stamp(state.now() - timedelta(minutes=5))
     assert landing_guard.deny_reason(bash(RESUME, session_id="sprite")) is None

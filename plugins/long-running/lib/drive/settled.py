@@ -885,6 +885,11 @@ def staging_only(release: dict, cwd: str) -> bool:
     return bool(places := release_places(release)) and all(stage(place, cwd) == STAGING for place in places)
 
 
+def off_production(release: dict, cwd: str) -> bool:
+    """Whether a release runs on no production place, by go/ci's Model.Prod: it names places, by release_places(), and each one's infra/envs file gives it a stage and no `prod: true`, as staging, sandbox and dev are marked."""
+    return bool(places := release_places(release)) and all(stage(place, cwd) and not prod(place, cwd) for place in places)
+
+
 def runs_on(release: dict, cwd: str) -> str:
     """Where a release runs, as go/ci's release wizard says it: each place it names, by release_places(), beside the stage its infra/envs file gives it, else production, every environment except staging, and each place its --without leaves out."""
     places = ", ".join(f"{place} (stage {found})" if (found := stage(place, cwd)) else place for place in release_places(release)) or PRODUCTION
