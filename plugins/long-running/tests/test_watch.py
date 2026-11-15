@@ -960,7 +960,7 @@ def test_partial_event_line_waits_for_its_newline(demo: str, monkeypatch: pytest
 
 
 def said_due(watching: watch.Watcher, moment: datetime) -> list[str]:
-    return [line for line in watch.run_pass(watching, moment) if line.startswith("DUE")]
+    return [line for line in watch.relay_pass(watching, moment) if line.startswith("DUE")]
 
 
 def due_owed(monkeypatch: pytest.MonkeyPatch) -> list[dict | str]:
@@ -1290,8 +1290,24 @@ def test_moved_due_fires_again(demo: str, monkeypatch: pytest.MonkeyPatch) -> No
         data["orders"]["o1"]["due"] = state.stamp(T0 + timedelta(minutes=20))
         data["orders"]["o1"]["due_said"] = state.stamp(T0 - timedelta(minutes=5))
     watching = watcher(demo)
-    assert watch.run_pass(watching, T0) == []
-    assert watch.run_pass(watching, T0 + timedelta(minutes=21))[0].startswith("DUE o1")
+    assert said_due(watching, T0) == []
+    assert said_due(watching, T0 + timedelta(minutes=21))[0].startswith("DUE o1")
+
+
+def test_the_relay_starts_the_handler_on_a_promised_line_within_two_seconds_of_its_time_while_a_pass_that_began_before_it_still_runs(
+    demo: str, monkeypatch: pytest.MonkeyPatch, slack_thread: "Thread"
+) -> None:
+    serve(monkeypatch, {})
+    said = due_owed(monkeypatch)
+    due = state.stamp(T0)
+    with state.edit(demo) as data:
+        data["orders"]["o1"].update(thread=["D123", "1794200000.000100"], due=due, promised=state.stamp(T0 - timedelta(minutes=60)))
+    relaying = watcher(demo)
+    mid_pass(monkeypatch, lambda: watch.relay_pass(relaying, T0 + timedelta(seconds=watch.RELAY_SECONDS)))
+    assert watch.run_pass(watcher(demo), T0 - timedelta(minutes=1)) == []
+    [report, brief] = said
+    assert report["text"] == f"POST order o1 owes him the line it promised by {render.when(due)}: post where it stands now in its thread"
+    assert brief == f"Record: 901 Drive: {demo} Scratch: {state.drive_dir(demo) / 'scratch' / 'due-901'}"
 
 
 def shown_pr(demo: str, key: str) -> str:
@@ -2804,9 +2820,9 @@ def test_due_names_every_part_nothing_carries(demo: str, monkeypatch: pytest.Mon
         files_order(data, due=state.stamp(T0 + timedelta(minutes=10)))
     watching = watcher(demo)
     assert watch.run_pass(watching, T0) == []
-    lines = watch.run_pass(watching, T0 + timedelta(minutes=11))
-    assert lines[0].startswith('DUE o2 "build the files design"')
-    assert lines[1:] == ['ORPHAN o2 "stack 2": no job']
+    [due] = said_due(watching, T0 + timedelta(minutes=11))
+    assert due.startswith('DUE o2 "build the files design"')
+    assert watch.run_pass(watching, T0 + timedelta(minutes=11)) == ['ORPHAN o2 "stack 2": no job']
 
 
 def test_a_part_another_orders_builder_carries_is_delivered_by_that_builders_done(
