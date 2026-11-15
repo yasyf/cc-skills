@@ -19,6 +19,7 @@ UNREOPENED = (
     "his Undo on {card} reopens nothing: no question drawn on that card ended answered on his tap there or his words at or"
     " under it, so no answer of his stands there to take back; nothing recorded"
 )
+WORDS = "Words"
 TITLE_CHARS = 140
 FIELD_CHARS = 400
 CAPTION_CHARS = 160
@@ -785,19 +786,23 @@ def refused(asks: list[dict]) -> dict:
 
 
 def answered(ask: dict) -> dict:
-    """Keep his tap on a PR card on each open PR it covers, one tap event each, his Approve with the cards it picks the recommended option of, each card picks() finds holding the PR, and on his Approve run land.start, the one path that answers each of those cards and starts the lander, which every watch pass runs again; a card's tap covers the PRs its waits id asks, by ask_waits, and an answer whose waits id names no ask the PR it names; on a card of several PRs a member already holding a tap keeps it, so his words approving or holding one PR keep it through a later tap on the card, and cc-slack applies a tap again when its first card command did not finish, so a member already holding this tap's Slack action keeps it and gets no second event."""
+    """Keep his tap on a PR card on each open PR it covers, one tap event each, his Approve with the cards it picks the recommended option of, each card picks() finds holding the PR, and on his Approve run land.start, the one path that answers each of those cards and starts the lander, which every watch pass runs again, or on his Hold stop each landing of them by land.halt; a card's tap covers the PRs its waits id asks, by ask_waits, and an answer whose waits id names no ask the PR it names; on a card of several PRs a member already holding a tap keeps it, so his words approving or holding one PR keep it through a later tap on the card, and cc-slack applies a tap again when its first card command did not finish, so a member already holding this tap's Slack action keeps it and gets no second event. His reply in the card's thread comes as WORDS, which taken_back() answers."""
+    from drive import land, view
+
     if "repo" not in ask:
         return question_answered(ask)
     known = drive_prs()
     key = keys_of([ask], known)[0]
     if key not in known:
         raise state.DriveError(f"{key} is not a drive PR")
-    if ask["label"] not in TAP_LABELS:
-        raise state.DriveError(f"a PR card answers Approve or Hold, not {ask['label']!r}")
+    if ask["label"] not in (*TAP_LABELS, WORDS):
+        raise state.DriveError(f"a PR card answers Approve, Hold or {WORDS}, not {ask['label']!r}")
     name = known[key][0]
     hear_tap(name)
     asked = state.ASK_WAITS.fullmatch(ask["waits"])
     members = keys_of([{"repo": ask["repo"], "number": number} for number in asked[1].split(".")], known) if asked else [key]
+    if ask["label"] == WORDS:
+        return {"ok": True, "taken": taken_back(name, members, ask)}
     with state.edit(name) as data:
         for member in members:
             entry = data["prs"][member]
@@ -820,10 +825,27 @@ def answered(ask: dict) -> dict:
                 lane=state.heard_lane(data, entry["order"]),
             )
     if ask["label"] == "Approve":
-        from drive import land, view
-
         land.start(name, members, view.live_cards(name))
+    else:
+        land.halt(name, members, view.live_cards(name))
     return {"ok": True}
+
+
+def taken_back(name: str, members: list[str], ask: dict) -> list[str]:
+    """Take back his Approve on each open PR of a card his reply in its thread reaches that he approved before writing it, one tap event each, and stop each landing of them by land.halt, which takes a PR Trunk's merge queue holds out of it, since any reply of his under a PR card holds it until he approves it again; the PRs whose Approve came off, for cc-slack to draw Approve on the card again."""
+    from drive import land, view
+
+    written = float(ask["action_ts"])
+    with state.edit(name) as data:
+        taken = [member for member in members if (entry := data["prs"][member])["state"] == "open" and land.approved(entry) and state.parse_time(entry["tap"]["at"]).timestamp() < written]
+        for member in taken:
+            entry = data["prs"][member]
+            entry["tap"] = None
+            entry["updated"] = state.stamp()
+            repo, number = member.split("#")
+            state.append_event(name, "tap", repo=repo, number=int(number), label=WORDS, head=entry["head"], source=ask["source"], action_ts=ask["action_ts"], lane=state.heard_lane(data, entry["order"]))
+    land.halt(name, members, view.live_cards(name))
+    return taken
 
 
 def question_answered(ask: dict) -> dict:
