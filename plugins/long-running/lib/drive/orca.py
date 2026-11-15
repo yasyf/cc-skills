@@ -5,6 +5,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import signal
 import subprocess
 import tarfile
@@ -52,6 +53,7 @@ REPRO_FILE = re.compile(r"repro/(j\d+)(?:\.\w+)?")
 CARRIED = "reports|asks|repro|scratch|jobs"
 PATH_CHARS = r"[^\s`'\"<>()\[\]{}*,;|]+"
 PATH_END = re.compile(r"[^\w/]+$")
+LOCAL_PATH = re.compile(rf"(?<![\w./~-])~?/{PATH_CHARS}")
 DRIVE = PLUGIN / "bin" / "drive"
 SPRITE_DRIVE = PLUGIN / "lib" / "sprite" / "drive"
 SPRITE_TOOLS = f"drive={SPRITE_DRIVE}"
@@ -386,7 +388,7 @@ def place(job: dict) -> str:
 
 
 def vm_brief(drive: str, job_id: str, kind: str, brief: str, route: str | None) -> str:
-    """What a job started as an Orca worker reads, on a Sprite with no copy of this plugin or on this Mac: the role state.JOB_AGENTS starts its kind as, by role_body, its brief, on a Sprite each of its Transcripts: a READ cannot serve named by sprite_transcripts."""
+    """What a job started as an Orca worker reads, on a Sprite with no copy of this plugin or on this Mac: the role state.JOB_AGENTS starts its kind as, by role_body, its brief, on a Sprite each of its Transcripts: a READ cannot serve named by sprite_transcripts and each other file of this Mac it names that no READ serves copied in by sprite_files."""
     on_mac = route == state.LOCAL_ROUTE
     running = (
         'on this Mac, so it reports through Orca as its "On a Sprite" section says; the rest of that section is for a Sprite'
@@ -399,8 +401,24 @@ def vm_brief(drive: str, job_id: str, kind: str, brief: str, route: str | None) 
         f"Remote lane: drive {drive}, job {job_id}. You are the long-running {role} below, running as an Orca "
         f"worker {running}.{borrowed}\n\n"
         f"{role_body(role)}\n"
-        f"{BRIEF_HEADING}{(brief if on_mac else sprite_transcripts(drive, brief)).strip()}\n"
+        f"{BRIEF_HEADING}{(brief if on_mac else sprite_files(drive, job_id, sprite_transcripts(drive, brief))).strip()}\n"
     )
+
+
+def sprite_files(drive: str, job_id: str, brief: str) -> str:
+    """The brief with each file of this Mac it names by an absolute or `~` path that no READ serves, such as a handoff the meta session kept under ~/.vcache, copied into the job's scratch folder and named there, so its lane reads it rather than stopping to ask for it; a path naming no file here stays as written."""
+    scratch = Path("scratch") / job_id
+
+    def copied(found: re.Match) -> str:
+        named = PATH_END.sub("", found[0])
+        file = Path(named).expanduser()
+        if not file.is_file() or any(text is not None for text in drive_files(drive, named).values()):
+            return found[0]
+        (state.drive_dir(drive) / scratch).mkdir(parents=True, exist_ok=True)
+        shutil.copy(file, state.drive_dir(drive) / scratch / file.name)
+        return f"{scratch / file.name}{found[0][len(named) :]}"
+
+    return LOCAL_PATH.sub(copied, brief)
 
 
 def sprite_transcripts(drive: str, brief: str) -> str:
