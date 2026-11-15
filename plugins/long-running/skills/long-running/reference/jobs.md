@@ -364,6 +364,11 @@ own lock: a second one waits for the first, about 150 s, then acts on the worker
 resume that arrives while a worker starts reaches that worker as a message. Each checks the worker
 before it sends or starts.
 
+- A worker that starts on this Mac, by a relaunch, a takeover or a move from a Sprite, starts in
+  the worktree that holds the branch of the job's newest open PR, as `git worktree list` of the
+  drive's repository shows it, the main checkout aside, since git checks a branch out in one
+  worktree at a time; its handoff names that worktree, the branch, its HEAD there and the PR's head
+  the drive last read. A fresh worktree is cut only when no worktree holds that branch.
 - A launch of a job whose lane's worker ended starts its next worker as a resume does, with no
   message; one whose worker takes messages is refused, naming the resume that sends it one. With
   `--local`, or a step only this Mac runs that its brief, last report or held texts declare, a job

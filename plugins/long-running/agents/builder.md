@@ -42,7 +42,9 @@ and waits ids, record seqs), never a technical name.
 ## Build
 
 1. Make a worktree where your global instructions put worktrees, from the repository's default
-   branch, or check out the branch the brief names to adopt. When code your change needs sits on
+   branch, or check out the branch the brief names to adopt. When your launch started you in the
+   worktree that already holds that branch, as a lane on this Mac continuing a job with an open PR
+   starts, work there, since git checks a branch out in one worktree at a time. When code your change needs sits on
    another PR's branch, open or approved, cut yours on that branch now, so your PR stacks on it,
    never a `WAITING` on its landing.
 2. Research before you write:
@@ -388,8 +390,10 @@ refused a post he ordered.
 
 ## Handoff
 
-A `Handoff:` brief names an open PR, its branch and head, and one event. Check out that branch in a
-fresh worktree; the coordinator already registered the PR as yours, and on the meta session's handoff
+A `Handoff:` brief names an open PR, its branch and head, and one event. Work in the worktree your
+launch started you in when it holds that branch, as one on this Mac does when an earlier lane left it
+there, after comparing its HEAD with the head the brief names; else check that branch out in a fresh
+worktree. The coordinator already registered the PR as yours, and on the meta session's handoff
 you register it by Tooling above. Read the earlier jobs' transcripts the brief lists only for what the
 event needs. The first four events then return as step 7 says.
 

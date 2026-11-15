@@ -58,6 +58,7 @@ CALL_SECONDS = 60
 ON_MAC = "on this Mac"
 PUSH_FIRST = "Commit and push before any long build."
 UNPUSHED = f"work it had not committed and pushed is not carried over. {PUSH_FIRST}"
+CONTINUED = "You continue the job in the checkout that holds its PR branch, as it stands, uncommitted edits included."
 RELOAD = "/reload-plugins"
 EXIT = "/exit"
 MAIL = "You have orchestration messages: read them with `orca orchestration check`, then continue."
@@ -129,6 +130,13 @@ class LaneEnd(NamedTuple):
     unreached: bool = False
     live: bool = False
     ended: bool = False
+
+
+class Holder(NamedTuple):
+    path: Path
+    branch: str
+    head: str
+    pr_head: str
 
 
 def request(*args: str, seconds: float = CALL_SECONDS) -> dict:
@@ -415,23 +423,26 @@ def brief_of(vm_brief: str) -> str:
     return vm_brief.rsplit(BRIEF_HEADING, 1)[-1].strip()
 
 
-def handoff(brief: str, ended: dict, saved: list[str], job: dict, report: str, text: str | None, end: LaneEnd, since: str | None, here: bool = False, unsaved: str | None = None) -> str:
-    """The brief of a lane taking over from one that died, finished or a `drive job end` ended: the job's brief, then what that lane left, its report as the job's history keeps it, with the cause line read off its Sprite when it died there, why the new lane continues on its Sprite when it does, each branch GitHub holds of what that lane's saves pushed, or, when it holds none, what the save its death records found, and the message it never read, when a resume brought one. Here, a move of a job on a Sprite to this Mac, takes it over in a fresh worktree on this Mac however its lane ended. Unsaved, why a save of what that lane's Sprite held failed, names that Sprite kept and the saves of the job's earlier lanes it starts from."""
+def handoff(brief: str, ended: dict, saved: list[str], job: dict, report: str, text: str | None, end: LaneEnd, since: str | None, here: bool = False, unsaved: str | None = None, holder: Holder | None = None) -> str:
+    """The brief of a lane taking over from one that died, finished or a `drive job end` ended: the job's brief, then what that lane left, its report as the job's history keeps it, with the cause line read off its Sprite when it died there, why the new lane continues on its Sprite when it does, each branch GitHub holds of what that lane's saves pushed, or, when it holds none, what the save its death records found, and the message it never read, when a resume brought one. Here, a move of a job on a Sprite to this Mac, takes it over in a fresh worktree on this Mac however its lane ended. Unsaved, why a save of what that lane's Sprite held failed, names that Sprite kept and the saves of the job's earlier lanes it starts from. Holder, the worktree on this Mac that pr_holder found holding the job's PR branch, is where a lane here continues in place of a fresh worktree, its branch the one the handoff names, by held_by."""
     local = here or state.on_mac(job)
     how = "finished" if end.worktree or end.live else "ended" if end.ended else "died"
+    mac = f"in the worktree that holds its PR branch {ON_MAC}" if holder else f"in a fresh worktree {ON_MAC}"
     if end.worktree and not here:
         where = f"You continue the job in its terminal and checkout {ON_MAC}, as it left them." if local else "You continue the job on the same Sprite, in the checkout it left as it was."
     elif since:
         where = f"You continue the job on the same Sprite, in the checkout it left as it was, since {since}. Read its git status and log before anything else."
+    elif holder and not here:
+        where = CONTINUED
     elif unsaved:
         where = (
-            f"You take the job over {'in a fresh worktree ' + ON_MAC if local else 'on a fresh Sprite'} from its pushed branches; what its Sprite held on no remote"
+            f"You take the job over {mac if local else 'on a fresh Sprite'} from its pushed branches; what its Sprite held on no remote"
             f" could not be saved ({unsaved}), so that Sprite is kept and none of that work reaches you. "
             + (f"The job's earlier lanes saved on GitHub {', '.join(saved)}: fetch each, compare it with its pushed branch, and carry on from the newer. {PUSH_FIRST}" if saved else PUSH_FIRST)
         )
     else:
         where = (
-            f"You take the job over {'in a fresh worktree ' + ON_MAC if local else 'on a fresh Sprite'} from its pushed branches; "
+            f"You take the job over {mac if local else 'on a fresh Sprite'} from its pushed branches; "
             + (
                 f"what it held on no remote was saved for you on GitHub as {', '.join(saved)}. Fetch each saved branch and carry its work on. {PUSH_FIRST}"
                 if saved
@@ -440,16 +451,37 @@ def handoff(brief: str, ended: dict, saved: list[str], job: dict, report: str, t
                 else UNPUSHED
             )
         )
+    if holder:
+        where = f"{where} {held_by(holder)}"
     held = f"The lane that held this job {how} {place(job)} at {render.when(ended['at'])}: {state.why_died(ended['why'], ended.get('cause'))}. {where}"
-    return taking_over(brief, f"a lane that {how}", held, end.branch, job, report, text and f"The messages it never read, which you act on now:\n\n{text.strip()}\n")
+    return taking_over(brief, f"a lane that {how}", held, holder.branch if holder else end.branch, job, report, text and f"The messages it never read, which you act on now:\n\n{text.strip()}\n")
 
 
-def agent_handoff(brief: str, job: dict, report: str, text: str | None, died: str | None) -> str:
-    """The brief of an agent or lane taking over a job from an Agent on this Mac that stopped, or from one of another session, which only that session's SendMessage reaches: the job's brief, then what that agent left and the message, when one came, that it never read."""
+def agent_handoff(brief: str, job: dict, report: str, text: str | None, died: str | None, holder: Holder | None = None) -> str:
+    """The brief of an agent or lane taking over a job from an Agent on this Mac that stopped, or from one of another session, which only that session's SendMessage reaches: the job's brief, then what that agent left and the message, when one came, that it never read; a lane on this Mac continues in the worktree pr_holder found holding the job's PR branch, when one does."""
     where = f"stopped, so it takes no message: {died}" if died else "runs where this session cannot message it"
-    held = f"The agent that held this job, {job['agent']} of session {job['session']}, {where}. You take the job over from its pushed branches; {UNPUSHED}"
-    holder = "an agent that stopped" if died else "an agent of another session"
-    return taking_over(brief, holder, held, None, job, report, text and f"The message it never read, which you act on now:\n\n{text.strip()}\n")
+    took = f"{CONTINUED} {held_by(holder)}" if holder else f"You take the job over from its pushed branches; {UNPUSHED}"
+    held = f"The agent that held this job, {job['agent']} of session {job['session']}, {where}. {took}"
+    taker = "an agent that stopped" if died else "an agent of another session"
+    return taking_over(brief, taker, held, holder.branch if holder else None, job, report, text and f"The message it never read, which you act on now:\n\n{text.strip()}\n")
+
+
+def held_by(holder: Holder) -> str:
+    """What a lane continuing in the worktree that holds the job's PR branch reads first: that worktree, the branch, its HEAD there and GitHub's head of the PR as the drive last read it."""
+    return (
+        f"The worktree {holder.path} {ON_MAC} holds the branch {holder.branch} of the job's PR, which git lets no other worktree check out, at {holder.head},"
+        f" and GitHub's head of that PR, as the drive last read it, is {holder.pr_head or 'not read yet'}: work there, and read its git status and log and compare the two heads before anything else."
+    )
+
+
+def pr_holder(data: dict, job: dict, clone: str) -> Holder | None:
+    """The worktree on this Mac, other than the main checkout of clone's repository, that holds the head branch of the job's newest open PR in that repository, by git's worktree list, where the job's next lane here continues, since git checks a branch out in one worktree at a time, so a fresh worktree could never take it; None when no worktree holds one."""
+    repo, main = github.checkout_repo(clone), main_checkout(clone)
+    for key in map(state.pr_key, reversed(job["prs"])):
+        pr = data["prs"][key]
+        if pr["state"] == "open" and pr["branch"] and key.startswith(f"{repo}#") and (path := holder(clone, pr["branch"])) and path != main:
+            return Holder(path, pr["branch"], github.run(["git", "-C", str(path), "rev-parse", "HEAD"]).strip(), pr["head"])
+    return None
 
 
 def taking_over(brief: str, holder: str, held: str, branch: str | None, job: dict, report: str, message: str | None) -> str:
@@ -508,7 +540,7 @@ def sprite_config(checkout: Path) -> str:
 
 
 def launch(drive: str, lane: str, brief: Path, checkout: Path, run: str, route: str | None, workspace: str | None, session: str | None) -> dict:
-    """Start one builder through the orca plugin's launcher, on a fresh Sprite or on the workspace's own Sprite in the checkout it holds, there resuming the Claude session given, either way giving its `~/.local/bin` the `drive` that asks each verb of this Mac, or, on the local route, in a fresh worktree of the checkout's Orca repository on this Mac, with `CCI_PARENT_SESSION` set, so cci binds the lane's session to no lane and its `cci post` as `root` or `builder` goes out as its brief says, and, under the launcher's `--strict-mcp-config`, the installed Datadog plugin's servers in a file beside the brief; its success line, with the Sprite's prepared server."""
+    """Start one builder through the orca plugin's launcher, on a fresh Sprite or on the workspace's own Sprite in the checkout it holds, there resuming the Claude session given, either way giving its `~/.local/bin` the `drive` that asks each verb of this Mac, or, on the local route, in the worktree on this Mac the workspace names, as it stands, else in a fresh worktree of the checkout's Orca repository, with `CCI_PARENT_SESSION` set, so cci binds the lane's session to no lane and its `cci post` as `root` or `builder` goes out as its brief says, and, under the launcher's `--strict-mcp-config`, the installed Datadog plugin's servers in a file beside the brief; its success line, with the Sprite's prepared server."""
     env = {**os.environ, "WORKER_RUN": run, "WORKER_ENV": LANE_ENV, "WORKER_BIND": f"{DRIVE} bound --drive {drive} {run} --"}
     if workspace:
         env["WORKER_WORKSPACE"] = workspace

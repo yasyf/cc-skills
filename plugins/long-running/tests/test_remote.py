@@ -2456,6 +2456,48 @@ def test_resume_to_a_finished_worker_on_this_mac_whose_terminal_orca_no_longer_f
     assert (job["dispatch"], job["route"], [death["dispatch"] for death in job["deaths"]]) == ("dispatch-2", state.LOCAL_ROUTE, [DISPATCH])
 
 
+def test_a_relaunch_on_this_mac_continues_in_the_worktree_holding_its_open_prs_branch_and_its_handoff_names_both_heads(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cloned(tmp_path, remote)
+    clone, held = tmp_path / "clone", tmp_path / "j1-head"
+    git_in(clone, "worktree", "add", "-q", "-b", "remote-j1/fix", str(held))
+    git_in(held, "commit", "-q", "--allow-empty", "-m", "on no remote")
+    head = git_in(held, "rev-parse", "HEAD")
+    url = f"https://github.com/{github.checkout_repo(str(clone))}/pull/7"
+    first = tmp_path / "first.md"
+    first.write_text(orca.vm_brief(remote, "j1", "Order (his words): prove it\nDrive: demo, order o1, job j1", state.LOCAL_ROUTE))
+    with state.edit(remote) as data:
+        data["prs"][state.pr_key(url)] = state.new_pr(url, "j1", "o1") | {"branch": "remote-j1/fix", "head": "9" * 40}
+        data["jobs"]["j1"].update(brief=str(first), route=state.LOCAL_ROUTE, terminal="term_lane", workspace=None, environment=None, prs=[url])
+    reply = {"ok": False, "error": {"code": "selector_not_found", "message": "No terminal matches term_lane."}}
+    monkeypatch.setattr(orca, "worker", lambda dispatch: FINISHED_WORKER)
+    monkeypatch.setattr(orca, "bound_command", lambda drive, run_id, argv: subprocess.CompletedProcess(argv, 1, stdout=json.dumps(reply), stderr=""))
+    monkeypatch.setattr(orca, "call", lambda *args: pytest.fail(f"nothing is sent to a finished worker: {args}"))
+    monkeypatch.setattr(orca, "new_run", lambda drive, objective: FRESH_RUN)
+    launched = {}
+
+    def fake_launch(drive: str, lane: str, brief: Path, checkout: Path, run_id: str, route: str | None, workspace: str | None, session: str | None) -> dict:
+        launched.update(brief=brief.read_text(), route=route, workspace=workspace)
+        return {field: f"{field}-2" for field in ("dispatch", "task", "terminal", "lane")} | {"workspace": None, "environment": None}
+
+    monkeypatch.setattr(orca, "launch", fake_launch)
+    assert run("job", "resume", "j1", "The review: one medium finding, fix it") == (
+        0,
+        f"j1: the message went to the job's next worker, relaunched in the worktree {held} on this Mac, which holds its PR branch remote-j1/fix,"
+        " as dispatch dispatch-2 in a handoff carrying its brief, its branch, its last line, its report and its PRs; its lane on this Mac was dead"
+        " (Orca no longer holds its worker's terminal or worktree), and it continues there as that worktree stands, uncommitted edits included",
+    )
+    assert (launched["route"], launched["workspace"]) == (state.LOCAL_ROUTE, str(held))
+    brief = orca.brief_of(launched["brief"])
+    assert (
+        f"{orca.CONTINUED} The worktree {held} on this Mac holds the branch remote-j1/fix of the job's PR, which git lets no other worktree check out,"
+        f" at {head}, and GitHub's head of that PR, as the drive last read it, is {'9' * 40}" in brief
+    )
+    assert "\nIts branch: remote-j1/fix\n" in brief
+    assert "not carried over" not in brief
+
+
 def test_a_finished_worker_whose_terminal_is_no_longer_connected_relaunches_the_job_whatever_its_liveness_reads(
     run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
