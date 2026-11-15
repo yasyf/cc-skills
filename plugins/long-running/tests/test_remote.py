@@ -3670,7 +3670,7 @@ def branches(monkeypatch: pytest.MonkeyPatch, prs: dict[str, dict]) -> list[list
     asked = []
     monkeypatch.setattr(github, "checkout_repo", lambda checkout: "Forge-AI/monorepo")
     monkeypatch.setattr(github, "open_on", lambda heads: asked.append(heads) or prs)
-    monkeypatch.setattr(github, "fetch", lambda keys: ({}, None))
+    monkeypatch.setattr(github, "fetch", lambda keys, into=None: ({}, None))
     return asked
 
 
@@ -4306,7 +4306,7 @@ def test_a_lane_question_opening_with_a_result_other_than_ask_is_that_result_and
     sent: str, asked: str | None, taken: str, remote: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     deliver(monkeypatch, [message("question", sent)])
-    monkeypatch.setattr(github, "fetch", lambda keys: ({}, None))
+    monkeypatch.setattr(github, "fetch", lambda keys, into=None: ({}, None))
     watching = watch.Watcher(remote, offset=state.events_end(remote))
     assert watch.run_pass(watching, T0) == [f"JOB j1 o1 {sent}"]
     job = state.load(remote)["jobs"]["j1"]

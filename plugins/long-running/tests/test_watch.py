@@ -156,7 +156,7 @@ def read(**overrides: object) -> dict:
 def serve(monkeypatch: pytest.MonkeyPatch, reads: dict[str, dict]) -> list[list[str]]:
     calls = []
 
-    def fake(keys: list[str]) -> tuple[dict[str, dict], github.GithubError | None]:
+    def fake(keys: list[str], into: dict[str, str] | None = None) -> tuple[dict[str, dict], github.GithubError | None]:
         calls.append(keys)
         return {key: reads[key] for key in keys if key in reads}, None
 
@@ -389,7 +389,12 @@ def test_a_ready_waits_on_the_pr_it_names_and_its_job_takes_done_once_that_produ
 
 def test_a_pr_merged_into_another_open_prs_branch_reads_folded_holding_its_wait_and_its_job_takes_done_with_that_prs_merge_commit_once_it_lands(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     folded = read(state="MERGED", mergeCommit="ccc333", baseRefName="the-base")
-    serve(monkeypatch, {KEY: folded | {"base_pr": OTHER}, OTHER: read(headRefName="the-base")})
+    asked = []
+
+    def fetch(parent: dict) -> None:
+        monkeypatch.setattr(github, "fetch", lambda keys, into=None: asked.append((keys, into)) or ({KEY: folded | {"base_pr": parent | {"key": OTHER}}}, None))
+
+    fetch(read(headRefName="the-base"))
     with state.edit(demo) as data:
         state.take_result(data, "j1", f"READY {state.pr_url(KEY)}")
     watching = watcher(demo)
@@ -399,9 +404,9 @@ def test_a_pr_merged_into_another_open_prs_branch_reads_folded_holding_its_wait_
     assert (data["prs"][KEY]["state"], data["prs"][KEY]["into"], data["prs"][KEY]["merged_sha"], data["jobs"]["j1"]["state"]) == ("folded", OTHER, None, "waiting")
     assert view.holding(data, [KEY], None) == [KEY]
     assert not watch.wakes(fold, data, NO_CARDS)
-    calls = serve(monkeypatch, {KEY: folded, OTHER: read(state="MERGED", mergeCommit="ddd444")})
+    fetch(read(state="MERGED", mergeCommit="ddd444"))
     assert f"PR {KEY}: merged [o1 j1]" in watch.run_pass(watching, T0 + timedelta(seconds=61))
-    assert [KEY, OTHER] in calls
+    assert ([KEY], {KEY: OTHER}) in asked
     data = state.load(demo)
     assert (data["prs"][KEY]["state"], data["prs"][KEY]["merged_sha"], data["jobs"]["j1"]["state"]) == ("merged", "ddd444", "done")
     assert data["jobs"]["j1"]["said"] == f"DONE {state.pr_url(KEY)} merged: {KEY} at ddd444"
@@ -584,7 +589,7 @@ def test_a_receiver_that_does_not_answer_is_said_from_its_third_minute_in_a_row(
 def fetch_outcomes(monkeypatch: pytest.MonkeyPatch, outcomes: list[bool]) -> list[list[str]]:
     calls, queue = [], list(outcomes)
 
-    def fetch(keys: list[str]) -> tuple[dict[str, dict], github.GithubError | None]:
+    def fetch(keys: list[str], into: dict[str, str] | None = None) -> tuple[dict[str, dict], github.GithubError | None]:
         calls.append(keys)
         return ({KEY: read()}, None) if queue.pop(0) else ({}, github.GithubError("HTTP 502"))
 
@@ -616,7 +621,7 @@ def test_a_refused_query_keeps_the_reads_of_the_others_and_a_finished_pr_is_neve
         data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"head": "aaaaaaa111", "wants_tap": False}
     calls = []
 
-    def other_refused(keys: list[str]) -> tuple[dict[str, dict], github.GithubError | None]:
+    def other_refused(keys: list[str], into: dict[str, str] | None = None) -> tuple[dict[str, dict], github.GithubError | None]:
         calls.append(keys)
         reads = {KEY: read(state="MERGED", mergeCommit="ccc333")} if KEY in keys else {}
         return reads, github.GithubError("could not read 1 PRs of Forge-AI/monorepo from GitHub: gh: HTTP 502")

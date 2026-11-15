@@ -42,11 +42,11 @@ def node(**overrides: object) -> dict:
         "latestOpinionatedReviews": {"nodes": []},
         "mergeable": "MERGEABLE",
         "mergeCommit": None,
+        "mergedAt": None,
         "labels": {"nodes": []},
         "timelineItems": {"nodes": []},
         "commits": {"nodes": [{"commit": {"statusCheckRollup": {"contexts": {"nodes": GREEN}}}}]},
         "stack": None,
-        "baseRef": None,
     }
     return {**base, **overrides}
 
@@ -120,6 +120,7 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
             "baseRefName": "main",
             "headRefName": "fix-the-thing",
             "mergeCommit": None,
+            "mergedAt": None,
             "checks": GREEN,
             "reviewDecision": None,
             "approvals": [],
@@ -129,6 +130,7 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
             "author": "yasyf",
             "labels": [],
             "ejected_at": None,
+            "key": "a/one#1",
             "native": [],
             "trunk": None,
             "required_checks": [GATE, "buildkite/test"],
@@ -143,6 +145,7 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
             "baseRefName": "main",
             "headRefName": "fix-the-thing",
             "mergeCommit": "fff000",
+            "mergedAt": None,
             "checks": [],
             "reviewDecision": "APPROVED",
             "approvals": ["abc1234def", None],
@@ -152,6 +155,7 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
             "author": "ghost",
             "labels": ["hold"],
             "ejected_at": None,
+            "key": "a/one#2",
             "native": [("a/one#1", "open"), ("a/one#2", "merged")],
             "trunk": "main",
             "required_checks": [GATE, "buildkite/test"],
@@ -310,32 +314,103 @@ FOLDED_INTO = {"state": "folded", "into": "a/one#9", "merged_sha": None}
 FOLDED_READ = pr_read([], state="MERGED", mergeCommit="fff000", baseRefName="lane-9")
 
 
+def parent(number: int = 9, **overrides: object) -> dict:
+    return pr_read([], **overrides) | {"key": f"a/one#{number}"}
+
+
 @pytest.mark.parametrize(
-    ("read", "stored", "followed", "landed"),
+    ("read", "landed"),
     [
-        (pr_read([]), None, None, {"state": "open", "into": None, "merged_sha": None}),
-        (pr_read([], state="MERGED", mergeCommit="fff000"), None, None, {"state": "merged", "into": None, "merged_sha": "fff000"}),
-        (FOLDED_READ | {"base_pr": "a/one#9"}, None, None, FOLDED_INTO),
-        (FOLDED_READ, None, None, {"state": "merged", "into": None, "merged_sha": "fff000"}),
-        (FOLDED_READ, FOLDED_INTO, pr_read([]), FOLDED_INTO),
-        (FOLDED_READ, FOLDED_INTO, pr_read([], state="MERGED", mergeCommit="999aaa"), {"state": "merged", "into": "a/one#9", "merged_sha": "999aaa"}),
-        (FOLDED_READ, FOLDED_INTO, pr_read([], state="CLOSED"), {"state": "closed", "into": "a/one#9", "merged_sha": None}),
-        (FOLDED_READ, FOLDED_INTO, pr_read([], state="MERGED", baseRefName="lane-4", base_pr="a/one#4"), {"state": "folded", "into": "a/one#4", "merged_sha": None}),
-        (FOLDED_READ, FOLDED_INTO, None, FOLDED_INTO),
+        (pr_read([]), {"state": "open", "into": None, "merged_sha": None}),
+        (pr_read([], state="MERGED", mergeCommit="fff000"), {"state": "merged", "into": None, "merged_sha": "fff000"}),
+        (FOLDED_READ, {"state": "merged", "into": None, "merged_sha": "fff000"}),
+        (FOLDED_READ | {"base_pr": parent()}, FOLDED_INTO),
+        (FOLDED_READ | {"base_pr": parent(state="MERGED", mergeCommit="999aaa")}, {"state": "merged", "into": "a/one#9", "merged_sha": "999aaa"}),
+        (FOLDED_READ | {"base_pr": parent(state="CLOSED")}, {"state": "closed", "into": "a/one#9", "merged_sha": None}),
+        (FOLDED_READ | {"base_pr": parent(state="MERGED", baseRefName="lane-4", base_pr=parent(4))}, {"state": "folded", "into": "a/one#4", "merged_sha": None}),
+        (FOLDED_READ | {"base_pr": parent(state="MERGED", baseRefName="lane-4", base_pr=parent(4, state="MERGED", mergeCommit="444ddd"))}, {"state": "merged", "into": "a/one#4", "merged_sha": "444ddd"}),
     ],
 )
-def test_landing_holds_a_pr_merged_into_an_open_prs_branch_folded_until_that_pr_lands_with_its_merge_commit_or_closes(read: dict, stored: dict | None, followed: dict | None, landed: dict) -> None:
-    assert github.landing(read, stored, followed) == landed
+def test_landing_reads_a_pr_merged_into_another_prs_branch_folded_until_that_pr_lands_with_its_merge_commit_or_closes_in_whatever_state_it_is_read(read: dict, landed: dict) -> None:
+    assert github.landing(read) == landed
 
 
-def test_fetch_reads_the_open_pr_whose_head_is_a_prs_base_and_the_fold_line_names_it(monkeypatch: pytest.MonkeyPatch) -> None:
-    sent = []
-    folded = node(state="MERGED", baseRefName="lane-9", baseRef={"associatedPullRequests": {"nodes": [{"number": 9}]}})
-    monkeypatch.setattr(github, "run", lambda cmd, **_: sent.append(cmd[4]) or json.dumps({"data": {"r0": {"defaultBranchRef": UNRULED, "p1": folded, "p2": node()}}}))
-    reads, _ = FETCH(["a/one#1", "a/one#2"])
-    assert github.BASE_PR in sent[0]
-    assert [(reads[key]["default"], reads[key]["base_pr"]) for key in ("a/one#1", "a/one#2")] == [("main", "a/one#9"), ("main", None)]
-    assert github.fold_line(github.live(reads["a/one#1"], stored())) == "merged into lane-9 (#9), not main"
+def owner(number: int, state: str = "OPEN", closed: str | None = None, created: str = "2026-11-14T03:46:41Z", cross: bool = False, base: str = "main", merge: str | None = None) -> dict:
+    merged = closed if state == "MERGED" else None
+    return {"number": number, "state": state, "isCrossRepository": cross, "createdAt": created, "closedAt": closed, "mergedAt": merged, "baseRefName": base, "mergeCommit": {"oid": merge} if merge else None}
+
+
+MERGED_AT = "2026-11-14T21:15:47Z"
+
+
+def replying(monkeypatch: pytest.MonkeyPatch, *replies: dict | github.GithubError) -> list[str]:
+    sent, queue = [], list(replies)
+
+    def reply(cmd: list[str], **_: object) -> str:
+        sent.append(cmd[4])
+        if isinstance(answer := queue.pop(0), github.GithubError):
+            raise answer
+        return json.dumps(answer)
+
+    monkeypatch.setattr(github, "run", reply)
+    return sent
+
+
+def test_fetch_follows_a_pr_merged_off_its_default_branch_to_the_same_repo_pr_open_on_its_base_as_it_merged_and_reads_a_native_stacks_pr_merged_where_that_branch_holds_it(monkeypatch: pytest.MonkeyPatch) -> None:
+    fold = node(state="MERGED", baseRefName="lane-9", mergeCommit={"oid": "fff000"}, mergedAt=MERGED_AT)
+    stacked = node(state="MERGED", baseRefName="lane-8", mergeCommit={"oid": "eee000"}, mergedAt=MERGED_AT)
+    owners = [
+        owner(12, created="2026-11-14T22:00:00Z"),
+        owner(11, cross=True, created="2026-11-14T01:00:00Z"),
+        owner(9, "MERGED", "2026-11-14T21:45:45Z", merge="d79dfa"),
+        owner(5, "CLOSED", "2026-11-13T01:02:48Z", created="2026-11-13T00:00:00Z"),
+    ]
+    sent = replying(
+        monkeypatch,
+        {"data": {"r0": {"defaultBranchRef": UNRULED, "p1": fold, "p2": stacked, "p3": node()}}},
+        {"data": {"r0": {"defaultBranchRef": {"c0": {"status": "DIVERGED"}, "c1": {"status": "BEHIND"}}, "o0": {"nodes": owners}, "o1": {"nodes": [owner(8, "MERGED", MERGED_AT, merge="888aaa")]}}}},
+    )
+    reads, refused = FETCH(["a/one#1", "a/one#2", "a/one#3"])
+    assert (refused, len(sent)) == (None, 2)
+    assert 'c0: compare(headRef: "fff000") { status }' in sent[1] and 'o1: pullRequests(headRefName: "lane-8", first: 100, orderBy: {field: CREATED_AT, direction: DESC})' in sent[1]
+    assert sent[1].count("compare(") == 2
+    assert [github.landing(reads[key]) for key in ("a/one#1", "a/one#2", "a/one#3")] == [
+        {"state": "merged", "into": "a/one#9", "merged_sha": "d79dfa"},
+        {"state": "merged", "into": None, "merged_sha": "eee000"},
+        {"state": "open", "into": None, "merged_sha": None},
+    ]
+
+
+def test_fetch_follows_a_fold_whose_parent_folded_in_turn_and_the_fold_line_names_the_pr_carrying_it(monkeypatch: pytest.MonkeyPatch) -> None:
+    fold = node(state="MERGED", baseRefName="lane-9", mergeCommit={"oid": "fff000"}, mergedAt=MERGED_AT)
+    sent = replying(
+        monkeypatch,
+        {"data": {"r0": {"defaultBranchRef": UNRULED, "p1": fold}}},
+        {"data": {"r0": {"defaultBranchRef": {"c0": {"status": "DIVERGED"}}, "o0": {"nodes": [owner(9, "MERGED", "2026-11-14T21:20:00Z", base="lane-4", merge="999aaa")]}}}},
+        {"data": {"r0": {"defaultBranchRef": {"c0": {"status": "DIVERGED"}}, "o0": {"nodes": [owner(4)]}}}},
+    )
+    reads, refused = FETCH(["a/one#1"])
+    assert (refused, len(sent)) == (None, 3)
+    assert 'c0: compare(headRef: "999aaa")' in sent[2] and 'pullRequests(headRefName: "lane-4"' in sent[2]
+    assert github.fold_line(github.live(reads["a/one#1"], stored())) == "merged into lane-9 (#4), not main"
+
+
+@pytest.mark.parametrize(("answered", "landed"), [(True, FOLDED_INTO), (False, None)])
+def test_fetch_reads_the_pr_the_drive_holds_a_pr_folded_into_beside_it_in_one_call_and_leaves_the_pr_out_while_github_answers_none_for_it(
+    monkeypatch: pytest.MonkeyPatch, answered: bool, landed: dict | None
+) -> None:
+    fold = node(state="MERGED", baseRefName="lane-9", mergeCommit={"oid": "fff000"}, mergedAt=MERGED_AT)
+    sent = replying(monkeypatch, {"data": {"r0": {"defaultBranchRef": UNRULED, "p1": fold} | ({"p9": node(headRefName="lane-9")} if answered else {})}})
+    reads, refused = FETCH(["a/one#1"], {"a/one#1": "a/one#9"})
+    assert (refused, len(sent), "p9: pullRequest(number: 9)" in sent[0], list(reads)) == (None, 1, True, ["a/one#1"] if answered else [])
+    assert (github.landing(reads["a/one#1"]) if answered else None) == landed
+
+
+def test_a_refused_follow_up_leaves_out_only_the_prs_merged_off_their_default_branch_and_names_them(monkeypatch: pytest.MonkeyPatch) -> None:
+    fold = node(state="MERGED", baseRefName="lane-9", mergeCommit={"oid": "fff000"}, mergedAt=MERGED_AT)
+    replying(monkeypatch, {"data": {"r0": {"defaultBranchRef": UNRULED, "p1": fold, "p2": node()}}}, github.GithubError("gh: HTTP 502"))
+    reads, refused = FETCH(["a/one#1", "a/one#2"])
+    assert (list(reads), str(refused)) == (["a/one#2"], "could not read the PRs whose heads are the bases of a/one#1 from GitHub: gh: HTTP 502")
 
 
 BUILD = "https://buildkite.com/forge/monorepo/builds/7"
@@ -528,3 +603,18 @@ def test_carrier_counts_a_build_at_or_after_a_merge_on_the_line_or_a_hotfix_cher
     carries = github.carrier(str(clone))
     assert [carries(build, merge, 2) for build in (merge, newer, old, picked, unpicked)] == [True, True, False, True, False]
     assert git_in(clone, "cat-file", "-t", unpicked) == "commit"
+
+
+@pytest.mark.parametrize(("page", "landed"), [(github.OWNERS_PER_BASE - 1, {"state": "merged", "into": None, "merged_sha": "fff000"}), (github.OWNERS_PER_BASE, None)])
+def test_fetch_reads_a_fold_whose_base_no_pr_was_open_on_merged_at_its_own_commit_and_refuses_it_while_githubs_first_page_of_prs_on_that_base_is_full(
+    monkeypatch: pytest.MonkeyPatch, page: int, landed: dict | None
+) -> None:
+    fold = node(state="MERGED", baseRefName="lane-9", mergeCommit={"oid": "fff000"}, mergedAt=MERGED_AT)
+    later = [owner(100 + number, created="2026-11-14T22:00:00Z") for number in range(page)]
+    replying(monkeypatch, {"data": {"r0": {"defaultBranchRef": UNRULED, "p1": fold}}}, {"data": {"r0": {"defaultBranchRef": {"c0": {"status": "DIVERGED"}}, "o0": {"nodes": later}}}})
+    reads, refused = FETCH(["a/one#1"])
+    assert (github.landing(reads["a/one#1"]) if "a/one#1" in reads else None, refused is None) == (landed, landed is not None)
+
+
+def test_open_at_reads_a_pr_closed_at_the_moment_a_pr_merged_into_its_branch_as_no_longer_open() -> None:
+    assert (github.open_at(owner(9, "MERGED", MERGED_AT), MERGED_AT), github.open_at(owner(9, "MERGED", "2026-11-14T21:15:48Z"), MERGED_AT)) == (False, True)

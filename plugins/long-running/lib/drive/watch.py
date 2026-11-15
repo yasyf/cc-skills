@@ -149,9 +149,9 @@ def ids(pr: dict) -> str:
     return f"[{pr['order']} {pr['job']}]"
 
 
-def pr_changes(pr: dict, read: dict, entry: dict, followed: dict | None) -> list[str]:
-    """What moved on the PR since the watch last read it, saved onto its row, its landing by github.live with followed, the read of the PR it folded into; ejected once Trunk put the trunk-failed label on entry, the read of the PR whose Trunk queue entry carries it, after the PR's lander started its try, since Trunk labels only the top PR its lander queued and leaves the label on through later pushes."""
-    fresh = github.live(read, pr, followed)
+def pr_changes(pr: dict, read: dict, entry: dict) -> list[str]:
+    """What moved on the PR since the watch last read it, saved onto its row, its landing by github.live; ejected once Trunk put the trunk-failed label on entry, the read of the PR whose Trunk queue entry carries it, after the PR's lander started its try, since Trunk labels only the top PR its lander queued and leaves the label on through later pushes."""
+    fresh = github.live(read, pr)
     changes = []
     if fresh["head"] != pr["head"] and pr["head"]:
         changes.append(f"new head {fresh['head'][:7]}")
@@ -181,14 +181,10 @@ def github_lines(watcher: Watcher, moment: datetime) -> list[str]:
         if hears(watcher, data, data["prs"][key]["order"]) and (watcher.owed is None or key in watcher.owed or key in pushed or data["prs"][key]["state"] == github.FOLDED or (data["prs"][key]["required"] is None and key not in watcher.stale))
     ]
     carried = [key for key in state.carrier_keys(data) if watcher.owed is None or key not in watcher.untracked or key in watcher.owed or watcher.untracked[key] == github.FOLDED]
-    followed = sorted({into for key in keys if (into := data["prs"][key]["into"])} - {*keys, *carried})
     watcher.owed = set()
     if not keys and not carried:
         return []
-    reads, refused = github.fetch([*keys, *carried, *followed])
-    landings = dict(reads)
-    for key in followed:
-        reads.pop(key, None)
+    reads, refused = github.fetch([*keys, *carried], {key: into for key in keys if (into := data["prs"][key]["into"])})
     carrying = {key: github.landing(reads.pop(key))["state"] for key in carried if key in reads}
     watcher.untracked |= carrying
     unread = set(keys) - set(reads)
@@ -204,7 +200,7 @@ def github_lines(watcher: Watcher, moment: datetime) -> list[str]:
         for key, read in reads.items():
             pr = data["prs"][key]
             unlanded = pr["state"] in github.UNLANDED
-            changes = pr_changes(pr, read, reads.get((pr["lander"] or {}).get("entry"), read), landings.get(pr["into"]))
+            changes = pr_changes(pr, read, reads.get((pr["lander"] or {}).get("entry"), read))
             pr["required"]["read"] = state.stamp(moment)
             if why := state.foreign_pr(data, key):
                 foreign[key] = (pr["url"], pr["author"], f"{why} {ids(pr)}")

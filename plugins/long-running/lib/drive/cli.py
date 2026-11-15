@@ -969,7 +969,7 @@ def answered_by(name: str, order_id: str, part: str, link: str) -> tuple[str, di
         drive_post_at(link, data, order_id)
     elif not state.PR_URL.search(link):
         raise DriveError(f'--part "{part}": refused, ' + state.UNPOSTED_WORK.format(order=order_id, part=part, holder=f"{state.holding_lane(data, order)}@{name}"))
-    elif (landed := github.landing(merged_read(link), data["prs"].get(state.pr_key(link))))["state"] != "merged":
+    elif (landed := github.landing(merged_read(link)))["state"] != "merged":
         into = f" into {landed['into']}, which has not landed" if landed["state"] == github.FOLDED else ""
         raise DriveError(f'--part "{part}": refused, {state.pr_key(link)} is {landed["state"]}{into}, and only a PR merged into its default branch delivers work he ordered')
     with state.edit(name) as data:
