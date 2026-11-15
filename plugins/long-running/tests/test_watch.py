@@ -3224,6 +3224,44 @@ def test_a_waiting_job_lives_while_its_question_is_open_and_is_an_orphan_once_it
     assert len(closed_cards) == 1
 
 
+def test_the_watch_closes_his_card_again_with_his_words_in_place_of_his_tap_they_replaced_until_cc_slack_shows_his_words(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    tap, other_tap = "1794200011.000100", "1794200021.000300"
+    other_card = "https://acme.slack.com/archives/D123/p1794200001000100"
+    words = "https://acme.slack.com/archives/D123/p1794200016000200?thread_ts=1794200000.000100"
+    replaced = state.new_close("answered", "Ring", None, seq="51", tap=tap)
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["questions"] = [
+            state.new_question(None, "Which ring?", state.stamp(T0), card=CARD, closed=state.new_close("answered", "Knock, the bell is broken", words, answer="a1", replaces=replaced)) | {"waits": "demo:j1-7"}
+        ]
+        data["jobs"]["j2"] = job(state="done", questions=[state.new_question(None, "Which door?", state.stamp(T0), card=other_card, closed=state.new_close("answered", "Side", None, seq="53", tap=other_tap)) | {"waits": "demo:j2-8"}])
+
+    def shown_tap(waits: str, url: str, at: str, label: str) -> dict:
+        return {"waits": waits, "title": "", "prs": [], "asked": state.stamp(T0), "url": url, "answer": {"at": at, "label": label}, "tapped": f"✓ {label}", "replaced_by": ""}
+
+    tapped = shown_tap("demo:j1-7", CARD, datetime.fromtimestamp(float(tap)).astimezone().isoformat(), "Ring")
+    standing = shown_tap("demo:j2-8", other_card, datetime.fromtimestamp(float(other_tap)).astimezone().isoformat(), "Side")
+    closes: list[tuple[str, str, str, bool, str | None]] = []
+    down = [slack.SlackError("cc-slack daemon not running")]
+
+    def answer_card(card: str, words: str, link: str, settled: bool, replaces: str | None = None) -> dict:
+        closes.append((card, words, link, settled, replaces))
+        if down:
+            raise down.pop()
+        return {}
+
+    monkeypatch.setattr(superseded, "answer_card", answer_card)
+    watching = watcher(demo)
+    watching.cards = {**view.NO_CARDS, "closed": [tapped, standing]}
+    assert watch.follow_lines(watching, T0) == []
+    assert watch.follow_lines(watching, T0 + timedelta(seconds=60)) == [f"CARD {CARD} closed in place: its question answered, his words in place of his tap"]
+    assert closes == [(CARD, "Knock, the bell is broken", words, True, tap)] * 2
+    tapped["answer"] = {"at": state.stamp(T0), "label": "Knock, the bell is broken", "other": True}
+    assert watch.follow_lines(watching, T0 + timedelta(seconds=120)) == []
+    assert len(closes) == 2
+
+
 def test_a_built_job_whose_ask_drive_job_ask_refused_is_said_to_wait_on_a_card_never_posted(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(watch.view, "cards", lambda name: watch.view.NO_CARDS)
     refused = "refused: these recorded answers of his may already settle this question. Read each with `ccn answer show <id>`"

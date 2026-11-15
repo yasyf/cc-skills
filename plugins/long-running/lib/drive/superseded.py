@@ -265,24 +265,31 @@ def close_card(card: str, closed: dict) -> dict:
 
 
 def end(data: dict, job_id: str, question: dict, closed: dict) -> list[tuple[str, dict]]:
-    """End a job's open question as closed records, with each twin asking it in the same words, answered by his answer that ends it or else superseded by it, and each question a `Replaces:` line folded into it, of any job, ended the same way, since it asked that one too, in the write the caller saves: the one way a question stops asking him, which its card then follows; a close replacing his tap ends each other question that tap closed the same way, in place of its own tap close, and takes the tap's text off every job holding it. The questions it ended, by their job."""
+    """End a job's open question as closed records, with each twin asking it in the same words, answered by his answer that ends it or else superseded by it, and each question a `Replaces:` line folded into it, of any job, ended the same way, since it asked that one too, in the write the caller saves: the one way a question stops asking him, which its card then follows; a close replacing his earlier answer ends each other question that answer closed the same way, in place of its own close, by closed_alike, and one replacing his tap takes the tap's text off every job holding it, while his words a later tap replaced stay held as his words. The questions it ended, by their job."""
     answered = closed["how"] == "answered"
     same = twins(data, job_id, question, answered)
-    tapped = closed["replaces"]
-    retapped = [(asker, other) for asker, job in data["jobs"].items() for other in job["questions"] if tapped and other is not question and other["closed"] and other["closed"]["tap"] == tapped["tap"]]
+    prior = closed["replaces"]
+    retaken = [(asker, other) for asker, job in data["jobs"].items() for other in job["questions"] if prior and other is not question and other["closed"] and closed_alike(other, question, prior)]
     question["closed"] = closed
-    if tapped:
+    if prior and prior["tap"]:
         for each in data["jobs"].values():
-            each["undelivered"] = [kept for kept in each["undelivered"] if kept["seq"] != tapped["seq"]]
+            each["undelivered"] = [kept for kept in each["undelivered"] if kept["seq"] != prior["seq"]]
     data["jobs"][job_id]["updated"] = state.stamp()
     for asker, twin in same:
         twin["closed"] = closed if answered else superseded_by(closed, question)
         data["jobs"][asker]["updated"] = state.stamp()
-    for asker, other in retapped:
+    for asker, other in retaken:
         other["closed"] = closed | {"replaces": other["closed"]}
         data["jobs"][asker]["updated"] = state.stamp()
     replaced = [(asker, other) for asker, each in data["jobs"].items() for other in view.open_questions(each) if question["file"] and other["replaced"] == question["file"]]
-    return [(job_id, question), *same, *retapped, *(ended for asker, other in replaced for ended in end(data, asker, other, closed))]
+    return [(job_id, question), *same, *retaken, *(ended for asker, other in replaced for ended in end(data, asker, other, closed))]
+
+
+def closed_alike(other: dict, question: dict, prior: dict) -> bool:
+    """Whether his answer that closed the question as `prior` closed this other question too: the same tap of his, or his same words where it asks the question in the same words, since his tap on one card answers no other card's question."""
+    if prior["tap"]:
+        return other["closed"]["tap"] == prior["tap"]
+    return not other["closed"]["tap"] and other["closed"]["link"] == prior["link"] and state.same_question(other["title"], question["title"])
 
 
 def twins(data: dict, job_id: str, question: dict, answered: bool) -> list[tuple[str, dict]]:

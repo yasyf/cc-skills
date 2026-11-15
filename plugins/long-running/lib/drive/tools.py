@@ -854,8 +854,9 @@ def closed_by(data: dict, index: int, made: dict, order: str | dict | None) -> l
     raise DriveError(
         f"{index}: refused, nothing posted: the question this answer names ended already, so his answer on it is"
         " recorded already: a tap or its number typed needs nothing more, words he wrote under its card within ten"
-        " minutes of his tap on it replace the tap as this answer, and any other words he wrote are a message from him:"
-        ' a question of fact, an order, one proposing a way such as "why not just X?" included, or a ruling'
+        " minutes after his tap on it replace the tap as this answer, and any other words he wrote, those before his tap"
+        ' included, are a message from him: a question of fact, an order, one proposing a way such as "why not just X?"'
+        " included, or a ruling"
     )
 
 

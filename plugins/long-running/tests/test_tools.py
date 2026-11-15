@@ -1426,9 +1426,8 @@ def tap_on_card(demo: str) -> None:
     card.question_answered({"waits": "demo:j1-7", "label": "Ring", "url": CARD, "action_ts": TAP})
 
 
-@pytest.mark.parametrize("after", [5, -5], ids=["tap then words", "words then tap"])
-def test_his_words_under_a_card_within_ten_minutes_of_his_tap_on_it_replace_the_tap_as_his_answer(
-    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, after: int
+def test_his_words_under_a_card_within_ten_minutes_after_his_tap_on_it_replace_the_tap_as_his_answer(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
     run("job", "add", "builder", "--order", "o1", "--goal", "build it")
@@ -1445,7 +1444,7 @@ def test_his_words_under_a_card_within_ten_minutes_of_his_tap_on_it_replace_the_
     assert {job_id: [kept["seq"] for kept in state.load(demo)["jobs"][job_id]["undelivered"]] for job_id in ("j1", "j2")} == {"j1": ["51"], "j2": ["51"]}
     with state.edit(demo) as data:
         data["jobs"]["j1"]["state"] = "done"
-    words = his_words_at(after)
+    words = his_words_at(5)
     assert tools.run("record", demo, {"records": [{"kind": "answer", "text": "Knock, the bell is broken", "url": words, "waits": "demo:j1-7"}]}).splitlines() == [
         "1 answer 52",
         '1 j1\'s question "Which ring?" ended answered by 52',
@@ -1463,15 +1462,42 @@ def test_his_words_under_a_card_within_ten_minutes_of_his_tap_on_it_replace_the_
     assert {job_id: [(kept["seq"], kept["words"]) for kept in jobs[job_id]["undelivered"]] for job_id in ("j1", "j2")} == {"j1": held, "j2": held}
 
 
-def test_his_words_under_a_card_past_ten_minutes_from_his_tap_on_it_leave_the_tap_standing(demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("after", [601, -44], ids=["past ten minutes after his tap", "before his tap"])
+def test_his_words_under_a_card_before_his_tap_on_it_or_past_ten_minutes_after_it_leave_the_tap_standing(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, after: int
+) -> None:
     run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
     run("job", "add", "builder", "--order", "o1", "--goal", "build it")
     monkeypatch.setattr(subprocess, "run", Cci().run)
     answered = open_cards(monkeypatch, "demo:j1-7")
+    superseding: list[tuple[str, str]] = []
+    monkeypatch.setattr(settled, "supersede", lambda pick, answer_id, cwd: superseding.append((pick, answer_id)))
     tap_on_card(demo)
     with pytest.raises(DriveError, match="1: refused, nothing posted: the question this answer names ended already"):
-        tools.run("record", demo, {"records": [{"kind": "answer", "text": "Knock, the bell is broken", "url": his_words_at(601), "waits": "demo:j1-7"}]})
-    assert (state.load(demo)["jobs"]["j1"]["questions"][0]["closed"]["words"], answered) == ("Ring", [])
+        tools.run("record", demo, {"records": [{"kind": "answer", "text": "Knock, the bell is broken", "url": his_words_at(after), "waits": "demo:j1-7"}]})
+    assert (state.load(demo)["jobs"]["j1"]["questions"][0]["closed"]["words"], answered, superseding) == ("Ring", [], [])
+
+
+def test_his_tap_on_a_card_within_ten_minutes_after_his_answer_under_it_replaces_his_answer_and_his_words_stay_held_as_his_words(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, noted: list[tuple[str, str, str]]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
+    run("job", "add", "builder", "--order", "o1", "--goal", "build it")
+    monkeypatch.setattr(subprocess, "run", Cci().run)
+    open_cards(monkeypatch, "demo:j1-7")
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["created"] = state.stamp(datetime.fromtimestamp(1794200000).astimezone())
+    words = his_words_at(-44)
+    said = {"kind": "answer", "text": "Knock, the bell is broken", "url": words, "waits": "demo:j1-7"}
+    tools.run("record", demo, {"records": [dict(said)]})
+    tap_on_card(demo)
+    job = state.load(demo)["jobs"]["j1"]
+    closed = job["questions"][0]["closed"]
+    assert (closed["words"], closed["link"], closed["tap"], closed["seq"]) == ("Ring", CARD, TAP, "52")
+    assert (closed["replaces"]["words"], closed["replaces"]["link"], closed["replaces"]["seq"]) == ("Knock, the bell is broken", words, "51")
+    assert ([kept["seq"] for kept in job["undelivered"]], noted) == (["51", "52"], [(demo, "Which ring?", "Ring")])
+    with pytest.raises(DriveError, match="those before his tap included, are a message from him"):
+        tools.run("record", demo, {"records": [dict(said)]})
 
 
 @pytest.mark.parametrize("after", [5, -5], ids=["tap then words", "words then tap"])

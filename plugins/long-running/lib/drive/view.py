@@ -206,13 +206,49 @@ def open_questions(job: dict) -> list[dict]:
 
 
 def answerable(question: dict, link: str | None) -> bool:
-    """Whether his words at this link answer the question: it is open, or his tap closed it within the ten minutes either side of them that cc-slack shows Undo for, and they sit under its card, so words he wrote under a card and a tap on it seconds apart end it on his words, whichever Slack took first."""
-    tapped = question["closed"] and question["closed"]["tap"]
-    if not tapped:
-        return question["closed"] is None
+    """Whether his words at this link answer the question: it is open, or his tap closed it and he wrote them in its card's thread within the ten minutes after the tap, so of his tap and his words on one card the later by Slack ts is his answer, whichever reached the drive first."""
+    closed = question["closed"]
+    if closed is None:
+        return True
+    return later(closed["tap"], replied(link, question))
+
+
+def tappable(question: dict, action_ts: str | None) -> bool:
+    """Whether his tap at this Slack action ts answers the question: it is open, or his answer in its card's thread closed it within the ten minutes before the tap, so a tap he made after answering there ends it on the tap."""
+    closed = question["closed"]
+    if closed is None:
+        return True
+    return closed["how"] == "answered" and not closed["tap"] and later(replied(closed["link"], question), action_ts)
+
+
+def replied(link: str | None, question: dict) -> str | None:
+    """The Slack ts of his message at this link when it is a reply in the question's card thread, never the card itself; None for any other link."""
     said = link and state.CARD_LINK.search(link)
     card = question["card"]
-    return bool(said and card and message_key(link) != message_key(card) and under(link, card)) and abs(float(f"{said[2]}.{said[3]}") - float(tapped)) <= TAP_UNDO.total_seconds()
+    return f"{said[2]}.{said[3]}" if said and card and message_key(link) != message_key(card) and under(link, card) else None
+
+
+def later(first: str | None, then: str | None) -> bool:
+    """Whether his act at Slack ts `then` came after his act at `first` within TAP_UNDO, the ten minutes cc-slack shows Undo for."""
+    return bool(first and then) and 0 < float(then) - float(first) <= TAP_UNDO.total_seconds()
+
+
+def replaced_taps(drive: dict, found: dict) -> dict[str, dict]:
+    """Each card of his cc-slack keeps closed on his tap while the drive's question drawn there ended on his words in place of that tap, by its link, with that close: cc-slack shows the tap and its Undo until a card-answer --replaces naming the tap's Slack action ts drops it, which matches the tap as cc-slack's dropTap does, a non-write-in answer in that same second."""
+    tapped = {
+        (key, int(state.parse_time(answer["at"]).timestamp())): card["url"]
+        for card in found["closed"]
+        if (answer := card["answer"]) and not answer.get("other")
+        for key in filter(None, [card["waits"], message_key(card["url"])])
+    }
+    return {
+        url: closed
+        for job in drive["jobs"].values()
+        for question in job["questions"]
+        if (closed := question["closed"]) and closed["replaces"] and closed["replaces"]["tap"]
+        for key in filter(None, [question["waits"], question["card"] and message_key(question["card"])])
+        if (url := tapped.get((key, int(float(closed["replaces"]["tap"])))))
+    }
 
 
 def under(link: str, card: str) -> bool:

@@ -774,7 +774,7 @@ def question_answered(ask: dict) -> dict:
 
 
 def answer_question(name: str, ask: dict) -> dict:
-    """What question_answered does once it heard his tap, which land.start runs for each card his Approve on a PR picks an option on, that Approve heard already, with its Slack action, which dates the answer record and keeps it idempotent."""
+    """What question_answered does once it heard his tap, which land.start runs for each card his Approve on a PR picks an option on, that Approve heard already, with its Slack action, which dates the answer record and keeps it idempotent; his tap ends each question on the card view.tappable lets it, in place of his words in its thread a tap after them replaces, whose cc-notes answer recording the tap supersedes."""
     from drive import settled, superseded, tools, view
 
     undone = bool(ask.get("undone"))
@@ -796,7 +796,7 @@ def answer_question(name: str, ask: dict) -> dict:
                 question["closed"] = None
                 data["jobs"][job_id]["updated"] = state.stamp()
         else:
-            fresh = [each for job_id, question in on_card if question["closed"] is None for each in superseded.end(data, job_id, question, closed)]
+            fresh = [each for job_id, question in on_card if view.tappable(question, ask.get("action_ts")) for each in superseded.end(data, job_id, question, closed | {"replaces": question["closed"]})]
     shown = view.stored_cards(name)[0]
     card = view.asked_card(shown, ask["url"])
     if fresh or not on_card:
