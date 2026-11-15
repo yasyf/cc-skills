@@ -224,6 +224,31 @@ REAL_RUN_PASS = watch.run_pass
 REAL_SESSION_ENV = launchd.session_env
 
 
+def test_the_watch_reads_the_changed_files_of_each_head_no_read_saw_once_and_stages_each_pr_whose_head_changes_a_dangerous_class(
+    demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    (tmp_path / ".claude").mkdir()
+    (tmp_path / state.REPO_RULES).write_text('[[dangerous]]\nclass = "a builtin"\npaths = ["go/sand/internal/builtin/*"]\n')
+    with state.edit(demo) as data:
+        data["roles"]["coordinator"]["cwd"] = str(tmp_path)
+        data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"head": "ccccccc333"}
+    asked: list[list[str]] = []
+    changed = {KEY: ("aaaaaaa111", ["go/sand/internal/builtin/http.go"]), OTHER: ("ccccccc333", ["api/src/run.ts"])}
+    monkeypatch.setattr(github, "paths", lambda keys: asked.append(keys) or {key: changed[key] for key in keys})
+    [line] = watch.dangerous_lines(watcher(demo), T0)
+    data, part = state.load(demo), state.STAGING_TEST.format(number=42)
+    (tester_id,) = [job_id for job_id, job in data["jobs"].items() if job.get("builds_nothing")]
+    assert line.startswith(f'PR {KEY}: {tester_id} builder on "{part}"') and line.endswith(" [o1 j1]")
+    assert (asked, data["prs"][KEY]["waits"], data["prs"][OTHER]["waits"], data["prs"][OTHER]["paths_at"]) == ([[KEY, OTHER]], [f"o1:{part}"], [], "ccccccc333")
+    assert "changes a builtin: go/sand/internal/builtin/http.go, each a dangerous change" in data["jobs"][tester_id]["goal"]
+    assert (watch.dangerous_lines(watcher(demo), T0), asked) == ([], [[KEY, OTHER]])
+    with state.edit(demo) as data:
+        data["prs"][OTHER]["head"] = "ddddddd444"
+    changed[OTHER] = ("ddddddd444", ["go/sand/internal/builtin/fetch.go"])
+    [line] = watch.dangerous_lines(watcher(demo), T0)
+    assert (asked[-1], state.load(demo)["prs"][OTHER]["waits"]) == ([OTHER], [f"o1:{state.STAGING_TEST.format(number=43)}"])
+
+
 @pytest.mark.parametrize("wants_tap", [False, True])
 @pytest.mark.parametrize("job_state", ["running", "waiting"])
 def test_a_prs_moves_are_said_whatever_its_jobs_state_and_wake_no_one_while_the_watch_draws_his_card_on_one_waiting_on_his_tap(

@@ -576,11 +576,20 @@ PR checks that everyone hits".
   [the records page](records.md). Its freeze names its job, with `tools/ci release freeze --with-staging
   --holder <drive>/<job>` once on `dev`, by his pick e3c9bbd, "The freeze names its job; soak, Mac box proof, agent
   proof, pass-box run, cluster job and break-glass refuse another job's freeze".
-- **What holds the PR.** The pass the merge requires is the drive's, never GitHub's. The one step is the
-  builder's: its `READY` or `PUSHED` naming a Forge-AI/monorepo PR carries `STAGING: #N <cases>`, which
-  `drive job report` turns into the part `<order>:staging test of #N before it lands`, the PR's wait on
-  it and its tester, never a wait on the testing job, so the lander lands it once that tester's `DONE`
-  keeps the test's proof as its first `CHECK:` line, by [the jobs page](jobs.md). That pass takes back an
+- **What holds the PR.** The pass the merge requires is the drive's, never GitHub's. Two things start
+  it, so it never rests on the builder's word alone. The builder's `READY` or `PUSHED` naming a
+  Forge-AI/monorepo PR carries `STAGING: #N <cases>`, which `drive job report` turns into the part
+  `<order>:staging test of #N before it lands`, the PR's wait on it and its tester, or
+  `STAGING: none: <why AGENTS.md's dangerous rule misses it>`. And `drive pr add`, on each such PR it
+  registers, and the watch, on each new head of one and once on every open one after the install that
+  brought it, read the files the PR changes against the `[[dangerous]]` tables of the monorepo's
+  `.claude/long-running.toml`, each a class of AGENTS.md's dangerous rule with the globs of its paths,
+  leaving out test files and its `[skip]` globs, and give a PR that changes one the same part, wait and
+  tester, its goal naming each class and file, before his card draws. A builder's later `STAGING: #N`
+  line reaches that tester as a held text, and its `STAGING: none: <why>` lifts a test no job took up,
+  its why shown on his card, while a test a job took up runs to its end, by 0048b14. It is never a wait
+  on the testing job: the lander lands it once that tester's `DONE` keeps the test's proof as its first
+  `CHECK:` line, by [the jobs page](jobs.md). That pass takes back an
   Approve he gave before it, on every open PR waiting on the part, and his card asks again, so only an
   Approve he gives after the pass lands the PR, by 27ea387, "merging or rleasing dangerous things should
   only be done wehn the human is present". The monorepo hooks into the drive through its
