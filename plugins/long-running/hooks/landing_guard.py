@@ -105,6 +105,7 @@ COORDINATOR_WORK = (
 )
 RELEASE_CUTS = frozenset({"start", "hotfix", "resume", "approve", "rollback", "rerun", "api"})
 READS_ONLY = frozenset({"--plan", "--dry-run", "--help", "-h"})
+SOAK_ENDS = frozenset({"pass", "fail"})
 RELEASE_PIPELINE = "release"
 RELEASE_BUILDS = re.compile(rf"(?:^|/)pipelines/{RELEASE_PIPELINE}/builds(?:/(\d+))?(?:/|$)")
 RELEASE_BUILDKITE = f"{github.BUILDKITE_ORG}/{RELEASE_PIPELINE}"
@@ -132,6 +133,12 @@ RELEASE_CANCEL = (
     "Refused on purpose: a drive job never cancels a release, one it started included, however wide its plan reads, by his"
     ' words "next time fucking do the right thing and then dont cancel it". Leave it running, or held at approve, and return'
     " with the release held for the coordinator, naming it and what you would decline"
+)
+STAGING_UNCLAIMED = (
+    "Refused on purpose: `{command}` claims staging for a test, which by the repository's staging-claim rule waits on a post at"
+    " the top level of #releases-staging saying what it tests, on what and for how long, citing that rule and asking whether"
+    " anyone objects. Post it, then run this again with `--claim <its link>`, which holds staging at once and goes on only once"
+    " the post has stood 5 minutes with no reply"
 )
 
 
@@ -213,6 +220,7 @@ CCI_POST = Landing(
     {"h": "help"},
     reads=("help",),
 )
+STAGING_CLAIMS = Landing(("ci", "release"), frozenset({"claim", "reason", "until", "via", "pass", "fail", "excepted"}))
 RELEASE_BY_HAND = (
     "Refused on purpose: a drive starts a release only through `drive job add builder --order <o> --goal \"<what it ships>\""
     ' --release "{command}"`, run by the top coordinator, which reads the answer of his its --order names, starts it from the'
@@ -489,6 +497,8 @@ def cut_reason(words: list[str], shell: Shell) -> str | None:
     job = shell.job or bool(lane or codex)
     if verb == "cancel" and job:
         return RELEASE_CANCEL
+    if (shell.driving or job) and unclaimed(verb, words):
+        return STAGING_UNCLAIMED.format(command=" ".join(words))
     if verb not in RELEASE_CUTS:
         return None
     names = state.session_drives(shell.session)
@@ -567,6 +577,13 @@ def created_job(words: list[str]) -> dict | None:
                     case {"cluster": str(cluster)} as job if cluster and all(isinstance(job.get(key, ""), str) for key in ("cronJob", "reason")):
                         return {"cronJob": "", "reason": ""} | job
     return None
+
+
+def unclaimed(verb: str, words: list[str]) -> bool:
+    """Whether a release verb claims staging for a test with no link to its claim post: a freeze passed --with-staging, or a soak's start, which freezes staging, never its --pass or --fail end."""
+    _, options = parse(words[3:], STAGING_CLAIMS)
+    claims = switched_on(options, "with-staging") if verb == "freeze" else verb == "soak" and not SOAK_ENDS & options.keys()
+    return claims and not any(options.get("claim", []))
 
 
 def release_of(words: list[str], briefed: str, jobs: Iterable[dict] = ()) -> str:

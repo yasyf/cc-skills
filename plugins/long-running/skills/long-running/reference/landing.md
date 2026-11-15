@@ -663,7 +663,9 @@ PR checks that everyone hits".
   this Mac holds a claim whose `until` is still to come, the `landing_guard` hook and `drive job held
   --cluster` refuse a Job on `plat-usw2-staging`, by `tools/ci cluster-job` or by creating, unblocking or
   rerunning the build it starts, naming that claim's order, drive, end and thread: wait behind it with
-  `WAITING staging:<what you test>/plat-usw2-staging@<its commit>`, then claim staging yourself.
+  `WAITING staging:<what you test>/plat-usw2-staging@<its commit>`, then claim staging yourself. The freeze, or the soak's start, takes the
+  claim post's link as `--claim <link>`, which holds staging at once and goes on only once the post has stood 5 minutes
+  with no reply, and the `landing_guard` hook refuses a drive session's staging freeze or soak start with no `--claim`.
 - **What holds the PR.** The pass the merge requires is the drive's, never GitHub's. Three things start
   it, so it never rests on the builder's word alone. The builder's `READY` or `PUSHED` naming a
   Forge-AI/monorepo PR carries `STAGING: #N <cases>`, which `drive job report` turns into the part

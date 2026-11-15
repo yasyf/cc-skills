@@ -298,6 +298,38 @@ def test_a_sprite_lanes_release_verb_is_refused_while_the_coordinators_mac_does_
     assert landing_guard.deny_reason(bash(RESUME, session_id="sprite")) == landing_guard.RELEASE_UNASKED.format(release=RESUME, error="drive: no run")
 
 
+FREEZE = "tools/ci release freeze api/plat-usw2-staging --with-staging --reason soak --until 2026-11-15T12:00:00-08:00"
+CLAIM = "https://poetic-technology.slack.com/archives/C0BQSADC7SS/p1794730052923599"
+
+
+@pytest.mark.parametrize("command", [FREEZE, "tools/ci release soak 56299 --via builder"])
+def test_a_drive_sessions_staging_freeze_or_soak_start_with_no_claim_link_is_refused_naming_the_post_it_waits_on(
+    demo: str, no_calls: None, monkeypatch: pytest.MonkeyPatch, command: str
+) -> None:
+    refused = landing_guard.STAGING_UNCLAIMED.format(command=command)
+    assert landing_guard.deny_reason(bash(command, session_id=SESSION)) == refused
+    assert landing_guard.deny_reason(bash(command, session_id="elsewhere", agent_id="a1", agent_type="long-running:builder")) == refused
+    assert landing_guard.deny_reason(bash(command, session_id="elsewhere")) is None
+    monkeypatch.setenv(state.REMOTE_LANE_ENV, "1")
+    assert landing_guard.deny_reason(bash(command, session_id="sprite")) == refused
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        f"{FREEZE} --claim {CLAIM}",
+        f"{FREEZE} --claim={CLAIM}",
+        "tools/ci release freeze api --reason incident --until 2026-11-15T12:00:00-08:00",
+        f"{FREEZE} --with-staging=false",
+        f"{FREEZE} --help",
+        f"tools/ci release soak 56299 --claim {CLAIM}",
+        "tools/ci release soak --pass 56299",
+    ],
+)
+def test_a_staging_freeze_naming_its_claim_a_freeze_sparing_staging_and_a_soaks_end_pass(demo: str, no_calls: None, command: str) -> None:
+    assert landing_guard.deny_reason(bash(command, session_id=SESSION)) is None
+
+
 @pytest.mark.parametrize(
     "command",
     [
