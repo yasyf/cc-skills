@@ -1295,9 +1295,10 @@ def dead(named: list[str]) -> list[str]:
 
 
 def unproven(text: str, job_id: str, job: dict) -> str | None:
-    """Why a builder's or codex job's DONE may not be kept: for what he sees, by its NATIVE: line or its brief's Native, its brief names user stories, which only drive job prove proves, by story_gap on what its proof file prints, never a DONE's words; a link its first line or a CHECK: line names does not open, since an incident's keeps that first line as its order's proof; its CHECK: line names no link and no file that exists and is not empty, as held reads it; or, for what he sees, its CHECK: names nothing that shows it, as shows reads it."""
+    """Why a builder's or codex job's DONE may not be kept: for what he sees, by its NATIVE: line or its brief's Native, its brief names user stories, which only drive job prove proves, by story_gap on what its proof file prints, never a DONE's words, but on a staging test part, whose DONE is kept for drive job prove to prove, by staged_stories; a link its first line or a CHECK: line names does not open, since an incident's keeps that first line as its order's proof; its CHECK: line names no link and no file that exists and is not empty, as held reads it; or, for what he sees on a brief naming no user story, its CHECK: names nothing that shows it, as shows reads it."""
     sees = reported_surface(text) or surface(job)
-    if sees and (told := stories((job.get("brief_flags") or {}).get("interactions"))):
+    told = stories((job.get("brief_flags") or {}).get("interactions"))
+    if sees and told and not staged_stories(job):
         prover = (
             "a codex job runs no drive job prove, so a builder added on its part with drive job add builder --builds-nothing keeps its proof file and runs"
             " drive job prove on itself, which reads"
@@ -1313,7 +1314,12 @@ def unproven(text: str, job_id: str, job: dict) -> str | None:
             "a DONE names its proof on a CHECK: line, a link or the absolute path of a file that exists and is not empty, such as the"
             " live post, the recording of the click, or the saved output of the installed command"
         )
-    return unseen_surface(sees, real) if sees else None
+    return unseen_surface(sees, real) if sees and not told else None
+
+
+def staged_stories(job: dict) -> bool:
+    """Whether a builder's DONE on a `staging test of #N before it lands` part waits on drive job prove: it holds such a part and its brief names user stories on a surface he sees, which only its proof file's lines prove, so drive job report keeps that DONE, the watch runs drive job prove on it while the PR is still unmerged, and only the DONE that proof takes delivers the part."""
+    return job["kind"] == "builder" and state.tests_staging(job) and bool(surface(job)) and bool(stories((job.get("brief_flags") or {}).get("interactions")))
 
 
 def unseen_surface(seen: str, named: list[str]) -> str | None:

@@ -646,8 +646,8 @@ def handed_prs(data: dict, job_id: str) -> list[str]:
 
 
 def proved_prs(data: dict, job_id: str) -> list[str]:
-    """The PRs drive job prove proves on the job: a prover's, as handed_prs reads them, else its said line's, as reported_prs reads them."""
-    return handed_prs(data, job_id) or reported_prs(data, job_id)
+    """The merged PRs drive job prove proves on the job: a prover's, as handed_prs reads them, else its said line's, as reported_prs reads them, never one still open, such as the PR a staging tester's DONE names, which no proof proves live."""
+    return [key for key in handed_prs(data, job_id) or reported_prs(data, job_id) if data["prs"][key]["merged_sha"]]
 
 
 def own_proof(data: dict, job_id: str) -> bool:
@@ -666,10 +666,13 @@ def done_before_proofs(data: dict, job_id: str) -> bool:
 
 
 def own_done(data: dict, job_id: str) -> bool:
-    """Whether a builder or codex job returned DONE of its own, never the DONE the watch takes at a merge nor one drive job prove took, on work he ordered that no proof delivered yet."""
+    """Whether a builder or codex job returned DONE of its own, never the DONE the watch takes at a merge nor one drive job prove took, on work he ordered that no proof delivered yet or on a staging test whose user stories its proof file proves, by brief.staged_stories."""
+    from drive import brief
+
     job = data["jobs"][job_id]
     said = job["said"] or ""
-    return job["kind"] in state.CHANGE_KINDS and job["state"] == "done" and said.startswith("DONE") and not state.MERGED_LINE.match(said) and not state.PROVEN_LINE.match(said) and bool(state.owed_work(data, job_id))
+    owed = bool(state.owed_work(data, job_id)) or brief.staged_stories(job)
+    return job["kind"] in state.CHANGE_KINDS and job["state"] == "done" and said.startswith("DONE") and not state.MERGED_LINE.match(said) and not state.PROVEN_LINE.match(said) and owed
 
 
 def before_own_done_proofs(data: dict, job_id: str) -> bool:
@@ -892,13 +895,14 @@ def merges_of(data: dict, job_id: str) -> dict[str, str]:
 
 
 def finish(name: str, data: dict, job_id: str, line: str, check: list[str], post: str, facts: str) -> bool:
-    """Take the line drive job prove sets on its builder, its report naming its PRs, if any, and CHECK:, a DONE delivering by its proof each part of work he ordered the job owes, by state.deliver_proven, and on a DONE that leaves its open order nothing to do, an open incident's aside, which the watch closes once every merged fix PR of it runs on each production stack, keep on the order its proof and the close report the watch posts to the communicator, opening POST with the PRs' titles, a repair's order title, and post, but close done on that proof a drive tooling order a session opened, which posts him no line; held while he sees any of the order's results on a surface no CHECK: came from. Whether the order closes."""
+    """Take the line drive job prove sets on its builder, its report naming its PRs, if any, and CHECK:, a DONE proving a DONE of the job's own keeping that DONE whole under its line, such as a staging test's CASE lines, the PR it tested and its release build, so take_result delivers its staging test part by them, a DONE delivering by its proof each part of work he ordered the job owes, by state.deliver_proven, and on a DONE that leaves its open order nothing to do, an open incident's aside, which the watch closes once every merged fix PR of it runs on each production stack, keep on the order its proof and the close report the watch posts to the communicator, opening POST with the PRs' titles, a repair's order title, and post, but close done on that proof a drive tooling order a session opened, which posts him no line; held while he sees any of the order's results on a surface no CHECK: came from. Whether the order closes."""
     from drive import brief, view
 
     job, keys = data["jobs"][job_id], proved_prs(data, job_id)
     order_id, urls = job["order"], " ".join(map(state.pr_url, keys))
     order = data["orders"][order_id]
-    whole = f"{line}\n{f'PR: {urls}\n' if urls else ''}CHECK: {' '.join(check)}\n"
+    own = next((reply["body"].strip() for reply in state.returns(name, job_id) if state.opening(reply["body"]) == job["said"]), "") if line.startswith("DONE") and done_unproven(data, job_id) else ""
+    whole = f"{line}\n{f'{own}\n' if own else ''}{f'PR: {urls}\n' if urls else ''}CHECK: {' '.join(check)}\n"
     if line.startswith("DONE"):
         state.deliver_proven(data, job_id, line.removeprefix("DONE "))
     state.keep_report(name, job_id, line, whole)
