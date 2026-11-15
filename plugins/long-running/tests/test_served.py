@@ -179,6 +179,28 @@ def test_a_ruling_on_code_is_owed_once_by_a_change_to_that_code_its_missing_writ
     assert judged_at(6, code).startswith(served.CHECKED) and OWED not in judge.asked[-1][0]
     assert len(asked) == reads
 
+
+def test_a_pr_writing_any_agents_md_owed_or_ordered_has_the_judge_read_his_ruling_that_a_rule_of_his_goes_as_deep_as_makes_sense_and_one_writing_none_never(
+    run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch, judge: Judge, recorded: Answers
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "add to agents.md that release tooling keeps simplifying")
+    run("job", "add", "builder", "--order", "o1", "--goal", "land")
+    run("pr", "add", URL, "--job", "j1", *LEAD)
+    recorded.shown |= {served.WRITES_RULING: WHERE_WRITTEN, served.DEEPEST_RULING: WHERE_DEEP}
+
+    def judged_at(n: int, diff: bytes) -> str:
+        with state.edit(demo) as data:
+            data["prs"][KEY]["head"] = f"head{n}"
+        monkeypatch.setattr(served, "change", lambda key: {"title": "New: release tooling keeps simplifying", "body": "", "base": "dev", "head": f"head{n}", "diff": diff})
+        return served.verdict(demo, KEY)
+
+    for n, path in enumerate(["AGENTS.md", "go/ci/AGENTS.md"], 1):
+        assert judged_at(n, added(path, b"- Ruled Nov 12: keep simplifying all this stuff")).startswith(served.CHECKED)
+        said = judge.asked[-1][0]
+        assert (WHERE_DEEP["title"] in said, served.DEEPEST_WORDS in said, served.WRITES_WORDS in said) == (True, True, False)
+    assert judged_at(3, SMALL).startswith(served.CHECKED) and served.DEEPEST_WORDS not in judge.asked[-1][0]
+
+
 CACHE_CODE = added("go/sand/cache/key.go", b"func key() string { return run.ID }")
 CACHE_WRITE = added("go/sand/cache/AGENTS.md", b"- Ruled Nov 11: Key the cache on the run id")
 CACHE_GUIDE = "# Agents\n\n- Ruled Nov 11: Key the cache on the run id\n"
