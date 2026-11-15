@@ -2780,7 +2780,7 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 if builder_id := gap.take(watcher.name, data, job_id):
                     shippers[job_id] = builder_id
     for job_id in taken:
-        state.returned(watcher.name, data, job_id, "; ".join([data["jobs"][job_id]["said"], *codex_asks(watcher.name, job_id), *([fix_shipped(watcher.name, shippers[job_id])] if job_id in shippers else [])]))
+        state.returned(watcher.name, data, job_id, "; ".join(filter(None, [data["jobs"][job_id]["said"], *codex_asks(watcher.name, job_id), *([fix_shipped(watcher.name, shippers[job_id])] if job_id in shippers else [])])))
     lines += unread_lines(watcher, finished, {job_id for job_id, job in finished.items() if job_id in deaths and job["state"] == "running"}, moment)
     watcher.made += lines
     gapped = {job_id: gap for job_id, gap in gaps.items() if gap}
