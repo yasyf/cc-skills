@@ -250,7 +250,9 @@ change".
      cci resumes it in the checkout on the new install and every agent and `tools/ci` it runs reads the
      default branch head, by his pick "Sessions run in the drive's dev-head checkout; every job
      inherits it", an open incident order included, since cci resumes it at once; when no tmux session
-     of cci's runs it, it is reloaded and moves at its next exit. `drive reload` does the same for every drive session with no
+     of cci's runs it, it gets `/exit` only once idle, and the reload then opens the `orca terminal create`
+     line of [Start or resume](start.md), whose `cci session attach` shows the tmux session cci resumes it
+     in, while a reload finding it busy queues `/reload-plugins` and moves it at a later reload. `drive reload` does the same for every drive session with no
      install, whatever installs reloaded before. No post asks him to type `/reload-plugins`. A reload
      draws no role block, so a session's role rules reach it at its next tool call instead: the
      `role_rules` check before each call of a drive session compares the digest its seat keeps, written

@@ -2,6 +2,7 @@ import json
 import os
 import plistlib
 import re
+import shlex
 import signal
 import subprocess
 import sys
@@ -11,6 +12,7 @@ from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import datetime
+from functools import partial
 from pathlib import Path, PurePosixPath
 
 from drive import github, state
@@ -1106,7 +1108,7 @@ def proof_kept(name: str, job_id: str, result: dict) -> str:
 
 
 def reload_session(drive: str, seat: str, version: str, updated: datetime, deadline: float) -> str:
-    """Type /reload-plugins into one drive session's Orca terminal once it is idle, or after RELOAD_WAIT_SECONDS into its busy prompt, which loads an install's skills, agents and new hooks with nothing restarted, unless another install sent it one after this install's update, which loaded this one too; a session homed ends there types /exit instead, which cci resumes in the drive's checkout on the newest install. A seat is a role, or `sub-coordinator <project>`."""
+    """Type /reload-plugins into one drive session's Orca terminal once it is idle, or after RELOAD_WAIT_SECONDS into its busy prompt, which loads an install's skills, agents and new hooks with nothing restarted, unless another install sent it one after this install's update, which loaded this one too; a session homed ends there types /exit instead, which cci resumes in the drive's checkout on the newest install, and one no tmux session of cci's runs gets it only once idle, then the Orca terminal that shows the tmux session cci resumes it in. A seat is a role, or `sub-coordinator <project>`."""
     from drive import orca
 
     who = f"{drive} {seat}"
@@ -1116,33 +1118,54 @@ def reload_session(drive: str, seat: str, version: str, updated: datetime, deadl
     if sent := claim_reload(drive, seat, version, updated):
         return f"{who}: already reloaded onto {sent['version']}"
     wait = max(0.001, min(RELOAD_WAIT_SECONDS, deadline - clock() - orca.SUBMIT_SECONDS))
-    typed = orca.RELOAD
+    typed, shown = orca.RELOAD, None
     try:
-        moved, ends = homed(drive, seat, held)
+        moved, ends, shown = homed(drive, seat, held)
         typed = orca.EXIT if ends else orca.RELOAD
-        idle = orca.typed_when_idle(terminal, typed, int(wait * 1000))
+        idle = orca.typed_when_idle(terminal, typed, int(wait * 1000), orca.RELOAD if shown else None)
     except state.DriveError as error:
         unclaim_reload(drive, seat, version)
-        return f"{who}: not reloaded ({error}); send it with: {orca.reload_command(terminal, typed)}"
+        then = f", then once it exits: {shown.keywords['show']}" if shown else ""
+        return f"{who}: not reloaded ({error}); send it with: {orca.reload_command(terminal, typed)}{then}"
     if not idle:
-        return f"{who}: busy for {wait:.0f}s, so {typed} is queued in {terminal} and runs when its turn ends{moved}"
+        return f"{who}: busy for {wait:.0f}s, so {orca.RELOAD if shown else typed} is queued in {terminal} and runs when its turn ends{moved}"
+    if shown:
+        moved = shown(deadline=deadline)
     return f"{who}: {'reloaded' if typed == orca.RELOAD else f'{typed} typed'} in {terminal}{moved}"
 
 
-def homed(drive: str, seat: str, held: dict) -> tuple[str, bool]:
-    """Move a seat whose session's Claude Code process runs outside the drive's checkout into it, by his pick "Sessions run in the drive's dev-head checkout; every job inherits it", whose option restarts each role once, so the agents it starts and the tools/ci it runs read the default branch head: the session registered with cci in the checkout, where cci resumes it at its next exit, and ended now, an open incident order included, since cci resumes it at once, unless no tmux session of cci's runs it, which would leave nothing to resume it; what its reload line adds, and whether it ends now."""
+def homed(drive: str, seat: str, held: dict) -> tuple[str, bool, partial[str] | None]:
+    """Move a seat whose session's Claude Code process runs outside the drive's checkout into it, by his pick "Sessions run in the drive's dev-head checkout; every job inherits it", whose option restarts each role once, so the agents it starts and the tools/ci it runs read the default branch head: the session registered with cci in the checkout, where cci session run resumes it in the tmux session of its alias once it exits, and ended now, an open incident order included; one no tmux session of cci's runs ends only once idle, since an /exit queued behind its turn ends it after this reload, when nothing opens the Orca terminal that shows it; what its reload line adds, whether it ends now, and for one outside cci's tmux what opens that terminal once the /exit lands."""
     from drive import agents, orca
 
     if not (ran := orca.launch_dir(held["session"])):
-        return "", False
+        return "", False, None
     if ran.resolve() == (kept := orca.checkout(drive, held["cwd"])).resolve():
-        return "", False
+        return "", False, None
     project = seat.removeprefix("sub-coordinator ") if seat.startswith("sub-coordinator ") else None
-    agents.register(drive, "coordinator" if project else seat, project, str(kept), held["session"])
+    role = "coordinator" if project else seat
+    agents.register(drive, role, project, str(kept), held["session"])
     resumed = f"cci session run resumes it in the drive's checkout {kept}"
-    if not orca.in_tmux(state.alias(drive, seat, project), held["session"]):
-        return f"; it runs in {ran} until it next exits, when {resumed}, since no tmux session of cci's runs it", False
-    return f", so {resumed}", True
+    if orca.in_tmux(alias := state.alias(drive, seat, project), held["session"]):
+        return f", so {resumed}", True, None
+    later = f"; it runs in {ran} until a reload finds it idle, when it is typed /exit and {resumed}, since no tmux session of cci's runs it"
+    return later, True, partial(attached, drive=drive, alias=alias, session=held["session"], show=agents.launch(drive, role, project, str(kept))[1], resumed=resumed)
+
+
+def attached(drive: str, alias: str, session: str, show: str, resumed: str, deadline: float) -> str:
+    """Once cci session run resumes the session in the tmux session of its alias, which cci's channel starts as the /exit ends its Claude Code process, or once RELOAD_WAIT_SECONDS pass, run Start or resume's `orca terminal create` line, whose `cci session attach` shows that tmux session in Orca, starting it when it is down, so he opens the seat from Orca's sidebar, and record that terminal as the seat's, since the one it ran in is left at a shell prompt; what its reload line adds."""
+    from drive import orca
+
+    until = min(deadline, clock() + RELOAD_WAIT_SECONDS)
+    while not orca.in_tmux(alias, session) and clock() < until:
+        sleep(1)
+    try:
+        handle = orca.opened(shlex.split(show))
+    except orca.OrcaError as error:
+        return f", so {resumed} under tmux session {alias}, which no Orca terminal shows ({error}): show it with {show}"
+    with state.edit(drive) as data:
+        state.seat(data, session)["terminal"] = handle
+    return f", so {resumed} under tmux session {alias}, shown in Orca terminal {handle}"
 
 
 def claim_reload(drive: str, role: str, version: str, updated: datetime) -> dict | None:

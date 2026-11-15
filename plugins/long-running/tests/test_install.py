@@ -63,6 +63,7 @@ CODEX_RELEASE_TAG = """jobs:
 IDLE = {"ok": True, "result": {"wait": {"condition": "tui-idle", "satisfied": True, "status": "running", "exitCode": None}}}
 BUSY = {"ok": False, "error": {"code": "timeout", "message": "timeout"}}
 SENT = {"ok": True, "result": {"send": {"accepted": True}}}
+CREATED = {"ok": True, "result": {"terminal": {"handle": "term_shown"}}}
 TAP_DIR = "/opt/homebrew/Library/Taps/yasyf/homebrew-tap"
 BREW_TAP = ["brew", "--repository", "yasyf/tap"]
 BREW_PREFIX = ["brew", "--prefix"]
@@ -99,6 +100,7 @@ class FakeGit:
         self.orca_calls: list[list[str]] = []
         self.orca_timeouts: list[float] = []
         self.waits: dict[str, dict] = {}
+        self.exited: Callable[[], None] = lambda: None
         self.installed_sha: str | None = None
         self.bare: list[str] = []
         self.install_root = Path("/cache")
@@ -196,7 +198,9 @@ class FakeGit:
         self.orca_timeouts.append(timeout)
         if cmd[2] == "wait":
             self.together.wait()
-        reply = self.waits.get(cmd[4], IDLE) if cmd[2] == "wait" else SENT
+        if "/exit" in cmd:
+            self.exited()
+        reply = self.waits.get(cmd[4], IDLE) if cmd[2] == "wait" else CREATED if cmd[2] == "create" else SENT
         return subprocess.CompletedProcess(cmd, 0 if reply["ok"] else 1, json.dumps(reply), "")
 
     def typed_into(self, terminal: str) -> list[list[str]]:
@@ -840,17 +844,56 @@ def test_an_install_types_exit_into_a_session_cci_runs_outside_the_drives_checko
     assert capsys.readouterr().out.splitlines()[1:] == ["demo communicator: /exit typed in term_comm, so cci session run resumes it in the drive's checkout /work"]
 
 
-def test_a_session_outside_the_drives_checkout_and_outside_cci_is_registered_there_and_only_reloaded(
+def shown_in_orca(alias: str) -> list[str]:
+    return ["orca", "terminal", "create", "--worktree", "path:/work", "--title", alias, "--command", f"cci session attach {alias}", "--json"]
+
+
+def test_an_idle_session_outside_the_drives_checkout_and_outside_cci_is_typed_exit_then_shown_in_the_orca_terminal_attaching_ccis_tmux_session(
     fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str], registered: list[tuple[str, str, str]], tmux_shown: dict[str, str]
 ) -> None:
     start_drive("demo", communicator="term_comm")
     running_in("/old/durable-agents", "demo-communicator")
     git = fake(["unused"], set())
+    git.exited = lambda: tmux_shown.update({"list-panes": f"{os.getppid()} demo-communicator\n"})
     assert install.main("long-running@skills", None, None, 900, None) == 0
-    assert git.typed_into("term_comm") == [waited("term_comm", "30000"), sent("term_comm")]
+    assert git.typed_into("term_comm") == [waited("term_comm", "30000"), exited("term_comm")]
+    assert git.orca_calls[2:] == [shown_in_orca("demo-communicator")]
     assert registered == [("demo-communicator", "/work", "demo-communicator")]
     assert capsys.readouterr().out.splitlines()[1:] == [
-        "demo communicator: reloaded in term_comm; it runs in /old/durable-agents until it next exits, when cci session run resumes it in the drive's checkout /work, since no tmux session of cci's runs it"
+        "demo communicator: /exit typed in term_comm, so cci session run resumes it in the drive's checkout /work under tmux session demo-communicator, shown in Orca terminal term_shown"
+    ]
+    assert state.saved("demo")["roles"]["communicator"]["terminal"] == "term_shown"
+
+
+def test_a_session_outside_cci_that_cci_has_not_resumed_in_tmux_after_the_wait_is_shown_by_the_attach_that_starts_its_tmux_session(
+    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str], tmux_shown: dict[str, str]
+) -> None:
+    start_drive("demo", communicator="term_comm")
+    running_in("/old/durable-agents", "demo-communicator")
+    git = fake(["unused"], set())
+    assert install.main("long-running@skills", None, None, 900, None) == 0
+    assert git.sleeps == [1] * install.RELOAD_WAIT_SECONDS
+    assert git.orca_calls[2:] == [shown_in_orca("demo-communicator")]
+    assert capsys.readouterr().out.splitlines()[1:] == [
+        "demo communicator: /exit typed in term_comm, so cci session run resumes it in the drive's checkout /work under tmux session demo-communicator, shown in Orca terminal term_shown"
+    ]
+    assert state.saved("demo")["roles"]["communicator"]["terminal"] == "term_shown"
+
+
+def test_a_busy_session_outside_the_drives_checkout_and_outside_cci_is_only_reloaded_so_no_exit_waits_behind_its_turn_with_nothing_to_show_it(
+    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str], registered: list[tuple[str, str, str]], tmux_shown: dict[str, str]
+) -> None:
+    start_drive("demo", communicator="term_comm")
+    running_in("/old/durable-agents", "demo-communicator")
+    git = fake(["unused"], set())
+    git.waits["term_comm"] = BUSY
+    assert install.main("long-running@skills", None, None, 900, None) == 0
+    assert git.typed_into("term_comm") == [waited("term_comm", "30000"), sent("term_comm")]
+    assert git.orca_calls[2:] == []
+    assert registered == [("demo-communicator", "/work", "demo-communicator")]
+    assert capsys.readouterr().out.splitlines()[1:] == [
+        "demo communicator: busy for 30s, so /reload-plugins is queued in term_comm and runs when its turn ends; it runs in /old/durable-agents until a reload"
+        " finds it idle, when it is typed /exit and cci session run resumes it in the drive's checkout /work, since no tmux session of cci's runs it"
     ]
 
 

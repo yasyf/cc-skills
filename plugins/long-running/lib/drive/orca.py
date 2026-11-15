@@ -200,8 +200,8 @@ def reload_command(terminal: str, text: str) -> str:
     return f"orca terminal send --terminal {terminal} --text {text} --enter"
 
 
-def typed_when_idle(terminal: str, text: str, wait_ms: int) -> bool:
-    """Type a slash command, /reload-plugins or /exit, into a Claude Code session's terminal once its turn is over, or once wait_ms pass into its busy prompt, where Claude Code holds it until the turn ends; whether the session was idle, or OrcaError when it shows a prompt the text would answer."""
+def typed_when_idle(terminal: str, text: str, wait_ms: int, busy: str | None = None) -> bool:
+    """Type a slash command, /reload-plugins or /exit, into a Claude Code session's terminal once its turn is over, or once wait_ms pass, busy in its place when given, into its busy prompt, where Claude Code holds it until the turn ends; whether the session was idle, or OrcaError when it shows a prompt the text would answer."""
     waiting = ("terminal", "wait", "--terminal", terminal, "--for", "tui-idle", "--timeout-ms", str(wait_ms))
     try:
         waited = request(*waiting, seconds=wait_ms / 1000 + CALL_SECONDS)["wait"]
@@ -211,7 +211,7 @@ def typed_when_idle(terminal: str, text: str, wait_ms: int) -> bool:
         waited = None
     if waited and not waited["satisfied"]:
         raise OrcaError(f"orca terminal wait: it shows {waited['blockedReason']}")
-    request("terminal", "send", "--terminal", terminal, "--text", text, "--enter", "--wait-submit", str(SUBMIT_SECONDS))
+    request("terminal", "send", "--terminal", terminal, "--text", text if waited else busy or text, "--enter", "--wait-submit", str(SUBMIT_SECONDS))
     return waited is not None
 
 
@@ -265,6 +265,11 @@ def start_meta(drive: str, worktree: str, earlier: str | None) -> str | None:
         reads.run(register, Path(worktree))
     except reads.ReadError as error:
         raise OrcaError(str(error)) from None
+    return opened(show)
+
+
+def opened(show: list[str]) -> str:
+    """Open the Orca terminal a Start or resume `orca terminal create` line names, split into its words; the new terminal's handle."""
     return request(*show[1:-1])["terminal"]["handle"]
 
 
