@@ -1502,7 +1502,7 @@ def test_a_claim_at_a_channels_root_keeps_its_end_on_its_order_and_a_line_in_its
     )
     data = state.load(demo)
     assert [where[::3] for where in data["orders"]["o1"]["threads"]] == [["C0STAGING1", "members"]]
-    assert data["orders"]["o1"]["claims"] == {root: {"channel": "C0STAGING1", "link": link, "until": until, "since": root, "said": None}}
+    assert data["orders"]["o1"]["claims"] == {root: {"channel": "C0STAGING1", "link": link, "until": until, "since": root, "said": None, "replies_read": None}}
     line = f"https://acme.slack.com/archives/C0STAGING1/p{moved.replace('.', '')}?thread_ts={root}"
     slack_thread.messages.append({"ts": moved, "thread_ts": root, "from_claude": True, "text": "Still testing; staging stays claimed until 2:30 PM."})
     monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": line, "thread_ts": root})
@@ -1510,7 +1510,7 @@ def test_a_claim_at_a_channels_root_keeps_its_end_on_its_order_and_a_line_in_its
     assert talk.say(demo, {"text": "Still testing; staging stays claimed until 2:30 PM.", "channel_id": "C0STAGING1", "thread_ts": root, "record": "677159"}) == (
         f"POSTED {line}; o1 progress line, no part delivered: {line}, in a thread of another channel its members read, {unowed}, and its thread owes its closing line from {render.when(later)}"
     )
-    assert state.load(demo)["orders"]["o1"]["claims"] == {root: {"channel": "C0STAGING1", "link": link, "until": later, "since": moved, "said": None}}
+    assert state.load(demo)["orders"]["o1"]["claims"] == {root: {"channel": "C0STAGING1", "link": link, "until": later, "since": moved, "said": None, "replies_read": None}}
 
 
 def test_an_incident_added_from_the_terminal_takes_its_first_line_at_his_dm_root_as_its_own_thread_so_its_next_line_replies_under_it(
