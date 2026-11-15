@@ -266,7 +266,11 @@ session makes its parts `ORPHAN`s.
    answer or the save fails, end refuses, ending nothing and naming why. The watch keeps each end's
    pid and start on the job's row, and each `drive job reclaim` it starts on what an earlier lane
    left on that lane's death, and runs one again only once that process is gone and 300 seconds
-   have passed, so a watch that restarts never asks a second time while the first still runs.
+   have passed, so a watch that restarts never asks a second time while the first still runs. A
+   reclaim that cannot destroy a Sprite, since it does not answer, holds what could not be saved or
+   cc-remote would not destroy it, marks it kept on that lane's death, and the watch says that
+   refusal once and never asks for it again: destroying it unread may lose what it holds on no
+   remote, so that is his pick, and `drive job reclaim <j> <workspace>` run by hand asks again.
 
 ## Remote lanes
 

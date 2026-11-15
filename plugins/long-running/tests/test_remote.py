@@ -4970,6 +4970,46 @@ def test_reclaim_destroys_a_left_sprite_and_marks_a_lane_on_this_mac_freed_so_no
     assert started == [["job", "reclaim", "j1", "ctx_mac"]]
 
 
+def test_a_reclaim_that_cannot_read_a_left_sprite_keeps_it_says_so_once_and_no_watch_asks_for_it_again(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cloned(tmp_path, remote)
+    sprite = J92_ROW["workspace"]
+    earlier = state.stamp(T0 - timedelta(hours=1))
+    ended = {"dispatch": J92_ROW["dispatch"], "workspace": sprite, "why": "ended by drive job end", "at": earlier, "ended": {"pid": ENDED_READER, "at": earlier}}
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(J92_ROW | {"deaths": [ended]})
+    workspaces = tmp_path / "cc-remote-workspaces"
+    workspaces.mkdir()
+    (workspaces / f"{sprite}.json").write_text("{}")
+    monkeypatch.setattr(orca, "CC_REMOTE_WORKSPACES", workspaces)
+    monkeypatch.setattr(state, "scratch", lambda: False)
+    started: list[list[str]] = []
+    monkeypatch.setattr(state, "detach", lambda name, args, log: started.append(args) or ENDED_READER)
+    watch.release_lanes(watch.Watcher(remote, offset=state.events_end(remote)), T0)
+    assert started == [["job", "reclaim", "j1", sprite]]
+    monkeypatch.setattr(orca, "release", unsaveable(UNREAD))
+    start = state.events_end(remote)
+    monkeypatch.setenv(state.DETACHED_ENV, watch.RELAUNCHES_LOG)
+    assert cli.main(["job", "reclaim", "j1", sprite]) == 2
+    refusal = (
+        f"j1: refused, Sprite {sprite} is kept and no watch asks to destroy it again: {UNREAD}. Destroying it unread may lose what it holds on no remote,"
+        f" so only his pick does that; drive job reclaim j1 {sprite} asks again, saving it first"
+    )
+    assert capsys.readouterr().err == f"drive: {refusal}\n"
+    assert state.death_on(state.load(remote)["jobs"]["j1"], sprite)["kept"]
+    assert watch.event_lines(watch.Watcher(remote, offset=start)) == [
+        f"EVENT relaunch_refused drive job reclaim j1, which the watch ran, refused: {refusal}; its output is in the drive's relaunches.log [o1 j1]"
+    ]
+    for hours in (1, 24):
+        watch.release_lanes(watch.Watcher(remote, offset=state.events_end(remote)), T0 + timedelta(hours=hours))
+    assert started == [["job", "reclaim", "j1", sprite]]
+    monkeypatch.delenv(state.DETACHED_ENV)
+    monkeypatch.setattr(orca, "release", lambda drive, job_id, job, root: (workspaces / f"{job['workspace']}.json").unlink() or f"destroyed {job['workspace']}")
+    assert run("job", "reclaim", "j1", sprite) == (0, f"destroyed {sprite}")
+    assert not orca.holds_sprite(state.load(remote)["jobs"]["j1"])
+
+
 def test_end_of_a_finished_job_never_reads_its_sprite_and_keeps_the_parts_it_carried(
     run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
