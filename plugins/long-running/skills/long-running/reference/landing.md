@@ -458,6 +458,58 @@ queued, never `checks failed`, and the lander lands the same PRs again one at a 
 second refusal at the same head reads `unlanded`. Trunk's own `Trunk Merge Queue` check says what the
 queue did with a PR, never what a test found on its head, so the drive counts it as no check.
 
+## Staging tests in Forge-AI/monorepo
+
+A dangerous monorepo change, as the monorepo's `AGENTS.md` defines one, lands only once a short staging
+test of its head has passed. This is prose the drive keeps and its tools help it keep, never a check that
+fails: a job adds no ruleset, commit status or pull request check that every PR hits, and removes one it
+added, by his words 694a1cd, "Don't commit this soak stuff to monorepo as repo check no one asked for
+that it's jsut prompt guidance and local tooling as input to customize long-running do NOT add any pr
+checks and remove those you have added to do with this, don't touch what anyone else has done", 17f763e,
+"Again this is not meant to be codified as hard coded rules that fail, the tooling is jsut there to help
+the agent comply with the prose rules", and f7010ae, "What? Everything tooling can stay and agents.md and
+add enforcements in long-running you can then hook into in monorepo I said jsut don't add fucking CI and
+PR checks that everyone hits".
+
+- **Which changes.** By eedf451, "We need to even more enforce in our home agents.md, anything we are
+  doing dangerous like eg adding the auto partitioning of ssql tables needs to be thoroughly tested in
+  staging (and deploy the branch there then freeze to keep it there, for a short period) before we merge
+  or there's any chance of it touching prod. We have caused too many outages", and above all a change to
+  infra or a blue-green path, by 46eaebb, "The forced staging thing should also and especially apply to
+  anything that changes infra / blue-green things eg what happened this morning w the ddog thing you must
+  ensure this process would have caught it". Each stack's `tools/ci release plan` decides, by his pick
+  bb9cf91, "The soak reads reach from each stack's release plan: a change that plans like dev passes
+  untested". A stack staging has no copy of, such as Buildkite, core-gbl-identity or Datadog, goes on by
+  his pick 67caa93, "His exception after reading the release dry-run's preview of each such stack".
+- **How it runs.** Short, aggressive and agent-led, never a hold on staging, then a 2-hour soak once
+  merged, by 41eb335, "The point of using staging (pre-merge) is not to hold it there, it’s to quickly
+  and aggressively test it in as realistic a way as possible. Then post-merge 2 hour soak is a good
+  timeline", ef0ae96, "1 and also shorten the soaks / don’t do soaks just do short aggressive trests, and
+  make both if these the standard", 0a09bcc, "1 and then aggressively manually test it that should be
+  the playbook", and 3bfcce8, "Each one should also involve some manual agent-led testing the truly tests
+  all scenarios that could break on prod". Changes touching different files share one cut, one freeze
+  and one claim, by 0c33b7b, "But also combine jobs as possible". The drive starts each test on staging
+  alone with no card, by his pick 23eefb9, "A standing yes: the drive soaks any dangerous branch on
+  staging alone, while production keeps waiting for your word", which [After merge](#after-merge) reads
+  as that start's order.
+- **Its tools.** The steps are the monorepo `AGENTS.md`'s **Landing** rule. `tools/ci release soak`, once
+  on `dev`, freezes staging, deploys the branches and unfreezes, by his pick 9e17cb0, "One soak command
+  that freezes staging, deploys the branch, waits for its tests, unfreezes, and posts a pass the merge
+  requires"; its release stamps SandSQL's staging Rollout with the tested head, by fe2959a, "The soak
+  release stamps SandSQL's staging Rollout with the soaked head", and its `--fail` puts staging back, by
+  cf6fc93, "Redeploy the soaked stacks at latest-green-rc when --fail ends the soak". `tools/ci
+  staging-smoke soak` runs the agent's scenarios on staging as the smoke-test account.
+- **Its claim.** The test claims staging as the monorepo's `staging-claim` [repo rule](concepts.md) says,
+  which quotes his 33de0fc and 1e8a8d5 whole, in a claim whose `until` the watch's `DUE` line follows, by
+  [the records page](records.md). Its freeze names its job, with `tools/ci release freeze --with-staging
+  --holder <drive>/<job>` once on `dev`, by his pick e3c9bbd, "The freeze names its job; soak, Mac box proof, agent
+  proof, pass-box run, cluster job and break-glass refuse another job's freeze".
+- **What holds the PR.** The pass the merge requires is the drive's, never GitHub's: each PR waits on a
+  part of its own, `<order>:staging test of #N before it lands`, added with `drive order set <order>
+  --add-part "staging test of #N before it lands"`, never on the testing job, so the lander lands it once that job's `DONE` keeps the test's proof
+  as its first `CHECK:` line, by [the jobs page](jobs.md). The monorepo hooks into the drive through its
+  `.claude/long-running.toml`, never through CI.
+
 ## Before any change FDEs could see
 
 Run the monorepo's `fde-scan` skill before writing a change to anything FDE or customer code can
