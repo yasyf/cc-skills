@@ -56,7 +56,7 @@ WAITED = re.compile(r"\b\d+ ?(?:s|secs?|seconds?|m|mins?|minutes?|h|hrs?|hours?|
 RUNNING = re.compile(r"\b(?:running|queued|idle|stopped|started|starting|in progress|not started)\b", re.IGNORECASE)
 VAGUE_WAIT = "refused: a line that says something waits on X says how long it has waited and whether X is running, such as \"waits on CI, 40 min, run 123 running\"; add both"
 DM_URL = (
-    "refused: a report's --url is the link of what it measured, such as a trace, notebook, log or build, which {{record:<seq>}}"
+    "refused: a report's --url is the link of what it measured, such as a trace, notebook, log or build, which {{record:<seq>|…}}"
     " links in his posts, and {url} is a message in his DM, which --attr thread={thread} names; drop --url, or put that link there"
 )
 

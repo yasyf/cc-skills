@@ -195,36 +195,36 @@ def test_an_order_links_its_thread_in_slack_or_else_its_dashboard_page_under_his
         talk.say(demo, {"text": "{order:o9} is next."})
 
 
-def test_a_record_links_what_it_links_under_its_first_clause_or_the_words_after_a_bar(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_record_links_what_it_measured_under_the_words_after_its_bar_or_draws_those_words_alone(
+    demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch
+) -> None:
     notebook = "https://app.datadoghq.com/notebook/1"
-    timeouts = (
-        "The 37 API failures at 4:14 AM were registry timeouts while the primary switched builds, per #663477 and"
-        " the replica logs. Retries drained them by 4:16 AM."
-    )
     shown = {
         "661194": {"kind": "report", "text": "sandsql-server ran out of memory at its 32 GiB limit, 3 times since 9:40 PM", "refs": {"url": notebook}},
         "661195": {"kind": "report", "text": "the write lock is held across the whole call", "refs": {}},
-        "661196": {"kind": "report", "text": timeouts, "refs": {"url": notebook}},
     }
     asked: list[list[str]] = []
     monkeypatch.setattr(reads, "run", lambda argv, checkout: asked.append(argv) or json.dumps(shown[argv[2]]))
-    talk.say(demo, {"text": "The pod restarts because {record:661194}. Stalls: {record:661195}. Failures: {record:661196}, {record:661196|the timeouts}."})
-    assert asked == [["cci", "show", seq, "--json", "--drive", demo] for seq in ("661194", "661195", "661196", "661196")]
-    assert posts[0][-1] == (
-        f"The pod restarts because <{notebook}|sandsql-server ran out of memory at its 32 GiB limit>. Stalls: the write lock is"
-        f" held across the whole call. Failures: <{notebook}|The 37 API failures at 4:14 AM were registry timeouts…>,"
-        f" <{notebook}|the timeouts>."
-    )
-    assert said(demo)[0]["text"].startswith(f"The pod restarts because [sandsql-server ran out of memory at its 32 GiB limit]({notebook}).")
+    talk.say(demo, {"text": "The pod restarts because {record:661194|it ran out of memory}. Stalls: {record:661195|the lock is held}."})
+    assert asked == [["cci", "show", seq, "--json", "--drive", demo] for seq in ("661194", "661195")]
+    assert posts[0][-1] == f"The pod restarts because <{notebook}|it ran out of memory>. Stalls: the lock is held."
+    assert said(demo)[0]["text"].startswith(f"The pod restarts because [it ran out of memory]({notebook}).")
 
 
-def test_686941_a_record_whose_words_name_a_waits_id_links_under_its_words_with_the_whole_id_left_out(
+def test_712711_a_bare_record_is_refused_naming_the_words_of_its_own_it_would_have_drawn(
     demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    card = "https://acme.slack.com/archives/D123/p1794549171189889"
-    monkeypatch.setattr(reads, "run", lambda argv, checkout: json.dumps({"kind": "posted", "text": "card up durable-agents:j2801-686784", "refs": {"url": card}}))
-    talk.say(demo, {"text": "His card is {record:686809}."})
-    assert posts[0][-1] == f"His card is <{card}|card up>."
+    merged = {"kind": "report", "text": "PR #55865 merged at 4:10 AM, its checks green", "refs": {}}
+    monkeypatch.setattr(reads, "run", lambda argv, checkout: json.dumps(merged))
+    with pytest.raises(DriveError) as refused:
+        talk.say(demo, {"text": "Its fix is in, {record:712709}."})
+    assert str(refused.value) == (
+        '{record:712709} would draw that record\'s own words, "PR #55865 merged at 4:10 AM", which you never wrote: say what that read'
+        " measured after a |, as {record:712709|<what that read measured>}"
+    )
+    assert (posts, said(demo)) == ([], [])
+    talk.say(demo, {"text": "Its fix is in, {record:712709|the merge}."})
+    assert posts[0][-1] == "Its fix is in, the merge."
 
 
 def test_his_ruling_draws_as_his_words_and_when_he_said_them_linked_to_their_ack_and_its_id_is_no_commit(
