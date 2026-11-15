@@ -262,8 +262,12 @@ def open_cards(job: dict) -> list[str]:
 
 
 def drawn_on(drive: dict, *cards: str) -> list[tuple[str, dict]]:
-    """Each job's question his question card under any of these waits ids or Slack links is drawn for, by its job: a question asked again on a withdrawn card shares its waits id with the one first drawn there."""
+    """Each job's question his question card under any of these waits ids or Slack links is drawn for, by its job, in the order the drive's jobs hold them, read from the projection's state.Index when one is being built: a question asked again on a withdrawn card shares its waits id with the one first drawn there."""
     keys = {message_key(card) for card in cards}
+    if index := state.index_of(drive):
+        met = {n: (job_id, question) for card in cards for n, job_id, question in index.waits.get(card, ())}
+        met |= {n: (job_id, question) for key in keys for n, job_id, question in index.cards.get(key, ())}
+        return [met[n] for n in sorted(met)]
     return [
         (job_id, question)
         for job_id, job in drive["jobs"].items()
@@ -348,7 +352,7 @@ def kin(drive: dict, wait: str, *named: str) -> dict[str, tuple[str | None, str]
     """Each open PR waiting on the wait, and each PR named, mapped to its job and the bottom of its stack, as land.chain reads it."""
     from drive import land
 
-    keys = [key for key, pr in drive["prs"].items() if key in named or pr["state"] == "open" and wait in pr["waits"]]
+    keys = list(dict.fromkeys([*state.waiting_prs(drive, wait), *named]))
     under = land.unders(drive) if len(keys) > 1 else {}
     return {key: (drive["prs"][key]["job"], land.chain(under, key)[0]) for key in keys}
 
@@ -625,9 +629,9 @@ def tap_detail(pr: dict) -> str:
     return f"{checks}, {review}{changed}{now}"
 
 
-def question_item(drive: dict, card: dict, features: list[dict], waiting: list[dict]) -> dict:
+def question_item(drive: dict, card: dict, features: list[dict], waiting: list[dict], holding: list[tuple[dict, set[str]]]) -> dict:
     pick = f"Recommended: {card['recommended']}" if card.get("recommended") else " / ".join(card["options"])
-    finished = held_up(drive, card)
+    finished = held_up(drive, card, holding)
     tasks = [entry["id"] for entry in features if any(held["url"] == card["url"] for held in entry["cards"])]
     asker = card["job"]
     return {
@@ -651,12 +655,10 @@ def question_item(drive: dict, card: dict, features: list[dict], waiting: list[d
     }
 
 
-def held_up(drive: dict, card: dict) -> list[dict]:
-    """The green approved open PRs his question card holds from landing, by land.pr_cards, and the built jobs that wait on it, each PR by its title and link and each job by its goal and branch."""
-    from drive import land
-
+def held_up(drive: dict, card: dict, holding: list[tuple[dict, set[str]]]) -> list[dict]:
+    """The green approved open PRs his question card holds from landing, read from the holding queue() finds once: each such PR with the message_key of each card land.pr_cards finds holding it; and the built jobs that wait on it, each PR by its title and link and each job by its goal and branch."""
     names = {card["card"].get("waits"), message_key(card["url"])}
-    finished = [pr for pr in drive["prs"].values() if pr["state"] == "open" and pr["checks"] == "pass" and pr["review"] == "approved" and any(message_key(held) in names for held in land.pr_cards(drive, pr))]
+    finished = [pr for pr, held in holding if names & held]
     built = [job for job in drive["jobs"].values() if job["state"] == "built" and any(message_key(wait) in names for wait in job["waits"])]
     return [
         *({"kind": "pr", "feature": pr["order"], "title": pr_title(pr), "url": pr["url"]} for pr in finished),
@@ -753,11 +755,14 @@ def is_late(order: dict, moment: datetime) -> bool:
 
 
 def queue(drive: dict, found: dict, moment: datetime, features: list[dict], answering: dict[str, str]) -> list[dict]:
+    from drive import land
+
     taps = [(pr, head_card(pr, found["pr_cards"])) for pr in drive["prs"].values() if waits_on_tap(pr)]
     taps = list({card["url"] if card else pr["url"]: (pr, card) for pr, card in taps}.values())
     waiting = waiting_on_him(drive, found)
+    holding = [(pr, {message_key(held) for held in land.pr_cards(drive, pr)}) for pr in drive["prs"].values() if pr["state"] == "open" and pr["checks"] == "pass" and pr["review"] == "approved"]
     items = [
-        *(question_item(drive, card, features, waiting) for card in found["questions"]),
+        *(question_item(drive, card, features, waiting, holding) for card in found["questions"]),
         *(tap_item(drive, pr, card) for pr, card in taps),
         *(late_item(drive, order_id, order, found["team_url"]) for order_id, order in drive["orders"].items() if is_late(order, moment)),
     ]

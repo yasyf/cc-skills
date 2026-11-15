@@ -314,6 +314,8 @@ class Board:
         self.assistant = review.Assistant(name)
         self.database: sqlite3.Connection | None = None
         self.heard: dict[str, list[dict]] = {}
+        self.watch: subprocess.Popen | None = None
+        self.stopping = False
         self.records = 0
         self.timings: dict[str, float] = {}
         self.pages: tuple[int, list[dict]] = (0, [])
@@ -352,7 +354,7 @@ class Board:
         folder = pages.pages_dir(self.name)
         if (listed_at := folder.stat().st_mtime_ns if folder.exists() else 0) != self.pages[0]:
             self.pages = (listed_at, pages.listed(self.name))
-        with state.indexed_pr_jobs(drive):
+        with state.indexed(drive):
             model = view.board(drive, found, source, self.events, state.now(), self.reports, heard) | {
                 "code": CODE,
                 "site": site_stamp(),
@@ -368,11 +370,14 @@ class Board:
         self.assistant.warm((entry["key"], entry["head"]) for entry in model["review"] if entry["group"] == "you")
 
     def hear(self) -> None:
-        """Keep the newest HEARD_LINES records naming each order and job, by its order and job attrs and the ids its words name, from the last HEARD_SINCE of the drive's records and each `cci watch` delivers after, watching afresh RESTART_SECONDS after a watch ends."""
+        """Keep the newest HEARD_LINES records naming each order and job, by its order and job attrs and the ids its words name, from the last HEARD_SINCE of the drive's records and each `cci watch` delivers after, watching afresh launchd.RESTART_SECONDS after a watch ends, until stop() ends it."""
         while True:
             with self.changed:
+                if self.stopping:
+                    return
                 self.heard = {}
-            with subprocess.Popen(["cci", "watch", "--drive", self.name, "--json", "--since", HEARD_SINCE], stdout=subprocess.PIPE, text=True) as watch:
+                watch = self.watch = subprocess.Popen(["cci", "watch", "--drive", self.name, "--json", "--since", HEARD_SINCE], stdout=subprocess.PIPE, text=True)
+            with watch:
                 for line in watch.stdout:
                     record = json.loads(line)
                     attrs = record["fields"].get("attrs") or {}
@@ -382,7 +387,17 @@ class Board:
                         for key in named:
                             self.heard[key] = [told, *self.heard.get(key, [])][: view.HEARD_LINES]
                         self.records += 1
-            time.sleep(RESTART_SECONDS)
+            time.sleep(launchd.RESTART_SECONDS)
+
+    def stop(self) -> None:
+        """End the record watch and each review stream, waiting for every one to exit, so none outlives the dashboard or stays a zombie under the install its handover runs in the same process, and start no watch after."""
+        with self.changed:
+            self.stopping = True
+            watch = self.watch
+        if watch:
+            watch.terminate()
+            watch.wait()
+        self.assistant.stop()
 
     def show(self, model: dict) -> None:
         """Hand every open page the summary of model, keeping model whole for the screens that read their own part of it."""
@@ -730,7 +745,7 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
 
 
 def serve(name: str, port: int, inherited: list[int]) -> None:
-    """Serve the dashboard on loopback and this machine's own tailnet addresses, never a wildcard, the tailnet ones over HTTPS when the tailnet issues certificates, on the listening sockets an older install handed over when there are any. Once a newer long-running is installed, its drive takes this process's place on the same sockets, which queue each connection meanwhile, so the port answers throughout. Following the drive's files failing ends the server rather than freezing its page."""
+    """Serve the dashboard on loopback and this machine's own tailnet addresses, never a wildcard, the tailnet ones over HTTPS when the tailnet issues certificates, on the listening sockets an older install handed over when there are any. Once a newer long-running is installed, its drive takes this process's place on the same sockets, which queue each connection meanwhile, so the port answers throughout, once Board.stop has ended and reaped its record watch and review streams, so none piles up across handovers. Following the drive's files failing ends the server rather than freezing its page."""
     os.environ.update(launchd.session_env())
     net = tailnet()
     board = Board(name, links_of(port, net))
@@ -746,14 +761,14 @@ def serve(name: str, port: int, inherited: list[int]) -> None:
         threading.Thread(target=server.serve_forever, daemon=True).start()
 
     def stopped(signum: int, frame: object) -> None:
-        board.assistant.stop()
+        board.stop()
         sys.exit(0)
 
     signal.signal(signal.SIGTERM, stopped)
     newer = board.follow()
     for server in servers:
         server.shutdown()
-    board.assistant.stop()
+    board.stop()
     print(f"handing port {port} to {newer}, a newer long-running", file=sys.stderr, flush=True)
     os.execv(sys.executable, [sys.executable, "-I", str(newer), "dashboard", "--drive", name, "--port", str(port), "--serve", *(f"--listening={sock.fileno()}" for sock in listening)])
 
@@ -793,7 +808,7 @@ def label(name: str) -> str:
 
 
 def start(name: str, port: int) -> list[str]:
-    """The drive's dashboard links, tailnet first, its server kept by the drive's launch agent: one no agent keeps is stopped and the agent loaded, and a kept one not serving these links is started again at once. A proof's drive, whose state LONG_RUNNING_STATE moves, gets a server on this code and no agent, which would outlive the proof."""
+    """The drive's dashboard links, tailnet first, its server kept by the drive's launch agent: one no agent keeps is stopped and the agent loaded, and a kept one not serving these links is started again at once. A proof's or a script's drive, whose state root LONG_RUNNING_STATE or XDG_STATE_HOME moves, gets a server on this code and no agent, which would outlive it."""
     log = state.drive_dir(name) / "dashboard.log"
     drawn = serving(name, port)
     links = links_of(port, tailnet())

@@ -77,6 +77,7 @@ REAL_SPRITE_CONFIG = orca.sprite_config
 REAL_MAILBOX = orca.mailbox
 REAL_PLUGIN_COPIES_FIRST = install.plugin_copies_first
 REAL_DOWN_MAC_BOXES = state.down_mac_boxes
+REAL_SCRATCH = state.scratch
 SPRITE_CONFIG = "4b925c205080" + "0" * 52
 LANE_SPEC = Path(__file__).resolve().parents[2] / "orca" / "lib" / "lane.json"
 SETTLED_NOTE = cli.settled_note
@@ -400,6 +401,13 @@ def judged_pictures(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def real_drive(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every test's drive takes a real drive's paths, its sessions, watch, webhooks and dashboard each stubbed, though its state root is the test's own folder, which state.scratch reads as a script's drive; each launch agent it would load reads as loaded already, so none is; a test of a scratch drive puts back REAL_SCRATCH."""
+    monkeypatch.setattr(state, "scratch", lambda: False)
+    monkeypatch.setattr(launchd, "kept", lambda label: True)
+
+
+@pytest.fixture(autouse=True)
 def drive_interpreter(tmp_path: Path) -> None:
     """Every test's state root records the interpreter running the tests as the drive's own, as hooks/installed.py records the drive's, so each proof file a test keeps has that interpreter's folder pinned first on its PATH."""
     record = tmp_path / "long-running" / "interpreter"
@@ -481,7 +489,6 @@ def drawn(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     pages: list[str] = []
     monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS)
     monkeypatch.setattr(dashboard, "tailnet", lambda: None)
-    monkeypatch.setattr(launchd, "kept", lambda label: True)
     monkeypatch.setattr(page, "draw", lambda name, markdown: pages.append(markdown) or page.Drawn("https://slack.example/docs/T1/F1", False))
     return pages
 

@@ -4229,11 +4229,11 @@ def label(name: str, project: str | None = None) -> str:
 
 
 def ensure(name: str, project: str | None = None) -> str:
-    """Load the launch agent keeping the drive's watch, or a project's, unless it is loaded or the drive sits under LONG_RUNNING_STATE: launchd starts the watch now and again within RESTART_SECONDS of any exit, crash included, on the newest install, its output in its own log and its environment naming the drive; the line saying which. A project's watch first reads the events from where the log ended as its sub-coordinator was bound."""
+    """Load the launch agent keeping the drive's watch, or a project's, unless it is loaded or LONG_RUNNING_STATE or XDG_STATE_HOME moves the drive's state root, by state.scratch: launchd starts the watch now and again within RESTART_SECONDS of any exit, crash included, on the newest install, its output in its own log and its environment naming the drive; the line saying which. A project's watch first reads the events from where the log ended as its sub-coordinator was bound."""
     watcher = f"the watch for {project}" if project else "the watch"
     reader = f"the sub-coordinator for {project}" if project else "the coordinator"
     if state.scratch():
-        return f"{watcher} does not start for a drive under LONG_RUNNING_STATE={state.root()}; a proof runs its passes in-process with watch.run_pass(watch.Watcher(...), moment)"
+        return f"{watcher} does not start for a drive whose state LONG_RUNNING_STATE or XDG_STATE_HOME moves to {state.root()}; a proof runs its passes in-process with watch.run_pass(watch.Watcher(...), moment)"
     agent = f"its launch agent {label(name, project)}, which starts it again within {launchd.RESTART_SECONDS} seconds of any exit, crash included"
     if launchd.kept(label(name, project)):
         return f"{watcher} runs under {agent}, and posts its lines to {reader} over cci; arm no Monitor for it"
@@ -4258,9 +4258,9 @@ def stopped(watcher: Watcher, error: Exception) -> None:
 
 
 def main(drive_name: str | None = None, project: str | None = None) -> int:
-    """Run the drive's watch, or a project's, as the process its launch agent starts, until it stops, once a watch an older install ran under a Monitor has ended, with the env of this Mac's Claude settings in its environment, so each read it runs carries the API keys a session here carries. Any other process, such as one an older install's watch re-executed itself into, lets the watch go, loads its agent and ends, so launchd runs every watch. On a drive under LONG_RUNNING_STATE, end at once, so a watch an older install started there ends at its next re-exec."""
+    """Run the drive's watch, or a project's, as the process its launch agent starts, until it stops, once a watch an older install ran under a Monitor has ended, with the env of this Mac's Claude settings in its environment, so each read it runs carries the API keys a session here carries. Any other process, such as one an older install's watch re-executed itself into, lets the watch go, loads its agent and ends, so launchd runs every watch. On a drive whose state root LONG_RUNNING_STATE or XDG_STATE_HOME moves, end at once, so a watch an older install started there ends at its next re-exec."""
     if state.scratch():
-        print(f"no watch runs for a drive under LONG_RUNNING_STATE={state.root()}", flush=True)
+        print(f"no watch runs for a drive whose state LONG_RUNNING_STATE or XDG_STATE_HOME moves to {state.root()}", flush=True)
         return 0
     name = state.resolve(drive_name)
     if os.environ.get(launchd.LAUNCHED_ENV) != label(name, project):

@@ -176,11 +176,14 @@ class Assistant:
                 time.sleep(WATCH_BACKOFF_SECONDS)
 
     def stop(self) -> None:
-        """End every watch, so none outlives the dashboard; a Claude session answering him finishes on its own."""
+        """End every watch and wait for each to exit, so none outlives the dashboard or stays a zombie under the install its handover runs; a Claude session answering him finishes on its own."""
         with self.lock:
             self.watching.clear()
-            for stream in self.streams:
-                stream.terminate()
+            streams = list(self.streams)
+        for stream in streams:
+            stream.terminate()
+        for stream in streams:
+            stream.wait()
 
     def relay(self, key: str, stream: subprocess.Popen) -> None:
         for line in stream.stdout:

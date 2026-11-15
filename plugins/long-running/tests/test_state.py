@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
-from conftest import REAL_DOWN_MAC_BOXES, carrying
+from conftest import REAL_DOWN_MAC_BOXES, REAL_SCRATCH, carrying
 from drive import github, install, reads, render, served, settled, stage, state
 from drive.state import DriveError
 
@@ -27,6 +27,22 @@ def test_root_prefers_explicit_then_xdg_then_home(monkeypatch: pytest.MonkeyPatc
     monkeypatch.delenv("XDG_STATE_HOME")
     monkeypatch.setenv("HOME", str(tmp_path))
     assert state.root() == tmp_path / ".local" / "state" / "long-running"
+
+
+@pytest.mark.parametrize(
+    ("variable", "folder", "moved"),
+    [(None, None, False), ("XDG_STATE_HOME", ".local/state", False), ("XDG_STATE_HOME", "peek", True), ("LONG_RUNNING_STATE", "proof", True)],
+)
+def test_a_state_root_either_variable_moves_off_the_home_one_holds_a_scratch_drive(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, variable: str | None, folder: str | None, moved: bool
+) -> None:
+    monkeypatch.setattr(state, "scratch", REAL_SCRATCH)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("LONG_RUNNING_STATE", raising=False)
+    monkeypatch.delenv("XDG_STATE_HOME", raising=False)
+    if variable:
+        monkeypatch.setenv(variable, str(tmp_path / folder))
+    assert state.scratch() is moved
 
 
 def make(name: str, session: str | None = None, started: str | None = None) -> None:
@@ -1682,27 +1698,27 @@ def test_projection_indexes_pr_jobs_once_preserving_order_and_scope() -> None:
             self.scans += 1
             return super().items()
 
-    jobs = Jobs({f"j{n}": {"prs": [f"pr{n}", "shared", "shared"]} for n in range(64)})
-    data = {"jobs": jobs}
+    jobs = Jobs({f"j{n}": {"prs": [f"pr{n}", "shared", "shared"], "questions": []} for n in range(64)})
+    data = {"jobs": jobs, "prs": {}, "orders": {}}
     prs = [{"job": f"j{n}", "url": f"pr{n}"} for n in range(64)] + [{"job": "outside", "url": "shared"}, {"job": "outside", "url": "unknown"}]
     expected = [state.pr_jobs(data, pr) for pr in prs]
     assert jobs.scans == len(prs)
     jobs.scans = 0
-    other = {"jobs": {"other": {"prs": ["shared"]}}}
-    with state.indexed_pr_jobs(data):
+    other = {"jobs": {"other": {"prs": ["shared"], "questions": []}}, "prs": {}, "orders": {}}
+    with state.indexed(data):
         assert [state.pr_jobs(data, pr) for pr in prs] == expected
         assert jobs.scans == 1
         assert state.pr_jobs(other, prs[-2]) == ["outside", "other"]
-        with state.indexed_pr_jobs(other):
+        with state.indexed(other):
             assert state.pr_jobs(other, prs[-2]) == ["outside", "other"]
         assert state.pr_jobs(data, prs[-2]) == expected[-2]
         assert jobs.scans == 1
-    jobs["new"] = {"prs": ["shared"]}
+    jobs["new"] = {"prs": ["shared"], "questions": []}
     assert state.pr_jobs(data, prs[-2]) == [*expected[-2], "new"]
     assert jobs.scans == 2
-    with pytest.raises(RuntimeError), state.indexed_pr_jobs(data):
+    with pytest.raises(RuntimeError), state.indexed(data):
         raise RuntimeError("projection failed")
-    assert state.PR_JOB_INDEX.get() is None
+    assert state.INDEX.get() is None
 
 
 def test_the_demo_drive_a_release_saves_for_the_next_release_to_try_reads_with_its_own_drive_status(
