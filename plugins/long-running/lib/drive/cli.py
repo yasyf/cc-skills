@@ -2004,7 +2004,7 @@ def post_ask(name: str, job_id: str, file: Path, card: dict, read: tuple[str, st
     if not lined:
         return "; ".join(said)
     told = view.told_line(data, where[1], live["waits"], link)
-    if told and read == (told["link"], settled.HOLDS):
+    if told and read == (told["link"], settled.STILL_HOLDS):
         said.append(f"its line {told['link']} in thread {where[1]} of channel {where[0]} still holds for the card as asked now, so nothing goes to that thread")
         return "; ".join(said)
     held = building(data, job_id, card["waits"], link)

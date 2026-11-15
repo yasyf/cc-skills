@@ -887,7 +887,8 @@ def test_an_edit_moving_the_time_a_post_promised_moves_its_orders_due_and_one_dr
 
     monkeypatch.setattr(slack, "cc_slack", cc_slack)
     handling(demo, "o1")
-    talk.say(demo, {"text": text, "thread_ts": thread})
+    report(monkeypatch, {"order": "o1", "thread": thread}, lane="communicator", kind="owner")
+    talk.say(demo, {"text": text, "thread_ts": thread, "record": "698123"})
     promised = slack.sent_at(slack_thread.messages[-1]).isoformat()
     moved = state.stamp(at.replace(hour=22, minute=15, second=0, microsecond=0))
     reads = len(slack_thread.reads)
