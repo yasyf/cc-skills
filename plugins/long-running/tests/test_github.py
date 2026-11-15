@@ -28,7 +28,10 @@ RULED = {
     "name": "main",
 }
 UNRULED = {"name": "main", "rules": {"nodes": []}}
-ALLOWED = {"squashMergeAllowed": True, "rebaseMergeAllowed": True, "mergeCommitAllowed": True, "viewerPermission": "ADMIN"}
+ALLOWED = {"squashMergeAllowed": True, "rebaseMergeAllowed": True, "mergeCommitAllowed": True, "viewerPermission": "ADMIN", "landing": None}
+LEGACY = "ssql-litestream-legacy"
+NAMES_LEGACY = {"text": f'[landing]\nbases = ["{LEGACY}"]\n'}
+LITESTREAM = {**ALLOWED, "defaultBranchRef": UNRULED | {"name": "ssql-litestream"}}
 
 
 def node(**overrides: object) -> dict:
@@ -60,7 +63,7 @@ def stored(head: str = "abc", failed: list[str] | None = None) -> dict:
 
 
 def pr_read(rollup: list[dict], **overrides: object) -> dict:
-    return {"state": "OPEN", "checks": rollup, "reviewDecision": None, "approvals": [], "mergeable": "MERGEABLE", "headRefOid": "abc", "baseRefName": "main", "headRefName": "lane", "title": "T", "author": "yasyf", "labels": [], "native": [], "trunk": None, "required_checks": [], "required_reviews": 0, "merge_method": "squash", "permission": "ADMIN", "mergeCommit": None, "default": "main", "under": None, "base_pr": None, **overrides}
+    return {"state": "OPEN", "checks": rollup, "reviewDecision": None, "approvals": [], "mergeable": "MERGEABLE", "headRefOid": "abc", "baseRefName": "main", "headRefName": "lane", "title": "T", "author": "yasyf", "labels": [], "native": [], "trunk": None, "required_checks": [], "required_reviews": 0, "merge_method": "squash", "permission": "ADMIN", "mergeCommit": None, "default": "main", "landing_bases": [], "under": None, "base_pr": None, **overrides}
 
 
 def test_query_names_one_repository_aliased_r0_with_one_pull_per_number_and_refuses_the_prs_of_two() -> None:
@@ -172,6 +175,7 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
             "merge_method": "squash",
             "permission": "ADMIN",
             "default": "main",
+            "landing_bases": [],
             "under": None,
             "base_pr": None,
         },
@@ -201,6 +205,7 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
             "merge_method": "squash",
             "permission": "ADMIN",
             "default": "main",
+            "landing_bases": [],
             "under": None,
             "base_pr": None,
         },
@@ -363,6 +368,39 @@ def test_fetch_reads_the_one_open_pr_heading_a_base_other_than_the_default_branc
     assert (refused, reads["a/one#1"]["under"]) == (None, under)
 
 
+@pytest.mark.parametrize(
+    ("landing", "opened", "under", "landed"),
+    [
+        (NAMES_LEGACY, [], None, True),
+        (NAMES_LEGACY, [35], None, True),
+        (None, [], None, False),
+        (None, [35], "Forge-AI/litestream#35", False),
+    ],
+)
+def test_fetch_reads_a_pr_on_a_release_line_its_repositorys_long_running_toml_names_as_on_a_landing_base_whatever_pr_heads_it_as_litestream_36_on_its_legacy_line(
+    monkeypatch: pytest.MonkeyPatch, landing: dict | None, opened: list[int], under: str | None, landed: bool
+) -> None:
+    sent = []
+    ref = {"associatedPullRequests": {"nodes": [{"number": number} for number in opened]}}
+
+    def reply(cmd: list[str], **_: object) -> str:
+        sent.append(cmd[4])
+        return json.dumps({"data": {"r0": LITESTREAM | {"landing": landing, "p36": node(baseRefName=LEGACY, baseRef=ref)}}})
+
+    monkeypatch.setattr(github, "run", reply)
+    reads, refused = FETCH(["Forge-AI/litestream#36"])
+    read = reads["Forge-AI/litestream#36"]
+    assert (refused, read["under"], github.live(read, stored())["landing_base"]) == (None, under, landed)
+    assert 'landing: object(expression: "HEAD:.claude/long-running.toml") { ... on Blob { text } }' in sent[0]
+
+
+def test_fetch_reads_a_pr_merged_into_a_landing_base_merged_at_its_own_commit_with_no_read_of_the_prs_heading_that_base(monkeypatch: pytest.MonkeyPatch) -> None:
+    merged = node(state="MERGED", baseRefName=LEGACY, mergeCommit={"oid": "fff000"}, mergedAt=MERGED_AT)
+    sent = replying(monkeypatch, {"data": {"r0": LITESTREAM | {"landing": NAMES_LEGACY, "p36": merged}}})
+    reads, refused = FETCH(["Forge-AI/litestream#36"])
+    assert (refused, len(sent), github.landing(reads["Forge-AI/litestream#36"])) == (None, 1, {"state": "merged", "into": None, "merged_sha": "fff000"})
+
+
 def test_fetch_names_an_unreadable_reply(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(github, "run", lambda cmd, **_: "<html>bad gateway</html>")
     reads, refused = FETCH(["a/one#1"])
@@ -394,6 +432,7 @@ def test_live_maps_a_read_onto_the_stored_vocabulary() -> None:
         "merge_method": "squash",
         "permission": "ADMIN",
         "conflict": True,
+        "landing_base": True,
         "required": {"checks": "none", "failed": {}},
     }
 
@@ -661,7 +700,7 @@ def test_below_follows_a_native_stack_split_off_another_open_prs_branch_down_to_
 
     def graphql(text: str, what: str) -> dict:
         asked.append(number := int(text.split("pullRequest(number: ")[1].split(")")[0]))
-        return {"data": {"repository": {"pullRequest": reads[number]}}}
+        return {"data": {"repository": {"defaultBranchRef": {"name": "main"}, "landing": None, "pullRequest": reads[number]}}}
 
     monkeypatch.setattr(github, "graphql", graphql)
     monkeypatch.setattr(github, "below", BELOW)

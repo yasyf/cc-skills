@@ -471,15 +471,15 @@ def undequeued(name: str, keys: list[str], why: str) -> str:
 
 
 def unmergeable(read: dict) -> str | None:
-    """Why a yasyf/* PR may not merge at the head GitHub holds now, by github.fetch's read of it, its repository's default branch included: it is not open, is a draft, carries the hold label, or sits on another branch than its repository's default."""
+    """Why a yasyf/* PR may not merge at the head GitHub holds now, by github.fetch's read of it, its repository's default branch and landing bases included: it is not open, is a draft, carries the hold label, or sits on a branch its repository lands no PRs on, by github.landing_base."""
     if read["state"] != "OPEN":
         return f"it is {read['state'].lower()}"
     if read["isDraft"]:
         return "it is a draft"
     if github.HOLD_LABEL in read["labels"]:
         return "it carries the hold label"
-    if read["baseRefName"] != read["default"]:
-        return f"it sits on {read['baseRefName']}, not {read['default']}"
+    if not github.landing_base(read["baseRefName"], read["default"], read["landing_bases"]):
+        return f"it sits on {read['baseRefName']}, not {read['default']} or a landing base its .claude/long-running.toml names"
     return None
 
 

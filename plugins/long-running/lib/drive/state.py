@@ -981,6 +981,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         pr.setdefault("permission", None)
         pr.setdefault("base", None)
         pr.setdefault("default", None)
+        pr.setdefault("landing_base", pr["base"] == pr["default"])
         pr.setdefault("into", None)
         pr.setdefault("branch", None)
         pr.setdefault("under", None)
@@ -5069,6 +5070,7 @@ def new_pr(url: str, job_id: str, order_id: str) -> dict:
         "permission": None,
         "base": None,
         "default": None,
+        "landing_base": False,
         "into": None,
         "branch": None,
         "under": None,
