@@ -781,6 +781,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str) -> dict:
         "stale_queued_dropped": True,
         "staging_approves_restored": True,
         "proofs_rehomed": True,
+        "unowed_fails_undone": True,
     }
 
 
@@ -1167,7 +1168,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     if data["catch_up"]:
         data["catch_up"]["record"] = bare_seq(data["catch_up"]["record"])
     passes = (drive_dir(name) / "pictures" / picture.SOURCED, drive_dir(name) / "asks" / REBUILT_ASKS, drive_dir(name) / APPROVALS_LABELLED)
-    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated")) and bool(data.get("holds_owed")) and bool(data.get("near_answers_apart")) and bool(data.get("stack_writes_read")) and bool(data.get("builder_goals_named")) and bool(data.get("members_kept")) and bool(data.get("open_dones_held")) and bool(data.get("staging_runs_reread")) and bool(data.get("lines_kept")) and bool(data.get("change_builders_unwaited")) and bool(data.get("finished_replacers_undone")) and bool(data.get("finished_texts_dropped")) and bool(data.get("work_proofs_owned")) and bool(data.get("messages_kept_once")) and bool(data.get("proof_results_marked")) and bool(data.get("reader_prs_handed")) and bool(data.get("stale_queued_dropped")) and bool(data.get("staging_approves_restored")) and bool(data.get("proofs_rehomed"))
+    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated")) and bool(data.get("holds_owed")) and bool(data.get("near_answers_apart")) and bool(data.get("stack_writes_read")) and bool(data.get("builder_goals_named")) and bool(data.get("members_kept")) and bool(data.get("open_dones_held")) and bool(data.get("staging_runs_reread")) and bool(data.get("lines_kept")) and bool(data.get("change_builders_unwaited")) and bool(data.get("finished_replacers_undone")) and bool(data.get("finished_texts_dropped")) and bool(data.get("work_proofs_owned")) and bool(data.get("messages_kept_once")) and bool(data.get("proof_results_marked")) and bool(data.get("reader_prs_handed")) and bool(data.get("stale_queued_dropped")) and bool(data.get("staging_approves_restored")) and bool(data.get("proofs_rehomed")) and bool(data.get("unowed_fails_undone"))
     for flag in ("may_settle_per_answer", "may_settle_skips_approvals", "may_settle_by_subject", "may_settle_by_jev", "delivered_by_prs", "delivered_restored", "proofs_posted", "proofs_proven", "tap_cards_kept"):
         data.pop(flag, None)
     data["slack"].pop("channel", None)
@@ -1251,6 +1252,9 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         rehome_proofs(name, data)
     if uncarded(data):
         keep_tap_cards(name, data)
+    if not data.get("unowed_fails_undone"):
+        undo_unowed_fails(data)
+        data["unowed_fails_undone"] = True
     return data, keep and not unkept and not unkinded and not uncarded(data)
 
 
@@ -1387,12 +1391,17 @@ def keep_tap_cards(name: str, data: dict) -> None:
             tap["card"] = [pr_key(member) for member in max(pressed, key=lambda card: parse_time(card["asked"]))["prs"]] if pressed else [key]
 
 
-def post_proofs(data: dict) -> None:
-    """Deliver work he ordered only by the proofs drive job prove ran: each job an older install's watch failed by proving a DONE of its own on parts a newer job holds, by tester_of, goes back on that DONE, since a part's one proof is its tester's; each open order's work part's posted field, the merged PR link, post or proof an older install wrote there, and its posted_by, the job whose DONE an older install read as delivering it, are cleared, but a staging test part's, which its tester's proof wrote, and each part a job whose said line is a passing proof's DONE owes as its tester takes that proof beside the job, by deliver_proven, since an older install read a part delivered from its job's state, a PR link or any job's proof, or kept a passing proof's part undelivered until a check named it carried; marked so this runs once, after hold_open_dones and mark_proof_results."""
+def undo_unowed_fails(data: dict) -> None:
+    """Put back on its DONE each job a watch failed by proving that DONE of its own on parts it is the tester of none of, by tester_of, since a part's one proof is its tester's, as one following a release it started was failed once a widening gave it a merged PR's part a newer prover holds now."""
     for job_id, job in data["jobs"].items():
         held = [(order_id, part) for order_id in [job["order"], *job["carries"]] for part in job_parts(job, order_id)]
         if job["state"] == "failed" and (job.get("proof") or {}).get("said", "").startswith("DONE") and held and all(tester_of(data, order_id, part) != job_id for order_id, part in held):
             job.update(state="done", said=job["proof"]["said"], updated=stamp())
+
+
+def post_proofs(data: dict) -> None:
+    """Deliver work he ordered only by the proofs drive job prove ran: each job an older install's watch failed by proving a DONE of its own on parts a newer job holds, by tester_of, goes back on that DONE, since a part's one proof is its tester's; each open order's work part's posted field, the merged PR link, post or proof an older install wrote there, and its posted_by, the job whose DONE an older install read as delivering it, are cleared, but a staging test part's, which its tester's proof wrote, and each part a job whose said line is a passing proof's DONE owes as its tester takes that proof beside the job, by deliver_proven, since an older install read a part delivered from its job's state, a PR link or any job's proof, or kept a passing proof's part undelivered until a check named it carried; marked so this runs once, after hold_open_dones and mark_proof_results."""
+    undo_unowed_fails(data)
     for order_id, order in open_orders(data).items():
         for part, fields in order["parts"].items():
             if work(data, order_id, part) and not STAGING_PART.fullmatch(part):

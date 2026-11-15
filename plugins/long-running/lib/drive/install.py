@@ -1029,7 +1029,7 @@ def joined(held: dict, flags: dict[str, str | None]) -> dict:
 
 
 def prover_of(data: dict, key: str) -> str | None:
-    """The one builder proving the merged PR at key live, on whatever order holds it, marked as building nothing or not: the earliest done, whose DONE proved it, then the earliest an agent or lane took, then the earliest none took yet, of the builders whose goal reads prove <PRs> live naming it, or done on a DONE proving it, one briefed to prove it, as briefed_prs reads it, or one whose own proof proves it, as proved_prs reads it, never one whose DONE only cites it, nor the DONE the watch takes at a merge, which proves nothing live; else the earliest such prover that failed or stopped, so its part reads ORPHAN and the watch adds no second; None while no builder proves it."""
+    """The one builder proving the merged PR at key live, on whatever order holds it, marked as building nothing or not, of the builders prover_prs reads as proving it: the earliest done, then the earliest an agent or lane took, then the earliest none took yet; else the earliest such prover that failed or stopped, so its part reads ORPHAN and the watch adds no second; None while no builder proves it, so the watch adds one."""
     number = key.rpartition("#")[2]
     found = [
         (rank, position, job_id)
@@ -1041,15 +1041,23 @@ def prover_of(data: dict, key: str) -> str | None:
 
 def proof_rank(data: dict, job_id: str, key: str) -> int | None:
     job = data["jobs"][job_id]
-    if state.done_at_merge(job):
+    if key not in prover_prs(data, job_id):
         return None
     if job["state"] == "done":
-        return 0 if key in proves(data, job_id) or key in briefed_prs(data, job_id) or key in proved_prs(data, job_id) else None
-    if key not in proves(data, job_id):
-        return None
+        return 0
     if job["state"] in state.ENDED_JOB_STATES:
         return 3
     return 2 if state.untaken(job) else 1
+
+
+def prover_prs(data: dict, job_id: str) -> list[str]:
+    """The PRs a builder proves live: those its goal reads prove <PRs> live names, by proves, and on a done one also those it was briefed to prove, as briefed_prs reads them, and those its own proof proves, as proved_prs reads them, never one its DONE only cites, nor one a staging tester's brief or DONE names, by state.tests_staging, since it tested them on a branch build before they merged; none for the DONE the watch takes at a merge, which proves nothing live, nor for a job following a release it started, by state.starts_cut, whose goal names the PRs the build it followed carries."""
+    job = data["jobs"][job_id]
+    if state.done_at_merge(job) or state.starts_cut(job):
+        return []
+    if job["state"] != "done" or state.tests_staging(job):
+        return proves(data, job_id)
+    return list(dict.fromkeys([*proves(data, job_id), *briefed_prs(data, job_id), *proved_prs(data, job_id)]))
 
 
 def proves(data: dict, job_id: str) -> list[str]:
@@ -1065,8 +1073,7 @@ def merged_said(name: str, builder_id: str, change: str) -> str:
 
     data = state.load(name)
     builder = data["jobs"][builder_id]
-    proven = proves(data, builder_id) or state.named_prs(data, builder["order"], builder["said"] or "")
-    head = f"JOB {builder_id} {builder['order']} {change}, proves {', '.join(proven)}"
+    head = f"JOB {builder_id} {builder['order']} {change}, proves {', '.join(prover_prs(data, builder_id))}"
     if not state.untaken(builder):
         return f"{head}, already {builder['state']}: drive status {builder_id}"
     try:

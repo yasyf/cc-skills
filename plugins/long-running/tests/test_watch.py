@@ -21,6 +21,7 @@ from drive import agents, card, cli, codex, github, install, land, launchd, limi
 KEY = "Forge-AI/monorepo#42"
 OTHER = "Forge-AI/monorepo#43"
 YASYF = "yasyf/cc-skills#7"
+RELEASED = {"release": "tools/ci release start sandsql --emergency --env plat-usw2-staging --from c5dca80ed9be --order 23eefb9"}
 REPLAYED_5547 = "yasyf/cc-skills#5547"
 REPLAYED_5442 = "yasyf/cc-skills#5442"
 HEAD_5547 = "0106ac2aaa"
@@ -9335,6 +9336,61 @@ def test_a_merge_done_a_merge_handoff_or_a_done_only_citing_a_merged_pr_proves_n
     assert [line for line in lines if line.startswith("JOB ")] == [
         f'JOB j10 o1 added, proves {OTHER}, waits on no release: start its agent now, run_in_background, on the prompt "Read your brief first: {data["jobs"]["j10"]["brief"]}"'
     ]
+
+
+@pytest.mark.parametrize("hand", [False, True])
+@pytest.mark.parametrize(
+    "named",
+    [
+        {
+            "goal": f"staging test of {OTHER} before it lands: run its 22 cases",
+            "said": f"DONE #{OTHER.rpartition('#')[2]} answered all 22 staging cases exactly as dev's code did",
+            "brief_flags": {"handoff": f"{OTHER} is open on dev and owes its staging test before it lands, the part this job carries"},
+        },
+        {
+            "goal": f"release dev head 833e4cd4388f to staging's SandSQL alone, the baseline build of the staging test of {OTHER}",
+            "said": "DONE j9's repair live: repro/j9.sh exits 0 on long-running 1.0.1175",
+            "brief_flags": RELEASED,
+        },
+        {
+            "goal": f"release c5dca80ed9be, the head of {OTHER}, to staging's SandSQL alone, the second build of its staging test",
+            "said": "DONE https://buildkite.com/forge/release/builds/16698 applied sandsql/plat-usw2-staging at `2026-11-15T16:40:09Z`",
+            "brief_flags": RELEASED,
+            "builds_nothing": True,
+        },
+    ],
+    ids=["staging tester", "release follower", "release follower marked building nothing"],
+)
+def test_a_merge_whose_pr_its_done_staging_tester_or_release_follower_names_gets_its_own_prover_and_neither_is_widened_nor_proven_again_nor_folds_a_hand_added_prover(
+    demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str], tmp_path: Path, named: dict, hand: bool
+) -> None:
+    serve(monkeypatch, {})
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {})
+    merged_ready(demo, OTHER, None)
+    staging, earlier = f"staging test of #{OTHER.rpartition('#')[2]} before it lands", state.stamp(T0 - timedelta(hours=6))
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["parts"][staging] = state.new_part()
+        data["orders"]["o1"]["jobs"] += ["j9", "j10"] if hand else ["j9"]
+        data["jobs"]["j9"] = state.new_job("o1", "builder", named["goal"], [staging], earlier) | {"state": "done", "repro": proof_file(tmp_path), "updated": earlier} | named
+        if hand:
+            data["jobs"]["j10"] = unstarted_prover([OTHER], [], [], f"{OTHER} merged: prove it live", created=state.stamp(), updated=state.stamp())
+    watching = watcher(demo)
+    lines = watch.run_pass(watching, T0)
+    data = state.load(demo)
+    prover = data["jobs"]["j10"]
+    change = "widened to the parts of j1" if hand else "added"
+    assert [line for line in lines if line.startswith("JOB ")] == [
+        f'JOB j10 o1 {change}, proves {OTHER}, waits on no release: start its agent now, run_in_background, on the prompt "Read your brief first: {prover["brief"]}"'
+    ]
+    assert (list(data["jobs"]), prover["state"], prover["parts"], data["jobs"]["j9"]["state"], data["jobs"]["j9"]["parts"]) == (
+        ["j1", "j9", "j10"],
+        "waiting",
+        data["jobs"]["j1"]["parts"],
+        "done",
+        [staging],
+    )
+    assert not [line for line in watch.run_pass(watching, T0 + timedelta(minutes=31)) if line.startswith(("JOB ", 'ORPHAN o1 "ship the watch"'))]
+    assert (watch.doubled(state.load(demo)), provers) == ([], [])
 
 
 @pytest.mark.parametrize("ended", ["failed", "stopped"])
