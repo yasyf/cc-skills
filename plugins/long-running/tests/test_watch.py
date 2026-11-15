@@ -163,6 +163,18 @@ def serve(monkeypatch: pytest.MonkeyPatch, reads: dict[str, dict]) -> list[list[
         return {key: reads[key] for key in keys if key in reads}, None
 
     monkeypatch.setattr(github, "fetch", fake)
+    remerging(monkeypatch, reads)
+    return calls
+
+
+def remerging(monkeypatch: pytest.MonkeyPatch, reads: dict[str, dict]) -> list[list[str]]:
+    calls = []
+
+    def fake(keys: list[str]) -> tuple[dict[str, dict], github.GithubError | None]:
+        calls.append(keys)
+        return {key: {field: reads[key][field] for field in ("state", "headRefOid", "mergeable")} for key in keys if key in reads}, None
+
+    monkeypatch.setattr(github, "mergeability", fake)
     return calls
 
 
@@ -188,6 +200,7 @@ def closed_cards(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str, str, b
 
 REAL_ENSURE = watch.ensure
 REAL_FETCH = github.fetch
+REAL_MERGEABILITY = github.mergeability
 REAL_RUN_PASS = watch.run_pass
 REAL_SESSION_ENV = launchd.session_env
 
@@ -504,7 +517,9 @@ def test_merge_is_reported_and_the_pr_leaves_the_read_set(demo: str, monkeypatch
     assert calls == [[KEY]]
 
 
-def test_github_is_read_for_every_pr_at_the_watchs_start_then_only_for_the_prs_a_delivery_names(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_github_is_read_for_every_pr_at_a_watchs_start_no_watch_handed_its_owed_reads_to_and_otherwise_only_for_the_prs_those_reads_and_the_deliveries_since_name(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(watch, "run_pass", REAL_RUN_PASS)
     with state.edit(demo) as data:
         data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"head": "aaaaaaa111", "wants_tap": False}
@@ -514,7 +529,93 @@ def test_github_is_read_for_every_pr_at_the_watchs_start_then_only_for_the_prs_a
     watch.run_pass(watching, T0 + timedelta(seconds=60))
     state.append_event(demo, receiver.DELIVERY, repo="Forge-AI/monorepo", numbers=[43], event="check_run", guid="g1")
     assert watch.run_pass(watching, T0 + timedelta(seconds=65)) == []
-    assert calls == [[KEY, OTHER], [OTHER]]
+    watch.keep_unposted(watching)
+    state.append_event(demo, receiver.DELIVERY, repo="Forge-AI/monorepo", numbers=[42], event="pull_request", guid="g2")
+    run_watch(demo, monkeypatch)
+    run_watch(demo, monkeypatch)
+    assert calls == [[KEY, OTHER], [OTHER], [KEY], [KEY, OTHER]]
+
+
+def test_a_push_to_their_base_reads_only_the_mergeability_of_the_prs_it_names_saying_a_conflict_it_starts_and_reads_whole_one_whose_head_moved(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(watch, "run_pass", REAL_RUN_PASS)
+    with state.edit(demo) as data:
+        data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"head": "aaaaaaa111", "wants_tap": False}
+    reads = {KEY: read(), OTHER: read()}
+    calls = serve(monkeypatch, reads)
+    merges = remerging(monkeypatch, reads)
+    watching = watcher(demo)
+    watch.run_pass(watching, T0)
+    reads |= {KEY: read(mergeable="CONFLICTING"), OTHER: read(headRefOid="bbbbbbb222")}
+    state.append_event(demo, receiver.DELIVERY, repo="Forge-AI/monorepo", numbers=[42, 43], event="push", guid="g1")
+    said = watch.run_pass(watching, T0 + timedelta(seconds=5))
+    assert (said, calls, merges) == ([f"PR {OTHER}: new head bbbbbbb [o1 j1]", f"PR {KEY}: {watch.CONFLICTS} [o1 j1]"], [[KEY, OTHER], [OTHER]], [[KEY, OTHER]])
+    assert (state.load(demo)["prs"][KEY]["conflict"], watching.merging) == (True, set())
+
+
+PULLED = re.compile(r"p(\d+): pullRequest\(number: \d+\)")
+NAMED_REPOSITORY = re.compile(r'repository\(owner: "([^"]+)", name: "([^"]+)"\)')
+MERGES = {"squashMergeAllowed": True, "rebaseMergeAllowed": True, "mergeCommitAllowed": True, "defaultBranchRef": {"name": "dev", "rules": {"nodes": []}}}
+
+
+def pull_node(head: str) -> dict:
+    return {
+        "state": "OPEN",
+        "isDraft": False,
+        "headRefOid": head,
+        "baseRefName": "dev",
+        "headRefName": "the-watch",
+        "title": "Fix: the watch",
+        "lastEditedAt": None,
+        "author": {"login": "yasyf"},
+        "reviewDecision": None,
+        "latestOpinionatedReviews": {"nodes": []},
+        "mergeable": "MERGEABLE",
+        "mergeCommit": None,
+        "mergedAt": None,
+        "labels": {"nodes": []},
+        "timelineItems": {"nodes": []},
+        "commits": {"nodes": []},
+        "stack": None,
+    }
+
+
+def graphql_counted(monkeypatch: pytest.MonkeyPatch, heads: dict[str, str]) -> list[tuple[int, int, int]]:
+    asked = []
+    monkeypatch.setattr(github, "fetch", REAL_FETCH)
+    monkeypatch.setattr(github, "mergeability", REAL_MERGEABILITY)
+
+    def answer(cmd: list[str], **_: object) -> str:
+        repositories, numbers, whole = NAMED_REPOSITORY.findall(cmd[4]), PULLED.findall(cmd[4]), "statusCheckRollup" in cmd[4]
+        asked.append((len(repositories), len(numbers) * whole, len(numbers) * (not whole)))
+        repo = "/".join(repositories[0])
+        pulls = {f"p{number}": pull_node(heads[f"{repo}#{number}"]) if whole else {"state": "OPEN", "headRefOid": heads[f"{repo}#{number}"], "mergeable": "MERGEABLE"} for number in numbers}
+        return json.dumps({"data": {"r0": MERGES | pulls}})
+
+    monkeypatch.setattr(github, "run", answer)
+    return asked
+
+
+@pytest.mark.parametrize("tracked", [1, 100])
+def test_a_watch_handed_its_owed_reads_asks_github_one_query_a_repository_for_the_prs_its_deliveries_name_alone_whether_the_drive_tracks_one_pr_or_a_hundred(
+    demo: str, monkeypatch: pytest.MonkeyPatch, tracked: int
+) -> None:
+    numbers = [42, *range(1000, 1000 + tracked - 1)]
+    keys = [f"Forge-AI/monorepo#{number}" for number in numbers]
+    with state.edit(demo) as data:
+        for key in [*keys, YASYF]:
+            data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {"head": "aaaaaaa111", "base": "dev", "wants_tap": False, "required": {"checks": "none", "failed": {}, "read": state.stamp(T0)}}
+    asked = graphql_counted(monkeypatch, dict.fromkeys([*keys, YASYF], "aaaaaaa111"))
+    watching = watch.Watcher(demo, offset=state.events_end(demo), owed=set())
+    state.append_event(demo, receiver.DELIVERY, repo="Forge-AI/monorepo", numbers=[42], event="check_run", guid="g1")
+    watch.event_lines(watching)
+    watch.github_lines(watching, T0)
+    state.append_event(demo, receiver.DELIVERY, repo="Forge-AI/monorepo", numbers=numbers, event="push", guid="g2")
+    state.append_event(demo, receiver.DELIVERY, repo="yasyf/cc-skills", numbers=[7], event="push", guid="g3")
+    watch.event_lines(watching)
+    watch.github_lines(watching, T0 + timedelta(seconds=5))
+    assert asked == [(1, 1, 0), (1, 0, tracked), (1, 0, 1)]
 
 
 def test_a_delivery_of_a_failed_check_is_said_in_the_pass_it_wakes(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:

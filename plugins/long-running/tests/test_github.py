@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -9,6 +10,7 @@ from drive import github
 
 GATE = "LTX Behavioral Gate (short)"
 OPEN_ON = github.open_on
+MERGEABILITY = github.mergeability
 VISIBILITY = github.visibility
 FETCH = github.fetch
 BELOW = github.below
@@ -60,29 +62,33 @@ def pr_read(rollup: list[dict], **overrides: object) -> dict:
     return {"state": "OPEN", "checks": rollup, "reviewDecision": None, "approvals": [], "mergeable": "MERGEABLE", "headRefOid": "abc", "baseRefName": "main", "headRefName": "lane", "title": "T", "author": "yasyf", "labels": [], "native": [], "trunk": None, "required_checks": [], "required_reviews": 0, "merge_method": "squash", "mergeCommit": None, "default": "main", "base_pr": None, **overrides}
 
 
-def test_query_aliases_one_repository_per_repo_and_one_pull_per_number() -> None:
-    text = github.query(["b/two#7", "a/one#1", "a/one#2"])
+def test_query_names_one_repository_aliased_r0_with_one_pull_per_number_and_refuses_the_prs_of_two() -> None:
+    text = github.query(["a/one#2", "a/one#1"])
     assert 'r0: repository(owner: "a", name: "one")' in text
-    assert 'r1: repository(owner: "b", name: "two")' in text
-    assert "p1: pullRequest(number: 1)" in text
-    assert "p2: pullRequest(number: 2)" in text
-    assert "p7: pullRequest(number: 7)" in text
-    assert text.count("repository(") == 2
+    assert ("p1: pullRequest(number: 1)" in text, "p2: pullRequest(number: 2)" in text, text.count("repository(")) == (True, True, 1)
+    with pytest.raises(ValueError):
+        github.query(["b/two#7", "a/one#1"])
+
+
+def test_by_repository_cuts_keys_into_lists_of_one_repository_each_in_the_order_named_at_most_size_long() -> None:
+    keys = ["b/two#7", "a/one#3", "a/one#1", "b/two#2", "a/one#2"]
+    assert github.by_repository(keys, 2) == [["a/one#3", "a/one#1"], ["a/one#2"], ["b/two#7", "b/two#2"]]
 
 
 def test_query_asks_each_pull_which_of_its_checks_its_base_branch_requires_and_a_heads_read_asks_none() -> None:
     text = github.query(["a/one#1", "a/one#2"])
     assert (text.count("isRequired(pullRequestNumber: 1)"), text.count("isRequired(pullRequestNumber: 2)")) == (2, 2)
     assert github.NUMBER not in text
-    assert "isRequired" not in github.heads_query([("a/one", "lane")], ["a/one"])
+    assert "isRequired" not in github.heads_query("a/one", ["lane"])
 
 
-def test_fetch_asks_each_repositorys_default_branch_rules_once_in_the_same_query_as_its_prs(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_fetch_asks_each_repositorys_default_branch_rules_once_in_a_query_of_its_prs_alone(monkeypatch: pytest.MonkeyPatch) -> None:
     sent = []
     monkeypatch.setattr(github, "run", lambda cmd, **_: sent.append(cmd[4]) or json.dumps({"data": {}}))
     FETCH(["b/two#7", "a/one#1", "a/one#2"])
-    assert (len(sent), sent[0].count(github.RULES), sent[0].count("defaultBranchRef")) == (1, 2, 2)
+    assert [(text.count("repository("), text.count(github.RULES), text.count("pullRequest(")) for text in sent] == [(1, 1, 2), (1, 1, 1)]
     assert 'r0: repository(owner: "a", name: "one") { defaultBranchRef { name rules(first: 50)' in sent[0]
+    assert 'r0: repository(owner: "b", name: "two")' in sent[1]
 
 
 def test_rule_reviews_reads_the_approvals_a_default_branchs_pull_request_rule_requires_and_none_without_one() -> None:
@@ -129,11 +135,13 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
             lastEditedAt="2026-11-12T23:08:08Z",
             stack={"baseRefName": "main", "entries": {"nodes": [{"position": 2, "pullRequest": {"number": 2, "state": "MERGED"}}, {"position": 1, "pullRequest": {"number": 1, "state": "OPEN"}}]}},
         )
-        return json.dumps({"data": {"r0": {**ALLOWED, "defaultBranchRef": RULED, "p1": node(), "p2": merged}, "r1": {**ALLOWED, "defaultBranchRef": UNRULED, "p7": None}}})
+        if 'name: "two"' in cmd[4]:
+            return json.dumps({"data": {"r0": {**ALLOWED, "defaultBranchRef": UNRULED, "p7": None}}})
+        return json.dumps({"data": {"r0": {**ALLOWED, "defaultBranchRef": RULED, "p1": node(), "p2": merged}}})
 
     monkeypatch.setattr(github, "run", fake)
     reads, refused = FETCH(["a/one#1", "a/one#2", "b/two#7"])
-    assert refused is None
+    assert (refused, len(calls)) == (None, 2)
     assert calls[0][:4] == ["gh", "api", "graphql", "-f"]
     assert calls[0][4].startswith("query=query {")
     assert reads == {
@@ -208,6 +216,34 @@ def test_fetch_reads_twenty_five_prs_a_graphql_query_and_open_on_every_branch_in
     assert sizes == [*((size, 0) for size in queries), (0, count)]
 
 
+def test_open_on_reads_each_repositorys_branches_in_a_query_of_that_repository_alone(monkeypatch: pytest.MonkeyPatch) -> None:
+    sent = replying(
+        monkeypatch,
+        {"data": {"r0": {"h0": {"nodes": [{"number": 3, **node()}]}, "h1": {"nodes": []}}}},
+        {"data": {"r0": {"h0": {"nodes": [{"number": 7, **node()}]}}}},
+    )
+    found = OPEN_ON([("b/two", "lane-b"), ("a/one", "lane-a"), ("a/one", "lane-c")])
+    assert [(text.count("repository("), text.count("pullRequests(")) for text in sent] == [(1, 2), (1, 1)]
+    assert {key: read["branch"] for key, read in found.items()} == {"a/one#3": "lane-a", "b/two#7": "lane-b"}
+
+
+def test_mergeability_reads_only_state_head_and_mergeable_of_a_hundred_prs_of_one_repository_a_query_and_a_refused_one_loses_only_its_own(monkeypatch: pytest.MonkeyPatch) -> None:
+    sent = []
+
+    def answered(cmd: list[str], **_: object) -> str:
+        sent.append(cmd[4])
+        if 'name: "two"' in cmd[4]:
+            raise github.GithubError("gh: HTTP 502")
+        numbers = [int(number) for number in re.findall(r"p(\d+): pullRequest", cmd[4])]
+        return json.dumps({"data": {"r0": {f"p{number}": {"state": "OPEN", "headRefOid": "abc", "mergeable": "CONFLICTING" if number == 7 else "MERGEABLE"} for number in numbers}}})
+
+    monkeypatch.setattr(github, "run", answered)
+    reads, refused = MERGEABILITY([*(f"a/one#{number}" for number in range(1, 151)), "b/two#3"])
+    assert [(text.count("repository("), text.count("pullRequest(")) for text in sent] == [(1, 100), (1, 50), (1, 1)]
+    assert github.FIELDS not in sent[0] and "pullRequest(number: 1) { state headRefOid mergeable }" in sent[0]
+    assert (len(reads), reads["a/one#7"], str(refused)) == (150, {"state": "OPEN", "headRefOid": "abc", "mergeable": "CONFLICTING"}, "could not read the mergeability of 1 PRs of b/two from GitHub: gh: HTTP 502")
+
+
 @pytest.mark.parametrize(
     ("decision", "approvals", "review"),
     [("APPROVED", ["abc", "abc"], "approved"), ("APPROVED", ["abc", "0ld"], "stale"), ("APPROVED", [None], "stale"), ("CHANGES_REQUESTED", ["0ld"], "changes"), (None, ["0ld"], "none")],
@@ -240,7 +276,7 @@ def test_a_failed_graphql_read_names_what_it_could_not_read(monkeypatch: pytest.
         OPEN_ON([("a/one", "fix-it")])
     assert (reads, str(refused), str(opened.value)) == (
         {},
-        "could not read 2 PRs of a/one, b/two from GitHub: gh: API rate limit already exceeded for installation ID 1.",
+        "could not read 1 PRs of a/one from GitHub: gh: API rate limit already exceeded for installation ID 1.; could not read 1 PRs of b/two from GitHub: gh: API rate limit already exceeded for installation ID 1.",
         "could not read the open PRs on running jobs' branches in a/one from GitHub: gh: API rate limit already exceeded for installation ID 1.",
     )
 

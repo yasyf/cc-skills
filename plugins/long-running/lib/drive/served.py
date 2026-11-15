@@ -271,7 +271,7 @@ def words(data: dict, job: dict, orders: list[str], named: list[str], answered: 
 
 
 def owed(data: dict, key: str, bound: list[str], read: dict) -> list[dict]:
-    """Each ruling of his in bound labelled code:<dir>, on how the code at <dir> must work, that the PR owes written, his words verbatim, into an AGENTS.md at or above <dir>, by his ruling WRITES_RULING, so every later change to that code reads it: <dir> is a directory of the repository whose checkout keeps his answers, so only a PR of that repository whose diff changes a file under <dir> owes it, and only while no AGENTS.md at or above <dir> holds his words at the tip of the PR's base branch nor at the head of another open PR of the drive's in that repository that outranks it, one numbered below it or, when its own diff does not write them, any; all of them read in one GitHub read; each ruling once for each directory however many ids name it, with the file it changes there and whether the diff's added lines in such an AGENTS.md write them. A ruling already written where its code is, or on its way there in the lowest-numbered open PR whose head holds it, is owed by no other change, since his words ask the rule written once beside the code, never again in each change to it."""
+    """Each ruling of his in bound labelled code:<dir>, on how the code at <dir> must work, that the PR owes written, his words verbatim, into an AGENTS.md at or above <dir>, by his ruling WRITES_RULING, so every later change to that code reads it: <dir> is a directory of the repository whose checkout keeps his answers, so only a PR of that repository whose diff changes a file under <dir> owes it, and only while no AGENTS.md at or above <dir> holds his words at the tip of the PR's base branch nor at the head of another open PR of the drive's in that repository whose diff, as its last passed check read it, changes such an AGENTS.md, and that outranks it, one numbered below it or, when its own diff does not write them, any; all of them read in one GitHub read of those files at the base branch's tip and those PRs' heads alone; each ruling once for each directory however many ids name it, with the file it changes there and whether the diff's added lines in such an AGENTS.md write them. A ruling already written where its code is, or on its way there in the lowest-numbered open PR whose head holds it, is owed by no other change, since his words ask the rule written once beside the code, never again in each change to it."""
     cwd = data["roles"]["coordinator"]["cwd"]
     ruled = dict.fromkeys(
         (answer["id"][:7], said(answer), tag.removeprefix(CODE_LABEL).strip("/") or ".")
@@ -287,8 +287,13 @@ def owed(data: dict, key: str, bound: list[str], read: dict) -> list[dict]:
     if not touched:
         return []
     number = github.split(key)[2]
-    opened = [(github.split(other)[2], pr["branch"]) for other, pr in data["prs"].items() if other != key and pr["state"] == "open" and pr["branch"] and github.repo_of(other) == github.repo_of(key)]
-    tip, *heads = guides(key, [read["base"], *(branch for _, branch in opened)], {guide for _, _, directory, _ in touched for guide in above(directory)})
+    paths = {guide for _, _, directory, _ in touched for guide in above(directory)}
+    opened = [
+        (github.split(other)[2], pr["branch"])
+        for other, pr in data["prs"].items()
+        if other != key and pr["state"] == "open" and pr["branch"] and github.repo_of(other) == github.repo_of(key) and pr["checked"] and paths & pr["checked"]["lines"].keys()
+    ]
+    tip, *heads = guides(key, [read["base"], *(branch for _, branch in opened)], paths)
     owes = []
     for answer_id, ruling, directory, path in touched:
         written = held(ruling, [line[1:] for guide, text in changed if guide in above(directory) for line in text.splitlines() if line.startswith("+") and not line.startswith("+++")])
