@@ -2662,10 +2662,12 @@ def staged(data: dict, order_id: str, part: str) -> bool:
 
 
 def job_waits(data: dict, pr: dict) -> list[str]:
-    """A PR's waits, each `staging test of #N before it lands` part any open PR of its job, in any repository, waits on, so every PR of a job lands only once each staging test of the job's work passes, as part_cards holds a job's PRs on his card, and each staging run of the PR itself by staging_runs."""
+    """A PR's waits, each `staging test of #N before it lands` part any open PR of its job, in any repository, waits on, so every PR of a job lands only once each staging test of the job's work passes, as part_cards holds a job's PRs on his card, each staging run of the PR itself by staging_runs, and, for a yasyf/* PR, each open Forge-AI PR of its job that does not wait on it, which only his tap or an exempt class lands, so tooling that lands with no tap never ships ahead of the code it calls, as a drive reader shipped hours before the go/ci verb it runs."""
+    key = pr_key(pr["url"])
     mates = index.opened.get(pr["job"], []) if (index := index_of(data)) else [other for other in data["prs"].values() if other["job"] == pr["job"] and other["state"] == "open"]
     staged = [wait for other in mates for wait in other["waits"] if (part := part_wait(data, wait)) and STAGING_PART.fullmatch(part[1])]
-    return list(dict.fromkeys([*pr["waits"], *staged, *staging_runs(data, pr)]))
+    tapped = [mate for other in mates if guarded(mate := pr_key(other["url"])) and key not in other["waits"]] if merges_untapped(key) else []
+    return list(dict.fromkeys([*pr["waits"], *staged, *tapped, *staging_runs(data, pr)]))
 
 
 def staging_runs(data: dict, pr: dict) -> list[str]:

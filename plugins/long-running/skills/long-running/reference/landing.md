@@ -167,7 +167,8 @@ for its repository says, then return `DONE <proof>`.
 
 No tap: by his standing rule a `yasyf/*` PR merges without asking, but only once every check at its
 head finished with none failing on its own change, since a check that fails after the merge turns `main`
-red for every PR behind it. A check fails on its own change unless `main`'s run of it, at the commit the
+red for every PR behind it, and once each open `Forge-AI/*` PR of its job merged or closed, unless that
+PR's waits name it, so tooling never lands ahead of the code it calls that waits on his tap. A check fails on its own change unless `main`'s run of it, at the commit the
 PR's run of it merged its head onto, failed every test the PR's run failed, as each job's log names them
 (pytest's `FAILED` and `ERROR` summary lines, go test's `--- FAIL:`): one check is one verdict over a whole
 job, so `main` failing one test under its name says nothing of another. A failed check whose log names

@@ -408,6 +408,7 @@ def test_a_pushed_waits_while_the_check_its_rules_require_has_not_posted_on_its_
 def test_a_pushed_on_a_repository_whose_rules_require_no_check_settles_at_its_first_read_beside_a_red_check_its_lander_judges(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     url = state.pr_url(YASYF)
     with state.edit(demo) as data:
+        del data["prs"][KEY]
         data["prs"][YASYF] = state.new_pr(url, "j1", "o1") | {"head": "aaaaaaa111", "wants_tap": False, "checked": CHECKED}
         data["jobs"]["j1"].update(state="waiting", said=f"PUSHED {url}", prs=[url])
     serve(monkeypatch, {YASYF: read(checks=RED, required_checks=[])})
@@ -4311,6 +4312,7 @@ def test_drive_status_shows_each_open_prs_stage_now_keeping_its_since_only_while
 def test_a_yasyf_stack_lands_its_ready_bottom_pr_alone_since_gh_pr_merge_merges_one_pr_at_a_time(demo: str) -> None:
     above = "yasyf/cc-skills#8"
     with state.edit(demo) as data:
+        data["prs"][KEY]["state"] = "merged"
         for key, head, base, branch, under in ((YASYF, "aaaaaaa111", "main", "the-watch", None), (above, "bbbbbbb222", "the-watch", "above-the-watch", YASYF)):
             tap = {"label": "Approve", "at": state.stamp(T0), "head": head, "source": "pressed the button", "picks": {}}
             data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {
@@ -4323,6 +4325,7 @@ def test_a_yasyf_stack_lands_its_ready_bottom_pr_alone_since_gh_pr_merge_merges_
 def test_a_yasyf_pr_its_builder_registers_below_the_one_its_taken_ready_names_ships_with_it_bottom_first_and_the_ready_reaches_its_holder_as_j4861s_did_not(demo: str) -> None:
     below = "yasyf/cc-skills#8"
     with state.edit(demo) as data:
+        data["prs"][KEY]["state"] = "merged"
         data["prs"][YASYF] = state.new_pr(state.pr_url(YASYF), "j1", "o1") | {
             "head": "aaaaaaa111", "base": "below-the-watch", "branch": "the-watch", "under": below, "checks": "pass", "wants_tap": False, "checked": CHECKED
         }
@@ -6184,7 +6187,25 @@ def test_each_open_pr_of_a_job_in_any_repository_waits_on_each_staging_test_anot
         data["prs"][YASYF] = state.new_pr(state.pr_url(YASYF), "j1", "o1") | {"head": "aaaaaaa111", "checks": "pass", "wants_tap": False}
         data["prs"][KEY] |= {"waits": [f"o1:{part}"]}
     now = stage.of(state.load(demo), YASYF, NO_CARDS)
-    assert (now.name, now.owner, now.why) == ("waiting", "j2", "it waits on its staging run by j2, running")
+    assert (now.name, now.owner, now.why) == ("waiting", "j2", f"it waits on its staging run by j2, running, {KEY}, and the watch frees it once each ends")
+
+
+@pytest.mark.parametrize("freed", [{"state": "merged"}, {"state": "closed"}, {"waits": [YASYF]}], ids=["it merged", "it closed", "it waits on the yasyf PR"])
+def test_a_reported_yasyf_pr_waits_on_each_open_forge_ai_pr_of_its_job_and_lands_once_that_pr_merges_closes_or_waits_on_it_as_5530_shipped_hours_before_56740(demo: str, freed: dict) -> None:
+    cards = NO_CARDS | {"pr_cards": [pr_card(KEY)]}
+    with state.edit(demo) as data:
+        data["prs"][KEY] |= {"wants_tap": True, "checks": "pass"}
+        data["prs"][YASYF] = state.new_pr(state.pr_url(YASYF), "j1", "o1") | {"head": "aaaaaaa111", "base": "main", "checks": "pass", "wants_tap": False, "checked": CHECKED}
+        data["jobs"]["j1"]["prs"].append(state.pr_url(YASYF))
+        state.take_result(data, "j1", f"READY {state.pr_url(YASYF)}")
+    data = state.load(demo)
+    held = stage.Stage("blocked", stage.HIM, f"it waits on {view.pr_link(data['prs'][KEY])}, which waits on his Approve on {view.link('his card', CARD)}")
+    assert (stage.of(data, YASYF, cards), land.units(data, [YASYF], cards)) == (held, [])
+    with state.edit(demo) as data:
+        data["prs"][KEY] |= freed
+    data = state.load(demo)
+    ready = stage.Stage("ready", stage.LANDER, "its builder reported it and every check at aaaaaaa finished, so the lander merges it with --admin unless one fails on its own change")
+    assert (stage.of(data, YASYF, cards), land.units(data, [YASYF], cards)) == (ready, [(YASYF,)])
 
 
 @pytest.mark.parametrize(
@@ -8782,6 +8803,7 @@ def test_a_repair_waiting_on_the_proof_it_marked_holds_with_no_free_or_orphan_an
 
 def tried(name: str, outcome: str) -> None:
     with state.edit(name) as data:
+        data["prs"][KEY]["state"] = "merged"
         lander = {"head": "aaaaaaa111", "pid": os.getpid(), "at": state.stamp(T0), "outcome": outcome}
         data["prs"][YASYF] = state.new_pr(state.pr_url(YASYF), "j1", "o1") | {"head": "aaaaaaa111", "base": "main", "wants_tap": False, "lander": lander}
 
@@ -9020,6 +9042,7 @@ def test_a_yasyf_pr_on_the_head_of_a_pr_the_drive_does_not_track_reads_behind_it
     demo: str, monkeypatch: pytest.MonkeyPatch, woken: list[tuple[str, str]], landers: list[tuple[str, ...]]
 ) -> None:
     with state.edit(demo) as data:
+        data["prs"][KEY]["state"] = "merged"
         lander = {"head": HEAD_5547, "base": BASE_5547, "pid": os.getpid(), "at": state.stamp(T0), "outcome": f"not landed: it sits on {BASE_5547}, not main"}
         data["prs"][REPLAYED_5547] = state.new_pr(state.pr_url(REPLAYED_5547), "j1", "o1") | {"head": HEAD_5547, "base": BASE_5547, "wants_tap": False, "lander": lander}
     pushed(demo, REPLAYED_5547)
@@ -9084,6 +9107,7 @@ def branch_history(commits: list[tuple[str, str | None]]) -> str:
 
 def replayed(demo: str, monkeypatch: pytest.MonkeyPatch, checks: dict[str, list[dict]]) -> dict[str, dict]:
     with state.edit(demo) as data:
+        data["prs"][KEY]["state"] = "merged"
         for key in REPLAYED_4745_4756:
             data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {"wants_tap": False}
     pushed(demo, *REPLAYED_4745_4756)
