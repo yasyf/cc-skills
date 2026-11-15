@@ -327,11 +327,19 @@ A Sprite attempt whose `prepared.json` names an `environmentId` that
 `orca environment show` answers `Unknown environment` for is moved aside the
 same way, whatever its `worker-start` returned, since nothing Orca started on
 that environment can run: the launch destroys its Sprite with `cc-remote destroy`
-and prepares afresh. The directory records `request.json` with the requested route, model, effort,
+and prepares afresh. Any other Sprite attempt whose `worker-start` left no ready
+receipt is moved aside too. The launch runs `orca orchestration worker-stop` on
+each dispatch Orca's answer names, then continues on that Sprite with
+`cc-remote orca prepare --existing` while the `config.sha256` its prepare kept
+matches `CC_REMOTE_CONFIG`. When the config differs, the answer is not one JSON
+object, or a stop is refused, it destroys the Sprite and claims a warm one. An
+attempt Orca answered ready still refuses replay, since the drive records it.
+The directory records `request.json` with the requested route, model, effort,
 tier, ref, optional expected base, and local brief hash/bytes.
 
 The remote route retains `allocation.json`, raw but for the brief a relaunch
-copied, `prepare.err`, and `prepare.status`. It validates the requested lane, actual workspace, requested
+copied, `prepare.err`, `prepare.status`, and `config.sha256`, the SHA-256 of
+the cc-remote config it prepared from. It validates the requested lane, actual workspace, requested
 ref (none when it continues a workspace), allocation kind, task HEAD, agent, brief, environment, terminal, and
 `<repoId>::<projectRoot>` worktree before extracting the task into
 `prepared.json`. An allocation that fails this check but names a workspace
