@@ -84,7 +84,7 @@ def entry(wants_tap: bool = True, tap: str | None = None, exempt: str | None = N
         "base": "dev",
         "default": "dev",
         "under": None,
-        "tap": {"label": tap, "at": "2026-11-09T08:00:00-08:00", "head": HEAD, "source": "slack", "picks": {}} if tap else None,
+        "tap": {"label": tap, "at": "2026-11-09T08:00:00-08:00", "head": HEAD, "source": "slack", "picks": {}, "card": None} if tap else None,
         "exempt": exempt,
         "fundamental": None,
         "rework": None,
@@ -664,7 +664,7 @@ def test_a_drive_tooling_pr_whose_his_words_say_none_draws_its_card_with_approve
     ("held", "pr_state", "why"),
     [
         ({"exempt": "pure port"}, "OPEN", 'its exempt class "pure port" lands it with no tap'),
-        ({"tap": {"label": "Approve", "at": "2026-11-09T08:00:00-08:00", "head": HEAD, "source": "slack", "picks": {}}}, "OPEN", "he approved it already"),
+        ({"tap": {"label": "Approve", "at": "2026-11-09T08:00:00-08:00", "head": HEAD, "source": "slack", "picks": {}, "card": None}}, "OPEN", "he approved it already"),
         ({}, "MERGED", "GitHub reads it merged"),
     ],
 )

@@ -125,7 +125,7 @@ def alone(data: dict, key: str, cards: dict) -> Stage:
 
 
 def waiting(data: dict, key: str, cards: dict) -> Stage | None:
-    """The stage of a PR the lander would land now while a PR, job or release of the drive it waits on still holds, which every ready rule of alone reads first, so the lander lands none of them until the watch frees it: blocked, owed by him and naming each, while an end of those waits is his by asked(), so it wakes no one, else red, owed by its builder, while a staging test it waits on has no tester, which its builder's `STAGING: #N <cases>` line adds, else waiting, owed by the session mover() names, each wait on its staging test named as its staging run by its tester and that tester's line; each of its waits by pr_waits, its job's staging tests included; None once nothing it waits on holds."""
+    """The stage of a PR the lander would land now while a PR, job or release of the drive it waits on still holds, which every ready rule of alone reads first, so the lander lands none of them until the watch frees it: blocked, owed by him and naming each, while an end of those waits is his by asked(), so it wakes no one, else red, owed by its builder, while a staging test it waits on has no tester, which its builder's `STAGING: #N <cases>` line adds, else waiting, owed by the session mover() names, each wait on its staging test named as its staging run by its tester and that tester's line; each of its waits by pr_waits, its own staging tests included; None once nothing it waits on holds."""
     if not (standing := view.holding(data, pr_waits(data, data["prs"][key]), cards)):
         return None
     if mine := asked(data, key, standing, cards):
@@ -140,7 +140,7 @@ def waiting(data: dict, key: str, cards: dict) -> Stage | None:
 
 
 def pr_waits(data: dict, pr: dict) -> list[str]:
-    """What a PR waits on: its waits by state.job_waits, its job's staging tests included, and the original a pure port waits on until it merges or he approves it, by state.port_hold."""
+    """What a PR waits on: its waits by state.job_waits, its own staging tests included, and the original a pure port waits on until it merges or he approves it, by state.port_hold."""
     return [*state.job_waits(data, pr), *filter(None, [state.port_hold(data, pr)])]
 
 

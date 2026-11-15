@@ -7775,7 +7775,7 @@ def test_pr_tapped_without_a_tap_exits_one(run: Run, with_pr: str) -> None:
 
 def test_pr_tapped_with_approve_exits_zero(run: Run, with_pr: str) -> None:
     with state.edit("demo") as data:
-        data["prs"][with_pr]["tap"] = {"label": "Approve", "at": state.stamp(), "head": "abc", "source": "slack", "picks": {}}
+        data["prs"][with_pr]["tap"] = {"label": "Approve", "at": state.stamp(), "head": "abc", "source": "slack", "picks": {}, "card": None}
     code, out = run("pr", "tapped", PR)
     assert code == 0
     assert out.startswith(f"{with_pr}: approved by him at ")
@@ -7845,7 +7845,7 @@ def test_pr_set_no_tapped_refuses_a_tap_of_his(run: Run, with_pr: str, label: st
 
 def test_pr_set_fundamental_clears_the_tap(run: Run, with_pr: str) -> None:
     with state.edit("demo") as data:
-        data["prs"][with_pr]["tap"] = {"label": "Approve", "at": state.stamp(), "head": "abc", "source": "slack", "picks": {}}
+        data["prs"][with_pr]["tap"] = {"label": "Approve", "at": state.stamp(), "head": "abc", "source": "slack", "picks": {}, "card": None}
     run("pr", "set", PR, "--fundamental", "now deletes the old table")
     assert state.load("demo")["prs"][with_pr]["tap"] is None
     assert run("pr", "tapped", PR) == (1, f"{with_pr}: no tap since it changed: now deletes the old table")

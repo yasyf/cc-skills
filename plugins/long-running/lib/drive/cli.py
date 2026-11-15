@@ -4483,7 +4483,7 @@ def set_pr(pr: dict, args: argparse.Namespace, answered: dict[str, list[str]] | 
     if args.no_exempt:
         pr["exempt"] = None
     if args.tapped:
-        pr["tap"] = state.new_tap(args.tapped, pr["head"], args.tap_source)
+        pr["tap"] = state.new_tap(args.tapped, pr["head"], args.tap_source, card=[state.pr_key(pr["url"])])
         pr["fundamental"] = None
     if args.no_tapped:
         pr["tap"] = None

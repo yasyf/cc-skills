@@ -557,7 +557,7 @@ def test_a_moved_check_carries_beside_his_approve_in_each_shape_a_drive_stored_i
         data["prs"][KEY] |= moved | {"tap": tap}
     assert served.carry(demo, [KEY]) == [KEY]
     pr = state.load(demo)["prs"][KEY]
-    loaded = {"label": "Approve", "at": tap["at"], "head": "head0", "source": "pressed the button", "action_ts": tap.get("action_ts"), "picks": {}}
+    loaded = {"label": "Approve", "at": tap["at"], "head": "head0", "source": "pressed the button", "action_ts": tap.get("action_ts"), "picks": {}, "card": None}
     assert (pr["checked"]["head"], pr["tap"], served.unread(pr)) == ("head2", loaded, False)
 
 
@@ -573,7 +573,7 @@ def test_his_approve_recorded_by_pr_set_tapped_stays_on_its_head_through_a_push_
         data["prs"][KEY] |= moved
     assert served.carry(demo, [KEY]) == [KEY]
     pr = state.load(demo)["prs"][KEY]
-    assert (pr["checked"]["head"], pr["tap"] | {"at": ""}) == ("head2", {"label": "Approve", "at": "", "head": "head1", "source": link, "action_ts": None, "picks": {}})
+    assert (pr["checked"]["head"], pr["tap"] | {"at": ""}) == ("head2", {"label": "Approve", "at": "", "head": "head1", "source": link, "action_ts": None, "picks": {}, "card": [KEY]})
 
 
 GAPS = (
