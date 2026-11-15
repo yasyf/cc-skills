@@ -2318,8 +2318,6 @@ def buildkite(build: int, state: str) -> dict:
 
 def on_dev(monkeypatch: pytest.MonkeyPatch, statuses: dict[str, list[dict]]) -> None:
     def read(what: str, cmd: list[str], max_age: str = "0s", text: bool = True) -> str:
-        if cmd[-1] == ".default_branch":
-            return "dev\n"
         if cmd[1:3] == ["pr", "view"]:
             return f"{STACK[cmd[3]]}\n"
         if cmd[2].endswith("/status"):
@@ -2335,6 +2333,7 @@ def on_dev(monkeypatch: pytest.MonkeyPatch, statuses: dict[str, list[dict]]) -> 
         return "".join(json.dumps(run) + "\n" for run in runs)
 
     monkeypatch.setattr(github, "read", read)
+    monkeypatch.setattr(github, "default_branch", lambda repo: "dev")
 
 
 @pytest.mark.parametrize("number", list(STACK))
