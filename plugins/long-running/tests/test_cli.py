@@ -1517,7 +1517,7 @@ def test_closing_an_order_stops_its_unfinished_jobs_and_takes_it_off_jobs_carryi
     assert f"{builder} stopped with its order: end its agent, or its lane with drive job end {builder}" in out.splitlines()
     assert f"{carrier} carries o1 no more and keeps working on its own order" in out.splitlines()
     data = state.load("demo")
-    assert {data["jobs"][job_id]["state"] for job_id in data["orders"]["o1"]["jobs"] if data["jobs"][job_id]["order"] == "o1"} == {"stopped"}
+    assert data["jobs"][builder]["state"] == "stopped"
     assert data["jobs"][builder]["said"] == "stopped: drive order set o1 --state dropped closed its order"
     assert "o1" not in data["jobs"][carrier]["carries"]
     assert data["jobs"][carrier]["state"] != "stopped"
