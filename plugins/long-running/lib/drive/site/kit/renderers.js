@@ -27,6 +27,7 @@ const CAUSE_LINE = /^\*Root cause:\* (.+)$/m;
 const HEADING_LINE = /^\s*(?:#{1,4}\s+(.+?)|\*\*([^*\n]+)\*\*|\*([^*\n]+)\*):?\s*$/;
 const CHECK_FACTS = { pass: ['Tests pass', 'good'], fail: ['Tests fail', 'bad'], pending: ['Tests running', 'warn'], none: ['No CI', ''] };
 const REVIEW_FACTS = { approved: ['Review approved', 'good'], stale: ['Approved on an older head', ''], changes: ['Changes requested', 'bad'] };
+const STAGING_TONES = { 'Testing on staging': 'warn', 'Not on staging yet': 'warn', 'Not on staging': '' };
 const TAP_KEYS = { Approve: 'a', Hold: 'h' };
 export const DECIDED = { tap: 'You tapped', answered: 'You picked', undone: 'You took back' };
 export const HAPPENED = { order: 'You asked', answer: 'You answered', live: 'Live', merged: 'Merged', failed: 'Failed', refused: 'No card drawn', said: 'Sent you' };
@@ -71,7 +72,14 @@ export function fact(html, tip = '', tone = '') {
 export function stateFacts(row) {
   const [checks, checksTone] = CHECK_FACTS[row.checks] ?? CHECK_FACTS.none;
   const [review, reviewTone] = REVIEW_FACTS[row.review] ?? ['No review yet', ''];
-  return fact(esc(checks), '', checksTone) + fact(esc(review), '', reviewTone);
+  return fact(esc(checks), '', checksTone) + fact(esc(review), '', reviewTone) + (row.staging ? stagingFact(row.staging) : '');
+}
+
+function stagingFact(staging) {
+  const [label, detail] = staging.split(/: (.*)/s);
+  if (label in STAGING_TONES) return fact(esc(label), decisionPlain(staging), STAGING_TONES[label]);
+  const passed = /(^|, )passed, /.test(detail);
+  return fact(passed ? esc(label) : 'No pass on staging', decisionPlain(staging), passed ? 'good' : 'bad');
 }
 
 export function createRenderers(context) {

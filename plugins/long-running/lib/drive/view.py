@@ -1035,6 +1035,7 @@ def review_entry(key: str, pr: dict, drive: dict, found: dict) -> dict:
         "review": pr["review"],
         "tap": tap_of(pr),
         "stage": pr["stage"],
+        "staging": staging(drive, key),
         "on_him": on_him(pr),
         "failed": pr["failed_checks"],
         "conflict": pr["conflict"],
