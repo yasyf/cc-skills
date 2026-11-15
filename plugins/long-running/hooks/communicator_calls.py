@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import agents, place, render, state, superseded
+from drive import agents, place, render, shell, state, superseded
 
 OWN_TOOLS = {
     *(render.SLACK_TOOLS + tool for tool in render.COMMUNICATOR_SLACK),
@@ -17,8 +17,7 @@ OWN_TOOLS = {
 PICKUP = render.SLACK_TOOLS + "slack_pickup"
 POSTS = {render.SLACK_TOOLS + tool for tool in ("slack_dm_status", "slack_reply", "slack_send", "slack_edit")}
 OWN_SKILLS = {"long-running", "long-running:long-running"}
-OWN_COMMAND = re.compile(r"\s*(?:drive|cc-slack|cci drive use)\s")
-CCI_COMMAND = re.compile(r"\s*cci\s")
+OWN_PROGRAMS = (["drive"], ["cc-slack"], ["cci", "drive", "use"])
 RESUME = re.compile(r"\bdrive job resume\b.*?\b(j\d+)\b")
 STATE_CLAIM = re.compile(
     r"(?<!\bif )(?<!\bwhen )(?<!\bonce )(?<!\bunless )\byou(?:'ve| have| are|'re| seem(?: to be)?| look| were| got)?(?: been| gone| went)?"
@@ -33,21 +32,31 @@ STATE_RULE = "A message that states or asks a running job's own state, such as t
 READ_WINDOW = timedelta(minutes=10)
 
 
+def program(command: str) -> list[str]:
+    """The words of the first simple command a Bash call runs, its program named without the path or quotes that call it, as `"/x/bin/cc-slack" thread` runs `cc-slack thread`; none when the shell cannot read the call."""
+    try:
+        commands = shell.simple_commands(shell.runnable(command))
+    except ValueError:
+        return []
+    return [Path(commands[0][0]).name, *commands[0][1:]] if commands else []
+
+
 def own_call(payload: dict) -> bool:
-    """Whether a call is one the communicator makes itself: the ack through say, a +1, its DM's watch, SendMessage, ToolSearch, this skill, the drive's heard, handler, record, order and job tools, a `drive` or `cc-slack` command in Bash, which starts it and stands in for a drive tool its session does not list, and `cci drive use`, which its start block orders."""
+    """Whether a call is one the communicator makes itself: the ack through say, a +1, its DM's watch, SendMessage, ToolSearch, this skill, the drive's heard, handler, record, order and job tools, a `drive` or `cc-slack` command in Bash by whatever path calls it, which starts it and stands in for a drive tool its session does not list, and `cci drive use`, which its start block orders."""
     name = payload["tool_name"]
     call = payload["tool_input"]
     if name == "Skill":
         return call.get("skill") in OWN_SKILLS
     if name == "Bash":
-        return bool(OWN_COMMAND.match(call.get("command") or ""))
+        words = program(call.get("command") or "")
+        return any(words[: len(own)] == own for own in OWN_PROGRAMS)
     return name in OWN_TOOLS
 
 
 def communicator_call(payload: dict) -> agents.Unjudged:
     """Why the communicator's turn does not run a call that is not its own, decided by the tool's name alone, so Jev never weighs it and the same call meets the same refusal every time."""
     name = payload["tool_name"]
-    if name.startswith(render.CCI_TOOLS) or name == "Bash" and CCI_COMMAND.match(payload["tool_input"].get("command") or ""):
+    if name.startswith(render.CCI_TOOLS) or name == "Bash" and program(payload["tool_input"].get("command") or "")[:1] == ["cci"]:
         return agents.Unjudged(f"Refused on purpose: {render.RECORDING}")
     if name == PICKUP:
         return agents.Unjudged(f"Refused on purpose: {render.EYES} Go on with the ack.")

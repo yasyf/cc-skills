@@ -75,8 +75,14 @@ def test_the_communicator_runs_only_its_own_calls_and_starts_a_handler_for_the_r
         call("Skill", skill="long-running:long-running"),
         call("Bash", command="drive heard --ts 1.2"),
         call("Bash", command="cci drive use demo"),
+        call("Bash", command="/Users/me/.claude/plugins/cache/cc-slack/cc-slack/0.9.1/bin/cc-slack thread --url https://acme.slack.com/archives/D123/p1"),
+        call("Bash", command='"/Users/me/.claude/plugins/cache/cc-slack/cc-slack/0.9.1/bin/cc-slack" history --channel D123 --limit 5'),
+        call("Bash", command='"${CLAUDE_PLUGIN_ROOT}/bin/cc-slack" channel-ack --session "$CLAUDE_CODE_SESSION_ID"'),
+        call("Bash", command="'/Users/me/.local/bin/drive' heard --ts 1.2"),
+        call("Bash", command="/opt/homebrew/bin/cci drive use demo"),
+        call("Bash", command="drive job report j1 - <<'EOF'\nPUSHED it's up\nEOF"),
     ):
-        assert communicator_calls.deny_reason(own) is None
+        assert communicator_calls.deny_reason(own) is None, own
     assert agents.ruled(communicator_calls.deny_reason(call(SLACK + "slack_pickup", channel_id="D123", ts="1.2"))) == {"judged": False}
     assert communicator_calls.deny_reason(call(SLACK + "slack_pickup", channel_id="D123", ts="1.2")) == (
         "Refused on purpose: cc-slack puts the eyes and Slack's working line on his message itself the moment it lands, so the"
@@ -101,6 +107,8 @@ def test_the_communicator_sends_every_record_on_the_drives_record_tool_and_makes
         call("Bash", command="cci post --kind answer --re 706660 --to meta@demo 'started a handler for it'"),
         call("Bash", command="cci read 706660"),
         call("Bash", command="cci subscribe --reader communicator --cursor communicator"),
+        call("Bash", command="/opt/homebrew/bin/cci read 706660"),
+        call("Bash", command="'/opt/homebrew/bin/cci' post --kind answer --re 706660 --to meta@demo 'started a handler for it'"),
     ):
         output = json.loads(hook_output(monkeypatch, capsys, cci))
         assert (output["hookSpecificOutput"]["permissionDecisionReason"], output["judged"]) == (refused, False), cci
