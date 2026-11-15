@@ -6,6 +6,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import threading
 import uuid
 from collections.abc import Callable
@@ -7109,6 +7110,21 @@ def test_a_drive_speaks_as_the_terminal_it_keeps_while_orca_shows_its_pane_else_
     monkeypatch.setattr(orca, "request", orca_request)
     assert (REAL_DRIVE_TERMINAL(remote), state.load(remote)["terminal"]) == (spoken, spoken)
     assert opened == ([] if spoken == kept else [("--worktree", "path:/work", "--title", f"{remote}-lanes")])
+
+
+def test_a_drive_opening_its_terminal_holds_no_drive_lock_while_orca_creates_it_so_another_process_takes_the_lock_at_once(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    with state.edit(remote) as data:
+        data["terminal"] = None
+        data["roles"]["coordinator"]["cwd"] = "/work"
+    taken = []
+
+    def orca_request(*args: str, seconds: float = orca.CALL_SECONDS) -> dict:
+        grab = "import fcntl, sys; fcntl.flock(open(sys.argv[1], 'a'), fcntl.LOCK_EX | fcntl.LOCK_NB)"
+        taken.append(subprocess.run([sys.executable, "-c", grab, str(state.drive_dir(remote) / ".lock")], capture_output=True, text=True, check=False).returncode)
+        return {"terminal": {"handle": "term_opened"}}
+
+    monkeypatch.setattr(orca, "request", orca_request)
+    assert (REAL_DRIVE_TERMINAL(remote), state.load(remote)["terminal"], taken) == ("term_opened", "term_opened", [0])
 
 
 def test_bound_keeps_the_worker_start_receipt_and_status_when_a_newer_install_saves_the_drive_while_it_runs(

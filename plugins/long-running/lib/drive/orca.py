@@ -212,14 +212,16 @@ def binder_terminal(drive: str) -> str:
 
 
 def kept_terminal(drive: str, key: str, title: str) -> str:
-    """The agentless Orca terminal the drive keeps under key: the one kept while Orca still shows its pane, else one opened in the coordinator's checkout, titled after the drive and title, and kept, unless another process kept a fresh one first."""
-    kept = state.load(drive)[key]
+    """The agentless Orca terminal the drive keeps under key: the one kept while Orca still shows its pane, else one opened in the coordinator's checkout, titled after the drive and title, with no drive lock held, so an Orca that answers nothing holds no other verb of the drive, and kept unless another process kept a fresh one meanwhile."""
+    loaded = state.load(drive)
+    kept = loaded[key]
     with contextlib.suppress(OrcaError):
         if kept and not terminal(kept)["orphaned"]:
             return kept
+    opened = request("terminal", "create", "--worktree", f"path:{loaded['roles']['coordinator']['cwd']}", "--title", f"{drive}-{title}")["terminal"]["handle"]
     with state.edit(drive) as data:
         if data[key] == kept:
-            data[key] = request("terminal", "create", "--worktree", f"path:{data['roles']['coordinator']['cwd']}", "--title", f"{drive}-{title}")["terminal"]["handle"]
+            data[key] = opened
         return data[key]
 
 
