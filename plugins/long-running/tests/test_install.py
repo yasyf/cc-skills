@@ -838,6 +838,7 @@ def test_an_idle_session_outside_the_drives_checkout_and_outside_cci_is_typed_ex
     assert capsys.readouterr().out.splitlines()[1:] == [
         "demo communicator: /exit typed in term_comm, so cci session run resumes it in the drive's checkout /work under tmux session demo-communicator, shown in Orca terminal term_shown"
     ]
+    assert state.saved("demo")["roles"]["communicator"]["terminal"] == "term_shown"
 
 
 def test_a_session_outside_cci_that_cci_has_not_resumed_in_tmux_after_the_wait_is_shown_by_the_attach_that_starts_its_tmux_session(
@@ -852,6 +853,7 @@ def test_a_session_outside_cci_that_cci_has_not_resumed_in_tmux_after_the_wait_i
     assert capsys.readouterr().out.splitlines()[1:] == [
         "demo communicator: /exit typed in term_comm, so cci session run resumes it in the drive's checkout /work under tmux session demo-communicator, shown in Orca terminal term_shown"
     ]
+    assert state.saved("demo")["roles"]["communicator"]["terminal"] == "term_shown"
 
 
 def test_a_busy_session_outside_the_drives_checkout_and_outside_cci_is_only_reloaded_so_no_exit_waits_behind_its_turn_with_nothing_to_show_it(

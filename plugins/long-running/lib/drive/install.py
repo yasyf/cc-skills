@@ -1129,11 +1129,11 @@ def homed(drive: str, seat: str, held: dict) -> tuple[str, bool, partial[str] | 
     if orca.in_tmux(alias := state.alias(drive, seat, project), held["session"]):
         return f", so {resumed}", True, None
     later = f"; it runs in {ran} until a reload finds it idle, when it is typed /exit and {resumed}, since no tmux session of cci's runs it"
-    return later, True, partial(attached, alias=alias, session=held["session"], show=agents.launch(drive, role, project, str(kept))[1], resumed=resumed)
+    return later, True, partial(attached, drive=drive, alias=alias, session=held["session"], show=agents.launch(drive, role, project, str(kept))[1], resumed=resumed)
 
 
-def attached(alias: str, session: str, show: str, resumed: str, deadline: float) -> str:
-    """Once cci session run resumes the session in the tmux session of its alias, which cci's channel starts as the /exit ends its Claude Code process, or once RELOAD_WAIT_SECONDS pass, run Start or resume's `orca terminal create` line, whose `cci session attach` shows that tmux session in Orca, starting it when it is down, so he opens the seat from Orca's sidebar; what its reload line adds."""
+def attached(drive: str, alias: str, session: str, show: str, resumed: str, deadline: float) -> str:
+    """Once cci session run resumes the session in the tmux session of its alias, which cci's channel starts as the /exit ends its Claude Code process, or once RELOAD_WAIT_SECONDS pass, run Start or resume's `orca terminal create` line, whose `cci session attach` shows that tmux session in Orca, starting it when it is down, so he opens the seat from Orca's sidebar, and record that terminal as the seat's, since the one it ran in is left at a shell prompt; what its reload line adds."""
     from drive import orca
 
     until = min(deadline, clock() + RELOAD_WAIT_SECONDS)
@@ -1143,6 +1143,8 @@ def attached(alias: str, session: str, show: str, resumed: str, deadline: float)
         handle = orca.opened(shlex.split(show))
     except orca.OrcaError as error:
         return f", so {resumed} under tmux session {alias}, which no Orca terminal shows ({error}): show it with {show}"
+    with state.edit(drive) as data:
+        state.seat(data, session)["terminal"] = handle
     return f", so {resumed} under tmux session {alias}, shown in Orca terminal {handle}"
 
 
