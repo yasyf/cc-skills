@@ -140,7 +140,7 @@ RELEASE_HELD = (
     " whether to release it, record his answer with `drive answer`, and name it in the release's `--order`, which a job's resume,"
     " approve, rerun or rollback reads from its brief's `Release:` line; a release on those two places alone runs with none. "
     + RELEASE_READING
-    + ". Once he says releases can go again, his answer saying so supersedes the hold: `ccn answer supersede {hold} --by <id>`"
+    + ". Once he says releases can go again, record his answer saying so with `drive answer --lifts-hold`, which supersedes the hold {hold} by it and lifts his agents freeze"
 )
 UNCARRIED = (
     'refused: `--order {order}` names his answer to the card asking "{asked}", which names {named}, and {why}: start it from a commit'

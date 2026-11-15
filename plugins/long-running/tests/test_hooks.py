@@ -2183,6 +2183,28 @@ def test_drive_job_add_starts_no_release_his_hold_holds_and_starts_his_exception
     assert (kept["release"], kept["reading"]) == (excepted, None)
     assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "read it", "--reading", "his words order it"]) == 2
     assert "--reading is the top coordinator's own reading of his words ordering the release --release starts, taken only from its session" in capsys.readouterr().err
+    started = released(demo, f"echo '{STARTED}'")
+    assert run("job", "release", "j1")[0] == 0
+    assert started.read_text().splitlines() == ["release freeze --except 8b2e4f7 --agents --json", "release start sandsql --order 8b2e4f7 --json"]
+
+
+def test_a_release_his_agents_freeze_does_not_except_starts_no_release_and_frees_its_job_saying_why(
+    demo: str, run: Run, recorded: Answers, jev: Jev, release_starts: list[list[str]], capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "release the fix")
+    recorded.listed = [RELEASE_HOLD, SSQL_EXCEPTION]
+    recorded.shown = {answer["id"][:7]: answer for answer in recorded.listed}
+    jev.picks("8b2e4f7")
+    started = released(demo, f"case \"$2\" in freeze) echo 'ym@poetic.com holds no agents freeze to except a release from' >&2; exit 1;; esac\necho '{STARTED}'")
+    excepted = "tools/ci release start sandsql --order 8b2e4f7"
+    assert run("job", "add", "builder", "--order", "o1", "--goal", "release the fix", "--release", excepted)[1].splitlines()[:2] == ["j1", starting(demo, "j1", excepted)]
+    assert cli.main(["job", "release", "j1"]) == 2
+    why = "its release did not start: his agents freeze was not written: ci release freeze exited 1: ym@poetic.com holds no agents freeze to except a release from"
+    assert capsys.readouterr().err.strip() == f"drive: j1: {why}"
+    assert (started.read_text().splitlines(), state.load(demo)["dropped_waits"]["j1"]) == (
+        ["release freeze --except 8b2e4f7 --agents --json"],
+        dict.fromkeys(state.pid_waits(f"pid:{os.getpid()}"), f"{why}; drive job set j1 --state stopped ends it"),
+    )
 
 
 HANDOVER_PICK = {

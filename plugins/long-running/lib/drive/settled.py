@@ -14,7 +14,7 @@ from itertools import chain, zip_longest
 from pathlib import Path
 from typing import NamedTuple
 
-from drive import github, limits, slack, state, view
+from drive import github, limits, reads, slack, state, view
 from drive.install import config_dir
 from drive.render import cut
 from drive.state import DriveError
@@ -495,8 +495,8 @@ def recorded(name: str, title: str, words: str, labels: list[str], where: str, c
     add = ["ccn", "answer", "add", f"--title={handle}", "--body-file", "-", *(f"--label={label}" for label in ["scope:durable", f"drive:{name}", *kind(words), *labels]), "--json"]
     answer_id = json.loads(ccn(add, body, cwd, f'could not record in cc-notes his answer "{cut(words, 80)}" to "{cut(title, 120)}" on {where}'))["id"]
     for pick in standing:
-        supersede(pick, answer_id, cwd)
-    lift(answer_id, title, words, list(lifts), cwd)
+        supersede(name, pick, answer_id, cwd)
+    lift(name, answer_id, title, words, list(lifts), cwd)
     return answer_id
 
 
@@ -515,7 +515,7 @@ def lifting(questions: Iterable[dict]) -> list[str]:
     return list(dict.fromkeys(pick for question in questions if question["unsettled"] for pick in PICK.findall(question["unsettled"])))
 
 
-def lift(answer_id: str, asked: str, said: str, picks: list[str], cwd: str) -> None:
+def lift(name: str, answer_id: str, asked: str, said: str, picks: list[str], cwd: str) -> None:
     """Mark in cc-notes each of these answers of his, still standing, superseded by his answer `said` to `asked` when Jev reads it replacing that one, by `replacing` on that pair alone, at YES or more, so an answer he lifted on the card that asked him to lift it never binds again, while one he kept stands; no reading leaves each standing, said on stderr."""
     older = [{"id": pick, "asked": answer["title"], "said": his(answer["body"])[:BODY_CHARS]} for pick in picks if "superseded_by" not in (answer := shown(pick, cwd)) and his(answer["body"])]
     if not older:
@@ -527,7 +527,7 @@ def lift(answer_id: str, asked: str, said: str, picks: list[str], cwd: str) -> N
         return
     for pick, sure in read.items():
         if reading(sure):
-            supersede(pick, answer_id, cwd)
+            supersede(name, pick, answer_id, cwd)
 
 
 def unlift(answer_id: str, picks: list[str], cwd: str) -> None:
@@ -574,8 +574,12 @@ def note_cards(name: str) -> None:
         data[state.CARDS_NOTED] = True
 
 
-def supersede(pick: str, answer_id: str, cwd: str) -> None:
-    """Record in cc-notes that his answer replaces his earlier pick, so ccn answer match, which every brief's rulings read, no longer ranks the pick as standing."""
+def supersede(name: str, pick: str, answer_id: str, cwd: str) -> None:
+    """Record in cc-notes that his answer replaces his earlier pick, so ccn answer match, which every brief's rulings read, no longer ranks the pick as standing; a pick that is his standing hold on every release lifts his agents freeze first, so whichever route retires his hold, the release ledger stops refusing his agents' releases with it and a failed lift leaves the hold standing."""
+    if (standing := hold(cwd)) and standing["id"].startswith(pick):
+        from drive import orca
+
+        agents_freeze(orca.checkout(name, cwd), "unfreeze")
     ccn(["ccn", "answer", "supersede", pick, "--by", answer_id], "", cwd, f"could not mark his pick {pick} superseded by his answer {answer_id} in cc-notes")
 
 
@@ -776,6 +780,14 @@ def hold(cwd: str) -> dict | None:
     return next(iter(listed(RELEASE_HOLD, cwd)), None)
 
 
+def agents_freeze(checkout: Path, *flags: str) -> None:
+    """Write his agents freeze, the row of the release ledger that refuses each release ai-oncall or a session of his starts unless its --order names an answer it excepts, with `tools/ci release <flags> --agents` from the drive's checkout, as his Buildkite identity."""
+    try:
+        reads.run([str(checkout / "tools" / "ci"), "release", *flags, "--agents", "--json"], checkout)
+    except reads.ReadError as error:
+        raise DriveError(f"his agents freeze was not written: {error}") from None
+
+
 def every(cwd: str) -> list[dict]:
     """Every recorded answer of his, superseded ones included, each with the answers superseding it, in one list."""
     return json.loads(ccn(["ccn", "answer", "list", "--limit", "0", "--include-superseded", "--json"], "", cwd, "could not read his recorded answers"))
@@ -895,7 +907,7 @@ def lifted_in(line: str, answer: dict, data: dict) -> bool:
     given = state.parse_time(shown(answer["id"], cwd)["created_at"])
     for newer in named:
         if state.parse_time(newer["created_at"]) > given and reading(replacing(newer["title"], his(newer["body"])[:BODY_CHARS], [answer]).get(answer["id"])):
-            supersede(answer["id"], newer["id"], cwd)
+            supersede(data["name"], answer["id"], newer["id"], cwd)
             return True
     return False
 
