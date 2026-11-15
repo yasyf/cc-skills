@@ -1712,7 +1712,7 @@ def unreached(job_id: str, job: dict, data: dict, answer: dict) -> str:
     )
     if job.get("where") == "remote" and job.get("dispatch"):
         return f"{held}, and drive job resume {job_id} delivers it now"
-    return f"{held}; {superseded.delivery(data, job_id, job, answer['words'])}"
+    return f"{held}; {superseded.delivery(data, job_id, job, answer['words'])[1]}"
 
 
 def owed_answers(watcher: Watcher, data: dict, moment: datetime) -> list[tuple[str, dict]]:
@@ -1982,7 +1982,7 @@ def agent_gap(job_id: str, job: dict, data: dict, moment: datetime) -> str | Non
         if isinstance(gap, Answered) or not job.get("agent"):
             return gap
     gap = local_gap(job_id, job, data, moment)
-    return f"{gap}: {superseded.delivery(data, job_id, job, gap, 'this line')}" if isinstance(gap, Idle) else gap
+    return f"{gap}: {superseded.delivery(data, job_id, job, gap, 'this line')[1]}" if isinstance(gap, Idle) else gap
 
 
 def codex_gap(job_id: str, job: dict) -> str | None:
@@ -2433,7 +2433,7 @@ def watchdog_brief(watcher: Watcher, data: dict, thing: str, found: dict, held: 
     wake = ""
     if job.get("agent") and (runs_in := session_of(job, data)):
         reading.append(f"cc-transcript {agent_transcript(runs_in, job, data)}")
-        wake = f"; {job_id} runs on this Mac as agent {job['agent']} of session {runs_in['session']}; to wake it: {superseded.delivery(data, job_id, job, '', 'the message')}"
+        wake = f"; {job_id} runs on this Mac as agent {job['agent']} of session {runs_in['session']}; to wake it: {superseded.delivery(data, job_id, job, '', 'the message')[1]}"
     if ended := state.lane_death(job):
         wake = f"; {job_id}'s lane ended at {when(ended['at'])}: {state.why_died(ended['why'], ended.get('cause'))}, so neither drive job wake nor SendMessage reaches it, and only the holder's drive job resume {job_id} starts its next worker"
     if holding:
