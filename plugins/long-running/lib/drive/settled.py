@@ -465,6 +465,27 @@ def unsaid(kept: list[str], links: list[str], found: dict | None, data: dict) ->
     return None
 
 
+def his_at(body: str, links: list[str], found: dict | None, data: dict) -> tuple[str, str | None]:
+    """His words in a recorded answer's body as his messages at the links hold them, with why they are not his: its text above the drive's notes, by `his`, when `unsaid` finds each piece of it his there; else, for a text that holds more than his words, such as an agent's attribution before his quote, his message or card answer at each link joined with … in link order, when each sits whole in plain words inside that text and each piece of it, split where an ellipsis or a bracketed insertion leaves words out, sits inside them or holds one whole, so a text quoting a message of his no link names is refused as before; else that text, with `unsaid`'s refusal of it. At terminal his words are only ever the text."""
+    words = his(body)
+    if (refusal := unsaid([words], links, found, data)) is None:
+        return words, None
+    if links == [TERMINAL] or unthreaded(links):
+        return words, refusal
+    try:
+        said = [heard(link, found, data) for link in links]
+    except slack.SlackError:
+        return words, refusal
+    if not said or None in said:
+        return words, refusal
+    messages = [f" {plain(message)} " for message in said]
+    if any(message.isspace() or message not in f" {plain(words)} " for message in messages):
+        return words, refusal
+    if any(f" {plain(piece)} " not in "".join(messages) and not any(message in f" {plain(piece)} " for message in messages) for piece in ELIDED.split(words)):
+        return words, refusal
+    return state.MESSAGES_JOINED.join(said), None
+
+
 def unthreaded(links: list[str]) -> str | None:
     """Why his messages at several links are no one answer of his: they sit in more than one thread and are not all at one channel's root, so an answer kept at the first link, which ends the cards of that link's thread alone, would leave a card under another thread asking him; None for one link."""
     if len(links) < 2:

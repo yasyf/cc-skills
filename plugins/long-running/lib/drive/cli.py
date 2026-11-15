@@ -4654,13 +4654,17 @@ def answer(args: argparse.Namespace) -> int:
         if marking or not args.link:
             raise DriveError(
                 f"cc-notes holds {args.id}; the drive keeps no link for it: run drive answer {args.id} --link <the permalink of his message or the card he tapped>"
-                " alone first, which keeps his words above its Notes: line at that link and lists each card still asking him and each PR not yet live,"
+                " alone first, which keeps his words at that link, its text above its Notes: line or, where that text holds more than his words, his message there"
+                " that sits inside it, and lists each card still asking him and each PR not yet live,"
                 " and mark them once you have read it"
             )
         if cited:
-            args.words = args.words or settled.his(cited["body"])
-            if unsaid := settled.unsaid([args.words, settled.his(cited["body"])], args.link, found, data):
+            if args.words and (unsaid := settled.unsaid([args.words], args.link, found, data)):
                 raise DriveError(f"{args.id}: refused, nothing recorded: {unsaid}")
+            words, unsaid = settled.his_at(cited["body"], args.link, found, data)
+            if unsaid:
+                raise DriveError(f"{args.id}: refused, nothing recorded: {unsaid}")
+            args.words = args.words or words
         bound = superseded.binding(data, args.link[0], asked, cwd)
         with state.edit(name) as data:
             superseded.record(data, args.id, args.words, args.link[0], asked, bound, state.stamp())
@@ -6380,7 +6384,8 @@ def parser() -> argparse.ArgumentParser:
         description=(
             "Run for every answer and ruling of his. The first call, with --title, --words and --link and no id, records"
             " it in cc-notes and here, taking the standing answer cc-notes holds under that question in those words when one does,"
-            " or with an id and --link records one already in cc-notes, his words read from it above its Notes: line, his messages in a row"
+            " or with an id and --link records one already in cc-notes, his words read from it above its Notes: line, or, where that text holds"
+            " more than his words, as an attribution before his quote, his messages at the links that each sit inside it, his messages in a row"
             " one answer of a --link each; a ruling, labelled"
             " ruling, records only with --rewrite naming the communicator's open \"Drive tooling:\" order that rewrites the"
             " skill to it, so the watch chases that rewrite until it is done. The record tool keeps each ruling an owner or"
@@ -6415,7 +6420,7 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument(
         "--words",
-        help="his words, verbatim, cut with … where words are left out, which his cc-notes answer keeps and a superseded card shows; the first call with --title needs them, and with an id they are its cc-notes words above Notes: unless given, refused unless his message or card answer at --link holds them",
+        help="his words, verbatim, cut with … where words are left out, which his cc-notes answer keeps and a superseded card shows; the first call with --title needs them, and with an id they are its cc-notes words above Notes: unless given, or his messages at --link joined with … where those words hold more than his and each message sits inside them, refused unless his message or card answer at --link holds them",
     )
     verb.add_argument(
         "--link",
@@ -6425,8 +6430,8 @@ def parser() -> argparse.ArgumentParser:
         help=(
             "the permalink of his message or of the card he answered, which a superseded card links, or terminal for words he typed into a drive session's"
             " terminal; several for his messages in a row in one thread, or all at one channel's root, in the order he sent them, which --words joins with …"
-            " and the answer keeps at the first; the first call needs it, and checks both --words and a named answer's words above its Notes: against"
-            " those messages joined, refused on an answer recorded already"
+            " and the answer keeps at the first; the first call needs it, and checks --words against those messages joined and a named answer's words"
+            " above its Notes: either against them or, where those words hold more than his, as each message sitting inside them, refused on an answer recorded already"
         ),
     )
     verb.add_argument("--stands", action="extend", nargs="+", default=[], metavar="KEY", help="a card, order, part or PR his answer leaves as it is")

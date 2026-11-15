@@ -85,7 +85,7 @@ RECORD = {
                 " --rework naming its PR, on his order or the job carrying it, withdraws a PR card. A ruling the record names"
                 " is kept as his drive answer at this link, listing each other card, part and PR it could change. A record"
                 " that ends a question or names a ruling is refused unless his message or card answer here holds its text,"
-                " and the ruling's words above Notes:"
+                " and the ruling's words above Notes:, or sits inside those words where they hold more than his, as an attribution before his quote"
             ),
         },
         "thread": {"type": "string", "description": "the thread it is about, kept as attr thread"},
@@ -112,7 +112,8 @@ RECORD = {
             "type": "string",
             "description": (
                 "a ruling's cc-notes answer id, as attr ruling, whose words above Notes: his messages at the urls of the call's records"
-                " naming it, his messages in a row in one thread, must hold; on an owner or answer record with url, his owner ruling on"
+                " naming it, his messages in a row in one thread, must hold, or, where those words hold more than his, as an attribution"
+                " before his quote, each sit inside; on an owner or answer record with url, his owner ruling on"
                 " his work included, the call keeps it as one drive answer, the text at each url once, joined with … at the first url, listing each card"
                 " asking him, part undelivered and PR not yet live it could change, which the watch's ANSWER line chases until drive"
                 " answer <id> marks each, --dropped for each his words remove"
@@ -752,13 +753,12 @@ def rulings(posts: list[dict]) -> dict[str, list[dict]]:
 
 
 def unheard(data: dict, found: dict, made: dict, ruled: list[dict]) -> str | None:
-    """Why a record keeping words as his answer or ruling, one closing his card, settling a question or naming a ruling, is not his: its text is not what he said at its url, or, on the first record of the call naming a ruling, given the records naming it, the ruling's recorded words above its notes are not what he said across their urls, read as his messages in a row."""
+    """Why a record keeping words as his answer or ruling, one closing his card, settling a question or naming a ruling, is not his: its text is not what he said at its url, or, on the first record of the call naming a ruling, given the records naming it, the ruling's recorded words above its notes are his messages across their urls, read in a row, by `settled.his_at`: neither what he said there nor, for words holding more than his, words each message sits inside."""
     if unsaid := settled.unsaid([made["text"]], list(filter(None, [made.get("url")])), found, data):
         return unsaid
     if not ruled:
         return None
-    words = settled.his(settled.shown(made["attr"]["ruling"], data["roles"]["coordinator"]["cwd"])["body"])
-    return settled.unsaid([words], list(dict.fromkeys(other["url"] for other in ruled)), found, data)
+    return settled.his_at(settled.shown(made["attr"]["ruling"], data["roles"]["coordinator"]["cwd"])["body"], list(dict.fromkeys(other["url"] for other in ruled)), found, data)[1]
 
 
 def asks_only(found: dict, made: dict, questions: list[tuple[str, dict]]) -> str | None:
