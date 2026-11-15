@@ -3152,7 +3152,7 @@ def no_fix_job(data: dict, order_id: str, part: str, jobs: list[tuple[str, dict]
 
 
 def unbuilt(data: dict, order_id: str, part: str, jobs: list[tuple[str, dict]]) -> str:
-    """Why work he ordered that only research, a design done with no builder, his card or a post holds has no one carrying it: a part a post of the drive already answered leads with that post, since it reads as his question answered and closes once sorted as an answer, while work nothing answered names the builder to start, waiting on the reader still at work and on each open card of his whose `Holds:` line names the part or that was kept with none, which it builds the recommended option of and opens no PR until he answers; then the merged PR the part's words name, which drive order posted records as its delivery, or else the sort of the part as an answer."""
+    """Why work he ordered that only research, a design done with no builder, his card or a post holds has no one carrying it: a part a post of the drive already answered leads with that post, since it reads as his question answered and closes once sorted as an answer, while work nothing answered names the builder to start, waiting on the reader still at work alone, since a wait says only when a job starts, which builds the recommended option of each open card of his whose `Holds:` line names the part or that was kept with none and opens no PR until he answers, each card holding its PR by state.part_cards; then the merged PR the part's words name, which drive order posted records as its delivery, or else the sort of the part as an answer."""
     held = ", ".join(f"{job['kind']} {job_id} {job['state']}" for job_id, job in jobs)
     reading = [job_id for job_id, job in jobs if job["kind"] == "reader" and job["state"] not in state.FINISHED_JOB_STATES]
     cards = list(
@@ -3163,7 +3163,7 @@ def unbuilt(data: dict, order_id: str, part: str, jobs: list[tuple[str, dict]]) 
             if (drawn := question["card"] or question["waits"]) and (question["holds"] is None or state.names_part(question["holds"], [part]))
         )
     )
-    waits = "".join(f" --waits {wait}" for wait in [*reading[-1:], *cards])
+    waits = "".join(f" --waits {wait}" for wait in reading[-1:])
     open_cards = f", his card {' and '.join(cards)} open" if cards else ""
     named = shlex.quote(part)
     start = f"drive job add builder --order {order_id} --part {named} --goal '<what it builds>'{waits}"
