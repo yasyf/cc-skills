@@ -6421,11 +6421,11 @@ def test_an_exempt_class_its_files_are_outside_is_refused_by_the_landers_class_c
     assert state.load("demo")["prs"]["Forge-AI/monorepo#42"]["exempt"] == "test-only"
 
 
-def test_pr_tapped_refuses_a_pr_the_drive_holds_with_the_hold_label_even_when_exempt(run: Run, with_pr: str) -> None:
+def test_pr_tapped_refuses_a_pr_the_hold_label_holds_even_when_exempt(run: Run, with_pr: str) -> None:
     run("pr", "set", PR, "--exempt", "test-only")
     with state.edit("demo") as data:
         data["prs"][with_pr]["hold_label"] = True
-    assert run("pr", "tapped", PR) == (1, f"{with_pr}: held by the drive with the hold label")
+    assert run("pr", "tapped", PR) == (1, f"{with_pr}: held by the hold label on GitHub")
 
 
 def test_pr_set_refuses_a_revert_the_incident_fix_exemption_and_names_the_tap_card_it_waits_on(

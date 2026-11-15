@@ -198,13 +198,12 @@ def test_a_held_pr_drops_its_buttons_and_says_held_by_you() -> None:
     }
 
 
-def test_a_pr_the_drive_holds_with_the_hold_label_asks_him_nothing() -> None:
+def test_a_pr_the_hold_label_holds_still_asks_his_approve_and_says_the_label_holds_it() -> None:
     labeled = pr_json() | {"labels": [{"id": "LA_1", "name": "hold", "description": "", "color": "d93f0b"}]}
-    assert card.render(labeled, entry(now="held") | {"hold_label": True}) == {
-        "status": "info",
-        "title": "Fix: retry flaky uploads",
-        "prs": [row(blocks="Held by the drive with the hold label on GitHub")],
-    }
+    drawn = card.render(labeled, entry(now="held") | {"hold_label": True})
+    assert (drawn["status"], drawn["options"], drawn["prs"][0]["lands"]) == ("needs_you", ["Approve", "Hold"], "you approve, CI passes and the hold label comes off on GitHub")
+    approved = card.render(labeled, entry(tap="Approve", now="held") | {"hold_label": True})
+    assert (approved["status"], approved["prs"][0]["blocks"]) == ("info", "Approved by you. Held by the hold label on GitHub")
 
 
 def test_a_port_carries_its_port_section() -> None:
@@ -611,21 +610,20 @@ def test_a_drive_tooling_pr_whose_his_words_say_none_draws_its_card_with_approve
 
 
 @pytest.mark.parametrize(
-    ("held", "labels", "pr_state", "why"),
+    ("held", "pr_state", "why"),
     [
-        ({"exempt": "pure port"}, [], "OPEN", 'its exempt class "pure port" lands it with no tap'),
-        ({"tap": {"label": "Approve", "at": "2026-11-09T08:00:00-08:00", "head": HEAD, "source": "slack", "picks": {}}}, [], "OPEN", "he approved it already"),
-        ({"tap": {"label": "Hold", "at": "2026-11-09T08:00:00-08:00", "head": HEAD, "source": "slack"}}, [], "OPEN", "he held it"),
-        ({}, [{"name": github.HOLD_LABEL}], "OPEN", "it carries the hold label"),
-        ({}, [], "MERGED", "GitHub reads it merged"),
+        ({"exempt": "pure port"}, "OPEN", 'its exempt class "pure port" lands it with no tap'),
+        ({"tap": {"label": "Approve", "at": "2026-11-09T08:00:00-08:00", "head": HEAD, "source": "slack", "picks": {}}}, "OPEN", "he approved it already"),
+        ({"tap": {"label": "Hold", "at": "2026-11-09T08:00:00-08:00", "head": HEAD, "source": "slack"}}, "OPEN", "he held it"),
+        ({}, "MERGED", "GitHub reads it merged"),
     ],
 )
 def test_a_pr_his_card_would_offer_no_approve_draws_no_fresh_card_and_wakes_no_one_yet_its_posted_card_redraws(
-    drive: str, monkeypatch: pytest.MonkeyPatch, held: dict, labels: list[dict], pr_state: str, why: str
+    drive: str, monkeypatch: pytest.MonkeyPatch, held: dict, pr_state: str, why: str
 ) -> None:
     with state.edit(drive) as data:
         data["prs"]["Forge-AI/monorepo#42"] |= held
-    monkeypatch.setattr(card, "run", answering(pr_json(pr_state=pr_state) | {"labels": labels}))
+    monkeypatch.setattr(card, "run", answering(pr_json(pr_state=pr_state)))
     assert ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]}) == {
         "cards": [],
         "skipped": [{"repo": "Forge-AI/monorepo", "number": 42, "reason": f"{why}, so no PR card draws, since it would offer him no Approve"}],

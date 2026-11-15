@@ -3610,7 +3610,7 @@ def against(pr: dict) -> str:
 
 
 def tap_refused(pr: dict, picked: Iterable[str]) -> str | None:
-    """Why his card on the PR offers no Approve; None when it does: open, waiting on his tap with no exempt class landing it, and neither his Hold, the hold label nor his Approve on it, whatever the check against his words says, his Approve standing only while the picks it kept name each card his Approve would pick on the PR now, the waits ids `picked` gives, so a card of his that came to hold it since he tapped, which his Approve did not answer, has his card on it offer Approve again naming that pick. A red PR offers it, and so does one the check objects to, the objection a line on the card."""
+    """Why his card on the PR offers no Approve; None when it does: open, waiting on his tap with no exempt class landing it, and neither his Hold nor his Approve on it, whatever the check against his words says, his Approve standing only while the picks it kept name each card his Approve would pick on the PR now, the waits ids `picked` gives, so a card of his that came to hold it since he tapped, which his Approve did not answer, has his card on it offer Approve again naming that pick. A red PR offers it, as does one the hold label on GitHub holds, and so does one the check objects to, the objection a line on the card."""
     if pr["state"] != "open":
         return f"it is {pr['state']}"
     if exempted(pr):
@@ -3622,8 +3622,6 @@ def tap_refused(pr: dict, picked: Iterable[str]) -> str | None:
             return "he approved it already"
         case "Hold":
             return "he held it"
-    if pr["hold_label"]:
-        return "it carries the hold label"
     return None
 
 
