@@ -1421,20 +1421,24 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
 
 
 def started_release(name: str, job_id: str, command: str) -> list[str]:
-    """Start the release a job's --release names from the drive's checkout at the head of its default branch, leave it running once `ci release` names the build it started, end the designs the job carries and brief it on that build; a start naming none keeps no job and refuses with what it said."""
+    """Start the release a job's --release names from the drive's checkout at the head of its default branch, its --order first excepted from his agents freeze while he holds every release, leave it running once `ci release` names the build it started, end the designs the job carries and brief it on that build; a start naming none keeps no job and refuses with what it said."""
     said: list[str] = []
     answer: dict = {}
-    with subprocess.Popen([*simple_commands(command)[0], "--json"], cwd=orca.checkout(name, state.load(name)["roles"]["coordinator"]["cwd"]), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True) as release:
+    cwd = state.load(name)["roles"]["coordinator"]["cwd"]
+    checkout = orca.checkout(name, cwd)
+    if settled.hold(cwd):
+        try:
+            settled.agents_freeze(checkout, "freeze", "--except", brief.started(command)[0]["order"][-1])
+        except DriveError as error:
+            raise unstarted(name, job_id, str(error)) from None
+    with subprocess.Popen([*simple_commands(command)[0], "--json"], cwd=checkout, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True) as release:
         for line in release.stdout:
             said.append(line)
             if answer := release_answer(said):
                 break
         release.terminate()
     if not (build := answer.get("build", {}).get("url")):
-        why = answer.get("refused") or render.cut("".join(said).strip(), 600) or f"exit {release.returncode}"
-        with state.edit(name) as data:
-            data["orders"][data["jobs"].pop(job_id)["order"]]["jobs"].remove(job_id)
-        raise DriveError(f"no job added: its release did not start: {why}")
+        raise unstarted(name, job_id, answer.get("refused") or render.cut("".join(said).strip(), 600) or f"exit {release.returncode}")
     with state.edit(name) as data:
         job = data["jobs"][job_id]
         job["release_build"] = build
@@ -1442,6 +1446,12 @@ def started_release(name: str, job_id: str, command: str) -> list[str]:
         replaced = state.end_replaced(data, [job["order"]], job["created"])
     line, _ = write_brief(name, job_id, {})
     return [*replaced, f"{job_id} started `{command}` as {build} and left it running: its agent follows it with `{answer['follow']}` and reads its approve hold", line]
+
+
+def unstarted(name: str, job_id: str, why: str) -> DriveError:
+    with state.edit(name) as data:
+        data["orders"][data["jobs"].pop(job_id)["order"]]["jobs"].remove(job_id)
+    return DriveError(f"no job added: its release did not start: {why}")
 
 
 def release_answer(said: list[str]) -> dict:
@@ -4398,12 +4408,20 @@ def answer(args: argparse.Namespace) -> int:
             f"{args.id} is recorded already, at {data['answers'][args.id]['link']}, so --words and --link would change nothing: a later message of his is an"
             " answer of its own, recorded with --title, --words and --link, and his messages in a row go in one first call, a --link for each in order"
         )
+    if args.lifts_hold and not settled.hold(cwd):
+        raise DriveError("--lifts-hold refused, no hold of his on every release stands, so nothing is recorded")
     if args.id is None:
         if not (args.title and args.words and args.link):
             raise DriveError('name his answer\'s cc-notes id, or pass --title "<the question, verbatim>" with --words and --link to record it in cc-notes first')
         if unsaid := settled.unsaid([args.words], args.link, found, data):
             raise DriveError(f"refused, nothing recorded: {unsaid}")
         args.id = settled.recorded(name, args.title, args.words, args.label, " and ".join(args.link), cwd)
+        if settled.RELEASE_HOLD in args.label:
+            settled.agents_freeze(orca.checkout(name, cwd), "freeze", "--reason", args.words, "--order", args.id)
+            print(f"drive answer: {args.id[:7]} is his agents freeze in the release ledger now, so ai-oncall and his sessions start no release but one he excepts", file=sys.stderr)
+    if args.lifts_hold and (hold := settled.hold(cwd)):
+        settled.supersede(name, hold["id"], args.id, cwd)
+        print(f"drive answer: {args.id[:7]} supersedes his hold {hold['id'][:7]} and lifted his agents freeze, so ai-oncall and his sessions start releases again", file=sys.stderr)
     marking = args.stands or args.settled or args.dropped or args.superseded or args.reopened or args.others_stand or args.untouched
     done: list[str] = []
     if args.id not in data["answers"]:
@@ -4462,7 +4480,7 @@ def answer(args: argparse.Namespace) -> int:
         bound = superseded.binding(data, kept["link"], asked, cwd) if dropping else {}
         for order_id, keys in dropping.items():
             for pick in bound.get(order_id, []):
-                settled.supersede(pick, args.id, cwd)
+                settled.supersede(name, pick, args.id, cwd)
                 done.append(f"his pick {pick}, which bound {order_id}, is superseded by {args.id} in cc-notes, so ccn answer match no longer reads it as standing")
             with state.edit(name) as data:
                 data["answers"][args.id]["cards"].update({key: {"mark": "dropped", "job": None, "card": None} for key in keys})
@@ -4546,7 +4564,7 @@ def replaced(name: str, answer_id: str, asked: dict[str, dict], cwd: str) -> lis
         if (found := settled.reading(sure)) is None:
             print(f'drive answer: Jev is unsure whether {answer_id} replaces his answer {old["id"]} to "{render.cut(old["asked"], 200)}"; when it does, run ccn answer supersede {old["id"]} --by {answer_id}', file=sys.stderr)
         if found:
-            settled.supersede(old["id"], answer_id, cwd)
+            settled.supersede(name, old["id"], answer_id, cwd)
             done.append(f'his answer {old["id"]} to "{render.cut(old["asked"], 200)}" is superseded by {answer_id} in cc-notes, as Jev reads his new words replacing it, so each brief written from now and each judge reads it as replaced')
     return done
 
@@ -6089,7 +6107,20 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("id", nargs="?", help="his answer's cc-notes id; leave it out with --title on the first call to record it in cc-notes")
     verb.add_argument("--title", help="the question his answer settles, verbatim, as its cc-notes title; with no id, the first call records it there")
-    verb.add_argument("--label", action="append", default=[], help="a cc-notes label beyond scope:durable and drive:<drive>, such as header:<topic> or from:owner")
+    verb.add_argument(
+        "--label",
+        action="append",
+        default=[],
+        help=(
+            "a cc-notes label beyond scope:durable and drive:<drive>, such as header:<topic> or from:owner; release-hold, his hold on every release, also"
+            " writes his agents freeze in the release ledger with tools/ci release freeze --agents, so ai-oncall and his sessions start no release but one he excepts"
+        ),
+    )
+    verb.add_argument(
+        "--lifts-hold",
+        action="store_true",
+        help="his answer says releases can go again: it supersedes his standing hold on every release in cc-notes and lifts his agents freeze with tools/ci release unfreeze --agents",
+    )
     verb.add_argument(
         "--rewrite",
         metavar="ORDER",

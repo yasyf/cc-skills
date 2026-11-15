@@ -1479,7 +1479,7 @@ def test_his_words_under_a_card_within_ten_minutes_after_his_tap_on_it_replace_t
         data["jobs"]["j2"]["created"] = state.stamp(datetime.fromtimestamp(1794200000).astimezone())
         data["jobs"]["j2"]["questions"].append(state.new_question(None, "Which ring", state.stamp()) | {"waits": "demo:j2-8"})
     superseding: list[tuple[str, str]] = []
-    monkeypatch.setattr(settled, "supersede", lambda pick, answer_id, cwd: superseding.append((pick, answer_id)))
+    monkeypatch.setattr(settled, "supersede", lambda name, pick, answer_id, cwd: superseding.append((pick, answer_id)))
     tap_on_card(demo)
     assert {job_id: [kept["seq"] for kept in state.load(demo)["jobs"][job_id]["undelivered"]] for job_id in ("j1", "j2")} == {"j1": ["51"], "j2": ["51"]}
     with state.edit(demo) as data:
@@ -1511,7 +1511,7 @@ def test_his_words_under_a_card_before_his_tap_on_it_or_past_ten_minutes_after_i
     monkeypatch.setattr(subprocess, "run", Cci().run)
     answered = open_cards(monkeypatch, "demo:j1-7")
     superseding: list[tuple[str, str]] = []
-    monkeypatch.setattr(settled, "supersede", lambda pick, answer_id, cwd: superseding.append((pick, answer_id)))
+    monkeypatch.setattr(settled, "supersede", lambda name, pick, answer_id, cwd: superseding.append((pick, answer_id)))
     tap_on_card(demo)
     with pytest.raises(DriveError, match="1: refused, nothing posted: the question this answer names ended already"):
         tools.run("record", demo, {"records": [{"kind": "answer", "text": "Knock, the bell is broken", "url": his_words_at(after), "waits": "demo:j1-7"}]})
@@ -1549,7 +1549,7 @@ def test_his_question_asking_for_facts_under_a_card_beside_his_tap_on_it_leaves_
     monkeypatch.setattr(subprocess, "run", Cci().run)
     answered = open_cards(monkeypatch, "demo:j1-7")
     superseding: list[tuple[str, str]] = []
-    monkeypatch.setattr(settled, "supersede", lambda pick, answer_id, cwd: superseding.append((pick, answer_id)))
+    monkeypatch.setattr(settled, "supersede", lambda name, pick, answer_id, cwd: superseding.append((pick, answer_id)))
     tap_on_card(demo)
     asked = {"kind": "owner", "text": "Expand on 1 and 2 and how does the replica fit in?", "url": his_words_at(after), "about": "his work"}
     tools.run("record", demo, {"records": [asked]})
@@ -1567,7 +1567,7 @@ def test_drive_answer_lists_and_ends_the_question_his_tap_closed_once_his_words_
     monkeypatch.setattr(subprocess, "run", Cci().run)
     open_cards(monkeypatch, "demo:j1-7")
     superseding: list[tuple[str, str]] = []
-    monkeypatch.setattr(settled, "supersede", lambda pick, answer_id, cwd: superseding.append((pick, answer_id)))
+    monkeypatch.setattr(settled, "supersede", lambda name, pick, answer_id, cwd: superseding.append((pick, answer_id)))
     tap_on_card(demo)
     assert [kept["seq"] for kept in state.load(demo)["jobs"]["j1"]["undelivered"]] == ["51"]
     words = his_words_at(5)

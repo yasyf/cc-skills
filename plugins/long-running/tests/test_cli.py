@@ -9908,7 +9908,7 @@ def test_his_answer_on_a_card_asking_him_to_lift_a_pick_lists_each_open_order_th
         data["jobs"]["j3"].update(state="waiting", agent="agent-3")
     recorded.shown["9992100"] = {"id": "9992100", "title": "Still build the separate process now?", "body": "Wait for the four PRs to merge\nNotes: Binds order o2", "tags": [], "created_at": "2026-11-10T00:45:49Z"}
     superseding: list[tuple[str, str]] = []
-    monkeypatch.setattr(settled, "supersede", lambda pick, answer_id, cwd: superseding.append((pick, answer_id)))
+    monkeypatch.setattr(settled, "supersede", lambda name, pick, answer_id, cwd: superseding.append((pick, answer_id)))
     cards_asking(monkeypatch, PR)
     assert cli.main(["answer", "a1", "--words", WORDS, "--link", PICK]) == 2
     listed = capsys.readouterr().err
@@ -9941,7 +9941,7 @@ def test_his_answer_supersedes_in_cc_notes_each_older_standing_answer_on_its_fea
         data["answers"]["9992100"] = {"words": "Wait for the four PRs to merge", "link": PICK, "at": "2026-11-10T00:45:49Z", "said": "2026-11-10T00:45:49Z", "cards": {"o2": {"mark": "stands"}}, "jobs": {}}
     recorded.shown["9992100"] = {"id": "9992100", "title": "Still build the separate process now?", "body": "Wait for the four PRs to merge\nNotes: Binds order o2", "tags": [], "created_at": "2026-11-10T00:45:49Z"}
     superseding: list[tuple[str, str]] = []
-    monkeypatch.setattr(settled, "supersede", lambda pick, answer_id, cwd: superseding.append((pick, answer_id)))
+    monkeypatch.setattr(settled, "supersede", lambda name, pick, answer_id, cwd: superseding.append((pick, answer_id)))
     jev.breaks("replaces", "9992100")
     cards_asking(monkeypatch, PR)
     assert cli.main(["answer", "a1", "--words", WORDS, "--link", PICK]) == 2
@@ -9991,6 +9991,56 @@ def test_an_answer_with_no_id_records_his_words_in_cc_notes_first_and_goes_on_by
     assert added == [(["ccn", "answer", "add", "--title=Which topology?", "--body-file", "-", *labels, "--json"], WORDS)]
     assert run("answer", "beb09e5", "--others-stand")[0] == 0
     assert list(state.load("demo")["answers"]) == ["beb09e5f00d"]
+
+
+def test_his_release_hold_writes_his_agents_freeze_and_his_lift_lifts_it_before_superseding_the_hold(
+    run: Run, designing: str, recorded: Answers, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cards_asking(monkeypatch, PR)
+    calls: list[list[str]] = []
+    monkeypatch.setattr(cli.reads, "run", lambda argv, checkout: calls.append([*argv, str(checkout)]) or "{}")
+    ccn = settled.ccn
+    monkeypatch.setattr(settled, "ccn", lambda argv, text, cwd, failure: calls.append(["supersede", argv[3], argv[5]]) or "" if argv[2:3] == ["supersede"] else ccn(argv, text, cwd, failure))
+    ci = str(tmp_path / "tools" / "ci")
+    said = "no releases until I say we can again, only I can give exceptions"
+    hold, lifted = f"15c4de1{'0' * 33}", f"7e1ea5e{'0' * 33}"
+    ids = {"Are releases frozen?": hold, "Can releases go again?": lifted}
+    monkeypatch.setattr(settled, "recorded", lambda name, title, words, labels, where, cwd: ids.get(title, f"9c0ffee{'0' * 33}"))
+    assert cli.main(["answer", "--title", "Are releases frozen?", "--words", said, "--link", PICK, "--label", "release-hold"]) == 2
+    assert calls == [[ci, "release", "freeze", "--reason", said, "--order", hold, "--agents", "--json", str(tmp_path)]]
+    assert "drive answer: 15c4de1 is his agents freeze in the release ledger now" in capsys.readouterr().err
+    calls.clear()
+    lift = ["answer", "--title", "Can releases go again?", "--words", "ya releases can go again", "--link", "https://acme.slack.com/archives/D123/p1794300000000400", "--lifts-hold"]
+    assert cli.main(lift) == 2
+    assert "--lifts-hold refused, no hold of his on every release stands" in capsys.readouterr().err
+    assert calls == []
+    recorded.listed = [{"id": hold, "title": "Are releases frozen?", "body": said, "tags": ["release-hold"], "created_at": "2026-11-13T19:10:39Z"}]
+    assert cli.main(lift) == 0
+    assert calls == [[ci, "release", "unfreeze", "--agents", "--json", str(tmp_path)], ["supersede", hold, lifted]]
+    assert "drive answer: 7e1ea5e supersedes his hold 15c4de1 and lifted his agents freeze" in capsys.readouterr().err
+
+
+def test_whatever_supersedes_his_standing_hold_lifts_his_agents_freeze_first_and_a_failed_lift_leaves_the_hold_standing(
+    recorded: Answers, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[list[str]] = []
+    monkeypatch.setattr(settled.reads, "run", lambda argv, checkout: calls.append([*argv, str(checkout)]) or "{}")
+    monkeypatch.setattr(settled, "ccn", lambda argv, text, cwd, failure: calls.append(argv[2:]) or "")
+    hold = f"15c4de1{'0' * 33}"
+    recorded.listed = [{"id": hold, "title": "Are releases frozen?", "body": "no releases until I say we can again", "tags": ["release-hold"], "created_at": "2026-11-13T19:10:39Z"}]
+    settled.supersede("demo", "bell", "knocker", str(tmp_path))
+    settled.supersede("demo", hold, "7e1ea5e", str(tmp_path))
+    unfreeze = [str(tmp_path / "tools" / "ci"), "release", "unfreeze", "--agents", "--json", str(tmp_path)]
+    assert calls == [["supersede", "bell", "--by", "knocker"], unfreeze, ["supersede", hold, "--by", "7e1ea5e"]]
+    calls.clear()
+
+    def refused(argv: list[str], checkout: Path) -> str:
+        raise reads.ReadError("ci release: not signed in to Buildkite")
+
+    monkeypatch.setattr(settled.reads, "run", refused)
+    with pytest.raises(state.DriveError, match="his agents freeze was not written: ci release: not signed in to Buildkite"):
+        settled.supersede("demo", hold[:7], "7e1ea5e", str(tmp_path))
+    assert calls == []
 
 
 def test_j5263_an_answer_cc_notes_holds_under_that_question_in_those_words_is_his_answer_recorded_so_none_is_added(

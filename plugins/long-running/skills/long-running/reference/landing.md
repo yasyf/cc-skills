@@ -619,9 +619,14 @@ the patch.
 - A start names his exception in `--order`. A job's approve, resume, rerun or rollback passes on the
   `--order` of its `Release:` line. A call naming none is refused, with no answer of his read. An
   incident's order passes on its words, never on its label. Ask
-  him with `drive job ask` and record his answer with `drive answer`. Once he says releases can go
-  again, supersede the hold with that answer: `ccn answer supersede <hold> --by <id>`. Record a new
-  hold of his with `drive answer --label release-hold`.
+  him with `drive job ask` and record his answer with `drive answer`. Record a new hold of his with
+  `drive answer --label release-hold`, which also writes his agents freeze, the release-ledger row
+  through which the release gate every start passes refuses each start by ai-oncall or a session
+  of his, with `tools/ci release freeze --agents`; `drive job add --release` excepts its start's
+  `--order` on that row with `--except` before it starts. Once he says releases can go again,
+  record that answer with `drive answer --lifts-hold`, which lifts the row with `tools/ci release
+  unfreeze --agents` and supersedes the hold by it; any answer superseding the hold, such as one
+  Jev reads replacing it, lifts the row first the same way.
 - `tools/ci release freezes` reads each freeze the release ledger holds standing now. A job's brief and
   a handler's prompt carry those freezes and his hold on a `Release freezes:` line, as they stood when
   written, and `drive status` adds the line when a shown job or PR waits on a release. `say` and

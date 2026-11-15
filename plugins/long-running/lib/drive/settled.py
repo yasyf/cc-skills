@@ -12,7 +12,7 @@ from itertools import chain, zip_longest
 from pathlib import Path
 from typing import NamedTuple
 
-from drive import github, limits, slack, state, view
+from drive import github, limits, reads, slack, state, view
 from drive.install import config_dir
 from drive.render import cut
 from drive.state import DriveError
@@ -300,7 +300,7 @@ def recorded(name: str, title: str, words: str, labels: list[str], where: str, c
     add = ["ccn", "answer", "add", f"--title={handle}", "--body-file", "-", *(f"--label={label}" for label in ["scope:durable", f"drive:{name}", *kind(words), *labels]), "--json"]
     answer_id = json.loads(ccn(add, body, cwd, f'could not record in cc-notes his answer "{cut(words, 80)}" to "{cut(title, 120)}" on {where}'))["id"]
     for pick in standing:
-        supersede(pick, answer_id, cwd)
+        supersede(name, pick, answer_id, cwd)
     return answer_id
 
 
@@ -333,8 +333,12 @@ def note_cards(name: str) -> None:
         data[state.CARDS_NOTED] = True
 
 
-def supersede(pick: str, answer_id: str, cwd: str) -> None:
-    """Record in cc-notes that his answer replaces his earlier pick, so ccn answer match, which every brief's rulings read, no longer ranks the pick as standing."""
+def supersede(name: str, pick: str, answer_id: str, cwd: str) -> None:
+    """Record in cc-notes that his answer replaces his earlier pick, so ccn answer match, which every brief's rulings read, no longer ranks the pick as standing; a pick that is his standing hold on every release lifts his agents freeze first, so whichever route retires his hold, the release ledger stops refusing his agents' releases with it and a failed lift leaves the hold standing."""
+    if (standing := hold(cwd)) and standing["id"].startswith(pick):
+        from drive import orca
+
+        agents_freeze(orca.checkout(name, cwd), "unfreeze")
     ccn(["ccn", "answer", "supersede", pick, "--by", answer_id], "", cwd, f"could not mark his pick {pick} superseded by his answer {answer_id} in cc-notes")
 
 
@@ -497,6 +501,14 @@ def listed(label: str, cwd: str) -> list[dict]:
 def hold(cwd: str) -> dict | None:
     """His newest standing hold on every release, the answer labelled release-hold that no later answer of his superseded; None when none stands."""
     return next(iter(listed(RELEASE_HOLD, cwd)), None)
+
+
+def agents_freeze(checkout: Path, *flags: str) -> None:
+    """Write his agents freeze, the row of the release ledger that refuses each release ai-oncall or a session of his starts unless its --order names an answer it excepts, with `tools/ci release <flags> --agents` from the drive's checkout, as his Buildkite identity."""
+    try:
+        reads.run([str(checkout / "tools" / "ci"), "release", *flags, "--agents", "--json"], checkout)
+    except reads.ReadError as error:
+        raise DriveError(f"his agents freeze was not written: {error}") from None
 
 
 def every(cwd: str) -> list[dict]:

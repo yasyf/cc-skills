@@ -1729,12 +1729,27 @@ def test_drive_job_add_starts_no_release_his_hold_holds_and_starts_his_exception
     assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "release the fix", "--release", stale]) == 2
     assert capsys.readouterr().err.strip() == "drive: refused, no job added: " + brief.RELEASE_HELD.format(said=RELEASE_HOLD["body"], where="15c4de1", hold="15c4de1", release=stale, why=why)
     jev.picks("8b2e4f7")
-    released(demo, f"echo '{STARTED}'")
+    started = released(demo, f"echo '{STARTED}'")
     excepted = "tools/ci release start sandsql --order 8b2e4f7"
     assert run("job", "add", "builder", "--order", "o1", "--goal", "release the fix", "--release", excepted)[1].splitlines()[:2] == [
         "j1",
         f"j1 started `{excepted}` as {BUILD} and left it running: its agent follows it with `ci release watch {BUILD}` and reads its approve hold",
     ]
+    assert started.read_text().splitlines() == ["release freeze --except 8b2e4f7 --agents --json", "release start sandsql --order 8b2e4f7 --json"]
+
+
+def test_a_release_his_agents_freeze_does_not_except_starts_no_release_and_keeps_no_job(demo: str, run: Run, recorded: Answers, jev: Jev, capsys: pytest.CaptureFixture[str]) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "release the fix")
+    recorded.listed = [RELEASE_HOLD, SSQL_EXCEPTION]
+    recorded.shown = {answer["id"][:7]: answer for answer in recorded.listed}
+    jev.picks("8b2e4f7")
+    started = released(demo, f"case \"$2\" in freeze) echo 'ym@poetic.com holds no agents freeze to except a release from' >&2; exit 1;; esac\necho '{STARTED}'")
+    assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "release the fix", "--release", "tools/ci release start sandsql --order 8b2e4f7"]) == 2
+    assert capsys.readouterr().err.strip() == (
+        "drive: no job added: its release did not start: his agents freeze was not written:"
+        " ci release freeze exited 1: ym@poetic.com holds no agents freeze to except a release from"
+    )
+    assert (started.read_text().splitlines(), state.load(demo)["jobs"]) == (["release freeze --except 8b2e4f7 --agents --json"], {})
 
 
 HANDOVER_PICK = {

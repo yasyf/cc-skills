@@ -379,7 +379,7 @@ def supersede_taps(name: str, ended: list[tuple[str, dict]]) -> list[str]:
                 by = settled.recorded(name, question["title"], closed["words"], [], closed["link"], cwd)
                 with state.edit(name) as data:
                     state.question_in(data["jobs"][job_id], question)["closed"]["noted"] = by
-            settled.supersede(tapped["noted"], by, cwd)
+            settled.supersede(name, tapped["noted"], by, cwd)
         except DriveError as error:
             done.append(f"his tap {tapped['words']!r} on {question['waits'] or question['card']} still stands in cc-notes as {tapped['noted'][:7]}: {error}")
             continue

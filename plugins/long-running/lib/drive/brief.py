@@ -120,7 +120,7 @@ RELEASE_HELD = (
     " so `{release}` runs only on an answer of his recorded since that approves it: {why}. Ask him with `drive job ask`"
     " whether to release it, record his answer with `drive answer`, and name it in the release's `--order`, which a job's resume,"
     " approve, rerun or rollback reads from its brief's `Release:` line. Once he says"
-    " releases can go again, his answer saying so supersedes the hold: `ccn answer supersede {hold} --by <id>`"
+    " releases can go again, record his answer saying so with `drive answer --lifts-hold`, which supersedes the hold {hold} by it and lifts his agents freeze"
 )
 RELEASE_WORDS = re.compile(r"\b(?:releas|hotfix|rollback|roll(?:ed|ing|s)?[\s-]+(?:\w+[\s-]+)?back\b)", re.IGNORECASE)
 RELEASE_ASKED = "refused: Jev reads this record as asking a session to take a step of a production release"
