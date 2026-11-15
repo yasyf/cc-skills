@@ -305,7 +305,9 @@ its builder and PR hang on: when you file your design again, each change you lis
 its words on its `Change:` line, a design of one change being your own part, with what is new on
 the `Design:` line. A design of several that leaves out an undelivered change you listed before drops it from the
 order, its jobs and its PRs, stopping its builders, while no agent or lane took a builder of it and
-no open PR carries it. `drive job report` refuses, keeping nothing, a design of several that names a
+no open PR carries it. A `PR:` line links each PR already building your part, which stops each
+builder of that part no agent took, keeping the PR, so the watch names its prover once it merges.
+`drive job report` refuses, keeping nothing, a design of several that names a
 change no live builder carries while it leaves out such a change once an agent or lane took its
 builder or a PR carries it, or your own part once a design of one change made it its change, naming
 each such change and its job, since the drive would add a second builder for one change; for a

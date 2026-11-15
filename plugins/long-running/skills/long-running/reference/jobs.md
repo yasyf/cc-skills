@@ -182,7 +182,7 @@ them, such as `WAITING staging:sandsql/plat-usw2-staging@044e8552b694`, never a 
 |---|---|
 | `DONE`, or a reader's answer | done; a builder's or codex job's `DONE` while a PR it opened is open waits on that PR as `WAITING <its links> to merge: <the DONE>`, so its change is delivered only once they merge and `drive job prove` runs its proof file and sees it exit 0, never before it lands |
 | `READY`, `PUSHED` or `DESIGN` from any job but a reader, `WAITING`, `ASK` | waiting; an `ASK` keeps as its said line the question's title `drive job ask` set |
-| `READY`, `PUSHED` or `BUILT` from a reader | refused, naming the builder on its part, which opens the PR: a reader ships no change, and the watch proves only a builder's merged PR live |
+| `READY`, `PUSHED` or `BUILT` from a reader | refused, naming the builder on its part: a reader ships no change, and the watch proves only a builder's merged PR live; a reader's or design's `DONE` or `DESIGN` links on a `PR:` line each PR the drive does not track that already builds its part, one it built or a teammate's, which stops each builder of that part no agent took, keeping the PR, so the watch names its prover once it merges and frees no builder with nothing to build |
 | `BLOCKED` | failed |
 | `HANDOFF <path>`, a job its session stopped before done | stopped |
 | `BUILT <branch>, waits on <cards>` | built on that branch, waiting on each card it names and each open card of his holding its work as the lander reads it, none whose `Holds:` line reads none; each holds a PR of the job only as the lander reads that card |

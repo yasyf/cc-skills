@@ -2004,7 +2004,7 @@ def stopped_untaken(job: dict) -> bool:
 
 
 def untracked_carriers(data: dict, job: dict) -> list[str]:
-    """The keys of the PRs the drive does not track that carry a builder's parts: those drive job set --pr kept on a builder stopped before any agent or lane took it, such as a teammate's open PR its reader found already doing its work, while the drive tracks none of its PRs; none for any other job."""
+    """The keys of the PRs the drive does not track that carry a builder's parts: those drive job set --pr, or a reader's or design's `PR:` line by hand_returned_prs, kept on a builder stopped before any agent or lane took it, such as a teammate's open PR its reader found already doing its work or one its reader built, while the drive tracks none of its PRs; none for any other job."""
     if not stopped_untaken(job):
         return []
     keys = [pr_key(url) for url in job["prs"]]
@@ -2247,7 +2247,7 @@ def wakes(data: dict, job_id: str, moment: datetime, line: str = "", read: dict[
 
 
 def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
-    """Move a job result_refusal lets take the line to the state it opens with, with that line as its said line, but a builder's or codex job's DONE while a PR it opened has not landed, which waits on those PRs by hold_done, each staging test part a change job holds kept delivered by its DONE whose CASE lines all read pass and taken back by its other returns by post_staging_proof, a builder's DONE on an open incident's stop or rollback keeping its proof as the order's proof, which ends the incident's five-minute line, and one whose CHECK: names a proof showing where he uses an order of its incident keeping it on that order, as brief.unseen reads each proof, so the watch closes the incident once its fix is live, each order keeping as proof_by the builder whose DONE set its proof, whose next return other than DONE takes that proof back while the incident is open, so its line comes back, built on its branch and waiting on each card a BUILT line names and each open card of his holding its work by part_cards, whatever words the line names it in, each card once under its waits id, waiting on each PR and release a READY or PUSHED line names, and each one a WAITING line names that still holds by result_waits, which the watch frees once the PR merges, its own PR closes or the release is out, a WAITING also waiting on each PR the drive does not track that the job keeps, by untracked_prs, which the watch frees once its GitHub read finds it merged or closed, another job's PR closing unmerged moving the wait onto that job's change, every take keeping no wait of the job's on a PR waiting on a part it carries, by unlooped, as a builder's BUILT once kept its PUSHED's waits on its own PRs waiting on its own staging tests, each PR a `WAITING … waits on` line names waiting on each <order>:<part> it names, keep on a job what its WAITING or ASK line answers as stage.waited reads it, and nothing on any other result, waiting on each card of his a WAITING's first line's `waits on` names, and on each PR it answers the step of each PR and release it names, which his card on that PR then names and links, never a card, which holds a PR only by its question's `Holds:` line or the PR's `DESIGN:` line citing it, by part_cards, keep each verdict a reader's answer gives on the PR it names, join each open order the FIX line of a result tracing a live bug's cause names to that bug's incident, so hurts_now reads it live, end the rework of each PR a builder's READY names, its report's CHANGE: line saying how his words are met, dropping his tap on it so a fresh card asks it for the reworked change, and deliver the parts of a job whose answer reaches him only by a post by the post its POSTED line names; an ASK waiting on his card keeps the said line drive job ask set, the question's title."""
+    """Move a job result_refusal lets take the line to the state it opens with, with that line as its said line, but a builder's or codex job's DONE while a PR it opened has not landed, which waits on those PRs by hold_done, each staging test part a change job holds kept delivered by its DONE whose CASE lines all read pass and taken back by its other returns by post_staging_proof, a builder's DONE on an open incident's stop or rollback keeping its proof as the order's proof, which ends the incident's five-minute line, and one whose CHECK: names a proof showing where he uses an order of its incident keeping it on that order, as brief.unseen reads each proof, so the watch closes the incident once its fix is live, each order keeping as proof_by the builder whose DONE set its proof, whose next return other than DONE takes that proof back while the incident is open, so its line comes back, built on its branch and waiting on each card a BUILT line names and each open card of his holding its work by part_cards, whatever words the line names it in, each card once under its waits id, waiting on each PR and release a READY or PUSHED line names, and each one a WAITING line names that still holds by result_waits, which the watch frees once the PR merges, its own PR closes or the release is out, a WAITING also waiting on each PR the drive does not track that the job keeps, by untracked_prs, which the watch frees once its GitHub read finds it merged or closed, another job's PR closing unmerged moving the wait onto that job's change, every take keeping no wait of the job's on a PR waiting on a part it carries, by unlooped, as a builder's BUILT once kept its PUSHED's waits on its own PRs waiting on its own staging tests, each PR a `WAITING … waits on` line names waiting on each <order>:<part> it names, keep on a job what its WAITING or ASK line answers as stage.waited reads it, and nothing on any other result, waiting on each card of his a WAITING's first line's `waits on` names, and on each PR it answers the step of each PR and release it names, which his card on that PR then names and links, never a card, which holds a PR only by its question's `Holds:` line or the PR's `DESIGN:` line citing it, by part_cards, keep each verdict a reader's answer gives on the PR it names, join each open order the FIX line of a result tracing a live bug's cause names to that bug's incident, so hurts_now reads it live, end the rework of each PR a builder's READY names, its report's CHANGE: line saying how his words are met, dropping his tap on it so a fresh card asks it for the reworked change, and deliver the parts of a job whose answer reaches him only by a post by the post its POSTED line names, and move each part of a reader's or design's DONE or DESIGN onto each PR the drive does not track that a `PR:` line of its report links, stopping each builder of it no agent took, by hand_returned_prs; an ASK waiting on his card keeps the said line drive job ask set, the question's title."""
     from drive import stage, view
 
     job = data["jobs"][job_id]
@@ -2301,8 +2301,23 @@ def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
             if rework := data["prs"][key]["rework"]:
                 changed = f'Reworked to your words "{rework["words"]}": {met["change"] if met else line}'
                 data["prs"][key].update(rework=None, tap=None, fundamental=changed, updated=job["updated"])
+    hand_returned_prs(data, job_id, line, report)
     end_carried_designs(data, job["order"], job["updated"])
     end_replaced(data, [job["order"], *job["carries"]], job["updated"])
+
+
+def hand_returned_prs(data: dict, job_id: str, line: str, report: str) -> None:
+    """Move each part of a reader's or design's DONE or DESIGN onto each PR the drive does not track that a `PR:` line of its report links, as one it built or a teammate's it found doing the work: each builder of those parts no agent or lane took, by brief.unstarted_builders, keeps those PRs and stops, waiting on nothing, so it carries its parts by untracked_carriers while one is open and the watch names the prover to start once one merges, never freeing a builder with nothing to build."""
+    from drive import brief
+
+    if data["jobs"][job_id]["kind"] not in brief.RESEARCH_KINDS or not re.match(r"(?:DONE|DESIGN)\b", line):
+        return
+    urls = list(dict.fromkeys(pr_url(key) for row in report.splitlines() if re.match(r"\s*PR:", row) for found in PR_URL.finditer(row) if (key := pr_key(found[0])) not in data["prs"]))
+    if not urls:
+        return
+    for builder_id in brief.unstarted_builders(data, job_id):
+        data["jobs"][builder_id].update(prs=urls, waits=[])
+        stop_job(data["jobs"][builder_id], f"stopped: {job_id} returned {', '.join(map(pr_key, urls))}, which builds its parts")
 
 
 def part_cards(data: dict, job_id: str, pr: dict | None = None) -> list[str]:
@@ -2831,10 +2846,10 @@ def parts_builders(data: dict, job: dict) -> list[str]:
 
 
 def unshipped(data: dict, job_id: str) -> str:
-    """Why a reader ships no change, naming any builder on its part, which does: result_refusal refuses a reader's READY, PUSHED or BUILT and drive pr add a reader as a PR's job, since the watch proves only a builder's merged PR live."""
+    """Why a reader ships no change, naming any builder on its part: result_refusal refuses a reader's READY, PUSHED or BUILT and drive pr add a reader as a PR's job, since the watch proves only a builder's merged PR live, and a `PR:` line of its DONE or DESIGN moves its part onto a PR it built or found, by hand_returned_prs."""
     builders = parts_builders(data, data["jobs"][job_id])
-    named = f", and {', '.join(builders)}, the builder on its part, opens the PR, which the watch proves live once it merges" if builders else ""
-    return f"{job_id} is a reader, which answers its question and ships no change: it returns DONE on its research, or DESIGN on a choice for him{named}"
+    named = f", which stops {', '.join(builders)}, the builder on its part, while no agent took it, and the watch names the prover once that PR merges" if builders else ""
+    return f"{job_id} is a reader, which answers its question and ships no change: it returns DONE on its research, or DESIGN on a choice for him, linking on a `PR:` line each PR already building its part{named}"
 
 
 def work(data: dict, order_id: str, part: str) -> bool:

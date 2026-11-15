@@ -6537,13 +6537,13 @@ def test_a_readers_pushed_and_a_pr_added_on_it_are_refused_naming_the_builder_on
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why did the copy stall?", "--kind", "answer", "--complex")
     run("job", "add", "reader", "--order", "o1", "--goal", "answer him")
-    unshipped = "is a reader, which answers its question and ships no change: it returns DONE on its research, or DESIGN on a choice for him"
+    unshipped = "is a reader, which answers its question and ships no change: it returns DONE on its research, or DESIGN on a choice for him, linking on a `PR:` line each PR already building its part"
     code, err = keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\n")
     assert (code, err.strip()) == (2, f"drive: j1: refused, nothing kept: j1 {unshipped}")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "move the strip")
     run("job", "add", "reader", "--order", "o2", "--goal", "answer it")
     [reader, builder] = [next(job_id for job_id, job in state.load("demo")["jobs"].items() if (job["order"], job["kind"]) == ("o2", kind)) for kind in ("reader", "builder")]
-    named = f"{reader} {unshipped}, and {builder}, the builder on its part, opens the PR, which the watch proves live once it merges"
+    named = f"{reader} {unshipped}, which stops {builder}, the builder on its part, while no agent took it, and the watch names the prover once that PR merges"
     for line in (f"PUSHED {PR}", f"READY {PR}", "BUILT drive-demo, waits on PR #42"):
         code, err = keep(monkeypatch, capsys, reader, f"{line}\n")
         assert (code, err.strip()) == (2, f"drive: {reader}: refused, nothing kept: {named}")
@@ -6552,6 +6552,19 @@ def test_a_readers_pushed_and_a_pr_added_on_it_are_refused_naming_the_builder_on
     assert state.load("demo")["prs"] == {}
     assert run("pr", "add", PR, "--job", builder, *LEAD)[0] == 0
     assert state.load("demo")["prs"]["Forge-AI/monorepo#42"]["job"] == builder
+
+
+def test_a_readers_done_linking_a_pr_on_a_pr_line_stops_the_builder_no_agent_took_on_its_part_which_that_pr_carries(
+    run: Run, meta: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build", "--parts", "the copy")
+    run("job", "add", "reader", "--order", "o1", "--part", "the copy", "--goal", "research: why the copy stalls")
+    built = "https://github.com/yasyf/cc-skills/pull/5660"
+    assert keep(monkeypatch, capsys, "j1", f"{RESEARCH}PR: {built}\n")[0] == 0
+    data = state.load("demo")
+    builder = data["jobs"]["j2"]
+    assert (builder["state"], builder["said"], builder["prs"], builder["waits"]) == ("stopped", "stopped: j1 returned yasyf/cc-skills#5660, which builds its parts", [built], [])
+    assert (state.untracked_carriers(data, builder), [job_id for job_id, _ in state.carriers(data, "o1", "the copy")]) == (["yasyf/cc-skills#5660"], ["j2"])
 
 
 def test_a_readers_design_starts_from_the_root_cause_and_counts_only_its_options(
