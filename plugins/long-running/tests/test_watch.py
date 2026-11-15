@@ -6605,8 +6605,40 @@ def test_his_approve_lands_a_green_pr_whatever_the_check_against_his_words_says(
 def test_a_lander_refuses_a_pr_the_drive_does_not_track_and_one_his_approve_does_not_cover(demo: str) -> None:
     with pytest.raises(state.DriveError, match="Forge-AI/monorepo#99: the drive tracks no such PR, so it lands none"):
         land.run(demo, ["Forge-AI/monorepo#99"])
-    with pytest.raises(state.DriveError, match="the drive lands a yasyf/\\* PR, or a PR he approved or an exempt class lands, and no other"):
+    with pytest.raises(state.DriveError, match="the drive lands a yasyf/\\* PR, or a PR he approved or an exempt class lands, a pure port only once its original merged or he approved it, and no other"):
         land.run(demo, [KEY])
+
+
+ORIGINAL, ITS_PORT, ABOVE_IT = "Forge-AI/litestream#30", "Forge-AI/litestream#31", "Forge-AI/litestream#32"
+
+
+@pytest.mark.parametrize("ends", ["his Approve", "its merge"])
+def test_replayed_litestream_a_pure_port_of_a_pr_waiting_on_his_approve_reads_blocked_on_his_card_on_it_and_lands_only_once_he_approves_it_or_it_merges(
+    demo: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]], ends: str
+) -> None:
+    green = {"checks": "pass", "review": "approved", "checked": CHECKED}
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["prs"] += [state.pr_url(ORIGINAL), state.pr_url(ITS_PORT)]
+        data["prs"][ORIGINAL] = state.new_pr(state.pr_url(ORIGINAL), "j1", "o1") | green | {"head": "aaaaaaa111", "title": "Fix: retry the WAL upload"}
+        data["prs"][ITS_PORT] = state.new_pr(state.pr_url(ITS_PORT), "j1", "o1") | green | {"head": "bbbbbbb222", "title": "Port: retry the WAL upload", "port_of": 30, "exempt": "pure port", "wants_tap": False}
+    monkeypatch.setattr(land.github, "below", lambda key: [ITS_PORT])
+    cards = NO_CARDS | {"pr_cards": [pr_card(ORIGINAL)]}
+    data = state.load(demo)
+    waits = f"it waits on {view.link('retry the WAL upload', state.pr_url(ORIGINAL))}, which waits on his Approve on {view.link('his card', CARD)}"
+    assert (stage.of(data, ITS_PORT, cards), land.uncleared_below(data, [ABOVE_IT])) == (stage.Stage("blocked", stage.HIM, waits), [ITS_PORT])
+    assert (land.start(demo, [ITS_PORT], cards), landers) == ([], [])
+    with pytest.raises(state.DriveError, match=f"{ITS_PORT}: .*a pure port only once its original merged or he approved it"):
+        land.run(demo, [ITS_PORT])
+    assert cli.tap_verdict(data, data["prs"][ITS_PORT]) == (False, f"a pure port of {ORIGINAL}, which waits on its merge or his Approve on it")
+    if ends == "his Approve":
+        approve(demo, ORIGINAL)
+    else:
+        with state.edit(demo) as data:
+            data["prs"][ORIGINAL]["state"] = "merged"
+    data = state.load(demo)
+    assert (stage.of(data, ITS_PORT, cards), land.uncleared_below(data, [ABOVE_IT])) == (stage.Stage("ready", stage.LANDER, 'green, its exempt class "pure port" lands it'), [])
+    assert cli.tap_verdict(data, data["prs"][ITS_PORT]) == (True, "exempt: pure port")
+    assert land.start(demo, [ITS_PORT], cards) == [(ITS_PORT,)]
 
 
 def test_a_lander_merges_a_pr_he_approved_in_another_repository_with_gh_pr_merge_at_the_head_its_stage_read_ready_by_the_method_its_repository_allows(

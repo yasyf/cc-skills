@@ -273,9 +273,9 @@ def unit(data: dict, under: dict[str, str | None], stacks: dict[str, tuple[str, 
 
 
 def uncleared_below(data: dict, keys: list[str]) -> list[str]:
-    """The open PRs stack-enqueue would queue with keys, below one of them in its native GitHub stack or under one through its base, that neither his Approve nor an exempt class clears."""
+    """The open PRs stack-enqueue would queue with keys, below one of them in its native GitHub stack or under one through its base, that neither his Approve nor an exempt class clears, a pure port waiting on its original by state.port_hold among them."""
     under = dict.fromkeys(key for target in keys for key in github.below(target) if key not in keys)
-    return [key for key in under if not (key in data["prs"] and state.cleared(data["prs"][key]))]
+    return [key for key in under if not (key in data["prs"] and state.cleared(data["prs"][key]) and not state.port_hold(data, data["prs"][key]))]
 
 
 def held_below(keys: list[str], below: list[str]) -> str:
@@ -454,8 +454,8 @@ def run(name: str, keys: list[str], dry_run: bool = False) -> str:
     data = state.load(name)
     if untracked := [key for key in keys if key not in data["prs"]]:
         raise state.DriveError(f"{', '.join(untracked)}: the drive tracks no such PR, so it lands none; drive pr add <url> --job <job> registers one first")
-    if refused := [key for key in keys if not (state.merges_untapped(key) or state.cleared(data["prs"][key]))]:
-        raise state.DriveError(f"{', '.join(refused)}: the drive lands a yasyf/* PR, or a PR he approved or an exempt class lands, and no other")
+    if refused := [key for key in keys if not (state.merges_untapped(key) or state.cleared(data["prs"][key]) and not state.port_hold(data, data["prs"][key]))]:
+        raise state.DriveError(f"{', '.join(refused)}: the drive lands a yasyf/* PR, or a PR he approved or an exempt class lands, a pure port only once its original merged or he approved it, and no other")
     if foreign := [why for key in keys if (why := state.foreign_pr(data, key))]:
         raise state.DriveError("; ".join(foreign))
     below: list[str] = []

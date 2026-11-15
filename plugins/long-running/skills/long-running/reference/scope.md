@@ -15,7 +15,9 @@ summary line about it, because work stopped before it starts wastes nothing.
   calls it "port of #N". The coordinator reads it against #N's diff and records it with
   `drive pr set <url> --port-of <N>`, which sets the `pure port` exemption, withdraws its open card,
   and refuses `--tap`, and refuses a PR changing a migration, schema or `.proto` file, whose data model
-  is that design part. The drive's lander queues it once green, after checking it changes no stored
+  is that design part. The exemption covers a port of work that merged or that he approved: a port of
+  an #N the drive tracks unmerged and without his Approve waits on #N and lands after it, and
+  `--port-of` refuses an #N the drive does not track unless GitHub reads it merged. The drive's lander queues it once green, after checking it changes no stored
   data; he reads one line in its order's thread,
   "port of #N landed", as every exempt class does in [landing.md](landing.md). A port needing his
   pick is not pure: its question card says it ports #N and what in the target tree forces the pick.

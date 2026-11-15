@@ -388,9 +388,10 @@ def pr_reason(landing: Landing, key: str, shell: Shell) -> str | None:
     if (judged := judged_by(key, shell.session)) is None:
         return None
     name, pr = judged
-    if shell.driving and (cards := land.pr_cards(state.load(name), pr)):
+    data = state.load(name)
+    if shell.driving and (cards := land.pr_cards(data, pr)):
         return CARD_REASON.format(key=key, cards=", ".join(cards))
-    may_land, why = tap_verdict(pr)
+    may_land, why = tap_verdict(data, pr)
     if not may_land:
         return f"{key}: {why}. {TAP_HINT}"
     if shell.driving and not landing.repo and state.queued_by_lander(key) and pr.get("exempt") != INCIDENT_FIX:
