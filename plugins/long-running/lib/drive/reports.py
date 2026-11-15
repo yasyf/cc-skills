@@ -53,9 +53,24 @@ UNPREVENTED = (
     " prevention. If one does, start its fix and resend that line naming the order or PR URL fixing it, not the"
     " report's own; a line about what the product does needs nothing.\n```\n{lines}\n```"
 )
-WAITS_ON_HIM = re.compile(r"\bwait(?:s|ing)? (?:on|for) (?:him|his|your|you)\b|\bneeds? (?:his|your) (?:tap|pick|answer|approval)\b", re.IGNORECASE)
+ON_HIM = re.compile(
+    r"\bwait(?:s|ing)? (?:on|for) (?:him|his|your|you)\b|\b(?:needs?|asks?|wants?) (?:his|your) (?:tap|pick|answer|approval|word|go|ok|yes)\b"
+    r"|\byes or no\b|\by/n\b|\breply (?:with )?(?:yes|no|ok|go|\d)\b|\b(?:pick|choose) (?:one|between|an option|\d)\b"
+    r"|\b(?:may|shall|should|can) (?:i|we|the drive|it)\b[^?\n]*\?|\b(?:ok|okay) (?:to|if)\b[^?\n]*\?|\b(?:do you want|want me to|would you like)\b[^?\n]*\?",
+    re.IGNORECASE,
+)
 CARD_NAMED = re.compile(r"slack\.com/archives/|\{card:|\b[\w-]+:j\d+-\d+\b|github\.com/[^/\s]+/[^/\s]+/pull/\d+")
-UNCARDED = "refused: this report says something waits on him and names no card; add its permalink, the PR whose card it is, or its waits id with `--attr waits=<drive>:<j>-<n>`, so the handler links the card"
+UNCARDED = (
+    "refused: this report waits on him or asks him to decide, a yes or no or a pick, and names no card, so its handler would post"
+    " it as plain text with no buttons; keep a question no card asks yet with `drive job ask <j> <file>`, which draws his card"
+    " with its buttons, and report no question to him; a report on a card already up names it: its permalink, the PR whose card"
+    " it is, or its waits id with `--attr waits=<drive>:<j>-<n>`, so the handler links the card"
+)
+UNCARDED_RULE = (
+    "A decision the drive needs from him, anything waiting on him, a yes or no or a pick between options, reaches him as a"
+    ' question card with its buttons, never as a report\'s plain text, by his words "Where\'s the orca card?" and "Anything that'
+    ' says waiting on me you always need to embed the card with the buttons".'
+)
 WAITS_ON_OTHER = re.compile(r"\bwait(?:s|ing)? on (?!(?:him|his|your|you|he)\b)\S", re.IGNORECASE)
 WAITED = re.compile(r"\b\d+ ?(?:s|secs?|seconds?|m|mins?|minutes?|h|hrs?|hours?|d|days?)\b|\bsince \d", re.IGNORECASE)
 RUNNING = re.compile(r"\b(?:running|queued|idle|stopped|started|starting|in progress|not started)\b", re.IGNORECASE)
@@ -125,7 +140,7 @@ def report_refusals(payload: dict, drive: dict, records: list[dict], index: int)
     yield unfinished(drive, record) if posting else None
     yield not_thread(record)
     yield not_until(record)
-    yield UNCARDED if WAITS_ON_HIM.search(text) and not attrs(record).get("waits") and not CARD_NAMED.search(f"{text}\n{record.get('body') or ''}") else None
+    yield agents.Ruled(UNCARDED, UNCARDED_RULE) if ON_HIM.search(text) and not attrs(record).get("waits") and not CARD_NAMED.search(f"{text}\n{record.get('body') or ''}") else None
     yield agents.unpromised(drive["name"], f"{text}\n{record.get('body') or ''}")
     yield VAGUE_WAIT if WAITS_ON_OTHER.search(text) and not ((WAITED.search(text) or any(found[1] in limits.STAMPED for found in limits.REF.finditer(text))) and RUNNING.search(text)) else None
     if thread and state.session_role(drive, payload.get("session_id")) in ("coordinator", "meta") and not payload.get("agent_id") and not state.open_incidents(drive, state.report_orders(drive, attrs(record))):

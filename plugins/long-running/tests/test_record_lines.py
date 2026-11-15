@@ -133,7 +133,7 @@ def test_his_answer_at_his_message_on_his_open_question_goes_only_through_the_re
 TAPPED = "https://github.com/Forge-AI/monorepo/pull/4242"
 
 
-def test_a_ready_record_is_refused_since_drive_pr_add_and_the_watch_draw_his_card_and_a_line_saying_he_tapped_a_pr_goes_out(
+def test_a_ready_record_naming_a_pr_is_refused_since_drive_pr_add_and_the_watch_draw_his_card_and_a_line_saying_he_tapped_a_pr_goes_out(
     run: Callable[..., tuple[int, str]], demo: str
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "fix the update button")
@@ -146,13 +146,35 @@ def test_a_ready_record_is_refused_since_drive_pr_add_and_the_watch_draw_his_car
     for ready in (
         post(kind="ready", text="j1 green, his order o1", pr=[TAPPED], to=TO),
         post(kind="ready", text="#4244 is ready", attrs={"order": "o1"}),
-        post(kind="ready", text="Drive tooling: the watch reads taps", to=META),
+        post(kind="ready", text=f"Drive tooling: {TAPPED} reads taps", to=META),
     ):
         assert refusal(record_lines.decision(ready)) == record_lines.READY_GONE
+    for ready in (
+        post(kind="ready", text="Drive tooling: the watch reads taps", to=META),
+        post(kind="ready", topic="staging-slots", text=f"READY staging pass of {TAPPED} and #4244: every case passed", to=["root@demo"]),
+    ):
+        assert (record_lines.decision(ready) or {}).get("permissionDecision") != "deny", ready
     for said in ("carries his Approve tap", "he tapped Approve at `6:40 PM`", "his approval landed at `6:40 PM`"):
         assert record_lines.decision(post(kind="handoff", text=f"land {TAPPED}: {said}", to=["root@demo"])) is None
     for said in ("no longer waits on his tap", "he did tap Approve", "he tapped Approve"):
         assert record_lines.decision(post(kind="report", text=f"FYI {TAPPED} {said}", to=["root@demo"])) is None
+
+
+ORCA = (
+    "POST The meta session asks your word: may it quit and reopen Orca, which stopped answering so no agent on a Sprite can start"
+    " or take a message (meta's read, unverified)? Meta recommends it and expects the terminal host and tmux sessions to survive,"
+    " not yet proven; reply yes or no here."
+)
+RESTART = "POST should the drive restart the watch now that its dashboard hangs? Pick one: restart now, or wait for the next install"
+
+
+def test_a_report_asking_him_to_decide_with_no_card_is_refused_naming_drive_job_ask_and_one_linking_its_card_goes_on(demo: str) -> None:
+    for text in (ORCA, RESTART, "POST #4244 waits on your pick"):
+        reason = refusal(record_lines.decision(post(kind="report", text=text, to=TO, attrs=PROGRESS)))
+        assert (reason, reason.rule) == (reports.UNCARDED, reports.UNCARDED_RULE), text
+        assert "`drive job ask <j> <file>`" in reason
+    for text, named in ((ORCA, PROGRESS | {"waits": "demo:j1-7"}), (f"{RESTART}, on {CARD}", PROGRESS), ("POST the watch restarted and reads taps again", PROGRESS)):
+        assert (record_lines.decision(post(kind="report", text=text, to=TO, attrs=named)) or {}).get("permissionDecisionReason") != reports.UNCARDED, text
 
 
 def test_a_handoff_whose_list_line_jev_reads_as_putting_up_for_change_what_his_recorded_answer_orders_is_refused_naming_it_and_goes_warned_when_jev_gives_no_reading(
