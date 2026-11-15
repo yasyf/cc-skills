@@ -4566,7 +4566,11 @@ def test_job_ask_drop_answer_ends_the_jobs_own_open_question_on_his_card_on_his_
     code, out = run("job", "ask", asking, "--drop", str(kept), "--answer", "c952dbb")
     assert (code, out.splitlines()) == (
         0,
-        [f'j1\'s question "{render.cut(title, 80)}" ended answered by his answer c952dbb, "{words}"', f"demo:j1-7: his card {DESIGN_CARD} now shows his words with no buttons, its question answered"],
+        [
+            f'j1\'s question "{render.cut(title, 80)}" ended answered by his answer c952dbb, "{words}"',
+            f"demo:j1-7: his card {DESIGN_CARD} now shows his words with no buttons, its question answered",
+            cli.builds_on(state.load("demo"), "j1"),
+        ],
     )
     closed = state.load("demo")["jobs"]["j1"]["questions"][-1]["closed"]
     assert ((closed["how"], closed["words"], closed["link"], closed["answer"]), calls) == (
@@ -4575,6 +4579,57 @@ def test_job_ask_drop_answer_ends_the_jobs_own_open_question_on_his_card_on_his_
     )
     assert cli.main(["job", "ask", asking, "--drop", str(kept), "--answer", "c952dbb"]) == 2
     assert f"{kept} keeps no open question of j1 on his card" in capsys.readouterr().err
+
+
+def test_job_ask_drop_answer_on_his_tooling_ruling_ends_a_drawn_tooling_card_decided_on_its_recommended_option_linking_his_message_from_the_drive_that_recorded_it(
+    run: Run, asking: str, recorded: Answers, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    ruling = "43aa6658b12e48506f920bb19cb32e353fa64a28"
+    message = "https://acme.slack.com/archives/D123/p1794300000000900?thread_ts=1794300000.000800"
+    recorded.shown["43aa665"] = {"id": ruling, "title": "Should an outage report be marked?", "body": f"{settled.TOOLING_SAID}\nNotes: typed in a card's thread", "tags": ["drive:agents", "scope:durable"]}
+    product = state.drive_dir("demo") / "asks" / f"j1-{state.ask_hash(SHORT_ASK)}.md"
+    product.parent.mkdir(exist_ok=True)
+    product.write_text(SHORT_ASK)
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["questions"] = [state.new_question(str(product), SHORT_ASK.splitlines()[0].removeprefix("ASK "), state.stamp(), card=DESIGN_CARD) | {"waits": "demo:j1-7"}]
+    calls: list[tuple[str, ...]] = []
+    monkeypatch.setattr(slack, "cc_slack", lambda *argv: calls.append(argv) or {"answered": True})
+    assert cli.main(["job", "ask", asking, "--drop", str(product), "--answer", "43aa665"]) == 2
+    assert "and j1's order o1 is no Drive tooling order" in capsys.readouterr().err
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: lay out the run files")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "meta-session")
+    run("start", "demo", "--role", "meta")
+    run("job", "add", "builder", "--order", "o2", "--goal", "lay them out")
+    other = state.new_drive("agents", "coordinator", "agents-session", "/agents")
+    other["answers"][ruling] = {"words": settled.TOOLING_SAID, "link": message, "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {}}
+    state.create(other)
+    text = SHORT_ASK.replace("ASK How should", "ASK Where should")
+    card = "https://acme.slack.com/archives/D123/p1794300000000200"
+    kept = state.drive_dir("demo") / "asks" / f"j2-{state.ask_hash(text)}.md"
+    kept.write_text(text)
+    with state.edit("demo") as data:
+        data["jobs"]["j2"]["questions"] = [state.new_question(str(kept), text.splitlines()[0].removeprefix("ASK "), state.stamp(), "320b7a7: Jev reads the recommended option as breaking it", card=card) | {"waits": "demo:j2-7"}]
+    assert cli.main(["job", "ask", "j2", "--drop", str(kept), "--answer", "43aa665"]) == 2
+    assert 'his card asks him to lift "320b7a7: Jev reads the recommended option as breaking it"' in capsys.readouterr().err
+    with state.edit("demo") as data:
+        data["jobs"]["j2"]["questions"][-1]["unsettled"] = None
+    option = "One snapshot file per finished run, written when it ends, old runs backfilled: opens in 3 requests"
+    decided = settled.DECIDED.format(option=option)
+    code, out = run("job", "ask", "j2", "--drop", str(kept), "--answer", "43aa665")
+    assert (code, out.splitlines()) == (
+        0,
+        [
+            f'j2\'s question "{render.cut(text.splitlines()[0].removeprefix("ASK "), 80)}" ended decided on its recommended option, "{option}", under his ruling 43aa665 on tooling details',
+            f'demo:j2-7: his card {card} now shows "{decided}" linked to {message} with no buttons, its question answered',
+            cli.builds_on(state.load("demo"), "j2"),
+        ],
+    )
+    closed = state.load("demo")["jobs"]["j2"]["questions"][-1]["closed"]
+    assert ((closed["how"], closed["words"], closed["link"], closed["ruling"], closed["answer"]), calls) == (
+        ("answered", decided, message, "43aa665", None),
+        [("card-answer", "--card", card, "--label", decided, "--settled", "--other", "--via", message)],
+    )
+    assert state.load("demo")["jobs"]["j1"]["questions"][-1]["closed"] is None
 
 
 def test_a_card_whose_summary_cites_320b7a7_draws_already_answered_with_his_words_and_the_link_drive_answer_kept_and_his_tap_closes_it_on_them(
@@ -11219,9 +11274,18 @@ def test_j4802_cards_withdraw_refuses_his_words_at_a_message_written_before_its_
     words, via = "Just have it cover the whole team like we yelled about previously", "https://acme.slack.com/archives/D123/p1794344777771949"
     assert cli.main(["cards", "withdraw", "demo:j1-7", "--words", words, "--via", via]) == 2
     written = state.stamp(datetime.fromtimestamp(1794344777.771949).astimezone())
+    refused = capsys.readouterr().err
     assert (
         f"demo:j1-7: refused, not withdrawn: --via {via} was written at {written}, before its question was asked at {asked}, and no answer he gave another question settles it;"
         f" an answer of his that reads as settling it goes on the card as its {limits.ALREADY_ANSWERED} tap: drive job ask <job> <file> --redraws demo:j1-7, its summary citing that answer"
+    ) in refused
+    assert "--answer 43aa665" not in refused
+    with state.edit("demo") as data:
+        data["orders"]["o1"]["text"] = "Drive tooling: design the run page"
+    assert cli.main(["cards", "withdraw", "demo:j1-7", "--words", words, "--via", via]) == 2
+    assert (
+        "; one of a Drive tooling order asking him only a detail of how the tooling works ends decided on its recommended option under his ruling 43aa665:"
+        " drive job ask j1 --drop <the file its question is kept in> --answer 43aa665"
     ) in capsys.readouterr().err
     assert (calls, state.load("demo")["jobs"]["j1"]["questions"][-1]["closed"]) == ([], None)
 

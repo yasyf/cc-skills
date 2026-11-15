@@ -549,7 +549,7 @@ def spec(name: str, data: dict, job: dict) -> list[dict]:
                 "asked": answer["title"],
                 "said": settled.his(answer["body"]),
                 "at": answer["created_at"],
-                "link": settled.given_at(data, answer["id"]),
+                "link": settled.given_at(data, answer),
                 "by": [newer[:7] for newer in answer.get("superseded_by") or []],
             },
         )
