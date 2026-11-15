@@ -3365,17 +3365,18 @@ def unsent(args: argparse.Namespace, job: dict, held: list[dict], error: orca.Or
 
 
 def launched(name: str, job_id: str, brief_file: str | None, local: bool, text: str | None, died: str | None) -> dict:
-    """Start a job's first lane, briefed as drive job brief writes it when none was, or one taking over from an agent on this Mac that stopped, returned while the job holds texts, or that another session started and ended with, with the text in its handoff when a resume brought one, and, by answers_since, each text the job holds under the heading naming its sender and each answer of his it has not heard under His answers since: whose words its brief lacks; a lane taking over from an agent that stopped or returned starts on this Mac when its brief declares a step only this Mac runs, by place.mac_step over that brief alone, never the report, held texts or text its handoff adds, and one crowded_here refuses at this Mac's cap holds the text and waits its turn on builder-slot; a lane on this Mac starts in the worktree orca.pr_holder finds holding the branch of the job's open PR, its handoff naming it. Once nothing refuses it the job is stamped as launching, which the watch reads as starting, never as not started or waiting on nothing, until record_start runs it on its worker's receipt."""
+    """Start a job's first lane, briefed as drive job brief writes it when none was, or one taking over from an agent on this Mac that stopped, returned while the job holds texts, or that another session started and ended with, with the text in its handoff when a resume brought one, and, by answers_since, each text the job holds under the heading naming its sender and each answer of his it has not heard under His answers since: whose words its brief lacks; a lane taking over from an agent that stopped or returned starts on this Mac when its brief declares a step only this Mac runs, by place.mac_step over that brief alone, never the report, held texts or text its handoff adds, and one crowded_here refuses at this Mac's cap holds the text and waits its turn on builder-slot; a lane on this Mac starts in the worktree orca.pr_holder finds holding the branch of the job's open PR, its handoff naming it. Once nothing refuses it the job is stamped as launching, which the watch reads as starting, never as not started or waiting on nothing, until record_start runs it on its worker's receipt; a takeover keeps its agent, dispatch, where, state, line and waits, the resume's text held by state.hold_text, until that receipt hands the job to the lane, so a launch that starts no worker leaves the job to its agent, whose next resume takes it over again, never a job reading never started that view.start_refusal holds on its own PR."""
     from drive import stage, view
 
     data = state.load(name)
     job = data["jobs"][job_id]
     kept = launch_brief(name, job_id, job)
+    taker = other_sessions_agent(data, job)
+    on_lane = {"agent": None, "where": "remote", "session": taker or job["session"]}
     if adopted := orca.adopted(kept):
-        return {field: adopted[field] for field in LAUNCHED} | {"brief": str(kept)}
+        return {field: adopted[field] for field in LAUNCHED} | {"brief": str(kept)} | on_lane
     if refused := view.start_refusal(data, job_id, local):
         raise DriveError(refused)
-    taker = other_sessions_agent(data, job)
     if not (brief_file or job.get("brief")):
         write_brief(name, job_id, {})
         data = state.load(name)
@@ -3404,17 +3405,18 @@ def launched(name: str, job_id: str, brief_file: str | None, local: bool, text: 
         raise DriveError(f"{job_id}: refused, not launched: {refused}")
     with state.edit(name) as data:
         job = data["jobs"][job_id]
-        if taker or died:
-            job.update(agent=None, dispatch=None, session=taker or job["session"])
-        job.update(where="remote", route=state.LOCAL_ROUTE if local else None, launching=state.stamp(), researched=brief.research_links(data, job, written))
-        job["waits"] = [wait for wait in view.holding(data, job["waits"], None) if wait != state.SLOT_WAIT]
+        job.update(route=state.LOCAL_ROUTE if local else None, launching=state.stamp(), researched=brief.research_links(data, job, written))
+        if not (taker or died):
+            job.update(where="remote", waits=[wait for wait in view.holding(data, job["waits"], None) if wait != state.SLOT_WAIT])
+        elif text:
+            state.hold_text(job, text, state.held_sender(data))
     kept.parent.mkdir(exist_ok=True)
     try:
         receipt = launch_attempt(name, job, kept.stem, kept, orca.vm_brief(name, job_id, written, job["route"]), root, holder and str(holder.path), None)
     except orca.Unstarted:
         record_start(name, job_id, None, None)
         raise
-    return {field: receipt[field] for field in LAUNCHED} | {"brief": str(kept)}
+    return {field: receipt[field] for field in LAUNCHED} | {"brief": str(kept)} | on_lane
 
 
 def answers_since(data: dict, job_id: str, written: str) -> str:
@@ -3465,7 +3467,7 @@ def record_start(name: str, job_id: str, started: dict | None, handoff: str | No
 
 
 def launch_kept(name: str, job_id: str, started: dict | None, handoff: str | None, text: str | None = None) -> dict:
-    """Record a started worker's receipt on its job, its turn open until the watch takes that worker's worker_done or escalation, with the handoff a relaunch started it on, else the launch's brief, the Sprite its start put the tools on, the cc-remote config that Sprite was made from, none of the texts it held, which that handoff or brief carries, each of those and the text given kept among the texts its workers were given beside those given since the job's last return, so a handoff taking over from this worker before the job's next return carries them, the question its last worker asked handed on by state.start, and the job sent each answer of his whose words that handoff or brief holds, or with no receipt clear the launching mark of a launch whose worker never started; a worker its job already records changes nothing."""
+    """Record a started worker's receipt on its job, the job on that worker's Orca lane in place of any agent a takeover started it from, its turn open until the watch takes that worker's worker_done or escalation, with the handoff a relaunch started it on, else the launch's brief, the Sprite its start put the tools on, the cc-remote config that Sprite was made from, none of the texts it held, which that handoff or brief carries, each of those and the text given kept among the texts its workers were given beside those given since the job's last return, so a handoff taking over from this worker before the job's next return carries them, the question its last worker asked handed on by state.start, and the job sent each answer of his whose words that handoff or brief holds, or with no receipt clear the launching mark of a launch whose worker never started; a worker its job already records changes nothing."""
     with state.edit(name) as data:
         job = data["jobs"][job_id]
         if started is None:
