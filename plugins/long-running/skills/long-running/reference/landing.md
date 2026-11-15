@@ -414,8 +414,9 @@ only by his Hold, and it lands the PR at its first green head whatever the check
 against his words says, whatever head he tapped it on, by his words "why the fuck would you keep eveyhting broken to make it perfect": a head that moved under his card keeps Approve showing and
 lands with no second check. A `NOT READY` at the PR's head clears no tap and holds no landing: his
 card keeps Approve and draws the objection whole under Where it stands, and its `PR … NOT READY`
-line goes to the builder answering for the PR through `drive pr wake`, once a head, only until he approves it: on a
-PR he approved it wakes nobody, so no builder changes what he approved. His order to merge a PR as it
+line goes to the builder answering for each PR it faults through `drive pr wake`, once a head and one to each job,
+only while nothing of his holds the stack: under his Approve, his Hold, the hold label or an open card of his on any
+PR of the stack it wakes nobody, so no builder changes what he approved or what his answer may change. His order to merge a PR as it
 stands is his Approve. Each head gets one try, but a try that fails on the lander's own step says nothing of
 the PR: one whose `stack-enqueue --check` or `--watch` exited 5, its own failure, such as a GitHub read that
 timed out, or failed before it printed an answer, as when mise refuses the landing worktree's config, and a

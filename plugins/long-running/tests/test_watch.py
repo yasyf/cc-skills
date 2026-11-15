@@ -4883,6 +4883,27 @@ def test_a_not_ready_on_a_pr_he_approved_is_drawn_on_his_card_and_wakes_no_build
     assert (woken, state.against(state.load(demo)["prs"][KEY])) == ([], 'o1 "ship the watch": watch.py stops the watch')
 
 
+def test_a_not_ready_on_a_stack_wakes_each_job_it_faults_once_a_head_and_none_while_his_hold_is_on_any_pr_of_the_stack(demo: str, woken: list[tuple[str, str]]) -> None:
+    refused = f"{served.NOT_READY}: {OTHER}, {THIRD} go against his words"
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["jobs"] = ["j1", "j2"]
+        data["jobs"]["j2"] = job(prs=[state.pr_url(OTHER), state.pr_url(THIRD)])
+        for key, job_id, branch, base in [(KEY, "j1", "root", "main"), (OTHER, "j2", "middle", "root"), (THIRD, "j2", "top", "middle")]:
+            data["prs"][key] = state.new_pr(state.pr_url(key), job_id, "o1") | {
+                "head": "aaaaaaa111", "branch": branch, "base": base, "wants_tap": True,
+                "checker": {"head": "aaaaaaa111", "pid": 1, "at": state.stamp(T0), "orders": ["o1"], "answers": [], "outcome": refused, "against": "o1 \"ship the watch\": it stops", "faulted": [OTHER, THIRD]},
+            }
+        data["prs"][KEY]["tap"] = state.new_tap("Hold", "aaaaaaa111", "pressed the button", "1.2")
+    watching = watcher(demo)
+    watch.objections(watching)
+    assert (woken, [state.load(demo)["prs"][key]["objected"] for key in (KEY, OTHER, THIRD)]) == ([], [None] * 3)
+    with state.edit(demo) as data:
+        data["prs"][KEY]["tap"] = None
+    watch.objections(watching)
+    watch.objections(watching)
+    assert (woken, [state.load(demo)["prs"][key]["objected"] for key in (KEY, OTHER, THIRD)]) == ([(OTHER, f"PR {OTHER}: {refused} [o1 j2]")], [None, "aaaaaaa111", "aaaaaaa111"])
+
+
 def test_a_green_pr_waiting_on_his_tap_gets_its_card_at_once_while_its_check_runs_or_says_not_ready_and_its_new_head_is_checked_again(
     demo: str, monkeypatch: pytest.MonkeyPatch, checkers: list[str], judge: Judge, draws: Draws, woken: list[tuple[str, str]]
 ) -> None:
@@ -4909,7 +4930,7 @@ def test_a_green_pr_waiting_on_his_tap_gets_its_card_at_once_while_its_check_run
     assert (state.load(demo)["prs"][KEY]["checked"]["head"], draws.keys) == ("bbbbbbb222", [[KEY]])
 
 
-def test_a_not_ready_keeps_its_head_however_often_its_builder_returns_and_is_judged_again_once_an_answer_of_his_binds_its_job_or_its_head_moves(
+def test_a_not_ready_keeps_its_head_however_often_its_builder_returns_and_is_judged_again_once_an_answer_of_his_binds_its_job_or_its_head_moves_telling_its_builder_once_a_head(
     demo: str, monkeypatch: pytest.MonkeyPatch, checkers: list[str], judge: Judge, draws: Draws, woken: list[tuple[str, str]]
 ) -> None:
     reads = {KEY: read(checks=GREEN, reviewDecision="APPROVED")}
@@ -4935,13 +4956,13 @@ def test_a_not_ready_keeps_its_head_however_often_its_builder_returns_and_is_jud
     judge.against = [{"order": "o1", "words": "ship the watch", "file": "watch.py", "change": "watch.py ends the watch it should keep"}]
     assert cli.main(["pr", "check", state.pr_url(KEY), "--drive", demo]) == 0
     watch.run_pass(watching, T0 + timedelta(minutes=4))
-    assert (checkers, len([text for _, text in woken if f"PR {KEY}: NOT READY: " in text])) == ([KEY, KEY], 2)
+    assert (checkers, len([text for _, text in woken if f"PR {KEY}: NOT READY: " in text])) == ([KEY, KEY], 1)
     assert state.against(state.load(demo)["prs"][KEY]) == 'o1 "ship the watch": watch.py ends the watch it should keep'
     reads[KEY] = read(headRefOid="bbbbbbb222", checks=GREEN, reviewDecision="APPROVED")
     watch.run_pass(watching, T0 + timedelta(minutes=5))
     assert cli.main(["pr", "check", state.pr_url(KEY), "--drive", demo]) == 0
     watch.run_pass(watching, T0 + timedelta(minutes=6))
-    assert (checkers, len([text for _, text in woken if f"PR {KEY}: NOT READY: " in text])) == ([KEY] * 3, 3)
+    assert (checkers, len([text for _, text in woken if f"PR {KEY}: NOT READY: " in text])) == ([KEY] * 3, 2)
 
 
 def test_a_check_names_every_pr_its_job_and_the_job_it_was_handed_from_carry_with_merged_ones_marked_so_a_part_a_merged_pr_delivers_gets_no_not_ready(

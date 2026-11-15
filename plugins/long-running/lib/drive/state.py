@@ -903,6 +903,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
             pr["checker"].setdefault("orders", None)
             pr["checker"].setdefault("answers", None)
             pr["checker"].setdefault("carried", None)
+            pr["checker"].setdefault("faulted", [])
+        pr.setdefault("objected", pr["checker"]["head"] if pr["checker"] and pr["checker"]["against"] else None)
         pr.setdefault("ejected", False)
         pr.setdefault("flaky", None)
         if pr["flaky"]:
@@ -4176,6 +4178,7 @@ def new_pr(url: str, job_id: str, order_id: str) -> dict:
         "ejected": False,
         "flaky": None,
         "review_asked": None,
+        "objected": None,
         "rework": None,
         "author": None,
         "checked": None,

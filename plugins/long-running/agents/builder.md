@@ -236,7 +236,7 @@ and waits ids, record seqs), never a technical name.
    description, and beside his durable answers `ccn answer match` ranks near the card's words, which bind
    only where one speaks to what the change builds, after
    listing each change the diff makes to what already exists, before and after. Its `NOT READY`
-   on a PR he has not approved comes back to you through `drive pr wake` naming each of his words the change goes against, and each change to what
+   comes back to you through `drive pr wake`, once a head, while nothing of his holds the stack, naming each of his words the change goes against, and each change to what
    exists they do not need: change the PRs to his words, put back what they did not ask to change,
    push and return `PUSHED` again, or `ASK` for a reading his words leave open. His card, up
    since `drive pr add`, shows the PR's stage whatever its body says, and while it is red or being

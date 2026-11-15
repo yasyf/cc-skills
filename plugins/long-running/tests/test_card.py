@@ -1109,8 +1109,8 @@ def test_a_change_against_his_words_is_a_whole_line_on_his_card_beside_approve_h
     redraw = moved_under_his_card(drive, monkeypatch)
     judge.against = [{"order": "o1", "words": "ship the run page", "file": "run.ts", "change": change}]
     assert cli.main(["pr", "check", URL, "--drive", drive]) == 0
-    [checked] = [event for event in events(drive) if event["kind"] == "check"]
-    assert checked["change"].startswith(f"NOT READY: {key} go against his words, judged from each PR's title and diff: {named}. ")
+    assert not [event for event in events(drive) if event["kind"] == "check"]
+    assert state.load(drive)["prs"][key]["checker"]["outcome"].startswith(f"NOT READY: {key} go against his words, judged from each PR's title and diff: {named}. ")
     line = f"Commit fedcba9 goes against your words: {named}. Its agent is told; your Approve still lands it"
     [asking] = ask(redraw)["cards"]
     assert (asking["card"]["options"], asking["card"]["prs"][0]["review"]) == (["Approve", "Hold"], line)

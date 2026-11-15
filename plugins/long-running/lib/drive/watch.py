@@ -807,13 +807,36 @@ def follow_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def checks(watcher: Watcher, moment: datetime) -> None:
-    """Start the check against his words of each PR the watch hears that owes one, within one GitHub read of finding it unchecked and with no coordinator turn: redraw_lines draws its verdict on his card in place, so his Approve of a changed patch lands it once it is green, and its NOT READY line goes to its builder unless he approved the PR."""
+    """Start the check against his words of each PR the watch hears that owes one, within one GitHub read of finding it unchecked and with no coordinator turn: redraw_lines draws its verdict on his card in place, so his Approve of a changed patch lands it once it is green, and its NOT READY goes to the builders of the PRs it faults, by objections."""
     if watcher.cards is None:
         return
     data = state.load(watcher.name)
     stacks = land.landing_stacks(data)
     if owed := [key for key, pr in data["prs"].items() if hears(watcher, data, pr["order"]) and check_owed(watcher.name, key, pr, data, stacks.get(key, (key,)), moment)]:
         served.start(watcher.name, owed)
+    objections(watcher)
+
+
+def objections(watcher: Watcher) -> None:
+    """Send through drive pr wake each NOT READY the check against his words keeps at a head of a PR the watch hears and faults, once a head and once to each job the PRs it faults belong to, while nothing of his holds any PR of its stack, by his_hold, so the finding wakes only a builder that owes a step now and waits on his hold or question until it lifts; the head told is kept as the PR's objected, outside its checker, so a check run again at that head, or a newer install dropping its checker, tells it no second time."""
+    told: dict[tuple[str, str], tuple[str, str]] = {}
+    with state.edit(watcher.name) as data:
+        stacks = land.landing_stacks(data)
+        for key in state.open_pr_keys(data):
+            pr = data["prs"][key]
+            if pr["objected"] == pr["head"] or not state.against(pr) or key not in pr["checker"]["faulted"] or not hears(watcher, data, pr["order"]):
+                continue
+            if any(his_hold(data, data["prs"][member]) for member in stacks.get(key, (key,))):
+                continue
+            pr["objected"] = pr["head"]
+            told.setdefault((stage.owner_job(data, key) or pr["job"], pr["checker"]["outcome"]), (key, f"PR {key}: {pr['checker']['outcome']} {ids(pr)}"))
+    for key, line in told.values():
+        stage.wake(watcher.name, key, line)
+
+
+def his_hold(data: dict, pr: dict) -> bool:
+    """Whether his Approve, his Hold, the hold label or an open card of his holds the PR, a card on an open incident's work included, by state.part_cards, since his answer to it can change what its builder does."""
+    return land.approved(pr) or bool(stage.stopped(pr)) or bool(state.part_cards(data, pr["job"], pr))
 
 
 def check_owed(name: str, key: str, pr: dict, data: dict, unit: tuple[str, ...], moment: datetime) -> bool:
@@ -3805,17 +3828,14 @@ def wakes(line: str, data: dict, cards: dict | None) -> bool:
 
 
 def handed(watcher: Watcher, lines: list[str], moment: datetime) -> list[str]:
-    """Hand each line to the one who acts on it: the lander's own failure, once however many PRs it held back, a job's STUCK or LANE line to the coordinator session whose agent runs it on this Mac, and an order's the communicator or the meta session holds to that session, a check's NOT READY whole to the builder answering for its open PR through drive pr wake unless he approved the PR, whose card alone shows it, and the rest, returned, to the coordinator. Until it is handed, each line stays on the watcher, the coordinator's among its made lines and another session's among its unsent, so a newer install that takes the watch over meanwhile gets it."""
+    """Hand each line to the one who acts on it: the lander's own failure, once however many PRs it held back, a job's STUCK or LANE line to the coordinator session whose agent runs it on this Mac, an order's the communicator or the meta session holds to that session, and the rest, returned, to the coordinator. Until it is handed, each line stays on the watcher, the coordinator's among its made lines and another session's among its unsent, so a newer install that takes the watch over meanwhile gets it."""
     lines = [LINE_BREAKS.sub(" ", line) for line in lines]
     if not lines and not any(owed for lane, owed in watcher.unsent.items() if lane != watcher.lane):
         return []
     data = state.load(watcher.name)
     kept, routed = [], {}
     for line in lines:
-        if (found := PR_EVENT.match(line)) and found["change"].startswith(served.NOT_READY):
-            if data["prs"][found["key"]]["state"] == "open" and not land.approved(data["prs"][found["key"]]):
-                stage.wake(watcher.name, found["key"], line)
-        elif line.startswith(LANDER):
+        if line.startswith(LANDER):
             if line not in [*watcher.unsent.get("meta", []), *(meta := routed.setdefault("meta", []))]:
                 meta.append(line)
         elif lane := line_lane(line, data, watcher.lane):

@@ -505,7 +505,7 @@ def test_a_drive_saved_dating_his_late_card_taps_by_when_the_drive_took_them_dat
     dated = [question["closed"]["at"] for question in drive["jobs"]["j1"]["questions"]]
     kept = [(pr["answers"], pr["checker"]) for pr in drive["prs"].values()]
     assert (shown, dated) == ([["cci", "show", "--json", "699068", "699080"]], [tapped, tapped, other])
-    assert kept == [(None, None), (read_typed, checker), (read_tap, checker)]
+    assert kept == [(None, None), (read_typed, checker | {"faulted": []}), (read_tap, checker | {"faulted": []})]
     with state.edit("demo"):
         pass
     state.load("demo")
@@ -536,7 +536,7 @@ def test_a_drive_saved_keeping_the_answers_cc_notes_ranked_near_a_card_beside_th
     }
     state.create(data)
     drive = state.load("demo")
-    assert [(pr["answers"], pr["checker"]) for pr in drive["prs"].values()] == [(None, passed), ({"cited": [cited, options], "near": []}, objected), (None, passed), (None, None)]
+    assert [(pr["answers"], pr["checker"]) for pr in drive["prs"].values()] == [(None, passed | {"faulted": []}), ({"cited": [cited, options], "near": []}, objected | {"faulted": []}), (None, passed | {"faulted": []}), (None, None)]
     with state.edit("demo") as data:
         data["prs"]["yasyf/cc-skills#1"]["answers"] = {"cited": [cited], "near": [near]}
     assert (state.load("demo")["prs"]["yasyf/cc-skills#1"]["answers"], state.load("demo")["near_answers_apart"]) == ({"cited": [cited], "near": [near]}, True)
@@ -557,10 +557,10 @@ def test_a_drive_saved_with_a_stack_refused_for_a_ruling_write_its_own_pr_makes_
     }
     state.create(data)
     drive = state.load("demo")
-    assert ([pr["checker"] for pr in drive["prs"].values()], drive["stack_writes_read"]) == ([None, None, judged, refused], True)
+    assert ([pr["checker"] for pr in drive["prs"].values()], drive["stack_writes_read"]) == ([None, None, judged | {"faulted": []}, refused | {"faulted": []}], True)
     with state.edit("demo") as data:
         data["prs"]["Forge-AI/monorepo#1"]["checker"] = refused
-    assert state.load("demo")["prs"]["Forge-AI/monorepo#1"]["checker"] == refused
+    assert state.load("demo")["prs"]["Forge-AI/monorepo#1"]["checker"] == refused | {"faulted": []}
 
 
 def test_a_drive_saved_with_builders_whose_goal_is_their_readers_question_gives_each_untaken_one_its_parts_goal_on_its_brief_too(state_root: Path, tmp_path: Path) -> None:
