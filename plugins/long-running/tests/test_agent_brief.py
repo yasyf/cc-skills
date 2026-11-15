@@ -147,7 +147,7 @@ def test_a_ninth_builder_here_starts_on_a_sprite_at_once_and_only_one_whose_brie
     mac = "Order (his words): fix the watch\nServes: his order\nGoal: fix it\nMac: replay it on a test Mac\nDrive: demo, "
     counted = "; ".join(f"j{number + 1} on o1, its agent a{number} last wrote at {when(state.stamp(wrote), seconds=True)}" for number in range(1, 9))
     assert agent_brief.deny_reason(briefed("long-running:builder", f"{sprite}order o3, job j1")) == (
-        f"refused: 8 builders already run on this Mac, its cap of 8 ({counted}), so j1 starts on a Sprite at once, since its brief declares no"
+        f"refused: 8 builders already run on this Mac, its cap of 8 on builders that compile here, where a staging tester, a merged PR's prover or another builder marked --builds-nothing holds no slot ({counted}), so j1 starts on a Sprite at once, since its brief declares no"
         f" step only this Mac runs on {place.MAC_LINES}: write this brief to a file and run drive job launch j1 <file>"
     )
     assert agents.ruled(agent_brief.deny_reason(briefed("long-running:builder", f"{sprite}order o3, job j1"))) == {"judged": False}
@@ -155,7 +155,7 @@ def test_a_ninth_builder_here_starts_on_a_sprite_at_once_and_only_one_whose_brie
     for order_id, job_id in (("o1", "j10"), ("o2", "j11"), ("o3", "j1")):
         refused = agent_brief.deny_reason(briefed("long-running:builder", f"{mac}order {order_id}, job {job_id}"))
     assert refused.startswith(
-        f"refused: 8 builders already run on this Mac, its cap of 8 ({counted}), so j1 waits its turn for a builder slot on this Mac, 1 of 3 in line."
+        f"refused: 8 builders already run on this Mac, its cap of 8 on builders that compile here, where a staging tester, a merged PR's prover or another builder marked --builds-nothing holds no slot ({counted}), so j1 waits its turn for a builder slot on this Mac, 1 of 3 in line."
         " The watch's FREE line names each job waiting its turn as a slot opens, earliest due first: j1 (due "
     )
     assert refused.index('"fix the watch"; j11 (due ') < refused.index('"fix the card"; j10 (no time promised) "tidy the docs".')
@@ -254,6 +254,19 @@ def test_a_builder_whose_goal_proves_merged_prs_live_builds_nothing_unmarked_so_
     assert (code, out.splitlines()[0], proof["state"], proof["waits"], proof["where"], bool(proof["builds_nothing"]), state.builds_nothing(proof)) == (0, "j9", "waiting", [], "local", False, True)
     run("job", "set", "j9", "--agent", "a9")
     assert list(place.local_builders(state.load(demo), state.now())) == [f"j{number}" for number in range(1, 9)]
+
+
+def test_a_builder_on_staging_test_parts_alone_builds_nothing_unmarked_so_it_starts_here_past_a_full_cap_and_holds_no_slot_as_j6160_needed(demo: str, run: Run) -> None:
+    staging = "staging test of #42 before it lands"
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "tidy the docs", "--parts", *(f"part {number}" for number in range(1, 9)), staging, "docs")
+    for number in range(1, 9):
+        run("job", "add", "builder", "--order", "o1", "--part", f"part {number}", "--goal", f"build part {number}", "--agent", f"a{number}")
+    code, out = run("job", "add", "builder", "--order", "o1", "--part", staging, "--goal", "soak #42 on staging")
+    tester = state.load(demo)["jobs"]["j9"]
+    assert (code, out.splitlines()[0], tester["where"], bool(tester["builds_nothing"]), state.builds_nothing(tester)) == (0, "j9", "local", False, True)
+    run("job", "set", "j9", "--agent", "a9")
+    assert list(place.local_builders(state.load(demo), state.now())) == [f"j{number}" for number in range(1, 9)]
+    assert not state.builds_nothing(tester | {"parts": [staging, "docs"]})
 
 
 def test_a_monorepo_builder_over_this_macs_load_limit_starts_here_only_when_its_brief_names_a_step_only_this_mac_runs(

@@ -2577,12 +2577,17 @@ def stopped_on(turn: dict) -> str:
 
 
 def lane_stop(worker: dict, data: dict) -> tuple[dict, Path] | None:
-    """The last row of the newest transcript in the worktree of a lane on this Mac, and that transcript, when a model's safeguards stopped that response, or when it ended on an API error and a session bound to the drive has had a response answered since; None until then."""
-    sessions = config_dir() / "projects" / NOT_SLUG.sub("-", worker["terminal"]["worktreePath"])
-    path = max(sessions.glob("*.jsonl"), key=lambda found: found.stat().st_mtime, default=None)
+    """The last row of the lane_transcript of a lane on this Mac, and that transcript, when a model's safeguards stopped that response, or when it ended on an API error and a session bound to the drive has had a response answered since; None until then."""
+    path = lane_transcript(worker["terminal"]["worktreePath"])
     if not path or not (turn := last_turn(path)) or not agents.died(turn):
         return None
     return (turn, path) if agents.refused(turn) or any(answered_since(held, turn) for held in state.bound_sessions(data).values()) else None
+
+
+def lane_transcript(worktree: str) -> Path | None:
+    """The newest transcript of a Claude Code session started in the worktree, the one the Orca lane on this Mac that runs there writes; None before any session there wrote one."""
+    sessions = config_dir() / "projects" / NOT_SLUG.sub("-", worktree)
+    return max(sessions.glob("*.jsonl"), key=lambda found: found.stat().st_mtime, default=None)
 
 
 def resume_lane(watcher: Watcher, job_id: str, job: dict, terminal: str, stop: tuple[dict, Path], moment: datetime) -> list[str]:
@@ -2611,7 +2616,11 @@ def agent_transcript(holder: dict, job: dict, data: dict) -> Path:
 
 def last_write(job: dict, data: dict) -> tuple[datetime, dict | None]:
     """When a local job's agent last wrote its transcript, and the turn it wrote last."""
-    path = agent_transcript(session_of(job, data), job, data)
+    return written(agent_transcript(session_of(job, data), job, data))
+
+
+def written(path: Path) -> tuple[datetime, dict | None]:
+    """When a transcript was last written, and the turn written last."""
     return datetime.fromtimestamp(path.stat().st_mtime).astimezone(), last_turn(path)
 
 

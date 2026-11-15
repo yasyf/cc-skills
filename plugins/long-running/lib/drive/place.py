@@ -10,6 +10,7 @@ from drive.render import when
 LIMIT_ENV = "HOOKS_ADMISSION_LOAD_PER_CORE"
 MONOREPO = "Forge-AI/monorepo"
 LOCAL_BUILDERS = 8
+CAP_RULE = "on builders that compile here, where a staging tester, a merged PR's prover or another builder marked --builds-nothing holds no slot"
 MAC_LINES = "its Mac: line, which drive job brief --mac writes, or its Release: line"
 SAMPLE_SECONDS = 1.0
 HOST_CPU_LOAD_INFO = 3
@@ -62,12 +63,12 @@ def verdict(share: float, ceiling: float, builders: dict[str, str]) -> tuple[str
 
 
 def at_cap(builders: dict[str, str]) -> str:
-    """The cap's refusal, naming each builder it counted."""
-    return f"{len(builders)} builders already run on this Mac, its cap of {LOCAL_BUILDERS} ({'; '.join(builders.values())})"
+    """The cap's refusal, naming its rule and each builder it counted."""
+    return f"{len(builders)} builders already run on this Mac, its cap of {LOCAL_BUILDERS} {CAP_RULE} ({'; '.join(builders.values())})"
 
 
 def local_builders(data: dict, moment: datetime) -> dict[str, str]:
-    """The builders holding a slot on this Mac, each job beside its order and its agent's or lane's last write: a job here the agent_brief hook let start or the watch's FREE line gave its turn for a slot whose agent has not started yet, a job on a Sprite, or one taking over from its agent here, whose turn to move here came within the time a launch takes and whose lane here has not started, or whose lane here launches, an agent here still in its turn, or an Orca lane started with --local that launches or has not ended. A builder that builds nothing, by state.builds_nothing, such as a merged PR's live proof, holds no checkout or compiler, so it holds no slot."""
+    """The builders holding a slot on this Mac, each job beside its order and its agent's or lane's last write: a job here the agent_brief hook let start or the watch's FREE line gave its turn for a slot whose agent has not started yet, a job on a Sprite, or one taking over from its agent here, whose turn to move here came within the time a launch takes and whose lane here has not started, or whose lane here launches, an agent here still in its turn, or an Orca lane started with --local that launches, or whose session in the worktree its launch recorded, by watch.lane_transcript, has not started or is still in its turn. A builder that builds nothing, by state.builds_nothing, such as a merged PR's live proof or a staging tester, compiles nothing here, so it holds no slot."""
     return {
         job_id: f"{job_id} on {job['order']}, {work}"
         for job_id, job in data["jobs"].items()
@@ -96,7 +97,10 @@ def at_work_here(job_id: str, job: dict, data: dict, moment: datetime) -> str | 
         return f"its Orca lane launching since {when(job['launching'], seconds=True)}" if watch.launching(job, moment) else None
     if state.lane_death(job):
         return None
-    return f"its Orca lane {job['dispatch']}, not ended"
+    if not (path := watch.lane_transcript(job["worktree"])):
+        return f"its Orca lane {job['dispatch']}, its session not started yet"
+    wrote, turn = watch.written(path)
+    return None if turn and agents.ended(turn) else f"its Orca lane {job['dispatch']} last wrote at {when(state.stamp(wrote), seconds=True)}"
 
 
 def waiting_builders(data: dict) -> list[str]:

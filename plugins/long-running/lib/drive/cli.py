@@ -129,7 +129,7 @@ PAGE_STORIES = (
 )
 LIST_ITEM = re.compile(r"\s*(?:[-*] |\d+\. )")
 MANIFEST = Path(__file__).resolve().parents[2] / ".claude-plugin" / "plugin.json"
-LAUNCHED = ("run", "dispatch", "task", "terminal", "workspace", "environment", "lane", "sprite_config")
+LAUNCHED = ("run", "dispatch", "task", "terminal", "workspace", "environment", "lane", "worktree", "sprite_config")
 MCP_TOOLS = ("say", "heard", "handler", "record", "order", "job", "pr", "incident", "status", "search_plan")
 
 
@@ -1396,7 +1396,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         session = os.environ.get("CLAUDE_CODE_SESSION_ID")
         fresh = state.new_job(args.order, args.kind, args.goal, parts, created)
         waits = view.stored_waits(data, [state.change_wait(data, wait, None, fresh) for wait in args.waits], found)
-        held = state.change_job(data, args.order, parts, waits, proving=state.builds_nothing(given)) if args.kind in state.CHANGE_KINDS and not (lands or args.release) else None
+        held = state.change_job(data, args.order, parts, waits, proving=state.builds_nothing(fresh | given)) if args.kind in state.CHANGE_KINDS and not (lands or args.release) else None
         if refused := (
             state.held_elsewhere(data, args.order, session, bool(args.release))
             or unreleased
@@ -2978,6 +2978,7 @@ def rewrite_brief(name: str, job_id: str, flags: dict, over: dict | None) -> tup
     carried = "".join(f"\n{order_id}, which it also carries: {data['orders'][order_id]['text']}" for order_id in job["carries"])
     scratch = Path(flags["scratch"]).expanduser() if flags["scratch"] else state.drive_dir(name) / "scratch" / job_id
     staged = any(state.STAGING_PART.fullmatch(part) for part in job["parts"])
+    mac, release = mac_lines(job, flags)
     fields = {
         "Order (his words)": order["text"] + carried,
         "From": order["from"],
@@ -2988,10 +2989,10 @@ def rewrite_brief(name: str, job_id: str, flags: dict, over: dict | None) -> tup
         "Done when": flags["done_when"],
         "Where": flags["where"],
         "Runs as": flags["runs_as"],
-        "Release": flags["release"],
+        "Release": release,
         "Release build": job["release_build"],
         "Release freezes": brief.releases(name, data),
-        "Mac": flags["mac"] or staged and STAGING_MAC,
+        "Mac": mac,
         "After install": flags["after"],
         "Handoff": flags["handoff"],
         "Repo rules": state.repo_rules(data),
@@ -3325,11 +3326,20 @@ def deliver(args: argparse.Namespace, name: str, text: str | None = None) -> int
         return unsent(args, state.load(name)["jobs"][args.id], held, error, note)
 
 
+def mac_lines(job: dict, flags: dict) -> tuple[str | None, str | None]:
+    """The Mac: and Release: lines a job's brief flags give it, as rewrite_brief writes them and declared_step reads them: its mac flag, else STAGING_MAC when a part of its is a staging test, and its release flag."""
+    staged = any(state.STAGING_PART.fullmatch(part) for part in job["parts"])
+    return flags["mac"] or (STAGING_MAC if staged else None), flags["release"]
+
+
 def declared_step(job: dict) -> str | None:
-    """The step only this Mac runs that a job on a Sprite declares on a Mac: or Release: line of its brief, when a launch recorded one rather than a lane recorded by hand, by place.mac_step: the one placement read every resume, wake and launch of a Sprite job makes before it sends or starts anything, never its report, a text it holds or the text given, since a return's Mac: line places the prover install.add_prover hands its merge to; None for a job on this Mac or one declaring none."""
+    """The step only this Mac runs that a job on a Sprite declares on a Mac: or Release: line, when a launch recorded one rather than a lane recorded by hand: the lines its brief flags give it by mac_lines, the ones the brief a resume writes it carries, since the brief its lane started on may predate a staging part or a --mac flag, else the lines of its brief by place.mac_step for a job no drive job brief wrote; the one placement read every resume, wake and launch of a Sprite job makes before it sends or starts anything, never its report, a text it holds or the text given, since a return's Mac: line places the prover install.add_prover hands its merge to; None for a job on this Mac or one declaring none."""
     if state.on_mac(job) or not job.get("brief"):
         return None
-    return place.mac_step(Path(job["brief"]).read_text())
+    if not (flags := job.get("brief_flags")):
+        return place.mac_step(Path(job["brief"]).read_text())
+    mac, release = mac_lines(job, flags)
+    return mac or release
 
 
 def live_end(job: dict) -> orca.LaneEnd:

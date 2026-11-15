@@ -6494,11 +6494,11 @@ def test_a_builders_pushed_naming_a_monorepo_pr_on_its_staging_test_gives_its_on
     ):
         code, err = keep(monkeypatch, capsys, "j1", report)
         assert (code, f"j1: refused, nothing kept: {refused}" in err) == (2, True)
-    assert [job_id for job_id, job in state.load("demo")["jobs"].items() if job.get("builds_nothing")] == []
+    assert [job_id for job_id, job in state.load("demo")["jobs"].items() if state.builds_nothing(job)] == []
     for _ in range(2):
         assert keep(monkeypatch, capsys, "j1", f"PUSHED {PR} {STACKED}\nSTAGING: #42 {cases}\n{UNSTAGED}") == (0, "")
     data = state.load("demo")
-    (tester_id, tester), = [(job_id, job) for job_id, job in data["jobs"].items() if job.get("builds_nothing")]
+    (tester_id, tester), = [(job_id, job) for job_id, job in data["jobs"].items() if state.builds_nothing(job)]
     assert (data["prs"][key]["waits"], data["prs"]["Forge-AI/monorepo#43"]["waits"], tester_id in data["orders"]["o1"]["jobs"]) == ([f"o1:{part}"], [], True)
     assert (tester["kind"], tester["goal"], tester["parts"], tester["where"]) == ("builder", cases, [part], "local")
     assert run("job", "brief", tester_id)[0] == 0
@@ -6567,7 +6567,7 @@ def test_a_staging_line_puts_its_pr_on_the_staging_test_another_order_holds_or_o
     assert keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\nSTAGING: #42 run the migration twice\n") == (0, "")
     data = state.load("demo")
     joined = f"o2:{held}" if home == "o2" else f"o1:{part}"
-    assert [job_id for job_id, job in data["jobs"].items() if job.get("builds_nothing")] == ["j2"]
+    assert [job_id for job_id, job in data["jobs"].items() if state.builds_nothing(job)] == ["j2"]
     assert data["prs"][with_pr]["waits"] == [*(["j2"] if tester_wait == "its own" else []), joined]
     assert (part in data["orders"]["o1"]["parts"], data["jobs"]["j2"]["carries"]) == (home == "o1", {"o1": [part]} if home == "o1" else {})
 
@@ -6576,7 +6576,7 @@ def test_a_staging_line_reading_none_for_its_pr_adds_no_part_wait_or_tester(run:
     assert keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\nSTAGING: #42 none: it changes one test's code alone\n") == (0, "")
     data = state.load("demo")
     assert (data["prs"][with_pr]["waits"], state.STAGING_TEST.format(number=42) in data["orders"]["o1"]["parts"]) == ([], False)
-    assert not [job_id for job_id, job in data["jobs"].items() if job.get("builds_nothing")]
+    assert not [job_id for job_id, job in data["jobs"].items() if state.builds_nothing(job)]
 
 
 def test_a_staging_testers_brief_runs_a_dashboard_prs_cases_on_a_mac_box_at_the_live_sand_next_commit_and_at_its_own_head_when_it_changes_sand_next_too(
@@ -6591,7 +6591,7 @@ def test_a_staging_testers_brief_runs_a_dashboard_prs_cases_on_a_mac_box_at_the_
     reaching(monkeypatch, with_pr)
     assert run("pr", "add", PR, "--job", "j1", *LEAD)[0] == 0
     assert keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\nSTAGING: #42 switch a chat's topology in the app and write to a subagent\n") == (0, "")
-    (tester_id,) = [job_id for job_id, job in state.load("demo")["jobs"].items() if job.get("builds_nothing")]
+    (tester_id,) = [job_id for job_id, job in state.load("demo")["jobs"].items() if state.builds_nothing(job)]
     asked: list[list[str]] = []
 
     def answered(cmd: list[str], cwd: str | None = None, **_: object) -> str:
@@ -6622,12 +6622,12 @@ def test_pr_set_staging_stages_a_monorepo_pr_in_one_save_as_its_builders_staging
     assert f'drive pr set {with_pr} --staging "<the cases it runs>"' in capsys.readouterr().err
     code, out = run("pr", "set", PR, "--staging", cases)
     data = state.load("demo")
-    (tester_id, tester), = [(job_id, job) for job_id, job in data["jobs"].items() if job.get("builds_nothing")]
+    (tester_id, tester), = [(job_id, job) for job_id, job in data["jobs"].items() if state.builds_nothing(job)]
     assert (code, f"{tester_id} builder on {json.dumps(part)}: start its agent now" in out) == (0, True)
     assert (data["prs"][with_pr]["waits"], part in data["orders"]["o1"]["parts"], tester_id in data["orders"]["o1"]["jobs"]) == ([f"o1:{part}"], True, True)
     assert (tester["kind"], tester["goal"], tester["parts"]) == ("builder", cases, [part])
     assert run("pr", "set", PR, "--staging", cases)[0] == 0
-    assert [job_id for job_id, job in state.load("demo")["jobs"].items() if job.get("builds_nothing")] == [tester_id]
+    assert [job_id for job_id, job in state.load("demo")["jobs"].items() if state.builds_nothing(job)] == [tester_id]
     run("pr", "add", "https://github.com/yasyf/cc-skills/pull/7", "--job", "j1", *LEAD)
     assert cli.main(["pr", "set", "https://github.com/yasyf/cc-skills/pull/7", "--staging", cases]) == 2
     assert "yasyf/cc-skills#7: refused, nothing set: --staging runs a Forge-AI/monorepo PR's cases on plat-usw2-staging" in capsys.readouterr().err
@@ -6656,14 +6656,14 @@ def test_pr_add_stages_a_monorepo_pr_whose_head_changes_a_dangerous_class_of_fil
     run("job", "add", "builder", "--order", "o1", "--goal", "land")
     code, out = run("pr", "add", PR, "--job", "j1", *LEAD)
     data, part = state.load("demo"), state.STAGING_TEST.format(number=42)
-    (tester_id, tester), = [(job_id, job) for job_id, job in data["jobs"].items() if job.get("builds_nothing")]
+    (tester_id, tester), = [(job_id, job) for job_id, job in data["jobs"].items() if state.builds_nothing(job)]
     assert (code, data["prs"]["Forge-AI/monorepo#42"]["waits"], data["prs"]["Forge-AI/monorepo#42"]["paths_at"], tester["parts"], tester["kind"]) == (0, [f"o1:{part}"], "abc", [part], "builder")
     assert "changes a database migration: api/migrations/1700_add_runs.sql; the parser, checker or VM: go/sand/internal/checker/check.go, each a dangerous change" in tester["goal"]
     assert f'{tester_id} builder on "{part}"' in out
     dangerous_repo(tmp_path, on_github, changed[2:])
     assert run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/43", "--job", "j1", *LEAD)[0] == 0
     data = state.load("demo")
-    assert (data["prs"]["Forge-AI/monorepo#43"]["waits"], data["prs"]["Forge-AI/monorepo#43"]["paths_at"], [job_id for job_id, job in data["jobs"].items() if job.get("builds_nothing")]) == ([], "abc", [tester_id])
+    assert (data["prs"]["Forge-AI/monorepo#43"]["waits"], data["prs"]["Forge-AI/monorepo#43"]["paths_at"], [job_id for job_id, job in data["jobs"].items() if state.builds_nothing(job)]) == ([], "abc", [tester_id])
 
 
 def test_a_builders_staging_line_reaches_the_tester_its_prs_changed_files_gave_it_and_its_none_lifts_a_test_no_job_took_up_but_keeps_one_a_job_took_up(
@@ -6674,10 +6674,10 @@ def test_a_builders_staging_line_reaches_the_tester_its_prs_changed_files_gave_i
     run("job", "add", "builder", "--order", "o1", "--goal", "land")
     run("pr", "add", PR, "--job", "j1", *LEAD)
     key, part, cases = "Forge-AI/monorepo#42", state.STAGING_TEST.format(number=42), "run the migration twice and roll it back on plat-usw2-staging"
-    (tester_id,) = [job_id for job_id, job in state.load("demo")["jobs"].items() if job.get("builds_nothing")]
+    (tester_id,) = [job_id for job_id, job in state.load("demo")["jobs"].items() if state.builds_nothing(job)]
     assert keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\nSTAGING: #42 {cases}\n") == (0, "")
     data = state.load("demo")
-    testers = [job_id for job_id, job in data["jobs"].items() if job.get("builds_nothing")]
+    testers = [job_id for job_id, job in data["jobs"].items() if state.builds_nothing(job)]
     assert (testers, [held["words"] for held in data["jobs"][tester_id]["undelivered"]]) == ([tester_id], [f"The staging test of {key} also runs: {cases}"])
     with state.edit("demo") as data:
         data["jobs"][tester_id]["agent"] = "a1"
@@ -6709,13 +6709,13 @@ def test_a_pr_a_dangerous_class_and_the_release_reach_both_stage_keeps_its_dange
     reaching(monkeypatch, key)
     run("pr", "add", PR, "--job", "j1", *LEAD)
     data = state.load("demo")
-    (tester_id, tester), = [(job_id, job) for job_id, job in data["jobs"].items() if job.get("builds_nothing")]
+    (tester_id, tester), = [(job_id, job) for job_id, job in data["jobs"].items() if state.builds_nothing(job)]
     assert (data["prs"][key]["waits"], data["prs"][key]["reached"], "each a dangerous change" in tester["goal"]) == ([f"o1:{part}"], True, True)
     code, err = keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\n{UNSTAGED}")
     assert (code, f"{key} waits on its staging test before it lands, since its paths reach a component staging runs, so no `STAGING: none` line stands for it" in err) == (2, True)
     assert keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\nSTAGING: #42 {cases}\n") == (0, "")
     data = state.load("demo")
-    assert ([job_id for job_id, job in data["jobs"].items() if job.get("builds_nothing")], [held["words"] for held in data["jobs"][tester_id]["undelivered"]]) == ([tester_id], [f"The staging test of {key} also runs: {cases}"])
+    assert ([job_id for job_id, job in data["jobs"].items() if state.builds_nothing(job)], [held["words"] for held in data["jobs"][tester_id]["undelivered"]]) == ([tester_id], [f"The staging test of {key} also runs: {cases}"])
 
 
 def test_a_builders_ready_counts_only_on_a_green_required_check_and_one_still_running_or_red_returns_pushed(
@@ -8237,14 +8237,14 @@ def test_job_add_sends_a_builder_past_the_macs_cap_or_behind_its_line_to_a_sprit
     assert run("job", "add", "builder", "--order", "o1", "--part", "strip 9", "--goal", "land", "--repo", "yasyf/cc-skills")[0] == 0
     assert state.load(demo)["jobs"]["j9"]["state"] == "waiting"
     with state.edit("demo") as data:
-        data["jobs"]["j9"].update(state.local_lane("dispatch-9"))
+        data["jobs"]["j9"].update(state.local_lane("dispatch-9"), worktree="/work/demo-j9")
         state.start(data["jobs"]["j9"])
     mac_only = f"one whose brief declares a step only this Mac runs, on {place.MAC_LINES}, waits its turn for a slot here once its agent starts"
     code, added = run("job", "add", "builder", "--order", "o1", "--part", "strip 10", "--goal", "land", "--repo", "yasyf/cc-skills")
     added_id, sprite, *_ = added.splitlines()
     assert (code, added_id) == (0, "j10")
-    assert sprite.startswith("j10 starts on a Sprite at once, since 8 builders already run on this Mac, its cap of 8 (j2 on o1")
-    assert sprite.endswith(f"; j9 on o1, its Orca lane dispatch-9, not ended): drive job launch j10 <brief>; {mac_only}")
+    assert sprite.startswith(f"j10 starts on a Sprite at once, since 8 builders already run on this Mac, its cap of 8 {place.CAP_RULE} (j2 on o1")
+    assert sprite.endswith(f"; j9 on o1, its Orca lane dispatch-9, its session not started yet): drive job launch j10 <brief>; {mac_only}")
     routed = state.load(demo)["jobs"]["j10"]
     assert (routed["state"], routed["waits"], routed["agent"], routed["where"]) == ("waiting", [], None, "remote")
     with state.edit("demo") as data:
@@ -8387,6 +8387,22 @@ def test_job_brief_drops_each_flag_given_an_empty_value_and_names_it_so_a_done_m
     assert run("job", "brief", "j1", "--mac", step)[0] == 0
     said = tools.run("job", demo, {"ops": [{"brief": {"id": "j1", "mac": ""}}]})
     assert (said.splitlines()[0].endswith("; dropped from its earlier brief: --mac"), place.mac_step(written.read_text())) == (True, None)
+
+
+def test_declared_step_reads_the_mac_step_a_jobs_next_brief_renders_from_its_flags_never_the_brief_a_resume_left_it_on(run: Run, demo: str, tmp_path: Path) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "watch for stuck jobs")
+    run("job", "add", "builder", "--order", "o1", "--goal", "build the watchdog", "--remote")
+    step = "tools/ci mac-box prove --commit f3163cd03c48"
+    code, out = run("job", "brief", "j1", "--done-when", "merged", "--mac", step)
+    written = Path(out.splitlines()[0].removeprefix("Read your brief first: "))
+    resumed = tmp_path / "j1-2.resume.md"
+    resumed.write_text("Your Sprite restarted. Carry on from where your transcript left off.\n")
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["brief"] = str(resumed)
+    job = state.load(demo)["jobs"]["j1"]
+    assert (code, place.mac_step(written.read_text()), place.mac_step(resumed.read_text()), cli.declared_step(job)) == (0, step, None, step)
+    staged = job | {"parts": [state.STAGING_TEST.format(number=42)], "brief_flags": job["brief_flags"] | {"mac": None}}
+    assert cli.declared_step(staged) == cli.STAGING_MAC
 
 
 def test_job_brief_writes_each_after_install_command_in_order_refuses_one_that_is_no_drive_command_and_drops_them_given_an_empty_value(

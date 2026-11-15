@@ -492,7 +492,7 @@ def test_a_burst_of_builder_starts_here_fills_the_cap_before_any_agents_first_st
     order = "Order (his words): tidy the docs\nServes: his order\nGoal: build it\nDrive: demo, order o1, job "
     starts = [started_by_role(os.environ["CLAUDE_CODE_SESSION_ID"], subagent_type="long-running:builder", prompt=kept_brief(f"{order}j{number}")) for number in range(1, 10)]
     assert [agent_brief.deny_reason(start) for start in starts[:8]] == [None] * 8
-    assert agent_brief.deny_reason(starts[8]).startswith("refused: 8 builders already run on this Mac, its cap of 8 (j1 on o1, its agent launching since ")
+    assert agent_brief.deny_reason(starts[8]).startswith("refused: 8 builders already run on this Mac, its cap of 8 on builders that compile here, where a staging tester, a merged PR's prover or another builder marked --builds-nothing holds no slot (j1 on o1, its agent launching since ")
     monkeypatch.setattr(watch, "last_write", lambda job, data: (state.now(), None))
     monkeypatch.setattr(watch, "local_gap", lambda job_id, job, data, moment: None)
     assert hook_output(landing_guard, monkeypatch, capsys, json.dumps(bash("git status") | stepped(tmp_path, f"{order}j1"))) == ""
