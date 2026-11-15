@@ -117,7 +117,7 @@ ASK <the question, one line>
 Show me:
 <a caption of at most 25 words>
 ```<the kind that fits: mermaid, compare, chart or arch, or a language such as sand, sql or go for the real call>
-<the design worked through: the code each option produces or the call before and after, the flow, the numbers, the options side by side>
+<the design worked through: the code each option produces or the call before and after, the flow, the numbers, the options side by side, one arch fence per option, captioned `N · …`, for options choosing between architectures>
 ```
 ![<what the screenshot shows, for a UI>](<its absolute path>)
 - <recommended option: what he gets and what it costs, one line of at most 25 words> (recommended)
@@ -208,8 +208,8 @@ Replaces: <only on a question built on other open questions of his: each one's A
   the question and options name terms bare, with no markdown or link; links go in the summary.
 - The Show me works each option of the fork out to what it will look like once built, its real
   calls, the rows or bytes it writes, its flow or what a caller gets, as a `compare` panel named
-  with the option's words, a table, or a diagram captioned with its number, never only its files and
-  cost: "you need to flesh out what that will look like not just wave your hands, likewise for 2 and 3".
+  with the option's words, a table, or a diagram captioned with its number, an `arch` of its
+  components when the options choose between architectures, never only its files and cost: "you need to flesh out what that will look like not just wave your hands, likewise for 2 and 3".
   `drive job ask` prints each option Jev reads as left unworked, naming it. Beyond that it shows only
   what the words cannot, never a name or value they already say: "show a sinippet when it makews
   sense". It is drawn whole on his card, outside the 150 words, so never cut the example to fit.
@@ -218,7 +218,9 @@ Replaces: <only on a question built on other open questions of his: each one's A
   four nodes; `compare` or a markdown table for the options side by side, with their code, gains and
   costs; `chart` (Vega-Lite) for sizes, counts and timings, which Slack draws as its own chart, its
   title at most 50 characters, each label at most 20, at most 12 series and 20 categories, 2 charts a
-  card; `arch` for components; the code's language for the real call, which draws as a picture only
+  card; `arch` for components, one per option captioned `N · …` when the options choose between
+  architectures, which components run, where data lives or how they connect, by his ruling aac1ff4,
+  "when ur comparing 2 architecture design things like this you always need to do an architecvutre diagram (the component, not an imagez) to compare and contrast"; the code's language for the real call, which draws as a picture only
   when it illustrates a shape and otherwise shows as Slack's code block; a real screenshot on its own
   line for a UI, one per option, captioned with its number, when the options differ in how a screen
   looks.
@@ -233,6 +235,8 @@ Replaces: <only on a question built on other open questions of his: each one's A
   - a fence naming no language, or `text`, or holding JSON, YAML, logs, a terminal session, an HTTP
     exchange, command output or a stack trace;
   - a chart, compare or arch whose JSON does not parse;
+  - a compare panel whose code names no language, or `markdown` or `text`, or holds raw data, which
+    belongs in its points as words;
   - a chart past Slack's limits, a gallery caption with no option number, or a left-to-right flow
     past four nodes;
   - a one- or two-line fence declaring a constant;
@@ -242,6 +246,8 @@ Replaces: <only on a question built on other open questions of his: each one's A
   - a `Show me:` with no visual;
   - a table with one value in every cell;
   - options that differ in how a screen looks, as Jev reads them, with no screenshot for each option;
+  - options Jev reads as choosing between architectures with no `arch` fence captioned `N · …` for
+    each option;
   - a question or option that names polling, a push, a subscription, a notification, a listener or
     an event by a bare word, such as "Polls only", "a Poll source" or "the event system", while a Sand
     name such as `event::on` passes;

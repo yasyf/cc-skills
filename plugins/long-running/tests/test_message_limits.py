@@ -2423,6 +2423,19 @@ def test_the_keeper_and_the_hook_count_a_kept_block_alike_and_a_drive_card_carri
         ('```python\nTraceback (most recent call last):\n  File "cli.py", line 3, in main\n```', "is a stack trace"),
         ("```go\n2026-11-10T22:41:03Z replica lane unproven\n2026-11-10T22:41:04Z replica lane unproven\n```", "is log lines"),
         ('```js\n{"count": 384}\n```', "is JSON, raw data or tool output, and a picture of it shows him nothing: draw what it means instead"),
+        ("```markdown\n| Reader | Attach |\n|---|---|\n| views | unchanged |\n```", 'the Show me fence holding "| Reader | Attach |'),
+        (
+            '```compare\n{"options": [{"name": "Primary and replica", "language": "markdown", "code": "- writer pod\\n- reader pod"}, {"name": "One writer", "language": "go", "code": "x := 1"}]}\n```',
+            'the Show me ```compare fence draws option "Primary and replica"\'s panel in ```markdown, words drawn as a picture of code',
+        ),
+        (
+            '```compare\n{"options": [{"name": "Listener", "code": "on(event)"}, {"name": "Poller", "language": "go", "code": "poll()"}]}\n```',
+            'the Show me ```compare fence draws option "Listener"\'s panel naming no language, words drawn as a picture of code',
+        ),
+        (
+            '```compare\n{"options": [{"name": "Listener", "language": "go", "code": "on(event)"}, {"name": "Poller", "language": "json", "code": "{\\"every\\": 30}"}]}\n```',
+            'the Show me ```compare fence draws option "Poller"\'s panel as JSON, raw data or tool output',
+        ),
     ],
 )
 def test_a_show_me_of_words_or_of_a_visual_that_cannot_draw_is_refused_but_a_block_kept_earlier_still_reads(shown: str, refusal: str) -> None:
@@ -2936,6 +2949,15 @@ def test_a_say_code_visual_of_raw_data_is_refused_and_a_short_snippet_goes_out(t
     assert "show a short snippet of real code" in reason
     snippet = {"kind": "code", "language": "go", "source": "func ready(db *DB) bool {\n\treturn db.Uploaded() > 0\n}"}
     assert say(transcript, text="The upload stalled.", visuals=[snippet]) is None
+
+
+def test_a_say_compare_visual_drawing_a_panel_of_words_is_refused_by_the_check_drive_job_ask_gives_a_compare(talker: str, transcript: Path) -> None:
+    words = {"kind": "compare", "source": json.dumps({"options": [{"name": "Primary and replica", "language": "markdown", "code": "- writer pod\n- reader pod"}, {"name": "One writer", "language": "go", "code": "x := 1"}]})}
+    reason = say(transcript, text="The two layouts.", visuals=[words])
+    assert reason.startswith('refused: the compare visual draws option "Primary and replica"\'s panel in ```markdown, words drawn as a picture of code')
+    assert "draw each option as its own ```arch fence" in reason
+    code = {"kind": "compare", "source": json.dumps({"options": [{"name": "Primary and replica", "language": "go", "code": "primary.Exec(w)"}, {"name": "One writer", "points": ["+ simplest"]}]})}
+    assert say(transcript, text="The two layouts.", visuals=[code]) is None
 
 
 def test_an_edit_of_his_question_card_is_refused_naming_the_redraw(run: Run, talker: str, transcript: Path) -> None:

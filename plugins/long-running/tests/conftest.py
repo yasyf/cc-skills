@@ -1165,7 +1165,7 @@ def recorded(monkeypatch: pytest.MonkeyPatch) -> Answers:
 
 @dataclass
 class Jev:
-    """settled.jev for tests: each request it was asked, and the probability of yes it gives each Noul by its key, a clear no unless a test says otherwise, a names Noul reading yes for a part named holds and a plain Noul the probability unexplained gives its name, the whole card's Noul whole, and the page Noul paged, its order's words kept in read_for_pages apart from asked; answer None makes every request Unheard."""
+    """settled.jev for tests: each request it was asked, and the probability of yes it gives each Noul by its key, a clear no unless a test says otherwise, a names Noul reading yes for a part named holds and a plain Noul the probability unexplained gives its name, the whole card's Noul whole, its architectures Noul architectures, and the page Noul paged, its order's words kept in read_for_pages apart from asked; answer None makes every request Unheard."""
 
     asked: list[dict] = field(default_factory=list)
     answer: float | None = 0.05
@@ -1177,6 +1177,7 @@ class Jev:
     unexplained: dict[str, float] = field(default_factory=dict)
     terms: list[str] = field(default_factory=list)
     looks: float = 0.05
+    architectures: float = 0.05
     whole: float = 0.05
     looked: list[dict] = field(default_factory=list)
     again: set[str] = field(default_factory=set)
@@ -1204,6 +1205,8 @@ class Jev:
             return 0.05 if code_lines("\n".join(state["code"].values())) in {code_lines(code) for code in self.plain} else 0.95
         if key == "looks":
             return self.looks
+        if key == limits.ARCHED:
+            return self.architectures
         if key == limits.WHOLE:
             return self.whole
         if key == "answers_nothing":
@@ -1238,7 +1241,7 @@ def jev(monkeypatch: pytest.MonkeyPatch) -> Jev:
             return {key: judged.paged for key in questions}
         if "illustrates" in questions:
             judged.illustrated.append("\n".join(state["code"].values()))
-        elif "looks" in questions or limits.WHOLE in questions or any(key.startswith(limits.PLAIN) for key in questions):
+        elif "looks" in questions or limits.ARCHED in questions or limits.WHOLE in questions or any(key.startswith(limits.PLAIN) for key in questions):
             judged.looked += [state] if "looks" in questions else []
             judged.terms += list(state.get("names", {}).values())
         elif "answers_nothing" in questions:

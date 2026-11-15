@@ -54,6 +54,11 @@ CONSTANT_RULING = 'his Nov 10 11:03 PM words "we needed an image to show a const
 CHART_RULING = 'his Nov 10 10:53 PM words "for the chart slack ltieraly has the native … vertsion of this why didnt youi build that for the renderer"'
 PHONE_RULING = 'his Nov 11 12:21 AM words "mermaid is but is ugly"'
 LOOKS_RULING = 'his ruling 0d2b7df, "this should have included images; you include images when they are usless and dont add anyhtng, and then dont when its things like this, its totlly backwards"'
+ARCH_RULING = (
+    'his ruling aac1ff4, "when ur comparing 2 architecture design things like this you always need to do an architecvutre diagram (the component, not an imagez) to compare and contrast",'
+    ' and his words 5a5a00e on a card that drew none, "you need to fix the tooling that is causing you to not make those"'
+)
+CONTRAST_RULING = 'his words ad7748e on a card comparing architecture options, "The image here should be contrasting architecture diagrams not whatever this is"'
 CODE_TERM = re.compile(r"\w+(?:(?:::|[-./])\w+)*")
 CODE_MARK = re.compile(r"[_.-]|::|[a-z][A-Z]")
 LETTER = re.compile(r"[A-Za-z]")
@@ -67,6 +72,7 @@ GLOSSED = (
     " the runner holding each run\" does ({explain}; {gloss}). {advisory}"
 )
 WHOLE = "whole"
+ARCHED = "architectures"
 COINED_RULING = 'his words on a card asking whether a release-order rule should be a Forbids line the drive\'s gate reads or a note Jev reads, "Explain this I don\'t get it"'
 UNPLAIN = (
     "drive job ask: kept, but Jev, reading his card cold, finds it naming a thing it never says in plain words,"
@@ -93,7 +99,7 @@ CONSTANT = re.compile(
 )
 VISUALS = (
     "a ```mermaid flow for routing or ownership, a ```compare or a markdown table for options, a ```chart for numbers,"
-    " an ```arch diagram for components, the real call in a fence naming its language (```sand, ```sql, ```go) when the"
+    " an ```arch diagram for components, one per option captioned `N · …` when the options choose between architectures, the real call in a fence naming its language (```sand, ```sql, ```go) when the"
     " question is about a code or API shape, or a picture on a line of its own"
 )
 COMPARE_SHAPE = '{"options": [{"name": …, "recommended": true, "language": …, "code": …, "points": ["+ a gain", "- a cost"]}, …]}'
@@ -903,25 +909,27 @@ def replaced(text: str) -> tuple[str, ...]:
     return tuple(dict.fromkeys(ref.strip() for line in REPLACES.findall(text) for ref in line.split(",") if ref.strip()))
 
 def unread(asked: Question, findings: list[str]) -> str | None:
-    """Why a question goes to him without a picture of each option, by his ruling 0d2b7df: Jev reads its options as differing in how a screen looks, at settled.YES or more, so he picks by seeing each, and an option has no picture line captioned with its number, `![N · …](path)`. In the same request Jev reads each code name `code_terms` finds anywhere on his card, its question, summary, options, their descriptions and its Show me outside its fences, and each run id, word the drive coined or one-letter name for work the findings `cc-slack check-post` gave over it name, one Noul a name, and each one it reads at settled.YES or more as never said in plain words on the card is printed on stderr; one more Noul, settled.COINED, reads the whole card cold with those names and each word `coined_terms` finds, since a name the drive coined, such as a Forbids line, reads as said when Jev reads it alone, and a card it reads at settled.YES or more as using one as if he knew it is printed with them, each refusing nothing, by his pick 320b7a7. The options, then the Show me, then each name fill the request whole; a reading in the band between settled.NO and settled.YES is said on stderr as unsure, and a name the request has no room for, or Jev giving no reading, lets the question up unread."""
+    """Why a question goes to him without a picture of each option: by his ruling 0d2b7df, Jev reads its options as differing in how a screen looks, at settled.YES or more, so he picks by seeing each, and an option has no picture line captioned with its number, `![N · …](path)`; by his ruling aac1ff4, Jev reads them as choosing between architectures, at settled.YES or more, so he compares each option's components, and an option has no ```arch fence captioned with its number, `N · …`, on the line above it. In the same request Jev reads each code name `code_terms` finds anywhere on his card, its question, summary, options, their descriptions and its Show me outside its fences, and each run id, word the drive coined or one-letter name for work the findings `cc-slack check-post` gave over it name, one Noul a name, and each one it reads at settled.YES or more as never said in plain words on the card is printed on stderr; one more Noul, settled.COINED, reads the whole card cold with those names and each word `coined_terms` finds, since a name the drive coined, such as a Forbids line, reads as said when Jev reads it alone, and a card it reads at settled.YES or more as using one as if he knew it is printed with them, each refusing nothing, by his pick 320b7a7. The options, then the Show me, then each name fill the request whole; a reading in the band between settled.NO and settled.YES is said on stderr as unsure, and a name the request has no room for, or Jev giving no reading, lets the question up unread."""
     from drive import settled
 
     shot = {int(number[1]) for line in captions(asked.show_me) if (found := PICTURE.fullmatch(line)) and (number := OPTION_CAPTION.match(found[1]))}
     unshown = [index for index in range(1, len(asked.options) + 1) if index not in shot]
+    arched = {int(number[1]) for fence in picture.CAPTIONED.finditer("\n".join(asked.show_me)) if fence["language"].lower() == "arch" and (number := OPTION_CAPTION.match(fence["caption"] or ""))}
+    unarched = [index for index in range(1, len(asked.options) + 1) if index not in arched]
     text = "\n".join([asked.title, *asked.summary, *asked.options, *asked.hints.values(), *captions(asked.show_me)])
     named = list(dict.fromkeys([*code_terms(text), *checked(findings, NAMED_IDS)]))
     coined = [word for word in coined_terms(text) if word not in named]
-    if not unshown and not named and not coined:
+    if not unshown and not unarched and not named and not coined:
         return None
     options = (({"options": {f"o{number}": {"option": option, "description": asked.hints.get(option, "")}}}, {}) for number, option in enumerate(asked.options, 1))
     names = (({"names": {f"n{number}": name}}, {f"{PLAIN}{number}": settled.asking(settled.UNEXPLAINED, name=f"n{number}")}) for number, name in enumerate(named, 1))
     words = (({"coined": {f"c{number}": word}}, {}) for number, word in enumerate(coined, 1))
-    asks = ({"looks": settled.LOOKS} if unshown else {}) | ({WHOLE: settled.COINED} if named or coined else {})
+    asks = ({"looks": settled.LOOKS} if unshown else {}) | ({ARCHED: settled.ARCHITECTURES} if unarched else {}) | ({WHOLE: settled.COINED} if named or coined else {})
     seen, questions, _ = settled.fill({"question": asked.title, "summary": "\n".join(asked.summary), "options": {}}, asks, [*options, ({"show_me": "\n".join(asked.show_me)}, {}), *names, *words])
     try:
         read = settled.jev(seen, questions)
     except settled.Unheard as failure:
-        print(f"drive job ask: Jev did not say whether this question needs a screenshot of each option or plain words beside the code it names, so it goes up unchecked: {failure}", file=sys.stderr)
+        print(f"drive job ask: Jev did not say whether this question needs a screenshot or an architecture diagram of each option or plain words beside the code it names, so it goes up unchecked: {failure}", file=sys.stderr)
         return None
     glossed = {name: settled.reading(read.get(f"{PLAIN}{number}")) for number, name in enumerate(named, 1) if f"{PLAIN}{number}" in read}
     if unglossed := [name for name, unexplained in glossed.items() if unexplained]:
@@ -931,18 +939,30 @@ def unread(asked: Question, findings: list[str]) -> str | None:
         print(f"drive job ask: kept, and Jev is unsure whether his card says in plain words what {', '.join(unsure)} is for: add a clause saying what each is the first time the card names it when it does not. {ADVISORY}", file=sys.stderr)
     if settled.reading(read.get(WHOLE)):
         print(UNPLAIN.format(names=", ".join([*named, *coined]), coined=COINED_RULING, explain=EXPLAIN_RULING, advisory=ADVISORY), file=sys.stderr)
-    if not unshown:
-        return None
-    if (looks := settled.reading(read["looks"])) is None:
+    looks = settled.reading(read["looks"]) if unshown else False
+    designs = settled.reading(read[ARCHED]) if unarched else False
+    refusals = []
+    if looks is None:
         print("drive job ask: Jev is unsure whether this question's options differ in how a screen looks, so it goes up: put a screenshot of each option in its Show me when they do", file=sys.stderr)
-    if not looks:
-        return None
-    which = f"option {unshown[0]} carries" if len(unshown) == 1 else f"options {', '.join(map(str, unshown))} carry"
-    return (
-        f"the ASK's options differ in how a screen looks, so he picks by seeing each, and {which} no screenshot: take a real screenshot of each option's screen, as built or in a prototype of it,"
-        " with agent-browser or `screencapture`, and put each on a line of its own in the Show me as `![N · what it shows](/absolute/path.png)`,"
-        f" N its option's number, which his card draws side by side as one gallery ({LOOKS_RULING})"
-    )
+    if looks:
+        refusals.append(
+            f"the ASK's options differ in how a screen looks, so he picks by seeing each, and {carry(unshown)} no screenshot: take a real screenshot of each option's screen, as built or in a prototype of it,"
+            " with agent-browser or `screencapture`, and put each on a line of its own in the Show me as `![N · what it shows](/absolute/path.png)`,"
+            f" N its option's number, which his card draws side by side as one gallery ({LOOKS_RULING})"
+        )
+    if designs is None:
+        print("drive job ask: Jev is unsure whether this question's options choose between architectures, so it goes up: draw each option's components as its own ```arch fence captioned `N · what it shows` when they do", file=sys.stderr)
+    if designs:
+        refusals.append(
+            f"the ASK's options choose between architectures, so he compares each option's components side by side, and {carry(unarched)} no ```arch diagram:"
+            f" draw each option's components and the edges between them as its own ```arch fence holding {ARCH_SHAPE}, with a caption line just above it"
+            f" reading `N · what it shows`, N its option's number, which his card draws side by side as one gallery ({ARCH_RULING})"
+        )
+    return "; ".join(refusals) or None
+
+
+def carry(options: list[int]) -> str:
+    return f"option {options[0]} carries" if len(options) == 1 else f"options {', '.join(map(str, options))} carry"
 
 
 def checked(findings: list[str], kinds: tuple[str, ...]) -> list[str]:
@@ -1333,7 +1353,7 @@ def visual_problems(show_me: list[str], options: int) -> list[str]:
     code = [fence for fence in drawn if fence[1].lower() not in picture.DIAGRAMS]
     shots = screenshots(text)
     problems = [
-        f'the Show me fence holding "{cut(" ".join(fence[2].split()), 60)}" names no language, so his card would get a mock or words'
+        f'the Show me fence holding "{cut(" ".join(fence[2].split()), 60)}" names no language of code, so his card would get a mock or words'
         " in a code block: name the language of real code, write a message or quote as plain sentences, which his card shows as a"
         " quote, put real rows in a markdown table, draw the flow in a ```mermaid or ```arch fence, or leave the Show me out"
         f" ({WORDS_RULING}; {MOCK_RULING})"
@@ -1355,7 +1375,8 @@ def visual_problems(show_me: list[str], options: int) -> list[str]:
     if len(pictured := [fence for fence in code if picture.illustrative(fence[1], fence[2])]) >= max(2, options):
         problems.append(
             f"the Show me draws {len(pictured)} code fences as {len(pictured)} pictures, one per option and each full size: carry them in"
-            f" one ```compare whose options name each, so he sees them side by side, labeled ({BIG_RULING}; {GALLERY_RULING})"
+            f" one ```compare whose options name each, so he sees them side by side, labeled, or draw each option's components as its own ```arch"
+            f" captioned `N · …` when the options choose between architectures ({BIG_RULING}; {GALLERY_RULING}; {ARCH_RULING})"
         )
     problems += [
         f'the Show me picture "{shown[1]}" is a file drawn by hand for the card, its words and tables baked into pixels in no style of'
@@ -1544,6 +1565,25 @@ def json_problem(kind: str, source: str) -> str | None:
         return f"holds JSON that is not an object; write {JSON_SHAPES[kind]}"
     if kind == "compare" and sum(1 for option in drawn.get("options") or [] if isinstance(option, dict) and option.get("name")) < 2:
         return f"compares fewer than two named options; it holds {COMPARE_SHAPE}"
+    if kind == "compare":
+        return next(filter(None, map(panel_problem, drawn["options"])), None)
+    return None
+
+
+def panel_problem(option: object) -> str | None:
+    """Why one option of a compare would draw its panel as a picture of words or of raw data: its code under no language or a language of words, such as markdown or text, or raw data or tool output whatever language it names, of which a picture shows him nothing."""
+    if not isinstance(option, dict) or not (code := option.get("code")):
+        return None
+    language = option.get("language") or ""
+    shown = f"option \"{option.get('name')}\"'s panel"
+    instead = (
+        "give the option's code field its real code and the language it is written in, and its points field its gains and costs, or, when"
+        " the options differ in which components run and how they connect, draw each option as its own ```arch fence captioned `N · what it shows`"
+    )
+    if language.lower() in picture.WORDS:
+        return f"draws {shown} {f'in ```{language}' if language else 'naming no language'}, words drawn as a picture of code: {instead} ({WORDS_RULING}; {CONTRAST_RULING})"
+    if what := picture.raw(language, code):
+        return f"draws {shown} as {what}, raw data or tool output, and a picture of it shows him nothing: {instead} ({RAW_RULING})"
     return None
 
 

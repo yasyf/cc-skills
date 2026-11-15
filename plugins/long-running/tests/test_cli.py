@@ -1825,6 +1825,60 @@ def test_job_ask_refuses_a_look_choice_until_each_option_carries_its_screenshot(
     assert len(jev.looked) == 2
 
 
+REPLICA_COMPARE = """The write each option makes
+```compare
+{"options": [{"name": "One primary", "recommended": true, "language": "go", "code": "primary.Exec(write)\\nreplica.Query(read)"}, {"name": "Every node writes", "language": "go", "code": "node.Exec(write)\\nnode.Merge(peers)"}]}
+```"""
+REPLICA_ASK = explained(f"""ASK Where should a team's database writes go once it has a replica?
+Drive tooling: your pick decides which server takes each write and which serves each read.
+Recommended: one primary takes every write and the replica serves reads, so no write is ever split.
+Show me:
+{REPLICA_COMPARE}
+- One primary takes every write; the replica serves reads (recommended)
+- Every node takes writes and they merge
+Findings:
+Root cause: none: a design choice, with no defect behind it
+Simplest: One primary takes every write; the replica serves reads
+Holds: none: no option changes code any job builds
+""")
+REPLICA_ARCHES = (
+    '1 · One primary, one replica\n```arch\n{"arch": 1, "name": "one-primary", "title": "One primary", "nodes": [{"id": "api", "kind": "service", "name": "api", "role": "takes each write"},'
+    ' {"id": "primary", "kind": "store", "name": "primary", "role": "holds every write", "medium": "disk"}, {"id": "replica", "kind": "store", "name": "replica", "role": "serves reads", "medium": "disk"}],'
+    ' "edges": [{"from": "api", "to": "primary", "label": "writes"}, {"from": "primary", "to": "replica", "label": "copies"}]}\n```',
+    '2 · Every node writes\n```arch\n{"arch": 1, "name": "every-node", "title": "Every node writes", "nodes": [{"id": "api", "kind": "service", "name": "api", "role": "takes each write"},'
+    ' {"id": "one", "kind": "store", "name": "node one", "role": "takes writes", "medium": "disk"}, {"id": "two", "kind": "store", "name": "node two", "role": "takes writes", "medium": "disk"}],'
+    ' "edges": [{"from": "api", "to": "one", "label": "writes"}, {"from": "api", "to": "two", "label": "writes"}, {"from": "one", "to": "two", "label": "merges"}]}\n```',
+)
+
+
+def test_job_ask_refuses_an_architecture_choice_until_each_option_carries_its_arch_diagram(
+    run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], jev: Jev
+) -> None:
+    block = tmp_path / "ask.md"
+    block.write_text(REPLICA_ASK)
+    jev.architectures = 0.95
+    assert cli.main(["job", "ask", asking, str(block)]) == 2
+    refused = capsys.readouterr().err
+    assert "the ASK's options choose between architectures, so he compares each option's components side by side, and options 1, 2 carry no ```arch diagram" in refused
+    assert "his ruling aac1ff4" in refused
+    block.write_text(REPLICA_ASK.replace(REPLICA_COMPARE, REPLICA_ARCHES[0]))
+    assert cli.main(["job", "ask", asking, str(block)]) == 2
+    assert "and option 2 carries no ```arch diagram" in capsys.readouterr().err
+    block.write_text(REPLICA_ASK.replace(REPLICA_COMPARE, "\n".join(REPLICA_ARCHES)))
+    assert run("job", "ask", asking, str(block))[0] == 0
+
+
+@pytest.mark.parametrize(("architectures", "said"), [(0.05, ""), (0.5, "Jev is unsure whether this question's options choose between architectures, so it goes up")])
+def test_job_ask_keeps_a_choice_jev_does_not_read_as_between_architectures_with_no_arch_diagram(
+    run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], jev: Jev, architectures: float, said: str
+) -> None:
+    block = tmp_path / "ask.md"
+    block.write_text(REPLICA_ASK)
+    jev.architectures = architectures
+    assert cli.main(["job", "ask", asking, str(block)]) == 0
+    assert said in capsys.readouterr().err
+
+
 def test_code_terms_finds_each_name_written_as_code_its_drive_references_links_slack_tokens_and_pictures_paths_aside() -> None:
     assert limits.code_terms("What should queue-run answer when runtime-api's check-run-args refuses a run's arguments past its 32 MiB cap?") == [
         "queue-run",
@@ -10210,7 +10264,7 @@ def test_job_ask_says_on_stderr_that_jev_gave_no_answer_and_sends_the_question_t
     assert cli.main(["job", "ask", asking, str(block)]) == 0
     unheard = capsys.readouterr().err
     assert "drive job ask: Jev gave no reading of this question against his words, so it goes to him: no jev decision within 20s" in unheard
-    assert "drive job ask: Jev did not say whether this question needs a screenshot of each option or plain words beside the code it names, so it goes up unchecked" in unheard
+    assert "drive job ask: Jev did not say whether this question needs a screenshot or an architecture diagram of each option or plain words beside the code it names, so it goes up unchecked" in unheard
     assert state.load("demo")["jobs"]["j1"]["questions"][0]["refused"] is None
 
 
