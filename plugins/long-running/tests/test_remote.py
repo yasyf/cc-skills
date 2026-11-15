@@ -7071,6 +7071,14 @@ def test_a_lanes_ready_on_a_yasyf_pr_with_no_proof_file_is_refused_and_starts_no
     assert (state.load(remote)["jobs"]["j1"]["state"], landers) == ("running", [])
 
 
+def test_a_lanes_pushed_whose_unbuilt_line_adds_a_builder_says_only_the_line_starting_it(run: Run, remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    url = "https://github.com/Forge-AI/monorepo/pull/7"
+    assert run("pr", "add", url, "--job", "j1", *LEAD)[0] == 0
+    deliver(monkeypatch, [message("worker_done", f"PUSHED {url}\n{UNSTAGED}\nUNBUILT: retry each stalled copy\n")])
+    watching = watch.Watcher(remote, offset=state.events_end(remote))
+    assert said_lines(watch.lane_lines, watching, T0) == ['JOB j1 o1 j2 builder on "retry each stalled copy": start its agent now']
+
+
 def test_the_inbox_turns_each_message_into_one_event_even_one_a_consuming_check_took_first(
     run: Run, remote: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
