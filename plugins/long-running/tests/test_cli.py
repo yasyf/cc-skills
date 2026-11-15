@@ -6180,6 +6180,39 @@ def test_a_builders_pushed_naming_a_monorepo_pr_says_how_it_is_tested_on_staging
     assert keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\n{UNSTAGED}") == (0, "")
 
 
+def test_a_staging_testers_brief_runs_a_dashboard_prs_cases_on_a_mac_box_at_the_live_sand_next_commit_and_at_its_own_head_when_it_changes_sand_next_too(
+    run: Run, with_pr: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    live = "6c751b8b101597fbef4464a3cc7dee314ef778a1"
+    listed = (
+        "#15242  failed  rollback  sand-next  core-usw2-auto  1c6bc837a8  started 18:58 PT  -  https://buildkite.com/forge/release/builds/15242\n"
+        "#15231  passed  manual dry-run  sand-next  core-usw2-auto  9f00aa11bb  started 17:02 PT  -  https://buildkite.com/forge/release/builds/15231\n"
+        "#15220  passed  manual release  sand-next  core-usw2-auto  6c751b8b10  started 21:19 PT  -  https://buildkite.com/forge/release/builds/15220\n"
+    )
+    assert keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\nSTAGING: #42 switch a chat's topology in the app and write to a subagent\n") == (0, "")
+    (tester_id,) = [job_id for job_id, job in state.load("demo")["jobs"].items() if job.get("builds_nothing")]
+    asked: list[list[str]] = []
+
+    def answered(cmd: list[str], cwd: str | None = None, **_: object) -> str:
+        asked.append(cmd)
+        if cmd[1:] == ["release", "status", "--manual", "sand-next", "--env", "core-usw2-auto"] and cwd == str(tmp_path):
+            return listed
+        if cmd == ["git", "-C", str(tmp_path), "rev-parse", "--verify", "6c751b8b10^{commit}"]:
+            return live + "\n"
+        return pytest.fail(f"unexpected {cmd}")
+
+    monkeypatch.setattr(github, "run", answered)
+    monkeypatch.setattr(orca, "checkout", lambda name, cwd: tmp_path)
+    for touched, boxed, own in ((["api"], False, False), (["dashboard"], True, False), (["dashboard", "sand-next"], True, True)):
+        monkeypatch.setattr(cli, "release_reach", lambda name, data, keys, touched=touched: {key: {"touched": touched} for key in keys})
+        assert run("job", "brief", tester_id)[0] == 0
+        staging = next(line for line in Path(state.load("demo")["jobs"][tester_id]["brief"]).read_text().splitlines() if line.startswith("Staging: "))
+        assert (f"`tools/ci mac-box prove <box> --commit {live}`" in staging, "--commit <its head's full sha>" in staging) == (boxed, own)
+    assert len(asked) == 4
+    monkeypatch.setattr(github, "run", lambda cmd, cwd=None, **_: listed.splitlines()[0])
+    assert (cli.main(["job", "brief", tester_id]), "lists no passed sand-next release" in capsys.readouterr().err) == (2, True)
+
+
 def test_a_builders_ready_counts_only_on_a_green_required_check_and_one_still_running_or_red_returns_pushed(
     run: Run, with_pr: str, on_github: dict, pr_reads: dict[str, dict], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

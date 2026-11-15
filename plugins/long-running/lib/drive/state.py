@@ -141,7 +141,7 @@ MERGE_COMMIT = re.compile(r"https://github\.com/(?P<repo>[^/\s]+/[^/\s]+)/commit
 RELEASE_WAIT = re.compile(r"release:(?P<service>[\w.-]+):(?P<pr>[^/\s#]+/[^/\s#]+#\d+)(?:@(?P<env>[\w.-]+))?")
 STAGING_WAIT = re.compile(r"staging:(?P<target>[\w.-]+)/(?P<env>[\w.-]+)@(?P<commit>[0-9a-f]{7,40})")
 STAGING_TEST = "staging test of #{number} before it lands"
-STAGING_PART = re.compile(STAGING_TEST.format(number=r"\d+"))
+STAGING_PART = re.compile(STAGING_TEST.format(number=r"(?P<number>\d+)"))
 STAGING_ENV = "plat-usw2-staging"
 AFTER_MERGE_PASS = "after-merge staging pass"
 PID_WAIT = re.compile(r"pid:(?P<pid>\d+)(?:@(?P<started>\d+))?")
