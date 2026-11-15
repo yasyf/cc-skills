@@ -1158,6 +1158,7 @@ def recorded(monkeypatch: pytest.MonkeyPatch) -> Answers:
         )
 
     monkeypatch.setattr(settled, "shown", shown)
+    monkeypatch.setattr(settled, "replaced", lambda cwd: {answer["id"] for answer in answers.shown.values() if "superseded_by" in answer})
     monkeypatch.setattr(settled, "matched", lambda texts, data: answers.matched)
     monkeypatch.setattr(settled, "line_answers", lambda lines, data, besides=frozenset(): [(line, [answer for answer in answers.lined if answer["id"] not in besides]) for line in lines])
     monkeypatch.setattr(settled, "listed", lambda label, cwd: sorted((answer for answer in answers.listed if label in answer["tags"]), key=lambda answer: answer["created_at"], reverse=True))

@@ -2074,7 +2074,7 @@ def noted_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def answer_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Each answer of his that leaves a card still asking him, an order or part it lists of an order still open or a PR not yet live with no mark, standing, settled, dropped, superseded or reopened by it, or a live job it touches not yet sent his words, as hear_sent reads each SendMessage, again every ten minutes until each has one: one line for each session owing a step on it, the session state.holding_lane names for the order of each card, order, part and PR, root's for a card no order holds, and the one state.job_lane names for each job, its header naming one of them so line_lane hands it to that session."""
+    """Each answer of his that leaves a card still asking him, an order or part it lists of an order still open or a PR not yet live with no mark, standing, settled, dropped, superseded or reopened by it, or a live job it touches not yet sent his words, as hear_sent reads each SendMessage, again every ten minutes until each has one: one line for each session owing a step on it, the session state.holding_lane names for the order of each card, order, part and PR, root's for a card no order holds, and the one state.job_lane names for each job, its header naming one of them so line_lane hands it to that session; never one cc-notes marks superseded, by superseded.standing, which is read again only as often."""
     if watcher.cards is None or watcher.project:
         return []
     data = state.load(watcher.name)
@@ -2089,6 +2089,11 @@ def answer_lines(watcher: Watcher, moment: datetime) -> list[str]:
     with state.edit(watcher.name) as data:
         for answer_id in owed:
             data["answers"][answer_id]["said"] = state.stamp(moment)
+    try:
+        owed = dict(superseded.standing(data, list(owed.items())))
+    except state.DriveError as error:
+        return failed(watcher, "cc-notes supersedes", "read of which answers of his cc-notes marks superseded", error, moment)
+    watcher.failures.pop("cc-notes supersedes", None)
     lines = []
     for answer_id, (keys, jobs) in owed.items():
         owners: dict[str, tuple[str | None, list[str], list[str]]] = {}

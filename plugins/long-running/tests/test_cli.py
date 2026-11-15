@@ -10474,6 +10474,26 @@ def test_an_answer_stays_unfinished_until_each_job_waiting_on_an_order_it_touche
     assert (drive["answers"]["a1"]["jobs"], [kept["words"] for kept in drive["jobs"]["j3"]["undelivered"]]) == ({"j3": {"mark": "sent"}}, [other])
 
 
+def test_an_answer_cc_notes_marks_superseded_owes_no_job_his_words_so_no_launch_brief_or_answer_line_carries_the_pick_he_dropped_and_drive_answer_refuses_it(
+    run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], recorded: Answers
+) -> None:
+    cards_asking(monkeypatch, PR)
+    run("job", "add", "builder", "--order", "o1", "--goal", "build the store", "--waits", designing)
+    with state.edit("demo") as data:
+        data["jobs"]["j3"].update(state="waiting", agent="agent-3")
+    assert cli.main(["answer", "a1", "--words", WORDS, "--link", PICK]) == 2
+    capsys.readouterr()
+    watching = watch.Watcher("demo", offset=state.events_end("demo"), cards=view.live_cards("demo"))
+    quoted = f'- "{WORDS}" ({PICK})'
+    later = state.now() + timedelta(minutes=11)
+    assert (quoted in cli.answers_since(state.load("demo"), "j3", "Goal: build the store\n"), [line.split()[:2] for line in watch.answer_lines(watching, later)]) == (True, [["ANSWER", "a1"]])
+    recorded.shown["a1"] = {"id": "a1", "title": "Which topology?", "body": WORDS, "tags": [], "superseded_by": ["b2c3d4e"]}
+    assert (quoted in cli.answers_since(state.load("demo"), "j3", "Goal: build the store\n"), watch.answer_lines(watching, later + timedelta(minutes=11))) == (False, [])
+    assert cli.main(["answer", "a1", "--stands", designing]) == 2
+    assert "refused, nothing recorded or marked: cc-notes marks his answer a1 superseded by b2c3d4e, so it owes no job his words and leaves nothing asking him" in capsys.readouterr().err
+    assert state.load("demo")["answers"]["a1"]["jobs"] == {"j3": None}
+
+
 def test_an_agent_the_top_started_on_an_order_a_sub_coordinator_now_hears_takes_his_answer_by_the_tops_sendmessage(
     run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], send_message: Callable[..., None]
 ) -> None:
