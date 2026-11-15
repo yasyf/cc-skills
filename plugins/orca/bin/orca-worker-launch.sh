@@ -97,6 +97,7 @@ if [ "$route" = sprite ]; then
     die "set CC_REMOTE_CONFIG, or ccRemoteConfig in .orca.json, to the cc-remote config that names the repository a Sprite checks out; nothing was prepared"
   [[ $config == /* ]] || config=$PWD/$config
   export CC_REMOTE_CONFIG=$config
+  config_sha=$(shasum -a 256 "$config" | cut -d' ' -f1)
   payload=$(dirname "$(readlink -f "$config")")/agents-payload.json
   if [ -e "$payload" ]; then
     pin=$(jq -er '.bootstrapHelper.version' "$payload") ||
@@ -167,6 +168,29 @@ unstarted() {
     { [ -f "$attempt/tools.err" ] && [ ! -e "$attempt/worker-start.status" ]; } ||
     { [ -e "$attempt/worker-start.status" ] && earlier=$(jq -er .run "$attempt/request.json" 2>/dev/null) && unreached "$earlier"; }
 }
+ready() {
+  local status
+  read -r status 2>/dev/null <"$attempt/worker-start.status" && [ "$status" = 0 ] &&
+    jq -se --arg run "$1" '
+      def ident: type == "string" and test("\\A[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\\z");
+      length == 1 and .[0].ok == true and .[0].error == null and .[0].result.state == "ready" and .[0].result.runId == $run
+        and (.[0].result.taskId | ident) and (.[0].result.dispatchId | ident)' "$attempt/worker-start.json" >/dev/null 2>&1
+}
+spent() {
+  [ -d "$attempt" ] && [ ! -L "$attempt" ] && [ -f "$attempt/prepared.json" ] && [ -e "$attempt/worker-start.status" ] &&
+    ! ready "$(jq -r .run "$attempt/request.json" 2>/dev/null)"
+}
+halt() {
+  local dispatches dispatch stopped
+  dispatches=$(jq -se 'if length == 1 and (.[0] | type) == "object" then [.[0] | .result.dispatchId, .result.lastError, .error.message | strings | scan("ctx_[A-Za-z0-9]+")] | unique else empty end' "$attempt/worker-start.json" 2>/dev/null) ||
+    { echo "Orca left no answer naming what it started"; return 1; }
+  for dispatch in $(jq -r '.[]' <<<"$dispatches"); do
+    stopped=$(orca orchestration worker-stop --dispatch "$dispatch" --full --json 2>/dev/null) ||
+      jq -e '.error.code == "dispatch_inactive"' <<<"$stopped" >/dev/null 2>&1 ||
+      { echo "orca orchestration worker-stop --dispatch $dispatch answered $(jq -r '"\(.error.code): \(.error.message)"' <<<"$stopped" 2>/dev/null || echo nothing)"; return 1; }
+  done
+  jq -r 'select(length > 0) | "each worker Orca'\''s answer names is stopped: \(join(", "))"' <<<"$dispatches"
+}
 if [ -d "$attempt" ] && [ ! -L "$attempt" ] && { [ "$route" = sprite ] || [ -e "$attempt/prepare.err" ]; }; then
   if [ ! -e "$attempt/worker-start.status" ] && [ ! -e "$attempt/prepared.json" ]; then
     if [ "$route" = sprite ]; then
@@ -196,9 +220,7 @@ if [ "$route" = local ] && [ ! -L "$attempt" ] && [ ! -e "$attempt/worker-start.
 elif [ "$route" = local ] && [ -f "$attempt/worker-start.unsent" ] && read -r terminal 2>/dev/null <"$attempt/terminal"; then
   worktree=$(jq -r .worktree "$attempt/request.json") reused=1
   read -r unsent <"$attempt/worker-start.unsent"
-elif [ -e "$attempt" ] || [ -L "$attempt" ]; then
-  [ "$route" = sprite ] && unstarted ||
-    die "$attempt holds an earlier attempt of this brief, and a brief gets one attempt; inspect it instead"
+elif [ "$route" = sprite ] && { [ -e "$attempt" ] || [ -L "$attempt" ]; } && unstarted; then
   reused=1
   [ ! -f "$attempt/worker-start.unsent" ] || read -r unsent <"$attempt/worker-start.unsent"
   IFS=$'\t' read -r host ssh_config path workspace <<<"$(jq -r '[.forward.host, .forward.config, .brief.path, .workspace] | @tsv' "$attempt/prepared.json")"
@@ -216,6 +238,22 @@ elif [ -e "$attempt" ] || [ -L "$attempt" ]; then
       ;;
     *) die "the Sprite $workspace did not take the brief at $path: ${error##*$'\n'}; the prepared worker stays idle and unattached, and launching this brief again copies it again" ;;
   esac
+elif [ "$route" = sprite ] && spent; then
+  held=$(jq -r .workspace "$attempt/prepared.json")
+  read -r failed 2>/dev/null <"$attempt/worker-start.status" || failed=
+  why="whose worker-start ${failed:+exited $failed and }left no ready receipt"
+  if [ "${continued:-$held}" != "$held" ]; then
+    retire "$why, while this launch continues on Sprite $continued, and $(discard "$held")"
+  elif [ -z "$continued" ] && [ "$(cat "$attempt/config.sha256" 2>/dev/null)" != "$config_sha" ]; then
+    retire "$why, on Sprite $held, which was not prepared from the cc-remote config at $CC_REMOTE_CONFIG, and $(discard "$held")"
+  elif ! halted=$(halt); then
+    retire "$why, and $halted, so $(discard "$held")"
+  else
+    continued=$held ref=
+    retire "$why${halted:+, and $halted}" "preparing again on its Sprite $held"
+  fi
+elif [ -e "$attempt" ] || [ -L "$attempt" ]; then
+  die "$attempt holds an earlier attempt of this brief, and a brief gets one attempt; inspect it instead"
 fi
 [ -n "$reused" ] || mkdir "$attempt"
 jq -n --arg lane "$lane" --arg run "$run" --arg route "$route" --arg kind "$kind" --arg model "$model_id" --arg effort "$effort" \
@@ -295,10 +333,7 @@ start_worker() {
     error=$(jq -r 'select(.ok == false) | "\(.error.code): \(.error.message)"' "$attempt/worker-start.json" 2>/dev/null) || error=
     die "orca orchestration worker-start exited $status${error:+: $error}; kept terminal $terminal, worktree $wt, and the receipt in $attempt"
   fi
-  jq -se --arg run "$run" '
-    def ident: type == "string" and test("\\A[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\\z");
-    length == 1 and .[0].ok == true and .[0].error == null and .[0].result.state == "ready" and .[0].result.runId == $run
-      and (.[0].result.taskId | ident) and (.[0].result.dispatchId | ident)' "$attempt/worker-start.json" >/dev/null 2>&1 ||
+  ready "$run" ||
     die "orca orchestration worker-start exited 0 without a ready receipt for Run $run; kept terminal $terminal, worktree $wt, and the receipt in $attempt"
 }
 
@@ -322,7 +357,7 @@ if [ "$route" = sprite ]; then
   elif [ -z "$reused" ]; then
     "$cc_remote" "${prepare[@]}" >"$attempt/allocation.json" 2>"$attempt/prepare.err" || status=$?
   fi
-  [ -n "$reused" ] || echo "$status" >"$attempt/prepare.status"
+  [ -n "$reused" ] || { echo "$status" >"$attempt/prepare.status" && echo "$config_sha" >"$attempt/config.sha256"; }
   [ "$status" -eq 0 ] || die "cc-remote orca prepare exited $status; $attempt keeps its output, nothing was attached, and launching this brief again prepares afresh"
 
   verdict=$(jq -rs --arg lane "$lane" --arg ref "$ref" --arg continued "$continued" --arg kind "$kind" --arg model "$model_id" --arg effort "$effort" --arg tier "$tier" \
