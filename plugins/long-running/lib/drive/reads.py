@@ -46,6 +46,7 @@ LANE_VERBS = (
     ("pr", "set"),
     ("plan", "search"),
     ("datadog",),
+    ("fde-scan",),
     ("manual",),
     ("page-owner",),
     ("status",),

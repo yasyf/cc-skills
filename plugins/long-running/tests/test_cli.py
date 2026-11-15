@@ -10175,7 +10175,8 @@ def refusal(command: str, leaves: dict[str, argparse.ArgumentParser]) -> str | N
         named = tokens[1] in {name.split()[0] for name in leaves} and tokens[2:3] in ([], ["X"])
         return None if named else f"`{command}` names no verb drive takes"
     parser, rest = leaves[verb], tokens[len(verb.split()) + 1 :]
-    if unknown := set(FLAG.findall(command)) - flags(parser) - UNLISTED:
+    rest = rest[: rest.index("--")] if "--" in rest else rest
+    if unknown := set(FLAG.findall(" ".join(rest))) - flags(parser) - UNLISTED:
         return f"`{command}` names {sorted(unknown)}, which drive {verb} does not take"
     takes = {flag: action for action in parser._actions for flag in action.option_strings}
     first = next((action for action in parser._actions if not action.option_strings), None)

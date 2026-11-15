@@ -72,8 +72,8 @@ and waits ids, record seqs), never a technical name.
      class, never adds this case's text or test beside the others, and when it would be the third fix
      for one class it deletes the earlier patches and lists each in the PR body, since he ruled that
      three fixes for one thing call for a fundamental fix.
-   - Before writing a change anything an FDE's or customer's code can observe would see, run the
-     monorepo's `fde-scan` skill as `drive manual landing "Before any change FDEs could see"` says,
+   - Before writing a change anything an FDE's or customer's code can observe would see, run
+     `drive fde-scan -- --symbol <name>` as `drive manual landing "Before any change FDEs could see"` says,
      and build from what it finds, whatever his words: each caller it finds is fixed in the
      change or asked as a design choice, by his words "this MUST be usedto analyze impact before doing anyhting tht coulc imapct FDEs, regardless of what the human says".
    - When he sees or uses what you build (a Slack post or card, the dashboard, a CLI he runs, a
@@ -504,7 +504,7 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
   prints all it printed there and exits with its status. While it waits it prints a line to stderr
   every 30 s naming the question, and at 9 minutes it gives up and exits 1, inside the Bash call's
   600000 ms; the Mac may still run it, so read what it would change before you type it again. It runs `job report`, `job ask`,
-  `job set --repro`, `job replies`, `job held`, `pr add`, `pr set --flaky`, `plan search`, `datadog`, `manual`, `page-owner` and `status` on your own
+  `job set --repro`, `job replies`, `job held`, `pr add`, `pr set --flaky`, `plan search`, `datadog`, `fde-scan`, `manual`, `page-owner` and `status` on your own
   drive, and refuses, running nothing, any other verb or drive. Its reads read any job as on this
   Mac, such as `drive job report <job>` and `drive job replies <job>` for a job your brief names,
   and a bare `drive status` prints your own job; its writes, `drive job report <job> -`, `job ask`,
