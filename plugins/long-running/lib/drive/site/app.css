@@ -441,6 +441,7 @@ html:has(dialog[open]) { overflow: hidden; }
 .story-layout { grid-template-columns: minmax(0, 1fr) 264px; gap: 18px; }
 .decision-story .card-title { font-size: clamp(25px, 2.4vw, 36px); overflow-wrap: normal; text-wrap: balance; }
 .story-context { margin: 16px 0 24px; max-width: 60ch; color: var(--ink-2); font-size: 15px; }
+.story-cause { margin: -12px 0 24px; max-width: 60ch; color: var(--ink); font-size: 15px; }
 .story-cockpit { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; align-items: start; }
 .story-options { display: grid; gap: 10px; min-width: 0; }
 .story-option { width: 100%; display: grid; grid-template-columns: 22px 1fr 16px; gap: 10px; align-items: start; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); padding: 16px; cursor: pointer; text-align: left; }
