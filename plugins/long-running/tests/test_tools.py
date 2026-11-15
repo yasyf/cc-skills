@@ -1756,7 +1756,27 @@ def test_his_messages_in_a_row_naming_one_ruling_are_checked_together_and_kept_a
     assert (answer["words"], answer["link"]) == (" … ".join(said), links[0])
 
 
-SANDSQL_PARTS = ("sandsql-proc supervises every sandsql-server it starts", "sandsql-proc owns each sandsql socket")
+def test_a_ruling_an_agent_wrapped_in_its_own_words_is_his_when_each_message_of_the_records_naming_it_sits_inside_them(
+    demo: str, monkeypatch: pytest.MonkeyPatch, recorded: Answers, slack_thread: Thread
+) -> None:
+    said = ("Why do we have text and file pointers?", "just reuse the blob pointer for both")
+    links = [f"https://acme.slack.com/archives/D123/p17942000000008{n}?thread_ts={THREAD}" for n in ("00", "10")]
+    slack_thread.messages += [{"ts": f"1794200000.0008{n}", "thread_ts": THREAD, "text": text, "from_user": True} for n, text in zip(("00", "10"), said, strict=True)]
+    monkeypatch.setattr(settled, "unsaid", UNSAID)
+    recorded.shown["5a1e0f2"] = {"id": "5a1e0f2", "title": "Owner: one pointer for text and files", "body": f'His words, verbatim (Nov 12 2:59 AM): "{said[0]}" then "{said[1]}"\nNotes: cci owner 690001', "tags": []}
+    recorded.shown["cabb099"] = {"id": "cabb099", "title": "Owner: a pointer per kind", "body": 'His words, verbatim: "keep a pointer per kind"', "tags": []}
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess(argv, 0, '{"seq": 690001}\n{"seq": 690002}\n', ""))
+    records = [{"kind": "owner", "text": text, "url": link, "about": "his work", "ruling": "5a1e0f2"} for text, link in zip(said, links, strict=True)]
+    refusal = f'1: refused, nothing posted: his words at {links[0]}, {links[1]} do not say "His words, verbatim: "keep a pointer per kind""'
+    with pytest.raises(DriveError) as refused:
+        tools.run("record", demo, {"records": [record | {"ruling": "cabb099"} for record in records]})
+    assert (str(refused.value).startswith(refusal), "cabb099" in state.load(demo)["answers"]) == (True, False)
+    assert tools.run("record", demo, {"records": records}).splitlines()[:2] == ["1 owner 690001", "2 owner 690002"]
+    answer = state.load(demo)["answers"]["5a1e0f2"]
+    assert (answer["words"], answer["link"]) == (" … ".join(said), links[0])
+
+
+SANDSQL_PARTS =("sandsql-proc supervises every sandsql-server it starts", "sandsql-proc owns each sandsql socket")
 ELECTRON = "Electron starts sand iris serve through sandsql-proc"
 MONTY = "sand-monty, devhost and the node executor start through sandsql-proc"
 RULED = "ssql-proc should be the supervisor for all ssql processes ad their sockets etc, dont use it for non-ssql stuff"

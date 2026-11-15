@@ -48,6 +48,8 @@ UNLISTED = {"-h", "--help", "--drive", "--json"}
 FLAG = re.compile(r"(?<![\w-])--[a-z][\w-]*")
 PLACEHOLDER = re.compile(r"<[^<>`]*>|\"[^\"]*\"|…|\[|\]|\.\.\.")
 PR = "https://github.com/Forge-AI/monorepo/pull/42"
+ASKED = "Why do we have text and file pointers?"
+REUSE = "just reuse the blob pointer"
 FAKE_SELECT = """#!/bin/sh
 [ "$1 $2 $3" = "release select --pr" ] || exit 64
 cat >"{request}"
@@ -10624,7 +10626,27 @@ def test_j5263_an_answer_cc_notes_holds_and_the_drive_lacks_is_kept_by_its_id_wi
     assert cli.main(["answer", kept[:7], "--link", PICK]) == 2
     assert f"his answer {kept} " in capsys.readouterr().err
     answer = state.load("demo")["answers"][kept]
-    assert ((answer["words"], answer["link"]), heard.checked) == ((WORDS, PICK), [(WORDS, [PICK]), (WORDS, [PICK])])
+    assert ((answer["words"], answer["link"]), heard.checked) == ((WORDS, PICK), [(WORDS, [PICK])])
+
+
+def test_an_answer_an_agent_wrapped_in_its_own_words_is_kept_by_its_id_as_his_message_at_the_link_and_nothing_is_kept_when_his_message_is_not_inside_it(
+    run: Run, designing: str, recorded: Answers, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], slack_thread: Thread
+) -> None:
+    cards_asking(monkeypatch, PR)
+    monkeypatch.setattr(settled, "unsaid", UNSAID)
+    kept, unkept = f"986d146{'6' * 33}", f"4a5077d{'4' * 33}"
+    recorded.shown[kept] = {"id": kept, "title": "Which topology?", "body": f'His words, verbatim, 11:27 AM Nov 13 2026: "{WORDS}"\nNotes: No.', "tags": ["scope:durable"], "created_at": "2026-11-13T19:34:52Z"}
+    recorded.shown[unkept] = {"id": unkept, "title": "Which topology?", "body": 'His words, verbatim: "Iris should propose topologies itself"', "tags": ["scope:durable"], "created_at": "2026-11-13T19:35:00Z"}
+    slack_thread.messages += [
+        {"ts": "1794300000.000100", "text": "Which topology?", "from_user": False},
+        {"ts": "1794300000.000300", "thread_ts": "1794300000.000100", "text": f"{WORDS}.", "from_user": True},
+    ]
+    assert cli.main(["answer", unkept[:7], "--link", PICK]) == 2
+    assert f'{unkept}: refused, nothing recorded: his words at {PICK} do not say "His words, verbatim: "Iris should propose topologies itself""' in capsys.readouterr().err
+    assert cli.main(["answer", kept[:7], "--link", PICK]) == 2
+    assert f"his answer {kept} " in capsys.readouterr().err
+    answers = state.load("demo")["answers"]
+    assert (unkept in answers, answers[kept]["words"], answers[kept]["link"]) == (False, f"{WORDS}.", PICK)
 
 
 def test_j3986_his_ruling_kept_under_its_full_id_is_found_by_any_prefix_and_never_kept_twice(
@@ -10715,6 +10737,43 @@ def test_his_messages_in_a_row_are_one_answer_read_joined_in_link_order_only_in_
     found = view.NO_CARDS | {"closed": [{"waits": "demo:j2-7", "url": DESIGN_CARD, "answer": {"label": "Tree"}}]}
     unsaid = UNSAID(["Tree … text and file pointers … reuse the blob pointer" if DESIGN_CARD in links else "text and file pointers … reuse the blob pointer"], links, found, {"jobs": {}})
     assert (unsaid is None) if refusal is None else (refusal in unsaid and unsaid.endswith(f"; {settled.HIS_ANSWER}"))
+
+
+@pytest.mark.parametrize(
+    ("body", "links", "words", "refusal"),
+    [
+        (f"{REUSE}\nNotes: kept by a handler", [NEXT_PICK], REUSE, None),
+        (f'His words, verbatim, 11:27 AM Nov 13 2026: "{REUSE}"\nNotes: No.', [NEXT_PICK], f"{REUSE}.", None),
+        (f'Owner, in two messages: "{ASKED}" and then "{REUSE}"', [PICK, NEXT_PICK], f"{ASKED} … {REUSE}.", None),
+        (f"Tree, he tapped, then: {REUSE}", [DESIGN_CARD, NEXT_PICK], f"Tree … {REUSE}.", None),
+        (f"{ASKED} … {REUSE}", [PICK], None, f'his words at {PICK} do not say "{REUSE}"'),
+        (f'His words: "{ASKED}" … "{REUSE}"', [PICK], None, f"his words at {PICK} do not say"),
+        (f'His words: "{REUSE}"', [PICK, NEXT_PICK], None, f"his words at {PICK}, {NEXT_PICK} do not say"),
+        (f'His words: "{REUSE}"', [ROOTS[0]], None, f"his words at {ROOTS[0]} do not say"),
+        ('His words: "just reuse the … pointer"', [NEXT_PICK], None, f"his words at {NEXT_PICK} do not say"),
+        (f'His words: "{REUSE}"', [PICK, ROOTS[1]], None, "sit in more than one thread"),
+        (f'His words: "{REUSE}"', [TAP_CARD], None, f"{TAP_CARD} is neither his own message nor a card he answered"),
+        (f'His words: "{REUSE}"', ["terminal"], None, "no prompt he typed into a terminal of the drive's sessions says"),
+        (f"PROVISIONAL: {REUSE}", [NEXT_PICK], None, "no words of his are given"),
+    ],
+)
+def test_his_words_in_an_answer_holding_more_than_his_are_his_messages_at_the_links_that_each_sit_whole_inside_it(
+    slack_thread: Thread, monkeypatch: pytest.MonkeyPatch, body: str, links: list[str], words: str | None, refusal: str | None
+) -> None:
+    monkeypatch.setattr(settled, "unsaid", UNSAID)
+    slack_thread.messages += [
+        {"ts": "1794300000.000100", "text": "Which topology?", "from_user": False},
+        {"ts": "1794300000.000200", "text": "a card the drive drew", "from_user": False},
+        *({"ts": f"1794300000.000{n}", "thread_ts": "1794300000.000100", "text": text, "from_user": True} for n, text in (("300", ASKED), ("400", f"{REUSE}."))),
+        {"ts": "1794300000.000600", "text": "Ship the other one", "from_user": True},
+        {"ts": "1794300000.000610", "text": REUSE, "from_user": True},
+    ]
+    found = view.NO_CARDS | {"closed": [{"waits": "demo:j2-7", "url": DESIGN_CARD, "answer": {"label": "Tree"}}]}
+    kept, unsaid = settled.his_at(body, links, found, {"jobs": {}, "roles": {}, "subcoordinators": {}})
+    if refusal is None:
+        assert (kept, unsaid) == (words, None)
+    else:
+        assert (kept, refusal in unsaid, unsaid.endswith(f"; {settled.HIS_ANSWER}")) == (settled.his(body), True, True)
 
 
 def test_his_messages_in_a_row_are_one_answer_kept_at_the_first_link_and_a_kept_answer_refuses_more_words_or_links(
