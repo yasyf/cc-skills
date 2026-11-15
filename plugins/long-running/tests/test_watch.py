@@ -4228,6 +4228,51 @@ def test_a_release_wait_on_a_pr_outside_the_monorepo_is_never_read_and_holds(dem
     assert (calls, state.load(demo)["jobs"]["j1"]["waits"]) == ([], [f"release:cc-slack:{waited}"])
 
 
+RELEASE_BUILD = "https://buildkite.com/forge/release/builds/14769"
+NO_BUILD = "https://buildkite.com/forge/release/builds/99999999"
+BUILD_RUNNING = {"state": "RUNNING", "blocks": {"edges": []}, "failed": {"edges": []}}
+APPROVE_STEP = ":kubernetes: Approve starting the cluster job this build names"
+
+
+def buildkite_reads(monkeypatch: pytest.MonkeyPatch, answers: dict[str, dict | None]) -> list[list[str]]:
+    calls = []
+
+    def run(argv: list[str], checkout: Path, env: dict | None = None, stdin: str | None = None) -> str:
+        assert (argv[:3], checkout) == ([str(DRIVE_CHECKOUT / "tools" / "ci"), "bk", "graphql"], DRIVE_CHECKOUT)
+        slugs = re.findall(r'build\(slug: "([^"]+)"\)', argv[3])
+        calls.append(slugs)
+        return json.dumps({f"b{at}": answers[slug] for at, slug in enumerate(slugs)})
+
+    monkeypatch.setattr(watch.reads, "run", run)
+    monkeypatch.setattr(watch.orca, "checkout", lambda name, clone: DRIVE_CHECKOUT)
+    return calls
+
+
+def test_a_buildkite_build_wait_is_read_once_as_first_held_then_only_on_a_delivery_naming_it_holding_while_it_runs_and_freeing_at_its_approve_step(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    serve(monkeypatch, {})
+    answers = {"forge/release/14769": BUILD_RUNNING, "forge/release/99999999": None}
+    calls = buildkite_reads(monkeypatch, answers)
+    with state.edit(demo) as data:
+        data["prs"][KEY].update(state="merged", merged_sha="abc123")
+        data["orders"]["o1"]["jobs"] = ["j1", "j2"]
+        data["jobs"]["j1"].update(state="waiting", said=f"WAITING {RELEASE_BUILD} stops at its approve step", waits=[RELEASE_BUILD], prs=[], updated=state.stamp(T0 - timedelta(minutes=10)))
+        data["jobs"]["j2"] = job(state="waiting", said=f"WAITING {NO_BUILD}", waits=[NO_BUILD], updated=state.stamp(T0 - timedelta(minutes=10)))
+    watching = watcher(demo)
+    assert [watch.run_pass(watching, T0 + timedelta(minutes=minute)) for minute in range(3)] == [[f"FREE j2 o1: Buildkite answers no build at {NO_BUILD}, nothing else holds it"], [], []]
+    assert stall.chains(state.load(demo), NO_CARDS, False, T0) == {"j1": [("j1", f"j1 waiting on {RELEASE_BUILD}", False), (RELEASE_BUILD, f"Buildkite build 14769 of forge/release {RELEASE_BUILD}", True)]}
+    answers["forge/release/14769"] = {
+        "state": "BLOCKED",
+        "blocks": {"edges": [{"node": {"label": APPROVE_STEP}}]},
+        "failed": {"edges": [{"node": {"label": ":pytest: Test", "retried": True}}, {"node": {"label": ":docker: Image", "retried": False}}]},
+    }
+    receiver.took_builds("build.finished", [RELEASE_BUILD])
+    assert watch.run_pass(watching, T0 + timedelta(minutes=3)) == [f'FREE j1 o1: {RELEASE_BUILD} reads BLOCKED at its approve step "{APPROVE_STEP}", its steps that did not pass ":docker: Image", nothing else holds it']
+    assert watch.run_pass(watching, T0 + timedelta(minutes=4)) == []
+    assert (calls, state.load(demo)["jobs"]["j1"]["waits"], watching.builds) == ([["forge/release/14769", "forge/release/99999999"], ["forge/release/14769"]], [], {})
+
+
 def test_a_time_set_on_an_order_with_no_thread_is_said_once_and_kept_by_being_said(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {})
     due = state.stamp(T0 - timedelta(minutes=1))
@@ -8866,6 +8911,21 @@ def test_a_stalls_watchdog_is_handed_his_recorded_answers_ccn_ranks_nearest_its_
     [(brief, _)] = watchdogs
     assert [line for line in brief.splitlines() if line.startswith("Answered:")] == [f'Answered: 7030890 "{answer["asked"]}": "{answer["said"]}" {CARD}']
     assert ranked == [["ship the Mac fixes", "sand-next"]]
+
+
+def test_a_stalls_watchdog_is_handed_the_watchs_last_buildkite_read_of_each_build_it_waits_on(demo: str, monkeypatch: pytest.MonkeyPatch, watchdogs: list[tuple[str, Path]]) -> None:
+    buildkite_reads(monkeypatch, {"forge/release/14769": BUILD_RUNNING})
+    with state.edit(demo) as data:
+        data["jobs"]["j1"] |= {"state": "waiting", "waits": [RELEASE_BUILD]}
+    watching = watcher(demo)
+    watching.cards = NO_CARDS
+    assert watch.build_lines(watching, T0) == []
+    for minutes in (0, 60):
+        watch.stall_lines(watching, T0 + timedelta(minutes=minutes))
+    [(brief, _)] = watchdogs
+    assert [line for line in brief.splitlines() if line.startswith("Build:")] == [
+        f"Build: {RELEASE_BUILD} reads RUNNING at the watch's last Buildkite read, which it makes again once a delivery of Buildkite's to the receiver's /buildkite route names it"
+    ]
 
 
 def test_a_watchdogs_next_asking_its_holder_for_a_release_step_the_release_check_refuses_reaches_the_stuck_line_and_him_as_that_refusal(
