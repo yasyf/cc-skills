@@ -855,6 +855,21 @@ def test_a_sprite_brief_names_drive_job_replies_for_each_earlier_transcript_no_r
     )
     assert orca.brief_of(orca.vm_brief(demo, "j5", "builder", text, state.LOCAL_ROUTE)) == text
 
+
+def test_a_sprite_brief_copies_each_file_of_this_mac_no_read_serves_into_its_jobs_scratch_and_names_it_there(demo: str, tmp_path: Path) -> None:
+    folder = state.drive_dir(demo)
+    handoff = tmp_path / "vcache" / "scratch" / "meta" / "j5-handoff.md"
+    handoff.parent.mkdir(parents=True)
+    handoff.write_text("Do: fix it\n")
+    notes = folder / "scratch" / "j1" / "notes.md"
+    notes.parent.mkdir(parents=True)
+    notes.write_text("the notes\n")
+    text = f"Order (his words): ship it\nHandoff: READ {handoff}.\nPlan: {notes}\nElsewhere: /nowhere/j9-handoff.md\nDrive: demo, order o1, job j5"
+    assert orca.brief_of(orca.vm_brief(demo, "j5", "builder", text, None)) == text.replace(str(handoff), "scratch/j5/j5-handoff.md")
+    assert reads.read_drive_files("READ scratch/j5/j5-handoff.md", demo) == "# Drive file scratch/j5/j5-handoff.md\n\nDo: fix it\n"
+    assert orca.brief_of(orca.vm_brief(demo, "j5", "builder", text, state.LOCAL_ROUTE)) == text
+
+
 def test_launch_refuses_a_brief_naming_a_drive_file_the_drive_keeps_no_text_of_and_stamps_nothing(
     run: Run, demo: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
