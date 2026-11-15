@@ -2096,7 +2096,7 @@ def lane_died(job: dict, worker: str, why: str, moment: datetime, cause: str | N
 
 
 def died_before(job: dict, dispatch: str) -> dict | None:
-    """The death of another lane of the job since its last line whose cause a resume read off its Sprite, as it does for each lane that died while its job ran, so a resume of the lane that died on this dispatch, the job's second death since that line, starts no worker; None when no other lane died so."""
+    """The death of another lane of the job since its last line whose cause a resume read off its Sprite, as it does for each lane that died while its job ran on a Sprite that did not fail on its own, so a resume of the lane that died on this dispatch with a cause, the job's second such death since that line, starts no worker; None when no other lane died so."""
     since = job["returned"] and parse_time(job["returned"])
     return next((death for death in reversed(job.get("deaths", [])) if death.get("cause") and death["dispatch"] != dispatch and not (since and parse_time(death["at"]) < since)), None)
 

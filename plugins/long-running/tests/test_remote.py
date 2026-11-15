@@ -1794,26 +1794,44 @@ def test_a_dead_sprites_logs_are_copied_once_and_give_one_cause_line_and_an_unre
     read = []
     nbd = sprite_read(NBD_KERNEL, "2643.94 10230.11\n   2643\n")
     monkeypatch.setattr(orca, "on_sprite", lambda workspace, command, given, seconds: read.append(workspace) or subprocess.CompletedProcess([], 0, nbd, b""))
-    assert REAL_KEEP_LOGS(remote, "j1", {"workspace": "pool-nbd"}, DISPATCH) == (NBD_CAUSE, True)
-    assert REAL_KEEP_LOGS(remote, "j1", {"workspace": "pool-gone"}, DISPATCH) == (NBD_CAUSE, True)
+    assert REAL_KEEP_LOGS(remote, "j1", {"workspace": "pool-nbd"}, DISPATCH) == (NBD_CAUSE, True, True)
+    assert REAL_KEEP_LOGS(remote, "j1", {"workspace": "pool-gone"}, DISPATCH) == (NBD_CAUSE, True, True)
     assert (read, orca.death_logs(remote, "j1", DISPATCH).read_text()) == (["pool-nbd"], nbd.decode())
     refused = b"ssh: connect to host pool-asleep port 22: Connection refused\n"
     monkeypatch.setattr(orca, "on_sprite", lambda workspace, command, given, seconds: subprocess.CompletedProcess([], 255, b"", refused))
-    assert REAL_KEEP_LOGS(remote, "j1", {"workspace": "pool-asleep"}, "ctx_lane0002") == (REFUSED_CAUSE, False)
+    assert REAL_KEEP_LOGS(remote, "j1", {"workspace": "pool-asleep"}, "ctx_lane0002") == (REFUSED_CAUSE, False, False)
     assert orca.death_logs(remote, "j1", "ctx_lane0002").read_text() == "ssh exited 255: ssh: connect to host pool-asleep port 22: Connection refused\n"
 
 
 @pytest.mark.parametrize(
-    ("read", "cause", "fault"),
+    ("read", "cause", "fault", "own"),
     [
-        (sprite_read(NBD_KERNEL, "2643.94 10230.11\n   2643\n"), NBD_CAUSE, True),
-        (sprite_read(J5099_KERNEL, J5099_AGES, limits="8053063680\n6071717888\n", used="35%"), J5099_CAUSE, True),
-        (sprite_read(SPRITE_BOOT, "41.30 160.02\n     22\n"), REBOOT_CAUSE, False),
-        (sprite_read(SPRITE_BOOT, "564.20 4158.12\n    543\n", QUIET_MEMORY.replace("high 0", "high 6965"), "8053063680\n8590176256\n"), HIGH_CAUSE, False),
+        (sprite_read(NBD_KERNEL, "2643.94 10230.11\n   2643\n"), NBD_CAUSE, True, True),
+        (sprite_read(J5099_KERNEL, J5099_AGES, limits="8053063680\n6071717888\n", used="35%"), J5099_CAUSE, True, True),
+        (sprite_read(SPRITE_BOOT, "41.30 160.02\n     22\n"), REBOOT_CAUSE, False, False),
+        (sprite_read(SPRITE_BOOT, "564.20 4158.12\n    543\n", QUIET_MEMORY.replace("high 0", "high 6965"), "8053063680\n8590176256\n"), HIGH_CAUSE, False, False),
         (
             sprite_read(SPRITE_BOOT, "41.30 160.02\n     22\n", used="100%"),
             "its Sprite showed: the kernel logged no error line after it started init; its home volume was full; when read, its VM had been up 0 minutes, its init process 0 minutes",
             True,
+            False,
+        ),
+        (
+            sprite_read(J5099_KERNEL, J5099_AGES, limits="8053063680\n6071717888\n", used="100%"),
+            J5099_CAUSE.replace("; when read", "; its home volume was full; when read"),
+            True,
+            False,
+        ),
+        (
+            sprite_read(
+                SPRITE_BOOT + "<3>[  812.120001] Out of memory: Killed process 4242 (node) total-vm:9123456kB, anon-rss:7340032kB, UID:1000 oom_score_adj:0\n",
+                "900.50 3000.00\n    120\n",
+                QUIET_MEMORY.replace("max 0", "max 12").replace("oom 0", "oom 1").replace("oom_kill 0", "oom_kill 1"),
+            ),
+            'its Sprite showed: the kernel logged one error line after it started init, "Out of memory: Killed process 4242 (node) total-vm:9123456kB, anon-rss:7340032kB,'
+            ' UID:1000 oom_score_adj:0"; the OOM killer killed 1 of its processes; when read, its VM had been up 15 minutes, its init process 2 minutes',
+            True,
+            False,
         ),
         (
             sprite_read(
@@ -1825,21 +1843,24 @@ def test_a_dead_sprites_logs_are_copied_once_and_give_one_cause_line_and_an_unre
             'its Sprite showed: the kernel logged one error line after it started init, "Out of memory: Killed process 4242 (node) total-vm:9123456kB, anon-rss:7340032kB,'
             ' UID:1000 oom_score_adj:0"; the OOM killer killed 1 of its processes; its home volume was full; when read, its VM had been up 15 minutes, its init process 2 minutes',
             True,
+            False,
         ),
         (
             b"pool-asleep could not be read: Command 'sh -s' timed out after 120 seconds\n",
             "its Sprite did not answer: pool-asleep could not be read: Command 'sh -s' timed out after 120 seconds",
+            False,
             False,
         ),
         (
             sprite_read(NBD_KERNEL, "2643.94 10230.11\n   2643\n").split(b"== dmesg")[0] + b"ssh exited 255: Connection to pool-nbd closed by remote host.\n",
             "its Sprite did not answer: ssh exited 255: Connection to pool-nbd closed by remote host.",
             False,
+            False,
         ),
     ],
 )
-def test_a_dead_lanes_cause_line_names_what_its_sprite_showed_and_whether_it_faulted(read: bytes, cause: str, fault: bool) -> None:
-    assert orca.cause(read.decode()) == (cause, fault)
+def test_a_dead_lanes_cause_line_names_what_its_sprite_showed_whether_it_faulted_and_whether_it_failed_on_its_own(read: bytes, cause: str, fault: bool, own: bool) -> None:
+    assert orca.cause(read.decode()) == (cause, fault, own)
 
 
 J2504_SESSION = "dadd5ffb-610a-4626-876f-74ac6fba88be"
@@ -1986,11 +2007,11 @@ def lane_with_kept_logs(remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyP
 
 
 @pytest.mark.parametrize(
-    ("kernel", "used", "cause", "launches", "acts"),
+    ("kernel", "used", "said", "cause", "launches", "acts"),
     [
-        (J5099_KERNEL, "35%", J5099_CAUSE, [("j1-2.md", None, None)], [f"saved {J2504_SPRITES[0]}", f"destroyed {J2504_SPRITES[0]}"]),
-        (SPRITE_BOOT, "100%", J5099_FULL, [("j1-2.md", None, None)], [f"saved {J2504_SPRITES[0]}", f"destroyed {J2504_SPRITES[0]}"]),
-        (SPRITE_BOOT, "35%", J5099_QUIET, [("j1-2.resume.md", J2504_SPRITES[0], J2504_SESSION)], []),
+        (J5099_KERNEL, "35%", f"its worker exited, and {J5099_CAUSE}", None, [("j1-2.md", None, None)], [f"saved {J2504_SPRITES[0]}", f"destroyed {J2504_SPRITES[0]}"]),
+        (SPRITE_BOOT, "100%", f"its worker exited; {J5099_FULL}", J5099_FULL, [("j1-2.md", None, None)], [f"saved {J2504_SPRITES[0]}", f"destroyed {J2504_SPRITES[0]}"]),
+        (SPRITE_BOOT, "35%", f"its worker exited; {J5099_QUIET}", J5099_QUIET, [("j1-2.resume.md", J2504_SPRITES[0], J2504_SESSION)], []),
     ],
     ids=["j5099's nbd0 errors", "full home volume", "no error line"],
 )
@@ -2002,16 +2023,45 @@ def test_a_dead_lane_resumes_its_claude_session_on_its_sprite_only_while_the_log
     sessions: dict[str, str],
     kernel: str,
     used: str,
-    cause: str,
+    said: str,
+    cause: str | None,
     launches: list[tuple],
     acts: list[str],
 ) -> None:
     launched, acted = lane_with_kept_logs(remote, tmp_path, monkeypatch, sessions, kernel, used)
     code, out = run("job", "resume", "j1", "Build #4412 failed: fix the lint")
     assert (code, [(name, on, session) for name, _, on, session in launched], acted) == (0, launches, acts)
-    assert f"(its worker exited; {cause})" in out
+    assert f"({said})" in out
     job = state.load(remote)["jobs"]["j1"]
-    assert [(death["dispatch"], death["workspace"], death["cause"]) for death in job["deaths"]] == [(J2504_DISPATCH, J2504_SPRITES[0], cause)]
+    assert [(death["dispatch"], death["workspace"], state.why_died(death["why"], death.get("cause")), death.get("cause")) for death in job["deaths"]] == [
+        (J2504_DISPATCH, J2504_SPRITES[0], said, cause)
+    ]
+
+
+@pytest.mark.parametrize(
+    "earlier",
+    [{"why": f"its worker exited, and {J5099_CAUSE}"}, {"why": "its worker exited", "cause": HIGH_CAUSE}],
+    ids=["an nbd0 death before it, which kept no cause", "a death with a cause before it"],
+)
+def test_a_lane_whose_sprite_failed_on_its_own_relaunches_on_a_fresh_sprite_with_every_held_text_whatever_lane_of_the_job_died_before(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, sessions: dict[str, str], earlier: dict[str, str]
+) -> None:
+    launched, acted = lane_with_kept_logs(remote, tmp_path, monkeypatch, sessions, J5099_KERNEL, "35%")
+    with state.edit(remote) as data:
+        job = data["jobs"]["j1"]
+        job["deaths"] = [{"dispatch": "ctx_first", "workspace": J2504_SPRITES[1], "at": state.stamp(), **earlier}]
+        for text in ("Ship the handler once #56324 is green", "Build #4412 failed: fix the lint"):
+            state.hold_text(job, text, state.HIM)
+    code, out = run("job", "launch", "j1")
+    assert (code, [(name, on, session) for name, _, on, session in launched], acted) == (
+        0,
+        [("j1-3.md", None, None)],
+        [f"saved {J2504_SPRITES[0]}", f"destroyed {J2504_SPRITES[0]}"],
+    )
+    assert f"was dead (its worker exited, and {J5099_CAUSE})" in out
+    assert "Ship the handler once #56324 is green\n\nBuild #4412 failed: fix the lint" in launched[0][1]
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["undelivered"], [(death["dispatch"], death.get("cause")) for death in job["deaths"]]) == ([], [("ctx_first", earlier.get("cause")), (J2504_DISPATCH, None)])
 
 
 @pytest.mark.parametrize(("kernel", "continued_on"), [(J5099_KERNEL, None), (SPRITE_BOOT, J2504_SPRITES[0])], ids=["j5099's nbd0 errors", "no error line"])
@@ -3889,17 +3939,32 @@ def test_a_relaunch_that_ended_without_a_next_lane_is_said_at_once(remote: str, 
     assert line.endswith("started no next lane, its output in the drive's relaunches.log")
 
 
-def test_a_running_jobs_lane_that_died_again_since_its_last_line_is_said_to_start_no_worker(remote: str, monkeypatch: pytest.MonkeyPatch, relaunches: list[str]) -> None:
+@pytest.mark.parametrize(
+    ("earlier", "again"),
+    [
+        (
+            {"why": "its worker exited", "cause": HIGH_CAUSE},
+            "reads from them why it died and starts no worker unless they show its Sprite failed on its own, a kernel error line after init with no OOM kill"
+            " and its home volume not full, as its lane on Sprite sprite-first died too since its last line, at {at}"
+            f" (its worker exited; {HIGH_CAUSE})",
+        ),
+        ({"why": f"its worker exited, and {NBD_CAUSE}"}, "resumes its Claude session on its Sprite, or else relaunches it on a fresh Sprite with a handoff"),
+    ],
+    ids=["a death with a cause before it", "an nbd0 death before it, which kept no cause"],
+)
+def test_a_running_jobs_lane_that_died_again_since_its_last_line_is_said_to_start_no_worker_only_after_a_death_with_a_cause(
+    remote: str, monkeypatch: pytest.MonkeyPatch, relaunches: list[str], earlier: dict[str, str], again: str
+) -> None:
     deliver(monkeypatch)
-    earlier = {"dispatch": "ctx_first", "workspace": "sprite-first", "why": "its worker exited", "at": state.stamp(T0 - timedelta(minutes=20)), "cause": NBD_CAUSE}
+    first = {"dispatch": "ctx_first", "workspace": "sprite-first", "at": state.stamp(T0 - timedelta(minutes=20)), **earlier}
     with state.edit(remote) as data:
-        data["jobs"]["j1"].update(workspace="sprite-old", said="building the tallies", deaths=[earlier])
+        data["jobs"]["j1"].update(workspace="sprite-old", said="building the tallies", deaths=[first])
     monkeypatch.setattr(orca, "worker", lambda dispatch: dead())
+    said = again.replace("{at}", render.when(first["at"]))
     assert watch.run_pass(watch.Watcher(remote, offset=state.events_end(remote)), T0) == [
         'LANE j1 o1 died on Sprite sprite-old: its worker exited, while it worked on "building the tallies". '
-        f"The watch ran drive job resume j1, which copies its Sprite's Orca runtime and worker logs to {orca.death_logs(remote, 'j1', DISPATCH)},"
-        f" reads from them why it died and starts no worker, as its lane on Sprite sprite-first died too since its last line, at {render.when(earlier['at'])}"
-        f" (its worker exited; {NBD_CAUSE}), its output in the drive's relaunches.log"
+        f"The watch ran drive job resume j1, which copies its Sprite's Orca runtime and worker logs to {orca.death_logs(remote, 'j1', DISPATCH)}, {said},"
+        " its output in the drive's relaunches.log"
     ]
     assert relaunches == ["j1"]
 
@@ -3907,14 +3972,14 @@ def test_a_running_jobs_lane_that_died_again_since_its_last_line_is_said_to_star
 def test_a_lane_whose_resume_refused_a_second_death_since_its_jobs_last_line_is_said_with_both_causes(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
     deliver(monkeypatch)
     monkeypatch.setattr(orca, "worker", lambda dispatch: pytest.fail("a lane already said to have ended is not read again"))
-    first = {"dispatch": "ctx_first", "workspace": "sprite-first", "why": "its worker exited", "at": state.stamp(T0 - timedelta(minutes=20)), "cause": NBD_CAUSE}
+    first = {"dispatch": "ctx_first", "workspace": "sprite-first", "why": "its worker exited", "at": state.stamp(T0 - timedelta(minutes=20)), "cause": HIGH_CAUSE}
     relaunch = {"pid": ENDED_READER, "at": state.stamp(T0 - timedelta(minutes=2))}
     second = {"dispatch": DISPATCH, "workspace": "sprite-old", "why": "its worker exited", "at": state.stamp(T0 - timedelta(minutes=2)), "relaunch": relaunch, "cause": REBOOT_CAUSE}
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(workspace="sprite-old", deaths=[first, second], updated=state.stamp(T0 - timedelta(minutes=2)))
     assert watch.run_pass(watch.Watcher(remote, offset=state.events_end(remote)), T0) == [
         f'ORPHAN o1 "Short title": j1\'s lane died twice since its last line, so drive job resume starts no worker for it: on Sprite sprite-first at {render.when(first["at"])}'
-        f" (its worker exited; {NBD_CAUSE}) and on Sprite sprite-old at {render.when(second['at'])} (its worker exited; {REBOOT_CAUSE}); drive job launch j1 --local moves it to a fresh worktree on this Mac"
+        f" (its worker exited; {HIGH_CAUSE}) and on Sprite sprite-old at {render.when(second['at'])} (its worker exited; {REBOOT_CAUSE}); drive job launch j1 --local moves it to a fresh worktree on this Mac"
     ]
 
 
