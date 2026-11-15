@@ -485,8 +485,8 @@ def test_a_lane_whose_brief_names_a_report_holding_his_words_still_owes_them_onc
     run("job", "add", "builder", "--order", "o1", "--goal", "ship it", "--remote")
     with state.edit(demo) as data:
         data["answers"]["a1"] = {"words": words, "link": "https://acme.slack.com/archives/D123/p1794300000000300", "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {}}
+        data["jobs"]["j1"]["state"] = "done"
     state.keep_report(demo, "j1", "DONE the reader's findings", f"DONE the reader's findings\nResearched:\nrulings: none on the area\nexists: none\nopen: none\nHis answer, verbatim: \"{words}\"\n")
-    run("job", "set", "j1", "--state", "done")
     (tmp_path / "brief.md").write_text("Order (his words): ship it\nResearched: j1\nDrive: demo, order o1, job j2\n")
     monkeypatch.setattr(orca, "new_run", lambda drive, objective: RUN)
     fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
@@ -707,7 +707,8 @@ def test_launch_of_a_brief_naming_a_finished_jobs_report_file_as_j2722s_named_j2
     run("job", "add", "reader", "--order", "o1", "--goal", "read it back")
     run("job", "add", "builder", "--order", "o1", "--goal", "read it back again", "--remote")
     state.keep_report(demo, "j1", "DONE the read-back", "DONE the read-back\n- the delete half NOT PROVEN\n")
-    run("job", "set", "j1", "--state", "done")
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["state"] = "done"
     (tmp_path / "brief.md").write_text(
         "Order (his words): ship it\n"
         "Goal: rerun the read-back to prove what reports/j1.md left unproven\n"
@@ -735,7 +736,8 @@ def test_launch_of_a_brief_naming_a_jobs_repro_by_a_suffix_glob_as_j2817s_named_
     run("job", "add", "reader", "--order", "o1", "--goal", "research it")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it", "--remote")
     state.keep_report(demo, "j1", "DONE the cause", "DONE the cause\nResearched:\nrulings: none on the area\nexists: none\nopen: none\nREPRO: repro/j1.py\n")
-    run("job", "set", "j1", "--state", "done")
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["state"] = "done"
     (tmp_path / "steps.py").write_text("raise SystemExit(1)\n")
     assert run("job", "set", "j1", "--repro", str(tmp_path / "steps.py"))[0] == 0
     (tmp_path / "brief.md").write_text(
