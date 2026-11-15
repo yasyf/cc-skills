@@ -5924,7 +5924,7 @@ def parser() -> argparse.ArgumentParser:
     verb.set_defaults(run=pr_wake)
 
     verbs.add_parser("place", parents=both, help="where the next monorepo builder starts").set_defaults(run=place_job)
-    verb = verbs.add_parser("bound", parents=both, help="run one command with a lane's Run bound to this terminal, under the drive's binding lock, a worker-start only until Orca takes its request, then bind the drive's own Run, which no lane mails")
+    verb = verbs.add_parser("bound", parents=both, help="run one command on a lane's Run as the drive's own terminal, which coordinates the Run from its run-create, or, when Orca fences it there, as the drive's binder terminal once it binds the Run, under the drive's binding lock, a worker-start only until Orca takes its request")
     verb.add_argument("lane_run", metavar="run")
     verb.add_argument("command", nargs=argparse.REMAINDER, help="after --, the command and its arguments")
     verb.set_defaults(run=bound)

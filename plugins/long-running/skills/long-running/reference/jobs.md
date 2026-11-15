@@ -325,10 +325,10 @@ lane reads those, and Slack, through this Mac with a blocking question.
   the directory the coordinator started the drive from, or reads the drive files, and replies with
   the output the moment it ends, a command's cut to 12,000 characters but for a `cc-slack thread`
   or `history` read, which goes whole, an answer past the 64 KiB one Orca relay message carries
-  written onto the lane's Sprite before the reply, within a minute, and named in it, in one hold of
-  the drive terminal's binding with every other answer kept on that lane's Run, which makes Orca
-  calls alone, so a read that runs for minutes holds up no pass and no answer
-  waits for a pass. The reader keeps first the answer its own end leaves, then the one it finishes
+  written onto the lane's Sprite before the reply, within a minute, and named in it, in one Orca
+  reply of its own from the drive's terminal, which coordinates every lane's Run from its
+  `run-create` and binds none, so a read that runs for minutes holds up no pass and no answer
+  waits for a pass or for another answer. The reader keeps first the answer its own end leaves, then the one it finishes
   with, under its question's message id, so the watch sends again an answer Orca refused, and a
   read stopped mid-run is answered as stopped, never run twice. A read that fails, such as a command off that list, a tool that exits
   non-zero or a long answer its lane's Sprite could not take, replies with why and arrives as a `JOB <j> <o> READ unanswered` line.
