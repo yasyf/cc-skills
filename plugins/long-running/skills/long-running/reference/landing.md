@@ -633,7 +633,11 @@ PR checks that everyone hits".
   which quotes his 33de0fc and 1e8a8d5 whole, in a claim whose `until` the watch's `DUE` line follows, by
   [the records page](records.md). Its freeze names its job, with `tools/ci release freeze --with-staging
   --holder <drive>/<job>` once on `dev`, by his pick e3c9bbd, "The freeze names its job; soak, Mac box proof, agent
-  proof, pass-box run, cluster job and break-glass refuse another job's freeze".
+  proof, pass-box run, cluster job and break-glass refuse another job's freeze". While another drive on
+  this Mac holds a claim whose `until` is still to come, the `landing_guard` hook and `drive job held
+  --cluster` refuse a Job on `plat-usw2-staging`, by `tools/ci cluster-job` or by creating, unblocking or
+  rerunning the build it starts, naming that claim's order, drive, end and thread: wait behind it with
+  `WAITING staging:<what you test>/plat-usw2-staging@<its commit>`, then claim staging yourself.
 - **What holds the PR.** The pass the merge requires is the drive's, never GitHub's. Three things start
   it, so it never rests on the builder's word alone. The builder's `READY` or `PUSHED` naming a
   Forge-AI/monorepo PR carries `STAGING: #N <cases>`, which `drive job report` turns into the part
@@ -720,12 +724,17 @@ the patch.
   While it stands, any other release runs only on his exception, an answer of his recorded after the
   hold that approves that one release. `drive job add --release` refuses any other start, and the
   `landing_guard` hook refuses every other release call and quotes the hold. It covers `tools/ci
-  release resume`, `approve` and `rollback`, and a `tools/ci bk rerun release` or `tools/ci bk api`
-  write to a release cut, a forge/release build whose env holds `RELEASE_START`, or creating one. A
-  cluster job's build, such as a team's memory move or journal pass from `tools/ci cluster-job`, is
-  no release cut, yet the hold covers a Job it starts on any cluster but `plat-usw2-staging` or
-  `plat-usw2-sandbox`: the hook refuses starting it, unblocking its build's gate and rerunning that
-  build until an answer of his recorded after the hold orders that CronJob on that cluster at that
+  release resume`, `approve` and `rollback`, a `tools/ci bk rerun release` or `tools/ci bk api`
+  write to a release cut, a forge/release build whose env holds `RELEASE_START`, and a `tools/ci bk
+  api -X POST` creating a forge/release build, unless the JSON its `-d` gives inline, as
+  `-d '<json>'` or `-d "$body"` after `body='<json>'` in the same call, sets the env `tools/ci
+  cluster-job` sets, a `CLUSTER_JOB` alone; a body a file or a command substitution supplies counts
+  as a cut, since the hook cannot read it. A cluster job's build, such as a team's memory move or
+  journal pass from `tools/ci cluster-job`, or one a tester creates that way on branch `dev` at a
+  PR's commit, since `tools/ci cluster-job` builds dev's head, is no release cut, yet the hold covers
+  a Job it starts on any cluster but `plat-usw2-staging` or `plat-usw2-sandbox`: the hook refuses
+  starting it, creating its build, unblocking its build's gate and rerunning that build until an
+  answer of his recorded after the hold orders that CronJob on that cluster at that
   moment. Jev reads each answer of his the Job's `--reason` names by id and those
   `ccn answer match` ranks nearest it, beside the hold and the time now in Pacific, so 34c9f21's
   "the other three after your hold lifts" orders no production dry run while the hold stands. Name

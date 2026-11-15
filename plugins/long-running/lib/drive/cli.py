@@ -6439,7 +6439,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--verb", dest="release_verb", help="with --release, the release verb the lane runs, such as resume, refused as well while he is not present when it starts, resumes or approves a dangerous release")
     verb.add_argument(
         "--cluster",
-        help="instead, why a Job may not start on this release env now from its suspended CronJob, on a production cluster while he holds every release and no answer of his since orders it, or while he is not present; the landing_guard hook on a Sprite lane asks it before the lane runs `tools/ci cluster-job`, or unblocks or reruns the build it starts",
+        help="instead, why a Job may not start on this release env now from its suspended CronJob, on staging while another drive's staging claim stands, on a production cluster while he holds every release and no answer of his since orders it, or while he is not present; the landing_guard hook on a Sprite lane asks it before the lane runs `tools/ci cluster-job`, or creates, unblocks or reruns the build it starts",
     )
     verb.add_argument("--cronjob", default="", help="with --cluster, the suspended CronJob the Job starts from")
     verb.add_argument("--reason", default="", help="with --cluster, the Job's --reason, as its build keeps it, which names the answer of his that orders it")
