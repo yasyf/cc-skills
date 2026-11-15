@@ -34,6 +34,7 @@ CLAIM_REPLIES = timedelta(minutes=5)
 HANDOFF_FACT = "handoff"
 WAITED_FACT = "card waiting"
 FREED_AGAIN = timedelta(minutes=30)
+BUILT_BASE = "{built}, the change yours builds on, its PR held on his answer: cut your branch from that head, so your PR stacks on it"
 LIVE_EVERY = timedelta(minutes=5)
 TELL_AFTER = timedelta(minutes=10)
 SWEEP_EVERY = timedelta(days=1)
@@ -502,10 +503,12 @@ def bare(wait: str) -> str:
 
 
 def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Drop each wait of a job or PR that ended, his card answered, the job finished, the release out by the watch's release live read or its PR closed unmerged, the Buildkite build finished or stopped at an approve step by the watch's Buildkite read, a process on this Mac ended, a teammate's reply come, a builder slot on this Mac given to the earliest due builder waiting its turn, one per slot no builder holds, or a once-only pass of state.shaped ended it, each by the reason that pass handed by state.drop_waits, forgotten as this edit saves, and say once, as its last wait ends, that nothing holds it, holding back the job's ORPHAN for 30 minutes, but for a builder's READY or PUSHED whose PRs all merged, which the watch finishes next in the same pass, or else says once as an ORPHAN naming who finishes it; a builder given its slot waits on nothing with no agent yet, its slot stamped with when its turn came, and holds that slot until its agent starts, and one moving here from its Sprite, or taking over here from its agent on this Mac, keeps its other waits, its slot stamped, while drive job launch <j> --local, run by start_verb, moves it, a refusal of that launch reaching the watch's lines as its relaunch_refused event; a Sprite job busy reads another drive verb acting on takes its turn on a pass after that verb ends. The cards a job asked him on hold it too, so it keeps its waits until he answers them. A codex job whose process ended holds the text exited_text writes, which carry_held's launch of its next codex-ask run carries, so its FREE line asks nobody to launch it; a job holding texts that carry_held launches, by carrier's drive job launch, names no brief and says the watch launches it and to start no agent for it, so no session starts a second worker beside that launch, while one whose worker carry_held resumes says it carries them. A release wait is a wake the job set, freed by out_because once every cluster of its service, or the one env it names, serves the PR's merge, and never comes back."""
+    """Drop each wait of a job or PR that ended, his card answered, the job finished, the release out by the watch's release live read or its PR closed unmerged, the Buildkite build finished or stopped at an approve step by the watch's Buildkite read, a process on this Mac ended, a teammate's reply come, a job a job waits on returned BUILT, by built_bases, a builder slot on this Mac given to the earliest due builder waiting its turn, one per slot no builder holds, or a once-only pass of state.shaped ended it, each by the reason that pass handed by state.drop_waits, forgotten as this edit saves, and say once, as its last wait ends, that nothing holds it, holding back the job's ORPHAN for 30 minutes, but for a builder's READY or PUSHED whose PRs all merged, which the watch finishes next in the same pass, or else says once as an ORPHAN naming who finishes it; a builder given its slot waits on nothing with no agent yet, its slot stamped with when its turn came, and holds that slot until its agent starts, and one moving here from its Sprite, or taking over here from its agent on this Mac, keeps its other waits, its slot stamped, while drive job launch <j> --local, run by start_verb, moves it, a refusal of that launch reaching the watch's lines as its relaunch_refused event; a Sprite job busy reads another drive verb acting on takes its turn on a pass after that verb ends. The cards a job asked him on hold it too, so it keeps its waits until he answers them. A codex job whose process ended holds the text exited_text writes, which carry_held's launch of its next codex-ask run carries, so its FREE line asks nobody to launch it; a job holding texts that carry_held launches, by carrier's drive job launch, names no brief and says the watch launches it and to start no agent for it, so no session starts a second worker beside that launch, while one whose worker carry_held resumes says it carries them. A release wait is a wake the job set, freed by out_because once every cluster of its service, or the one env it names, serves the PR's merge, and never comes back."""
     data = state.load(watcher.name)
     out, lines = replies(watcher, data, moment)
     out |= shipped(watcher, data)
+    bases, failed = built_bases(watcher, data, moment)
+    lines += failed
     turns, held = place.turns(data, moment)
     turned = {job_id for job_id in turns if heard_job(watcher, data, data["jobs"][job_id]) and not (place.moves_here(data["jobs"][job_id]) and busy(watcher, job_id, moment))}
     owners = [
@@ -513,7 +516,7 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
         *(pr for pr in data["prs"].values() if hears(watcher, data, pr["order"])),
     ]
     dropped = any(heard_job(watcher, data, job := data["jobs"][job_id]) and not view.open_cards(job) for job_id in data["dropped_waits"])
-    if not out and not turned and not dropped and all(view.holding(data, owner["waits"], watcher.cards) == owner["waits"] for owner in owners):
+    if not out and not bases and not turned and not dropped and all(view.holding(data, owner["waits"], watcher.cards) == owner["waits"] for owner in owners):
         return lines
     slot = {state.SLOT_WAIT: f"its turn came as a builder slot opened on this Mac, {held} of its {place.LOCAL_BUILDERS} held"}
     moves = []
@@ -529,7 +532,10 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 continue
             turn = job_id in turned and job["state"] == "waiting" and state.SLOT_WAIT in job["waits"]
             waited = job["waits"]
-            ended = released(data, job, job_id, watcher.cards, out | data["dropped_waits"].pop(job_id, {}) | (slot if turn else {}))
+            ended = released(data, job, job_id, watcher.cards, out | bases | data["dropped_waits"].pop(job_id, {}) | (slot if turn else {}))
+            for wait in waited:
+                if wait in bases:
+                    state.hold_text(job, BUILT_BASE.format(built=bases[wait]), state.WATCH_SENDER)
             exited = [wait for wait in waited if state.PID_WAIT.fullmatch(wait) and wait not in job["waits"]] if job["kind"] == "codex" else []
             if exited:
                 state.hold_text(job, exited_text(watcher.name, job_id, exited), state.WATCH_SENDER)
@@ -561,6 +567,30 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
     for job_id in moves:
         start_verb(watcher, job_id, ["job", "launch", job_id, "--local"], moment)
     return lines
+
+
+def built_bases(watcher: Watcher, data: dict, moment: datetime) -> tuple[dict[str, str], list[str]]:
+    """Each job a live job the watch hears waits on that returned BUILT on a branch, with each branch it built on and that branch's head, which frees the waiting job, never a PR, so the next change of a chain starts on the built branch while his card holds the built job's PR, by his words "get everything built and tested on sandbox/staging and ready to merge": read from GitHub in one call a repository, a branch in the job's recorded repo or else the one remote lanes clone, a branch that repo does not hold named alone, and a failed read said as one is and owed again next pass."""
+    built = {
+        wait: data["jobs"][wait]
+        for job in data["jobs"].values()
+        if job["state"] not in state.FINISHED_JOB_STATES and heard_job(watcher, data, job) and not view.open_cards(job)
+        for wait in job["waits"]
+        if wait in data["jobs"] and data["jobs"][wait]["state"] == "built" and data["jobs"][wait]["branch"]
+    }
+    if not built:
+        return {}, []
+    try:
+        home = github.checkout_repo(data["roles"]["coordinator"]["cwd"]) if any(not job.get("repo") for job in built.values()) else None
+        branches = {wait: [(job.get("repo") or home, branch) for branch in job["branch"].split(", ")] for wait, job in built.items()}
+        heads = github.branch_heads(sorted({head for both in branches.values() for head in both}))
+    except github.GithubError as error:
+        return {}, read_failed(watcher, "built branches", error, moment)
+    watcher.failures.pop("built branches", None)
+    return {
+        wait: f"{wait} built on " + ", ".join(f"{branch} at {heads[repo, branch][:12]}" if heads[repo, branch] else f"{branch}, which {repo} does not hold" for repo, branch in both)
+        for wait, both in branches.items()
+    }, []
 
 
 def exited_text(name: str, job_id: str, exited: list[str]) -> str:
