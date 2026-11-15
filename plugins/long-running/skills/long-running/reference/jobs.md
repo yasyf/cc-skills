@@ -26,9 +26,9 @@ Contents:
   turn to move here came, for the 30 minutes its launch may take or until its lane here starts, each builder the `agent_brief`
   hook let an Agent call start here, from that call until its agent's first step records it, so a burst of starts fills the
   cap rather than passing it, each agent here still in its turn, and each Orca
-  worker started here with `drive job launch --local` while it launches or runs. An agent that ended its turn, on a result line or a question, does not count, nor
-  does a launch that started no worker or a lane on a Sprite, nor a job freed from a card, PR or other wait whose agent has not started. `drive job add builder` past eight, or
-  while builders wait their turn, records the job to start on a Sprite at once, `where` remote, and
+  worker started here with `drive job launch --local` while it launches or runs in its turn. An agent or Orca worker that ended its turn, on a result line, a `worker_done` or a question, does not count, nor
+  does a launch that started no worker or a lane on a Sprite, nor a job freed from a card, PR or other wait whose agent has not started. `drive job add builder` while the slots held
+  and those owed to builders waiting their turn fill all eight records the job to start on a Sprite at once, `where` remote, and
   prints why, naming each builder it counted with its order and when its agent last wrote, and its
   `drive job launch <j> <brief>`. Only a builder whose brief declares a step only this Mac runs, on
   its `Mac:` or `Release:` line below, waits its turn for a slot, held on `builder-slot`;
@@ -45,14 +45,15 @@ Contents:
   Each watch pass counts this Mac's builders once and gives each open slot to the builder job waiting
   its turn that is due first: the earliest time promised him on an order it serves, then the oldest
   added. Its `FREE` line goes once to the session holding its order, which starts its agent then. The
-  `agent_brief` hook refuses any other builder here while one waits its turn, naming each builder it
+  `agent_brief` hook refuses a builder here while the slots held and those owed to the builders
+  waiting their turn ahead of it fill all eight, one in line owed only those before it, naming each builder it
   counted and the line: one whose brief declares no such step starts on a Sprite at once with
-  `drive job launch <j> <brief>`, and one whose brief declares one, that no agent runs, it holds waiting its
+  `drive job launch <j> <brief>`, and one whose brief declares one, that waits its turn already or that no agent runs, it holds waiting its
   turn the same way, unless a wait, a card of his or an open PR of its still holds it.
   Every start here meets this one count, and no judge lifts its refusal: an Agent call, through the
   `agent_brief` hook; `drive job launch --local`, for a first lane, which starts on a Sprite or
-  waits its turn the same way; a move from a Sprite, below, or a takeover from an agent here whose
-  brief declares such a step, which waits its turn on `builder-slot` whatever its worker, waits or PRs, its Sprite lane running on meanwhile and the texts the job holds
+  waits its turn the same way; a move from a Sprite, below, a takeover from an agent here whose
+  brief declares such a step, the next worker of an Orca lane here, or `drive job launch <j> --local` of a builder whose Sprite lane died twice since its last line, which no Sprite starts again, each of which waits its turn on `builder-slot` whatever its worker, waits or PRs, its Sprite lane running on meanwhile and the texts the job holds
   kept for the handoff, until the watch's turn stamps its slot and starts the move itself with
   `drive job launch <j> --local`, a refusal of that launch reaching the coordinator as its
   `relaunch_refused` event; and a SendMessage that would wake an agent here
@@ -124,8 +125,8 @@ refuses a builder whose brief lacks `Serves:`
 or `Handoff:`, whose `Serves:` names none of the three, or whose Goal's own action backfills,
 bulk-repairs, migrates, converts or repairs, or runs such a pass, with no `Runs as:` line; a Goal
 that only names a PR, stack or check for a pass is not one; and a builder, other than one on an
-open incident's order or an `immediate fix` part or building nothing, marked with `--builds-nothing` or its goal reading `prove <PRs> live`, while eight hold this Mac's builder slots or one
-waits its turn ahead of it, sending one whose brief declares no step only this Mac runs to a
+open incident's order or an `immediate fix` part or building nothing, marked with `--builds-nothing` or its goal reading `prove <PRs> live`, while the slots held and those owed to builders
+waiting their turn ahead of it fill all eight, sending one whose brief declares no step only this Mac runs to a
 Sprite at once and holding one whose brief declares one, that no agent runs and nothing else holds, waiting
 its turn and naming the line, earliest due first. The `scratch_folder` hook refuses a build
 order's builder, designer or codex lane whose brief lacks the `Researched:` line the `brief` op

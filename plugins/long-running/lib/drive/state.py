@@ -2077,6 +2077,12 @@ def died_before(job: dict, dispatch: str) -> dict | None:
     return next((death for death in reversed(job.get("deaths", [])) if death.get("cause") and death["dispatch"] != dispatch and not (since and parse_time(death["at"]) < since)), None)
 
 
+def died_twice(job: dict) -> bool:
+    """Whether the recorded death of the job's lane, with the cause a resume read off its Sprite, is its second since its last line, so it starts no next worker on a Sprite."""
+    death = lane_death(job)
+    return bool(death and death.get("cause") and died_before(job, death["dispatch"]))
+
+
 def why_died(why: str, cause: str | None) -> str:
     """Why a lane ended, with the cause line a resume read off its Sprite, when it read one."""
     return f"{why}; {cause}" if cause else why

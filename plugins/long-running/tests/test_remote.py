@@ -1881,12 +1881,59 @@ def test_a_lane_whose_sprite_died_resumes_its_own_claude_session_there_with_its_
     assert capsys.readouterr().err == (
         f"drive: j1: refused, no worker started: its lane died twice since its last line, on Sprite {workspace} at {render.when(first['at'])} (its worker exited; {HIGH_CAUSE})"
         f" and on Sprite {workspace} at {render.when(second['at'])} (its worker exited; {REBOOT_CAUSE}); their logs are in {orca.death_logs(remote, 'j1', J2504_DISPATCH)}"
-        f" and {orca.death_logs(remote, 'j1', 'dispatch-2')}. drive job launch j1 --local moves it to a fresh worktree on this Mac, and its next worker gets the text the job holds\n"
+        f" and {orca.death_logs(remote, 'j1', 'dispatch-2')}. drive job launch j1 --local moves it to a fresh worktree on this Mac, or holds it waiting its turn there while its builder slots are full, and its next worker gets the text the job holds\n"
     )
     assert [name for name, *_ in launched] == ["j1-2.resume.md"]
     assert kept_logs == [("j1", J2504_DISPATCH), ("j1", "dispatch-2")]
     assert (job["dispatch"], job["workspace"], job["state"], [held["words"] for held in job["undelivered"]]) == ("dispatch-2", workspace, "running", ["carry on"])
     assert [(death["dispatch"], death["cause"], death.get("saved")) for death in job["deaths"]] == [(J2504_DISPATCH, HIGH_CAUSE, None), ("dispatch-2", REBOOT_CAUSE, None)]
+
+
+@pytest.mark.parametrize("workspace", J2504_SPRITES[:1])
+def test_a_launch_here_of_a_builder_whose_sprite_lane_died_twice_while_eight_hold_this_macs_slots_holds_it_waiting_its_turn_and_the_watchs_turn_moves_it(
+    run: Run,
+    remote: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    sessions: dict[str, str],
+    kept_logs: list[tuple[str, str]],
+    causes: dict[str, str],
+    workspace: str,
+) -> None:
+    cloned(tmp_path, remote)
+    restarted_lane(remote, tmp_path, monkeypatch, sessions, workspace)
+    causes.update({J2504_DISPATCH: HIGH_CAUSE, "dispatch-2": REBOOT_CAUSE})
+    assert run("job", "resume", "j1", "Build #4412 failed: fix the lint")[0] == 0
+    assert cli.main(["job", "resume", "j1", "carry on"]) == 2
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "build the parts", "--parts", *(f"part {number}" for number in range(1, 9)))
+    for number in range(1, 9):
+        run("job", "add", "builder", "--order", "o2", "--part", f"part {number}", "--goal", f"build part {number}", "--agent", f"b{number}")
+    capsys.readouterr()
+    assert cli.main(["job", "launch", "j1", "--local"]) == 2
+    err = capsys.readouterr().err
+    assert err.startswith("drive: j1: refused, no worker started: 8 builders already run on this Mac, its cap of 8 (j2 on o2, its agent b1 last wrote at ")
+    assert err.endswith(
+        "so j1 waits its turn for a builder slot on this Mac, 1 of 1 in line, and the watch moves it here from its Sprite with drive job launch j1 --local"
+        " as its turn comes, its handoff carrying the texts the job holds\n"
+    )
+    data = state.load(remote)
+    job = data["jobs"]["j1"]
+    assert (job["state"], job["dispatch"], job["waits"], [held["words"] for held in job["undelivered"]], place.waiting_builders(data)) == (
+        "running",
+        "dispatch-2",
+        [state.SLOT_WAIT],
+        ["carry on"],
+        ["j1"],
+    )
+    assert watch.ended_gap("j1", job, job["deaths"][-1], state.now()) is None
+    detached: list[list[str]] = []
+    monkeypatch.setattr(state, "detach", lambda name, args, log: detached.append(args) or os.getpid())
+    run("job", "set", "j2", "--state", "stopped")
+    moment = state.now()
+    assert watch.waits_lines(watch.Watcher(remote, offset=state.events_end(remote)), moment) == []
+    job = state.load(remote)["jobs"]["j1"]
+    assert (detached, job["waits"], job["slot"]) == ([["job", "launch", "j1", "--local"]], [], state.stamp(moment))
 
 
 def test_a_lane_that_dies_after_its_jobs_last_line_resumes_again_with_its_own_cause(
@@ -3944,7 +3991,7 @@ def test_a_lane_whose_resume_refused_a_second_death_since_its_jobs_last_line_is_
         data["jobs"]["j1"].update(workspace="sprite-old", deaths=[first, second], updated=state.stamp(T0 - timedelta(minutes=2)))
     assert watch.run_pass(watch.Watcher(remote, offset=state.events_end(remote)), T0) == [
         f'ORPHAN o1 "Short title": j1\'s lane died twice since its last line, so drive job resume starts no worker for it: on Sprite sprite-first at {render.when(first["at"])}'
-        f" (its worker exited; {NBD_CAUSE}) and on Sprite sprite-old at {render.when(second['at'])} (its worker exited; {REBOOT_CAUSE}); drive job launch j1 --local moves it to a fresh worktree on this Mac"
+        f" (its worker exited; {NBD_CAUSE}) and on Sprite sprite-old at {render.when(second['at'])} (its worker exited; {REBOOT_CAUSE}); drive job launch j1 --local moves it to a fresh worktree on this Mac, or holds it waiting its turn there while its builder slots are full"
     ]
 
 
@@ -6241,13 +6288,50 @@ def test_the_watch_files_a_lane_recorded_on_this_mac_on_the_sprite_its_worker_sh
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the tooling root")
     run("job", "add", "builder", "--order", "o1", "--goal", "root tooling")
     with state.edit(demo) as data:
-        data["jobs"]["j1"].update(state.local_lane(SPRITE_DISPATCH), run=RUN, task="task_sprite", terminal="term_sprite")
+        data["jobs"]["j1"].update(state.local_lane(SPRITE_DISPATCH), run=RUN, task="task_sprite", terminal="term_sprite", turn_open=True)
     assert list(place.local_builders(state.load(demo), state.now())) == ["j1"]
     monkeypatch.setattr(orca, "worker", lambda dispatch: SPRITE_WORKER)
     watch.run_pass(watch.Watcher(demo, offset=state.events_end(demo)), T0)
     data = state.load(demo)
     assert {field: data["jobs"]["j1"][field] for field in SPRITE_LANE} == SPRITE_LANE
     assert place.local_builders(data, state.now()) == {}
+
+
+def test_an_orca_lane_here_holds_a_builder_slot_only_in_its_turn_and_a_builder_takes_a_slot_here_while_held_and_owed_slots_leave_one(run: Run, demo: str) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "tidy the docs", "--parts", *(f"part {number}" for number in range(1, 12)))
+    for number in range(1, 12):
+        run("job", "add", "builder", "--order", "o1", "--part", f"part {number}", "--goal", f"build part {number}")
+    with state.edit(demo) as data:
+        for number in range(1, 7):
+            data["jobs"][f"j{number}"].update(state.local_lane(f"dispatch-{number}"), turn_open=True)
+        data["jobs"]["j11"].update(state.local_lane("dispatch-11"))
+        for job_id in ("j7", "j8"):
+            place.queue(data["jobs"][job_id], state.now())
+    data = state.load(demo)
+    moment = state.now()
+    assert place.local_builders(data, moment) == {f"j{number}": f"j{number} on o1, its Orca lane dispatch-{number}, in its turn" for number in range(1, 7)}
+    owed = "6 of this Mac's 8 builder slots are held and the rest are owed to builders waiting their turn ahead of it, earliest due first (j7, j8)"
+    assert (place.crowded(data, "j7", moment), place.crowded(data, "j8", moment), place.crowded(data, "j9", moment)) == (None, None, owed)
+    assert place.turns(data, moment) == (["j7", "j8"], 6)
+    assert cli.crowded_here(demo, data, "j11", None, "carry on") == (
+        f"{owed}, so j11 waits its turn for a builder slot on this Mac, 3 of 3 in line, and the watch starts its next worker here with drive job launch j11 --local"
+        " as its turn comes, its handoff carrying the texts the job holds"
+    )
+    job = state.load(demo)["jobs"]["j11"]
+    assert (job["state"], job["where"], job["dispatch"], job["waits"], [held["words"] for held in job["undelivered"]], place.moves_here(job)) == (
+        "running",
+        "remote",
+        "dispatch-11",
+        [state.SLOT_WAIT],
+        ["carry on"],
+        True,
+    )
+    with state.edit(demo) as data:
+        data["jobs"]["j7"].update(waits=[], slot=state.stamp(moment))
+        data["jobs"]["j8"]["waits"] = []
+    data = state.load(demo)
+    assert (place.waiting_builders(data), place.crowded(data, "j11", moment)) == (["j11"], None)
+    assert place.crowded(data, "j9", moment) == "7 of this Mac's 8 builder slots are held and the rest are owed to builders waiting their turn ahead of it, earliest due first (j11)"
 
 
 def test_a_local_launch_runs_the_launcher_in_the_checkouts_orca_repo_with_the_datadog_servers_and_cci_parent_session_j738_7_lacked_and_reads_no_prepared_server(

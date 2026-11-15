@@ -113,23 +113,20 @@ def overloaded(data: dict, text: str) -> str | None:
 
 
 def crowded(name: str, data: dict, text: str) -> str | None:
-    """Why no builder starts on this Mac now: a job waiting its turn for a builder slot starts only on the watch's FREE line naming it, and any other only while a slot is open, its cap's builders holding every other one, each named, and no builder waits its turn ahead of it, unless it builds for an open incident or an immediate fix, which starts at once. A job let start is stamped launching, so place.local_builders counts its slot before its agent's first step records the agent, and a burst of starts fills the cap rather than passing it. A refused job whose brief this Mac alone runs, by place.mac_step, and that no agent runs and nothing else holds is held waiting its turn, so the watch reads it waiting, never abandoned, and frees the earliest due as each slot opens; any other starts on a Sprite at once."""
+    """Why no builder starts on this Mac now, by place.crowded, the rule every builder start here goes through: only while the slots builders hold, each named, and those owed to the builders waiting their turn ahead of it leave one open, unless it builds for an open incident or an immediate fix, which starts at once. A job let start is stamped launching and leaves the line, so place.local_builders counts its slot before its agent's first step records the agent, and a burst of starts fills the cap rather than passing it. A refused job whose brief this Mac alone runs, by place.mac_step, and that waits its turn already or that no agent runs and nothing else holds is held waiting its turn, so the watch reads it waiting, never abandoned, and frees the earliest due as each slot opens; any other starts on a Sprite at once."""
     match = brief.BRIEF_JOB.search(text)
     job_id = match[1] if match and match[1] in data["jobs"] else None
     moment = state.now()
-    if job_id in (places := place.positions(data)):
-        why = f"{job_id} waits its turn for a builder slot on this Mac, {places[job_id]}"
-    elif not (why := place.crowded(data, job_id, moment)):
+    if not (why := place.crowded(data, job_id, moment)):
         if job_id:
             with state.edit(name) as data:
-                data["jobs"][job_id]["launching"] = state.stamp(moment)
+                job = data["jobs"][job_id]
+                job.update(launching=state.stamp(moment), waits=[wait for wait in job["waits"] if wait != state.SLOT_WAIT])
         return None
     if job_id and not place.mac_step(text):
         return agents.Unjudged(f"refused: {why}, so {job_id} starts on a Sprite at once, since its brief declares no step only this Mac runs on {place.MAC_LINES}: write this brief to a file and run drive job launch {job_id} <file>")
-    if job_id in places:
-        return agents.Unjudged(f"refused: {why}{line(data)}")
-    if job_id is None or not place.queueable(data, job_id):
-        return agents.Unjudged(f"refused: {why}, so this one waits: start it once a slot opens here with no builder waiting its turn{line(data)}")
+    if job_id is None or not (job_id in place.waiting_builders(data) or place.queueable(data, job_id)):
+        return agents.Unjudged(f"refused: {why}, so this one waits: start it once its turn comes{line(data)}")
     with state.edit(name) as data:
         place.queue(data["jobs"][job_id], moment)
     return agents.Unjudged(f"refused: {why}, so {job_id} waits its turn for a builder slot on this Mac, {place.positions(data)[job_id]}{line(data)}")

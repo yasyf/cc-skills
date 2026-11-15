@@ -2014,7 +2014,9 @@ def remote_gap(job_id: str, worker: dict, moment: datetime) -> str | None:
 
 
 def ended_gap(job_id: str, job: dict, ended: dict, moment: datetime) -> str | None:
-    """A running job whose lane died or finished and no next lane replaced in the time a relaunch takes: none while the watch's relaunch of it runs, and once that relaunch ended or overran, the line names it and its log; a lane whose death is the job's second since its last line, which no resume starts a worker for, names both deaths with their causes once the resume recorded the second's."""
+    """A running job whose lane died or finished and no next lane replaced in the time a relaunch takes: none while it waits its turn for a builder slot on this Mac, whose line starts its next worker, or while the watch's relaunch of it runs, and once that relaunch ended or overran, the line names it and its log; a lane whose death is the job's second since its last line, which no resume starts a worker for, names both deaths with their causes once the resume recorded the second's."""
+    if state.SLOT_WAIT in job["waits"]:
+        return None
     gone = moment - state.parse_time(ended["at"])
     relaunch = ended.get("relaunch")
     if relaunch and state.alive(relaunch["pid"]) and moment - state.parse_time(relaunch["at"]) < RELAUNCH:
@@ -2023,7 +2025,7 @@ def ended_gap(job_id: str, job: dict, ended: dict, moment: datetime) -> str | No
         return (
             f"{job_id}'s lane died twice since its last line, so drive job resume starts no worker for it: on Sprite {first['workspace']} at {when(first['at'])}"
             f" ({state.why_died(first['why'], first['cause'])}) and on Sprite {ended['workspace']} at {when(ended['at'])} ({state.why_died(ended['why'], ended['cause'])});"
-            f" drive job launch {job_id} --local moves it to a fresh worktree {orca.ON_MAC}"
+            f" drive job launch {job_id} --local moves it to a fresh worktree {orca.ON_MAC}, or holds it waiting its turn there while its builder slots are full"
         )
     if not relaunch:
         return None if gone < RELAUNCH else f"{job_id}'s lane ended {minutes(gone)} minutes ago ({cut(ended['why'], 60)}), was not resumed and its result is not recorded"

@@ -169,25 +169,21 @@ def test_a_ninth_builder_here_starts_on_a_sprite_at_once_and_only_one_whose_brie
     held = state.load(demo)["jobs"]["j1"]
     assert (held["state"], held["waits"], held["said"], held["where"]) == ("waiting", [state.SLOT_WAIT], "waits its turn for a builder slot on this Mac", "local")
     run("job", "set", "j2", "--state", "stopped")
-    for job_id, spot in (("j1", "1 of 3"), ("j11", "2 of 3"), ("j10", "3 of 3")):
-        assert agent_brief.deny_reason(briefed("long-running:builder", f"{mac}order o3, job {job_id}")).startswith(
-            f"refused: {job_id} waits its turn for a builder slot on this Mac, {spot} in line. The watch's FREE line names"
-        )
-    assert agent_brief.deny_reason(briefed("long-running:builder", f"{sprite}order o1, job j10")).startswith(
-        "refused: j10 waits its turn for a builder slot on this Mac, 3 of 3 in line, so j10 starts on a Sprite at once,"
+    owed = "refused: 7 of this Mac's 8 builder slots are held and the rest are owed to builders waiting their turn ahead of it, earliest due first (j1), so"
+    assert agent_brief.deny_reason(briefed("long-running:builder", f"{mac}order o2, job j11")).startswith(
+        f"{owed} j11 waits its turn for a builder slot on this Mac, 2 of 3 in line. The watch's FREE line names"
     )
+    assert agent_brief.deny_reason(briefed("long-running:builder", f"{sprite}order o1, job j10")).startswith(f"{owed} j10 starts on a Sprite at once,")
     assert agent_brief.deny_reason(briefed("long-running:builder", "Order (his words): fix the watch\nServes: his order\nGoal: fix it")).startswith(
-        "refused: builders already wait their turn for a slot on this Mac ahead of it, earliest due first (j1, j11, j10), so this one waits:"
-        " start it once a slot opens here with no builder waiting its turn. The watch's FREE line"
+        f"{owed} this one waits: start it once its turn comes. The watch's FREE line"
     )
-    assert agent_brief.deny_reason(briefed("long-running:builder", f"{mac}order o1, job j13")).startswith(
-        "refused: builders already wait their turn for a slot on this Mac ahead of it, earliest due first (j1, j11, j10), so this one waits:"
-    )
+    assert agent_brief.deny_reason(briefed("long-running:builder", f"{mac}order o1, job j13")).startswith(f"{owed} this one waits:")
     assert state.load(demo)["jobs"]["j13"]["waits"] == []
-    with state.edit(demo) as data:
-        data["jobs"]["j1"].update(waits=[], slot=state.stamp())
     assert agent_brief.deny_reason(briefed("long-running:builder", f"{sprite}order o3, job j1")) is None
-    assert agent_brief.deny_reason(briefed("long-running:builder", f"{mac}order o2, job j11")).startswith("refused: j11 waits its turn for a builder slot on this Mac, 1 of 2 in line.")
+    assert (place.waiting_builders(state.load(demo)), state.load(demo)["jobs"]["j1"]["waits"]) == (["j11", "j10"], [])
+    refused = agent_brief.deny_reason(briefed("long-running:builder", f"{mac}order o2, job j11"))
+    assert refused.startswith("refused: 8 builders already run on this Mac, its cap of 8 (j1 on o3, its agent launching since ")
+    assert "so j11 waits its turn for a builder slot on this Mac, 1 of 2 in line." in refused
 
 
 def test_an_open_incidents_fix_builder_and_an_immediate_fix_start_here_at_once_while_eight_hold_the_slots_and_others_start_on_a_sprite(demo: str, run: Run) -> None:

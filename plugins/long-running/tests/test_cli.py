@@ -6635,20 +6635,20 @@ def test_job_add_sends_a_builder_past_the_macs_cap_or_behind_its_line_to_a_sprit
     assert run("job", "add", "builder", "--order", "o1", "--part", "strip 9", "--goal", "land", "--repo", "yasyf/cc-skills")[0] == 0
     assert state.load(demo)["jobs"]["j9"]["state"] == "running"
     with state.edit("demo") as data:
-        data["jobs"]["j9"].update(state.local_lane("dispatch-9"))
+        data["jobs"]["j9"].update(state.local_lane("dispatch-9"), turn_open=True)
     mac_only = f"one whose brief declares a step only this Mac runs, on {place.MAC_LINES}, waits its turn for a slot here once its agent starts"
     code, added = run("job", "add", "builder", "--order", "o1", "--part", "strip 10", "--goal", "land", "--repo", "yasyf/cc-skills")
     added_id, sprite, *_ = added.splitlines()
     assert (code, added_id) == (0, "j10")
     assert sprite.startswith("j10 starts on a Sprite at once, since 8 builders already run on this Mac, its cap of 8 (j2 on o1")
-    assert sprite.endswith(f"; j9 on o1, its Orca lane dispatch-9, not ended): drive job launch j10 <brief>; {mac_only}")
+    assert sprite.endswith(f"; j9 on o1, its Orca lane dispatch-9, in its turn): drive job launch j10 <brief>; {mac_only}")
     routed = state.load(demo)["jobs"]["j10"]
     assert (routed["state"], routed["waits"], routed["agent"], routed["where"]) == ("running", [], None, "remote")
     with state.edit("demo") as data:
         data["jobs"]["j2"]["state"] = "done"
         place.queue(data["jobs"]["j10"], state.now())
     assert run("job", "add", "builder", "--order", "o1", "--part", "strip 11", "--goal", "land", "--repo", "yasyf/cc-skills")[1].splitlines()[1] == (
-        "j11 starts on a Sprite at once, since builders already wait their turn for a slot on this Mac ahead of it, earliest due first (j10):"
+        "j11 starts on a Sprite at once, since 7 of this Mac's 8 builder slots are held and the rest are owed to builders waiting their turn ahead of it, earliest due first (j10):"
         f" drive job launch j11 <brief>; {mac_only}"
     )
     assert place.waiting_builders(state.load(demo)) == ["j10"]
