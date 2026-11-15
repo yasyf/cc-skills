@@ -3778,7 +3778,7 @@ def pr_set(args: argparse.Namespace) -> int:
         refuse_a_crossed_order(name, known, order, args.serves, f"{key} --serves")
     if (args.serves or args.design) and (refused := state.held_elsewhere(known, order, os.environ.get("CLAUDE_CODE_SESSION_ID"))):
         raise DriveError(f"{key}: refused, nothing set: {refused}")
-    if args.serves and (unwritten := served.unwritten(key, served.owed(known, key, brief.bound(name, known, known["jobs"][before["job"]])[0], served.change(key)))):
+    if args.serves and (unwritten := served.unwritten(key, served.owed(known, key, brief.bound(name, known, known["jobs"][before["job"]])[0], {member: served.change(member) for member in land.landing_stacks(known).get(key, (key,))}))):
         raise DriveError(f"{key}: refused, nothing set: {unwritten}; push and set it again")
     answered = served.answers(known, [args.design], view.live_cards(name)) if args.design else None
     if args.serves and not args.design and (known["prs"][key]["wants_tap"] if args.tap is None else args.tap):
