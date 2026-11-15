@@ -560,6 +560,19 @@ def test_github_is_read_for_every_pr_at_a_watchs_start_no_watch_handed_its_owed_
     assert calls == [[KEY, OTHER], [OTHER], [KEY], [KEY, OTHER]]
 
 
+def test_a_watch_reading_github_by_another_query_than_the_watch_that_handed_it_its_reads_reads_every_pr_whole(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(watch, "run_pass", REAL_RUN_PASS)
+    with state.edit(demo) as data:
+        data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"head": "aaaaaaa111", "wants_tap": False}
+    calls = serve(monkeypatch, {KEY: read(), OTHER: read()})
+    watching = watcher(demo)
+    watch.run_pass(watching, T0)
+    watch.keep_unposted(watching)
+    monkeypatch.setattr(state, "READ_MARK", "the query of a newer install")
+    run_watch(demo, monkeypatch)
+    assert calls == [[KEY, OTHER], [KEY, OTHER]]
+
+
 def test_a_push_to_their_base_reads_only_the_mergeability_of_the_prs_it_names_saying_a_conflict_it_starts_and_reads_whole_one_whose_head_moved(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
