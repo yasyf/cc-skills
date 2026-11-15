@@ -120,6 +120,7 @@ class Watcher:
     unhookable: set[str] = field(default_factory=set)
     agent_gaps: dict[str, str | None] = field(default_factory=dict)
     made: list[str] = field(default_factory=list)
+    resume: str | None = None
     unsent: dict[str, list[str]] = field(default_factory=dict)
     down: str | None = None
     dashboard_down: bool = False
@@ -4165,10 +4166,10 @@ def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
     return [line for lines in passed(watcher, moment) for line in lines]
 
 
-def passed(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
-    """The coordinator's lines of one pass as each stage returns, first none, as the communicator, the meta session and the coordinator are each sent again what failed to post to them before, then each stage's, its lines for the communicator or the meta session posted to them as it returns, so a pass that reads each lane from Orca for minutes says what GitHub and the lanes said in its first minute then, not at its end. A stage's lines join the watcher's made lines first, so a pass that ends early, in a crash or on the error its relay ended on, which it ends on after the stage it ran beside, leaves those not yet handed to the watch process after it."""
+def passed(watcher: Watcher, moment: datetime, until: Callable[[], object] = lambda: None) -> Iterator[list[str]]:
+    """The coordinator's lines of one pass as each stage returns, first none, as the communicator, the meta session and the coordinator are each sent again what failed to post to them before, then each stage's, its lines for the communicator or the meta session posted to them as it returns, so a pass that reads each lane from Orca for minutes says what GitHub and the lanes said in its first minute then, not at its end; the pass ends before any stage after its first ones once until answers, as the watch's loop asks whether a newer long-running is installed, the stage it ends before kept as the watcher's resume. A stage's lines join the watcher's made lines first, so a pass that ends early, in a crash or on the error its relay ended on, which it ends on after the stage it ran beside, leaves those not yet handed to the watch process after it."""
     yield handed(watcher, [], moment)
-    for lines in stages(watcher, moment):
+    for lines in stages(watcher, moment, until):
         watcher.made += lines
         if watcher.relay_error:
             raise watcher.relay_error
@@ -4176,12 +4177,13 @@ def passed(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
             yield said
 
 
-def stages(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
-    """The lines of each stage of one loop of the watch, as it returns: first the lines its relay made since the last pass, so a pass that crashes while it reads every live lane's mail holds back none it already had, and new events, so a return `drive job report` took in another process is said in the pass its event wakes, then each part a job drive job add recorded not started leaves with no one, on every pass after the watch's first, so its ORPHAN comes on time whatever the length of a pass, then the drive's own Orca terminal every Orca call speaks as, his cards and the messages of his cc-slack owes an answer, the GitHub reads it owes, the staging test of each PR whose new head changes a dangerous class of file, his card on each kept question none drew yet, a lander on each PR his Approve covers that qualifies, the finish of each builder whose READY's PRs all merged, DONE at the merge of a product change or the proof of a yasyf/* one, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, where each merged PR a release wait or an incident fix names runs, each Buildkite build a wait names or a part follows that is newly held or a delivery of Buildkite's named, the status message of each build a part follows, the waits his answers, a job's end, that read or the Buildkite read release or hold again, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, each builder's PUSHED GitHub's read settles, agents, the chains of waits that stood unmoved, the texts jobs hold that no worker taking messages gets, the communicator's compaction, the status page, a coordinator whose process exited, a dashboard whose server exited, the receiver, each teammate thread an order watches and each message of his cc-slack owes an answer every 60 s, his PR cards whose rows went stale, and GitHub again next poll after a failure, events written since, its own stages' among them, then the GitHub reads they and the rest owe while its last read answered, so a delivery is read in the pass it wakes, the catch-up owed him, the daily Slack sweep's drive tooling orders, claims whose end passed, the line owed in each thread whose order or incident has news, job clocks run out, his answers no resume has carried to their jobs, each answer order left nothing owed, fixes proven live whose bug report has not heard, the next pass of each standing part no job holds, and parts nothing carries. A stage that keeps working after its save joins the lines it made by then to the watcher's made lines itself."""
+def stages(watcher: Watcher, moment: datetime, until: Callable[[], object]) -> Iterator[list[str]]:
+    """The lines of each stage of one loop of the watch, as it returns: first the lines its relay made since the last pass, so a pass that crashes while it reads every live lane's mail holds back none it already had, and new events, so a return `drive job report` took in another process is said in the pass its event wakes, then each part a job drive job add recorded not started leaves with no one, on every pass after the watch's first, so its ORPHAN comes on time whatever the length of a pass, then the drive's own Orca terminal every Orca call speaks as, his cards and the messages of his cc-slack owes an answer, the GitHub reads it owes, the staging test of each PR whose new head changes a dangerous class of file, his card on each kept question none drew yet, a lander on each PR his Approve covers that qualifies, the finish of each builder whose READY's PRs all merged, DONE at the merge of a product change or the proof of a yasyf/* one, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, where each merged PR a release wait or an incident fix names runs, each Buildkite build a wait names or a part follows that is newly held or a delivery of Buildkite's named, the status message of each build a part follows, the waits his answers, a job's end, that read or the Buildkite read release or hold again, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, each builder's PUSHED GitHub's read settles, agents, the chains of waits that stood unmoved, the texts jobs hold that no worker taking messages gets, the communicator's compaction, the status page, a coordinator whose process exited, a dashboard whose server exited, the receiver, each teammate thread an order watches and each message of his cc-slack owes an answer every 60 s, his PR cards whose rows went stale, and GitHub again next poll after a failure, events written since, its own stages' among them, then the GitHub reads they and the rest owe while its last read answered, so a delivery is read in the pass it wakes, the catch-up owed him, the daily Slack sweep's drive tooling orders, claims whose end passed, the line owed in each thread whose order or incident has news, job clocks run out, his answers no resume has carried to their jobs, each answer order left nothing owed, fixes proven live whose bug report has not heard, the next pass of each standing part no job holds, and parts nothing carries. Each stage after the orphans is named by its function: the pass starts those at the watcher's resume when one of them bears its name, so the watch after one that ended mid-pass for a newer install runs only the stages that one had not, and ends before the first one it reaches once until answers, keeping that one's name as the resume. A stage that keeps working after its save joins the lines it made by then to the watcher's made lines itself."""
     yield drained(watcher.relayed)
     yield event_lines(watcher)
     if watcher.read_at is not None:
         yield orphan_lines(watcher, moment, NotStarted)
+    later: list[functools.partial] = []
     if watcher.read_at is None or moment - watcher.read_at >= READ_EVERY:
         watcher.read_at = moment
         try:
@@ -4195,57 +4197,63 @@ def stages(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
         found, source = view.stored_cards(watcher.name)
         watcher.cards = found if source == "live" else None
         watcher.redrawn_whole = set()
-        yield github_lines(watcher, moment, polled=True)
-        yield main_lines(watcher, moment)
-        yield dangerous_lines(watcher, moment)
-        yield reach_lines(watcher, moment)
-        yield carried_lines(watcher, moment)
-        checks(watcher, moment)
-        yield stage_lines(watcher, moment)
-        draw_questions(watcher, moment)
-        landed(watcher, moment)
-        yield settle_lines(watcher, moment)
-        yield follow_lines(watcher, moment)
-        yield serving_lines(watcher, moment)
-        yield build_lines(watcher, moment)
-        yield status_lines(watcher, moment)
-        yield waits_lines(watcher, moment)
-        yield folded_lines(watcher, moment)
-        yield finished(watcher, moment)
-        yield recovered_lines(watcher, moment)
-        yield owner_page_lines(watcher, moment)
-        yield close_report_lines(watcher, moment)
-        yield waiting_lines(watcher, moment)
-        yield answer_lines(watcher, moment)
-        yield noted_lines(watcher, moment)
-        yield lane_lines(watcher, moment)
-        release_lanes(watcher, moment)
-        yield pushed_lines(watcher, moment)
-        yield agent_lines(watcher, moment)
-        yield stall_lines(watcher, moment)
-        carry_held(watcher, moment)
-        yield compact_lines(watcher, moment)
-        yield page_lines(watcher, moment)
-        yield down_lines(watcher, moment)
-        yield dashboard_lines(watcher)
-        yield receiver_lines(watcher, moment)
-        yield watched_lines(watcher, moment)
-        yield owed_lines(watcher, moment)
-        yield redraw_lines(watcher, moment)
-    yield event_lines(watcher)
-    if "github" not in watcher.failures:
-        yield github_lines(watcher, moment)
-    yield catch_up_lines(watcher, moment)
-    yield sweep_lines(watcher, moment)
-    yield claim_reply_lines(watcher, moment)
-    yield claim_lines(watcher, moment)
-    yield quiet_lines(watcher, moment)
-    yield clock_lines(watcher, moment)
-    yield undelivered_lines(watcher, moment)
-    close_answered(watcher, moment)
-    yield tell_lines(watcher, moment)
-    yield standing_lines(watcher, moment)
-    yield orphan_lines(watcher, moment)
+        later = [
+            functools.partial(github_lines, watcher, moment, polled=True),
+            *(
+                functools.partial(stage, watcher, moment)
+                for stage in (
+                    main_lines,
+                    dangerous_lines,
+                    reach_lines,
+                    carried_lines,
+                    checks,
+                    stage_lines,
+                    draw_questions,
+                    landed,
+                    settle_lines,
+                    follow_lines,
+                    serving_lines,
+                    build_lines,
+                    status_lines,
+                    waits_lines,
+                    folded_lines,
+                    finished,
+                    recovered_lines,
+                    owner_page_lines,
+                    close_report_lines,
+                    waiting_lines,
+                    answer_lines,
+                    noted_lines,
+                    lane_lines,
+                    release_lanes,
+                    pushed_lines,
+                    agent_lines,
+                    stall_lines,
+                    carry_held,
+                    compact_lines,
+                    page_lines,
+                    down_lines,
+                )
+            ),
+            functools.partial(dashboard_lines, watcher),
+            *(functools.partial(stage, watcher, moment) for stage in (receiver_lines, watched_lines, owed_lines, redraw_lines)),
+        ]
+    later += [
+        functools.partial(event_lines, watcher),
+        *(functools.partial(stage, watcher, moment) for stage in (github_owed_lines, catch_up_lines, sweep_lines, claim_reply_lines, claim_lines, quiet_lines, clock_lines, undelivered_lines, close_answered, tell_lines, standing_lines, orphan_lines)),
+    ]
+    names = [stage.func.__name__ for stage in later]
+    resume, watcher.resume = watcher.resume, None
+    for stage in later[names.index(resume) if resume in names else 0 :]:
+        if until():
+            watcher.resume = stage.func.__name__
+            return
+        yield stage() or []
+
+
+def github_owed_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """The GitHub reads the pass's stages and deliveries owe, unless its last GitHub read failed, which the next 60-second read retries."""
+    return [] if "github" in watcher.failures else github_lines(watcher, moment)
 
 
 def post_lines(watcher: Watcher, moment: datetime) -> list[str]:
@@ -4675,7 +4683,7 @@ def main(drive_name: str | None = None, project: str | None = None) -> int:
         while holder(state.monitor_pid_path(name)):
             time.sleep(POLL_SECONDS)
         held = state.take_held_reads(name, project)
-        owes = {"owed": set(held["owed"]), "merging": set(held["merging"]), "stale": set(held["stale"]), "untracked": held["untracked"]} if held else {}
+        owes = {"owed": set(held["owed"]), "merging": set(held["merging"]), "stale": set(held["stale"]), "untracked": held["untracked"], "resume": held.get("resume")} if held else {}
         watching(Watcher(name, offset=state.watch_cursor(name, project), project=project, cards=view.live_cards(name), made=state.take_held_lines(name, project), **owes))
     finally:
         release(name, project)
@@ -4683,17 +4691,18 @@ def main(drive_name: str | None = None, project: str | None = None) -> int:
 
 
 def watching(watcher: Watcher) -> None:
-    """Hand each pass's lines to whoever acts on them as each of its stages returns, first any a watch before this one held for it, and end before a pass once a newer long-running is installed, so its launch agent starts the watch on that install; a crash wakes the coordinator session it posts to first, and a relay process that ended before the watch ended it stops it at the next stage of its pass, or before its next pass. Every line made and not yet posted is held for the watch after this one, which hands it on before its first pass."""
+    """Hand each pass's lines to whoever acts on them as each of its stages returns, first any a watch before this one held for it, and end once a newer long-running is installed, before a pass or between two of a pass's stages, saying so in its log, so its launch agent starts the watch on that install within RESTART_SECONDS of the stage running then, however long a pass runs, and the watch there runs the stages this one had not; a crash wakes the coordinator session it posts to first, and a relay process that ended before the watch ended it stops it at the next stage of its pass, or before its next pass. Every line made and not yet posted is held for the watch after this one, which hands it on before its first pass."""
     state.save_watch_cursor(watcher.name, watcher.offset, watcher.project)
     try:
         with relaying(watcher):
             for _ in rests(watcher.name):
-                if upgraded():
+                if newer := upgraded():
+                    print(f"ended on long-running {state.VERSION} for {newer}, before {watcher.resume or 'its next pass'}", flush=True)
                     break
                 if watcher.relay_error:
                     raise watcher.relay_error
                 read_from, moment = watcher.offset, state.now()
-                for said in [handed(watcher, watcher.made, moment)] if watcher.made else passed(watcher, moment):
+                for said in [handed(watcher, watcher.made, moment)] if watcher.made else passed(watcher, moment, upgraded):
                     for line in sent(watcher, watcher.lane, said, moment):
                         print(line, flush=True)
                 if watcher.offset != read_from:
@@ -4716,9 +4725,9 @@ def rests(name: str) -> Iterator[None]:
 
 
 def keep_unposted(watcher: Watcher) -> None:
-    """Move each line the watch made and has not posted, routed or not, to the watch process after it, which hands them on before its first pass and reads events from past the last one they were made from, and, once it read GitHub, the reads it still owes, so the watch after it reads those and the PRs the deliveries past that event name, never every PR again unless it reads GitHub by another query."""
+    """Move each line the watch made and has not posted, routed or not, to the watch process after it, which hands them on before its first pass and reads events from past the last one they were made from, and, once it read GitHub, the reads it still owes and the stage it ended its pass before, so the watch after it reads those and the PRs the deliveries past that event name, never every PR again unless it reads GitHub by another query, and starts its first pass's later stages at that one."""
     state.save_watch_cursor(watcher.name, watcher.offset, watcher.project)
     state.hold_lines(watcher.name, watcher.project, [LINE_BREAKS.sub(" ", line) for line in [*watcher.made, *drained(watcher.relayed), *(line for lines in watcher.unsent.values() for line in lines)]])
     if watcher.owed is not None:
-        state.hold_reads(watcher.name, watcher.project, {"owed": sorted(watcher.owed), "merging": sorted(watcher.merging), "stale": sorted(watcher.stale), "untracked": watcher.untracked})
+        state.hold_reads(watcher.name, watcher.project, {"owed": sorted(watcher.owed), "merging": sorted(watcher.merging), "stale": sorted(watcher.stale), "untracked": watcher.untracked, "resume": watcher.resume})
     watcher.made, watcher.unsent = [], {}
