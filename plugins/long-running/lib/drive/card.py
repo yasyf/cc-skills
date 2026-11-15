@@ -32,7 +32,8 @@ STACK_CHARS = 700
 LEAD_LABELS = (("why", "Why this exists"), ("what", "What changes"), ("downstream", "Downstream"))
 HATE_HEADINGS = ("what you'll hate most", "what you will hate most", "what you'll hate the most", "what you will hate the most")
 PLAN_HEADINGS = ("against the plan", "differs from the plan", "plan deviations")
-SHOWN_HEADINGS = ("summary", *REFRESHER_HEADINGS, "biggest surprise", *HATE_HEADINGS, "show me", *PLAN_HEADINGS, "port", STACK_HEADING)
+IMPACT_HEADINGS = ("fde impact", "fde impact scan")
+SHOWN_HEADINGS = ("summary", *IMPACT_HEADINGS, *REFRESHER_HEADINGS, "biggest surprise", *HATE_HEADINGS, "show me", *PLAN_HEADINGS, "port", STACK_HEADING)
 CONVENTIONAL_KINDS = {
     "fix": "Fix",
     "feat": "New",
@@ -331,6 +332,7 @@ def render(pr: dict, entry: dict, shown: tuple[str, ...] = (), held: tuple[str, 
         "changed": entry.get("fundamental") or "",
         "review": f"Commit {entry['head'][:7]} goes against your words: {named}. {'Your Approve still lands it' if tap_label(entry) == 'Approve' else 'Its agent is told; your Approve still lands it'}" if pr["state"] == "OPEN" and (named := state.against(entry)) else "",
         "summary": section_words(found, "summary"),
+        "impact": section_words(found, *IMPACT_HEADINGS),
         "refresher": section_words(found, *REFRESHER_HEADINGS) or comment_refresher(pr),
         "surprise": section_words(found, "biggest surprise"),
         "hate_most": section_words(found, *HATE_HEADINGS),

@@ -102,6 +102,7 @@ const REPORTS = {
 const REPORT_WORD = new RegExp(`^(${Object.keys(REPORTS).join('|')})\\b[:,.]?\\s*`);
 const FILE_WORDS = { brief: 'Brief', report: 'Report', question: 'Question', repro: 'Reproduction', transcript: 'Transcript' };
 const PR_FIELDS = [
+  ['impact', 'FDE impact'],
   ['refresher', 'In plain words'],
   ['surprise', 'Biggest surprise'],
   ['hate_most', "What you'll hate most"],
