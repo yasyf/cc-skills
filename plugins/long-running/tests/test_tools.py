@@ -1645,7 +1645,7 @@ def test_his_answer_settling_a_finished_readers_question_is_held_on_the_builder_
     assert 'verbatim: "one subject has one card"' in drive["jobs"]["j2"]["undelivered"][0]["words"]
     tools.run("job", demo, {"ops": [{"brief": {"id": "j2"}}]})
     written = (state.drive_dir(demo) / "jobs" / "j2.brief.md").read_text()
-    assert f"Decisions that bind:\n- {ANSWER['title']} (73060f0)\n" in written and "\nResearched: j1\n" in written and "\nServes: his order\n" in written
+    assert f"Decisions that bind:\n- {ANSWER['title']} (73060f0, 2026-11-12T11:33:00Z)\n" in written and "\nResearched: j1\n" in written and "\nServes: his order\n" in written
     watching = watch.Watcher(demo, offset=state.events_end(demo))
     with state.edit(demo) as data:
         data["jobs"]["j1"]["questions"].append(state.new_question(second, "Which card keeps the thread?", state.stamp()) | {"waits": "demo:j1-673190"})
@@ -1831,8 +1831,7 @@ def test_a_brief_carries_his_order_and_each_rulings_words_without_the_drives_not
     )
     assert state.load(demo)["orders"]["o1"]["owner"] == "meta"
     written = path.read_text()
-    assert written.startswith(f"Order (his words): do a pass on the tools\nFrom: slack:D123/{THREAD}\nServes: drive tooling\nGoal: make the verbs MCP tools\n")
-    assert f"Decisions that bind:\n- {ANSWER['title']} (73060f0)\n  {ANSWER['body'].splitlines()[0]}\n" in written
+    assert written.startswith(f"Order (his words): do a pass on the tools\nFrom: slack:D123/{THREAD}\nServes: drive tooling\nDecisions that bind:\n- {ANSWER['title']} (73060f0, 2026-11-12T11:33:00Z)\n  {ANSWER['body'].splitlines()[0]}\nGoal: make the verbs MCP tools\n")
     assert "cci owner 660781" not in written
     assert written.endswith("Drive: demo, order o1, job j2\n")
     assert state.load(demo)["jobs"]["j2"]["brief"] == str(path)

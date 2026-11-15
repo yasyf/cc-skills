@@ -76,6 +76,14 @@ OVERRULED_RULE = (
     ' his words stand until he lifts them, by his words "Cloud tree own cap and skipping safe mode also ok I fucking said to do'
     ' those why are you undoing my work".'
 )
+AGAINST_CARD = Noul(
+    "Does `card.text` itself, apart from what any one option builds, go against `words.{slot}.said`, such as asking him in the terms of a design his words set aside?",
+    no="The card asks what his words leave open, or how to do what they say.",
+)
+REPLACES = Noul(
+    "Does `answer.said`, his newer answer to `answer.asked`, replace `words.{slot}.said`, his earlier answer to `words.{slot}.asked`, so building to the earlier goes against the newer, as an order to design something from scratch replaces his rulings on the design it starts over?",
+    no="The newer answer leaves the earlier standing beside it, or speaks to something else.",
+)
 DECIDING = Noul(
     "Does `answers.{answer}.said`, his answer to `answers.{answer}.asked`, choose one of `card.options` or make `card.question` moot, so the card asks him nothing his answer leaves open?",
     no='The card still asks something his answer does not settle. A bare option number answers only the card it was typed on, and a question of his answers no card, one proposing a way such as "could we X?" or "why not just X?" included.',
@@ -156,6 +164,14 @@ NARROWS = Noul(
     "Does `design` build less than `words.{slot}.said` name, or build part of it later, with no question in `forks` asking him about it?",
     yes="It leaves out, defers to a later change or trigger, or narrows what they name, such as building one of several strategies he approved while the others wait, or decides such a cut on its own because it is cheap to reverse.",
     no="It builds all they name, or a question in `forks` asks him about what it leaves out.",
+)
+CONTRADICTS = Noul(
+    "Does a line of `design` keep, reuse or build on what `words.{slot}.said` set aside, or otherwise go against them, such as reusing the code that exists where his words order it built from scratch?",
+    no="Each line does what his words say or what they leave open, and naming code that exists as evidence of what must keep working goes against nothing.",
+)
+CONTRADICTING = Noul(
+    "Does `design.{line}` keep, reuse or build on what `words.said` set aside, or otherwise go against them?",
+    no="The line does what his words say or what they leave open, or names code that exists only as evidence of what must keep working.",
 )
 STRATEGIES = Noul("Do `words` or `design` name several strategies for one job, such as the partition strategies a table picks by its usage?")
 ABSTRACTION_FIRST = Noul(
@@ -542,9 +558,8 @@ def line_items(lined: Sequence[tuple[str, list[dict]]]) -> Iterator[tuple[dict, 
 
 
 def line_read(lined: Sequence[tuple[str, list[dict]]]) -> list[tuple[str, dict, float]]:
-    """Each line beside the recorded answer of his Jev reads likeliest as going against it or asking him again, and how sure Jev is of it, NO or more, in one request of a LINE Noul for each line beside each recorded answer of his found for it; a line Jev reads under NO for every answer, or the request has no room for, is left out; Unheard when Jev gives no reading."""
-    request, questions, _ = fill({}, {}, line_items(lined))
-    read = jev(request, questions) if questions else {}
+    """Each line beside the recorded answer of his Jev reads likeliest as going against it or asking him again, and how sure Jev is of it, NO or more, in as many requests as batched needs of a LINE Noul for each line beside each recorded answer of his found for it; a line Jev reads under NO for every answer is left out; Unheard when Jev gives no reading."""
+    read = jev_all(batched({}, {}, line_items(lined)))
     picks = []
     for number, (line, found) in enumerate(lined, 1):
         sure = {answer["id"]: read[key] for answer in found if (key := f"{LINE_KEY}{number}.{answer['id']}") in read}
@@ -557,7 +572,7 @@ def line_read(lined: Sequence[tuple[str, list[dict]]]) -> list[tuple[str, dict, 
 
 
 def overruled(lines: list[str], data: dict) -> list[tuple[str, dict]]:
-    """Each of these lines `line_read` reads at YES or more, against the recorded answers of his `line_answers` finds for it, as saying no ruling of his covers, putting up for change or asking him again an item that answer, given before it, orders or keeps, beside that answer; a line the request has no room for goes unread; Unheard when Jev gives no reading."""
+    """Each of these lines `line_read` reads at YES or more, against the recorded answers of his `line_answers` finds for it, as saying no ruling of his covers, putting up for change or asking him again an item that answer, given before it, orders or keeps, beside that answer; Unheard when Jev gives no reading."""
     return [(line, answer) for line, answer, sure in line_read(line_answers(lines, data)) if reading(sure)]
 
 
@@ -586,7 +601,7 @@ def judged(
     settling: frozenset[str] = frozenset(),
     lines: Sequence[tuple[str, list[dict]]] = (),
 ) -> tuple[tuple[dict, str] | None, list[str], dict | None]:
-    """Print on stderr each part of a card Jev reads as going against his words, in one request holding the card and, filled by whole items, the recorded answers the card cites, his rulings `limits.rule_words` names beside them, then his other words: one Noul for each option and each of his words or rulings that could rule it out, each cited answer the card could say it goes against, each ruling the card itself could break, each of his words naming an amount or choice the card could leave untapped, each option the card could leave unworked, and each open card of his among `cards` it could ask again, and beside it `line_read` of each line of the card `lines` holds against the recorded answers of his `line_answers` found for it, a request of its own so the card's words never crowd its lines out. A Noul at YES or more is a finding and one in the band between NO and YES is printed as unsure, and each refuses nothing, by his pick 320b7a7 "Advisory judge: drive job ask keeps every well-shaped card and prints Jev's finding to the agent; no card is refused on merits". His ruling on root causes is weighed on the card alone, never per option, since it speaks only to the option the card recommends and its Root cause line, and an option left unworked is no finding on a card asking only whether or when to release something. Return the recorded answer or ruling of his the card asks him to lift, beside the option that breaks it, at YES or more: the cited answer the card says its recommended option goes against first, else one his words show the recommended option breaks, else the first that rules out any other option, since offering an option his words rule out asks him to lift them too, but never by another option alone an answer that already answers the card, one of `settling`, which its Already answered tap carries, or one Jev reads at YES or more as already ordering or keeping what a line of the card asks, since an option his answer did not choose asks him to lift nothing; None when Jev reads none, and when Jev gives no reading, which leaves the card to him, said on stderr. Beside it come the waits ids of the open cards Jev reads at YES or more as asked again, and last the answer of his Jev reads likeliest for a line of the card, at YES or more, as already ordering or keeping what the line asks, with where he gave it, for `drive job ask` to print with its exits, one read in the band between NO and YES printed once as unsure, refusing and skipping nothing, by his picks 320b7a7, 679484 and 692284."""
+    """Print on stderr each part of a card Jev reads as going against his words, in as many requests as batched needs to hold the card beside every item whole, the recorded answers the card cites, his rulings `limits.rule_words` names beside them, then his other words, his spec on the feature newest first among them, by brief.spec: one Noul for each option and each of his words or rulings that could rule it out, each cited answer the card could say it goes against, each of his words or rulings the card itself, apart from any one option, could go against, since a card asking in the terms of a design his words set aside asks him to lift them, each of his words naming an amount or choice the card could leave untapped, each option the card could leave unworked, and each open card of his among `cards` it could ask again, and beside it `line_read` of each line of the card `lines` holds against the recorded answers of his `line_answers` found for it, a request of its own so the card's words never crowd its lines out. A Noul at YES or more is a finding and one in the band between NO and YES is printed as unsure, and each refuses nothing, by his pick 320b7a7 "Advisory judge: drive job ask keeps every well-shaped card and prints Jev's finding to the agent; no card is refused on merits". His ruling on root causes is weighed on the card alone, never per option, since it speaks only to the option the card recommends and its Root cause line, and an option left unworked is no finding on a card asking only whether or when to release something. Return the recorded answer or ruling of his the card asks him to lift, beside the option that breaks it, at YES or more: the cited answer the card says its recommended option goes against first, else one his words show the recommended option breaks, else the first that rules out any other option, since offering an option his words rule out asks him to lift them too, but never by another option alone an answer that already answers the card, one of `settling`, which its Already answered tap carries, or one Jev reads at YES or more as already ordering or keeping what a line of the card asks, since an option his answer did not choose asks him to lift nothing; None when Jev reads none, and when Jev gives no reading, which leaves the card to him, said on stderr. Beside it come the waits ids of the open cards Jev reads at YES or more as asked again, and last the answer of his Jev reads likeliest for a line of the card, at YES or more, as already ordering or keeping what the line asks, with where he gave it, for `drive job ask` to print with its exits, one read in the band between NO and YES printed once as unsure, refusing and skipping nothing, by his picks 320b7a7, 679484 and 692284."""
     rules = limits.rule_words(case)
     near = {word["id"] for word in words}
     cited_ids = {answer["id"] for answer in cited}
@@ -609,13 +624,12 @@ def judged(
             breaks
             | ({f"untapped.{key}": asking(UNTAPPED, slot=slot)} if key in near else {})
             | ({f"says.{key}": asking(SAYS, slot=slot)} if key in cited_ids else {})
-            | ({f"card.{key}": asking(BREAKS_CARD, slot=slot)} if "rule" in word else {})
+            | {f"card.{key}": asking(BREAKS_CARD if "rule" in word else AGAINST_CARD, slot=slot)}
         )
 
     weighs = (({"words": {slots[word["id"]]: {field: word[field] for field in ("asked", "said", "rule") if field in word}}}, nouls(word)) for word in ordered)
-    request, questions, _ = fill(base, fixed, weighs)
     try:
-        read = jev(request, questions)
+        read = jev_all(batched(base, fixed, weighs))
         picked = line_read(lines)
     except Unheard as failure:
         print(f"drive job ask: Jev gave no reading of this question against his words, so it goes to him: {failure}", file=sys.stderr)
@@ -858,30 +872,35 @@ def asking(noul: Noul, **slots: object) -> Noul:
     return noul._replace(ask=noul.ask.format(**slots))
 
 
-def fill(state: dict, questions: dict[str, Noul], items: Iterable[tuple[dict, dict[str, Noul]]]) -> tuple[dict, dict[str, Noul], list[tuple[dict, dict[str, Noul]]]]:
-    """The request holding the state and questions given, then each item's state and questions, whole, in turn, while the request stays within REQUEST_CHARS, by his words "jev should be getting like 10k chars at most for any call": an item with no room is left out whole, never cut, and a later smaller one still goes in; beside it, the items left out."""
+def fill(state: dict, questions: dict[str, Noul], items: Iterable[tuple[dict, dict[str, Noul]]], chars: int = REQUEST_CHARS) -> tuple[dict, dict[str, Noul], list[tuple[dict, dict[str, Noul]]]]:
+    """The request holding the state and questions given, then each item's state and questions, whole, in turn, while the request stays within the characters given, REQUEST_CHARS unless less, by his words "jev should be getting like 10k chars at most for any call": an item with no room is left out whole, never cut, and a later smaller one still goes in; beside it, the items left out."""
     left: list[tuple[dict, dict[str, Noul]]] = []
     for part, asked in items:
         merged = joined(state, part)
-        if size(merged, questions | asked) > REQUEST_CHARS:
+        if size(merged, questions | asked) > chars:
             left.append((part, asked))
             continue
         state, questions = merged, questions | asked
     return state, questions, left
 
 
-def jev_whole(state: dict, items: list[tuple[dict, dict[str, Noul]]]) -> tuple[dict[str, float], list[tuple[dict, dict[str, Noul]]]]:
-    """Jev's probability of yes for each question of every item, by question id, for a check whose items no one request holds, such as the drive's release notes, which grow with every note kept: fill packs the state given and the items into as many requests as they need, each within REQUEST_CHARS, and Jev reads them at once, each request on a thread of its own, as spawnllm's own decide runs decide_sync; beside it, the items too large for any request alone. Unheard when any request went unanswered."""
-    requests = []
-    while items:
-        told, questions, left = fill(state, {}, items)
-        if len(left) == len(items):
+def batched(state: dict, questions: dict[str, Noul], items: Iterable[tuple[dict, dict[str, Noul]]], chars: int = REQUEST_CHARS) -> list[tuple[dict, dict[str, Noul]]]:
+    """Requests holding every item whole, as many as they need within the characters given each: the first holds the state and questions given, as fill fills it, and each after it the state alone beside the items still left, so none goes unread for want of room; an item too big for a request of its own is said on stderr, never dropped unsaid."""
+    requests = [fill(state, questions, items, chars)]
+    while left := requests[-1][2]:
+        if len(left) == len((request := fill(state, {}, left, chars))[2]):
+            print(f"drive: {len(left)} item(s) too big for one Jev request of {chars} characters go unread: {', '.join(key for _, asked in left for key in asked) or 'context alone'}", file=sys.stderr)
             break
-        requests.append((told, questions))
-        items = left
-    with ThreadPoolExecutor() as pool:
-        reads = list(pool.map(lambda request: jev(*request), requests))
-    return {key: sure for read in reads for key, sure in read.items()}, items
+        requests.append(request)
+    return [(request, asked) for request, asked, _ in requests]
+
+
+def jev_all(requests: list[tuple[dict, dict[str, Noul]]]) -> dict[str, float]:
+    """Jev's reads of every request asking anything, at once, merged by question id; Unheard when any one gives none."""
+    if not (asking := [request for request in requests if request[1]]):
+        return {}
+    with ThreadPoolExecutor(len(asking)) as pool:
+        return {key: sure for read in pool.map(lambda request: jev(*request), asking) for key, sure in read.items()}
 
 
 def joined(state: dict, part: dict) -> dict:

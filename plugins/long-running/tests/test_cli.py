@@ -5645,6 +5645,23 @@ def test_a_design_building_less_or_later_than_his_words_or_a_strategy_before_the
     )
 
 
+def test_a_design_line_jev_reads_going_against_his_words_is_refused_naming_that_line_and_his_words(
+    run: Run, meta: str, jev: Jev, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", 'Drive tooling: design the store copy "from scratch, reusing none of the HA code"')
+    run("job", "add", "design", "--order", "o1", "--goal", "cards: the store copy")
+    reusing = DESIGNED.replace("Design: one copy per store, in the order the stores list", "Design: one copy per store through sandsql-ha's claim code")
+    line = next(number for number, text in enumerate(reusing.splitlines(), 1) if text.startswith("Design:"))
+    jev.breaks("against0", "o1")
+    jev.breaks("line", str(line))
+    code, err = keep(monkeypatch, capsys, "j1", reusing)
+    assert code == 2
+    assert (
+        f'Jev reads this design\'s line {line}, "Design: one copy per store through sandsql-ha\'s claim code", as going against his words'
+        ' "from scratch, reusing none of the HA code" (his words the order quotes): his words outrank every default of the designer'
+    ) in err
+
+
 def test_a_design_of_several_changes_makes_each_a_part_of_its_order_with_a_builder_waiting_on_the_builder_of_each_earlier_change_its_line_names(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -7797,7 +7814,7 @@ def test_job_brief_keeps_an_earlier_handoff_and_adds_each_ruling_to_the_earlier_
     assert out.splitlines()[-1] == "kept from its earlier brief: --serves, --done-when, --where, --handoff, --ruling"
     assert state.load(demo)["jobs"]["j1"]["brief_flags"]["ruling"] == ["5abdd1a", "c7756f4"]
     assert f"Handoff: {handoff}\n" in written.read_text()
-    assert "(c7756f4)" in written.read_text()
+    assert "(c7756f4, " in written.read_text()
 
 
 def test_job_brief_drops_each_flag_given_an_empty_value_and_names_it_so_a_done_mac_step_stops_placing_the_job_here(run: Run, demo: str) -> None:
@@ -7864,10 +7881,32 @@ def test_job_brief_carries_the_words_of_each_order_the_job_carries_and_each_ruli
     written = Path(out.splitlines()[0].removeprefix("Read your brief first: ")).read_text()
     assert written.startswith("Order (his words): Drive tooling: partition the journal tables\no2, which it also carries: Drive tooling: pick each table's partition by its usage\n")
     assert (
-        "Decisions that bind:\n- Machine profile (7f91d2f)\n  use the machine profile\n- Partition strategies (bc0da25)\n  time, hash by key and spill all ship\n"
-        "- Abstraction first (a6a9980)\n  build the abstraction first\n"
+        "Decisions that bind:\n- Machine profile (7f91d2f, 2026-11-12T11:35:00Z)\n  use the machine profile\n- Abstraction first (a6a9980, 2026-11-12T11:34:00Z)\n"
+        "  build the abstraction first\n- Partition strategies (bc0da25, 2026-11-12T11:33:00Z)\n  time, hash by key and spill all ship\nGoal: partition the tables\n"
     ) in written
     assert "9f3c2e1" not in written
+
+
+def test_job_brief_names_an_answer_his_newer_one_replaced_only_by_that_answer_so_no_builder_reads_its_words_as_binding(
+    run: Run, meta: str, recorded: Answers, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: partition the journal tables")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: pick each table's partition by its usage", "--kind", "build")
+    run("job", "add", "reader", "--order", "o2", "--goal", "research: the partitions")
+    assert keep(monkeypatch, capsys, "j1", RESEARCH.replace("rulings: none on the copy path", 'rulings: bc0da25 "reuse the HA claim"; 7f91d2f "from scratch"')) == (0, "")
+    recorded.shown["bc0da25"] = {"id": "bc0da25e", "title": "Reuse the HA claim", "body": "keep sandsql-ha's claim code", "tags": [], "created_at": "2026-11-12T11:33:00Z", "superseded_by": ["7f91d2fa"]}
+    recorded.shown["7f91d2f"] = {"id": "7f91d2fa", "title": "From scratch", "body": "build it from scratch, reusing none of the HA code", "tags": [], "created_at": "2026-11-12T11:35:00Z"}
+    builder = run("job", "add", "builder", "--order", "o1", "--goal", "partition the tables")[1].splitlines()[0]
+    run("job", "set", "j2", "--state", "stopped")
+    assert run("job", "set", builder, "--carries", "o2")[0] == 0
+    code, out = run("job", "brief", builder, "--serves", "drive tooling", "--done-when", "merged", "--where", "yasyf/cc-skills main")
+    assert code == 0
+    written = Path(out.splitlines()[0].removeprefix("Read your brief first: ")).read_text()
+    assert (
+        "Decisions that bind:\n- From scratch (7f91d2f, 2026-11-12T11:35:00Z)\n  build it from scratch, reusing none of the HA code\n"
+        "- Reuse the HA claim (bc0da25, 2026-11-12T11:33:00Z): replaced by his newer answer 7f91d2f\nGoal: partition the tables\n"
+    ) in written
+    assert "keep sandsql-ha's claim code" not in written
 
 
 def test_job_brief_carries_each_slack_message_its_orders_link_and_refuses_on_one_cc_slack_cannot_read_only_while_nothing_stands_in_for_it(
@@ -9843,6 +9882,27 @@ def test_his_answer_on_a_card_asking_him_to_lift_a_pick_lists_each_open_order_th
     assert (data["orders"]["o2"]["state"], data["orders"]["o2"]["withdrawn"], data["jobs"]["j3"]["state"], superseding) == ("dropped", PICK, "stopped", [("9992100", "a1")])
 
 
+def test_his_answer_supersedes_in_cc_notes_each_older_standing_answer_on_its_feature_jev_reads_it_replacing(
+    run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], recorded: Answers, jev: Jev
+) -> None:
+    run("order", "add", "--title", "Isolate helper scripts", "--project", "Iris", "--workstream", "Durable agents", "isolate helper scripts in their own process with a memory cap")
+    run("job", "add", "builder", "--order", "o2", "--goal", "build the separate process once the four PRs merge")
+    with state.edit("demo") as data:
+        data["jobs"]["j2"]["questions"][0]["unsettled"] = "9992100: he ruled the wait on o2's separate process; this card asks whether to build it now"
+        data["jobs"]["j3"].update(state="waiting", agent="agent-3")
+        data["answers"]["9992100"] = {"words": "Wait for the four PRs to merge", "link": PICK, "at": "2026-11-10T00:45:49Z", "said": "2026-11-10T00:45:49Z", "cards": {"o2": {"mark": "stands"}}, "jobs": {}}
+    recorded.shown["9992100"] = {"id": "9992100", "title": "Still build the separate process now?", "body": "Wait for the four PRs to merge\nNotes: Binds order o2", "tags": [], "created_at": "2026-11-10T00:45:49Z"}
+    superseding: list[tuple[str, str]] = []
+    monkeypatch.setattr(settled, "supersede", lambda pick, answer_id, cwd: superseding.append((pick, answer_id)))
+    jev.breaks("replaces", "9992100")
+    cards_asking(monkeypatch, PR)
+    assert cli.main(["answer", "a1", "--words", WORDS, "--link", PICK]) == 2
+    assert 'his answer 9992100 to "Still build the separate process now?" is superseded by a1 in cc-notes, as Jev reads his new words replacing it' in capsys.readouterr().err
+    assert superseding == [("9992100", "a1")]
+    [read] = [asked for asked in jev.asked if "replaces.9992100" in asked["questions"]]
+    assert read["state"]["answer"]["said"] == WORDS
+
+
 def test_his_answer_under_a_pr_card_lists_the_order_a_pick_binds_when_the_record_tool_ended_the_card_asking_to_lift_it_with_his_words(
     run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], recorded: Answers
 ) -> None:
@@ -10125,10 +10185,12 @@ def test_jev_reads_every_option_of_a_card_in_one_request_one_noul_an_option_and_
         *(f"worked{number}.{worked}" for number in (1, 2, 3)),
         f"card.{cause}",
         *(f"breaks{number}.{team}" for number in (1, 2, 3)),
+        f"card.{team}",
         *(f"breaks{number}.{fact}" for number in (1, 2, 3)),
         f"card.{fact}",
         *(f"breaks{number}.{NOT_SPECIAL['id']}" for number in (1, 2, 3)),
         f"untapped.{NOT_SPECIAL['id']}",
+        f"card.{NOT_SPECIAL['id']}",
     ]
     assert questions[f"breaks2.{NOT_SPECIAL['id']}"] == settled.asking(settled.BREAKS, slot="w4", index=1)
     assert questions[f"worked3.{worked}"] == settled.asking(settled.WORKED, index=2)
@@ -10213,7 +10275,7 @@ def test_a_redrawn_card_is_judged_against_the_rulings_its_first_draft_was_never_
         assert capsys.readouterr().err == ""
         request = jev.asked[-1]
         offered.append(([key for key in request["questions"] if key.startswith("card.")], list(handed(request))))
-    assert offered == [(["card.ruling:0c59046", f"card.{limits.FACT_WORDS['id']}"], ["ruling:0c59046", "ruling:32f49af", limits.FACT_WORDS["id"]])] * 2
+    assert offered == [(["card.ruling:0c59046", "card.ruling:32f49af", f"card.{limits.FACT_WORDS['id']}"], ["ruling:0c59046", "ruling:32f49af", limits.FACT_WORDS["id"]])] * 2
     assert "story" not in settled.BREAKS_CARD.ask
 
 
@@ -10227,7 +10289,8 @@ def test_jev_names_the_recorded_answer_or_ruling_it_reads_at_yes_for_the_recomme
     assert DEPARTS in case.splitlines() and "holds the branch" not in case
     cited = {"id": "7a1c0de", "asked": NIGHTLY_EXPORT["title"], "said": NIGHTLY_EXPORT["body"]}
     assert settled.judged(case, asked, [NOT_SPECIAL], [cited], {})[0] is None
-    assert (jev.asked[-1]["questions"]["says.7a1c0de"], handed(jev.asked[-1])["7a1c0de"]) == (settled.asking(settled.SAYS, slot="w1"), {"asked": cited["asked"], "said": cited["said"]})
+    read = next(read for read in jev.asked if "says.7a1c0de" in read["questions"])
+    assert (read["questions"]["says.7a1c0de"], handed(read)["7a1c0de"]) == (settled.asking(settled.SAYS, slot="w1"), {"asked": cited["asked"], "said": cited["said"]})
     jev.breaks("breaks1", NOT_SPECIAL["id"])
     assert settled.judged(case, asked, [NOT_SPECIAL], [cited], {})[0] is None
     jev.breaks("breaks1", "ruling:32f49af")
@@ -10252,6 +10315,17 @@ def test_jev_names_a_ruling_another_option_breaks_at_yes_beside_that_option_afte
     assert settled.judged(case, asked, [NOT_SPECIAL], [], {})[0] == (limits.TEAM_DATA_WORDS, f'option "{asked.options[1]}"')
     jev.breaks("breaks1", "ruling:32f49af")
     assert settled.judged(case, asked, [NOT_SPECIAL], [], {})[0] == (limits.TEAM_DATA_WORDS, "the recommended option")
+
+
+def test_jev_reads_every_one_of_his_words_whole_across_as_many_requests_as_they_need_each_within_the_limit(jev: Jev) -> None:
+    asked = limits.question(AGENT_START, kept=True)
+    case = limits.ask_case(AGENT_START, asked)
+    words = [{"id": f"p{number}", "asked": "his message in the order's thread", "said": f"{number} " + "x" * 2000} for number in range(8)]
+    assert settled.judged(case, asked, words, [], {})[0] is None
+    assert len(jev.asked) > 1
+    assert [read for read in jev.asked if settled.size(read["state"], read["questions"]) > settled.REQUEST_CHARS] == []
+    assert sorted(key for read in jev.asked for key in read["questions"] if key.startswith("untapped.")) == [f"untapped.p{number}" for number in range(8)]
+    assert next(read for read in jev.asked if "untapped.p0" in read["questions"])["questions"]["card.p0"].no == settled.AGAINST_CARD.no
 
 
 def test_job_ask_says_on_stderr_that_jev_gave_no_answer_and_sends_the_question_to_him(

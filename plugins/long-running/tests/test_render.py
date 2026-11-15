@@ -159,6 +159,14 @@ def test_every_role_reads_a_question_proposing_a_way_as_his_order_and_meta_reads
     assert [role for role, text in contexts.items() if "in geernal keeps implifying all this tuff" in text] == ["meta"]
 
 
+def test_every_agent_opens_on_the_skills_one_rule_that_his_words_newest_first_outrank_every_default() -> None:
+    skill = (cli.PAGES.parent / "SKILL.md").read_text()
+    rule = next(line.removeprefix("- ") for line in skill.splitlines() if line.startswith("- His words are the spec:"))
+    agents = sorted((cli.PAGES.parents[2] / "agents").glob("*.md"))
+    assert agents
+    assert [agent.name for agent in agents if not " ".join(agent.read_text().partition("\n---\n")[2].split()).startswith(rule)] == []
+
+
 def test_each_page_naming_drive_tooling_carries_its_one_definition() -> None:
     pages = [cli.PAGES / "communicator.md", cli.PAGES / "meta.md", cli.PAGES / "concepts.md", cli.PAGES.parents[2] / "agents" / "handler.md"]
     assert [page.name for page in pages if state.DRIVE_TOOLING not in page.read_text()] == []

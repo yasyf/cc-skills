@@ -5,6 +5,7 @@ import os
 import re
 import subprocess
 import sys
+import textwrap
 from collections.abc import Iterator
 from pathlib import Path
 from urllib.parse import urlparse
@@ -290,7 +291,7 @@ def release_ask_refusal(kind: str, to: list[str], words: str, data: dict) -> str
 
 
 def release_notes(releases: list[str], data: dict) -> list[str]:
-    """What the drive's release notes, by kept_notes(), say of these releases, each a `ci release start` or `hotfix`, by his ruling 17f763e that the tooling only helps the agent follow the prose rules: Jev reads every release against every note in SPEAKS_TO_START Nouls, in as many requests as settled.jev_whole packs them into, so no note goes unread however many the drive keeps, and each note Jev does not read as silent on one, its unsure band included since a note missed is a cut it forbids offered or started, comes back as one NOTED line naming each release it speaks to with what git says of the PRs and commits its title names at the commit that release cuts, by note_facts(), and the note's words whole, so the agent offering or starting it follows them; one UNNOTED line when cc-notes or Jev gave no reading, or naming each note too large for any request alone. It refuses nothing."""
+    """What the drive's release notes, by kept_notes(), say of these releases, each a `ci release start` or `hotfix`, by his ruling 17f763e that the tooling only helps the agent follow the prose rules: Jev reads every release against every note in SPEAKS_TO_START Nouls, in as many requests as settled.batched packs them into, so no note goes unread however many the drive keeps, and each note Jev does not read as silent on one, its unsure band included since a note missed is a cut it forbids offered or started, comes back as one NOTED line naming each release it speaks to with what git says of the PRs and commits its title names at the commit that release cuts, by note_facts(), and the note's words whole, so the agent offering or starting it follows them; one UNNOTED line when cc-notes or Jev gave no reading, or naming each note too large for any request alone. It refuses nothing."""
     from drive import github
 
     if not releases:
@@ -309,10 +310,11 @@ def release_notes(releases: list[str], data: dict) -> list[str]:
         for note in notes
     ]
     try:
-        read, left = settled.jev_whole({"starts": starts, "notes": {}}, items)
+        read = settled.jev_all(settled.batched({"starts": starts, "notes": {}}, {}, items))
     except settled.Unheard as failure:
         return [UNNOTED.format(starts=named, why=f"Jev gave no reading: {failure}", name=data["name"])]
-    skipped = [UNNOTED.format(starts=named, why="no room in a Jev request for " + ", ".join(note["id"] for part, _ in left for note in part["notes"].values()), name=data["name"])] if left else []
+    left = [note["id"][:7] for note, (_, asked) in zip(notes, items) if not asked.keys() <= read.keys()]
+    skipped = [UNNOTED.format(starts=named, why="no room in a Jev request for " + ", ".join(left), name=data["name"])] if left else []
     speaking: dict[str, list[str]] = {}
     for note in notes:
         for start, release in starts.items():
@@ -481,24 +483,78 @@ def built_on(data: dict, job: dict, named: list[str]) -> list[str]:
     return list(dict.fromkeys([*job["researched"], *named, *(linked for job_id in named if job_id in data["jobs"] for linked in data["jobs"][job_id]["researched"])]))
 
 
-def bound(name: str, data: dict, job: dict) -> tuple[list[str], list[str]]:
-    """What binds the job beside his words on its orders: the id of each answer of his its brief's rulings name, each answer of his the rulings: line of every reader or design of any part of any order of its feature, every order joined with its order and each it carries, names by id, since a feature's rulings bind each job on it and a newer reader on another question of the same part holds none of an older one's, read as served.named reads a citation whatever words and punctuation surround it, each id cc-notes keeps no answer under, such as a commit or a session, left out, and each that settled a question of such a reader; then his words on each other question of theirs he answered with no answer recorded."""
-    from drive import refs
-
-    ruled, cited, heard = binding(name, data, job)
-    return list(dict.fromkeys([*ruled, *(answer_id for answer_id in cited if refs.answered(answer_id, data))])), heard
+def bound(name: str, data: dict, job: dict) -> list[str]:
+    """The ids of his recorded answers binding the job, newest first, by spec: none a newer answer of his replaces, and none of his orders or words heard with no answer recorded."""
+    return [entry["id"] for entry in unreplaced(spec(name, data, job)) if entry["id"] and entry["id"] not in data["orders"]]
 
 
-def binding(name: str, data: dict, job: dict) -> tuple[list[str], list[str], list[str]]:
-    """What bound reads before it asks cc-notes which ids keep an answer, so a watch pass reads it with no subprocess: the ids the job's brief's rulings and the settled questions of its feature's readers and designs name, the ids their rulings: lines cite, and his words on each question of theirs he answered with no answer recorded."""
+def binding(name: str, data: dict, job: dict) -> tuple[list[str], list[str], list[dict]]:
+    """What bound reads before it asks cc-notes which ids keep an answer, so a watch pass reads it with no subprocess: the ids the job's brief's rulings and the settled questions of its feature's readers and designs name, the ids their rulings: lines cite, and his words on each question of theirs he answered with no answer recorded, with the question, when and where."""
     from drive import served
 
     found = list({reader_id: text for order_id in state.job_feature(data, job) for reader_id, text in researches(name, data, order_id, list(data["orders"][order_id]["parts"]))}.items())
-    closed = [answer for reader_id, _ in found for question in data["jobs"][reader_id]["questions"] if (answer := question["closed"]) and answer["how"] != "withdrawn"]
+    closed = [(question["title"], answer) for reader_id, _ in found for question in data["jobs"][reader_id]["questions"] if (answer := question["closed"]) and answer["how"] != "withdrawn"]
     cited = list(dict.fromkeys(answer_id for _, text in found for kind, answer_id in served.named(researched(text)["rulings"]) if kind == "answer"))
-    ruled = [*((job.get("brief_flags") or {}).get("ruling") or []), *(answer["ruling"] for answer in closed if answer["ruling"])]
-    heard = [f'his answer "{answer["words"]}"' + (f" ({answer['link']})" if answer["link"] else "") for answer in closed if not answer["ruling"] and answer["words"]]
-    return ruled, cited, list(dict.fromkeys(heard))
+    ruled = [*((job.get("brief_flags") or {}).get("ruling") or []), *(answer["ruling"] for _, answer in closed if answer["ruling"])]
+    heard = {answer["words"]: {"id": None, "asked": title or "his answer", "said": answer["words"], "at": answer["at"], "link": answer["link"], "by": []} for title, answer in closed if not answer["ruling"] and answer["words"]}
+    return ruled, cited, list(heard.values())
+
+
+def spec(name: str, data: dict, job: dict) -> list[dict]:
+    """His words on the job's feature, newest first, the one list every brief's Decisions that bind and drive job ask's judge read beside the words of the job's own orders: each answer of his binding names, each one `drive answer` kept whose marks or heard jobs name an order of the feature or a job on one, his words on each question of its readers and designs he answered with no answer recorded, and each other order of the feature, each whole with when and where he gave it. An answer cc-notes marks superseded keeps its place with the newer answers replacing it under `by`, so no brief or judge reads it as standing; an id a brief's rulings name that cc-notes keeps no answer under refuses the brief, any other is left out."""
+    orders = state.job_feature(data, job)
+    jobs = state.orders_jobs(data, orders)
+    ruled, cited, heard = binding(name, data, job)
+    kept = [answer_id for answer_id, answer in data["answers"].items() if on_feature(data, answer, orders, jobs)]
+    cwd = data["roles"]["coordinator"]["cwd"]
+    found: dict[str, dict] = {}
+    for answer_id in dict.fromkeys([*ruled, *cited, *kept]):
+        try:
+            answer = settled.shown(answer_id, cwd)
+        except state.DriveError:
+            if answer_id in ruled:
+                raise
+            continue
+        found.setdefault(
+            answer["id"][:7],
+            {
+                "id": answer["id"][:7],
+                "asked": answer["title"],
+                "said": settled.his(answer["body"]),
+                "at": answer["created_at"],
+                "link": settled.given_at(data, answer["id"]),
+                "by": [newer[:7] for newer in answer.get("superseded_by") or []],
+            },
+        )
+    ordered = [{"id": order_id, "asked": "his order", "said": data["orders"][order_id]["text"], "at": data["orders"][order_id]["created"], "link": None, "by": []} for order_id in orders if order_id not in {job["order"], *job["carries"]}]
+    return sorted([*found.values(), *heard, *ordered], key=lambda entry: state.parse_time(entry["at"]), reverse=True)
+
+
+def on_feature(data: dict, answer: dict, orders: list[str], jobs: dict[str, dict]) -> bool:
+    """Whether an answer `drive answer` kept speaks to this feature: a card, order, part or PR it marks or lists is of one of its orders or jobs, or a job it told is on one."""
+    marked = {key.partition(":")[0] for key in answer["cards"]} | {mark["job"] for mark in answer["cards"].values() if mark and mark.get("job")}
+    waits = {found[2] for key in answer["cards"] if (found := state.WAITS_ID.fullmatch(key))}
+    named = {data["prs"][key]["order"] for key in answer["cards"] if key in data["prs"]}
+    return bool((marked | named) & set(orders) or (marked | waits | set(answer["jobs"])) & jobs.keys())
+
+
+def unreplaced(words: list[dict]) -> list[dict]:
+    """The entries of his words no newer answer of his replaces."""
+    return [entry for entry in words if not entry["by"]]
+
+
+def spec_lines(words: list[dict]) -> list[str]:
+    """His words as a brief's Decisions that bind lists them, newest first: each with its question, id or link and when, his words whole beneath, and one replaced by newer answers named by them alone."""
+    return [
+        f"{entry['asked']} ({entry['id'] or entry['link']}, {entry['at']})"
+        + (f": replaced by his newer answer {', '.join(entry['by'])}" if entry["by"] else f"\n{textwrap.indent(entry['said'], '  ')}")
+        for entry in words
+    ]
+
+
+def judging(words: list[dict]) -> list[dict]:
+    """His standing words as a judge's items, each keyed by its answer or order id, or else by its place for words he gave with none recorded."""
+    return [{"id": entry["id"] or f"heard{number}", "asked": entry["asked"], "said": entry["said"], "link": entry["link"]} for number, entry in enumerate(unreplaced(words), 1)]
 
 
 def readers(data: dict, order_id: str, parts: list[str]) -> list[str]:
@@ -887,12 +943,10 @@ def unlisted_waits(listed: list[re.Match]) -> str | None:
 
 
 def narrowed_design(name: str, data: dict, job: dict, text: str) -> str | None:
-    """Why a design may not be kept, as Jev reads it in one request against his words on its order and each order its job carries, each answer of his binding the job and his answer to each of its cards, beside the forks it asks him, the design by whole lines and his words by whole items, one Noul for each of his words: it leaves out, defers or narrows what one names with no fork asking him, at settled.YES or more; or, where Jev reads several strategies doing one job at settled.YES or more, its first change is not the abstraction they share, under settled.NO. A reading in the band between, or none, keeps it, said on stderr."""
-    cwd = data["roles"]["coordinator"]["cwd"]
-    ids, _ = bound(name, data, job)
+    """Why a design may not be kept, as Jev reads it against his words on its order and each order its job carries, his spec on its feature newest first, by spec, and his answer to each of its cards, beside the forks it asks him, in as many requests as settled.batched needs to read every design line and every word of his whole, the design in pieces of whole lines: it leaves out, defers or narrows what one names with no fork asking him, at settled.YES or more, asked only of a design one piece holds whole; a line of it keeps, reuses or builds on what his words set aside, at settled.YES or more, named with the line Jev reads likeliest, since his words outrank every default of the designer, the code that exists included; or, where Jev reads several strategies doing one job at settled.YES or more, its first change is not the abstraction they share, under settled.NO. A reading in the band between, or none, keeps it, said on stderr."""
     words = [
         *(word for order_id in [job["order"], *job["carries"]] for word in settled.order_words(data, order_id)),
-        *({"id": answer["id"][:7], "asked": answer["title"], "said": settled.his(answer["body"])[: settled.BODY_CHARS]} for answer in (settled.shown(answer_id, cwd) for answer_id in ids)),
+        *judging(spec(name, data, job)),
         *(
             {"id": f"q{number}", "asked": question["title"], "said": closed["words"]}
             for number, question in enumerate(job["questions"], 1)
@@ -900,14 +954,29 @@ def narrowed_design(name: str, data: dict, job: dict, text: str) -> str | None:
         ),
     ]
     slots = {word["id"]: f"w{number}" for number, word in enumerate(words, 1)}
-    weighs = (({"words": {slots[word["id"]]: {"asked": word["asked"], "said": word["said"]}}}, {f"narrows.{word['id']}": settled.asking(settled.NARROWS, slot=slots[word["id"]])}) for word in words)
-    base = {"forks": [question["title"] for question in job["questions"] if not question["closed"]], "words": {}}
-    told, questions, _ = settled.fill(base, {"strategies": settled.STRATEGIES, "first": settled.ABSTRACTION_FIRST}, [*settled.lined("design", text), *weighs])
+    pieces = [piece["design"] for piece, _ in settled.batched({"design": {}}, {}, settled.lined("design", text), settled.REQUEST_CHARS // 2)]
+    whole = len(pieces) == 1
+    forks = [question["title"] for question in job["questions"] if not question["closed"]]
+
+    def weighs(number: int) -> Iterator[tuple[dict, dict[str, settled.Noul]]]:
+        for word in words:
+            slot = slots[word["id"]]
+            asked = {f"against{number}.{word['id']}": settled.asking(settled.CONTRADICTS, slot=slot)} | ({f"narrows.{word['id']}": settled.asking(settled.NARROWS, slot=slot)} if whole else {})
+            yield {"words": {slot: {"asked": word["asked"], "said": word["said"]}}}, asked
+
+    fixed = {"strategies": settled.STRATEGIES, "first": settled.ABSTRACTION_FIRST}
     try:
-        read = settled.jev(told, questions)
+        read = settled.jev_all([request for number, piece in enumerate(pieces) for request in settled.batched({"forks": forks, "design": piece, "words": {}}, fixed if number == 0 else {}, weighs(number))])
+        against = max(((number, word_id, sure) for key, sure in read.items() for question, _, word_id in [key.partition(".")] if question.startswith("against") for number in [int(question.removeprefix("against"))]), key=lambda found: found[2], default=None)
+        refused = contradicted(pieces[against[0]], next(word for word in words if word["id"] == against[1])) if against and against[2] >= settled.YES else None
     except settled.Unheard as failure:
         print(f"drive job report: Jev did not read the design against his words, so it is kept unchecked: {failure}", file=sys.stderr)
         return None
+    if not whole:
+        print(f"drive job report: this design runs past one Jev request of {settled.REQUEST_CHARS // 2} characters, so whether it builds less than his words name goes unchecked", file=sys.stderr)
+    for key, sure in read.items():
+        if key.startswith("against") and settled.reading(sure) is None:
+            print(f'drive job report: Jev is unsure whether this design goes against his words ({next(word["asked"] for word in words if word["id"] == key.partition(".")[2])}), so it is kept', file=sys.stderr)
     items = {word["id"]: word for word in words}
     narrows = {key.partition(".")[2]: found for key, sure in read.items() if key.startswith("narrows.") and (found := settled.reading(sure)) is not False}
     if said := next((items[key] for key, found in narrows.items() if found), None):
@@ -916,6 +985,8 @@ def narrowed_design(name: str, data: dict, job: dict, text: str) -> str | None:
             " building less than his words or an answer of his name is a fork whatever it costs to switch, so build it in, or keep it as a"
             " fork with drive job ask"
         )
+    if refused:
+        return refused
     for key in narrows:
         print(f'drive job report: Jev is unsure whether this design builds less than his words ({items[key]["asked"]}) name, so it is kept', file=sys.stderr)
     strategies, first = settled.reading(read["strategies"]), settled.reading(read["first"])
@@ -928,6 +999,20 @@ def narrowed_design(name: str, data: dict, job: dict, text: str) -> str | None:
     if strategies is not False and first is not True:
         print("drive job report: Jev is unsure whether this design builds a strategy before the abstraction its strategies share, so it is kept", file=sys.stderr)
     return None
+
+
+def contradicted(piece: dict[str, str], word: dict) -> str:
+    """The refusal of a design a piece of which Jev reads as going against his words, naming the line of it Jev reads likeliest to, at settled.YES or more, else the piece's lines."""
+    items = (({"design": {number: line}}, {f"line.{number}": settled.asking(settled.CONTRADICTING, line=number)}) for number, line in piece.items())
+    read = settled.jev_all(settled.batched({"words": {"asked": word["asked"], "said": word["said"]}, "design": {}}, {}, items))
+    number, sure = max(((key.partition(".")[2], sure) for key, sure in read.items()), key=lambda found: found[1])
+    where = f'line {number}, "{cut(piece[number], 300)}",' if sure >= settled.YES else f"lines {min(piece, key=int)} to {max(piece, key=int)}"
+    named = f", {word['id']}" if limits.ANSWER_ID.fullmatch(word["id"]) else ""
+    return (
+        f'Jev reads this design\'s {where} as going against his words "{cut(word["said"].strip('"“”'), settled.QUOTED_CHARS)}" ({word["asked"]}{named}): his words outrank every default of'
+        " the designer, keeping or reusing the code that exists included, so a design keeping, reusing or building on what they set aside is redone to"
+        " them, never kept; rewrite it to his words and report again"
+    )
 
 
 def limit_finding(lines: list[str]) -> str | None:
