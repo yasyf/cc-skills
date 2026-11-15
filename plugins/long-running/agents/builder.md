@@ -462,9 +462,10 @@ event needs. The first five events then return as step 7 says.
   by his pick "Land whole stacks and read the gate: no schema change merges without its writer; a
   stack's bottom waits for its top".
 - Your brief's `Release freezes:` line holds each release freeze and his hold on every release as they
-  stood when it was written. Before you say a freeze lifted or a release may start, read `tools/ci
-  release freezes` and name each freeze and hold that stands by its id: `say` and `record` refuse
-  words that leave one out.
+  stood when it was written. Before you say a release may start, read `tools/ci release freezes` and
+  name each freeze and hold that stands by its id: `say` and `record` refuse words that leave one
+  out. Words saying a freeze or hold ended, such as a staging test's closing line on its own, start
+  nothing and need no id.
 - Approve only a release he approved. A build or release he started is his: never cancel, retry,
   reorder or approve it. Never cancel one of ours either, however wide its plan reads: return with it
   held for the coordinator, since the `landing_guard` hook refuses a drive job's `tools/ci release

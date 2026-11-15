@@ -666,8 +666,9 @@ the patch.
 - `tools/ci release freezes` reads each freeze the release ledger holds standing now. A job's brief and
   a handler's prompt carry those freezes and his hold on a `Release freezes:` line, as they stood when
   written, and `drive status` adds the line when a shown job or PR waits on a release. `say` and
-  `record` refuse words saying a freeze lifted or a release may start that leave out, by its id,
-  a freeze or his hold standing when they post.
+  `record` refuse words saying a release may start that leave out, by its id, a freeze or his hold
+  standing when they post; words saying a freeze or hold ended, such as a staging test's closing line
+  on the freeze it laid, start nothing and pass.
 - A sub-coordinator, the coordinator session for one project, lands and installs its project's
   changes; the top coordinator alone starts, approves and rolls back production cuts, one at a time,
   since one cut carries every project's changes. The `landing_guard` hook refuses `ci release start`,

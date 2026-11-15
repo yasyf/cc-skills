@@ -144,11 +144,7 @@ UNNOTED = (
     "the drive's release notes were not read against {starts} ({why}): read each note `ccn note list --label drive:{name}"
     " --label release-order` and `--label release` list before you offer or start one"
 )
-RELEASE_CLAIM = re.compile(
-    r"\bfreeze\b[^.;\n]{0,60}?\b(?:lifted|lifts now|ended|is over|is gone|came off)\b|\bunfrozen\b|\bno longer frozen\b"
-    r"|\b(?:releases?|cut)\b[^.;\n]{0,60}?\bcan (?:start|go|run|ship)\b|\breleases? (?:start|go) (?:as usual|again)\b",
-    re.IGNORECASE,
-)
+RELEASE_CLAIM = re.compile(r"\b(?:releases?|cut)\b[^.;\n]{0,60}?\bcan (?:start|go|run|ship)\b|\breleases? (?:start|go) (?:as usual|again)\b", re.IGNORECASE)
 PULL_WORDS = re.compile(r"(?:#?\d+,?)+")
 NAMES = re.compile(r"[,\s]+")
 ABSTRACTION_RULING = '"we should buiold the abstraction first, make sure it works by imaginign, then implement the strategies"'
@@ -443,7 +439,7 @@ def freezes(name: str, data: dict) -> list[dict]:
 
 
 def standing(name: str, data: dict) -> list[tuple[str | None, str]]:
-    """Each release freeze the release ledger holds standing now and his hold on every release, by id with its line, read at each use and never kept, so no brief, wait or post states a freeze that lifted or misses one set since; a ledger that could not be read stands under no id, which no words name."""
+    """Each release freeze the release ledger holds standing now and his hold on every release, by id with its line, read at each use and never kept, so no brief or wait states a freeze that lifted or misses one set since, and no post says a release may start past one; a ledger that could not be read stands under no id, which no words name."""
     held = [(hold["id"][:7], f'his hold {hold["id"][:7]} on every release stands: "{hold_words(hold)}"')] if (hold := settled.hold(data["roles"]["coordinator"]["cwd"])) else []
     try:
         return [*((each["freeze"]["id"], each["text"]) for each in freezes(name, data)), *held]
@@ -457,11 +453,11 @@ def releases(name: str, data: dict) -> str:
 
 
 def claim_refusal(text: str, name: str, data: dict) -> str | None:
-    """Why words saying a release freeze lifted or a release may start may not go out: they leave out, by its id, a freeze or his hold standing now; None for words claiming neither, or naming each that stands."""
+    """Why words saying a release may start may not go out: they leave out, by its id, a freeze or his hold standing now; None for words that say no release may start, such as a staging test saying the freeze or hold it laid on staging ended, which starts nothing, or for words naming each that stands."""
     if not RELEASE_CLAIM.search(text):
         return None
     if unnamed := [line for stands, line in standing(name, data) if stands is None or stands not in text]:
-        return f"these words say a release freeze lifted or a release may start, and these stand now: {'; '.join(unnamed)}. Name each by its id and what it holds, or leave the claim out"
+        return f"these words say a release may start, and these stand now: {'; '.join(unnamed)}. Name each by its id and what it holds, or leave the claim out"
     return None
 
 
