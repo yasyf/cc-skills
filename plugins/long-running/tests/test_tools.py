@@ -630,6 +630,21 @@ def test_a_record_goes_to_the_other_session_and_a_tap_takes_its_job_and_waits_fr
         tools.run("record", demo, {"records": [{"kind": "answer", "text": "Approve", "waits": "merge:Forge-AI:monorepo:42"}]})
 
 
+def test_records_a_call_posted_before_it_ran_out_of_time_are_said_at_once_and_refused_when_sent_again(demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    posted: list[list[dict]] = []
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: posted.append(json.loads(kwargs["input"])) or subprocess.CompletedProcess([], 0, f'{{"seq": {719625 + len(posted)}}}\n', ""))
+    monkeypatch.setattr(tools, "POSTED_KEPT", 1)
+    timed_out, other = [{"kind": "defect", "text": "drive record ran past 180 seconds"}], [{"kind": "defect", "text": "its retry posted it twice"}]
+    assert tools.run("record", demo, {"records": timed_out}) == "1 defect 719626"
+    assert capsys.readouterr().err == "1 defect 719626\n"
+    for dry_run in (True, False):
+        with pytest.raises(DriveError, match=r"^refused, nothing posted: these records went out already, at \S+ as 719626; read those seqs rather than post them twice$"):
+            tools.run("record", demo, {"records": timed_out, "dry_run": dry_run})
+    assert tools.run("record", demo, {"records": other}) == "1 defect 719627"
+    assert tools.run("record", demo, {"records": timed_out}) == "1 defect 719628"
+    assert len(posted) == 3
+
+
 def test_a_drive_post_from_a_session_holding_no_lane_posts_as_another_sessions_lane_without_binding_it(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     envs: list[dict] = []
     monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: envs.append(kwargs["env"]) or subprocess.CompletedProcess(argv, 0, '{"seq": 41}\n', ""))
@@ -916,11 +931,11 @@ def test_his_badge_ask_of_record_672014_reaches_the_meta_session_holding_the_dri
     )
     more = asked | {"text": "and count the ones from yesterday too", "url": f"https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794480200000100?thread_ts={thread}"}
     assert tools.run("record", demo, {"records": [more]}).splitlines()[-1] == "1 owner 672016"
-    assert tools.run("record", demo, {"records": [more]}).splitlines() == ["1 owner 672017"]
+    with pytest.raises(DriveError, match=r"^refused, nothing posted: these records went out already, at \S+ as 672016;"):
+        tools.run("record", demo, {"records": [more]})
     assert (list(state.load(demo)["orders"]), list(state.load(demo)["orders"]["o1"]["parts"])) == (["o1"], [badge["title"], more["text"]])
     assert [(record["to"], record["attr"]["order"], record["attr"].get("part")) for record in posted] == [
         (["meta@demo"], "o1", None),
-        (["meta@demo"], "o1", f"o1:{more['text']}"),
         (["meta@demo"], "o1", f"o1:{more['text']}"),
     ]
     with pytest.raises(DriveError, match="1: refused, nothing posted: order is the order the communicator's owner record about the drive goes to"):
@@ -955,7 +970,8 @@ def test_his_hierarchical_coordinators_question_in_his_own_words_reaches_the_met
     later = {"kind": "owner", "about": "drive", "text": "or one coordinator per project?", "thread": "1794520000.000100"}
     question = {"words": later["text"], "title": "Coordinator per project", "kind": "answer", "project": "The drive", "workstream": "Skill and process"}
     assert tools.run("record", demo, {"records": [later | {"order": question}]}).splitlines() == ["1 order add: o3", "1 owner 677103"]
-    assert tools.run("record", demo, {"records": [later | {"order": question}]}).splitlines() == ["1 order add: o3; o3 already holds these words, so no order was added", "1 owner 677104"]
+    with pytest.raises(DriveError, match=r"^refused, nothing posted: these records went out already, at \S+ as 677103;"):
+        tools.run("record", demo, {"records": [later | {"order": question}]})
     orders = state.load(demo)["orders"]
     assert [(order_id, orders[order_id]["owner"], orders[order_id]["kind"], list(orders[order_id]["parts"])) for order_id in ("o2", "o3")] == [
         ("o2", "meta", "answer", ["Drive tooling: hierarchical coordinators"]),
@@ -964,7 +980,6 @@ def test_his_hierarchical_coordinators_question_in_his_own_words_reaches_the_met
     assert [(record["to"], record["attr"]["order"], record["attr"].get("part")) for record in posted] == [
         (["meta@demo"], "o2", "o2:Drive tooling: hierarchical coordinators"),
         (["meta@demo"], "o2", "o2:Drive tooling: hierarchical coordinators"),
-        (["meta@demo"], "o3", None),
         (["meta@demo"], "o3", None),
     ]
 
@@ -989,11 +1004,13 @@ def test_his_words_carrying_on_an_order_of_his_work_are_its_parts_the_watch_name
     dm = "https://poetic-technology.slack.com/archives/D0C4HQWPLCC"
     iterate = {"kind": "owner", "text": "rase the 1s test for now then keep iterating", "url": f"{dm}/p1794526841094869?thread_ts={thread}", "thread": thread, "about": "his work"}
     options = {"kind": "owner", "text": "YOU SAID YOU WERE BRINGING ME OPTIONS FOR 0 STALL", "url": f"{dm}/p1794528706341939?thread_ts={thread}", "thread": thread, "about": "his work"}
-    for words in (iterate, options, iterate):
+    for words in (iterate, options):
         tools.run("record", demo, {"records": [words]})
+    with pytest.raises(DriveError, match=r"^refused, nothing posted: these records went out already, at \S+ as 1;"):
+        tools.run("record", demo, {"records": [iterate]})
     assert list(state.load(demo)["orders"]["o1"]["parts"]) == [state.IMMEDIATE_FIX, iterate["text"], options["text"]]
     assert [(record["to"], record["attr"]["order"], record["attr"]["part"]) for record in posted] == [
-        (["root@demo"], "o1", f"o1:{words['text']}") for words in (iterate, options, iterate)
+        (["root@demo"], "o1", f"o1:{words['text']}") for words in (iterate, options)
     ]
     watching = watch.Watcher(demo, offset=state.events_end(demo))
     later = state.now() + timedelta(minutes=6)
@@ -1051,14 +1068,15 @@ def test_a_report_he_shares_into_an_open_order_as_records_686882_and_686891_did_
     shared["attrs"]["title"] = "Browser views on run details"
     said = tools.run("record", demo, {"records": [shared]}).splitlines()
     assert (said[0], said[1].startswith("1 job set: "), said[-1]) == ("1 order add: o2", True, "1 owner 1")
-    assert tools.run("record", demo, {"records": [shared]}).splitlines() == ["1 owner 2"]
+    with pytest.raises(DriveError, match=r"^refused, nothing posted: these records went out already, at \S+ as 1;"):
+        tools.run("record", demo, {"records": [shared]})
     orders, carries = state.load(demo)["orders"], state.load(demo)["jobs"]["j1"]["carries"]
     own = orders["o2"]
     assert (own["text"], own["title"], own["project"], own["workstream"], own["owner"], own["from"], [held["link"] for held in own["reporters"]]) == (
         shared["text"], "Browser views on run details", "Iris", "Run page", "coordinator", "slack:D123/1794548764.374189", [first_report]
     )
     assert (list(orders), list(orders["o1"]["parts"]), orders["o1"]["reporters"], carries) == (["o1", "o2"], ["Run page browser views"], [], {"o2": ["Browser views on run details"]})
-    assert [(record["to"], record["attr"]["order"], record["attr"].get("part"), record["attr"]["reporter"]) for record in posted] == [(["root@demo"], "o2", None, first_report)] * 2
+    assert [(record["to"], record["attr"]["order"], record["attr"].get("part"), record["attr"]["reporter"]) for record in posted] == [(["root@demo"], "o2", None, first_report)]
     second = shared | {
         "text": f"<{second_report}> Shared in <#C0TEAM>: the run page shows no screenshots either",
         "url": f"{dm}/p1794549100000200?thread_ts={thread}",

@@ -711,6 +711,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str) -> dict:
         "carried": {},
         "mains": {},
         "dropped_waits": {},
+        "posted": {},
         "catch_up": None,
         "launched": {},
         "closed_from_cards": True,
@@ -1040,6 +1041,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     data.setdefault("held", {})
     data.setdefault("carried", {})
     data.setdefault("dropped_waits", {})
+    data.setdefault("posted", {})
     data["owner"].setdefault("absence", None)
     if isinstance(away := data["owner"]["away"], bool):
         data["owner"]["away"] = (heard := data["owner"]["heard"]) and stamp(parse_time(heard) + (timedelta() if away else AWAY_AFTER))

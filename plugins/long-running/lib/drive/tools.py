@@ -1,5 +1,6 @@
 import argparse
 import contextlib
+import hashlib
 import io
 import json
 import os
@@ -15,6 +16,7 @@ UNTYPED = {"help", "drive", "json", "dry_run"}
 OPS = {"order": ("add", "set", "posted", "told"), "job": ("add", "set", "brief"), "pr": ("add", "set"), "incident": ("open", "stop", "freeze")}
 ONE_VERB = {"heard": ("heard",), "handler": ("handler",), "status": ("status",), "search_plan": ("plan", "search")}
 POST_SECONDS = 60
+POSTED_KEPT = 100
 UNHEARD = "Jev did not read whether his words pick or direct ({failure}), so they could end a card he only asked about; run this again"
 UNSENT = (
     "no record went out, so while cci is down reach the session it was for with ListAgents, then SendMessage to"
@@ -242,7 +244,8 @@ def verb_tools() -> list[dict]:
                 " call, listing each card, part and PR it could change for drive answer <id> to mark, only those of \"Drive tooling:\""
                 " orders for one about the drive. A defect's or handoff's"
                 " text past one 120-character line goes as that line cut at a word, the whole text atop its body. Returns each"
-                " record's seq, then each card closed, then each ruling kept with its listing."
+                " record's seq, then each card closed, then each ruling kept with its listing; a call that runs out of time still"
+                f" returns the seqs it posted, and records the same as one of the drive's last {POSTED_KEPT} calls posted are refused naming them."
             ),
             "inputSchema": {
                 "type": "object",
@@ -616,6 +619,9 @@ def record(name: str, records: list[dict], dry_run: bool) -> str:
                 else "words of his this session heard first go with no order and no to, reaching the communicator, which takes them as his message, and words it passes on name the order they serve as attrs.order"
             )
         )
+    batch = hashlib.sha256(json.dumps([lane, posts], sort_keys=True).encode()).hexdigest()
+    if earlier := data["posted"].get(batch):
+        raise DriveError(f"refused, nothing posted: these records went out already, at {earlier['at']} as {', '.join(earlier['seqs'])}; read those seqs rather than post them twice")
     said = ordered_first(name, records, posts, [state.his_words(role, made["kind"]) for made in posts], dry_run)
     if dry_run:
         said += [f"{index} {lane}: {json.dumps(item, ensure_ascii=False)}" for index, item in enumerate(posts, start=1)]
@@ -636,7 +642,11 @@ def record(name: str, records: list[dict], dry_run: bool) -> str:
         seqs = sent(name, lane, posts)
     except DriveError as error:
         raise DriveError("\n".join([*said, f"{error}; {UNSENT.format(drive=name)}"])) from None
-    said += [f"{index} {item['kind']} {seq}" for index, (item, seq) in enumerate(zip(posts, seqs, strict=True), start=1)]
+    went = [f"{index} {item['kind']} {seq}" for index, (item, seq) in enumerate(zip(posts, seqs, strict=True), start=1)]
+    print("\n".join(went), file=sys.stderr, flush=True)
+    with state.edit(name) as kept:
+        kept["posted"] = dict([*kept["posted"].items(), (batch, {"seqs": seqs, "at": state.stamp()})][-POSTED_KEPT:])
+    said += went
     ended = stamped(name, posts, seqs)
     if lane == "communicator":
         handed(name, posts, seqs)
