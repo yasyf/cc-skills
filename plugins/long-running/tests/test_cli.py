@@ -6442,6 +6442,43 @@ def test_pr_add_and_pr_set_put_a_flake_fix_whose_paths_reach_a_component_on_its_
     assert (data["prs"][key]["waits"], part in data["orders"]["o1"]["parts"]) == ([f"o1:{part}"], True)
 
 
+@pytest.mark.parametrize(
+    ("held", "tester_wait", "home"),
+    [
+        ("staging test of #42 before it lands", None, "o2"),
+        ("staging test of #41 with #42 before they land", None, "o2"),
+        ("staging test of #40 before it lands", "its own", "o1"),
+        ("staging test of #40 before it lands", "the PR under it", "o1"),
+    ],
+)
+def test_a_staging_line_puts_its_pr_on_the_staging_test_another_order_holds_or_on_the_tester_it_or_a_pr_under_it_waits_on_adding_no_second_tester(
+    run: Run, with_pr: str, held: str, tester_wait: str | None, home: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    part, under = state.STAGING_TEST.format(number=42), f"{state.MONOREPO}#43"
+    run("order", "add", "--title", "Soak them", "--project", "The drive", "--workstream", "Drive tooling", "soak them", "--kind", "build", "--parts", held)
+    assert run("job", "add", "builder", "--order", "o2", "--part", held, "--goal", "soak them on staging", "--builds-nothing")[0] == 0
+    run("job", "add", "builder", "--order", "o1", "--goal", "land the base")
+    with state.edit("demo") as data:
+        if tester_wait == "its own":
+            data["prs"][with_pr]["waits"] = ["j2"]
+        if tester_wait == "the PR under it":
+            data["prs"][under] = state.new_pr("https://github.com/Forge-AI/monorepo/pull/43", "j3", "o1") | {"waits": ["j2"]}
+            data["prs"][with_pr]["under"] = under
+    assert keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\nSTAGING: #42 run the migration twice\n") == (0, "")
+    data = state.load("demo")
+    joined = f"o2:{held}" if home == "o2" else f"o1:{part}"
+    assert [job_id for job_id, job in data["jobs"].items() if job.get("builds_nothing")] == ["j2"]
+    assert data["prs"][with_pr]["waits"] == [*(["j2"] if tester_wait == "its own" else []), joined]
+    assert (part in data["orders"]["o1"]["parts"], data["jobs"]["j2"]["carries"]) == (home == "o1", {"o1": [part]} if home == "o1" else {})
+
+
+def test_a_staging_line_reading_none_for_its_pr_adds_no_part_wait_or_tester(run: Run, with_pr: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    assert keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\nSTAGING: #42 none: it changes one test's code alone\n") == (0, "")
+    data = state.load("demo")
+    assert (data["prs"][with_pr]["waits"], state.STAGING_TEST.format(number=42) in data["orders"]["o1"]["parts"]) == ([], False)
+    assert not [job_id for job_id, job in data["jobs"].items() if job.get("builds_nothing")]
+
+
 def test_a_staging_testers_brief_runs_a_dashboard_prs_cases_on_a_mac_box_at_the_live_sand_next_commit_and_at_its_own_head_when_it_changes_sand_next_too(
     run: Run, with_pr: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

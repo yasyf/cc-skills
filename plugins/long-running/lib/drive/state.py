@@ -148,6 +148,7 @@ RELEASE_WAIT = re.compile(r"release:(?P<service>[\w.-]+):(?P<pr>[^/\s#]+/[^/\s#]
 STAGING_WAIT = re.compile(r"staging:(?P<target>[\w.-]+)/(?P<env>[\w.-]+)@(?P<commit>[0-9a-f]{7,40})")
 STAGING_TEST = "staging test of #{number} before it lands"
 STAGING_PART = re.compile(STAGING_TEST.format(number=r"(?P<number>\d+)"))
+STAGING_PARTS = re.compile(r"staging test of (?P<numbers>#\d+(?:(?:,| with| and)+ #\d+)*) before (?:it lands|they land)")
 STAGING_ENV = "plat-usw2-staging"
 AFTER_MERGE_PASS = "after-merge staging pass"
 PID_WAIT = re.compile(r"pid:(?P<pid>\d+)(?:@(?P<started>\d+))?")
@@ -2078,7 +2079,7 @@ def renamed_change(name: str, data: dict, order_id: str, named: list[str], desig
 
 
 def staging_testers(data: dict, job_id: str, report: str) -> list[str]:
-    """Stage each PR the drive tracks that a builder's READY or PUSHED names on a `STAGING: #N <cases>` line, by stage_pr, those cases its tester's goal, or held on the unended tester already on it, so a tester the drive gave a PR from its changed files hears them, and lift by unstage each Forge-AI/monorepo PR its first line names that no such line stages once a `STAGING: none: <why>` line says AGENTS.md's dangerous rule misses it; the testers added."""
+    """Stage each PR the drive tracks that a builder's READY or PUSHED names on a `STAGING: #N <cases>` line, never one reading `#N none: <why>`, by stage_pr, those cases its tester's goal, or held on the unended tester already on it, so a tester the drive gave a PR from its changed files hears them, and lift by unstage each Forge-AI/monorepo PR its first line names that no such line stages once a `STAGING: none: <why>` line says AGENTS.md's dangerous rule misses it; the testers added."""
     job = data["jobs"][job_id]
     if not REPORTED_LINE.match(report.lstrip()):
         return []
@@ -2086,7 +2087,7 @@ def staging_testers(data: dict, job_id: str, report: str) -> list[str]:
     keys = {key.casefold(): key for key in data["prs"]}
     stagings = STAGING_LINE.findall(report)
     for staging in stagings:
-        if not (found := STAGED.fullmatch(staging)) or not (key := keys.get(f"{MONOREPO}#{found['number']}".casefold())):
+        if not (found := STAGED.fullmatch(staging)) or UNSTAGED.match(found["cases"]) or not (key := keys.get(f"{MONOREPO}#{found['number']}".casefold())):
             continue
         staged.add(key)
         if tester_id := stage_pr(data, key, found["cases"], job.get("session")):
@@ -2101,17 +2102,15 @@ def staging_testers(data: dict, job_id: str, report: str) -> list[str]:
 
 def stage_pr(data: dict, key: str, goal: str, session: str | None) -> str | None:
     """Put a Forge-AI/monorepo PR the drive tracks on its staging test, by wait_on_staging, and give the part a tester when no unended job carries it, a builder building nothing on this Mac in the session given, its goal the one given, as install.add_prover adds a prover; else hold that goal on the unended job carrying it, unless it is that job's goal, so its next worker hears it, or, when that job is a tester mark_dangerous gave it that finished before its builder named these cases, give the part a tester of these; the tester added, or None."""
-    wait_on_staging(data, key)
-    pr = data["prs"][key]
-    order, part = data["orders"][pr["order"]], STAGING_TEST.format(number=key.split("#")[1])
-    testing = next((other for _, other in reversed(part_jobs(data, pr["order"], part)) if other["state"] not in ENDED_JOB_STATES), None)
+    order_id, part = wait_on_staging(data, key)
+    testing = next((other for _, other in reversed(part_jobs(data, order_id, part)) if other["state"] not in ENDED_JOB_STATES), None)
     if testing and not (testing["state"] == "done" and testing["goal"] != goal and testing["goal"].startswith(DANGEROUS_GOAL.partition("{changes}")[0].format(key=key))):
         if testing["goal"] != goal:
             hold_text(testing, f"The staging test of {key} also runs: {goal}", None)
         return None
     tester_id = next_id(data["jobs"], "j")
-    data["jobs"][tester_id] = new_job(pr["order"], "builder", goal, [part], stamp()) | {"session": session, "builds_nothing": True}
-    order["jobs"].append(tester_id)
+    data["jobs"][tester_id] = new_job(order_id, "builder", goal, [part], stamp()) | {"session": session, "builds_nothing": True}
+    data["orders"][order_id]["jobs"].append(tester_id)
     return tester_id
 
 
@@ -2149,15 +2148,26 @@ def mark_dangerous(data: dict, key: str, head: str, paths: list[str]) -> str | N
     return stage_pr(data, key, DANGEROUS_GOAL.format(key=key, number=key.split("#")[1], changes=changes, rules=REPO_RULES), data["jobs"][pr["job"]].get("session"))
 
 
-def wait_on_staging(data: dict, key: str) -> None:
-    """Put the open Forge-AI/monorepo PR at key on its order's `staging test of #N before it lands` part and that part's wait, ending any lift unstage kept, so it lands only once that test passes: what stage_pr and reach_staging both do."""
-    from drive import view
+def wait_on_staging(data: dict, key: str) -> tuple[str, str]:
+    """Put the open Forge-AI/monorepo PR at key on its staging test and that test's wait, ending any lift unstage kept, so it lands only once that test passes and never gets a second one: its undelivered staging part on any open order, a combined `staging test of #A with #B before they land` included, its own waits first, else its order's `staging test of #N before it lands` part, which, while no unended job carries it, deliver files on the unfinished tester staging_tester names for a wait of the PR or of an open PR under it in land.chain, the PR's own first, so a stack shares its tester; what stage_pr and reach_staging both do; the order and part."""
+    from drive import land, view
 
-    pr = data["prs"][key]
+    pr, number = data["prs"][key], f"#{key.rpartition('#')[2]}"
     pr["unstaged"] = None
-    part = STAGING_TEST.format(number=key.split("#")[1])
-    data["orders"][pr["order"]]["parts"].setdefault(part, new_part())
-    pr["waits"] = view.stored_waits(data, [*pr["waits"], f"{pr['order']}:{part}"])
+    waited = [found for wait in pr["waits"] if (found := part_wait(data, wait))]
+    held = [(order_id, part) for order_id, order in open_orders(data).items() for part in order["parts"]]
+    order_id, part = next(
+        ((order_id, part) for order_id, part in [*waited, *held] if (named := STAGING_PARTS.fullmatch(part)) and number in re.findall(r"#\d+", named["numbers"]) and not delivered(data, order_id, part)),
+        (pr["order"], STAGING_TEST.format(number=number[1:])),
+    )
+    data["orders"][order_id]["parts"].setdefault(part, new_part())
+    pr["waits"] = view.stored_waits(data, [*pr["waits"], f"{order_id}:{part}"])
+    if any(job["state"] not in ENDED_JOB_STATES for _, job in part_jobs(data, order_id, part)):
+        return order_id, part
+    stack = reversed(land.chain(land.unders(data), key))
+    if tester := next((tester for under in stack for wait in data["prs"][under]["waits"] if (tester := staging_tester(data, wait)) and data["jobs"][tester]["state"] not in ENDED_JOB_STATES), None):
+        deliver(data, tester, order_id, [part])
+    return order_id, part
 
 
 def reach_staging(data: dict, key: str) -> None:
