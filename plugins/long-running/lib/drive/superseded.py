@@ -583,6 +583,14 @@ def owed(data: dict, job_id: str) -> list[tuple[str, dict]]:
     return [(answer_id, kept) for answer_id, kept in data["answers"].items() if job_id in kept["jobs"] and kept["jobs"][job_id] is None]
 
 
+def standing[T](data: dict, answers: list[tuple[str, T]]) -> list[tuple[str, T]]:
+    """Of these answers of his the drive keeps, by id, each cc-notes marks superseded by none, read in one list of every answer of his when any is given: an answer he replaced owes no job his words and leaves nothing asking him, whichever recorder wrote either answer or the edge, so no brief or ANSWER line carries a pick he dropped."""
+    if not answers:
+        return []
+    replaced = settled.replaced(data["roles"]["coordinator"]["cwd"])
+    return [(answer_id, kept) for answer_id, kept in answers if answer_id not in replaced]
+
+
 def carries(text: str, words: str) -> bool:
     """Whether the text holds his words verbatim, spacing aside."""
     return " ".join(words.split()) in " ".join(text.split())

@@ -184,7 +184,7 @@ model his order names, and `--incident` on an incident, after the checks the Age
 every other job's brief, and records the run folder on the job in place of any agent an earlier
 lane left on it, so the watch never reads that agent's old turn as this run's result. Its brief carries each text the job
 holds under a heading naming its sender, his answers under `His answers since:` and the coordinator's under
-`From the coordinator since:`, and each answer of his it has not heard under `His answers since:`, as a first launch does,
+`From the coordinator since:`, and each answer of his it has not heard under `His answers since:`, but one cc-notes marks superseded, as a first launch does,
 and the launch drops those texts off the job and marks it sent those answers. A text held while
 the run goes reaches it at its next Bash call: `landing_guard`, which codex runs before each of the
 run's Bash calls, hands each text the job holds to the run as that call's `additionalContext`, which
@@ -437,7 +437,7 @@ before it sends or starts.
   dated when it was held, or any launch, relaunch, resume or handoff text in `jobs/` a worker of the
   job started on, an attempt whose launcher started no worker aside, each read again whenever an
   answer of his lists the job later; a first launch adds
-  each text the job holds that its brief lacks under the heading naming its sender, `His answers since:` for his alone, and each answer it has not heard that its brief lacks under `His answers since:`; a `SendMessage`
+  each text the job holds that its brief lacks under the heading naming its sender, `His answers since:` for his alone, and each answer it has not heard that its brief lacks under `His answers since:`, but one cc-notes marks superseded; a `SendMessage`
   from the coordinator session to its agent on this Mac does the same once that agent's transcript
   holds it, as a queued command while the agent works or a meta user row once it waits, which the
   watch and `drive answer` read before either says the job has not heard them.

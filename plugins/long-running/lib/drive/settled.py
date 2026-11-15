@@ -488,13 +488,22 @@ def hold(cwd: str) -> dict | None:
     return next(iter(listed(RELEASE_HOLD, cwd)), None)
 
 
+def every(cwd: str) -> list[dict]:
+    """Every recorded answer of his, superseded ones included, each with the answers superseding it, in one list."""
+    return json.loads(ccn(["ccn", "answer", "list", "--limit", "0", "--include-superseded", "--json"], "", cwd, "could not read his recorded answers"))
+
+
 def whole_ids(typed: set[str], cwd: str) -> dict[str, str]:
     """The id cc-notes keeps each answer id typed here under, as `ccn answer show` resolves a unique prefix, read in one list of his answers, superseded ones included; an id naming no answer, or several, is its own."""
-    every = ccn(["ccn", "answer", "list", "--limit", "0", "--include-superseded", "--json"], "", cwd, "could not read his recorded answers")
     known: dict[str, list[str]] = {}
-    for answer in json.loads(every):
+    for answer in every(cwd):
         known.setdefault(answer["id"][:7], []).append(answer["id"])
     return {answer_id: found[0] if len(found := [whole for whole in known.get(answer_id[:7], []) if whole.startswith(answer_id)]) == 1 else answer_id for answer_id in typed}
+
+
+def replaced(cwd: str) -> set[str]:
+    """The ids of his answers cc-notes marks superseded, by his changed pick on a card or anyone's `ccn answer supersede`, read in one list of every answer of his; cc-notes leaves `superseded_by` off an answer nothing superseded."""
+    return {answer["id"] for answer in every(cwd) if "superseded_by" in answer}
 
 
 def matched(texts: list[str], data: dict) -> list[dict]:

@@ -3313,10 +3313,14 @@ def launched(name: str, job_id: str, brief_file: str | None, local: bool, text: 
 
 
 def answers_since(data: dict, job_id: str, written: str) -> str:
-    """The brief a job's next worker or codex-ask run starts on: each text the job holds whose words the brief lacks under the heading state.held_since gives its sender, so his answers alone go under His answers since: and a coordinator's text under From the coordinator since:, and under His answers since: each answer of his it has not heard whose words the brief lacks."""
+    """The brief a job's next worker or codex-ask run starts on: each text the job holds whose words the brief lacks under the heading state.held_since gives its sender, so his answers alone go under His answers since: and a coordinator's text under From the coordinator since:, and under His answers since: each answer of his it has not heard whose words the brief lacks, but one cc-notes marks superseded, by superseded.standing."""
     held = [kept for kept in data["jobs"][job_id]["undelivered"] if not superseded.carries(written, kept["words"])]
     carried = "\n".join([written, *(kept["words"] for kept in held)])
-    owed = [{"sender": state.HIM, "words": f'"{kept["words"]}"' + (f" ({kept['link']})" if kept["link"] else "")} for _, kept in superseded.owed(data, job_id) if not superseded.carries(carried, kept["words"])]
+    owed = [
+        {"sender": state.HIM, "words": f'"{kept["words"]}"' + (f" ({kept['link']})" if kept["link"] else "")}
+        for _, kept in superseded.standing(data, superseded.owed(data, job_id))
+        if not superseded.carries(carried, kept["words"])
+    ]
     if since := state.held_since([*held, *owed]):
         return written.rstrip() + since + "\n"
     return written
@@ -4358,6 +4362,11 @@ def answer(args: argparse.Namespace) -> int:
     cited = settled.shown(args.id, cwd) if args.id else None
     if cited:
         args.id = cited["id"]
+    if cited and "superseded_by" in cited:
+        raise DriveError(
+            f"refused, nothing recorded or marked: cc-notes marks his answer {args.id} superseded by {', '.join(cited['superseded_by'])}, so it owes no job his"
+            " words and leaves nothing asking him: drive answer his newer answer"
+        )
     if args.id not in data["answers"] and (unowed := rewrite_refusal(data, args, cited)):
         raise DriveError(unowed)
     if args.id in data["answers"] and (args.words or args.link):
