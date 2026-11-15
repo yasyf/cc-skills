@@ -1424,7 +1424,7 @@ def test_a_product_merge_on_a_build_order_of_several_parts_with_no_reader_takes_
         data["jobs"]["j1"].update(said=f"READY {product}", prs=[product], repro=None, parts=[shipped], carries={"o2": [carried]}, brief_flags=flags, session="s-1")
         data["prs"]["Forge-AI/monorepo#9"] = state.new_pr(product, "j1", "o1") | {"state": "merged", "merged_sha": "fedcba9876543210", "title": "Fix: the page"}
         reach = {"Forge-AI/monorepo#9": {"components": ["api", "sandsql", "web"], "touched": ["api", "sandsql"]}, "Forge-AI/monorepo#10": {"components": ["web"], "touched": ["web"]}}
-        builder_id = install.add_prover(data, "j1", reach, {"o1": [shipped], "o2": [carried]}, install.merged_done("demo", data, "j1"))
+        builder_id = install.add_prover(data, "j1", reach, {"o1": [shipped], "o2": [carried]}, install.merged_done("demo", data, "j1"), set())
     merged = "Forge-AI/monorepo#9 at fedcba987654"
     data = state.load("demo")
     builder = data["jobs"][builder_id]
@@ -1448,11 +1448,11 @@ def test_a_second_hand_over_of_the_same_prs_goes_to_their_one_prover_widening_it
         data["prs"]["Forge-AI/monorepo#9"] = state.new_pr(product, "j1", "o1") | {"state": "merged", "merged_sha": "fedcba9876543210", "title": "Fix: the page"}
         moved = install.merged_done("demo", data, "j1")
         reach, parts = {"Forge-AI/monorepo#9": {"components": ["api"], "touched": ["api"]}}, {"o1": data["jobs"]["j1"]["parts"]}
-        unstarted = install.add_prover(data, "j1", reach, parts, moved)
-        widened = install.add_prover(data, "j1", reach, parts, moved)
+        unstarted = install.add_prover(data, "j1", reach, parts, moved, set())
+        widened = install.add_prover(data, "j1", reach, parts, moved, set())
         data["jobs"][unstarted]["agent"] = "a-1"
         data["orders"]["o2"] = state.new_order(carried, "slack", None, {carried: state.new_part()}, state.stamp())
-        started = install.add_prover(data, "j1", reach, {"o2": [carried]}, ["release:web:Forge-AI/monorepo#9"])
+        started = install.add_prover(data, "j1", reach, {"o2": [carried]}, ["release:web:Forge-AI/monorepo#9"], set())
     data = state.load("demo")
     assert (unstarted, widened, started, list(data["jobs"])) == ("j2", "j2", "j2", ["j1", "j2"])
     assert (data["jobs"]["j2"]["waits"], data["jobs"]["j2"]["carries"]) == (["release:api:Forge-AI/monorepo#9"], {"o2": [carried]})
@@ -1478,8 +1478,8 @@ def test_a_product_merge_whose_paths_reach_no_release_says_its_prover_in_one_lin
             data["prs"][state.pr_key(url)] = state.new_pr(url, job_id, "o1") | {"state": "merged", "merged_sha": sha, "title": "Fix: the page"}
         for job_id in ("j2", "j1"):
             install.merged_done("demo", data, job_id)
-        asking = install.add_prover(data, "j2", {}, {"o1": data["jobs"]["j2"]["parts"]}, [])
-        merging = install.add_prover(data, "j1", {}, {"o1": data["jobs"]["j1"]["parts"]}, [])
+        asking = install.add_prover(data, "j2", {}, {"o1": data["jobs"]["j2"]["parts"]}, [], set())
+        merging = install.add_prover(data, "j1", {}, {"o1": data["jobs"]["j1"]["parts"]}, [], set())
     asked, merged = install.merged_said("demo", asking, "added"), install.merged_said("demo", merging, "added")
     data = state.load("demo")
     assert (asking, merging, data["jobs"][asking]["waits"], data["jobs"][merging]["waits"]) == ("j3", "j4", [], [])
@@ -1489,6 +1489,43 @@ def test_a_product_merge_whose_paths_reach_no_release_says_its_prover_in_one_lin
     assert "Handoff: Forge-AI/monorepo#10 at 0123456789ab merged: install it and prove it live" in Path(data["jobs"]["j3"]["brief"]).read_text()
     assert [data["jobs"][job_id]["state"] for job_id in ("j1", "j2", "j3", "j4")] == ["done", "done", "running", "running"]
     assert (data["orders"]["o1"]["proof"], data["orders"]["o1"]["close_report"]) == (None, None)
+
+
+def test_a_merge_with_no_staging_test_reaching_a_target_staging_runs_gets_a_prover_starting_now_on_its_after_merge_pass_holding_back_its_release_waits(
+    config: Path, tmp_path: Path, fake: Callable[..., FakeGit]
+) -> None:
+    proving(config, tmp_path, fake([BUILD], {BUILD}), 0)
+    tested, untested = "https://github.com/Forge-AI/monorepo/pull/9", "https://github.com/Forge-AI/monorepo/pull/10"
+    with state.edit("demo") as data:
+        order = data["orders"]["o1"]
+        order["jobs"].append("j2")
+        data["jobs"]["j2"] = state.new_job("o1", "builder", "show each step", [*order["parts"]], state.stamp()) | {"state": "waiting", "said": f"READY {untested}", "prs": [untested], "brief_flags": {"native": "none"}}
+        staged = state.STAGING_TEST.format(number=9)
+        order["parts"][staged] = state.new_part() | {"posted": "https://buildkite.com/forge/release/builds/16164", "posted_by": "j1"}
+        data["jobs"]["j1"].update(said=f"READY {tested}", prs=[tested], repro=None, brief_flags={"native": "none"}, parts=[*data["jobs"]["j1"]["parts"], staged])
+        for url, job_id, sha in ((tested, "j1", "fedcba9876543210"), (untested, "j2", "0123456789abcdef")):
+            data["prs"][state.pr_key(url)] = state.new_pr(url, job_id, "o1") | {"state": "merged", "merged_sha": sha, "title": "Fix: the page"}
+        reach = {key: {"components": ["api", "web"], "touched": ["api", "web"]} for key in ("Forge-AI/monorepo#9", "Forge-AI/monorepo#10")}
+        for job_id in ("j1", "j2"):
+            install.merged_done("demo", data, job_id)
+        releasing = install.add_prover(data, "j1", reach, {"o1": [part for part in data["jobs"]["j1"]["parts"] if part != staged]}, [], {"api"})
+        passing = install.add_prover(data, "j2", reach, {"o1": data["jobs"]["j2"]["parts"]}, [], {"api"})
+    released, passed = install.merged_said("demo", releasing, "added"), install.merged_said("demo", passing, "added")
+    data = state.load("demo")
+    held = "release:api:Forge-AI/monorepo#10 release:web:Forge-AI/monorepo#10"
+    assert (releasing, passing, data["jobs"]["j3"]["waits"], data["jobs"]["j4"]["waits"]) == ("j3", "j4", ["release:api:Forge-AI/monorepo#9", "release:web:Forge-AI/monorepo#9"], [])
+    assert data["jobs"]["j4"]["brief_flags"]["handoff"] == (
+        f"Forge-AI/monorepo#10 at 0123456789ab merged with no staging test before its merge: run its after-merge staging pass first, by the merge row of agents/builder.md,"
+        f" its cases from the bodies of {untested}, the PROVE: line and REPRO: of j2's return in reports/j2.md and the words of o1,"
+        f" waiting on staging:api/plat-usw2-staging@0123456789abcdef while staging serves no build holding its merge and holding back {held} until its verdict;"
+        f" then install it and prove it live by the INSTALL: and PROVE: lines of j2's return before its DONE, in reports/j2.md"
+    )
+    assert released == "JOB j3 o1 added, proves Forge-AI/monorepo#9, waits on 2 releases: drive status j3"
+    assert passed == (
+        "JOB j4 o1 added, proves Forge-AI/monorepo#10, owes its after-merge staging pass first, holding back its release waits:"
+        f' start its agent now, run_in_background, on the prompt "Read your brief first: {data["jobs"]["j4"]["brief"]}"'
+    )
+    assert [data["jobs"][job_id]["state"] for job_id in ("j3", "j4")] == ["waiting", "running"]
 
 
 def test_an_incidents_fix_proven_live_keeps_no_close_and_leaves_its_close_to_the_watchs_read(config: Path, tmp_path: Path, fake: Callable[..., FakeGit]) -> None:

@@ -133,6 +133,8 @@ RELEASE_WAIT = re.compile(r"release:(?P<service>[\w.-]+):(?P<pr>[^/\s#]+/[^/\s#]
 STAGING_WAIT = re.compile(r"staging:(?P<target>[\w.-]+)/(?P<env>[\w.-]+)@(?P<commit>[0-9a-f]{7,40})")
 STAGING_TEST = "staging test of #{number} before it lands"
 STAGING_PART = re.compile(STAGING_TEST.format(number=r"\d+"))
+STAGING_ENV = "plat-usw2-staging"
+AFTER_MERGE_PASS = "after-merge staging pass"
 PID_WAIT = re.compile(r"pid:(?P<pid>\d+)(?:@(?P<started>\d+))?")
 CASE_LINE = re.compile(r"^CASE[ \t]+[^:\n]+:[ \t]*(.*?)[ \t]*$", re.MULTILINE)
 PASSED_CASE = re.compile(r"pass(?:ed)?\b", re.IGNORECASE)
@@ -1981,6 +1983,12 @@ def delivered(data: dict, order_id: str, part: str) -> bool:
     if work(data, order_id, part):
         return bool(done & set(CHANGE_KINDS)) or bool(posted and PR_URL.search(posted))
     return "builder" in done or bool(posted)
+
+
+def staging_tested(data: dict, key: str) -> bool:
+    """Whether the merged PR at key was tested on staging before its merge: a `staging test of #N before it lands` part of any order naming its number is delivered."""
+    part = STAGING_TEST.format(number=key.rpartition("#")[2])
+    return any(part in order["parts"] and delivered(data, order_id, part) for order_id, order in data["orders"].items())
 
 
 def unposted_answer(data: dict, job_id: str) -> bool:

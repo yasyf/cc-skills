@@ -835,20 +835,32 @@ def merged_done(name: str, data: dict, job_id: str) -> list[str]:
     return waits
 
 
-def add_prover(data: dict, job_id: str, reach: dict[str, dict], parts: dict[str, list[str]], waits: list[str]) -> str:
-    """Hand a builder whose PRs all merged outside yasyf/* to the builder proving them live on the release holding each merge, so each merged PR has one: each PR's prover, by prover_of, takes its parts, each list under the order holding it, the first order its own, and one no agent or lane took yet also takes the PRs it lacks, their release waits, the release waits the merged job held, waits, and a merge handoff, or one proving them by their tests passing on dev when every PR changes only tests or CI config; while a PR has no prover and none of theirs can take it, a new one, marked as building nothing, so it holds no builder slot, goes on those parts in the merged job's session on its brief flags, waiting on the release of each component cli.release_reach's answer in reach finds its PRs' paths touch. That prover's id."""
+def add_prover(data: dict, job_id: str, reach: dict[str, dict], parts: dict[str, list[str]], waits: list[str], staged: set[str]) -> str:
+    """Hand a builder whose PRs all merged outside yasyf/* to the builder proving them live on the release holding each merge, so each merged PR has one: each PR's prover, by prover_of, takes its parts, each list under the order holding it, the first order its own, and one no agent or lane took yet also takes the PRs it lacks, their release waits, the release waits the merged job held, waits, and a merge handoff, or one proving them by their tests passing on dev when every PR changes only tests or CI config; while a PR has no prover and none of theirs can take it, a new one, marked as building nothing, so it holds no builder slot, goes on those parts in the merged job's session on its brief flags, waiting on the release of each component cli.release_reach's answer in reach finds its PRs' paths touch. A PR with no staging test before its merge, by state.staging_tested, touching a target in staged, those tools/ci release live reads running on state.STAGING_ENV, gets a new prover waiting on nothing, its handoff owing its after-merge staging pass on those targets first and naming the release waits it holds back until the pass returns. That prover's id."""
     job = data["jobs"][job_id]
     merges = merges_of(data, job_id)
     found = list(dict.fromkeys(filter(None, (prover_of(data, key) for key in merges))))
     keys = [key for key in merges if not prover_of(data, key)]
     merged = ", ".join(f"{key} at {sha[:12]}" for key, sha in merges.items())
+    waits = list(dict.fromkeys([*waits, *(f"release:{component}:{key}" for key, answer in reach.items() if key in keys for component in answer["touched"])]))
+    stagings = [
+        f"staging:{target}/{state.STAGING_ENV}@{merges[key]}"
+        for key in keys
+        if not state.staging_tested(data, key)
+        for target in reach.get(key, {}).get("touched", [])
+        if target in staged
+    ]
+    proving = f"install it and prove it live by the INSTALL: and PROVE: lines of {job_id}'s return before its DONE, in reports/{job_id}.md"
     handoff = (
         f"{merged} merged, changing only tests or CI config, which no release ships: prove it by its tests passing on dev at or after its merge commit"
         if keys and all(reach.get(key, {}).get("tested") for key in merges)
-        else f"{merged} merged: install it and prove it live by the INSTALL: and PROVE: lines of {job_id}'s return before its DONE, in reports/{job_id}.md"
+        else f"{merged} merged with no staging test before its merge: run its {state.AFTER_MERGE_PASS} first, by the merge row of agents/builder.md,"
+        f" its cases from the bodies of {' '.join(map(state.pr_url, keys))}, the PROVE: line and REPRO: of {job_id}'s return in reports/{job_id}.md and the words of {job['order']},"
+        f" waiting on {' '.join(stagings)} while staging serves no build holding its merge and holding back {' '.join(waits)} until its verdict; then {proving}"
+        if stagings
+        else f"{merged} merged: {proving}"
     )
-    waits = list(dict.fromkeys([*waits, *(f"release:{component}:{key}" for key, answer in reach.items() if key in keys for component in answer["touched"])]))
-    lead = next((builder_id for builder_id in found if state.untaken(data["jobs"][builder_id])), None)
+    lead = None if stagings else next((builder_id for builder_id in found if state.untaken(data["jobs"][builder_id])), None)
     for builder_id in found:
         widen(data, builder_id, parts, *((keys, waits, handoff) if builder_id == lead else ([], [], None)))
     if lead or not keys:
@@ -857,7 +869,7 @@ def add_prover(data: dict, job_id: str, reach: dict[str, dict], parts: dict[str,
     builder_id = state.next_id(data["jobs"], "j")
     builder = data["jobs"][builder_id] = state.new_job(order_id, "builder", f"prove {', '.join(keys)} live", own, state.stamp()) | {
         "session": job.get("session"),
-        "waits": waits,
+        "waits": [] if stagings else waits,
         "brief_flags": (job.get("brief_flags") or {}) | {"handoff": handoff},
         "builds_nothing": True,
     }
@@ -916,7 +928,7 @@ def proves(data: dict, job_id: str) -> list[str]:
 
 
 def merged_said(name: str, builder_id: str, change: str) -> str:
-    """The one line saying the builder add_prover added or widened, by change, to prove live the PRs of builders that took DONE at their merge, whatever their number, counting the releases it waits on, which drive status lists, briefed here so its agent starts on the watch's FREE once the last is out, or in the turn this line wakes when it waits on none, or why its brief was not written; one an agent or lane already took, or that finished, keeps its brief and says its state."""
+    """The one line saying the builder add_prover added or widened, by change, to prove live the PRs of builders that took DONE at their merge, whatever their number, counting the releases it waits on, which drive status lists, briefed here so its agent starts on the watch's FREE once the last is out, or in the turn this line wakes when it waits on none, as a prover owing its after-merge staging pass does, or why its brief was not written; one an agent or lane already took, or that finished, keeps its brief and says its state."""
     from drive import cli
 
     data = state.load(name)
@@ -931,7 +943,8 @@ def merged_said(name: str, builder_id: str, change: str) -> str:
         return f"{head}, has no brief: {error}; brief it with drive job brief {builder_id}"
     if waits := len(builder["waits"]):
         return f"{head}, waits on {waits} release{'s' if waits > 1 else ''}: drive status {builder_id}"
-    return f'{head}, waits on no release: start its agent now, run_in_background, on the prompt "{started}"'
+    owes = f"owes its {state.AFTER_MERGE_PASS} first, holding back its release waits" if state.AFTER_MERGE_PASS in (builder.get("brief_flags") or {}).get("handoff", "") else "waits on no release"
+    return f'{head}, {owes}: start its agent now, run_in_background, on the prompt "{started}"'
 
 
 def proofless(name: str, data: dict, job_id: str) -> None:

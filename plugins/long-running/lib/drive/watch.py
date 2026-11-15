@@ -104,6 +104,7 @@ class Watcher:
     serving: dict[str, dict[str, bool]] | None = None
     fix_waits: dict[str, list[str]] | None = None
     live_at: datetime | None = None
+    staged: set[str] | None = None
     started: dict[str, datetime] = field(default_factory=dict)
     mail_read: set[str] = field(default_factory=set)
     resumed: dict[str, str] = field(default_factory=dict)
@@ -410,7 +411,7 @@ def followed(watcher: Watcher, data: dict) -> list[str]:
 
 
 def serving_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Read which clusters serve the merged Forge-AI/monorepo PR of each release wait the watch follows and the soak commit of each staging wait, for waits_lines, and of each component each fix PR of an open incident touches by release_reach, for recovered_lines: one `tools/ci release live --json`, run in the drive's checkout as orca.checkout moves it, at most once every LIVE_EVERY, since it takes most of a minute, prints the commit each cluster of every service serves, production or not, a stack whose switch never passed serving its older build, and the release still running on it. Kept on the watcher as serving until the next read, each wait's clusters by whether each serves a commit carrying the PR's merge with no release running there, by github.carrier's read of the checkout's own history, or, for a staging wait, the soak commit itself, a service no cluster runs reading none, and each fix PR's waits as fix_waits, both None while the read fails."""
+    """Read which clusters serve the merged Forge-AI/monorepo PR of each release wait the watch follows and the soak commit of each staging wait, for waits_lines, and of each component each fix PR of an open incident touches by release_reach, for recovered_lines: one `tools/ci release live --json`, run in the drive's checkout as orca.checkout moves it, at most once every LIVE_EVERY, since it takes most of a minute, prints the commit each cluster of every service serves, production or not, a stack whose switch never passed serving its older build, and the release still running on it. Kept on the watcher as serving until the next read, each wait's clusters by whether each serves a commit carrying the PR's merge with no release running there, by github.carrier's read of the checkout's own history, or, for a staging wait, the soak commit itself or a build carrying it by the same read, so a promotion of dev holding a merge frees a wait on that merge commit while a soak commit off dev's line still frees only at itself, a service no cluster runs reading none, and each fix PR's waits as fix_waits, both None while the read fails."""
     from drive import cli
 
     data = state.load(watcher.name)
@@ -428,8 +429,7 @@ def serving_lines(watcher: Watcher, moment: datetime) -> list[str]:
         return []
     watcher.serving = watcher.fix_waits = None
     try:
-        checkout = orca.checkout(watcher.name, data["roles"]["coordinator"]["cwd"])
-        live = json.loads(reads.run([str(checkout / "tools" / "ci"), "release", "live", "--json"], checkout))
+        checkout, live = live_rows(watcher, data)
         reach = cli.release_reach(watcher.name, data, fixes) if fixes else {}
         fix_waits = {key: [f"release:{component}:{key}" for component in reach[key]["touched"]] for key in fixes}
         carries = github.carrier(str(checkout))
@@ -437,13 +437,24 @@ def serving_lines(watcher: Watcher, moment: datetime) -> list[str]:
             wait: {row["env"]: not row.get("running") and carries(row["commit"], data["prs"][found["pr"]]["merged_sha"], github.split(data["prs"][found["pr"]]["into"] or found["pr"])[2]) for row in live if row["target"] == found["service"]}
             for wait in dict.fromkeys([*merged, *(wait for waits in fix_waits.values() for wait in waits)])
             if (found := state.RELEASE_WAIT.fullmatch(wait))
+        } | {
+            wait: {row["env"]: row["commit"].startswith(found["commit"]) or carries(row["commit"], found["commit"], 0) for row in live if row["target"] == found["target"]}
+            for wait, found in soaks.items()
         }
     except (state.DriveError, reads.ReadError, github.GithubError) as error:
         return read_failed(watcher, "release live", error, moment)
-    watcher.serving = serving | {wait: {row["env"]: row["commit"].startswith(found["commit"]) for row in live if row["target"] == found["target"]} for wait, found in soaks.items()}
+    watcher.serving = serving
     watcher.fix_waits, watcher.live_at = fix_waits, moment
     watcher.failures.pop("release live", None)
     return []
+
+
+def live_rows(watcher: Watcher, data: dict) -> tuple[Path, list[dict]]:
+    """The drive's checkout, as orca.checkout moves it, and the rows of one `tools/ci release live --json` run there, a commit each cluster of every service serves, keeping on the watcher as staged the targets state.STAGING_ENV runs for add_prover."""
+    checkout = orca.checkout(watcher.name, data["roles"]["coordinator"]["cwd"])
+    live = json.loads(reads.run([str(checkout / "tools" / "ci"), "release", "live", "--json"], checkout))
+    watcher.staged = {row["target"] for row in live if row["env"] == state.STAGING_ENV}
+    return checkout, live
 
 
 def incident_fixes(watcher: Watcher, data: dict) -> dict[str, list[str]]:
@@ -745,11 +756,11 @@ def shipped(watcher: Watcher, data: dict) -> dict[str, str]:
 
 
 def out_because(watcher: Watcher, wait: str) -> str | None:
-    """What says a wait is out: a release wait's once release live reads its service on one cluster at least and behind names none of them, a staging wait's once release live reads its env's target serving its soak commit; None for any other wait."""
+    """What says a wait is out: a release wait's once release live reads its service on one cluster at least and behind names none of them, a staging wait's once release live reads its env's target serving its commit or a build carrying it; None for any other wait."""
     if (found := state.RELEASE_WAIT.fullmatch(wait)) and behind(watcher, wait) == []:
         return f"every cluster of {found['service']}, {', '.join(sorted(watcher.serving[wait]))}, serves {found['pr']} with no release running there"
     if (found := state.STAGING_WAIT.fullmatch(wait)) and (watcher.serving or {}).get(wait, {}).get(found["env"]):
-        return f"tools/ci release live reads {found['env']}'s {found['target']} serving the soak commit {found['commit'][:12]}"
+        return f"tools/ci release live reads {found['env']}'s {found['target']} serving {found['commit'][:12]} or a build carrying it"
     return None
 
 
@@ -2784,8 +2795,10 @@ def finished(watcher: Watcher, moment: datetime) -> list[str]:
     lines: list[str] = []
     try:
         reach = cli.release_reach(watcher.name, data, [key for job_id in owed for key in reported_prs(data, job_id) if not prover_of(data, key)])
-    except (github.GithubError, state.DriveError) as error:
-        merging, owed, reach, lines = [], [], {}, failed(watcher, "release select", "`tools/ci release select --pr` read of the releases a merged PR reaches", error, moment)
+        if watcher.staged is None and any(answer["touched"] for answer in reach.values()):
+            live_rows(watcher, data)
+    except (github.GithubError, state.DriveError, reads.ReadError) as error:
+        merging, owed, reach, lines = [], [], {}, failed(watcher, "release select", "`tools/ci release select --pr` and `tools/ci release live` reads of the releases a merged PR reaches and the targets staging runs", error, moment)
     else:
         watcher.failures.pop("release select", None)
     with state.edit(watcher.name) as data:
@@ -2803,7 +2816,7 @@ def finished(watcher: Watcher, moment: datetime) -> list[str]:
         known = set(data["jobs"])
         provers: dict[str, list[str]] = {}
         for job_id, parts in proving.items():
-            provers.setdefault(add_prover(data, job_id, reach, parts, moved.get(job_id, [])), []).append(job_id)
+            provers.setdefault(add_prover(data, job_id, reach, parts, moved.get(job_id, []), watcher.staged or set()), []).append(job_id)
     return lines + [merged_said(watcher.name, builder_id, f"widened to the parts of {', '.join(jobs)}" if builder_id in known else "added") for builder_id, jobs in provers.items()]
 
 
