@@ -144,7 +144,7 @@ COMMUNICATOR_RULES = (
         "After a compaction or a restart, your first call is the `ToolSearch` below; then one handler posts a line in"
         " each thread where he waits on a handler whose line has not come back: what is happening and when he hears next."
     ),
-    "Post nothing on your own clock: summaries come as reports, and while he is away say holds for his catch-up each report its away rule keeps from him.",
+    "Post nothing on your own clock: summaries come as reports, and while he is away say holds for his return each report its away rule keeps from him.",
 )
 COORDINATOR_RULES = (
     (
@@ -342,7 +342,7 @@ def clock(moment: datetime, seconds: bool = False) -> str:
 
 
 def overdue(drive: dict, moment: datetime) -> tuple[list[list], list[str]]:
-    """The block of the orders of the clocks row state.held_clocks kept, those a session or job holds, most overdue first, by his words "add something in our tooling so the agent can see whenever it takes an action, how long since it last messaged the user / gave an update, and how far over it's SLA is it", beside what it shows for state.show_overdue to draw it by: the five most overdue and how many more, each with the minutes since its thread's last line to him, its due, and the minutes past it he read present, an incident's every minute, since the watch owes its line while he is away too, one he is away from now saying his catch-up carries it; what it shows is each of those five beside its step, none before its due, one more once past due and at each fifteen minutes past it, and while he is away none for a line that shows no minutes, so a block repeats only when the five or a step change."""
+    """The block of the orders of the clocks row state.held_clocks kept, those a session or job holds, most overdue first, by his words "add something in our tooling so the agent can see whenever it takes an action, how long since it last messaged the user / gave an update, and how far over it's SLA is it", beside what it shows for state.show_overdue to draw it by: the five most overdue and how many more, each with the minutes since its thread's last line to him, its due, and the minutes past it he read present, an incident's every minute, since the watch owes its line while he is away too, one he is away from now saying its line is owed at his return; what it shows is each of those five beside its step, none before its due, one more once past due and at each fifteen minutes past it, and while he is away none for a line that shows no minutes, so a block repeats only when the five or a step change."""
     if not (held := drive[CLOCKS]):
         return [], []
     away = owner_away(drive, moment)
@@ -351,7 +351,7 @@ def overdue(drive: dict, moment: datetime) -> tuple[list[list], list[str]]:
     for entry in sorted(held, key=lambda entry: (-late[entry["order"]], parse_time(entry["due"])))[:OVERDUE_SHOWN]:
         quiet = int((moment - parse_time(entry["since"])).total_seconds() // 60)
         if away and not entry["incident"]:
-            standing, step = "; he is away, so his catch-up post on his return carries it", None
+            standing, step = "; he is away, so its line is owed at his return", None
         else:
             standing = f", {int(late[entry['order']].total_seconds() // 60)} min past due" if late[entry["order"]] else ", not past due"
             step = 1 + late[entry["order"]] // OVERDUE_STEP if late[entry["order"]] else 0
@@ -386,7 +386,7 @@ def corrected_by(seqs: list[str]) -> str:
 
 
 def withdrawn_by(seqs: list[str]) -> str:
-    return f", withdrawn by record{'s' if len(seqs) > 1 else ''} {', '.join(seqs)}, so the catch-up leaves it out and closes no order on it" if seqs else ""
+    return f", withdrawn by record{'s' if len(seqs) > 1 else ''} {', '.join(seqs)}, so no post carries it and no order closes on it" if seqs else ""
 
 
 def start_now(prompt: str) -> str:
@@ -762,14 +762,14 @@ def status_text(drive: dict, seen: dict[str, str], shown: dict | None = None, ru
     if incidents := [incident_line(order_id, order) for order_id, order in orders.items() if order["incident"]]:
         lines.extend(["Open incident orders; an alert on the same failing service joins one with drive order add --joins <o>:", *incidents])
     if held := {seq: mark for seq, mark in drive["held"].items() if runs is None or mark["order"] in orders}:
-        lines.append("Held for his catch-up, since he is away; the catch-up he gets when he is back carries each its writer did not withdraw:")
+        lines.append("Held for his return, since he was away; once he is back the watch's line in its order's thread, or his catch-up for one with no thread, carries each its writer did not withdraw:")
         lines.extend(
             f"- report {seq} ({mark['order'] or 'no order'}), held {when(mark['at'])}{corrected_by(mark['corrections'])}{withdrawn_by(mark['withdrawn'])}"
             for seq, mark in held.items()
         )
     if owed := drive["catch_up"]:
         started = f", its handler {owed['handler']} last started when he was heard at {when(owed['tried'])}" if owed["handler"] else ""
-        lines.append(f"His catch-up is owed since {when(owed['since'])}, over {len(owed['orders'])} orders: the watch posts it through a handler once he is heard while here{started}")
+        lines.append(f"His catch-up is owed since {when(owed['since'])}: the watch posts it at his DM root through a handler once he is heard while here{started}")
     lines.append(
         f"Open orders{'' if runs is None else ' you run'}: {len(orders)}, a line each and one under it for each standing part and each part an ORPHAN named until it heals or a job on it moves;"
         " drive status <id> prints one whole, with its jobs, PRs and questions:"

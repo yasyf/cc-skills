@@ -2798,24 +2798,88 @@ def returned_while_away(demo: str) -> None:
         data["jobs"]["j1"].update(state="done", said="DONE the watch reads each PR once a pass")
 
 
-def test_his_next_message_after_away_owes_his_catch_up_on_each_order_whose_news_moved_which_no_thread_line_repeats_and_the_watch_posts_through_a_handler_once_each_time_he_is_heard(
+def test_his_return_marks_no_orders_news_told_so_its_own_thread_gets_that_line_and_owes_no_catch_up_when_nothing_was_held(
     demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    with state.edit(demo) as data:
-        data["orders"]["o2"] = order(thread=["D123", TEAMMATE_THREAD], jobs=["j2"])
-        data["jobs"]["j2"] = job(order="o2", state="done", said="DONE it")
     returned_while_away(demo)
     calls = catching_up(monkeypatch, demo)
     watching = watcher(demo)
     assert heard_now(demo, capsys) == "heard"
-    assert state.load(demo)["catch_up"] == state.new_catch_up(state.stamp(T0), ["o1"])
-    assert watch.catch_up_lines(watching, BACK) == []
+    assert state.load(demo)["catch_up"] is None
+    assert watch.held_report_lines(watching, BACK) + watch.catch_up_lines(watching, BACK) == []
+    assert calls == []
     assert watch.quiet_lines(watching, BACK + timedelta(minutes=6)) == []
-    [(report, body), (start, _)] = calls
-    assert report["text"] == f"POST his catch-up since {render.when(state.stamp(T0))}: 1 orders with news, 0 reports held for it"
-    assert (report["to"], report["kind"], report["attr"]) == ([f"communicator@{demo}"], "report", {"catch_up": "true"})
-    assert f"- {render.order_line(state.load(demo), 'o1', state.load(demo)['orders']['o1'])}" in body.splitlines()
+    [(report, body), _] = calls
+    assert report["attr"] == {"order": "o1", "progress": "true", "quiet": "true", "thread": INCIDENT_THREAD}
+    assert "Moved since the thread's last line or the watch's last report on it: j1. At work: no job." in body.splitlines()
+
+
+@pytest.mark.parametrize("many", [1, 100])
+def test_his_return_reads_no_orders_news_however_many_orders_are_open(demo: str, monkeypatch: pytest.MonkeyPatch, many: int) -> None:
+    with state.edit(demo) as data:
+        for n in range(1, many + 1):
+            data["orders"][f"o{n}"] = order(thread=["D123", f"1794494004.{n:06d}"], jobs=[f"j{n}"])
+            data["jobs"][f"j{n}"] = job(order=f"o{n}")
+        data["owner"] = {"heard": state.stamp(T0), "away": state.stamp(T0)}
+        data["held"]["700"] = {"order": "o1", "at": state.stamp(T0 + timedelta(minutes=10)), "record": "690000"}
+    monkeypatch.setattr(watch, "line_facts", lambda *args: pytest.fail("his return read an order's news"))
+    saves: list[str] = []
+    save = state.save
+    monkeypatch.setattr(state, "save", lambda name, data: saves.append(name) or save(name, data))
+    assert watch.hear(demo, BACK) == {"away": False, "back": True, "since": state.stamp(T0), "catch_up": True, "held": ["700"]}
+    assert saves == [demo]
+    assert (state.load(demo)["catch_up"], state.load(demo)["held"]["700"]["record"]) == (state.new_catch_up(state.stamp(T0)), None)
+
+
+def test_once_he_is_back_the_relay_gives_each_thread_a_held_report_was_to_go_in_one_line_carrying_them_and_his_catch_up_only_the_one_with_no_thread(
+    demo: str, monkeypatch: pytest.MonkeyPatch, cci_amendments: dict[str, dict[str, list[str]]]
+) -> None:
+    held_at = state.stamp(T0 + timedelta(minutes=10))
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["thread"] = ["D123", INCIDENT_THREAD]
+        data["orders"]["o2"] = order(thread=["D123", TEAMMATE_THREAD], jobs=["j2"])
+        data["jobs"]["j2"] = job(order="o2", state="done", said="DONE it")
+        data["owner"] = {"heard": state.stamp(T0), "away": state.stamp(T0)}
+        data["held"] = {seq: {"order": order_id, "at": held_at, "record": None} for seq, order_id in (("700", "o1"), ("702", "o1"), ("704", "o1"), ("710", "o2"), ("720", None))}
+    cci_amendments["correction"]["700"] = ["705"]
+    cci_amendments["withdraw"]["704"] = ["706"]
+    calls = catching_up(monkeypatch, demo)
+    watching = watcher(demo)
+    assert watch.held_report_lines(watching, BACK) == []
+    assert calls == []
+    watch.hear(demo, BACK)
+    assert watch.held_report_lines(watching, BACK) == []
+    [(first, first_body), (second, second_body), (start, _), (other, _)] = calls
+    assert first["attr"] == {"order": "o1", "progress": "true", "quiet": "true", "thread": INCIDENT_THREAD}
+    assert second["attr"] == {"order": "o2", "progress": "true", "quiet": "true", "thread": TEAMMATE_THREAD}
+    assert first["text"] == "POST order o1 has reports held for his return: post in its thread what still stands of them and what changed since"
+    assert [line for line in first_body.splitlines() if line.startswith("- report")] == ["- report 700, corrected by record 705", "- report 702"]
+    assert [line for line in second_body.splitlines() if line.startswith("- report")] == ["- report 710"]
     assert start[:4] == ["claude", "--bg", "--agent", "long-running:handler"]
+    assert (start[-1], other[-1]) == tuple(f"Record: {seq} Drive: {demo} Scratch: {state.drive_dir(demo) / 'scratch' / f'held-{seq}'}" + UNFROZEN for seq in ("901", "902"))
+    assert {seq: mark["record"] for seq, mark in state.load(demo)["held"].items()} == {"700": "901", "702": "901", "710": "902", "720": None}
+    assert watch.held_report_lines(watching, BACK) == []
+    assert watch.catch_up_lines(watching, BACK) == []
+    [(report, body), _] = calls[4:]
+    assert report["text"] == f"POST his catch-up since {render.when(state.stamp(T0))}, carrying 1 reports held for it"
+    assert (report["to"], report["kind"], report["attr"]) == ([f"communicator@{demo}"], "report", {"catch_up": "true"})
+    assert [line for line in body.splitlines() if line.startswith("- ")] == ["- report 720 on no order"]
+    assert state.load(demo)["held"]["720"]["record"] == "905"
+
+
+def test_his_catch_up_goes_through_a_handler_once_each_time_he_is_heard_and_never_while_he_is_away(
+    demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    returned_while_away(demo)
+    with state.edit(demo) as data:
+        data["held"]["700"] = {"order": None, "at": state.stamp(T0 + timedelta(minutes=10)), "record": None}
+    calls = catching_up(monkeypatch, demo)
+    watching = watcher(demo)
+    assert heard_now(demo, capsys) == "heard"
+    assert state.load(demo)["catch_up"] == state.new_catch_up(state.stamp(T0))
+    assert watch.catch_up_lines(watching, BACK) == []
+    [(report, body), (start, _)] = calls
+    assert "o1" not in body
     assert start[-1] == f"Record: 901 Drive: {demo} Scratch: {state.drive_dir(demo) / 'scratch' / 'catch-up-901'}" + UNFROZEN
     owed = state.load(demo)["catch_up"]
     assert (owed["tried"], state.load(demo)["handlers"][owed["handler"]]["holds"]["record"]) == (state.stamp(BACK), "901")
@@ -2835,7 +2899,7 @@ def test_his_next_message_after_away_owes_his_catch_up_on_each_order_whose_news_
     monkeypatch.setattr(state, "now", lambda: BACK + timedelta(minutes=3))
     assert heard_now(demo, capsys, "--away") == "away"
     assert state.load(demo)["owner"]["away"] == state.stamp(BACK + timedelta(minutes=3))
-    assert watch.catch_up_lines(watching, BACK + timedelta(minutes=3)) == []
+    assert watch.catch_up_lines(watching, BACK + timedelta(minutes=3)) + watch.held_report_lines(watching, BACK + timedelta(minutes=3)) == []
     assert len(calls) == 3
 
 
@@ -2843,6 +2907,8 @@ def test_a_catch_up_whose_handler_failed_to_start_starts_one_next_pass_on_the_re
     demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     returned_while_away(demo)
+    with state.edit(demo) as data:
+        data["held"]["700"] = {"order": None, "at": state.stamp(T0 + timedelta(minutes=10)), "record": None}
     calls = catching_up(monkeypatch, demo)
     answered = reads.run
 
@@ -2862,7 +2928,7 @@ def test_a_catch_up_whose_handler_failed_to_start_starts_one_next_pass_on_the_re
     assert calls[2][0][-1].startswith("Record: 901 ")
 
 
-def test_a_report_held_while_he_was_away_and_its_correction_go_on_his_catch_up(
+def test_drive_status_lists_each_report_held_for_his_return_with_its_corrections_and_withdrawals(
     demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], cci_amendments: dict[str, dict[str, list[str]]]
 ) -> None:
     held_at = state.stamp(T0 + timedelta(minutes=10))
@@ -2870,43 +2936,17 @@ def test_a_report_held_while_he_was_away_and_its_correction_go_on_his_catch_up(
         data["owner"] = {"heard": state.stamp(T0), "away": state.stamp(T0)}
         data["orders"]["o2"] = order(jobs=["j2"], updated=state.stamp(T0 - timedelta(minutes=5)))
         data["jobs"]["j2"] = job(order="o2", updated=state.stamp(T0 - timedelta(minutes=5)))
-        data["held"]["669950"] = {"order": "o2", "at": held_at}
+        data["held"] |= {seq: {"order": "o2", "at": held_at, "record": None} for seq in ("669950", "669960")}
     cci_amendments["correction"]["669950"] = ["669952"]
-    calls = catching_up(monkeypatch, demo)
+    cci_amendments["withdraw"]["669960"] = ["669970"]
+    catching_up(monkeypatch, demo)
     assert cli.main(["status", "--drive", demo]) == 0
-    assert f"- report 669950 (o2), held {render.when(held_at)}, corrected by record 669952" in capsys.readouterr().out.splitlines()
-    assert heard_now(demo, capsys) == "heard"
-    assert state.load(demo)["catch_up"]["orders"] == ["o2"]
-    assert watch.catch_up_lines(watcher(demo), BACK) == []
-    [(report, body), _] = calls
-    assert report["text"].endswith(": 1 orders with news, 1 reports held for it")
-    assert "- report 669950 on o2, corrected by record 669952" in body.splitlines()
+    lines = capsys.readouterr().out.splitlines()
+    assert f"- report 669950 (o2), held {render.when(held_at)}, corrected by record 669952" in lines
+    assert f"- report 669960 (o2), held {render.when(held_at)}, withdrawn by record 669970, so no post carries it and no order closes on it" in lines
 
 
-def test_a_held_report_its_writer_withdrew_reads_withdrawn_in_drive_status_and_stays_out_of_his_catch_up(
-    demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], cci_amendments: dict[str, dict[str, list[str]]]
-) -> None:
-    held_at = state.stamp(T0 + timedelta(minutes=10))
-    with state.edit(demo) as data:
-        data["owner"] = {"heard": state.stamp(T0), "away": state.stamp(T0)}
-        data["orders"]["o2"] = order(jobs=["j2"], updated=state.stamp(T0 - timedelta(minutes=5)))
-        data["jobs"]["j2"] = job(order="o2", updated=state.stamp(T0 - timedelta(minutes=5)))
-        data["held"] |= {"669950": {"order": "o2", "at": held_at}, "669960": {"order": "o2", "at": held_at}}
-    cci_amendments["withdraw"]["669950"] = ["669970"]
-    calls = catching_up(monkeypatch, demo)
-    assert cli.main(["status", "--drive", demo]) == 0
-    assert (
-        f"- report 669950 (o2), held {render.when(held_at)}, withdrawn by record 669970, so the catch-up leaves it out and closes no order on it"
-        in capsys.readouterr().out.splitlines()
-    )
-    assert heard_now(demo, capsys) == "heard"
-    assert watch.catch_up_lines(watcher(demo), BACK) == []
-    [(report, body), _] = calls
-    assert report["text"].endswith(": 1 orders with news, 1 reports held for it")
-    assert [line for line in body.splitlines() if line.startswith("- report")] == ["- report 669960 on o2"]
-
-
-def test_a_drive_an_older_install_saved_with_reports_held_owes_his_catch_up_since_the_first(demo: str) -> None:
+def test_a_drive_an_older_install_saved_with_reports_held_owes_his_catch_up_since_the_first_and_one_it_wrote_still_carries_them(demo: str) -> None:
     with state.edit(demo) as data:
         data["held"] = {
             "700": {"order": "o2", "at": state.stamp(T0 + timedelta(minutes=20))},
@@ -2915,7 +2955,14 @@ def test_a_drive_an_older_install_saved_with_reports_held_owes_his_catch_up_sinc
     saved = state.stored(demo)
     del saved["catch_up"]
     state.save(demo, saved)
-    assert state.load(demo)["catch_up"] == state.new_catch_up(state.stamp(T0 + timedelta(minutes=10)), ["o2"])
+    assert state.load(demo)["catch_up"] == state.new_catch_up(state.stamp(T0 + timedelta(minutes=10)))
+    assert [mark["record"] for mark in state.load(demo)["held"].values()] == [None, None]
+    saved = state.stored(demo)
+    saved["catch_up"] = state.new_catch_up(state.stamp(T0)) | {"orders": ["o2"], "record": "#900"}
+    state.save(demo, saved)
+    loaded = state.load(demo)
+    assert loaded["catch_up"] == state.new_catch_up(state.stamp(T0)) | {"record": "900"}
+    assert [mark["record"] for mark in loaded["held"].values()] == ["900", "900"]
 
 
 def test_an_event_with_line_breaks_stays_one_line(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -3000,7 +3000,7 @@ def test_while_he_is_away_only_cards_incident_lines_and_answers_go_out(run: Run,
         data["orders"]["o1"].update(thread=[DM, "1.2"], incident=True)
     reason = posted(transcript, text="The fix merged.")
     assert reason.startswith(f"Refused on purpose: he is away since he said so at {message_limits.render.when(heard)}, and while he is away only cards,")
-    assert "joins the catch-up the drive posts when he is back" in reason
+    assert "this news waits for his return, when the drive owes its thread a line" in reason
     card = {"title": said(10), "body": said(40), "options": ["Land it", "Hold it"], "waits": "demo:j1-7"}
     assert posted(transcript, card=card) is None
     assert posted(transcript, text="Users are unblocked.", thread_ts="1.2") is None
@@ -3121,16 +3121,16 @@ def test_a_report_held_while_he_is_away_is_marked_held_once_and_sends_its_writer
     reason = say(transcript, text="The fix merged.", record="700")
     assert reason.startswith("Refused on purpose: he is away")
     assert agents.ruled(reason) == {"judged": False}
-    assert reason.endswith("Report 700 is marked held: `drive status` lists it until the catch-up posts. Return NOTHING held for his catch-up.")
+    assert reason.endswith("Report 700 is marked held: `drive status` lists it until the line carrying it posts once he is back. Return NOTHING held for his return.")
     at = state.load("demo")["held"]["700"]["at"]
     assert say(transcript, text="The fix merged.", record="700") == reason
-    assert (posted, state.load("demo")["held"]) == ([], {"700": {"order": "o1", "at": at}})
+    assert (posted, state.load("demo")["held"]) == ([], {"700": {"order": "o1", "at": at, "record": None}})
     assert say(transcript, text="Users are unblocked.", record="710") is None
     assert say(transcript, text="The sandsql outage is mitigated.", record="720") is None
     assert list(state.load("demo")["held"]) == ["700"]
 
 
-def test_a_due_reports_line_while_he_is_away_is_refused_unheld_since_the_watch_owes_it_at_his_return_and_no_catch_up_carries_it(
+def test_a_due_reports_line_while_he_is_away_is_refused_unheld_since_the_watch_owes_it_at_his_return(
     run: Run, talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
@@ -3147,7 +3147,7 @@ def test_a_due_reports_line_while_he_is_away_is_refused_unheld_since_the_watch_o
     assert reason == (
         f"Refused on purpose: he is away since he said so at {message_limits.render.when(heard)}, and report 705373 owes the line promised"
         f" him by {message_limits.render.when(due)}, which is owed at his return: the watch writes its report again the first pass after he is heard,"
-        " so it joins no catch-up. Post nothing and return NOTHING owed at his return."
+        " so it is never held. Post nothing and return NOTHING owed at his return."
     )
     assert agents.ruled(reason) == {"judged": False}
     assert (state.load("demo")["held"], state.load("demo")["catch_up"]) == ({}, None)

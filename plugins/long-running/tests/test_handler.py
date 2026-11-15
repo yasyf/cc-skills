@@ -583,7 +583,7 @@ def test_a_post_report_gets_one_handler_whichever_of_the_handler_tool_and_the_wa
     for carried, held, went in (
         (None, False, "on a line that posted nothing of it"),
         ("https://forge.slack.com/archives/D0/p1794494004895129", False, "posting it at https://forge.slack.com/archives/D0/p1794494004895129"),
-        (None, True, "its line held for his catch-up"),
+        (None, True, "its line held for his return"),
     ):
         with state.edit("demo") as data:
             data["handlers"].clear()

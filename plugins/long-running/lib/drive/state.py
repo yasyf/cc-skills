@@ -125,8 +125,8 @@ AWAY_HOLD = (
     " after his last word or tap. While he is away a line to him in his DM goes out only as a card, a PR card, the watch's"
     " reply under a card holding built work, an edit of a post already out, his catch-up, an answer passing asked, a line"
     f" carrying {WAITS_ON_HIM}, an incident's line, a line marked customer_outage=true, or a line naming a clock time still to"
-    " come, which a promise of the next line is not. say holds every other report for his catch-up, news that work moved or"
-    " that the drive failed him included; a report owing a line promised by a time waits for his return instead, and a"
+    " come, which a promise of the next line is not. say holds every other report for his return, news that work moved or"
+    " that the drive failed him included; a report owing a line promised by a time is owed at his return instead, and a"
     ' handler\'s line carrying no report is refused, by his words "Just do less realtime more summary / batching, with a catch'
     " up post once I'm back\""
 )
@@ -1191,6 +1191,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     data.setdefault("stand_ins", {})
     data.setdefault("held", {})
     data.setdefault("owed_replies", {})
+    for mark in data["held"].values():
+        mark.setdefault("record", None)
     data.setdefault("carried", {})
     data.setdefault("dropped_waits", {})
     data.setdefault("posted", {})
@@ -1199,9 +1201,12 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         data["owner"]["away"] = (heard := data["owner"]["heard"]) and stamp(parse_time(heard) + (timedelta() if away else AWAY_AFTER))
     data.setdefault("mains", {})
     if "catch_up" not in data:
-        data["catch_up"] = new_catch_up(min(mark["at"] for mark in data["held"].values()), [mark["order"] for mark in data["held"].values() if mark["order"]]) if data["held"] else None
+        data["catch_up"] = new_catch_up(min(mark["at"] for mark in data["held"].values())) if data["held"] else None
     if data["catch_up"]:
         data["catch_up"]["record"] = bare_seq(data["catch_up"]["record"])
+        if data["catch_up"].pop("orders", None) is not None and data["catch_up"]["record"]:
+            for mark in data["held"].values():
+                mark["record"] = mark["record"] or data["catch_up"]["record"]
     passes = (drive_dir(name) / "pictures" / picture.SOURCED, drive_dir(name) / "asks" / REBUILT_ASKS, drive_dir(name) / APPROVALS_LABELLED)
     keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated")) and bool(data.get("holds_owed")) and bool(data.get("near_answers_apart")) and bool(data.get("stack_writes_read")) and bool(data.get("builder_goals_named")) and bool(data.get("members_kept")) and bool(data.get("open_dones_held")) and bool(data.get("staging_runs_reread")) and bool(data.get("lines_kept")) and bool(data.get("change_builders_unwaited")) and bool(data.get("finished_replacers_undone")) and bool(data.get("stopped_handed_off")) and bool(data.get("finished_texts_dropped")) and bool(data.get("work_proofs_owned")) and bool(data.get("messages_kept_once")) and bool(data.get("proof_results_marked")) and bool(data.get("reader_prs_handed")) and bool(data.get("stale_queued_dropped")) and bool(data.get("staging_approves_restored")) and bool(data.get("proofs_rehomed")) and bool(data.get("unowed_fails_undone")) and bool(data.get("carried_proofs_delivered")) and bool(data.get("old_dones_kept")) and bool(data.get("change_waits_stacked"))
     for flag in ("may_settle_per_answer", "may_settle_skips_approvals", "may_settle_by_subject", "may_settle_by_jev", "delivered_by_prs", "delivered_restored", "proofs_posted", "proofs_proven", "tap_cards_kept"):
@@ -4885,9 +4890,18 @@ def read_events(name: str, offset: int = 0) -> Iterator[tuple[dict, int]]:
                 yield json.loads(line), offset
 
 
-def new_catch_up(since: str, orders: list[str]) -> dict:
-    """The catch-up the drive owes him until it posts: from since, when he was last heard before he went away, over the orders with news since then, with the report of it the watch wrote, the handler last started to post it and the time he was heard that start answered."""
-    return {"since": since, "orders": list(dict.fromkeys(orders)), "record": None, "handler": None, "tried": None}
+def new_catch_up(since: str) -> dict:
+    """The catch-up the drive owes him at his DM root until it posts: from since, when he was last heard before he went away, with the report of it the watch wrote, the handler last started to post it and the time he was heard that start answered."""
+    return {"since": since, "record": None, "handler": None, "tried": None}
+
+
+def let_go(data: dict, withdrawn: list[str]) -> None:
+    """Let go of reports held for his return that their writers withdrew, which no post carries, giving back the close of each open order one claimed."""
+    for seq in withdrawn:
+        del data["held"][seq]
+    for order in data["orders"].values():
+        if order["closed_on"] in withdrawn and order["state"] not in CLOSED_ORDER_STATES:
+            order["closed_on"] = None
 
 
 def owner_away(data: dict, moment: datetime) -> bool:

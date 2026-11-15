@@ -2137,7 +2137,7 @@ def test_each_seq_an_older_install_saved_with_the_hash_cci_prints_loads_as_its_d
     question = state.new_question(None, "Which ring?", state.stamp(), closed=state.new_close("answered", "Ring", None, seq="#697591"))
     undelivered = {"seq": "#697592", "words": "Ring", "at": state.stamp(), "said": None, "request": "req-ring"}
     data["jobs"] = {"j1": state.new_job("o1", "builder", "fix it", ["fix it"], state.stamp()) | {"questions": [question], "undelivered": [undelivered]}}
-    data["catch_up"] = state.new_catch_up(state.stamp(), ["o1"]) | {"record": "#697595"}
+    data["catch_up"] = state.new_catch_up(state.stamp()) | {"record": "#697595"}
     state.create(data)
     loaded = state.load("demo")
     order, job = loaded["orders"]["o1"], loaded["jobs"]["j1"]

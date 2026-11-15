@@ -1680,7 +1680,7 @@ def owed_reads(watcher: Watcher, moment: datetime) -> list[functools.partial]:
 
 
 def relay_pass(watcher: Watcher, moment: datetime) -> list[str]:
-    """Start a reader on each new read or `DRIVE` question a live lane asked, then send again each answer a reader kept that no reply took, by resend_lines, then take each ended codex-ask run, by codex_takes, then start the handler on each line promised him by a time this pass's own clock is due to start it at, by due_lines, and on each POST report to the communicator, by post_lines. Its first pass, and one after a failed read, first has this process's Orca calls speak as the drive's own terminal; a failed read goes again next pass, said as the watch says its reads."""
+    """Start a reader on each new read or `DRIVE` question a live lane asked, then send again each answer a reader kept that no reply took, by resend_lines, then take each ended codex-ask run, by codex_takes, then start the handler on each line promised him by a time this pass's own clock is due to start it at, by due_lines, on each POST report to the communicator, by post_lines, and, once he is back, on each thread's line carrying the reports held for his return, by held_report_lines, and on his catch-up, by catch_up_lines, so no main pass stands between his return and either. Its first pass, and one after a failed read, first has this process's Orca calls speak as the drive's own terminal; a failed read goes again next pass, said as the watch says its reads."""
     lines = []
     try:
         if watcher.read_at is None:
@@ -1693,7 +1693,7 @@ def relay_pass(watcher: Watcher, moment: datetime) -> list[str]:
         watcher.failures.pop(NEWEST_MAIL, None)
     lines += resend_lines(watcher, moment)
     codex_takes(watcher)
-    return lines + due_lines(watcher, moment) + post_lines(watcher, moment)
+    return lines + due_lines(watcher, moment) + post_lines(watcher, moment) + held_report_lines(watcher, moment) + catch_up_lines(watcher, moment)
 
 
 def codex_takes(watcher: Watcher) -> None:
@@ -2023,6 +2023,56 @@ def due_lines(watcher: Watcher, moment: datetime) -> list[str]:
     return lines
 
 
+def held_report_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Once he is back, owe each thread of his DM or an incident's that a report held for his return was to go in its line, by his words 162648a "why did all of these get sent in this thread?": one report on the orders and incidents with news in that thread and the orders of its held reports this watch hears, with what moved and each held report its writer did not withdraw, with each correction cci holds re one, for one handler the watch starts there, which re-reads each and posts what still stands, a handler already at work in that thread taking it at its next step; each held report is kept as that report's until a post of it lets it go, by talk.released, each withdrawn let go at once, and its orders keep the facts it carried, as due_lines' reports do. A held report with no order or no thread goes on his catch-up instead, by catch_up_report. A failed write is said as a failed read is and tried again next pass; a report whose handler did not start gets one from post_lines, as each POST report does."""
+    data = state.load(watcher.name)
+    if state.owner_away(data, moment):
+        return []
+    threads: dict[tuple[str, str], list[str]] = {}
+    for seq, mark in data["held"].items():
+        if mark["record"] is None and mark["order"] and hears(watcher, data, mark["order"]) and (where := state.promise_thread(data["orders"][mark["order"]])):
+            threads.setdefault(where, []).append(seq)
+    if not threads:
+        return []
+    try:
+        amended = agents.amendments(watcher.name, [seq for seqs in threads.values() for seq in seqs])
+    except state.DriveError as error:
+        return failed(watcher, "held", "read of the corrections of the reports held for his return", error, moment)
+    registered = render.prs_by_job(data)
+    groups = news_groups(data, heard_orders(watcher, data))
+    lines, written = [], []
+    for where, seqs in threads.items():
+        if not (held := [seq for seq in seqs if seq not in amended["withdraw"]]):
+            continue
+        heads = {head: group for head, group in groups.items() if state.promise_thread(data["orders"][head]) == where}
+        heads |= {order_id: [order_id] for order_id in dict.fromkeys(data["held"][seq]["order"] for seq in held) if not any(order_id in group for group in heads.values())}
+        facts = {head: line_facts(data, group, registered, watcher.cards, moment) for head, group in heads.items()}
+        moved = [key for head in heads for key in (untold(data["orders"][head], facts[head]) if data["orders"][head]["quiet"] else facts[head])]
+        working = [job_id for job_id, job in state.orders_jobs(data, [order_id for group in heads.values() for order_id in group]).items() if job["state"] == "running"]
+        since = max(quiet_since(data, group) for group in heads.values())
+        try:
+            seq = quiet_report(watcher, data, heads, since, moment, list(dict.fromkeys(moved)), working, held=[f"- report {each}{render.corrected_by(amended['correction'].get(each, []))}" for each in held])
+        except (reads.ReadError, state.DriveError) as error:
+            lines += failed(watcher, f"held {where[1]}", f"line owed at his return in the thread of {', '.join(heads)}", error, moment)
+            continue
+        watcher.failures.pop(f"held {where[1]}", None)
+        written.append((seq, held, facts))
+    with state.edit(watcher.name) as data:
+        state.let_go(data, [seq for seqs in threads.values() for seq in seqs if seq in amended["withdraw"]])
+        for seq, held, facts in written:
+            for each in held:
+                data["held"][each]["record"] = seq
+            for head, told in facts.items():
+                if data["orders"][head]["quiet"]:
+                    data["orders"][head]["quiet"] |= {"record": seq, "at": state.stamp(moment), "news": told}
+    for seq, _, facts in written:
+        try:
+            agents.handle_report(watcher.name, seq, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'held-{seq}'}")
+        except state.DriveError as error:
+            lines += failed(watcher, f"held {seq}", f"handler on report {seq} owing the line at his return in the thread of {', '.join(facts)}", error, moment)
+    return lines
+
+
 def claim_lines(watcher: Watcher, moment: datetime) -> list[str]:
     """Owe the thread of each claim whose end passed, such as a staging claim's in #platform-internal, its closing line: read from Slack, a drive post there after the post that set the end ends the claim, and with none the order's lane gets a DUE line naming the claim, again every ten minutes until one is there, by his words "this thread message saying we're done and what the result is was is good, we should always do that"; a line in that thread naming a new end moves it, which state.claim keeps. A thread that could not be read is said as a failed read is and tried again next pass."""
     data = state.load(watcher.name)
@@ -2164,7 +2214,7 @@ def withdrawn_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def quiet_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Owe him a line in the thread of each open order with news the watch hears, by his pick "A handler posts each step, started by the watch on news", and in each thread of open incidents whose users are not unblocked yet, the watch not having found it over and no order of it keeping a proof, that had none in five minutes and has news, while he is away too, by his pick "Watch-owned clock: no 10-minute silence again, a line every five quiet minutes from a handler reading the jobs; costs one handler session each" and "Proof ends the line: none once users are unblocked; the incident stays open until its root fix is live." and "Owe a line only on news: while a job works or something it names changed; silent while all waits.". News is an order, job or PR of it whose facts moved since the thread's last line or the watch's last report on it, which the watch keeps on each order at the first pass after that line and once each report reaches a handler: a job returning, its first wait beginning or its last ending, never one wait of several ending while it still waits, a PR's state or checks settling, a new commit only through those, Trunk ejecting it or his tap, never its stage relabelled with none of those changed, a card of his opening or closing, and a job of its own at work with a live worker, by his words "Status? It's been 10 mins unacceptable to wait that long and to have to prompt you fix your tooling"; an order he asked a line of every so many minutes owes one that long after its thread's last line, news or none, by his words "And give me updates, every 15 mins, concise, on all 3 of these, in this thread, until all done"; an order he called top priority owes its line with no news at all, by his words "And for future when I say something is top priority it’s not acceptable that it's been an hour and there's no motion or updates on it". An order owes its line once five minutes passed since its thread's last line or the watch's last report on it, as an incident does, so a thread lined minutes before waits out that window and its line carries every step in it; never while he is away, since his catch-up carries it then, nor once a report closing it is kept or posted, since that report's post is its line. Each such thread gets one report naming each order and incident in it that owes the line, each only once its facts moved or a job of its own is at work, with its jobs and what moved, worded as an incident's only when every head it names is an incident, written once, and one handler the watch starts on it, which reads the jobs and posts what changed and what each job at work is doing in that thread, so orders sharing a thread get one line, not one each. A handler already at work in that thread takes the report at its next step. A report reaching a handler, started, handed or held by one already at work on it, keeps the facts it carried, so news a handler judged not worth posting starts no second handler and the next report carries only what moved after it; a failed write or start is said as a failed read is and tried again next pass with the same report."""
+    """Owe him a line in the thread of each open order with news the watch hears, by his pick "A handler posts each step, started by the watch on news", and in each thread of open incidents whose users are not unblocked yet, the watch not having found it over and no order of it keeping a proof, that had none in five minutes and has news, while he is away too, by his pick "Watch-owned clock: no 10-minute silence again, a line every five quiet minutes from a handler reading the jobs; costs one handler session each" and "Proof ends the line: none once users are unblocked; the incident stays open until its root fix is live." and "Owe a line only on news: while a job works or something it names changed; silent while all waits.". News is an order, job or PR of it whose facts moved since the thread's last line or the watch's last report on it, which the watch keeps on each order at the first pass after that line and once each report reaches a handler: a job returning, its first wait beginning or its last ending, never one wait of several ending while it still waits, a PR's state or checks settling, a new commit only through those, Trunk ejecting it or his tap, never its stage relabelled with none of those changed, a card of his opening or closing, and a job of its own at work with a live worker, by his words "Status? It's been 10 mins unacceptable to wait that long and to have to prompt you fix your tooling"; an order he asked a line of every so many minutes owes one that long after its thread's last line, news or none, by his words "And give me updates, every 15 mins, concise, on all 3 of these, in this thread, until all done"; an order he called top priority owes its line with no news at all, by his words "And for future when I say something is top priority it’s not acceptable that it's been an hour and there's no motion or updates on it". An order owes its line once five minutes passed since its thread's last line or the watch's last report on it, as an incident does, so a thread lined minutes before waits out that window and its line carries every step in it; never while he is away, since the thread's first line after his return carries it, nor once a report closing it is kept or posted, since that report's post is its line. Each such thread gets one report naming each order and incident in it that owes the line, each only once its facts moved or a job of its own is at work, with its jobs and what moved, worded as an incident's only when every head it names is an incident, written once, and one handler the watch starts on it, which reads the jobs and posts what changed and what each job at work is doing in that thread, so orders sharing a thread get one line, not one each. A handler already at work in that thread takes the report at its next step. A report reaching a handler, started, handed or held by one already at work on it, keeps the facts it carried, so news a handler judged not worth posting starts no second handler and the next report carries only what moved after it; a failed write or start is said as a failed read is and tried again next pass with the same report."""
     data = state.load(watcher.name)
     away = state.owner_away(data, moment)
     registered = render.prs_by_job(data)
@@ -2259,8 +2309,8 @@ def untold(order: dict, facts: dict[str, list]) -> list[str]:
     return [key for key, fact in facts.items() if order["quiet"]["news"].get(key) != fact]
 
 
-def quiet_report(watcher: Watcher, data: dict, groups: dict[str, list[str]], since: datetime, moment: datetime, moved: list[str], working: list[str], promised: dict | None = None) -> str:
-    """Write the report owing him a line in one thread, for the handler that posts it there: on the orders and incidents with news in it, each by the orders of its thread_group, head first and each once, then each job and PR of them once, however many of those orders list or name it, or, given a promise, on the one order owing him the line it promised in that promise's thread by its time, which the report asks for before the time when the time is still to come, calls late once he read present ten minutes past it, never counting the minutes of his absence, and says when he went away of a line that waited for his return; each card of his among the moved facts that waited_cards reads open past CARD_WAIT, for the line to say once that it still waits and what it holds; its seq."""
+def quiet_report(watcher: Watcher, data: dict, groups: dict[str, list[str]], since: datetime, moment: datetime, moved: list[str], working: list[str], promised: dict | None = None, held: list[str] | None = None) -> str:
+    """Write the report owing him a line in one thread, for the handler that posts it there: on the orders and incidents with news in it, each by the orders of its thread_group, head first and each once, then each job and PR of them once, however many of those orders list or name it, or, given a promise, on the one order owing him the line it promised in that promise's thread by its time, which the report asks for before the time when the time is still to come, calls late once he read present ten minutes past it, never counting the minutes of his absence, and says when he went away of a line that waited for his return, or, given held, carrying the lines of the reports held for his return that were to go in that thread, for the handler to re-read and post what still stands of; each card of his among the moved facts that waited_cards reads open past CARD_WAIT, for the line to say once that it still waits and what it holds; its seq."""
     heads = list(groups)
     minutes = int((moment - since).total_seconds() // 60)
     one = len(heads) == 1
@@ -2311,6 +2361,14 @@ def quiet_report(watcher: Watcher, data: dict, groups: dict[str, list[str]], sin
             else []
         ),
         f"Moved since the thread's last line or the watch's last report on it: {', '.join(moved) or 'nothing'}. At work: {', '.join(working) or 'no job'}.",
+        *(
+            [
+                f"Reports held for his return, which were to go in this thread while he was away: {len(held)}. Read each and each correction with cci read: none reached him, a correction's facts replace those it corrects, and a later step can overtake one; this line carries what still stands of them.",
+                *held,
+            ]
+            if held
+            else []
+        ),
         f"Read each job below, its kept report with drive job report <j> and the transcript of one still at work, then {asked}",
         f"Jobs: {len(jobs)}",
         *jobs,
@@ -2338,13 +2396,15 @@ def quiet_report(watcher: Watcher, data: dict, groups: dict[str, list[str]], sin
             if absence
             else f"POST order {head} owes him the line it promised by {when(due)}: post where it stands now in its thread"
         )
+    elif held:
+        text = f"POST {named} reports held for his return: post in its thread what still stands of them and what changed since"
     elif incidents or not moved:
         text = f"POST {named} had no line to him in {minutes} minutes: post where {'it stands' if one else 'each stands'} now in its thread"
     else:
         text = f"POST {named} news since the thread's last line: post what changed there"
     record = {
         "kind": "report",
-        "topic": f"watch-{'due' if due else 'quiet'}-{head}",
+        "topic": f"watch-{'due' if due else 'held' if held else 'quiet'}-{head}",
         "attr": {"order": head, "progress": "true", "quiet": "true"} | ({"due": due, "thread": promised["thread"][1]} if due else state.thread_attr(order)),
         "text": text,
         "body": "\n".join(facts) + "\n",
@@ -4208,28 +4268,19 @@ def orphan_lines(watcher: Watcher, moment: datetime, said: type = str) -> list[s
 
 
 def hear(name: str, moment: datetime, away: bool = False) -> dict:
-    """Record him heard at moment, by his words or his tap on a card, the owner row keeping the moment he reads away from, moment itself with away, else an hour later; when he was away, keep that absence on the owner row, from when he went away, the moment he read away from and moment, which state.present reads, and add to the catch-up the drive owes him, which keeps the time of the first such absence it covers and which the watch's next pass posts, each open order and incident whose line facts moved since its thread's last line or the watch's last report on it, by the one test quiet_lines owes a line on, with the orders of its thread_group, keeping those facts as told so no thread gets a line on news his catch-up carries, and each order a report held for his catch-up is on."""
+    """Record him heard at moment, by his words or his tap on a card, the owner row keeping the moment he reads away from, moment itself with away, else an hour later; when he was away, keep that absence on the owner row, from when he went away, the moment he read away from and moment, which state.present reads, and, when a report was held for his return, owe him the catch-up at his DM root, which keeps the time of the first such absence it covers, and give each held report no post carried yet to the next line of its thread, by held_report_lines, or to that catch-up, so the relay posts both within RELAY_SECONDS; no order's news is marked told, since only its own thread's line tells it, by his words c91b1a9 "stop telling me about the whole drive I never asked for that"."""
     with state.edit(name) as data:
         back = state.owner_away(data, moment)
         owner = data["owner"]
         since = owner["heard"]
         absence = {"since": since, "from": owner["away"], "until": state.stamp(moment)} if back and since else owner["absence"]
         data["owner"] = {"heard": state.stamp(moment), "away": state.stamp(moment if away else moment + state.AWAY_AFTER), "absence": absence}
-        news = []
         held = list(data["held"]) if back and since else []
-        if back and since:
-            registered, cards = render.prs_by_job(data), view.live_cards(name)
-            for head, group in news_groups(data, state.open_orders(data)).items():
-                order, facts = data["orders"][head], line_facts(data, group, registered, cards, moment)
-                if order["quiet"] and untold(order, facts):
-                    order["quiet"]["news"] = facts
-                    news += group
-            news += [mark["order"] for mark in data["held"].values() if mark["order"]]
-        if news or held:
-            owed = data["catch_up"] or state.new_catch_up(since, [])
-            data["catch_up"] = owed | {"orders": list(dict.fromkeys([*owed["orders"], *news])), "record": None}
-        owed = data["catch_up"]
-    return {"away": away, "back": back, "since": since, "catch_up": owed and owed["orders"], "held": held}
+        for seq in held:
+            data["held"][seq]["record"] = None
+        if held:
+            data["catch_up"] = (data["catch_up"] or state.new_catch_up(since)) | {"record": None}
+    return {"away": away, "back": back, "since": since, "catch_up": bool(data["catch_up"]), "held": held}
 
 
 def unhear(name: str, last: datetime, why: str) -> dict:
@@ -4244,7 +4295,7 @@ def unhear(name: str, last: datetime, why: str) -> dict:
 
 
 def catch_up_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Post the catch-up the drive owes him while he is here, once for each time he is heard: a report of it the watch writes once, its body naming each report held for it that its writer did not withdraw, with each correction cci holds re one, and each order with news, for a handler the watch starts to post at his DM root, unless the handler started last is still at work on it; a failed write or start is said as a failed read is and tried again next pass."""
+    """Post the catch-up the drive owes him at his DM root from the relay, so within RELAY_SECONDS of his return, once for each time he is heard: a report of it the watch writes once, by catch_up_report, for a handler the watch starts, unless the handler started last is still at work on it; a failed write or start is said as a failed read is and tried again next pass."""
     data = state.load(watcher.name)
     owed, heard = data["catch_up"], data["owner"]["heard"]
     if watcher.project or owed is None or owed["tried"] == heard or state.owner_away(data, moment):
@@ -4255,8 +4306,6 @@ def catch_up_lines(watcher: Watcher, moment: datetime) -> list[str]:
         return []
     try:
         seq = owed["record"] or catch_up_report(watcher, data)
-        with state.edit(watcher.name) as data:
-            data["catch_up"]["record"] = seq
         handler, _ = agents.handle_report(watcher.name, seq, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'catch-up-{seq}'}")
     except (reads.ReadError, state.DriveError) as error:
         return failed(watcher, "catch-up", "post of his catch-up", error, moment)
@@ -4267,20 +4316,29 @@ def catch_up_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def catch_up_report(watcher: Watcher, data: dict) -> str:
-    """Write the report of his catch-up for the handler that posts it; its seq."""
+    """Write the report of his catch-up for the handler that posts it, which say draws the cards waiting on him into, by his ruling 65768cd "Say draws what waits", carrying only each report held for his return that has no order's thread to go in, with each correction cci holds re one, since held_report_lines gives every other its own thread's line; each carried is kept as the catch-up's and each its writer withdrew let go; its seq."""
     owed = data["catch_up"]
-    amended = agents.amendments(watcher.name, data["held"])
-    held = [f"- report {seq} on {mark['order'] or 'no order'}{render.corrected_by(amended['correction'].get(seq, []))}" for seq, mark in data["held"].items() if seq not in amended["withdraw"]]
-    orders = [f"- {render.order_line(data, order_id, data['orders'][order_id])}" for order_id in owed["orders"]]
+    unthreaded = [seq for seq, mark in data["held"].items() if mark["record"] is None and not (mark["order"] and state.promise_thread(data["orders"][mark["order"]]))]
+    amended = agents.amendments(watcher.name, unthreaded)
+    held = [seq for seq in unthreaded if seq not in amended["withdraw"]]
     facts = [
-        f"His catch-up, owed since he was last heard at {when(owed['since'])}. Read each held report and each correction with cci read: no held report reached him, and a correction's facts replace those it corrects.",
-        f"Held for it: {len(held)}",
-        *held,
-        f"Orders with news since then: {len(orders)}",
-        *orders,
+        f"His catch-up, owed since he was last heard at {when(owed['since'])}, at his DM root. Post it with say on this record: say titles it and closes it with the count of his open cards and each asked since then, so name no card, order or news of your own; with nothing held for it and no card waiting, say posts nothing.",
+        *(
+            [
+                f"Held for it, with no order's thread to go in: {len(held)}. Read each and each correction with cci read: none reached him, and a correction's facts replace those it corrects; post what still stands of them.",
+                *(f"- report {seq} on {data['held'][seq]['order'] or 'no order'}{render.corrected_by(amended['correction'].get(seq, []))}" for seq in held),
+            ]
+            if held
+            else []
+        ),
     ]
-    text = f"POST his catch-up since {when(owed['since'])}: {len(orders)} orders with news, {len(held)} reports held for it"
+    text = f"POST his catch-up since {when(owed['since'])}" + (f", carrying {len(held)} reports held for it" if held else ": say draws the cards waiting on him, so post it with no words of your own")
     [seq] = reported(watcher, [{"kind": "report", "attr": {"catch_up": "true"}, "text": text, "body": "\n".join(facts) + "\n"}])
+    with state.edit(watcher.name) as data:
+        data["catch_up"]["record"] = seq
+        for each in held:
+            data["held"][each]["record"] = seq
+        state.let_go(data, [each for each in unthreaded if each in amended["withdraw"]])
     return seq
 
 
@@ -4376,7 +4434,7 @@ def passed(watcher: Watcher, moment: datetime, until: Callable[[], object] = lam
 
 
 def stages(watcher: Watcher, moment: datetime, until: Callable[[], object] = lambda: None, lands: bool = False) -> Iterator[list[str]]:
-    """The lines of each stage of one loop of the watch, as it returns: first the lines its relay made since the last pass, so a pass that crashes while it reads every live lane's mail holds back none it already had, and new events, so a return `drive job report` took in another process is said in the pass its event wakes, then each part a job drive job add recorded not started leaves with no one, on every pass after the watch's first, so its ORPHAN comes on time whatever the length of a pass, then the drive's own Orca terminal every Orca call speaks as, his cards as the landing loop last stored them and the messages of his cc-slack owes an answer, or, in a pass run in-process, which lands, the landing stages, the finish of each builder whose READY's PRs all merged, DONE at the merge of a product change or the proof of a yasyf/* one, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, where each merged PR a release wait or an incident fix names runs, each Buildkite build a wait names or a part follows that is newly held or a delivery of Buildkite's named, the status message of each build a part follows, the waits his answers, a job's end, that read or the Buildkite read release or hold again, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, agents, the chains of waits that stood unmoved, the texts jobs hold that no worker taking messages gets, the communicator's compaction, the post in each place saying what waits on him, the status page, a coordinator whose process exited, a dashboard whose server exited, each teammate thread an order watches, each handoff the communicator withdrew and each message of his cc-slack owes an answer every 60 s, then events written since, its own stages' among them, and, in a pass that lands, the GitHub reads they and the rest owe while its last read answered, so a delivery is read in the pass it wakes, and each builder's PUSHED or lane's READY those settle, so one a lane sent this pass is taken in it, then the catch-up owed him, the daily Slack sweep's drive tooling orders, claims whose end passed, the line owed in each thread whose order or incident has news, job clocks run out, his answers no resume has carried to their jobs, each answer order left nothing owed, fixes proven live whose bug report has not heard, the next pass of each standing part no job holds, and parts nothing carries. Each stage after the orphans is named by its function: the pass starts those at the watcher's resume when one of them bears its name, so the watch after one that ended mid-pass for a newer install runs only the stages that one had not, and ends before the first one it reaches once until answers, keeping that one's name as the resume. A stage that keeps working after its save joins the lines it made by then to the watcher's made lines itself."""
+    """The lines of each stage of one loop of the watch, as it returns: first the lines its relay made since the last pass, so a pass that crashes while it reads every live lane's mail holds back none it already had, and new events, so a return `drive job report` took in another process is said in the pass its event wakes, then each part a job drive job add recorded not started leaves with no one, on every pass after the watch's first, so its ORPHAN comes on time whatever the length of a pass, then the drive's own Orca terminal every Orca call speaks as, his cards as the landing loop last stored them and the messages of his cc-slack owes an answer, or, in a pass run in-process, which lands, the landing stages, the finish of each builder whose READY's PRs all merged, DONE at the merge of a product change or the proof of a yasyf/* one, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, where each merged PR a release wait or an incident fix names runs, each Buildkite build a wait names or a part follows that is newly held or a delivery of Buildkite's named, the status message of each build a part follows, the waits his answers, a job's end, that read or the Buildkite read release or hold again, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, agents, the chains of waits that stood unmoved, the texts jobs hold that no worker taking messages gets, the communicator's compaction, the post in each place saying what waits on him, the status page, a coordinator whose process exited, a dashboard whose server exited, each teammate thread an order watches, each handoff the communicator withdrew and each message of his cc-slack owes an answer every 60 s, then events written since, its own stages' among them, and, in a pass that lands, the GitHub reads they and the rest owe while its last read answered, so a delivery is read in the pass it wakes, and each builder's PUSHED or lane's READY those settle, so one a lane sent this pass is taken in it, then the daily Slack sweep's drive tooling orders, claims whose end passed, the line owed in each thread whose order or incident has news, job clocks run out, his answers no resume has carried to their jobs, each answer order left nothing owed, fixes proven live whose bug report has not heard, the next pass of each standing part no job holds, and parts nothing carries. Each stage after the orphans is named by its function: the pass starts those at the watcher's resume when one of them bears its name, so the watch after one that ended mid-pass for a newer install runs only the stages that one had not, and ends before the first one it reaches once until answers, keeping that one's name as the resume. A stage that keeps working after its save joins the lines it made by then to the watcher's made lines itself."""
     yield drained(watcher.relayed)
     yield event_lines(watcher)
     if watcher.read_at is not None:
@@ -4429,7 +4487,7 @@ def stages(watcher: Watcher, moment: datetime, until: Callable[[], object] = lam
     later += [
         functools.partial(event_lines, watcher),
         *(owed_reads(watcher, moment) if lands else []),
-        *(functools.partial(stage, watcher, moment) for stage in (catch_up_lines, sweep_lines, claim_reply_lines, claim_lines, quiet_lines, clock_lines, undelivered_lines, close_answered, tell_lines, standing_lines, orphan_lines)),
+        *(functools.partial(stage, watcher, moment) for stage in (sweep_lines, claim_reply_lines, claim_lines, quiet_lines, clock_lines, undelivered_lines, close_answered, tell_lines, standing_lines, orphan_lines)),
     ]
     names = [stage.func.__name__ for stage in later]
     resume, watcher.resume = watcher.resume, None
