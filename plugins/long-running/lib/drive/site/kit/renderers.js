@@ -23,6 +23,7 @@ const QUOTE_LINE = /^\s*>\s?/;
 const TABLE_ROW = /^\s*\|/;
 const LIST_ITEM = /^\s*(?:[-*•]|\d+[.)])\s+/;
 const KEY_LINE = /^([A-Z][A-Za-z0-9 ()'\/-]{0,38}):(?:\s+(.*))?$/;
+const CAUSE_LINE = /^\*Root cause:\* (.+)$/m;
 const HEADING_LINE = /^\s*(?:#{1,4}\s+(.+?)|\*\*([^*\n]+)\*\*|\*([^*\n]+)\*):?\s*$/;
 const CHECK_FACTS = { pass: ['Tests pass', 'good'], fail: ['Tests fail', 'bad'], pending: ['Tests running', 'warn'], none: ['No CI', ''] };
 const REVIEW_FACTS = { approved: ['Review approved', 'good'], stale: ['Approved on an older head', ''], changes: ['Changes requested', 'bad'] };
@@ -72,6 +73,7 @@ export function decisionStory(card) {
     format,
     headline: decisionPlain(card.title),
     context: decisionPlain(body.split(/\n|(?<=[.!?])\s/)[0]),
+    cause: decisionPlain(body.match(CAUSE_LINE)?.[1] ?? ''),
     options: card.options.map((label, i) => {
       const [title, consequence] = optionParts(label);
       return { label, title: decisionPlain(title), consequence: decisionPlain(consequence).replace(/^./, (c) => c.toUpperCase()), metrics: compared ? head.slice(1).map((column, n) => ({ label: decisionPlain(column), value: decisionPlain(rows[i][n + 1]) })) : [] };

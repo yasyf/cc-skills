@@ -2096,7 +2096,7 @@ def test_job_ask_starts_from_the_root_cause_and_leaves_which_option_it_recommend
 ) -> None:
     block = tmp_path / "ask.md"
     picked = "Root cause: none: two landed designs of one button, a pick between them with no defect behind it"
-    block.write_text(TEAMMATE_FIX_SHOWN.replace(picked, "Root cause: the button and our status line read two download states\nFirst principles: Add our status line beside their always-on button"))
+    block.write_text(TEAMMATE_FIX_SHOWN.replace(picked, "Root cause: the button and our status line read two download states, which disagreed on 4 of 9 downloads\nFirst principles: Add our status line beside their always-on button"))
     assert run("job", "ask", asking, str(block))[0] == 0
     assert "Option 2: Add our status line beside their always-on button" in jev.asked[-1]["state"]["card"]
     assert "First principles: Add our status line beside their always-on button" in jev.asked[-1]["state"]["card"]
@@ -3938,7 +3938,7 @@ Recommended: Jev refuses a card, never skips it. The one-judge fix stays unmerge
 - Merge the one-judge fix as built
   When Jev is 0.8 sure your recorded answers, order or thread choose one option, drive job ask refuses the card and the builder builds that option, so no card draws; it also refuses on the same findings as the recommended option. It puts back settled.candidates and the may_settle cache your same-question pick deleted.
 Findings:
-Root cause: nothing that reads a question card against his standing words can stop it: the ask hook's Jev reads only the recommended option and only advises (capt-hook/hooks/drive_checks.py:469 asked returns evt.context in every branch), and limits.root_cause_problems (lib/drive/limits.py:849) hard-codes that the First principles option be recommended over his recorded pick; the per-answer reading that once skipped cards was deleted by yasyf/cc-skills#4673.
+Root cause: nothing that reads a question card against his standing words can stop it: the ask hook's Jev reads only the recommended option and only advises, refusing 0 of the 41 cards it read since his pick (capt-hook/hooks/drive_checks.py:469 asked returns evt.context in every branch), and limits.root_cause_problems (lib/drive/limits.py:849) hard-codes that the First principles option be recommended over his recorded pick.
 First principles: Jev refuses a card, never skips it
 Interim fix: none: nobody is hurt now: main's yasyf/cc-skills#4673 already stops skips on answers to other questions, and the agent::start card was answered (cc-notes answer 182b145).
 Holds: Drive tooling: a question card drew asking him where a chat's started agent runs

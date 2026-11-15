@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Self
 
 import pytest
-from drive import cli, dashboard, launchd, picture, state, view
+from drive import cli, dashboard, launchd, limits, picture, state, view
 from conftest import Chrome
 from test_view import drive_of, found, job, order, pr
 
@@ -474,6 +474,19 @@ def test_a_question_opens_in_the_format_its_card_carries(tmp_path: Path, options
     shown = web(tmp_path, f"JSON.stringify(decisionStory({json.dumps(card)}))")
     assert (shown["format"], shown["headline"], shown["context"]) == (format, "Where may a large script fail?", "A run's memory decides which scripts can stop their neighbours.")
     assert [option["label"] for option in shown["options"]] == options
+
+
+@pytest.mark.parametrize(
+    ("cause", "shown"),
+    [
+        ("each new page re-reads 820,000 rows with OFFSET, so the export takes *22 minutes*", "each new page re-reads 820,000 rows with OFFSET, so the export takes 22 minutes"),
+        ("", ""),
+    ],
+)
+def test_a_question_shows_the_root_cause_its_card_draws_under_its_first_line(tmp_path: Path, cause: str, shown: str) -> None:
+    body = limits.card_body(["Where should the nightly export page from?", "Each page waits on the one before it."], [], cause)
+    card = {"title": "Where should the nightly export page from?", "options": ["Keyset pages", "Keep OFFSET"], "body": body}
+    assert web(tmp_path, f"JSON.stringify(decisionStory({json.dumps(card)}).cause)") == shown
 
 
 def test_a_lab_reads_each_options_measured_values_from_its_cards_comparison_table(tmp_path: Path) -> None:
