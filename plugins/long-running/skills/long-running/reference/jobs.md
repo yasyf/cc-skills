@@ -497,9 +497,11 @@ before it sends or starts.
   with that runtime listening, the text is held and nothing restarts, since Orca on this Mac is what
   fails. Any other lane resumes its own Claude session there, as a dead lane above does, else
   relaunches on that Sprite through `cc-remote orca prepare --existing`, in the checkout it left,
-  with no save. When that Sprite starts no worker, the relaunch runs on a
+  with no save. When that resume or that Sprite starts no worker, the relaunch runs on a
   fresh Sprite from the job's pushed branches, after the save above, and the old Sprite is kept when
-  the save fails.
+  the save fails. The lane's death keeps what its wake, that start and the save came to, so a
+  resume, launch or PR wake after it, or the same one run again after a newer install's save, reads
+  the lane from that death and wakes, starts in place and saves once per death.
 - A remote lane's text is held on the job's undelivered list under one Orca request id before any
   Orca call, so an outage delays it and never drops it. When Orca cannot tell whether the lane
   lives, or refuses the send, the resume exits 0 saying the text is held. A lane on this Mac that
