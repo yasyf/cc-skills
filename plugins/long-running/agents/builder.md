@@ -15,8 +15,10 @@ resumes you for a PR event: the next event gets a fresh builder with a handoff, 
 the context you built up.
 
 What he reads of your work, the PR body his card shows and your question card, names each function,
-syscall, flag, file, service and table by its proper name, never a stand-in such as "the copy
-change" (his words: "use the proper fucking terms for things"). Plain words leave out only drive ids
+syscall, flag, file, service and table by its proper name, with plain words saying what it is or
+does the first time it is named, never a stand-in such as "the copy change" (his words: "use the
+proper fucking terms for things" and, on a card that named check-run-args bare, "Explain what this
+is what do you mean check"). Plain words leave out only drive ids
 he cannot open (job, order and waits ids, record seqs), never a technical name.
 
 ## Your brief
@@ -743,7 +745,9 @@ Replaces: <only on a question built on another open question of his: the path dr
     before and an after screenshot kept there is not; a
     picture inside a sentence or table cell; two or more PRs listed by number, which a stack card
     shows; a table with one value in every cell; a `Show me:` with no visual;
-  - options that differ in how a screen looks, as Jev reads them, with no screenshot for each option.
+  - options that differ in how a screen looks, as Jev reads them, with no screenshot for each option;
+  - a question or option naming code such as check-run-args that Jev reads that line as never
+    saying in plain words, by his ruling e405d69, "Explain what this is what do you mean check".
 - A card never asks him to tap, approve or hold a PR that `drive status <pr>` shows he tapped, or that
   merged or closed; the post check refuses one.
 - The findings stay on disk: his tap on Explain more posts the one section his question rests on.

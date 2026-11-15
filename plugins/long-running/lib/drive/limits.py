@@ -62,6 +62,18 @@ LOOKS_QUESTION = (
     " runs, a schedule, a rule, a process, a message's wording or a cost, even when the work behind them ends up on a screen."
 )
 LOOK_OPTIONS = {"none": "They differ in something he reads about rather than sees.", LOOKS: "They differ in how a screen looks, so he must see each to pick."}
+CODE_TERM = re.compile(r"\w+(?:(?:::|[-./])\w+)*")
+CODE_MARK = re.compile(r"[_.-]|::|[a-z][A-Z]")
+LETTER = re.compile(r"[A-Za-z]")
+PLAIN = "plain"
+PLAIN_NONE = 0.2
+PLAIN_QUESTION = (
+    'In this line of a question card, "{line}", which name leaves him asking what it is, since the line says nothing in plain words'
+    " about what that code is or does? Pick none when the line says what each name is or does, even in a few words, or each is a"
+    " word or product anyone reads."
+)
+PLAIN_OPTION = "The line says what each name is or does, or each is a word or product anyone reads."
+EXPLAIN_RULING = 'his ruling e405d69, "Explain what this is what do you mean check"'
 HAND_DRAWN = ("asks", "pictures")
 BEFORE = re.compile(r"\bbefore\b", re.IGNORECASE)
 AFTER = re.compile(r"\bafter\b", re.IGNORECASE)
@@ -531,6 +543,12 @@ def code_names(text: str) -> list[str]:
     return [name for name in dict.fromkeys(found.strip("`") for found in (*BACKTICKED.findall(plain), *CALLED.findall(plain), *CODE_NAME.findall(plain))) if len(name) > 3]
 
 
+def code_terms(line: str) -> list[str]:
+    """Each name a line writes as code, with a hyphen, underscore, dot, :: or inner capital, such as check-run-args, insertProjectRun or llm::x_chat, its drive references, links and Slack tokens aside: the names Jev picks among for one his line leaves unexplained."""
+    plain = URL.sub(" ", TOKEN.sub(" ", REF.sub(" ", line)))
+    return list(dict.fromkeys(found for found in CODE_TERM.findall(plain) if CODE_MARK.search(found) and LETTER.search(found)))
+
+
 def block_text(node: object) -> str:
     if isinstance(node, dict):
         return " ".join(value if key == "text" and isinstance(value, str) else block_text(value) for key, value in node.items())
@@ -835,27 +853,40 @@ def question_problems(text: str, kept: bool = False, unsettled: str | None = Non
     return asked, problems
 
 
-def unshot(asked: Question) -> str | None:
-    """Why a question goes to him without a picture of each option, by his ruling 0d2b7df: Jev reads its options as differing in how a screen looks, LOOKS_SURE sure or more, so he picks by seeing each, and an option has no picture line captioned with its number, `![N · …](path)`. Jev reads the question in one call, and when it gives no reading the question goes up, said on stderr."""
+def unread(asked: Question) -> list[str]:
+    """Why he cannot read a question as it goes to him, as Jev reads it in one call: its options differ in how a screen looks, LOOKS_SURE sure or more, so he picks by seeing each, while an option has no picture line captioned with its number, `![N · …](path)`, by his ruling 0d2b7df, asked only while one has none; or its question or an option names code `code_terms` finds, such as check-run-args, and Jev reads none of those names as left unexplained at most PLAIN_NONE sure, by his ruling e405d69, asked whatever pictures it carries. When Jev gives no reading the question goes up, said on stderr."""
     from drive import settled
 
     shot = {int(number[1]) for line in captions(asked.show_me) if (found := PICTURE.fullmatch(line)) and (number := OPTION_CAPTION.match(found[1]))}
-    if not (unshown := [index for index in range(1, len(asked.options) + 1) if index not in shot]):
-        return None
+    unshown = [index for index in range(1, len(asked.options) + 1) if index not in shot]
+    named = {f"{PLAIN}{index}": (where, line, terms) for index, (where, line) in enumerate([("the question", asked.title), *((f'option "{option}"', option) for option in asked.options)]) if (terms := code_terms(line))}
+    questions = {LOOKS: {"label": {"instructions": LOOKS_QUESTION, "options": LOOK_OPTIONS}}} if unshown else {}
+    questions |= {key: {"label": {"instructions": PLAIN_QUESTION.format(line=line), "options": {settled.UNDECIDED: PLAIN_OPTION, **dict.fromkeys(terms)}}} for key, (_, line, terms) in named.items()}
+    if not questions:
+        return []
     seen = {"question": asked.title, "summary": "\n".join(asked.summary), "options": [{"option": option, "description": asked.hints.get(option, "")} for option in asked.options]}
     try:
-        read = settled.jev({"state": seen, "questions": {LOOKS: {"label": {"instructions": LOOKS_QUESTION, "options": LOOK_OPTIONS}}}})[LOOKS]
+        read = settled.jev({"state": seen, "questions": questions})
     except settled.Unheard as failure:
-        print(f"drive job ask: Jev did not say whether this question's options differ in how a screen looks, so it goes up unchecked for screenshots: {failure}", file=sys.stderr)
-        return None
-    if read["probabilities"].get(LOOKS, 0) < LOOKS_SURE:
-        return None
-    which = f"option {unshown[0]} carries" if len(unshown) == 1 else f"options {', '.join(map(str, unshown))} carry"
-    return (
-        f"the ASK's options differ in how a screen looks, so he picks by seeing each, and {which} no screenshot: take a real screenshot of each option's screen, as built or in a prototype of it,"
-        " with agent-browser or `screencapture`, and put each on a line of its own in the Show me as `![N · what it shows](/absolute/path.png)`,"
-        f" N its option's number, which his card draws side by side as one gallery ({LOOKS_RULING})"
-    )
+        print(f"drive job ask: Jev did not say whether this question needs a screenshot of each option or plain words beside the code it names, so it goes up unchecked: {failure}", file=sys.stderr)
+        return []
+    problems = []
+    if unshown and read[LOOKS]["probabilities"].get(LOOKS, 0) >= LOOKS_SURE:
+        which = f"option {unshown[0]} carries" if len(unshown) == 1 else f"options {', '.join(map(str, unshown))} carry"
+        problems.append(
+            f"the ASK's options differ in how a screen looks, so he picks by seeing each, and {which} no screenshot: take a real screenshot of each option's screen, as built or in a prototype of it,"
+            " with agent-browser or `screencapture`, and put each on a line of its own in the Show me as `![N · what it shows](/absolute/path.png)`,"
+            f" N its option's number, which his card draws side by side as one gallery ({LOOKS_RULING})"
+        )
+    for key, (where, line, terms) in named.items():
+        if (probabilities := read[key]["probabilities"]).get(settled.UNDECIDED, 0) > PLAIN_NONE:
+            continue
+        term = max(terms, key=lambda term: probabilities.get(term, 0))
+        problems.append(
+            f'{where}, "{line}", names {term} with no plain words saying what it is, as Jev reads it: say in that line what that code does,'
+            f' as "runtime-api type-checks a run\'s arguments before the api creates it" says what check-run-args does ({EXPLAIN_RULING})'
+        )
+    return problems
 
 
 def option_problems(options: list[str], unsettled: str | None) -> list[str]:

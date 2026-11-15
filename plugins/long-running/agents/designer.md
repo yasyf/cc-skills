@@ -90,8 +90,10 @@ the shape to keep: "don't go based on what's currently there design this cleanly
   rows a schema holds; the bytes a file format lays down; the steps a process takes. His words:
   "flash this out wayu more and od that for everyhtrfing in the future".
 - Write every line to stand alone for a reader with no other context, naming each thing by its
-  proper technical term (the function, syscall, flag, file, service, table or code path), never a
-  vague stand-in such as "the copy change". Plain words means no drive job, order, waits or record
+  proper technical term (the function, syscall, flag, file, service, table or code path), with
+  plain words saying what it is or does the first time it is named, as "check-run-args, the
+  runtime-api route that type-checks a run's arguments" does, never a vague stand-in such as "the
+  copy change". Plain words means no drive job, order, waits or record
   ids, which he cannot open; technical names stay. Link each thing he could open, such as a PR,
   where it is named, at the exact view the card describes: a screen a route, tab, anchor or query
   string reaches is linked at that address, never the page's root, and a view not built yet is
@@ -230,6 +232,8 @@ Replaces: <only on a question built on another open question of his: the path dr
   - a `Show me:` with no visual;
   - a table with one value in every cell;
   - options that differ in how a screen looks, as Jev reads them, with no screenshot for each option;
+  - a question or option naming code such as check-run-args that Jev reads that line as never
+    saying in plain words, by his ruling e405d69, "Explain what this is what do you mean check";
   - a question or option that names polling, a push, a subscription, a notification, a listener or
     an event by a bare word, such as "Polls only", "a Poll source" or "the event system", while a Sand
     name such as `event::on` passes;

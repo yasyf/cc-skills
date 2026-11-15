@@ -1050,6 +1050,8 @@ class Jev:
     changes: dict[str, float] = field(default_factory=dict)
     plain: set[str] = field(default_factory=set)
     illustrated: list[str] = field(default_factory=list)
+    unexplained: dict[str, float] = field(default_factory=dict)
+    named: list[dict] = field(default_factory=list)
     looks: float = 0.0
     looked: list[dict] = field(default_factory=list)
     again: set[str] = field(default_factory=set)
@@ -1059,6 +1061,11 @@ class Jev:
 
     def breaks(self, part: str, word_id: str, probability: float = 0.9) -> None:
         self.ruled[part] = (word_id, probability)
+
+    def explains(self, names: dict) -> dict:
+        unexplained = {name: probability for name, probability in self.unexplained.items() if name in names}
+        read = {"none": round(1 - max(unexplained.values(), default=0.1), 2)} | unexplained
+        return label(max(read, key=read.__getitem__), read)
 
     def judges(self, questions: dict) -> dict:
         read = dict.fromkeys(questions, self.answer) | {part: label(word_id, {"none": round(1 - probability, 2), word_id: probability}) for part, (word_id, probability) in self.ruled.items()}
@@ -1075,10 +1082,12 @@ def jev(monkeypatch: pytest.MonkeyPatch) -> Jev:
 
     def answered(request: dict) -> dict:
         questions = request["questions"]
+        unread = limits.LOOKS in questions or any(key.startswith(limits.PLAIN) for key in questions)
         if "illustrates" in questions:
             judged.illustrated.append(request["state"]["code"])
-        elif limits.LOOKS in questions:
-            judged.looked.append(request["state"])
+        elif unread:
+            judged.looked += [request["state"]] if limits.LOOKS in questions else []
+            judged.named += [spec["label"] for key, spec in questions.items() if key.startswith(limits.PLAIN)]
         else:
             judged.asked.append(request)
         if judged.answer is None:
@@ -1086,8 +1095,9 @@ def jev(monkeypatch: pytest.MonkeyPatch) -> Jev:
         if "illustrates" in questions:
             p_yes = 0.05 if request["state"]["code"] in judged.plain else 0.95
             return {"illustrates": {"type": "binary", "p_yes": p_yes, "confidence": 0.9}}
-        if limits.LOOKS in questions:
-            return {limits.LOOKS: label(limits.LOOKS if judged.looks >= 0.5 else "none", {"none": round(1 - judged.looks, 2), limits.LOOKS: judged.looks})}
+        if unread:
+            looks = {limits.LOOKS: label(limits.LOOKS if judged.looks >= 0.5 else "none", {"none": round(1 - judged.looks, 2), limits.LOOKS: judged.looks})} if limits.LOOKS in questions else {}
+            return looks | {key: judged.explains(spec["label"]["options"]) for key, spec in questions.items() if key.startswith(limits.PLAIN)}
         if "changes1" in questions:
             pages = {key: {"none": 0.9} | {short: probability for short, probability in judged.changes.items() if short in spec["label"]["options"]} for key, spec in questions.items()}
             return {key: label(max(read, key=read.__getitem__), read) for key, read in pages.items()}

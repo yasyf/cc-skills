@@ -1697,6 +1697,16 @@ The sidebar draws New Chat, Search, New Agent, then the session list, then the P
 """)
 
 
+def pinned_chats_shots(tmp_path: Path) -> list[str]:
+    shots = []
+    for number, what in enumerate(("Pinned group on top", "Top of each section", "One shared Pinned section"), start=1):
+        shot = tmp_path / "shots" / f"option-{number}.png"
+        shot.parent.mkdir(exist_ok=True)
+        shot.write_bytes(b"\x89PNG\r\n")
+        shots.append(f"![{number} · {what}]({shot})")
+    return shots
+
+
 def test_job_ask_refuses_a_look_choice_until_each_option_carries_its_screenshot(
     run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], jev: Jev
 ) -> None:
@@ -1712,18 +1722,88 @@ def test_job_ask_refuses_a_look_choice_until_each_option_carries_its_screenshot(
         "Where should pinned chats draw in the Iris sidebar?",
         "A new Pinned group above Chats and Agents: pinned chats and agents draw there in the order you drag",
     )
-    shots = []
-    for number, what in enumerate(("Pinned group on top", "Top of each section", "One shared Pinned section"), start=1):
-        shot = tmp_path / "shots" / f"option-{number}.png"
-        shot.parent.mkdir(exist_ok=True)
-        shot.write_bytes(b"\x89PNG\r\n")
-        shots.append(f"![{number} · {what}]({shot})")
+    shots = pinned_chats_shots(tmp_path)
     block.write_text(PINNED_CHATS_ASK.replace("Show me:\n", "Show me:\n" + "\n".join(shots[:2]) + "\n"))
     assert cli.main(["job", "ask", asking, str(block)]) == 2
     assert "and option 3 carries no screenshot" in capsys.readouterr().err
     block.write_text(PINNED_CHATS_ASK.replace("Show me:\n", "Show me:\n" + "\n".join(shots) + "\n"))
     assert run("job", "ask", asking, str(block))[0] == 0
     assert len(jev.looked) == 2
+
+
+CHECK_RUN_ARGS_ASK = """ASK What should queue-run answer when runtime-api's check-run-args refuses a run's arguments for being past its 32 MiB request body cap?
+For {order:o1|the run-arguments soak}: your pick decides what a workflow sees when it queues a child run whose arguments are too large to check.
+Show me:
+What queue-run answers under each option, measured on staging
+| Run arguments | Today | 1 · Refuse by name | 2 · Raise to 128 MiB | 3 · Check from the uploaded arguments |
+| --- | --- | --- | --- | --- |
+| a 104,857,600-byte text (measured) | 500, errorId only | 400 naming the size | queued | queued |
+- Refuse arguments past 32 MiB by name (recommended)
+  checkRunArgs.ts turns runtime-api's 413 into the same RunArgsRefusal a 422 gets, so queue-run answers 400 instead of 500.
+- Raise the check's cap to 128 MiB and refuse by name above it
+  maxRunArgsCheckBodyBytes in runtime-api's server.go goes from 32 << 20 to 128 << 20, plus the refusal branch in checkRunArgs.ts.
+- Check from the arguments the api already uploads
+  check-run-args reads the arguments from the api's upload by key instead of from its request body, so no body cap applies.
+Findings:
+Root cause: checkRunArgs.ts throws on every status but 422, so runtime-api's 413 reaches queue-run's caller as a 500.
+Holds: none: no job builds checkRunArgs.ts
+"""
+CHECK_RUN_ARGS_REDRAWN = """ASK Before the api creates a run, runtime-api type-checks its arguments; what should a run whose arguments exceed that check's 32 MiB get back?
+For {order:o1|the run-arguments fix}: your pick decides what a workflow sees when it queues a child run with a 100 MiB argument.
+All three keep the type check; I recommend a 400 that names the size.
+Show me:
+What a parent workflow gets back under each option
+| Argument passed to the child | Today | 1 · Refuse by name | 2 · Raise to 128 MiB | 3 · Check from the upload |
+| --- | --- | --- | --- | --- |
+| a 104,857,600-byte text (measured) | 500, an error id only | 400 naming the size | queued | queued |
+- Refuse arguments over 32 MiB with a message naming their size (recommended)
+  checkRunArgs.ts in the api turns runtime-api's 413 into the same refusal a type mismatch gets, so the caller gets 400 naming the size.
+- Raise the check's cap to 128 MiB and refuse by name above it
+  maxRunArgsCheckBodyBytes in runtime-api's server.go goes from 32 MiB to 128 MiB, so a 100 MiB child run is checked and queued.
+- Upload the arguments first and check them from the upload, with no cap
+  insertProjectRun uploads the arguments before the check, and runtime-api reads them from the team's bucket by key.
+Findings:
+Root cause: checkRunArgs.ts throws on every status but 422, so runtime-api's 413 reaches queue-run's caller as a 500.
+Holds: none: no job builds checkRunArgs.ts
+"""
+
+
+def test_code_terms_finds_each_name_written_as_code_its_drive_references_links_and_slack_tokens_aside() -> None:
+    assert limits.code_terms(CHECK_RUN_ARGS_ASK.partition("\n")[0]) == ["queue-run", "runtime-api", "check-run-args", "MiB"]
+    assert limits.code_terms("Should llm::x_chat call insertProjectRun from go/sandsql-follower/main.go for {order:o1|the run-args fix} <https://x.dev/a-b|a-b>?") == [
+        "llm::x_chat",
+        "insertProjectRun",
+        "go/sandsql-follower/main.go",
+    ]
+    assert limits.code_terms("Keep 1.0.1066 and/or 29.3 MB as they are") == []
+
+
+def test_unread_refuses_a_question_naming_code_its_line_leaves_unexplained_and_passes_its_redraw(jev: Jev) -> None:
+    jev.unexplained = {"check-run-args": 0.98}
+    faulted = limits.question(CHECK_RUN_ARGS_ASK, kept=True)
+    [refused] = limits.unread(faulted)
+    assert refused.startswith(
+        f'the question, "{faulted.title}", names check-run-args with no plain words saying what it is, as Jev reads it: say in that line what that code does'
+    )
+    assert 'his ruling e405d69, "Explain what this is what do you mean check"' in refused
+    assert [list(asked["options"]) for asked in jev.named] == [["none", "queue-run", "runtime-api", "check-run-args", "MiB"], ["none", "MiB"], ["none", "MiB"]]
+    jev.named.clear()
+    assert limits.unread(limits.question(CHECK_RUN_ARGS_REDRAWN, kept=True)) == []
+    assert [list(asked["options"]) for asked in jev.named] == [["none", "runtime-api", "type-checks", "MiB"], ["none", "MiB"], ["none", "MiB"]]
+
+
+def test_job_ask_reads_the_code_a_question_names_even_when_every_option_carries_its_screenshot(
+    run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], jev: Jev
+) -> None:
+    block = tmp_path / "ask.md"
+    shown = PINNED_CHATS_ASK.replace("Show me:\n", "Show me:\n" + "\n".join(pinned_chats_shots(tmp_path)) + "\n")
+    block.write_text(shown.replace("in the Iris sidebar?", "in the Iris sidebar's SessionList?"))
+    jev.unexplained = {"SessionList": 0.95}
+    assert cli.main(["job", "ask", asking, str(block)]) == 2
+    assert "the question, \"Where should pinned chats draw in the Iris sidebar's SessionList?\", names SessionList with no plain words" in capsys.readouterr().err
+    assert (jev.looked, [list(asked["options"]) for asked in jev.named]) == ([], [["none", "SessionList"]])
+    jev.unexplained = {}
+    assert run("job", "ask", asking, str(block))[0] == 0
 
 
 def test_job_ask_keeps_a_choice_he_reads_about_with_no_screenshot(run: Run, asking: str, tmp_path: Path, jev: Jev) -> None:
@@ -9129,7 +9209,7 @@ def test_job_ask_says_on_stderr_that_jev_gave_no_answer_and_sends_the_question_t
     assert cli.main(["job", "ask", asking, str(block)]) == 0
     unheard = capsys.readouterr().err
     assert "drive job ask: Jev gave no reading of this question against his words, so it goes to him: no jev decision within 20s" in unheard
-    assert "drive job ask: Jev did not say whether this question's options differ in how a screen looks, so it goes up unchecked for screenshots" in unheard
+    assert "drive job ask: Jev did not say whether this question needs a screenshot of each option or plain words beside the code it names, so it goes up unchecked" in unheard
     assert state.load("demo")["jobs"]["j1"]["questions"][0]["refused"] is None
 
 

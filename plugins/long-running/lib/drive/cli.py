@@ -1722,7 +1722,7 @@ def asked_unsettled(job: dict, text: str, unsettled: str | None) -> str | None:
 
 
 def checked_ask(name: str, job_id: str, text: str, unsettled: str | None, redraws: str | None, pictures: Path) -> tuple[limits.Question, str, list[dict]]:
-    """The question the job's ASK block puts to him, asked under the --unsettled `asked_unsettled` reads, the words of its `Holds:` line his card holds, and the recorded answers of his its job's brief binds or the block cites, once every check `drive job ask <j>` runs passes but Jev's read of it against his words: refused naming at once every way its words, the card cc-slack draws from them and the job it is asked for are out of shape, a summary sentence recommending an option by a recorded answer of his that --unsettled does not name among them, since that answer already chose it, each rule one entry of the list, its words counted as his card draws them, each reference in the summary filled as say fills it, an {order:<o>} as the opening of his order's words; then each Show me picture drawn under pictures, refused with why one does not draw; then Jev's read of whether its options differ in how a screen looks, by `limits.unshot`. `drive job ask <j> --check` and `keep_ask` both check here, so a block one passes the other passes up to Jev's read of his words."""
+    """The question the job's ASK block puts to him, asked under the --unsettled `asked_unsettled` reads, the words of its `Holds:` line his card holds, and the recorded answers of his its job's brief binds or the block cites, once every check `drive job ask <j>` runs passes but Jev's read of it against his words: refused naming at once every way its words, the card cc-slack draws from them and the job it is asked for are out of shape, a summary sentence recommending an option by a recorded answer of his that --unsettled does not name among them, since that answer already chose it, each rule one entry of the list, its words counted as his card draws them, each reference in the summary filled as say fills it, an {order:<o>} as the opening of his order's words; then each Show me picture drawn under pictures, refused with why one does not draw; then Jev's read of whether its options differ in how a screen looks with a screenshot missing, and of whether its question or an option names code it never says in plain words, by `limits.unread`. `drive job ask <j> --check` and `keep_ask` both check here, so a block one passes the other passes up to Jev's read of his words."""
     from drive import view
 
     data = state.load(name)
@@ -1800,8 +1800,8 @@ def checked_ask(name: str, job_id: str, text: str, unsettled: str | None, redraw
     if problems:
         raise DriveError(limits.out_of_shape(problems))
     picture.drawn(pictures, asked.show_me)
-    if unshown := limits.unshot(asked):
-        raise DriveError(unshown)
+    if unread := limits.unread(asked):
+        raise DriveError("; ".join(unread))
     return asked, holds, recorded
 
 

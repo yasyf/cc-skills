@@ -164,7 +164,8 @@ summary of one feature is a line of at most 60 words.
 - `drive job ask` draws it in the call that keeps the job's `ASK`, from the file it kept, with
   nothing posted before or after it.
 - Its title is its question, one sentence of plain words that names what it decides by its proper
-  terms, the function, flag, file, service or table, never a stand-in such as "the copy change".
+  terms, the function, flag, file, service or table, each with plain words saying what it is or
+  does, never a stand-in such as "the copy change".
   `drive job ask` refuses a title naming its object only as "the change", "the fix" or "this" while
   its summary or findings name the proper terms.
 - Slack draws a card's title and buttons as plain text, so a link or markdown there shows raw and
@@ -315,7 +316,11 @@ Its Show me:
   - options Jev reads as differing in how a screen looks, such as where rows draw in a sidebar, with
     no `![N · …](path)` screenshot for each option, by his ruling 0d2b7df, "this should have
     included images; you include images when they are usless and dont add anyhtng, and then dont
-    when its things like this, its totlly backwards".
+    when its things like this, its totlly backwards";
+  - a question or option naming code, a name with a hyphen, underscore, dot, `::` or inner capital
+    such as check-run-args, that Jev reads that line as never saying in plain words, at least 0.8
+    sure, asked whatever pictures the card carries, by his ruling e405d69, "Explain what this is what
+    do you mean check": say in that line what the code does.
 - List every member of a set the card counts. `drive job ask` refuses a question, summary or option
   that counts two to twelve things, as "four strategies" or "5 oversized tables" does, unless the
   card lists that many, and so does the post hook on a card no drive kept. It lists them as options,
@@ -632,8 +637,11 @@ restating it.
   quoted as it stands in a record or a log. "Waiting on a manual roll press" becomes "waiting for the button a
   person must press before a customer cluster's changes go out".
 - Proper terms for everything technical. A function, syscall, flag, file, path, service, table or
-  code path goes in by its proper term. A thing in the product or its data goes in by the word his
-  messages or the code use, glossed in one line the first time. Never a vague stand-in such as "the
+  code path goes in by its proper term, with plain words saying what it is or does the first time
+  it is named, as "check-run-args, the runtime-api route that type-checks a run's arguments before
+  the api creates it" does, by his words on a card that named it bare: "Explain what this is what do
+  you mean check". A thing in the product or its data goes in by the word his messages or the code
+  use, glossed in one line the first time. Never a vague stand-in such as "the
   copy change", nor a coined one such as "backup", "bucket history" or "chat format", since it names
   nothing he can open: "use the proper fucking terms for things". A product or tool he uses keeps its
   name, in backticks. When he corrects a word, the handler for his message runs
