@@ -522,6 +522,18 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
   hear from `SendMessage` only his answer to your `ASK`, while you build its recommended option or
   after an `ASK` ended your run: build his pick where it differs. A wait past 5 minutes also expires your prompt cache, so it costs a full re-read of your
   context on top of the polling.
+- Wait on a step of your own with the wait your run has, never a loop or a `sleep` you write, which
+  holds a call open polling and which the hooks flag. A `Remote lane:` builder runs a step longer
+  than one Bash call, such as a build or a remote's deploy, with `run_in_background: true` and ends
+  its turn, sending Orca nothing, until that step's notice wakes it, as his answer to an `ASK` does.
+  A builder on this Mac has no idle turn, since its final message returns it, so it runs each step
+  in the foreground with the Bash `timeout` the step needs, up to 600000 ms. It waits on a remote
+  through the remote's own blocking wait, its deadline of 540 s inside that 600-second call, and
+  runs it again while the remote still builds:
+  `tools/ci devbox ssh <box> -- tilt wait --for=condition=Ready --timeout=540s uiresource/<name>`
+  for a devbox's Tilt resource, `kubectl wait --timeout=540s` for a cluster object,
+  `tools/ci release watch <n> --timeout 540000` for a release, and `tools/ci devbox claim --wait`
+  for a devbox's stack.
 - Nobody watches the starting session's terminal, so the `bash_guard` hook refuses each permission
   prompt Claude Code shows it on any of your calls. Claude Code's own dangerous-rm safety check reaches
   no hook and asks in bypass permissions mode too. On a Bash command its parser cannot read, such as a
