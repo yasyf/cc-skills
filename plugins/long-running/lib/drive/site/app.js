@@ -72,7 +72,7 @@ const KEY_SHEET = [
   ['Anywhere', [[['⌘K'], 'Jump to a screen, question, pull request, task or job'], [['?'], 'Show these keys'], [['Esc'], 'Close what is open, or step back up a level']]],
   ['Your queue', [
     [['j', '→'], 'Next card'], [['k', '←'], 'Previous card'], [['1–9'], 'Select a choice; review before sending'], [['a'], 'Approve the pull request'], [['h'], 'Hold the pull request'],
-    [['o'], 'Open the pull request on GitHub'], [['q'], 'Ask about it, or answer in your own words'], [['e'], 'Open or close evidence'],
+    [['o'], 'Open the pull request on GitHub'], [['v'], 'Enlarge the first picture of its Show me'], [['q'], 'Ask about it, or answer in your own words'], [['e'], 'Open or close evidence'],
     [['f'], 'Next filter: All, PRs, Decisions'], [['[', ']'], 'Previous or next project'], [['⌘Z'], 'Take back the newest answer that still shows Undo'],
   ]],
   ['Now', [[['scroll', 'pinch'], 'Zoom around the pointer, into a project or workstream and back out'], [['⇧ scroll', '←', '→', '↑', '↓'], 'Pan'], [['+', '−'], 'Zoom in or out']]],
@@ -351,7 +351,7 @@ async function drawFigures(root) {
   for (const host of hosts) {
     try {
       await (await loaded).draw(host, host.dataset.visual, host.dataset.source);
-      if (FRAMED.has(host.dataset.visual) && !host.closest('.thumbs')) frame(host);
+      if (FRAMED.has(host.dataset.visual) && !host.closest('.thumbs, .pr-example')) frame(host);
       if (host.dataset.visual.startsWith('code:')) host.insertAdjacentHTML('afterbegin', `<div class="code-bar"><span>${esc(host.dataset.visual.slice(5) || 'code')}</span><span class="acts"><button type="button" class="linkish" data-copy>Copy</button><button type="button" class="linkish" data-enlarge>Enlarge</button></span></div>`);
     } catch (failure) {
       host.innerHTML = sharedRenderers.refusedVisual(host.dataset.visual, host.dataset.source, failure);
@@ -652,16 +652,28 @@ function landing(item, rows, entry) {
 }
 
 function spots(html) {
-  const drawn = Object.assign(document.createElement('template'), { innerHTML: html }).content;
-  return [...drawn.querySelectorAll(SPOTS)].map((el, i) => {
-    const lead = el.previousElementSibling?.matches('p') ? el.previousElementSibling.textContent.trim() : '';
-    const kind = el.querySelector('[data-visual]')?.dataset.visual;
-    return el.textContent.trim() || el.dataset.caption || lead || (kind && (VISUAL_WORDS[kind] ?? `${kind.replace(/^code:/, '')} code`)) || `Picture ${i + 1}`;
-  });
+  return [...Object.assign(document.createElement('template'), { innerHTML: html }).content.querySelectorAll(SPOTS)];
+}
+
+function leadOf(el) {
+  return el.previousElementSibling?.matches('p') ? el.previousElementSibling.textContent.trim() : '';
+}
+
+function spotLabel(el, i) {
+  const kind = el.querySelector('[data-visual]')?.dataset.visual;
+  return el.textContent.trim() || el.dataset.caption || leadOf(el) || (kind && (VISUAL_WORDS[kind] ?? `${kind.replace(/^code:/, '')} code`)) || `Picture ${i + 1}`;
+}
+
+function firstPicture(key, row, pr, read) {
+  const shown = spots(showMe(row, pr, read));
+  const [first, next, ...rest] = shown.filter((el) => !el.matches('h4.hd'));
+  if (!first) return '';
+  const caption = first.dataset.caption || first.querySelector('figcaption')?.textContent.trim() || leadOf(first);
+  return `<section class="pr-example" aria-label="${esc(caption || 'The first picture of its Show me')}">${first.outerHTML}${caption ? `<p class="caption">${esc(caption)}</p>` : ''}${next ? `<button type="button" class="linkish" data-spot="${shown.indexOf(next)}" data-item="${esc(key)}">${rest.length + 1} more in Show me →</button>` : ''}</section>`;
 }
 
 function jumps(key, row, pr, read) {
-  const shown = spots(showMe(row, pr, read)).map((label, i) => `<li><button class="linkish" data-spot="${i}" data-item="${esc(key)}">${esc(label)}</button></li>`).join('');
+  const shown = spots(showMe(row, pr, read)).map((el, i) => `<li><button class="linkish" data-spot="${i}" data-item="${esc(key)}">${esc(spotLabel(el, i))}</button></li>`).join('');
   const words = [row.summary, read?.pr?.show_me, ...PR_FIELDS.map(([field]) => row[field])].join('\n');
   const cites = [...new Map(sharedRenderers.sourceCites(words).map((cite) => [`${cite.path}:${cite.line}`, cite])).values()];
   const point = (path, line, label) => `<li><button class="linkish" data-point="${esc(pr)}" data-item="${esc(key)}" data-path="${esc(path)}"${line ? ` data-line="${line}"` : ''}>${esc(label)}</button></li>`;
@@ -735,6 +747,7 @@ function prCard(item, at, total, embedded = false) {
   const context = read?.pr?.body?.match(/^## Context\s*\n([\s\S]*?)(?=^## |$(?![\s\S]))/m)?.[1]?.trim();
   const beats = told?.story?.beats.map((beat) => [beat.label, beat.text]) ?? [['Why this exists', lead?.why ?? context ?? row.refresher], ['What changes', lead?.what ?? row.summary], ['Downstream', lead?.downstream ?? row.hate_most]];
   const story = beats.map(([label, text]) => `<div><strong>${esc(label)}</strong><p>${text ? inline(text, pr) : 'The author has not supplied this explanation yet.'}</p></div>`).join('');
+  const pictured = firstPicture(key, row, pr, read);
   const stack = rows.length > 1 ? `<ol class="stack" aria-label="The PRs on this card, in the order they land">${rows.map((each, i) => stackRow(each, i, i === chosen, key)).join('')}</ol>` : '';
   const tabs = PR_TABS.map(([id, label]) => `<button role="tab" class="${id === tab ? 'on' : ''}" aria-selected="${id === tab}" data-prtab="${id}" data-item="${esc(key)}">${label}</button>`).join('');
   const panes = PR_TABS.map(([id]) => `<div class="pr-pane ${id}" role="tabpanel"${id === tab ? '' : ' hidden'}>${prPane(id, row, pr, head, read, embedded)}</div>`).join('');
@@ -743,7 +756,7 @@ function prCard(item, at, total, embedded = false) {
       <div class="card-content">
         <div class="card-top"><span class="type-label">Pull request <a href="${esc(row.url)}" target="_blank" rel="noopener" data-github data-tip="Open it on GitHub"${embedded ? '' : ' data-key="o"'}>${esc(pr)}</a></span>${embedded ? '' : counter(at, total)}</div>
         <h2 class="card-title" id="item-title">${esc(title)}</h2>
-        <div class="pr-story">${story}</div>
+        ${pictured ? `<div class="pr-lede"><div class="pr-story">${story}</div>${pictured}</div>` : `<div class="pr-story">${story}</div>`}
         ${told && !told.story ? untold(told) : ''}
         ${stack}
         <div class="facts">${prFacts(item, row, read)}</div>
@@ -2761,7 +2774,7 @@ document.addEventListener('click', (event) => {
     const pane = marked.closest('.pr-layout').querySelector('.pr-pane.show');
     const target = pane.querySelectorAll(SPOTS)[Number(marked.dataset.spot)];
     pane.scrollTop += target.getBoundingClientRect().top - pane.getBoundingClientRect().top - 12;
-    return;
+    return (target.matches('button') ? target : target.querySelector('[data-enlarge]'))?.focus({ preventScroll: true });
   }
   const point = event.target.closest('[data-point]');
   if (point) {
@@ -2972,6 +2985,7 @@ document.addEventListener('keydown', (event) => {
       h: $('#main .focus-card button[data-card][data-label="Hold"]'),
       o: $('#main .focus-card [data-github]'),
       e: $('#main .focus-card [data-more]'),
+      v: $('#main .focus-card .pr-example :is([data-shot], [data-enlarge])'),
     }[event.key];
     if (target) {
       event.preventDefault();
