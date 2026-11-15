@@ -5167,6 +5167,49 @@ def test_order_set_parts_keeps_a_designs_changes_and_refuses_a_list_renaming_one
     assert list(state.load("demo")["orders"]["o1"]["parts"]) == names[:-1]
 
 
+def test_a_designs_refile_renaming_a_change_a_live_builder_carries_is_refused_and_one_keeping_its_part_words_adds_no_second_builder(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "copy one store", "--parts", "copy one store")
+    run("job", "add", "design", "--order", "o1", "--part", "copy one store", "--goal", "cards: the store copy")
+    assert keep(monkeypatch, capsys, "j1", DESIGNED) == (0, "")
+    with state.edit("demo") as data:
+        data["orders"]["o1"]["parts"]["the moved-table interface"] = state.new_part() | {"design": "j1"}
+        data["jobs"]["j3"] = state.new_job("o1", "builder", "build j1's change: the moved-table interface", ["the moved-table interface"], state.stamp()) | {"state": "stopped"}
+        data["orders"]["o1"]["jobs"].append("j3")
+    before = state.load("demo")["jobs"]
+    code, err = keep(monkeypatch, capsys, "j1", DESIGNED_IN_CHANGES)
+    assert (code, err.strip().splitlines()[-1]) == (
+        2,
+        'drive: j1: refused, nothing kept: its Change: lines name "the moved-table interface", "the reads through it", "the writes through it", which no builder or'
+        ' codex job carries, and leave out "copy one store", carried by j2, so one change would get a second builder; a change\'s part words are its one identity,'
+        " so keep each change it leaves out word for word on the Change: line of that change, with what is new on the Design: line, or, for a change this design"
+        " drops, return BLOCKED naming the job that carries it, for the coordinator to stop",
+    )
+    assert (state.load("demo")["jobs"], len(state.returns("demo", "j1"))) == (before, 1)
+    assert keep(monkeypatch, capsys, "j1", DESIGNED_IN_CHANGES.replace("Change: the moved-table interface\n", "Change: copy one store\n")) == (0, "")
+    data = state.load("demo")
+    assert {job_id: job["parts"] for job_id, job in data["jobs"].items() if job["kind"] == "builder" and job["state"] != "stopped"} == {
+        "j2": ["copy one store"],
+        "j4": ["the reads through it"],
+        "j5": ["the writes through it"],
+    }
+    assert state.part_builders(data, "o1", "copy one store") == ["j2"]
+
+
+def test_order_add_and_set_refuse_a_part_named_in_words_a_designs_change_line_could_not_hold(run: Run, demo: str, capsys: pytest.CaptureFixture[str]) -> None:
+    long = "copy each store in list order, then check every copy against its sources before it lands"
+    refusal = f'--parts "{long}": refused, a part is named in at most 80 characters with no backtick, double quote, $ or backslash'
+    assert cli.main(["order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "copy one store", "--parts", "copy one store", long]) == 2
+    assert (refusal in capsys.readouterr().err, "o1" in state.load("demo")["orders"]) == (True, False)
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "copy one store", "--parts", "copy one store")
+    assert cli.main(["order", "set", "o1", "--parts", "copy one store", long]) == 2
+    assert refusal in capsys.readouterr().err
+    assert cli.main(["order", "set", "o1", "--parts", "copy one store", 'the reads through the "names" route']) == 2
+    assert '--parts "the reads through the \\"names\\" route": refused, a part is named in at most 80 characters' in capsys.readouterr().err
+    assert list(state.load("demo")["orders"]["o1"]["parts"]) == ["copy one store"]
+
+
 def test_a_research_readers_report_carries_its_filled_researched_block(
     run: Run, meta: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

@@ -1626,6 +1626,32 @@ def add_changes(name: str, data: dict, job_id: str, report: str) -> list[str]:
     return added
 
 
+def renamed_change(name: str, data: dict, order_id: str, named: list[str], design_id: str | None = None) -> str | None:
+    """Why a list of an order's changes renames one, refused with nothing kept, since a change's part words are its one identity, which its design, its builder and that builder's PR hang on: a drive order set --parts list, with no design_id, bringing in a name the order does not hold while leaving out a change a design listed that no builder delivered, whose design the new name would lose; or the Change: lines of design_id's DESIGN of several naming a change no builder or codex job carries, by part_builders, which change_builders would start a builder on, while leaving out an undelivered change that design listed before, a part its DESIGN of several made under its name or its own parts once a DESIGN of one change made them its change, that such a job carries, which would then build one change twice. A list that only drops changes or only brings names in renames none."""
+    parts = data["orders"][order_id]["parts"]
+    if design_id is None:
+        added = [part for part in named if part not in parts]
+        left = [f'"{part}" of {held["design"]}\'s design' for part, held in parts.items() if part not in named and held["design"] and not delivered(data, order_id, part)]
+        said = f"--parts adds {', '.join(json.dumps(part, ensure_ascii=False) for part in added)} and leaves out {', '.join(left)}, which no builder delivered"
+        fix = 'name each change by its part, as drive job add builder --part "<the part>" takes it, and leave a change out only once it is delivered or he withdrew it'
+    else:
+        design = data["jobs"][design_id]
+        alone = any(len(change_lines("design", reply["body"])) == 1 for reply in returns(name, design_id) if opening(reply["body"]).startswith("DESIGN"))
+        listed = dict.fromkeys([*(design["parts"] if alone else []), *designed(data, design_id, order_id)])
+        added = [part for part in named if not part_builders(data, order_id, part)]
+        left = [
+            f'"{part}", carried by {", ".join(jobs)}'
+            for part in listed
+            if part in parts and part not in named and not delivered(data, order_id, part) and (jobs := part_builders(data, order_id, part))
+        ]
+        said = f"its Change: lines name {', '.join(json.dumps(part, ensure_ascii=False) for part in added)}, which no builder or codex job carries, and leave out {', '.join(left)}, so one change would get a second builder"
+        fix = (
+            "a change's part words are its one identity, so keep each change it leaves out word for word on the Change: line of that change,"
+            " with what is new on the Design: line, or, for a change this design drops, return BLOCKED naming the job that carries it, for the coordinator to stop"
+        )
+    return f"{said}; {fix}" if added and left else None
+
+
 def left_changes(name: str, data: dict, builder_id: str, found: list[tuple[str, list[int]]]) -> list[str]:
     """Make each piece a builder's return lists on its `UNBUILT:` lines, each a piece of its plan it left to a follow-up, a part of its order, a part already under those words included, under the design of the builder's parts, whose research a builder of the part starts on, or, where its parts have none, read by each reader of them, by share_research; then add a builder for each by change_builders, from that design, or else from the builder, whose return its Plan: line names."""
     builder = data["jobs"][builder_id]
@@ -2016,6 +2042,11 @@ def lane_ended(job: dict) -> bool:
 
 def whole_order(text: str) -> str:
     return " ".join(text.split())[:PART_CHARS].rstrip()
+
+
+def unquotable_part(name: str) -> bool:
+    """Whether words cannot name a part of an order, the one check every writer of a part's name runs: longer than PART_CHARS, or holding a backtick, double quote, $ or backslash, which double quotes do not keep as typed, since the coordinator types each part as --part "<the part>" and a design's Change: line names its change in those same words."""
+    return len(name) > PART_CHARS or bool(re.search(r'[`"$\\]', name))
 
 
 def new_order(text: str, source: str, thread: tuple[str, str] | None, parts: dict[str, dict], created: str) -> dict:

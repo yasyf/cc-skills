@@ -201,7 +201,7 @@ def lane_posted(name: str, lane: str) -> bool:
 
 
 def order_add(args: argparse.Namespace) -> int:
-    """Record his order; an incident order records a job on each of its parts, its fix among them, unless it joins the open incident on the same failing service; a "Drive tooling:" order whose words Jev reads as asking what an open tooling order asks joins that order, every job on that order carrying it, so one fault keeps one job and one card; it reworks only the PRs --rework names and names each other open PR card of his in its thread, which it leaves up, and names each open question card of his its words point at, by state.asked_lines."""
+    """Record his order, refusing a --parts name a part cannot hold, by state.unquotable_part; an incident order records a job on each of its parts, its fix among them, unless it joins the open incident on the same failing service; a "Drive tooling:" order whose words Jev reads as asking what an open tooling order asks joins that order, every job on that order carrying it, so one fault keeps one job and one card; it reworks only the PRs --rework names and names each other open PR card of his in its thread, which it leaves up, and names each open question card of his its words point at, by state.asked_lines."""
     name = state.resolve(args.drive)
     refuse_unreworkable(state.load(name), args.rework)
     order_id, order, started, incidents = added_order(args)
@@ -262,6 +262,7 @@ def withdrawn_card(name: str, key: str) -> list[str]:
 def added_order(args: argparse.Namespace, unfiled: bool = False) -> tuple[str, dict, list[str], list[str]]:
     name = state.resolve(args.drive)
     created = state.stamp()
+    refuse_unquotable_parts(args.parts or [])
     if args.incident and not args.joins and state.INCIDENT_FIX not in (args.parts or []):
         raise DriveError(
             f'an incident order starts its fix job at the alert, beside diagnosis: name "{state.INCIDENT_FIX}" among --parts, such as'
@@ -646,21 +647,17 @@ def apart_from_filing(order: dict) -> str:
     return json.dumps({field: value for field, value in order.items() if field not in FILING}, sort_keys=True)
 
 
-def refuse_a_renamed_change(data: dict, order_id: str, parts: list[str]) -> None:
-    """A --parts list that adds a name refuses to leave out a change a design listed and no builder delivered, since the part under the new name would lose the design and the builder its name ties it to; a list that only drops parts, delivered or withdrawn by him, passes."""
-    held = data["orders"][order_id]["parts"]
-    added = [part for part in parts if part not in held]
-    left = [f'"{part}" of {kept["design"]}\'s design' for part, kept in held.items() if part not in parts and kept["design"] and not state.delivered(data, order_id, part)]
-    if added and left:
+def refuse_unquotable_parts(parts: list[str]) -> None:
+    if unquotable := next((part for part in parts if state.unquotable_part(part)), None):
         raise DriveError(
-            f"{order_id}: refused, its parts stay as they are: --parts adds {', '.join(json.dumps(part, ensure_ascii=False) for part in added)}"
-            f" and leaves out {', '.join(left)}, which no builder delivered; name each change by its part, as drive job add builder"
-            ' --part "<the part>" takes it, and leave a change out only once it is delivered or he withdrew it'
+            f"--parts {json.dumps(unquotable, ensure_ascii=False)}: refused, a part is named in at most {state.PART_CHARS} characters with no backtick,"
+            ' double quote, $ or backslash, the words a design\'s Change: line names its change in and drive job add builder --part "<the part>" takes;'
+            " its detail goes on the job's --goal"
         )
 
 
 def order_set(args: argparse.Namespace) -> int:
-    """Change an order, reworking only the PRs --rework names and naming each open PR card of his in a thread it moves into or is sorted again in, which it leaves up; closing one that owes him a promised line reads its thread and refuses until the line is there or he withdrew the time, closing one done refuses while the bug report it fixes has not heard it is fixed, and --no-options-only, his pick, adds the builder of each change a design on it listed that no builder is on, as drive job report does once a design returns; --incident turns an open order into an incident by turned_incident and names each open question card of his its words point at, by state.asked_lines; --standing keeps each --part standing on its goal, or takes it out with an empty one, by standing_parts, which --part needs no --kind for."""
+    """Change an order, reworking only the PRs --rework names and naming each open PR card of his in a thread it moves into or is sorted again in, which it leaves up; --parts refuses a name it adds that a part cannot hold, by state.unquotable_part, and a list renaming a change, by state.renamed_change; closing one that owes him a promised line reads its thread and refuses until the line is there or he withdrew the time, closing one done refuses while the bug report it fixes has not heard it is fixed, and --no-options-only, his pick, adds the builder of each change a design on it listed that no builder is on, as drive job report does once a design returns; --incident turns an open order into an incident by turned_incident and names each open question card of his its words point at, by state.asked_lines; --standing keeps each --part standing on its goal, or takes it out with an empty one, by standing_parts, which --part needs no --kind for."""
     name = state.resolve(args.drive)
     withdrawn = his_words(args.withdrawn, "withdraw a promised line") if args.withdrawn else None
     unreported = his_words(args.no_reporter, "take the reporters off an order") if args.no_reporter else None
@@ -668,6 +665,7 @@ def order_set(args: argparse.Namespace) -> int:
     refuse_unreworkable(data, args.rework)
     closing = args.state in state.CLOSED_ORDER_STATES and not withdrawn
     order = find(data["orders"], args.id, "order")
+    refuse_unquotable_parts([part for part in args.parts or [] if part not in order["parts"]])
     added = state.reporter(args.reporter) if args.reporter else None
     held = {(kept["channel"], kept["thread"]) for kept in order["reporters"]}
     reporters = [] if unreported else [*order["reporters"], added] if added and (added["channel"], added["thread"]) not in held else order["reporters"]
@@ -761,7 +759,8 @@ def order_set(args: argparse.Namespace) -> int:
             order["state"] = args.state
         order["alerts"] = list(dict.fromkeys([*order["alerts"], *alerts]))
         if args.parts:
-            refuse_a_renamed_change(data, args.id, args.parts)
+            if renamed := state.renamed_change(name, data, args.id, args.parts):
+                raise DriveError(f"{args.id}: refused, its parts stay as they are: {renamed}")
             state.split_research(data, args.id, args.parts)
             order["parts"] = {part: order["parts"].get(part, state.new_part()) for part in args.parts}
         for part in standing:
