@@ -59,7 +59,7 @@ def no_calls(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
 def release_builds(monkeypatch: pytest.MonkeyPatch) -> None:
     started = {
         RELEASE_CUT_BUILD: {"RELEASE_START": json.dumps({"mode": "release", "envs": []})},
-        CLUSTER_JOB_BUILD: {"CLUSTER_JOB": json.dumps({"cluster": "plat-usw2-prod", "cronJob": "memory-move-poetic", "reason": "move poetic's memories"})},
+        CLUSTER_JOB_BUILD: {"CLUSTER_JOB": json.dumps({"cluster": "plat-usw2-prod", "cronJob": "memory-move-poetic", "reason": "move poetic's memories, his order b5763df"})},
     }
 
     def build(pipeline: str, number: str) -> dict:
@@ -1613,6 +1613,32 @@ DRY_RUN_JOB = {
     ),
 }
 DRY_RUN_UNBLOCKED = "2026-11-15T20:26:37+00:00"
+WRITE_JOB = {
+    "cluster": "plat-usw2-prod",
+    "cronJob": "journal-pass",
+    "reason": "Journal pass write on plat-usw2-prod after its dry run counted each team's landed run journals. Owner's pick c4701c9: Cluster by cluster tonight, plat first, each write after its dry run (drive durable-agents j3299)",
+}
+THAT_NIGHT = "2026-11-16T04:40:00+00:00"
+TONIGHT_LINK = "https://acme.slack.com/archives/D1/p1794771000000100"
+TONIGHT_CARD = """ASK Should the one-time journal pass now raise every landed run journal on plat, AIG's and SoFi's clusters to format 15?
+Drive tooling: your pick decides when the journal pass writes each production cluster's landed run journals.
+- Cluster by cluster tonight: plat, then AIG's, then SoFi's, each write after its dry run. (recommended)
+  Tonight the pass dry runs on plat-usw2-prod and writes there, then does the same on AIG's cluster and then SoFi's.
+- Every cluster once your hold on releases lifts
+  Each cluster's dry run and write wait until you lift your hold on every release.
+
+Findings:
+Root cause: none: a pick of when the pass writes
+Simplest: Cluster by cluster tonight
+Holds: none: no option changes code any job builds
+"""
+NEAREST_GO = {
+    "id": "3e163c1" + "0" * 33,
+    "title": "The journal pass is ready on every cluster: run it?",
+    "body": "Yes run it",
+    "tags": ["drive:demo", "scope:durable"],
+    "created_at": "2026-11-15T20:05:00Z",
+}
 HELD_VERBS = (
     "tools/ci release resume 15495",
     "tools/ci release approve releases/2026-11-13/2 --via codex",
@@ -1701,7 +1727,7 @@ def test_a_cluster_job_build_is_no_release_cut_so_any_drive_session_opens_its_ga
     moves = (
         gate.format(CLUSTER_JOB_BUILD),
         f"tools/ci bk rerun release {CLUSTER_JOB_BUILD} --unit cluster-job",
-        "tools/ci cluster-job --cluster plat-usw2-prod --cronjob memory-move-poetic --reason 'move poetic memories'",
+        "tools/ci cluster-job --cluster plat-usw2-prod --cronjob memory-move-poetic --reason 'move poetic memories, his order b5763df'",
     )
     assert [landing_guard.deny_reason(bash(command) | who) for who in (top, sub, job) for command in moves] == [None] * 9
     assert landing_guard.deny_reason(bash(f"tools/ci bk cancel release {CLUSTER_JOB_BUILD}") | job) is None
@@ -1715,66 +1741,90 @@ def test_a_cluster_job_build_is_no_release_cut_so_any_drive_session_opens_its_ga
     )
 
 
-def test_while_he_holds_every_release_build_16916s_gate_stays_shut_since_no_answer_of_his_since_orders_its_production_dry_run_at_that_moment(
+def test_build_16916s_production_dry_run_and_its_write_start_only_on_his_answer_their_reason_names_read_alone_with_its_card_and_his_nearest_answers_order_nothing(
     drive_pr: str, run: Run, no_calls: list[list[str]], recorded: Answers, jev: Jev, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    kept = state.drive_dir("demo") / "asks" / "j1-journal-pass.md"
+    kept.parent.mkdir(exist_ok=True)
+    kept.write_text(TONIGHT_CARD)
     with state.edit("demo") as data:
         data["answers"]["15c4de1"] = {"words": RELEASE_HOLD["body"], "link": HOLD_LINK, "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {}}
+        closed = state.new_close("answered", PASS_TONIGHT["body"], TONIGHT_LINK, seq="9", noted=PASS_TONIGHT["id"])
+        data["jobs"]["j1"]["questions"].append(state.new_question(str(kept), PASS_TONIGHT["title"], state.stamp(), card=TONIGHT_LINK, closed=closed))
     tap = PR_TAP | {"created_at": "2026-11-14T01:00:00Z"}
     earlier = RELEASE_PICK | {"created_at": EARLIER}
     recorded.listed = [RELEASE_HOLD]
-    recorded.shown = {answer["id"][:7]: answer for answer in (RELEASE_HOLD, DRY_RUNS_HELD, PASS_TONIGHT, tap, earlier)}
-    recorded.matched = [{"id": answer["id"][:7], "asked": answer["title"], "said": settled.his(answer["body"]), "link": None} for answer in (DRY_RUNS_HELD, tap, earlier)]
-    monkeypatch.setattr(github, "build", lambda pipeline, number: {"state": "canceled", "env": {"CLUSTER_JOB": json.dumps(DRY_RUN_JOB)}})
-    monkeypatch.setattr(state, "now", lambda: state.parse_time(DRY_RUN_UNBLOCKED))
+    recorded.shown = {answer["id"][:7]: answer for answer in (RELEASE_HOLD, DRY_RUNS_HELD, PASS_TONIGHT, NEAREST_GO, tap, earlier)}
+    recorded.matched = [{"id": answer["id"][:7], "asked": answer["title"], "said": settled.his(answer["body"]), "link": None} for answer in (DRY_RUNS_HELD, PASS_TONIGHT, NEAREST_GO, tap, earlier)]
+    builds = {"16916": DRY_RUN_JOB, "16940": WRITE_JOB}
+    monkeypatch.setattr(github, "build", lambda pipeline, number: {"state": "canceled", "env": {"CLUSTER_JOB": json.dumps(builds[str(number)])}})
+    moment = [DRY_RUN_UNBLOCKED]
+    monkeypatch.setattr(state, "now", lambda: state.parse_time(moment[0]))
     jev.breaks("about", "34c9f21")
     top = {"session_id": "session-under-test"}
-    starts = (
-        "tools/ci bk api -X PUT /pipelines/release/builds/16916/jobs/01a1e0e3-6926-4d67-abb9-9ed1e56a7549/unblock",
-        "tools/ci bk rerun release 16916",
-        f'tools/ci cluster-job --cluster plat-usw2-prod --cronjob journal-pass-dry-run --reason "{DRY_RUN_JOB["reason"]}"',
-    )
-    unordered = "which Jev does not read as ordering it now"
-    why = (
-        f'his answer c4701c9 to "{PASS_TONIGHT["title"]}", "{PASS_TONIGHT["body"]}", {unordered};'
-        f' his answer 34c9f21 to "{DRY_RUNS_HELD["title"]}", "{DRY_RUNS_HELD["body"]}", {unordered}'
-    )
-    refused = brief.JOB_HELD.format(said=RELEASE_HOLD["body"], where=f"15c4de1, {HOLD_LINK}", cronjob="journal-pass-dry-run", cluster="plat-usw2-prod", why=why)
-    assert [landing_guard.deny_reason(bash(command) | top) for command in starts] == [refused] * len(starts)
-    assert "15c4de1" in refused and "34c9f21" in refused
-    assert jev.asked[-1]["state"] == {
+
+    def starts(build: str, unit: str, job: dict) -> tuple[str, ...]:
+        return (
+            f"tools/ci bk api -X PUT /pipelines/release/builds/{build}/jobs/{unit}/unblock",
+            f"tools/ci bk rerun release {build}",
+            f'tools/ci cluster-job --cluster {job["cluster"]} --cronjob {job["cronJob"]} --reason "{job["reason"]}"',
+        )
+
+    dry_runs, writes = starts("16916", "01a1e0e3-6926-4d67-abb9-9ed1e56a7549", DRY_RUN_JOB), starts("16940", "01a1e5f2-0b7c-4e2d-9c31-5d8e2f7a1b40", WRITE_JOB)
+
+    def held(cronjob: str, why: str) -> str:
+        return brief.JOB_HELD.format(said=RELEASE_HOLD["body"], where=f"15c4de1, {HOLD_LINK}", cronjob=cronjob, cluster="plat-usw2-prod", why=why)
+
+    unnamed = "speaks to it but orders nothing, since its reason does not name it"
+    tonight = f'its reason names his answer c4701c9 to "{PASS_TONIGHT["title"]}", "{PASS_TONIGHT["body"]}", which Jev does not read as ordering it now'
+    lifts = f'his answer 34c9f21 to "{DRY_RUNS_HELD["title"]}", "{DRY_RUNS_HELD["body"]}", {unnamed}'
+    refused = held("journal-pass-dry-run", f"{tonight}; {lifts}")
+    asked = len(jev.asked)
+    assert [landing_guard.deny_reason(bash(command) | top) for command in dry_runs] == [refused] * len(dry_runs)
+    alone, nearest = jev.asked[asked : asked + 2]
+    context = {
         "job": {"cronjob": "journal-pass-dry-run", "cluster": "plat-usw2-prod", "reason": DRY_RUN_JOB["reason"], "now": "Sunday Nov 15 2026, 12:26 PM Pacific"},
         "hold": {"said": RELEASE_HOLD["body"], "at": "Friday Nov 13 2026, 11:09 AM Pacific"},
-        "answers": {
-            "c4701c9": {"id": "c4701c9", "asked": PASS_TONIGHT["title"], "said": PASS_TONIGHT["body"], "at": "Sunday Nov 15 2026, 11:47 AM Pacific", "card": ""},
-            "34c9f21": {"id": "34c9f21", "asked": DRY_RUNS_HELD["title"], "said": DRY_RUNS_HELD["body"], "at": "Friday Nov 13 2026, 2:15 PM Pacific", "card": ""},
-            "ac61348": {"id": "ac61348", "asked": PR_TAP["title"], "said": "Approve at 4aca314", "at": "Friday Nov 13 2026, 5:00 PM Pacific", "card": ""},
-        },
     }
-    assert sorted(jev.asked[-1]["questions"]) == sorted(f"{question}.{slot}" for question in ("orders", "about") for slot in ("c4701c9", "34c9f21", "ac61348"))
+    card = alone["state"]["answer"].pop("card")
+    assert alone == {
+        "state": context | {"answer": {"id": "c4701c9", "asked": PASS_TONIGHT["title"], "said": PASS_TONIGHT["body"], "at": "Sunday Nov 15 2026, 11:47 AM Pacific"}},
+        "questions": {"orders.c4701c9": settled.JOB_ORDERS},
+    }
+    assert card.startswith(f"Question: {PASS_TONIGHT['title']}") and "Every cluster once your hold on releases lifts" in card
+    assert nearest["state"] == context | {
+        "answers": {
+            "34c9f21": {"id": "34c9f21", "asked": DRY_RUNS_HELD["title"], "said": DRY_RUNS_HELD["body"], "at": "Friday Nov 13 2026, 2:15 PM Pacific", "card": ""},
+            "3e163c1": {"id": "3e163c1", "asked": NEAREST_GO["title"], "said": NEAREST_GO["body"], "at": "Sunday Nov 15 2026, 12:05 PM Pacific", "card": ""},
+            "ac61348": {"id": "ac61348", "asked": PR_TAP["title"], "said": "Approve at 4aca314", "at": "Friday Nov 13 2026, 5:00 PM Pacific", "card": ""},
+        }
+    }
+    assert sorted(nearest["questions"]) == ["about.34c9f21", "about.3e163c1", "about.ac61348"]
     assert run("job", "held", "j1", "--cluster", "plat-usw2-prod", "--cronjob", "journal-pass-dry-run", "--reason", DRY_RUN_JOB["reason"]) == (0, refused)
     asked = len(jev.asked)
     staging = "tools/ci cluster-job --cluster plat-usw2-staging --cronjob journal-pass-dry-run --reason 'dry run on staging'"
     assert landing_guard.deny_reason(bash(staging) | top) is None
     assert len(jev.asked) == asked
     older = "tools/ci cluster-job --cluster plat-usw2-prod --cronjob journal-pass-dry-run --reason 'dry run on his answer 5d0c4a1'"
-    assert landing_guard.deny_reason(bash(older) | top) == brief.JOB_HELD.format(
-        said=RELEASE_HOLD["body"],
-        where=f"15c4de1, {HOLD_LINK}",
-        cronjob="journal-pass-dry-run",
-        cluster="plat-usw2-prod",
-        why=f'its reason names his answer 5d0c4a1 to "{RELEASE_PICK["title"]}", recorded before the hold; his answer 34c9f21 to "{DRY_RUNS_HELD["title"]}", "{DRY_RUNS_HELD["body"]}", {unordered}',
-    )
+    assert landing_guard.deny_reason(bash(older) | top) == held("journal-pass-dry-run", f'its reason names his answer 5d0c4a1 to "{RELEASE_PICK["title"]}", recorded before the hold; {lifts}')
+    jev.picks("3e163c1")
+    go = f'his answer 3e163c1 to "{NEAREST_GO["title"]}", "{NEAREST_GO["body"]}", {unnamed}'
+    assert landing_guard.deny_reason(bash(dry_runs[0]) | top) == held("journal-pass-dry-run", f"{tonight}; {lifts}; {go}")
+    bare = "tools/ci cluster-job --cluster plat-usw2-prod --cronjob journal-pass --reason 'journal pass write on plat'"
+    assert landing_guard.deny_reason(bash(bare) | top) == held("journal-pass", f"{lifts}; {go}")
     jev.answer = None
-    assert landing_guard.deny_reason(bash(starts[0]) | top) == brief.JOB_HELD.format(
-        said=RELEASE_HOLD["body"],
-        where=f"15c4de1, {HOLD_LINK}",
-        cronjob="journal-pass-dry-run",
-        cluster="plat-usw2-prod",
-        why="Jev did not say whether his answers since order it (no jev decision within 20s); run it again once Jev answers",
+    assert landing_guard.deny_reason(bash(dry_runs[0]) | top) == held(
+        "journal-pass-dry-run", "Jev did not say whether his answers since order it (no jev decision within 20s); run it again once Jev answers"
     )
+    moment[0] = THAT_NIGHT
     jev.picks("c4701c9")
-    assert [landing_guard.deny_reason(bash(command) | top) for command in starts] == [None] * len(starts)
+    asked = len(jev.asked)
+    assert [landing_guard.deny_reason(bash(command) | top) for command in (*dry_runs, *writes)] == [None] * 6
+    assert [(read["state"]["job"]["cronjob"], read["state"]["job"]["now"], list(read["questions"])) for read in jev.asked[asked:]] == [
+        (job["cronJob"], "Sunday Nov 15 2026, 8:40 PM Pacific", ["orders.c4701c9"]) for job in (DRY_RUN_JOB,) * 3 + (WRITE_JOB,) * 3
+    ]
+    named_tonight = f'his answer c4701c9 to "{PASS_TONIGHT["title"]}", "{PASS_TONIGHT["body"]}", {unnamed}'
+    assert landing_guard.deny_reason(bash(bare) | top) == held("journal-pass", f"{lifts}; {named_tonight}")
 
 
 def test_a_record_asking_a_session_for_a_release_step_goes_out_only_naming_one_start_his_answer_approves(
