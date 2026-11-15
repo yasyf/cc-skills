@@ -1769,8 +1769,8 @@ def test_a_resume_retried_after_its_bind_refused_relaunches_the_same_attempt_wit
         " carrying its brief, its branch, its last line, its report and its PRs; its lane on Sprite sprite-old was dead (its worker"
         " exited), and work not pushed from sprite-old is not carried over",
     )
-    (prepared, kept, first_run), (relaunched, again, second_run) = launched
-    assert (relaunched, first_run, second_run) == (prepared, "run_try1", "run_try2")
+    (prepared, kept, first_run), retried, (relaunched, again, second_run) = launched
+    assert (retried, relaunched, first_run, second_run) == ((prepared, kept, first_run), prepared, "run_try1", "run_try2")
     assert unheld(orca.brief_of(kept)).endswith("which you act on now:\n\nPR #12 merged: prove it live")
     assert unheld(orca.brief_of(again)).endswith("which you act on now:\n\nPR #12 merged: prove it live\n\nPR #12 merged at abc123: prove it live")
     assert sent == []
@@ -2729,6 +2729,49 @@ def test_a_launch_whose_sprite_took_no_tools_exits_2_naming_the_tool_step_and_st
     assert (job["launching"], job.get("dispatch")) == (None, None)
 
 
+def test_a_launch_whose_launcher_said_several_lines_quotes_each_in_its_refusal(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cloned(tmp_path, demo)
+    (tmp_path / "brief.md").write_text("Researched: j0\nDrive: demo, order o1, job j1\n")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship it", "--remote")
+    monkeypatch.setattr(orca, "new_run", lambda drive, objective: RUN)
+    monkeypatch.setattr(orca, "tool", lambda name: name)
+    attempt = state.drive_dir(demo) / "jobs" / "j1.worker"
+    lines = [
+        f"{attempt}.1 keeps the earlier attempt, whose prepare exited 1 before any worker started; preparing again",
+        f"cc-remote orca prepare exited 1; {attempt} keeps its output, nothing was attached, and launching this brief again prepares afresh",
+    ]
+    ran = subprocess.run
+    said = subprocess.CompletedProcess([orca.LAUNCHER], 1, stdout="", stderr="\n".join(lines) + "\n")
+    monkeypatch.setattr(orca.subprocess, "run", lambda argv, **kwargs: said if argv[0] == orca.LAUNCHER else ran(argv, **kwargs))
+    assert cli.main(["job", "launch", "j1", "brief.md"]) == 2
+    assert capsys.readouterr().err == f"drive: {orca.LAUNCHER} exited 1 before a worker started: {lines[0]}; {lines[1]}; attempt in {attempt}\n"
+
+
+def test_a_first_launch_whose_fresh_sprite_prepare_failed_launches_once_more_and_records_the_worker_that_started(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cloned(tmp_path, demo)
+    (tmp_path / "brief.md").write_text("Researched: j0\nDrive: demo, order o1, job j1\n")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship it", "--remote")
+    monkeypatch.setattr(orca, "new_run", lambda drive, objective: RUN)
+    launched = []
+
+    def prepare_failed_once(drive: str, lane: str, brief: Path, checkout: Path, run_id: str, route: str | None, workspace: str | None, session: str | None) -> dict:
+        launched.append((lane, run_id, workspace))
+        if len(launched) == 1:
+            raise orca.Unstarted(f"{orca.LAUNCHER} exited 1 before a worker started: cc-remote orca prepare exited 1; attempt in {brief.with_suffix('.worker')}")
+        return {field: f"{field}-1" for field in ("dispatch", "task", "terminal", "workspace", "environment", "lane")} | {"dispatch": DISPATCH}
+
+    monkeypatch.setattr(orca, "launch", prepare_failed_once)
+    assert run("job", "launch", "j1", "brief.md") == (0, f"j1 started on Sprite workspace-1 as dispatch {DISPATCH}")
+    assert launched == [("demo-j1", RUN, None), ("demo-j1", RUN, None)]
+    assert state.load(demo)["jobs"]["j1"]["dispatch"] == DISPATCH
+
+
 def test_a_resume_whose_fresh_sprite_took_no_tools_says_his_answer_held_naming_the_tool_step_and_leaves_it_unsent(
     remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -3295,6 +3338,32 @@ def test_a_resume_of_a_running_sprite_job_that_builds_nothing_and_declares_a_mac
     assert out.endswith(f"; it moved to this Mac, since its brief, its last report or the message declares {J4507_STEP}, a step only this Mac runs")
     job = state.load(remote)["jobs"]["j1"]
     assert (job["route"], job["dispatch"], state.SLOT_WAIT in job["waits"], kept_transcripts) == (state.LOCAL_ROUTE, "dispatch-2", False, [("j1", DISPATCH)])
+
+
+def test_a_resume_moving_a_sprite_job_to_this_mac_whose_launch_started_no_worker_says_its_texts_wait_on_its_lane_here(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kept_transcripts: list[tuple[str, str]]
+) -> None:
+    cloned(tmp_path, remote)
+    first = tmp_path / "first.md"
+    first.write_text(orca.vm_brief(remote, "j1", f"Order (his words): run the staging cases\nMac: {J4507_STEP}\nDrive: demo, order o1, job j1", None))
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(brief=str(first), workspace="pool-one", environment="pool-one", lane="demo-j1", state="running")
+    monkeypatch.setattr(orca, "call", lambda *args: pytest.fail(f"nothing is sent to the Sprite worker of a job that moves here: {args}"))
+    stopping(monkeypatch)
+    moving_launch(monkeypatch)
+    refusal = "orca-worker-launch.sh exited 1 before a worker started: orca terminal send failed: {}"
+
+    def unstarted(*args: object) -> dict:
+        raise orca.Unstarted(refusal)
+
+    monkeypatch.setattr(orca, "launch", unstarted)
+    code, out = run("job", "resume", "j1", "Handoff: run the cluster steps of the staging cases here")
+    assert (code, out.splitlines()[-1]) == (
+        0,
+        f"j1: held, not sent yet: {refusal}; the job keeps its text under the Orca request id each was held with, the watch sends them"
+        " once Orca reads its lane on this Mac alive, and its next worker gets them in its handoff",
+    )
+    assert state.load(remote)["jobs"]["j1"]["route"] == state.LOCAL_ROUTE
 
 
 J738_PROVE = 'PROVE: once that release is live on cloudrunner-next, on a run that hits the claude-sonnet-4-5 pool, Datadog "llm call failed" stage llm_policy shows none'

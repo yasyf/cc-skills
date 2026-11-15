@@ -99,6 +99,7 @@ SPRITE_TRANSCRIPTS = 'tar -czf - -C "$HOME/.claude/projects" . || [ $? -eq 1 ]'
 UNKEPT = "unkept.txt"
 TRANSCRIPTS = ".transcripts"
 RELAY_BYTES = 64 * 1024
+LAUNCH_REASON_CHARS = 2000
 ANSWER_MESSAGE_ID = "msg_" + "0" * 12
 KEPT_ANSWER = "drive answer kept on this Sprite: "
 DRIVE_STATUS = re.compile(r"drive exited \d+\n")
@@ -572,8 +573,8 @@ def launch(drive: str, lane: str, brief: Path, checkout: Path, run: str, route: 
         raise OrcaError(f"{LAUNCHER} ran past {LAUNCH_SECONDS} s; its attempt is in {attempt}") from None
     lines = done.stdout.strip().splitlines()
     if done.returncode or not lines:
-        said = done.stderr.strip().splitlines()
-        reason = said[-1] if said else "no output"
+        said = "; ".join(line.strip() for line in done.stderr.strip().splitlines()) or "no output"
+        reason = said if len(said) <= LAUNCH_REASON_CHARS else "…" + said[-LAUNCH_REASON_CHARS:]
         attempt = brief.with_suffix(".worker")
         if done.returncode == UNFIT:
             raise Unfit(reason)

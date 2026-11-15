@@ -1215,6 +1215,16 @@ class LocalTest(LaunchTest):
         self.assertEqual(self.launch.calls(), self.launch.local_calls()[:-1])
         self.assertEqual(self.launch.kept(), ["request.json", "worktree"])
 
+    def test_a_local_terminal_call_orca_refuses_says_its_error_code_and_message_on_one_line(self):
+        exhausted = "Your system cannot allocate any more pty devices. Close some terminals you are not using, in Orca or another program, then try again."
+        refusal = {"id": "req_1", "ok": False, "error": {"code": "terminal_unavailable", "message": f"{exhausted}\nnode-pty: posix_openpt failed: Resource temporarily unavailable (errno 35)"}}
+        self.launch.local()
+        self.launch.reply("orca terminal send", {"rc": 1, "out": json.dumps(refusal, indent=2)})
+        result = self.launch.run(model="fable", WORKER_LOCAL="1")
+        said = f"orca terminal send failed: terminal_unavailable: {exhausted} node-pty: posix_openpt failed: Resource temporarily unavailable (errno 35)"
+        self.assert_failed(self.launch, result, f"{SPARSE}\n{said}", self.launch.local_calls()[:-3])
+        self.assertEqual(self.launch.kept(), ["request.json", "worktree"])
+
     def test_a_new_local_worktree_is_sparse_with_the_requested_cone(self):
         self.launch.local()
         result = self.launch.run(model="fable", WORKER_LOCAL="1", WORKER_SPARSE="desktop common")

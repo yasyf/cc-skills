@@ -347,9 +347,14 @@ if [ "$route" = sprite ]; then
 fi
 
 orca_json() {
-  local out
-  out=$(orca "$@" --json) || { echo "orca $1 $2 failed: $out" >&2; return 1; }
-  echo "$out"
+  local out said
+  if out=$(orca "$@" --json); then
+    echo "$out"
+    return
+  fi
+  said=$(jq -er '.error | select(.) | "\(.code): \(.message | gsub("\\s*\\n\\s*"; " "))"' <<<"$out" 2>/dev/null) || said=${out//$'\n'/ }
+  echo "orca $1 $2 failed: $said" >&2
+  return 1
 }
 
 worktree_path() {
