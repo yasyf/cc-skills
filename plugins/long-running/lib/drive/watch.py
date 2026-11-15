@@ -54,8 +54,6 @@ PASS_DONE = (
 RELAUNCH_REFUSED = "relaunch_refused"
 READ_UNANSWERED = "read_unanswered"
 PROOFS_LOG = "proofs.log"
-CARRY_ON = "The lane that held this job died while it worked, and the watch started you in its place: carry the job on from where that lane left it."
-UNREACHED = "Orca could not reach this job's lane on its Sprite, so the watch had drive job resume wake that Sprite: carry the job on from where the lane left it."
 UNTHREADED = "no thread holds the order's lines to him, so its time was the drive's own and is said this once"
 CUT_OFF = (
     f"its read stopped before it finished, so what it did and printed are unknown, its output in the drive's {READS_LOG}, and no read"
@@ -3138,12 +3136,12 @@ def start_verb(watcher: Watcher, job_id: str, args: list[str], moment: datetime)
 
 def relaunch(watcher: Watcher, job_id: str, moment: datetime) -> int:
     """Run `drive job resume` by start_verb on a running job whose lane died."""
-    return start_verb(watcher, job_id, ["job", "resume", job_id, CARRY_ON], moment)
+    return start_verb(watcher, job_id, ["job", "resume", job_id, state.CARRY_ON], moment)
 
 
 def wake(watcher: Watcher, job_id: str, moment: datetime) -> int:
     """Run `drive job resume` with UNREACHED by start_verb on a running job whose lane Orca could not reach FAILURES_BEFORE_SAYING reads running: its lane_end wakes that lane's Sprite, then sends the text to a worker that takes messages again, or restarts the lane on that Sprite with the text in its handoff, else on a fresh one."""
-    return start_verb(watcher, job_id, ["job", "resume", job_id, UNREACHED], moment)
+    return start_verb(watcher, job_id, ["job", "resume", job_id, state.UNREACHED], moment)
 
 
 def send_held(watcher: Watcher, job_id: str, moment: datetime) -> int:

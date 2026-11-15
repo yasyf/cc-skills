@@ -133,6 +133,9 @@ DETACHED_ENV = "LONG_RUNNING_DETACHED"
 HIM = "him"
 WATCH_SENDER = "watch"
 SENDER_NAMES = {"coordinator": "the coordinator", "communicator": "the communicator", "meta": "the meta session", WATCH_SENDER: "the watch"}
+CARRY_ON = "The lane that held this job died while it worked, and the watch started you in its place: carry the job on from where that lane left it."
+UNREACHED = "Orca could not reach this job's lane on its Sprite, so the watch had drive job resume wake that Sprite: carry the job on from where the lane left it."
+RESTART_NOTES = (CARRY_ON, UNREACHED)
 LANE_ROLES = {"communicator": "communicator", "root": "coordinator", "meta": "meta"}
 DRIVE_LANES = ("root", "communicator", "coordinator", "meta", "handler", "builder", "reader", "designer", "root-tooling", "root-skill", "root-dashboard", "watch")
 NUMBERED_LANE = re.compile(r"(?P<stem>.+)-\d+")
@@ -1601,10 +1604,17 @@ def owed_handoffs(data: dict, group: list[str]) -> list[dict]:
     ]
 
 
-def hold_text(job: dict, text: str, sender: str | None, at: str | None = None) -> None:
-    """Keep a text on the job's undelivered list with who sent it, dated now unless at names when it was given, under a fresh Orca request id, which its next worker or codex-ask run carries, unless the job already holds it."""
-    if all(held["words"] != text for held in job["undelivered"]):
-        job["undelivered"].append({"seq": None, "words": text, "sender": sender, "at": at or stamp(), "said": None, "request": str(uuid.uuid4())})
+def hold_text(job: dict, text: str, sender: str | None, at: str | None = None) -> bool:
+    """Keep a text on the job's undelivered list as kept_text writes it, which its next worker or codex-ask run carries, unless the job already holds it or it is one of the watch's RESTART_NOTES, which tells only the lane a wake or restart reaches to carry on and so rides only the message or handoff of the drive job resume that wakes or restarts it, never a later worker; whether it kept it."""
+    if text in RESTART_NOTES or any(held["words"] == text for held in job["undelivered"]):
+        return False
+    job["undelivered"].append(kept_text(text, sender, at))
+    return True
+
+
+def kept_text(text: str, sender: str | None, at: str | None = None) -> dict:
+    """A text owed to a job's worker with who sent it, dated now unless at names when it was given, under a fresh Orca request id."""
+    return {"seq": None, "words": text, "sender": sender, "at": at or stamp(), "said": None, "request": str(uuid.uuid4())}
 
 
 def hand_held(data: dict, job_id: str, into: str) -> None:
@@ -1615,13 +1625,11 @@ def hand_held(data: dict, job_id: str, into: str) -> None:
 
 
 def take_mail(job: dict, box: list[dict], hold: bool) -> list[str]:
-    """Settle the texts the drive queued for the job's worker by one Dispatch mailbox a worker's turn ended on, matched by their words, less the Holds now block cli.messaged sent each with: each the box shows read leaves the job's queued list, and when hold is set, as no Orca follow-up carries the box's unread mail on, each it shows unread leaves it too and is held for the job's next worker by hold_text, as sent by the sender its subject names by sent_by; the texts held that the job did not hold already."""
+    """Settle the texts the drive queued for the job's worker by one Dispatch mailbox a worker's turn ended on, matched by their words, less the Holds now block cli.messaged sent each with: each the box shows read leaves the job's queued list, and when hold is set, as no Orca follow-up carries the box's unread mail on, each it shows unread leaves it too and is held for the job's next worker by hold_text, as sent by the sender its subject names by sent_by; the texts hold_text kept."""
     senders = {sent_by(sender): sender for sender in [HIM, *SENDER_NAMES]}
     unread = {unheld(message["body"]): senders.get(message["subject"]) for message in box if hold and not message["read"]}
     settled = {unheld(message["body"]) for message in box if hold or message["read"]}
-    held = [text for text in unread if all(kept["words"] != text for kept in job["undelivered"])]
-    for text in held:
-        hold_text(job, text, unread[text])
+    held = [text for text, sender in unread.items() if hold_text(job, text, sender)]
     job["queued"] = [sent for sent in job["queued"] if sent["words"] not in settled]
     return held
 
