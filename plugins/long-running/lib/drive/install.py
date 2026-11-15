@@ -842,18 +842,18 @@ def merged_done(name: str, data: dict, job_id: str) -> list[str]:
 
 
 def add_prover(data: dict, job_id: str, reach: dict[str, dict], parts: dict[str, list[str]], waits: list[str], staged: set[str]) -> str:
-    """Hand a builder whose PRs all merged outside yasyf/* to the builder proving them live on the release holding each merge, so each merged PR has one: each PR's prover, by prover_of, takes its parts, each list under the order holding it, the first order its own, and one no agent or lane took yet also takes the PRs it lacks, their release waits, the release waits the merged job held, waits, and a merge handoff, or one proving them by their tests passing on dev when every PR changes only tests or CI config; while a PR has no prover and none of theirs can take it, a new one, marked as building nothing, so it holds no builder slot, goes on those parts in the merged job's session on its brief flags, waiting on the release of each component cli.release_reach's answer in reach finds its PRs' paths touch. A PR with no staging test before its merge, by state.staging_tested, touching a target in staged, those tools/ci release live reads running on state.STAGING_ENV, gets a new prover waiting on nothing, its handoff owing its after-merge staging pass on those targets first and naming the release waits it holds back until the pass returns. That prover's id."""
+    """Hand a builder whose PRs all merged outside yasyf/* to the builder proving them live on the release holding each merge, so each merged PR has one: each PR's prover, by prover_of, takes its parts, each list under the order holding it, the first order its own, and one no agent or lane took yet also takes the PRs it lacks, their release waits, the release waits the merged job held, waits, and a merge handoff, or one proving them by their tests passing on dev when every PR changes only tests or CI config; while a PR has no prover and none of theirs can take it, a new one, marked as building nothing, so it holds no builder slot, goes on those parts in the merged job's session on its brief flags, waiting on the release of each component in the releases of cli.release_reach's answer in reach, those its PRs' paths reach through reads off go/ci's dev list, its handoff naming the paths on that list, which a checkout of dev runs. A PR with no staging test before its merge, by state.staging_tested, releasing a target in staged, those tools/ci release live reads running on state.STAGING_ENV, gets a new prover waiting on nothing, its handoff owing its after-merge staging pass on those targets first and naming the release waits it holds back until the pass returns. That prover's id."""
     job = data["jobs"][job_id]
     merges = merges_of(data, job_id)
     found = list(dict.fromkeys(filter(None, (prover_of(data, key) for key in merges))))
     keys = [key for key in merges if not prover_of(data, key)]
     merged = ", ".join(f"{key} at {sha[:12]}" for key, sha in merges.items())
-    waits = list(dict.fromkeys([*waits, *(f"release:{component}:{key}" for key, answer in reach.items() if key in keys for component in answer["touched"])]))
+    waits = list(dict.fromkeys([*waits, *(f"release:{component}:{key}" for key, answer in reach.items() if key in keys for component in answer["releases"])]))
     stagings = [
         f"staging:{target}/{state.STAGING_ENV}@{merges[key]}"
         for key in keys
         if not state.staging_tested(data, key)
-        for target in reach.get(key, {}).get("touched", [])
+        for target in reach.get(key, {}).get("releases", [])
         if target in staged
     ]
     proving = f"install it and prove it live by the INSTALL: and PROVE: lines of {job_id}'s return before its DONE, in reports/{job_id}.md"
@@ -865,6 +865,10 @@ def add_prover(data: dict, job_id: str, reach: dict[str, dict], parts: dict[str,
         f" waiting on {' '.join(stagings)} while staging serves no build holding its merge and holding back {' '.join(waits)} until its verdict; then {proving}"
         if stagings
         else f"{merged} merged: {proving}"
+    ) + "".join(
+        f"; {key} changes {answer['dev'][0]}{f' and {len(answer["dev"]) - 1} more' if answer['dev'][1:] else ''} on go/ci's dev list, which a checkout of dev holding {merges[key][:12]} runs"
+        for key, answer in reach.items()
+        if key in keys and answer["dev"]
     )
     lead = None if stagings else next((builder_id for builder_id in found if state.untaken(data["jobs"][builder_id])), None)
     for builder_id in found:

@@ -6987,7 +6987,7 @@ def test_a_merged_ready_product_job_takes_done_at_its_merge_and_the_watch_adds_t
     serve(monkeypatch, {})
     asked = []
     live_reads(monkeypatch)
-    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: asked.append(keys) or {OTHER: {"components": ["api", "web"], "touched": ["api"]}})
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: asked.append(keys) or {OTHER: {"components": ["api", "web"], "touched": ["api"], "dev": [], "releases": ["api"]}})
     merged_ready(demo, OTHER, proof_file(tmp_path))
     watching = watcher(demo)
     merged = f"{OTHER} at ccc333ddd444"
@@ -7018,7 +7018,7 @@ def test_a_done_at_its_merge_delivers_no_part_so_the_part_is_owed_until_the_buil
 ) -> None:
     serve(monkeypatch, {})
     live_reads(monkeypatch)
-    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {OTHER: {"components": ["api"], "touched": ["api"]}})
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {OTHER: {"components": ["api"], "touched": ["api"], "dev": [], "releases": ["api"]}})
     merged_ready(demo, OTHER, None)
     watch.run_pass(watcher(demo), T0)
     data = state.load(demo)
@@ -7034,7 +7034,7 @@ def test_an_old_merge_never_proven_live_across_two_parts_gets_one_prover_waiting
     serve(monkeypatch, {})
     live_reads(monkeypatch)
     asked = []
-    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: asked.append(keys) or {KEY: {"components": ["api", "web"], "touched": ["api"]}})
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: asked.append(keys) or {KEY: {"components": ["api", "web"], "touched": ["api"], "dev": [], "releases": ["api"]}})
     earlier, carried, merged = state.stamp(T0 - timedelta(days=2)), "ship the dashboard", f"{KEY} at ccc333ddd444"
     with state.edit(demo) as data:
         data["prs"][KEY] |= {"state": "merged", "merged_sha": "ccc333ddd444eee"}
@@ -7056,7 +7056,7 @@ def test_an_old_merge_never_proven_live_across_two_parts_gets_one_prover_waiting
 def test_a_merged_product_job_over_several_prs_gets_one_prover_said_in_one_line_counting_their_releases(demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str]) -> None:
     serve(monkeypatch, {})
     live_reads(monkeypatch)
-    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {KEY: {"components": ["api"], "touched": ["api"]}, OTHER: {"components": ["web"], "touched": ["web"]}})
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {KEY: {"components": ["api"], "touched": ["api"], "dev": [], "releases": ["api"]}, OTHER: {"components": ["web"], "touched": ["web"], "dev": [], "releases": ["web"]}})
     merged_ready(demo, OTHER, None)
     with state.edit(demo) as data:
         data["prs"][KEY]["merged_sha"] = "aaa111bbb222ccc"
@@ -7071,7 +7071,7 @@ def test_a_merged_product_job_with_no_staging_test_reaching_a_target_staging_run
 ) -> None:
     serve(monkeypatch, {})
     calls = live_reads(monkeypatch, [{"target": "api", "env": "plat-usw2-staging", "commit": "bbb222"}, {"target": "web", "env": "plat-usw2-prod", "commit": "bbb222"}])
-    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {OTHER: {"components": ["api", "web"], "touched": ["api", "web"]}})
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {OTHER: {"components": ["api", "web"], "touched": ["api", "web"], "dev": [], "releases": ["api", "web"]}})
     merged_ready(demo, OTHER, proof_file(tmp_path))
     watching = watcher(demo)
     lines = watch.run_pass(watching, T0)
@@ -7194,7 +7194,7 @@ def test_an_old_merge_whose_unstarted_prover_holds_one_of_its_parts_widens_that_
 ) -> None:
     serve(monkeypatch, {})
     live_reads(monkeypatch)
-    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {KEY: {"components": ["api"], "touched": ["api"]}})
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {KEY: {"components": ["api"], "touched": ["api"], "dev": [], "releases": ["api"]}})
     earlier, second = state.stamp(T0 - timedelta(days=2)), "ship the dashboard"
     handoff = f"{KEY} at ccc333ddd444 merged: install it and prove it live by the INSTALL: and PROVE: lines of j1's return before its DONE, in reports/j1.md"
     with state.edit(demo) as data:
@@ -7218,7 +7218,7 @@ def test_a_merge_sharing_a_pr_with_an_unstarted_prover_widens_it_to_its_parts_an
 ) -> None:
     serve(monkeypatch, {})
     live_reads(monkeypatch)
-    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {KEY: {"components": ["api", "sandsql"], "touched": ["api", "sandsql"]}, OTHER: {"components": ["web"], "touched": ["web"]}})
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {KEY: {"components": ["api", "sandsql"], "touched": ["api", "sandsql"], "dev": [], "releases": ["api", "sandsql"]}, OTHER: {"components": ["web"], "touched": ["web"], "dev": [], "releases": ["web"]}})
     earlier, carried = state.stamp(T0 - timedelta(days=2)), "ship the dashboard"
     first = f"{KEY} at ccc333ddd444 merged: install it and prove it live by the INSTALL: and PROVE: lines of j1's return before its DONE, in reports/j1.md"
     with state.edit(demo) as data:
@@ -7289,7 +7289,7 @@ def test_a_merged_product_job_waiting_on_its_own_release_takes_done_at_its_merge
 ) -> None:
     serve(monkeypatch, {})
     live_reads(monkeypatch, [{"target": "api", "env": "plat-usw2-prod", "commit": "ccc333ddd444eee"}] if out else None, {"ccc333ddd444eee"})
-    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {OTHER: {"components": ["api", "web"], "touched": ["web"]}})
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {OTHER: {"components": ["api", "web"], "touched": ["web"], "dev": [], "releases": ["web"]}})
     merged_ready(demo, OTHER, None)
     wait = f"release:api:{OTHER}"
     with state.edit(demo) as data:
@@ -7803,7 +7803,7 @@ def incident_reads(monkeypatch: pytest.MonkeyPatch, statuses: dict[str, str], li
 
     monkeypatch.setattr(watch.reads, "run", run)
     monkeypatch.setattr(watch.orca, "checkout", lambda name, clone: DRIVE_CHECKOUT)
-    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {key: {"components": ["api"], "touched": ["api"]} for key in keys})
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {key: {"components": ["api"], "touched": ["api"], "dev": [], "releases": ["api"]} for key in keys})
     monkeypatch.setattr(watch.github, "carrier", lambda clone: lambda build, merge, number: live[str(number)])
     return calls
 
