@@ -1241,7 +1241,7 @@ def quiet_handoffs(data: dict, group: list[str], moment: datetime) -> list[dict]
 
 
 def quiet_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Owe him a line in the thread of each open order with news the watch hears, by his pick "A handler posts each step, started by the watch on news", and in each thread of open incidents whose users are not unblocked yet, the watch not having found it over and no order of it keeping a proof, that had none in five minutes and has news, while he is away too, by his pick "Watch-owned clock: no 10-minute silence again, a line every five quiet minutes from a handler reading the jobs; costs one handler session each" and "Proof ends the line: none once users are unblocked; the incident stays open until its root fix is live." and "Owe a line only on news: while a job works or something it names changed; silent while all waits.". News is an order, job or PR of it whose facts moved since the thread's last line or the watch's last report on it, which the watch keeps on each order at the first pass after that line and once each report reaches a handler: a job returning, its first wait beginning or its last ending, never one wait of several ending while it still waits, a PR's state or checks settling, a new commit only through those, Trunk ejecting it or his tap, never its stage relabelled with none of those changed, a card of his opening or closing; on an incident, a job of it at work too. An order owes its line once five minutes passed since its thread's last line or the watch's last report on it, as an incident does, so a thread lined minutes before waits out that window and its line carries every step in it; never while he is away, since his catch-up carries it then, nor once a report closing it is kept or posted, since that report's post is its line. Each such thread gets one report naming every order and incident in it with its jobs and what moved, written once, and one handler the watch starts on it, which reads the jobs and posts what changed in that thread, so orders sharing a thread get one line, not one each. A handler already at work in that thread takes the report at its next step. A report reaching a handler, started, handed or held by one already at work on it, keeps the facts it carried, so news a handler judged not worth posting starts no second handler and the next report carries only what moved after it; a failed write or start is said as a failed read is and tried again next pass with the same report."""
+    """Owe him a line in the thread of each open order with news the watch hears, by his pick "A handler posts each step, started by the watch on news", and in each thread of open incidents whose users are not unblocked yet, the watch not having found it over and no order of it keeping a proof, that had none in five minutes and has news, while he is away too, by his pick "Watch-owned clock: no 10-minute silence again, a line every five quiet minutes from a handler reading the jobs; costs one handler session each" and "Proof ends the line: none once users are unblocked; the incident stays open until its root fix is live." and "Owe a line only on news: while a job works or something it names changed; silent while all waits.". News is an order, job or PR of it whose facts moved since the thread's last line or the watch's last report on it, which the watch keeps on each order at the first pass after that line and once each report reaches a handler: a job returning, its first wait beginning or its last ending, never one wait of several ending while it still waits, a PR's state or checks settling, a new commit only through those, Trunk ejecting it or his tap, never its stage relabelled with none of those changed, a card of his opening or closing; on an incident, a job of it at work too. An order owes its line once five minutes passed since its thread's last line or the watch's last report on it, as an incident does, so a thread lined minutes before waits out that window and its line carries every step in it; never while he is away, since his catch-up carries it then, nor once a report closing it is kept or posted, since that report's post is its line. Each such thread gets one report naming each order and incident in it that owes the line, an order only once its facts moved and an incident also while a job of its own is at work, never an order whose job works in a thread an incident shares, with its jobs and what moved, worded as an incident's only when every head it names is an incident, written once, and one handler the watch starts on it, which reads the jobs and posts what changed in that thread, so orders sharing a thread get one line, not one each. A handler already at work in that thread takes the report at its next step. A report reaching a handler, started, handed or held by one already at work on it, keeps the facts it carried, so news a handler judged not worth posting starts no second handler and the next report carries only what moved after it; a failed write or start is said as a failed read is and tried again next pass with the same report."""
     data = state.load(watcher.name)
     away = state.owner_away(data, moment)
     registered = render.prs_by_job(data)
@@ -1259,16 +1259,27 @@ def quiet_lines(watcher: Watcher, moment: datetime) -> list[str]:
     for heads in threads.values():
         if not (heads := [head for head in heads if data["orders"][head]["incident"] or not away]):
             continue
-        incident = any(data["orders"][head]["incident"] for head in heads)
         since = max(quiet_since(data, groups[head]) for head in heads)
-        moved = list(dict.fromkeys(key for head in heads for key in untold(data["orders"][head], facts[head])))
-        working = [job_id for job_id, job in state.orders_jobs(data, [order_id for head in heads for order_id in groups[head]]).items() if job["state"] == "running"]
-        if moment - since < QUIET_THREAD or not moved and not (incident and working):
+        moved = {head: untold(data["orders"][head], facts[head]) for head in heads}
+        working = {head: [job_id for job_id, job in state.orders_jobs(data, groups[head]).items() if job["state"] == "running"] for head in heads}
+        if moment - since < QUIET_THREAD or not (heads := [head for head in heads if moved[head] or data["orders"][head]["incident"] and working[head]]):
             continue
         source = f"quiet {heads[0]}"
         owed = data["orders"][heads[0]]["quiet"]
         try:
-            seq = owed["record"] if owed["record"] and not owed["at"] else quiet_report(watcher, data, {head: groups[head] for head in heads}, since, moment, moved, working)
+            seq = (
+                owed["record"]
+                if owed["record"] and not owed["at"]
+                else quiet_report(
+                    watcher,
+                    data,
+                    {head: groups[head] for head in heads},
+                    since,
+                    moment,
+                    list(dict.fromkeys(key for head in heads for key in moved[head])),
+                    list(dict.fromkeys(job_id for head in heads for job_id in working[head])),
+                )
+            )
             with state.edit(watcher.name) as data:
                 for head in heads:
                     data["orders"][head]["quiet"] |= {"record": seq, "at": None, "handler": None}

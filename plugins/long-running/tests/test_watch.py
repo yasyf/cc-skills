@@ -1403,6 +1403,30 @@ def test_a_quiet_incident_owes_a_line_while_a_job_works_then_one_when_it_returns
     assert moved(6) == ["Moved since the thread's last line or the watch's last report on it: j1. At work: no job."]
 
 
+def test_replaying_o852_and_o1173_an_orders_job_at_work_in_a_thread_an_incident_shares_owes_no_line_with_nothing_moved_and_the_incidents_own_job_owes_one_naming_it_alone(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with state.edit(demo) as data:
+        data["orders"]["o1"].update(incident=True, joins=None, thread=["D123", INCIDENT_THREAD])
+        data["jobs"]["j1"].update(state="done", said="DONE the release carrying the fix is live")
+        data["orders"]["o2"] = order(text="I thought we fixed OOMs?", joins=None, thread=["D123", INCIDENT_THREAD], jobs=["j2"])
+        data["jobs"]["j2"] = job(order="o2", goal="fix at its cause the flake replica_smoke")
+    calls = catching_up(monkeypatch, demo)
+    watching = watcher(demo)
+    hour = T0 + timedelta(hours=1)
+    assert watch.quiet_lines(watching, T0 + timedelta(minutes=1)) == []
+    assert watch.quiet_lines(watching, hour) == []
+    assert calls == []
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["jobs"].append("j3")
+        data["jobs"]["j3"] = job(order="o1", kind="codex", goal="first check")
+    assert watch.quiet_lines(watching, hour + timedelta(minutes=1)) == []
+    [(report, body), _] = calls
+    assert report["text"] == "POST incident o1 has had no line to him in 61 minutes: post where it stands now in its thread"
+    assert "Moved since the thread's last line or the watch's last report on it: nothing. At work: j3." in body.splitlines()
+    assert not any(line.startswith("Order o2") for line in body.splitlines())
+
+
 O836_FIX = "Forge-AI/monorepo#55152"
 O836_FIRST_LINE = state.parse_time("2026-11-12T20:17:04-08:00")
 O836_LAST_LINE = state.parse_time("2026-11-13T00:28:10-08:00")
