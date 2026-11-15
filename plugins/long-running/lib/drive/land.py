@@ -115,8 +115,8 @@ def approved(pr: dict) -> bool:
 
 
 def stored(paths: list[str]) -> list[str]:
-    """The paths that change how data is stored, a migration, schema or wire format, which no pure port carries."""
-    return [path for path in paths if STORED_DATA.search(path)]
+    """The paths outside test and fixture code that change how data is stored, a migration, schema or wire format, which no pure port carries."""
+    return [path for path in paths if STORED_DATA.search(path) and not served.TESTS.search(path)]
 
 
 def dangerous(paths: list[str]) -> list[str]:

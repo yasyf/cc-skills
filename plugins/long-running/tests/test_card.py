@@ -468,6 +468,13 @@ def test_a_pr_changing_how_data_is_stored_tells_its_builder_once_until_its_body_
     assert state.load("demo")["prs"]["Forge-AI/monorepo#42"]["undrawn"] is None
 
 
+def test_a_schema_named_test_fixture_stores_no_data_while_a_migration_beside_it_still_asks_how_old_data_moves() -> None:
+    fixture = "go/ci/internal/release/pipeline/testdata/field-reads/15684/plans/schema-add.tnt-usw2-1frg9c7.json"
+    assert card.render(pr_json(files=(fixture,)), entry())["prs"][0]["stored_data"] == ""
+    why = f"it changes {MIGRATION}, and no `## How old data moves` section of its body says how the data stored before it moves or what keeps that from breaking"
+    assert card.render(pr_json(files=(fixture, MIGRATION)), entry())["prs"][0]["stored_data"] == f"Not said yet: {why}. The agent is fixing it."
+
+
 def test_a_card_finds_a_migration_past_the_first_100_files_gh_reads(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
     listed = tuple(f"lib/part{n}.py" for n in range(100))
     monkeypatch.setattr(card, "run", answering(pr_json(files=listed) | {"changedFiles": 101}))
