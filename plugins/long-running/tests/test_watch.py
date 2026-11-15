@@ -4541,7 +4541,7 @@ def live_reads(monkeypatch: pytest.MonkeyPatch, serving: list[dict] | None = Non
     return calls
 
 
-def test_a_release_wait_frees_once_one_cluster_of_its_service_serves_its_pr_and_an_env_wait_once_its_env_does_and_neither_holds_again(
+def test_a_release_wait_frees_once_every_cluster_of_its_service_serves_its_pr_never_on_staging_alone_while_an_env_wait_frees_once_its_env_does(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     serve(monkeypatch, {})
@@ -4555,22 +4555,26 @@ def test_a_release_wait_frees_once_one_cluster_of_its_service_serves_its_pr_and_
         data["orders"]["o1"]["jobs"].append("j2")
     watching = watcher(demo)
     assert watch.run_pass(watching, T0) == []
+    serving[1]["commit"] = "abc123"
+    assert watch.run_pass(watching, T0 + watch.LIVE_EVERY) == [f"FREE j2 o1: tools/ci release live reads api on plat-usw2-staging serving {KEY}, nothing else holds it"]
+    assert watch.release_line(watching, state.load(demo), wait) == f"{wait}: api on plat-usw2-prod, tnt-usw2-0ddq7rb is behind {KEY}'s merge commit abc123, running an older build"
     serving[0]["commit"] = "abc123"
-    assert watch.run_pass(watching, T0 + watch.LIVE_EVERY) == [f"FREE j1 o1: tools/ci release live reads api on plat-usw2-prod serving {KEY}, nothing else holds it"]
-    assert [state.load(demo)["jobs"][job_id]["waits"] for job_id in ("j1", "j2")] == [[], [staged]]
-    serving[0]["commit"], serving[1]["commit"] = "9f00d1", "abc123"
-    assert watch.run_pass(watching, T0 + 2 * watch.LIVE_EVERY) == [f"FREE j2 o1: tools/ci release live reads api on plat-usw2-staging serving {KEY}, nothing else holds it"]
-    assert (calls, [state.load(demo)["jobs"][job_id]["waits"] for job_id in ("j1", "j2")]) == ([["release", "live", "--json"]] * 3, [[], []])
+    assert watch.run_pass(watching, T0 + 2 * watch.LIVE_EVERY) == []
+    serving[2]["commit"] = "abc123"
+    assert watch.run_pass(watching, T0 + 3 * watch.LIVE_EVERY) == [
+        f"FREE j1 o1: tools/ci release live reads api on plat-usw2-prod, plat-usw2-staging, tnt-usw2-0ddq7rb serving {KEY}, nothing else holds it"
+    ]
+    assert (calls, [state.load(demo)["jobs"][job_id]["waits"] for job_id in ("j1", "j2")]) == ([["release", "live", "--json"]] * 4, [[], []])
 
 
-def test_a_release_wait_frees_once_one_cluster_running_its_service_production_or_not_serves_its_pr_and_at_once_while_no_cluster_or_env_runs_it(
+def test_a_release_wait_frees_once_every_cluster_running_its_service_production_or_not_serves_its_pr_and_at_once_while_no_cluster_or_env_runs_it(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     serve(monkeypatch, {})
     merged = "Forge-AI/monorepo#43"
     serving = [
         {"target": "iris-computer", "component": "iris", "env": "plat-usw2-staging", "commit": "2349e3617ce1"},
-        {"target": "api", "component": "platform", "env": "plat-usw2-staging", "commit": "2349e3617ce1"},
+        {"target": "api", "component": "platform", "env": "plat-usw2-staging", "commit": "6c751b8b1015"},
         {"target": "api", "component": "platform", "env": "plat-usw2-prod", "commit": "6c751b8b1015"},
     ]
     holding = {"6c751b8b1015"}
@@ -4586,7 +4590,7 @@ def test_a_release_wait_frees_once_one_cluster_running_its_service_production_or
     assert data["jobs"]["j1"]["waits"] == [computer]
     assert [watch.release_line(watching, data, wait) for wait in (computer, api, smoke, nowhere)] == [
         f"{computer}: iris-computer on plat-usw2-staging is behind {merged}'s merge commit ade22e0af2fd, running an older build",
-        f"{api}: tools/ci release live reads api on plat-usw2-prod serving {merged}",
+        f"{api}: tools/ci release live reads api on plat-usw2-prod, plat-usw2-staging serving {merged}",
         f"{smoke}: {merged} merged, and tools/ci release live reads staging-smoke on no cluster, so nothing follows its release",
         f"{nowhere}: {merged} merged, and tools/ci release live reads api on no env core-usw2-auto, so nothing follows its release there",
     ]
