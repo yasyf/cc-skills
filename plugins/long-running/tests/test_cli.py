@@ -6204,7 +6204,7 @@ def test_pr_add_refuses_a_pr_another_projects_job_holds_from_a_sub_coordinator_o
     assert state.load("demo")["prs"][key]["job"] == "j3"
 
 
-def test_a_yasyf_pr_reads_ready_for_the_lander_once_its_builders_ready_is_taken_waiting_while_a_pr_it_waits_on_is_open_and_red_once_a_check_fails_and_no_report_or_pr_add_starts_one(
+def test_a_yasyf_pr_reads_ready_for_the_lander_once_its_builders_ready_is_taken_and_its_checks_finished_grading_while_they_run_waiting_while_a_pr_it_waits_on_is_open_and_red_once_its_lander_finds_one_failing_on_its_own_change_and_no_report_or_pr_add_starts_one(
     run: Run, meta: str, tmp_path: Path, landers: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: land it")
@@ -6217,7 +6217,10 @@ def test_a_yasyf_pr_reads_ready_for_the_lander_once_its_builders_ready_is_taken_
     kept_proof(tmp_path, "j1")
     monkeypatch.setattr("sys.stdin", io.StringIO(f"READY {url}\n"))
     assert (run("job", "report", "j1", "-")[0], run("pr", "add", url, "--job", "j1", *LEAD), landers) == (0, (0, key), [])
-    ready = stage.Stage("ready", stage.LANDER, "its builder reported it and no check fails at abc1234, so the lander merges it with --admin while any still run")
+    assert stage.of(state.load("demo"), key, view.NO_CARDS) == stage.Stage("grading", stage.GRADERS, "its checks run at abc1234")
+    with state.edit("demo") as data:
+        data["prs"][key]["checks"] = "pass"
+    ready = stage.Stage("ready", stage.LANDER, "its builder reported it and every check at abc1234 finished, so the lander merges it with --admin unless one fails on its own change")
     assert stage.of(state.load("demo"), key, view.NO_CARDS) == ready
     waited = "Forge-AI/monorepo#42"
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: guard it")
@@ -6230,7 +6233,11 @@ def test_a_yasyf_pr_reads_ready_for_the_lander_once_its_builders_ready_is_taken_
     assert stage.of(state.load("demo"), key, view.NO_CARDS) == ready
     with state.edit("demo") as data:
         data["prs"][key].update(checks="fail", failed_checks=["test"])
-    assert stage.of(state.load("demo"), key, view.NO_CARDS) == stage.Stage("red", stage.BUILDER, "its checks fail at abc1234: test")
+    assert stage.of(state.load("demo"), key, view.NO_CARDS) == ready
+    owned = "its own change fails test at abc1234, which the default branch does not fail where the PR's run of it merged its head"
+    with state.edit("demo") as data:
+        data["prs"][key]["lander"] = {"head": "abc1234", "pid": os.getpid(), "at": state.stamp(), "outcome": f"not landed: {owned}"}
+    assert stage.of(state.load("demo"), key, view.NO_CARDS) == stage.Stage("red", stage.BUILDER, owned)
 
 
 def test_pr_add_of_a_port_takes_the_pure_port_exemption_and_no_tap(run: Run, demo: str, on_github: dict) -> None:

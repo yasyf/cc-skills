@@ -79,16 +79,16 @@ def alone(data: dict, key: str, cards: dict) -> Stage:
         return Stage("unlanded", ORDER, ended)
     if stops := stopped(pr):
         return Stage("held", HIM, stops)
-    if step := owed(key, pr):
+    if step := owed(data, key):
         if waits := answered(data, key, step):
             return blocked(data, key, step, waits, cards)
         return Stage("rework", BUILDER, step) if pr["rework"] else flake_red(data, pr, step) or Stage("red", BUILDER, step)
     if holds := held(data, pr):
         return Stage("held", HIM, holds)
-    if state.ships_untapped(data, key):
-        return waiting(data, key, cards) or Stage("ready", LANDER, f"its builder reported it and no check fails at {pr['head'][:7]}, so the lander merges it with --admin while any still run")
     if pending := grading(pr):
         return Stage("grading", GRADERS, pending)
+    if state.ships_untapped(data, key):
+        return waiting(data, key, cards) or Stage("ready", LANDER, f"its builder reported it and every check at {pr['head'][:7]} finished, so the lander merges it with --admin unless one fails on its own change")
     if (flaky := land.flaked(pr)) and not flaky["failed_checks"] and data["prs"][flaky["fix"]]["state"] == "open":
         return Stage(
             "waiting",
@@ -163,10 +163,10 @@ def landing_why(pr: dict) -> str:
 
 
 def unlanded(data: dict, key: str, cards: dict | None) -> str | None:
-    """How a lander's try at the PR's head ended without landing it, or None when no try at this head stands: none ran on it, a wait of the PR, set before the try or after it, still leads somewhere by ends(), which waiting() reads, Trunk holds it, GitHub refused its merge for a conflict with its base, which red() owes its builder, GitHub refused() the merge Trunk's queue took, so the lander lands it again one PR at a time, or ejected it on a flaky test whose fix it waits on, by ejection(), what let it run moved since, nothing clearing it now while it waits on his card, as after drive pr set --no-exempt --tap, or his tap made after the try started, or what the try waited on moved since, a PR below it that is cleared or merged now, a newer install's save that ended it before it queued anything, a hold of his that it or halt() stopped it on, which held() reads while it stands, or the lander's own failure, no fresh worktree of the default branch to land from, such as when GitHub did not answer, stack-enqueue failing on its own, or a GitHub read that failed before it queued or merged anything, so the lander tries again."""
+    """How a lander's try at the PR's head ended without landing it, or None when no try at this head stands: none ran on it, a wait of the PR, set before the try or after it, still leads somewhere by ends(), which waiting() reads, Trunk holds it, GitHub refused its merge for a conflict with its base or it found a check failing on its own change, which red() owes its builder, GitHub refused() the merge Trunk's queue took, so the lander lands it again one PR at a time, or ejected it on a flaky test whose fix it waits on, by ejection(), what let it run moved since, nothing clearing it now while it waits on his card, as after drive pr set --no-exempt --tap, or his tap made after the try started, or what the try waited on moved since, a PR below it that is cleared or merged now, a newer install's save that ended it before it queued anything, a hold of his that it or halt() stopped it on, which held() reads while it stands, or the lander's own failure, no fresh worktree of the default branch to land from, such as when GitHub did not answer, stack-enqueue failing on its own, or a GitHub read that failed before it queued or merged anything, so the lander tries again."""
     pr = data["prs"][key]
     lander = pr["lander"]
-    if not lander or lander["head"] != pr["head"] or ends(data, pr["waits"], cards, {key}) or land.running(pr) or land.refused(pr) or land.conflicted(pr):
+    if not lander or lander["head"] != pr["head"] or ends(data, pr["waits"], cards, {key}) or land.running(pr) or land.refused(pr) or land.conflicted(pr) or land.own_red(pr):
         return None
     if carded(pr) and not state.cleared(pr) or pr["tap"] and state.parse_time(pr["tap"]["at"]) > state.parse_time(lander["at"]):
         return None
@@ -222,10 +222,13 @@ def held(data: dict, pr: dict) -> str:
     return ""
 
 
-def red(key: str, pr: dict) -> str:
-    """What its builder must fix at its head: failing checks, a conflict GitHub reads or refused the lander's merge for, named as conflicts_with() names it, with the restack that clears one in a native GitHub stack, a draft, changes a reviewer asked for, or, in a repository whose rules require an approving review before merging, a forge-pr-reviewer that finished on a green head and approved nothing, which holds it until each finding is fixed or its risk accepted."""
+def red(data: dict, key: str) -> str:
+    """What its builder must fix at its head: failing checks, those of a yasyf/* PR its builder reported only once its lander found one failing on its own change, by land.own_red(), while one the default branch fails too merges, a conflict GitHub reads or refused the lander's merge for, named as conflicts_with() names it, with the restack that clears one in a native GitHub stack, a draft, changes a reviewer asked for, or, in a repository whose rules require an approving review before merging, a forge-pr-reviewer that finished on a green head and approved nothing, which holds it until each finding is fixed or its risk accepted."""
+    pr = data["prs"][key]
     head = pr["head"][:7]
-    if pr["checks"] == "fail":
+    if pr["checks"] == "fail" and land.own_red(pr):
+        return pr["lander"]["outcome"].removeprefix("not landed: ")
+    if pr["checks"] == "fail" and not state.ships_untapped(data, key):
         return f"its checks fail at {head}: {', '.join(pr['failed_checks']) or 'see its checks'}"
     if pr["conflict"] or land.conflicted(pr):
         restack = f": restack the whole stack onto {pr['trunk']} with ccx vcs stack rebase" if pr["trunk"] else ""
@@ -242,11 +245,11 @@ def red(key: str, pr: dict) -> str:
     return ""
 
 
-def owed(key: str, pr: dict) -> str:
+def owed(data: dict, key: str) -> str:
     """What its builder owes at its head, which the rework and red stages name and a builder's WAITING or ASK answers: the rework to his words, else its red()."""
-    if pr["rework"]:
-        return f'being reworked to his words "{pr["rework"]["words"]}"'
-    return red(key, pr)
+    if rework := data["prs"][key]["rework"]:
+        return f'being reworked to his words "{rework["words"]}"'
+    return red(data, key)
 
 
 def conflicts_with(pr: dict) -> str:
@@ -261,7 +264,7 @@ def waited(data: dict, job_id: str, line: str) -> dict:
     declared = state.WAITING_LINE.match(line)
     asked = view.stored_waits(data, view.open_cards(job)) if re.match(r"ASK\b", line) else [card for card in view.stored_waits(data, state.BUILT_CARD.findall(declared["cards"])) if view.drawn_on(data, card)] if declared else []
     return {
-        "owed": {key: step for key in own if data["prs"][key]["state"] == "open" and (step := owed(key, data["prs"][key]))},
+        "owed": {key: step for key in own if data["prs"][key]["state"] == "open" and (step := owed(data, key))},
         "waits": [wait for wait in state.unlooped(data, job_id, [*state.named_waits(data, job["order"], line), *asked]) if wait not in own and view.holds(data, wait, None)],
     }
 
