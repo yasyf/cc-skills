@@ -345,11 +345,13 @@ lane reads those, and Slack, through this Mac with a blocking question.
   rules from before this Mac's log read was deleted still asks, reads nothing: its answer is the
   builder rule that has the lane read the log on its Sprite, or return `BLOCKED` when `tools/ci bk`
   refuses there.
-- The watch answers it itself, with no event, as it answers a `DRIVE` question. Its relay, a thread
-  of the watch process, reads Orca's newest 100 messages in one call every 2 s while a Sprite lane is
-  live and starts `drive job read` as a process of its own on each new read one asked, taking no drive
-  lock, so no GitHub read, landing or install a pass runs holds it, and lane mail each minute starts
-  one on any the newest 100 passed over. The reader claims its question by creating the question's
+- The watch answers it itself, with no event, as it answers a `DRIVE` question. Its relay, a process
+  of its own each watch starts beside its passes and ends as it ends, moves onto the newest install
+  every 2 s, then reads Orca's newest 100 messages in one call while a Sprite lane is live and starts
+  `drive job read` as a process of its own on each new read one asked, taking no drive lock, so no
+  GitHub read, landing or install a pass runs holds it, and a pass that runs for an hour on the
+  install it started on leaves the reads to the code installed now; lane mail each minute starts one
+  on any the newest 100 passed over. The reader claims its question by creating the question's
   file in the drive's `answers/` folder, so a second reader started on it exits, and runs nothing on a
   question asked over 540 s ago, past which its lane's `drive` gave up, or whose lane ended. It runs
   `cci`, `ccn` or the drive's own cc-slack launcher in
