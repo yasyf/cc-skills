@@ -15,7 +15,7 @@ from pathlib import Path
 import drive
 import pytest
 import spawnllm
-from conftest import ACME_CUT, CARD_BODY, CUT_PICK, CUT_TAP, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SETTLED_LISTED, SETTLED_MATCHED, SETTLED_NOTE, SETTLED_RECORDED, SHORT_ASK, WRITTEN_AT, answered_cut, cloned, drawn_card, git_in, Answers, explained, Chrome, Draws, Drawing, Heard, Images, Jev, Judge, MetaLaunches, Redraws, Thread, WatchProcess, Withdrawals
+from conftest import ACME_CUT, CARD_BODY, CUT_PICK, CUT_TAP, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SETTLED_LISTED, SETTLED_MATCHED, SETTLED_NOTE, SETTLED_RECORDED, SHORT_ASK, WRITTEN_AT, answered_cut, cloned, drawn_card, git_in, kept_research, Answers, explained, Chrome, Draws, Drawing, Heard, Images, Jev, Judge, MetaLaunches, Redraws, Thread, WatchProcess, Withdrawals
 from drive import (
     agents,
     brief,
@@ -1048,11 +1048,23 @@ def test_order_set_kind_build_on_one_part_of_an_answer_order_makes_it_a_build_wh
     assert (order["kind"], {part: held["answer"] for part, held in order["parts"].items()}) == ("build", {"why": True, "fix": False})
 
 
+def test_an_order_added_with_no_kind_is_a_build_whose_builder_waits_on_research_but_one_on_the_branch_an_open_pr_pushed_starts_at_once(
+    run: Run, demo: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Migrated PR", "--project", "The drive", "--workstream", "Drive tooling", "ship the migrated watch PR")
+    assert state.load(demo)["orders"]["o1"]["kind"] == "build"
+    assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "Fix: the watch"]) == 2
+    assert "o1 is a build order, so its builder starts only once" in capsys.readouterr().err
+    assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "Fix: the watch", "--repo", "yasyf/cc-skills", "--branch", "the-watch"]) == 0
+    assert (capsys.readouterr().out.splitlines()[0], state.load(demo)["jobs"]["j1"]["branch"]) == ("j1", "the-watch")
+
+
 def test_order_set_standing_keeps_each_part_it_names_standing_on_its_goal_an_empty_goal_takes_it_out_and_it_refuses_with_no_part_or_on_an_order_limited_to_options(
     run: Run, demo: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
     goal = "test the new tree on the codex box, round after round"
     run("order", "add", "--title", "Runs on the new tree", "--project", "The drive", "--workstream", "Drive tooling", "keep testing the new tree", "--parts", "codex test box", "old-tree ports")
+    kept_research(demo, "o1", ["codex test box", "old-tree ports"])
     code, out = run("order", "set", "o1", "--part", "codex test box", "--standing", goal)
     assert (code, out.splitlines()[-1]) == (0, f'o1 "codex test box": standing on "{goal}", no pass at work, the watch starts the next on its next read, no pass ended yet')
     assert {part: held["standing"] for part, held in state.load("demo")["orders"]["o1"]["parts"].items()} == {"codex test box": goal, "old-tree ports": None}
@@ -2125,7 +2137,7 @@ def test_job_card_draws_the_show_me_code_as_pictures_on_lines_of_their_own(
 
 
 def test_his_cards_meanwhile_line_says_a_build_only_where_the_drive_builds_its_recommended_option(run: Run, asking: str) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "should a finished run keep its files")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "should a finished run keep its files", "--kind", "answer")
     run("job", "add", "reader", "--order", "o2", "--goal", "research: keeping a run's files")
     data = state.load("demo")
     part = next(iter(data["orders"]["o2"]["parts"]))
@@ -3972,7 +3984,7 @@ def test_job_report_keeps_a_jobs_whole_return_from_stdin_and_prints_it_back(
 def test_job_report_prints_every_return_a_job_took_newest_first_whoever_sent_it_and_writes_no_report_file(
     run: Run, demo: str, state_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it", "--kind", "answer")
     run("job", "add", "reader", "--order", "o1", "--goal", "grade", "--agent", "a")
     assert run("job", "replies", "j1") == (0, "j1 has sent nothing yet")
     blocked = "BLOCKED the diffs are not fetched\n"
@@ -4660,7 +4672,9 @@ def test_a_cause_reports_fix_linking_a_pr_the_drive_does_not_track_is_kept_and_r
 
 
 def test_a_builder_landing_prs_he_approved_starts_with_no_research(run: Run, with_pr: str, capsys: pytest.CaptureFixture[str]) -> None:
-    run("order", "set", "o1", "--kind", "build")
+    with state.edit("demo") as data:
+        data["orders"]["o1"]["jobs"].remove("j0")
+        del data["jobs"]["j0"]
     assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "land it"]) == 2
     assert "o1 is a build order, so its builder starts only once an Opus reader or a design of its part" in capsys.readouterr().err
     assert cli.main(["job", "add", "codex", "--order", "o1", "--lands", PR, "--goal", "land it"]) == 2
@@ -5492,16 +5506,16 @@ def test_a_kept_report_sets_a_running_job_from_its_first_line(
     kept_proof(tmp_path, "j1")
     if first.startswith("READY "):
         run("pr", "add", first.split()[1], "--job", "j1", *LEAD)
-    run("job", "add", "builder", "--order", "o1", "--part", "ship again", "--goal", "ship again")
-    run("job", "set", "j2", "--state", "stopped")
+    stopped = run("job", "add", "builder", "--order", "o1", "--part", "ship again", "--goal", "ship again")[1].splitlines()[0]
+    run("job", "set", stopped, "--state", "stopped")
     rest = DESIGNED.split("\n", 1)[1] if kind == "design" else ""
-    for job_id in ("j1", "j2"):
+    for job_id in ("j1", stopped):
         monkeypatch.setattr("sys.stdin", io.StringIO(f"{first}\n{rest}CHECK: https://github.com/yasyf/cc-skills/actions/runs/12\n"))
         run("job", "report", job_id, "-")
     jobs = state.load("demo")["jobs"]
     said = "carried by builder j3" if kind == "design" else first
     assert (jobs["j1"]["state"], jobs["j1"]["said"]) == ((taken, said) if taken else ("running", None))
-    assert (jobs["j2"]["state"], jobs["j2"]["said"]) == ("stopped", None)
+    assert (jobs[stopped]["state"], jobs[stopped]["said"]) == ("stopped", None)
 
 
 @pytest.mark.parametrize("branch", ["lr-move", "passive-only-checkpoints, passive-only-checkpoints-next, litestream-passive-only"])
@@ -5678,7 +5692,7 @@ def test_a_design_job_ends_once_the_builder_its_return_or_his_pick_adds_takes_it
 def test_job_set_naming_the_state_a_job_already_holds_changes_nothing_and_says_so(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it", "--kind", "answer")
     run("job", "add", "reader", "--order", "o1", "--goal", "read where it ships")
     monkeypatch.setattr("sys.stdin", io.StringIO("DONE it ships from the release branch\n"))
     assert run("job", "report", "j1", "-")[0] == 0
@@ -5686,7 +5700,8 @@ def test_job_set_naming_the_state_a_job_already_holds_changes_nothing_and_says_s
     assert (code, out.splitlines()[0]) == (0, "j1 is already done")
     job = state.load("demo")["jobs"]["j1"]
     assert (job["state"], job["said"]) == ("done", "read")
-    run("job", "add", "builder", "--order", "o1", "--goal", "ship the rest")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the rest")
+    run("job", "add", "builder", "--order", "o2", "--goal", "ship the rest")
     assert run("job", "set", "j2", "--state", "running")[1].splitlines()[0] == "j2 is already running"
 
 
@@ -6726,8 +6741,8 @@ def test_a_live_or_finished_jobs_handoff_briefed_before_brief_flags_kept_one_is_
     for job_id in ("j1", "j2"):
         code, out = run("job", "brief", job_id, "--serves", "his order", "--done-when", "merged", "--where", "yasyf/cc-skills main", "--handoff", handoff)
     with state.edit(demo) as data:
-        for job in data["jobs"].values():
-            del job["brief_flags"]["handoff"]
+        for job_id in ("j1", "j2"):
+            del data["jobs"][job_id]["brief_flags"]["handoff"]
         data["jobs"]["j2"]["state"] = "done"
     jobs = state.load(demo)["jobs"]
     assert (jobs["j1"]["brief_flags"]["handoff"], jobs["j2"]["brief_flags"]["handoff"]) == (handoff, handoff)
@@ -6942,6 +6957,7 @@ def test_status_prints_each_order_its_ids_name_whole_and_closed_ones_too(run: Ru
         "demo: 0 open of 1 orders",
         f"- o1 done: {' '.join(words.split())}",
         f"  parts: \"{state.load('demo')['orders']['o1']['parts'].popitem()[0]}\": delivered",
+        "  - j0 reader done: research: the order",
         f"  - j1 builder done: {' '.join(('one restore code path ' * 8).split())}",
         f"    said: {' '.join(said.split())}",
     ]
@@ -7214,8 +7230,8 @@ def test_a_sub_coordinator_is_refused_the_brief_start_resume_and_wake_of_the_top
 def test_job_add_names_by_id_each_pr_its_goal_names_and_each_other_order_whose_jobs_carry_it(run: Run, demo: str) -> None:
     url, key = "https://github.com/acme/app/pull/55", "acme/app#55"
     run("order", "add", "--title", "Upload fix", "--project", "The drive", "--workstream", "Drive tooling", "ship the upload fix to production")
-    run("order", "add", "--title", "Ship again", "--project", "The drive", "--workstream", "Drive tooling", "ship the upload fix again")
-    run("order", "add", "--title", "Notes", "--project", "The drive", "--workstream", "Drive tooling", "read the release notes")
+    run("order", "add", "--title", "Ship again", "--project", "The drive", "--workstream", "Drive tooling", "ship the upload fix again", "--kind", "answer")
+    run("order", "add", "--title", "Notes", "--project", "The drive", "--workstream", "Drive tooling", "read the release notes", "--kind", "answer")
     run("job", "add", "builder", "--order", "o1", "--goal", f"waits on release:api:{key}")
     run("job", "add", "reader", "--order", "o3", "--goal", "read the release notes")
     run("job", "add", "reader", "--order", "o2", "--goal", f"read what shipping {url} again needs")

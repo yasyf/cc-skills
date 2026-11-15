@@ -157,7 +157,7 @@ def codex_job(run: Run, *flags: str) -> None:
 
 def launched(demo: str, run: Run, tmp_path: Path) -> Path:
     brief = tmp_path / "j1.brief.md"
-    brief.write_text(f"Order (his words): review the fix\nGoal: review\nDrive: {demo}, order o1, job j1\n")
+    brief.write_text(f"Order (his words): review the fix\nGoal: review\nResearched: j0\nDrive: {demo}, order o1, job j1\n")
     assert run("job", "launch", "j1", str(brief))[0] == 0
     return Path(state.load(demo)["jobs"]["j1"]["codex_run"])
 
@@ -197,7 +197,7 @@ def test_a_codex_jobs_launch_carries_each_text_it_holds_and_each_answer_it_has_n
         ]
         data["answers"]["a1"] = {"words": lazy, "link": POST, "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {"j1": None}}
     brief = tmp_path / "j1.brief.md"
-    brief.write_text(f"Order (his words): review the fix\nGoal: review\nDecisions that bind: {knock}\nDrive: {demo}, order o1, job j1\n")
+    brief.write_text(f"Order (his words): review the fix\nGoal: review\nDecisions that bind: {knock}\nResearched: j0\nDrive: {demo}, order o1, job j1\n")
     assert run("job", "launch", "j1", str(brief))[0] == 0
     data = state.load(demo)
     question = (Path(data["jobs"]["j1"]["codex_run"]) / "question").read_text()
@@ -306,7 +306,7 @@ def test_a_codex_job_runs_the_model_its_order_names_and_astra_only_on_an_order_w
     run("order", "add", "--title", "Other title", "--project", "The drive", "--workstream", "Drive tooling", "review the fix")
     assert run("job", "add", "codex", "--order", "o1", "--goal", "design", "--model", "astra")[0] == 0
     brief = tmp_path / "j1.brief.md"
-    brief.write_text(f"Order (his words): design the handoff from scratch with Fable and Astra\nGoal: design\nDrive: {demo}, order o1, job j1\n")
+    brief.write_text(f"Order (his words): design the handoff from scratch with Fable and Astra\nGoal: design\nResearched: j0\nDrive: {demo}, order o1, job j1\n")
     assert run("job", "launch", "j1", str(brief))[0] == 0
     folder = Path(state.load(demo)["jobs"]["j1"]["codex_run"])
     assert (folder / "argv").read_text().splitlines() == ["--dispatch", "-s", str(folder), "--schema", str(folder.parent / codex.SCHEMA_FILE), "-m", "astra", "-"]
@@ -314,7 +314,7 @@ def test_a_codex_job_runs_the_model_its_order_names_and_astra_only_on_an_order_w
     assert "refused, no job added: --model astra runs only on an order whose words name astra, which o2's do not" in capsys.readouterr().err
     assert cli.main(["job", "add", "reader", "--order", "o2", "--goal", "read", "--model", "sol"]) == 2
     assert "--model names the codex-ask model a codex job runs" in capsys.readouterr().err
-    assert len(state.load(demo)["jobs"]) == 1
+    assert list(state.load(demo)["jobs"]) == ["j0", "j1"]
 
 
 def test_an_incidents_codex_job_launches_on_codex_asks_fast_tier_once_its_brief_carries_the_incident_rule(

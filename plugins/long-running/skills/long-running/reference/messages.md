@@ -124,9 +124,8 @@ his words "your messages need to be way shorter rewrite this for a human".
   `say(record=<the report's seq>)`, on the order the report is about, in whatever thread it goes, which delivers each part
   the report's `part` attr names, or each part of an order its `close` attr names, whatever the
   post's words say, and makes a thread the order holds not yet one of its threads. No post delivers
-  work he ordered, every part of a build order or an incident, but an incident's first check and cause, and a part of an order of no kind
-  that a builder, codex or design job holds or held or a design lists, unless
-  `drive order set <o> --kind answer --part "<part>"` sorted it as an answer, since only a
+  work he ordered, every part of a build order or an incident, but an incident's first check and cause and a part
+  `drive order set <o> --kind answer --part "<part>"` sorted as an answer that no builder, codex or design job holds, since only a
   builder or codex job returning `DONE`, or a merged PR, does, so `record_lines` refuses a report naming one
   on an order it does not close. A progress
   line's report names neither, whatever job it names, and carries `progress=true`, since

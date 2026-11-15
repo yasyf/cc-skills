@@ -28,8 +28,8 @@ ANSWER = {
 
 
 def test_a_call_runs_its_ops_in_order_and_an_op_after_an_add_acts_on_what_it_made(demo: str) -> None:
-    order = {"words": "Fix the card", "title": "Fix the card", "from": f"slack:D123/{THREAD}", "thread": THREAD, "project": "The drive", "workstream": "Drive tooling"}
-    said = tools.run("job", demo, {"ops": [{"add": {"kind": "builder", "order": order, "goal": "fix it"}}, {"set": {"branch": "lr-fix", "said": "pushed"}}]})
+    order = {"words": "Fix the card", "title": "Fix the card", "from": f"slack:D123/{THREAD}", "thread": THREAD, "project": "The drive", "workstream": "Drive tooling", "kind": "answer"}
+    said = tools.run("job", demo, {"ops": [{"add": {"kind": "reader", "order": order, "goal": "fix it"}}, {"set": {"branch": "lr-fix", "said": "pushed"}}]})
     assert said.splitlines()[:2] == ["1 order add: o1", "1 job add: j1"]
     assert said.splitlines()[2].startswith("2 job set: j1")
     job = state.load(demo)["jobs"]["j1"]
@@ -43,8 +43,8 @@ def test_a_job_call_whose_inline_tooling_order_repeats_an_open_one_adds_no_job_a
     tools.run("job", meta, {"ops": [{"add": {"kind": "reader", "order": filed | {"words": LOCK_STALL}, "goal": "research: the install lock"}}]})
     jev.picks("o1")
     said = tools.run("job", meta, {"ops": [{"add": {"kind": "reader", "order": filed | {"words": LOCK_STALL_AGAIN}, "goal": "research: the install stall"}}]})
-    assert said.splitlines() == ["1 order add: o2; joins o1: no record; carried by j1, so no job starts on it", "1 job add: none, since o2 joins o1"]
-    assert (list(state.load(meta)["jobs"]), len([request for request in jev.asked if "repeats" in request["questions"]])) == (["j1"], 1)
+    assert said.splitlines() == ["1 order add: o2; joins o1: no record; carried by j1, j2, so no job starts on it", "1 job add: none, since o2 joins o1"]
+    assert (list(state.load(meta)["jobs"]), len([request for request in jev.asked if "repeats" in request["questions"]])) == (["j1", "j2"], 1)
 
 
 def test_a_job_call_whose_inline_tooling_order_repeats_one_no_unfinished_job_carries_adds_its_reader_on_its_own_part_with_its_builder_waiting(
@@ -155,10 +155,10 @@ def test_a_call_with_three_refused_ops_prints_all_three(demo: str) -> None:
 
 
 def test_a_refusal_while_a_job_call_runs_writes_nothing_and_a_passing_call_saves_the_drive_once(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    order = {"words": "Fix the card", "title": "Fix the card", "project": "The drive", "workstream": "Drive tooling"}
+    order = {"words": "Fix the card", "title": "Fix the card", "project": "The drive", "workstream": "Drive tooling", "kind": "answer"}
     lands = {"kind": "reader", "order": "o1", "goal": "read", "lands": ["https://github.com/a/b/pull/1"]}
     with pytest.raises(DriveError) as refused:
-        tools.run("job", demo, {"ops": [{"add": {"kind": "builder", "order": order, "goal": "fix it"}}, {"add": lands}]})
+        tools.run("job", demo, {"ops": [{"add": {"kind": "reader", "order": order, "goal": "fix it"}}, {"add": lands}]})
     assert str(refused.value).splitlines() == [
         "refused, nothing written: 1 of 2 ops refused; fix each and send the whole call again",
         '2 job add "read" refused: --lands names the PRs a builder lands, which only a builder does',
@@ -167,7 +167,7 @@ def test_a_refusal_while_a_job_call_runs_writes_nothing_and_a_passing_call_saves
     saves: list[str] = []
     save = state.save
     monkeypatch.setattr(state, "save", lambda name, data: saves.append(name) or save(name, data))
-    tools.run("job", demo, {"ops": [{"add": {"kind": "builder", "order": order, "goal": "fix it"}}, {"set": {"branch": "lr-fix"}}, {"set": {"said": "pushed"}}]})
+    tools.run("job", demo, {"ops": [{"add": {"kind": "reader", "order": order, "goal": "fix it"}}, {"set": {"branch": "lr-fix"}}, {"set": {"said": "pushed"}}]})
     assert saves == [demo]
     assert state.load(demo)["jobs"]["j1"]["branch"] == "lr-fix"
 
@@ -175,12 +175,12 @@ def test_a_refusal_while_a_job_call_runs_writes_nothing_and_a_passing_call_saves
 def test_a_dry_run_refuses_each_op_the_call_refuses_prints_each_command_it_passes_and_keeps_nothing(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS)
     view.refresh_cards(demo)
-    order = {"words": "Fix the card", "title": "Fix the card", "project": "The drive", "workstream": "Drive tooling"}
-    dry = tools.run("job", demo, {"dry_run": True, "ops": [{"add": {"kind": "builder", "order": order, "goal": "fix it"}}, {"set": {"branch": "lr-fix"}}]}).splitlines()
+    order = {"words": "Fix the card", "title": "Fix the card", "project": "The drive", "workstream": "Drive tooling", "kind": "answer"}
+    dry = tools.run("job", demo, {"dry_run": True, "ops": [{"add": {"kind": "reader", "order": order, "goal": "fix it"}}, {"set": {"branch": "lr-fix"}}]}).splitlines()
     assert dry[0].startswith("1 drive order add 'Fix the card' ")
-    assert dry[1:] == ["1 drive job add builder --order=o1 '--goal=fix it'", "2 drive job set j1 --branch=lr-fix"]
+    assert dry[1:] == ["1 drive job add reader --order=o1 '--goal=fix it'", "2 drive job set j1 --branch=lr-fix"]
     assert (state.load(demo)["orders"], state.load(demo)["jobs"]) == ({}, {})
-    tools.run("job", demo, {"ops": [{"add": {"kind": "builder", "order": order, "goal": "fix it"}}]})
+    tools.run("job", demo, {"ops": [{"add": {"kind": "reader", "order": order, "goal": "fix it"}}]})
     for wait in ("the reporter's reply", "https://acme.slack.com/archives/D123/p1794300000000400"):
         for dry_run in (True, False):
             with pytest.raises(DriveError) as refused:
@@ -375,7 +375,7 @@ def test_a_sprite_lane_reads_another_job_as_a_mac_lane_does_its_bare_status_read
 def test_a_sprite_lanes_kept_report_answers_that_it_was_kept_with_its_first_line_never_a_path_on_this_mac(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run("order", "add", "--title", "Copies", "--project", "The drive", "--workstream", "Drive tooling", "count the stranded table copies")
+    run("order", "add", "--title", "Copies", "--project", "The drive", "--workstream", "Drive tooling", "count the stranded table copies", "--kind", "answer")
     run("job", "add", "reader", "--order", "o1", "--goal", "count them")
     monkeypatch.setenv(reads.SPRITE_LANE, "1")
     monkeypatch.setenv(state.OWN_JOB_ENV, "j1")
@@ -879,7 +879,8 @@ def test_his_words_carrying_on_an_order_of_his_work_are_its_parts_the_watch_name
     assert watch.orphan_lines(watching, later) == unstaffed
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "session-under-test")
     carried = ["--part", iterate["text"], "--part", options["text"]]
-    assert run("job", "add", "reader", "--order", "o1", *carried, "--goal", "options for a zero-stall writer handover", "--agent", "reader-1") == (0, "j2")
+    code, out = run("job", "add", "reader", "--order", "o1", *carried, "--goal", "options for a zero-stall writer handover", "--agent", "reader-1")
+    assert (code, out.splitlines()[0]) == (0, "j2")
     assert watch.orphan_lines(watching, later + timedelta(minutes=10)) == []
     assert [part["orphan_said"] for part in state.load(demo)["orders"]["o1"]["parts"].values()] == [None, None, None]
 
@@ -1470,8 +1471,8 @@ def test_his_rulings_are_kept_as_drive_answers_listing_each_card_part_and_pr_the
         [
             "his answer 8427b3c recorded: 3 standing, 4 dropped, 0 superseded, 0 reopened by it; 1 waiting job sent his words, 0 untouched",
             f"demo:j1-684682: its card {sibling} now shows his words and a link to them, with no buttons, its question withdrawn",
-            f"o1:{ELECTRON} dropped from o1 and j1",
-            f"o1:{MONTY} dropped from o1 and j1",
+            f"o1:{ELECTRON} dropped from o1 and j0, j1",
+            f"o1:{MONTY} dropped from o1 and j0, j1",
             "Forge-AI/monorepo#54102 closed on GitHub",
         ],
     )

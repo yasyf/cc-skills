@@ -6,7 +6,7 @@ from collections.abc import Callable, Iterable
 from datetime import datetime
 
 from drive import slack
-from drive.state import DRIVE_TOOLING, FREED, REPO_RULES, ROLES, SLOT_WAIT, VERSION, alias, card_wait, carriers, delivered, exempted, lane_death, may_tell, now, open_orders, orphan_stands, owed_at_return, parse_time, part_jobs, pass_due, pr_key, pr_url, project_lane, promise_thread, repo_rules, resumed, standing_passes, title, untracked_carriers, work
+from drive.state import DRIVE_TOOLING, FREED, REPO_RULES, ROLES, SLOT_WAIT, VERSION, alias, card_wait, carriers, delivered, exempted, lane_death, may_tell, now, open_orders, orphan_stands, owed_at_return, parse_time, part_jobs, pass_due, passes, pr_key, pr_url, project_lane, promise_thread, repo_rules, resumed, standing_passes, title, untracked_carriers, work
 
 SLACK_TOOLS = "mcp__plugin_cc-slack_cc-slack__"
 REWORKING = "no card while its builder reworks it to his words, until its READY says how they are met"
@@ -497,7 +497,7 @@ def part_line(drive: dict, order_id: str, part: str) -> str:
 def standing_line(drive: dict, order_id: str, part: str) -> str:
     """A standing part as drive status lists it: its goal, its live pass, else when the watch starts the next, and its last pass with the line it ended on."""
     live, last = standing_passes(drive, order_id, part)
-    due = pass_due(part_jobs(drive, order_id, part))
+    due = pass_due(passes(part_jobs(drive, order_id, part)))
     starts = f"at {when(due.isoformat())}" if due and due > now() else "on its next read"
     at_work = f"its live pass {live[1]['kind']} {live[0]} {live[1]['state']}" if live else f"no pass at work, the watch starts the next {starts}"
     ended = f', its last pass {last[1]["kind"]} {last[0]} {last[1]["state"]}: "{cut(last[1]["said"] or "no line", 80)}"' if last else ", no pass ended yet"

@@ -729,7 +729,6 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         order.setdefault("project", None)
         order.setdefault("workstream", None)
         order.setdefault("title", None)
-        order.setdefault("kind", None)
         order.setdefault("complex", False)
         order.setdefault("options_only", False)
         order.setdefault("once", False)
@@ -804,6 +803,9 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
             if "handoff" not in flags:
                 flags["handoff"] = briefed_handoff(job.get("brief"))
             job["brief_flags"] = {flag: [] if flag == "ruling" else None for flag in BRIEF_FLAGS} | flags
+    unkinded = [order_id for order_id, order in data["orders"].items() if not order.get("kind")]
+    for order_id in unkinded:
+        sort_unkinded(name, data, order_id)
     for order_id, order in data["orders"].items():
         if "joins" not in order:
             carriers = (data["jobs"][job_id]["order"] for job_id in order["jobs"]) if order["incident"] else ()
@@ -925,7 +927,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         keep_members(name, data)
     if not data.get("open_dones_held"):
         hold_open_dones(name, data)
-    return data, keep and not unkept
+    return data, keep and not unkept and not unkinded
 
 
 def briefed_handoff(path: str | None) -> str | None:
@@ -995,6 +997,30 @@ def link_research(data: dict) -> None:
             if question["holds"] == "" and question["file"] and Path(question["file"]).exists() and not limits.HOLDS.search(Path(question["file"]).read_text()):
                 question["holds"] = None
     data["research_linked"] = True
+
+
+def sort_unkinded(name: str, data: dict, order_id: str) -> None:
+    """Make an order an older install kept with no kind a build, as drive order add adds one left with no --kind, each part that was work staying work, one a builder, codex or design job holds or held, a design lists or an incident holds, and each other part, which only research ever held and so was his question, sorted as an answer by sort_as_build; and keep on each unfinished builder, design or codex job on it the newest reader or design of its parts that kept a filled Researched: block, as its next brief names it, so his card on that research holds the job."""
+    from drive import brief
+
+    order = data["orders"][order_id]
+    worked = [
+        part
+        for part, held in order["parts"].items()
+        if not held["answer"] and (order["incident"] or held["design"] or any(job["kind"] in WORK_KINDS for _, job in part_jobs(data, order_id, part)))
+    ]
+    sort_as_build(order, worked, True)
+    for job_id in order["jobs"]:
+        job = data["jobs"][job_id]
+        if job["order"] == order_id and job["kind"] in brief.RESEARCHED_KINDS and job["state"] not in FINISHED_JOB_STATES and (found := brief.research(name, data, order_id, job["parts"], job_id)):
+            job["researched"] = brief.built_on(data, job, [found[0]])
+
+
+def sort_as_build(order: dict, worked: list[str], answering: bool) -> None:
+    """Make the order a build whose worked parts are work, each other part of an order that answered him staying the answer its reader's post delivers."""
+    for part, held in order["parts"].items():
+        held["answer"] = part not in worked and (answering or held["answer"])
+    order["kind"] = "build"
 
 
 def name_builder_goals(data: dict) -> None:
@@ -1723,9 +1749,14 @@ def orphan_stands(data: dict, order_id: str, part: str) -> bool:
     return bool(said) and all(parse_time(job["updated"]) <= parse_time(said) for _, job in part_jobs(data, order_id, part))
 
 
+def passes(jobs: list[tuple[str, dict]]) -> list[tuple[str, dict]]:
+    """The passes among a standing part's jobs, each a codex job as the watch adds them, so the reader or design whose research its first pass waits on is no pass."""
+    return [(job_id, job) for job_id, job in jobs if job["kind"] == "codex"]
+
+
 def standing_passes(data: dict, order_id: str, part: str) -> tuple[tuple[str, dict] | None, tuple[str, dict] | None]:
-    """A standing part's live pass, its newest unfinished job, and its last pass, its newest finished one, each beside its id, or None."""
-    jobs = part_jobs(data, order_id, part)
+    """A standing part's live pass, its newest unfinished one, and its last pass, its newest finished one, each beside its id, or None."""
+    jobs = passes(part_jobs(data, order_id, part))
     live = next(((job_id, job) for job_id, job in reversed(jobs) if job["state"] not in FINISHED_JOB_STATES), None)
     return live, next(((job_id, job) for job_id, job in reversed(jobs) if job["state"] in FINISHED_JOB_STATES), None)
 
@@ -1736,7 +1767,9 @@ def pass_due(jobs: list[tuple[str, dict]]) -> datetime | None:
 
 
 def standing_part(data: dict, job: dict) -> tuple[str, str] | None:
-    """The standing part a job is a pass of, as its order and part, by the parts it delivers of its own order or carries of another; None for a job on no standing part."""
+    """The standing part a codex job is a pass of, as its order and part, by the parts it delivers of its own order or carries of another; None for a job on no standing part or of another kind, which is no pass."""
+    if job["kind"] != "codex":
+        return None
     return next(((order_id, part) for order_id in [job["order"], *job["carries"]] for part in job_parts(job, order_id) if data["orders"][order_id]["parts"][part]["standing"]), None)
 
 
@@ -1746,11 +1779,11 @@ def part_builders(data: dict, order_id: str, part: str) -> list[str]:
 
 
 def work(data: dict, order_id: str, part: str) -> bool:
-    """Whether a part is work he ordered, which only a builder carries: every part of a build order or an incident, and a part of an order of no kind that a builder, codex or design job holds or held or a design lists, since a part only research ever held is his question; never a part of an answer order, of one limited to options, one drive order set --kind answer --part sorted as an answer, or an incident's first check or cause, the answers its diagnosis finds, which the report telling him delivers."""
+    """Whether a part is work he ordered, which only a builder carries: every part of a build order, an incident's included, and a part sorted as an answer, by drive order set --kind answer --part or as the question only research held on an order an older install kept with no kind, once a builder, codex or design job that neither failed nor stopped holds it, one done or built counting, so the PR or DONE that delivered it still does; never a part of an answer order, of one limited to options, a part sorted as an answer no such job holds, or an incident's first check or cause, the answers its diagnosis finds, which the report telling him delivers."""
     order = data["orders"][order_id]
-    if order["kind"] == "answer" or order["options_only"] or order["parts"][part]["answer"] or order["incident"] and part in INCIDENT_DIAGNOSIS:
+    if order["kind"] == "answer" or order["options_only"] or order["incident"] and part in INCIDENT_DIAGNOSIS:
         return False
-    return order["kind"] == "build" or order["incident"] or bool(order["parts"][part]["design"]) or any(job["kind"] in WORK_KINDS for _, job in part_jobs(data, order_id, part))
+    return not order["parts"][part]["answer"] or any(job["kind"] in WORK_KINDS and job["state"] not in ENDED_JOB_STATES for _, job in part_jobs(data, order_id, part))
 
 
 def carriers(data: dict, order_id: str, part: str) -> list[tuple[str, dict]]:

@@ -393,7 +393,7 @@ def turned_incident(name: str, data: dict, order_id: str, created: str) -> list[
     parts = [state.INCIDENT_FIX, state.INCIDENT_CAUSE]
     for part in parts:
         order["parts"].setdefault(part, state.new_part())
-    sort_as_build(order, parts)
+    state.sort_as_build(order, parts, order["kind"] == "answer")
     opened = []
     if not RECORD_NOTE.search(order["note"] or ""):
         if not order["title"]:
@@ -406,14 +406,6 @@ def turned_incident(name: str, data: dict, order_id: str, created: str) -> list[
     coded = {part for part in parts for _, job in state.part_jobs(data, order_id, part) if job["kind"] == "codex" and job["state"] not in state.FINISHED_JOB_STATES}
     started = [state.incident_job(data, name, order_id, part, created) for part in parts if part not in coded]
     return [*opened, *started, state.INCIDENT_BRIEF] if started else opened
-
-
-def sort_as_build(order: dict, worked: list[str]) -> None:
-    """Make the order a build whose worked parts are work, each other part of an answer order staying the answer its reader's post delivers."""
-    answering = order["kind"] == "answer"
-    for part, held in order["parts"].items():
-        held["answer"] = part not in worked and (answering or held["answer"])
-    order["kind"] = "build"
 
 
 def incident_stop(args: argparse.Namespace) -> int:
@@ -786,7 +778,7 @@ def order_set(args: argparse.Namespace) -> int:
                 left = [part for part in job["parts"] if part not in answered]
                 job.update({"parts": left} if left else {"state": "stopped", "said": f"stopped: drive order set {args.id} --kind answer left it nothing to build"}, updated=state.stamp(moment))
         if args.kind == "build" and sorted_parts and order["kind"] == "answer":
-            sort_as_build(order, sorted_parts)
+            state.sort_as_build(order, sorted_parts, True)
         elif args.kind and not sorted_parts:
             order["kind"] = args.kind
         if args.complex is not None:
@@ -960,7 +952,7 @@ def order_posted(args: argparse.Namespace) -> int:
 
 
 def answered_by(name: str, order_id: str, part: str, link: str) -> tuple[str, dict]:
-    """Deliver a part of the order from the session its watch lines reach, posting nothing: words he reads by the drive's post that already answered it, wherever it was made, and work he ordered, every part of a build order or an incident, but an incident's first check and cause, and a part of an order of no kind that a builder, codex or design job holds or held or a design lists, by the PR that delivered it once github.landing reads it merged, never one folded into another open PR's branch, since no post delivers work."""
+    """Deliver a part of the order from the session its watch lines reach, posting nothing: words he reads by the drive's post that already answered it, wherever it was made, and work he ordered, every part of a build order or an incident, but an incident's first check and cause and a part sorted as an answer that no builder, codex or design job holds, by the PR that delivered it once github.landing reads it merged, never one folded into another open PR's branch, since no post delivers work."""
     data = state.load(name)
     order = data["orders"][order_id]
     [part] = pick_parts(order_id, order, [part])
@@ -1239,7 +1231,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
             or proven_again(data, args.order, args.kind, args.goal)
             or unlandable(data, lands)
             or state.job_wait_refusal(data, args.waits)
-            or brief.job_refusal(name, data, args.order, args.kind, parts, bool(lands or args.release or args.builds_nothing), args.waits)
+            or brief.job_refusal(name, data, args.order, args.kind, parts, bool(lands or args.release or args.builds_nothing or args.kind == "builder" and args.branch), args.waits)
             or (held and one_change_job(data, args.order, args.kind, parts, held, waits))
         ):
             raise DriveError(f"refused, no job added: {refused}")
@@ -4902,8 +4894,9 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument(
         "--kind",
         choices=state.ORDER_KINDS,
+        default="build",
         help=(
-            "answer: one reader lane researches it and answers him, with no other job; build: an Opus reader keeps its"
+            "answer: one reader lane researches it and answers him, with no other job; build, the default: an Opus reader keeps its"
             " Researched: block before any builder, designer or codex lane starts, except the immediate fix's and a follow-up part's"
             " designer, which start at once, the follow-up's designer keeping the Researched: block its changes' builders start on, and their briefs name it."
             " An incident order is a build"
@@ -5133,7 +5126,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--goal", required=True, help="its deliverable, one line")
     verb.add_argument("--agent", help="the agent id the Agent tool returned")
     verb.add_argument("--repo", help="owner/name")
-    verb.add_argument("--branch", help="the branch it works on")
+    verb.add_argument("--branch", help="the branch it works on; a builder added on the branch an open PR already pushed, such as a migrated drive's, starts at once with no reader's research")
     verb.add_argument("--worktree", help="its worktree's path")
     verb.add_argument("--remote", action="store_true", help="a builder that starts as a remote lane on a Sprite")
     verb.add_argument(
