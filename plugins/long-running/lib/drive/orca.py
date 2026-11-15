@@ -11,6 +11,7 @@ import tarfile
 import time
 import uuid
 from collections.abc import Iterator
+from contextvars import ContextVar
 from pathlib import Path
 from typing import NamedTuple
 
@@ -154,7 +155,7 @@ class Outage:
         self.ends: float | None = None
 
 
-riding: Outage | None = None
+RIDING: ContextVar[Outage | None] = ContextVar("riding", default=None)
 
 
 def request(*args: str, seconds: float = CALL_SECONDS, caller: str | None = None) -> dict:
@@ -185,17 +186,17 @@ def one_call(args: tuple[str, ...], seconds: float, caller: str | None) -> dict:
 
 @contextlib.contextmanager
 def rides_restarts() -> Iterator[None]:
-    """Make every Orca call of the verb inside wait out a restart of Orca's app server, such as launchd's, by request, so drive job launch, drive job resume, drive pr wake and the drive bound a launch's worker-start runs through carry on once Orca is back rather than refusing, all of the verb's calls sharing one Outage; any other process, the watch, a hook or a read, gets Orca's refusal at once, as before."""
-    global riding
-    held, riding = riding, Outage()
+    """Make every Orca call of the verb inside wait out a restart of Orca's app server, such as launchd's, by request, so drive job launch, drive job resume, drive pr wake and the drive bound a launch's worker-start runs through carry on once Orca is back rather than refusing, all of the verb's calls sharing one Outage, held in RIDING for the thread running the verb alone, so two verbs in threads of one process never hand each other theirs; any other process, the watch, a hook or a read, gets Orca's refusal at once, as before."""
+    held = RIDING.set(Outage())
     try:
         yield
     finally:
-        riding = held
+        RIDING.reset(held)
 
 
 def runtime_back(verb: str, refusal: OrcaError) -> bool:
     """Whether Orca's runtime reads ready again after Orca refused the verb's call as RUNTIME_DOWN, read by runtime_ready every RUNTIME_POLL_SECONDS inside a verb rides_restarts holds, the wait said by state.said as it starts; False once that verb's Outage ends, and at once outside such a verb. Orca's supervisor and launchd bring the runtime back, and the drive starts or restarts nothing of Orca's."""
+    riding = RIDING.get()
     if riding is None:
         return False
     riding.ends = riding.ends or time.monotonic() + RUNTIME_WAIT_SECONDS

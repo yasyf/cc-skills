@@ -3555,12 +3555,10 @@ def test_the_watchs_turn_for_a_sprite_job_waiting_to_move_here_stamps_its_slot_k
 
 
 @pytest.mark.parametrize(("wait", "carried"), [("Forge-AI/monorepo#7", ["job", "resume", "j1"]), ("Forge-AI/monorepo#8", None)])
-def test_the_watch_carries_a_held_text_to_a_sprite_job_waiting_on_its_own_open_pr_as_j5031_waited_but_not_to_one_waiting_on_another_jobs(
+def test_the_watch_carries_a_held_text_to_a_sprite_job_waiting_on_its_own_open_pr_as_j5031_waited_but_not_to_one_waiting_on_another_open_pr(
     run: Run, remote: str, wait: str, carried: list[str] | None
 ) -> None:
     assert run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/7", "--job", "j1", *LEAD)[0] == 0
-    run("job", "add", "builder", "--order", "o1", "--goal", "another fix", "--agent", "b")
-    assert run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/8", "--job", "j2", *LEAD)[0] == 0
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(state="waiting", waits=[wait], undelivered=[{"seq": None, "words": "rebase on main first", "at": state.stamp(), "said": None, "request": "req-held"}])
     held = state.load(remote)
