@@ -404,11 +404,11 @@ def said_on(data: dict, card: str | None) -> list[dict]:
 
 
 def redrawn(data: dict, job_id: str, waits: str) -> list[dict]:
-    """The questions `drive job ask <job> --redraws <waits>` takes the place of: each holding the card under that waits id, of the job or of any other job on one of its orders, but one a `Replaces:` line folded into another, open, or withdrawn with no answer of his under the card, so a job carrying on another's work asks again in new words on that job's card, or on a card his words withdrew, and redraws it where it sits. Refused naming why for a card whose question his answer ended, or any answer of his superseded, and for a waits id no question of those orders holds."""
+    """The questions `drive job ask <job> --redraws <waits>` takes the place of: each holding the card under that waits id, of the job or of any other job on one of its orders or asking about one, but one a `Replaces:` line folded into another, open, or withdrawn with no answer of his under the card, so a job carrying on another's work asks again in new words on that job's card, or on a card his words withdrew, and redraws it where it sits. Refused naming why for a card whose question his answer ended, or any answer of his superseded, and for a waits id no question of those orders holds."""
     job = data["jobs"][job_id]
     orders = [job["order"], *job["carries"]]
     held = [(each["order"], question) for each in data["jobs"].values() for question in each["questions"] if question["waits"] == waits and not question["replaced"]]
-    if not (mine := [question for order_id, question in held if order_id in orders]):
+    if not (mine := [question for order_id, question in held if order_id in orders or asked_orders(question) & set(orders)]):
         other = f", which asks for {', '.join(sorted({order_id for order_id, _ in held}))}" if held else ""
         raise DriveError(
             f"--redraws {waits}: no question of {', '.join(orders)} holds that card{other}, so {job_id} takes over none:"
@@ -426,6 +426,12 @@ def redrawn(data: dict, job_id: str, waits: str) -> list[dict]:
             " nothing more: ask what they leave open on a card of its own, under its own waits id"
         )
     return mine
+
+
+def asked_orders(question: dict) -> set[str]:
+    """Each order a question card's summary opens with as `{order:<o>}`, the work it serves, so a card a job of one order asked about another is that other order's card too."""
+    summary = limits.redrawn(Path(question["file"]).read_text()).summary if question["file"] else []
+    return {found[2] for found in limits.REF.finditer(summary[0] if summary else "") if found[1] == "order"}
 
 
 def redraw_refusal(data: dict, job: dict, waits: str, file: str) -> str | None:
