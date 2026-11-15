@@ -6,6 +6,7 @@ import re
 import shlex
 import signal
 import subprocess
+import threading
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -751,6 +752,13 @@ def run_watch(name: str, monkeypatch: pytest.MonkeyPatch, project: str | None = 
     monkeypatch.setattr(watch, "time", SimpleNamespace(sleep=stop))
     with pytest.raises(KeyboardInterrupt):
         watch.main(name, project)
+
+
+def test_a_watch_that_stops_ends_its_relay_before_it_returns(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    serve(monkeypatch, {})
+    posts(monkeypatch)
+    run_watch(demo, monkeypatch)
+    assert [thread.name for thread in threading.enumerate() if thread.name.endswith("(relay)")] == []
 
 
 def test_a_restarted_watch_replays_events_written_while_none_ran(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -253,10 +253,11 @@ session makes its parts `ORPHAN`s.
 **Drive verbs.** A lane types the drive's verbs as a job on this Mac does. Its `drive`, which
 `drive job launch` has the `orca` skill's launcher place in the Sprite's `~/.local/bin`, asks each
 as one blocking Orca question, `DRIVE <its words>` over the JSON of its stdin and of each file a
-word names, and the watch queues it as a read. `drive job read` runs it in the coordinator's
+word names, and the watch's relay queues it as a read within seconds. `drive job read` runs it in the coordinator's
 checkout with no session of this Mac's, as the lane's own job on its own drive, and answers
 all it printed under a first line naming its exit status, each file named by the lane's own path,
-which the lane's `drive` prints and exits with. It runs `job report`, `job ask`, `job set --repro`,
+which the lane's `drive` prints and exits with. While no answer comes, that `drive` says so on
+stderr every 30 s, naming the question, and gives up at 9 minutes, exiting 1. It runs `job report`, `job ask`, `job set --repro`,
 `job replies`, `job held`, `pr add`, `pr set --flaky` on a PR its own job carries, `plan search`, `datadog`, `manual` and `status`, its reads on any job as a Mac lane's,
 so a lane reads the `job report` or `job replies` of any job its brief names, and a bare `status`
 on its own job. It refuses, running nothing, any other verb, such as `pr set --tap` or an order
@@ -300,8 +301,11 @@ lane reads those, and Slack, through this Mac with a blocking question.
   rules from before this Mac's log read was deleted still asks, reads nothing: its answer is the
   builder rule that has the lane read the log on its Sprite, or return `BLOCKED` when `tools/ci bk`
   refuses there.
-- The watch answers it itself, with no event, as it answers a `DRIVE` question: `drive job read`,
-  which it starts as a process of its own, runs `cci`, `ccn` or the drive's own cc-slack launcher in
+- The watch answers it itself, with no event, as it answers a `DRIVE` question. Its relay, a thread
+  of the watch process, reads Orca's newest 100 messages in one call every 2 s while a Sprite lane is
+  live and queues each new read one asked, so no GitHub read, landing or install a pass runs holds it,
+  and lane mail each minute queues any the newest 100 passed over. `drive job read`,
+  which the relay starts as a process of its own, runs `cci`, `ccn` or the drive's own cc-slack launcher in
   the directory the coordinator started the drive from, or reads the drive files, and the watch
   replies with the output, a command's cut to 12,000 characters but for a `cc-slack thread` or
   `history` read, which goes whole, once that reader ends, so a read that runs for minutes holds up no pass. The
@@ -316,10 +320,10 @@ lane reads those, and Slack, through this Mac with a blocking question.
   the job has, since a card drawn before the question asks him something else; when he answered
   its card since, the line leads with his answer and the `drive job resume` that carries it.
 - A question kept for you that reads as a `READ`, such as one kept before the watch read it
-  that way, the watch answers on its next pass, and the lane runs again.
+  that way, the watch queues on its next read of lane mail, its relay answers, and the lane runs again.
 - A lane whose wait ends waits again on the same question, so the watch keeps each question queued
-  until the answer goes through, sending each kept answer at the start of every pass, before it reads
-  any lane's mail, past a refused reply or a watch restart, or until Orca says it
+  until the answer goes through, its relay sending each kept answer every 2 s, and each pass at its
+  start, before it reads any lane's mail, past a refused reply or a watch restart, or until Orca says it
   already holds another answer, which drops it with no line. Its
   `WATCH the answer to <j>'s read failed` line needs nothing from you.
 

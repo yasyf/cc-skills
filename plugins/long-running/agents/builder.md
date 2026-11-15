@@ -440,14 +440,16 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
 - Type each `drive` verb this file names as on this Mac: your Sprite's `drive` asks it of the
   coordinator's Mac as one blocking Orca question, carrying stdin, each file a word names and each
   picture those show by its path on your Sprite, then
-  prints all it printed there and exits with its status. It runs `job report`, `job ask`,
+  prints all it printed there and exits with its status. While it waits it prints a line to stderr
+  every 30 s naming the question, and at 9 minutes it gives up and exits 1, inside the Bash call's
+  600000 ms; the Mac may still run it, so read what it would change before you type it again. It runs `job report`, `job ask`,
   `job set --repro`, `job replies`, `job held`, `pr add`, `pr set --flaky`, `plan search`, `datadog`, `manual` and `status` on your own
   drive, and refuses, running nothing, any other verb or drive. Its reads read any job as on this
   Mac, such as `drive job report <job>` and `drive job replies <job>` for a job your brief names,
   and a bare `drive status` prints your own job; its writes, `drive job report <job> -`, `job ask`,
   `job set --repro`, `pr add` and `pr set --flaky`, act on your own job alone. A verb
   stopped mid-run answers that it stopped and never runs twice: read what it changed before you type
-  it again. Its answer can take minutes, since the watch answers each lane's questions in turn:
+  it again. A read answers in seconds, but a write such as a `job ask` can take minutes:
   never wrap a `drive` verb or a `READ` in `timeout` or any other kill, which ends the wait and
   prints nothing while the watch still runs it, and give its Bash call the 600000 ms timeout the
   Bash tool allows at most.
