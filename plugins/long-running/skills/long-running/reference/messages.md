@@ -696,7 +696,9 @@ restating it.
   word, naming the term, for Jev to judge by that rule and his words.
 - Name only what the message needs, and a mechanism only when he asked about it.
 - Every line stands alone, because he reads it with no other context: "you always have to assume I
-  don't have any other context". A number, fraction, size or ratio says what it measures, why it has
+  don't have any other context". It names no other draft of itself, such as "here's the longer
+  version", and says no sorry: a line owns a mistake by saying what was wrong and what is fixed, by his
+  words "Why did you say sorry in it again?". A number, fraction, size or ratio says what it measures, why it has
   that value, and one concrete example. A mechanism gets one plain sentence before it is used, and
   nothing points at a list, finding, thread or PR he cannot see in that same message, such as "the
   third finding", "the remaining two" or "as above". Not "reads each journal file's page index sized

@@ -2520,7 +2520,7 @@ def test_a_saved_thread_is_a_read_only_once_the_handler_opens_its_file(talker: s
     assert posted(unread, text="Fixed.", thread_ts="1.2") is None
 
 
-def test_every_post_to_his_dm_passes_check_post_on_its_exact_words(talker: str, transcript: Path, checked: Checked) -> None:
+def test_every_post_passes_check_post_on_its_exact_words_a_share_outside_his_dm_included(talker: str, transcript: Path, checked: Checked) -> None:
     checked.findings = ["1:5 bare-number '#41': link it as <url|#N> or <url|deploy #N>"]
     reason = posted(transcript, text="See 41 now.", thread_ts="1.2")
     assert reason == (
@@ -2529,8 +2529,8 @@ def test_every_post_to_his_dm_passes_check_post_on_its_exact_words(talker: str, 
     )
     assert say(transcript, edit=link(EDITED), text="See 41 then.").startswith("refused: `cc-slack check-post` finds this")
     share = call("slack_reply", transcript, channel_id="C0B75AL4XEW", thread_ts="1.2", text="See #41 there.")
-    assert message_limits.deny_reason(share) is None
-    assert checked.texts == ["See 41 now.", "See 41 then."]
+    assert message_limits.deny_reason(share).rule == agents.PLAIN_WORDS_RULE
+    assert checked.texts == ["See 41 now.", "See 41 then.", "See #41 there."]
     checked.findings = []
     assert posted(transcript, text="See <https://github.com/yasyf/cc-skills/pull/41|the fix> now.", thread_ts="1.2") is None
 
@@ -3004,6 +3004,19 @@ def test_a_say_post_to_a_channels_members_gets_a_readers_checks_in_place_of_a_li
     assert "or 10 past the 130 words of the post it edits" in say(transcript, edit=edit, text=said(141))
 
 
+def test_a_root_post_to_a_group_dm_carries_his_message_asking_for_code_so_his_words_can_lift_the_rule_against_naming_it(
+    talker: str, transcript: Path, slack_thread: Thread
+) -> None:
+    slack_thread.messages += [
+        {"ts": "1794491173.244549", "user": "U1", "text": "walk the reviewer through the batch writer"},
+        {"ts": "1794512898.040859", "thread_ts": "1794491173.244549", "user": "U1", "text": "make it cite specific pseudocode"},
+    ]
+    post = {"channel_id": "C0GROUPDM01", "text": "The batch writer calls record_on() once per batch, then commits.", "asked": SHARE_LINK}
+    assert say(transcript, **post).rule == message_limits.MEMBERS_RULE
+    words = message_limits.his_words(call("slack_dm_status", transcript, **post) | {"tool_name": message_limits.SAY})
+    assert [word["id"] for word in words] == [message_limits.MEMBERS_WORDS["id"], "slack:1794512898.040859"]
+
+
 def test_a_staging_claim_past_one_plain_line_or_citing_code_is_refused_and_its_one_line_rewrite_and_closing_line_pass(talker: str, transcript: Path, run: Run) -> None:
     coded = (
         "*Staging claim: storage handover fix test, until 2:45 PM at the latest*\n"
@@ -3085,6 +3098,34 @@ def test_a_say_reply_in_a_thread_an_order_keeps_as_members_skips_the_checks_of_a
     assert "a line in his thread is at most 60 words" in refusal
     assert "so link it as {card:demo:j1-7}" in refusal
     assert checked.texts != []
+
+
+def test_a_post_to_a_teammate_passes_check_post_and_an_apology_or_another_draft_is_judged_by_his_rule_that_a_post_stands_alone(
+    run: Run, talker: str, transcript: Path, checked: Checked
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "keep answering the thread")
+    teammate = {"channel_id": "C0TEAMMATE1", "thread_ts": "1794717967.971669"}
+    with state.edit("demo") as data:
+        data["orders"]["o1"]["watch"] = state.new_watch("https://acme.slack.com/archives/C0TEAMMATE1/p1794717967971669", datetime.now(UTC))
+    reads(lane_of(transcript), teammate["thread_ts"], channel="C0TEAMMATE1")
+    sorry = "Sorry, here's the longer version: the importer now commits each batch in one round trip."
+    checked.findings = [
+        "1:1 apology 'Sorry': a post says no sorry; drop the apology and say what was wrong and what is fixed",
+        "1:14 earlier-draft 'longer version': the reader never saw another draft of this post, so it compares itself with nothing; say what it says, standing alone",
+    ]
+    refused = say(transcript, text=sorry, **teammate)
+    assert refused.startswith("refused: `cc-slack check-post` finds this in the post's exact words")
+    assert refused.rule == message_limits.ALONE_RULE
+    assert message_limits.his_words(call("slack_dm_status", transcript, text=sorry, **teammate) | {"tool_name": message_limits.SAY}) == [message_limits.ALONE_WORDS]
+    checked.findings.append("1:60 bare-number '#41': link it as <url|#N> or <url|deploy #N>")
+    assert say(transcript, text=sorry + " See #41.", **teammate).rule == f"1. {message_limits.ALONE_RULE}\n2. {agents.PLAIN_WORDS_RULE}"
+    assert message_limits.deny_reason(call("slack_send", transcript, text=sorry, channel_id="C0GENERAL01")).rule == f"1. {message_limits.ALONE_RULE}\n2. {agents.PLAIN_WORDS_RULE}"
+    checked.findings = ['1:1 waits-without-card "Ready for your review": link the card']
+    assert say(transcript, text="Ready for your review: the importer commits each batch in one round trip.", **teammate) is None
+    checked.findings = []
+    alone = "The importer now commits each batch in one round trip, so your import lands in about two seconds."
+    assert say(transcript, text=alone, **teammate) is None
+    assert checked.texts[-1] == alone
 
 
 def test_a_write_to_his_dm_goes_through_say_so_each_reference_is_linked_and_the_dashboard_shows_it(talker: str, transcript: Path) -> None:
