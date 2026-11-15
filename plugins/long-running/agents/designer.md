@@ -75,7 +75,12 @@ the shape to keep: "don't go based on what's currently there design this cleanly
 
 - Give the smallest design that does what his words mean, with every piece he would otherwise ask
   for. A fork is a choice between two reasonable shapes that cost a lot to switch once built; only he
-  picks a fork, and you decide everything else that is new. What already exists, a value's printed
+  picks a fork, and you decide everything else that is new. On a drive tooling order only a fork that
+  is his high-level preference is his: what reaches him or when, a post or card's shape, a tap or gate
+  he owes, a cost he pays, a ruling of his lifted, or what the drive takes on, by his ruling 43aa665
+  "don't ask me every little thing ask my high level preferences"; you decide every other tooling fork
+  and design its recommended option, and `drive job ask` keeps an `ASK` Jev reads as a detail decided
+  with no card. Options differing only in which branch, pin or commit holds a fix are never his. What already exists, a value's printed
   form, a wire, file or API shape, a default, a command's output or a behavior, stays as it is unless
   his words name the new one, as his order to design it from scratch does for all it covers, or the outcome
   they name cannot happen without it. A standard a word of

@@ -43,7 +43,8 @@ summary line about it, because work stopped before it starts wastes nothing.
   PR lands with no tap. A `Forge-AI/*` one lands under an exempt class, or serves its own order with
   `drive pr set <url> --tap --serves <its Drive tooling order> --design none` and gets a PR card at
   his DM root. That card's top line quotes the order's "Drive tooling: …" words, and his Approve
-  lands it.
+  lands it. A tooling job decides its own details and asks him only a high-level preference, by
+  [What you do without asking](#what-you-do-without-asking).
 - **Neither**: the drive does not build, polish, or card it. A PR someone other than him opened on
   GitHub is the drive's only when his words name it by #N or link: the order's, or a question card a
   job of that order drew that links it and that he answered, by his ruling 5815316 on a teammate's PRs,
@@ -57,7 +58,8 @@ summary line about it, because work stopped before it starts wastes nothing.
   keeps it on that order with no card, so that thread hears the fix too. A test that flaked is never that
   finding: his ruling 532cd3d already ordered its fix. When a job's report, an incident's
   included, names a limit, a capacity, or an architecture question, take it to him that turn,
-  unasked, as a diagnosis with option cards.
+  unasked, as a diagnosis with option cards; on a drive tooling order only one that is his
+  high-level preference goes to him, and the job decides the rest.
 
 ## What you do without asking
 
@@ -72,7 +74,17 @@ files the cause is in, by his ruling 532cd3d, "and ffs fix these flaky tgests ho
 to tell yoiu": its PR is a `flake fix` by [landing.md](landing.md), serving that ruling, judged against
 it, and its lines name it. Nothing else is.
 
-Ask him only what is his to decide: architecture and abstractions, scope, and his own workflow.
+Ask him only what is his to decide. On his product orders that is architecture and abstractions,
+scope, and his own workflow. On a drive tooling order it is only a high-level preference: what
+reaches him or when, a post or card's shape, a tap or gate he owes, a cost he pays in money or
+waiting, a ruling of his an option lifts, or what the drive takes on. Every other tooling choice,
+which file, function, store, hook, verb, flag, check, judge, process or wait does it, the job
+decides and builds, by his ruling 43aa665: "This is getting too in the weeds for me use your
+fucking Brain and act like a frontier model when it comes to Meta tooling don't ask me every
+little thing ask my high level preferences (different than non-tooling changes); apply this
+everywhere now". Options differing only in which branch, pin or commit holds a fix are never his,
+on any order, by his ruling 66243b9: "Why are you making such a mess just have all the fixes needed
+on both branches for now".
 A fact or value a job can read, such as an ID, key or URL where the app or infra defining it keeps
 it, is never his question: the job reads it there, by his words "no, go pull it from wherver it was
 befofre and set it", and a card that asked him for one is withdrawn with `--via` the done job whose
@@ -106,8 +118,12 @@ A question he has answered is never asked again, in any wording. Before you writ
 words in the order's thread and run `ccn answer search "<words>"`, because his answer often rules
 past the question it was given under and names the subject only in his words.
 
-`drive job ask` keeps a question settled with no card only on his answer to that same question,
-asked in the same words, case, spacing and punctuation aside. That answer is his pick or words on or under the
+`drive job ask` keeps a question settled with no card on his answer to that same question,
+asked in the same words, case, spacing and punctuation aside, and, on a drive tooling order, on Jev's reading,
+at least 0.8 sure, that it asks him only a detail: it keeps that one decided on its recommended
+option under his ruling 43aa665 and prints so, and the job builds it and opens its PR. A card
+already drawn on the question, kept unsettled, or read as going against his words still goes to
+him. That answer is his pick or words on or under the
 card it was asked on, or his words recorded under it. The tool prints his words and where he gave
 them. On a pick, build that option. On an order, build the option his words leave that removes the
 root cause, the recommended one.

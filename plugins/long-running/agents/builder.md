@@ -94,7 +94,13 @@ and waits ids, record seqs), never a technical name.
 3. Design choices are his. One is a choice neither the brief's `Plan` nor his answers settle between two
    reasonable shapes that cost a lot to switch once built (a data layout or file format, a schema or
    migration shape, a lock, queue or scheduler, a public or Sand-facing API shape, a new background
-   process), or a limit, capacity or architecture question your work turns up. The moment the fork
+   process), or a limit, capacity or architecture question your work turns up. On a drive tooling
+   order one is his only when it is his high-level preference: what reaches him or when, a post or
+   card's shape, a tap or gate he owes, a cost he pays, a ruling of his lifted, or what the drive takes
+   on, by his ruling 43aa665 "don't ask me every little thing ask my high level preferences"; decide
+   every other tooling choice, build its recommended option and open its PR, and an `ASK` you keep
+   anyway `drive job ask` keeps decided with no card when Jev reads it as a detail, printing so.
+   Options differing only in which branch, pin or commit holds a fix are never his. The moment the fork
    shows, even mid-build, keep an `ASK` with options from your evidence with `drive job ask`, which
    puts his card up and leaves your job running, then build its recommended option in the same run:
    push the branch with `ccx vcs ship --no-pr`, open no PR and return
@@ -641,7 +647,8 @@ it out needs his choice; a piece his words never asked for or ruled out passes.
 It refuses any report but an `ASK` or `DESIGN` that names a limit beside a
 number as a finding left standing, such as "the bucket caps at 5k objects/s, left as is", or one
 "unchanged", "hit" or "exceeds": a limit or capacity finding is his choice, so return `ASK` with two
-to four options for it. A cap his order asked for, such as "the queue caps at 4 cards", passes, and
+to four options for it, but on a drive tooling order you decide it: build the option that removes it,
+or keep the `ASK`, which `drive job ask` decides with no card unless its options differ in what he gets. A cap his order asked for, such as "the queue caps at 4 cards", passes, and
 so does "the cap was never hit". Only the report's own words count, so a quote, code, file path,
 identifier or link it cites as evidence, such as a GitHub rate-limit refusal quoted on a `Measured:` line
 or `limits.py` in "limits.py never sets it (0 grep hits)", passes. On an

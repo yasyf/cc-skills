@@ -1189,6 +1189,8 @@ class Jev:
     speaks: dict[str, float] = field(default_factory=dict)
     asks: set[str] = field(default_factory=set)
     weighed: list[str] = field(default_factory=list)
+    detail: float = 0.05
+    details: list[dict] = field(default_factory=list)
 
     def picks(self, choice: str, probability: float = 0.9) -> None:
         """Jev answers again, and every Noul whose key holds choice as one of its dotted parts reads yes at probability; none clears it."""
@@ -1223,6 +1225,8 @@ class Jev:
             return 0.9
         if question == "speaks":
             return self.speaks.get(state["notes"][about.partition(".")[0]]["id"], 0.05)
+        if key == "detail":
+            return self.detail
         if self.chosen and self.chosen[0] in key.split("."):
             return self.chosen[1]
         return self.answer
@@ -1248,6 +1252,8 @@ def jev(monkeypatch: pytest.MonkeyPatch) -> Jev:
             judged.terms += list(state.get("names", {}).values())
         elif "answers_nothing" in questions:
             judged.weighed.append(state["his_words"])
+        elif "detail" in questions:
+            judged.details.append({"state": state, "questions": questions})
         else:
             judged.asked.append({"state": state, "questions": questions})
         if judged.answer is None:

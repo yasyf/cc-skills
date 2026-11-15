@@ -101,6 +101,7 @@ FLAKE_WORDS = "and ffs fix these flaky tgests how many times do I have to tell y
 SUBJECT_LABEL = ', recorded on the subject of "'
 TAP_LABELS = ("Approve", "Hold")
 TOOLING = "Drive tooling:"
+TOOLING_DETAILS_RULING = "43aa665"
 POST_FEEDBACK = f"{TOOLING} post feedback:"
 DRIVE_TOOLING = (
     "how the drive itself works: a tool it runs on (the drive CLI and its MCP tools, a hook, the watch, the dashboard,"

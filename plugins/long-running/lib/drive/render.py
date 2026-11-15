@@ -6,7 +6,7 @@ from collections.abc import Callable, Iterable
 from datetime import datetime
 
 from drive import slack
-from drive.state import DRIVE_TOOLING, FINISHED_JOB_STATES, FREED, REPO_RULES, ROLES, SLOT_WAIT, VERSION, alias, carriers, delivered, exempted, following, holding_job_lane, lane_death, may_tell, now, open_orders, orphan_stands, owed, owed_at_return, parse_time, part_jobs, pass_due, passes, pr_key, pr_url, project_lane, promise_thread, repo_rules, resumed, session_lane, standing_passes, title, untracked_carriers, work
+from drive.state import DRIVE_TOOLING, FINISHED_JOB_STATES, FREED, REPO_RULES, ROLES, SLOT_WAIT, TOOLING_DETAILS_RULING, VERSION, alias, carriers, delivered, exempted, following, holding_job_lane, lane_death, may_tell, now, open_orders, orphan_stands, owed, owed_at_return, parse_time, part_jobs, pass_due, passes, pr_key, pr_url, project_lane, promise_thread, repo_rules, resumed, session_lane, standing_passes, title, untracked_carriers, work
 
 SLACK_TOOLS = "mcp__plugin_cc-slack_cc-slack__"
 REWORKING = "no card while its builder reworks it to his words, until its READY says how they are met"
@@ -202,7 +202,11 @@ META_RULES = (
     (
         f"You hold drive tooling alone, {DRIVE_TOOLING}, each piece of work a background job you start, and each change"
         " folds a new check, step, hook, flag or verb into what exists, or deletes one, before adding one, by his words"
-        ' "in geernal keeps implifying all this tuff", which every tooling brief\'s Decisions that bind carries. You never'
+        ' "in geernal keeps implifying all this tuff", which every tooling brief\'s Decisions that bind carries. Your jobs'
+        " decide every detail of the tooling and build its recommended option, asking him only a high-level preference: what"
+        " reaches him or when, a post or card's shape, a tap or gate he owes, a cost he pays, a ruling of his lifted, or what"
+        f" the drive takes on, by his ruling {TOOLING_DETAILS_RULING}, and drive job ask keeps a question Jev reads as a detail"
+        " decided, drawing no card. You never"
         ' touch his product orders, their jobs or PRs: drive order add refuses you an order not opening "Drive tooling:", and job'
         " add an order the coordinator holds."
     ),
