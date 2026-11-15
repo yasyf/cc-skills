@@ -1097,11 +1097,13 @@ def released(data: dict, owner: dict, own: str, cards: dict | None, out: dict[st
     owner["waits"] = holds
     if holds or not ended:
         return ""
-    answered = [bare(wait) for wait in ended if wait not in out and not state.PID_WAIT.fullmatch(wait)]
+    answered = [bare(wait) for wait in ended if wait not in out and not state.PID_WAIT.fullmatch(wait) and not state.RETURN_WAIT.fullmatch(wait)]
+    reported = [returning["job"] for wait in ended if (returning := state.RETURN_WAIT.fullmatch(wait))]
     exited = [process["pid"] for wait in ended if (process := state.PID_WAIT.fullmatch(wait))]
     return ", ".join(
         [
             *([f"{', '.join(answered)} answered or done"] if answered else []),
+            *([f"{', '.join(reported)} reported"] if reported else []),
             *([f"process {', '.join(exited)} on this Mac ended"] if exited else []),
             *(out[wait] for wait in ended if wait in out),
         ]

@@ -51,10 +51,12 @@ LANE_VERBS = (
     ("status",),
 )
 LANE_WRITES = (("job", "ask"), ("job", "set"), ("pr", "add"), ("pr", "set"))
+LANE_FLAGS = {("job", "set"): "repro", ("pr", "set"): "flaky"}
 LANE_CARDS = (("job", "ask"), ("job", "report"))
 NO_SPRITE_GRANT = 'his pick "No Sprite lane runs break-glass: a step needing a grant moves to a lane on this Mac"'
 JOB_WORD = re.compile(r"j\d+")
 DRIVE_RECORD = re.compile(r"[oj]\d+")
+NAMED_COMMAND = re.compile(r"\bdrive ((?:(?!\bdrive |\. )[^,;\n])+)")
 BREAK_GLASS_PIPELINE = "forge/break-glass"
 BREAK_GLASS_BRANCH = "dev"
 GRANT_ENDS = "break-glass-expires-at"
@@ -256,19 +258,46 @@ def lane_refusal(args: argparse.Namespace, parse: Callable[[list[str]], argparse
     writes = verb in LANE_WRITES or verb == ("job", "report") and args.stdin
     if writes and (others := sorted({word for word in values if JOB_WORD.fullmatch(word)} - {job_id})):
         return f"{refused} it names {', '.join(others)}, and a lane's drive writes act on its own job, {job_id}, alone, while its reads read any job"
-    if verb == ("job", "set") and (
-        flags := sorted(f"--{key.replace('_', '-')}" for key, value in vars(parse(["job", "set", job_id])).items() if key in parsed and key not in ("repro", "json", "drive") and parsed[key] != value)
+    if verb in LANE_FLAGS and (
+        flags := sorted(
+            f"--{key.replace('_', '-')}"
+            for key, value in vars(parse([*verb, args.url if verb == ("pr", "set") else job_id])).items()
+            if key in parsed and key not in (LANE_FLAGS[verb], "url", "json", "drive") and parsed[key] != value
+        )
     ):
-        return f"{refused} a lane's job set takes only --repro, and it names {', '.join(flags)}"
-    if verb == ("pr", "set") and (
-        flags := sorted(f"--{key.replace('_', '-')}" for key, value in vars(parse(["pr", "set", args.url])).items() if key in parsed and key not in ("flaky", "url", "json", "drive") and parsed[key] != value)
-    ):
-        return f"{refused} a lane's pr set takes only --flaky, and it names {', '.join(flags)}"
+        return f"{refused} a lane's {' '.join(verb)} takes only --{LANE_FLAGS[verb]}, and it names {', '.join(flags)}"
     if verb == ("pr", "set") and (state.load(drive)["prs"].get(state.pr_key(args.url)) or {}).get("job") != job_id:
         return f"{refused} a lane's pr set acts on a PR its own job, {job_id}, carries, and {args.url} is none of them"
     if parsed.get("drive") not in (None, drive):
         return f"{refused} it names drive {parsed['drive']}, and a lane acts on its own drive, {drive}, alone"
     return None
+
+
+def mac_steps(refusal: str, parser: argparse.ArgumentParser, job_id: str) -> str:
+    """What a Sprite lane of the job does with a refusal naming drive commands no Sprite lane runs, as lane_refusal would refuse them by their verb, their LANE_FLAGS and the jobs a write names: return BLOCKED naming them, as a break-glass step goes, for the coordinator to run here; "" when it names none, prose such as "the drive tracks" naming no verb."""
+    verbs = subverbs(parser)
+    steps = []
+    for named in NAMED_COMMAND.finditer(refusal):
+        words = named[1].split()
+        actions = subverbs(verbs[words[0]]) if words[0] in verbs else None
+        if actions is None or actions and (len(words) < 2 or words[1] not in actions):
+            continue
+        verb = tuple(words[: 2 if actions else 1])
+        lane = next((lane for lane in LANE_VERBS if verb[: len(lane)] == lane), None)
+        writes = lane in LANE_WRITES or lane == ("job", "report") and "-" in words
+        if (
+            lane is None
+            or verb in LANE_FLAGS and {word[2:] for word in words if word.startswith("--")} - {LANE_FLAGS[verb], "json"}
+            or writes and {word for word in words if JOB_WORD.fullmatch(word)} - {job_id}
+        ):
+            steps.append(" ".join(["drive", *verb, *(word for word in words[len(verb) :] if word.startswith("--") or JOB_WORD.fullmatch(word))]))
+    if not steps:
+        return ""
+    return f"No Sprite lane runs {', '.join(dict.fromkeys(steps))}: return BLOCKED naming each step and its command above, and the coordinator runs it on this Mac"
+
+
+def subverbs(parser: argparse.ArgumentParser) -> dict[str, argparse.ArgumentParser]:
+    return next((action.choices for action in parser._actions if isinstance(action, argparse._SubParsersAction)), {})
 
 
 def lane_exit(status: int, printed: str) -> str:
