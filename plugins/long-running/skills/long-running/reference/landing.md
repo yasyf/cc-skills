@@ -146,18 +146,20 @@ for its repository says, then return `DONE <proof>`.
 
 ## yasyf/* repositories
 
-No tap: by his standing rule a `yasyf/*` PR merges without asking, and by his words "can merge past CI
-on personal repos and fix reds after the fact" it merges without waiting on CI, but never while a check
-fails at its head, by his words "tooling fixes merge early only when no check is failing on their own
-change".
+No tap: by his standing rule a `yasyf/*` PR merges without asking, but only once every check at its
+head finished with none failing on its own change, since a check that fails after the merge turns `main`
+red for every PR behind it. A check fails on its own change when `main` passed it, or never ran it, at the
+commit the PR's run of it merged its head onto; one `main` fails there too merges.
 
 1. Ship with `ccx vcs ship` (jj in colocated repositories); the `open-pr` skill writes the body.
 2. Register it with `drive pr add <url> --job <j>`. Taking the builder's `READY` or `PUSHED`, which
-   needs its proof file kept with `drive job set <j> --repro <file>`, makes its stage read `ready` while
-   its checks run or pass and `red` once one fails, and the watch starts the drive's lander on it within
+   needs its proof file kept with `drive job set <j> --repro <file>`, makes its stage read `grading` while
+   a check at its head still runs and `ready` once every one finished, and the watch starts the drive's lander on it within
    one GitHub read of `ready`: a process of its own, outliving your turn, that reads its checks from GitHub
-   again and merges it with `gh pr merge <n> -R <repo> --<method> --admin --match-head-commit <head>` at the
-   head that read found no check failing on, `<method>` being `squash`, else `rebase`, else `merge`, the
+   again, waits for `main`'s run of each failing one at the commit its run merged onto, and merges it with
+   `gh pr merge <n> -R <repo> --<method> --admin --match-head-commit <head>` at the head that read found every
+   check finished on with none failing on its own change, or else says `not landed: its own change fails …`,
+   which reads `red`, owed by you, `<method>` being `squash`, else `rebase`, else `merge`, the
    first the repository's settings and every pull request rule of its default branch allow, as the watch
    reads them from GitHub with each PR, since GitHub refuses a merge by any other method, records the merge sha on the PR, then runs `drive install` from it for
    each plugin installed on this Mac whose folder the merge changes, or that is its marketplace's only
