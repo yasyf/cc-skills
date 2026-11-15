@@ -1669,11 +1669,11 @@ def test_a_running_codex_jobs_resume_and_wake_hold_each_text_its_run_hears_once_
     with state.edit("demo") as data:
         data["jobs"]["j1"]["state"] = "stopped"
     assert hook_output(landing_guard, monkeypatch, capsys, json.dumps(call)) == ""
-    assert [kept["words"] for kept in state.load("demo")["jobs"]["j1"]["undelivered"]] == [resumed]
+    assert state.load("demo")["jobs"]["j1"]["undelivered"] == []
     with state.edit("demo") as data:
         data["jobs"]["j1"]["state"] = "waiting"
     assert run("job", "wake", "j1", "--text", woken)[0] == 2
-    assert [kept["words"] for kept in state.load("demo")["jobs"]["j1"]["undelivered"]] == [resumed]
+    assert state.load("demo")["jobs"]["j1"]["undelivered"] == []
 
 
 def test_drive_job_add_starts_no_release_his_hold_holds_and_starts_his_exception(demo: str, run: Run, recorded: Answers, jev: Jev, capsys: pytest.CaptureFixture[str]) -> None:

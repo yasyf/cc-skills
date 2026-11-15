@@ -646,6 +646,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str, terminal: str
         "finished_replacers_undone": True,
         CARDS_NOTED: True,
         "delivered_by_prs": True,
+        "finished_texts_dropped": True,
     }
 
 
@@ -956,7 +957,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     if data["catch_up"]:
         data["catch_up"]["record"] = bare_seq(data["catch_up"]["record"])
     passes = (drive_dir(name) / "pictures" / picture.SOURCED, drive_dir(name) / "asks" / REBUILT_ASKS, drive_dir(name) / APPROVALS_LABELLED)
-    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated")) and bool(data.get("holds_owed")) and bool(data.get("near_answers_apart")) and bool(data.get("stack_writes_read")) and bool(data.get("builder_goals_named")) and bool(data.get("members_kept")) and bool(data.get("open_dones_held")) and bool(data.get("staging_passes_owned")) and bool(data.get("lines_kept")) and bool(data.get("change_builders_unwaited")) and bool(data.get("finished_replacers_undone"))
+    keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated")) and bool(data.get("holds_owed")) and bool(data.get("near_answers_apart")) and bool(data.get("stack_writes_read")) and bool(data.get("builder_goals_named")) and bool(data.get("members_kept")) and bool(data.get("open_dones_held")) and bool(data.get("staging_passes_owned")) and bool(data.get("lines_kept")) and bool(data.get("change_builders_unwaited")) and bool(data.get("finished_replacers_undone")) and bool(data.get("finished_texts_dropped"))
     for flag in ("may_settle_per_answer", "may_settle_skips_approvals", "may_settle_by_subject", "may_settle_by_jev"):
         data.pop(flag, None)
     data["slack"].pop("channel", None)
@@ -1020,6 +1021,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         unwait_change_builders(data)
     if not data.get("delivered_by_prs"):
         posted_from_jobs(data)
+    if not data.get("finished_texts_dropped"):
+        drop_finished_texts(data)
     return data, keep and not unkept and not unkinded
 
 
@@ -1089,6 +1092,14 @@ def unwait_change_builders(data: dict) -> None:
             if job["state"] == "waiting" and not job["waits"]:
                 job["state"] = "running"
     data["change_builders_unwaited"] = True
+
+
+def drop_finished_texts(data: dict) -> None:
+    """Drop the texts each done or stopped job but a pass of a standing part holds, which an older install kept on the job as it ended though no worker of it reads one, now that a save drops them as it ends the job, by drop_ended_texts; marked so this runs once."""
+    for job in data["jobs"].values():
+        if job["undelivered"] and job["state"] in ("done", "stopped") and not standing_part(data, job):
+            job["undelivered"] = []
+    data["finished_texts_dropped"] = True
 
 
 def posted_from_jobs(data: dict) -> None:
@@ -1494,6 +1505,13 @@ def hold_text(job: dict, text: str, sender: str | None, at: str | None = None) -
     """Keep a text on the job's undelivered list with who sent it, dated now unless at names when it was given, under a fresh Orca request id, which its next worker or codex-ask run carries, unless the job already holds it."""
     if all(held["words"] != text for held in job["undelivered"]):
         job["undelivered"].append({"seq": None, "words": text, "sender": sender, "at": at or stamp(), "said": None, "request": str(uuid.uuid4())})
+
+
+def hand_held(data: dict, job_id: str, into: str) -> None:
+    """Move each text a job holds onto the job taking its work, but one that job holds already, so the text reaches that job's next worker; any other job that stops or ends done drops what it holds as it is saved, by drop_ended_texts."""
+    taker = data["jobs"][into]
+    taker["undelivered"] += [kept for kept in data["jobs"][job_id]["undelivered"] if all(held["words"] != kept["words"] for held in taker["undelivered"])]
+    data["jobs"][job_id]["undelivered"] = []
 
 
 def take_mail(job: dict, box: list[dict], hold: bool) -> list[str]:
@@ -1984,6 +2002,7 @@ def end_carried_designs(data: dict, order_id: str, moment: str) -> None:
     for design_id, design in data["jobs"].items():
         returned = design["state"] == "waiting" and (design["said"] or "").startswith("DESIGN")
         if design["order"] == order_id and returned and (builder := design_builder(data, design_id)):
+            hand_held(data, design_id, builder)
             design.update(state="done", said=f"carried by builder {builder}", updated=moment)
 
 
@@ -2015,10 +2034,11 @@ def replacer(data: dict, job_id: str) -> str | None:
 
 
 def fold(data: dict, job_id: str, into: str) -> list[str]:
-    """Move a job's parts, each order it carries and each open PR it answers for onto another job, so every wake, check and lander of those PRs reaches that job; the PRs moved."""
+    """Move a job's parts, each order it carries, each text it holds and each open PR it answers for onto another job, so every wake, check and lander of those PRs reaches that job; the PRs moved."""
     job = data["jobs"][job_id]
     for order_id, parts in [(job["order"], job["parts"]), *job["carries"].items()]:
         deliver(data, into, order_id, parts)
+    hand_held(data, job_id, into)
     moved = [key for key, pr in data["prs"].items() if pr["job"] == job_id and pr["state"] == "open"]
     for key in moved:
         take_pr(data, into, key)
@@ -2176,14 +2196,16 @@ def work(data: dict, order_id: str, part: str) -> bool:
 
 
 def carriers(data: dict, order_id: str, part: str) -> list[tuple[str, dict]]:
-    """The jobs on a part that can carry it: every job on words he reads, but on work he ordered only a builder, codex or design job, a done design never on a change it listed, which the builder holding that change carries itself, so a builder of another change carries none of it, and on its own part only while the builder design_builder names carries it."""
+    """The jobs on a part that can carry it: every job on words he reads, but on work he ordered only a builder, codex or design job, a done design never on a change it listed, which the builder holding that change carries itself, so a builder of another change carries none of it, and on its own part only while the builder design_builder names carries it, and never a stopped one, which gave its work up, but a builder stopped before any agent took it whose PRs the drive does not track carry its parts, by untracked_carriers."""
     jobs = part_jobs(data, order_id, part)
     if not work(data, order_id, part):
         return jobs
     return [
         (job_id, job)
         for job_id, job in jobs
-        if job["kind"] in WORK_KINDS and (job["kind"] != "design" or job["state"] != "done" or part not in designed(data, job_id, order_id) and design_builder(data, job_id))
+        if job["kind"] in WORK_KINDS
+        and (job["kind"] != "design" or job["state"] != "done" or part not in designed(data, job_id, order_id) and design_builder(data, job_id))
+        and (job["state"] != "stopped" or untracked_carriers(data, job))
     ]
 
 
@@ -2206,7 +2228,7 @@ def change_job(data: dict, order_id: str, parts: list[str], waits: list[str] = (
 
 
 def hand_over(data: dict, held: tuple[str, dict, str], job_id: str, order_id: str, parts: list[str], moment: str) -> str:
-    """Give the job drive job add adds on these parts of an order what the returned change job change_job found carries of them, a part having one change job: those parts, each PR it opened serving one, and each part such a PR serves, since one PR builds one change, a PR serving the parts its row names or else every part of its job. The old job stops, handed to the new one, only when that leaves it no part; else it keeps its other parts and PRs and its state, so a staging tester also carrying another part keeps its staging test; the line saying which."""
+    """Give the job drive job add adds on these parts of an order what the returned change job change_job found carries of them, a part having one change job: those parts, each PR it opened serving one, and each part such a PR serves, since one PR builds one change, a PR serving the parts its row names or else every part of its job. The old job stops, handed to the new one with the texts it holds, by hand_held, only when that leaves it no part; else it keeps its other parts and PRs and its state, so a staging tester also carrying another part keeps its staging test; the line saying which."""
     old_id, old, shared = held
     lists = [(old["order"], old["parts"]), *old["carries"].items()]
     carried = {(held_order, part) for held_order, kept in lists for part in kept}
@@ -2226,6 +2248,7 @@ def hand_over(data: dict, held: tuple[str, dict, str], job_id: str, order_id: st
             data["jobs"][job_id]["prs"].append(url)
     named = ", ".join(map(pr_key, taken)) or "no PR"
     if whole:
+        hand_held(data, old_id, job_id)
         old.update(state="stopped", said=f"handed to {job_id}", updated=moment)
         return f"{job_id} replaces {old_id}, which carried {shared} and returned, a part having one change job: it takes {old_id}'s parts and {named}, and {old_id} stopped, handed to {job_id}"
     left = ", ".join(json.dumps(part, ensure_ascii=False) for held_order, kept in lists for part in kept if (held_order, part) not in moved)
@@ -2792,7 +2815,7 @@ def built(name: str, data: dict) -> Path:
 
 
 def rewrite(name: str, db: sqlite3.Connection, data: dict, newest: str | None) -> list[str]:
-    """Make the database's rows data's, inside a transaction: one row for each top-level field, a collection's with no body, and one for each record of a collection, each keeping its place unless the order data holds them in moved; the id of each job whose row it moved from an unfinished state into done, failed or stopped."""
+    """Make the database's rows data's, inside a transaction: one row for each top-level field, a collection's with no body, and one for each record of a collection, each keeping its place unless the order data holds them in moved, each job it moves into done or stopped holding no text, by drop_ended_texts; the id of each job whose row it moved from an unfinished state into done, failed or stopped."""
     found = db.execute("SELECT value FROM meta WHERE key = 'saved_by'").fetchone()
     if newest and found and version_order(found[0]) > version_order(newest):
         raise NewerDrive(f"the {name} drive was saved by long-running {found[0]} since this {newest} read it, which may misread it: run the newest install's drive")
@@ -2806,6 +2829,14 @@ def rewrite(name: str, db: sqlite3.Connection, data: dict, newest: str | None) -
             rows[field] = {key: json.dumps(record) for key, record in value.items()}
         elif field != "saved_by":
             rows[""][field] = json.dumps(value)
+    was = kept.get("jobs", {})
+    ended = {
+        job_id: json.loads(was[job_id][1])["state"]
+        for job_id, body in rows.get("jobs", {}).items()
+        if job_id in was and was[job_id][1] != body and data["jobs"][job_id]["state"] in FINISHED_JOB_STATES
+    }
+    for job_id in drop_ended_texts(data, ended):
+        rows["jobs"][job_id] = json.dumps(data["jobs"][job_id])
     for collection in {*kept, *rows}:
         before, after = kept.get(collection, {}), rows.get(collection, {})
         places = placed(before, list(after))
@@ -2818,15 +2849,19 @@ def rewrite(name: str, db: sqlite3.Connection, data: dict, newest: str | None) -
         db.execute("DELETE FROM meta WHERE key = 'saved_by'")
         if saver:
             db.execute("INSERT INTO meta VALUES ('saved_by', ?)", (saver,))
-    was = kept.get("jobs", {})
-    return [
+    return [job_id for job_id, then in ended.items() if then not in FINISHED_JOB_STATES]
+
+
+def drop_ended_texts(data: dict, ended: dict[str, str]) -> list[str]:
+    """Drop every text each job a save moves into done or stopped from another state still holds, by the state its saved row held, since no worker of a finished job reads one and the job taking its work got them by hand_held; a failed job keeps its texts for the relaunch that carries them, and a pass of a standing part for its next pass, which added_pass hands them. The jobs whose texts it dropped."""
+    dropped = [
         job_id
-        for job_id, body in rows.get("jobs", {}).items()
-        if job_id in was
-        and was[job_id][1] != body
-        and data["jobs"][job_id]["state"] in FINISHED_JOB_STATES
-        and json.loads(was[job_id][1])["state"] not in FINISHED_JOB_STATES
+        for job_id, then in ended.items()
+        if (job := data["jobs"][job_id])["state"] in ("done", "stopped") and then != job["state"] and job["undelivered"] and not standing_part(data, job)
     ]
+    for job_id in dropped:
+        data["jobs"][job_id]["undelivered"] = []
+    return dropped
 
 
 def down_mac_boxes(name: str, data: dict, finished: list[str]) -> None:

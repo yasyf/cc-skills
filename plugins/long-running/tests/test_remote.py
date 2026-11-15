@@ -3848,7 +3848,7 @@ def test_a_resume_that_takes_the_jobs_lock_after_the_job_stopped_reads_wakes_sen
     assert cli.main(["job", "resume", "j1", *filter(None, [text])]) == 2
     assert "j1: refused, nothing sent, held or started: it is stopped; drive job launch j1 runs it again" in capsys.readouterr().err
     job = state.load(remote)["jobs"]["j1"]
-    assert (job["state"], job["dispatch"], job["undelivered"], job.get("deaths", [])) == ("stopped", DISPATCH, held, [])
+    assert (job["state"], job["dispatch"], job["undelivered"], job.get("deaths", [])) == ("stopped", DISPATCH, [], [])
 
 
 def test_the_watch_records_the_death_of_a_lane_whose_job_stopped_since_its_pass_read_it_and_starts_no_resume(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:

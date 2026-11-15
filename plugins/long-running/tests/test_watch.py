@@ -53,13 +53,13 @@ REPLAYED_685794 = [
     (685715, None, "status of shipping the automatic split of large tables", True, [READ], True, None),
     (685716, None, "What's status of splitting agents into their own runners", True, [READ], False, None),
     (685717, None, "status of the File redesign", True, [READ], True, None),
-    (685718, None, "Why closed?", True, [READ, ("builder", "stopped")], False, "j3 stopped"),
+    (685718, None, "Why closed?", True, [READ, ("builder", "stopped")], False, f"{ANSWERED}reader j2 done, builder j3 stopped: "),
     (685719, None, "why the files changes took all day", True, [], True, None),
     (685720, None, "And if they don't land for whatever reason still message the reviewer", True, [("reader", "waiting")], False, None),
     (685721, None, "What is a restore, and why did it take 5m?", True, [READ], False, None),
     (685722, None, "measure today's release against 5 to 7 minutes and name every step past it", True, [READ], True, None),
     (685723, None, "why a release like the last hotfix is not self-serve, and what makes it so", False, [("reader", "waiting")], True, None),
-    (685724, None, "Why so we have a lazy setting at all it should be the same everywhere", True, [("design", "done"), ("builder", "stopped")], False, "j3 stopped"),
+    (685724, None, "Why so we have a lazy setting at all it should be the same everywhere", True, [("design", "done"), ("builder", "stopped")], False, f"{ANSWERED}design j2 done, builder j3 stopped: "),
     (685725, None, "What? I'm saying do the automated version we built", True, [], False, None),
     (685726, None, "delete the repairs stub outright", True, [("builder", "waiting")], True, "j2 waits on"),
     (685727, None, "whats status of pre-signed bucket file upload stuff?", True, [READ], False, None),
@@ -2731,7 +2731,9 @@ def test_a_done_design_leaves_its_own_part_with_the_builder_carrying_one_of_its_
         'ORPHAN o2 "redesign the moved tables": no builder carries this work, only design j2 done: start one with drive job add builder --order o2'
         " --part 'redesign the moved tables' --goal '<what it builds>', or add it to a builder with drive job set <builder> --part 'redesign the moved tables', adding --carries o2 for another order's builder; when it asks only for an answer,"
         " drive order set o2 --kind answer --part 'redesign the moved tables'; when a merged PR delivered it, drive order posted o2 <its link> --part 'redesign the moved tables'",
-        'ORPHAN o2 "the moved-table interface": j3 stopped',
+        'ORPHAN o2 "the moved-table interface": no builder carries this work, only builder j3 stopped: start one with drive job add builder --order o2'
+        " --part 'the moved-table interface' --goal '<what it builds>', or add it to a builder with drive job set <builder> --part 'the moved-table interface', adding --carries o2 for another order's builder; when it asks only for an answer,"
+        " drive order set o2 --kind answer --part 'the moved-table interface'; when a merged PR delivered it, drive order posted o2 <its link> --part 'the moved-table interface'",
     ]
 
 
@@ -3102,6 +3104,47 @@ def test_a_part_of_an_order_of_no_kind_only_research_ever_held_is_his_question_i
             data["jobs"][jobs[-1]] = job(order="o2", state="done", parts=[other], updated=earlier)
     drawn = [line for line in watch.run_pass(watcher(demo), T0) if line.startswith("ORPHAN o2 ")]
     assert [line.startswith(f'ORPHAN o2 "{render.cut(part, 80)}": {said}') for line in drawn] == ([True] if said else [])
+
+
+O1_SPIKES = {
+    "Spike base: DuckDB link test and dataset seeder": [("j2", "builder", "stopped"), ("j7", "builder", "stopped"), ("j35", "builder", "done")],
+    "Snapshot cost spike": [("j2", "builder", "stopped"), ("j8", "builder", "done")],
+    "Worker startup, sandbox and typing spikes": [("j2", "builder", "stopped"), ("j11", "builder", "done"), ("j62", "builder", "done")],
+    "Scan path spikes and page-reader correctness": [
+        ("j2", "builder", "stopped"),
+        ("j12", "builder", "done"),
+        ("j13", "builder", "done"),
+        ("j57", "builder", "stopped"),
+        ("j59", "builder", "done"),
+        ("j61", "builder", "done"),
+        ("j78", "builder", "done"),
+    ],
+    "Wire format spike": [("j2", "builder", "stopped"), ("j14", "builder", "done")],
+    "Columnar shadow spike": [("j2", "builder", "stopped"), ("j15", "builder", "done"), ("j59", "builder", "done")],
+    "Pass-box bench runs": [("j2", "builder", "stopped"), ("j16", "codex", "done"), ("j70", "codex", "done")],
+}
+
+
+def test_each_o1_spike_part_its_done_builders_delivered_names_their_undelivered_work_never_the_stopped_builder_j2_j7_or_j57_beside_them_as_715907_to_715913_did(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    serve(monkeypatch, {})
+    earlier = state.stamp(T0 - timedelta(minutes=10))
+    held = {part: [("j1", "reader", "done"), *jobs] for part, jobs in O1_SPIKES.items()}
+    with state.edit(demo) as data:
+        data["prs"].clear()
+        data["jobs"].clear()
+        for part, jobs in held.items():
+            for job_id, kind, job_state in jobs:
+                data["jobs"].setdefault(job_id, job(kind=kind, state=job_state, parts=[], undelivered=[], updated=earlier))["parts"].append(part)
+        ids = sorted(data["jobs"], key=lambda job_id: int(job_id[1:]))
+        data["orders"]["o1"] = order(kind="build", jobs=ids, parts={part: state.new_part() for part in O1_SPIKES}, updated=earlier)
+    watching, data = watcher(demo), state.load(demo)
+    gaps = {part: watch.part_gap(watching, data, "o1", part, T0) for part in O1_SPIKES}
+    for part, jobs in held.items():
+        listed = ", ".join(f"{kind} {job_id} {job_state}" for job_id, kind, job_state in jobs)
+        finished = " and ".join(job_id for job_id, kind, job_state in jobs if kind != "reader" and job_state == "done")
+        assert gaps[part].startswith(f"{NO_BUILDER}{listed}; {finished} merged no PR whose checked diff carries it: start one with drive job add builder --order o1 --part {shlex.quote(part)} "), part
 
 
 def test_a_part_sorted_as_an_answer_is_delivered_by_the_post_it_holds_and_one_a_builder_works_on_is_never_sorted(
