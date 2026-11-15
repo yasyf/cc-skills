@@ -183,8 +183,10 @@ lane left on it, so the watch never reads that agent's old turn as this run's re
 holds under a heading naming its sender, his answers under `His answers since:` and the coordinator's under
 `From the coordinator since:`, and each answer of his it has not heard under `His answers since:`, as a first launch does,
 and the launch drops those texts off the job and marks it sent those answers. A text held while
-the run goes waits for its end: the watch starts no launch while it goes, and its next launch
-carries the text. The `scratch_folder` hook refuses a
+the run goes reaches it at its next Bash call: `landing_guard`, which codex runs before each of the
+run's Bash calls, hands each text the job holds to the run as that call's `additionalContext`, which
+codex records into the running turn, and drops it off the job. The watch starts no launch while the
+run goes, and its next launch carries a text still held when the run ends. The `scratch_folder` hook refuses a
 `codex:` agent started on a codex job's brief. The schema holds codex's final message to three
 required fields: `state`, a result word of the table above but `DESIGN`, since a visual design is its
 builder's own `codex-ask` call, `line`, the rest of the result line, and `report`, the return below it,
