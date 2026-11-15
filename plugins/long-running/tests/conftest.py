@@ -88,6 +88,13 @@ It lands without a second look.
 SEEDED_READER = "j0"
 WORK_JOBS = ("builder", "codex", "design", "designer")
 
+SEEDED_RESEARCH = """DONE researched the order
+Researched:
+rulings: none on the area
+exists: none: nothing in the drive does part of it
+open: none
+"""
+
 RESEARCH = """DONE researched the store copy
 Researched:
 rulings: none on the copy path
@@ -266,7 +273,7 @@ def kept_research(name: str, order_id: str, parts: list[str]) -> None:
         if SEEDED_READER not in order["jobs"]:
             order["jobs"].insert(0, SEEDED_READER)
     if not state.returns(name, SEEDED_READER):
-        state.keep_report(name, SEEDED_READER, state.opening(RESEARCH), RESEARCH)
+        state.keep_report(name, SEEDED_READER, state.opening(SEEDED_RESEARCH), SEEDED_RESEARCH)
 
 
 def flag_values(argv: tuple[str, ...], flag: str) -> list[str]:

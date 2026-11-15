@@ -4670,7 +4670,9 @@ def test_a_cause_reports_fix_linking_a_pr_the_drive_does_not_track_is_kept_and_r
 
 
 def test_a_builder_landing_prs_he_approved_starts_with_no_research(run: Run, with_pr: str, capsys: pytest.CaptureFixture[str]) -> None:
-    run("order", "set", "o1", "--kind", "build")
+    with state.edit("demo") as data:
+        data["orders"]["o1"]["jobs"].remove("j0")
+        del data["jobs"]["j0"]
     assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "land it"]) == 2
     assert "o1 is a build order, so its builder starts only once an Opus reader or a design of its part" in capsys.readouterr().err
     assert cli.main(["job", "add", "codex", "--order", "o1", "--lands", PR, "--goal", "land it"]) == 2

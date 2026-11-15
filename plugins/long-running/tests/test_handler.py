@@ -150,7 +150,7 @@ QUESTION_BRIEF = f"Message (his words): did the copy fix ship?\nLink: {QUESTION_
 def test_his_read_only_questions_handler_starts_on_its_answer_order_and_one_say_answers_and_closes_it(
     communicator: str, run: Run, tmp_path: Path, started: list[list[str]], slack_thread: Thread, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "--title", "Copy fix", "--project", "The drive", "--workstream", "Copies", "fix the copy", "--from", f"https://acme.slack.com/archives/D123/p{THREAD.replace('.', '')}")
+    run("order", "add", "--title", "Copy fix", "--project", "The drive", "--workstream", "Copies", "fix the copy", "--from", f"https://acme.slack.com/archives/D123/p{THREAD.replace('.', '')}", "--kind", "answer")
     run("job", "add", "reader", "--order", "o1", "--goal", "trace the copy")
     run("order", "add", "--title", "Run page", "--project", "The drive", "--workstream", "Runs", "show a run's history", "--from", "https://acme.slack.com/archives/D123/p1794100000000100")
     brief = QUESTION_BRIEF.format(scratch=tmp_path / "h1")

@@ -3215,10 +3215,13 @@ def test_a_relaunched_codex_job_is_judged_by_its_new_run_never_by_the_agent_an_e
     monkeypatch.setattr(watch, "codex_gap", REAL_CODEX_GAP)
     write_transcript(tmp_path / "config", [CALLING, FINISHED], timedelta(minutes=10))
     brief = tmp_path / "j1.brief.md"
-    brief.write_text(f"Order (his words): ship the watch\nGoal: watch\nDrive: {demo}, order o1, job j1\n")
+    brief.write_text(f"Order (his words): ship the watch\nGoal: watch\nResearched: j2\nDrive: {demo}, order o1, job j1\n")
+    state.keep_report(demo, "j2", state.opening(RESEARCH), RESEARCH)
     with state.edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
         data["jobs"]["j1"].update(kind="codex", state="waiting", session="session-under-test", agent="a1")
+        data["jobs"]["j2"] = job(kind="reader", goal="research: the watch", parts=data["jobs"]["j1"]["parts"], state="done")
+        data["orders"]["o1"]["jobs"].append("j2")
     assert cli.main(["job", "launch", "j1", str(brief), "--drive", demo]) == 0
     job = state.load(demo)["jobs"]["j1"]
     assert (job["state"], job["agent"], job["session"]) == ("running", None, "session-under-test")
