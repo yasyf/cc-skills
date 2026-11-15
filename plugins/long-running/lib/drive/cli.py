@@ -2962,7 +2962,7 @@ def codex_launch(name: str, job_id: str, brief_file: str | None) -> Path:
 
 
 def job_resume(args: argparse.Namespace) -> int:
-    """Send a job its next event by the one relaunch launch and resume share: to its lane while its worker takes messages, else in the handoff of its next worker, or a codex job's by codex_resume. With no text, send the texts a resume Orca could not deliver holds on the job, as the watch does once Orca reads its lane alive again. A finished pass of a standing part is refused by unrun, holding nothing."""
+    """Send a job its next event by the one relaunch launch and resume share: to its lane while its worker takes messages, else in the handoff of its next worker, or in the brief of the first worker of a builder waiting its turn for a slot on this Mac that none started, or a codex job's by codex_resume. With no text, send the texts a resume Orca could not deliver holds on the job, as the watch does once Orca reads its lane alive again. A finished pass of a standing part is refused by unrun, holding nothing."""
     name = state.resolve(args.drive)
     if unrun(state.load(name), args.id)["kind"] == "codex":
         return codex_resume(args, name)
@@ -3038,7 +3038,7 @@ def unstopped(job_id: str, job: dict) -> None:
 
 
 def relaunch(args: argparse.Namespace, name: str, text: str | None) -> int:
-    """The one path launch and resume share, under the job's own lock, so a second waits for the first and acts on the worker it started: a lane whose worker takes messages gets the text, one whose worker ended starts its next in a handoff, and a lane on a Sprite moves to this Mac by restart whatever its worker is doing when --local asks or declared_step reads a step only this Mac runs, an agent on this Mac that ended with its session, whose last response ended on an API error or refusal, that a launch finds returned while the job holds texts, or whose turn ended while a resume's text finds this Mac's builder slots full hands the job to a lane on a Sprite, or on this Mac when its brief declares a step only this Mac runs, an agent a session of the drive started and still holds gets a resume's text through its cci address and that session's SendMessage by to_starter, and another session's agent refuses a launch, an agent whose session ended hands the job to this one, and a job with no worker yet starts its first."""
+    """The one path launch and resume share, under the job's own lock, so a second waits for the first and acts on the worker it started: a lane whose worker takes messages gets the text, one whose worker ended starts its next in a handoff, and a lane on a Sprite moves to this Mac by restart whatever its worker is doing when --local asks or declared_step reads a step only this Mac runs, an agent on this Mac that ended with its session, whose last response ended on an API error or refusal, that a launch finds returned while the job holds texts, or whose turn ended while a resume's text finds this Mac's builder slots full hands the job to a lane on a Sprite, or on this Mac when its brief declares a step only this Mac runs, an agent a session of the drive started and still holds gets a resume's text through its cci address and that session's SendMessage by to_starter, and another session's agent refuses a launch, an agent whose session ended hands the job to this one, a resume's text for a builder no worker started that waits its turn for a slot on this Mac is held for the first worker the watch starts as its turn comes, and any other job with no worker yet starts its first."""
     with state.launch_waits(name, args.id) if text is None and args.local else nullcontext(), state.job_locked(name, args.id, orca.LAUNCH_SECONDS):
         data = state.load(name)
         job = find(data["jobs"], args.id, "job")
@@ -3069,6 +3069,14 @@ def relaunch(args: argparse.Namespace, name: str, text: str | None) -> int:
             if end or local or step:
                 return restart(args, name, dispatch, end or live_end(job), None, local, step)
             raise DriveError(f"{args.id} already started as dispatch {dispatch}, whose worker takes messages: drive job resume {args.id} <the event> sends it one")
+        if text is not None and not job.get("agent") and args.id in (places := place.positions(data)):
+            sender = state.held_sender(data)
+            hold(name, args.id, text, sender)
+            line = (
+                f"{args.id}: held for its first worker under {state.since_heading(sender)}, since none has started: it waits its turn for a builder slot on this Mac,"
+                f" {places[args.id]}, and the watch starts that worker as its turn comes, its brief carrying each text the job holds"
+            )
+            return emit(args, line, {"id": args.id, "how": "held"})
         died = None if taker or not job.get("agent") else watch.agent_death(job, data) or (returned(job) if text is None else place.woken(data, args.id, state.now()))
         if job.get("agent") and not (taker or died):
             remote_job(data, args.id)
@@ -5643,7 +5651,8 @@ def parser() -> argparse.ArgumentParser:
             "relaunch meanwhile carries every held text in its handoff; a relaunch Orca refuses exits 2 with Orca's refusal, "
             "the text still held. With no text, it sends what the job holds now. A job held by an Agent another session started, which this session cannot "
             "SendMessage, gets a handoff brief instead, carrying the same, and prints its `Read your brief first:` line: an agent "
-            "this session starts on it takes the job as this session's. A codex job takes the text under the heading naming its sender: held while a codex-ask run "
+            "this session starts on it takes the job as this session's. A builder no worker has started that waits its turn for a slot on this Mac holds the text for its first worker,"
+            " starting nothing, and the watch starts that worker as its turn comes, its brief carrying the text. A codex job takes the text under the heading naming its sender: held while a codex-ask run "
             "goes, which landing_guard hands that run at its next Bash call, the watch's launch carrying it once the job returns still open when the run ended first, else carried by a run started now."
         ),
     )
