@@ -38,6 +38,7 @@ REQUEST_CHARS = 10_000
 DECIDE_SECONDS = 20
 REFUSAL_SECONDS = 3
 REPEATS_ASKED = 30
+ALONE = r" (?:only|just) (?:the )?{component} | {component} (?:(?:stack|component|service) )?(?:alone|only) "
 
 
 class Noul(NamedTuple):
@@ -870,7 +871,7 @@ def unordered(answer: dict, release: str, data: dict) -> str | None:
 
 
 def ordered_by(answer: dict, release: str, flags: dict, matches: Callable[[dict, dict, str, str], str | None], data: dict) -> str | None:
-    """Why his answer does not order a release, its flags as shipped() reads them and the start Jev reads; None when it does. When the card his answer answers is kept, found through the link `drive answer` kept for it, and his leading option number or tap picks an option whose words name a release in backticks, code decides: his answer orders the release when matches, placed() or tests(), reads it shipping what one of those ships, placed() every flag the same but its places, `--from` and `--order`, and on staging alone under one on staging alone its targets, `--only` and how it starts, on no place beyond that option's but those his words past the number name, by env id or by the name or displayName its infra/envs file gives that place's team. A picked option naming no release in backticks orders, in code too, a release its words name whole, as named() reads it. Any other answer Jev reads in one request, his words beside that card and the places the release runs on with their stages, one Noul whether his words have that release run and one whether it ships more than they order: it orders the release at YES on the first and under NO on the second, either in the band between refusing it as unsure; Unheard when Jev gave no answer."""
+    """Why his answer does not order a release, its flags as shipped() reads them and the start Jev reads; None when it does. When the card his answer answers is kept, found by answered_card(), and his leading option number or tap picks an option whose words name a release in backticks, code decides: his answer orders the release when matches, placed() or tests(), reads it shipping what one of those ships, its `--only` left out by narrowed() where the card says those components ship alone, placed() every flag the same but its places, `--from` and `--order`, and on staging alone under one on staging alone its targets, `--only` and how it starts, on no place beyond that option's but those his words past the number name, by env id or by the name or displayName its infra/envs file gives that place's team. A picked option naming no release in backticks orders, in code too, a release its words name whole, as named() reads it. Any other answer Jev reads in one request, his words beside that card and the places the release runs on with their stages and the components its `--only` ships alone, by runs_on(), one Noul whether his words have that release run and one whether it ships more than they order: it orders the release at YES on the first and under NO on the second, either in the band between refusing it as unsure; Unheard when Jev gave no answer."""
     from drive import brief
 
     said = his(answer["body"])
@@ -881,7 +882,8 @@ def ordered_by(answer: dict, release: str, flags: dict, matches: Callable[[dict,
         option = asked.options[number - 1]
         words = f"{option}\n{asked.hints.get(option, '')}"
         if commands := brief.card_releases(words):
-            whys = [matches(flags, shipped(brief.started(command)[0]), rest, cwd) for command in commands]
+            carded = "\n".join([*asked.summary, words])
+            whys = [matches(narrowed(flags, ordered, carded), ordered, rest, cwd) for ordered in (shipped(brief.started(command)[0]) for command in commands)]
             if None in whys:
                 return None
             return f"it picks option {number} of the card it answers, {', '.join(f'`{command}`' for command in commands)}, {whys[0]}"
@@ -949,11 +951,13 @@ def only_asks(title: str, options: list[str], words: str) -> bool:
 
 
 def answered_card(data: dict, answer: dict) -> limits.Question | None:
-    """The card his answer answers, as `drive job ask` kept it: a question drawn on the card at the link `drive answer` kept for his answer, ended answered, whose ASK file stands, in this drive, else in each drive on this Mac its `drive:<name>` labels name, where `drive answer` recorded it, so an answer he gave on one drive's card reads the same in every drive; None when none does."""
+    """The card his answer answers, as `drive job ask` kept it: a question no newer question replaced, drawn on the card at the link `drive answer` kept for his answer or ended by his answer, as his tap on a card ends each question drawn there and keeps his answer's id on it, ended answered, whose ASK file stands, in this drive, else in each drive on this Mac its `drive:<name>` labels name, where `drive answer` recorded it, so an answer he gave on one drive's card reads the same in every drive; None when none does."""
     labelled = (name for tag in answer["tags"] if (name := tag.removeprefix("drive:")) not in (tag, data["name"]) and state.exists(name))
     for drive in chain([data], map(state.load, labelled)):
         link = (drive["answers"].get(answer["id"]) or {}).get("link")
-        files = [Path(question["file"]) for _, question in view.drawn_on(drive, link) if question["file"] and (question["closed"] or {}).get("how") == "answered"] if link else []
+        drawn = [question for _, question in view.drawn_on(drive, link)] if link else []
+        ended = [question for job in drive["jobs"].values() for question in job["questions"] if question["closed"] and answer["id"] in (question["closed"]["answer"], question["closed"]["noted"])]
+        files = [Path(question["file"]) for question in [*drawn, *ended] if question["file"] and not question["replaced"] and (question["closed"] or {}).get("how") == "answered"]
         if kept := next((file for file in files if file.is_file()), None):
             return limits.question_problems(limits.ask_block(kept.read_text()), kept=True)[0]
     return None
@@ -965,6 +969,16 @@ def picked_option(asked: limits.Question, said: str) -> tuple[int, str] | None:
         return int(number[1]), said[number.end() :]
     tapped = next((index for index, option in enumerate(asked.options, 1) if plain(option) == plain(said)), None)
     return (tapped, "") if tapped else None
+
+
+def narrowed(release: dict, option: dict, words: str) -> dict:
+    """A release as the card option's release it narrows: its `--only` left out when the option's release names none and the card's summary, option or description says each component that `--only` names ships alone, as "The hotfix ships the api alone" or "only the api" does, since go/ci then ships those components of what the option's release ships and nothing past them; else the release as it is."""
+    if "only" in option or "only" not in release:
+        return release
+    said = f" {plain(words)} "
+    if all(re.search(ALONE.format(component=re.escape(plain(component))), said) for component in release["only"]):
+        return {name: values for name, values in release.items() if name != "only"}
+    return release
 
 
 def placed(release: dict, option: dict, rest: str, cwd: str) -> str | None:
@@ -1052,9 +1066,10 @@ def off_production(release: dict, cwd: str) -> bool:
 
 
 def runs_on(release: dict, cwd: str) -> str:
-    """Where a release, as shipped() reads it, runs, as go/ci's release wizard says it: each place it names beside the stage its infra/envs file gives it, else production, every environment except staging, and each place its --without leaves out."""
+    """Where a release, as shipped() reads it, runs, as go/ci's release wizard says it: each place it names beside the stage its infra/envs file gives it, else production, every environment except staging, each place its --without leaves out, and the components its --only ships alone, so Jev's read of whether it ships more than his words order sees them."""
     places = ", ".join(f"{place} (stage {found})" if (found := stage(place, cwd)) else place for place in release.get("env", ())) or PRODUCTION
-    return f"{places}, leaving out {', '.join(release['without'])}" if release.get("without") else places
+    where = f"{places}, leaving out {', '.join(release['without'])}" if release.get("without") else places
+    return f"{where}, shipping only {', '.join(release['only'])}" if release.get("only") else where
 
 
 class Unheard(Exception):
