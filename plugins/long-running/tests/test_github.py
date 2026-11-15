@@ -93,10 +93,10 @@ def test_rule_reviews_reads_the_approvals_a_default_branchs_pull_request_rule_re
     ("settings", "allowed", "method"),
     [
         ((True, True, True), None, "squash"),
-        ((False, False, True), None, "rebase"),
-        ((False, True, False), ["SQUASH", "REBASE"], "squash"),
+        ((False, True, False), None, "rebase"),
+        ((True, False, False), ["SQUASH", "REBASE"], "squash"),
         ((True, True, True), ["REBASE", "MERGE"], "rebase"),
-        ((True, False, False), ["MERGE"], "merge"),
+        ((False, False, True), ["MERGE"], "merge"),
     ],
 )
 def test_merge_method_is_squash_else_rebase_else_merge_among_those_the_repository_and_every_pull_request_rule_allow(
