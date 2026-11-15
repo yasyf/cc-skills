@@ -1343,13 +1343,13 @@ def test_his_words_under_a_card_of_another_drive_holding_no_communicator_are_kep
         run("job", "add", "builder", "--order", "o1", "--goal", "build it", "--drive", "other")
         run("order", "add", "--title", "Other title", "--project", "Iris", "--workstream", "Run list", "ship the run list", "--drive", "other")
         run("job", "add", "builder", "--order", "o2", "--goal", "build the list", "--drive", "other")
-    cards = (("j1", "other:j1-7", CARD), ("j2", "other:j2-8", f"{CARD[:-2]}01"))
+    cards = (("j1", "other:j1-7", CARD, "Which ring?"), ("j2", "other:j2-8", f"{CARD[:-2]}01", "Which list?"))
     with state.edit("other") as data:
-        for job_id, wait, url in cards:
-            data["jobs"][job_id]["questions"].append(state.new_question(None, "Which ring?", state.stamp(), card=url) | {"waits": wait})
+        for job_id, wait, url, title in cards:
+            data["jobs"][job_id]["questions"].append(state.new_question(None, title, state.stamp(), card=url) | {"waits": wait})
     found = {
         "team_url": "",
-        "questions": [{"card": {"waits": wait, "title": "Which ring?", "body": "Ring or knock?", "options": ["Ring", "Knock"], "recommended": "Ring"}, "url": url, "question": "Which ring?", "options": ["Ring", "Knock"]} for _, wait, url in cards],
+        "questions": [{"card": {"waits": wait, "title": title, "body": "Ring or knock?", "options": ["Ring", "Knock"], "recommended": "Ring"}, "url": url, "question": title, "options": ["Ring", "Knock"]} for _, wait, url, title in cards],
         "closed": [],
         "pr_cards": [],
     }
@@ -1363,7 +1363,7 @@ def test_his_words_under_a_card_of_another_drive_holding_no_communicator_are_kep
     answer = {"kind": "answer", "text": "the lazy copy, no sweeper", "url": UNDER_CARD, "waits": "other:j1-7"}
     assert tools.run("record", demo, {"records": [answer]}).splitlines()[:2] == ["1 answer 51", '1 j1\'s question "Which ring?" ended answered by 51']
     rework = {"kind": "owner", "text": "no, keep the runs flat", "url": f"{CARD[:-2]}51?thread_ts=1794200000.000701", "thread_card": "other:j2-8", "about": "his work"}
-    assert tools.run("record", demo, {"records": [rework]}).splitlines()[:2] == ["1 owner 51", '1 j2\'s question "Which ring?" ended withdrawn by 51']
+    assert tools.run("record", demo, {"records": [rework]}).splitlines()[:2] == ["1 owner 51", '1 j2\'s question "Which list?" ended withdrawn by 51']
     assert [(argv[2:6], [record["to"] for record in records]) for argv, records in posted] == [(["--drive", "other", "--lane", "communicator"], [["root@other"]])] * 2
     jobs = state.load("other")["jobs"]
     assert [([question["closed"]["how"] for question in jobs[job_id]["questions"]], [kept["seq"] for kept in jobs[job_id]["undelivered"]]) for job_id in ("j1", "j2")] == [(["answered"], ["51"]), (["withdrawn"], [])]
