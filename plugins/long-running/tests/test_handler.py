@@ -149,6 +149,17 @@ def test_a_handler_claude_bg_could_not_start_leaves_nothing_behind_and_tells_the
     assert (data["handlers"], data["orders"], data["jobs"]) == ({}, {}, {})
 
 
+def test_a_handler_whose_start_raised_what_the_drive_did_not_expect_leaves_nothing_behind_and_tells_the_communicator_where(communicator: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    posted: list[list[str]] = []
+    monkeypatch.setattr(reads, "run", lambda argv, checkout, env=None: posted.append(argv) or "")
+    monkeypatch.setattr(agents, "releases", lambda name, data: {}["answers"])
+    code, out = run("handler", f"Record: 663488 Drive: demo Scratch: {tmp_path / 'h1'}")
+    assert (code, state.load("demo")["handlers"]) == (0, {})
+    [post] = posted
+    assert post[-1].startswith(f"BLOCKED handler {out.removeprefix('started ')} did not start: KeyError at agents.py:")
+    assert " in start_handler: 'answers'; its brief is kept in " in post[-1]
+
+
 def test_a_handler_is_keyed_at_launch_by_the_session_of_the_job_claude_bg_prints_and_a_launch_naming_no_job_claude_code_keeps_leaves_nothing_behind(
     communicator: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

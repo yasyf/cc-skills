@@ -11097,6 +11097,29 @@ def test_the_watch_starts_a_handler_on_each_post_report_to_the_communicator_once
     assert ([argv[-1].split()[1] for argv in ran][3:], json.loads(ran[-1][ran[-1].index("--settings") + 1])["env"]["CCI_PARENT_SESSION"]) == (["697200"], "communicator-session")
 
 
+def test_a_post_report_whose_handler_start_raised_what_the_drive_did_not_expect_stays_unread_with_no_handler_is_said_and_the_relay_starts_it_once_it_clears(
+    demo: str, monkeypatch: pytest.MonkeyPatch, posts_to_communicator: list[str]
+) -> None:
+    serve(monkeypatch, {})
+    unread: list[str] = []
+    monkeypatch.setattr(watch.agents, "unread", lambda name, seq: unread.append(seq))
+    monkeypatch.setattr(agents, "releases", lambda name, data: {}["answers"])
+    relaying = watcher(demo)
+    said = []
+    for seconds in (0, 2, 4):
+        posts_to_communicator += ["717769", "717816"]
+        said.append([line for line in watch.relay_pass(relaying, T0 + timedelta(seconds=seconds)) if "POST" in line])
+    [quiet, still, [line]] = said
+    assert (quiet, still, unread, state.load(demo)["handlers"]) == ([], [], ["717769"] * 3, {})
+    assert line.startswith("WATCH start of the POST reports' handlers failed 3 times in a row: the handler on POST report 717769 did not start: KeyError at agents.py:")
+    assert line.endswith(" in start_handler: 'answers'")
+    started: list[str] = []
+    monkeypatch.setattr(agents, "start_handler", lambda name, handler, prompt: started.append(prompt.split()[1]))
+    posts_to_communicator += ["717769", "717816"]
+    assert [line for line in watch.relay_pass(relaying, T0 + timedelta(seconds=6)) if "POST" in line] == []
+    assert (started, sorted(entry["holds"]["record"] for entry in state.load(demo)["handlers"].values()), relaying.failures.get("POST reports")) == (["717769", "717816"], ["717769", "717816"], None)
+
+
 def test_at_most_two_watchdog_agents_run_at_once_oldest_stall_first(demo: str, watchdogs: list[tuple[str, Path]]) -> None:
     released = {"j1": OTHER, "j2": "Forge-AI/monorepo#44", "j3": "Forge-AI/monorepo#45"}
     releases = {job_id: f"release:{service}:{released[job_id]}" for job_id, service in (("j1", "api"), ("j2", "web"), ("j3", "sand"))}

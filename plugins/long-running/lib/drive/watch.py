@@ -12,7 +12,6 @@ import signal
 import subprocess
 import threading
 import time
-import traceback
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -1525,7 +1524,7 @@ def relayed_lines(watcher: Watcher, relayer: subprocess.Popen, lines: int) -> No
 
 
 def relay(name: str, project: str | None, lines: int) -> int:
-    """Run the watch's relay, the process the watch starts: a relay pass every RELAY_SECONDS beside the watch's passes, each first moving this process onto the newest install, by install.reopen, so a lane's reads are answered by the code installed now however long a pass holds the watch on the install it started on, and no GitHub read, landing, Slack redraw or install a pass runs holds a lane's answer or the handler on a line promised him by a time. Each line it makes goes to the watch down the pipe end it inherited, for the watch's next pass to hand on; the SIGTERM the watch sends as it ends ends it once the pass or rest it is in ends, kept as a flag rather than an Event, which a handler setting it can deadlock on. It keeps a Watcher of its own, so a failed Orca read of its own never reruns the pass's 60-second block."""
+    """Run the watch's relay, the process the watch starts: a relay pass every RELAY_SECONDS beside the watch's passes, each first moving this process onto the newest install, by install.reopen, so a lane's reads are answered by the code installed now however long a pass holds the watch on the install it started on, and no GitHub read, landing, Slack redraw or install a pass runs holds a lane's answer, the handler on a line promised him by a time or the handler on a POST report. Each line it makes goes to the watch down the pipe end it inherited, for the watch's next pass to hand on; the SIGTERM the watch sends as it ends ends it once the pass or rest it is in ends, kept as a flag rather than an Event, which a handler setting it can deadlock on. It keeps a Watcher of its own, so a failed Orca read of its own never reruns the pass's 60-second block."""
     ended: list[int] = []
     signal.signal(signal.SIGTERM, lambda signum, frame: ended.append(signum))
     relaying = Watcher(name, offset=state.watch_cursor(name, project), project=project)
@@ -1539,7 +1538,7 @@ def relay(name: str, project: str | None, lines: int) -> int:
 
 
 def relay_pass(watcher: Watcher, moment: datetime) -> list[str]:
-    """Start a reader on each new read or `DRIVE` question a live lane asked, then send again each answer a reader kept that no reply took, by resend_lines, then take each ended codex-ask run, by codex_takes, then start the handler on each line promised him by a time this pass's own clock has passed, by due_lines. Its first pass, and one after a failed read, first has this process's Orca calls speak as the drive's own terminal; a failed read goes again next pass, said as the watch says its reads."""
+    """Start a reader on each new read or `DRIVE` question a live lane asked, then send again each answer a reader kept that no reply took, by resend_lines, then take each ended codex-ask run, by codex_takes, then start the handler on each line promised him by a time this pass's own clock has passed, by due_lines, and on each POST report to the communicator, by post_lines. Its first pass, and one after a failed read, first has this process's Orca calls speak as the drive's own terminal; a failed read goes again next pass, said as the watch says its reads."""
     lines = []
     try:
         if watcher.read_at is None:
@@ -1552,7 +1551,7 @@ def relay_pass(watcher: Watcher, moment: datetime) -> list[str]:
         watcher.failures.pop(NEWEST_MAIL, None)
     lines += resend_lines(watcher, moment)
     codex_takes(watcher)
-    return lines + due_lines(watcher, moment)
+    return lines + due_lines(watcher, moment) + post_lines(watcher, moment)
 
 
 def codex_takes(watcher: Watcher) -> None:
@@ -4067,7 +4066,7 @@ def passed(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
 
 
 def stages(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
-    """The lines of each stage of one loop of the watch, as it returns: first the lines its relay made since the last pass, so a pass that crashes while it reads every live lane's mail holds back none it already had, and new events, so a return `drive job report` took in another process is said in the pass its event wakes, then each part a job drive job add recorded not started leaves with no one, on every pass after the watch's first, so its ORPHAN comes on time whatever the length of a pass, then the drive's own Orca terminal every Orca call speaks as, his cards, the GitHub reads it owes, the staging test of each PR whose new head changes a dangerous class of file, his card on each kept question none drew yet, a lander on each PR his Approve covers that qualifies, the finish of each builder whose READY's PRs all merged, DONE at the merge of a product change or the proof of a yasyf/* one, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, where each merged PR a release wait or an incident fix names runs, each Buildkite build a wait names or a part follows that is newly held or a delivery of Buildkite's named, the status message of each build a part follows, the waits his answers, a job's end, that read or the Buildkite read release or hold again, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, each builder's PUSHED GitHub's read settles, agents, the chains of waits that stood unmoved, the texts jobs hold that no worker taking messages gets, the communicator's compaction, the status page, a coordinator whose process exited, a dashboard whose server exited, the receiver and each teammate thread an order watches every 60 s, his PR cards whose rows went stale, and GitHub again next poll after a failure, events written since, its own stages' among them, then the GitHub reads they and the rest owe while its last read answered, so a delivery is read in the pass it wakes, the catch-up owed him, the daily Slack sweep's drive tooling orders, claims whose end passed, the line owed in each thread whose order or incident has news, job clocks run out, his answers no resume has carried to their jobs, each answer order left nothing owed, fixes proven live whose bug report has not heard, the next pass of each standing part no job holds, parts nothing carries, and a handler on each POST report to the communicator. A stage that keeps working after its save joins the lines it made by then to the watcher's made lines itself."""
+    """The lines of each stage of one loop of the watch, as it returns: first the lines its relay made since the last pass, so a pass that crashes while it reads every live lane's mail holds back none it already had, and new events, so a return `drive job report` took in another process is said in the pass its event wakes, then each part a job drive job add recorded not started leaves with no one, on every pass after the watch's first, so its ORPHAN comes on time whatever the length of a pass, then the drive's own Orca terminal every Orca call speaks as, his cards, the GitHub reads it owes, the staging test of each PR whose new head changes a dangerous class of file, his card on each kept question none drew yet, a lander on each PR his Approve covers that qualifies, the finish of each builder whose READY's PRs all merged, DONE at the merge of a product change or the proof of a yasyf/* one, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, where each merged PR a release wait or an incident fix names runs, each Buildkite build a wait names or a part follows that is newly held or a delivery of Buildkite's named, the status message of each build a part follows, the waits his answers, a job's end, that read or the Buildkite read release or hold again, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, each builder's PUSHED GitHub's read settles, agents, the chains of waits that stood unmoved, the texts jobs hold that no worker taking messages gets, the communicator's compaction, the status page, a coordinator whose process exited, a dashboard whose server exited, the receiver and each teammate thread an order watches every 60 s, his PR cards whose rows went stale, and GitHub again next poll after a failure, events written since, its own stages' among them, then the GitHub reads they and the rest owe while its last read answered, so a delivery is read in the pass it wakes, the catch-up owed him, the daily Slack sweep's drive tooling orders, claims whose end passed, the line owed in each thread whose order or incident has news, job clocks run out, his answers no resume has carried to their jobs, each answer order left nothing owed, fixes proven live whose bug report has not heard, the next pass of each standing part no job holds, and parts nothing carries. A stage that keeps working after its save joins the lines it made by then to the watcher's made lines itself."""
     yield drained(watcher.relayed)
     yield event_lines(watcher)
     if watcher.read_at is not None:
@@ -4134,11 +4133,10 @@ def stages(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
     yield tell_lines(watcher, moment)
     yield standing_lines(watcher, moment)
     yield orphan_lines(watcher, moment)
-    yield post_lines(watcher, moment)
 
 
 def post_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Start the handler on each `POST` report to communicator@<drive>, whichever session wrote it, so the communicator starts none: the handler posts it in his DM and its line goes to the communicator, or on a drive whose roles hold none, as one started from a terminal holds none, to the coordinator. Each report is read once, through cci's cursor in a hold of the drive's POSTS_LOCK, which a stage of the watch starting its own report's handler and the handler tool starting one on a POST report read first too, so whichever reads a report first starts its one handler, however soon that handler ends; a handler that did not start sets the cursor back to its report, so the next poll starts it again."""
+    """Start the handler on each `POST` report to communicator@<drive>, whichever session wrote it, so the communicator starts none: the handler posts it in his DM and its line goes to the communicator, or on a drive whose roles hold none, as one started from a terminal holds none, to the coordinator. The relay runs it every RELAY_SECONDS, so a report waits on no pass, however long one reads GitHub or the lanes, nor on a pass an install ends before its last stage. Each report is read once, through cci's cursor in a hold of the drive's POSTS_LOCK, which a stage of the watch starting its own report's handler and the handler tool starting one on a POST report read first too, so whichever reads a report first starts its one handler, however soon that handler ends; a handler that did not start, whatever it raised, sets the cursor back to its report, so the next relay pass starts it again, and is said as a failed read is."""
     if watcher.project:
         return []
     try:
@@ -4541,10 +4539,7 @@ def ensure(name: str, project: str | None = None) -> str:
 
 def stopped(watcher: Watcher, error: Exception) -> None:
     """Say the watch stopped, naming its version and where the error was raised, the innermost frame of this package's code, so the line alone says which line to read."""
-    frame = next(frame for frame in reversed(traceback.extract_tb(error.__traceback__)) if Path(frame.filename).resolve().parent == Path(__file__).resolve().parent)
-    where = f"{type(error).__name__} at {Path(frame.filename).name}:{frame.lineno} in {frame.name}"
-    said = f"{where}: {cut(str(error), 200)}" if str(error) else where
-    line = f"WATCH stopped on long-running {state.VERSION}: {said}; its traceback is in {state.watch_log_path(watcher.name, watcher.project)}; its launch agent starts it again within {launchd.RESTART_SECONDS} seconds"
+    line = f"WATCH stopped on long-running {state.VERSION}: {render.raised(error)}; its traceback is in {state.watch_log_path(watcher.name, watcher.project)}; its launch agent starts it again within {launchd.RESTART_SECONDS} seconds"
     with contextlib.suppress(reads.ReadError):
         sent(watcher, watcher.lane, [line], state.now())
 
