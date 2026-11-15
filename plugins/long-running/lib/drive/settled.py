@@ -232,6 +232,11 @@ LEAVES = Noul(
     "Does `lines.{slot}`, a line of a builder's return, leave a piece of the work `goal` names unbuilt for later, to a follow-up PR, another job or builder or a later change, as a piece its PR leaves out under Against the plan does?",
     no="Each piece it names is built, ruled out or never asked for by his words, is left to this same job's next event, or is only a proof, check, review, merge, install or release still to run, or an idea beyond the plan.",
 )
+PUTS_OFF = Noul(
+    "Does `sections.{slot}.text`, the section of a PR body his card draws under `sections.{slot}.heading`, say that a step it reports, one its writer runs before the PR opens, such as the FDE impact scan, has not run and that its result comes later, once a build, tool, fix or someone else gets to it?",
+    yes='Such as "its report lands here once the first build of this head renders its contract" or "the scan runs once the tool is fixed".',
+    no="It reports the step's result, says why the step does not apply, or names only what runs after the PR opens, such as CI, CI's screenshots, review, a merge, install, release or proof, or a piece of the plan a follow-up builds, which Against the plan lists.",
+)
 NAMES_PIECE = Noul(
     "Does `parts.{part}`, work a job of its own builds, name the piece `lines.{slot}` leaves unbuilt, that piece itself in any wording?",
     no="It names a larger piece of work holding that piece, or another piece.",

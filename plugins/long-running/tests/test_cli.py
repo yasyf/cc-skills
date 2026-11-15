@@ -8173,6 +8173,29 @@ def test_pr_add_refuses_once_naming_its_unkinded_title_each_undrawn_picture_and_
     assert draws.keys == [["Forge-AI/monorepo#42"]]
 
 
+def test_pr_add_refuses_a_shown_section_jev_reads_as_putting_off_its_step_naming_the_fde_scan_route_and_adds_it_once_the_section_reports_the_scan(
+    run: Run, demo: str, on_github: dict, jev: Jev, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "promote the replica")
+    run("job", "add", "builder", "--order", "o1", "--goal", "promote it")
+    deferred = "`tools/ci fde-scan` refuses this head, so its report lands here once the first build of this head renders its contract."
+    on_github["body"] = CARD_BODY + f"\n## FDE impact\n{deferred}\n"
+    jev.breaks("puts_off", "s3")
+    assert cli.main(["pr", "add", PR, "--job", "j1", *LEAD]) == 2
+    assert capsys.readouterr().err.strip() == (
+        f'drive: Forge-AI/monorepo#42: refused, nothing added: its fde impact section says its step runs later: "{deferred}". A refused step runs in the same turn'
+        f" by the route around the refusal, here {cli.FDE_SCAN_ROUTE}, then its result goes in the section with gh pr edit 42 -R Forge-AI/monorepo --body-file <file>,"
+        " and the refusal is a defect you name, never a step left for later"
+    )
+    [read] = [asked for asked in jev.asked if "puts_off.s3" in asked["questions"]]
+    assert [section["heading"] for section in read["state"]["sections"].values()] == ["summary", "what you'll hate most", "fde impact"]
+    assert state.load("demo")["prs"] == {}
+    jev.ruled.clear()
+    on_github["body"] = CARD_BODY + "\n## FDE impact\n`drive fde-scan` found no Forge-FDE repository calling `promote` or `hand_over`.\n"
+    assert run("pr", "add", PR, "--job", "j1", *LEAD)[0] == 0
+    assert "Forge-AI/monorepo#42" in state.load("demo")["prs"]
+
+
 def test_pr_add_adds_a_body_whose_shown_sections_speak_of_him_as_he_or_his_with_a_note(run: Run, demo: str, on_github: dict, capsys: pytest.CaptureFixture[str]) -> None:
     run("order", "add", "--title", "Land it", "--project", "The drive", "--workstream", "Releases", "land it")
     run("job", "add", "builder", "--order", "o1", "--goal", "land it")
