@@ -104,7 +104,9 @@ the order's area, his words alone: a question he asked settles nothing, whatever
 but one saying only `none`, against the answers of his `ccn answer match` finds for that line with
 its floors, two of the line's rare words in an answer's question or three anywhere, so one shared
 word draws none, and refuses one that says no ruling of his covers, puts up for change or asks him
-again an item one of them orders or keeps, naming it. `exists:` names each table, column,
+again an item one of them orders or keeps, naming it, unless the line names by id his later answer
+that lifts that one, which it then marks superseded by the later once Jev reads the later replacing
+it. `exists:` names each table, column,
 store, file, process, mechanism, check, tool, code path, platform feature or Slack block that
 already does or holds part of what the order touches, in any language or storage, by `path:line`
 or link, found by searching for what it does as well as its names, since the design or build

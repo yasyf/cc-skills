@@ -89,6 +89,7 @@ LINE_WORDS = 5
 LIST_LINE = re.compile(r"^\s*(?:[-*•]\s+|\d+[.)]\s+|\|)(.*\w.*)$")
 TABLE_RULE = re.compile(r"^[\s|:-]*$")
 OVERRULED = 'the line "{line}" says no ruling of his covers, puts up for change or asks him again what his answer {id}, "{asked}"{link}{area}, orders or keeps: "{said}"'
+LIFTS = "name by id, on the line, his later answer that lifts it, which marks it superseded by that answer in cc-notes once Jev reads the later replacing it"
 UNREAD_LINES = "Jev gave no reading of its lines against his recorded answers, so it goes on unread: {failure}"
 OVERRULED_RULE = (
     "No line says no ruling of his covers, puts up for change or asks him again an item a recorded answer of his orders or keeps:"
@@ -242,6 +243,7 @@ JOB_ABOUT = Noul(
     no="They are about other work, such as another pass, a release, a pull request or a design.",
 )
 ANSWER_REF = re.compile(r"\b(?=[0-9a-f]*[0-9])(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b")
+PICK = re.compile(r"\b([0-9a-f]{7})[0-9a-f]*:")
 SPEAKS_TO_START = Noul(
     "Does release note `notes.{note}` speak to the release start `starts.{start}`, its rule binding a cut of the start's targets, or of a target the note says ships with them, on the places the start runs?",
     yes="It names a change such a cut must not carry, must carry first or must name as a hazard on his card, whatever commit the start cuts.",
@@ -401,8 +403,8 @@ def card_refusal(job_id: str, question: dict, file: Path) -> str | None:
     return None
 
 
-def recorded(name: str, title: str, words: str, labels: list[str], where: str, cwd: str) -> str:
-    """Record his answer on the drive in cc-notes, the question as its title as `titled` fits it, his words as its body with the whole question in its notes when its title is cut, and the drive's labels before these, superseding by it each answer of the drive's still standing under that same question, so his changed pick leaves one answer per question for ccn answer match to rank, and return its id; a standing answer cc-notes holds already under that title in those words, as a tap, a handler or an earlier call recorded it, is that answer, so its id comes back and nothing is added. A refusal names his words, the question and the card or message where he gave them."""
+def recorded(name: str, title: str, words: str, labels: list[str], where: str, cwd: str, lifts: Iterable[str] = ()) -> str:
+    """Record his answer on the drive in cc-notes, the question as its title as `titled` fits it, his words as its body with the whole question in its notes when its title is cut, and the drive's labels before these, superseding by it each answer of the drive's still standing under that same question, so his changed pick leaves one answer per question for ccn answer match to rank, and each answer of his the question's card asked him to lift, by `lifting` its unsettled mark, that `lift` reads his answer replacing, and return its id; a standing answer cc-notes holds already under that title in those words, as a tap, a handler or an earlier call recorded it, is that answer, so its id comes back and nothing is added. A refusal names his words, the question and the card or message where he gave them."""
     handle = titled(title)
     said = (plain(handle), plain(words))
     if kept := next((answer["id"] for answer in listed("scope:durable", cwd) if (plain(answer["title"]), plain(his(answer["body"]))) == said), None):
@@ -413,6 +415,7 @@ def recorded(name: str, title: str, words: str, labels: list[str], where: str, c
     answer_id = json.loads(ccn(add, body, cwd, f'could not record in cc-notes his answer "{cut(words, 80)}" to "{cut(title, 120)}" on {where}'))["id"]
     for pick in standing:
         supersede(pick, answer_id, cwd)
+    lift(answer_id, title, words, list(lifts), cwd)
     return answer_id
 
 
@@ -424,6 +427,41 @@ def retitled(answer: dict, title: str, cwd: str) -> str:
     edit = ["ccn", "answer", "edit", answer["id"], f"--title={handle}", *(["--body-file", "-"] if body != answer["body"] else [])]
     ccn(edit, body, cwd, f'could not reword the question of his answer {answer["id"][:7]} to "{cut(title, 120)}" in cc-notes')
     return handle
+
+
+def lifting(questions: Iterable[dict]) -> list[str]:
+    """The answers of his these questions' cards asked him to lift, by the id each `<id>: <why>` of an unsettled mark `drive job ask` kept opens on, once each."""
+    return list(dict.fromkeys(pick for question in questions if question["unsettled"] for pick in PICK.findall(question["unsettled"])))
+
+
+def lift(answer_id: str, asked: str, said: str, picks: list[str], cwd: str) -> None:
+    """Mark in cc-notes each of these answers of his, still standing, superseded by his answer `said` to `asked` when Jev reads it replacing that one, by `replacing` on that pair alone, at YES or more, so an answer he lifted on the card that asked him to lift it never binds again, while one he kept stands; no reading leaves each standing, said on stderr."""
+    older = [{"id": pick, "asked": answer["title"], "said": his(answer["body"])[:BODY_CHARS]} for pick in picks if "superseded_by" not in (answer := shown(pick, cwd)) and his(answer["body"])]
+    if not older:
+        return
+    try:
+        read = replacing(asked, said, older)
+    except Unheard as failure:
+        print(f"drive: Jev did not read whether his answer {answer_id[:7]} lifts {', '.join(entry['id'] for entry in older)}, which his card asked him to lift, so each stands: {failure}", file=sys.stderr)
+        return
+    for pick, sure in read.items():
+        if reading(sure):
+            supersede(pick, answer_id, cwd)
+
+
+def unlift(answer_id: str, picks: list[str], cwd: str) -> None:
+    """Take out of cc-notes each supersede of these answers of his by his answer, as `lift` wrote it, since his Undo takes that answer back, so each answer he had lifted on its card stands again."""
+    for pick in picks:
+        if answer_id in shown(pick, cwd).get("superseded_by", []):
+            ccn(["ccn", "answer", "supersede", pick, "--by", answer_id, "--clear"], "", cwd, f"could not mark his answer {pick} standing again once his Undo took back {answer_id[:7]}")
+
+
+def replacing(asked: str, said: str, older: list[dict]) -> dict[str, float]:
+    """How sure Jev is that his answer `said` to `asked` replaces each of these older answers of his, by its id, its `asked` and `said` beside it, each pair its own REPLACES Noul, in as many requests as `batched` needs; Unheard when Jev gives no reading."""
+    slots = {entry["id"]: f"w{number}" for number, entry in enumerate(older, 1)}
+    items = (({"words": {slots[entry["id"]]: {"asked": entry["asked"], "said": entry["said"]}}}, {f"replaces.{entry['id']}": asking(REPLACES, slot=slots[entry["id"]])}) for entry in older)
+    read = jev_all(batched({"answer": {"asked": asked, "said": said}, "words": {}}, {}, items))
+    return {key.partition(".")[2]: sure for key, sure in read.items()}
 
 
 def titled(question: str) -> str:
@@ -443,7 +481,7 @@ def note_cards(name: str) -> None:
         return
     cwd = data["roles"]["coordinator"]["cwd"]
     noted = [
-        (job_id, question, recorded(name, question["title"], closed["words"], [], closed["link"] or question["card"] or (f"his card {question['waits']}" if question["waits"] else f"record {closed['seq']}"), cwd))
+        (job_id, question, recorded(name, question["title"], closed["words"], [], closed["link"] or question["card"] or (f"his card {question['waits']}" if question["waits"] else f"record {closed['seq']}"), cwd, lifting([question])))
         for job_id, job in data["jobs"].items()
         for question in job["questions"]
         if (closed := question["closed"]) and closed["how"] == "answered" and closed["words"] and not (closed["answer"] or closed["ruling"] or closed["noted"]) and (question["card"] or question["waits"] or closed["seq"])
@@ -720,8 +758,24 @@ def line_read(lined: Sequence[tuple[str, list[dict]]]) -> list[tuple[str, dict, 
 
 
 def overruled(lines: list[str], data: dict) -> list[tuple[str, dict]]:
-    """Each of these lines `line_read` reads at YES or more, against the recorded answers of his `line_answers` finds for it floored, as saying no ruling of his covers, putting up for change or asking him again an item that answer, given before it, orders or keeps, beside that answer; Unheard when Jev gives no reading. A line whose words after its first colon, or whole words when it has none, are only none, as a bare `open: none` or a `none` list item, names no item to go against, so it reaches neither ccn nor Jev, which would otherwise read it against whatever answer its key word ranks first."""
-    return [(line, answer) for line, answer, sure in line_read(line_answers([line for line in lines if not none_only(line.partition(":")[2] or line)], data, floored=True)) if reading(sure)]
+    """Each of these lines `line_read` reads at YES or more, against the recorded answers of his `line_answers` finds for it floored, as saying no ruling of his covers, putting up for change or asking him again an item that answer, given before it, orders or keeps, beside that answer, but a line naming by id a later answer of his that lifts that one, by `lifted_in`; Unheard when Jev gives no reading. A line whose words after its first colon, or whole words when it has none, are only none, as a bare `open: none` or a `none` list item, names no item to go against, so it reaches neither ccn nor Jev, which would otherwise read it against whatever answer its key word ranks first."""
+    return [(line, answer) for line, answer, sure in line_read(line_answers([line for line in lines if not none_only(line.partition(":")[2] or line)], data, floored=True)) if reading(sure) and not lifted_in(line, answer, data)]
+
+
+def lifted_in(line: str, answer: dict, data: dict) -> bool:
+    """Whether the line names by id a later answer of his, still standing, that Jev reads replacing this older one, by `replacing` on that pair alone, at YES or more, which then marks the older superseded by it in cc-notes, so no brief or judge binds it again and the line keeps his newer words; a line naming no other id reads nothing; Unheard when Jev gives no reading."""
+    if not (typed := [each for each in dict.fromkeys(ANSWER_REF.findall(line)) if each[:7] != answer["id"][:7]]):
+        return False
+    cwd = data["roles"]["coordinator"]["cwd"]
+    named = [found for each in typed if (found := answer_named(each, cwd)) and "superseded_by" not in found and his(found["body"])]
+    if not named:
+        return False
+    given = state.parse_time(shown(answer["id"], cwd)["created_at"])
+    for newer in named:
+        if state.parse_time(newer["created_at"]) > given and reading(replacing(newer["title"], his(newer["body"])[:BODY_CHARS], [answer]).get(answer["id"])):
+            supersede(answer["id"], newer["id"], cwd)
+            return True
+    return False
 
 
 def overruling(picks: list[tuple[str, dict]]) -> str:

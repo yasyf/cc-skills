@@ -98,7 +98,7 @@ def overruled_handoffs(drive: dict, records: list[dict]) -> tuple[str | None, li
     if not picks:
         return None, []
     found = settled.overruling(picks)
-    return agents.Ruled(f"refused: as Jev reads it, {found}. His words stand until he lifts them: keep each item as his answer orders, saying so, or leave it out", settled.OVERRULED_RULE, found=found), []
+    return agents.Ruled(f"refused: as Jev reads it, {found}. His words stand until he lifts them: keep each item as his answer orders, saying so, {settled.LIFTS}, or leave it out", settled.OVERRULED_RULE, found=found), []
 
 
 def readdressed(drives: dict[str, dict], session: str | None, record: dict) -> dict:

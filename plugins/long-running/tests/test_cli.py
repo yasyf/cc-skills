@@ -51,6 +51,8 @@ PLACEHOLDER = re.compile(r"<[^<>`]*>|\"[^\"]*\"|…|\[|\]|\.\.\.")
 PR = "https://github.com/Forge-AI/monorepo/pull/42"
 ASKED = "Why do we have text and file pointers?"
 REUSE = "just reuse the blob pointer"
+LOCK_KEPT = {"id": f"3537819{'0' * 33}", "title": "How should a drive verb keep its worker's receipt mid-verb?", "body": "One install per verb: each verb holds a shared flock\nNotes: his tap", "tags": ["scope:durable"], "created_at": "2026-11-12T10:50:12Z"}
+LOCK_DELETED = {"id": f"e8d49f1{'0' * 33}", "title": "Should drive delete the install lock?", "body": "Delete the install lock: no verb waits on another install", "tags": ["scope:durable"], "created_at": "2026-11-14T12:29:51Z"}
 FAKE_SELECT = """#!/bin/sh
 [ "$1 $2 $3" = "release select --pr" ] || exit 64
 cat >"{request}"
@@ -4402,6 +4404,7 @@ def test_job_report_refuses_a_readers_line_jev_reads_as_putting_up_for_change_wh
     code, err = keep(monkeypatch, capsys, "j1", returned)
     assert (code, err.startswith(f'drive: j1: refused, nothing kept: as Jev reads it, the line "{undoing}" says no ruling of his covers')) == (2, True)
     assert f'his answer {CAP_RULING["id"]}, "{CAP_RULING["asked"]}", ruling on card:card-cloud-tree-cap, drive-tooling, orders or keeps: "{CAP_RULING["said"]}"' in err
+    assert f"citing its id as standing, {settled.LIFTS}, or put it to him as a card asking him to lift it" in " ".join(err.split())
     assert state.returns("demo", "j1") == []
     [asked] = [request for request in jev.asked if any(key.startswith(settled.LINE_KEY) for key in request["questions"])]
     lines = ["rulings: none on the copy path", undoing, "build: one store_copy_at call per stalled store"]
@@ -4513,6 +4516,55 @@ def test_his_answer_supersedes_each_answer_of_the_drives_still_standing_under_th
     assert settled.recorded("demo", "Bell or knocker?", "Knocker", [], DESIGN_CARD, "/") == "knocker"
     assert [argv[2:] for argv in calls[1:]] == [["supersede", "spaced", "--by", "knocker"], ["supersede", "bell", "--by", "knocker"]]
     assert calls[0][2:4] == ["add", "--title=Bell or knocker?"]
+
+
+
+def test_his_answer_to_a_card_asking_him_to_lift_an_answer_supersedes_it_in_cc_notes_only_when_jev_reads_his_answer_replacing_it(
+    monkeypatch: pytest.MonkeyPatch, recorded: Answers, jev: Jev, capsys: pytest.CaptureFixture[str]
+) -> None:
+    calls: list[list[str]] = []
+    monkeypatch.setattr(settled, "ccn", lambda argv, text, cwd, failure: calls.append(argv) or json.dumps({"id": LOCK_DELETED["id"]}))
+    monkeypatch.setattr(settled, "recorded", SETTLED_RECORDED)
+    recorded.shown = {"3537819": LOCK_KEPT, "b6135be": {"id": f"b6135be{'0' * 33}", "title": "Old lock?", "body": "One install per verb", "tags": [], "superseded_by": [LOCK_KEPT["id"]]}}
+    jev.breaks("replaces", "3537819")
+    assert settled.recorded("demo", LOCK_DELETED["title"], settled.his(LOCK_DELETED["body"]), [], DESIGN_CARD, "/", ["3537819", "b6135be"]) == LOCK_DELETED["id"]
+    assert [argv[2:] for argv in calls if argv[2] == "supersede"] == [["supersede", "3537819", "--by", LOCK_DELETED["id"]]]
+    [read] = [asked for asked in jev.asked if "replaces.3537819" in asked["questions"]]
+    assert read["state"] == {"answer": {"asked": LOCK_DELETED["title"], "said": settled.his(LOCK_DELETED["body"])}, "words": {"w1": {"asked": LOCK_KEPT["title"], "said": settled.his(LOCK_KEPT["body"])}}}
+    assert read["questions"] == {"replaces.3537819": settled.asking(settled.REPLACES, slot="w1")}
+    calls.clear()
+    jev.ruled.clear()
+    settled.recorded("demo", LOCK_DELETED["title"], "Keep the install lock", [], DESIGN_CARD, "/", ["3537819"])
+    jev.answer = None
+    settled.recorded("demo", LOCK_DELETED["title"], "Delete it", [], DESIGN_CARD, "/", ["3537819"])
+    assert ([argv[2] for argv in calls], "so each stands: " in capsys.readouterr().err) == (["add", "add"], True)
+
+
+def test_a_line_naming_his_later_answer_that_lifts_the_one_it_goes_against_passes_once_jev_reads_it_replacing_that_one_which_it_marks_superseded(monkeypatch: pytest.MonkeyPatch, recorded: Answers, jev: Jev) -> None:
+    older = {"id": "3537819", "asked": LOCK_KEPT["title"], "said": settled.his(LOCK_KEPT["body"]), "link": None, "area": []}
+    recorded.lined = [older]
+    recorded.shown = {"3537819": LOCK_KEPT, "e8d49f1": LOCK_DELETED, "c0ffee1": {"id": f"c0ffee1{'0' * 33}", "title": "Lock or none?", "body": "Lock", "tags": [], "created_at": "2026-11-01T00:00:00Z"}}
+    superseding: list[tuple[str, str]] = []
+    monkeypatch.setattr(settled, "supersede", lambda pick, answer_id, cwd: superseding.append((pick, answer_id)))
+    lifted = "build: none: 3537819's shared flock, which his later e8d49f1 lifted"
+    jev.breaks(f"{settled.LINE_KEY}1", "3537819")
+    data = {"roles": {"coordinator": {"cwd": "/"}}}
+    assert (settled.overruled([lifted], data), superseding) == ([(lifted, older)], [])
+    jev.breaks("replaces", "3537819")
+    assert (settled.overruled([lifted], data), superseding) == ([], [("3537819", LOCK_DELETED["id"])])
+    superseding.clear()
+    asked = len(jev.asked)
+    earlier = "build: none: 3537819's shared flock, which his c0ffee1 lifted"
+    assert (settled.overruled([earlier], data), superseding) == ([(earlier, older)], [])
+    assert not any("replaces.3537819" in request["questions"] for request in jev.asked[asked:])
+
+
+def test_his_undo_takes_back_only_the_supersede_his_undone_answer_wrote_on_an_answer_his_card_asked_him_to_lift(monkeypatch: pytest.MonkeyPatch, recorded: Answers) -> None:
+    calls: list[list[str]] = []
+    monkeypatch.setattr(settled, "ccn", lambda argv, text, cwd, failure: calls.append(argv) or "{}")
+    recorded.shown = {"3537819": LOCK_KEPT | {"superseded_by": [LOCK_DELETED["id"]]}, "b6135be": {"id": f"b6135be{'0' * 33}", "title": "Old lock?", "body": "Lock", "tags": [], "superseded_by": [LOCK_KEPT["id"]]}}
+    settled.unlift(LOCK_DELETED["id"], ["3537819", "b6135be"], "/")
+    assert [argv[2:] for argv in calls] == [["supersede", "3537819", "--by", LOCK_DELETED["id"], "--clear"]]
 
 
 def test_job_ask_and_its_check_print_his_recorded_answer_jev_reads_as_already_answering_the_card_with_where_he_gave_it_and_both_ways_on_refusing_nothing(

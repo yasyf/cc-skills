@@ -693,7 +693,7 @@ def overruled_post(drive: dict, written: str) -> str | None:
         return None
     found = settled.overruling(picks)
     return agents.Ruled(
-        f"refused: as Jev reads it, {found}. His words stand until he lifts them: keep each item as his answer orders, saying so, or leave it out",
+        f"refused: as Jev reads it, {found}. His words stand until he lifts them: keep each item as his answer orders, saying so, {settled.LIFTS}, or leave it out",
         settled.OVERRULED_RULE,
         found=found,
     )

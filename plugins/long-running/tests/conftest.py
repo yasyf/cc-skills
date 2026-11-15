@@ -1209,7 +1209,7 @@ def backfilled(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 @pytest.fixture(autouse=True)
 def noted(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str, str]]:
     records: list[tuple[str, str, str]] = []
-    monkeypatch.setattr(settled, "recorded", lambda name, title, words, labels, where, cwd: records.append((name, title, words)) or f"{len(records)}c0ffee{'0' * 33}")
+    monkeypatch.setattr(settled, "recorded", lambda name, title, words, labels, where, cwd, lifts=(): records.append((name, title, words)) or f"{len(records)}c0ffee{'0' * 33}")
     return records
 
 

@@ -15,7 +15,6 @@ OTHERS_STAND = 3
 SUBJECT_TERMS = 3
 GENERIC_TITLES = 10
 MOVED_ON = "Withdrawn: the work that asked this went on without it · a new card asks again if it still needs your pick"
-PICK = re.compile(r"\b([0-9a-f]{7})[0-9a-f]*:")
 FRESH_STATES = ("built", "done")
 GIVEN_TEXT = re.compile(r"(j\d+)(?:-\d+(?:\.resume)?|\.handoff|\.sent-[\w-]+)?\.md")
 QUOTES = str.maketrans("‘’“”", "''\"\"")
@@ -168,7 +167,7 @@ def tooling_only(data: dict, kept: dict, asked: dict[str, dict]) -> None:
 
 def binding(data: dict, link: str, asked: dict[str, dict], cwd: str) -> dict[str, list[str]]:
     """Each open order bound by a pick of his that a question his message answers asked him to lift, as `drive job ask` keeps its unsettled mark `<id>: <why>`, with the picks binding it: an order whose card, part, PR or waiting job the pick's own drive answer listed, one whose job's question the pick ended, and one whose card, part, PR or own key the pick's cc-notes answer names, as `named` reads his words. A pick ccn cannot read binds only by the drive's records."""
-    picks = sorted({pick for job in data["jobs"].values() for question in job["questions"] if question["unsettled"] and ended_at(link, question) for pick in PICK.findall(question["unsettled"])})
+    picks = sorted(settled.lifting(question for job in data["jobs"].values() for question in job["questions"] if ended_at(link, question)))
     bound: dict[str, list[str]] = {}
     for pick in picks:
         for order_id in sorted(held_by(data, pick, asked) | noted(pick, asked, cwd)):
@@ -384,7 +383,7 @@ def supersede_taps(name: str, ended: list[tuple[str, dict]]) -> list[str]:
         tapped = closed["replaces"]
         try:
             if (by := closed["answer"] or closed["noted"]) is None:
-                by = settled.recorded(name, question["title"], closed["words"], [], closed["link"], cwd)
+                by = settled.recorded(name, question["title"], closed["words"], [], closed["link"], cwd, settled.lifting([question]))
                 with state.edit(name) as data:
                     state.question_in(data["jobs"][job_id], question)["closed"]["noted"] = by
             settled.supersede(tapped["noted"], by, cwd)

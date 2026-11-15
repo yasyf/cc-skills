@@ -949,7 +949,7 @@ def overruled_refusal(data: dict, job: dict, text: str) -> str | None:
         return None
     return (
         f"as Jev reads it, {settled.overruling(picks)}. His words stand until he lifts them: keep each item as his answer orders,"
-        " citing its id as standing, or put it to him as a card asking him to lift it"
+        f" citing its id as standing, {settled.LIFTS}, or put it to him as a card asking him to lift it"
     )
 
 
