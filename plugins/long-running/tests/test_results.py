@@ -262,7 +262,7 @@ def test_a_codex_jobs_launch_files_a_coordinators_text_under_from_the_coordinato
     assert (folder / "question").read_text() == f"{brief}His answers since:\n- {ring}\nFrom the coordinator since:\n- {logs}\n"
 
 
-def test_a_codex_reply_waiting_on_lost_logs_that_names_only_merged_prs_is_taken_blocked_never_waiting_on_them_as_j3122s_was(
+def test_a_codex_reply_waiting_on_lost_logs_that_names_only_merged_prs_runs_codex_again_never_waiting_on_them_as_j3122s_did(
     demo: str, run: Run, tmp_path: Path, codex_ask: CodexAsk
 ) -> None:
     codex_job(run)
@@ -273,8 +273,8 @@ def test_a_codex_reply_waiting_on_lost_logs_that_names_only_merged_prs_is_taken_
     folder = launched(demo, run, tmp_path)
     codex_ask.end(folder, "completed", codex_reply("WAITING", f"the CI logs of {state.pr_url(keys[0])} are lost", f"It cites {state.pr_url(keys[1])}, merged too."))
     job = watched(demo)
-    refused = "BLOCKED codex-ask completed, its reply refused: its WAITING names nothing the watch frees it on"
-    assert (job["state"], job["waits"], job["said"].startswith(refused)) == ("failed", [], True)
+    refused = f"{codex.RETRIED}its WAITING names nothing the watch frees it on"
+    assert (job["state"], job["waits"], job["said"].startswith(refused)) == ("waiting", [], True)
 
 
 def test_a_codex_jobs_run_carries_its_job_and_codex_runs_landing_guard_on_its_bash_calls_trusted_in_its_config(demo: str, run: Run, tmp_path: Path, codex_ask: CodexAsk) -> None:
@@ -362,8 +362,8 @@ def test_an_incidents_codex_job_launches_on_codex_asks_fast_tier_once_its_brief_
             "completed",
             "REPLY_FILE: /scratch/j3010/keyed-pages/reply.txt\nSLUG: sandsql\n",
             "",
-            "failed",
-            "BLOCKED codex-ask completed, its reply refused: it is not the JSON its schema requires, a state, line and report",
+            "waiting",
+            f"{codex.RETRIED}it is not the JSON its schema requires, a state, line and report",
         ),
         ("completed", codex_reply("BLOCKED", "codex edits, Claude ships"), "", "failed", "BLOCKED codex edits, Claude ships"),
         ("completed", codex_reply("ASK", "Should the fix drop the column?"), "", "waiting", None),
@@ -391,11 +391,11 @@ def test_a_codex_jobs_state_comes_from_the_state_field_of_the_run_its_launch_sta
 @pytest.mark.parametrize(
     ("report", "taken", "joins"),
     [
-        ("", "failed", None),
+        ("", "waiting", None),
         ("**FIX:** o2", "done", "o1"),
     ],
 )
-def test_a_codex_cause_reply_naming_no_fix_is_taken_blocked_and_one_naming_it_reads_that_order_live(
+def test_a_codex_cause_reply_naming_no_fix_runs_codex_again_and_one_naming_it_reads_that_order_live(
     demo: str, run: Run, codex_ask: CodexAsk, report: str, taken: str, joins: str | None
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "SandSQL mint endpoint failing", "--incident", "--parts", "fix", "cause")
@@ -405,8 +405,42 @@ def test_a_codex_cause_reply_naming_no_fix_is_taken_blocked_and_one_naming_it_re
         state.start(data["jobs"]["j2"])
     job = watched(demo, "j2")
     assert (job["state"], state.load(demo)["orders"]["o2"]["joins"], state.report_text(demo, "j2").strip()) == (taken, joins, f"DONE the handover delays the mint\n{report}".strip())
-    if taken == "failed":
-        assert job["said"].startswith(f"BLOCKED codex-ask completed, its reply refused: j2 traces the cause of o1's live bug, so {state.FIX_RULE}"[:200])
+    if taken == "waiting":
+        assert job["said"].startswith(f"{codex.RETRIED}j2 traces the cause of o1's live bug, so {state.FIX_RULE}"[:200])
+
+
+@pytest.mark.parametrize(
+    ("answer", "taken", "said"),
+    [
+        ("CHECK: the mint waits 9 s on the handover", "failed", "BLOCKED codex-ask completed, its reply refused: j2 traces the cause of o1's live bug, so "),
+        ("CHECK: the mint waits 9 s on the handover\nFIX none", "done", "DONE the handover delays the mint"),
+    ],
+)
+def test_a_codex_reply_refused_for_its_missing_fix_line_runs_codex_once_more_carrying_the_refusal_and_the_reply_and_only_a_second_refusal_fails_it_as_j6344s_first_did(
+    demo: str, run: Run, tmp_path: Path, codex_ask: CodexAsk, answer: str, taken: str, said: str
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "SandSQL mint endpoint failing", "--incident", "--parts", "fix", "cause")
+    brief = tmp_path / "j2.brief.md"
+    brief.write_text(f"Order: SandSQL mint endpoint failing\nIncident: {state.INCIDENT_CHOICE['codex']}\nDrive: {demo}, order o1, job j2\n")
+    assert run("job", "launch", "j2", str(brief))[0] == 0
+    folder = Path(state.load(demo)["jobs"]["j2"]["codex_run"])
+    codex_ask.end(folder, "completed", codex_reply("DONE", "the handover delays the mint", "CHECK: the mint waits 9 s on the handover"))
+    job = watched(demo, "j2")
+    refused = f"j2 traces the cause of o1's live bug, so {state.FIX_RULE}"
+    [held] = job["undelivered"]
+    carried = f"{codex.REFUSED}{refused}\nYour refused reply:\nDONE the handover delays the mint\nCHECK: the mint waits 9 s on the handover"
+    assert (job["state"], job["waits"], job["said"], held["sender"], held["words"]) == ("waiting", [], f"{codex.RETRIED}{refused}"[: codex.SAID_CHARS], state.WATCH_SENDER, carried)
+    assert watch.carrier("j2", job, state.load(demo), None) == ["job", "launch", "j2"]
+    assert run("job", "launch", "j2")[0] == 0
+    assert ((folder / "question").read_text().endswith(f"From the watch since:\n- {carried}\n"), state.load(demo)["jobs"]["j2"]["undelivered"]) == (True, [])
+    codex_ask.end(folder, "completed", codex_reply("DONE", "the handover delays the mint", answer))
+    job = watched(demo, "j2")
+    assert (job["state"], job["said"].startswith(said), job["undelivered"], state.report_text(demo, "j2", every=False).splitlines()[:2]) == (
+        taken,
+        True,
+        [],
+        ["DONE the handover delays the mint", "CHECK: the mint waits 9 s on the handover"],
+    )
 
 
 def test_a_codex_done_keeps_its_proof_where_its_scratch_folder_holds_it_so_the_proof_still_reads_the_evidence_beside_it(demo: str, run: Run, codex_ask: CodexAsk) -> None:
@@ -434,29 +468,32 @@ def test_a_reply_file_pointer_reported_on_a_codex_job_sets_no_state(demo: str, r
     assert (job["state"], job["said"]) == ("running", None)
 
 
-def test_a_codex_done_on_a_surface_its_brief_names_user_stories_on_is_refused_whatever_it_names_naming_the_prover_that_runs_drive_job_prove(
-    demo: str, run: Run, tmp_path: Path, codex_ask: CodexAsk
+@pytest.mark.parametrize("kept", [True, False])
+def test_a_codex_done_on_a_surface_its_brief_names_user_stories_on_is_kept_for_drive_job_prove_once_it_keeps_a_proof_file_and_refused_without_one_as_j6348s_was(
+    demo: str, run: Run, tmp_path: Path, codex_ask: CodexAsk, kept: bool
 ) -> None:
     codex_job(run)
     proof = tmp_path / "proof.sh"
     proof.write_text("#!/bin/sh\n")
+    proof.chmod(0o755)
     shots = [tmp_path / f"story{number}.png" for number in (1, 2)]
     for shot in shots:
         shot.write_bytes(b"\0")
-    reply = codex_reply("DONE", "the queue redrawn", f"CHECK: {' '.join(map(str, shots))}")
+    reply = codex_reply("DONE", "the queue redrawn", "\n".join([f"CHECK: {' '.join(map(str, shots))}", *([f"REPRO: {proof}"] if kept else [])]))
     with state.edit(demo) as data:
         data["jobs"]["j1"] |= {
             "brief_flags": {"native": "the dashboard's queue", "interactions": "press j and the next card opens; hover a card and its title shows"},
-            "repro": str(proof),
             "codex_run": str(codex_ask.run("completed", reply)),
         }
         state.start(data["jobs"]["j1"])
     job = watched(demo)
-    assert job["state"] == "failed"
+    if kept:
+        assert (job["state"], job["said"], bool(job["repro"])) == ("done", "DONE the queue redrawn", True)
+        return
+    assert job["state"] == "waiting"
     assert job["said"] == (
-        "BLOCKED codex-ask completed, its reply refused: j1's brief names 2 user stories, which no DONE's words prove: a codex job runs no drive job prove,"
-        " so a builder added on its part with drive job add builder --builds-nothing keeps its proof file and runs drive job prove on itself, which reads"
-        f" in what it prints {brief.STORY_LINES}"
+        f"{codex.RETRIED}j1's brief names 2 user stories, which no DONE's words prove: a codex job's DONE names its proof file on a REPRO: line,"
+        f" which the watch's drive job prove runs, reading in what it prints {brief.STORY_LINES}"
     )[: codex.SAID_CHARS]
 
 

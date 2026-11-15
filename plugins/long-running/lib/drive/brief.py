@@ -1309,13 +1309,14 @@ def dead(named: list[str]) -> list[str]:
 
 
 def unproven(text: str, job_id: str, job: dict) -> str | None:
-    """Why a builder's or codex job's DONE may not be kept: for what he sees, by its NATIVE: line or its brief's Native, its brief names user stories, which only drive job prove proves, by story_gap on what its proof file prints, never a DONE's words, but on a staging test part, whose DONE is kept for drive job prove to prove, by staged_stories; a link its first line or a CHECK: line names does not open, since an incident's keeps that first line as its order's proof; its CHECK: line names no link and no file that exists and is not empty, as held reads it; or, for what he sees on a brief naming no user story, its CHECK: names nothing that shows it, as shows reads it."""
+    """Why a builder's or codex job's DONE may not be kept: for what he sees, by its NATIVE: line or its brief's Native, its brief names user stories, which only drive job prove proves, by story_gap on what its proof file prints, never a DONE's words, so a codex job's DONE is kept once it keeps a proof file, which the watch's drive job prove runs on it as on a builder's, but on a staging test part, whose DONE is kept for drive job prove to prove, by staged_stories; a link its first line or a CHECK: line names does not open, since an incident's keeps that first line as its order's proof; its CHECK: line names no link and no file that exists and is not empty, as held reads it; or, for what he sees on a brief naming no user story, its CHECK: names nothing that shows it, as shows reads it."""
     sees = reported_surface(text) or surface(job)
     told = stories((job.get("brief_flags") or {}).get("interactions"))
     if sees and told and not staged_stories(job):
+        if job["kind"] == "codex" and job.get("repro"):
+            return None
         prover = (
-            "a codex job runs no drive job prove, so a builder added on its part with drive job add builder --builds-nothing keeps its proof file and runs"
-            " drive job prove on itself, which reads"
+            "a codex job's DONE names its proof file on a REPRO: line, which the watch's drive job prove runs, reading"
             if job["kind"] == "codex"
             else "drive job prove proves them, running its proof file and reading"
         )
