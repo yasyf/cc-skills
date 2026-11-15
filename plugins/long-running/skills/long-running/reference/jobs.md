@@ -306,12 +306,13 @@ lane reads those, and Slack, through this Mac with a blocking question.
   live and queues each new read one asked, so no GitHub read, landing or install a pass runs holds it,
   and lane mail each minute queues any the newest 100 passed over. `drive job read`,
   which the relay starts as a process of its own, runs `cci`, `ccn` or the drive's own cc-slack launcher in
-  the directory the coordinator started the drive from, or reads the drive files, and the watch
-  replies with the output, a command's cut to 12,000 characters but for a `cc-slack thread` or
-  `history` read, which goes whole, once that reader ends, so a read that runs for minutes holds up no pass. The
-  reader keeps first the answer its own end leaves, then the one it finishes with, under its
-  question's message id, so a refused reply sends the same answer again and a read stopped mid-run
-  is answered as stopped, never run twice. A read that fails, such as a command off that list or a tool that exits
+  the directory the coordinator started the drive from, or reads the drive files, and replies with
+  the output the moment it ends, a command's cut to 12,000 characters but for a `cc-slack thread`
+  or `history` read, which goes whole, in one hold of the drive terminal's binding with every other
+  answer kept on that lane's Run, so a read that runs for minutes holds up no pass and no answer
+  waits for a pass. The reader keeps first the answer its own end leaves, then the one it finishes
+  with, under its question's message id, so the watch sends again an answer Orca refused, and a
+  read stopped mid-run is answered as stopped, never run twice. A read that fails, such as a command off that list or a tool that exits
   non-zero, replies with why and arrives as a `JOB <j> <o> READ unanswered` line.
 - A question that opens any other way, such as `READ: please send <file>`, is a `JOB` line for you
   to answer, its first line, whose record carries the whole question as its body, which cci's read

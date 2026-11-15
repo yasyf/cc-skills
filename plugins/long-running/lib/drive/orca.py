@@ -9,6 +9,7 @@ import signal
 import subprocess
 import tarfile
 import uuid
+from collections.abc import Iterator
 from pathlib import Path
 from typing import IO, NamedTuple
 
@@ -985,11 +986,18 @@ def keep_transcripts(drive: str, job_id: str, job: dict, dispatch: str) -> Path 
 
 
 def reply(drive: str, run: str, message_id: str, body: str, request: str | None = None) -> None:
-    """Answer a lane's question on its Run as the drive's own terminal, then mark the Run's unread mail handled, since Orca's reply leaves the question it answers unread and the watch reads mail by sequence, never by Orca's read mark; one that Orca refuses only leaves Orca's count high. Orca takes a coordinator's reply only on the one Run its terminal is bound to, which a launch or another reply moves; under a request id, a retry Orca already applied is replayed, never applied twice."""
+    """Answer a lane's question on its Run as the drive's own terminal; under a request id, a retry Orca already applied is replayed, never applied twice."""
+    with replying(drive, run):
+        call("reply", "--id", message_id, "--run", run, "--body", body, *retried(request))
+
+
+@contextlib.contextmanager
+def replying(drive: str, run: str) -> Iterator[None]:
+    """Hold the drive terminal's binding on the Run for every reply made inside, binding it once, then mark the Run's unread mail handled once, since Orca's reply leaves the question it answers unread and the watch reads mail by sequence, never by Orca's read mark; one that Orca refuses only leaves Orca's count high. Orca takes a coordinator's reply only on the one Run its terminal is bound to, which a launch or another reply moves."""
     speak_as_drive(drive)
     with state.binding(drive):
         call("run-use", "--id", run)
-        call("reply", "--id", message_id, "--run", run, "--body", body, *retried(request))
+        yield
         with contextlib.suppress(OrcaError):
             call("check", "--run", run)
 
