@@ -2657,6 +2657,18 @@ def test_a_text_held_on_a_lane_is_said_undelivered_ten_minutes_on_and_every_ten_
     assert watch.undelivered_lines(watching, T0 + timedelta(minutes=20)) == [line]
 
 
+def test_a_text_held_on_a_lane_whose_own_card_still_asks_him_is_never_said_undelivered_until_his_answer_ends_it(demo: str) -> None:
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(where="remote", dispatch="ctx_lane1", state="waiting", waits=["demo:j1-7"])
+        data["jobs"]["j1"]["questions"].append(state.new_question(None, "When may it drift?", state.stamp(T0), card=CARD) | {"waits": "demo:j1-7"})
+        data["jobs"]["j1"]["undelivered"] = [{"seq": "712192", "words": "Expand on 1 and 2", "at": state.stamp(T0), "said": None, "request": "req-held"}]
+    watching = watcher(demo)
+    assert watch.undelivered_lines(watching, T0 + timedelta(minutes=10)) == []
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["questions"][0]["closed"] = state.new_close("answered", "drift only in a window you pick", CARD, at=state.stamp(T0))
+    assert [line.split(":")[0] for line in watch.undelivered_lines(watching, T0 + timedelta(minutes=20))] == ["ANSWER undelivered j1"]
+
+
 def test_a_text_held_on_an_agent_on_this_mac_names_its_resume_and_none_is_said_on_a_builder_its_launch_carries_it_to(demo: str) -> None:
     held = [{"seq": "699075", "words": "drift only in a window you pick", "at": state.stamp(T0), "said": None, "request": "req-held"}]
     with state.edit(demo) as data:

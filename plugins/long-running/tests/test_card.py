@@ -886,10 +886,16 @@ def test_his_tap_on_a_jobs_newer_question_ends_the_older_one_it_decides_whose_ca
     ]
     assert answered == [(OLDER_CARD, "Ring", NEWER_CARD, False)]
     assert [answer["seq"] for answer in job["undelivered"]] == ["661500"]
+    with state.edit(drive) as data:
+        data["jobs"]["j5"] = state.new_job("o1", "builder", "the hinge", [], "2026-11-08T20:00:00-08:00") | {"undelivered": list(job["undelivered"])}
+        other_card = {**job["undelivered"][0], "seq": "661499", "words": f'His answer on card {drive}:j3-661000 ({OLDER_CARD}), verbatim: "Ring"'}
+        data["jobs"]["j6"] = state.new_job("o1", "builder", "the bell", [], "2026-11-08T20:00:00-08:00") | {"undelivered": [other_card]}
     ask({"answer": tap | {"undone": True, "action_ts": "1794200002.000100"}})
-    job = state.load(drive)["jobs"]["j3"]
+    jobs = state.load(drive)["jobs"]
+    job = jobs["j3"]
     assert [closes(question) for question in job["questions"]] == [("superseded", "Ring", NEWER_CARD, "661500", f"{drive}:j3-661440"), None]
     assert (job["undelivered"], [event["kind"] for event in events(drive)]) == ([], ["answered", "undone"])
+    assert (jobs["j5"]["undelivered"], jobs["j6"]["undelivered"]) == ([], [other_card])
 
 
 def test_a_tap_cc_slack_runs_again_after_its_card_command_was_cut_short_posts_its_one_record_keeps_his_answer_once_and_finishes_what_was_left(

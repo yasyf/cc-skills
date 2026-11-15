@@ -1742,9 +1742,11 @@ def job_ask(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     if args.check:
         text = limits.ask_block(named_text(args.check, "ASK block file"))
-        if not settled.answered(state.load(name), asked_title(text)):
-            with tempfile.TemporaryDirectory(prefix="drive-ask-check-") as scratch:
-                checked_ask(name, args.id, text, args.unsettled, args.redraws, Path(scratch))
+        if answer := settled.answered(state.load(name), asked_title(text)):
+            print(f"no card: he already answered this same question, asked in the same words, at {answered_at(answer)}, so drive job ask keeps it settled on his words, checking nothing and drawing no card")
+            return 0
+        with tempfile.TemporaryDirectory(prefix="drive-ask-check-") as scratch:
+            checked_ask(name, args.id, text, args.unsettled, args.redraws, Path(scratch))
         print("ready")
         return 0
     if args.answer and not args.drop:
@@ -5502,7 +5504,7 @@ def parser() -> argparse.ArgumentParser:
         help=(
             "only check the ASK block in this file, or - for stdin, by every check drive job ask <j> runs, its words counted as his"
             " card draws them, each {order:<o>} as the opening of his order's words, and print every fix it needs at once, or ready,"
-            " and Jev's read of it against his words before any card draws; keeps nothing"
+            " and Jev's read of it against his words before any card draws, or for a question he already answered in the same words that it draws no card; keeps nothing"
         ),
     )
     verb.add_argument(
