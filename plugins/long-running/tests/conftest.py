@@ -649,12 +649,13 @@ class Cci:
 class Withdrawals:
     cards: list[str] = field(default_factory=list)
     asked: list[tuple[str, str]] = field(default_factory=list)
+    vias: list[str] = field(default_factory=list)
 
 
 @pytest.fixture(autouse=True)
 def withdrawals(monkeypatch: pytest.MonkeyPatch) -> Withdrawals:
     withdrawn = Withdrawals()
-    monkeypatch.setattr(slack, "withdraw_pr_card", lambda url, reason: withdrawn.asked.append((url, reason)) or list(withdrawn.cards))
+    monkeypatch.setattr(slack, "withdraw_pr_card", lambda url, reason, via="": withdrawn.asked.append((url, reason)) or withdrawn.vias.append(via) or list(withdrawn.cards))
     return withdrawn
 
 

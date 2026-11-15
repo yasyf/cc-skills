@@ -123,8 +123,9 @@ def group_dm(person: str) -> str:
     return cc_slack("history", "--channel", person, "--limit", "1", "--json")["channel_id"]
 
 
-def withdraw_pr_card(url: str, reason: str) -> list[str]:
-    return cc_slack("withdraw-pr-card", "--pr", url, "--reason", reason)["withdrawn"]
+def withdraw_pr_card(url: str, reason: str, via: str = "") -> list[str]:
+    """Withdraw every open card carrying the PR, the reason linked to via, the permalink of his words it quotes, and redraw in place each card on it withdrawn under another reason; each card's permalink."""
+    return cc_slack("withdraw-pr-card", "--pr", url, "--reason", reason, *(("--via", via) if via else ()))["withdrawn"]
 
 
 def redraw_pr_cards(url: str) -> int:

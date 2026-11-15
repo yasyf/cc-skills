@@ -936,7 +936,7 @@ def test_load_keeps_his_answers_rework_on_the_head_it_reopened_as_a_rework_to_hi
     data["prs"][f"{MONOREPO}#4284"]["rework"] = {field: marked[field] for field in ("answer", "job", "why", "at")} | {"head": "older"}
     state.create(data)
     kept = state.load("demo")["prs"]
-    assert kept[f"{MONOREPO}#4289"]["rework"] == {"by": "a1", "words": "bind it as @parent", "at": state.stamp(REFERENCE)}
+    assert kept[f"{MONOREPO}#4289"]["rework"] == {"by": "a1", "words": "bind it as @parent", "at": state.stamp(REFERENCE), "link": ""}
     assert (kept[f"{MONOREPO}#4279"]["rework"], kept[f"{MONOREPO}#4284"]["rework"], any("verdict" in pr for pr in kept.values())) == (None, None, False)
 
 
@@ -981,7 +981,7 @@ def test_a_builders_ask_keeps_the_step_each_of_its_prs_owes_beside_its_open_card
     data = kept_prs()
     asked = state.new_question("/asks/j9.md", "Which pool runs the staging test?", state.stamp(REFERENCE), card="https://acme.slack.com/archives/D123/p1794300000000200") | {"waits": "demo:j9-1"}
     data["jobs"]["j9"] = state.new_job("o226", "builder", "fix", [], state.stamp(REFERENCE)) | {"prs": [state.pr_url(f"{MONOREPO}#4289")], "questions": [asked]}
-    state.rework(data["prs"][f"{MONOREPO}#4289"], "o227", "Test it on staging before it merges")
+    state.rework(data["prs"][f"{MONOREPO}#4289"], "o227", "Test it on staging before it merges", "https://acme.slack.com/archives/D123/p1794300000000600")
     state.take_result(data, "j9", "ASK /asks/j9.md")
     assert data["jobs"]["j9"]["waited"] == {"owed": {f"{MONOREPO}#4289": 'being reworked to his words "Test it on staging before it merges"'}, "waits": ["demo:j9-1"]}
     state.take_result(data, "j9", "PUSHED #4289")
@@ -1003,7 +1003,7 @@ def test_a_pr_reworked_to_his_words_owes_no_card_until_its_builders_ready_says_h
     data["jobs"] |= {job_id: state.new_job("o226", "builder", "fix", [], state.stamp(REFERENCE)) for job_id in ("j9", "j622")}
     pr = data["prs"][f"{MONOREPO}#4289"]
     pr["tap"] = {"label": "Approve", "at": state.stamp(REFERENCE), "head": "abc", "source": "slack", "picks": {}}
-    state.rework(pr, "o227", "Topology should be local metadata")
+    state.rework(pr, "o227", "Topology should be local metadata", "https://acme.slack.com/archives/D123/p1794300000000600")
     assert (bool(pr["rework"]), state.asks_tap(pr), pr["tap"]["label"]) == (True, False, "Approve")
     state.take_result(data, "j9", "READY #4289", "READY #4289\nPR: #4289\nCHANGE: topology moves to the session's meta table")
     assert (stage.carded(pr), pr["rework"], pr["tap"], state.asks_tap(pr)) == (True, None, None, True)
@@ -1022,7 +1022,7 @@ def test_load_drops_a_tap_standing_beside_a_fundamental_change_so_his_fresh_card
 
 def test_a_readers_ready_on_a_pr_reworked_to_his_words_leaves_it_reworking() -> None:
     data = kept_prs()
-    state.rework(data["prs"][f"{MONOREPO}#4289"], "o227", "Topology should be local metadata")
+    state.rework(data["prs"][f"{MONOREPO}#4289"], "o227", "Topology should be local metadata", "https://acme.slack.com/archives/D123/p1794300000000600")
     data["jobs"]["j740"] = state.new_job("o226", "reader", "READY-row check", [], state.stamp(REFERENCE))
     state.take_result(data, "j740", "READY #4289")
     assert data["prs"][f"{MONOREPO}#4289"]["rework"]["by"] == "o227"

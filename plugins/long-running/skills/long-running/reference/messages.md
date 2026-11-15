@@ -512,9 +512,11 @@ When it is answered, replaced or redone:
 - Once he answers, the card folds to its title, his pick and one line per PR. When an answer or ruling
   of his replaces the work it carries, `drive answer` settles it as it does a question card.
 - His words that rework a PR on it take the card down in the same call once the coordinator, having
-  read the stack's `## His words, step by step` against them, names the PR: `--rework <PR>` on
-  `drive order add`, `drive order set` or `drive job set --carries`, or `drive answer --reopened`, each
-  withdrawing it with his words as the reason. His order filed on its thread, or a job carrying one,
+  read the stack's `## His words, step by step` against them, names the PR and the permalink of
+  those words: `--rework <PR>=<his permalink>` on `drive order add`, `drive order set` or
+  `drive job set`, or `drive answer --reopened` with his answer's link, each withdrawing it with
+  the words read at that link as the reason, linked to them. A card already withdrawn under another
+  reason is redrawn in place with this one. His order filed on its thread, or a job carrying one,
   with no `--rework` names the card and leaves it up, since a stack can meet his words already. The
   PRs below the lowest reworked one go up on a card of their own, so a PR his answer leaves standing
   asks his tap at once, and his Approve on it never reaches a PR above it. No
