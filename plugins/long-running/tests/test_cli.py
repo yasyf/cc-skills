@@ -827,7 +827,7 @@ def test_a_part_wait_open_prs_of_another_job_outside_its_stack_share_is_refused_
     assert (data["prs"]["Forge-AI/monorepo#8"]["waits"], data["jobs"]["j2"]) == ([], before)
 
 
-def test_a_release_wait_on_a_service_the_prs_paths_never_reach_is_refused_naming_the_components_go_ci_finds_they_reach(
+def test_a_release_wait_on_a_service_the_prs_paths_never_reach_is_kept_with_a_note_naming_the_components_go_ci_finds_they_reach(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
@@ -846,26 +846,24 @@ def test_a_release_wait_on_a_service_the_prs_paths_never_reach_is_refused_naming
     monkeypatch.setattr(github, "checkout_repo", lambda cwd: "Forge-AI/monorepo" if cwd == str(clone) else pytest.fail(cwd))
     monkeypatch.setattr(orca, "checkout", lambda name, cwd: checkout)
     monkeypatch.setattr(github, "files", lambda key: ["go/sand/next/cmd/main.go"] if key == "Forge-AI/monorepo#7" else pytest.fail(key))
-    assert cli.main(["job", "set", "j1", "--waits", "release:executor:Forge-AI/monorepo#7"]) == 2
+    executor, staged = "release:executor:Forge-AI/monorepo#7", "release:runner-worker:Forge-AI/monorepo#7@plat-usw2-staging"
+    assert cli.main(["job", "set", "j1", "--waits", executor]) == 0
     reach = "`tools/ci release select --pr` lists the paths Forge-AI/monorepo#7 changes reaching cloudrunner-next, sand-next"
     assert (
-        f"--waits release:executor:Forge-AI/monorepo#7: executor's release never carries Forge-AI/monorepo#7, since {reach}; wait on the"
-        " release of the one that runs the change"
+        f"note, kept: {executor}: executor's release never carries Forge-AI/monorepo#7, since {reach}; wait on the release of the one that runs the change"
     ) in capsys.readouterr().err
-    assert json.loads(request.read_text()) == {"body": "", "paths": ["go/sand/next/cmd/main.go"]}
-    assert cli.main(["pr", "set", "https://github.com/Forge-AI/monorepo/pull/7", "--waits", "release:runner-worker:Forge-AI/monorepo#7"]) == 2
-    said = "release:runner-worker:Forge-AI/monorepo#7: runner-worker is no component go/ci releases, so no release ever carries Forge-AI/monorepo#7"
-    assert f"--waits {said}; {reach}" in capsys.readouterr().err
-    code, err = keep(monkeypatch, capsys, "j1", "WAITING release:executor:Forge-AI/monorepo#7 rides the next executor release\n")
-    assert (code, "j1: refused, nothing kept: release:executor:Forge-AI/monorepo#7: executor's release never carries" in err) == (2, True)
-    assert state.load("demo")["jobs"]["j1"]["waits"] == []
-    assert run("job", "set", "j1", "--waits", "release:cloudrunner-next:Forge-AI/monorepo#7")[0] == 0
+    assert (json.loads(request.read_text()), state.load("demo")["jobs"]["j1"]["waits"]) == ({"body": "", "paths": ["go/sand/next/cmd/main.go"]}, [executor])
+    assert cli.main(["pr", "set", "https://github.com/Forge-AI/monorepo/pull/7", "--waits", staged]) == 0
+    said = f"{staged}: runner-worker is no component go/ci releases, so no release ever carries Forge-AI/monorepo#7"
+    assert (f"note, kept: {said}; {reach}" in capsys.readouterr().err, state.load("demo")["prs"]["Forge-AI/monorepo#7"]["waits"]) == (True, [staged])
+    code, err = keep(monkeypatch, capsys, "j1", f"WAITING {executor} rides the next executor release\n")
+    assert (code, f"note, kept: {executor}: executor's release never carries" in err, executor in state.load("demo")["jobs"]["j1"]["waits"]) == (0, True, True)
     answer.write_text(json.dumps({"components": ["executor", "k8s"], "touched": []}))
     assert keep(monkeypatch, capsys, "j1", "WAITING release:k8s:Forge-AI/monorepo#7 rides the next k8s release\n") == (0, "")
-    assert state.load("demo")["jobs"]["j1"]["waits"] == ["release:cloudrunner-next:Forge-AI/monorepo#7", "release:k8s:Forge-AI/monorepo#7"]
     monkeypatch.setattr(github, "files", lambda key: ["go/sand/next/cmd/main_test.go", ".buildkite/pipeline.yml"])
-    assert cli.main(["job", "set", "j1", "--waits", "release:sand-next:Forge-AI/monorepo#7"]) == 2
-    assert "release:sand-next:Forge-AI/monorepo#7: Forge-AI/monorepo#7 changes only tests or CI config, which no release ships" in capsys.readouterr().err
+    assert cli.main(["job", "set", "j1", "--waits", "release:sand-next:Forge-AI/monorepo#7"]) == 0
+    assert "note, kept: release:sand-next:Forge-AI/monorepo#7: Forge-AI/monorepo#7 changes only tests or CI config, which no release ships" in capsys.readouterr().err
+    assert "release:sand-next:Forge-AI/monorepo#7" in state.load("demo")["jobs"]["j1"]["waits"]
 
 
 def test_order_set_due_says_it_stored_the_time_and_what_it_waits_on_or_why_it_stored_none(

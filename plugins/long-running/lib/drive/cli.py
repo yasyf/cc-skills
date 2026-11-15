@@ -2490,8 +2490,9 @@ def job_report(args: argparse.Namespace) -> int:
         if job["state"] == "stopped":
             state.keep_report(name, args.id, line, whole)
             return emit(args, f"{where}\n{args.id} stays stopped: this return sets nothing on it", {"id": args.id, "report": kept, "ask": None, "fixes": [], "builders": []})
-        if refused := brief.report_refusal(name, data, args.id, whole) or state.result_refusal(data, args.id, line, whole) or unreached(name, data, state.result_waits(data, args.id, line)):
+        if refused := brief.report_refusal(name, data, args.id, whole) or state.result_refusal(data, args.id, line, whole):
             raise DriveError(f"{args.id}: refused, nothing kept: {refused}")
+        unreached(name, data, state.result_waits(data, args.id, line))
         if job["kind"] == "builder" and state.REPORTED_LINE.match(line) and any(not served.named(cited) for cited in served.deciding(whole)):
             raise DriveError(f"{args.id}: refused, nothing kept: {served.NAMELESS}")
         try:
@@ -3836,7 +3837,7 @@ def correct_card(name: str, key: str, url: str, stored: str, unshown: str, shows
 
 
 def check_waits(name: str, waits: list[str]) -> dict | None:
-    """Refuse a wait that names nothing the drive can wait on, and give back his cards as last stored, which view.stored_waits reads each card's waits id from."""
+    """Refuse a wait that names nothing the drive can wait on, note each release wait whose service never carries its PR's change by unreached, and give back his cards as last stored, which view.stored_waits reads each card's waits id from."""
     from drive import view
 
     if not waits:
@@ -3861,37 +3862,39 @@ def check_waits(name: str, waits: list[str]) -> dict | None:
             raise DriveError(
                 f"--waits {wait}: name a job of this drive, the Slack link or waits id of a card of his still open, a question"
                 " card or a PR card still waiting on his tap, whose waits id is merge:<owner>:<repo>:<n>, a PR of this drive as"
-                " <owner>/<repo>#<n>, held until it merges, or release:<service>:<owner>/<repo>#<n>, held until the release of that service carrying"
-                " that PR is out, either one moving to the change of the job that opened the PR once it closes unmerged, or a Buildkite build by its link,"
+                " <owner>/<repo>#<n>, held until it merges, or release:<service>:<owner>/<repo>#<n>, or with @<env> for one env as tools/ci release live"
+                " names it, held until one cluster of that service, or that env, serves a commit holding the PR's merge, either one moving to the change"
+                " of the job that opened the PR once it closes unmerged, or a Buildkite build by its link,"
                 " https://buildkite.com/<org>/<pipeline>/builds/<n>, held until it finishes or stops at an approve step"
             )
-    if refused := unreached(name, data, waits):
-        raise DriveError(f"--waits {refused}")
+    unreached(name, data, waits)
     return found
 
 
-def unreached(name: str, data: dict, waits: list[str]) -> str | None:
-    """Why a release wait among waits names a service whose release never carries its PR's change, by release_reach: the PR changes only tests or CI config, which no release ships, the service is no component go/ci releases, or the paths reach components and the service is none of them. None for a PR release_reach reads nothing for, and for one whose paths reach no component by that map, such as one changing only shared Pulumi code, which go/ci reaches only through the rendered rows a Buildkite job reads."""
+def unreached(name: str, data: dict, waits: list[str]) -> None:
+    """Print a note for each release wait among waits naming a service whose release never carries its PR's change, by release_reach: the PR changes only tests or CI config, which no release ships, the service is no component go/ci releases, or the paths reach components and the service is none of them, or that the read failed. The wait is kept whatever the note says, since a release wait is a wake the job set, which the watch's out_because frees, never a gate. No note for a PR release_reach reads nothing for, nor for one whose paths reach no component by that map, such as one changing only shared Pulumi code, which go/ci reaches only through the rendered rows a Buildkite job reads."""
     releases = [found for wait in waits if (found := state.RELEASE_WAIT.fullmatch(wait))]
     if not releases:
-        return None
-    named = ", ".join(found[0] for found in releases)
+        return
     try:
         answers = release_reach(name, data, [found["pr"] for found in releases])
     except github.GithubError as error:
-        raise DriveError(f"could not read which components the paths each PR of {named} changes reach, so nothing was taken: {error}; run this again") from None
+        print(f"note, kept: could not read which components the paths each PR of {', '.join(found[0] for found in releases)} changes reach: {error}", file=sys.stderr)
+        return
     for found in releases:
         if not (answer := answers.get(found["pr"])):
             continue
         key, service = found["pr"], found["service"]
-        if answer.get("tested"):
-            return f"{found[0]}: {key} changes only tests or CI config, which no release ships, so its proof is its tests passing on dev at or after its merge"
         reach = f"`tools/ci release select --pr` lists the paths {key} changes reaching {', '.join(answer['touched']) or 'no component'}"
-        if service not in answer["components"]:
-            return f"{found[0]}: {service} is no component go/ci releases, so no release ever carries {key}; {reach}"
-        if answer["touched"] and service not in answer["touched"]:
-            return f"{found[0]}: {service}'s release never carries {key}, since {reach}; wait on the release of the one that runs the change"
-    return None
+        if answer.get("tested"):
+            said = f"{key} changes only tests or CI config, which no release ships, so its proof is its tests passing on dev at or after its merge"
+        elif service not in answer["components"]:
+            said = f"{service} is no component go/ci releases, so no release ever carries {key}; {reach}"
+        elif answer["touched"] and service not in answer["touched"]:
+            said = f"{service}'s release never carries {key}, since {reach}; wait on the release of the one that runs the change"
+        else:
+            continue
+        print(f"note, kept: {found[0]}: {said}", file=sys.stderr)
 
 
 def release_reach(name: str, data: dict, keys: list[str]) -> dict[str, dict]:
@@ -4841,17 +4844,18 @@ def parser() -> argparse.ArgumentParser:
             "a design card or PR card of his still open, by its Slack link or waits id, on drive job set alone, since a card holds a PR"
             " only by its question's Holds: line or the PR's DESIGN: line citing it, and drive pr set refuses one, a PR the drive tracks as <owner>/<repo>#<n>,"
             " a part of an open order still to be delivered as <order>:<part>, word for word, held until a builder or codex job on it returns DONE with no PR of its own unlanded, or a staging test part's DONE keeps its first CHECK: proof on it, never the DONE the watch takes at a merge,"
-            " release:<service>:<owner>/<repo>#<n>, the next release of that service carrying that PR, refused, naming the components"
-            " they reach, when go/ci's own map, tools/ci release select --pr, finds the PR's changed paths reach components and that"
-            " service is none of them or is no component at all, a process on this Mac that still runs as pid:<n>, stored pinned to the second it started,"
+            " release:<service>:<owner>/<repo>#<n>, or release:<service>:<owner>/<repo>#<n>@<env> for one env as tools/ci release live names it,"
+            " a wake the job sets once it reads release live, never a gate, kept with a note naming the components they reach when go/ci's own map,"
+            " tools/ci release select --pr, finds the PR's changed paths reach components and that service is none of them or is no component at all,"
+            " a process on this Mac that still runs as pid:<n>, stored pinned to the second it started,"
             " a Buildkite build by its link, https://buildkite.com/<org>/<pipeline>/builds/<n>, or a job of this drive still at work, of any kind, it waits on;"
             " repeat for each, a job's wait on a job stored as that job's newest open PR. The watch drops each as he answers or taps it, the PR merges, the job returns DONE, or, once it"
             " stops or fails, each part it carries is delivered, the process ends, crashed or finished, which starts a codex job's next codex-ask run carrying its last report,"
-            " every cluster tools/ci release live reads running that service,"
-            " production or not, one at least, serves the PR with no release running there, or the watch's Buildkite read, made as the build is first held"
+            " once the PR merged, one cluster tools/ci release live reads running that service, or the env the wait names, production or not, serves"
+            " a commit holding the merge, at once when release live cannot follow it, a PR outside Forge-AI/monorepo or a service or env no cluster runs,"
+            " the FREE line naming why, or the watch's Buildkite read, made as the build is first held"
             " and again on each delivery of Buildkite's to the receiver's /buildkite route naming it, finds the build passed, failed, canceled or stopped"
-            " at an approve step, and says FREE once when the last is gone, which wakes the"
-            " coordinator; a job keeps a release wait it was freed of until it finishes and says REWAIT once a cluster goes behind."
+            " at an approve step, and says FREE once when the last is gone, which wakes the coordinator."
             " On a PR it never withdraws his open card: the card is redrawn in place, Approve and Hold kept, to say what it waits on"
         ),
     )

@@ -496,8 +496,7 @@ the strip counts only open incidents and bug reports a reporter of which has not
 The watch sends step 8 itself once the incident's fix is live, read fresh each pass and never
 latched. Live means no job on a `fix` part of its orders still works, no PR of one is open, and
 each merged one, at least one, runs on every cluster of each component in the `releases` of
-`tools/ci release select --pr`, those its changed paths reach through reads off go/ci's `dev` list, production or not, with no release running there, one reaching
-none live at its merge. One `tools/ci release live --json` every five minutes reads them all, run
+`tools/ci release select --pr`, those its changed paths reach through reads off go/ci's `dev` list, production or not, one reaching none live at its merge. One `tools/ci release live --json` every five minutes reads them all, run
 in the drive's checkout, the `drive-<drive>` worktree the watch moves to the default branch's head
 before the read, as each lane's launch does, and that checkout's own history says which build
 carries each merge, a hotfix that cherry-picked it included. A
