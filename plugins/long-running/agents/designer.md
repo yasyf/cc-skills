@@ -295,7 +295,7 @@ Facts: <the path:line evidence for each load-bearing fact, for the builder>
 `Root cause:`, `Native:`, `Change:` and `Facts:` lines or its `Researched:` block's `rulings:`, `exists:` and `open:` lines, naming each one missing, an `exists:` entry citing no `path:line` or link or naming
 no change of its list, an `exists: none` naming no search or while another reader's or design's
 `exists:` line on the part names something, a design Jev reads as building less than his words or an answer of his name,
-or later, with no fork asking him, or as building a strategy before the abstraction it shares with
+or later, with no fork asking him, quoting the sentence of it Jev picks as doing so, or as building a strategy before the abstraction it shares with
 the others, and a
 `Change:` line past 80 characters or holding a backtick, double quote, `$` or backslash. Each
 `Change:` line of a design of several becomes a part of the order under its words before
