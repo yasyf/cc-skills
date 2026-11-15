@@ -1204,8 +1204,8 @@ def completed(argv: list[str], command: subprocess.Popen) -> subprocess.Complete
     return subprocess.CompletedProcess(argv, command.returncode, stdout, stderr)
 
 
-def answer(drive: str, job: dict, kept: dict) -> tuple[str, bool]:
-    """Reply to the lane's open question with the held text, or send it to its Dispatch under the subject state.sent_by gives its sender, His answer for his and From the coordinator for the coordinator's, when it asked nothing or Orca already holds another answer to that question, since the lane no longer waits on it, under the request id the text was held with, so a try Orca applied before its answer was lost is replayed; the send takes an id made from that one, since Orca refuses one id reused for another verb as request_mismatch. What came of it, and whether a Dispatch mailbox queues it until its worker reads it, as each send does and no answer its question took does."""
+def answer(drive: str, job: dict, kept: dict) -> tuple[str, str | None]:
+    """Reply to the lane's open question with the held text, or send it to its Dispatch under the subject state.sent_by gives its sender, His answer for his and From the coordinator for the coordinator's, when it asked nothing or Orca already holds another answer to that question, since the lane no longer waits on it, under the request id the text was held with, so a try Orca applied before its answer was lost is replayed; the send takes an id made from that one, since Orca refuses one id reused for another verb as request_mismatch. What came of it, and the Dispatch whose mailbox queues it until its worker reads it, as each send has and no answer its question took has."""
     if job.get("ask"):
         try:
             reply(drive, job["run"], job["ask"], kept["words"], kept["request"])
@@ -1213,8 +1213,8 @@ def answer(drive: str, job: dict, kept: dict) -> tuple[str, bool]:
             if error.code != ANSWERED_ELSEWHERE:
                 raise
         else:
-            return woke(job, f"answered its question {job['ask']}"), False
-    return send(drive, job, state.sent_by(kept["sender"]), kept["words"], str(uuid.uuid5(uuid.UUID(kept["request"]), "send"))), True
+            return woke(job, f"answered its question {job['ask']}"), None
+    return send(drive, job, state.sent_by(kept["sender"]), kept["words"], str(uuid.uuid5(uuid.UUID(kept["request"]), "send"))), job["dispatch"]
 
 
 def send(drive: str, job: dict, subject: str, text: str, request: str | None = None) -> str:

@@ -6646,19 +6646,34 @@ def test_a_follow_up_whose_mailbox_shows_its_text_read_ends_its_turn_as_the_jobs
     assert ([sent["words"] for sent in job["queued"]], job["undelivered"]) == ([later], [])
 
 
-def test_a_workers_own_turn_end_reads_its_mailbox_only_while_its_job_keeps_a_text_queued_and_takes_each_text_it_shows_read_off_the_list(
+def test_a_live_lane_pass_reads_its_workers_mailbox_only_while_its_job_keeps_a_text_queued_and_takes_each_text_read_mid_turn_off_the_list_as_j5692s_six_read_texts_stayed_listed(
     remote: str, monkeypatch: pytest.MonkeyPatch, unread_mail: list[dict]
 ) -> None:
+    later = "then rebase onto dev"
     boxes = []
     monkeypatch.setattr(orca, "mailbox", lambda job, dispatch: boxes.append(dispatch) or unread_mail)
-    deliver(monkeypatch, [message("worker_done", "BLOCKED CI", id="msg_done_1")], [message("worker_done", "BLOCKED CI again", id="msg_done_2")])
-    assert said_lines(watch.lane_lines, watch.Watcher(remote, offset=state.events_end(remote)), T0) == ["JOB j1 o1 BLOCKED CI"]
+    monkeypatch.setattr(orca, "worker", lambda dispatch: SPRITE_WORKER)
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(SPRITE_LANE, state="running", said="building the tallies")
+    watching = watch.Watcher(remote, offset=state.events_end(remote))
+    staged(watch.agent_lines, watching, T0)
     assert boxes == []
     with state.edit(remote) as data:
-        data["jobs"]["j1"].update(state="running", queued=[{"words": J93_TEXT, "sender": "coordinator", "at": state.stamp(T0)}])
-    unread_mail.append(message("status", J93_TEXT, read=1, to_handle=f"dispatch:{DISPATCH}"))
-    assert said_lines(watch.lane_lines, watch.Watcher(remote, offset=state.events_end(remote)), T0) == ["JOB j1 o1 BLOCKED CI again"]
-    assert (boxes, state.load(remote)["jobs"]["j1"]["queued"]) == ([DISPATCH], [])
+        data["jobs"]["j1"]["queued"] = [{"words": J93_TEXT, "sender": "coordinator", "at": state.stamp(T0)}, {"words": later, "sender": "coordinator", "at": state.stamp(T0)}]
+    unread_mail += [message("status", J93_TEXT, read=1, to_handle=f"dispatch:{SPRITE_DISPATCH}"), message("status", later, to_handle=f"dispatch:{SPRITE_DISPATCH}")]
+    staged(watch.agent_lines, watching, T0)
+    job = state.load(remote)["jobs"]["j1"]
+    assert (boxes, [sent["words"] for sent in job["queued"]], job["undelivered"]) == ([SPRITE_DISPATCH], [later], [])
+
+
+def test_a_worker_started_on_a_new_dispatch_drops_the_texts_queued_for_the_last_one_whose_handoff_carries_them_and_never_lists_a_text_orca_took_for_the_last_one_after(remote: str, tmp_path: Path) -> None:
+    handoff = tmp_path / "handoff.md"
+    handoff.write_text("the handoff")
+    with state.edit(remote) as data:
+        data["jobs"]["j1"]["queued"] = [{"words": J93_TEXT, "sender": "coordinator", "at": state.stamp(T0)}]
+    assert cli.launch_kept(remote, "j1", {"dispatch": J2914_NEXT_WORKER, "workspace": None}, str(handoff))["queued"] == []
+    cli.sent_kept(remote, "j1", {"words": "rebase first", "sender": "coordinator", "request": str(uuid.uuid4()), "at": state.stamp(T0), "ask": None, "queued": DISPATCH})
+    assert state.load(remote)["jobs"]["j1"]["queued"] == []
 
 
 def test_a_follow_up_orca_cannot_show_leaves_the_runs_mail_for_the_next_pass(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
