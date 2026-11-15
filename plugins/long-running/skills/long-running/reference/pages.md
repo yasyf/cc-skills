@@ -34,6 +34,8 @@ In `page.json`, `orders` and `prs` (such as `yasyf/cc-skills#42`) include specif
 }
 ```
 
+Those fields are the only place a page names a drive order, job or PR. Its title, goal and other files name none, such as `o104` in a `data.js` of edges or `yasyf/cc-skills#42` in a link, since he cannot open an id the page shows and an id its code keeps freezes what it draws: the page draws each from its slice. `drive page add` refuses a page naming one, by file and line.
+
 Pages files the page wherever its order is filed now, so a `drive order set` that refiles the order moves its pages too. Pages counts it as live while any matched order is open, and as done once all matched orders close.
 
 ## Gate and verification
