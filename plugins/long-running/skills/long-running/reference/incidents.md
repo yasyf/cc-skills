@@ -231,13 +231,16 @@ changed and when, its findings the suspects, and its root cause the verdict.
   by its proper term, and names each job building its recommended option meanwhile, or says
   nothing is built before his pick.
   `drive job set <j> --card <link>` or `--waits <card>` on a job of an open incident order
-  refuses until `--told <link>` names that post, which links each card.
-- `drive job ask` sends that line the moment it draws the card: on a job of an open incident order
-  it sends the communicator a report record naming the card and, from the drive's records, each
-  unfinished builder or codex job building its recommended option: the asker when it is one, each
-  whose waits name the card and each whose work the card holds by its `Holds:` line, else that
-  nothing is built before his pick, with the incident's thread as its `thread`, which its handler
-  posts there.
+  refuses until `--told <link>` names that post, which links each card: it reads the line `say`
+  kept on the card's question when it posted in the incident's thread.
+- `drive job ask` sends that line the moment it draws the card, which draws at his DM root alone:
+  on a job of an open incident order it sends the communicator a report record naming the card,
+  what it blocks and, from the drive's records, each unfinished builder or codex job building its
+  recommended option: the asker when it is one, each whose waits name the card and each whose
+  work the card holds by its `Holds:` line, else that nothing is built before his pick, with the
+  incident's thread as its `thread`, which its handler posts there. Asked again, the card sends
+  that thread a line only when Jev reads the line it holds as no longer true for the card as asked
+  now, who builds it included, the report then naming that line and what changed.
 - Its PR opens and lands on that recommendation while the card stays open: `drive pr add` takes
   it, `drive pr set --waits <card>` refuses on it, and a different pick of his starts a follow-up
   job on the same order. His pick: "The repair lands on the recommendation, the question stays

@@ -1569,7 +1569,7 @@ def refuse_a_crossed_order(name: str, data: dict, own: str, other: str, acting: 
 
 
 def told_him(name: str, args: argparse.Namespace) -> None:
-    """An incident's job waits on his card only once the incident's thread says so: the drive's post there linking each card, with what it blocks and each job building its recommended option meanwhile, or that nothing is built before his pick."""
+    """An incident's job waits on his card only once the incident's thread says so: the line `talk.keep_line` keeps on each card's question for the post of the drive's there linking it, with what it blocks and each job building its recommended option meanwhile, or that nothing is built before his pick, read from the drive's state, never from Slack."""
     from drive import view
 
     if not (args.card or args.waits):
@@ -1583,17 +1583,17 @@ def told_him(name: str, args: argparse.Namespace) -> None:
     if not args.told:
         raise DriveError(
             f"{args.id} works on incident {', '.join(incidents)}: a card that blocks it is said in the incident's thread at once, a line"
-            " linking the card with what it blocks and each job building its recommended option meanwhile, or that nothing is built before his pick; post that line, then pass --told <its link>."
+            " linking the card with what it blocks and each job building its recommended option meanwhile, or that nothing is built before his pick; post that line with say, which keeps it, then pass --told <its link>."
             f" {TOLD_LINK}"
         )
-    posted, _ = slack.message_and_root(args.told)
     threads = state.incident_threads(data, incidents)
-    if not (posted.get("from_claude") and posted.get("thread_ts") in threads):
-        raise DriveError(f"--told {args.told}: name the drive's own post in the incident's thread, {' or '.join(threads) or 'which it has none of yet'}")
-    found = view.live_cards(name) or view.NO_CARDS
-    linked = set(view.SLACK_TS.findall(posted.get("text") or ""))
-    if unlinked := [card for card in cards if view.message_key(view.wait_entry(data, card, found)["url"] or card) not in linked]:
-        raise DriveError(f"--told {args.told} does not link {', '.join(unlinked)}: the line links each card that blocks the incident. {TOLD_LINK}")
+    lines = {card: [view.told_line(data, thread, card) for thread in threads] for card in cards}
+    if unlinked := [card for card, found in lines.items() if view.message_key(args.told) not in {view.message_key(line["link"]) for line in found if line}]:
+        raise DriveError(
+            f"--told {args.told} is no line the drive keeps in the incident's thread, {' or '.join(threads) or 'which it has none of yet'}, linking {', '.join(unlinked)}:"
+            " say keeps each line it posts in a thread on each question of the drive drawn on a card the line links, so ask a card no question holds with drive job ask,"
+            f" and post the line linking each card that blocks the incident with say. {TOLD_LINK}"
+        )
 
 
 def shown_card(name: str, url: str) -> dict | None:
@@ -1807,7 +1807,7 @@ def checked_ask(name: str, job_id: str, text: str, unsettled: str | None, redraw
 
 
 def keep_ask(name: str, job_id: str, text: str, unsettled: str | None, redraws: str | None = None) -> tuple[Path, limits.Question | None, dict, str]:
-    """Keep the job's ASK block, or the ASK a DESIGN return puts to him, in its own file once it is in the shape he reads and the words his card draws type no clock time for work already done, in place of the job's open question asking the same, or of each question `superseded.redrawn` finds holding the card `redraws` names by its waits id, the job's own or another job's on one of its orders, open or withdrawn, the job's own leaving the job and another job's staying on it folded into this one, set the job waiting on it, unless it is a builder, which keeps running to build the question's recommended option and return BUILT, and draw his card on it in the same call, as drive pr add draws a PR card, under the waits id of the question it takes the place of, the one `redraws` names first, else one minted for it: every ask of one question draws under its one waits id, which cc-slack redraws where it sits, new words included, the question taking the card of the one it takes the place of, so a redraw that fails leaves it on that card, which his answer there closes and --drop refuses, and a first draw that fails leaves it undrawn for the watch's next read, which draws it. The question keeps the words of its `Holds:` line, with the parts each PR of state.held_prs they name serves appended, a PR the drive tracks on the job's orders or one waiting on a part the job carries, as the PR its staging test tests, which hold from landing each PR they name by link, #N or whole branch name and, among the PRs of jobs working a change they name, only those its design's builder, a job briefed on its research or a job they name by id carries, refused for a builder or codex lane when they name no such PR and no branch in backticks, and for a reader when they name no part of the job's orders; asked again with no --unsettled, as a reader's DESIGN report re-asks it, it keeps the --unsettled an agent gave its kept question with that title, never Jev's mark, which this ask's own read decides. One he already answered, the same words asked on a card he tapped or wrote on or under, or under a record keeping his words, is kept settled by that answer before any check of its shape or its card, by `keep_settled`, draws no card and leaves the job as it was, so it goes straight to building on his words, and the session holding its order hears so in one record; no answer he gave another question settles it. One he has not answered Jev reads, in one call, against his words on its order, the words of his the drive quotes in it and each message of his in its thread, without the lines he quoted, and the recorded answers of his ccn ranks nearest to the block, with his rulings beside them, and each option his words rule out, each amount or choice they name with no tap and each ruling the card breaks is printed to the agent and refuses nothing, by his pick 320b7a7, his ruling on root causes read once against the card's recommended option, the recorded answers its job's brief binds or its block cites read beside them, with the lines of its findings naming one; the recorded answer or ruling of his Jev picks for its recommended option at least DECIDES sure, the cited answer the card says that option goes against first, else the first Jev picks as sure for any other option it offers, keeps the card unsettled as `<id>: Jev reads the recommended option as breaking it`, or `<id>: Jev reads option "<that option>" as breaking it`, when no --unsettled names words of his and it is no cited answer the release gate, `brief.approval_refusal`, reads as ordering a release that option names in backticks, which drive job ask prints instead, asking him to lift that one, so it holds its PR on an incident too, as --unsettled naming words of his does. One whose summary cites a recorded answer of his that Jev reads as deciding its question or making it moot draws its card with an Already answered option, his words under it, so his tap closes it on those words, and only those answers. A block whose summary links no PR the drive tracks open on the job is refused, so his card never says no PR while one is up. One the card `question_card` draws refuses stays kept as the job's pending question with its refusal and draws no card, so the watch says the job waits on a card never posted until it asks again or drops it. Each question of the job `asked_before` names is replaced, the one its file keeps included, so a file keeps one question and a question once kept settled on another answer of his draws its card when asked again. A block whose `Replaces:` line names an open question's file, a question built on that one asking both choices, takes that question's card and waits id and leaves it open, folded into this one, so drawing its card redraws that card and his answer to this one ends both; a question folded so, asked again, stays folded and draws no card. A job whose card another job's question took, by `took`, folds an ask of it into that question and draws no card, asked in that question's words or its own or in other words Jev reads as asking it again. Asked in other words, Jev reads it in that same call against each open card `repeating` finds, and an ask Jev reads as asking again what some of them ask takes the newest of those cards, by its Slack time, and the others fold into it, their cards shown asked again by `post_ask`; asked again in its own words it is read against none. What drive job ask prints: the file, then where his card stands."""
+    """Keep the job's ASK block, or the ASK a DESIGN return puts to him, in its own file once it is in the shape he reads and the words his card draws type no clock time for work already done, in place of the job's open question asking the same, or of each question `superseded.redrawn` finds holding the card `redraws` names by its waits id, the job's own or another job's on one of its orders, open or withdrawn, the job's own leaving the job and another job's staying on it folded into this one, set the job waiting on it, unless it is a builder, which keeps running to build the question's recommended option and return BUILT, and draw his card on it in the same call, as drive pr add draws a PR card, under the waits id of the question it takes the place of, the one `redraws` names first, else one minted for it: every ask of one question draws under its one waits id, which cc-slack redraws where it sits, new words included, the question taking the card of the one it takes the place of, so a redraw that fails leaves it on that card, which his answer there closes and --drop refuses, and a first draw that fails leaves it undrawn for the watch's next read, which draws it. The question keeps the words of its `Holds:` line, with the parts each PR of state.held_prs they name serves appended, a PR the drive tracks on the job's orders or one waiting on a part the job carries, as the PR its staging test tests, which hold from landing each PR they name by link, #N or whole branch name and, among the PRs of jobs working a change they name, only those its design's builder, a job briefed on its research or a job they name by id carries, refused for a builder or codex lane when they name no such PR and no branch in backticks, and for a reader when they name no part of the job's orders; asked again with no --unsettled, as a reader's DESIGN report re-asks it, it keeps the --unsettled an agent gave its kept question with that title, never Jev's mark, which this ask's own read decides. One he already answered, the same words asked on a card he tapped or wrote on or under, or under a record keeping his words, is kept settled by that answer before any check of its shape or its card, by `keep_settled`, draws no card and leaves the job as it was, so it goes straight to building on his words, and the session holding its order hears so in one record; no answer he gave another question settles it. One he has not answered Jev reads, in one call, against his words on its order, the words of his the drive quotes in it and each message of his in its thread, without the lines he quoted, and the recorded answers of his ccn ranks nearest to the block, with his rulings beside them, and each option his words rule out, each amount or choice they name with no tap and each ruling the card breaks is printed to the agent and refuses nothing, by his pick 320b7a7, his ruling on root causes read once against the card's recommended option, the recorded answers its job's brief binds or its block cites read beside them, with the lines of its findings naming one; the recorded answer or ruling of his Jev picks for its recommended option at least DECIDES sure, the cited answer the card says that option goes against first, else the first Jev picks as sure for any other option it offers, keeps the card unsettled as `<id>: Jev reads the recommended option as breaking it`, or `<id>: Jev reads option "<that option>" as breaking it`, when no --unsettled names words of his and it is no cited answer the release gate, `brief.approval_refusal`, reads as ordering a release that option names in backticks, which drive job ask prints instead, asking him to lift that one, so it holds its PR on an incident too, as --unsettled naming words of his does. One whose summary cites a recorded answer of his that Jev reads as deciding its question or making it moot draws its card with an Already answered option, his words under it, so his tap closes it on those words, and only those answers. A block whose summary links no PR the drive tracks open on the job is refused, so his card never says no PR while one is up. One the card `question_card` draws refuses stays kept as the job's pending question with its refusal and draws no card, so the watch says the job waits on a card never posted until it asks again or drops it. Each question of the job `asked_before` names is replaced, the one its file keeps included, so a file keeps one question and a question once kept settled on another answer of his draws its card when asked again. A block whose `Replaces:` line names an open question's file, a question built on that one asking both choices, takes that question's card and waits id and leaves it open, folded into this one, so drawing its card redraws that card and his answer to this one ends both; a question folded so, asked again, stays folded and draws no card. A job whose card another job's question took, by `took`, folds an ask of it into that question and draws no card, asked in that question's words or its own or in other words Jev reads as asking it again. Asked in other words, Jev reads it in that same call against each open card `repeating` finds, and an ask Jev reads as asking again what some of them ask takes the newest of those cards, by its Slack time, and the others fold into it, their cards shown asked again by `post_ask`; asked again in its own words it is read against none. Asked again where `card_places` puts the card's line in a thread, the line that thread holds about the card it takes the place of, by `view.told_line`, goes in that same Jev call beside what the card asks, what it blocks and which jobs build its recommended option meanwhile and as which PRs now, by `building`, so `post_ask` sends the thread a line only on what Jev reads as no longer true, by his pick "Owe a line only on news", and the question keeps the lines of the one it takes the place of. What drive job ask prints: the file, then where his card stands."""
     from drive import view
 
     text = f"{limits.ask_block(text).strip()}\n"
@@ -1826,7 +1826,15 @@ def keep_ask(name: str, job_id: str, text: str, unsettled: str | None, redraws: 
     carried = [(answer, release) for release in recommends for answer in cited if not brief.approval_refusal(f"{release} --order {answer['id']}", data)]
     for answer, release in carried:
         print(settled.ORDERED.format(id=answer["id"], asked=render.cut(answer["asked"], 200), release=release), file=sys.stderr)
-    broken, repeated = settled.judged(case, asked, [*settled.order_words(data, job["order"]), *settled.matched(["\n".join([asked.title, *asked.summary, *asked.options]), text], data)], cited, cards)
+    incidents, where, lined = card_places(data, job)
+    prior = [question for other, question in asking(data, asked.title) if other == job_id or took(data, job_id, question)]
+    prior += [*(superseded.redrawn(data, job_id, redraws) if redraws else []), *([replacing(data, asked.replaces)[1]] if asked.replaces else [])]
+    line = lined and view.told_line(data, where[1], *(question["card"] for question in prior if question["card"])) or None
+    builders = building(data, job_id, *(card for question in prior for card in (question["card"], question["waits"]) if card))
+    built = {"option": asked.recommended, "jobs": builders, "prs": [f"{pr['url']}: {view.pr_title(pr)}" for pr in state.open_prs(data) if pr["job"] in builders]}
+    now = {"asks": asked.title} | ({"blocks": [f"incident {order_id}: {data['orders'][order_id]['title']}" for order_id in incidents], "builds": built} if incidents else {})
+    words = [*settled.order_words(data, job["order"]), *settled.matched(["\n".join([asked.title, *asked.summary, *asked.options]), text], data)]
+    broken, repeated, changed = settled.judged(case, asked, words, cited, cards, line and {"line": line["words"], "now": now})
     if broken and not unsettled and broken[0]["id"] not in {answer["id"] for answer, _ in carried}:
         lifted, option = broken
         unsettled = f"{lifted['id']}: {settled.MARKED.format(option=option)}"
@@ -1849,6 +1857,7 @@ def keep_ask(name: str, job_id: str, text: str, unsettled: str | None, redraws: 
         held = taken or target or next((twin for twin in [*redrawn, *twins] if twin["card"]), None) or newest or next((twin for twin in [*redrawn, *twins] if twin["waits"]), None)
         question = state.new_question(str(kept), asked.title, held["asked"] if held else state.stamp(), unsettled, card=held and held["card"], holds=holds)
         question["waits"] = held and held["waits"] or state.new_waits(name, job_id)
+        question["told"] = dict(held["told"]) if held else {}
         if folded_into := next((twin["replaced"] for twin in twins if twin["replaced"]), None) or taken and taken["file"]:
             question.update(waits=held and held["waits"], replaced=folded_into)
         doubled = [] if folded_into else [twin for twin in twins if twin["card"] and twin["waits"] != question["waits"]]
@@ -1875,7 +1884,7 @@ def keep_ask(name: str, job_id: str, text: str, unsettled: str | None, redraws: 
         return kept, asked, question, str(kept)
     card = ask_card(name, job_id, kept)
     try:
-        said = post_ask(name, job_id, kept, card)
+        said = post_ask(name, job_id, kept, card, line and (line["link"], changed))
     except (DriveError, slack.SlackError) as error:
         said = (
             f"{job_id}'s card {question['card']} under {card['waits']} did not redraw, so it shows the words it last drew and his answer there answers this question: {error}"
@@ -1939,16 +1948,35 @@ def ask_card(name: str, job_id: str, file: Path) -> dict:
         ) from None
 
 
-def post_ask(name: str, job_id: str, file: Path, card: dict) -> str:
-    """Post his card on the job's question kept in the file through `talk.posted`, which records it on each question asked under its waits id: in his DM, the thread of the open incident or else of the job's order when that thread is in his DM, else at his DM root, an incident's thread or a thread outside his DM taking the card's line, for an incident each unfinished builder or codex job the drive's records hold building its recommended option, the asker when it is one, each whose waits name the card and each whose work `state.part_cards` finds it holding, else that nothing is built before his pick, through a report record the communicator posts, since only its `say` carries the ticket cc-slack spends on a write outside his DM, once for each change to that report: its cci id names the card's waits id and the report's hash, so cci keeps an unchanged line asked again as the record it already holds, which wakes no handler. Each other open question of the job asking the same on another card ends superseded by this one, its card shown asked again with no buttons and a link to this one, and each wait on it moves to this one's waits id, so nothing waits on him under it; each question folded into this one on another card, as an ask Jev reads as asking it again folds it, shows that card the same way and takes this card and waits id, each wait on that card moving with it. What was done, for drive job ask to print."""
+def card_places(data: dict, job: dict) -> tuple[list[str], tuple[str, str] | None, bool]:
+    """The open incidents a job's card blocks, the channel and thread the job's lines go in, the open incident's or else its order's, and whether that thread takes the card's line: an incident's thread wherever it is and a thread outside his DM do, so his card draws at his DM root alone and the line is its one message in that thread, while a thread of his DM on no incident takes the card itself."""
+    incidents = state.open_incidents(data, [job["order"], *job["carries"]])
+    where = state.promise_thread(data["orders"][incidents[0] if incidents else job["order"]])
+    return incidents, where, bool(where and (incidents or where[0] != slack.dm()))
+
+
+def building(data: dict, job_id: str, *cards: str) -> list[str]:
+    """The unfinished builder and codex jobs the drive's records hold building the recommended option of the job's card, named by its waits id or Slack link: the asker when it is one, each whose waits name the card and each whose work `state.part_cards` finds it holding."""
+    from drive import view
+
+    drawn = {view.message_key(card) for card in cards}
+    return [
+        other_id
+        for other_id, other in data["jobs"].items()
+        if other["kind"] in state.CHANGE_KINDS
+        and other["state"] not in state.FINISHED_JOB_STATES
+        and (other_id == job_id or drawn & {view.message_key(wait) for wait in [*other["waits"], *state.part_cards(data, other_id)]})
+    ]
+
+
+def post_ask(name: str, job_id: str, file: Path, card: dict, read: tuple[str, str | None] | None = None) -> str:
+    """Post his card on the job's question kept in the file through `talk.posted`, which records it on each question asked under its waits id, in his DM where `card_places` puts it, and a thread taking the card's line, what it blocks for an incident and each job `building` its recommended option, else that nothing is built before his pick, gets it through a report record the communicator posts, since only its `say` carries the ticket cc-slack spends on a write outside his DM and keeps the line on the card's question: none when the line that thread already holds about the card, by `talk.keep_line`, is the one `read` names and Jev read it, in `settled.judged`, as still true for the card asked now; else the report names that line and what Jev read as changed since, or that Jev did not read it, once for each change to that report: its cci id names the card's waits id and the report's hash, so cci keeps an unchanged line asked again as the record it already holds, which wakes no handler. Each other open question of the job asking the same on another card ends superseded by this one, its card shown asked again with no buttons and a link to this one, and each wait on it moves to this one's waits id, so nothing waits on him under it; each question folded into this one on another card, as an ask Jev reads as asking it again folds it, shows that card the same way and takes this card and waits id, each wait on that card moving with it. What was done, for drive job ask to print."""
     from drive import talk, tools, view
 
     data = state.load(name)
     job = data["jobs"][job_id]
-    incidents = state.open_incidents(data, [job["order"], *job["carries"]])
-    where = state.promise_thread(data["orders"][incidents[0] if incidents else job["order"]])
-    inside = where is not None and where[0] == slack.dm()
-    link = talk.posted(name, {"card": card} | ({"thread_ts": where[1]} if inside else {}))["permalink"]
+    incidents, where, lined = card_places(data, job)
+    link = talk.posted(name, {"card": card} | ({"thread_ts": where[1]} if where and not lined else {}))["permalink"]
     with state.edit(name) as data:
         live = state.kept_in(data["jobs"][job_id], file)
         doubled = [
@@ -1960,25 +1988,24 @@ def post_ask(name: str, job_id: str, file: Path, card: dict) -> str:
         for other in doubled:
             other["closed"] = asked_again(link, live["waits"])
         ended = [(job_id, other) for other in doubled] + fold_onto(data, live)
-        drawn = {card["waits"], view.message_key(link)}
-        held = [
-            other_id
-            for other_id, other in data["jobs"].items()
-            if other["kind"] in state.CHANGE_KINDS
-            and other["state"] not in state.FINISHED_JOB_STATES
-            and (other_id == job_id or drawn & {view.message_key(wait) for wait in [*other["waits"], *state.part_cards(data, other_id)]})
-        ]
     said = [f"his card {link} asks it under {card['waits']}", *superseded.follow(name, ended)]
-    if where and (incidents or not inside):
-        builds = f"{', '.join(held)} {'builds' if len(held) == 1 else 'build'} its recommended option meanwhile, {card['recommended']}" if held else "nothing is built before his pick"
-        blocks = f", on incident {', '.join(incidents)}: {builds}" if incidents else ""
-        report = {"kind": "report", "text": f'POST his card {link} asks him "{card["title"]}" for {job_id}{blocks}', "to": [f"communicator@{name}"], "attr": {"job": job_id, "waits": card["waits"], "thread": where[1]}}
-        report["id"] = f"card-line:{card['waits']}:{state.ask_hash(json.dumps(report, sort_keys=True))}"
-        try:
-            tools.sent(name, state.job_lane(data, job), [report])
-            said.append(f"its line in thread {where[1]} of channel {where[0]} goes out from the communicator once for each change to it")
-        except DriveError as error:
-            said.append(f"its line in thread {where[1]} of channel {where[0]} did not go out, so post it there with say: {error}")
+    if not lined:
+        return "; ".join(said)
+    told = view.told_line(data, where[1], live["waits"], link)
+    if told and read == (told["link"], settled.UNDECIDED):
+        said.append(f"its line {told['link']} in thread {where[1]} of channel {where[0]} still holds for the card as asked now, so nothing goes to that thread")
+        return "; ".join(said)
+    held = building(data, job_id, card["waits"], link)
+    builds = f"{', '.join(held)} {'builds' if len(held) == 1 else 'build'} its recommended option meanwhile, {card['recommended']}" if held else "nothing is built before his pick"
+    blocks = f", on incident {', '.join(incidents)}: {builds}" if incidents else ""
+    since = (f"; since its line {told['link']}, {settled.TOLD_CHANGES[read[1]]} changed" if read and read[0] == told["link"] and read[1] else f"; Jev did not read whether its line {told['link']} still holds") if told else ""
+    report = {"kind": "report", "text": f'POST his card {link} asks him "{card["title"]}" for {job_id}{blocks}{since}', "to": [f"communicator@{name}"], "attr": {"job": job_id, "waits": card["waits"], "thread": where[1]}}
+    report["id"] = f"card-line:{card['waits']}:{state.ask_hash(json.dumps(report, sort_keys=True))}"
+    try:
+        tools.sent(name, state.job_lane(data, job), [report])
+        said.append(f"its line in thread {where[1]} of channel {where[0]} goes out from the communicator once for each change to it")
+    except DriveError as error:
+        said.append(f"its line in thread {where[1]} of channel {where[0]} did not go out, so post it there with say: {error}")
     return "; ".join(said)
 
 
@@ -5246,7 +5273,8 @@ def parser() -> argparse.ArgumentParser:
         metavar="LINK",
         help=(
             "the drive's post in an incident's thread linking each card --card or --waits names, what it blocks and each job building its"
-            " recommended option meanwhile, or that nothing is built before his pick; a job on an open incident order takes a card only with it"
+            " recommended option meanwhile, or that nothing is built before his pick, read from the line say kept on each card's question when it posted there;"
+            " a job on an open incident order takes a card only with it"
         ),
     )
     verb.set_defaults(run=rehearsed(job_set))

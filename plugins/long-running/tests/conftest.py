@@ -367,7 +367,7 @@ def cards_drawn(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
     drawn: list[dict] = []
     minted = itertools.count(7)
 
-    def post(name: str, job_id: str, file: Path, card: dict) -> str:
+    def post(name: str, job_id: str, file: Path, card: dict, read: tuple[str, str | None] | None = None) -> str:
         drawn.append({"job": job_id, "file": str(file)} | card)
         link = drawn_card(len(drawn))
         cli.follow_card(name, card["waits"], set(), link)

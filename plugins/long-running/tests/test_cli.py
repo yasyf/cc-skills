@@ -37,6 +37,7 @@ from drive import (
     stage,
     state,
     superseded,
+    talk,
     tools,
     view,
     watch,
@@ -1217,33 +1218,30 @@ def test_no_stop_ends_the_last_running_job_on_an_open_incidents_fix(
     assert run("job", "set", "j1", "--state", "stopped")[0] == 0
 
 
-def test_an_incident_job_waits_on_his_card_only_once_the_incident_thread_says_so(
-    run: Run, demo: str, slack_thread: Thread, capsys: pytest.CaptureFixture[str]
+def test_an_incident_job_waits_on_his_card_only_once_the_line_say_kept_in_the_incident_thread_links_it(
+    run: Run, demo: str, tmp_path: Path, cards_drawn: list[dict], capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL mint endpoint failing", "--thread", "1794200000.000100", "--incident", "--parts", "fix", "first check")
-    assert cli.main(["job", "set", "j1", "--card", DESIGN_CARD]) == 2
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK + "Interim fix: j2 checks the fork copies first\n")
+    assert run("job", "ask", "j2", str(block))[0] == 0
+    card = drawn_card(1)
+    assert cli.main(["job", "set", "j1", "--card", card]) == 2
     refusal = capsys.readouterr().err
     assert "j1 works on incident o1: a card that blocks it is said in the incident's thread at once" in refusal
+    assert "post that line with say, which keeps it, then pass --told <its link>" in refusal
     assert "Link each card where the line names it, as <its permalink|your card on what it decides>, never as its bare permalink" in refusal
-    moment = state.now()
-    elsewhere = slack_thread.post(moment, from_claude=True, thread_ts="1794100000.000100", text=f"<{DESIGN_CARD}|the store card> blocks the fix")
-    assert cli.main(["job", "set", "j1", "--card", DESIGN_CARD, "--told", elsewhere]) == 2
-    assert "name the drive's own post in the incident's thread, 1794200000.000100" in capsys.readouterr().err
-    unlinked = slack_thread.post(moment + timedelta(seconds=1), from_claude=True, text="the store card blocks the fix")
-    assert cli.main(["job", "set", "j1", "--card", DESIGN_CARD, "--told", unlinked]) == 2
-    refusal = capsys.readouterr().err
-    assert f"does not link {DESIGN_CARD}" in refusal
-    assert "as <its permalink|your card on what it decides>, never as its bare permalink" in refusal
-    said = slack_thread.post(
-        moment + timedelta(seconds=2),
-        from_claude=True,
-        text=f"<{DESIGN_CARD}|Your card on where the store lives> blocks the fix's release; it builds on the recommended shared store meanwhile.",
-    )
-    assert run("job", "set", "j1", "--card", DESIGN_CARD, "--told", said)[0] == 0
-    assert [(question["card"], question["holds"]) for question in state.load("demo")["jobs"]["j1"]["questions"]] == [(DESIGN_CARD, None)]
+    elsewhere = "https://acme.slack.com/archives/D123/p1794100000000300?thread_ts=1794100000.000100"
+    talk.keep_line("demo", state.load("demo"), "1794100000.000100", elsewhere, f"<{card}|the store card> blocks the fix")
+    assert cli.main(["job", "set", "j1", "--card", card, "--told", elsewhere]) == 2
+    assert f"--told {elsewhere} is no line the drive keeps in the incident's thread, 1794200000.000100, linking {card}" in capsys.readouterr().err
+    said = "https://acme.slack.com/archives/D123/p1794200000000400?thread_ts=1794200000.000100"
+    talk.keep_line("demo", state.load("demo"), "1794200000.000100", said, f"<{card}|Your card on where the store lives> blocks the fix's release; it builds on the recommended shared store meanwhile.")
+    assert run("job", "set", "j1", "--card", card, "--told", said)[0] == 0
+    assert [(question["card"], question["holds"]) for question in state.load("demo")["jobs"]["j1"]["questions"]] == [(card, None)]
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the dashboard is slow")
     run("job", "add", "builder", "--order", "o2", "--goal", "speed it up")
-    assert run("job", "set", "j3", "--card", DESIGN_CARD)[0] == 0
+    assert run("job", "set", "j3", "--card", card)[0] == 0
 
 
 def test_order_add_json(run: Run, demo: str) -> None:
@@ -2285,7 +2283,7 @@ def test_job_card_keeps_its_refusal_on_the_question_whose_card_did_not_draw_unti
     block.write_text(SHORT_ASK)
     draw = cli.post_ask
 
-    def locked(name: str, job_id: str, file: Path, card: dict) -> str:
+    def locked(name: str, job_id: str, file: Path, card: dict, read: tuple[str, str | None] | None = None) -> str:
         raise slack.SlackError("dm-status: database is locked")
 
     monkeypatch.setattr(cli, "post_ask", locked)
@@ -2476,7 +2474,7 @@ def test_a_card_that_does_not_draw_leaves_its_question_undrawn_under_its_waits_i
     block.write_text(SHORT_ASK)
     draw = cli.post_ask
 
-    def locked(name: str, job_id: str, file: Path, card: dict) -> str:
+    def locked(name: str, job_id: str, file: Path, card: dict, read: tuple[str, str | None] | None = None) -> str:
         raise slack.SlackError("dm-status: database is locked")
 
     monkeypatch.setattr(cli, "post_ask", locked)
@@ -2546,7 +2544,7 @@ def test_j3997_a_question_asked_again_in_new_words_whose_redraw_fails_stays_on_i
     block.write_text(SHORT_ASK)
     run("job", "ask", asking, str(block))
 
-    def answered(name: str, job_id: str, file: Path, card: dict) -> str:
+    def answered(name: str, job_id: str, file: Path, card: dict, read: tuple[str, str | None] | None = None) -> str:
         raise slack.SlackError(f'waiting card "{card["waits"]}" was answered with "Yes" at 12:31pm')
 
     monkeypatch.setattr(cli, "post_ask", answered)
@@ -2712,7 +2710,7 @@ def test_j4258_a_reader_whose_card_another_jobs_redraws_took_draws_nothing_for_i
     ]
     assert [(question["file"], question["title"], question["card"], question["replaced"], question["closed"]) for question in jobs["j2"]["questions"]] == [(took, taken, slack_card(2), None, None)]
 
-def test_job_ask_on_an_open_incident_draws_his_card_in_its_thread_and_sends_the_line_saying_what_it_blocks_to_the_communicator(
+def test_job_ask_on_an_open_incident_draws_his_card_at_his_dm_root_alone_and_sends_the_line_saying_what_it_blocks_to_the_communicator(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, slack_calls: list[tuple[str, ...]]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL fork copies fail on plat", "--incident", "--thread", "1794200000.000100", "--parts", "fix", "first check")
@@ -2722,7 +2720,7 @@ def test_job_ask_on_an_open_incident_draws_his_card_in_its_thread_and_sends_the_
     block.write_text(SHORT_ASK + "Interim fix: j2 checks the fork copies first\n")
     kept, said = run("job", "ask", "j1", str(block))[1].split("\n", 1)
     assert said == f"his card {slack_card(1)} asks it under demo:j1-7; its line in thread 1794200000.000100 of channel D123 goes out from the communicator once for each change to it"
-    assert [argv[argv.index("--thread") + 1] for argv in slack_calls if argv[0] == "dm-status"] == ["1794200000.000100"]
+    assert [argv for argv in slack_calls if argv[0] == "dm-status" and "--thread" in argv] == []
     [(lane, [report])] = sent
     assert (lane, report["kind"], report["to"], report["attr"]) == ("root", "report", ["communicator@demo"], {"job": "j1", "waits": "demo:j1-7", "thread": "1794200000.000100"})
     title = SHORT_ASK.splitlines()[0].removeprefix("ASK ")
@@ -2794,6 +2792,38 @@ def test_job_ask_sends_his_cards_line_outside_his_dm_to_the_communicator_once_fo
     assert [report["text"] for report in kept.values()] == [
         f'POST his card {slack_card(1)} asks him "{text.splitlines()[0].removeprefix("ASK ")}" for j1{blocks}' for text in (SHORT_ASK, retitled)
     ]
+
+
+@pytest.mark.parametrize("changed", [None, "blocks"])
+def test_job_ask_asking_his_card_again_sends_its_line_again_only_once_jev_reads_the_line_its_thread_holds_as_no_longer_true(
+    run: Run, asking: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, jev: Jev, changed: str | None
+) -> None:
+    thread = "1794200000.000100"
+    with state.edit("demo") as data:
+        data["orders"]["o1"].update(thread=["C0ALERT1", thread], incident=True)
+    monkeypatch.setattr(cli, "post_ask", POST_ASK)
+    monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": slack_card(1)} if argv[0] == "dm-status" else {})
+    kept: dict[str, dict] = {}
+    monkeypatch.setattr(tools, "sent", lambda name, lane, posts: [kept.setdefault(post["id"], post) and "672400" for post in posts])
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK + "Interim fix: j2 checks the fork copies first\n")
+    assert run("job", "ask", asking, str(block))[0] == 0
+    assert "told" not in [request for request in jev.asked if "card" in request["questions"]][-1]["questions"]
+    line = f"https://acme.slack.com/archives/C0ALERT1/p1794200100000200?thread_ts={thread}"
+    words = f"<{slack_card(1)}|Your card on the run layout> blocks incident o1's fix; it builds on one snapshot file per finished run meanwhile."
+    talk.keep_line("demo", state.load("demo"), thread, line, words)
+    if changed:
+        jev.breaks("told", changed)
+    block.write_text(SHORT_ASK.replace("Meanwhile nothing is built on either layout.", "Meanwhile the reader adds one more finding.") + "Interim fix: j2 checks the fork copies first\n")
+    code, out = run("job", "ask", asking, str(block))
+    read = [request for request in jev.asked if "card" in request["questions"]][-1]
+    assert (code, "told" in read["questions"], read["state"]["line"], set(read["state"]["now"]), read["state"]["now"]["builds"]["jobs"]) == (0, True, words, {"asks", "blocks", "builds"}, [asking])
+    [first, *again] = [report["text"] for report in kept.values()]
+    if changed:
+        assert again == [f"{first}; since its line {line}, what it blocks changed"]
+    else:
+        assert (again, out.endswith(f"its line {line} in thread {thread} of channel C0ALERT1 still holds for the card as asked now, so nothing goes to that thread")) == ([], True)
+    assert view.told_line(state.load("demo"), thread, slack_card(1)) == {"link": line, "words": words}
 
 
 def test_job_ask_reads_terms_more_than_ten_of_the_drives_questions_use_as_naming_no_one_subject(run: Run, asking: str, tmp_path: Path) -> None:
@@ -3055,7 +3085,7 @@ def test_job_ask_reads_a_block_from_stdin_and_keeps_each_block_in_its_own_file(
     assert [question["file"] for question in state.load("demo")["jobs"]["j1"]["questions"]] == [str(path) for path in kept]
 
 
-def undrawn(name: str, job_id: str, file: Path, card: dict) -> str:
+def undrawn(name: str, job_id: str, file: Path, card: dict, read: tuple[str, str | None] | None = None) -> str:
     raise slack.SlackError("dm-status timed out")
 
 
@@ -3298,7 +3328,7 @@ def test_j3668_a_card_the_watch_cannot_draw_keeps_one_refusal_under_the_waits_id
     block.write_text(SHORT_ASK)
     draw = cli.post_ask
 
-    def locked(name: str, job_id: str, file: Path, card: dict) -> str:
+    def locked(name: str, job_id: str, file: Path, card: dict, read: tuple[str, str | None] | None = None) -> str:
         raise slack.SlackError("dm-status: database is locked")
 
     monkeypatch.setattr(cli, "post_ask", locked)
@@ -3323,7 +3353,7 @@ def test_a_kept_question_his_answer_to_the_same_question_settles_before_the_watc
     block.write_text(SHORT_ASK)
     draw = cli.post_ask
 
-    def locked(name: str, job_id: str, file: Path, card: dict) -> str:
+    def locked(name: str, job_id: str, file: Path, card: dict, read: tuple[str, str | None] | None = None) -> str:
         raise slack.SlackError("dm-status: database is locked")
 
     monkeypatch.setattr(cli, "post_ask", locked)
