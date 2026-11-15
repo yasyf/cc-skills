@@ -5406,11 +5406,31 @@ def test_a_wait_added_to_a_pr_he_approved_never_withdraws_or_redraws_his_card_an
 
 def test_his_pr_card_whose_row_went_stale_has_its_lines_drawn_in_place_once_with_no_whole_redraw(demo: str, redraws: Redraws) -> None:
     stale = pr_card(KEY)
-    stale["card"]["prs"][0] |= card.drawn_lines(demo, state.load(demo), KEY) | {"head": "0000000aaa"}
+    stale["card"]["prs"][0] |= card.drawn_lines(state.load(demo), KEY, view.live_cards(demo)) | {"head": "0000000aaa"}
     watching = carded(demo, stale)
     assert (watch.redraw_lines(watching, T0), redraws.asked, redraws.drawn) == ([], [], [state.pr_url(KEY)])
-    assert redraws.rows[state.pr_url(KEY)] == card.drawn_lines(demo, state.load(demo), KEY)
+    assert redraws.rows[state.pr_url(KEY)] == card.drawn_lines(state.load(demo), KEY, view.live_cards(demo))
     assert (watch.redraw_lines(watching, T0 + timedelta(minutes=1)), redraws.asked, redraws.drawn) == ([], [], [state.pr_url(KEY)])
+
+
+def test_the_redraw_of_his_stale_pr_cards_reads_the_drive_and_his_cards_as_often_for_100_prs_as_for_one(demo: str, monkeypatch: pytest.MonkeyPatch, redraws: Redraws) -> None:
+    reads: list[str] = []
+    load, stored = state.load, view.stored_cards
+    monkeypatch.setattr(state, "load", lambda name: reads.append("drive") or load(name))
+    monkeypatch.setattr(view, "stored_cards", lambda name: reads.append("cards") or stored(name))
+
+    def redrawn(count: int) -> list[str]:
+        keys = [f"Forge-AI/monorepo#{1000 + number}" for number in range(count)]
+        with state.edit(demo) as data:
+            for key in keys:
+                data["prs"][key] = data["prs"][KEY] | {"url": state.pr_url(key)}
+        drawn = len(redraws.drawn)
+        reads.clear()
+        assert watch.redraw_lines(carded(demo, pr_card(*keys)), T0) == []
+        assert redraws.drawn[drawn:] == [state.pr_url(key) for key in keys]
+        return sorted(reads)
+
+    assert redrawn(1) == redrawn(100)
 
 
 def test_his_open_card_drawn_asking_his_tap_on_a_pr_that_no_longer_asks_it_is_redrawn_whole_once_until_his_cards_are_read_again_and_asked_again_while_that_fails(demo: str, redraws: Redraws) -> None:
@@ -6235,7 +6255,7 @@ def his_card_row(name: str, key: str) -> dict:
     data = state.load(name)
     entry = data["prs"][key]
     shown = {"title": entry["title"], "body": "", "comments": [], "state": "OPEN", "isDraft": False, "headRefOid": entry["head"], "labels": [], "url": entry["url"], "reviewDecision": "REVIEW_REQUIRED", "files": []}
-    return card.render(*card.member(name, data, shown, entry, {}))["prs"][0]
+    return card.render(*card.member(data, view.live_cards(name), shown, entry, {}))["prs"][0]
 
 
 def test_replayed_55175_a_red_pr_whose_builder_waits_on_a_fix_that_waits_on_his_tap_names_and_links_that_fix_and_its_card_in_its_stage_and_dashboard_row(
@@ -6653,7 +6673,7 @@ def test_replayed_56278_an_approved_pr_whose_waits_end_at_his_open_cards_reads_b
     assert kept["stage"]["why"] == "it waits on j4413, " + ", ".join(f"his answer on {view.link('his question card', link)}" for link in links.values())
     answers = " and ".join(f"you answer {view.link(f'Pick {waits}?', link)}" for waits, link in links.items())
     assert his_card_row(demo, pr)["blocks"] == f"Approved by you. Lands once the build of watch finishes, {answers}"
-    assert card.picks(state.load(demo), kept) == {}
+    assert card.picks(state.load(demo), kept, view.live_cards(demo)) == {}
     found = view.live_cards(demo)
     assert stall.chain(state.load(demo), found, False, pr, set()) is None
     with state.edit(demo) as data:
@@ -10181,7 +10201,7 @@ def drawn_pr_card(name: str, *keys: str, url: str = CARD) -> dict:
     """His card on the PRs as drive card draws it now."""
     data = state.load(name)
     shown = pr_card(*keys, url=url)
-    shown["card"]["prs"] = [row | card.drawn_lines(name, data, key) for row, key in zip(shown["card"]["prs"], keys, strict=True)]
+    shown["card"]["prs"] = [row | card.drawn_lines(data, key, view.live_cards(name)) for row, key in zip(shown["card"]["prs"], keys, strict=True)]
     if asked := [({"url": row["url"], "headRefOid": row["head"]}, data["prs"][key]) for row, key in zip(shown["card"]["prs"], keys, strict=True) if state.asks_tap(data, data["prs"][key])]:
         shown["card"]["waits"] = card.ask_waits(asked)
     return shown
