@@ -1503,6 +1503,7 @@ def test_a_staging_tests_done_frees_the_prs_held_on_it_only_by_a_check_build_tha
     (clone / "infra" / "envs" / "plat-usw2-prod.yaml").write_text("name: plat-usw2-prod\nstage: prod\n")
     subprocess.run(["git", "init", "-q", "-b", "dev", str(clone)], check=True)
     git_head(clone, "commit", "-q", "--allow-empty", "-m", "base")
+    git_head(clone, "remote", "add", "origin", str(clone))
     git_head(clone, "switch", "-q", "-c", "parts")
     heads = []
     for path, subject in (("layout.rs", "a table layout is key ranges"), ("reach.rs", "routed by Layout::reach")):
@@ -1529,7 +1530,7 @@ def test_a_staging_tests_done_frees_the_prs_held_on_it_only_by_a_check_build_tha
         "j2": state.new_job("o1", "builder", "the stack deployed to staging, frozen there and thoroughly tested", [part], created) | {"state": "running", "builds_nothing": True, "repro": str(proof)},
     }
     keys = [f"{MONOREPO}#4201", f"{MONOREPO}#4202"]
-    data["prs"] = {key: state.new_pr(f"https://github.com/{MONOREPO}/pull/{key.rsplit('#', 1)[1]}", "j1", "o1") | {"head": head, "waits": ["j2"]} for key, head in zip(keys, (bottom, tip))}
+    data["prs"] = {key: state.new_pr(f"https://github.com/{MONOREPO}/pull/{key.rsplit('#', 1)[1]}", "j1", "o1") | {"head": head, "base": "dev", "waits": ["j2"]} for key, head in zip(keys, (bottom, tip))}
     apply = {"state": "passed", "step_key": "apply-sandsql--plat-usw2-staging"}
     boxed = [{"state": "passed", "step_key": step} for step in ("mac-box-iris", "mac-box-sand", "mac-box-approve")]
     builds = {
@@ -1552,9 +1553,9 @@ def test_a_staging_tests_done_frees_the_prs_held_on_it_only_by_a_check_build_tha
     assert "j2's DONE frees Forge-AI/monorepo#4201, Forge-AI/monorepo#4202 from waiting on its staging test" in soaked
     assert "https://buildkite.com/forge/release/builds/16203 deployed nothing to staging" in soaked
     assert halved.startswith("j2's DONE frees Forge-AI/monorepo#4202 from waiting")
-    assert f"git cherry finds Forge-AI/monorepo#4202's {tip[:12]} missing from {half[:12]}, which https://buildkite.com/forge/release/builds/16085 deployed to plat-usw2-staging" in halved
+    assert f"Forge-AI/monorepo#4202's changes to reach.rs are missing from {half[:12]}, which https://buildkite.com/forge/release/builds/16085 deployed to plat-usw2-staging" in halved
     assert "16090 deployed nothing to staging" in prod
-    assert f"git cherry finds Forge-AI/monorepo#4202's {tip[:12]} missing from {half[:12]}, which https://buildkite.com/forge/release/builds/16300 deployed to a Mac box signed in to staging" in box_halved
+    assert f"Forge-AI/monorepo#4202's changes to reach.rs are missing from {half[:12]}, which https://buildkite.com/forge/release/builds/16300 deployed to a Mac box signed in to staging" in box_halved
     assert "16301 deployed nothing to staging, passing no apply step on an env its infra/envs file marks stage: staging and no mac-box-approve step of a Mac box proof" in unsigned
     assert none.endswith(
         "they name no Buildkite build. Name on a CHECK: line the release build that deployed a commit carrying each one's head to staging,"
@@ -1578,7 +1579,7 @@ def test_a_staging_tests_done_frees_the_prs_held_on_it_only_by_a_check_build_tha
     swapped = in_turn("4202", "4201")
     assert in_turn("4201", "4202") is None
     assert swapped.startswith("j2's DONE frees Forge-AI/monorepo#4202 from waiting on its staging test, and no build the CHECK: lines heading its cases name deployed")
-    assert f"git cherry finds Forge-AI/monorepo#4202's {tip[:12]} missing from {half[:12]}, which https://buildkite.com/forge/release/builds/16085 deployed to plat-usw2-staging" in swapped
+    assert f"Forge-AI/monorepo#4202's changes to reach.rs are missing from {half[:12]}, which https://buildkite.com/forge/release/builds/16085 deployed to plat-usw2-staging" in swapped
     data["jobs"]["j2"]["parts"] = [part]
     data["jobs"]["j2"]["goal"] = "read the layout's key ranges"
     assert done("j2", "16203") is None
@@ -1590,6 +1591,8 @@ def test_a_staging_tests_done_frees_a_pr_changing_only_tools_ci_and_go_ci_by_a_c
     clone = tmp_path / "monorepo"
     subprocess.run(["git", "init", "-q", "-b", "dev", str(clone)], check=True)
     git_head(clone, "commit", "-q", "--allow-empty", "-m", "base")
+    git_head(clone, "remote", "add", "origin", str(clone))
+    git_head(clone, "switch", "-q", "-c", "pin")
     heads = []
     for path, subject in (("inside.go", "the dialer pod pins amd64"), ("ci", "tools/ci fetches the linux-amd64 ci")):
         (clone / path).write_text(f"{subject}\n")
@@ -1609,7 +1612,7 @@ def test_a_staging_tests_done_frees_a_pr_changing_only_tools_ci_and_go_ci_by_a_c
         "j2": state.new_job("o1", "builder", "run the staging smoke from this Mac at the PR's head", [part], created) | {"state": "running", "builds_nothing": True, "repro": str(proof)},
     }
     key = f"{MONOREPO}#56826"
-    data["prs"] = {key: state.new_pr(f"https://github.com/{MONOREPO}/pull/56826", "j1", "o1") | {"head": head, "waits": ["j2"]}}
+    data["prs"] = {key: state.new_pr(f"https://github.com/{MONOREPO}/pull/56826", "j1", "o1") | {"head": head, "base": "dev", "waits": ["j2"]}}
     reach = {key: {"components": ["api", "platy"], "touched": ["platy"], "dev": ["go/ci/internal/tenantsmoke/inside.go", "tools/ci"], "releases": []}}
     monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {each: reach[each] for each in keys if each in reach})
 
