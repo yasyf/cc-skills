@@ -60,6 +60,7 @@ def test_the_communicator_runs_only_its_own_calls_and_starts_a_handler_for_the_r
     assert output["hookSpecificOutput"]["permissionDecision"] == "deny"
     assert reason.startswith(f"Refused on purpose: the communicator does not run {SLACK}slack_thread itself")
     assert "Start a handler with the drive's handler tool" in reason
+    assert output["judged"] is False
     assert communicator_calls.deny_reason(call("Bash", command="cc-transcript show /x/agent-a1.jsonl")).startswith(
         "Refused on purpose: the communicator does not run Bash itself"
     )
@@ -76,6 +77,7 @@ def test_the_communicator_runs_only_its_own_calls_and_starts_a_handler_for_the_r
         call("Bash", command="cci drive use demo"),
     ):
         assert communicator_calls.deny_reason(own) is None
+    assert agents.ruled(communicator_calls.deny_reason(call(SLACK + "slack_pickup", channel_id="D123", ts="1.2"))) == {"judged": False}
     assert communicator_calls.deny_reason(call(SLACK + "slack_pickup", channel_id="D123", ts="1.2")) == (
         "Refused on purpose: cc-slack puts the eyes and Slack's working line on his message itself the moment it lands, so the"
         " communicator never calls slack_pickup. Go on with the ack."
