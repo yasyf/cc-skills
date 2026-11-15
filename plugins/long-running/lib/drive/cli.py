@@ -4668,6 +4668,13 @@ def with_build(place: str, held: dict) -> str:
     return f"{place}; {note}" if note else place
 
 
+def channels(args: argparse.Namespace) -> int:
+    name = state.resolve(args.drive)
+    data = state.load(name)
+    made = [slack.cc_slack("operator-channel", slack.channel_name(name, project)) for project in dict.fromkeys([*data["subcoordinators"], TOOLING_FILING[0]])]
+    return emit(args, "\n".join(f"#{channel['name']} {channel['id']}" for channel in made), made)
+
+
 def context(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     data = state.load(name)
@@ -6025,6 +6032,8 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("page", nargs="?", choices=manual_pages(), help="default: list the pages")
     verb.add_argument("row", nargs="?", help="print only the table rows whose first cell names this, such as TAP or READY, else each section, list item, row, fenced block and paragraph carrying it")
     verb.set_defaults(run=manual)
+    verb = verbs.add_parser("channels", parents=both, help="make the private operator channel of each sub-coordinator's project and of the drive's tooling as him, which cc-slack reads as it reads his DM, and say posts of each project go to; one he has is kept")
+    verb.set_defaults(run=channels)
     verb = verbs.add_parser("context", parents=[drive_opt])
     verb.add_argument("--role", choices=state.ROLES, help="default: the role this session holds")
     verb.set_defaults(run=context)
