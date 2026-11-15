@@ -6978,13 +6978,37 @@ def test_pr_add_refuses_a_title_his_card_cannot_name_the_kind_of(run: Run, demo:
     on_github["title"] = "move strip"
     assert cli.main(["pr", "add", PR, "--job", "j1", *LEAD]) == 2
     assert capsys.readouterr().err.strip() == (
-        'drive: Forge-AI/monorepo#42: refused, its title "move strip" does not open Fix:, New:, Cleanup: or Port:, the kind of change'
-        ' his card names it by: retitle it with gh pr edit 42 -R Forge-AI/monorepo --title "<Fix|New|Cleanup|Port>: move strip", then run this again'
+        'drive: Forge-AI/monorepo#42: refused, nothing added: its title "move strip" does not open Fix:, New:, Cleanup: or Port:, the kind of change'
+        ' his card names it by: retitle it with gh pr edit 42 -R Forge-AI/monorepo --title "<Fix|New|Cleanup|Port>: move strip"'
     )
     assert state.load("demo")["prs"] == {}
     for title in ("Port: move strip", "store: 🐛 move strip", "fix(store): move strip"):
         on_github["title"] = title
         assert run("pr", "add", PR, "--job", "j1", *LEAD)[0] == 0
+
+
+def test_pr_add_refuses_once_naming_its_unkinded_title_each_undrawn_picture_and_its_lead_keeping_nothing_drawing_no_card(
+    run: Run, demo: str, on_github: dict, chrome: Chrome, images: Images, draws: Draws, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "move the strip")
+    run("job", "add", "builder", "--order", "o1", "--goal", "move it")
+    artifact = "https://buildkite.com/organizations/acme/pipelines/test/builds/7/jobs/01a1ca2b/artifacts/01a1ca2e"
+    images.refusals[artifact] = "HTTP Error 403: Forbidden"
+    on_github["title"] = "the desk sheds j12"
+    on_github["body"] = CARD_BODY + f'\n## Show me\nThe map\n```arch\n{{"arch": 1}}\n```\n\n![1 · Before, dev]({artifact})\n'
+    chrome.refusal = '"name" is required'
+    assert cli.main(["pr", "add", PR, "--job", "j1", "--headline", "Uploads survive a flaky network"]) == 2
+    refusal = capsys.readouterr().err.splitlines()
+    assert refusal[0] == "drive: Forge-AI/monorepo#42: refused, nothing added, for each of these 4:"
+    assert [line.split(" ", 1)[0] for line in refusal[1:]] == ["1.", "2.", "3.", "4."]
+    assert refusal[1].startswith('1. its title "the desk sheds j12" does not open Fix:, New:, Cleanup: or Port:')
+    assert refusal[2:4] == ['2. its Show me arch does not draw: "name" is required', f"3. its Show me image does not draw: {artifact} did not download: HTTP Error 403: Forbidden"]
+    assert refusal[4].startswith("4. his card opens with its lead, and --because is missing; --does is missing; --downstream is missing")
+    assert (state.load("demo")["prs"], draws.keys) == ({}, [])
+    on_github["title"] = "Fix: the strip moves to the top"
+    on_github["body"] = CARD_BODY
+    assert run("pr", "add", PR, "--job", "j1", *LEAD) == (0, f"Forge-AI/monorepo#42, his card {draws.link}")
+    assert draws.keys == [["Forge-AI/monorepo#42"]]
 
 
 def test_pr_add_adds_a_body_whose_shown_sections_speak_of_him_as_he_or_his_with_a_note(run: Run, demo: str, on_github: dict, capsys: pytest.CaptureFixture[str]) -> None:
