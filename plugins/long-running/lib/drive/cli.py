@@ -1853,9 +1853,10 @@ def drop_ask(name: str, job_id: str, file: Path) -> tuple[str | None, bool]:
 
 
 def answered_drop(name: str, job_id: str, file: Path, answer_id: str) -> list[str]:
-    """End the job's own open question on his card kept in this file on his recorded answer that already settles it, by `ended_on`, its card closing in place on his words and the link where he gave them: the way out for a card whose recommended option his answer already chose, which no redraw may ask again; refused for a question on no card, which --drop alone throws away, one that ended, and an answer holding no words of his. What was done, a line each."""
+    """End the job's own open question on his card kept in this file on his recorded answer that already settles it, by `ended_on`, its card closing in place on his words and the link where he gave them: the way out for a card whose recommended option his answer already chose, which no redraw may ask again. On his ruling state.TOOLING_DETAILS_RULING it ends a question of a drive tooling order, the meta session or its job having read it as asking him only a detail, decided on the recommended option the file keeps, by settled.tooling_decided as `keep_decided` keeps one no card was drawn for, its card showing settled.DECIDED and a link to his ruling's message; refused there on any other order, since his ruling reaches drive tooling alone, and for a card kept unsettled, which asks him to lift words of his. Refused for a question on no card, which --drop alone throws away, one that ended, and an answer holding no words of his. What was done, a line each, then who builds on it, by `builds_on`."""
     data = state.load(name)
-    question = state.kept_in(find(data["jobs"], job_id, "job"), file)
+    job = find(data["jobs"], job_id, "job")
+    question = state.kept_in(job, file)
     if not (question and question["card"] and question["closed"] is None):
         raise DriveError(
             f"refused, nothing ended: {file} keeps no open question of {job_id} on his card, so --answer has no card to close;"
@@ -1864,10 +1865,22 @@ def answered_drop(name: str, job_id: str, file: Path, answer_id: str) -> list[st
     answer = settled.shown(answer_id, data["roles"]["coordinator"]["cwd"])
     if not (words := settled.his(answer["body"])):
         raise DriveError(f"refused, nothing ended: cc-notes keeps no words of his under {answer_id}, so it settles no card; name the recorded answer whose words settle it")
-    return [
-        f'{job_id}\'s question "{render.cut(question["title"] or "", 80)}" ended answered by his answer {answer["id"][:7]}, "{render.cut(words, settled.QUOTED_CHARS)}"',
-        *ended_on(name, answer["id"], {"words": words, "link": settled.given_at(data, answer["id"])}, question["waits"], question["card"], "answered"),
-    ]
+    title = render.cut(question["title"] or "", 80)
+    if answer["id"][:7] != state.TOOLING_DETAILS_RULING:
+        said = f'{job_id}\'s question "{title}" ended answered by his answer {answer["id"][:7]}, "{render.cut(words, settled.QUOTED_CHARS)}"'
+        ended = ended_on(name, state.new_close("answered", words, settled.given_at(data, answer), answer=answer["id"]), question["waits"], question["card"])
+        return [said, *ended, builds_on(state.load(name), job_id)]
+    if not state.tooling(order := data["orders"][job["order"]]):
+        raise DriveError(
+            f'refused, nothing ended: his ruling {state.TOOLING_DETAILS_RULING} leaves to a job only the details of drive tooling, "(different than non-tooling changes)",'
+            f' and {job_id}\'s order {job["order"]} is no Drive tooling order: "{render.cut(order["text"], 120)}", so only his answer on its card ends it'
+        )
+    if question["unsettled"]:
+        raise DriveError(f'refused, nothing ended: his card asks him to lift "{render.cut(question["unsettled"], 200)}", which only his answer decides, so no job decides it under his ruling {state.TOOLING_DETAILS_RULING}')
+    option = limits.question_problems(limits.ask_block(file.read_text()), kept=True)[0].recommended
+    closed = settled.tooling_decided(option, settled.given_at(data, answer))
+    said = f'{job_id}\'s question "{title}" ended decided on its recommended option, "{render.cut(option, 200)}", under his ruling {state.TOOLING_DETAILS_RULING} on tooling details'
+    return [said, *ended_on(name, closed, question["waits"], question["card"], f'"{render.cut(closed["words"], 300)}" linked to {closed["link"] or "itself"}'), builds_on(state.load(name), job_id)]
 
 
 def asked_title(text: str) -> str:
@@ -2078,7 +2091,8 @@ def keep_settled(name: str, job_id: str, text: str, kept: Path, title: str, unse
 
 def keep_decided(name: str, job_id: str, text: str, kept: Path, asked: limits.Question) -> tuple[Path, limits.Question, dict, str]:
     """Keep a drive tooling job's ASK block Jev reads as asking him only a detail, decided on its recommended option by his ruling state.TOOLING_DETAILS_RULING, as `keep_settled` keeps one his answer settles: no card draws and the job goes on building. The file, the question asked, its question kept, and the line saying the job decided it."""
-    closed = settled.tooling_decided(asked.recommended, settled.given_at(state.load(name), state.TOOLING_DETAILS_RULING))
+    data = state.load(name)
+    closed = settled.tooling_decided(asked.recommended, settled.given_at(data, settled.shown(state.TOOLING_DETAILS_RULING, data["roles"]["coordinator"]["cwd"])))
     question, _ = keep_closed(name, job_id, text, kept, asked.title, None, closed)
     return kept, asked, question, settled.DECIDED_LINE.format(file=kept, job=job_id, option=render.cut(asked.recommended, 200), ruling=state.TOOLING_DETAILS_RULING)
 
@@ -2571,12 +2585,20 @@ def cards_withdraw(args: argparse.Namespace) -> int:
         raise DriveError(f"{args.card}: refused, not withdrawn: --words is needed unless --via is another open question card of this drive, by its waits id or permalink")
     if not onto and (posted := slack.MESSAGE_LINK.search(args.via)):
         sent = datetime.fromtimestamp(float(f"{posted[2]}.{posted[3]}")).astimezone()
-        if later := [question for _, question in view.drawn_on(state.load(name), args.card) if question["closed"] is None and state.parse_time(question["asked"]) > sent]:
-            newest = max(later, key=lambda question: state.parse_time(question["asked"]))
+        data = state.load(name)
+        if later := [(job_id, question) for job_id, question in view.drawn_on(data, args.card) if question["closed"] is None and state.parse_time(question["asked"]) > sent]:
+            asker, newest = max(later, key=lambda pair: state.parse_time(pair[1]["asked"]))
+            file = newest["file"] or "<the file its question is kept in>"
+            detail = (
+                f"; one of a Drive tooling order asking him only a detail of how the tooling works ends decided on its recommended option under his ruling {state.TOOLING_DETAILS_RULING}:"
+                f" drive job ask {asker} --drop {file} --answer {state.TOOLING_DETAILS_RULING}"
+                if state.tooling(data["orders"][data["jobs"][asker]["order"]])
+                else ""
+            )
             raise DriveError(
                 f"{args.card}: refused, not withdrawn: --via {args.via} was written at {state.stamp(sent)}, before its question was asked at {newest['asked']}, and no answer he gave another question settles it;"
                 f" an answer of his that reads as settling it goes on the card as its {limits.ALREADY_ANSWERED} tap: drive job ask <job> <file> --redraws {newest['waits'] or args.card}, its summary citing that answer,"
-                f" and one that chose its recommended option ends it on his words: drive job ask <job> --drop {newest['file'] or '<the file its question is kept in>'} --answer <that answer's id>"
+                f" and one that chose its recommended option ends it on his words: drive job ask <job> --drop {file} --answer <that answer's id>{detail}"
             )
     unsaid = None if onto else settled.unsaid([args.words], [args.via], view.live_cards(name), state.load(name))
     if unsaid and (unhappened := settled.unhappened(args.via, args.card, name)):
@@ -4588,7 +4610,7 @@ def answer(args: argparse.Namespace) -> int:
                     done += superseded.drop(data, args.id, entry["order"], entry["title"])
                 continue
             if (card := entry["card"]) and card not in cleared or entry["kind"] == "question" and not card:
-                ended_on(name, args.id, kept, key, card, "withdrawn")
+                ended_on(name, state.new_close("withdrawn", kept["words"], kept["link"], answer=args.id), key, card)
                 cleared.add(card)
             if superseded.stops_open_pr(data, key, None):
                 superseded.close(key)
@@ -4605,7 +4627,7 @@ def answer(args: argparse.Namespace) -> int:
                 done += [*rework_prs(name, [{"key": key, "words": kept["words"], "link": kept["link"]}], args.id), f"{key} reopened by his answer {args.id}: {job_id} reworks it to his words, so brief {job_id} with them"]
                 continue
             if card and card not in cleared or asked[key]["kind"] == "question" and not card:
-                ended_on(name, args.id, kept, key, card, "superseded")
+                ended_on(name, state.new_close("superseded", kept["words"], kept["link"], answer=args.id), key, card)
                 cleared.add(card)
             if superseded.stops_open_pr(data, key, job_id):
                 superseded.close(key)
@@ -4662,17 +4684,16 @@ def replaced(name: str, answer_id: str, asked: dict[str, dict], cwd: str) -> lis
     return done
 
 
-def ended_on(name: str, answer_id: str, kept: dict, key: str, card: str | None, how: str) -> list[str]:
-    """End, answered, withdrawn or superseded by his answer, each open question drawn on the card a mark names, or kept under its waits id with no card drawn yet, which then never draws, and its card follows, showing his words with no buttons; a card no question of the drive is drawn on, one asked outside any job, is closed in place. What its card shows, a line each."""
+def ended_on(name: str, closed: dict, key: str, card: str | None, shown: str = "his words") -> list[str]:
+    """End as this close says, answered, withdrawn or superseded by his answer or decided under his ruling, each open question drawn on the card a mark names, or kept under its waits id with no card drawn yet, which then never draws, and its card follows, showing the close's words with no buttons, said as `shown`; a card no question of the drive is drawn on, one asked outside any job, is closed in place. What its card shows, a line each."""
     from drive import superseded, view
 
     with state.edit(name) as data:
-        closed = state.new_close(how, kept["words"], kept["link"], answer=answer_id)
         drawn = view.drawn_on(data, key, *filter(None, [card]))
         ended = [each for job_id, question in drawn if question["closed"] is None for each in superseded.end(data, job_id, question, closed)]
     if drawn:
-        return superseded.follow(name, ended)
-    superseded.settle(card, kept, settled=how == "answered")
+        return superseded.follow(name, ended, shown)
+    superseded.settle(card, closed, settled=closed["how"] == "answered")
     return []
 
 
@@ -4680,7 +4701,7 @@ def settle_card(name: str, answer_id: str, kept: dict, key: str, entry: dict, fi
     """Show his answer in place on the question card it decides, settling its job's question, or mark the card it decides in part redrawn to the ASK its job keeps asking what is left, which `drive job ask --redraws` drew under the card's waits id; either way the card's job, while live, waits to hear his words. What was done, one line."""
     job_id, card = entry["job"], entry["card"]
     if not file:
-        ended_on(name, answer_id, kept, key, card, "answered")
+        ended_on(name, state.new_close("answered", kept["words"], kept["link"], answer=answer_id), key, card)
     with state.edit(name) as data:
         job = data["jobs"][job_id]
         data["answers"][answer_id]["cards"][key] = {"mark": "redrawn" if file else "settled", "job": job_id, "card": card, **({"ask": str(file)} if file else {})}
@@ -5838,7 +5859,10 @@ def parser() -> argparse.ArgumentParser:
         help=(
             "with --drop, end the job's own open question on his card kept in that file on this recorded answer of his, which"
             " already settles it, such as one choosing its recommended option, its card closing in place on his words and the"
-            " link where he gave them with no buttons; refused for a question on no card and an id cc-notes keeps no words of his under"
+            f" link where he gave them with no buttons; with {state.TOOLING_DETAILS_RULING}, his ruling on tooling details, end a"
+            " question of a Drive tooling order asking him only a detail decided on its recommended option, its card showing that"
+            " option decided without him and a link to his ruling's message, refused on any other order and for a card kept"
+            " unsettled; either way it prints who builds on it; refused for a question on no card and an id cc-notes keeps no words of his under"
         ),
     )
     verb.set_defaults(run=job_ask)

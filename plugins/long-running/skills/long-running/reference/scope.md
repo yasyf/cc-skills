@@ -120,10 +120,17 @@ past the question it was given under and names the subject only in his words.
 
 `drive job ask` keeps a question settled with no card on his answer to that same question,
 asked in the same words, case, spacing and punctuation aside, and, on a drive tooling order, on Jev's reading,
-at least 0.8 sure, that it asks him only a detail: it keeps that one decided on its recommended
+at least 0.7 sure, that it asks him only a detail: it keeps that one decided on its recommended
 option under his ruling 43aa665 and prints so, and the job builds it and opens its PR. A card
 already drawn on the question, kept unsettled, or read as going against his words still goes to
-him. That answer is his pick or words on or under the
+him, and Jev never reads a drawn one again. When the meta session or the card's job reads a drawn
+card of a drive tooling order as asking him only a detail, `drive job ask <j> --drop <file> --answer 43aa665`
+ends it decided on the recommended option the file keeps, as an undrawn one is kept: his card
+shows "<option>: decided without you under your ruling on tooling details" and a link to his
+ruling's message with no buttons, and the job waiting on it goes on to open its PR. It is refused
+on any other order and for a card kept unsettled. `drive cards withdraw` refuses his ruling's
+message as its `--via`, since he wrote it before the card, and names this route instead.
+That answer is his pick or words on or under the
 card it was asked on, or his words recorded under it. The tool prints his words and where he gave
 them. On a pick, build that option. On an order, build the option his words leave that removes the
 root cause, the recommended one.

@@ -555,7 +555,7 @@ def matched(texts: list[str], data: dict) -> list[dict]:
     for text in texts:
         ranked = json.loads(ccn(match, read(text), data["roles"]["coordinator"]["cwd"], "could not check the question against his recorded answers"))
         for answer in [answer for answer in ranked if APPROVAL not in answer["tags"] and his(answer["body"])][:CANDIDATES]:
-            found.setdefault(answer["id"][:7], {"id": answer["id"][:7], "asked": answer["title"], "said": his(answer["body"])[:BODY_CHARS], "link": given_at(data, answer["id"])})
+            found.setdefault(answer["id"][:7], {"id": answer["id"][:7], "asked": answer["title"], "said": his(answer["body"])[:BODY_CHARS], "link": given_at(data, answer)})
     return list(found.values())
 
 
@@ -576,7 +576,7 @@ def line_answers(lines: list[str], data: dict, besides: frozenset[str] = frozens
         matched, searched = ([answer for answer in json.loads(ranked) if APPROVAL not in answer["tags"] and his(answer["body"]) and answer["id"][:7] not in besides][:LINE_CANDIDATES] for ranked in (match, search))
         found: dict[str, dict] = {}
         for answer in (answer for pair in zip_longest(matched, searched) for answer in pair if answer):
-            found.setdefault(answer["id"][:7], {"id": answer["id"][:7], "asked": answer["title"], "said": his(answer["body"])[:BODY_CHARS], "link": given_at(data, answer["id"])})
+            found.setdefault(answer["id"][:7], {"id": answer["id"][:7], "asked": answer["title"], "said": his(answer["body"])[:BODY_CHARS], "link": given_at(data, answer)})
         lined.append((line, list(found.values())))
     return lined
 
@@ -615,11 +615,14 @@ def overruling(picks: list[tuple[str, dict]]) -> str:
     )
 
 
-def given_at(data: dict, answer_id: str) -> str | None:
-    """Where he gave a recorded answer of his: the link `drive answer` kept for it, else the card or message of the question it ended."""
-    return next((answer["link"] for whole, answer in data["answers"].items() if whole[:7] == answer_id[:7]), None) or next(
-        (closed["link"] for job in data["jobs"].values() for question in job["questions"] if (closed := question["closed"]) and closed["link"] and answer_id[:7] in {(closed["answer"] or "")[:7], (closed["noted"] or "")[:7]}),
-        None,
+def given_at(data: dict, answer: dict) -> str | None:
+    """Where he gave this recorded answer of his, as cc-notes prints it with its labels: the link `drive answer` kept for it in this drive, else the card or message of the question it ended here, else the link `drive answer` kept for it in each drive on this Mac its `drive:<name>` labels name, where it recorded the answer, as `answered_card` reads them, so a ruling he gave on one drive's card links his message from every drive."""
+    short = answer["id"][:7]
+    labelled = (name for tag in answer["tags"] if (name := tag.removeprefix("drive:")) != tag and state.exists(name))
+    return (
+        next((kept["link"] for whole, kept in data["answers"].items() if whole[:7] == short), None)
+        or next((closed["link"] for job in data["jobs"].values() for question in job["questions"] if (closed := question["closed"]) and closed["link"] and short in {(closed["answer"] or "")[:7], (closed["noted"] or "")[:7]}), None)
+        or next((kept["link"] for name in labelled for whole, kept in state.stored(name, ("answers",)).get("answers", {}).items() if whole[:7] == short and kept["link"]), None)
     )
 
 
