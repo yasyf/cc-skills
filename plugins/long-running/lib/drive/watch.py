@@ -34,7 +34,7 @@ HANDOFF_FACT = "handoff"
 FREED_AGAIN = timedelta(minutes=30)
 LIVE_EVERY = timedelta(minutes=5)
 TELL_AFTER = timedelta(minutes=10)
-WAKES = ("TAP ", "DUE ", "TELL ", "PROVE ", "ORPHAN ", "ANSWER ", "JOB ", "LANE ", "STAGE ", "FREE ", "WATCH stopped")
+WAKES = ("TAP ", "DUE ", "TELL ", "PROVE ", "ORPHAN ", "ANSWER ", "JOB ", "LANE ", "STAGE ", "FREE ", "MOVED ", "WATCH stopped")
 PR_EVENT = re.compile(r"PR (?P<key>\S+): (?P<change>.+) \[(?P<order>o\d+) (?P<job>j\d+)\]$")
 STAGE_LINE = re.compile(r"STAGE (?P<key>\S+) (?P<name>\w+)\b")
 ENDED = ("merged", "closed", PROOF_FAILED)
@@ -89,6 +89,7 @@ BUILD_FIELDS = (
 )
 BUILD_ENDS = ("PASSED", "FAILED", "CANCELED", "BLOCKED", "SKIPPED", "NOT_RUN")
 ABOUT = re.compile(r"\[(?P<order>o\d+) (?P<job>j\d+)\]$|^[A-Z]+ (?:\S+ )?(?:j\d+ )?(?P<named>o\d+)\b")
+MOVED_LINE = re.compile(r"MOVED (?:o\d+, )*o\d+ from (?P<lane>\S+) to ")
 
 
 @dataclass
@@ -1347,7 +1348,10 @@ def page_lines(watcher: Watcher, moment: datetime) -> list[str]:
     return []
 
 
-def event_line(event: dict, prs: dict) -> str:
+def event_line(event: dict, data: dict) -> str:
+    if event["kind"] == state.ORDERS_MOVED:
+        return moved_line(event, data)
+    prs = data["prs"]
     key = f"{event.get('repo')}#{event.get('number')}"
     suffix = f" {ids(prs[key])}" if key in prs else ""
     if event["kind"] == "tap":
@@ -1368,8 +1372,19 @@ def event_line(event: dict, prs: dict) -> str:
     return f"EVENT {event['kind']} {details}".rstrip() + suffix
 
 
+def moved_line(event: dict, data: dict) -> str:
+    """What a lane's watch says to it once a save moved open orders it held to another session: the orders, the lanes holding them now, their unfinished jobs, the agents its own session runs on this Mac among them, which only its SendMessage reaches, and the one handoff record it sends their holder of what it holds on them outside the drive file."""
+    jobs = list(dict.fromkeys(job_id for order_id in event["orders"] for job_id in data["orders"][order_id]["jobs"] if data["jobs"][job_id]["state"] not in state.FINISHED_JOB_STATES))
+    own = [job_id for job_id in jobs if data["jobs"][job_id]["where"] == "local" and data["jobs"][job_id]["agent"] and state.session_lane(data, data["jobs"][job_id]["session"]) == event["lane"]]
+    return (
+        f"MOVED {', '.join(event['orders'])} from {event['lane']} to {', '.join(event['to'])}: unfinished jobs {', '.join(jobs) or 'none'};"
+        f" agents of your session among them: {', '.join(own) or 'none'}, which run on and take SendMessage from you alone. Add, brief and land nothing more on these orders,"
+        " and send their holder, as drive status names it, one handoff record of what you hold on them outside the drive file: holds, waits, jobs you meant to add or brief, promises to him"
+    )
+
+
 def event_lines(watcher: Watcher) -> list[str]:
-    """Each new event the watch hears: one is written with the lane of the coordinator session hearing its order then, so a binding or a refiling after it moves it to no other watch, and one written with no lane is the drive's own watch's. A delivery the receiver wrote is said by no line: it owes each watch a read of the PRs it names, which github_lines reads later in the same pass for the PRs that watch hears, a push to their base a read of their mergeability alone. A build delivery owes it a read of the Buildkite builds it names, which build_lines makes later in the same pass."""
+    """Each new event the watch hears: one is written with the lane of the coordinator session hearing its order then, so a binding or a refiling after it moves it to no other watch, an ORDERS_MOVED one with the lane that lost the orders it names, the drive's own watch saying one the communicator or the meta session lost, which handed sends that session, and one written with no lane is the drive's own watch's. A delivery the receiver wrote is said by no line: it owes each watch a read of the PRs it names, which github_lines reads later in the same pass for the PRs that watch hears, a push to their base a read of their mergeability alone. A build delivery owes it a read of the Buildkite builds it names, which build_lines makes later in the same pass."""
     events = list(state.read_events(watcher.name, watcher.offset))
     if not events:
         return []
@@ -1378,8 +1393,9 @@ def event_lines(watcher: Watcher) -> list[str]:
         watcher.owed |= {key for key, remerges in delivered if not remerges}
         watcher.merging |= {key for key, remerges in delivered if remerges}
     watcher.builds_heard |= {link for event, _ in events if event["kind"] == receiver.BUILD_DELIVERY for link in event["builds"]}
-    prs = state.load(watcher.name)["prs"]
-    said = [event_line(event, prs) for event, _ in events if event["kind"] not in (*view.HISTORY_ONLY, receiver.DELIVERY, receiver.BUILD_DELIVERY) and event.get("lane", "root") == watcher.lane]
+    data = state.load(watcher.name)
+    heard = (watcher.lane,) if watcher.project else (watcher.lane, *state.HOLDERS)
+    said = [event_line(event, data) for event, _ in events if event["kind"] not in (*view.HISTORY_ONLY, receiver.DELIVERY, receiver.BUILD_DELIVERY) and event.get("lane", "root") in heard]
     watcher.offset = events[-1][1]
     return said
 
@@ -1632,7 +1648,7 @@ def quiet_report(watcher: Watcher, data: dict, groups: dict[str, list[str]], sin
     late = timedelta(minutes=present) >= DUE_EVERY
     absence = data["owner"]["absence"] if present < past else None
     orders = [order_id for group in groups.values() for order_id in group]
-    jobs = [f"- {render.job_line(job_id, job)}" for job_id, job in state.orders_jobs(data, orders).items()]
+    jobs = [f"- {render.job_line(data, job_id, job)}" for job_id, job in state.orders_jobs(data, orders).items()]
     handoffs = quiet_handoffs(data, orders, moment)
     if due:
         opening = (
@@ -3663,7 +3679,9 @@ def line_lane(line: str, data: dict, own: str) -> str | None:
 
 
 def holder_line(line: str, data: dict) -> str | None:
-    """The lane of the session holding the order a line is about, when that is the communicator or the meta session rather than a coordinator."""
+    """The lane of the session holding the order a line is about, when that is the communicator or the meta session rather than a coordinator, and for a MOVED line the lane that lost its orders when that is one of them."""
+    if moved := MOVED_LINE.match(line):
+        return moved["lane"] if moved["lane"] in state.HOLDERS else None
     found = ABOUT.search(line)
     order = found and data["orders"].get(found["order"] or found["named"])
     return state.holder_lane(order) if order else None

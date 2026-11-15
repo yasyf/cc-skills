@@ -1582,7 +1582,7 @@ def job_set(args: argparse.Namespace) -> int:
         for order_id in args.carries or ([job["order"]] if reworks else [])
         for line in rework_named_prs(name, order_id, reworks, cards, f"drive job set {args.id} --carries {order_id} --rework <PR>=<his permalink>")
     ]
-    return emit(args, already + render.job_line(args.id, job) + "".join(f"\n{line}" for line in [*replaced, *reworked]), {"id": args.id, **job})
+    return emit(args, already + render.job_line(data, args.id, job) + "".join(f"\n{line}" for line in [*replaced, *reworked]), {"id": args.id, **job})
 
 
 def fix_kept(data: dict, job_id: str) -> None:

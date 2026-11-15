@@ -38,6 +38,7 @@ def order(
         "workstream": None,
         "title": None,
         "incident": False,
+        "owner": None,
     }
 
 
@@ -56,6 +57,7 @@ def sample() -> dict:
             "kind": "builder",
             "goal": "rewrite long-running",
             "agent": "agent-7",
+            "session": "s1",
             "repo": "yasyf/cc-skills",
             "branch": "lr-rewrite",
             "worktree": None,

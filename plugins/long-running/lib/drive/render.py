@@ -6,7 +6,7 @@ from collections.abc import Callable, Iterable
 from datetime import datetime
 
 from drive import slack
-from drive.state import DRIVE_TOOLING, FREED, REPO_RULES, ROLES, SLOT_WAIT, VERSION, alias, carriers, delivered, exempted, lane_death, may_tell, now, open_orders, orphan_stands, owed, owed_at_return, parse_time, part_jobs, pass_due, passes, pr_key, pr_url, project_lane, promise_thread, repo_rules, resumed, standing_passes, title, untracked_carriers, work
+from drive.state import DRIVE_TOOLING, FINISHED_JOB_STATES, FREED, REPO_RULES, ROLES, SLOT_WAIT, VERSION, alias, carriers, delivered, exempted, holding_job_lane, lane_death, may_tell, now, open_orders, orphan_stands, owed, owed_at_return, parse_time, part_jobs, pass_due, passes, pr_key, pr_url, project_lane, promise_thread, repo_rules, resumed, session_lane, standing_passes, title, untracked_carriers, work
 
 SLACK_TOOLS = "mcp__plugin_cc-slack_cc-slack__"
 REWORKING = "no card while its builder reworks it to his words, until its READY says how they are met"
@@ -413,11 +413,11 @@ def stage_words(pr: dict) -> str:
     return f"; {now['name']}{since}, owed by {now['owner']}: {now['why']}{read}"
 
 
-def job_line(job_id: str, job: dict, limit: int = 100) -> str:
+def job_line(drive: dict, job_id: str, job: dict, limit: int = 100) -> str:
     if job.get("where") == "remote":
         handle = f" remote dispatch {job['dispatch']}" if job.get("dispatch") else " remote, not started"
     else:
-        handle = f" agent {job['agent']}" if job.get("agent") else ""
+        handle = f" agent {job['agent']}{agent_elsewhere(drive, job)}" if job.get("agent") else ""
     repro = f"; repro {job['repro']}" if job.get("repro") else ""
     carries = f"; {job['order']}'s job, carrying " + ", ".join(job["carries"]) if job.get("carries") else ""
     built = f" on {job['branch']}" if job["state"] == "built" else ""
@@ -426,6 +426,15 @@ def job_line(job_id: str, job: dict, limit: int = 100) -> str:
     shown = f"lane dead since {when(dead['at'])} ({dead['why']})" if job["state"] == "running" and (dead := lane_death(job)) else job["state"]
     woken = f"; resumed {when(woke)} by a message after its last line" if (woke := resumed(job)) else ""
     return f"{job_id} {job['kind']} {shown}{built}{handle}: {cut(job['goal'], limit)}{repro}{carries}{waits}{woken}"
+
+
+def agent_elsewhere(drive: dict, job: dict) -> str:
+    """For an unfinished job whose agent on this Mac a session other than the one holding the job started, as when its order moved to another coordinator session, that session, whose SendMessage alone reaches the agent, and what drive job resume does with a text for it."""
+    if job["state"] in FINISHED_JOB_STATES or (lane := session_lane(drive, job["session"])) == holding_job_lane(drive, job):
+        return ""
+    if lane is None:
+        return " of a session the drive no longer binds, so drive job resume hands it to a fresh agent"
+    return f" of {lane}'s session, whose SendMessage alone reaches it, so drive job resume posts a text there"
 
 
 def question_line(question: dict) -> str:
@@ -482,7 +491,7 @@ def order_block(drive: dict, order_id: str, order: dict) -> list[str]:
     lines.extend(orphans(drive, order_id, WHOLE))
     for job_id in order["jobs"]:
         job = drive["jobs"][job_id]
-        lines.append(f"  - {job_line(job_id, job, WHOLE)}")
+        lines.append(f"  - {job_line(drive, job_id, job, WHOLE)}")
         if job["said"]:
             lines.append(f"    said: {cut(job['said'], WHOLE)}")
         lines.extend(f"    - {question_line(question)}" for question in job["questions"])
