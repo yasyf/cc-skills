@@ -104,6 +104,8 @@ def alone(data: dict, key: str, cards: dict) -> Stage:
             mover(data, key, [flaky["fix"]], cards),
             f"Trunk ejected it from the merge queue at {pr['head'][:7]} on its flaky test {flaky['test']}; the lander requeues that commit once {flaky['fix']}, that test's fix, merges",
         )
+    if state.cleared(pr) and (lander := pr["lander"]) and lander["head"] == pr["head"] and (lander["outcome"] or "").startswith(land.AWAY) and state.absence(data, state.now()):
+        return waiting(data, key, cards) or Stage("waiting", HIM, f"green and cleared, and its lander's try at {pr['head'][:7]} ended {lander['outcome']}")
     if state.cleared(pr):
         after = f"; the check against his words objects, for after the merge: {named}" if (named := state.against(pr)) else ""
         unread = f"; its lander's last try ended {lander['outcome']}" if (lander := pr["lander"]) and lander["head"] == pr["head"] and (lander["outcome"] or "").startswith(land.UNREAD) else ""

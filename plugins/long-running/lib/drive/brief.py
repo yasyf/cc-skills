@@ -7,6 +7,7 @@ import subprocess
 import sys
 import textwrap
 from collections.abc import Iterator
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -108,6 +109,8 @@ MAC = re.compile(r"^Mac:[ \t]*(.+)$", re.MULTILINE)
 AFTER = re.compile(r"^After install:", re.MULTILINE)
 CI_BINARIES = frozenset({"ci", "ci.dev"})
 RELEASE_STARTS = ("start", "hotfix")
+PRESENT_CUTS = ("start", "hotfix", "resume", "approve", "api")
+HOLD_PASSES = ("approve", "api")
 RELEASE_VALUED = frozenset({"groups", "targets", "hotfix", "landed", "exclude", "only", "without", "env", "from", "order", "stack", "commit"})
 RELEASE_ASIDE = frozenset({"json"})
 RELEASE_APPROVAL = (
@@ -234,6 +237,30 @@ def approval_refusal(command: str, data: dict) -> str | None:
         return f"refused: Jev did not say whether his answer {answer_id} approves this release ({failure}); run it again once Jev answers. {RELEASE_APPROVAL}"
     asked, said = cut(answer["title"], 200), cut(settled.his(answer["body"]), settled.QUOTED_CHARS)
     return f'refused: `--order {answer_id}` names his answer to "{asked}", "{said}", and {why}. {RELEASE_APPROVAL}'
+
+
+def away_refusal(verb: str, release: str, data: dict, moment: datetime) -> str | None:
+    """Why a production release may not start, resume or pass its approve hold now, by a release verb or a `ci bk api` write to its build such as unblocking that hold: he is not present, by state.absence, and it is dangerous by the root AGENTS.md's rule, as every approve hold is, since it holds a migration, delete or replace, and every cut but harmless() ones, since a cut of the default branch carries changes nobody read; a rollback, a rerun or any other verb runs."""
+    if verb not in PRESENT_CUTS or not (away := state.absence(data, moment)):
+        return None
+    if verb not in HOLD_PASSES and harmless(release, data):
+        return None
+    return (
+        f"refused: {away}, and while he is not present a production release starts or resumes only as an incident's hotfix of pull requests"
+        f" that change nothing dangerous, and passes no approve hold, by his words {state.PRESENCE_WORDS}: return WAITING his word with the release held; a rollback runs now"
+    )
+
+
+def harmless(release: str, data: dict) -> bool:
+    """Whether a release may run while he is not present: one `ci release start` or `hotfix` of pull requests, which carries no other change, on an --order of his labelled incident, none of whose pull requests changes a path land.dangerous names, as GitHub lists their files now."""
+    from drive import github, land
+
+    named = started(release)
+    if len(named) != 1 or not (pulls := named[0].get("hotfix")) or not (orders := named[0].get("order")):
+        return False
+    if settled.INCIDENT not in settled.shown(orders[-1], data["roles"]["coordinator"]["cwd"])["tags"]:
+        return False
+    return not any(land.dangerous(github.files(f"{state.MONOREPO}#{number}")) for number in pulls)
 
 
 def hold_refusal(release: str, data: dict, hold: dict) -> str | None:

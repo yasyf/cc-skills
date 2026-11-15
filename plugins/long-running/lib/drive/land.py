@@ -8,6 +8,7 @@ import tempfile
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
+from datetime import datetime
 from pathlib import Path
 
 from drive import agents, github, install, served, state, view
@@ -45,14 +46,20 @@ NO_DEQUEUE = f"{OWN_FAILURE} take"
 ENQUEUE_FAILED = 5
 HELD = "not landed while he holds it"
 WAITED = "not landed while it waits"
+AWAY = "not landed while he is away"
 UNREAD = "not landed: a GitHub read failed before it queued or merged anything, so the next watch pass lands it again"
 RUNNING = "not landed: its checks still run"
-RETRIED = (NEWER_INSTALL, OWN_FAILURE, HELD, WAITED, UNREAD, RUNNING)
+RETRIED = (NEWER_INSTALL, OWN_FAILURE, HELD, WAITED, AWAY, UNREAD, RUNNING)
 OWN_RED = "not landed: its own change fails"
 REVIEW_ASK = "@forge-pr-reviewer review"
 BLOCKED_LINE = re.compile(r"^#(?P<number>\d+) BLOCKED (?P<head>\w+) (?P<gaps>.+)$", re.MULTILINE)
 OLDER_HEAD = re.compile(r"awaiting approval on head from \S+ \(approved [^,]+, (?:on an older head|dismissed by a push)\)")
 REVERT = re.compile(r"^Reverts?\s|⏪|\bThis reverts\b", re.MULTILINE)
+DANGEROUS = re.compile(
+    r"migrations?/|backfill|bucketdelete/|sandsql|sanddb|^go/sand/(?:next/)?internal/(?:builtin|irisbuiltins|parser|checker|compiler|vm\w*|runtime-api)/"
+    r"|^api/src/modules/runtimeApi/|^common/src/iris/appShell/",
+    re.IGNORECASE,
+)
 STORED_DATA = re.compile(r"(?:^|/)migrations?/|(?:^|/)[^/]*schema[^/]*$|\.(?:sql|proto)$", re.IGNORECASE)
 CI_FILES = re.compile(r"^(?:\.github|\.buildkite|(?:go|infra)/ci)/|^tools/ci(?:-ts)?(?:/|$)")
 BRANCH_HISTORY = 50
@@ -109,6 +116,21 @@ def approved(pr: dict) -> bool:
 def stored(paths: list[str]) -> list[str]:
     """The paths that change how data is stored, a migration, schema or wire format, which no pure port carries."""
     return [path for path in paths if STORED_DATA.search(path)]
+
+
+def dangerous(paths: list[str]) -> list[str]:
+    """The paths outside test and fixture code that the root AGENTS.md of Forge-AI/monorepo calls dangerous, able to break FDE or customer runs or lose their data: a database migration, a backfill, a delete of user data, SandSQL, a Sand builtin, the parser, checker, compiler or VM, runtime-api, or the app API in common/src/iris/appShell."""
+    return [path for path in paths if DANGEROUS.search(path) and not served.TESTS.search(path)]
+
+
+def unattended(data: dict, key: str, moment: datetime) -> str | None:
+    """Why a Forge-AI PR waits for his next word to land: he is not present, by state.absence, and it changes a path dangerous() names, as GitHub lists its files now, by his words state.PRESENCE_WORDS; None otherwise, reading GitHub only while he is not present."""
+    if not state.guarded(key) or not (away := state.absence(data, moment)) or not (found := dangerous(github.files(key))):
+        return None
+    return (
+        f"{away}, and it changes {', '.join(found[:3])}{', …' if len(found) > 3 else ''}, which can break FDE or customer runs or lose their data,"
+        f" so it lands only while he is present, his word or tap within {state.PRESENT_WITHIN.seconds // 60} minutes, at his next word, by his words {state.PRESENCE_WORDS}"
+    )
 
 
 def outside(exempt: str, key: str, read: dict) -> str:
@@ -353,11 +375,13 @@ def answer_picks(name: str, keys: list[str]) -> list[str]:
 
 
 def halt(name: str, keys: list[str], cards: dict | None) -> list[str]:
-    """Stop each landing of a Forge-AI/monorepo unit with a PR among keys that stopping() stops: a lander still running on it by ending its process group, which dequeues what it queued, recording that on each PR of its unit, and a unit Trunk's merge queue holds after its lander ended by unqueue(), a process of its own that takes it out of the queue and records it; each PR reads that hold until he answers or waiting until the wait ends, and lands then; the PRs stopped."""
-    if not held_landings(state.load(name), keys, cards):
+    """Stop each landing of a Forge-AI/monorepo unit with a PR among keys that stopping() stops, or that unattended() holds while he is not present, read before the drive's lock is taken since it reads GitHub, so a unit queued before he went quiet leaves the queue: a lander still running on it by ending its process group, which dequeues what it queued, recording that on each PR of its unit, and a unit Trunk's merge queue holds after its lander ended by unqueue(), a process of its own that takes it out of the queue and records it; each PR reads that hold until he answers, waiting until the wait ends or away until his next word, and lands then; the PRs stopped."""
+    data = state.load(name)
+    away = {key: f"{AWAY}: {why}" for key in keys if landing(pr := data["prs"][key]) and not dequeuing(pr) and not stopping(data, key, cards) and (why := unattended(data, key, state.now()))}
+    if not held_landings(data, keys, cards, away):
         return []
     with state.edit(name) as data:
-        stopped = held_landings(data, keys, cards)
+        stopped = held_landings(data, keys, cards, away)
         under = unders(data)
         units = {tried: sorted((key for key, pr in data["prs"].items() if landing(pr) and (pr["lander"]["pid"], pr["lander"]["at"]) == tried), key=lambda key: len(chain(under, key))) for tried in stopped}
         for (pid, at), unit in units.items():
@@ -371,12 +395,12 @@ def halt(name: str, keys: list[str], cards: dict | None) -> list[str]:
     return [key for unit in units.values() for key in unit]
 
 
-def held_landings(data: dict, keys: list[str], cards: dict | None) -> dict[tuple[int, str], str]:
-    """Each landing of a Forge-AI/monorepo unit with a PR among keys that stopping() stops, a lander running on it or Trunk's merge queue holding what its lander queued, by that lander's pid and start, with the outcome saying why; none a dequeuer already takes out of the queue."""
+def held_landings(data: dict, keys: list[str], cards: dict | None, away: dict[str, str]) -> dict[tuple[int, str], str]:
+    """Each landing of a Forge-AI/monorepo unit with a PR among keys that stopping() stops, or that away holds by the outcome it names for that PR, a lander running on it or Trunk's merge queue holding what its lander queued, by that lander's pid and start, with the outcome saying why; none a dequeuer already takes out of the queue."""
     return {
         (pr["lander"]["pid"], pr["lander"]["at"]): outcome
         for key in keys
-        if landing(pr := data["prs"][key]) and not dequeuing(pr) and (outcome := stopping(data, key, cards))
+        if landing(pr := data["prs"][key]) and not dequeuing(pr) and (outcome := stopping(data, key, cards) or away.get(key, ""))
     }
 
 
@@ -511,7 +535,7 @@ def spawn(name: str, keys: tuple[str, ...]) -> int:
 
 
 def run(name: str, keys: list[str], dry_run: bool = False) -> str:
-    """Land one unit his Approve or exempt classes clear, or one yasyf/* PR, in whichever repository the drive tracks it, never a PR the drive does not track or one someone else opened that no order of his it serves names, then record what came of it on each PR, which its stage reads, and as a landing event: a yasyf/* PR merges with gh pr merge --admin at the head a fresh read finds every check finished on with none failing on its own change, a Forge-AI/monorepo unit queues through stack-enqueue, and a PR of any other repository merges with gh pr merge at the head its stage read ready, which GitHub merges only once its repository's rules pass, each by the method its repository allows, by github.merge_method. His Approve lands the PR whatever the check of its change against his words says, which only informs his card and its owner; a unit with a PR below it that nothing clears is not landed, since its landing would land that PR too, nor one with a PR its changes put outside its exempt class, nor one a hold of his holds, his Hold, the hold label or an open card of his on the work of any job carrying a PR of it, nor one with a PR whose started staging test has not passed, by state.staging_runs. A GitHub read or drive read that fails before it queues or merges anything, in any repository, ends the try not landed by UNREAD's rule, so the next watch pass lands it again. A dry run runs stack-enqueue --check as the landing would, says what it would do, and lands and records nothing."""
+    """Land one unit his Approve or exempt classes clear, or one yasyf/* PR, in whichever repository the drive tracks it, never a PR the drive does not track or one someone else opened that no order of his it serves names, then record what came of it on each PR, which its stage reads, and as a landing event: a yasyf/* PR merges with gh pr merge --admin at the head a fresh read finds every check finished on with none failing on its own change, a Forge-AI/monorepo unit queues through stack-enqueue, and a PR of any other repository merges with gh pr merge at the head its stage read ready, which GitHub merges only once its repository's rules pass, each by the method its repository allows, by github.merge_method. His Approve lands the PR whatever the check of its change against his words says, which only informs his card and its owner; a unit with a PR below it that nothing clears is not landed, since its landing would land that PR too, nor one with a PR its changes put outside its exempt class, nor one a hold of his holds, his Hold, the hold label or an open card of his on the work of any job carrying a PR of it, nor a Forge-AI one unattended() holds while he is not present, nor one with a PR whose started staging test has not passed, by state.staging_runs. A GitHub read or drive read that fails before it queues or merges anything, in any repository, ends the try not landed by UNREAD's rule, so the next watch pass lands it again. A dry run runs stack-enqueue --check as the landing would, says what it would do, and lands and records nothing."""
     data = state.load(name)
     if untracked := [key for key in keys if key not in data["prs"]]:
         raise state.DriveError(f"{', '.join(untracked)}: the drive tracks no such PR, so it lands none; drive pr add <url> --job <job> registers one first")
@@ -532,6 +556,8 @@ def run(name: str, keys: list[str], dry_run: bool = False) -> str:
             below = uncleared_below(data, keys)
             if misfiled := "; ".join(why for key in keys if (why := unexempt(data, key))):
                 outcome = f"not landed: {misfiled}"
+            elif away := next((why for key in keys if (why := unattended(data, key, state.now()))), None):
+                outcome = f"{AWAY}: {away}"
             elif below:
                 outcome = held_below(keys, below)
             elif state.queued_by_lander(keys[0]):

@@ -6893,6 +6893,34 @@ def test_a_staging_test_started_on_a_pr_trunk_queued_after_its_lander_ended_read
     watch.landed(watching, T0)
     assert (stage.alone(state.load(demo), KEY, NO_CARDS).name, landers) == ("waiting", [("--dequeue", KEY)])
 
+
+def test_a_dangerous_pr_trunk_queued_before_he_went_quiet_leaves_the_queue_while_he_is_away_and_lands_again_at_his_next_word(
+    demo: str, tmp_path: Path, landers: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    on_main(tmp_path, demo, '#!/bin/sh\necho "#42 DEQUEUED aaaaaaa"\n')
+    approve(demo, KEY)
+    queued(demo)
+    monkeypatch.setattr(github, "files", {KEY: ["go/sand/sandsql/write.go"]}.__getitem__)
+    whys: list[str] = []
+    monkeypatch.setattr(land, "unqueue", lambda name, keys, why: whys.append(why) or os.getpid())
+    watching = watcher(demo)
+    watching.cards = NO_CARDS
+    with state.edit(demo) as data:
+        data["owner"]["heard"] = state.stamp(state.now() - timedelta(minutes=5))
+    watch.landed(watching, T0)
+    assert whys == []
+    with state.edit(demo) as data:
+        data["owner"]["heard"] = state.stamp(state.now() - timedelta(minutes=20))
+    watch.landed(watching, T0)
+    watch.landed(watching, T0)
+    assert len(whys) == 1 and whys[0].startswith(f"{land.AWAY}: he last wrote or tapped 20 minutes ago, and it changes go/sand/sandsql/write.go")
+    land.dequeue(demo, [KEY], whys[0])
+    assert stage.of(state.load(demo), KEY, NO_CARDS) == stage.Stage("waiting", stage.HIM, f"green and cleared, and its lander's try at aaaaaaa ended {whys[0]}; stack-enqueue --dequeue said #42 DEQUEUED aaaaaaa")
+    with state.edit(demo) as data:
+        data["owner"]["heard"] = state.stamp(state.now())
+    assert land.start(demo, [KEY], NO_CARDS) == [(KEY,)]
+
+
 def test_a_dequeue_takes_the_unit_out_of_trunks_queue_from_main_records_why_and_it_lands_again_on_his_approve(demo: str, tmp_path: Path, landers: list[tuple[str, ...]]) -> None:
     calls = tmp_path / "calls"
     on_main(tmp_path, demo, f'#!/bin/sh\necho "$*" >> {calls}\necho "#42 DEQUEUED aaaaaaa"\n')
@@ -7646,6 +7674,64 @@ def ejected_on_a_flake(name: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {EJECTED: trunk | {"ejected_at": state.stamp(T0 + timedelta(minutes=1))}})
     assert f"PR {EJECTED}: ejected from the merge queue [o1 j1]" in watch.github_lines(watcher(name), T0 + timedelta(minutes=2))
     assert stage.of(state.load(name), EJECTED, NO_CARDS) == stage.Stage("unlanded", stage.ORDER, "Trunk ejected it from the merge queue")
+
+
+def test_a_forge_ai_pr_he_approved_changing_sandsql_waits_for_his_next_word_while_he_is_away_and_one_changing_only_its_tests_lands(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    files = {EJECTED: ["go/sand/internal/sandsql/write.go", "go/sand/internal/sandsql/write_test.go"], FLAKE_FIX: ["go/sand/internal/sandsql/write_test.go"]}
+    monkeypatch.setattr(github, "files", files.__getitem__)
+    with state.edit(demo) as data:
+        data["owner"]["heard"] = state.stamp(T0)
+        data["jobs"]["j1"]["prs"] += [state.pr_url(EJECTED), state.pr_url(FLAKE_FIX)]
+        data["prs"][EJECTED] = state.new_pr(state.pr_url(EJECTED), "j1", "o1") | {"head": "bb28d680bf", "checks": "pass", "review": "approved", "tap": state.new_tap("Approve", "bb28d680bf", "pressed the button", at=state.stamp(T0))}
+        data["prs"][FLAKE_FIX] = state.new_pr(state.pr_url(FLAKE_FIX), "j1", "o1") | {"head": "9a882a9000", "checks": "pass", "review": "approved", "exempt": "test-only", "wants_tap": False}
+    away = T0 + timedelta(minutes=20)
+    refused = land.unattended(state.load(demo), EJECTED, away)
+    assert refused == (
+        "he last wrote or tapped 20 minutes ago, and it changes go/sand/internal/sandsql/write.go, which can break FDE or customer runs or lose their data,"
+        f" so it lands only while he is present, his word or tap within 15 minutes, at his next word, by his words {state.PRESENCE_WORDS}"
+    )
+    assert land.unattended(state.load(demo), FLAKE_FIX, away) is None
+    assert land.unattended(state.load(demo), EJECTED, T0 + timedelta(minutes=10)) is None
+    monkeypatch.setattr(state, "now", lambda: away)
+    with state.edit(demo) as data:
+        data["prs"][EJECTED]["lander"] = {"head": "bb28d680bf", "base": data["prs"][EJECTED]["base"], "pid": 1, "at": state.stamp(away), "outcome": f"{land.AWAY}: {refused}", "below": [], "entry": EJECTED}
+    assert stage.of(state.load(demo), EJECTED, NO_CARDS) == stage.Stage("waiting", stage.HIM, f"green and cleared, and its lander's try at bb28d68 ended {land.AWAY}: {refused}")
+    assert stage.of(state.load(demo), FLAKE_FIX, NO_CARDS).name == "ready"
+    with state.edit(demo) as data:
+        data["owner"]["heard"] = state.stamp(away)
+    assert stage.of(state.load(demo), EJECTED, NO_CARDS).name == "ready"
+
+
+@pytest.mark.parametrize(
+    ("part", "posted", "said"),
+    [
+        (state.STAGING_TEST.format(number=42), "https://poetic.slack.com/archives/C0STAGING/p1794600000000100", f"WAITING {state.pr_url(KEY)} to merge: DONE it soaked twice on staging"),
+        ("Has this been tested on staging? It's approved once it is", state.pr_url(KEY), f"WAITING {state.pr_url(KEY)} to merge: then it soaks on staging"),
+    ],
+    ids=["its staging test part holds its tester's proof", "a post delivered his question part"],
+)
+def test_replayed_717646_an_approved_dangerous_pr_whose_last_wait_ended_on_a_delivered_part_while_its_tester_returned_waiting_lands_only_at_his_next_word(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, part: str, posted: str, said: str
+) -> None:
+    monkeypatch.setattr(github, "files", {KEY: ["go/sand/internal/sandsql/write.go"]}.__getitem__)
+    enqueue_exiting(tmp_path, demo, 0)
+    with state.edit(demo) as data:
+        data["owner"]["heard"] = state.stamp(T0)
+        data["orders"]["o1"]["parts"][part] = state.new_part() | {"posted": posted, "posted_by": "j5420" if state.STAGING_PART.fullmatch(part) else None}
+        data["orders"]["o1"]["jobs"].append("j5420")
+        data["jobs"]["j5420"] = job(goal="soak #42 on staging", parts=[part], builds_nothing=True, state="waiting", said=said)
+        data["prs"][KEY] |= {"checks": "pass", "review": "approved", "waits": [f"o1:{part}"]}
+    approve(demo, KEY)
+    away = T0 + timedelta(minutes=20)
+    monkeypatch.setattr(state, "now", lambda: away)
+    data = state.load(demo)
+    assert (state.delivered(data, "o1", part), land.staged(data, data["prs"][KEY]), stage.of(data, KEY, NO_CARDS).name) == (True, [], "ready")
+    held = f"{land.AWAY}: {land.unattended(data, KEY, away)}"
+    assert land.run(demo, [KEY]) == held
+    assert stage.of(state.load(demo), KEY, NO_CARDS) == stage.Stage("waiting", stage.HIM, f"green and cleared, and its lander's try at aaaaaaa ended {held}")
+    with state.edit(demo) as data:
+        data["owner"]["heard"] = state.stamp(away)
+    assert land.run(demo, [KEY]) == land.QUEUED
 
 
 def test_replayed_55582_a_pr_trunk_ejected_on_a_flaky_test_outside_its_diff_is_queued_again_at_the_same_commit_once_that_tests_fix_merges_and_only_once(
@@ -9139,6 +9225,23 @@ def test_o761s_incident_on_a_surface_he_uses_holds_its_live_line_with_one_prove_
         f"RECOVERED o1: {fixed}, so the communicator posts its Live line and closes o1"
     ]
     assert state.load(demo)["orders"]["o1"]["proof"] == f"{fixed}; {recording}"
+
+
+def test_an_incident_opened_while_he_is_away_pages_his_datadog_user_once_and_one_he_heard_of_or_one_while_he_is_here_pages_nobody(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = []
+    monkeypatch.setattr(watch.reads, "run", lambda argv, checkout: calls.append(argv) or "Paged Datadog user u-ym at high urgency: page p-1\n")
+    monkeypatch.setattr(watch.orca, "checkout", lambda name, data: DRIVE_CHECKOUT)
+    with state.edit(demo) as data:
+        data["owner"]["heard"] = state.stamp(T0)
+        data["orders"]["o1"].update(incident=True, title="SandSQL writes down", created=state.stamp(T0 + timedelta(minutes=5)))
+        data["orders"]["o2"] = order(text="raw_sql reads fail", incident=True, created=state.stamp(T0 - timedelta(minutes=5)))
+    watching = watcher(demo)
+    assert watch.owner_page_lines(watching, T0 + timedelta(minutes=10)) == []
+    away = T0 + timedelta(minutes=20)
+    assert watch.owner_page_lines(watching, away) == ["WATCH paged him for incident o1 while he is away: Paged Datadog user u-ym at high urgency: page p-1"]
+    assert watch.owner_page_lines(watching, away + timedelta(minutes=1)) == []
+    assert [argv[1:6] for argv in calls] == [["oncall", "page", "me", "--title", "o1 SandSQL writes down"]]
+    assert state.load(demo)["orders"]["o1"]["paged"] == state.stamp(away)
 
 
 def test_an_incident_whose_drive_checkout_cannot_move_to_the_default_branch_head_closes_nothing_and_says_so_from_the_third_failed_read(demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

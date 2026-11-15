@@ -156,6 +156,14 @@ COORDINATOR_RULES = (
     ),
     REACHING,
     (
+        "Nothing dangerous lands or releases while he is away, his last word or tap over 15 minutes old: the lander holds a"
+        " Forge-AI merge changing what the root AGENTS.md calls dangerous until his next word, and the release gates"
+        " and the landing_guard hook refuse a production start, resume or approve but an incident's hotfix of PRs changing"
+        " nothing dangerous; a rollback runs whenever it is prudent. A production failure meanwhile pages him: the watch pages"
+        " once for each incident opened since he was last heard, and drive page-owner \"<why>\" pages for one no incident"
+        " holds yet, never for news or a question."
+    ),
+    (
         "Every order goes to one background job that owns its deliverable end to end, past-due ones too, since work you"
         " do yourself holds every event behind it, and work he ordered only to a builder, codex or design job, since research, his"
         " card and a post carry only words he reads: read the shape of its brief and handoff in drive manual jobs before"
