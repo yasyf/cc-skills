@@ -1692,7 +1692,7 @@ def follow_card(name: str, waits: str, asked: list[str], url: str) -> None:
 
 
 def job_ask(args: argparse.Namespace) -> int:
-    """Keep a job's ASK in the drive once it is in the shape he reads, each block in its own file; from a file, stdin with -, or with neither a remote lane's latest report: each block its `ASK <file> [<file>…]` pointer names, else the report itself, one opening `DESIGN <question>`, a reader's return, read as the ASK it puts to him. Keeping it draws its card in the same call, under the waits id it mints for the question, and prints the file and the card, or that a card that did not draw goes up on the watch's next read. A block asking again what one of the job's questions his answer has not closed asks, or with --redraws asking in new words what the card it names asks, open or withdrawn, the job's own or one of another job on its orders that it takes over, takes that question's place and redraws its card under its waits id, and one asking what another job's open question asks is refused; one whose `Replaces:` line names an open question's file, built on that question and asking both choices, takes that question's card and waits id the same way and keeps it open, folded into this one. With --drop, throw away a question the job kept with no card drawn for it."""
+    """Keep a job's ASK in the drive once it is in the shape he reads, each block in its own file; from a file, stdin with -, or with neither a remote lane's latest report: each block its `ASK <file> [<file>…]` pointer names, else the report itself, one opening `DESIGN <question>`, a reader's return, read as the ASK it puts to him. Keeping it draws its card in the same call, under the waits id it mints for the question, and prints the file and the card, or that a card that did not draw goes up on the watch's next read. A block asking again what one of the job's questions his answer has not closed asks, or with --redraws asking in new words what the card it names asks, open or withdrawn, the job's own or one of another job on its orders that it takes over, takes that question's place and redraws its card under its waits id, and one asking what another job's open question asks is refused; one whose `Replaces:` line names an open question's file, built on that question and asking both choices, takes that question's card and waits id the same way and keeps it open, folded into this one. With --drop, throw away a question the job kept with no card drawn for it, and with --answer too, end its question on his card on that recorded answer of his, by `answered_drop`."""
     if args.id is None:
         raise DriveError("name the job whose ASK this keeps: drive job ask <j> <file>; drive job ask <j> --check <file> runs every check it runs and keeps nothing")
     name = state.resolve(args.drive)
@@ -1703,6 +1703,11 @@ def job_ask(args: argparse.Namespace) -> int:
                 checked_ask(name, args.id, text, args.unsettled, args.redraws, Path(scratch))
         print("ready")
         return 0
+    if args.answer and not args.drop:
+        raise DriveError(f"--answer ends the question --drop names: drive job ask {args.id} --drop <the file it is kept in> --answer {args.answer}")
+    if args.answer:
+        dropped = Path(args.drop).expanduser()
+        return emit(args, "\n".join(answered_drop(name, args.id, dropped, args.answer)), {"id": args.id, "dropped": str(dropped), "answer": args.answer})
     if args.drop:
         dropped = Path(args.drop).expanduser()
         title, replaced = drop_ask(name, args.id, dropped)
@@ -1731,7 +1736,11 @@ def drop_ask(name: str, job_id: str, file: Path) -> tuple[str | None, bool]:
             file.unlink()
             return title, True
         if question["card"]:
-            ended = f'ended {closed["how"]} there, so nothing counts it open' if (closed := question["closed"]) else "which only his answer closes"
+            ended = (
+                f'ended {closed["how"]} there, so nothing counts it open'
+                if (closed := question["closed"])
+                else f"which only his answer closes: when a recorded answer of his already settles it, end it on his words with drive job ask {job_id} --drop {file} --answer <that answer's id>"
+            )
             raise DriveError(
                 f'refused, nothing dropped: {job_id}\'s question "{render.cut(question["title"] or "", 80)}" kept in {file} is on his card {question["card"]},'
                 f" {ended}; drop only a question kept with no card drawn for it"
@@ -1747,6 +1756,24 @@ def drop_ask(name: str, job_id: str, file: Path) -> tuple[str | None, bool]:
     return question["title"], False
 
 
+def answered_drop(name: str, job_id: str, file: Path, answer_id: str) -> list[str]:
+    """End the job's own open question on his card kept in this file on his recorded answer that already settles it, by `ended_on`, its card closing in place on his words and the link where he gave them: the way out for a card whose recommended option his answer already chose, which no redraw may ask again; refused for a question on no card, which --drop alone throws away, one that ended, and an answer holding no words of his. What was done, a line each."""
+    data = state.load(name)
+    question = state.kept_in(find(data["jobs"], job_id, "job"), file)
+    if not (question and question["card"] and question["closed"] is None):
+        raise DriveError(
+            f"refused, nothing ended: {file} keeps no open question of {job_id} on his card, so --answer has no card to close;"
+            f" drive job ask {job_id} --drop {file} throws away one kept with no card, and drive status {job_id} names the file each of its questions is kept in"
+        )
+    answer = settled.shown(answer_id, data["roles"]["coordinator"]["cwd"])
+    if not (words := settled.his(answer["body"])):
+        raise DriveError(f"refused, nothing ended: cc-notes keeps no words of his under {answer_id}, so it settles no card; name the recorded answer whose words settle it")
+    return [
+        f'{job_id}\'s question "{render.cut(question["title"] or "", 80)}" ended answered by his answer {answer["id"][:7]}, "{render.cut(words, settled.QUOTED_CHARS)}"',
+        *ended_on(name, answer["id"], {"words": words, "link": settled.given_at(data, answer["id"])}, question["waits"], question["card"], "answered"),
+    ]
+
+
 def asked_title(text: str) -> str:
     return next((line.strip() for line in text.splitlines() if line.strip()), "").removeprefix("ASK ").strip()
 
@@ -1759,8 +1786,8 @@ def asked_unsettled(job: dict, text: str, unsettled: str | None) -> str | None:
     return next((question["unsettled"] for question in job["questions"] if question["unsettled"] and not settled.JEV_MARK.search(question["unsettled"]) and state.same_question(question["title"], title)), None)
 
 
-def checked_ask(name: str, job_id: str, text: str, unsettled: str | None, redraws: str | None, pictures: Path) -> tuple[limits.Question, str, list[dict]]:
-    """The question the job's ASK block puts to him, asked under the --unsettled `asked_unsettled` reads, the words of its `Holds:` line his card holds, and the recorded answers of his its job's brief binds or the block cites, once every check `drive job ask <j>` runs passes but Jev's read of it against his words: refused naming at once every way its words, the card cc-slack draws from them and the job it is asked for are out of shape, a summary sentence recommending an option by a recorded answer of his that --unsettled does not name among them, since that answer already chose it, each rule one entry of the list, its words counted as his card draws them, each reference in the summary filled as say fills it, an {order:<o>} as the opening of his order's words; then each Show me picture drawn under pictures, refused with why one does not draw; then Jev's read of whether its options differ in how a screen looks with a screenshot missing, by `limits.unread`, which in the same call prints each code name the card never says in plain words; each raw id `cc-slack check-post` finds on the card as it draws is printed too, refusing nothing, by his pick 320b7a7. `drive job ask <j> --check` and `keep_ask` both check here, so a block one passes the other passes up to Jev's read of his words."""
+def checked_ask(name: str, job_id: str, text: str, unsettled: str | None, redraws: str | None, pictures: Path) -> tuple[limits.Question, str, str | None, list[str], tuple[str, str | None] | None]:
+    """The question the job's ASK block puts to him, the words of its `Holds:` line his card holds, the --unsettled it is kept under, the one `asked_unsettled` reads else Jev's mark, the waits ids of the open cards Jev reads it as asking again, and the link of the line a thread already holds about the card it takes the place of beside what Jev reads as no longer true in it, for `post_ask`, once every check `drive job ask <j>` runs passes: refused naming at once every way its words, the card cc-slack draws from them and the job it is asked for are out of shape, a summary sentence recommending an option by a recorded answer of his that --unsettled does not name among them, since that answer already chose it, each rule one entry of the list, its words counted as his card draws them, each reference in the summary filled as say fills it, an {order:<o>} as the opening of his order's words; then each Show me picture drawn under pictures, refused with why one does not draw; then Jev's read of whether its options differ in how a screen looks with a screenshot missing, by `limits.unread`, which in the same call prints each code name the card never says in plain words; each raw id `cc-slack check-post` finds on the card as it draws is printed too, refusing nothing, by his pick 320b7a7; last Jev's read of it against his words by `settled.judged`, the recorded answers of his its job's brief binds or the block cites among them, printing each finding, the recorded answer Jev reads as already answering it with the two ways on, ANSWERED, and the mark keeping it unsettled, UNSETTLED, an answer its Already answered tap carries never marked by an option it does not recommend. `drive job ask <j> --check` and `keep_ask` both check here, so --check prints every finding before any card draws."""
     from drive import view
 
     data = state.load(name)
@@ -1779,8 +1806,7 @@ def checked_ask(name: str, job_id: str, text: str, unsettled: str | None, redraw
     if chosen := next((answer for sentence in recommending for answer in cited_answers(sentence, cited) if answer["answer"] not in (unsettled or "")), None):
         problems.append(
             f'its summary recommends "{asked.recommended}" by his recorded answer {chosen["answer"]}, "{render.cut(chosen["words"], settled.QUOTED_CHARS)}",'
-            f" which already chose it, so no card asks him again: build that option with no ASK, a reader returning DONE with `rulings:` quoting"
-            f" {chosen['answer']} and `build:` that option; a card asking him to lift those words names {chosen['answer']} in --unsettled"
+            f" which already chose it, so no card asks him again: {settled.CHOSEN.format(id=chosen['answer'], job=job_id)}; a card asking him to lift those words names {chosen['answer']} in --unsettled"
         )
     raw = []
     try:
@@ -1846,7 +1872,29 @@ def checked_ask(name: str, job_id: str, text: str, unsettled: str | None, redraw
         print(limits.RAW.format(found=", ".join(raw), advisory=limits.ADVISORY), file=sys.stderr)
     if unshown := limits.unread(asked):
         raise DriveError(unshown)
-    return asked, holds, recorded
+    heard = [{"id": answer["answer"], "asked": answer["asked"], "said": answer["words"][: settled.BODY_CHARS]} for answer in recorded]
+    case = limits.ask_case(text, asked, frozenset(answer["id"] for answer in heard))
+    cards = {} if any(other == job_id for other, _ in asking(data, asked.title)) else {question["waits"]: question["title"] for question in repeating(data, job_id, asked.title, redraws)}
+    recommends = brief.card_releases(f"{asked.recommended}\n{asked.hints.get(asked.recommended, '')}")
+    carried = [(answer, release) for release in recommends for answer in heard if not brief.approval_refusal(f"{release} --order {answer['id']}", data)]
+    for answer, release in carried:
+        print(settled.ORDERED.format(id=answer["id"], asked=render.cut(answer["asked"], 200), release=release), file=sys.stderr)
+    incidents, where, lined = card_places(data, job)
+    prior = [question for other, question in asking(data, asked.title) if other == job_id or took(data, job_id, question)]
+    prior += [*(superseded.redrawn(data, job_id, redraws) if redraws else []), *([replacing(data, asked.replaces)[1]] if asked.replaces else [])]
+    line = lined and view.told_line(data, where[1], *(question["card"] for question in prior if question["card"])) or None
+    builders = building(data, job_id, *(card for question in prior for card in (question["card"], question["waits"]) if card))
+    built = {"option": asked.recommended, "jobs": builders, "prs": [f"{pr['url']}: {view.pr_title(pr)}" for pr in state.open_prs(data) if pr["job"] in builders]}
+    now = {"asks": asked.title} | ({"blocks": [f"incident {order_id}: {data['orders'][order_id]['title']}" for order_id in incidents], "builds": built} if incidents else {})
+    words = [*settled.order_words(data, job["order"]), *settled.matched(["\n".join([asked.title, *asked.summary, *asked.options]), text], data)]
+    broken, repeated, changed, answered = settled.judged(case, asked, words, heard, cards, line and {"line": line["words"], "now": now}, frozenset(answer["answer"] for answer in tapped))
+    if answered:
+        print(settled.ANSWERED.format(id=answered["id"], asked=render.cut(answered["asked"], 200), link=f" ({answered['link']})" if answered.get("link") else "", said=render.cut(answered["said"], settled.QUOTED_CHARS), job=job_id), file=sys.stderr)
+    if broken and not unsettled and broken[0]["id"] not in {answer["id"] for answer, _ in carried}:
+        lifted, option = broken
+        unsettled = f"{lifted['id']}: {settled.MARKED.format(option=option)}"
+        print(settled.UNSETTLED.format(unsettled=unsettled, id=lifted["id"], asked=render.cut(lifted["asked"], 200)), file=sys.stderr)
+    return asked, holds, unsettled, repeated, line and (line["link"], changed)
 
 
 def keep_ask(name: str, job_id: str, text: str, unsettled: str | None, redraws: str | None = None) -> tuple[Path, limits.Question | None, dict, str]:
@@ -1861,27 +1909,7 @@ def keep_ask(name: str, job_id: str, text: str, unsettled: str | None, redraws: 
     kept = state.drive_dir(name) / "asks" / f"{job_id}-{state.ask_hash(text)}.md"
     if answer := settled.answered(data, title):
         return keep_settled(name, job_id, text, kept, title, unsettled, answer)
-    asked, holds, recorded = checked_ask(name, job_id, text, unsettled, redraws, state.drive_dir(name) / "pictures")
-    cited = [{"id": answer["answer"], "asked": answer["asked"], "said": answer["words"][: settled.BODY_CHARS]} for answer in recorded]
-    case = limits.ask_case(text, asked, frozenset(answer["id"] for answer in cited))
-    cards = {} if any(other == job_id for other, _ in asking(data, asked.title)) else {question["waits"]: question["title"] for question in repeating(data, job_id, asked.title, redraws)}
-    recommends = brief.card_releases(f"{asked.recommended}\n{asked.hints.get(asked.recommended, '')}")
-    carried = [(answer, release) for release in recommends for answer in cited if not brief.approval_refusal(f"{release} --order {answer['id']}", data)]
-    for answer, release in carried:
-        print(settled.ORDERED.format(id=answer["id"], asked=render.cut(answer["asked"], 200), release=release), file=sys.stderr)
-    incidents, where, lined = card_places(data, job)
-    prior = [question for other, question in asking(data, asked.title) if other == job_id or took(data, job_id, question)]
-    prior += [*(superseded.redrawn(data, job_id, redraws) if redraws else []), *([replacing(data, asked.replaces)[1]] if asked.replaces else [])]
-    line = lined and view.told_line(data, where[1], *(question["card"] for question in prior if question["card"])) or None
-    builders = building(data, job_id, *(card for question in prior for card in (question["card"], question["waits"]) if card))
-    built = {"option": asked.recommended, "jobs": builders, "prs": [f"{pr['url']}: {view.pr_title(pr)}" for pr in state.open_prs(data) if pr["job"] in builders]}
-    now = {"asks": asked.title} | ({"blocks": [f"incident {order_id}: {data['orders'][order_id]['title']}" for order_id in incidents], "builds": built} if incidents else {})
-    words = [*settled.order_words(data, job["order"]), *settled.matched(["\n".join([asked.title, *asked.summary, *asked.options]), text], data)]
-    broken, repeated, changed = settled.judged(case, asked, words, cited, cards, line and {"line": line["words"], "now": now})
-    if broken and not unsettled and broken[0]["id"] not in {answer["id"] for answer, _ in carried}:
-        lifted, option = broken
-        unsettled = f"{lifted['id']}: {settled.MARKED.format(option=option)}"
-        print(settled.UNSETTLED.format(unsettled=unsettled, id=lifted["id"], asked=render.cut(lifted["asked"], 200)), file=sys.stderr)
+    asked, holds, unsettled, repeated, told = checked_ask(name, job_id, text, unsettled, redraws, state.drive_dir(name) / "pictures")
     kept.parent.mkdir(exist_ok=True)
     kept.write_text(text)
     generic = superseded.generic(data)
@@ -1927,7 +1955,7 @@ def keep_ask(name: str, job_id: str, text: str, unsettled: str | None, redraws: 
         return kept, asked, question, str(kept)
     card = ask_card(name, job_id, kept)
     try:
-        said = post_ask(name, job_id, kept, card, line and (line["link"], changed))
+        said = post_ask(name, job_id, kept, card, told)
     except (DriveError, slack.SlackError) as error:
         said = (
             f"{job_id}'s card {question['card']} under {card['waits']} did not redraw, so it shows the words it last drew and his answer there answers this question: {error}"
@@ -2405,7 +2433,8 @@ def cards_withdraw(args: argparse.Namespace) -> int:
             newest = max(later, key=lambda question: state.parse_time(question["asked"]))
             raise DriveError(
                 f"{args.card}: refused, not withdrawn: --via {args.via} was written at {state.stamp(sent)}, before its question was asked at {newest['asked']}, and no answer he gave another question settles it;"
-                f" an answer of his that reads as settling it goes on the card as its {limits.ALREADY_ANSWERED} tap: drive job ask <job> <file> --redraws {newest['waits'] or args.card}, its summary citing that answer"
+                f" an answer of his that reads as settling it goes on the card as its {limits.ALREADY_ANSWERED} tap: drive job ask <job> <file> --redraws {newest['waits'] or args.card}, its summary citing that answer,"
+                f" and one that chose its recommended option ends it on his words: drive job ask <job> --drop {newest['file'] or '<the file its question is kept in>'} --answer <that answer's id>"
             )
     unsaid = None if onto else settled.unsaid([args.words], [args.via], view.live_cards(name), state.load(name))
     if unsaid and (unhappened := settled.unhappened(args.via, args.card, name)):
@@ -4302,8 +4331,8 @@ def answer(args: argparse.Namespace) -> int:
     return emit(args, "\n".join([line, *done]), {"id": args.id, **kept})
 
 
-def ended_on(name: str, answer_id: str, kept: dict, key: str, card: str | None, how: str) -> None:
-    """End, answered, withdrawn or superseded by his answer, each open question drawn on the card a mark names, or kept under its waits id with no card drawn yet, which then never draws, and its card follows, showing his words with no buttons; a card no question of the drive is drawn on, one asked outside any job, is closed in place."""
+def ended_on(name: str, answer_id: str, kept: dict, key: str, card: str | None, how: str) -> list[str]:
+    """End, answered, withdrawn or superseded by his answer, each open question drawn on the card a mark names, or kept under its waits id with no card drawn yet, which then never draws, and its card follows, showing his words with no buttons; a card no question of the drive is drawn on, one asked outside any job, is closed in place. What its card shows, a line each."""
     from drive import superseded, view
 
     with state.edit(name) as data:
@@ -4311,9 +4340,9 @@ def ended_on(name: str, answer_id: str, kept: dict, key: str, card: str | None, 
         drawn = view.drawn_on(data, key, *filter(None, [card]))
         ended = [each for job_id, question in drawn if question["closed"] is None for each in superseded.end(data, job_id, question, closed)]
     if drawn:
-        superseded.follow(name, ended)
-    else:
-        superseded.settle(card, kept, settled=how == "answered")
+        return superseded.follow(name, ended)
+    superseded.settle(card, kept, settled=how == "answered")
+    return []
 
 
 def settle_card(name: str, answer_id: str, kept: dict, key: str, entry: dict, file: Path | None) -> str:
@@ -5348,9 +5377,9 @@ def parser() -> argparse.ArgumentParser:
         "--check",
         metavar="FILE",
         help=(
-            "only check the ASK block in this file, or - for stdin, by every check drive job ask <j> runs but Jev's read of it against"
-            " his words, its words counted as his card draws them, each {order:<o>} as the opening of his order's words, and print"
-            " every fix it needs at once, or ready; keeps nothing"
+            "only check the ASK block in this file, or - for stdin, by every check drive job ask <j> runs, its words counted as his"
+            " card draws them, each {order:<o>} as the opening of his order's words, and print every fix it needs at once, or ready,"
+            " and Jev's read of it against his words before any card draws; keeps nothing"
         ),
     )
     verb.add_argument(
@@ -5374,7 +5403,16 @@ def parser() -> argparse.ArgumentParser:
         help=(
             "in place of the file, throw away the job's question kept in this file with no card drawn for it, such as one refused"
             " for an answer of his that settles it: it leaves the job's open questions and the file is deleted; refused for a"
-            " question on a card, which only his answer closes"
+            " question on a card, which only his answer closes, so --answer names it"
+        ),
+    )
+    verb.add_argument(
+        "--answer",
+        metavar="ID",
+        help=(
+            "with --drop, end the job's own open question on his card kept in that file on this recorded answer of his, which"
+            " already settles it, such as one choosing its recommended option, its card closing in place on his words and the"
+            " link where he gave them with no buttons; refused for a question on no card and an id cc-notes keeps no words of his under"
         ),
     )
     verb.set_defaults(run=job_ask)

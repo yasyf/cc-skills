@@ -113,7 +113,9 @@ root cause, the recommended one.
 
 A card whose summary sentence recommending an option cites a recorded answer of his asks again what
 that answer chose, so `drive job ask` refuses it and names that option to build with no card, unless
-`--unsettled` names that answer as words the card asks him to lift. A card's Already answered option
+`--unsettled` names that answer as words the card asks him to lift. A card already drawn for it ends
+on his words with `drive job ask <j> --drop <file> --answer <id>`, which closes its card in place
+showing them and the link where he gave them. A card's Already answered option
 carries only the recorded answers its summary cites that Jev answers 0.7 or more as deciding its
 question or making it moot, one yes-or-no question an answer, his words above the `Options:` line its
 recorder lists the choices under, so his one tap gives its job one answer's words; the card draws no
@@ -140,7 +142,9 @@ its card. When Jev answers 0.7 or more that the card's recommended option breaks
 or ruling of his, the cited answer the card says it goes against first, or else that any other option
 it offers does, the verb keeps the card unsettled on it, as `<id>: Jev reads the recommended option as
 breaking it` or `<id>: Jev reads option "<that option>" as breaking it`, asking him to lift those words, so it holds
-its PR on an incident too until he answers. A cited answer the release gate reads as ordering a release
+its PR on an incident too until he answers. Another option alone never marks an answer that already
+answers the card, one its Already answered tap carries or one Jev reads below, since offering an
+option his answer did not choose asks him to lift nothing. A cited answer the release gate reads as ordering a release
 the recommended option names in backticks is his order carried out, never words to lift: the verb
 prints that `drive job add --release` starts that release with no card, by one reading of his pick
 that both share ([landing.md](landing.md#after-merge)). A tap approving a PR settles only that PR's landing. A block a refusal stops
@@ -152,9 +156,11 @@ card never posted until the job asks it again, in its words or others sharing th
 Jev also reads, in the same request, whether an answer of his that cc-notes ranks nearest the card's
 question, summary and options, or nearest the whole block, already answers what the card asks.
 When it answers one 0.7 or more, the verb prints that answer with its id and where he gave it,
-and keeps the card, by his picks 320b7a7 and 679484. When it holds, the agent cites the id in the
-summary and asks the same question again, which redraws the card with his words as its `Already
-answered` tap, by his pick 692284 "Your cited answer as a tap on the card: one tap settles it,
+and keeps the card, by his picks 320b7a7 and 679484. When his words choose the recommended option,
+the agent asks nothing: it builds that option, returns `DONE` with `rulings:` quoting the id, and
+ends a card already drawn for it with `drive job ask <j> --drop <file> --answer <id>`. Otherwise it
+cites the id in the summary, outside the sentence recommending an option, and asks the same question
+again, which redraws the card with his words as its `Already answered` tap, by his pick 692284 "Your cited answer as a tap on the card: one tap settles it,
 nothing skipped unseen". Each tap of his on a question card is recorded in cc-notes as `drive
 answer` records one, so a card asking it again in other words is told.
 

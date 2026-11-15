@@ -3820,7 +3820,7 @@ def test_job_ask_keeps_unsettled_a_card_that_says_its_recommended_option_replace
     assert (question["unsettled"], land.ship_held(state.load("demo"), "j3")) == (f"7a1c0de: {settled.MARKED.format(option="the recommended option")}", [question["card"]])
 
 
-def test_job_ask_keeps_unsettled_a_card_whose_other_option_breaks_his_ruling_so_its_incident_pr_waits_on_his_answer_though_it_recommends_keeping_it(
+def test_job_ask_keeps_unsettled_a_card_whose_other_option_breaks_his_ruling_so_its_incident_pr_waits_on_his_answer_though_it_recommends_keeping_it_unless_that_ruling_already_answers_the_card(
     run: Run, demo: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], jev: Jev, recorded: Answers
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "chat turns run out of memory on plat", "--incident", "--parts", "fix", "first check")
@@ -3840,6 +3840,10 @@ def test_job_ask_keeps_unsettled_a_card_whose_other_option_breaks_his_ruling_so_
     assert f'drive job ask: kept the card unsettled as "{marked}", asking him to lift 9992100, {WAIT_RULING["asked"]}, so it holds its PR' in capsys.readouterr().err
     question = state.load("demo")["jobs"]["j3"]["questions"][-1]
     assert (question["unsettled"], land.ship_held(state.load("demo"), "j3")) == (marked, [question["card"]])
+    jev.breaks("answers", WAIT_RULING["id"])
+    assert cli.main(["job", "ask", "j3", str(block)]) == 0
+    assert "kept the card unsettled" not in capsys.readouterr().err
+    assert (state.load("demo")["jobs"]["j3"]["questions"][-1]["unsettled"], land.ship_held(state.load("demo"), "j3")) == (None, [])
 
 
 def test_job_ask_never_asks_him_to_lift_a_cited_answer_whose_order_the_recommended_option_starts_by_the_release_gates_own_reading(
@@ -3966,7 +3970,7 @@ def test_his_answer_supersedes_each_answer_of_the_drives_still_standing_under_th
     assert calls[0][2:4] == ["add", "--title=Bell or knocker?"]
 
 
-def test_job_ask_prints_his_recorded_answer_jev_reads_as_already_answering_the_card_with_where_he_gave_it_and_refuses_nothing(
+def test_job_ask_and_its_check_print_his_recorded_answer_jev_reads_as_already_answering_the_card_with_where_he_gave_it_and_both_ways_on_refusing_nothing(
     run: Run, demo: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], jev: Jev, recorded: Answers
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "chat turns run out of memory on plat")
@@ -3975,6 +3979,10 @@ def test_job_ask_prints_his_recorded_answer_jev_reads_as_already_answering_the_c
     jev.breaks("answers", WAIT_RULING["id"])
     block = tmp_path / "ask.md"
     block.write_text(SHORT_ASK)
+    assert cli.main(["job", "ask", "j1", "--check", str(block)]) == 0
+    checked = capsys.readouterr()
+    assert (checked.out, "drive job ask j1 --drop <the file its question is kept in> --answer 9992100" in checked.err, "outside the sentence recommending an option" in checked.err) == ("ready\n", True, True)
+    assert state.load("demo")["jobs"]["j1"]["questions"] == []
     assert cli.main(["job", "ask", "j1", str(block)]) == 0
     assert f'Jev reads his answer 9992100 to "{WAIT_RULING["asked"]}" ({PICK}) as already answering this card: "{WAIT_RULING["said"]}"' in capsys.readouterr().err
     assert state.load("demo")["jobs"]["j1"]["questions"][-1]["card"]
@@ -4221,10 +4229,42 @@ def test_job_ask_refuses_a_card_whose_sentence_recommending_an_option_cites_his_
     assert cli.main(["job", "ask", asking, str(block)]) == 2
     assert (
         '\n- its summary recommends "One snapshot file per finished run, written when it ends, old runs backfilled: opens in 3 requests" by his recorded'
-        ' answer c952dbb, "One snapshot file per finished run", which already chose it, so no card asks him again: build that option with no ASK'
+        f' answer c952dbb, "One snapshot file per finished run", which already chose it, so no card asks him again: {settled.CHOSEN.format(id="c952dbb", job=asking)}'
     ) in capsys.readouterr().err
     assert state.load("demo")["jobs"][asking]["questions"] == []
     assert run("job", "ask", asking, str(block), "--unsettled", "c952dbb: this card asks him to lift his Nov 5 pick")[0] == 0
+
+
+def test_job_ask_drop_answer_ends_the_jobs_own_open_question_on_his_card_on_his_recorded_answer_closing_the_card_in_place_on_his_words_and_refuses_any_other(
+    run: Run, asking: str, recorded: Answers, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    words = "One snapshot file per finished run"
+    recorded.shown["c952dbb"] = {"id": "c952dbb", "title": "How are a finished run's files kept?", "body": f"{words}\nNotes: cci owner 1", "tags": []}
+    title = SHORT_ASK.splitlines()[0].removeprefix("ASK ")
+    kept = state.drive_dir("demo") / "asks" / f"j1-{state.ask_hash(SHORT_ASK)}.md"
+    kept.parent.mkdir(exist_ok=True)
+    kept.write_text(SHORT_ASK)
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["questions"] = [state.new_question(str(kept), title, state.stamp(), card=DESIGN_CARD) | {"waits": "demo:j1-7"}]
+        data["answers"]["c952dbb"] = {"words": words, "link": PICK, "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {}}
+    calls: list[tuple[str, ...]] = []
+    monkeypatch.setattr(slack, "cc_slack", lambda *argv: calls.append(argv) or {"answered": True})
+    assert cli.main(["job", "ask", asking, "--answer", "c952dbb"]) == 2
+    assert "drive job ask j1 --drop <the file it is kept in> --answer c952dbb" in capsys.readouterr().err
+    assert cli.main(["job", "ask", asking, "--drop", str(kept), "--answer", "0000000"]) == 2
+    assert "cc-notes keeps no words of his under 0000000" in capsys.readouterr().err
+    code, out = run("job", "ask", asking, "--drop", str(kept), "--answer", "c952dbb")
+    assert (code, out.splitlines()) == (
+        0,
+        [f'j1\'s question "{render.cut(title, 80)}" ended answered by his answer c952dbb, "{words}"', f"demo:j1-7: his card {DESIGN_CARD} now shows his words with no buttons, its question answered"],
+    )
+    closed = state.load("demo")["jobs"]["j1"]["questions"][-1]["closed"]
+    assert ((closed["how"], closed["words"], closed["link"], closed["answer"]), calls) == (
+        ("answered", words, PICK, "c952dbb"),
+        [("card-answer", "--card", DESIGN_CARD, "--label", words, "--settled", "--other", "--via", PICK)],
+    )
+    assert cli.main(["job", "ask", asking, "--drop", str(kept), "--answer", "c952dbb"]) == 2
+    assert f"{kept} keeps no open question of j1 on his card" in capsys.readouterr().err
 
 
 def test_a_card_whose_summary_cites_320b7a7_draws_already_answered_with_his_words_and_the_link_drive_answer_kept_and_his_tap_closes_it_on_them(
