@@ -54,9 +54,10 @@ project and workstream pair the drive's orders are filed under, and `In his thre
 in his thread with its jobs, their questions and PRs as `drive status` prints them, or `none`.
 
 Every handler's prompt closes on `Release freezes:`, each release freeze and his hold on every release
-as they stood when you started. Before saying a freeze lifted or a release may start, read
-`tools/ci release freezes` again and name each freeze and hold that stands by its id: `say` refuses
-words that leave one out.
+as they stood when you started. Before saying a release may start, read `tools/ci release freezes`
+again and name each freeze and hold that stands by its id: `say` refuses words that leave one out.
+Words saying a freeze or hold ended, such as a staging test's closing line on its own, start nothing
+and need no id.
 
 Start from his words. The `Deliverable`, or a record's line, names what he asked for but never all
 of it.

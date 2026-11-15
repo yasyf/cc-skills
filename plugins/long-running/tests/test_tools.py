@@ -536,12 +536,12 @@ def test_tool_help_prints_each_field_of_its_input_with_its_type_whether_it_is_re
     assert f"ops[].add.order.words (string, required): {words['description']}" in lines
 
 
-def test_no_record_of_a_batch_posts_when_one_not_in_his_words_says_a_freeze_lifted_while_a_freeze_it_leaves_out_stands(demo: str, freezes: list[dict], monkeypatch: pytest.MonkeyPatch) -> None:
+def test_no_record_of_a_batch_posts_when_one_not_in_his_words_says_a_release_may_start_while_a_freeze_it_leaves_out_stands(demo: str, freezes: list[dict], monkeypatch: pytest.MonkeyPatch) -> None:
     freezes.append(STANDING_FREEZE)
     posted: list[list[str]] = []
     monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: posted.append(argv))
     records = [{"kind": "answer", "text": "releases can go again", "waits": "demo:j2-7"}, {"kind": "defect", "text": "the freeze lifted at 11:06 AM, so the api cut can start"}]
-    with pytest.raises(DriveError, match="^2: refused, nothing posted: these words say a release freeze lifted or a release may start, and these stand now: freeze 45ab54019c: "):
+    with pytest.raises(DriveError, match="^2: refused, nothing posted: these words say a release may start, and these stand now: freeze 45ab54019c: "):
         tools.run("record", demo, {"records": records})
     assert posted == []
 

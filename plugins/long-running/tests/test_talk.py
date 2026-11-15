@@ -314,15 +314,16 @@ def test_a_card_no_question_keeps_moves_each_wait_on_it_to_its_waits_id_when_ask
     assert state.load(demo)["jobs"]["j2"]["waits"] == [WAITS]
 
 
-def test_say_posts_no_word_that_a_freeze_lifted_or_a_release_may_start_unless_it_names_each_freeze_and_hold_standing_now(
+def test_say_posts_no_word_that_a_release_may_start_unless_it_names_each_freeze_and_hold_standing_now(
     demo: str, posts: list[tuple[str, ...]], freezes: list[dict], recorded: Answers, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     freezes.append(STANDING_FREEZE)
     recorded.listed = [HELD_RELEASES]
     stands = f'{STANDING_FREEZE["text"]}; his hold 15c4de1 on every release stands: "no releases until I say we can again"'
-    with pytest.raises(DriveError) as refused:
-        talk.say(demo, {"text": "Platy shows the release freeze lifted at 11:06 AM, so the api cut can start now.", "dry_run": True})
-    assert str(refused.value) == f"nothing posted: these words say a release freeze lifted or a release may start, and these stand now: {stands}. Name each by its id and what it holds, or leave the claim out"
+    for claim in ("Platy shows the release freeze lifted at 11:06 AM, so the api cut can start now.", "Releases can go again."):
+        with pytest.raises(DriveError) as refused:
+            talk.say(demo, {"text": claim, "dry_run": True})
+        assert str(refused.value) == f"nothing posted: these words say a release may start, and these stand now: {stands}. Name each by its id and what it holds, or leave the claim out"
     named = "Freeze 45ab54019c and his hold 15c4de1 still stand, so no release can start until each lifts."
     talk.say(demo, {"text": named})
 
@@ -333,6 +334,32 @@ def test_say_posts_no_word_that_a_freeze_lifted_or_a_release_may_start_unless_it
     with pytest.raises(DriveError, match=r"these stand now: the release ledger could not be read \(tools/ci: exit 1\)"):
         talk.say(demo, {"text": named})
     assert [argv[-1] for argv in posts] == [named]
+
+
+@pytest.mark.parametrize(
+    "ended",
+    [
+        "Done with staging: our freeze is lifted, and the soak passed.",
+        "The freeze on staging's SandSQL is lifted, so it is free for the next test.",
+        "The hold on staging's SandSQL is lifted.",
+        "Staging is unfrozen and back on dev's code.",
+        "The release freeze lifted at 11:06 AM.",
+    ],
+    ids=["record 718927's line", "a staging freeze ended", "a staging hold ended", "unfrozen", "a release freeze ended"],
+)
+def test_say_posts_words_that_a_freeze_or_hold_ended_while_others_and_his_hold_stand_since_an_end_starts_no_release(
+    demo: str, posts: list[tuple[str, ...]], freezes: list[dict], recorded: Answers, ended: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    freezes.append(STANDING_FREEZE)
+    recorded.listed = [HELD_RELEASES]
+    talk.say(demo, {"text": ended})
+
+    def unread(name: str, data: dict) -> list[dict]:
+        raise reads.ReadError("ci release: ci release runs no freezes")
+
+    monkeypatch.setattr(brief, "freezes", unread)
+    talk.say(demo, {"text": ended})
+    assert [argv[-1] for argv in posts] == [ended, ended]
 
 
 def test_say_posts_the_words_its_hook_judged_and_checks_none_of_them_again(demo: str, posts: list[tuple[str, ...]], checked: Checked) -> None:
