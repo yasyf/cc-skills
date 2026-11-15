@@ -128,8 +128,8 @@ his words "your messages need to be way shorter rewrite this for a human".
   the report's `part` attr names, or each part of an order its `close` attr names, whatever the
   post's words say, and makes a thread the order holds not yet one of its threads. No post delivers
   work he ordered, every part of a build order or an incident, but an incident's first check and cause and a part
-  `drive order set <o> --kind answer --part "<part>"` sorted as an answer that no builder, codex or design job holds, since only a
-  merged PR whose checked diff carries it does, or a `DONE` on an act no PR carries, so `record_lines` refuses a report naming one
+  `drive order set <o> --kind answer --part "<part>"` sorted as an answer that no builder, codex or design job holds, since only the proof file a
+  builder or codex job keeps on it exiting 0 under `drive job prove` does, for a part the checked diff of the merged PRs it proves carries or an act no PR carries, so `record_lines` refuses a report naming one
   on an order it does not close. A progress
   line's report names neither, whatever job it names, and carries `progress=true`, since
   `record_lines` refuses a `POST` naming none of the three: it keeps the time and delivers no part,
@@ -137,7 +137,7 @@ his words "your messages need to be way shorter rewrite this for a human".
   with `--joins` share their threads both ways, whichever job carries the alert.
   `drive order posted <o> <link> --record <the report's seq>` records a post already made. Only the communicator's side records a post, the communicator and each handler the drive binds to it, so `say`
   posts nothing on an order from any other session and says why, naming a handler's session the drive binds to nothing unbound; the session the
-  order's `ORPHAN` lines reach still marks a part a post of the drive already answered, or work a merged PR delivered, with `drive order posted <o> <that post's or PR's link> --part "<part>"`, with or without
+  order's `ORPHAN` lines reach still marks a part a post of the drive already answered with `drive order posted <o> <that post's link> --part "<part>"`, with or without
   `--record`, posting nothing.
 
 ## The shapes

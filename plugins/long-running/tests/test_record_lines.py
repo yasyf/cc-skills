@@ -428,12 +428,12 @@ def test_a_report_on_an_open_incident_names_its_first_check_but_never_its_fix_si
     assert record_lines.decision(coordinator(turn, **mechanism, attrs={"order": "o1", **PROGRESS})) is None
     assert record_lines.decision(coordinator(turn, **mechanism, attrs={"order": "o1", "part": "o1:first check"})) is None
     reason = refusal(record_lines.decision(coordinator(turn, **mechanism, attrs={"order": "o1", "part": "o1:fix", **PROGRESS})))
-    assert state.UNPOSTED_WORK.format(order="o1", part="fix", holder="root@demo") in reason and 'drop "o1:fix" from the part attr' in reason and "`--attr close=o1`" in reason
+    assert state.UNPOSTED_WORK.format(order="o1", part="fix") in reason and 'drop "o1:fix" from the part attr' in reason and "`--attr close=o1`" in reason
     assert record_lines.decision(coordinator(turn, **mechanism, attrs={"order": "o1", "part": "o1:fix", "close": "o1"})) is None
     with state.edit(demo) as data:
         data["orders"]["o1"]["recovered"] = state.stamp()
     assert record_lines.decision(coordinator(turn, **mechanism, attrs={"order": "o1", **PROGRESS})) is None
-    assert state.UNPOSTED_WORK.format(order="o1", part="fix", holder="root@demo") in refusal(record_lines.decision(coordinator(turn, **mechanism, attrs={"order": "o1", "part": "o1:fix", **PROGRESS})))
+    assert state.UNPOSTED_WORK.format(order="o1", part="fix") in refusal(record_lines.decision(coordinator(turn, **mechanism, attrs={"order": "o1", "part": "o1:fix", **PROGRESS})))
 
 
 def test_a_part_attr_names_parts_of_several_orders_and_each_must_be_one_the_drive_holds(run: Callable[..., tuple[int, str]], demo: str, turn: Path) -> None:

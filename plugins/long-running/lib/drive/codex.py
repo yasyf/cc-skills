@@ -1,6 +1,7 @@
 import hashlib
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -18,6 +19,7 @@ LOG_TAIL = 4096
 COLLECT_SECONDS = 60
 DISPATCH_SECONDS = 120
 SCHEMA_FILE = "codex-result.json"
+REPRO = re.compile(r"^REPRO:[ \t]*(?P<path>\S+)", re.MULTILINE)
 GUARD = Path(__file__).resolve().parents[2] / "hooks" / "landing_guard.py"
 GUARD_MATCHER = "^Bash$"
 GUARD_SECONDS = 60
@@ -49,7 +51,9 @@ RESULT = {
             "type": "string",
             "description": (
                 "Your whole return below the result line, one fact a line, such as its PR:, CHECK:, CHANGE:, UNPROVEN: and NEXT: lines, an"
-                " `ASK: <file>` line for a choice's block, and the FIX line an Incident: line asks for; the drive keeps it as your job's report."
+                " `ASK: <file>` line for a choice's block, the FIX line an Incident: line asks for, and on a DONE a `REPRO: <path>` line naming"
+                " an executable, read-only proof file that exits 0 once the work holds where it is used, printing a line for each check it passed,"
+                " which the drive keeps and runs, since only its exit 0 delivers the work; the drive keeps it as your job's report."
             ),
         },
     },
@@ -145,7 +149,7 @@ def run_of(job: dict) -> Run:
 
 
 def take(name: str, data: dict, job_id: str, run: Run) -> str | None:
-    """Set a running codex job from its run once it ended: a completed run's reply is the JSON its schema requires, whose state and line open the job's said line and whose report is kept under that line in its history, its report, so `drive job report` shows each codex answer newest first and `drive job replies` each one oldest first, unless state.result_refusal refuses it as `drive job report` refuses any job's return, such as one tracing a live bug's cause that names no fix, or brief.unproven a DONE on a surface he sees that its brief names, whose line is then `BLOCKED codex-ask completed, its reply refused:` and why; a reply that is not that JSON is kept whole and refused the same way; a failed or dead run's line is `BLOCKED codex-ask <state>:` and its log's last line. Returns the builder state.fix_shipper added to ship an incident fix job's work, if any."""
+    """Set a running codex job from its run once it ended: a completed run's reply is the JSON its schema requires, whose state and line open the job's said line and whose report is kept under that line in its history, its report, so `drive job report` shows each codex answer newest first and `drive job replies` each one oldest first, a DONE's REPRO: file kept as the proof file drive job prove runs to deliver its work, unless state.result_refusal refuses it as `drive job report` refuses any job's return, such as one tracing a live bug's cause that names no fix, or brief.unproven a DONE on a surface he sees that its brief names, whose line is then `BLOCKED codex-ask completed, its reply refused:` and why; a reply that is not that JSON is kept whole and refused the same way; a failed or dead run's line is `BLOCKED codex-ask <state>:` and its log's last line. Returns the builder state.fix_shipper added to ship an incident fix job's work, if any."""
     if data["jobs"][job_id]["state"] != "running":
         return None
     report = ""
@@ -159,6 +163,10 @@ def take(name: str, data: dict, job_id: str, run: Run) -> str | None:
             line, report = "", text
         state.keep_report(name, job_id, line or state.opening(text), report)
         job = data["jobs"][job_id]
+        if line.startswith("DONE") and (repro := REPRO.search(report)) and Path(repro["path"]).expanduser().is_file():
+            from drive import cli
+
+            job["repro"] = cli.keep_repro(name, job_id, job["kind"], str(Path(repro["path"]).expanduser()))
         refused = (
             "it is not the JSON its schema requires, a state, line and report"
             if not line
