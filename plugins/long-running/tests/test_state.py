@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 from conftest import LEAD, REAL_DOWN_MAC_BOXES, REAL_SCRATCH, carrying
-from drive import github, install, reads, render, served, settled, stage, state
+from drive import card, github, install, reads, render, served, settled, stage, state
 from drive.state import DriveError
 
 REFERENCE = datetime(2026, 11, 9, 14, 0).astimezone()
@@ -1607,25 +1607,37 @@ def test_a_job_following_a_release_it_started_on_a_staging_test_part_is_no_stagi
 APPROVE = {"label": "Approve", "at": "2026-11-14T10:30:00-08:00", "head": "aaaaaaa111", "source": "slack", "picks": {}}
 
 
-def test_a_staging_tests_full_pass_takes_back_his_approve_given_before_it_on_each_open_pr_its_part_holds_so_only_an_approve_after_it_lands_the_pr(state_root: Path) -> None:
+def test_a_staging_tests_full_pass_keeps_his_approve_given_before_it_on_the_pr_its_part_holds_as_56802s_rehearsal_did_not(state_root: Path) -> None:
     data = staging_drive("j1")
-    data["jobs"] |= {job_id: state.new_job("o1", "builder", "ship the writer", [], "2026-11-14T10:00:00-08:00") for job_id in ("j2", "j3")}
-    data["orders"]["o1"]["jobs"] += ["j2", "j3"]
-    tested, other = f"{MONOREPO}#42", f"{MONOREPO}#43"
-    data["prs"] = {
-        tested: state.new_pr(state.pr_url(tested), "j2", "o1") | {"tap": dict(APPROVE), "waits": [f"o1:{STAGING}"]},
-        other: state.new_pr(state.pr_url(other), "j3", "o1") | {"tap": dict(APPROVE)},
-    }
-    staging_return(data, "j1", "DONE #42 failed a case", "CASE a rollback refused: fail: the rollback went through\n")
-    failed = [data["prs"][key]["tap"] for key in (tested, other)]
+    data["jobs"]["j2"] = state.new_job("o1", "builder", "ship the writer", [], "2026-11-14T10:00:00-08:00")
+    data["orders"]["o1"]["jobs"].append("j2")
+    tested = f"{MONOREPO}#42"
+    data["prs"] = {tested: state.new_pr(state.pr_url(tested), "j2", "o1") | {"tap": dict(APPROVE), "waits": [f"o1:{STAGING}"]}}
     staging_return(data, "j1", "DONE every case of #42 passed", "CASE a rollback refused: pass\n")
-    taken = (data["prs"][tested]["tap"], data["prs"][tested]["fundamental"], data["prs"][other]["tap"])
-    data["prs"][tested].update(tap=dict(APPROVE), fundamental=None)
-    staging_return(data, "j1", "DONE every case of #42 passed", "CASE a rollback refused: pass\n")
-    assert (failed, taken, data["prs"][tested]["tap"]) == (
-        [APPROVE, APPROVE],
-        (None, f"its staging test passed after your Approve, so only an Approve you give now lands it: {PROOF}", APPROVE),
-        APPROVE,
+    assert (data["prs"][tested]["tap"], data["prs"][tested]["fundamental"], staging_reads(data)) == (APPROVE, None, (True, PROOF, "j1"))
+
+
+def test_a_drive_saved_with_approves_a_staging_pass_took_back_gives_each_open_pr_its_newest_approve_once(state_root: Path) -> None:
+    make("demo")
+    data = state.load("demo")
+    del data["staging_approves_restored"]
+    created = "2026-11-15T09:00:00-08:00"
+    data["orders"] = {"o1": state.new_order("ship the writer", "slack:D123/1794600000.000100", ("D123", "1794600000.000100"), {"ship it": state.new_part()}, created) | {"kind": "build", "jobs": ["j1"]}}
+    data["jobs"] = {"j1": state.new_job("o1", "builder", "ship it", ["ship it"], created)}
+    taken = f"{state.TAKEN_BY_PASS}, so only an Approve you give now lands it: {PROOF}"
+    restored, held, worded, merged = (f"{MONOREPO}#{number}" for number in (42, 43, 44, 45))
+    data["prs"] = {key: state.new_pr(state.pr_url(key), "j1", "o1") | {"fundamental": taken} for key in (restored, held, worded, merged)}
+    data["prs"][merged] |= {"state": "merged", "merged_sha": "fedcba9876543210"}
+    state.create(data)
+    for key, label in ((restored, "Hold"), (restored, "Approve"), (held, "Approve"), (held, "Hold"), (worded, "Approve"), (worded, card.WORDS), (merged, "Approve")):
+        repo, number = key.split("#")
+        state.append_event("demo", "tap", repo=repo, number=int(number), label=label, head="aaaaaaa111", source="pressed the button", action_ts="1794762137.637881", lane="root")
+    data = state.load("demo")
+    assert [(data["prs"][key]["tap"] or {}).get("label") for key in (restored, held, worded, merged)] == ["Approve", None, None, None]
+    assert ({field: data["prs"][restored]["tap"][field] for field in ("head", "source", "action_ts")}, data["prs"][restored]["fundamental"], data["staging_approves_restored"]) == (
+        {"head": "aaaaaaa111", "source": "pressed the button", "action_ts": "1794762137.637881"},
+        None,
+        True,
     )
 
 
@@ -1671,7 +1683,7 @@ def test_a_drive_saved_reading_staging_passes_by_prose_case_lines_and_release_fo
         (False, None, None, None),
         (False, None, "j7", None),
     ]
-    assert ([(data["prs"][key]["tap"] or {}).get("at") for key in approves], parts[followed]["soak"]) == ([None, "2026-11-14T11:30:00-08:00"], "staging:monorepo/plat-usw2-staging@346fcf4")
+    assert ([(data["prs"][key]["tap"] or {}).get("at") for key in approves], parts[followed]["soak"]) == (["2026-11-14T10:30:00-08:00", "2026-11-14T11:30:00-08:00"], "staging:monorepo/plat-usw2-staging@346fcf4")
     with state.edit("demo") as drive:
         assert (drive["staging_runs_reread"], "staging_passes_named" in drive, "staging_passes_reread" in drive) == (True, False, False)
 

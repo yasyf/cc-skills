@@ -618,10 +618,12 @@ PR checks that everyone hits".
   `STAGING: #N` line reaches that tester as a held text, and its `STAGING: none: <why>` lifts a test no
   job took up and the release reach did not give, its why shown on his card, while a test a job took up runs to its end, by 0048b14. It is never a wait
   on the testing job: the lander lands it once that tester's `DONE` keeps the test's proof as its first
-  `CHECK:` line, by [the jobs page](jobs.md). That pass takes back an
-  Approve he gave before it, on every open PR waiting on the part, and his card asks again, so only an
-  Approve he gives after the pass lands the PR, by 27ea387, "merging or rleasing dangerous things should
-  only be done wehn the human is present". The monorepo hooks into the drive through its
+  `CHECK:` line, by [the jobs page](jobs.md). That pass keeps each
+  Approve he gave before it, on every open PR waiting on the part, so his one Approve lands the PR once
+  its test passes, by e5e4f7b, "Approved but for the last time tell if untested it on staging or not and
+  since this is a big one test it first". The lander lands a dangerous change only while he is present,
+  his word or tap within 15 minutes, by 27ea387, "merging or rleasing dangerous things should only be
+  done wehn the human is present". The monorepo hooks into the drive through its
   `.claude/long-running.toml`, never through CI.
 
 ## Before any change FDEs could see
