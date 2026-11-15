@@ -215,7 +215,15 @@ def test_a_handlers_own_session_reads_as_an_agent_of_the_communicators(
     bind(monkeypatch, handler, "h-session")
     data = state.load("demo")
     holds = {"message": None, "link": None, "thread": "1794380463.481959", "record": None, "re": []}
-    assert data["handlers"][handler] | {"started": None} == {"session": "h-session", "started": None, "holds": holds, "handed": [], "took": [], "posted": []}
+    assert data["handlers"][handler] | {"started": None} == {
+        "session": "h-session",
+        "started": None,
+        "brief": HIS_BRIEF.format(scratch=tmp_path / "scratch" / "h1"),
+        "holds": holds,
+        "handed": [],
+        "took": [],
+        "posted": [],
+    }
     assert state.session_drives("h-session") == ["demo"]
     assert state.session_role(data, "h-session") == "communicator"
     step = {"session_id": "h-session", "agent_type": agents.HANDLER, "transcript_path": str(transcript), "tool_name": "Bash"}
@@ -564,7 +572,7 @@ def test_a_brief_in_a_live_handlers_thread_or_on_its_re_chain_is_handed_to_it_wh
     assert handlers[handler]["handed"] == ([then.format(scratch=tmp_path)] if met == "handed" else [])
 
 
-def test_a_handler_is_gone_once_no_running_process_names_its_session_at_work_and_its_job_ended_a_turn_rests_or_was_removed_and_one_its_launch_has_not_keyed_never_is(
+def test_a_handler_is_gone_once_no_running_process_names_its_session_at_work_and_its_job_ended_a_turn_rests_or_was_removed_and_one_its_launch_has_not_keyed_once_its_start_window_passed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     config = tmp_path / "claude"
@@ -600,6 +608,7 @@ def test_a_handler_is_gone_once_no_running_process_names_its_session_at_work_and
             "removed": True,
         }
         assert GONE({"session": None, "started": state.stamp()}) is False
+        assert GONE({"session": None, "started": state.stamp(state.now() - agents.START_WINDOW)}) is True
         assert GONE(entries["done"] | {"wakes": state.stamp(state.now() + timedelta(minutes=1))}) is False
     finally:
         spare.kill()
@@ -689,6 +698,42 @@ def test_a_handler_holds_its_thread_only_while_its_launchs_session_or_job_is_at_
         assert (then, handlers[handler]["handed"]) == (f"handed to {handler}", [briefs["704431"], briefs["704447"]])
         return
     assert {key: entry["handed"] for key, entry in handlers.items()} == {then.removeprefix("started "): [briefs["704431"]]}
+
+
+GHOST = "c52c88a1"
+GHOST_THREAD = "1794638766.436089"
+
+
+@pytest.mark.parametrize("kept", [True, False], ids=["c52c88a1-left-mid-start-by-an-install", "saved-before-entries-kept-their-brief"])
+def test_a_handler_whose_launch_never_named_its_session_holds_its_thread_only_through_its_start_window_then_a_rerun_of_a_report_handed_to_it_or_his_next_message_starts_a_fresh_handler_on_all_it_held(
+    communicator: str, tmp_path: Path, started: list[list[str]], cci_records: dict[str, dict], monkeypatch: pytest.MonkeyPatch, kept: bool
+) -> None:
+    monkeypatch.setattr(agents, "gone", GONE)
+    cci_records |= {
+        seq: {"seq": int(seq), "kind": "report", "lane": "root", "to": ["communicator@demo"], "text": f"POST the spill test, {seq}", "fields": {"attrs": {"order": "o1512"}}}
+        for seq in ("715733", "716199", "716309")
+    }
+    briefs = {seq: brief_of(seq).format(scratch=tmp_path) for seq in cci_records}
+    his = HIS_FOLLOW_UP.replace(HELD_THREAD, GHOST_THREAD).format(scratch=tmp_path)
+
+    def left_mid_start(at: datetime) -> None:
+        with state.edit("demo") as data:
+            spill = state.new_order("the spill test", f"https://acme.slack.com/archives/C0ALERT1/p{GHOST_THREAD.replace('.', '')}", ("C0ALERT1", GHOST_THREAD), {}, state.stamp())
+            data["orders"]["o1512"] = spill | {"incident": True}
+            holds = {"message": None, "link": None, "thread": GHOST_THREAD, "record": "715733", "re": []}
+            data["handlers"] = {GHOST: {"session": None, "started": state.stamp(at), "brief": briefs["715733"] if kept else None, "holds": holds, "handed": [briefs["716199"]], "took": [], "posted": []}}
+
+    left_mid_start(state.now())
+    assert [tools.run("handler", "demo", {"brief": brief}) for brief in (briefs["716309"], his)] == [f"handed to {GHOST}"] * 2
+
+    left_mid_start(state.now() - agents.START_WINDOW)
+    rerun = tools.run("handler", "demo", {"brief": briefs["716199"]}).removeprefix("started ")
+    assert {key: entry["handed"] for key, entry in state.load("demo")["handlers"].items()} == {rerun: [briefs["715733"]] if kept else []}
+
+    left_mid_start(state.now() - agents.START_WINDOW)
+    fresh = tools.run("handler", "demo", {"brief": his}).removeprefix("started ")
+    assert {key: entry["handed"] for key, entry in state.load("demo")["handlers"].items()} == {fresh: [*([briefs["715733"]] if kept else []), briefs["716199"]]}
+    assert [argv[-1] for argv in started if argv[:2] == ["claude", "--bg"]] == [briefs["716199"], his]
 
 
 API_ERROR ="Please run /login · API Error: 403 Attention Required! | Cloudflare"

@@ -29,6 +29,7 @@ TRUNK_FAILED = "failed in Trunk's merge queue"
 HANDLER = "long-running:handler"
 SYNTHETIC = "<synthetic>"
 OUTAGE_WAITS = (1, 2, 4, 8)
+START_WINDOW = timedelta(minutes=5)
 RESUMED = "Resumed: an API error ended your last turn before it was done, so do now what the prompt it answered asked, from where it stopped."
 MESSAGE_ORIGIN = "coordinator"
 DESIGNER = "long-running:designer"
@@ -396,13 +397,15 @@ def start_posts(name: str, own: str | None = None, detached: bool = False) -> bo
 
 
 def handle_report(name: str, seq: str, brief: str, once: bool = False, detached: bool = False, briefed: Callable[[str], str] | None = None) -> tuple[str, bool]:
-    """Start or hand over the handler on report seq as handle does, in one hold of the drive's POSTS_LOCK after start_posts passes seq, so the watch's read never starts a second handler on it, and a start that fails sets the cursor back to seq for that read to start. Once, as the handler tool starts one on a POST report, a report the cursor had passed goes to the handler whichever starter read it first started, still at work on it, and is refused once that handler ended, since it posted the report; a stage of the watch starts its own report's again, as it does for a report whose handler never took it."""
+    """Start or hand over the handler on report seq as handle does, in one hold of the drive's POSTS_LOCK after start_posts passes seq, so the watch's read never starts a second handler on it, and a start that fails sets the cursor back to seq for that read to start. Once, as the handler tool starts one on a POST report, a report the cursor had passed goes to the handler whichever starter read it first started, still at work on it or still starting, starts again as handle starts it once that handler never started, and is refused once that handler ended, since it posted the report; a stage of the watch starts its own report's again, as it does for a report whose handler never took it."""
     with state.flocked(state.drive_dir(name) / POSTS_LOCK):
         read = start_posts(name, seq, detached)
         if once and not read:
-            if held := holder(state.load(name), holds(brief)):
+            data = state.load(name)
+            if not (held := holder(data, threaded(data, holds(brief)))):
+                raise state.DriveError(f"refused, no handler started: the drive read POST report {seq} before this call, and the handler it started then has ended on it")
+            if (entry := data["handlers"][held])["session"] or not gone(entry):
                 return held, True
-            raise state.DriveError(f"refused, no handler started: the drive read POST report {seq} before this call, and the handler it started then has ended on it")
         try:
             return handle(name, brief, detached=detached, briefed=briefed)
         except state.DriveError:
@@ -433,10 +436,12 @@ def holder(data: dict, held: dict) -> str | None:
 
 
 def gone(entry: dict) -> bool:
-    """Whether a handler's turn is over, whatever its Stop hook did, read from the records Claude Code keeps of the session its launch named: no running process's `sessions/<pid>.json`, the record Claude Code keeps of each session's process, names that session with a status but idle, and its background job, which `claude --bg` writes `working` before it returns, ended a turn done, blocked, failed or stopped, rests idle or blocked, as one stuck on a startup dialog does, or `claude rm` took it; so a launch whose job ended blocked before it ran a turn holds nothing. A handler whose launch has not named its session yet is in flight, and one whose turn an API error ended is not gone until the resume that wakes it."""
+    """Whether a handler's turn is over, whatever its Stop hook did, read from the records Claude Code keeps of the session its launch named: no running process's `sessions/<pid>.json`, the record Claude Code keeps of each session's process, names that session with a status but idle, and its background job, which `claude --bg` writes `working` before it returns, ended a turn done, blocked, failed or stopped, rests idle or blocked, as one stuck on a startup dialog does, or `claude rm` took it; so a launch whose job ended blocked before it ran a turn holds nothing. A handler whose launch has not named its session yet is in flight for START_WINDOW, many times the seconds a `claude --bg` launch takes, and past it never started, as when an install or a stopped watch ended its start between the drive's save of its entry and its launch's save of the session; one whose turn an API error ended is not gone until the resume that wakes it."""
     if (wakes := entry.get("wakes")) and state.parse_time(wakes) > state.now():
         return False
-    if not entry["session"] or busy(entry["session"], session_records()):
+    if not entry["session"]:
+        return state.parse_time(entry["started"]) + START_WINDOW <= state.now()
+    if busy(entry["session"], session_records()):
         return False
     found = background_job(entry["session"])
     return found is None or found[1]["state"] in ("done", "blocked", "failed", "stopped") or found[1].get("tempo") in ("idle", "blocked")
@@ -498,16 +503,14 @@ def signalled(pid: int) -> bool:
 
 
 def handle(name: str, brief: str, detached: bool = False, briefed: Callable[[str], str] | None = None) -> tuple[str, bool]:
-    """Start a handler on its brief, unless a live one already holds what the brief holds, since a message of his or a thread has one handler at a time: a brief for another record or another message of his, on that message, in that thread or on its record's re chain, is handed to that handler, which takes it at its next step, and a copy, the same record or the same message of his, is handed to it with nothing added, since that handler already holds it; the id of the handler at work on the brief, and whether it was handed. A record whose brief, attrs and re chain name no thread and reach no message of his is in the thread its order's lines go in, as the thread attr the drive stamps on its own records names it. A handler whose turn is over holds nothing, however it ended: it leaves the drive, and each brief handed to it that it never took goes to the handler this brief reaches, but one for the record this brief names. briefed writes the brief a new handler starts on from its id, recording what it adds; a handler that does not start leaves no entry, and no job it was given nor the order made for that job. Detached, as the handler tool runs it, the handler's session starts after the call returns, from the brief kept for `drive handler-start`; the watch starts it in the call, since nothing waits on the watch."""
-    held_now = holds(brief)
-    attrs = held_now.pop("attrs", {})
+    """Start a handler on its brief, unless a live one already holds what the brief holds, since a message of his or a thread has one handler at a time: a brief for another record or another message of his, on that message, in that thread or on its record's re chain, is handed to that handler, which takes it at its next step, and a copy, the same record or the same message of his, is handed to it with nothing added, since that handler already holds it; the id of the handler at work on the brief, and whether it was handed. A record whose brief, attrs and re chain name no thread and reach no message of his is in the thread its order's lines go in, as the thread attr the drive stamps on its own records names it. A handler whose turn is over holds nothing, however it ended: it leaves the drive, and each brief handed to it that it never took goes to the handler this brief reaches, but one for the record this brief names; one that never started leaves its own brief with them, by forget. briefed writes the brief a new handler starts on from its id, recording what it adds; a handler that does not start leaves no entry, and no job it was given nor the order made for that job. Detached, as the handler tool runs it, the handler's session starts after the call returns, from the brief kept for `drive handler-start`; the watch starts it in the call, since nothing waits on the watch."""
+    read = holds(brief)
     handler_id = uuid.uuid4().hex[:8]
     with state.edit(name) as data:
-        if not held_now["thread"] and (order_id := state.report_order(data, attrs)):
-            held_now |= state.thread_attr(data["orders"][order_id])
+        held_now = threaded(data, read)
         left: list[str] = []
         while (held := holder(data, held_now)) and gone(data["handlers"][held]):
-            left += data["handlers"].pop(held)["handed"]
+            left += forget(data, held)
         left = [one for one in dict.fromkeys(left) if not (named := RECORD.search(one)) or named[1] != held_now["record"]]
         if held:
             entry = data["handlers"][held]
@@ -515,7 +518,7 @@ def handle(name: str, brief: str, detached: bool = False, briefed: Callable[[str
             kept = not held_now[same] or held_now[same] != entry["holds"][same]
             entry["handed"] += [one for one in [*left, *([brief.strip()] if kept else [])] if one not in entry["handed"]]
         else:
-            data["handlers"][handler_id] = {"session": None, "started": state.stamp(), "holds": held_now, "handed": left, "took": [], "posted": []}
+            data["handlers"][handler_id] = {"session": None, "started": state.stamp(), "brief": brief.strip(), "holds": held_now, "handed": left, "took": [], "posted": []}
     if held:
         return held, True
     try:
@@ -541,12 +544,29 @@ def started(name: str, handler_id: str, brief: str, prompt: str, detached: bool)
     return []
 
 
+def threaded(data: dict, held: dict) -> dict:
+    """What a brief holds, as holds read it, but its record's attrs: a record whose brief, attrs and re chain name no thread and reach no message of his is in the thread its order's lines go in, as the thread attr the drive stamps on its own records names it."""
+    found = {key: value for key, value in held.items() if key != "attrs"}
+    if not found["thread"] and (order_id := state.report_order(data, held.get("attrs", {}))):
+        found |= state.thread_attr(data["orders"][order_id])
+    return found
+
+
+def forget(data: dict, handler: str) -> list[str]:
+    """Take a handler off the drive, and the briefs it leaves to the handler the next brief reaches: each one handed to it that it never took, and for one whose launch never named its session, which never started, its own brief first, its job and that job's order leaving with it."""
+    entry = data["handlers"].pop(handler)
+    if entry["session"]:
+        return entry["handed"]
+    if job_id := state.agent_job(data, handler):
+        del data["orders"][data["jobs"].pop(job_id)["order"]]
+    return [*filter(None, [entry["brief"]]), *entry["handed"]]
+
+
 def unstarted(name: str, handler: str) -> None:
     """Take a handler that did not start off the drive, with the job it was given and the order made for that job."""
     with state.edit(name) as data:
-        data["handlers"].pop(handler, None)
-        if job_id := state.agent_job(data, handler):
-            del data["orders"][data["jobs"].pop(job_id)["order"]]
+        if handler in data["handlers"]:
+            forget(data, handler)
 
 
 def brief_path(name: str, handler: str) -> Path:
