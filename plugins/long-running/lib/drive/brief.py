@@ -597,7 +597,7 @@ def heavier(data: dict, job_id: str, brief: str, model: str | None) -> bool:
 
 
 def report_refusal(name: str, data: dict, job_id: str, text: str) -> str | None:
-    """Why a job's return may not be kept: a builder's or designer's opens with a result word, a REPRO: file is kept on the job first, a report naming a limit in its own words as a finding left standing is an ASK or DESIGN, a design lane's is the design in its shape, building all his words name and the abstraction several strategies share before any of them, by narrowed_design, a research reader's carries its Researched: block, a reader's DESIGN is a choice for him with its options, starting from the root cause and recommending the option that removes it, a DONE, READY or PUSHED leaves no step for someone else, nor a builder's a piece of its plan to a follow-up that no UNBUILT: line of it names, by left_piece, a builder's UNBUILT: lines naming their pieces as a design's Change: lines must and none naming work the drive already holds, by held_piece, a builder's DONE names its proof, one picture, recording or live post of each user story its brief names when he sees the result, a repair keeping a proof file told to prove it with drive job prove instead, and a builder's READY or PUSHED names PRs whose tap card draws, saying how his words are met on each reworked to them, and says how it builds on what its research found."""
+    """Why a job's return may not be kept: a builder's or designer's opens with a result word, a REPRO: file is kept on the job first, a report naming a limit in its own words as a finding left standing is an ASK or DESIGN, a design lane's is the design in its shape, building all his words name and the abstraction several strategies share before any of them, by narrowed_design, a research reader's carries its Researched: block, a reader's DESIGN is a choice for him with its options, starting from the root cause and recommending the option that removes it, a DONE, READY or PUSHED leaves no step for someone else, nor a builder's a piece of its plan to a follow-up that no UNBUILT: line of it names, by left_piece, a builder's UNBUILT: lines naming their pieces as a design's Change: lines must and none naming work the drive already holds, by held_piece, a design's DESIGN of several keeping the words of each change it listed before that a live builder carries, by state.renamed_change, a builder's DONE names its proof, one picture, recording or live post of each user story its brief names when he sees the result, a repair keeping a proof file told to prove it with drive job prove instead, and a builder's READY or PUSHED names PRs whose tap card draws, saying how his words are met on each reworked to them, and says how it builds on what its research found."""
     job = data["jobs"][job_id]
     order = data["orders"][job["order"]]
     lines = [line.strip() for line in text.strip().splitlines()]
@@ -639,6 +639,8 @@ def report_refusal(name: str, data: dict, job_id: str, text: str) -> str | None:
             f'its {word} line "{cut(stray, 80)}" waits on a change its list does not hold: a change waits only on earlier changes'
             f" of its list, as (waits on change <its number, counting {word} lines from 1>) or (waits on change 1 and change 2)"
         )
+    if job["kind"] == "design" and len(listed) > 1 and (renamed := state.renamed_change(name, data, job["order"], [state.whole_order(line["change"]) for line in listed], job_id)):
+        return renamed
     if job["kind"] == "builder" and (held := held_piece(data, job_id, listed)):
         return (
             f'its UNBUILT: line "{cut(held[0], 120)}" names work the drive already holds, {held[1]}, so a part of its own would build it'
@@ -740,9 +742,9 @@ def unowned_exists(name: str, data: dict, job_id: str, text: str) -> str | None:
 
 
 def unquotable_change(listed: list[re.Match]) -> str | None:
-    """The first change these lines of a return, by state.change_lines, name in words that cannot be its part's name: longer than a part's name, or holding a character double quotes do not keep as typed."""
+    """The first change these lines of a return, by state.change_lines, name in words that cannot be its part's name, by state.unquotable_part."""
     names = (" ".join(line["change"].split()) for line in listed)
-    return next((name for name in names if len(name) > state.PART_CHARS or re.search(r'[`"$\\]', name)), None)
+    return next((name for name in names if state.unquotable_part(name)), None)
 
 
 def unlisted_waits(listed: list[re.Match]) -> str | None:

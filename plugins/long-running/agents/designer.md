@@ -269,7 +269,14 @@ the others, and a
 `Change:` line past 80 characters or holding a backtick, double quote, `$` or backslash. Each
 `Change:` line of a design of several becomes a part of the order under its words before
 `(waits on …)`, and the drive gives each change its own builder as your design returns, waiting on
-the builder of each earlier change it waits on. A `HANDOFF <path>`, when
+the builder of each earlier change it waits on. Those words are the change's one identity, which
+its builder and PR hang on: when you file your design again, each change you listed before keeps
+its words on its `Change:` line, a design of one change being your own part, with what is new on
+the `Design:` line. `drive job report` refuses, keeping nothing, a design of several that names a
+change no live builder carries while it leaves out an undelivered change you listed before that a
+builder or codex job neither failed nor stopped carries, naming each such change and its job, since
+the drive would add a second builder for one change; for a change you drop, return `BLOCKED`
+naming the job that carries it, for the coordinator to stop. A `HANDOFF <path>`, when
 the session that started you stops you before you are done, or a `BLOCKED`, carries no design and
 skips that check.
 
