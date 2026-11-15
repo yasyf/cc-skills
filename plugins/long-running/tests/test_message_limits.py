@@ -885,7 +885,7 @@ HISTORY_POST = "Each table has a `<table>__history` shadow table, its columns pl
 SHADOWED = (
     CODE_READ,
     {"path": "rust/crates/sandsql-wire/src/lower.rs", "section": "295-305"},
-    "300  fn shadowed_specs(tables: &[TableSpec]) -> impl Iterator<Item = &TableSpec> {\n" + "\n".join(f"{line}      tables.iter()" for line in range(301, 700)),
+    "300  fn shadowed_specs(tables: &[TableSpec]) -> impl Iterator<Item = &TableSpec> {\n" + "\n".join(f"{line}      tables.iter()" for line in range(301, 500)),
 )
 SHADOW = (CODE_READ, {"path": "rust/crates/sandsql-wire/src/lower.rs", "section": "355-365"}, '360      let shadow = format!("{}__history", spec.name);')
 PANIC = (
@@ -949,7 +949,7 @@ def test_an_output_the_tool_saved_to_a_file_reaches_jev_whole_once_by_its_comman
     talker: str, transcript: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], pointer: str
 ) -> None:
     saved = tmp_path / "b3keoof79.txt"
-    saved.write_text("o937: long-running 1.0.697 installed\n" + "row\n" * 15000 + "yasyf/cc-skills#4817 merged\n")
+    saved.write_text("o937: long-running 1.0.697 installed\n" + "row\n" * 1000 + "yasyf/cc-skills#4817 merged\n")
     asked = {"command": "drive status o937 2>&1 | head -80"}
     tool(lane_of(transcript), "Bash", asked, pointer.format(saved=saved, preview="o937: long-running 1.0.697 installed"))
     claims = [{"claim": "#4817 merged", "read": "drive status o937"}, {"claim": "#4817 merged", "read": str(saved)}]
@@ -961,7 +961,7 @@ def test_an_output_the_tool_saved_to_a_file_reaches_jev_whole_once_by_its_comman
 def test_a_call_two_reads_hold_reaches_jev_once_under_the_first_and_the_second_names_that_reads_id_in_its_place(
     talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    cards = '{"questions": [' + ", ".join(f'{{"waits": "durable-agents:j{n}"}}' for n in range(2000)) + "]}"
+    cards = '{"questions": [' + ", ".join(f'{{"waits": "durable-agents:j{n}"}}' for n in range(150)) + "]}"
     build = ("Bash", {"command": "tools/ci bk api /pipelines/release/builds/15427/jobs"}, '{"state": "passed"}')
     compound = ("Bash", {"command": "cc-slack drive-cards --drive durable-agents | grep release; tools/ci bk api /pipelines/release/builds/15427"}, cards)
     lane = lane_of(transcript)

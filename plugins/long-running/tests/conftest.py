@@ -1058,7 +1058,8 @@ class Jev:
     named: set[str] = field(default_factory=set)
 
     def picks(self, choice: str, probability: float = 0.9) -> None:
-        """Every Noul whose key holds choice as one of its dotted parts reads yes at probability; none clears it."""
+        """Jev answers again, and every Noul whose key holds choice as one of its dotted parts reads yes at probability; none clears it."""
+        self.answer = 0.05
         self.chosen = None if choice == "none" else (choice, probability)
 
     def breaks(self, part: str, about: str, probability: float = 0.9) -> None:

@@ -786,7 +786,7 @@ def post_verdict(output: dict, sent: str, seconds: float = DECIDE_SECONDS) -> di
         if claim in unread:
             continue
         if (sure := read.get(f"c{number}.backed")) is None:
-            unsure.append(f'claim "{claim["claim"]}", whose read had no room in Jev\'s {REQUEST_CHARS:,} characters')
+            unsure.append(f'claim "{claim["claim"]}", which had no room in Jev\'s {REQUEST_CHARS:,} characters')
         elif (backs := reading(sure)) is False:
             held.append(f'claim "{claim["claim"]}" does not stand on its read: make the read that shows it and name it in claims, or cut the line to what your reads show')
         elif backs is None:
@@ -833,13 +833,13 @@ def backed(reads: dict[str, dict], number: int, claim: dict) -> tuple[dict, dict
 
 
 def unfit_reads(output: dict) -> list[tuple[str, int]]:
-    """Each read a handler's claims name that Jev's request on the post has no room for beside the post and the claims before it, by the read's id and words and the characters its own call and result add, largest first, each read once: a claim whose read was first given under another read counts that read, never its own, so each size is the size of the call it names."""
+    """Each read a handler's claims name that Jev's request on the post has no room for beside the post and the claims before it, by the read's id and words and the characters its own call and result add, largest first, each read once: a claim whose read was first given under another read counts that read, never its own, so each size is the size of the call it names, and a claim left out while the request already holds its read names no read, since that read fit and `post_verdict` warns for the claim."""
     post = output["post"]
     reads = {item["id"]: item for item in output.get("reads") or []}
     sentences = [sentence for sentence in SENTENCE.split(post.get("text") or "") if sentence.strip()]
     claimed = [backed(reads, number, claim) for number, claim in enumerate(post.get("claims") or [], 1) if not unmatched(reads, claim)]
-    _, _, left = fill(post_base(post, sentences), {}, claimed)
-    sized = {f"{read} {json.dumps(reads[read]['read'], ensure_ascii=False)}": size({"reads": {read: held}}, {}) for part, _ in left for read, held in part["reads"].items()}
+    told, _, left = fill(post_base(post, sentences), {}, claimed)
+    sized = {f"{read} {json.dumps(reads[read]['read'], ensure_ascii=False)}": size({"reads": {read: held}}, {}) for part, _ in left for read, held in part["reads"].items() if read not in told.get("reads", {})}
     return sorted(sized.items(), key=lambda pair: -pair[1])
 
 
