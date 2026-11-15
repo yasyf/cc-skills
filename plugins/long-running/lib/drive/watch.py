@@ -20,7 +20,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import NamedTuple, Self
 
-from drive import agents, brief, children, codex, dashboard, github, install, land, launchd, orca, page, place, procs, reads, receiver, refs, render, served, settled, slack, stage, stall, state, superseded, view
+from drive import agents, brief, children, codex, dashboard, github, install, land, launchd, limits, orca, page, place, procs, reads, receiver, refs, render, served, settled, slack, stage, stall, state, superseded, view
 from drive.install import PROOF_FAILED, add_prover, config_dir, done_before_proofs, done_unproven, merged_done, merged_ready, merged_said, product, proof_gap, proofless, proved_prs, prover_of, proves, reported_prs, upgraded, watch_proves, widen
 from drive.render import cut, when
 
@@ -2166,7 +2166,7 @@ def ran_out(job: dict, moment: datetime) -> bool:
 
 
 def clock_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Each job clock that ran out while its job still runs, said once; a job that returned before it owes none, and either way the clock ends."""
+    """Each job clock that ran out while its job still runs, said once with his words on each order it works, so a second job started on it keeps them; a job that returned before it owes none, and either way the clock ends."""
     data = state.load(watcher.name)
     if not any(ran_out(job, moment) and heard_job(watcher, data, job) for job in data["jobs"].values()):
         return []
@@ -2176,9 +2176,10 @@ def clock_lines(watcher: Watcher, moment: datetime) -> list[str]:
             if not ran_out(job, moment) or not heard_job(watcher, data, job):
                 continue
             if job["state"] == "running":
+                words = [f"; his words on {order_id}: {cut(said, settled.BODY_CHARS)}" for order_id in [job["order"], *job["carries"]] if (said := limits.his_words(data["orders"][order_id]))]
                 lines.append(
                     f'DUE {job_id} {job["order"]} "{cut(job["goal"], 80)}" was due {when(job["due"])} and still runs: read its transcript,'
-                    " and on a miss start a second job on its brief and set its clock (incidents: Clocks)"
+                    " and on a miss start a second job on its brief and set its clock (incidents: Clocks)" + "".join(words)
                 )
             job["due"] = None
     return lines

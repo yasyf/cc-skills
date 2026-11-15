@@ -128,6 +128,9 @@ and waits ids, record seqs), never a technical name.
    reads any option it offers as breaking, its recommended option first, as `--unsettled` naming them does, a
    mark that holds its PR on an incident too, so push with `ccx vcs ship --no-pr` and return `BUILT`, by his pick "Hold the PR
    until you answer; the drive finds each card against your recorded answers".
+   When his words on an order the job carries tell it to ask him nothing, `drive job ask` refuses the
+   card: build the recommended option and quote those words on `RULINGS:`. A card asking him to land
+   a PR, release to production or post as him still draws.
 4. Write the change:
    - Change only what his words ask. What already exists, a value's printed form, a wire, file or
      API shape, a default, a command's output or a behavior, stays as it was unless his words name

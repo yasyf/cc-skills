@@ -10252,6 +10252,10 @@ def test_a_job_clock_is_said_once_when_it_runs_out_while_its_job_still_runs_and_
     assert watch.wakes(line, state.load(demo), NO_CARDS)
     tooling_order(demo, "running")
     assert watch.line_lane(line, state.load(demo)) == "meta"
+    with state.edit(demo) as data:
+        data["orders"]["o2"] = order(text='Drive tooling: adopt the stale lane, "Do this autonomously without asking me anything"')
+        data["jobs"]["j1"].update(due=state.stamp(due), carries={"o2": ["adopt"]})
+    assert watch.clock_lines(watching, due) == [f'{line}; his words on o2: "Do this autonomously without asking me anything"']
 
 
 def test_an_answer_posted_to_him_whose_asker_has_not_heard_it_is_said_once_ten_minutes_after_his_line(demo: str) -> None:
