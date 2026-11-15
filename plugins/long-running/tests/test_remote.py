@@ -89,6 +89,7 @@ SPRITE_WORKER = {
     "terminal": {"handle": "term_sprite", "lastOutputAt": None},
 }
 SPRITE_LANE = {"where": "remote", "route": None, "dispatch": SPRITE_DISPATCH, "workspace": "pool-sprite-one", "environment": "pool-sprite-one"}
+LANE_QUESTION = "Which Buildkite build should the slice wait on, 224 or 225?"
 REAL_LOCAL_GAP = watch.local_gap
 REAL_LAST_WRITE = watch.last_write
 UNSENT = (
@@ -405,6 +406,51 @@ def test_an_agent_id_moves_a_remote_job_to_this_mac_and_off_its_mail(
     assert (job["where"], job["agent"]) == ("local", "agent-9")
     assert watch.run_pass(watch.Watcher(remote, offset=state.events_end(remote)), T0) == []
     assert calls == []
+
+
+def lane_asked(remote: str, monkeypatch: pytest.MonkeyPatch) -> watch.Watcher:
+    deliver(monkeypatch, [message("question", LANE_QUESTION, id="relay_q")])
+    watching = watch.Watcher(remote, offset=state.events_end(remote))
+    assert watch.run_pass(watching, T0) == [f"JOB j1 o1 {LANE_QUESTION}"]
+    return watching
+
+
+def handed_on(remote: str) -> tuple[str, str | None, list[tuple[str, str | None, str]]]:
+    job = state.load(remote)["jobs"]["j1"]
+    return job["state"], job["ask"], [(held["words"], held["sender"], held["at"]) for held in job["undelivered"]]
+
+
+@pytest.mark.parametrize("quoted", [True, False], ids=["j5411-its-prompt-quotes-it", "its-prompt-lacks-it"])
+def test_an_agent_on_this_mac_set_on_a_job_whose_sprite_lane_asked_ends_that_question_holding_it_only_when_its_prompt_lacks_it(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, quoted: bool
+) -> None:
+    watching = lane_asked(remote, monkeypatch)
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
+    holder = next(held for held in state.bound_sessions(state.load(remote)).values() if held["session"] == os.environ["CLAUDE_CODE_SESSION_ID"])
+    opened = watch.transcript(holder, "a-9")
+    opened.parent.mkdir(parents=True)
+    prompt = f"Take over j1's step on this Mac. Its lane asked: {LANE_QUESTION}" if quoted else "Take over j1's step on this Mac."
+    opened.write_text(json.dumps({"type": "user", "timestamp": state.stamp(), "message": {"role": "user", "content": prompt}}) + "\n")
+    run("job", "set", "j1", "--agent", "a-9")
+    assert handed_on(remote) == ("running", None, [] if quoted else [(LANE_QUESTION, None, state.stamp(T0))])
+    undelivered = (
+        f'ANSWER undelivered j1: "{LANE_QUESTION}", held at {render.when(state.stamp(T0))}, has not reached j1; the watch sends it to a worker that takes messages,'
+        " hands it to the next worker of one that returned and launches a builder never started with it; drive job resume j1 with his words verbatim [o1 j1]"
+    )
+    assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == ([] if quoted else [undelivered])
+
+
+def test_a_dispatch_set_on_a_job_whose_sprite_lane_asked_holds_that_question_for_the_watch_to_send_it_and_draws_no_orphan(
+    run: Run, remote: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    watching = lane_asked(remote, monkeypatch)
+    monkeypatch.setattr(orca, "worker", lambda dispatch: SPRITE_WORKER)
+    run("job", "set", "j1", "--agent", SPRITE_DISPATCH)
+    assert handed_on(remote) == ("running", None, [(LANE_QUESTION, None, state.stamp(T0))])
+    senders = []
+    monkeypatch.setattr(watch, "send_held", lambda watcher, job_id, moment: senders.append(job_id) or os.getpid())
+    orphans = [line for line in watch.run_pass(watching, T0 + timedelta(minutes=30)) if line.startswith("ORPHAN")]
+    assert (senders, orphans) == (["j1"], [])
 
 
 def test_job_set_agent_with_the_jobs_own_dispatch_puts_an_agent_held_job_back_on_its_sprite(

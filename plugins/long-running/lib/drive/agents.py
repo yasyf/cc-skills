@@ -821,10 +821,15 @@ def notice(row: dict) -> str:
 
 
 def brief(payload: dict) -> str:
-    """The prompt that started whoever made the call that fired a hook, an agent of the session or an Orca lane's session itself, the brief file it names and the cci record its Record: line names read in."""
-    if not (path := transcript_of(payload)).is_file():
+    """The prompt that started whoever made the call that fired a hook, an agent of the session or an Orca lane's session itself, by opened."""
+    return opened(transcript_of(payload))
+
+
+def opened(transcript: Path) -> str:
+    """The prompt a transcript opens with, the brief file it names and the cci record its Record: line names read in; empty for a transcript not written yet."""
+    if not transcript.is_file():
         return ""
-    prompt = carried(opening(path))
+    prompt = carried(opening(transcript))
     return f"{prompt}\n{record(named[1])}" if (named := RECORD.search(prompt)) else prompt
 
 

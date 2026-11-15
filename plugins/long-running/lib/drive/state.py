@@ -1436,8 +1436,10 @@ def resumed(job: dict) -> str | None:
 
 
 def start(job: dict) -> None:
-    """Run the job a worker started on, a stopped one included, its turn for a builder slot on this Mac over, so the drive keeps the return of each worker it lets start and when it started."""
-    job.update(state="running", waits=[wait for wait in job["waits"] if wait != SLOT_WAIT], updated=stamp(), worker_started=stamp())
+    """Run the job a worker started on, a stopped one included, its turn for a builder slot on this Mac over, so the drive keeps the return of each worker it lets start and when it started. A question the worker before it asked ends here, handed on as a text the job holds, that lane's said line dated when it asked and sent by no one, which the text this worker started on takes off by superseded.hear when it quotes it, so no question of a worker gone reads unanswered while this one runs that step."""
+    if job.get("ask"):
+        hold_text(job, job["said"], None, job["ask_at"])
+    job.update(state="running", ask=None, waits=[wait for wait in job["waits"] if wait != SLOT_WAIT], updated=stamp(), worker_started=stamp())
 
 
 def started_after(job: dict, moment: str) -> bool:
@@ -1461,10 +1463,10 @@ def hold_unstarted(job: dict) -> None:
         job.update(state="waiting", said=waits_line(job["waits"]))
 
 
-def hold_text(job: dict, text: str, sender: str | None) -> None:
-    """Keep a text on the job's undelivered list with who sent it, under a fresh Orca request id, which its next worker or codex-ask run carries, unless the job already holds it."""
+def hold_text(job: dict, text: str, sender: str | None, at: str | None = None) -> None:
+    """Keep a text on the job's undelivered list with who sent it, dated now unless at names when it was given, under a fresh Orca request id, which its next worker or codex-ask run carries, unless the job already holds it."""
     if all(held["words"] != text for held in job["undelivered"]):
-        job["undelivered"].append({"seq": None, "words": text, "sender": sender, "at": stamp(), "said": None, "request": str(uuid.uuid4())})
+        job["undelivered"].append({"seq": None, "words": text, "sender": sender, "at": at or stamp(), "said": None, "request": str(uuid.uuid4())})
 
 
 def take_mail(job: dict, box: list[dict], hold: bool) -> list[str]:
