@@ -15,7 +15,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from conftest import DRIVE_TERMINAL, LEAD, RESEARCH, SHORT_ASK, UNFROZEN, Answers, CodexAsk, drawn_card, Draws, Jev, Judge, Receiver, Redraws, Thread, WatchProcess, Withdrawals, carrying, codex_reply, commit_files, git_in, said_lines, staged
+from conftest import DRIVE_TERMINAL, LEAD, RESEARCH, SHORT_ASK, UNFROZEN, CodexAsk, drawn_card, Draws, Frozen, Jev, Judge, Receiver, Redraws, Thread, WatchProcess, Withdrawals, AGENTS_FREEZE, carrying, codex_reply, commit_files, git_in, said_lines, staged
 from drive import agents, card, cli, codex, github, install, land, launchd, limits, orca, place, reads, receiver, render, served, settled, slack, stage, stall, state, superseded, talk, view, watch
 
 KEY = "Forge-AI/monorepo#42"
@@ -9817,10 +9817,10 @@ def test_at_most_two_watchdog_agents_run_at_once_oldest_stall_first(demo: str, w
 
 
 def test_a_job_on_a_release_his_hold_on_every_release_holds_keeps_no_stall_and_once_he_lifts_it_its_watchdog_reads_the_watchs_release_read_and_his_cards_naming_its_service(
-    demo: str, monkeypatch: pytest.MonkeyPatch, watchdogs: list[tuple[str, Path]], ready_records: list[list[dict]], recorded: Answers
+    demo: str, monkeypatch: pytest.MonkeyPatch, watchdogs: list[tuple[str, Path]], ready_records: list[list[dict]], frozen: Frozen
 ) -> None:
     wait = f"release:sand-next:{KEY}"
-    recorded.listed = [{"id": "15c4de1aa", "title": "Are releases frozen?", "body": "no releases until I say we can again", "tags": ["release-hold"], "created_at": "2026-11-13T19:10:39Z"}]
+    frozen.row = AGENTS_FREEZE
     stood = {
         "print": f"the release of sand-next carrying {KEY} {state.pr_url(KEY)}",
         "since": state.stamp(T0 - timedelta(hours=12)),
@@ -9843,7 +9843,7 @@ def test_a_job_on_a_release_his_hold_on_every_release_holds_keeps_no_stall_and_o
     for minutes in (0, 60, 120):
         assert watch.stall_lines(watching, T0 + timedelta(minutes=minutes)) == []
     assert (watchdogs, ready_records, state.load(demo)["stalls"]) == ([], [], {})
-    recorded.listed = []
+    frozen.row = None
     for minutes in (121, 181):
         watch.stall_lines(watching, T0 + timedelta(minutes=minutes))
     [(brief, _)] = watchdogs

@@ -19,10 +19,11 @@ import record_lines
 import role_rules
 import scratch_folder
 import session_start
-from conftest import ACME_CUT, CUT_PICK, CUT_TAP, LEAD, RESEARCH, SANDSQL_NOTE, SHORT_ASK, WRITTEN_AT, answered_cut, cloned, drawn_card, kept_brief, unheld, Answers, Jev, WatchProcess
-from drive import agents, brief, cli, github, land, limits, orca, place, render, settled, state, tools, watch
+from conftest import ACME_CUT, CUT_PICK, CUT_TAP, LEAD, RESEARCH, SANDSQL_NOTE, SHORT_ASK, WRITTEN_AT, answered_cut, cloned, drawn_card, kept_brief, unheld, AGENTS_FREEZE, Answers, Frozen, Jev, WatchProcess
+from drive import agents, brief, cli, github, land, limits, orca, place, reads, render, settled, state, tools, watch
 
 Run = Callable[..., tuple[int, str]]
+READ_HOLD = settled.hold
 PR = "https://github.com/Forge-AI/monorepo/pull/42"
 ORIGIN = "git@github.com:Forge-AI/monorepo.git"
 HANDOFF_START = "tools/ci release start sand sand-next cloudrunner-next --from 4f06b6d"
@@ -1491,14 +1492,35 @@ def held(release: str, why: str) -> str:
     return brief.RELEASE_HELD.format(said=RELEASE_HOLD["body"], where=f"15c4de1, {HOLD_LINK}", hold="15c4de1", release=release, why=why)
 
 
+def test_his_hold_on_every_release_is_his_agents_freeze_in_the_release_ledger_and_a_freeze_naming_no_answer_of_his_reads_as_unread(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    printed = iter(["null", json.dumps(AGENTS_FREEZE), json.dumps({key: value for key, value in AGENTS_FREEZE.items() if key != "order"})])
+    asked: list[list[str]] = []
+    monkeypatch.setattr(orca, "checkout", lambda name, cwd: tmp_path)
+    monkeypatch.setattr(reads, "run", lambda argv, checkout: asked.append(argv) or next(printed))
+    data = state.load(demo)
+    assert [READ_HOLD(data), READ_HOLD(data)] == [None, AGENTS_FREEZE]
+    with pytest.raises(state.DriveError, match="names no answer of his it holds on: write it with `drive answer --label release-hold`"):
+        READ_HOLD(data)
+    assert asked == [[str(tmp_path / "tools" / "ci"), "release", "freeze", "--agents", "--json"]] * 3
+
+    def unread(argv: list[str], checkout: Path) -> str:
+        raise reads.ReadError("ci release freeze exited 2: flag provided but not defined: -agents")
+
+    monkeypatch.setattr(reads, "run", unread)
+    with pytest.raises(state.DriveError, match="his agents freeze in the release ledger could not be read: ci release freeze exited 2"):
+        READ_HOLD(data)
+
+
 def test_while_he_holds_every_release_a_drive_runs_none_but_on_his_exception_recorded_since(
-    demo: str, no_calls: list[list[str]], recorded: Answers, jev: Jev, release_builds: None
+    demo: str, no_calls: list[list[str]], recorded: Answers, frozen: Frozen, jev: Jev, release_builds: None
 ) -> None:
     top = {"session_id": "session-under-test"}
     with state.edit("demo") as data:
         data["answers"]["15c4de1"] = {"words": RELEASE_HOLD["body"], "link": HOLD_LINK, "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {}}
-    recorded.listed = [RELEASE_HOLD, SSQL_EXCEPTION, RELEASE_PICK | {"created_at": EARLIER}, INCIDENT_ORDER | {"created_at": EARLIER}, PR_TAP | {"created_at": "2026-11-13T19:50:00Z", "tags": ["scope:durable", "kind:approval"]}]
-    recorded.shown = {answer["id"][:7]: answer for answer in recorded.listed}
+    frozen.row = AGENTS_FREEZE
+    recorded.shown = {answer["id"][:7]: answer for answer in (RELEASE_HOLD, SSQL_EXCEPTION, RELEASE_PICK | {"created_at": EARLIER}, INCIDENT_ORDER | {"created_at": EARLIER}, PR_TAP | {"created_at": "2026-11-13T19:50:00Z", "tags": ["scope:durable", "kind:approval"]})}
     start = "tools/ci release start sandsql --order {}"
     data = state.load("demo")
     assert [brief.approval_refusal(start.format(order), data) for order in ("5d0c4a1", "9e1f2b3")] == [
@@ -1541,17 +1563,17 @@ def test_while_he_holds_every_release_a_drive_runs_none_but_on_his_exception_rec
     )
     assert [landing_guard.deny_reason(bash(command) | top) for command in reads] == [None] * len(reads)
     assert landing_guard.deny_reason(bash(start.format("5d0c4a1"))) is None
-    recorded.listed = recorded.listed[1:]
+    frozen.row = None
     jev.picks("5d0c4a1")
     assert [brief.approval_refusal(start.format("5d0c4a1"), data), landing_guard.deny_reason(bash(HELD_VERBS[0]) | top)] == [None, None]
 
 
 def test_a_cluster_job_build_is_no_release_cut_so_any_drive_session_opens_its_gate_while_he_holds_every_release(
-    drive_pr: str, run: Run, no_calls: list[list[str]], recorded: Answers, release_builds: None, monkeypatch: pytest.MonkeyPatch
+    drive_pr: str, run: Run, no_calls: list[list[str]], recorded: Answers, frozen: Frozen, release_builds: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with state.edit("demo") as data:
         data["answers"]["15c4de1"] = {"words": RELEASE_HOLD["body"], "link": HOLD_LINK, "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {}}
-    recorded.listed = [RELEASE_HOLD]
+    frozen.row = AGENTS_FREEZE
     recorded.shown = {"15c4de1": RELEASE_HOLD}
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "drive-sub")
     assert run("start", "demo", "--role", "coordinator", "--project", "The drive")[0] == 0
@@ -1576,7 +1598,7 @@ def test_a_cluster_job_build_is_no_release_cut_so_any_drive_session_opens_its_ga
 
 
 def test_a_record_asking_a_session_for_a_release_step_goes_out_only_naming_one_start_his_answer_approves(
-    demo: str, run: Run, recorded: Answers, monkeypatch: pytest.MonkeyPatch
+    demo: str, run: Run, recorded: Answers, frozen: Frozen, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     reads, read_kinds = {"asks": True, "orders": True}, []
 
@@ -1605,8 +1627,8 @@ def test_a_record_asking_a_session_for_a_release_step_goes_out_only_naming_one_s
     reads |= {"asks": True, "orders": True}
     with state.edit(demo) as held_data:
         held_data["answers"]["15c4de1"] = {"words": RELEASE_HOLD["body"], "link": HOLD_LINK, "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {}}
-    recorded.listed = [RELEASE_HOLD, RELEASE_PICK | {"created_at": EARLIER}]
-    recorded.shown = {answer["id"][:7]: answer for answer in recorded.listed}
+    frozen.row = AGENTS_FREEZE
+    recorded.shown = {answer["id"][:7]: answer for answer in (RELEASE_HOLD, RELEASE_PICK | {"created_at": EARLIER})}
     stale = f"{HANDOFF_START} --order 5d0c4a1"
     assert brief.release_ask_refusal("handoff", to, RELEASE_ASK.format(" --order 5d0c4a1"), state.load(demo)) == (
         f"{brief.RELEASE_ASKED}, and `drive job add --release` would refuse `{stale}`: "
@@ -1633,10 +1655,10 @@ def test_a_record_asking_a_session_for_a_release_step_goes_out_only_naming_one_s
 
 
 def test_a_job_runs_the_release_its_brief_names_on_his_exception_while_he_holds_every_release(
-    demo: str, tmp_path: Path, no_calls: list[list[str]], recorded: Answers, jev: Jev, release_builds: None
+    demo: str, tmp_path: Path, no_calls: list[list[str]], recorded: Answers, frozen: Frozen, jev: Jev, release_builds: None
 ) -> None:
-    recorded.listed = [RELEASE_HOLD, SSQL_EXCEPTION, RELEASE_PICK | {"created_at": EARLIER}]
-    recorded.shown = {answer["id"][:7]: answer for answer in recorded.listed}
+    frozen.row = AGENTS_FREEZE
+    recorded.shown = {answer["id"][:7]: answer for answer in (RELEASE_HOLD, SSQL_EXCEPTION, RELEASE_PICK | {"created_at": EARLIER})}
     release = "tools/ci release start sandsql --order 8b2e4f7"
     step = stepped(tmp_path, f"Release: {release}\nRelease build: {BUILD}\nDrive: demo, order o1, job j1")
     jev.picks("8b2e4f7")
@@ -1657,10 +1679,10 @@ def test_a_job_runs_the_release_its_brief_names_on_his_exception_while_he_holds_
 
 
 def test_a_codex_lane_runs_a_release_verb_only_on_the_exception_its_jobs_kept_brief_names_while_he_holds_every_release(
-    demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], no_calls: list[list[str]], recorded: Answers, jev: Jev
+    demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], no_calls: list[list[str]], recorded: Answers, frozen: Frozen, jev: Jev
 ) -> None:
-    recorded.listed = [RELEASE_HOLD, SSQL_EXCEPTION]
-    recorded.shown = {answer["id"][:7]: answer for answer in recorded.listed}
+    frozen.row = AGENTS_FREEZE
+    recorded.shown = {answer["id"][:7]: answer for answer in (RELEASE_HOLD, SSQL_EXCEPTION)}
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "release the fix")
     run("job", "add", "codex", "--order", "o1", "--goal", "release the fix")
     kept = tmp_path / "j1.md"
@@ -1719,10 +1741,10 @@ def test_a_running_codex_jobs_resume_and_wake_hold_each_text_its_run_hears_once_
     assert state.load("demo")["jobs"]["j1"]["undelivered"] == []
 
 
-def test_drive_job_add_starts_no_release_his_hold_holds_and_starts_his_exception(demo: str, run: Run, recorded: Answers, jev: Jev, capsys: pytest.CaptureFixture[str]) -> None:
+def test_drive_job_add_starts_no_release_his_hold_holds_and_starts_his_exception(demo: str, run: Run, recorded: Answers, frozen: Frozen, jev: Jev, capsys: pytest.CaptureFixture[str]) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "release the fix")
-    recorded.listed = [RELEASE_HOLD, SSQL_EXCEPTION, RELEASE_PICK | {"created_at": EARLIER}]
-    recorded.shown = {answer["id"][:7]: answer for answer in recorded.listed}
+    frozen.row = AGENTS_FREEZE
+    recorded.shown = {answer["id"][:7]: answer for answer in (RELEASE_HOLD, SSQL_EXCEPTION, RELEASE_PICK | {"created_at": EARLIER})}
     jev.picks("5d0c4a1")
     stale = "tools/ci release start sandsql --order 5d0c4a1"
     why = '`--order 5d0c4a1` names his answer to "Release the memory fix to production now?", recorded before the hold'
@@ -1738,10 +1760,10 @@ def test_drive_job_add_starts_no_release_his_hold_holds_and_starts_his_exception
     assert started.read_text().splitlines() == ["release freeze --except 8b2e4f7 --agents --json", "release start sandsql --order 8b2e4f7 --json"]
 
 
-def test_a_release_his_agents_freeze_does_not_except_starts_no_release_and_keeps_no_job(demo: str, run: Run, recorded: Answers, jev: Jev, capsys: pytest.CaptureFixture[str]) -> None:
+def test_a_release_his_agents_freeze_does_not_except_starts_no_release_and_keeps_no_job(demo: str, run: Run, recorded: Answers, frozen: Frozen, jev: Jev, capsys: pytest.CaptureFixture[str]) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "release the fix")
-    recorded.listed = [RELEASE_HOLD, SSQL_EXCEPTION]
-    recorded.shown = {answer["id"][:7]: answer for answer in recorded.listed}
+    frozen.row = AGENTS_FREEZE
+    recorded.shown = {answer["id"][:7]: answer for answer in (RELEASE_HOLD, SSQL_EXCEPTION)}
     jev.picks("8b2e4f7")
     started = released(demo, f"case \"$2\" in freeze) echo 'ym@poetic.com holds no agents freeze to except a release from' >&2; exit 1;; esac\necho '{STARTED}'")
     assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "release the fix", "--release", "tools/ci release start sandsql --order 8b2e4f7"]) == 2
@@ -1787,13 +1809,13 @@ def test_the_clock_release_starts_on_his_picks_of_how_when_and_with_what_it_ship
 
 
 def test_his_number_on_a_kept_card_orders_the_release_its_option_names_on_the_places_his_words_past_it_name_and_no_other_release_with_no_jev_read(
-    demo: str, run: Run, recorded: Answers, jev: Jev
+    demo: str, run: Run, recorded: Answers, frozen: Frozen, jev: Jev
 ) -> None:
     unread = CUT_PICK | {"id": "3c0ffee" + "0" * 33, "body": "Ship whichever is safest"}
     answered_cut(run, demo, [CUT_PICK, CUT_TAP, unread])
     with state.edit(demo) as data:
         data["answers"]["15c4de1"] = {"words": RELEASE_HOLD["body"], "link": HOLD_LINK, "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {}}
-    recorded.shown = {answer["id"][:7]: answer for answer in (CUT_PICK, CUT_TAP, unread)}
+    recorded.shown = {answer["id"][:7]: answer for answer in (RELEASE_HOLD, CUT_PICK, CUT_TAP, unread)}
     data = state.load(demo)
     option = "`ci release start --hotfix 101 --only api --without tnt-usw2-acme`"
     picks = f'refused: `--order 5d17d9c` names his answer to "{CUT_PICK["title"]}", "{CUT_PICK["body"]}", and it picks option 1 of the card it answers, {option}'
@@ -1818,7 +1840,7 @@ def test_his_number_on_a_kept_card_orders_the_release_its_option_names_on_the_pl
     [asked] = jev.asked
     assert (asked["state"]["action"], asked["state"]["answer"]) == (f"start this release on {settled.PRODUCTION}: `tools/ci release start --order 3c0ffee`", {"asked": unread["title"], "said": unread["body"]})
     assert asked["state"]["card"].splitlines()[:3] == [f"Question: {CUT_PICK['title']}", "Drive tooling: your pick decides which cut ships the api hotfix.", "Option 1 (recommended): Api alone everywhere but Acme's cluster -- Starts `release start --hotfix 101 --only api --without tnt-usw2-acme`, the hotfix's api change on every place but Acme's cluster."]
-    recorded.listed = [RELEASE_HOLD, CUT_PICK]
+    frozen.row = AGENTS_FREEZE
     assert brief.approval_refusal(ACME_CUT.format("5d17d9c"), data) is None
     fewer = "tools/ci release start --hotfix 101 --only api --without plat-usw2-staging,tnt-usw2-acme --order 5d17d9c"
     assert brief.approval_refusal(fewer, data) is None
@@ -1909,13 +1931,13 @@ STAGING_SOAKS = (
 
 
 def test_his_standing_yes_to_soak_on_staging_orders_each_soak_there_whatever_it_ships_and_no_release_past_staging_with_no_jev_read(
-    demo: str, run: Run, recorded: Answers, jev: Jev
+    demo: str, run: Run, recorded: Answers, frozen: Frozen, jev: Jev
 ) -> None:
     answered_cut(run, demo, [STANDING_SOAK], STANDING_SOAK_CARD)
     with state.edit(demo) as data:
         data["answers"]["15c4de1"] = {"words": RELEASE_HOLD["body"], "link": HOLD_LINK, "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {}}
-    recorded.listed = [RELEASE_HOLD, STANDING_SOAK, SOAK_CASES]
-    recorded.shown = {answer["id"][:7]: answer for answer in recorded.listed}
+    frozen.row = AGENTS_FREEZE
+    recorded.shown = {answer["id"][:7]: answer for answer in (RELEASE_HOLD, STANDING_SOAK, SOAK_CASES)}
     data = state.load(demo)
     assert [brief.approval_refusal(release, data) for release in STAGING_SOAKS] == [None] * len(STAGING_SOAKS)
     first, narrowed = STAGING_SOAKS[0], STAGING_SOAKS[2]
@@ -1940,12 +1962,13 @@ def test_his_standing_yes_to_soak_on_staging_orders_each_soak_there_whatever_it_
 
 
 def test_his_standing_yes_on_a_card_another_drive_keeps_orders_a_staging_soak_on_this_drive_and_no_production_start_with_no_jev_read(
-    demo: str, run: Run, recorded: Answers, jev: Jev
+    demo: str, run: Run, recorded: Answers, frozen: Frozen, jev: Jev
 ) -> None:
     standing = STANDING_SOAK | {"tags": ["scope:durable", f"drive:{demo}"]}
     answered_cut(run, demo, [standing], STANDING_SOAK_CARD)
     run("start", "ssql-duckdb", "--role", "coordinator")
     recorded.listed = [RELEASE_HOLD, standing]
+    frozen.row = AGENTS_FREEZE
     recorded.shown = {answer["id"][:7]: answer for answer in recorded.listed}
     data = state.load("ssql-duckdb")
     assert standing["id"] not in data["answers"]

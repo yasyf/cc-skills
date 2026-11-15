@@ -43,13 +43,6 @@ STANDING_FREEZE = {
     "freeze": {"id": "45ab54019c"},
     "text": "freeze 45ab54019c: everything until Nov 13, 5:00 PM for incident, set by Yasyf Mohamedali (to end it sooner, ask Yasyf Mohamedali, its owner, to lift it from its #releases post). Staging still ships.",
 }
-HELD_RELEASES = {
-    "id": "15c4de1" + "0" * 33,
-    "title": "Are releases frozen now that a teammate set a freeze in #releases?",
-    "body": "no releases until I say we can again",
-    "tags": ["scope:durable", "release-hold"],
-    "created_at": "2026-11-13T19:09:39Z",
-}
 WRITTEN_AT = datetime(2026, 11, 10, 5, 0).astimezone()
 LEAD = (
     "--headline",
@@ -1163,6 +1156,22 @@ def recorded(monkeypatch: pytest.MonkeyPatch) -> Answers:
     monkeypatch.setattr(settled, "line_answers", lambda lines, data, besides=frozenset(): [(line, [answer for answer in answers.lined if answer["id"] not in besides]) for line in lines])
     monkeypatch.setattr(settled, "listed", lambda label, cwd: sorted((answer for answer in answers.listed if label in answer["tags"]), key=lambda answer: answer["created_at"], reverse=True))
     return answers
+
+
+HOLD_WORDS = "we dont have a literal freeze on but no releases until I say we can again, only I can give exceptions"
+AGENTS_FREEZE = {"owner": {"name": "Rowan Vale", "email": "rowan@example.com"}, "reason": HOLD_WORDS, "order": "15c4de1", "from": "2026-11-13T19:10:39Z"}
+
+
+@dataclass
+class Frozen:
+    row: dict | None = None
+
+
+@pytest.fixture(autouse=True)
+def frozen(monkeypatch: pytest.MonkeyPatch) -> Frozen:
+    held = Frozen()
+    monkeypatch.setattr(settled, "hold", lambda data: held.row)
+    return held
 
 
 @dataclass

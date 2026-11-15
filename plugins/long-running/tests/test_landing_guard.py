@@ -6,7 +6,7 @@ from pathlib import Path
 
 import landing_guard
 import pytest
-from conftest import LEAD, SESSION, SHORT_ASK, Answers
+from conftest import AGENTS_FREEZE, HOLD_WORDS, LEAD, SESSION, Frozen
 from drive import agents, brief, land, limits, render, settled, shell, stage, state, view
 
 Run = Callable[..., tuple[int, str]]
@@ -203,25 +203,18 @@ def test_a_sprite_lanes_landing_is_refused_while_the_coordinators_mac_does_not_a
     assert landing_guard.deny_reason(lane) == landing_guard.UNASKED.format(keys=drive_pr, error="it printed no JSON: drive exited 0")
 
 
-HOLD = {
-    "id": "15c4de1" + "0" * 33,
-    "title": "Are releases frozen now that a teammate set a freeze in #releases?",
-    "body": "we dont have a literal freeze on but no releases until I say we can again, only I can give exceptions",
-    "tags": ["scope:durable", "release-hold"],
-    "created_at": "2026-11-13T19:09:39Z",
-}
 RESUME = "tools/ci release resume 15495"
 
 
 def test_a_sprite_lanes_release_verb_asks_the_coordinators_mac_whether_his_hold_refuses_it(
-    run: Run, demo: str, sprite: list[list[str]], recorded: Answers, no_calls: None
+    run: Run, demo: str, sprite: list[list[str]], frozen: Frozen, no_calls: None
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "release the fix")
     run("job", "add", "builder", "--order", "o1", "--goal", "release the fix")
     lane = bash(RESUME, session_id="sprite")
     assert landing_guard.deny_reason(lane) is None
-    recorded.listed = [HOLD]
-    refused = brief.RELEASE_HELD.format(said=HOLD["body"], where="15c4de1", hold="15c4de1", release=RESUME, why="it names no `--order`, and neither does a `Release:` line of its job's brief")
+    frozen.row = AGENTS_FREEZE
+    refused = brief.RELEASE_HELD.format(said=HOLD_WORDS, where="15c4de1", hold="15c4de1", release=RESUME, why="it names no `--order`, and neither does a `Release:` line of its job's brief")
     assert landing_guard.deny_reason(lane) == refused
     assert sprite == [["drive", "job", "held", "--json", f"--release={RESUME}"]] * 2
     assert run("job", "held", "--release", RESUME) == (0, refused)

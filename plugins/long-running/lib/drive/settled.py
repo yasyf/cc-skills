@@ -335,7 +335,7 @@ def note_cards(name: str) -> None:
 
 def supersede(name: str, pick: str, answer_id: str, cwd: str) -> None:
     """Record in cc-notes that his answer replaces his earlier pick, so ccn answer match, which every brief's rulings read, no longer ranks the pick as standing; a pick that is his standing hold on every release lifts his agents freeze first, so whichever route retires his hold, the release ledger stops refusing his agents' releases with it and a failed lift leaves the hold standing."""
-    if (standing := hold(cwd)) and standing["id"].startswith(pick):
+    if (standing := hold(state.load(name))) and standing["order"].startswith(pick):
         from drive import orca
 
         agents_freeze(orca.checkout(name, cwd), "unfreeze")
@@ -498,9 +498,18 @@ def listed(label: str, cwd: str) -> list[dict]:
     return sorted(found, key=lambda answer: answer["created_at"], reverse=True)
 
 
-def hold(cwd: str) -> dict | None:
-    """His newest standing hold on every release, the answer labelled release-hold that no later answer of his superseded; None when none stands."""
-    return next(iter(listed(RELEASE_HOLD, cwd)), None)
+def hold(data: dict) -> dict | None:
+    """His hold on every release: his agents freeze, the AGENTFREEZE row of the release ledger under which `pipeline.Launch` refuses each release his sessions and ai-oncall start, as `tools/ci release freeze --agents --json` reads it as his Buildkite identity in the drive's checkout, with its reason, the answer of his labelled release-hold it holds on as order and the answers it excepts; None while he holds none. A row naming no such answer, written by hand, is refused, since no exception of his reads as recorded after it."""
+    from drive import orca, reads
+
+    checkout = orca.checkout(data["name"], data["roles"]["coordinator"]["cwd"])
+    try:
+        freeze = json.loads(reads.run([str(checkout / "tools" / "ci"), "release", "freeze", "--agents", "--json"], checkout))
+    except reads.ReadError as error:
+        raise DriveError(f"his agents freeze in the release ledger could not be read: {error}") from None
+    if freeze and not freeze.get("order"):
+        raise DriveError(f'his agents freeze "{freeze["reason"]}" names no answer of his it holds on: write it with `drive answer --label {RELEASE_HOLD}`')
+    return freeze
 
 
 def agents_freeze(checkout: Path, *flags: str) -> None:

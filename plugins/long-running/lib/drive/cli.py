@@ -1424,9 +1424,9 @@ def started_release(name: str, job_id: str, command: str) -> list[str]:
     """Start the release a job's --release names from the drive's checkout at the head of its default branch, its --order first excepted from his agents freeze while he holds every release, leave it running once `ci release` names the build it started, end the designs the job carries and brief it on that build; a start naming none keeps no job and refuses with what it said."""
     said: list[str] = []
     answer: dict = {}
-    cwd = state.load(name)["roles"]["coordinator"]["cwd"]
-    checkout = orca.checkout(name, cwd)
-    if settled.hold(cwd):
+    data = state.load(name)
+    checkout = orca.checkout(name, data["roles"]["coordinator"]["cwd"])
+    if settled.hold(data):
         try:
             settled.agents_freeze(checkout, "freeze", "--except", brief.started(command)[0]["order"][-1])
         except DriveError as error:
@@ -3654,7 +3654,7 @@ def job_held(args: argparse.Namespace) -> int:
     data = state.load(name)
     find(data["jobs"], job_id, "job")
     if args.release:
-        hold = settled.hold(data["roles"]["coordinator"]["cwd"])
+        hold = settled.hold(data)
         refused = hold and brief.hold_refusal(args.release, data, hold)
         return emit(args, refused or f"no hold of his refuses {args.release}", {"id": job_id, "release": refused})
     if args.pr:
@@ -4408,7 +4408,7 @@ def answer(args: argparse.Namespace) -> int:
             f"{args.id} is recorded already, at {data['answers'][args.id]['link']}, so --words and --link would change nothing: a later message of his is an"
             " answer of its own, recorded with --title, --words and --link, and his messages in a row go in one first call, a --link for each in order"
         )
-    if args.lifts_hold and not settled.hold(cwd):
+    if args.lifts_hold and not settled.hold(data):
         raise DriveError("--lifts-hold refused, no hold of his on every release stands, so nothing is recorded")
     if args.id is None:
         if not (args.title and args.words and args.link):
@@ -4419,9 +4419,9 @@ def answer(args: argparse.Namespace) -> int:
         if settled.RELEASE_HOLD in args.label:
             settled.agents_freeze(orca.checkout(name, cwd), "freeze", "--reason", args.words, "--order", args.id)
             print(f"drive answer: {args.id[:7]} is his agents freeze in the release ledger now, so ai-oncall and his sessions start no release but one he excepts", file=sys.stderr)
-    if args.lifts_hold and (hold := settled.hold(cwd)):
-        settled.supersede(name, hold["id"], args.id, cwd)
-        print(f"drive answer: {args.id[:7]} supersedes his hold {hold['id'][:7]} and lifted his agents freeze, so ai-oncall and his sessions start releases again", file=sys.stderr)
+    if args.lifts_hold and (hold := settled.hold(data)):
+        settled.supersede(name, hold["order"], args.id, cwd)
+        print(f"drive answer: {args.id[:7]} supersedes his hold {hold['order'][:7]} and lifted his agents freeze, so ai-oncall and his sessions start releases again", file=sys.stderr)
     marking = args.stands or args.settled or args.dropped or args.superseded or args.reopened or args.others_stand or args.untouched
     done: list[str] = []
     if args.id not in data["answers"]:

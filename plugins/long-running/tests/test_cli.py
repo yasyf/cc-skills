@@ -15,7 +15,7 @@ from pathlib import Path
 import drive
 import pytest
 import spawnllm
-from conftest import ACME_CUT, CAP_RULING, CARD_BODY, CUT_LINK, CUT_PICK, CUT_TAP, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SAND_NEXT_NOTE, SANDSQL_NOTE, SETTLED_LINE_ANSWERS, SETTLED_LISTED, SETTLED_MATCHED, SETTLED_NOTE, SETTLED_RECORDED, SHORT_ASK, REAL_SESSION_TERMINALS, WRITTEN_AT, answered_cut, carrying, cloned, drawn_card, git_in, kept_research, Answers, explained, Checked, Chrome, Draws, Drawing, Heard, Images, Jev, Judge, MetaLaunches, Redraws, Thread, WatchProcess, Withdrawals
+from conftest import ACME_CUT, CAP_RULING, CARD_BODY, CUT_LINK, CUT_PICK, CUT_TAP, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SAND_NEXT_NOTE, SANDSQL_NOTE, SETTLED_LINE_ANSWERS, SETTLED_LISTED, SETTLED_MATCHED, SETTLED_NOTE, SETTLED_RECORDED, SHORT_ASK, REAL_SESSION_TERMINALS, WRITTEN_AT, AGENTS_FREEZE, answered_cut, carrying, cloned, drawn_card, git_in, kept_research, Answers, explained, Checked, Chrome, Draws, Drawing, Frozen, Heard, Images, Jev, Judge, MetaLaunches, Redraws, Thread, WatchProcess, Withdrawals
 from drive import (
     agents,
     brief,
@@ -4220,7 +4220,7 @@ def test_a_question_longer_than_a_cc_notes_title_is_recorded_under_it_cut_on_a_w
     assert f"on {DESIGN_CARD}: usage: title is empty" in str(error.value)
 
 
-def test_his_answer_supersedes_each_answer_of_the_drives_still_standing_under_the_same_question_and_no_other(monkeypatch: pytest.MonkeyPatch, recorded: Answers) -> None:
+def test_his_answer_supersedes_each_answer_of_the_drives_still_standing_under_the_same_question_and_no_other(demo: str, monkeypatch: pytest.MonkeyPatch, recorded: Answers) -> None:
     calls: list[list[str]] = []
     monkeypatch.setattr(settled, "ccn", lambda argv, text, cwd, failure: calls.append(argv) or json.dumps({"id": "knocker"}))
     monkeypatch.setattr(settled, "recorded", SETTLED_RECORDED)
@@ -9994,7 +9994,7 @@ def test_an_answer_with_no_id_records_his_words_in_cc_notes_first_and_goes_on_by
 
 
 def test_his_release_hold_writes_his_agents_freeze_and_his_lift_lifts_it_before_superseding_the_hold(
-    run: Run, designing: str, recorded: Answers, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    run: Run, designing: str, recorded: Answers, frozen: Frozen, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     cards_asking(monkeypatch, PR)
     calls: list[list[str]] = []
@@ -10014,20 +10014,20 @@ def test_his_release_hold_writes_his_agents_freeze_and_his_lift_lifts_it_before_
     assert cli.main(lift) == 2
     assert "--lifts-hold refused, no hold of his on every release stands" in capsys.readouterr().err
     assert calls == []
-    recorded.listed = [{"id": hold, "title": "Are releases frozen?", "body": said, "tags": ["release-hold"], "created_at": "2026-11-13T19:10:39Z"}]
+    frozen.row = AGENTS_FREEZE | {"order": hold}
     assert cli.main(lift) == 0
     assert calls == [[ci, "release", "unfreeze", "--agents", "--json", str(tmp_path)], ["supersede", hold, lifted]]
     assert "drive answer: 7e1ea5e supersedes his hold 15c4de1 and lifted his agents freeze" in capsys.readouterr().err
 
 
 def test_whatever_supersedes_his_standing_hold_lifts_his_agents_freeze_first_and_a_failed_lift_leaves_the_hold_standing(
-    recorded: Answers, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    demo: str, frozen: Frozen, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     calls: list[list[str]] = []
     monkeypatch.setattr(settled.reads, "run", lambda argv, checkout: calls.append([*argv, str(checkout)]) or "{}")
     monkeypatch.setattr(settled, "ccn", lambda argv, text, cwd, failure: calls.append(argv[2:]) or "")
     hold = f"15c4de1{'0' * 33}"
-    recorded.listed = [{"id": hold, "title": "Are releases frozen?", "body": "no releases until I say we can again", "tags": ["release-hold"], "created_at": "2026-11-13T19:10:39Z"}]
+    frozen.row = AGENTS_FREEZE | {"order": hold}
     settled.supersede("demo", "bell", "knocker", str(tmp_path))
     settled.supersede("demo", hold, "7e1ea5e", str(tmp_path))
     unfreeze = [str(tmp_path / "tools" / "ci"), "release", "unfreeze", "--agents", "--json", str(tmp_path)]

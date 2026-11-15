@@ -2749,7 +2749,7 @@ def stall_lines(watcher: Watcher, moment: datetime) -> list[str]:
         return []
     known = state.load(watcher.name)
     try:
-        on_hold = bool(settled.hold(known["roles"]["coordinator"]["cwd"]))
+        on_hold = bool(settled.hold(known))
     except state.DriveError as error:
         return failed(watcher, "stall hold", "stall read of his hold on every release", error, moment)
     watcher.failures.pop("stall hold", None)

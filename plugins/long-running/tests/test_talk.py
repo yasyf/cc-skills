@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
-from conftest import HELD_RELEASES, STANDING_FREEZE, Answers, Checked, Jev, Thread
+from conftest import AGENTS_FREEZE, HOLD_WORDS, STANDING_FREEZE, Checked, Frozen, Jev, Thread
 from drive import (
     agents,
     brief,
@@ -313,11 +313,11 @@ def test_a_card_no_question_keeps_moves_each_wait_on_it_to_its_waits_id_when_ask
 
 
 def test_say_posts_no_word_that_a_freeze_lifted_or_a_release_may_start_unless_it_names_each_freeze_and_hold_standing_now(
-    demo: str, posts: list[tuple[str, ...]], freezes: list[dict], recorded: Answers, monkeypatch: pytest.MonkeyPatch
+    demo: str, posts: list[tuple[str, ...]], freezes: list[dict], frozen: Frozen, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     freezes.append(STANDING_FREEZE)
-    recorded.listed = [HELD_RELEASES]
-    stands = f'{STANDING_FREEZE["text"]}; his hold 15c4de1 on every release stands: "no releases until I say we can again"'
+    frozen.row = AGENTS_FREEZE
+    stands = f'{STANDING_FREEZE["text"]}; his hold 15c4de1 on every release stands: "{HOLD_WORDS}"'
     with pytest.raises(DriveError) as refused:
         talk.say(demo, {"text": "Platy shows the release freeze lifted at 11:06 AM, so the api cut can start now.", "dry_run": True})
     assert str(refused.value) == f"nothing posted: these words say a release freeze lifted or a release may start, and these stand now: {stands}. Name each by its id and what it holds, or leave the claim out"

@@ -219,9 +219,9 @@ def release_refusal(command: str) -> str | None:
 
 def approval_refusal(command: str, data: dict) -> str | None:
     """Why the one release a command starts may not start on the answer of his its --order names: while he holds every release, hold_refusal() refuses it; else it is no incident's order, and `settled.unordered` reads it as ordering another release, or Jev gave no answer."""
-    cwd = data["roles"]["coordinator"]["cwd"]
-    if hold := settled.hold(cwd):
+    if hold := settled.hold(data):
         return hold_refusal(command, data, hold)
+    cwd = data["roles"]["coordinator"]["cwd"]
     [flags] = started(command)
     answer_id = flags["order"][-1]
     try:
@@ -237,7 +237,7 @@ def approval_refusal(command: str, data: dict) -> str | None:
 
 
 def hold_refusal(release: str, data: dict, hold: dict) -> str | None:
-    """Why a release may not run under his hold on every release: it is not a `ci release start` or `hotfix` naming one --order, his exception for that one release, recorded after the hold that `settled.unordered` reads as ordering it, never a tap on a PR card; an incident's order passes on no label, the hold included."""
+    """Why a release may not run under his hold on every release, his agents freeze as settled.hold() reads it: it is not a `ci release start` or `hotfix` naming one --order, his exception for that one release, recorded after the answer the freeze holds on, that `settled.unordered` reads as ordering it, never a tap on a PR card; an incident's order passes on no label, the hold included."""
     cwd = data["roles"]["coordinator"]["cwd"]
     said, where = hold_words(hold, data)
     named = started(release)
@@ -245,7 +245,7 @@ def hold_refusal(release: str, data: dict, hold: dict) -> str | None:
     try:
         if not orders:
             why = "it names no `--order`, and neither does a `Release:` line of its job's brief"
-        elif (answer := settled.shown(orders[-1], cwd))["created_at"] <= hold["created_at"]:
+        elif (answer := settled.shown(orders[-1], cwd))["created_at"] <= settled.shown(hold["order"], cwd)["created_at"]:
             why = f'`--order {orders[-1]}` names his answer to "{cut(answer["title"], 200)}", recorded before the hold'
         elif not (unordered := settled.unordered(answer, release, data)):
             return None
@@ -255,12 +255,13 @@ def hold_refusal(release: str, data: dict, hold: dict) -> str | None:
         why = f"his answers could not be read: {error}"
     except settled.Unheard as failure:
         why = f"Jev did not say whether his answer {orders[-1]} approves it ({failure}); run it again once Jev answers"
-    return RELEASE_HELD.format(said=said, where=where, hold=hold["id"][:7], release=release, why=why)
+    return RELEASE_HELD.format(said=said, where=where, hold=hold["order"][:7], release=release, why=why)
 
 
 def hold_words(hold: dict, data: dict) -> tuple[str, str]:
-    """His words in his hold on every release, cut to settled.QUOTED_CHARS, and where they are recorded: the hold's answer id and the link of his message."""
-    return cut(settled.his(hold["body"]), settled.QUOTED_CHARS), ", ".join(filter(None, [hold["id"][:7], (data["answers"].get(hold["id"][:7]) or {}).get("link")]))
+    """His words in his hold on every release, the freeze's reason cut to settled.QUOTED_CHARS, and where they are recorded: the answer the freeze holds on and the link of his message."""
+    order = hold["order"][:7]
+    return cut(hold["reason"], settled.QUOTED_CHARS), ", ".join(filter(None, [order, (data["answers"].get(order) or {}).get("link")]))
 
 
 def release_ask_refusal(kind: str, to: list[str], words: str, data: dict) -> str | None:
@@ -402,11 +403,11 @@ def freezes(name: str, data: dict) -> list[dict]:
 
 def standing(name: str, data: dict) -> list[tuple[str | None, str]]:
     """Each release freeze the release ledger holds standing now and his hold on every release, by id with its line, read at each use and never kept, so no brief, wait or post states a freeze that lifted or misses one set since; a ledger that could not be read stands under no id, which no words name."""
-    held = [(hold["id"][:7], f'his hold {hold["id"][:7]} on every release stands: "{hold_words(hold, data)[0]}"')] if (hold := settled.hold(data["roles"]["coordinator"]["cwd"])) else []
     try:
+        held = [(hold["order"][:7], f'his hold {hold["order"][:7]} on every release stands: "{hold_words(hold, data)[0]}"')] if (hold := settled.hold(data)) else []
         return [*((each["freeze"]["id"], each["text"]) for each in freezes(name, data)), *held]
     except (reads.ReadError, state.DriveError) as error:
-        return [(None, f"the release ledger could not be read ({error}), so read `tools/ci release freezes` before saying a release is frozen or may start"), *held]
+        return [(None, f"the release ledger could not be read ({error}), so read `tools/ci release freezes` before saying a release is frozen or may start")]
 
 
 def releases(name: str, data: dict) -> str:

@@ -498,7 +498,7 @@ def cut_reason(words: list[str], shell: Shell) -> str | None:
         return None
     data = state.load(drives[0])
     try:
-        hold = settled.hold(data["roles"]["coordinator"]["cwd"])
+        hold = settled.hold(data)
         return hold and brief.hold_refusal(release_of(words, Path(data["jobs"][codex]["brief"]).read_text() if codex else agents.brief(shell.caller)), data, hold)
     except state.DriveError as error:
         return HOLD_UNREAD.format(command=" ".join(words), error=error)

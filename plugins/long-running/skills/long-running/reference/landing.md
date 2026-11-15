@@ -604,10 +604,13 @@ the patch.
 - A job never starts a release. One his order covers releasing returns `WAITING release` naming the
   exact `tools/ci release start` or `hotfix`, outside an incident after reading its `tools/ci release
   plan`; any other change rides the next release and returns `WAITING release`.
-- His hold on every release is his answer labelled `release-hold` that no later answer of his
-  supersedes, such as 15c4de1: "no releases until I say we can again, only I can give exceptions".
-  While it stands, a release runs only on his exception, an answer of his recorded after the hold
-  that approves that one release. `drive job add --release` refuses any other start, and the
+- His hold on every release is his agents freeze, the `AGENTFREEZE` row of the release ledger that
+  `tools/ci release freeze --agents --json` prints as his Buildkite identity in the drive's checkout,
+  holding on his answer labelled `release-hold`, such as 15c4de1: "no releases until I say we can
+  again, only I can give exceptions". While a row names no such answer, every release call is
+  refused as on an unread hold, until `drive answer --label release-hold` rewrites it. While it stands, a
+  release runs only on his exception, an answer of his recorded after the hold's answer that
+  approves that one release. `drive job add --release` refuses any other start, and the
   `landing_guard` hook refuses every other release call and quotes the hold. It covers `tools/ci
   release resume`, `approve` and `rollback`, and a `tools/ci bk rerun release` or `tools/ci bk api`
   write to a release cut, a forge/release build whose env holds `RELEASE_START`, or creating one. A
