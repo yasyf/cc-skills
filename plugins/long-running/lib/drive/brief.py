@@ -211,10 +211,12 @@ def card_releases(text: str) -> list[str]:
 
 
 def release_refusal(command: str) -> str | None:
-    """Why `drive job add --release` may not start a command: it is not one `ci release start` or `hotfix` alone, naming in --order the answer of his it starts on."""
+    """Why `drive job add --release` may not start a command: it is not one `ci release start` or `hotfix` alone, naming in --order the answer of his it starts on, or it deploys `--local`, which runs in the shell that starts it and starts no build its job could follow."""
     commands = simple_commands(command)
     if len(commands) != 1 or (flags := release_flags(commands[0])) is None:
         return f"--release `{command}` is not one `tools/ci release start` or `tools/ci release hotfix` alone: name the one release to start, with its flags as it runs"
+    if "local" in flags:
+        return f"--release `{command}` deploys `--local`, whose plan and apply run in the shell that starts it and start no build its job could follow, so no job starts it: a `--manual` or regular start names the build its job follows"
     if not flags.get("order"):
         return f"--release names no --order. {RELEASE_APPROVAL}"
     return None
