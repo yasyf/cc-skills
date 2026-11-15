@@ -25,6 +25,7 @@ LANE_HELD_SECONDS = 540
 SAID_CHARS = 400
 SAID_LINES = 4
 QUEUED = "queued for merge"
+DEQUEUED = "dequeued: Trunk cancelled its merge queue entry"
 REFUSED = "merge refused by GitHub"
 GITHUB_API = "GITHUB_API_"
 BASE_MOVED = "Base branch was modified"
@@ -191,10 +192,10 @@ def merged_try(pr: dict) -> bool:
 
 
 def landing(pr: dict) -> bool:
-    """Whether a lander holds the PR on its head: still running on it, done with it queued for merge and not ejected by Trunk since, or done rebasing it onto its base, until the watch reads the head it pushed."""
+    """Whether a lander holds the PR on its head: still running on it, done with it queued for merge while Trunk has neither ejected nor dequeued it since, the latter of which the watch records as the try's outcome, and GitHub reads no conflict with its base, which Trunk cannot merge past and only its builder's rebase settles, or done rebasing it onto its base, until the watch reads the head it pushed."""
     lander = pr["lander"] or {}
     outcome = lander.get("outcome") or ""
-    return lander.get("head") == pr["head"] and (running(pr) or outcome == QUEUED and not pr["ejected"] or outcome.startswith(REBASED))
+    return lander.get("head") == pr["head"] and (running(pr) or outcome == QUEUED and not pr["ejected"] and not pr["conflict"] or outcome.startswith(REBASED))
 
 
 def flaked(pr: dict) -> dict | None:

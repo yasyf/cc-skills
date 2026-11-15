@@ -464,14 +464,18 @@ default branch, said on the PR's line and named by its `ready` stage until a try
 comes to what the one before it on that head did is said once. A try stands only at the head and base it ran on, so a push, or GitHub moving the PR onto the default branch once the PR under it merges, reads it `ready` again, and only while what let it run does: once `drive pr set <url> --no-exempt --tap`
 puts the PR on his card, or his tap comes after the try started, the PR reads his card or `ready` again, never
 `unlanded`. Its outcome comes back as the PR's stage:
-`landing` while Trunk holds it, `merged`, owed by nobody, once its try merged it with `gh pr merge`, even
-before the watch's next GitHub read says so, and `unlanded`, a lander's try that ended without queueing it, with
+`landing` while Trunk holds it and nothing stops its landing, else what stops it, such as `waiting` on a wait of its own,
+out of the queue once Trunk's `trunk-cancelled` label on its queue entry is newer than the try, which the watch records
+as the try's outcome `dequeued: Trunk cancelled its merge queue entry`, as after a `stack-enqueue --dequeue`, `merged`,
+owed by nobody, once its try merged it with `gh pr merge`, even before the watch's next GitHub read says so, and
+`unlanded`, a lander's try that ended without queueing it, or dequeued once none of its waits holds, with
 `UNLANDED_SILENT` when its process ended before saying, which wakes the session holding its order
 every 30 minutes for a builder that fixes the cause and pushes; the lander tries the new head on its own.
 While the PR's own job waits on his open question cards, it reads `blocked` instead, owed by him and naming
 each card, and wakes no one until he answers them.
 A merge GitHub refused for a conflict, `Pull Request has merge conflicts` or `the merge
-commit cannot be cleanly created`, is never `unlanded`: the PR reads `red`, owed by its builder, "it
+commit cannot be cleanly created`, and a try that queued the PR or Trunk ejected once GitHub reads it conflicting,
+are never `landing` or `unlanded`: the PR reads `red`, owed by its builder, "it
 conflicts with its base <branch>", whatever the watch last read of its mergeability, so `drive pr wake` sends its
 builder the line at once and every 30 minutes, and no session starts one; its rebased head lands on its own.
 A PR in a native GitHub stack reads "it conflicts with <trunk>, the trunk of its native stack: restack the

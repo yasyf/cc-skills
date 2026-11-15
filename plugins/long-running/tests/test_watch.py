@@ -161,6 +161,7 @@ def read(**overrides: object) -> dict:
         "author": "yasyf",
         "labels": [],
         "ejected_at": None,
+        "cancelled_at": None,
         "native": [],
         "trunk": None,
         "required_checks": ["buildkite/test"],
@@ -7731,6 +7732,44 @@ def test_a_trunk_failed_label_left_from_before_its_landers_try_at_a_pushed_head_
     serve(monkeypatch, {KEY: read(headRefOid="566abed000", labels=["externally-merged", github.EJECTED_LABEL], ejected_at="2026-11-12T13:48:03Z")})
     assert watch.github_lines(watcher(demo), state.parse_time(tried) + timedelta(minutes=1)) == []
     assert stage.of(state.load(demo), KEY, NO_CARDS).name == "landing"
+
+
+def test_replayed_monorepo_56508_a_pr_trunk_cancelled_after_its_landers_try_queued_it_is_out_of_the_queue_and_waits_on_its_own_wait_never_landing(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    approve(demo, KEY)
+    queued = state.stamp(T0)
+    with state.edit(demo) as data:
+        data["jobs"]["j2"] = job()
+        data["prs"][KEY] |= {"checks": "pass", "review": "approved", "waits": ["j2"], "lander": {"head": "aaaaaaa111", "pid": 1, "at": queued, "outcome": land.QUEUED, "below": [], "entry": KEY}}
+    assert stage.of(state.load(demo), KEY, NO_CARDS).name == "waiting"
+    cancelled = {"context": "Trunk Merge Queue (dev)", "state": "CANCELLED"}
+    serve(monkeypatch, {KEY: read(checks=[*GREEN, cancelled], reviewDecision="APPROVED", approvals=["aaaaaaa111"], labels=["externally-merged", github.CANCELLED_LABEL], cancelled_at=state.stamp(T0 + timedelta(minutes=50)))})
+    assert watch.github_lines(watcher(demo), T0 + timedelta(hours=2)) == [f"PR {KEY}: {land.DEQUEUED} [o1 j1]"]
+    pr = state.load(demo)["prs"][KEY]
+    assert (pr["lander"]["outcome"], land.landing(pr), stage.of(state.load(demo), KEY, NO_CARDS).name) == (land.DEQUEUED, False, "waiting")
+    with state.edit(demo) as data:
+        data["jobs"]["j2"]["state"] = "done"
+    assert stage.of(state.load(demo), KEY, NO_CARDS) == stage.Stage("unlanded", stage.ORDER, f"its lander's try at aaaaaaa, started {queued}, ended {land.DEQUEUED}")
+    assert watch.github_lines(watcher(demo), T0 + timedelta(hours=3)) == []
+
+
+@pytest.mark.parametrize("labels", [[], [github.EJECTED_LABEL]])
+def test_a_pr_its_landers_try_left_queued_for_merge_reads_red_and_wakes_its_builder_once_github_reads_it_conflicting_whatever_trunk_did_with_it(
+    demo: str, monkeypatch: pytest.MonkeyPatch, woken: list[tuple[str, str]], landers: list[tuple[str, ...]], labels: list[str]
+) -> None:
+    approve(demo, KEY)
+    monkeypatch.setattr(watch.view, "cards", lambda drive: NO_CARDS)
+    queued = state.stamp(T0)
+    with state.edit(demo) as data:
+        data["prs"][KEY] |= {"checks": "pass", "review": "approved", "lander": {"head": "aaaaaaa111", "pid": 1, "at": queued, "outcome": land.QUEUED, "below": [], "entry": KEY}}
+    assert stage.of(state.load(demo), KEY, NO_CARDS) == stage.Stage("landing", stage.LANDER, f"queued for merge at aaaaaaa since {queued}")
+    ejected_at = state.stamp(T0 + timedelta(minutes=5)) if labels else None
+    serve(monkeypatch, {KEY: read(checks=GREEN, reviewDecision="APPROVED", approvals=["aaaaaaa111"], mergeable="CONFLICTING", labels=labels, ejected_at=ejected_at)})
+    moment = T0 + timedelta(minutes=10)
+    watch.run_pass(watcher(demo), moment)
+    assert stage.of(state.load(demo), KEY, NO_CARDS) == stage.Stage("red", stage.BUILDER, "it conflicts with its base main")
+    assert (woken, landers) == ([(KEY, f"{KEY} red since {state.stamp(moment)}, owed by its builder: it conflicts with its base main [o1 j1]")], [])
 
 
 EJECTED = "Forge-AI/monorepo#55582"

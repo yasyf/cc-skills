@@ -5509,7 +5509,7 @@ def test_a_lanes_ready_is_kept_as_pushed_waking_no_one_until_a_read_after_it_fin
     required = {"context": "buildkite/test", "state": "SUCCESS", "targetUrl": "https://buildkite.com/forge/monorepo/builds/7"}
     pr_reads["Forge-AI/monorepo#7"] = {
         "state": "OPEN", "isDraft": False, "headRefOid": "abc1234", "baseRefName": "dev", "headRefName": "fix-x", "mergeCommit": None, "checks": [required], "reviewDecision": None,
-        "approvals": [], "mergeable": "MERGEABLE", "title": "Fix: x", "author": "yasyf", "labels": [], "ejected_at": None, "native": [], "trunk": None, "required_checks": ["buildkite/test"], "required_reviews": 1,
+        "approvals": [], "mergeable": "MERGEABLE", "title": "Fix: x", "author": "yasyf", "labels": [], "ejected_at": None, "cancelled_at": None, "native": [], "trunk": None, "required_checks": ["buildkite/test"], "required_reviews": 1,
         "merge_method": "squash", "permission": "ADMIN", "default": "dev", "under": None, "base_pr": None,
     }
     card = {"title": "Fix: x", "waits": "merge:Forge-AI/monorepo#7", "prs": [{"url": url, "head": "abc1234"}]}

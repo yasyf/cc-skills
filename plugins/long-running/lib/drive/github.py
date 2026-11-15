@@ -33,6 +33,7 @@ BUILD = re.compile(r"https://buildkite\.com/(?P<pipeline>[\w-]+/[\w-]+)/builds/(
 BUILDKITE_ORG = "forge"
 HOLD_LABEL = "hold"
 EJECTED_LABEL = "trunk-failed"
+CANCELLED_LABEL = "trunk-cancelled"
 TRUNK_CHECK = "Trunk Merge Queue"
 RUN_URL = re.compile(r"/actions/runs/(?P<run>\d+)/")
 JOB_URL = re.compile(r"/actions/runs/\d+/job/(?P<job>\d+)")
@@ -156,7 +157,7 @@ def query(keys: list[str], fields: str = FIELDS, repository: str = "") -> str:
 
 
 def flatten(node: dict) -> dict:
-    """One PR's GraphQL node as the drive reads it, with ejected_at, when Trunk last put the trunk-failed label it carries on it, or None when it carries none."""
+    """One PR's GraphQL node as the drive reads it, with ejected_at and cancelled_at, when Trunk last put the trunk-failed or trunk-cancelled label it carries on it, or None when it carries none."""
     commits = node["commits"]["nodes"]
     rollup = commits[0]["commit"]["statusCheckRollup"] if commits else None
     labels = [label["name"] for label in node["labels"]["nodes"]]
@@ -176,8 +177,13 @@ def flatten(node: dict) -> dict:
         "lastEditedAt": node["lastEditedAt"],
         "author": (node["author"] or {"login": DELETED_AUTHOR})["login"],
         "labels": labels,
-        "ejected_at": max((event["createdAt"] for event in node["timelineItems"]["nodes"] if event["label"]["name"] == EJECTED_LABEL), default=None) if EJECTED_LABEL in labels else None,
+        "ejected_at": labeled(node, labels, EJECTED_LABEL),
+        "cancelled_at": labeled(node, labels, CANCELLED_LABEL),
     }
+
+
+def labeled(node: dict, labels: list[str], label: str) -> str | None:
+    return max((event["createdAt"] for event in node["timelineItems"]["nodes"] if event["label"]["name"] == label), default=None) if label in labels else None
 
 
 def review(read: dict) -> str:
