@@ -4550,7 +4550,7 @@ OVERLOADED = {
 @pytest.mark.parametrize(
     ("entries", "quiet", "gap"),
     [
-        ([CALLING, FINISHED], timedelta(minutes=10), 'j1\'s agent finished and its result is not recorded: "DONE shipped"' + REPORT_IT),
+        ([CALLING, FINISHED], timedelta(minutes=10), 'j1\'s agent finished and its result is not recorded: "DONE shipped"'),
         ([FINISHED, {"type": "user", "message": {"content": "next event"}}], timedelta(minutes=10), None),
         ([CALLING, RESULT], timedelta(minutes=10), None),
         ([CALLING, RESULT], timedelta(minutes=45), "j1's agent has written nothing for 45 minutes"),
@@ -4640,7 +4640,7 @@ def test_an_incidents_second_lane_builder_is_judged_by_its_transcript_until_the_
     write_transcript(tmp_path / "config", [CALLING, FINISHED], timedelta(minutes=10))
     folder = codex_ask.run("running")
     job_of = {"order": "o1", "where": "local", "session": "session-under-test", "agent": "a1", "kind": "codex", "codex_run": str(folder)}
-    assert watch.agent_gap("j1", job_of, state.load(demo), state.now()) == 'j1\'s agent finished and its result is not recorded: "DONE shipped"' + REPORT_IT + WOKEN_BY_ITS_SESSION
+    assert watch.agent_gap("j1", job_of, state.load(demo), state.now()) == 'j1\'s agent finished and its result is not recorded: "DONE shipped"'
     codex_ask.end(folder, "completed", codex_reply("DONE", "reviewed"))
     assert isinstance(watch.agent_gap("j1", job_of, state.load(demo), state.now()), watch.Answered)
 
@@ -4865,7 +4865,7 @@ def test_a_local_agent_a_sub_coordinator_started_is_judged_by_its_transcript_und
     os.utime(path, (stamp, stamp))
     sub_coordinated(demo, cwd="/iris")
     job_of = {"session": "iris-1", "agent": "a1", "kind": "builder"}
-    assert REAL_LOCAL_GAP("j1", job_of, state.load(demo), state.now()) == 'j1\'s agent finished and its result is not recorded: "DONE shipped"' + REPORT_IT
+    assert REAL_LOCAL_GAP("j1", job_of, state.load(demo), state.now()) == 'j1\'s agent finished and its result is not recorded: "DONE shipped"'
 
 
 def test_a_local_agents_bash_call_still_running_at_nine_minutes_is_said_nothing(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -4950,24 +4950,49 @@ def returned(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: s
         )
 
 
-@pytest.mark.parametrize(
-    ("kind", "text", "report"),
-    [
-        ("builder", "DONE shipped\nPR: x", None),
-        ("reader", "ASK {kept}.old", None),
-        ("reader", "ASK {kept}\n\nThe card asks whether sessions renew while used.", None),
-        ("builder", "DONE shipped, reworded at the stop", "DONE shipped\nPR: x\n"),
-        ("reader", "My report was kept before your message arrived, so I did not resubmit.", "DONE ccx stages its sweep\nResearched:\n"),
-    ],
-)
-def test_a_running_local_agent_that_ended_on_a_result_line_is_an_orphan_whatever_it_kept_since_the_watch_takes_no_result(
-    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: str, text: str, report: str | None
+def test_a_running_local_reader_that_ended_on_a_line_opening_with_no_result_word_is_an_orphan_whatever_it_kept(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    returned(demo, tmp_path, monkeypatch, kind, text, report)
+    returned(demo, tmp_path, monkeypatch, "reader", "My report was kept before your message arrived, so I did not resubmit.", "DONE ccx stages its sweep\nResearched:\n")
     [line] = watch.run_pass(watcher(demo), state.now())
     assert (line.startswith(UNRECORDED), line.endswith(REPORT_IT + WOKEN_BY_ITS_SESSION)) == (True, True)
     job = state.load(demo)["jobs"]["j1"]
     assert (job["state"], job["said"]) == ("running", ASKED)
+
+
+def ended_return(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, text: str) -> Path:
+    monkeypatch.setattr(watch, "local_gap", REAL_LOCAL_GAP)
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(kind="builder", session="session-under-test", agent="a1", updated=state.stamp(state.now() - timedelta(minutes=10)))
+    write_transcript(tmp_path / "config", [CALLING, RESULT, ended_on(text)], timedelta(minutes=4))
+    return tmp_path / "config" / "projects" / "-work" / "session-under-test" / "subagents" / "agent-a1.jsonl"
+
+
+def test_the_watch_takes_a_local_agents_unrecorded_return_from_its_transcript_as_drive_job_report_would(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ended_return(demo, tmp_path, monkeypatch, "BLOCKED the brief names no repo to build in\nNEXT: name the repo")
+    watching = watcher(demo)
+    watch.agent_lines(watching, state.now())
+    job = state.load(demo)["jobs"]["j1"]
+    assert (job["state"], job["said"], watching.agent_gaps["j1"]) == ("failed", "BLOCKED the brief names no repo to build in", None)
+
+
+def test_a_local_agents_return_drive_job_report_refuses_is_piped_once_and_its_gap_names_the_transcript(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = ended_return(demo, tmp_path, monkeypatch, "DONE shipped\nREPRO: /tmp/proof.sh")
+    watching = watcher(demo)
+    refused = watch.local_gap("j1", state.load(demo)["jobs"]["j1"], state.load(demo), state.now()).take(watching, "j1")
+    assert refused == (
+        f'j1\'s agent finished and its result is not recorded: "DONE shipped"; the watch read it from the end of its agent\'s transcript {path},'
+        " and drive job report j1 - refused it: j1: refused, nothing kept: its REPRO: line names /tmp/proof.sh, no file here,"
+        " and j1 keeps no proof file: name the file its proof runs"
+    )
+    monkeypatch.setattr(cli, "take_report", lambda *args: pytest.fail("a refused return is piped to drive job report once"))
+    assert watch.local_gap("j1", state.load(demo)["jobs"]["j1"], state.load(demo), state.now()).take(watching, "j1") == refused
+    assert state.load(demo)["jobs"]["j1"]["state"] == "running"
 
 
 def talking(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, entries: list[dict], quiet: timedelta, heard: timedelta) -> None:

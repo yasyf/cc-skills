@@ -2843,70 +2843,77 @@ def job_report(args: argparse.Namespace) -> int:
         whole = sys.stdin.read()
         if not whole.strip():
             raise DriveError(f"stdin held no report for {args.id}; pipe its whole return in: printf '%s\\n' '<line>' ... | drive job report {args.id} -")
-        line = whole.strip().splitlines()[0].strip()
-        kept = str(state.replies_path(name, args.id))
-        where = f"kept {args.id}'s report: {line}" if os.environ.get(state.OWN_JOB_ENV) else kept
-        if job["state"] == "stopped":
-            state.after_save(name, lambda: state.keep_report(name, args.id, line, whole) or [])
-            return emit(args, f"{where}\n{args.id} stays stopped: this return sets nothing on it", {"id": args.id, "report": kept, "ask": None, "fixes": [], "builders": []})
-        if repro := named_repro(args.id, job, whole):
-            job["repro"] = str(repro)
-        if refused := brief.report_refusal(name, data, args.id, whole) or state.result_refusal(data, args.id, line, whole) or brief.overruled_refusal(data, job, whole):
-            raise DriveError(f"{args.id}: refused, nothing kept: {refused}")
-        unreached(name, data, state.result_waits(data, args.id, line))
-        if job["kind"] == "builder" and state.REPORTED_LINE.match(line) and any(not served.named(cited) for cited in served.deciding(whole)):
-            raise DriveError(f"{args.id}: refused, nothing kept: {served.NAMELESS}")
-        if repro:
-            with state.edit(name) as data:
-                data["jobs"][args.id]["repro"] = keep_repro(name, args.id, job["kind"], str(repro))
-        try:
-            registered = register_named(name, args.id, line)
-        except DriveError as error:
-            raise DriveError(f"{args.id}: refused, nothing kept: drive pr add refuses a PR its first line names: {error}") from None
-        data = state.load(name)
-        if job["kind"] == "builder" and re.match(r"READY\b", line) and (held := unready(data, job, line)):
-            raise DriveError(f"{args.id}: refused, nothing kept: {held}")
-        asked = said = None
-        if job["kind"] == "reader" and line.startswith("DESIGN"):
-            try:
-                if name in state.REHEARSING:
-                    said = ask_checked(name, args.id, whole.strip(), None, None)
-                else:
-                    asked, _, _, said = keep_ask(name, args.id, whole.strip(), None)
-            except DriveError as error:
-                raise DriveError(f"{args.id}: refused, its report not kept: a reader's DESIGN is his card as it stands, kept as its ASK, and drive job ask refused it: {error}") from None
-        state.after_save(name, lambda: state.keep_report(name, args.id, line, whole) or [])
-        fixes = []
-        for key in state.untracked_fixes(data, args.id, line, whole):
-            try:
-                pr, testers = add_pr(name, key, args.id, github_pr(key))
-                fixes += [f"FIX kept, {key}: tracked under {pr['order']}", *render.builder_lines(name, state.load(name), testers)]
-            except DriveError as error:
-                fixes.append(f"FIX kept, {error}")
-        with state.edit(name) as data:
-            state.take_result(data, args.id, line, whole)
-            state.cite_designs(data, args.id, line, whole)
-            added = state.add_changes(name, data, args.id, whole)
-            rebriefed = brief.unstarted_builders(data, args.id) if job["kind"] == "reader" and data["jobs"][args.id]["state"] == "done" else []
-            brief.name_goals(name, data, rebriefed, whole)
-            moved_on = superseded.moved_on(data, args.id, whole, asked and str(asked))
-        withdrawn = [*state.after_save(name, lambda: superseded.follow(name, moved_on, "that its work went on without it")), *redraws(data, moved_on)] if moved_on else []
-        briefed = state.after_save(name, lambda: [f"{builder_id}: {write_brief(name, builder_id, {})[0]}" for builder_id in rebriefed])
-        told = state.load(name)
-        started = render.builder_lines(name, data, added)
-        if (taken := told["jobs"][args.id])["said"] and not state.PUSHED_LINE.match(taken["said"]) and not state.agent_lane(told, taken):
-            state.returned(name, told, args.id, "; ".join([taken["said"], *([render.unread([text["words"] for text in taken["undelivered"]])] if taken["undelivered"] else []), *started]))
-        elif started:
-            state.returned(name, told, args.id, "; ".join(started))
-        shown = f"{where}\n{said}" if said else where
-        shown = "\n".join([shown, *registered, *fixes, *withdrawn, *briefed, *started])
-        return emit(args, shown, {"id": args.id, "report": kept, "ask": asked and str(asked), "fixes": fixes, "builders": added})
+        return emit(args, *take_report(name, args.id, whole))
     text = state.report_text(name, args.id, args.all)
     if not text and job["said"] in (None, state.NOT_STARTED):
         raise DriveError(f"{args.id} kept no report and has returned nothing yet")
     if not text:
         return emit(args, f"{job['said']}\n({args.id} kept no report; this one-line result is all it returned)", {"id": args.id, "report": None, "said": job["said"]})
     return emit(args, text.rstrip("\n"), {"id": args.id, "report": text})
+
+
+def take_report(name: str, job_id: str, whole: str) -> tuple[str, dict]:
+    """Take a job's whole return as drive job report <j> - takes it, the one place a return is kept or refused, for that verb and for the watch's take of a local agent's last message; what it prints and its JSON."""
+    data = state.load(name)
+    job = data["jobs"][job_id]
+    line = whole.strip().splitlines()[0].strip()
+    kept = str(state.replies_path(name, job_id))
+    where = f"kept {job_id}'s report: {line}" if os.environ.get(state.OWN_JOB_ENV) else kept
+    if job["state"] == "stopped":
+        state.after_save(name, lambda: state.keep_report(name, job_id, line, whole) or [])
+        return f"{where}\n{job_id} stays stopped: this return sets nothing on it", {"id": job_id, "report": kept, "ask": None, "fixes": [], "builders": []}
+    if repro := named_repro(job_id, job, whole):
+        job["repro"] = str(repro)
+    if refused := brief.report_refusal(name, data, job_id, whole) or state.result_refusal(data, job_id, line, whole) or brief.overruled_refusal(data, job, whole):
+        raise DriveError(f"{job_id}: refused, nothing kept: {refused}")
+    unreached(name, data, state.result_waits(data, job_id, line))
+    if job["kind"] == "builder" and state.REPORTED_LINE.match(line) and any(not served.named(cited) for cited in served.deciding(whole)):
+        raise DriveError(f"{job_id}: refused, nothing kept: {served.NAMELESS}")
+    if repro:
+        with state.edit(name) as data:
+            data["jobs"][job_id]["repro"] = keep_repro(name, job_id, job["kind"], str(repro))
+    try:
+        registered = register_named(name, job_id, line)
+    except DriveError as error:
+        raise DriveError(f"{job_id}: refused, nothing kept: drive pr add refuses a PR its first line names: {error}") from None
+    data = state.load(name)
+    if job["kind"] == "builder" and re.match(r"READY\b", line) and (held := unready(data, job, line)):
+        raise DriveError(f"{job_id}: refused, nothing kept: {held}")
+    asked = said = None
+    if job["kind"] == "reader" and line.startswith("DESIGN"):
+        try:
+            if name in state.REHEARSING:
+                said = ask_checked(name, job_id, whole.strip(), None, None)
+            else:
+                asked, _, _, said = keep_ask(name, job_id, whole.strip(), None)
+        except DriveError as error:
+            raise DriveError(f"{job_id}: refused, its report not kept: a reader's DESIGN is his card as it stands, kept as its ASK, and drive job ask refused it: {error}") from None
+    state.after_save(name, lambda: state.keep_report(name, job_id, line, whole) or [])
+    fixes = []
+    for key in state.untracked_fixes(data, job_id, line, whole):
+        try:
+            pr, testers = add_pr(name, key, job_id, github_pr(key))
+            fixes += [f"FIX kept, {key}: tracked under {pr['order']}", *render.builder_lines(name, state.load(name), testers)]
+        except DriveError as error:
+            fixes.append(f"FIX kept, {error}")
+    with state.edit(name) as data:
+        state.take_result(data, job_id, line, whole)
+        state.cite_designs(data, job_id, line, whole)
+        added = state.add_changes(name, data, job_id, whole)
+        rebriefed = brief.unstarted_builders(data, job_id) if job["kind"] == "reader" and data["jobs"][job_id]["state"] == "done" else []
+        brief.name_goals(name, data, rebriefed, whole)
+        moved_on = superseded.moved_on(data, job_id, whole, asked and str(asked))
+    withdrawn = [*state.after_save(name, lambda: superseded.follow(name, moved_on, "that its work went on without it")), *redraws(data, moved_on)] if moved_on else []
+    briefed = state.after_save(name, lambda: [f"{builder_id}: {write_brief(name, builder_id, {})[0]}" for builder_id in rebriefed])
+    told = state.load(name)
+    started = render.builder_lines(name, data, added)
+    if (taken := told["jobs"][job_id])["said"] and not state.PUSHED_LINE.match(taken["said"]) and not state.agent_lane(told, taken):
+        state.returned(name, told, job_id, "; ".join([taken["said"], *([render.unread([text["words"] for text in taken["undelivered"]])] if taken["undelivered"] else []), *started]))
+    elif started:
+        state.returned(name, told, job_id, "; ".join(started))
+    shown = f"{where}\n{said}" if said else where
+    shown = "\n".join([shown, *registered, *fixes, *withdrawn, *briefed, *started])
+    return shown, {"id": job_id, "report": kept, "ask": asked and str(asked), "fixes": fixes, "builders": added}
 
 
 def register_named(name: str, job_id: str, line: str) -> list[str]:
@@ -3398,6 +3405,8 @@ def relaunch(args: argparse.Namespace, name: str, text: str | None, resume: bool
         line = f"{args.id}: the texts it held went to the job's next worker, started {orca.place(job)} as dispatch {started['dispatch']} in a handoff carrying them"
     if died:
         line += f", taking over from its agent {agent} on this Mac, which takes no message: {died}"
+    elif state.on_mac(job) and not (text is None and args.local):
+        line += ", since its brief declares a step only this Mac runs"
     return emit(args, line, started)
 
 
@@ -3562,7 +3571,7 @@ def unsent(args: argparse.Namespace, job: dict, held: list[dict], error: orca.Or
 
 
 def launched(name: str, job_id: str, brief_file: str | None, local: bool, text: str | None, died: str | None) -> dict:
-    """Start a job's first lane, briefed as drive job brief writes it when none was, or one taking over from an agent on this Mac that stopped, returned while the job holds texts, or that another session started and ended with, with the text in its handoff when a resume brought one, and, by answers_since, each text the job holds under the heading naming its sender and each answer of his it has not heard under His answers since: whose words its brief lacks; a lane taking over from an agent that stopped or returned starts on this Mac when its brief declares a step only this Mac runs, by place.mac_step over that brief alone, never the report, held texts or text its handoff adds, and one crowded_here refuses at this Mac's cap holds the text and waits its turn on builder-slot; a lane on this Mac starts in the worktree orca.pr_holder finds holding the branch of the job's open PR, its handoff naming it. Once nothing refuses it the job is stamped as launching, which the watch reads as starting, never as not started or waiting on nothing, until record_start runs it on its worker's receipt; a takeover keeps its agent, dispatch, where, state, line and waits, the resume's text held by state.hold_text, until that receipt hands the job to the lane, so a launch that starts no worker leaves the job to its agent, whose next resume takes it over again, never a job reading never started that view.start_refusal holds on its own PR."""
+    """Start a job's first lane, briefed as drive job brief writes it when none was, or one taking over from an agent on this Mac that stopped, returned while the job holds texts, or that another session started and ended with, with the text in its handoff when a resume brought one, and, by answers_since, each text the job holds under the heading naming its sender and each answer of his it has not heard under His answers since: whose words its brief lacks; any lane starts on this Mac when its brief declares a step only this Mac runs, by place.mac_step over that brief alone, whoever launches it and with no --local, never the report, held texts or text its handoff adds, and one crowded_here refuses at this Mac's cap holds the text and waits its turn on builder-slot; a lane on this Mac starts in the worktree orca.pr_holder finds holding the branch of the job's open PR, its handoff naming it. Once nothing refuses it the job is stamped as launching, which the watch reads as starting, never as not started or waiting on nothing, until record_start runs it on its worker's receipt; a takeover keeps its agent, dispatch, where, state, line and waits, the resume's text held by state.hold_text, until that receipt hands the job to the lane, so a launch that starts no worker leaves the job to its agent, whose next resume takes it over again, never a job reading never started that view.start_refusal holds on its own PR."""
     from drive import stage, view
 
     data = state.load(name)
@@ -3590,13 +3599,12 @@ def launched(name: str, job_id: str, brief_file: str | None, local: bool, text: 
         return orca.agent_handoff(orca.brief_of(briefed), job, state.report_text(name, job_id, every=False), text, died, carried, stage.holds_now(data, job_id), holder)
 
     written = handed()
-    local = local or bool(died and step)
+    local = local or bool(step)
     if holder := (orca.pr_holder(data, job, str(root)) if local else None):
         written = handed(holder)
     if refused := (
         brief.brief_refusal(name, data, job_id, written)
         or orca.uncarried(name, job_id, written)
-        or (f"its brief's Mac: or Release: line declares {step}, a step only this Mac runs: start it here, with the Agent tool at any load or with --local" if not local and step else None)
         or (crowded_here(name, data, job_id, step, text) if local else None)
     ):
         raise DriveError(f"{job_id}: refused, not launched: {refused}")
