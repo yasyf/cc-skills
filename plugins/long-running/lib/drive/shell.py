@@ -1,6 +1,7 @@
 import re
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
+from itertools import takewhile
 from string import Template
 
 HEREDOC = re.compile(r"(?<!<)<<(?!<)-?\s*(['\"]?)(\w+)\1")
@@ -10,14 +11,18 @@ REDIRECTS = ("&>>", "<<<", "<<-", "&>", ">>", ">&", "<&", ">|", "<>", "<<", ">",
 CASE_ENDS = (";;&", ";;", ";&")
 CONTROLS = ("&&", "||", "|&", *CASE_ENDS, ";", "|", "&", "(", ")", "\n")
 KEYWORDS = {"!", "{", "if", "then", "elif", "else", "do", "while", "until"}
+LOOPS = {"for", "while", "until"}
 PARENS = [(True, "("), (True, ")")]
 FUNCTION_NAME = re.compile(r"[^=$]+")
 POSITIONAL = re.compile(r"(?P<index>[1-9]\d*)(?:(?P<colon>:)?-(?P<default>.*))?|[@*](?::(?P<start>[1-9]\d*))?", re.DOTALL)
 SPREAD = re.compile(r"\$(?:@|\{@(?::(?P<start>[1-9]\d*))?\})")
 UNEXPANDED = re.compile(r"[$`]")
-WORD = re.compile(r"""(?:[^\s;&|()<>'"\\]|\\.|'[^']*'|"(?:[^"\\]|\\.)*")+""", re.DOTALL)
+WORD = re.compile(r"""(?:[^\s;&|()<>'"`\\]|\\.|'[^']*'|"(?:[^"\\]|\\.)*"|`(?:[^`\\]|\\.)*`?)+""", re.DOTALL)
 QUOTING = re.compile(r"""'(?P<single>[^']*)'|"(?P<double>(?:[^"\\]|\\.)*)"|\\(?P<escaped>.)|(?P<bare>[^'"\\]+)""", re.DOTALL)
 DOUBLE_QUOTED_ESCAPE = re.compile(r'\\([$`"\\])')
+SUBSTITUTIONS = ("$(", "`")
+NESTED = {'"': SUBSTITUTIONS, ")": (*SUBSTITUTIONS, '"', "'", "("), "`": ()}
+CLOSERS = {"$(": ")", "(": ")", "`": "`", '"': '"'}
 
 
 def runnable(command: str) -> str:
@@ -47,8 +52,8 @@ def scanned(command: str) -> tuple[str, list[str]]:
 
 
 def tokens(text: str) -> Iterator[tuple[str, str]]:
-    """What the shell reads in text: `word` and each word, `control` and each control operator, a newline read as `;`, or a redirection operator and the word it names; a comment and the descriptor number written against a redirection are none of them."""
-    at, redirect = 0, None
+    """What the shell reads in text: `word` and each word, `control` and each control operator, a newline read as `;`, or a redirection operator and the word it names; a comment and the descriptor number written against a redirection are none of them. The commands of each `$(…)` or backtick substitution a command's words run, in double quotes or bare backticks, follow that command, each after a `;`."""
+    at, redirect, pending = 0, None, []
     while at < len(text):
         if blank := BLANK.match(text, at):
             at = blank.end()
@@ -56,9 +61,12 @@ def tokens(text: str) -> Iterator[tuple[str, str]]:
             at, redirect = at + len(operator), operator
         elif control := next((operator for operator in CONTROLS if text.startswith(operator, at)), None):
             at, redirect = at + len(control), None
+            yield from substituted(pending)
+            pending = []
             yield "control", ";" if control == "\n" else control
         elif word := WORD.match(text, at):
             at = word.end()
+            pending += substitutions(word[0])
             if redirect:
                 yield redirect, word[0]
             elif not (word[0].isdigit() and text.startswith(("<", ">"), at)):
@@ -66,6 +74,48 @@ def tokens(text: str) -> Iterator[tuple[str, str]]:
             redirect = None
         else:
             raise ValueError(f"no closing quotation in {text[at:]!r}")
+    yield from substituted(pending)
+
+
+def substituted(found: list[str]) -> Iterator[tuple[str, str]]:
+    for inner in found:
+        yield "control", ";"
+        yield from tokens(inner)
+
+
+def substitutions(word: str) -> list[str]:
+    """The text of each `$(…)` and backtick substitution a word runs, bare or in double quotes, never in single quotes."""
+    found, at, quoted = [], 0, False
+    while at < len(word):
+        opener = next((opener for opener in SUBSTITUTIONS if word.startswith(opener, at)), None)
+        if word[at] == "\\":
+            at += 2
+        elif word[at] == "'" and not quoted:
+            at = word.find("'", at + 1) + 1 or len(word)
+        elif word[at] == '"':
+            quoted, at = not quoted, at + 1
+        elif opener:
+            end = closing(word, at + len(opener), CLOSERS[opener])
+            found.append(word[at + len(opener) : end])
+            at = end + 1
+        else:
+            at += 1
+    return found
+
+
+def closing(text: str, at: int, closer: str) -> int:
+    """Where the closer of the double quotes, backticks or parenthesis open before at stands, past each quote and substitution nested in it, or the text's end when it is left open."""
+    while at < len(text) and text[at] != closer:
+        opener = next((opener for opener in NESTED[closer] if text.startswith(opener, at)), None)
+        if text[at] == "\\":
+            at += 2
+        elif opener == "'":
+            at = text.find("'", at + 1) + 1 or len(text)
+        elif opener:
+            at = closing(text, at + len(opener), CLOSERS[opener]) + 1
+        else:
+            at += 1
+    return min(at, len(text))
 
 
 def parts(text: str) -> Iterator[tuple[bool, str]]:
@@ -115,6 +165,15 @@ class Function:
 
 
 @dataclass
+class Loop:
+    """A for loop: the variable it sets, the words it walks, `$@` when it names none, and the commands of its body."""
+
+    name: str
+    values: list[str]
+    body: list
+
+
+@dataclass
 class Case:
     """A case statement: the word it selects on and its arms, each its patterns, its commands and whether it ends in `;&` or `;;&`, which go on to the next arm."""
 
@@ -123,7 +182,7 @@ class Case:
 
 
 def grouped(text: str) -> list:
-    """The commands of shell text as the shell groups them: each simple command's words as templates, each function definition with its body, and each case statement with its arms; a definition or case the text leaves unclosed reads as plain commands."""
+    """The commands of shell text as the shell groups them: each simple command's words as templates, each function definition with its body, each for loop with its body and each case statement with its arms; a definition, loop or case the text leaves unclosed reads as plain commands."""
     return Grouping(list(parts(text))).block(None)[0]
 
 
@@ -135,12 +194,16 @@ class Grouping:
     at: int = 0
 
     def block(self, closer: str | None) -> tuple[list, str | None]:
-        """The commands from here to the `}` closing a function body when closer is `}`, to the end of a case arm when it is `arm`, or else to the end of the text, with what ended them: `}`, the arm's `;;`, `;&` or `;;&`, the `esac` after it, or None at the end of the text. A `}` standing alone anywhere closes, as zsh reads it."""
-        nodes, words, depth = [], [], 0
+        """The commands from here to the `}` closing a function body when closer is `}`, to the end of a case arm when it is `arm`, to the `do` or `done` of a for loop when it is that word, or else to the end of the text, with what ended them: `}`, the arm's `;;`, `;&` or `;;&`, the `esac` after it, `do`, `done`, or None at the end of the text. A `}` standing alone anywhere closes, as zsh reads it, and a `do` or `done` closes only outside each while or until loop opened since."""
+        nodes, words, depth, loops = [], [], 0, 0
         while self.at < len(self.tokens):
             operator, value = self.tokens[self.at]
             head = all(word in KEYWORDS for word in words)
-            ended = (closer == "arm" and (value in CASE_ENDS if operator else head and value == "esac")) or (closer == "}" and not operator and value == "}" and not depth)
+            ended = (
+                (closer == "arm" and (value in CASE_ENDS if operator else head and value == "esac"))
+                or (closer == "}" and not operator and value == "}" and not depth)
+                or (closer in ("do", "done") and not operator and head and value == closer and not loops)
+            )
             if operator or ended:
                 nodes += [words] if words else []
                 words = []
@@ -151,10 +214,13 @@ class Grouping:
                 self.at += 1
             elif head and value == "case" and self.tokens[self.at + 1 : self.at + 3][1:] == [(False, "in")] and not self.tokens[self.at + 1][0]:
                 nodes += self.case()
+            elif head and value == "for" and self.tokens[self.at + 1 : self.at + 2] and not self.tokens[self.at + 1][0]:
+                nodes += self.loop()
             elif not words and (defined := self.function()) is not None:
                 nodes += defined
             else:
                 depth += (head and value == "{") - (value == "}")
+                loops += head and ((value in LOOPS) - (value == "done"))
                 words.append(value)
                 self.at += 1
         return nodes + ([words] if words else []), None
@@ -178,6 +244,17 @@ class Grouping:
             if end is None:
                 break
         return [node for _, body, _ in arms for node in body]
+
+    def loop(self) -> list:
+        """The for loop starting here, read past its `done`, after the commands a substitution in its words runs, or its commands as plain ones when the text leaves it unclosed."""
+        name, values = self.tokens[self.at + 1][1], ["$@"]
+        self.at += 2
+        if self.tokens[self.at : self.at + 1] == [(False, "in")]:
+            values = [value for _, value in takewhile(lambda token: not token[0], self.tokens[self.at + 1 :])]
+            self.at += 1 + len(values)
+        before, end = self.block("do")
+        body, end = self.block("done") if end == "do" else ([], end)
+        return [*before, Loop(name, values, body)] if end == "done" else [*before, *body]
 
     def function(self) -> list | None:
         """The function a definition starting here makes, read past its body, or its body's commands as plain ones when the text leaves it unclosed; None when no definition with a `{` body starts here."""

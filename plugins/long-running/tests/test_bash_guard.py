@@ -542,7 +542,7 @@ def test_a_bucket_read_is_refused_by_what_it_reads_and_a_forge_bucket_or_a_pass_
         "AWS_PROFILE=plat-prod aws s3 sync s3://frg-plat-usw2-prod-sandsql-replication/wal/team_1/ .": "frg-plat-usw2-prod-sandsql-replication/wal/team_1/",
         "aws s3api get-object --bucket forge-acme-com --key iris/teams/t/runs/blobs/x out": "forge-acme-com/iris/teams/t/runs/blobs/x",
         "aws s3 cp s3://forge-globex-artifact-bucket/iris/teams/t/x -": "forge-globex-artifact-bucket/iris/teams/t/x",
-        'B=artifacts-prod; for d in a b; do aws s3 cp "s3://$B/iris/teams/t/runs/blobs/$d" .; done': "artifacts-prod/iris/teams/t/runs/blobs/$d",
+        'B=artifacts-prod; for d in a b; do aws s3 cp "s3://$B/iris/teams/t/runs/blobs/$d" .; done': "artifacts-prod/iris/teams/t/runs/blobs/a",
         "rclone copy r2:artifacts-prod/iris/teams/t/runs/ ./runs --transfers 32": "artifacts-prod/iris/teams/t/runs/",
         "gsutil -m cp gs://customer-bucket/iris/teams/t/x .": "customer-bucket/iris/teams/t/x",
         "azcopy copy 'https://acct.blob.core.windows.net/iris/teams/t/x' ./x": "acct/iris/teams/t/x",
@@ -718,6 +718,84 @@ def test_a_drive_job_writes_or_deletes_no_teams_data_where_it_runs_and_reaches_n
     ]
     assert [bash_guard.deny_reason(bash(command, **reader)) for command in passed] == [None] * len(passed)
     assert bash_guard.deny_reason(bash(TEAM_WRITES[0], session="ordinary")) is None
+
+
+J6144_LOOP = (
+    "for ns in sandsql sandsql-inbox sandsql-system; do for s in $(kubectl --context plat-usw2-staging -n $ns get secrets -o name 2>&1 | grep -E 'config-');"
+    " do printf '%s/%s base_heads=%s\\n' $ns \"${s#secret/}\""
+    " \"$(kubectl --context plat-usw2-staging -n $ns get \"$s\" -o json 2>/dev/null | jq -r '[.data // {} | .[] | @base64d | test(\"base_heads\")] | any')\"; done; done"
+)
+SECRET_SPELLINGS = [
+    pytest.param(J6144_LOOP, True, id="j6144 exact loop"),
+    pytest.param("kubectl --context plat-usw2-staging -n sandsql get secret sandsql-primary-config-l2fa6q8rt0 -o json | jq -c '{keys: (.data|keys)}'", True, id="j6144 next call, typed alone"),
+    pytest.param("kubectl -n sandsql get secrets -o name", True, id="literal ns, get secrets -o name"),
+    pytest.param("kubectl -n sandsql get secret/sandsql-primary-config-x -o json", True, id="literal ns, get secret/<name>"),
+    pytest.param("kubectl -n sandsql get secrets/sandsql-primary-config-x -o json", True, id="literal ns, get secrets/<name>"),
+    pytest.param("kubectl get secret x --namespace=sandsql-system -o yaml", True, id="--namespace=, get secret"),
+    pytest.param('s=secret/sandsql-primary-config-x; kubectl -n sandsql get "$s" -o json', True, id="assigned s, get $s"),
+    pytest.param("ns=sandsql; kubectl -n $ns get secrets", True, id="assigned ns, get secrets"),
+    pytest.param("for ns in sandsql; do kubectl -n $ns get secrets -o name; done", True, id="for-loop ns, get secrets"),
+    pytest.param('for s in secret/a secret/b; do kubectl -n sandsql get "$s" -o json; done', True, id="for-loop s, get $s"),
+    pytest.param('s=$(cat names.txt); kubectl -n sandsql get "$s" -o json', True, id="s from a substitution, get $s"),
+    pytest.param('while read s; do kubectl -n sandsql get "$s" -o json; done < names.txt', True, id="while read s, get $s"),
+    pytest.param("cat names.txt | xargs -I{} kubectl -n sandsql get {} -o json", True, id="xargs -I{} name"),
+    pytest.param("cat names.txt | xargs -n1 kubectl -n sandsql get -o json", True, id="xargs appends name"),
+    pytest.param("kubectl -n sandsql get cm,secret -o yaml", True, id="comma list cm,secret"),
+    pytest.param("kubectl -n sandsql get Secret sandsql-primary-config-x -o json", True, id="capitalised kind Secret"),
+    pytest.param("kubectl -n sandsql get secrets.v1. -o json", True, id="versioned kind secrets.v1."),
+    pytest.param("kubectl -n sandsql get SECRETS -o json", True, id="upper-case kind SECRETS"),
+    pytest.param("kubectl -nsandsql get secrets -o json", True, id="attached -nsandsql"),
+    pytest.param("kubectl get secrets -A -o json", True, id="all namespaces -A"),
+    pytest.param("kubectl get secrets --all-namespaces -o json", True, id="--all-namespaces"),
+    pytest.param("kubectl get --raw /api/v1/namespaces/sandsql/secrets", True, id="--raw API path"),
+    pytest.param("kubectl proxy --port 8001 & curl -s localhost:8001/api/v1/namespaces/sandsql/secrets", True, id="kubectl proxy then curl"),
+    pytest.param('x="$(kubectl -n sandsql get secret sandsql-primary-config-x -o json)"; echo ${#x}', True, id="quoted substitution holding a secret read"),
+    pytest.param("echo \"$(kubectl -n sandsql exec sandsql-primary-0 -- sandsql-cli exec 'DELETE FROM files')\"", True, id="quoted substitution holding an exec"),
+    pytest.param("for ns in sandsql; do kubectl -n $ns exec sandsql-primary-0 -- ls; done", True, id="for-loop ns, exec"),
+    pytest.param("for ns in sandsql; do kubectl -n $ns port-forward svc/sandsql-primary 7690:7690; done", True, id="for-loop ns, port-forward"),
+    pytest.param('x="$(aws s3 cp s3://artifacts-prod/iris/teams/team_x/runs/a.ltx -)"', True, id="quoted substitution team blob read"),
+    pytest.param("for b in artifacts-prod; do aws s3 ls s3://$b/; done", True, id="for-loop bucket, team bucket listed"),
+    pytest.param("aws s3 ls s3://artifacts-prod/", True, id="plain listed bucket, typed"),
+    pytest.param("kubectl -n sandsql get pods", False, id="pods in sandsql"),
+    pytest.param("for ns in sandsql sandsql-inbox sandsql-system; do kubectl -n $ns get rollouts.argoproj.io -o name; done", False, id="for-loop ns, get rollouts"),
+    pytest.param("for k in pods svc; do kubectl -n sandsql get $k; done", False, id="for-loop kinds pods svc in sandsql"),
+    pytest.param("kubectl -n forge get secrets -o name", False, id="secrets in forge"),
+    pytest.param("for ns in forge default; do kubectl -n $ns get secrets -o name; done", False, id="for-loop ns forge default, secrets"),
+    pytest.param("kubectl -n sandsql-system describe configmap ssql-blobstore", False, id="configmap in sandsql-system"),
+]
+
+
+@pytest.mark.parametrize(("command", "refused"), SECRET_SPELLINGS)
+def test_a_drive_job_reads_no_sandsql_secret_or_team_blob_however_the_shell_spells_it(demo: str, monorepo: str, command: str, refused: bool) -> None:
+    reason = bash_guard.deny_reason(bash(command, cwd=monorepo, agent_id="a-1", agent_type="long-running:reader"))
+    assert (isinstance(reason, agents.Unjudged) and reason.startswith("refused: ")) if refused else reason is None
+
+
+@pytest.mark.parametrize(
+    ("command", "step", "where"),
+    [
+        ("kubectl -n $ns get secrets", "`kubectl get secret`", "in the `$ns` namespace, which the guard cannot expand,"),
+        ("kubectl get secrets -A", "`kubectl get secret`", "in every namespace, SandSQL's among them,"),
+        ("kubectl proxy --port 8001", "`kubectl proxy`", "in every namespace, SandSQL's among them,"),
+        ("kubectl get --raw /api/v1/secrets", "`kubectl get --raw` on a secrets path, or one the guard cannot read,", "in every namespace, SandSQL's among them,"),
+        ('kubectl get --raw "$p"', "`kubectl get --raw` on a secrets path, or one the guard cannot read,", "in every namespace, SandSQL's among them,"),
+        ("ls | xargs kubectl -n sandsql describe", "`kubectl describe` of a kind the guard cannot read, which may be Secret,", "in the `sandsql` namespace"),
+    ],
+)
+def test_a_sandsql_refusal_names_the_step_and_where_it_reaches(demo: str, command: str, step: str, where: str) -> None:
+    reason = bash_guard.deny_reason(bash(command, agent_id="a-1", agent_type="long-running:reader"))
+    assert reason.startswith(f"refused: {step} {where} opens a team's SandSQL databases where the job runs")
+
+
+def test_a_namespace_or_kind_the_guard_reads_as_another_passes() -> None:
+    passed = [
+        "kubectl -n forge exec api-0 -- ls -A",
+        "kubectl get --raw /api/v1/namespaces/forge/secrets",
+        "kubectl get --raw /healthz",
+        'kubectl -n sandsql get pod "$p" -o yaml',
+        "kubectl -n sandsql logs sandsql-primary-0 | xargs echo",
+    ]
+    assert [bash_guard.team_data(command, "/work") for command in passed] == [None] * len(passed)
 
 
 def test_a_refused_team_data_call_blocks_outright_since_jev_never_weighs_it(demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
