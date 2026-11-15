@@ -1197,7 +1197,7 @@ def recorded(monkeypatch: pytest.MonkeyPatch) -> Answers:
 
 @dataclass
 class Jev:
-    """settled.jev for tests: each request it was asked, and the probability of yes it gives each Noul by its key, a clear no unless a test says otherwise, a names Noul reading yes for a part named holds and a plain Noul the probability unexplained gives its name, the whole card's Noul whole, its architectures Noul architectures, and the page Noul paged, its order's words kept in read_for_pages apart from asked; answer None makes every request Unheard."""
+    """settled.jev for tests: each request it was asked, and the probability of yes it gives each Noul by its key, a clear no unless a test says otherwise, a names Noul reading yes for a part named holds and a plain Noul the probability unexplained gives its name, the whole card's Noul whole, its architectures Noul architectures, and the page Noul paged, its order's words kept in read_for_pages apart from asked, and each Pick the option picked names for its key, else its first, the fail-safe one; answer None makes every request Unheard."""
 
     asked: list[dict] = field(default_factory=list)
     answer: float | None = 0.05
@@ -1221,6 +1221,7 @@ class Jev:
     weighed: list[str] = field(default_factory=list)
     preference: float = 0.95
     details: list[dict] = field(default_factory=list)
+    picked: dict[str, str] = field(default_factory=dict)
 
     def picks(self, choice: str, probability: float = 0.9) -> None:
         """Jev answers again, and every Noul whose key holds choice as one of its dotted parts reads yes at probability; none clears it."""
@@ -1271,7 +1272,7 @@ def code_lines(code: str) -> str:
 def jev(monkeypatch: pytest.MonkeyPatch) -> Jev:
     judged = Jev()
 
-    def answered(state: dict, questions: dict[str, settled.Noul], seconds: float = settled.DECIDE_SECONDS) -> dict[str, float]:
+    def answered(state: dict, questions: dict[str, settled.Noul | settled.Pick], seconds: float = settled.DECIDE_SECONDS) -> dict[str, float | str]:
         if settled.ASKS_PAGE in questions.values():
             judged.read_for_pages.append(state["order"])
             return {key: judged.paged for key in questions}
@@ -1288,7 +1289,7 @@ def jev(monkeypatch: pytest.MonkeyPatch) -> Jev:
             judged.asked.append({"state": state, "questions": questions})
         if judged.answer is None:
             raise settled.Unheard("no jev decision within 20s")
-        return {key: judged.sure(key, state) for key in questions}
+        return {key: judged.picked.get(key, next(iter(question.options))) if isinstance(question, settled.Pick) else judged.sure(key, state) for key, question in questions.items()}
 
     monkeypatch.setattr(settled, "jev", answered)
     return judged

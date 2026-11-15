@@ -5842,44 +5842,60 @@ def test_a_design_saying_nothing_exists_is_refused_while_its_orders_reader_found
 
 
 @pytest.mark.parametrize(
-    ("pick", "refusal"),
+    ("pick", "sentence", "code", "said"),
     [
-        ("o1", 'Jev reads this design as building less than his words "time, hash by key and spill" (his words the order quotes) name, or later, with no fork asking him'),
-        ("strategies", f"Jev reads this design as building a strategy before the one abstraction its strategies share: design that abstraction first, walk every strategy through it on paper with a worked example of each operation, make it change 1 and each strategy a later Change: line waiting on it, by his words {brief.ABSTRACTION_RULING}"),
-        ("none", None),
+        ("o1", "s2", 2, 'Jev reads this design\'s sentence "Design: one copy per store, in the order the stores list" as building less than his words "time, hash by key and spill" (his words the order quotes) name, or later, with no fork asking him'),
+        ("o1", "none", 0, 'Jev reads this design as building less than his words "time, hash by key and spill" (his words the order quotes) but picks none of its sentences as doing so, so it is kept'),
+        ("strategies", "none", 2, f"Jev reads this design as building a strategy before the one abstraction its strategies share: design that abstraction first, walk every strategy through it on paper with a worked example of each operation, make it change 1 and each strategy a later Change: line waiting on it, by his words {brief.ABSTRACTION_RULING}"),
+        ("none", "none", 0, ""),
     ],
 )
-def test_a_design_building_less_or_later_than_his_words_or_a_strategy_before_their_shared_abstraction_is_refused(
-    run: Run, meta: str, jev: Jev, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], pick: str, refusal: str | None
+def test_a_design_building_less_or_later_than_his_words_at_the_sentence_jev_picks_or_a_strategy_before_their_shared_abstraction_is_refused(
+    run: Run, meta: str, jev: Jev, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], pick: str, sentence: str, code: int, said: str
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", 'Drive tooling: partition each table by "time, hash by key and spill"')
     run("job", "add", "design", "--order", "o1", "--goal", "cards: the partitions")
     jev.picks(pick)
-    code, err = keep(monkeypatch, capsys, "j1", DESIGNED)
-    assert code == (2 if refusal else 0)
-    assert (refusal in err) if refusal else err == ""
+    jev.picked["sentence"] = sentence
+    kept, err = keep(monkeypatch, capsys, "j1", DESIGNED)
+    assert kept == code
+    assert (said in err) if said else err == ""
     [read] = [asked for asked in jev.asked if "narrows.o1" in asked["questions"]]
-    assert (read["state"]["words"], [key for key in read["questions"] if key.startswith("narrows.")]) == (
+    assert (read["state"]["words"], read["state"]["design"]["s2"]) == (
         {"w1": {"asked": "his words the order quotes", "said": '"time, hash by key and spill"'}},
-        ["narrows.o1"],
+        "Design: one copy per store, in the order the stores list",
     )
 
 
-def test_a_design_line_jev_reads_going_against_his_words_is_refused_naming_that_line_and_his_words(
-    run: Run, meta: str, jev: Jev, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+@pytest.mark.parametrize(("sentence", "code"), [("s3", 2), ("none", 0)])
+def test_a_design_jev_reads_going_against_his_words_is_refused_quoting_the_sentence_it_picks_and_the_fix_and_never_reads_its_rulings_line(
+    run: Run, meta: str, jev: Jev, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], sentence: str, code: int
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", 'Drive tooling: design the store copy "from scratch, reusing none of the HA code"')
     run("job", "add", "design", "--order", "o1", "--goal", "cards: the store copy")
-    reusing = DESIGNED.replace("Design: one copy per store, in the order the stores list", "Design: one copy per store through sandsql-ha's claim code")
-    line = next(number for number, text in enumerate(reusing.splitlines(), 1) if text.startswith("Design:"))
-    jev.breaks("against0", "o1")
-    jev.breaks("line", str(line))
-    code, err = keep(monkeypatch, capsys, "j1", reusing)
-    assert code == 2
+    reusing = DESIGNED.replace("Design: one copy per store, in the order the stores list", "Design: one copy per store, in list order. It goes through sandsql-ha's claim code.")
+    jev.breaks("against", "o1")
+    jev.picked["sentence"] = sentence
+    kept, err = keep(monkeypatch, capsys, "j1", reusing)
+    assert kept == code
     assert (
-        f'Jev reads this design\'s line {line}, "Design: one copy per store through sandsql-ha\'s claim code", as going against his words'
-        ' "from scratch, reusing none of the HA code" (his words the order quotes): his words outrank every default of the designer'
+        'Jev reads this design\'s sentence "It goes through sandsql-ha\'s claim code." as going against his words "from scratch, reusing none of the HA code" (his words the order quotes):'
+        " his words outrank every default of the designer, keeping or reusing the code that exists included. Rewrite that sentence to do what they say, or keep the choice as a fork with drive job ask"
+        if code
+        else 'Jev reads this design as going against his words "from scratch, reusing none of the HA code" (his words the order quotes) but picks none of its sentences as doing so, so it is kept'
     ) in err
+    assert not [said for asked in jev.asked for said in asked["state"]["design"].values() if said.startswith("rulings:")]
+
+
+def test_a_design_past_one_jev_request_is_kept_unread_with_a_warning(run: Run, meta: str, jev: Jev, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", 'Drive tooling: design the store copy "from scratch, reusing none of the HA code"')
+    run("job", "add", "design", "--order", "o1", "--goal", "cards: the store copy")
+    jev.picks("o1")
+    jev.picked["sentence"] = "s2"
+    long = DESIGNED.replace("Design: one copy per store, in the order the stores list", "Design: " + " ".join(f"Store {number} copies once, in list order." for number in range(1, 200)))
+    kept, err = keep(monkeypatch, capsys, "j1", long)
+    assert (kept, [asked for asked in jev.asked if "against.o1" in asked["questions"]]) == (0, [])
+    assert re.search(r"Jev read none of this design, since its \d+ sentences run past one Jev request of 5,000 characters, so it is kept unchecked", err)
 
 
 def test_a_design_of_several_changes_makes_each_a_part_of_its_order_with_a_builder_waiting_on_the_builder_of_each_earlier_change_its_line_names(
