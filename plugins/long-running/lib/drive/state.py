@@ -1005,6 +1005,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
             question.setdefault("recorded", [])
             question.setdefault("ordered", [])
             question.setdefault("told", {})
+            question.setdefault("hash", question["file"] and (named := KEPT_ASK.fullmatch(Path(question["file"]).stem)) and named["hash"] or None)
             question["waits"] = question["waits"] and question["waits"].replace("-#", "-")
             if question["waits"] and not question["file"] and (kept := rebuilt_ask(name, question["waits"])).exists():
                 question["file"] = str(kept)
@@ -1384,8 +1385,16 @@ def rebuilt_ask(name: str, waits: str) -> Path:
 
 
 def ask_hash(text: str) -> str:
-    """What `drive job ask` names a kept ASK file by, after its job, and the card's line it sends the communicator by, after the card's waits id: the hash of its words, so a file whose words no longer hash to its name changed since, and a line sent again unchanged names the record cci already holds."""
+    """The hash of an ASK block's words: `drive job ask` keeps it on the question it keeps the block for, so a file whose words no longer hash to it changed since, and names the file a question is first kept in for it, after its job; the card's line it sends the communicator is named for it too, after the card's waits id, so a line sent again unchanged names the record cci already holds."""
     return hashlib.sha256(text.encode()).hexdigest()[:8]
+
+
+def kept_hash(file: Path, jobs: dict) -> str | None:
+    """The hash of the words `drive job ask` last kept in an ASK file named `<job>-<hash>`: the one the question keeping it holds, else, for a file no question keeps, the one its name carries; none for any other file."""
+    if not (named := KEPT_ASK.fullmatch(file.stem)):
+        return None
+    question = named["job"] in jobs and kept_in(jobs[named["job"]], file)
+    return question["hash"] if question else named["hash"]
 
 
 def migrate(name: str) -> None:
@@ -1419,7 +1428,7 @@ def rebuild_asks(name: str, data: dict) -> None:
     for stored in stored_cards["questions"]:
         if (waits := stored["card"].get("waits")) in unkept and not (kept := rebuilt_ask(name, waits)).exists():
             with suppress(DriveError):
-                kept.write_text(limits.rebuilt(stored["card"], asks))
+                kept.write_text(limits.rebuilt(stored["card"], asks, data["jobs"]))
     (asks / REBUILT_ASKS).touch()
 
 
@@ -2864,7 +2873,7 @@ def new_job(order_id: str, kind: str, goal: str, parts: list[str], created: str)
 def new_question(
     file: str | None, title: str | None, asked: str, unsettled: str | None = None, card: str | None = None, refused: str | None = None, closed: dict | None = None, holds: str | None = ""
 ) -> dict:
-    return {"file": file, "title": title, "asked": asked, "unsettled": unsettled, "waits": None, "card": card, "refused": refused, "closed": closed, "holds": holds, "replaced": None, "recorded": [], "ordered": [], "told": {}}
+    return {"file": file, "title": title, "asked": asked, "unsettled": unsettled, "waits": None, "card": card, "refused": refused, "closed": closed, "holds": holds, "replaced": None, "recorded": [], "ordered": [], "told": {}, "hash": None}
 
 
 def refused_by(question: dict) -> str:

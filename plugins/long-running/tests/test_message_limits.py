@@ -2290,7 +2290,7 @@ def test_each_option_of_a_new_block_carries_one_plain_text_description_which_its
             " each parent keeps its own start and restart code."
         ),
     }
-    assert limits.redrawn(limits.rebuilt(card, tmp_path)).card("demo", "demo:j1-7") == card
+    assert limits.redrawn(limits.rebuilt(card, tmp_path, {})).card("demo", "demo:j1-7") == card
 
 
 def test_a_card_rebuilt_from_his_posted_card_draws_each_picture_a_post_attached_from_the_file_holding_its_bytes(tmp_path: Path) -> None:
@@ -2301,10 +2301,26 @@ def test_a_card_rebuilt_from_his_posted_card_draws_each_picture_a_post_attached_
     image = {"key": f"cc-slack/pictures/T1/{hashlib.sha256(drawn.read_bytes()).hexdigest()}.png", "title": "1 · Feed first.png"}
     lined = {"key": "cc-slack/pictures/T1/0a.png", "source": "/Users/me/pictures/demo-after.png", "title": "2 · After"}
     card = limits.question(DESCRIBED_ASK).card("demo", "demo:j1-7") | {"images": [image, lined]}
-    assert limits.redrawn(limits.rebuilt(card, tmp_path / "asks")).show_me == [f"![1 · Feed first.png](<{drawn}>)"]
+    assert limits.redrawn(limits.rebuilt(card, tmp_path / "asks", {})).show_me == [f"![1 · Feed first.png](<{drawn}>)"]
     drawn.unlink()
     with pytest.raises(DriveError, match='its picture "1 · Feed first.png" was attached from a file of which'):
-        limits.rebuilt(card, tmp_path / "asks")
+        limits.rebuilt(card, tmp_path / "asks", {})
+
+
+def test_a_card_rebuilt_from_his_posted_card_takes_the_findings_of_a_file_whose_words_hash_to_the_hash_its_question_keeps_or_its_name_carries_when_none_keeps_it(
+    tmp_path: Path,
+) -> None:
+    card = limits.question(DESCRIBED_ASK).card("demo", "demo:j1-7")
+    findings = limits.FINDINGS.split(DESCRIBED_ASK, maxsplit=1)[1].strip("\n")
+    redrawn, edited = tmp_path / "j1-0badf00d.md", tmp_path / "j1-f00dfeed.md"
+    redrawn.write_text(DESCRIBED_ASK)
+    edited.write_text(DESCRIBED_ASK.replace("Five parents", "Six parents"))
+    os.utime(edited, (redrawn.stat().st_mtime + 1,) * 2)
+    questions = [state.new_question(str(file), card["title"], state.stamp()) | {"hash": state.ask_hash(DESCRIBED_ASK)} for file in (redrawn, edited)]
+    assert limits.kept_findings(tmp_path, card, {"j1": {"questions": questions}}) == findings
+    assert limits.kept_findings(tmp_path, card, {"j1": {"questions": questions[1:]}}) == limits.REBUILT
+    (tmp_path / f"j1-{state.ask_hash(DESCRIBED_ASK)}.md").write_text(DESCRIBED_ASK)
+    assert limits.kept_findings(tmp_path, card, {"j1": {"questions": questions[1:]}}) == findings
 
 
 @pytest.mark.parametrize(
