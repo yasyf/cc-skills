@@ -530,6 +530,8 @@ GitHub, so a fresh Sprite gets it: a stopped worker's GitHub sign-in lived only
 in its process, so nothing left on its Sprite can push. One ssh to the Sprite
 first deletes `~/.cache` when its home has under 64 MiB free, where cc-remote's
 runtime says it is out of disk space, since git writes no commit on a full disk,
+deletes each worktree's `index.lock` while no `git` process runs there, the lock
+a git killed mid-save leaves and every later save fails on,
 then commits each worktree's uncommitted changes there, with `--no-verify` and no
 hooks, names each commit, branch or stash GitHub holds nowhere as the local
 branch `saved/<lane>/<its branch>`, and pushes `refs/heads/saved/<lane>/*` over

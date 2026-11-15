@@ -1250,6 +1250,31 @@ class SaveTest(unittest.TestCase):
                 self.assertEqual((cc_remote.home / ".cache").exists(), kept)
                 self.assertIn("saved/demo-j1/lane", git_in(base / "github.git", "for-each-ref", "--format=%(refname:lstrip=2)", "refs/heads/saved/").split())
 
+    def sprite_with_index_lock(self, git_running: bool) -> tuple[SavingCcRemote, Path, Path]:
+        sprite, base, held, _ = self.sprite_holding_work()
+        lock = base / "repo" / ".git" / "index.lock"
+        lock.touch()
+        cc_remote = SavingCcRemote(sprite, held, base / "github.git")
+        (base / "bin").mkdir()
+        (base / "bin" / "pgrep").write_text(f"#!/bin/sh\nexit {0 if git_running else 1}\n")
+        (base / "bin" / "pgrep").chmod(0o755)
+        cc_remote.env["PATH"] = f"{base / 'bin'}:{os.environ['PATH']}"
+        return cc_remote, lock, base / "github.git"
+
+    def test_save_clears_the_index_lock_a_killed_git_left_while_no_git_runs_and_saves(self):
+        cc_remote, lock, github = self.sprite_with_index_lock(git_running=False)
+        with mock.patch.object(orca_gc, "github_token", return_value="ghs_lent"):
+            orca_gc.save("pool-abc", "demo-j1", cc_remote)
+        self.assertFalse(lock.exists())
+        self.assertIn("saved/demo-j1/lane", git_in(github, "for-each-ref", "--format=%(refname:lstrip=2)", "refs/heads/saved/").split())
+
+    def test_save_keeps_an_index_lock_while_a_git_runs_and_fails_naming_it(self):
+        cc_remote, lock, github = self.sprite_with_index_lock(git_running=True)
+        with mock.patch.object(orca_gc, "github_token", return_value="ghs_lent"), self.assertRaisesRegex(orca_gc.Unsaved, r"index\.lock': File exists"):
+            orca_gc.save("pool-abc", "demo-j1", cc_remote)
+        self.assertTrue(lock.exists())
+        self.assertEqual(git_in(github, "for-each-ref", "refs/heads/saved/"), "")
+
     def test_save_skips_a_worktree_git_cannot_read_saves_the_rest_and_names_it(self):
         sprite, base, held, tips = self.sprite_holding_work()
         root, loose, github, broken = base / "repo", base / "loose", base / "github.git", base / "broken"
