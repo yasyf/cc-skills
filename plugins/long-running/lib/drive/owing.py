@@ -161,7 +161,6 @@ def waiting(data: dict, moment: datetime) -> dict[str, tuple[str, str]]:
     held |= {
         job_id: (f"work:{kind.name}", f"it has waited since {when(job['updated'])} for a {kind.name} worker: {work.admitted(data, kind, kind.where(data, job), moment) or 'none has taken it yet'}")
         for kind in work.KIND.values()
-        if kind is not work.STAGE
         for job_id in kind.line(data)
         if moment - state.parse_time((job := data["jobs"][job_id])["updated"]) >= SLOT_QUIET
     }
