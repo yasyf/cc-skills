@@ -612,7 +612,7 @@ def unhappened(link: str, card: str, name: str) -> str | None:
             key = state.pr_key(link)
             read = github.nodes(github.graphql(github.query([key], "state"), f"whether {key} is still open"), [key])[key]
             return f"{key} is still open" if read["state"] == "OPEN" else None
-        if build := github.BUILD.match(link):
+        if build := providers.of(state.load(name)).build.match(link):
             read = github.build(build["pipeline"], build["number"])
             step = STEP.search(link, build.end())
             ran = next((job for job in read.get("jobs", []) if job["id"] == step[0]), None) if step else read
