@@ -563,6 +563,8 @@ def test_a_page_slack_calls_full_moves_to_a_new_tab_and_the_watch_says_where(dem
     answers = iter(["F1", "F1", "F2"])
 
     def canvas(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+        if argv[1:2] != ["canvas"]:
+            return subprocess.CompletedProcess(argv, 1, "", f"{argv[0]} is no canvas")
         canvas_id = next(answers)
         return subprocess.CompletedProcess(argv, 0, json.dumps({"canvas_id": canvas_id, "url": f"https://slack.example/docs/T1/{canvas_id}"}), "")
 
