@@ -40,6 +40,8 @@ SLOW_STAGE = timedelta(minutes=1)
 BEAT_SECONDS = 15
 BEAT_FILE = "watchd.beat"
 EVERY_PROJECT_ENV = "LONG_RUNNING_WATCH_EVERY_PROJECT"
+EVERY_PROJECT = "1"
+ONE_PROJECT = "one"
 FAILURES_BEFORE_SAYING = 3
 FAILURE_EVERY = timedelta(minutes=10)
 DUE_EVERY = timedelta(minutes=10)
@@ -1689,39 +1691,43 @@ def sending(message: dict) -> str:
 
 
 @contextlib.contextmanager
-def relaying(watcher: Watcher) -> Iterator[None]:
-    """Answer the lanes' reads from the watch's responder, owe him each promised line from its relay, and land, stage and wake from its landing loop, each a process of its own the watch starts, by beside, for as long as the watch runs: each line the responder or relay writes handed to the watcher as it comes, and each map of the PRs the drive does not track the landing loop writes kept as the watcher's, by relayed_lines, which starts again each that ends before the watch ends it; each ended with SIGTERM and its reader waited for RELAY_JOIN_SECONDS before the watch keeps its unposted lines, so each line the relay made is kept, then SIGKILL and as long again, so a pipe another process still holds open never holds the watch's end, which says the reader it left."""
+def relaying(watcher: Watcher) -> Iterator[Callable[[str], None]]:
+    """Answer the lanes' reads from the watch's responder, owe him each promised line from a relay, and land, stage and wake from its landing loop, each a process of its own the watch starts, by beside, for as long as the watch runs: the drive's own relay, and one relay for each project the watch takes, by the callable this yields, so a project's promised line waits on no other project's relay pass; each line the responder or a relay writes handed to the watcher it is for as it comes, and each map of the PRs the drive does not track the landing loop writes kept as that watcher's, by relayed_lines, which starts again each that ends before the watch ends it; each ended with SIGTERM and its reader waited for RELAY_JOIN_SECONDS before the watch keeps its unposted lines, so each line the relay made is kept, then SIGKILL and as long again, so a pipe another process still holds open never holds the watch's end, which says the reader it left."""
     ending, guard, live = threading.Event(), threading.Lock(), {}
-    readers = {
-        flag: (what, threading.Thread(target=relayed_lines, args=(watcher, ending, guard, live, flag, what, took, beside(watcher, flag, live)), daemon=True))
-        for flag, what, took in (
-            ("--respond", "the responder", functools.partial(routed, watcher, took=took_relayed)),
-            ("--relay", "the relay", functools.partial(routed, watcher, took=took_relayed)),
-            ("--land", "the landing loop", functools.partial(routed, watcher, took=took_untracked)),
-        )
-    }
-    for _, reader in readers.values():
+    readers: dict[str, tuple[str, threading.Thread]] = {}
+
+    def started(slot: str, what: str, took: Callable[[str], None]) -> None:
+        with guard:
+            if ending.is_set():
+                return
+            reader = threading.Thread(target=relayed_lines, args=(watcher, ending, guard, live, slot, what, took, beside(watcher, slot, live)), daemon=True)
+            readers[slot] = (what, reader)
         reader.start()
+
+    started("--respond", "the responder", functools.partial(routed, watcher, took=took_relayed))
+    started("--relay", "the relay", functools.partial(routed, watcher, took=took_relayed))
+    started("--land", "the landing loop", functools.partial(routed, watcher, took=took_untracked))
     try:
-        yield
+        yield lambda project: started(f"--relay {project}", f"the relay for {project}", lambda line: took_relayed(watcher.others[project], line))
     finally:
         with guard:
             ending.set()
             for child in live.values():
                 child.terminate()
-        for flag, (what, reader) in readers.items():
+        for slot, (what, reader) in list(readers.items()):
             reader.join(RELAY_JOIN_SECONDS)
             if reader.is_alive():
-                live[flag].kill()
+                live[slot].kill()
                 reader.join(RELAY_JOIN_SECONDS)
             if reader.is_alive():
-                watcher.relayed.append(f"WATCH {what}, process {live[flag].pid}, still held its pipe open {2 * RELAY_JOIN_SECONDS} seconds after the watch ended it; the watch ended without its last lines")
+                watcher.relayed.append(f"WATCH {what}, process {live[slot].pid}, still held its pipe open {2 * RELAY_JOIN_SECONDS} seconds after the watch ended it; the watch ended without its last lines")
 
 
-def beside(watcher: Watcher, flag: str, live: dict[str, subprocess.Popen]) -> int:
-    """Start the process flag names beside the watch, by spawn, kept in live under flag, and return the end of its pipe the watch reads."""
+def beside(watcher: Watcher, slot: str, live: dict[str, subprocess.Popen]) -> int:
+    """Start the process slot names beside the watch, its flag and the project a relay of one runs for, by spawn, kept in live under slot, and return the end of its pipe the watch reads."""
     lines, given = os.pipe()
-    live[flag] = spawn(watcher, flag, given)
+    flag, _, project = slot.partition(" ")
+    live[slot] = spawn(watcher, flag, given, project or None)
     os.close(given)
     return lines
 
@@ -1744,13 +1750,13 @@ def relayed_lines(watcher: Watcher, ending: threading.Event, guard: threading.Lo
             lines = beside(watcher, flag, live)
 
 
-def spawn(watcher: Watcher, flag: str, lines: int) -> subprocess.Popen:
-    """Start `drive watch <flag> <fd>`, the responder's `--respond`, the relay's `--relay` or the landing loop's `--land`, as a child of the watch, writing to that end of the watch's pipe, in the watch's process group, so the watch's launch agent ends it with the watch whatever ends the watch; EVERY_PROJECT_ENV in its environment has it run the passes of every project the watch holds beside the drive's own, by joined, each project's lines led by its lane, by relayed."""
+def spawn(watcher: Watcher, flag: str, lines: int, project: str | None = None) -> subprocess.Popen:
+    """Start `drive watch <flag> <fd>`, the responder's `--respond`, a relay's `--relay` or the landing loop's `--land`, as a child of the watch, writing to that end of the watch's pipe, in the watch's process group, so the watch's launch agent ends it with the watch whatever ends the watch. EVERY_PROJECT_ENV in its environment says a watch of this install started it: the responder and landing loop run the passes of every project the watch holds beside the drive's own, by joined, each project's lines led by its lane, by relayed, while a relay runs only the drive's own passes, or with project, only that project's."""
     return subprocess.Popen(
-        [str(install.DRIVE), "watch", flag, str(lines), "--drive", watcher.name],
+        [str(install.DRIVE), "watch", flag, str(lines), "--drive", watcher.name, *(["--project", project] if project else [])],
         stdin=subprocess.DEVNULL,
         pass_fds=(lines,),
-        env=os.environ | {EVERY_PROJECT_ENV: "1"},
+        env=os.environ | {EVERY_PROJECT_ENV: ONE_PROJECT if flag == "--relay" else EVERY_PROJECT},
     )
 
 
@@ -1778,7 +1784,7 @@ def joined(watcher: Watcher, moment: datetime, held: Callable[[str], bool], made
 
 def every_project() -> bool:
     """Whether this process beside the watch runs every project's passes, as a watch of this install starts it, by spawn; one an older install's watch started runs only the passes it was named for."""
-    return os.environ.get(EVERY_PROJECT_ENV) == "1"
+    return os.environ.get(EVERY_PROJECT_ENV) == EVERY_PROJECT
 
 
 def took_relayed(watcher: Watcher, line: str) -> None:
@@ -1855,7 +1861,7 @@ def over(ended: list[int]) -> bool:
 
 def unwatched(project: str | None) -> bool:
     """Whether this process beside a watch was started for one project's own watch, which an older install ran: it ends at once, so that watch ends too and the drive's watch takes its project."""
-    return project is not None and not every_project()
+    return project is not None and EVERY_PROJECT_ENV not in os.environ
 
 
 def held_beside(name: str) -> Callable[[str], bool]:
@@ -5732,8 +5738,9 @@ def watching(watcher: Watcher) -> None:
     state.save_watch_cursor(watcher.name, watcher.offset, watcher.project)
     one = watcher
     passes = 0
+    relays: set[str] = set()
     try:
-        with relaying(watcher):
+        with relaying(watcher) as relay_for:
             for _ in rests(state.events_path(watcher.name)):
                 beat("pass")
                 if passes and (newer := upgraded()):
@@ -5741,6 +5748,9 @@ def watching(watcher: Watcher) -> None:
                     break
                 handing = bool(watcher.made)
                 joined(watcher, state.now(), functools.partial(claim, watcher.name), functools.partial(watched, watcher.name))
+                for project in watcher.others.keys() - relays:
+                    relay_for(project)
+                    relays.add(project)
                 for one in seated_first(watcher):
                     read_from, moment = one.offset, state.now()
                     for said in [handed(one, one.made, moment)] if one.made else passed(one, moment, lambda moment=moment: (passes and upgraded()) or state.now() - moment > PASS_FOR):

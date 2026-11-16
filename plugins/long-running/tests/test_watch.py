@@ -1004,7 +1004,7 @@ def test_the_watch_hands_on_each_line_its_relay_process_writes_keeps_the_untrack
         "--land": ['os.write({lines}, b\'{{"yasyf/cc-skills#9": "MERGED"}}\\n\'); time.sleep(60)'],
     }
 
-    def spawn(watcher: watch.Watcher, flag: str, lines: int) -> subprocess.Popen:
+    def spawn(watcher: watch.Watcher, flag: str, lines: int, project: str | None = None) -> subprocess.Popen:
         child = subprocess.Popen([sys.executable, "-c", "import os, time; " + written[flag].pop(0).format(lines=lines)], pass_fds=(lines,))
         started.append((flag, child))
         return child

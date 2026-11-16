@@ -1088,7 +1088,7 @@ def watch_process(monkeypatch: pytest.MonkeyPatch) -> WatchProcess:
         process.ensured.append(name)
         return f"the watch runs for {name}"
 
-    def spawn(watcher: watch.Watcher, flag: str, lines: int) -> subprocess.Popen:
+    def spawn(watcher: watch.Watcher, flag: str, lines: int, project: str | None = None) -> subprocess.Popen:
         child = subprocess.Popen(["sleep", "3600"], pass_fds=(lines,))
         process.relays.append(child)
         return child
