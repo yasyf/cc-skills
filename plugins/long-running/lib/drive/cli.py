@@ -6185,6 +6185,14 @@ def mac_boxes_down(args: argparse.Namespace) -> int:
     return max(codes)
 
 
+def mac_boxes_reap(args: argparse.Namespace) -> int:
+    name = state.resolve(args.drive)
+    data = state.load(name)
+    orca.checkout(name, data["roles"]["coordinator"]["cwd"])
+    providers.of(data).mac_box.reap()
+    return 0
+
+
 def fde_scan(args: argparse.Namespace) -> int:
     """Run the FDE scan the repository's provider names in the drive's checkout, moved to its default branch's head, since a lane's own tree on a branch cut before the scan landed may lack it; its output and exit status are the verb's."""
     name = state.resolve(args.drive)
@@ -8300,6 +8308,8 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("jobs", nargs="+", help="the jobs whose Mac boxes come down")
     verb.set_defaults(run=mac_boxes_down)
+    verb = verbs.add_parser("mac-boxes-reap", parents=both, help="terminate each warm Mac box the repository's Mac box provider keeps that no job took for its idle bound; the watch runs it hourly")
+    verb.set_defaults(run=mac_boxes_reap)
     verb = verbs.add_parser(
         "fde-scan", parents=[drive_opt], help="run the repository's FDE scan with the arguments after -- in the drive's checkout at its default branch's head, for a lane on any branch or Sprite"
     )

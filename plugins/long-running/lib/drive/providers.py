@@ -195,6 +195,9 @@ class MacBoxProvider(Provider):
     def hand_over(self, box: str, holder: str, prior: str) -> str | None:
         return None
 
+    def reap(self) -> None:
+        """Terminate the warm boxes no job took for the repository's idle bound; nothing for a repository that keeps none."""
+
     def affected(self, components: list[str]) -> bool:
         return False
 

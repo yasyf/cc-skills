@@ -5707,7 +5707,8 @@ def test_the_watch_takes_down_each_live_mac_box_its_jobs_hold_unless_they_run_or
         data["jobs"]["j1"]["state"] = "done"
         data["jobs"]["j2"]["state"] = "running"
     started: list[list[str]] = []
-    monkeypatch.setattr(state, "detach", lambda name, args, log: started.append(args) or ENDED_READER)
+    reaped: list[list[str]] = []
+    monkeypatch.setattr(state, "detach", lambda name, args, log: (started if args[0] == "mac-boxes-down" else reaped).append(args) or ENDED_READER)
     monkeypatch.setattr(state, "scratch", lambda: False)
     watching = watch.Watcher(remote, offset=state.events_end(remote))
     for at in (T0, T0 + timedelta(minutes=30), T0 + watch.BOX_SWEEP):
@@ -5726,6 +5727,7 @@ def test_the_watch_takes_down_each_live_mac_box_its_jobs_hold_unless_they_run_or
         data["jobs"]["j2"]["state"] = "done"
     watch.finished_boxes(watching, T0 + 4 * watch.BOX_SWEEP)
     assert started == [["mac-boxes-down", "j1"], ["mac-boxes-down", "j1"], ["mac-boxes-down", "j1"]]
+    assert reaped == [["mac-boxes-reap"]] * 5
 
 
 def test_reclaim_destroys_a_left_sprite_and_marks_a_lane_on_this_mac_freed_so_no_watch_reclaims_it_again(
