@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 from drive import (
+    answer,
     agents,
     brief,
     card,
@@ -647,6 +648,12 @@ def unopened_links(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
     shut: dict[str, str] = {}
     monkeypatch.setattr(brief, "unopened", shut.get)
     return shut
+
+
+@pytest.fixture(autouse=True)
+def unanswered(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The drive's own answer of his message escalates unless a test says otherwise, so no test calls a model or adds eyes in Slack."""
+    monkeypatch.setattr(answer, "answer", lambda name, link, words, dry_run=False: {"answered": None, "why": "escalated in tests"})
 
 
 @pytest.fixture(autouse=True)
