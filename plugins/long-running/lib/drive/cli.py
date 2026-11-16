@@ -6724,7 +6724,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("page", nargs="?", choices=manual_pages(), help="default: list the pages")
     verb.add_argument("row", nargs="?", help="print only the table rows whose first cell names this, such as TAP or READY, else each section, list item, row, fenced block and paragraph carrying it")
     verb.set_defaults(run=manual)
-    verb = verbs.add_parser("channels", parents=both, help="make the private operator channel of each sub-coordinator's project and of the drive's tooling as him, which cc-slack reads as it reads his DM, and say posts of each project go to, one he has kept, then move each open card of his DM whose project has a channel to that channel's root, its DM card edited to Moved to and a link")
+    verb = verbs.add_parser("channels", parents=both, help="make the private operator channel of each sub-coordinator's project and of the drive's tooling as him, which cc-slack reads as it reads his DM, and say posts of each project go to, one he has kept, then move each open card of his DM whose project has a channel to that channel's root, a card of no project to the drive's tooling channel, its DM card edited to Moved to and a link")
     verb.set_defaults(run=channels)
     verb = verbs.add_parser("context", parents=[drive_opt])
     verb.add_argument("--role", choices=state.ROLES, help="default: the role this session holds")

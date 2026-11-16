@@ -581,10 +581,10 @@ def keep_line(name: str, thread: str, link: str, sent: str) -> None:
 
 
 def project(data: dict, post: dict, stack: list[str], order: str | None) -> str | None:
-    """The project a post at the root is about: its order's, else that of the order of the job its card asks for, else that of the first order its PRs serve that names one."""
+    """The project a post at the root is about: its order's, else that of the order of the job its card asks for, else that of the first order its PRs serve that names one, else for a card the drive's tooling project, so a card of no project asks in the drive's own operator channel."""
     waits = (post.get("card") or {}).get("waits")
     orders = [order] if order else [data["jobs"][job]["order"]] if waits and (job := state.waits_job(data, waits)) in data["jobs"] else [each for key in stack for each in state.served_orders(data, data["prs"][key])]
-    return next((data["orders"][each]["project"] for each in orders if each in data["orders"] and data["orders"][each]["project"]), None)
+    return next((data["orders"][each]["project"] for each in orders if each in data["orders"] and data["orders"][each]["project"]), cli.TOOLING_FILING[0] if post.get("card") or stack else None)
 
 
 def places(data: dict, post: dict, stack: list[str]) -> list[tuple[str, str | None]]:
