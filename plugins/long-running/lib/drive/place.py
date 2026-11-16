@@ -27,6 +27,7 @@ LANES_FILE = "lane-counts.json"
 LANES_SECONDS = 20
 ADMISSION_LOCK = "admission.lock"
 TURN_SECONDS = 30
+REPORT_TURN_SECONDS = 60
 
 
 def cpu_ticks() -> tuple[int, int]:
@@ -255,8 +256,12 @@ def admission(data: dict, job_id: str | None, where: str, moment: datetime) -> s
     return f"{len(held)} {CAP_NAMES[where]} across this Mac's drives, at its cap of {cap} set by {state.root() / CAPS_FILE} ({shown}{'; …' if len(held) > 5 else ''})"
 
 
+class Unadmitted(state.DriveError):
+    pass
+
+
 @contextlib.contextmanager
-def waited_turn(name: str, waiting: Callable[[], None], exempt: bool = False) -> Iterator[None]:
+def waited_turn(name: str, waiting: Callable[[], None], exempt: bool = False, within: float | None = None) -> Iterator[None]:
     """Hold this Mac's admission lock once it admits a new handler session of the drive, by admission on the handlers pool, which the load gate closes and the local cap never does, calling waiting and reading again every TURN_SECONDS while it does not, so the start in the body waits its turn rather than failing, and drop the kept count once it started; an exempt start, a handler answering a message of his, runs at once."""
     if exempt:
         yield
@@ -268,8 +273,10 @@ def waited_turn(name: str, waiting: Callable[[], None], exempt: bool = False) ->
                 yield
                 counted_again()
                 return
+        if within is not None and time.time() >= within:
+            raise Unadmitted(f"this Mac admitted no handler before its {REPORT_TURN_SECONDS}s turn ran out")
         waiting()
-        time.sleep(TURN_SECONDS)
+        time.sleep(TURN_SECONDS if within is None else max(0.0, min(TURN_SECONDS, within - time.time())))
 
 
 def await_admission(name: str, job_id: str, where: str) -> None:

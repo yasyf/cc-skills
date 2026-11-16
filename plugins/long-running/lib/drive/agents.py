@@ -897,9 +897,13 @@ def start_kept(name: str, handler: str) -> str:
         if woken:
             wake(name, handler, released(name, state.saved(name), prompt))
             return f"{state.stamp()} woke {handler}: began {began - kept.stat().st_mtime:.1f}s after its brief was kept, wrote its brief in {briefed - began:.1f}s, its record took {time.time() - briefed:.1f}s"
-        with place.waited_turn(name, lambda: waits_turn(name, handler), his_message(holds(kept.read_text()))):
+        mine = his_message(holds(kept.read_text()))
+        with place.waited_turn(name, lambda: waits_turn(name, handler), mine, None if mine else briefed + place.REPORT_TURN_SECONDS):
             admitted = time.time()
             start_handler(name, handler, prompt)
+    except place.Unadmitted as error:
+        unstarted(name, handler)
+        return f"{state.stamp()} dropped {handler}: a report's handler, {error}"
     except Exception as error:
         if woken:
             rest(name, handler)
