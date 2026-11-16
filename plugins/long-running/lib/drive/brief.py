@@ -1007,12 +1007,9 @@ def report_refusal(name: str, data: dict, job_id: str, text: str) -> str | None:
     if job["kind"] == "builder" and opening == "DONE":
         from drive import install
 
-        if (refused := unproven(text, job_id, job, data)) and install.own_proof(data, job_id) and not install.proof_gap(data, job_id):
-            return (
-                f"{refused}; {job_id} opened no PR and keeps a proof file, so run drive job prove {job_id}, which runs it and takes DONE or BLOCKED"
-                f" itself, or on a WAIT keeps {job_id} waiting until he is next heard, then end the turn on the first line drive job report {job_id} prints"
-            )
-        return refused
+        if install.own_proof(data, job_id) and not install.proof_gap(data, job_id):
+            return None
+        return unproven(text, job_id, job, data)
     if job["kind"] == "builder" and opening in READY_OPENINGS and not state.REPORT_CHANGE.search(text):
         if reworked := [key for key in state.named_prs(data, job["order"], lines[0]) if data["prs"][key]["rework"]]:
             return f"{', '.join(reworked)}: being reworked to his words, so its {opening} says in a CHANGE: line how they are met, which its fresh card shows him"

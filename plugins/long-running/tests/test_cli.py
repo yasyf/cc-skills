@@ -4972,7 +4972,7 @@ def test_job_report_prints_the_one_line_result_of_a_job_that_kept_no_report_and_
     assert json.loads(run("job", "report", "j1", "--json")[1]) == {"id": "j1", "report": None, "said": "DONE installed 1.0.76"}
 
 
-def test_a_builders_done_on_a_surface_its_brief_names_user_stories_on_is_never_kept_on_its_words_and_is_sent_to_drive_job_prove(
+def test_a_builders_done_on_a_surface_its_brief_names_user_stories_on_is_never_kept_on_its_words_alone_and_once_it_keeps_a_proof_file_is_kept_for_the_watchs_drive_job_prove(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], jev: Jev
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "show the queue")
@@ -4989,11 +4989,12 @@ def test_a_builders_done_on_a_surface_its_brief_names_user_stories_on_is_never_k
     )
     code, refused = keep(monkeypatch, capsys, "j1", done)
     assert (code, sent in refused, "so run drive job prove j1" in refused) == (2, True, False)
-    kept_proof(tmp_path, "j1")
-    code, refused = keep(monkeypatch, capsys, "j1", done)
-    assert (code, f"{sent}; j1 opened no PR and keeps a proof file, so run drive job prove j1, which runs it and takes DONE or BLOCKED itself" in refused) == (2, True)
     assert [asked for asked in jev.asked if "proof_file" in asked["state"] or "check" in asked["state"]] == []
     assert state.load("demo")["jobs"]["j1"]["said"] == state.NOT_STARTED
+    kept_proof(tmp_path, "j1")
+    assert keep(monkeypatch, capsys, "j1", done)[0] == 0
+    data = state.load("demo")
+    assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["said"], install.watch_proves(data, "j1")) == ("done", "DONE the queue opens each card", True)
 
 
 STAND_IN = "https://example.slack.com/archives/D0PROOF/p1794600000000100"
