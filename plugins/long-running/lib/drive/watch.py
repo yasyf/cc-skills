@@ -81,6 +81,7 @@ STALE_TEXT = settled.Noul(
     no="The text still holds beside his answer, or speaks to something else.",
 )
 COALESCE = timedelta(minutes=10)
+POSTED_KEY = "posted:"
 URGENT = ("TAP ", "DUE ", "MOVED ", "WATCH stopped", "DOWN ")
 TAP_EVENT = re.compile(rf"TAP (?P<label>\S+) (?P<key>\S+)(?P<stalled> {NOT_LANDED})?")
 LANE = "watch"
@@ -226,7 +227,6 @@ class Watcher:
     passed_version: int | None = None
     passed_at: float = 0.0
     receiver_took: set[str] | None = None
-    posted: dict[str, datetime] = field(default_factory=dict)
     floor: datetime | None = None
 
     @property
@@ -6141,7 +6141,7 @@ def sent(watcher: Watcher, lane: str, lines: list[str], moment: datetime) -> lis
             refusal = error
     keep_said(watcher.name, lane, [line for line in posting if line not in unsent], moment)
     if posting and not unsent:
-        watcher.posted[lane] = moment
+        keep_posted(watcher.name, lane, moment)
     watcher.unsent[lane] = unsent
     if kind == "handoff" and rest and not unsent:
         watcher.handed_at[lane] = moment
@@ -6154,9 +6154,17 @@ def sent(watcher: Watcher, lane: str, lines: list[str], moment: datetime) -> lis
 
 
 def coalescing(watcher: Watcher, lane: str, owed: list[str], moment: datetime) -> bool:
-    """Whether a coordinator's lines wait for its next record: one went to it within COALESCE and none of them is URGENT, his tap, a promised time, a move of his orders, a stopped watch or a process gone, so a lane hears the watch at most once every COALESCE in one record of all it made, by his words "make everything less chatty"; the communicator and the meta session hear each line as it comes."""
-    at = watcher.posted.get(lane)
-    return lane not in state.HOLDERS and at is not None and moment - at < COALESCE and not any(line.startswith(URGENT) for line in owed)
+    """Whether a coordinator's lines wait for its next record: one went to it within COALESCE and none of them is URGENT, his tap, a promised time, a move of his orders, a stopped watch or a process gone, so a lane hears the watch at most once every COALESCE in one record of all it made, whichever watch or install posted it last, by his words "make everything less chatty"; the communicator and the meta session hear each line as it comes."""
+    at = said_lines(watcher.name).get(f"{POSTED_KEY}{lane}")
+    return lane not in state.HOLDERS and at is not None and moment - state.parse_time(at) < COALESCE and not any(line.startswith(URGENT) for line in owed)
+
+
+def keep_posted(name: str, lane: str, moment: datetime) -> None:
+    """Record when the watch last posted the lane a record, in the said file beside the lines it said, so every watch of the drive, and the one a new install starts, holds the lane to one record every COALESCE."""
+    path = state.drive_dir(name) / SAID_FILE
+    taking = path.with_name(f"{SAID_FILE}.{os.getpid()}.{threading.get_ident()}")
+    taking.write_text(json.dumps(said_lines(name) | {f"{POSTED_KEY}{lane}": state.stamp(moment)}))
+    os.replace(taking, path)
 
 
 def quiet(line: str) -> bool:
