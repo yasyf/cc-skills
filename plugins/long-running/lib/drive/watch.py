@@ -4745,11 +4745,11 @@ def landing_stages(watcher: Watcher, moment: datetime) -> list[functools.partial
 
 
 def post_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Start the handler on each `POST` report to communicator@<drive> the drive owes a post, whichever session wrote it, so the communicator starts none: the handler posts it in his DM and its line goes to the communicator, or on a drive whose roles hold none, as one started from a terminal holds none, to the coordinator. The relay runs it every RELAY_SECONDS, so a report waits on no pass, however long one reads GitHub or the lanes, nor on a pass an install ends before its last stage. Each report stays owed from its write until a post carries it, by agents.start_posts, so a handler that did not start, never started, died or ended posting nothing leaves it for the next relay pass to start again, until a second handler on it ends with no post and gives it up to its writer, and a stage of the watch starting its own report's handler or the handler tool starting one on a POST report is the handler this read finds holding it; a start that fails is said as a failed read is."""
+    """Start the handler on each `POST` report to communicator@<drive> the drive owes a post, whichever session wrote it, so the communicator starts none, one less than a minute old once a live handler holds its thread or it ages past the minute, by agents.start_posts: the handler posts it in his DM and its line goes to the communicator, or on a drive whose roles hold none, as one started from a terminal holds none, to the coordinator. The relay runs it every RELAY_SECONDS, so a report waits on no pass, however long one reads GitHub or the lanes, nor on a pass an install ends before its last stage. Each report stays owed from its write until a post carries it, by agents.start_posts, so a handler that did not start, never started, died or ended posting nothing leaves it for the next relay pass to start again, until a second handler on it ends with no post and gives it up to its writer, and a stage of the watch starting its own report's handler or the handler tool starting one on a POST report is the handler this read finds holding it; a start that fails is said as a failed read is."""
     if watcher.project:
         return []
     try:
-        agents.start_posts(watcher.name)
+        agents.start_posts(watcher.name, moment)
     except state.DriveError as error:
         return failed(watcher, "POST reports", "start of the POST reports' handlers", error, moment)
     watcher.failures.pop("POST reports", None)
