@@ -1664,7 +1664,7 @@ def record_post(name: str, order_id: str, link: str, report: dict, sent: str | N
 
 
 def record_on(name: str, order_id: str, link: str, report: dict, items: list[tuple[str | None, str]], sent: str | None = None, named: str | None = None) -> tuple[str, dict]:
-    """Record the drive's post on one order: the order's last line, only for a line to him, the parts its report's items deliver there, the end its report's until attr names for a post at another channel's root or a line in its thread, from which the watch owes that thread its closing line, and its thread among the order's, with when it joined, when the order holds it not yet, as members for a thread whose readers are another channel's members, such as the one under a staging claim say posted at that channel's root, or as the order's own thread when it has none and the post started that thread at the root of his DM or of a channel the drive keeps, so its every later line replies under its first; an order whose own thread is in his DM keeps a thread a post started in a channel the drive keeps as one of its threads, which its lines go in from then on."""
+    """Record the drive's post on one order, an open incident's reply to him in a thread of a channel the drive keeps making that thread its own, its old one kept among its threads, so its cards and lines go where he is talking about it, by his question "Where did the approve tap get sent initially?": the order's last line, only for a line to him, the parts its report's items deliver there, the end its report's until attr names for a post at another channel's root or a line in its thread, from which the watch owes that thread its closing line, and its thread among the order's, with when it joined, when the order holds it not yet, as members for a thread whose readers are another channel's members, such as the one under a staging claim say posted at that channel's root, or as the order's own thread when it has none and the post started that thread at the root of his DM or of a channel the drive keeps, so its every later line replies under its first; an order whose own thread is in his DM keeps a thread a post started in a channel the drive keeps as one of its threads, which its lines go in from then on."""
     data = state.load(name)
     order = find(data["orders"], order_id, "order")
     if refused := report_refusal(data, order_id, report):
@@ -1680,7 +1680,13 @@ def record_on(name: str, order_id: str, link: str, report: dict, items: list[tup
     def keep(data: dict) -> tuple[dict, bool]:
         order = data["orders"][order_id]
         rooted = bool(gained) and gained[1] == posted["ts"] and gained[0] in rooms(data) and not order["thread"]
-        if rooted:
+        talked = ours and posted.get("thread_ts") not in (None, posted["ts"]) and where[0] in rooms(data) - {slack.dm()}
+        if talked and state.open_incidents(data, [order_id]) and list(where) != order["thread"]:
+            held = order["thread"]
+            order["thread"] = list(where)
+            if held:
+                state.join_thread(order, (held[0], held[1]), line, "posted")
+        elif rooted:
             order["thread"] = list(gained)
         elif gained:
             state.join_thread(order, gained, line, "posted" if ours else "members")

@@ -956,12 +956,13 @@ def release_end_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 kept["jobs"][job_id]["release_heard"] = heard
 
             state.write(watcher.name, release_end_lines_write, budget=state.WATCH_WRITE_SECONDS)
-        if heard["told"] or not (read["state"] in FOLLOW_ENDS or read["state"] == "BLOCKED" and moment - state.parse_time(heard["since"]) >= RELEASE_BLOCKED_AFTER):
+        incident = state.open_incidents(data, [job["order"], *job["carries"]])
+        if heard["told"] or not (read["state"] in FOLLOW_ENDS or read["state"] == "BLOCKED" and (incident or moment - state.parse_time(heard["since"]) >= RELEASE_BLOCKED_AFTER)):
             continue
         source = f"release {job['release_build']}"
         try:
             release_told(watcher, job_id, read, moment)
-        except (reads.ReadError, providers.ProviderError, subprocess.TimeoutExpired, json.JSONDecodeError) as error:
+        except (reads.ReadError, providers.ProviderError, subprocess.TimeoutExpired, json.JSONDecodeError, slack.SlackError, state.DriveError) as error:
             lines += failed(watcher, source, f"tell {job_id} its release {job['release_build']} reads {read['state']}", error, moment)
             continue
         watcher.failures.pop(source, None)
@@ -1000,6 +1001,17 @@ def release_told(watcher: Watcher, job_id: str, read: dict, moment: datetime) ->
         kept["jobs"][job_id]["release_heard"]["told"] = seq
 
     release_post(watcher.name, data, job_id, text, body, f"release-{link}-{read['state']}", release_told_write)
+    if read["state"] != "PASSED" and (incident := state.incident_place(data, [data["jobs"][job_id]["order"], *data["jobs"][job_id]["carries"]])):
+        release_stop_line(watcher.name, data, job_id, link, text.partition(f"{link} ")[2], record.get("name"), incident)
+
+
+def release_stop_line(name: str, data: dict, job_id: str, link: str, how: str, release: str | None, where: tuple[str, str]) -> str:
+    """Post in an open incident's thread, the moment the watch reads it, that the release its job started stopped short of live: failed, canceled or waiting at an approve step, a fixed line with no writer between, by his ruling that any release that stops, cancels or waits on approval reaches the incident thread and the coordinator at once, not after he notices; the coordinator hears it by release_post. The permalink."""
+    from drive import talk
+
+    order_id = next(iter(state.open_incidents(data, [data["jobs"][job_id]["order"], *data["jobs"][job_id]["carries"]])))
+    words = f"🛑 The release [{release or 'of the fix'}]({link}) {how}, so the fix for {{order:{order_id}}} is not live yet. The coordinator has it now, and its next step lands here."
+    return talk.posted(name, {"text": words, "channel_id": where[0], "thread_ts": where[1]}, order_id)["permalink"]
 
 
 def release_post(name: str, data: dict, job_id: str, text: str, body: str, record_id: str, kept: Callable[[dict, str], None] = lambda data, seq: None, topic: str = "release") -> str:
@@ -1129,9 +1141,12 @@ def release_card_settled(watcher: Watcher, job_id: str, key: str) -> list[str]:
     if read and entry["step"] in blocked_steps(read):
         if entry["url"]:
             return []
-        channel = release_card_channel(watcher.name, data, job)
         post = {"card": release_card(data, entry), "request_key": f"{entry['waits'].rpartition('-')[2]}-{watcher.name}.release.{job_id}"}
-        url = talk.posted(watcher.name, post | ({"channel_id": channel} if channel != slack.dm() else {}))["permalink"]
+        if (incident := state.incident_place(data, [job["order"], *job["carries"]])) and incident[0] in slack.homes(data):
+            post |= {"channel_id": incident[0], "thread_ts": incident[1]}
+        elif (channel := release_card_channel(watcher.name, data, job)) != slack.dm():
+            post["channel_id"] = channel
+        url = talk.posted(watcher.name, post)["permalink"]
         def release_card_posted_write(data: dict):
             data["jobs"][job_id]["release_cards"][key]["url"] = url
 

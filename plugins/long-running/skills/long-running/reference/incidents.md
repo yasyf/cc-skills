@@ -259,6 +259,12 @@ check's verdict, or from the order when none ran.
   repository names under `## In this repository`. A dangerous change still lands only while he is
   present, his word or tap within 15 minutes. The `landing_guard` hook holds a merge to that
   exemption, and refuses `--admin`.
+- His ruling: any release that stops, cancels or waits on approval reaches the incident thread and
+  the coordinator at once, not after he notices. On an open incident, the watch tells the coordinator
+  in the same pass that a release a job started failed, was canceled or stopped at an approve step,
+  and posts that line in the incident's thread. Its approve card goes in that thread too. The
+  incident's thread is the one he talks in: a drive reply to him in a thread of a drive channel
+  makes that thread the incident's own.
 - Accept a reviewer-bot finding with the repository's accept command, its why reading
   `incident: <why the fix is right>`, unless it says the fix is wrong.
 - Nothing stands between the merged fix and its build: no dry run, no read of what the cut covers,

@@ -5307,6 +5307,25 @@ def test_a_release_build_stopped_at_its_approve_step_is_told_once_it_has_stood_t
     assert (told, state.load(demo)["jobs"]["j2"]["release_heard"]["since"]) == ([("j2", "BLOCKED")], state.stamp(T0))
 
 
+def test_an_open_incidents_release_stopped_at_its_approve_step_is_told_and_posted_in_its_thread_the_pass_the_watch_reads_it(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    blocked = {**BUILD_RUNNING, "state": "BLOCKED", "blocks": {"edges": [{"node": {"label": APPROVE_STEP}}]}}
+    buildkite_reads(monkeypatch, {"forge/release/17469": blocked})
+    monkeypatch.setattr(watch.brief, "release_record", lambda release, data: {"name": "luminous-awoonor"})
+    monkeypatch.setattr(watch, "release_post", lambda name, data, job_id, text, body, record_id, kept=None, topic="release": "731000")
+    lines: list[dict] = []
+    monkeypatch.setattr(talk, "posted", lambda name, post, order=None: lines.append(post) or {"permalink": "https://poetic-technology.slack.com/archives/C0INC/p1794800000000200"})
+    with edit(demo) as data:
+        data["orders"]["o1"] |= {"incident": True, "thread": ["C0INC", "1794800000.000100"]}
+        data["jobs"]["j2"] = state.new_job("o1", "builder", "follow the release", [], state.stamp(T0)) | {"brief_flags": RELEASED, "release_build": TRIGGERED_BUILD}
+    watching = watcher(demo)
+    watch.build_lines(watching, T0)
+    watch.release_end_lines(watching, T0)
+    [line] = lines
+    assert (line["channel_id"], line["thread_ts"]) == ("C0INC", "1794800000.000100")
+    assert f"[luminous-awoonor]({TRIGGERED_BUILD}) stopped 0 min at its approve step" in line["text"]
+    assert "{order:o1} is not live yet" in line["text"]
+
+
 def test_730544_a_release_job_whose_waits_moved_on_from_its_release_build_is_never_told_of_that_build_and_one_still_waiting_on_it_is(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     calls = buildkite_reads(monkeypatch, {"forge/release/17468": {**BUILD_RUNNING, "state": "PASSED"}, "forge/release/17469": {**BUILD_RUNNING, "state": "PASSED"}})
     told: list[tuple[str, str]] = []

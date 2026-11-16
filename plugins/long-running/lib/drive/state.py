@@ -6696,6 +6696,11 @@ def pr_threads(data: dict, keys: list[str]) -> list[tuple[str, str]]:
     )
 
 
+def incident_place(data: dict, order_ids: list[str]) -> tuple[str, str] | None:
+    """The channel and thread of the first open incident among these orders, by promise_thread, where its cards and stop lines go whatever channel it is in, since he is talking about it there, by his question "Where did the approve tap get sent initially?"; None when none is open or none has a thread."""
+    return next((where for order_id in open_incidents(data, order_ids) if (where := promise_thread(data, data["orders"][order_id]))), None)
+
+
 def incident_threads(data: dict, order_ids: list[str]) -> list[str]:
     """The thread of each of these incident orders, where the drive says at once that a card of his blocks it."""
     return [where[1] for order_id in order_ids if (where := promise_thread(data, data["orders"][order_id]))]
