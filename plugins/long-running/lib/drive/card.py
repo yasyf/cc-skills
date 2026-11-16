@@ -815,7 +815,7 @@ def refused(asks: list[dict]) -> dict:
 
 
 def answered(ask: dict) -> dict:
-    """Keep his tap on a PR card on each open PR it covers, one tap event each, his Approve with the cards it picks the recommended option of, each card picks() finds holding the PR, and on his Approve run land.start, the one path that answers each of those cards and starts the lander, which every watch pass runs again, or on his Hold stop each landing of them by land.halt; a card's tap covers the PRs its waits id asks, by ask_waits, or for a stack too long for its id to name them, every PR the tapped card lists, by its heads, and an answer whose waits id names no ask the PR it names; on a card of several PRs a member he already approved keeps that Approve through a later tap on the card, while one he held takes the tap, so one Approve on a stack card lifts each member's Hold and lands the card whole, by his pick eb69825, and cc-slack applies a tap again when its first card command did not finish, so a member already holding this tap's Slack action keeps it and gets no second event. His reply in the card's thread comes as WORDS, which taken_back() answers."""
+    """Keep his tap on a PR card on each open PR it covers, one tap event each, his Approve with the cards it picks the recommended option of, each card picks() finds holding the PR, and on his Approve run land.start, the one path that answers each of those cards and starts the lander, which every watch pass runs again, or on his Hold stop each landing of them by land.halt; a card's tap covers the PRs its waits id asks, by ask_waits, or for a stack too long for its id to name them, each PR the tapped card lists, by its heads, that still asks his tap, and an answer whose waits id names no ask the PR it names; on a card of several PRs a member he already approved keeps that Approve through a later tap on the card, while one he held takes the tap, so one Approve on a stack card lifts each member's Hold and lands the card whole, by his pick eb69825, and cc-slack applies a tap again when its first card command did not finish, so a member already holding this tap's Slack action keeps it and gets no second event. His reply in the card's thread comes as WORDS, which taken_back() answers."""
     from drive import land, view
 
     if "repo" not in ask:
@@ -831,14 +831,15 @@ def answered(ask: dict) -> dict:
     asked = state.ASK_WAITS.fullmatch(ask["waits"])
     stacked = asked or state.LONG_ASK_WAITS.fullmatch(ask["waits"])
     numbers = asked[1].split(".") if asked else [member.rpartition("#")[2] for member in ask["heads"]]
-    members = keys_of([{"repo": ask["repo"], "number": number} for number in numbers], known) if stacked else [key]
+    members = [member for member in keys_of([{"repo": ask["repo"], "number": number} for number in numbers], known) if member in known] if stacked else []
+    members = members or [key]
     if ask["label"] == WORDS:
         return {"ok": True, "taken": taken_back(name, members, ask)}
     found = view.live_cards(name)
     with state.edit(name) as data:
         for member in members:
             entry = data["prs"][member]
-            if entry["state"] != "open" or len(members) > 1 and land.approved(entry) or ask["action_ts"] and (entry["tap"] or {}).get("action_ts") == ask["action_ts"]:
+            if entry["state"] != "open" or len(members) > 1 and land.approved(entry) or not asked and len(members) > 1 and not state.asks_tap(data, entry) or ask["action_ts"] and (entry["tap"] or {}).get("action_ts") == ask["action_ts"]:
                 continue
             picked = {wait: pick | {"seq": None} for wait, pick in picks(data, entry, found).items()} if ask["label"] == "Approve" else {}
             if ask["label"] == "Hold":
