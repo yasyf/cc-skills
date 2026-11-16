@@ -480,6 +480,8 @@ def drive_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(orca, "FENCED_RUNS", set())
     monkeypatch.setattr(orca, "MAIL_READ", {})
     monkeypatch.setattr(orca, "MAIL_SHARED_SECONDS", 0)
+    for kept in (restack.trunk_subjects, restack.subjects, restack.changed):
+        kept.cache_clear()
 
 
 @pytest.fixture(autouse=True)

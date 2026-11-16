@@ -1,3 +1,4 @@
+import functools
 import os
 import re
 import subprocess
@@ -8,6 +9,8 @@ from drive import github, land, state
 LOG = "restacks.log"
 OWN_LIMIT = 60
 TRUNK_SUBJECTS = 4000
+SUBJECTS_KEPT = 4096
+DIFFS_KEPT = 256
 SQUASHED = re.compile(r" \(#\d+\)$")
 
 
@@ -56,14 +59,14 @@ def restacked(name: str, data: dict, repo: str, rows: dict[str, dict], members: 
         clone = clone_of(name, data, repo)
     except github.GithubError as error:
         return {"failed": str(error)}
-    git = ["git", "-C", str(clone)]
+    git = ("git", "-C", str(clone))
     refs = f"refs/restack/{os.getpid()}"
     trunk = rows[members[0]]["default"]
     try:
         tip = github.run([*git, "ls-remote", "origin", f"refs/heads/{trunk}"]).split()[0]
         heads = {rows[key]["branch"]: rows[key]["head"] for key in members}
         github.run([*git, "fetch", "-q", "--no-tags", "--no-write-fetch-head", "--no-auto-maintenance", "origin", tip, *heads.values()], timeout=land.CHECKOUT_SECONDS)
-        squashed = {SQUASHED.sub("", subject) for subject in github.run([*git, "log", "--format=%s", f"-{TRUNK_SUBJECTS}", tip]).splitlines()}
+        squashed = trunk_subjects(git, tip)
         new, moved, kept = {trunk: tip}, [], []
         for key in members:
             pr = rows[key]
@@ -110,21 +113,29 @@ def clone_of(name: str, data: dict, repo: str) -> Path:
     return land.cloned(name, repo)
 
 
-def subjects(git: list[str], tip: str, head: str) -> set[str]:
-    return set(github.run([*git, "log", "--format=%s", f"{tip}..{head}"]).splitlines())
+@functools.lru_cache(maxsize=SUBJECTS_KEPT)
+def trunk_subjects(git: tuple[str, ...], tip: str) -> frozenset[str]:
+    """The subjects of trunk's newest TRUNK_SUBJECTS commits from tip, each squash merge's PR number cut off, read once per tip for every stack a pass restacks."""
+    return frozenset(SQUASHED.sub("", subject) for subject in github.run([*git, "log", "--format=%s", f"-{TRUNK_SUBJECTS}", tip]).splitlines())
 
 
-def own_commits(git: list[str], tip: str, head: str, stops: set[str]) -> int:
+@functools.lru_cache(maxsize=SUBJECTS_KEPT)
+def subjects(git: tuple[str, ...], tip: str, head: str) -> frozenset[str]:
+    """The subjects of tip..head, remembered by the commits named, which no push changes, since each PR of a stack reads its parent's and a parent left in place is read again as the head it moves onto."""
+    return frozenset(github.run([*git, "log", "--format=%s", f"{tip}..{head}"]).splitlines())
+
+
+def own_commits(git: tuple[str, ...], tip: str, head: str, stops: set[str]) -> int:
     """How many commits from head down its first parents are its own: the leading run trunk's tip does not hold, up to OWN_LIMIT, whose subjects stops does not name."""
     listed = github.run([*git, "log", "--first-parent", "--format=%s", f"-{OWN_LIMIT}", head, f"^{tip}"]).splitlines()
     return next((index for index, subject in enumerate(listed) if subject in stops), len(listed))
 
 
-def ancestor(git: list[str], commit: str, of: str) -> bool:
+def ancestor(git: tuple[str, ...], commit: str, of: str) -> bool:
     return subprocess.run([*git, "merge-base", "--is-ancestor", commit, of], capture_output=True, check=False).returncode == 0
 
 
-def replay(git: list[str], ref: str, onto: str, base: str, head: str) -> str | None:
+def replay(git: tuple[str, ...], ref: str, onto: str, base: str, head: str) -> str | None:
     """The head git replay makes of base..head onto onto, kept on ref; None on a conflict."""
     github.run([*git, "update-ref", ref, head])
     done = subprocess.run([*git, "replay", f"--onto={onto}", f"--ref={ref}", "--ref-action=print", f"{base}..{head}"], capture_output=True, text=True, check=False)
@@ -133,6 +144,7 @@ def replay(git: list[str], ref: str, onto: str, base: str, head: str) -> str | N
     return done.stdout.split()[2]
 
 
-def changed(git: list[str], base: str, head: str) -> list[str]:
+@functools.lru_cache(maxsize=DIFFS_KEPT)
+def changed(git: tuple[str, ...], base: str, head: str) -> tuple[str, ...]:
     """The added and removed lines of base..head's diff, in order, so a replay that moves its hunks or the lines around them reads the same."""
-    return [line for line in github.run([*git, "diff", "-U0", "--no-color", base, head]).splitlines() if line[:1] in "+-" and not line.startswith(("+++ ", "--- "))]
+    return tuple(line for line in github.run([*git, "diff", "-U0", "--no-color", base, head]).splitlines() if line[:1] in "+-" and not line.startswith(("+++ ", "--- ")))
