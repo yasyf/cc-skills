@@ -95,11 +95,11 @@ def read(what: str, cmd: list[str], max_age: str = "0s", text: bool = True) -> s
         raise GithubError(f"could not read {what} from GitHub: {error}") from None
 
 
-def read_past_floor(what: str, cmd: list[str]) -> str:
-    """Run a gh read, waiting out ccx's rate-limit floor: a read it refuses there sleeps until the reset the refusal names and runs again, since the floor says nothing of what GitHub would answer; each wait is said on stderr with the refusal whole, which floor_lifts_in reads."""
+def read_past_floor(what: str, cmd: list[str], max_age: str = "0s") -> str:
+    """Run a gh read, waiting out ccx's rate-limit floor: a read it refuses there sleeps until the reset the refusal names and runs again, since the floor says nothing of what GitHub would answer; each wait is said on stderr with the refusal whole, which floor_lifts_in reads. An answer up to max_age old, from ccx's shared cache, stands for a fresh read."""
     while True:
         try:
-            return read(what, cmd)
+            return read(what, cmd, max_age=max_age)
         except GithubError as error:
             if (wait := floor_lifts_in(str(error))) is None:
                 raise

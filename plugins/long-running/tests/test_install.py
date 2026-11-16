@@ -2415,7 +2415,7 @@ def on_actions(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, triggered: list[
             return ""
         if f"/compare/{SHA}..." in cmd[2]:
             return "behind\n" if cmd[2].endswith(MERGED_BEFORE) else "ahead\n"
-        runs = triggered if f"&head_sha={SHA}" in cmd[3] else [run for run in next(answers) if f"/actions/workflows/{run['workflow_id']}/runs?" in cmd[3]]
+        runs = triggered if f"&head_sha={SHA}" in cmd[2] else [run for run in next(answers) if f"/actions/workflows/{run['workflow_id']}/runs?" in cmd[2]]
         shown.write_text("".join(f"{run['id']} {run['status']} {run['conclusion']}\n" for run in runs))
         return "".join(json.dumps(run) + "\n" for run in runs)
 
@@ -2449,7 +2449,7 @@ def test_a_merge_whose_own_run_its_concurrency_group_cancelled_waits_on_the_run_
     shown = on_actions(monkeypatch, tmp_path, [cancelled], [[superseding, cancelled], [superseding | {"status": "completed", "conclusion": "success"}, cancelled]])
     script.write_text(f"#!/bin/sh\ngrep -x '43370536229 completed success' {shown}\n")
     install.prove("demo", "j1", 900)
-    assert (git.heard, git.sleeps) == ([f"{REPO} ci"], [])
+    assert (git.heard, git.sleeps) == ([f"{REPO} ci"], [install.READ_EVERY_SECONDS - git.delivered_every])
     assert state.load("demo")["jobs"]["j1"]["said"] == f"DONE {URL} live: {script} exits 0 on long-running@skills 1.0.3"
 
 
@@ -2464,7 +2464,7 @@ def test_a_proof_failing_while_a_run_holding_its_merge_failed_on_another_merge_w
     shown = on_actions(monkeypatch, tmp_path, [cancelled], [[red, cancelled], [green, red, cancelled]])
     script.write_text(f"#!/bin/sh\ngrep -x '43465943058 completed success' {shown}\n")
     install.prove("demo", "j1", 900)
-    assert (git.heard, git.sleeps) == ([f"{REPO} ci"], [])
+    assert (git.heard, git.sleeps) == ([f"{REPO} ci"], [install.READ_EVERY_SECONDS - git.delivered_every])
     assert state.load("demo")["jobs"]["j1"]["said"] == f"DONE {URL} live: {script} exits 0 on long-running@skills 1.0.3"
 
 
@@ -2483,7 +2483,7 @@ def test_tonights_proof_reads_its_merges_ci_once_per_workflow_run_finishing_on_m
         reads.append(cmd[2])
         if cmd[2].endswith("/status"):
             return ""
-        return "".join(json.dumps(run) + "\n" for run in ([running] if f"&head_sha={SHA}" in cmd[3] else next(polls)))
+        return "".join(json.dumps(run) + "\n" for run in ([running] if f"&head_sha={SHA}" in cmd[2] else next(polls)))
 
     monkeypatch.setattr(github, "read", read)
     start = install.clock()
@@ -2569,8 +2569,8 @@ def on_dev(monkeypatch: pytest.MonkeyPatch, statuses: dict[str, list[dict]]) -> 
             if cmd[-1] == ".status":
                 return "ahead\n" if DEV.index(head) > DEV.index(base) else "behind\n"
             return "".join(f"{commit}\n" for commit in DEV[DEV.index(base) + 1 :])
-        asked = {field: values[0] for field, values in parse_qs(urlsplit(cmd[3]).query).items() if field in ("head_sha", "event")}
-        workflow = re.search(r"/workflows/(\d+)/runs", cmd[3])
+        asked = {field: values[0] for field, values in parse_qs(urlsplit(cmd[2]).query).items() if field in ("head_sha", "event")}
+        workflow = re.search(r"/workflows/(\d+)/runs", cmd[2])
         runs = [run for run in REVIEWERS if all(run[field] == value for field, value in asked.items()) and (not workflow or run["workflow_id"] == int(workflow[1]))]
         return "".join(json.dumps(run) + "\n" for run in runs)
 
@@ -2621,9 +2621,9 @@ def test_a_proof_of_a_merge_its_push_carried_below_its_head_waits_on_the_ci_of_t
             return f"{MERGED_AFTER}\n"
         if cmd[-1] == ".status":
             return "ahead\n"
-        if "/workflows/" in cmd[3]:
+        if "/workflows/" in cmd[2]:
             return "".join(json.dumps(run) + "\n" for run in next(polls))
-        return json.dumps(running) + "\n" if f"&head_sha={MERGED_AFTER}" in cmd[3] else ""
+        return json.dumps(running) + "\n" if f"&head_sha={MERGED_AFTER}" in cmd[2] else ""
 
     monkeypatch.setattr(github, "read", read)
     assert install.await_ci({f"{REPO}#7": SHA})
