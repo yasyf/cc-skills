@@ -8864,3 +8864,15 @@ def test_a_takeover_brief_naming_a_file_its_own_lane_writes_under_its_scratch_fo
         "its brief names Drive file scratch/j2/film.txt, which the drive keeps no text of, so its lane would stop to ask for each;"
         " launch it on a brief file that leaves each out: drive job launch j1 <file>"
     )
+
+
+def test_one_mailbox_read_serves_each_watcher_of_the_process_within_the_shared_window(monkeypatch: pytest.MonkeyPatch) -> None:
+    mailbox = [message("message", f"note {number}", id=f"msg_{number}", sequence=number, to_handle="run:run_a") for number in range(300, 200, -1)]
+    reads = []
+    monkeypatch.setattr(orca, "MAIL_SHARED_SECONDS", 5)
+    monkeypatch.setattr(orca, "call", lambda *args, caller=None: reads.append(args) or {"messages": mailbox[: int(args[2])]})
+    assert [mail["sequence"] for mail in orca.mail(298)] == [299, 300]
+    assert [mail["sequence"] for mail in orca.mail(250)] == list(range(251, 301))
+    assert len(reads) == 1
+    orca.mail(150)
+    assert len(reads) == 3

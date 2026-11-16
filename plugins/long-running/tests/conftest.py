@@ -478,6 +478,8 @@ def drive_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(orca, "drive_terminal", lambda drive: DRIVE_TERMINAL)
     monkeypatch.setattr(orca, "binder_terminal", lambda drive: BINDER_TERMINAL)
     monkeypatch.setattr(orca, "FENCED_RUNS", set())
+    monkeypatch.setattr(orca, "MAIL_READ", {})
+    monkeypatch.setattr(orca, "MAIL_SHARED_SECONDS", 0)
 
 
 @pytest.fixture(autouse=True)

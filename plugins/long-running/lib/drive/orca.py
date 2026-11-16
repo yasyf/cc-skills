@@ -41,6 +41,8 @@ WAKE_SECONDS = 90
 MAIL_LIMIT = 100
 MARK_BATCHES = 20
 FENCED_RUNS: set[str] = set()
+MAIL_READ: dict[str, tuple[float | None, int, list[dict]]] = {}
+MAIL_SHARED_SECONDS = 5
 DRAIN_LIMIT = 50000
 FENCED = "consumer_fenced"
 RUN_NOT_FOUND = "run_not_found"
@@ -930,11 +932,18 @@ def grouped(argv: list[str], *, timeout: float, **given: object) -> subprocess.C
 
 
 def mail(after: int | None) -> list[dict]:
-    """Orca's mail to every Run past sequence `after`, or with none among its newest MAIL_LIMIT messages, oldest first, read without binding or consuming, so one call hears every lane whatever Run Orca filed its mail on, and none of the mail sent to a worker's own Dispatch. Orca returns a mailbox's newest rows, so a read that comes back full with none at or before `after` goes again ten times as deep."""
-    limit = MAIL_LIMIT
-    while len(messages := call("inbox", "--limit", str(limit))["messages"]) == limit and after is not None and min(message["sequence"] for message in messages) > after:
-        limit *= 10
+    """Orca's mail to every Run past sequence `after`, or with none among its newest MAIL_LIMIT messages, oldest first, read without binding or consuming, so one call hears every lane whatever Run Orca filed its mail on, and none of the mail sent to a worker's own Dispatch. Orca returns a mailbox's newest rows, so a read that comes back full with none at or before `after` goes again ten times as deep. One read serves every watcher of this process for MAIL_SHARED_SECONDS while it reaches back past after, as the relay's project watchers ask in turn each pass."""
+    read_at, limit, messages = MAIL_READ.get("read", (None, MAIL_LIMIT, []))
+    if read_at is None or time.monotonic() - read_at >= MAIL_SHARED_SECONDS or uncovered(messages, limit, after):
+        limit, read_at = MAIL_LIMIT, time.monotonic()
+        while uncovered(messages := call("inbox", "--limit", str(limit))["messages"], limit, after):
+            limit *= 10
+        MAIL_READ["read"] = (read_at, limit, messages)
     return sorted((message for message in messages if message["to_handle"].startswith("run:") and (after is None or message["sequence"] > after)), key=lambda message: message["sequence"])
+
+
+def uncovered(messages: list[dict], limit: int, after: int | None) -> bool:
+    return after is not None and len(messages) == limit and min(message["sequence"] for message in messages) > after
 
 
 def mark_read(drive: str, run: str) -> int | None:
