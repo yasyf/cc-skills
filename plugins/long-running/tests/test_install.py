@@ -171,6 +171,9 @@ class FakeGit:
         self.heard.append(f"{repo} {kind}")
         self.now += self.delivered_every
 
+    def mark(self, repo: str, kind: str) -> str:
+        return f"{repo} {kind} {len(self.heard)}"
+
     def run(self, cmd: list[str], **options: object) -> subprocess.CompletedProcess:
         if cmd[0] == "orca":
             return self.orca(cmd, options["timeout"])
@@ -294,6 +297,7 @@ def fake(config: Path, monkeypatch: pytest.MonkeyPatch) -> Callable[..., FakeGit
         monkeypatch.setattr(install, "sleep", git.sleep)
         monkeypatch.setattr(state, "detach", git.detach)
         monkeypatch.setattr(receiver, "hear", git.hear)
+        monkeypatch.setattr(receiver, "heard", git.mark)
         monkeypatch.setattr(dashboard, "serving", lambda name, port: None)
         return git
 
@@ -2423,7 +2427,7 @@ def on_actions(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, triggered: list[
             return "main\n"
         if cmd[1:3] == ["pr", "view"]:
             return f"{SHA}\n"
-        if cmd[2].endswith("/status"):
+        if cmd[2] == "graphql":
             return ""
         if f"/compare/{SHA}..." in cmd[2]:
             return "behind\n" if cmd[2].endswith(MERGED_BEFORE) else "ahead\n"
@@ -2493,7 +2497,7 @@ def test_tonights_proof_reads_its_merges_ci_once_per_workflow_run_finishing_on_m
         if cmd[-1] == ".default_branch":
             return "main\n"
         reads.append(cmd[2])
-        if cmd[2].endswith("/status"):
+        if cmd[2] == "graphql":
             return ""
         return "".join(json.dumps(run) + "\n" for run in ([running] if f"&head_sha={SHA}" in cmd[2] else next(polls)))
 
@@ -2514,7 +2518,7 @@ def test_a_ci_read_that_fails_is_read_again_within_poll_seconds_since_no_deliver
     def read(what: str, cmd: list[str], max_age: str = "0s", text: bool = True) -> str:
         if cmd[-1] == ".default_branch":
             return "main\n"
-        if cmd[2].endswith("/status"):
+        if cmd[2] == "graphql":
             return ""
         if isinstance(answer := next(answers), Exception):
             raise answer
@@ -2574,8 +2578,8 @@ def on_dev(monkeypatch: pytest.MonkeyPatch, statuses: dict[str, list[dict]]) -> 
     def read(what: str, cmd: list[str], max_age: str = "0s", text: bool = True) -> str:
         if cmd[1:3] == ["pr", "view"]:
             return f"{STACK[cmd[3]]}\n"
-        if cmd[2].endswith("/status"):
-            return "".join(json.dumps(status) + "\n" for status in statuses.get(cmd[2].split("/")[-2], []))
+        if cmd[2] == "graphql":
+            return "".join(json.dumps(status) + "\n" for status in statuses.get(re.search(r'oid: "(\w+)"', cmd[4])[1], []))
         if compared := re.search(r"/compare/(\w+)\.\.\.(\w+)$", cmd[2]):
             base, head = compared.groups()
             if cmd[-1] == ".status":
@@ -2627,7 +2631,7 @@ def test_a_proof_of_a_merge_its_push_carried_below_its_head_waits_on_the_ci_of_t
     def read(what: str, cmd: list[str], max_age: str = "0s", text: bool = True) -> str:
         if cmd[-1] == ".default_branch":
             return "main\n"
-        if cmd[2].endswith("/status"):
+        if cmd[2] == "graphql":
             return ""
         if cmd[-1] == ".commits[].sha":
             return f"{MERGED_AFTER}\n"
