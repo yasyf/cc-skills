@@ -293,6 +293,26 @@ def test_a_job_on_a_production_cluster_waits_for_his_next_word_once_he_last_wrot
     assert [landing_guard.deny_reason(bash(command)) for command in held] == [None] * len(held)
 
 
+def test_a_sub_coordinators_unblock_of_a_build_it_cannot_resolve_or_of_a_cluster_job_passes_and_says_so(monkeypatch: pytest.MonkeyPatch) -> None:
+    shell = landing_guard.Shell("/", {}, "sub-session", True, True)
+    monkeypatch.setattr(state, "session_drives", lambda session: ["demo"])
+    monkeypatch.setattr(state, "load", lambda name: {"roles": {"coordinator": {"session": "top"}}, "slots": {}})
+    monkeypatch.setattr(state, "session_project", lambda data, session: "Platform")
+    builds = {"17610": {"CLUSTER_JOB": json.dumps({"cluster": "plat-usw2-sandbox", "cronJob": "census", "reason": "census"})}, "17611": {"RELEASE_START": "tools/ci release start api"}}
+    monkeypatch.setattr(github, "build", lambda pipeline, number: {"env": builds[number]})
+    monkeypatch.setattr(landing_guard, "UNJUDGED", [])
+    unblock = "tools/ci bk api -X PUT /pipelines/release/builds/{}/jobs/01a1d8aa/unblock"
+    assert landing_guard.cut_reason(unblock.format("17610").split(), shell) is None
+    assert landing_guard.cut_reason(unblock.format("17611").split(), shell).startswith("ci bk api: the sub-coordinator for Platform starts, approves and rolls back no production cut")
+    assert landing_guard.UNJUDGED == []
+    assert landing_guard.cut_reason(unblock.format("$1").split(), shell) is None
+    assert landing_guard.cluster_job(unblock.format("$1").split()) is None
+    assert landing_guard.UNJUDGED == [landing_guard.CUT_UNRESOLVED.format(command=unblock.format("$1"), build="$1", error="not a build number")]
+    monkeypatch.setattr(github, "build", lambda pipeline, number: (_ for _ in ()).throw(github.GithubError("Buildkite timed out")))
+    assert landing_guard.cut_reason(unblock.format("17612").split(), shell) is None
+    assert "build 17612 is a release cut" in landing_guard.UNJUDGED[-1] and "Buildkite timed out" in landing_guard.UNJUDGED[-1]
+
+
 def test_a_sprite_lanes_release_verb_is_refused_while_the_coordinators_mac_does_not_answer(monkeypatch: pytest.MonkeyPatch, no_calls: None) -> None:
     monkeypatch.setenv(state.REMOTE_LANE_ENV, "1")
     monkeypatch.setattr(land.subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess(argv, 1, stdout="", stderr="drive: no run"))

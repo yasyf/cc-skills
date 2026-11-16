@@ -121,7 +121,7 @@ RELEASE_CUTS = frozenset({"start", "hotfix", "resume", "approve", "rollback", "r
 SCOPED_FOLLOWS = frozenset({"approve", "resume"})
 READS_ONLY = frozenset({"--plan", "--dry-run", "--help", "-h"})
 RELEASE_PIPELINE = "release"
-RELEASE_BUILDS = re.compile(rf"(?:^|/)pipelines/{RELEASE_PIPELINE}/builds(?:/(\d+))?(?:/|$)")
+RELEASE_BUILDS = re.compile(rf"(?:^|/)pipelines/{RELEASE_PIPELINE}/builds(?:/([^/\s?]+))?(?:[/?]|$)")
 RELEASE_BUILDKITE = f"{github.BUILDKITE_ORG}/{RELEASE_PIPELINE}"
 RELEASE_START_ENV = "RELEASE_START"
 CLUSTER_JOB_ENV = "CLUSTER_JOB"
@@ -131,10 +131,11 @@ HOLD_UNREAD = (
     "Refused on purpose: whether he holds every release could not be read, so `{command}` waits until it can: {error}."
     " Run it again once it answers"
 )
-CUT_UNREAD = (
-    "Refused on purpose: whether this forge/release build is a release cut, one whose env holds RELEASE_START, could not be"
-    " read, so `{command}` waits until it can: {error}. Run it again once Buildkite answers"
+CUT_UNRESOLVED = (
+    "landing_guard let `{command}` through unjudged: whether forge/release build {build} is a release cut, one whose env holds RELEASE_START,"
+    " could not be read ({error}), and a gate that cannot finish lets the call go. A literal build number lets it judge the call."
 )
+UNJUDGED: list[str] = []
 JOB_UNREAD = (
     "Refused on purpose: which cluster this forge/release build starts a Job on, its env's CLUSTER_JOB, could not be read, so `{command}`"
     " waits until it can: {error}. Run it again once Buildkite answers"
@@ -496,7 +497,8 @@ def cut_reason(words: list[str], shell: Shell) -> str | None:
     try:
         verb = release_verb(words)
     except github.GithubError as error:
-        return CUT_UNREAD.format(command=" ".join(words), error=error)
+        UNJUDGED.append(CUT_UNRESOLVED.format(command=" ".join(words), build=(release_write(words) or ("", "?"))[1], error=error))
+        return None
     if verb is None:
         return None
     lane = os.environ.get(state.REMOTE_LANE_ENV)
@@ -583,7 +585,9 @@ def cluster_job(words: list[str]) -> dict | None:
         return {"cronJob": "", "reason": ""} | flags if "cluster" in flags else None
     if not (write := release_write(words)) or write[0] == "cancel":
         return None
-    if not (write[1] or "").isdigit():
+    if write[1] and not write[1].isdigit():
+        return None
+    if not write[1]:
         return created_job(words) if write[0] == "api" else None
     job = json.loads(github.build(RELEASE_BUILDKITE, write[1])["env"].get(CLUSTER_JOB_ENV) or "{}")
     return job if job.get("cluster") else None
@@ -638,10 +642,13 @@ def api_flags(words: list[str]) -> dict[str, str]:
 
 
 def release_cut(write: tuple[str, str | None], words: list[str]) -> bool:
-    """Whether the forge/release build a release verb names is a release cut: its env holds RELEASE_START; a `ci bk api` write creating a build is one unless created_job() reads the cluster Job it starts in its inline body, and any other write naming no build counts as one."""
+    """Whether the forge/release build a release verb names is a release cut: its env holds RELEASE_START; a `ci bk api` write creating a build is one unless created_job() reads the cluster Job it starts in its inline body, and any other write naming no build counts as one. A write to a build the guard cannot resolve to a number, such as `$1` inside a loop, is never called a cut: the call goes through unjudged and the guard says so, since gates fail open."""
     verb, number = write
     if number and number.isdigit():
         return bool(github.build(RELEASE_BUILDKITE, number)["env"].get(RELEASE_START_ENV))
+    if number:
+        UNJUDGED.append(CUT_UNRESOLVED.format(command=" ".join(words), build=number, error="not a build number"))
+        return False
     return verb != "api" or created_job(words) is None
 
 
@@ -886,7 +893,7 @@ def verdict() -> dict | None:
         unjudged = cli_posted(payload)
         judged = None if unjudged else judged_reason(payload)
         reason = unjudged or judged or guarded_reason(payload)
-        context = None if reason else unprevented_reports(payload)
+        context = None if reason else "\n\n".join(filter(None, [unprevented_reports(payload), *dict.fromkeys(UNJUDGED)])) or None
     except (ValueError, KeyError):
         return None
     except github.GithubError as error:
