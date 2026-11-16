@@ -1139,7 +1139,7 @@ def woken(drive: str, job_id: str, job: dict, unreached: str) -> LaneEnd | None:
     except OrcaError as error:
         unreached = f"{unreached}, and its wake read {error}"
         state.said(job_id, f"its wake read {error}; it asks Sprite {workspace} over ssh what listens on the port Orca's runtime serves on there, for at most {CALL_SECONDS} s")
-        match runtime_listening(workspace):
+        match runtime_listening(drive, workspace):
             case True:
                 return died(drive, job_id, job["dispatch"], LaneEnd(f"{unreached}, and its Sprite says something listens on the port Orca's runtime serves on there, yet Orca cannot reach it", None, None, unfit=True))
             case False:
@@ -1237,13 +1237,13 @@ def place_tools(workspace: str) -> None:
         raise Unfit(f"{TOOLS} exited {done.returncode} on {workspace}: {said[-1] if said else 'no output'}")
 
 
-def sprite_answer(answer: str, job: dict, message_id: str) -> str:
+def sprite_answer(drive: str, answer: str, job: dict, message_id: str) -> str:
     """What a Sprite lane's question gets through Orca: the answer whole when one Orca relay message carries it, else a line naming the file on the lane's Sprite that holds it, after its exit_line, so a lane's drive that reads no such line still exits with the verb's status. Orca keeps a reply past what its relay carries as the question's answer and never relays it; OrcaError when the Sprite cannot take the file within CALL_SECONDS."""
     text = answer.encode()
     if state.on_mac(job) or relay_bytes(message_id, answer) <= RELAY_BYTES:
         return answer
     try:
-        path = put_on_sprite(job["workspace"], SPRITE_ANSWERS, f"{message_id}.txt", text)
+        path = put_on_sprite(drive, job["workspace"], SPRITE_ANSWERS, f"{message_id}.txt", text)
     except (OSError, subprocess.TimeoutExpired) as error:
         raise OrcaError(f"writing {SPRITE_ANSWERS}/{message_id}.txt onto {job['workspace']}: {error}") from None
     return f"{exit_line(answer)}{KEPT_ANSWER}{path} ({len(text)} bytes, SHA-256 {hashlib.sha256(text).hexdigest()}); read it in full\n"
@@ -1259,10 +1259,10 @@ def relay_bytes(message_id: str, answer: str) -> int:
     return len(json.dumps({"questionId": message_id, "answerMessageId": ANSWER_MESSAGE_ID, "body": answer}, ensure_ascii=False, separators=(",", ":")).encode())
 
 
-def put_on_sprite(workspace: str, folder: str, name: str, text: bytes) -> str:
-    """Write the text to the folder under the home of the workspace's Sprite over the ssh forward cc-remote keeps for it, through stdin, since an answer outgrows one command line; the path it landed at, or Unfit when the Sprite did not keep exactly these bytes, and subprocess.TimeoutExpired past CALL_SECONDS, so a Sprite that takes the connection and never answers holds its lane's answer a minute, never half an hour."""
+def put_on_sprite(drive: str, workspace: str, folder: str, name: str, text: bytes) -> str:
+    """Write the text to the folder under the home of the workspace's Sprite by on_sprite, through stdin, since an answer outgrows one command line; the path it landed at, or Unfit when the Sprite did not keep exactly these bytes, and subprocess.TimeoutExpired past CALL_SECONDS on either of on_sprite's routes, so a Sprite that takes the connection and never answers holds its lane's answer minutes, never half an hour."""
     target = f'"$HOME/{folder}/{name}"'
-    done = on_sprite(workspace, f'mkdir -p "$HOME/{folder}" && cat >{target} && sha256sum {target}', text, CALL_SECONDS)
+    done = on_sprite(drive, workspace, f'mkdir -p "$HOME/{folder}" && cat >{target} && sha256sum {target}', text, CALL_SECONDS)
     said = done.stdout.decode().split()
     if done.returncode or len(said) != 2 or said[0] != hashlib.sha256(text).hexdigest():
         why = done.stderr.decode().strip().splitlines()
@@ -1270,9 +1270,9 @@ def put_on_sprite(workspace: str, folder: str, name: str, text: bytes) -> str:
     return said[1]
 
 
-def take_off_sprite(workspace: str, paths: list[str], into: Path) -> None:
-    """Copy each file at its absolute path on the workspace's Sprite to that path under the folder here, in one tar stream over the ssh forward cc-remote keeps for it; Unfit naming the first file the Sprite could not send, by tar's first line, never a line the Sprite's shell prints as ssh starts it."""
-    done = on_sprite(workspace, shlex.join(["tar", "-C", "/", "-cf", "-", "--", *(path.lstrip("/") for path in paths)]), b"", CALL_SECONDS)
+def take_off_sprite(drive: str, workspace: str, paths: list[str], into: Path) -> None:
+    """Copy each file at its absolute path on the workspace's Sprite to that path under the folder here, in one tar stream by on_sprite; Unfit naming the first file the Sprite could not send, by tar's first line, never a line the Sprite's shell prints as ssh starts it."""
+    done = on_sprite(drive, workspace, shlex.join(["tar", "-C", "/", "-cf", "-", "--", *(path.lstrip("/") for path in paths)]), b"", CALL_SECONDS)
     if done.returncode:
         why = done.stderr.decode().strip().splitlines()
         raise Unfit(f"copying {', '.join(paths)} off {workspace} exited {done.returncode}: {next((line for line in why if line.startswith('tar: ')), why[-1] if why else 'no output')}")
@@ -1280,14 +1280,14 @@ def take_off_sprite(workspace: str, paths: list[str], into: Path) -> None:
         held.extractall(into, filter="data")
 
 
-def runtime_listening(workspace: str) -> bool | str:
-    """Whether anything on the workspace's Sprite listens on the port its cc-remote task runs Orca's runtime on, asked over cc-remote's ssh forward, never through that runtime; else why it got no answer: cc-remote records no task for it, its ssh exited non-zero, or it ran past CALL_SECONDS."""
+def runtime_listening(drive: str, workspace: str) -> bool | str:
+    """Whether anything on the workspace's Sprite listens on the port its cc-remote task runs Orca's runtime on, asked by on_sprite, never through that runtime; else why it got no answer: cc-remote records no task for it, its ssh exited non-zero, or it ran past CALL_SECONDS."""
     try:
         port = json.loads((CC_REMOTE_TASKS / f"{workspace}.json").read_text())["port"]
     except OSError:
         return "cc-remote records no task for it"
     try:
-        done = on_sprite(workspace, f"ss -Hltn 'sport = :{port}'", b"", CALL_SECONDS)
+        done = on_sprite(drive, workspace, f"ss -Hltn 'sport = :{port}'", b"", CALL_SECONDS)
     except subprocess.TimeoutExpired:
         return f"ssh to it ran past {CALL_SECONDS} s"
     if done.returncode:
@@ -1296,14 +1296,26 @@ def runtime_listening(workspace: str) -> bool | str:
     return bool(done.stdout.strip())
 
 
-def on_sprite(workspace: str, command: str, given: bytes, seconds: float) -> subprocess.CompletedProcess[bytes]:
-    """Run the command on the workspace's Sprite over the ssh forward cc-remote keeps for it, the given bytes on its stdin."""
-    forward = json.loads((CC_REMOTE_TASKS / f"{workspace}.json").read_text())["forward"]
-    return subprocess.run(
-        ["ssh", "-F", forward["config"], "-o", "BatchMode=yes", "-o", "ConnectTimeout=30", forward["host"], command],
+def on_sprite(drive: str, workspace: str, command: str, given: bytes, seconds: float) -> subprocess.CompletedProcess[bytes]:
+    """Run the command on the workspace's Sprite over the ssh forward cc-remote keeps for it, the given bytes on its stdin; when ssh exits 255, as it does once the forward reads `Connection to UNKNOWN port 65535 timed out`, run it again through `cc-remote step` from the drive's checkout, as the reclaimer's own reads do, which reaches the Sprite by sprite exec rather than that forward and replays the command's output and exit status across a dropped connection. step mixes the command's stderr into its stdout, so that route drops it on the Sprite."""
+    task = json.loads((CC_REMOTE_TASKS / f"{workspace}.json").read_text())
+    done = subprocess.run(
+        ["ssh", "-F", task["forward"]["config"], "-o", "BatchMode=yes", "-o", "ConnectTimeout=30", task["forward"]["host"], command],
         input=given,
         capture_output=True,
         timeout=seconds,
+        check=False,
+    )
+    if done.returncode != 255:
+        return done
+    root = checkout(drive, state.load(drive)["roles"]["coordinator"]["cwd"])
+    return subprocess.run(
+        [os.environ.get("WORKER_CC_REMOTE") or json.loads((root / ".orca.json").read_text()).get("ccRemote") or "cc-remote", "step", task["machine"], "--", "sh", "-c", f"exec 2>/dev/null\n{command}"],
+        input=given,
+        capture_output=True,
+        timeout=seconds,
+        cwd=root,
+        env={**os.environ, "CC_REMOTE_CONFIG": str(cc_remote_config(root))},
         check=False,
     )
 
@@ -1341,11 +1353,11 @@ def transcript_written(root: Path, workspace: str) -> datetime | str:
     return max((state.parse_time(entry["modTime"]) for entry in files.values()), default="the Sprites file API lists no transcript on it")
 
 
-def session_of(job_id: str, workspace: str, dispatch: str) -> str | None:
+def session_of(drive: str, job_id: str, workspace: str, dispatch: str) -> str | None:
     """The Claude session the worker on this dispatch ran on the workspace's Sprite, found by the dispatch id Orca's preamble wrote into its transcript, the newest when several hold it; None when the Sprite cannot be read or holds no such transcript."""
     state.said(job_id, f"it asks Sprite {workspace} over ssh for the Claude session its worker ran, for at most {CALL_SECONDS} s")
     try:
-        done = on_sprite(workspace, f"cd && grep -l -F -e {shlex.quote(dispatch)} .claude/projects/*/*.jsonl | xargs -r ls -t | head -n 1", b"", CALL_SECONDS)
+        done = on_sprite(drive, workspace, f"cd && grep -l -F -e {shlex.quote(dispatch)} .claude/projects/*/*.jsonl | xargs -r ls -t | head -n 1", b"", CALL_SECONDS)
     except (OSError, subprocess.TimeoutExpired):
         return None
     found = Path(done.stdout.decode(errors="replace").strip()).stem
@@ -1379,7 +1391,7 @@ def keep_logs(drive: str, job_id: str, job: dict, dispatch: str) -> tuple[str, b
     if not kept.exists():
         state.said(job_id, f"it copies the logs of Sprite {job['workspace']} over ssh, for at most {CALL_SECONDS} s")
         try:
-            done = on_sprite(job["workspace"], "sh -s", SPRITE_LOGS.encode(), CALL_SECONDS)
+            done = on_sprite(drive, job["workspace"], "sh -s", SPRITE_LOGS.encode(), CALL_SECONDS)
             said = done.stdout.decode(errors="replace") + (f"ssh exited {done.returncode}: {done.stderr.decode(errors='replace').strip()}\n" if done.returncode else "")
         except (OSError, subprocess.TimeoutExpired) as error:
             said = f"{job['workspace']} could not be read: {error}\n"

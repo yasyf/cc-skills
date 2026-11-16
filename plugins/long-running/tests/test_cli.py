@@ -8954,7 +8954,7 @@ def test_pr_add_on_a_sprite_lanes_job_copies_each_show_me_picture_off_its_sprite
     (sprite / before.lstrip("/")).write_bytes(b"before")
     tarred: list[str] = []
 
-    def on_sprite(workspace: str, command: str, given: bytes, seconds: float) -> subprocess.CompletedProcess:
+    def on_sprite(drive: str, workspace: str, command: str, given: bytes, seconds: float) -> subprocess.CompletedProcess:
         tarred.append(workspace)
         return subprocess.run(command.replace("-C /", f"-C {tmp_path / workspace}", 1), shell=True, capture_output=True, check=False)
 

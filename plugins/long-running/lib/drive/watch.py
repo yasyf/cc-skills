@@ -2402,14 +2402,14 @@ def answer_read(name: str, job_id: str, message_id: str, moment: datetime) -> tu
         said = reads.answer(question, checkout, name, job_id)
     except reads.ReadError as error:
         return keep_answer(name, job_id, message_id, f"{question}: {error}", f"{question}: {error}")
-    return keep_answer(name, job_id, message_id, *sprite_answered(job, message_id, question, said))
+    return keep_answer(name, job_id, message_id, *sprite_answered(name, job, message_id, question, said))
 
 
-def sprite_answered(job: dict, message_id: str, question: str, said: str) -> tuple[str, str | None]:
+def sprite_answered(name: str, job: dict, message_id: str, question: str, said: str) -> tuple[str, str | None]:
     """The answer a lane's question gets for what its read printed, with why it is no answer when the Sprite could not take one past one Orca relay message, by orca.sprite_answer."""
     try:
-        return orca.sprite_answer(said, job, message_id), None
-    except orca.OrcaError as error:
+        return orca.sprite_answer(name, said, job, message_id), None
+    except state.DriveError as error:
         why = f"{question.partition("\n")[0]}: its {len(said.encode())}-byte answer, past one Orca relay message, could not go to its Sprite: {error}"
         return orca.exit_line(said) + why, why
 

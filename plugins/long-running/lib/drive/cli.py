@@ -4429,14 +4429,14 @@ def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEn
         return restart(args, name, dispatch, orca.LaneEnd(f"{end.why}, and {stale}", end.branch, None, unfit=True), text)
     death = state.lane_death(job, "dispatch") or {}
     left = death.get("unsaved")
-    if (death.get("restored") or end.ended and death.get("ended", {}).get("kept")) and not here and "unresumed" not in death and orca.holds_sprite(job) and (session := orca.session_of(args.id, job["workspace"], dispatch)):
+    if (death.get("restored") or end.ended and death.get("ended", {}).get("kept")) and not here and "unresumed" not in death and orca.holds_sprite(job) and (session := orca.session_of(name, args.id, job["workspace"], dispatch)):
         yield_to_launch(name, args.id)
         try:
             return resume_session(args, name, dispatch, end, message, text, session, root, cause)
         except orca.Unstarted as error:
             unresumed = end._replace(why=f"{end.why}, and its Claude session {session} did not resume on the Sprite kept for it: {error}")
             return restart(args, name, dispatch, orca.died(name, args.id, dispatch, unresumed, unresumed=str(error)), text)
-    if finished and not same and "unresumed" not in death and (session := orca.session_of(args.id, job["workspace"], dispatch)):
+    if finished and not same and "unresumed" not in death and (session := orca.session_of(name, args.id, job["workspace"], dispatch)):
         yield_to_launch(name, args.id)
         try:
             return resume_session(args, name, dispatch, end, message, text, session, root, cause)
@@ -4446,7 +4446,7 @@ def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEn
             return restart(args, name, dispatch, orca.died(name, args.id, dispatch, unresumed, unresumed=str(error)), text)
     if not (end.worktree or end.live or end.ended or state.on_mac(job)):
         yield_to_launch(name, args.id)
-        if not (here or end.unfit or "unresumed" in death or first and not orca.rebooted(name, args.id, job, dispatch)) and (session := orca.session_of(args.id, job["workspace"], dispatch)):
+        if not (here or end.unfit or "unresumed" in death or first and not orca.rebooted(name, args.id, job, dispatch)) and (session := orca.session_of(name, args.id, job["workspace"], dispatch)):
             yield_to_launch(name, args.id)
             try:
                 return resume_session(args, name, dispatch, end, message, text, session, root, cause)
