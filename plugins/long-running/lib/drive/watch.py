@@ -391,7 +391,8 @@ def github_lines(watcher: Watcher, moment: datetime, polled: bool = False) -> li
         watcher.failures.pop("github", None)
     foreign, redraws = {}, []
     if reads or merged:
-        with state.edit(watcher.name) as data:
+        def github_lines_write(data: dict) -> tuple[list[str], dict[str, tuple[str, str, str]], list[str], dict]:
+            said, foreign, redraws = [], {}, []
             for key, read in reads.items():
                 pr = data["prs"][key]
                 was = marshal.loads(marshal.dumps(pr))
@@ -412,14 +413,18 @@ def github_lines(watcher: Watcher, moment: datetime, polled: bool = False) -> li
                 if edited_since_undrawn(pr, read, watcher.cards):
                     redraws.append(pr["url"])
                 if unlanded or pr["state"] == "open":
-                    lines.extend(f"PR {key}: {change} {ids(pr)}" for change in changes)
+                    said.extend(f"PR {key}: {change} {ids(pr)}" for change in changes)
             for key, read in merged.items():
                 pr = data["prs"][key]
                 if key in moved or (conflict := github.conflicts(read, pr)) == pr["conflict"]:
                     continue
                 if conflict:
-                    lines.append(f"PR {key}: {CONFLICTS} {ids(pr)}")
+                    said.append(f"PR {key}: {CONFLICTS} {ids(pr)}")
                 pr.update(conflict=conflict, updated=state.stamp(moment))
+            return said, foreign, redraws, data
+
+        said, foreign, redraws, data = state.update(watcher.name, None, github_lines_write)
+        lines += said
     watcher.owed, watcher.merging, watcher.stale = owes, merging, stale | set(foreign)
     watcher.untracked |= carrying
     for url in redraws:
