@@ -3759,8 +3759,8 @@ def relaunchable(ended: dict | None, moment: datetime) -> bool:
 
 
 def bg_death(job: dict) -> str | None:
-    """Why a running job's agent drive job start started as its own `claude --bg` session is dead: no running process names its session and Claude Code's background job for it failed, stopped or is gone, so the watch relaunches it as it does a dead Sprite lane; None for any other agent and while it lives or its turn ended on its own."""
-    if not (session := state.own_session(job)) or agents.alive(session, agents.session_records()):
+    """Why a running job's agent drive job start started as its own `claude --bg` session is dead: no running process names its session and Claude Code's background job for it failed, stopped or is gone, so the watch relaunches it as it does a dead Sprite lane, its session the bg entry names while no hook of it has bound the job's agent yet, so one that dies before its first step is relaunched too rather than left to the reap; None for any other agent and while it lives or its turn ended on its own."""
+    if not (session := state.own_session(job) or (None if job.get("agent") else (job.get("bg") or {}).get("session"))) or agents.alive(session, agents.session_records()):
         return None
     found = agents.background_job(session)
     if found and found[1]["state"] not in ("failed", "stopped"):
