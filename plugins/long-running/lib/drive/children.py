@@ -21,14 +21,17 @@ def mark_watch() -> None:
 
 
 def die_with_watch() -> None:
-    """End this process once the watch it was started under ends, by a thread that reads that watch's start each WAIT_SECONDS, however far below the watch it was started and whether or not it was detached, its slot freed with it, since a pid whose start moved is a process the system handed that pid since; a process no watch started runs on."""
+    """End this process once the watch it was started under ends, by a thread that reads that watch's start each WAIT_SECONDS, however far below the watch it was started and whether or not it was detached, its slot freed with it, since a pid whose start moved is a process the system handed that pid since; a process no watch started, or the watch itself running a verb in place, runs on."""
     if not (watch := os.environ.get(WATCH_PID_ENV)):
         return
     pid, _, started = watch.partition(":")
+    if int(pid) == os.getpid():
+        return
+    ticks = threading.Event()
 
     def watch_alive() -> None:
         while str(procs.started(int(pid))) == started:
-            time.sleep(WAIT_SECONDS)
+            ticks.wait(WAIT_SECONDS)
         os._exit(1)
 
     threading.Thread(target=watch_alive, daemon=True).start()
