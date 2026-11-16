@@ -81,13 +81,13 @@ def resumed_builder(payload: dict, data: dict, job_id: str, said: str) -> str | 
 
 
 def woken_builder(payload: dict, data: dict, job_id: str) -> str | None:
-    """Why a SendMessage does not wake a builder on this Mac whose turn ended: the wake takes one of this Mac's builder slots, which place.woken gives by the rule every start here goes through."""
+    """Why a SendMessage does not wake a builder on this Mac whose turn ended: the wake takes one of this Mac's builder slots, which place.woken gives by place.builder_cap, the rule every builder start here goes through."""
     if payload["tool_name"] != "SendMessage" or not (why := place.woken(data, job_id, state.now())):
         return None
     return agents.Unjudged(
         f"Refused on purpose: {job_id}'s agent on this Mac takes no message now: {why}, so this message would start it again in a slot it has no turn for."
         f' `drive job resume {job_id} "<the message>"` hands it to a lane on a Sprite with the message in its handoff, or, when its'
-        f" brief declares a step only this Mac runs on {place.MAC_LINES}, holds the message while the job waits its turn for a builder slot here; when its work holds no checkout or"
+        f" brief declares a step only this Mac runs on {place.MAC_LINES}, to a lane here that waits its turn for room in its own process; when its work holds no checkout or"
         f" compiler, such as a dry run or a read, `drive job set {job_id} --builds-nothing` marks it to take the message here at once"
     )
 

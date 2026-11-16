@@ -6,7 +6,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
 from drive import agents, brief, place, state, view
-from drive.render import cut
 
 BUILDER = "long-running:builder"
 BRIEFED = ("long-running:reader", BUILDER, agents.DESIGNER)
@@ -98,11 +97,11 @@ def tooling_refusal(name: str, data: dict, text: str, role: str) -> str:
 
 
 def waiting(data: dict, text: str) -> str | None:
-    """A note on a builder started while a wait of its job still holds, by the one view.start_refusal drive job launch reads: the start goes ahead, ahead of the watch, which starts it once the last wait ends; its turn for a builder slot on this Mac is crowded's to name."""
+    """A note on a builder started while a wait of its job still holds, by the one view.start_refusal drive job launch reads: the start goes ahead, ahead of the watch, which starts it once the last wait ends; whether this Mac has room for it is capped's to name."""
     match = brief.BRIEF_JOB.search(text)
-    if not (match and match[1] in data["jobs"] and view.start_refusal(data, match[1], False)):
+    if not (match and match[1] in data["jobs"] and view.start_refusal(data, match[1])):
         return None
-    waits = [wait for wait in view.start_waits(data, data["jobs"][match[1]], None) if wait != state.SLOT_WAIT]
+    waits = view.start_waits(data, data["jobs"][match[1]], None)
     return f"{match[1]} still waits on {', '.join(waits)}; it starts now on your call, ahead of the watch, which starts it once the last wait ends."
 
 
@@ -121,31 +120,19 @@ def overloaded(data: dict, text: str) -> str | None:
     )
 
 
-def crowded(name: str, data: dict, text: str) -> str | None:
-    """Why no builder starts on this Mac now: a job waiting its turn for a builder slot starts only on the watch's FREE line naming it, and any other only while a slot is open, its cap's builders holding every other one, each named, and no builder waits its turn ahead of it, unless it builds for an open incident, an open priority order or an immediate fix, which starts at once. A job let start is stamped launching, so place.local_builders counts its slot before its agent's first step records the agent, and a burst of starts fills the cap rather than passing it. A refused job whose brief this Mac alone runs, by place.mac_step, and that no agent runs and nothing else holds is held waiting its turn, so the watch reads it waiting, never abandoned, and frees the earliest due as each slot opens; any other starts on a Sprite at once."""
+def capped(name: str, data: dict, text: str) -> str | None:
+    """Why no builder starts on this Mac now, by place.builder_cap: this Mac's admission refuses it or the cap's builders hold every slot but its own, each named, unless it builds for an open incident, an open priority order or an immediate fix, which starts at once; one whose brief declares no step only this Mac runs starts on a Sprite instead, and any other by drive job launch, which waits its turn here in its own process by place.await_admission. A job let start is stamped launching, so place.local_builders counts its slot before its agent's first step records the agent."""
     match = brief.BRIEF_JOB.search(text)
     job_id = match[1] if match and match[1] in data["jobs"] else None
     moment = state.now()
-    if job_id in (places := place.positions(data)):
-        why = f"{job_id} waits its turn for a builder slot on this Mac, {places[job_id]}"
-    elif not (why := place.crowded(data, job_id, moment)):
+    if not (why := place.builder_cap(data, job_id, moment)):
         if job_id:
             state.write(name, lambda data: data["jobs"][job_id].update(launching=state.stamp(moment)))
         place.counted_again()
         return None
     if job_id and not place.mac_step(text):
         return agents.Unjudged(f"refused: {why}, so {job_id} starts on a Sprite at once, since its brief declares no step only this Mac runs on {place.MAC_LINES}: write this brief to a file and run drive job launch {job_id} <file>")
-    if job_id in places:
-        return agents.Unjudged(f"refused: {why}{line(data)}")
-    if job_id is None or not place.queueable(data, job_id):
-        return agents.Unjudged(f"refused: {why}, so this one waits: start it once a slot opens here with no builder waiting its turn{line(data)}")
-
-    def queued(data: dict) -> dict:
-        place.queue(data["jobs"][job_id], moment)
-        return data
-
-    data = state.write(name, queued)
-    return agents.Unjudged(f"refused: {why}, so {job_id} waits its turn for a builder slot on this Mac, {place.positions(data)[job_id]}{line(data)}")
+    return agents.Unjudged(f"refused: {why}, so start no agent for it: write this brief to a file and run drive job launch {job_id or '<j>'} <file>, which waits its turn for room here in its own process")
 
 
 def unadmitted(name: str, data: dict, text: str) -> str | None:
@@ -170,19 +157,6 @@ def started_alone(data: dict, text: str) -> str | None:
     return agents.Unjudged(f"refused: the watch started {match[1]} as its own claude --bg session {bg['session'] or '(starting)'} at {bg['started']}, so start no agent for it: drive job resume {match[1]} \"<text>\" reaches it")
 
 
-def line(data: dict) -> str:
-    waiting = "; ".join(in_line(data, job_id) for job_id in place.waiting_builders(data))
-    return (
-        f". The watch's FREE line names each job waiting its turn as a slot opens, oldest first: {waiting or 'none'}."
-        f" Only a builder whose brief declares a step only this Mac runs, on {place.MAC_LINES}, waits here; start any other on a Sprite at once with drive job launch <j> <brief>"
-    )
-
-
-def in_line(data: dict, job_id: str) -> str:
-    job = data["jobs"][job_id]
-    return f'{job_id} "{cut(job["goal"], 60)}"'
-
-
 def deny_reason(payload: dict) -> str | None:
     """Why a drive session may not start this agent, in the shape `agents.shaped` gives its call: a reader, builder or designer starts only on a brief the drive wrote, a build order's codex lane waits on its reader's research, a reader or designer starts here only while this Mac admits a local Claude lane, by unadmitted, drive tooling is the meta session's alone, a builder's Goal that is a pass over a team's data names what it runs as, a builder for the providers' repository starts here over this Mac's load limit only when its brief declares a step only this Mac runs, and a builder starts here only in its turn for one of this Mac's builder slots."""
     if payload.get("agent_id"):
@@ -205,7 +179,7 @@ def deny_reason(payload: dict) -> str | None:
         return tooling_refusal(names[0], data, text, role)
     try:
         if kind == BUILDER:
-            return builder_refusal(text) or overloaded(data, text) or crowded(names[0], data, text)
+            return builder_refusal(text) or overloaded(data, text) or capped(names[0], data, text)
         return unadmitted(names[0], data, text) if kind in BRIEFED else None
     except state.Refused as refused:
         print(f"agent_brief: started uncounted, since the drive was too busy to count this agent's slot: {refused}", file=sys.stderr)

@@ -1,5 +1,6 @@
 """The drive's work queue: items a worker pulls in compatible groups, reports one by one, and pulls again, holding its capacity only while it works; every kind it runs runs there on every drive, its old start path gone."""
 
+import math
 import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -147,9 +148,14 @@ def placed(data: dict, job: dict) -> str:
 
 
 def rank(data: dict, job_id: str) -> tuple:
-    """Where an item stands in the queue, lower first: its class, by state.class_rank, then one place.preempts lets past the caps, a --priority job, an urgent part or an immediate fix among them, so an urgent item heads its pool and the spawner sizes its room by the priority cap, then a priority order's or an open incident's, by state.jumps_queue, then the oldest added."""
+    """Where an item stands in the queue, lower first: its class, by state.class_rank, then one place.preempts lets past the caps, a --priority job, an urgent part or an immediate fix among them, so an urgent item heads its pool and the spawner sizes its room by the priority cap, then a priority order's or an open incident's, by state.jumps_queue, then its project's place in the ranks list caps.json sets, highest first, an unlisted one after every listed one, then where its project and then its workstream stand, by place.standings, so a full cap pauses the lowest workstream first and a whole project once its best workstream ranks lowest, then the oldest added; an order no longer open stands ahead of none."""
     job = data["jobs"][job_id]
-    return (state.class_rank(data, job), not place.preempts(data, job), not state.jumps_queue(data, job_id), state.parse_time(job["created"]))
+    order = data["orders"][job["order"]]
+    ranks = place.caps().get("ranks", [])
+    held = place.standings(data)
+    project = ranks.index(order["project"]) if order["project"] in ranks else len(ranks)
+    stands = (held.get((order["project"], None), math.inf), held.get((order["project"], order["workstream"]), math.inf))
+    return (state.class_rank(data, job), not place.preempts(data, job), not state.jumps_queue(data, job_id), project, *stands, state.parse_time(job["created"]))
 
 
 def carried(data: dict, job_id: str, moment: datetime) -> None:
@@ -702,11 +708,11 @@ def unread(data: dict) -> list[str]:
 
 
 def admitted(data: dict, kind: Kind, where: str, moment: datetime) -> str | None:
-    """Why no new worker of the kind starts where now, None when it may: by place.crowded for one on this Mac of a kind that compiles, which adds the builder cap, else by place.admission, each read for the head item placed there, so its class picks the cap and an urgent head starts past the elastic one."""
+    """Why no new worker of the kind starts where now, None when it may: by place.builder_cap for one on this Mac of a kind that compiles, which adds the builder cap to this Mac's admission, else by place.admission, each read for the head item placed there, so its class picks the cap and an urgent head starts past the elastic one."""
     if not (first := kind.pool(data, where)):
         return None
     if where == "local" and kind.compiles:
-        return place.crowded(data, first[0], moment)
+        return place.builder_cap(data, first[0], moment)
     return place.admission(data, first[0], "sprite" if where == "remote" else "local", moment)
 
 
@@ -724,11 +730,9 @@ def room(data: dict, kind: Kind, where: str, moment: datetime) -> int:
 
 
 def spawned(data: dict, moment: datetime, kinds: list[Kind]) -> tuple[list[str], list[list[str]]]:
-    """The spawner's write: first each item still holding a builder-slot turn drops it, since the queue's caps place it now, and each worker recorded STALL_AFTER ago that no start took fails, so the items it claimed go back; then for each of these kinds and each pool, workers recorded while it wants one and room, read again for each one with the workers this pass recorded counted, lets one start, each claiming its first group, or for a kind whose item is its own run, a codex job's, the head item stamped launching and started by drive job launch, so ready items no worker holds start as fast as the caps allow and an urgent head's priority room starts no item behind it; the lines saying so and the workers to start."""
+    """The spawner's write: first each worker recorded STALL_AFTER ago that no start took fails, so the items it claimed go back; then for each of these kinds and each pool, workers recorded while it wants one and room, read again for each one with the workers this pass recorded counted, lets one start, each claiming its first group, or for a kind whose item is its own run, a codex job's, the head item stamped launching and started by drive job launch, so ready items no worker holds start as fast as the caps allow and an urgent head's priority room starts no item behind it; the lines saying so and the workers to start."""
     lines, starts = [], []
     for job_id, job in data["jobs"].items():
-        if item_of(data, job) and state.SLOT_WAIT in job["waits"]:
-            job.update(waits=[wait for wait in job["waits"] if wait != state.SLOT_WAIT], slot=None)
         if worker(job) and job["state"] not in state.FINISHED_JOB_STATES and untaken(job) and not watch.launching(job, moment) and moment - state.parse_time(job["created"]) >= STALL_AFTER:
             job.update(state="failed", said=f"not started: no drive work start took it in {int(STALL_AFTER.total_seconds() // 60)} minutes", updated=state.stamp(moment))
             lines.append(f"WORK {job_id} failed: no start took it, so its claims go back to the queue")

@@ -3116,7 +3116,7 @@ def test_job_ask_redraws_the_card_redraws_names_and_settles_a_duplicate_card_of_
 def test_j4239_a_waits_id_typed_without_its_drive_names_the_card_its_drive_stores_and_every_other_wait_stays_as_typed(
     asking: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    others = ["demo:j1-7", asking, "o1", "acme/app#12", "merge:acme:app:12", "release:api:acme/app#12", slack_card(1), state.SLOT_WAIT]
+    others = ["demo:j1-7", asking, "o1", "acme/app#12", "merge:acme:app:12", "release:api:acme/app#12", slack_card(1), state.CUT_WAIT]
     assert [state.waits_of("demo", wait) for wait in ["j1-7", *others]] == ["demo:j1-7", *others]
     assert cli.folded_waits("demo", [("j1-7", None), ("j1-8", "j2")]) == [("demo:j1-7", None), ("demo:j1-8", "j2")]
     with edit("demo") as data:
@@ -4915,7 +4915,7 @@ def test_the_spawner_starts_a_build_worker_per_pool_for_each_ready_group_no_work
     monkeypatch.setattr(work, "env", lambda data: "plat-usw2-staging")
     monkeypatch.setattr(work, "carried", lambda data, job_id, moment: None)
     monkeypatch.setattr(state, "holding_role", lambda data, order: (None, {"session": "s1"}))
-    monkeypatch.setattr(place, "crowded", lambda data, job_id, moment: None)
+    monkeypatch.setattr(place, "builder_cap", lambda data, job_id, moment: None)
     monkeypatch.setattr(place, "admission", lambda data, job_id, where, moment: None)
     monkeypatch.setattr(place, "preempts", lambda data, job: False)
     monkeypatch.setattr(place, "admitted_room", lambda where, moment, priority=False: 10)
@@ -6114,7 +6114,7 @@ def test_a_design_that_kept_a_question_is_kept_with_no_fork_line_and_its_builder
     assert view.open_cards(data["jobs"]["j1"]) == [card]
     assert capsys.readouterr().out.splitlines()[-1] == f'j2 builder on "Short title": the watch starts its agent on its brief {data["jobs"]["j2"]["brief"]}, so start no agent for it; drive job resume reaches it'
     assert (data["jobs"]["j1"]["said"], data["jobs"]["j2"]["state"], data["jobs"]["j2"]["waits"]) == ("carried by builder j2", "waiting", [])
-    assert (view.start_refusal(data, "j2", True), land.open_cards(data, "j2", None)) == (None, [card] if held else [])
+    assert (view.start_refusal(data, "j2"), land.open_cards(data, "j2", None)) == (None, [card] if held else [])
 
 
 def test_a_builders_ready_naming_no_reuse_of_what_its_research_found_is_kept_with_a_note(

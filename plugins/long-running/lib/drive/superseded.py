@@ -516,23 +516,15 @@ def unheard(data: dict, kept: dict) -> list[str]:
 
 
 def delivery(data: dict, job_id: str, job: dict, text: str, what: str = "his words") -> tuple[str, str]:
-    """The one step by which a session of the drive gets this text to the job's worker, with the cci lane of the session that may take it, which every watch line names, drive pr wake hands its STAGE line to and the communicator_calls hook refuses a SendMessage by: a fresh builder for a text that carries nothing the job holds or owes to a builder that returned, by fresh_builder; drive job resume, from the session state.job_lane names, for a job any worker runs or ran, which sends the text to its lane, posts it whole to the cci address of a live agent on this Mac and tells the session that started it the SendMessage pointing the agent at that record, or hands the job and the text to a fresh worker of the holder for an agent whose starting session the drive no longer binds or one that takes no message; drive job launch --handoff with the text, from the same session, for an adopted PR's job, by state.adopted_pr_job, whose brief refuses no other start; drive job launch, from the same session, for any other job no worker runs yet, which carries his unheard answers to its first worker; nothing to run for a builder waiting its turn for a slot on this Mac, by in_line, since the worker the watch starts as its turn comes carries each text the job holds and each answer of his it has not heard."""
+    """The one step by which a session of the drive gets this text to the job's worker, with the cci lane of the session that may take it, which every watch line names, drive pr wake hands its STAGE line to and the communicator_calls hook refuses a SendMessage by: a fresh builder for a text that carries nothing the job holds or owes to a builder that returned, by fresh_builder; drive job resume, from the session state.job_lane names, for a job any worker runs or ran, which sends the text to its lane, posts it whole to the cci address of a live agent on this Mac and tells the session that started it the SendMessage pointing the agent at that record, or hands the job and the text to a fresh worker of the holder for an agent whose starting session the drive no longer binds or one that takes no message; drive job launch --handoff with the text, from the same session, for an adopted PR's job, by state.adopted_pr_job, whose brief refuses no other start; drive job launch, from the same session, for any other job no worker runs yet, which carries his unheard answers to its first worker."""
     if fresh := fresh_builder(data, job_id, job, text, what):
         return fresh
-    if queued := in_line(data, job_id, job):
-        return state.job_lane(data, job), f"nothing to run: {job_id} waits its turn for a builder slot on this Mac, {queued}, and the worker the watch starts as its turn comes carries {what}"
     if job.get("agent") or job.get("dispatch"):
         return state.job_lane(data, job), f"drive job resume {job_id} with {what} verbatim"
     if state.adopted_pr_job(data, job):
         return state.job_lane(data, job), f"drive pr wake {job['prs'][0]} --job {job_id} --text \"<{what} verbatim>\", which holds it on {job_id}, a build item of the work queue whose next build worker carries it to its PR's branch"
     return state.job_lane(data, job), f"drive job launch {job_id} on its FREE line, which carries each answer of his it has not heard to its first worker"
 
-
-def in_line(data: dict, job_id: str, job: dict) -> str | None:
-    """The builder's place waiting its turn for a slot on this Mac, by place.positions, whose worker the watch starts as its turn comes, so no step reaches it before then; None for any other job, one moving here from its Sprite included, since its lane there still takes messages."""
-    from drive import place
-
-    return None if place.on_sprite(job) else place.positions(data).get(job_id)
 
 
 def fresh_builder(data: dict, job_id: str, job: dict, text: str, what: str) -> tuple[str, str] | None:

@@ -2185,9 +2185,9 @@ def test_a_builder_that_builds_nothing_takes_no_slot_and_skips_the_load_gate(mon
     job = {"kind": "builder", "order": "o1", "carries": {}, "parts": ["staging test of #42 before it lands"], "goal": "test #42 on staging", "priority": None, "builds_nothing": False}
     data = {"orders": {"o1": {"text": "test #42 on staging", "state": "open", "priority": None, "incident": False, "parts": job["parts"], "urgent": []}}, "jobs": {"j1": job}}
     monkeypatch.setattr(place, "preempts", lambda data, job: False)
-    assert place.crowded(data, "j1", state.now()) is None
+    assert place.builder_cap(data, "j1", state.now()) is None
     job["parts"] = ["build the fix"]
-    assert place.crowded(data, "j1", state.now()) == "this Mac's 1-minute load is 49"
+    assert place.builder_cap(data, "j1", state.now()) == "this Mac's 1-minute load is 49"
 
 
 def test_a_watch_hands_off_to_a_newer_install_only_once_it_ran_hand_off_every_or_hand_off_latest_with_a_pass_cut_short_or_while_an_incident_is_open(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -4955,55 +4955,14 @@ def test_a_job_waiting_on_a_codex_job_holds_through_its_handoff_a_pointer_report
     ]
 
 
-def test_a_full_cap_gives_turns_to_the_workstream_he_moved_last_and_pauses_the_one_he_touched_longest_ago(demo: str) -> None:
+def test_the_queue_ranks_first_the_workstream_he_moved_last_ahead_of_the_one_he_touched_longest_ago(demo: str) -> None:
     with edit(demo) as data:
         data["orders"]["o2"] = order(text="fix the card", jobs=["j10"]) | {"project": "Iris", "workstream": "Run page", "updated": state.stamp(T0 - timedelta(days=2))}
         data["orders"]["o3"] = order(text="fix the watch", jobs=["j11"]) | {"project": "Iris", "workstream": "Search", "updated": state.stamp(T0)}
         for job_id, order_id in (("j10", "o2"), ("j11", "o3")):
             data["jobs"][job_id] = job(order=order_id, session="session-under-test", created=state.stamp(T0 - timedelta(minutes=10)))
-            place.queue(data["jobs"][job_id], T0)
-    assert place.positions(state.load(demo)) == {"j11": "1 of 2 in line", "j10": "2 of 2 in line, Iris / Run page paused behind Iris / Search until a slot frees"}
-
-
-def test_a_builder_waiting_its_turn_for_a_slot_is_no_orphan_and_the_watch_frees_the_earliest_due_once_as_each_slot_opens_while_old_held_work_holds_none(
-    demo: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    serve(monkeypatch, {})
-    monkeypatch.setattr(watch, "local_gap", lambda job_id, job, data, moment: None if job.get("agent") else REAL_LOCAL_GAP(job_id, job, data, moment))
-    with edit(demo) as data:
-        data["prs"].clear()
-        data["jobs"]["j1"].update(prs=[], agent="a1", session="session-under-test")
-        for number in range(2, place.LOCAL_BUILDERS + 1):
-            data["jobs"][f"j{number}"] = job(agent=f"a{number}", session="session-under-test")
-        data["orders"]["o1"]["jobs"] = [f"j{number}" for number in range(1, place.LOCAL_BUILDERS + 2)] + ["j12"]
-        months_ago = state.stamp(T0 - timedelta(days=90))
-        data["jobs"]["j12"] = job(state="waiting", questions=[state.new_question(None, "Which store?", months_ago, card=CARD)], created=months_ago, updated=months_ago)
-        data["orders"]["o1"]["class"] = "process"
-        data["orders"]["o2"] = order(text="fix the card", jobs=["j10"], parts={"fix the card": state.new_part()}, **{"class": "process"})
-        data["orders"]["o3"] = order(text="fix the watch", jobs=["j11"], parts={"fix the watch": state.new_part()}, **{"class": "process"})
-        for job_id, order_id, added in (("j9", "o1", 10), ("j10", "o2", 20), ("j11", "o3", 30)):
-            data["jobs"][job_id] = job(order=order_id, parts=list(data["orders"][order_id]["parts"]), session="session-under-test", created=state.stamp(T0 - timedelta(minutes=added)), updated=state.stamp(T0 - timedelta(minutes=10)))
-            place.queue(data["jobs"][job_id], T0 - timedelta(minutes=10))
-    watching = watcher(demo)
-    assert watch.run_pass(watching, T0) == []
-    assert place.positions(state.load(demo)) == {"j11": "1 of 3 in line", "j10": "2 of 3 in line", "j9": "3 of 3 in line"}
-    assert watch.run_pass(watching, T0 + timedelta(minutes=31)) == []
-    with edit(demo) as data:
-        data["jobs"]["j2"]["state"] = "done"
-    freed = T0 + timedelta(minutes=33)
-    assert watch.run_pass(watching, freed) == ["FREE j11 o3: its turn came as a builder slot opened on this Mac, 7 of its 8 held, nothing else holds it"]
     data = state.load(demo)
-    assert {field: data["jobs"]["j11"][field] for field in ("state", "waits", "agent", "slot")} == {"state": "waiting", "waits": [], "agent": None, "slot": state.stamp(freed)}
-    assert place.turns(data, freed) == ([], place.LOCAL_BUILDERS)
-    assert "j12" not in place.local_builders(data, freed)
-    assert watch.run_pass(watching, T0 + timedelta(minutes=35)) == []
-    with edit(demo) as data:
-        data["jobs"]["j11"].update(state="running", agent="a11")
-    assert watch.run_pass(watching, T0 + timedelta(minutes=37)) == []
-    with edit(demo) as data:
-        data["jobs"]["j3"]["state"] = "done"
-    assert watch.run_pass(watching, T0 + timedelta(minutes=39)) == ["FREE j10 o2: its turn came as a builder slot opened on this Mac, 7 of its 8 held, nothing else holds it"]
-    assert place.waiting_builders(state.load(demo)) == ["j9"]
+    assert sorted(("j10", "j11"), key=lambda job_id: work.rank(data, job_id)) == ["j11", "j10"]
 
 
 def test_a_staging_test_whose_freeze_gave_way_to_a_staging_release_for_production_is_told_once_to_rerun_its_slots_lease_starting_again(
@@ -7006,10 +6965,9 @@ def test_a_reported_yasyf_pr_waits_on_each_open_forge_ai_pr_of_its_job_and_lands
 @pytest.mark.parametrize(
     ("waits", "said", "owner"),
     [
-        ([OTHER, state.SLOT_WAIT], "waits its turn for a builder slot on this Mac", stage.WATCH),
         ([OTHER], f"WAITING {state.pr_url(OTHER)} to merge: then it soaks both on staging", "j4542"),
     ],
-    ids=["its tester waits on a builder slot", "its tester waits on the other PR it tests"],
+    ids=["its tester waits on the other PR it tests"],
 )
 def test_replayed_56550_an_approved_pr_waiting_only_on_its_staging_tester_reads_waiting_on_that_run_never_blocked_on_his_approve_of_the_tester_s_other_pr(
     demo: str, waits: list[str], said: str, owner: str
@@ -12379,7 +12337,7 @@ def test_a_stall_whose_cause_the_drives_rows_name_reads_its_why_who_and_next_fro
     data["jobs"]["j1"] = state.new_job("o1", "builder", "build it", [], state.stamp()) | {"where": "remote", "dispatch": "ctx_1", "deaths": [{"dispatch": "ctx_1"}]}
     assert stall.cause(data, "staging:plat-usw2", {"members": ["staging:svc/plat-usw2@abcdef1"]}) is None
     assert stall.cause(data, "release:Forge-AI/monorepo#9@prod", {"members": []}) is None
-    assert stall.cause(data, "builder-slot", {"members": ["builder-slot"]})["NEXT"] == "nothing to run: its FREE line starts it"
+    assert stall.cause(data, state.CUT_WAIT, {"members": [state.CUT_WAIT]})["NEXT"] == "nothing to run: its FREE line starts it"
     assert stall.cause(data, "j1", {"members": ["j1"]})["NEXT"] == "drive job resume j1 restarts it on a fresh Sprite"
     data["jobs"]["j1"]["deaths"] = []
     assert stall.cause(data, "j1", {"members": ["j1"]}) is None
@@ -12764,35 +12722,6 @@ def test_his_undo_tap_owes_a_revert_on_the_job_whose_card_it_answered_and_each_j
         assert ([item["id"] for item in reverts], [item["job"] for item in reverts], reverts[0]["due"], data["answers"]["a1"]["undone"]["link"]) == (opened, ["j1", "j2"], state.stamp(moment + owing.SPAN_FLOOR), card)
         assert owing.reverted(data, "demo:j9-1", card, moment + owing.SPAN_FLOOR, moment, []) == []
 
-
-def test_an_ask_whose_job_waits_on_a_builder_slot_ten_minutes_owes_one_step_per_blocking_episode_folded_into_a_step_due_soon_and_a_process_ask_owes_none(demo: str) -> None:
-    moment = state.parse_time("2026-11-09T05:07:00-08:00")
-    with edit(demo) as data:
-        data["jobs"]["j1"].update(waits=[state.SLOT_WAIT], state="waiting", slot_since=state.stamp(moment - timedelta(minutes=9)))
-        assert not owing.settle(data, moment)
-        assert owing.settle(data, moment + timedelta(minutes=1))
-        [item] = [item for item in data["orders"]["o1"]["owed"] if item["done_when"] == {"blocked": "o1"}]
-        assert (item["kind"], item["due"], "and what clears it: it has waited on a builder slot since" in item["what"], data["orders"]["o1"]["blocked"]) == (
-            owing.STEP,
-            state.stamp(moment + timedelta(minutes=1) + owing.BLOCKED_DUE),
-            True,
-            "builder-slot",
-        )
-        data["jobs"]["j2"] = data["jobs"]["j1"] | {"order": "o1"}
-        owing.close(item, "delivered", moment + timedelta(minutes=3))
-        assert not owing.settle(data, moment + timedelta(minutes=30))
-        data["jobs"]["j1"]["waits"] = data["jobs"]["j2"]["waits"] = []
-        assert owing.settle(data, moment + timedelta(minutes=31))
-        assert data["orders"]["o1"]["blocked"] is None
-        data["jobs"]["j1"]["waits"] = [state.SLOT_WAIT]
-        owing.add(data, "o1", owing.STEP, "its staging result", moment + timedelta(minutes=40), {"post_on": "o1"}, "o1", moment)
-        assert owing.settle(data, moment + timedelta(minutes=32))
-        assert [each["what"].startswith("its staging result; and say in his thread what blocks") for each in owing.still_open(data["orders"]["o1"]) if each["kind"] == owing.STEP] == [True]
-        data["orders"]["o1"]["class"] = "process"
-        data["jobs"]["j1"]["waits"] = []
-        owing.settle(data, moment + timedelta(minutes=33))
-        data["jobs"]["j1"]["waits"] = [state.SLOT_WAIT]
-        assert not owing.settle(data, moment + timedelta(minutes=34))
 
 def test_a_prover_waits_on_no_staging_deploy_once_a_production_cluster_of_every_target_shipping_its_pr_serves_its_merge_and_never_on_a_hotfix_naming_it(
     demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path

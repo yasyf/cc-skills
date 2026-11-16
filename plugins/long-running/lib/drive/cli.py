@@ -2368,7 +2368,7 @@ def job_set(args: argparse.Namespace) -> int:
             hold_card(job, args.card, shown)
             state.join_card(data, args.id, args.card)
         waits = merged_waits(data, job, [state.job_wait(data, wait, args.id, job) for wait in args.waits], args.no_waits, found)
-        job["waits"] = [wait for wait in waits if not (state.builds_nothing(job) and wait == state.SLOT_WAIT)]
+        job["waits"] = waits
         if cycle := state.cycle_refusal(data, args.id, job["waits"]):
             raise DriveError(f"{args.id}: refused, nothing set: {cycle}")
         if args.said:
@@ -4194,7 +4194,7 @@ def codex_launch(name: str, job_id: str, brief_file: str | None) -> Path:
         data = state.load(name)
         job = data["jobs"][job_id]
         unstopped(job_id, job)
-        if refused := view.start_refusal(data, job_id, True):
+        if refused := view.start_refusal(data, job_id):
             raise DriveError(refused)
         if not (brief_file or job.get("brief")):
             raise DriveError(f"{job_id} has no brief: write it with drive job brief {job_id}, or name its file")
@@ -4225,7 +4225,7 @@ def codex_launch(name: str, job_id: str, brief_file: str | None) -> Path:
 
 
 def job_start(args: argparse.Namespace) -> int:
-    """Start a briefed builder's, reader's or design job's agent on this Mac as its own `claude --bg` session, as the watch does once nothing holds the job, so no session's Agent call starts it and no session relays its texts: under the job's own lock, refused as the agent_brief hook would refuse an Agent call of the session holding its order on its brief, which also stamps its launch, counts its builder slot or holds it waiting its turn, and refused while an earlier start of it is in flight or at work, by agents.gone on its bg entry, the start lock, or an agent of a session of the drive runs it; the job keeps the agent id every hook of that session binds as, by agents.seen, and the session `claude --bg` names, which state.own_session reads. A codex or Sprite job, or one with no brief, is refused, its starting left to the session holding it. A start the hook holds waiting its turn for a builder slot, or sends to a Sprite, is no refusal: the first starts on the watch's FREE line as its turn comes, the second by drive job launch, run here, so neither wakes the session holding it."""
+    """Start a briefed builder's, reader's or design job's agent on this Mac as its own `claude --bg` session, as the watch does once nothing holds the job, so no session's Agent call starts it and no session relays its texts: under the job's own lock, refused as the agent_brief hook would refuse an Agent call of the session holding its order on its brief, which also stamps its launch, counts its builder slot, and refused while an earlier start of it is in flight or at work, by agents.gone on its bg entry, the start lock, or an agent of a session of the drive runs it; the job keeps the agent id every hook of that session binds as, by agents.seen, and the session `claude --bg` names, which state.own_session reads. A codex or Sprite job, or one with no brief, is refused, its starting left to the session holding it. A start the hook sends to a Sprite is no refusal: it starts by drive job launch, run here, so it never wakes the session holding it."""
     name = state.resolve(args.drive)
     with state.job_locked(name, args.id, orca.LAUNCH_SECONDS):
         data = state.load(name)
@@ -4243,8 +4243,6 @@ def job_start(args: argparse.Namespace) -> int:
         call = {"subagent_type": state.JOB_AGENTS[job["kind"]][0], "prompt": f"Read your brief first: {job['brief']}"}
         call = agents.shaped({"session_id": held["session"], "tool_input": call})
         if refused := start_refusal({"session_id": held["session"], "tool_input": call}):
-            if state.SLOT_WAIT in state.load(name)["jobs"][args.id]["waits"]:
-                return emit(args, f"{args.id} waits its turn for a builder slot on this Mac: {refused}", {"id": args.id, "how": "waits its turn"})
             if ON_A_SPRITE in refused:
                 state.detach(name, ["job", "launch", args.id], watch.RELAUNCHES_LOG)
                 return emit(args, f"{args.id} starts on a Sprite, by drive job launch {args.id}: {refused}", {"id": args.id, "how": "launch"})
@@ -4285,7 +4283,7 @@ def start_refusal(payload: dict) -> str | None:
 
 @orca.rides_restarts()
 def job_resume(args: argparse.Namespace) -> int:
-    """Send a job its next event, or with no text the texts it holds, by the one relaunch launch and resume share: to its lane while its worker takes messages, else in the handoff of its next worker, or in the brief of the first worker of a builder waiting its turn for a slot on this Mac that none started, or a codex job's by codex_resume. A finished pass of a standing part is refused by unrun, holding nothing."""
+    """Send a job its next event, or with no text the texts it holds, by the one relaunch launch and resume share: to its lane while its worker takes messages, else in the handoff of its next worker, or a codex job's by codex_resume. A finished pass of a standing part is refused by unrun, holding nothing."""
     name = state.resolve(args.drive)
     if args.reserved:
         state.adopt_reserved(name, state.death_member(args.id, state.load(name)["jobs"][args.id], "relaunch", args.reserved), args.reserved)
@@ -4351,7 +4349,7 @@ def unstopped(job_id: str, job: dict) -> None:
 
 
 def relaunch(args: argparse.Namespace, name: str, text: str | None, resume: bool) -> int:
-    """The one path launch and resume share, under the job's own lock, so a second waits for the first and acts on the worker it started, each refused for a stopped job by unstopped, a resume with no text carrying the texts the job holds wherever a resume's text goes and saying so when it holds none: a lane whose worker takes messages gets the text, one whose worker ended starts its next in a handoff, and a lane on a Sprite moves to this Mac by restart whatever its worker is doing when --local asks or declared_step reads a step only this Mac runs, an agent on this Mac that ended with its session, whose last response ended on an API error or refusal, that a launch finds returned while the job holds texts, or whose turn ended while a resume finds this Mac's builder slots full hands the job to a lane on a Sprite, or on this Mac when its brief declares a step only this Mac runs, an agent a session of the drive started and still holds gets a resume's text through its cci address and that session's SendMessage by to_starter, or each text the job holds by held_to_starter, and another session's agent refuses a launch, an agent whose session ended hands the job to this one, a resume's text for a builder no worker started that waits its turn for a slot on this Mac is held for the first worker the watch starts as its turn comes, and any other job with no worker yet starts its first."""
+    """The one path launch and resume share, under the job's own lock, so a second waits for the first and acts on the worker it started, each refused for a stopped job by unstopped, a resume with no text carrying the texts the job holds wherever a resume's text goes and saying so when it holds none: a lane whose worker takes messages gets the text, one whose worker ended starts its next in a handoff, and a lane on a Sprite moves to this Mac by restart whatever its worker is doing when --local asks or declared_step reads a step only this Mac runs, an agent on this Mac that ended with its session, whose last response ended on an API error or refusal, that a launch finds returned while the job holds texts, or whose turn ended while a resume finds this Mac's builder slots full hands the job to a lane on a Sprite, or on this Mac when its brief declares a step only this Mac runs, an agent a session of the drive started and still holds gets a resume's text through its cci address and that session's SendMessage by to_starter, or each text the job holds by held_to_starter, and another session's agent refuses a launch, an agent whose session ended hands the job to this one, and any other job with no worker yet starts its first."""
     here = not resume and args.local
     if here and state.job_lock_held(name, args.id):
         state.said(
@@ -4394,18 +4392,6 @@ def relaunch(args: argparse.Namespace, name: str, text: str | None, resume: bool
             if end or local or step:
                 return restart(args, name, job["dispatch"], end or live_end(job), None, local, step)
             raise DriveError(f"{args.id} already started as dispatch {job['dispatch']}, whose worker takes messages: drive job resume {args.id} <the event> sends it one")
-        if text is not None and not job.get("agent") and args.id in (places := place.positions(data)):
-            sender = state.held_sender(data)
-            def held_first(data: dict) -> None:
-                state.hold_text(data["jobs"][args.id], text, sender)
-                state.told(data["jobs"][args.id], [text])
-
-            state.write(name, held_first)
-            line = (
-                f"{args.id}: held for its first worker under {state.since_heading(sender)}, since none has started: it waits its turn for a builder slot on this Mac,"
-                f" {places[args.id]}, and the watch starts that worker as its turn comes, its brief carrying each text the job holds, and says when it goes"
-            )
-            return emit(args, line, {"id": args.id, "how": "held"})
         died = None if taker or not job.get("agent") else watch.agent_death(job, data) or (place.woken(data, args.id, state.now()) if resume else returned(job))
         if job.get("agent") and not (taker or died):
             remote_job(data, args.id)
@@ -4773,7 +4759,7 @@ def unsent(args: argparse.Namespace, name: str, job: dict, held: list[dict], err
 
 
 def launched(name: str, job_id: str, brief_file: str | None, local: bool, text: str | None, died: str | None) -> dict:
-    """Start a job's first lane, briefed as drive job brief writes it when none was, or one taking over from an agent on this Mac that stopped, returned while the job holds texts, or that another session started and ended with, with the text in its handoff when a resume brought one, and, by answers_since, each text the job holds under the heading naming its sender and each answer of his it has not heard under His answers since: whose words its brief lacks; any lane starts on this Mac when its brief declares a step only this Mac runs, by place.mac_step over that brief alone, whoever launches it and with no --local, never the report, held texts or text its handoff adds, and one crowded_here refuses at this Mac's cap holds the text and waits its turn on builder-slot; a lane on this Mac starts in the worktree orca.pr_holder finds holding the branch of the job's open PR, its handoff naming it. A stop that landed while it was briefed refuses it by unstopped, read again in the edit that stamps it launching, so no worker starts; once nothing refuses it the job is stamped as launching, which the watch reads as starting, never as not started or waiting on nothing, until record_start runs it on its worker's receipt; a takeover keeps its agent, dispatch, where, state, line and waits, the resume's text held by state.hold_text, until that receipt hands the job to the lane, so a launch that starts no worker leaves the job to its agent, whose next resume takes it over again, never a job reading never started that view.start_refusal holds on its own PR. This Mac's machine-wide caps hold a start by admission_refusal under place.admitting, the lock every drive here shares, so the count and the stamp that adds the lane are one step."""
+    """Start a job's first lane, briefed as drive job brief writes it when none was, or one taking over from an agent on this Mac that stopped, returned while the job holds texts, or that another session started and ended with, with the text in its handoff when a resume brought one, and, by answers_since, each text the job holds under the heading naming its sender and each answer of his it has not heard under His answers since: whose words its brief lacks; any lane starts on this Mac when its brief declares a step only this Mac runs, by place.mac_step over that brief alone, whoever launches it and with no --local, never the report, held texts or text its handoff adds, and one on this Mac, a takeover or one declaring a step only this Mac runs, waits its turn for admission in this process by place.await_admission; a lane on this Mac starts in the worktree orca.pr_holder finds holding the branch of the job's open PR, its handoff naming it. A stop that landed while it was briefed refuses it by unstopped, read again in the edit that stamps it launching, so no worker starts; once nothing refuses it the job is stamped as launching, which the watch reads as starting, never as not started or waiting on nothing, until record_start runs it on its worker's receipt; a takeover keeps its agent, dispatch, where, state, line and waits, the resume's text held by state.hold_text, until that receipt hands the job to the lane, so a launch that starts no worker leaves the job to its agent, whose next resume takes it over again, never a job reading never started that view.start_refusal holds on its own PR. This Mac's machine-wide caps hold a start by admission_refusal under place.admitting, the lock every drive here shares, so the count and the stamp that adds the lane are one step."""
     from drive import stage, view
 
     data = state.load(name)
@@ -4783,7 +4769,7 @@ def launched(name: str, job_id: str, brief_file: str | None, local: bool, text: 
     on_lane = {"agent": None, "where": "remote", "session": taker or job["session"]}
     if adopted := orca.adopted(kept):
         return {field: adopted[field] for field in LAUNCHED} | {"brief": str(kept)} | on_lane
-    if refused := view.start_refusal(data, job_id, local):
+    if refused := view.start_refusal(data, job_id):
         raise DriveError(refused)
     if not (brief_file or job.get("brief")):
         write_brief(name, job_id, {})
@@ -4807,10 +4793,9 @@ def launched(name: str, job_id: str, brief_file: str | None, local: bool, text: 
     if refused := (
         brief.brief_refusal(name, data, job_id, written)
         or orca.uncarried(name, job_id, written)
-        or (crowded_here(name, data, job_id, step, text) if local else None)
     ):
         raise DriveError(f"{job_id}: refused, not launched: {refused}")
-    if taker or died or not local:
+    if taker or died or not local or step:
         place.await_admission(name, job_id, "local" if local else "sprite")
     with place.admitting():
         if crowd := admission_refusal(name, data, job_id, local, step, bool(taker or died)):
@@ -4837,10 +4822,10 @@ def launched(name: str, job_id: str, brief_file: str | None, local: bool, text: 
 
 
 def admission_refusal(name: str, data: dict, job_id: str, local: bool, step: str | None, takes_over: bool) -> str | None:
-    """Why a job's first lane on this Mac starts nowhere yet under this Mac's machine-wide caps, by place.admission: a lane that is no builder and declares no step only this Mac runs, refused here, starts on a Sprite instead; None for a takeover, a lane on a Sprite, which waited on admission before this by place.await_admission, and every lane admitted."""
+    """Why a job's first lane on this Mac starts nowhere yet under this Mac's machine-wide caps, by place.admission: a lane that declares no step only this Mac runs, refused here, starts on a Sprite instead; None for a takeover, a lane on a Sprite, which waited on admission before this by place.await_admission, and every lane admitted."""
     if takes_over or not local:
         return None
-    if data["jobs"][job_id]["kind"] == "builder" or step or not (why := place.admission(data, job_id, "local", state.now())):
+    if step or not (why := place.admission(data, job_id, "local", state.now())):
         return None
     return f"{why}, so it starts on a Sprite: drive job launch {job_id}, with no --local"
 
@@ -4857,29 +4842,6 @@ def answers_since(data: dict, job_id: str, written: str) -> str:
     if since := state.held_since([*held, *owed]):
         return written.rstrip() + since + "\n"
     return written
-
-
-def crowded_here(name: str, data: dict, job_id: str, step: str | None, text: str | None = None) -> str | None:
-    """Why a builder's lane starts in no worktree on this Mac now, by place.crowded, the rule every builder start here goes through: one declaring no step only this Mac runs starts on a Sprite at once, unless its lane died twice since its last line, which starts no worker on a Sprite, and any other waits its turn for a slot on builder-slot, a first lane that no agent or lane runs and nothing else holds, and a move from its Sprite or a takeover from its agent on this Mac whatever its worker, waits or PRs, the text given held on the job beside those it holds for its handoff, its Sprite lane running on meanwhile, which the watch's turn starts itself with drive job launch <j> --local."""
-    job = data["jobs"][job_id]
-    if job["kind"] != "builder" or not (why := place.crowded(data, job_id, state.now())):
-        return None
-    if not step:
-        return f"{why}, so it starts on a Sprite at once: drive job launch {job_id}, with no --local"
-    moving = place.on_sprite(job) or bool(job.get("agent"))
-    if not (moving or place.queueable(data, job_id)):
-        return f"{why}, so this one waits: launch it here once a slot opens with no builder waiting its turn"
-    def crowded_here_write(data: dict):
-        if text:
-            state.hold_text(data["jobs"][job_id], text, state.held_sender(data))
-        place.queue(data["jobs"][job_id], state.now())
-        return data
-
-    data = state.write(name, crowded_here_write)
-    move = "moves it here from its Sprite" if place.on_sprite(job) else f"hands it from its agent {job['agent']} to a lane here"
-    turn = f"the watch {move} with drive job launch {job_id} --local as its turn comes, its handoff carrying the texts the job holds" if moving else "the watch's FREE line names it as a slot opens"
-    return f"{why}, so {job_id} waits its turn for a builder slot on this Mac, {place.positions(data)[job_id]}, and {turn}"
-
 
 def launch_brief(name: str, job_id: str, job: dict) -> Path:
     """The file the job's next start keeps its brief in, whose name is the launcher's attempt: numbered after the lanes the job recorded dying, and past every attempt whose kept receipt names a dispatch the job recorded, since the launcher gives a brief one attempt and Orca may have dropped that dispatch; an attempt the drive never recorded whose worker-start may still have started a worker, or whose Sprite's worker-start sent nothing, is used again, so adopted records it or the launcher retries that Sprite; an attempt the launcher ran and failed before any worker started is passed over for a fresh worker id, its own terminal closed, so no launch reuses the terminal and worktree a failed one kept."""
@@ -4949,7 +4911,7 @@ def overtaken(data: dict, job: dict) -> bool:
     from drive import view
 
     stopped = job["state"] == "stopped" and state.parse_time(job["updated"]) >= state.parse_time(job["launching"])
-    return job["said"] == state.NOT_STARTED and (stopped or any(wait != state.SLOT_WAIT for wait in view.holding(data, job["waits"], None)))
+    return job["said"] == state.NOT_STARTED and (stopped or bool(view.holding(data, job["waits"], None)))
 
 
 def launch_attempt(name: str, job: dict, attempt: str, kept: Path, brief: str, root: Path, workspace: str | None, session: str | None, transcript: Path | None = None) -> dict:
@@ -5046,7 +5008,7 @@ def hand_over(args: argparse.Namespace, name: str, data: dict, session: str) -> 
 
 
 def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEnd, text: str | None, here: bool = False, declared: str | None = None) -> int:
-    """Start the job's next worker with a handoff, carrying the text when a resume brought one: for a worker that finished on this Mac, through the launcher in a fresh terminal and Claude session in the worktree it finished in, or the one orca.pr_holder finds holding the branch of the job's open PR, on a Run this terminal makes, since a worker started in the finished one's terminal runs on in the Claude session every earlier worker there filled, which can sit past its start's timeout without ever starting, and in a fresh worktree when that start starts no worker in a worktree that holds no PR branch; for one that finished on a Sprite that answers with the Claude session it ran there, that session resumed there by resume_session, keeping its whole conversation, a resume that starts no worker falling back as below with its why naming the refusal; else for one that finished on a Sprite, on that Sprite again in the checkout it left, on a Run this terminal makes, through the launcher's cc-remote orca prepare --existing, which gives it the tool payload and keys a fresh Sprite gets, since a worker started in the finished one's terminal runs on in the claude process and environment that Sprite's first prepare made, unless that Sprite faulted, refuses the tools a worker needs or was made from a cc-remote config other than the one the default branch holds now; else, on a Run this terminal makes, on a fresh Sprite, or on this Mac in the worktree orca.pr_holder finds holding the branch of the job's open PR, which git lets no fresh worktree check out, else in a fresh worktree. A lane's Sprite, whether its worker died or finished, unless a finished one's job moves to this Mac, first has its Orca runtime and worker logs copied to the drive's folder by orca.keep_logs, which the watch's LANE died line names; when they show that Sprite faulted, a kernel line at error level or worse after init or a full home volume, as when an nbd0 I/O error remounts its root disk read-only, no session resumes and no worker continues there, as on a Sprite that refused a worker's tools: the lane is saved and relaunched on a fresh Sprite, its why naming what the logs showed. A lane that died while its job ran keeps on its death the cause line keep_logs reads, which its next worker's brief and the line say, unless its Sprite failed on its own, a kernel error line after init with no OOM kill and its home volume not full, or did not answer while GitHub holds the job's branch, by one read, when that line goes in its why and the death counts against no job; when another lane of the job died with a cause since its last line, a second death with a cause starts no worker on a Sprite: its session resumes there first only when that Sprite's VM booted after its worker started, by orca.rebooted, and otherwise it moves to a fresh worktree on this Mac as a builder whose brief declares a step only this Mac runs does, crowded_here holding a builder waiting its turn on builder-slot while this Mac's slots are full, for the watch's turn to move it with drive job launch <j> --local, and its line names both deaths. A Sprite that answers with the Claude session the dead lane's worker ran there resumes that session by resume_session, with nothing saved, moved or destroyed; a resume that starts no worker falls back to a relaunch, its why naming the refusal, on a fresh Sprite when that one refused a worker's tools. Otherwise every Claude Code transcript the lane's Sprite holds is first copied whole to the drive's folder by orca.keep_transcripts through the Sprites file API, whether or not that Sprite answers ssh, kept on the lane's death. Before a relaunch it saves to GitHub what the dead lane's Sprite holds that a fresh one would not get, by lane_saved, and its line and handoff name each branch GitHub then holds under saved/<the dead lane>/, by one read, never the text any save printed, or, when GitHub holds none, what that save found: what it saved, that the Sprite held nothing unpushed or uncommitted, or that cc-remote records no such Sprite, so nothing on it was read or saved; when the save fails, the relaunch runs on that Sprite instead, in the checkout the dead lane left, unless it refused a worker's tools or started no worker, as a Sprite that will not prepare does, when it is kept and the relaunch runs on a fresh one. A Sprite whose logs keep_logs could not read, as one whose ssh gets no answer, is asked nothing more over ssh and kept: no session resumes and no save is tried there, its transcripts still copied through the Sprites file API, and the lane relaunches on a fresh Sprite, since every later step over its ssh, the launcher's prepare --existing included, waits on that same silence. A lane Orca could not reach, whose Sprite lane_end woke and that then answered, relaunches on that Sprite in the checkout it left with no save when that Sprite holds no session of it, and on a fresh one as a dead lane's when its session there or that Sprite starts no worker. The end each of those steps comes to and what the save found are kept on the lane's death by orca.died, which lane_end reads, so no step runs twice for one death. A relaunch on a fresh Sprite resumes the Claude session the lane ran, from the transcript of it keep_transcripts or an end kept here, by orca.kept_session, prepare placing it on that Sprite first, and its brief says the checkout is fresh; a launch that starts no worker that way starts one in a fresh session. A relaunch on a fresh Sprite then destroys the dead lane's Sprite once what it holds on no remote is saved. A lane a `drive job end` ended, which lane_end reads from the end its job records, relaunches on a fresh Sprite, or in a fresh worktree on this Mac for a lane there, reading, saving and resuming nothing on its Sprite, since that end kept its transcripts and saved what it held on no remote before it destroyed it; its line and handoff say the lane ended and name what that save found. A relaunch an earlier restart of the same death started and never recorded is recorded from the ready receipt its attempt keeps, never launched twice. Here, which a launch with --local of a job on a Sprite asks, as does the step only this Mac runs declared, which its caller read by declared_step before sending or starting anything, moves the job to a fresh worktree on this Mac whether its worker finished, died, does not answer, returned its line and still takes messages or still works, a builder at this Mac's cap waiting its turn on builder-slot by crowded_here instead, and one that builds nothing moving at once; a worker that still takes messages is stopped by orca.reclaim, as drive job end stops one, once its transcripts are kept and before what its Sprite holds on no remote is saved; when that save fails it still moves, the Sprite kept rather than destroyed, its lane recorded dead so nothing of it is read or sent again, and the line and handoff name what every lane of the job saved on GitHub, so the next worker starts from the job's pushed and saved branches. The handoff carries every text a resume holds on the job, oldest first, then the text given, as the messages it never read, naming no sender, since the start it records clears what the job holds. Before each step that reads, saves or starts anything on the lane's Sprite, it stands down by yield_to_launch while a drive job launch --local waits for the job's lock, and each step that waits on that Sprite says itself and its bound as it starts, by state.said. Every relaunch but one here first waits its turn under this Mac's caps, by place.await_admission, a Sprite lane's on the Sprite cap and a lane on this Mac's on the local cap and load gate, in this process, so the work waits rather than fails."""
+    """Start the job's next worker with a handoff, carrying the text when a resume brought one: for a worker that finished on this Mac, through the launcher in a fresh terminal and Claude session in the worktree it finished in, or the one orca.pr_holder finds holding the branch of the job's open PR, on a Run this terminal makes, since a worker started in the finished one's terminal runs on in the Claude session every earlier worker there filled, which can sit past its start's timeout without ever starting, and in a fresh worktree when that start starts no worker in a worktree that holds no PR branch; for one that finished on a Sprite that answers with the Claude session it ran there, that session resumed there by resume_session, keeping its whole conversation, a resume that starts no worker falling back as below with its why naming the refusal; else for one that finished on a Sprite, on that Sprite again in the checkout it left, on a Run this terminal makes, through the launcher's cc-remote orca prepare --existing, which gives it the tool payload and keys a fresh Sprite gets, since a worker started in the finished one's terminal runs on in the claude process and environment that Sprite's first prepare made, unless that Sprite faulted, refuses the tools a worker needs or was made from a cc-remote config other than the one the default branch holds now; else, on a Run this terminal makes, on a fresh Sprite, or on this Mac in the worktree orca.pr_holder finds holding the branch of the job's open PR, which git lets no fresh worktree check out, else in a fresh worktree. A lane's Sprite, whether its worker died or finished, unless a finished one's job moves to this Mac, first has its Orca runtime and worker logs copied to the drive's folder by orca.keep_logs, which the watch's LANE died line names; when they show that Sprite faulted, a kernel line at error level or worse after init or a full home volume, as when an nbd0 I/O error remounts its root disk read-only, no session resumes and no worker continues there, as on a Sprite that refused a worker's tools: the lane is saved and relaunched on a fresh Sprite, its why naming what the logs showed. A lane that died while its job ran keeps on its death the cause line keep_logs reads, which its next worker's brief and the line say, unless its Sprite failed on its own, a kernel error line after init with no OOM kill and its home volume not full, or did not answer while GitHub holds the job's branch, by one read, when that line goes in its why and the death counts against no job; when another lane of the job died with a cause since its last line, a second death with a cause starts no worker on a Sprite: its session resumes there first only when that Sprite's VM booted after its worker started, by orca.rebooted, and otherwise it moves to a fresh worktree on this Mac as a builder whose brief declares a step only this Mac runs does, waiting its turn for admission here by place.await_admission, and its line names both deaths. A Sprite that answers with the Claude session the dead lane's worker ran there resumes that session by resume_session, with nothing saved, moved or destroyed; a resume that starts no worker falls back to a relaunch, its why naming the refusal, on a fresh Sprite when that one refused a worker's tools. Otherwise every Claude Code transcript the lane's Sprite holds is first copied whole to the drive's folder by orca.keep_transcripts through the Sprites file API, whether or not that Sprite answers ssh, kept on the lane's death. Before a relaunch it saves to GitHub what the dead lane's Sprite holds that a fresh one would not get, by lane_saved, and its line and handoff name each branch GitHub then holds under saved/<the dead lane>/, by one read, never the text any save printed, or, when GitHub holds none, what that save found: what it saved, that the Sprite held nothing unpushed or uncommitted, or that cc-remote records no such Sprite, so nothing on it was read or saved; when the save fails, the relaunch runs on that Sprite instead, in the checkout the dead lane left, unless it refused a worker's tools or started no worker, as a Sprite that will not prepare does, when it is kept and the relaunch runs on a fresh one. A Sprite whose logs keep_logs could not read, as one whose ssh gets no answer, is asked nothing more over ssh and kept: no session resumes and no save is tried there, its transcripts still copied through the Sprites file API, and the lane relaunches on a fresh Sprite, since every later step over its ssh, the launcher's prepare --existing included, waits on that same silence. A lane Orca could not reach, whose Sprite lane_end woke and that then answered, relaunches on that Sprite in the checkout it left with no save when that Sprite holds no session of it, and on a fresh one as a dead lane's when its session there or that Sprite starts no worker. The end each of those steps comes to and what the save found are kept on the lane's death by orca.died, which lane_end reads, so no step runs twice for one death. A relaunch on a fresh Sprite resumes the Claude session the lane ran, from the transcript of it keep_transcripts or an end kept here, by orca.kept_session, prepare placing it on that Sprite first, and its brief says the checkout is fresh; a launch that starts no worker that way starts one in a fresh session. A relaunch on a fresh Sprite then destroys the dead lane's Sprite once what it holds on no remote is saved. A lane a `drive job end` ended, which lane_end reads from the end its job records, relaunches on a fresh Sprite, or in a fresh worktree on this Mac for a lane there, reading, saving and resuming nothing on its Sprite, since that end kept its transcripts and saved what it held on no remote before it destroyed it; its line and handoff say the lane ended and name what that save found. A relaunch an earlier restart of the same death started and never recorded is recorded from the ready receipt its attempt keeps, never launched twice. Here, which a launch with --local of a job on a Sprite asks, as does the step only this Mac runs declared, which its caller read by declared_step before sending or starting anything, moves the job to a fresh worktree on this Mac whether its worker finished, died, does not answer, returned its line and still takes messages or still works, and one that builds nothing moving at once; a worker that still takes messages is stopped by orca.reclaim, as drive job end stops one, once its transcripts are kept and before what its Sprite holds on no remote is saved; when that save fails it still moves, the Sprite kept rather than destroyed, its lane recorded dead so nothing of it is read or sent again, and the line and handoff name what every lane of the job saved on GitHub, so the next worker starts from the job's pushed and saved branches. The handoff carries every text a resume holds on the job, oldest first, then the text given, as the messages it never read, naming no sender, since the start it records clears what the job holds. Before each step that reads, saves or starts anything on the lane's Sprite, it stands down by yield_to_launch while a drive job launch --local waits for the job's lock, and each step that waits on that Sprite says itself and its bound as it starts, by state.said. Every relaunch first waits its turn under this Mac's caps, by place.await_admission, a Sprite lane's on the Sprite cap and a lane on this Mac's on the local cap and load gate, in this process, so the work waits rather than fails."""
     from drive import stage
 
     yield_to_launch(name, args.id)
@@ -5054,10 +5016,7 @@ def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEn
     job = data["jobs"][args.id]
     message = "\n\n".join(state.handed_texts(job, text)) or None
     here = here or declared is not None
-    if not here:
-        place.await_admission(name, args.id, "local" if state.on_mac(job) else "sprite")
-    if here and (crowd := crowded_here(name, data, args.id, declared, text)):
-        raise DriveError(f"{args.id}: refused, no worker started: {crowd}")
+    place.await_admission(name, args.id, "local" if here or state.on_mac(job) else "sprite")
     read = fault = own = None
     answered = True
     if not (end.live or end.ended or state.on_mac(job) or (end.worktree and here)):
@@ -5687,7 +5646,7 @@ def pr_wake(args: argparse.Namespace) -> int:
 
 @orca.rides_restarts()
 def wake_pr(args: argparse.Namespace) -> int:
-    """Send a PR's stage line, or the text given, to the builder answering for it, or to the job given, as a PR waiting on that job's work owes it: to a lane Orca holds as a message to its Dispatch, which neither answers its question nor touches its job's ask or state; to a fresh worker on its job when that lane finished or died, as drive job resume relaunches one, and for a lane on a Sprite whose declared_step reads a step only this Mac runs, to a fresh worker on this Mac whatever its Sprite worker is doing; to an adopted PR's job, by state.adopted_pr_job, a drive job launch it detaches with the PR, its head and the line as the brief's handoff, so the event starts its first builder with no hand step; and to any other builder as a handoff record naming superseded.delivery's step that reaches the builder, to the session that step names as the one that may take it: the session holding its order for a fresh builder, the coordinator session that started its agent on this Mac for a SendMessage, else the session state.job_lane names, the line only held, with no record, on a builder waiting its turn for a slot on this Mac, by superseded.in_line, since the worker the watch starts as its turn comes carries it, and held on a job a resume reaches, whose holder gets one record asking drive job resume with no text, later lines held beside it with no record of their own until that resume sends them all. A PR whose own job is stopped, as his superseding answer stops one, or whose job stopped while the wake waited on its lock, goes the same way to the session holding that job, by state.holding_job_lane, which closes the PR or moves it, so no wake starts work he called off. A lane's send or relaunch runs under the job's own lock, as drive job resume's does, so a second wake arriving while the first starts the job's next worker waits for it and sends that worker its line."""
+    """Send a PR's stage line, or the text given, to the builder answering for it, or to the job given, as a PR waiting on that job's work owes it: to a lane Orca holds as a message to its Dispatch, which neither answers its question nor touches its job's ask or state; to a fresh worker on its job when that lane finished or died, as drive job resume relaunches one, and for a lane on a Sprite whose declared_step reads a step only this Mac runs, to a fresh worker on this Mac whatever its Sprite worker is doing; to an adopted PR's job, by state.adopted_pr_job, a drive job launch it detaches with the PR, its head and the line as the brief's handoff, so the event starts its first builder with no hand step; and to any other builder as a handoff record naming superseded.delivery's step that reaches the builder, to the session that step names as the one that may take it: the session holding its order for a fresh builder, the coordinator session that started its agent on this Mac for a SendMessage, else the session state.job_lane names, and held on a job a resume reaches, whose holder gets one record asking drive job resume with no text, later lines held beside it with no record of their own until that resume sends them all. A PR whose own job is stopped, as his superseding answer stops one, or whose job stopped while the wake waited on its lock, goes the same way to the session holding that job, by state.holding_job_lane, which closes the PR or moves it, so no wake starts work he called off. A lane's send or relaunch runs under the job's own lock, as drive job resume's does, so a second wake arriving while the first starts the job's next worker waits for it and sends that worker its line."""
     from drive import stage, tools, view
 
     name = state.resolve(args.drive)
@@ -5716,7 +5675,7 @@ def wake_pr(args: argparse.Namespace) -> int:
         job_id = None
     pr = data["prs"][key]
     job = data["jobs"][target]
-    if job_id and ((turn := slot_turn(data, job_id)) or state.adopted_pr_job(data, job) and (turn := "is a build item of the work queue, whose next build worker takes it at its PR's branch")):
+    if job_id and (work.queued(data, data["jobs"][job_id]) and (turn := "waits in the work queue for its stage-test cut") or state.adopted_pr_job(data, job) and (turn := "is a build item of the work queue, whose next build worker takes it at its PR's branch")):
         def turned(held: dict) -> bool:
             heads = held["jobs"][job_id].setdefault("stage_heads", {})
             if heads.get(key) == held["prs"][key]["head"]:
@@ -5728,18 +5687,15 @@ def wake_pr(args: argparse.Namespace) -> int:
         kept = state.write(name, turned)
         return emit(args, f"{key}: {'held on' if kept else 'not sent again to'} {job_id}, which {turn}, so no wake goes out: its worker reads it when its turn starts it", {"key": key, "job": job_id, "how": "held" if kept else None})
     if job_id:
-        queued = superseded.in_line(data, job_id, job)
         fresh = superseded.fresh_builder(data, job_id, job, text, "this line")
-        resumed = not fresh and not queued and bool(job.get("agent") or job.get("dispatch"))
+        resumed = not fresh and bool(job.get("agent") or job.get("dispatch"))
         owed: list[bool] = []
-        if queued or resumed:
+        if resumed:
             def staged(held: dict) -> None:
                 owed.append(any(kept["words"].startswith("STAGE ") for kept in held["jobs"][job_id]["undelivered"]))
                 state.hold_text(held["jobs"][job_id], f"STAGE {text}", state.held_sender(held))
 
             state.write(name, staged)
-        if queued and not fresh:
-            return emit(args, f"{key}: held on {job_id}, which waits its turn for a builder slot on this Mac, for the worker the watch starts as its turn comes", {"key": key, "job": job_id, "how": "held"})
         if resumed and owed[0]:
             return emit(args, f"{key}: held on {job_id} beside the STAGE line its holder was already asked to resume it with", {"key": key, "job": job_id, "how": "held"})
         if resumed:
@@ -5753,15 +5709,6 @@ def wake_pr(args: argparse.Namespace) -> int:
     topic = f"wake-{key}-{pr['head'][:10]}"
     tools.sent(name, "watch", [{"kind": "handoff", "to": [f"{lane}@{name}"], "topic": topic, "text": said}])
     return emit(args, f"{key}: sent to {lane}@{name} for {target}", {"key": key, "job": job_id, "how": f"handoff to {lane}"})
-
-
-def slot_turn(data: dict, job_id: str) -> str | None:
-    """What a staging tester waits its turn on, so a PR's STAGE line is held for it once per head and never sent as a wake: a place in a staging slot's queue, an item the work queue holds, or a staging-slot:<job> wait on a cut only the top coordinator starts; None for any other job."""
-    job = data["jobs"][job_id]
-    if work.queued(data, job):
-        return "waits in the work queue for its stage-test cut"
-    return None
-
 
 def unsent_wake(args: argparse.Namespace, key: str, head: str, data: dict) -> int:
     """Say that a watch wake built at a head the PR left goes unsent, since its line speaks of that head and the watch's next pass reads the PR's stage at the new one."""
@@ -7173,8 +7120,6 @@ def status(args: argparse.Namespace) -> int:
     if args.prs:
         rows = view.his_prs(shown or data)
         return emit(args, render.his_prs(rows), {"prs": rows})
-    for job_id, in_line in place.positions(data).items():
-        data["jobs"][job_id]["in_line"] = in_line
     for project, held in data["subcoordinators"].items():
         held["watch"] = watch.holder(state.pid_path(name, project))
     seen = {}
@@ -8742,7 +8687,7 @@ def parser() -> argparse.ArgumentParser:
         description=(
             "Start a briefed builder's or reader's agent on this Mac as its own claude --bg session on its brief, the prompt an Agent"
             " call would start it on, under the job's own lock: refused as the agent_brief hook refuses that Agent call of the session"
-            " holding its order, which counts its builder slot or holds it waiting its turn, and while an earlier start of it is in"
+            " holding its order, which counts its builder slot, and while an earlier start of it is in"
             " flight or at work. Every hook of that session binds it as the job's agent of the session holding its order, and"
             " drive job resume posts each text to its own cci address, which its next step reads or a claude --bg --resume wakes it on,"
             " so no session's SendMessage relays them. The watch runs it on each job nothing holds; a codex, design or Sprite job is refused."
@@ -8778,8 +8723,8 @@ def parser() -> argparse.ArgumentParser:
             "relaunch meanwhile carries every held text in its handoff; a relaunch Orca refuses exits 2 with Orca's refusal, "
             "the text still held. With no text, it sends what the job holds now wherever a text would go: to an agent on this Mac that a session of the drive started and still holds, each held text whole, oldest first, as its own handoff record, printing one SendMessage line per record, to an agent on this Mac its starter no longer reaches, one that died or whose turn ended while this Mac's builder slots are full, in its next worker's handoff, each held text under the heading naming its sender, or that it holds none. A job held by an Agent another session started, which this session cannot "
             "SendMessage, gets a handoff brief instead, carrying the texts the job holds and this one, and prints its `Read your brief first:` line: an agent "
-            "this session starts on it takes the job as this session's. A builder no worker has started that waits its turn for a slot on this Mac holds the text for its first worker,"
-            " starting nothing, and the watch starts that worker as its turn comes, its brief carrying the text. A codex job takes the text under the heading naming its sender: held while a codex-ask run "
+            "this session starts on it takes the job as this session's."
+            " A codex job takes the text under the heading naming its sender: held while a codex-ask run "
             "goes, which landing_guard hands that run at its next Bash call, the watch's launch carrying it once the job returns still open when the run ended first, else carried by a run started now."
         ),
     )

@@ -329,12 +329,12 @@ def holding(drive: dict, waits: list[str], found: dict | None) -> list[str]:
     return [wait for wait in waits if holds(drive, wait, found)]
 
 
-def start_refusal(drive: dict, job_id: str, slot: bool) -> str | None:
-    """Why a job no agent or lane has started may not start yet, on a Sprite or here, the one rule drive job launch and the agent_brief hook read: a wait of its still holds, by start_waits, a builder slot on this Mac counting only where slot says, and the watch's FREE line comes once none does. A wait says only when a job starts, since his cards hold a builder's PR by state.part_cards, never its start; none for a job a worker started, whose next worker takes its events whatever it waits on."""
+def start_refusal(drive: dict, job_id: str) -> str | None:
+    """Why a job no agent or lane has started may not start yet, on a Sprite or here, the one rule drive job launch and the agent_brief hook read: a wait of its still holds, by start_waits, and the watch's FREE line comes once none does. A wait says only when a job starts, since his cards hold a builder's PR by state.part_cards, never its start; none for a job a worker started, whose next worker takes its events whatever it waits on."""
     job = drive["jobs"][job_id]
     if job.get("agent") or job.get("dispatch"):
         return None
-    waits = [wait for wait in start_waits(drive, job, None) if slot or wait != state.SLOT_WAIT]
+    waits = start_waits(drive, job, None)
     return f"{job_id} waits on {', '.join(waits)}: start nothing for it now: once the last wait ends the watch starts it, or its FREE line names who does" if waits else None
 
 
@@ -529,11 +529,11 @@ def proof_words(proof: str) -> str:
 
 
 def tester_line(drive: dict, tester: str) -> str:
-    """What a staging tester says of itself to each PR it tests: its WAITING line while it waits on what that line names, else the waits drive job set --waits pointed it at once one is not in that line, unless the line is the drive's own for a job waiting its turn for a builder slot or Sprite lane, else its state."""
+    """What a staging tester says of itself to each PR it tests: its WAITING line while it waits on what that line names, else the waits drive job set --waits pointed it at once one is not in that line, else its state."""
     job = drive["jobs"][tester]
     if job["state"] != "waiting" or not job["said"]:
         return job["state"]
-    if state.SLOT_WAIT not in job["waits"] and any(not said_names(job["said"], wait) for wait in job["waits"]):
+    if any(not said_names(job["said"], wait) for wait in job["waits"]):
         return f"waiting on {', '.join(job['waits'])}"
     return job["said"]
 
@@ -1071,8 +1071,6 @@ def wait_entry(drive: dict, wait: str, found: dict) -> dict:
         return {"title": f"another drive's next record after its record {reply['seq']} on that topic", "url": None} if reply["seq"] else {"title": "a teammate's reply to the drive's question", "url": reply["link"]}
     if review := state.REVIEW_WAIT.fullmatch(wait):
         return {"title": f"{review['login']}'s review of its head on GitHub", "url": None}
-    if wait == state.SLOT_WAIT:
-        return {"title": "a builder slot on this Mac", "url": None}
     if process := state.PID_WAIT.fullmatch(wait):
         return {"title": f"process {process['pid']} on this Mac ending", "url": None}
     if reserved := state.RESERVED_WAIT.fullmatch(wait):

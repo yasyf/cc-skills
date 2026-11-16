@@ -71,7 +71,7 @@ A hold from `drive slot hold` names one job, never an order. Another job of the 
 
 ## The queue
 
-Claims queue first in, first out. A pass serving a priority order or an open incident goes ahead of every pass that does not, behind only the passes that jump too, as their builders jump the builder-slot line. A holder is cut short only by a staging release for production, whose give-way starts its lease again and holds it while the test waits on that release.
+Claims queue first in, first out. A pass serving a priority order or an open incident goes ahead of every pass that does not, behind only the passes that jump too, as their items jump the work queue. A holder is cut short only by a staging release for production, whose give-way starts its lease again and holds it while the test waits on that release.
 
 ## What stays with a model
 

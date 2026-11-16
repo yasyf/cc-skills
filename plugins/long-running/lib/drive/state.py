@@ -212,10 +212,9 @@ UNPROVEN_LINE = re.compile(r"^UNPROVEN:[ \t]*(?P<what>.+?)[ \t]*$", re.MULTILINE
 RETURN_WAIT = re.compile(r"(?P<job>j\d+)@(?P<returned>\d+)")
 LINE_JOB = re.compile(r"(?<![\w:/.-])j\d+(?![\w@-]|['’]s\b)")
 LINE_ORDER = re.compile(r"(?<![\w:/.-])o\d+(?![\w:@-])")
-SLOT_WAIT = "builder-slot"
 USAGE_LIMIT_LOG = "claude-usage-limits.jsonl"
 CUT_WAIT = "release-cut"
-TURN_WAITS = (SLOT_WAIT, CUT_WAIT)
+TURN_WAITS = (CUT_WAIT,)
 USAGE_LIMIT = re.compile(r"You've hit your (?P<limit>\w+) limit · resets (?P<resets>.+?) \((?P<zone>[^)]+)\)")
 LIMIT_RESET = re.compile(r"(?:(?P<day>[A-Z][a-z]{2} \d{1,2}) at )?(?P<hour>\d{1,2})(?::(?P<minute>\d{2}))?(?P<half>am|pm)")
 HOLDS_NOW = "## Holds now"
@@ -1288,8 +1287,10 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     for job in data["jobs"].values():
         job["mail_seen"] = max(job.get("mail_seen", 0), mail.get(job.get("run"), 0))
         job.setdefault("train", None)
-        job["waits"] = [wait for wait in job.get("waits") or [] if not str(wait).startswith("staging-slot:") and wait != "sprite-slot"]
+        job["waits"] = [wait for wait in job.get("waits") or [] if not str(wait).startswith("staging-slot:") and wait not in ("sprite-slot", "builder-slot")]
         job.pop("sprite_turn", None)
+        job.pop("slot", None)
+        job.pop("slot_since", None)
         job.setdefault("where", "remote" if job.get("dispatch") else "local")
         job.setdefault("returned", job["updated"])
         job.pop("stall", None)
@@ -2432,7 +2433,7 @@ def resumed(job: dict) -> str | None:
 
 
 def start(job: dict) -> None:
-    """Run the job a worker started on, by run_state, its turn for a builder slot on this Mac or a Sprite lane under its cap over, so the drive keeps the return of each worker it lets start and when it started: the one call that runs a job drive job add recorded not started, as each worker records itself, so no job reads running before one did. A question the worker before it asked ends here, handed on as a text the job holds, that lane's said line dated when it asked and sent by no one, which the text this worker started on takes off by superseded.hear when it quotes it, so no question of a worker gone reads unanswered while this one runs that step."""
+    """Run the job a worker started on, by run_state, its turn for a release cut over, so the drive keeps the return of each worker it lets start and when it started: the one call that runs a job drive job add recorded not started, as each worker records itself, so no job reads running before one did. A question the worker before it asked ends here, handed on as a text the job holds, that lane's said line dated when it asked and sent by no one, which the text this worker started on takes off by superseded.hear when it quotes it, so no question of a worker gone reads unanswered while this one runs that step."""
     if job.get("ask"):
         hold_text(job, job["said"], None, job["ask_at"])
     said = None if job["said"] == NOT_STARTED else job["said"]
@@ -6997,7 +6998,7 @@ def followed_builds(orders: dict[str, dict]) -> set[str]:
 
 
 def card_wait(data: dict, wait: str) -> bool:
-    """Whether a wait names a card of his, by its Slack link or waits id, rather than a job, a job's next report, a PR, tracked or not, an order or a part of one, a release of the drive, a staging test's soak commit, a process on this Mac, a Buildkite build, a teammate's reply to a question the drive asked them, another drive's next record on a topic, a teammate's review of a PR's head, a builder slot on this Mac or a Sprite lane under this Mac's cap."""
+    """Whether a wait names a card of his, by its Slack link or waits id, rather than a job, a job's next report, a PR, tracked or not, an order or a part of one, a release of the drive, a staging test's soak commit, a process on this Mac, a Buildkite build, a teammate's reply to a question the drive asked them, another drive's next record on a topic, a teammate's review of a PR's head, a release cut."""
     return wait not in data["jobs"] and wait not in data["prs"] and wait not in data["orders"] and not part_wait(data, wait) and not RELEASE_WAIT.fullmatch(wait) and not STAGING_WAIT.fullmatch(wait) and not PID_WAIT.fullmatch(wait) and not RESERVED_WAIT.fullmatch(wait) and not MAC_BOX_WAIT.fullmatch(wait) and not HIS_WORD_WAIT.fullmatch(wait) and not BOX_PID_WAIT.fullmatch(wait) and not provided(data).build.fullmatch(wait) and not REPLY_WAIT.fullmatch(wait) and not REVIEW_WAIT.fullmatch(wait) and not RETURN_WAIT.fullmatch(wait) and not untracked_wait(data, wait) and wait not in TURN_WAITS
 
 

@@ -8,7 +8,7 @@ import time
 from collections.abc import Iterator
 from datetime import datetime
 
-from drive import agents, brief, orca, spend, state, view, watch
+from drive import agents, brief, orca, spend, state, watch
 from drive.render import when
 
 LIMIT_ENV = "HOOKS_ADMISSION_LOAD_PER_CORE"
@@ -78,7 +78,7 @@ def at_cap(builders: dict[str, str]) -> str:
 
 
 def local_builders(data: dict, moment: datetime) -> dict[str, str]:
-    """The builders holding a slot on this Mac, each job beside its order and its agent's or lane's last write: a job here the agent_brief hook let start or the watch's FREE line gave its turn for a slot whose agent has not started yet, a job on a Sprite, or one taking over from its agent here, whose turn to move here came within the time a launch takes and whose lane here has not started, or whose lane here launches, an agent here still in its turn, or an Orca lane started with --local that launches, or whose session in the worktree its launch recorded, by watch.lane_transcript, has not started or is still in its turn. A builder that builds nothing, by state.builds_nothing, such as a merged PR's live proof or a staging tester, compiles nothing here, so it holds no slot."""
+    """The builders holding a slot on this Mac, each job beside its order and its agent's or lane's last write: a job here the agent_brief hook let start whose agent launches, an agent here still in its turn, or an Orca lane started with --local that launches, or whose session in the worktree its launch recorded, by watch.lane_transcript, has not started or is still in its turn. A builder that builds nothing, by state.builds_nothing, such as a merged PR's live proof or a staging tester, compiles nothing here, so it holds no slot."""
     return {
         job_id: f"{job_id} on {job['order']}, {work}"
         for job_id, job in data["jobs"].items()
@@ -89,15 +89,12 @@ def local_builders(data: dict, moment: datetime) -> dict[str, str]:
 def at_work_here(job_id: str, job: dict, data: dict, moment: datetime) -> str | None:
     if job["kind"] == "codex" and job.get("codex_run") and job["state"] == "running":
         return f"its codex-ask run at work in {job['codex_run']}"
-    if moves_here(job):
-        move = "move here from its Sprite" if on_sprite(job) else f"take over from its agent {job['agent']}"
-        return f"its turn to {move} came at {when(slot, seconds=True)}, its lane here not started yet" if (slot := job.get("slot")) and moment - state.parse_time(slot) < watch.RELAUNCH else None
     if job.get("where") != "remote" and not job["agent"] and watch.launching(job, moment):
         return f"its agent launching since {when(job['launching'], seconds=True)}"
     if job.get("where") != "remote" and job["agent"] and state.on_mac(job) and watch.launching(job, moment):
         return f"its Orca lane launching since {when(job['launching'], seconds=True)}, taking over from its agent {job['agent']}"
     if job["state"] == "waiting" and not watch.launching(job, moment):
-        return "freed to start here, its agent not started yet" if job.get("slot") and not job["waits"] and not job["agent"] and job.get("where") != "remote" else None
+        return None
     if job.get("where") != "remote":
         if not job["agent"] or watch.local_gap(job_id, job, data, moment) is not None:
             return None
@@ -115,23 +112,6 @@ def at_work_here(job_id: str, job: dict, data: dict, moment: datetime) -> str | 
     return None if turn and agents.ended(turn) else f"its Orca lane {job['dispatch']} last wrote at {when(state.stamp(wrote), seconds=True)}"
 
 
-def waiting_builders(data: dict) -> list[str]:
-    """The builder jobs waiting their turn for a slot on this Mac, a priority order's first, by state.first_in_line, then by where its project and workstream stand, by ranked, then the oldest added; a job moving here from its Sprite, or a running one whose brief's Mac line drive job launch queued here, waits in whatever state it is in."""
-    waiting = [
-        job_id
-        for job_id, job in data["jobs"].items()
-        if state.SLOT_WAIT in job["waits"] and job["state"] not in state.FINISHED_JOB_STATES
-    ]
-    held = standings(data)
-    return sorted(waiting, key=lambda job_id: (not state.first_in_line(data, data["jobs"][job_id]), *ranked(data, data["jobs"][job_id], held), state.parse_time(data["jobs"][job_id]["created"])))
-
-
-def positions(data: dict) -> dict[str, str]:
-    """Each builder job waiting its turn for a slot on this Mac, with its place in line, and, for one whose workstream ranks below the first in line's, that its workstream is paused behind that one's until room returns."""
-    line = waiting_builders(data)
-    return {job_id: f"{number} of {len(line)} in line{paused(data, job_id, line)}" for number, job_id in enumerate(line, 1)}
-
-
 def standings(data: dict) -> dict[tuple[str | None, str | None], float]:
     """How each project, as (project, None), and each of its workstreams, as (project, workstream), stands for a turn when a cap is full, lower first: by his newest move on an open order filed there, so the workstream he is driving now holds its turns and the one he touched longest ago pauses first, by his words "if we are hitting limits, the lowest priority workstreams or even projects should just straight be paused"."""
     held: dict[tuple[str | None, str | None], float] = {}
@@ -140,24 +120,6 @@ def standings(data: dict) -> dict[tuple[str | None, str | None], float]:
         for key in ((order["project"], None), (order["project"], order["workstream"])):
             held[key] = min(held.get(key, stands), stands)
     return held
-
-
-def ranked(data: dict, job: dict, held: dict[tuple[str | None, str | None], float]) -> tuple:
-    """Where the job's project and workstream stand for a turn, lower first: its class, by state.class_rank, then the project's place in the ranks list caps.json sets, highest first, an unlisted one after every listed one, then the project's standing, then its workstream's, so a full cap pauses the lowest workstream first and a whole project once its best workstream ranks lowest."""
-    order = data["orders"][job["order"]]
-    ranks = caps().get("ranks", [])
-    key = (order["project"], order["workstream"])
-    return (state.class_rank(data, job), ranks.index(key[0]) if key[0] in ranks else len(ranks), held[(key[0], None)], held[key]) if key in held else (state.class_rank(data, job), len(ranks))
-
-
-def paused(data: dict, job_id: str, line: list[str]) -> str:
-    held = standings(data)
-    job, first = data["jobs"][job_id], data["jobs"][line[0]]
-    if preempts(data, job) or ranked(data, job, held) <= ranked(data, first, held):
-        return ""
-    order, ahead = data["orders"][job["order"]], data["orders"][first["order"]]
-    filed = " / ".join(filter(None, (order["project"], order["workstream"]))) or "its work"
-    return f", {filed} paused behind {' / '.join(filter(None, (ahead['project'], ahead['workstream']))) or 'higher-ranked work'} until a slot frees"
 
 
 def caps() -> dict[str, float]:
@@ -305,78 +267,25 @@ def admitted_room(where: str, moment: datetime, priority: bool = False) -> int:
     return max(cap_of(where, priority) - len(lanes(moment)[where]), 0)
 
 
-def crowded(data: dict, job_id: str | None, moment: datetime) -> str | None:
-    """Why the builder job takes no slot on this Mac now, None when it may: this Mac is loaded or short of memory or its local Claude lanes fill their machine-wide cap, by admission, which a builder that builds nothing skips with every other check, since drive job add tells it it holds no slot and starts at once, the cap's builders hold every slot but its own, or builders wait their turn ahead of a job that holds none, since the watch's FREE line gives each open slot to the earliest due. A builder on an open incident's order, on an open priority order, by state.first_in_line, or on an immediate fix part starts at once past both, counting against the cap for later builders once it runs, by his pick "Start at once past the cap" and his words on a priority order, "they aren't slowed down at any cost by anything", and one that builds nothing starts at once past both, holding no slot."""
-    job = data["jobs"].get(job_id)
-    if job and preempts(data, job):
-        return admission(data, job_id, "local", moment)
-    if job and state.builds_nothing(job):
-        return None
-    if why := admission(data, job_id, "local", moment):
-        return why
-    builders = local_builders(data, moment)
-    others = {other: line for other, line in builders.items() if other != job_id}
-    if len(others) >= LOCAL_BUILDERS:
-        return at_cap(others)
-    if job_id not in builders and (line := [other for other in waiting_builders(data) if other != job_id]):
-        return f"builders already wait their turn for a slot on this Mac ahead of it, earliest due first ({', '.join(line)})"
-    return None
-
-
 def woken(data: dict, job_id: str, moment: datetime) -> str | None:
-    """Why a message may not wake the builder's agent on this Mac: its turn ended, so the message starts it again, and crowded gives it no slot; one marked with --builds-nothing on drive job add or drive job set takes it at once, as the refusal says, since its work holds no checkout or compiler."""
+    """Why a message may not wake the builder's agent on this Mac: its turn ended, so the message starts it again, and builder_cap gives it no room, so the resume hands it to a lane that waits its turn by await_admission; one marked with --builds-nothing on drive job add or drive job set takes it at once, as the refusal says, since its work holds no checkout or compiler."""
     job = data["jobs"][job_id]
     if job["kind"] != "builder" or job.get("where") == "remote" or not job.get("agent") or job.get("builds_nothing") or job_id in local_builders(data, moment):
         return None
-    return f"its turn ended and {why}" if (why := crowded(data, job_id, moment)) else None
+    return f"its turn ended and {why}" if (why := builder_cap(data, job_id, moment)) else None
 
 
-def queueable(data: dict, job_id: str) -> bool:
-    """Whether a builder job may wait its turn for a slot on this Mac: one that no agent or lane runs, not finished, and that nothing else holds, no wait, card of his or open PR of its, so the line never frees work held on something else."""
-    job = data["jobs"][job_id]
-    return (
-        job["kind"] == "builder"
-        and job["state"] not in state.FINISHED_JOB_STATES
-        and not job.get("agent")
-        and not job.get("dispatch")
-        and not job["waits"]
-        and not view.open_cards(job)
-        and not any(pr["job"] == job_id and pr["state"] == "open" for pr in data["prs"].values())
-    )
-
-
-def queue(job: dict, moment: datetime) -> None:
-    """Hold a builder job waiting its turn for a slot on this Mac on builder-slot: one no agent or lane runs, or one taking over here from its agent on this Mac, waiting, so the watch reads it waiting, never abandoned, stamping when its wait began as slot_since, until its FREE line names it or its turn starts the takeover, and one moving here from its Sprite in the state its lane there set, that lane running on, until the watch's turn starts its move."""
-    if state.SLOT_WAIT not in job["waits"]:
-        job["slot_since"] = state.stamp(moment)
-    waits = list(dict.fromkeys([*job["waits"], state.SLOT_WAIT]))
-    if on_sprite(job):
-        job.update(waits=waits, slot=None, updated=state.stamp(moment))
-        return
-    job.update(state="waiting", where="local", waits=waits, slot=None, said="waits its turn for a builder slot on this Mac", updated=state.stamp(moment))
+def builder_cap(data: dict, job_id: str | None, moment: datetime) -> str | None:
+    """Why a builder of the job takes no room on this Mac now, None when it may: this Mac's admission, then the cap of LOCAL_BUILDERS builders at work here, by local_builders, its own not counted, which work.room holds a compiling kind's workers to; one preempts lets through waits only on admission's priority cap, and one that builds nothing, by state.builds_nothing, holds no room and starts at once."""
+    job = data["jobs"].get(job_id) if job_id else None
+    if why := admission(data, job_id, "local", moment):
+        return why
+    if job and (preempts(data, job) or state.builds_nothing(job)):
+        return None
+    others = {other: line for other, line in local_builders(data, moment).items() if other != job_id}
+    return at_cap(others) if len(others) >= LOCAL_BUILDERS else None
 
 
 def on_sprite(job: dict) -> bool:
     """Whether the job's lane runs on a Sprite, so a start here moves it from there."""
     return job.get("where") == "remote" and bool(job.get("dispatch")) and not state.on_mac(job)
-
-
-def moves_here(job: dict) -> bool:
-    """Whether a start here takes the job over from the worker it has, so the watch's turn starts it itself with drive job launch <j> --local: its lane on a Sprite, or its agent on this Mac, held on builder-slot only by a takeover crowded_here refused at the cap, or given its turn since that agent last started."""
-    if on_sprite(job):
-        return True
-    return job.get("where") == "local" and bool(job.get("agent")) and (state.SLOT_WAIT in job["waits"] or bool(job.get("slot")) and not state.started_after(job, job["slot"]))
-
-
-def turns(data: dict, moment: datetime) -> tuple[list[str], int]:
-    """The builder jobs whose turn comes now, and how many builders hold a slot on this Mac: each priority order's builder in line at once while the priority cap of cap_of has room, as crowded starts one past the builder cap, and each that builds nothing, by state.builds_nothing, at once past the load gate, holding no slot, then the earliest due, one for each slot no builder holds."""
-    if not (line := waiting_builders(data)):
-        return [], 0
-    held = len(local_builders(data, moment))
-    line = [job_id for job_id in line if preempts(data, data["jobs"][job_id]) or not spend.over(data, data["jobs"][job_id], moment)]
-    urgent = [job_id for job_id in line if preempts(data, data["jobs"][job_id])]
-    free = [job_id for job_id in line if job_id not in urgent and state.builds_nothing(data["jobs"][job_id])]
-    rest = [job_id for job_id in line if job_id not in urgent and job_id not in free]
-    room = min(LOCAL_BUILDERS - held, admitted_room("local", moment))
-    first = urgent[: admitted_room("local", moment, priority=True)]
-    return [*first, *free, *rest[: max(room - len(first), 0)]], held

@@ -31,8 +31,8 @@ Contents:
   No new local lane starts
   while the 1-minute load average is over the core count times `load_per_core`, or less than
   `free_memory` percent of memory is free. What happens at a full cap:
-  - A builder waits on `builder-slot`, or starts on a Sprite when its brief declares no step only
-    this Mac runs.
+  - A builder's work waits in the work queue, or starts on a Sprite when its brief declares no
+    step only this Mac runs.
   - A reader or designer the `agent_brief` hook refuses starts on a Sprite.
   - The watch hands a report or an unanswered message of his to the
     communicator as one `ANSWER THIS:` note, which meets no cap.
@@ -54,20 +54,19 @@ Contents:
   Work on a priority or open incident order, or a job marked `--priority`, still starts. The watch
   tells him once a day, in dollars.
 - **Builder slots.** Eight builders hold this Mac's builder slots at once. A slot is held by: a
-  builder the `FREE` line gave its turn whose agent has not started; a Sprite job whose turn to move
-  here came, for 30 minutes or until its lane starts; a builder the `agent_brief` hook let start,
-  from that call on; an agent still in its turn; an Orca worker started with
-  `drive job launch --local` while it launches or runs. An agent that ended its turn, a launch that
+  builder the `agent_brief` hook let start, from that call on; an agent still in its turn; an Orca
+  worker started with `drive job launch --local` while it launches or runs. An agent that ended its turn, a launch that
   started no worker, a Sprite lane, and a job freed from a wait whose agent has not started hold
   none.
   - A new builder is a build item of the work queue. The watch starts its build worker under the
     caps: a local worker takes a slot like any builder, and a worker for items whose briefs declare
-    no step only this Mac runs starts on a Sprite. A builder moving here from its Sprite, or taking
-    over from its agent here, waits on `builder-slot`, and `drive status` shows its place.
-  - Each watch pass gives each open slot to the waiting builder added first. Its `FREE` line goes once to the
-    session holding its order.
+    no step only this Mac runs starts on a Sprite. The queue ranks items by class, then priority,
+    then his ranks list in `caps.json`, then the project and workstream he moved least recently last,
+    so a full cap pauses the lowest workstream first.
+  - A builder moving here from its Sprite, or taking over from its agent here, waits its turn in
+    the process of its own `drive job launch`, until this Mac admits a lane.
   - A builder on an open incident's order, on an order `drive order set <o> --priority` marked, or
-    on an `immediate fix` part starts here at once past the cap and the line, and holds a slot once
+    on an `immediate fix` part starts here at once past the cap, and holds a slot once
     it runs. A priority order's builder also starts past the load gate. The mark also starts a
     coordinator session for that order alone, the sub-coordinator for `Priority <o>`.
   - A builder that builds nothing holds no slot and starts here at once past the load gate: one
@@ -75,14 +74,13 @@ Contents:
     or one whose goal reads `prove <PRs> live`. `drive job set <j> --builds-nothing` marks one already
     added, a waiting one included. `drive job prove` proves live only the PRs a `prove <PRs> live`
     goal names.
-  - Every start here meets this one count, and Jev does not judge it: an Agent call through the
-    `agent_brief` hook, `drive job launch --local`, a move or takeover from a Sprite, and a
-    `SendMessage` that would wake an agent here whose turn ended, which the `communicator_calls`
-    hook refuses while slots are full. After that refusal `drive job resume <j> "<the message>"`
-    hands the job to a Sprite lane with the message in its handoff, or holds the message for the
-    takeover when the brief declares a Mac step. A move from a Sprite waits on `builder-slot` with
-    its Sprite lane running on, until the watch starts it with `drive job launch <j> --local`. A
-    refused launch reaches the coordinator as a `relaunch_refused` event.
+  - An Agent call through the `agent_brief` hook, a local build worker, and a `SendMessage` that
+    would wake an agent here whose turn ended meet this count, and Jev does not judge it; the
+    `communicator_calls` hook refuses that `SendMessage` while slots are full. `drive job launch
+    --local`, a move and a takeover wait on this Mac's admission in their own process. After that refusal `drive job resume <j> "<the message>"`
+    hands the job to a Sprite lane with the message in its handoff, or to a lane here when the brief
+    declares a Mac step, which waits its turn in its own process. A move from a Sprite keeps its
+    Sprite lane running until its launch here is admitted. A refused launch reaches the coordinator as a `relaunch_refused` event.
 - **Placement.** A builder of the drive's repository is placed when it starts, from the step its brief declares.
   `drive job add` does not refuse one for load.
   - `drive job brief <j> --mac "<the step>"` writes the brief's `Mac:` line: the step only this Mac

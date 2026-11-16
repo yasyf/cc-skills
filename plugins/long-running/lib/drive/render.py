@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 
 from drive import slack
-from drive.state import DRIVE_TOOLING, PAGE_RULE, brief_path, communicator_lane, FINISHED_JOB_STATES, FREED, NOT_STARTED, REPO_RULES, ROLES, SLOT_WAIT, TOOLING_DETAILS_RULING, VERSION, alias, carriers, delivered, exempted, following, holding_job_lane, kept_record, lane_death, launch_in_flight, may_tell, now, open_orders, orphan_stands, parse_time, part_jobs, pass_due, passes, posting_rules, pr_key, pr_url, project_lane, promise_thread, repo_rules, resumed, session_lane, standing_passes, title, unstarted, unstarted_builder, untracked_carriers, work
+from drive.state import DRIVE_TOOLING, PAGE_RULE, brief_path, communicator_lane, FINISHED_JOB_STATES, FREED, NOT_STARTED, REPO_RULES, ROLES, TOOLING_DETAILS_RULING, VERSION, alias, carriers, delivered, exempted, following, holding_job_lane, kept_record, lane_death, launch_in_flight, may_tell, now, open_orders, orphan_stands, parse_time, part_jobs, pass_due, passes, posting_rules, pr_key, pr_url, project_lane, promise_thread, repo_rules, resumed, session_lane, standing_passes, title, unstarted, unstarted_builder, untracked_carriers, work
 
 SLACK_TOOLS = "mcp__plugin_cc-slack_cc-slack__"
 REWORKING = "no card while its builder reworks it to his words, until its READY says how they are met"
@@ -405,7 +405,7 @@ def builder_lines(name: str, data: dict, builder_ids: list[str]) -> list[str]:
         except cli.VERB_ERRORS as error:
             lines.append(f"{builder_id} builder on {named} has no brief: {error}; brief it with drive job brief {builder_id}, then start its agent on the line that prints")
             continue
-        if view.start_refusal(data, builder_id, True):
+        if view.start_refusal(data, builder_id):
             lines.append(f"{builder_id} builder on {named} waits on {', '.join(builder['waits'])}: start no agent for it until the watch's FREE line says its last wait ended")
             continue
         lines.append(f"{builder_id} builder on {named}: {start_now(started)}")
@@ -505,8 +505,7 @@ def job_line(drive: dict, job_id: str, job: dict, limit: int = 100) -> str:
     repro = f"; repro {job['repro']}" if job.get("repro") else ""
     carries = f"; {job['order']}'s job, carrying " + ", ".join(job["carries"]) if job.get("carries") else ""
     built = f" on {job['branch']}" if job["state"] == "built" else ""
-    slot = f"a builder slot on this Mac, {job['in_line']}" if job.get("in_line") else "a builder slot on this Mac"
-    waits = f"; waits on {', '.join(slot if wait == SLOT_WAIT else wait for wait in job['waits'])}" if job.get("waits") else ""
+    waits = f"; waits on {', '.join(job['waits'])}" if job.get("waits") else ""
     shown = f"launching since {when(job['launching'])}" if launch_in_flight(drive["name"], job_id, job) else NOT_STARTED if unstarted(job) else f"lane dead since {when(dead['at'])} ({dead['why']})" if job["state"] == "running" and (dead := lane_death(job)) else job["state"]
     woken = f"; resumed {when(woke)} by a message after its last line" if (woke := resumed(job)) else ""
     held = "".join(f'; holds to deliver: "{cut(kept["words"], 80)}"' for kept in job["undelivered"])

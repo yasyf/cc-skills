@@ -311,73 +311,6 @@ def test_place_counts_only_running_builders_on_this_mac(
     assert run("place")[1] == f"remote: 8 builders already run on this Mac, its cap of 8 on builders that compile here, where a staging tester, a merged PR's prover or another builder marked --builds-nothing holds no slot ({counted})"
 
 
-def test_a_launch_local_while_eight_builders_hold_this_macs_slots_starts_on_a_sprite_or_waits_its_turn_when_its_brief_runs_on_this_mac(
-    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], bg_starts: list[tuple[str, dict, Path]]
-) -> None:
-    cloned(tmp_path, demo)
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it", "--parts", "sprite", "mac")
-    run("job", "add", "builder", "--order", "o1", "--part", "sprite", "--goal", "ship it")
-    run("job", "add", "builder", "--order", "o1", "--part", "mac", "--goal", "prove it on a Mac")
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "build the parts", "--parts", *(f"part {number}" for number in range(1, 9)))
-    for number in range(1, 9):
-        run("job", "add", "builder", "--order", "o2", "--part", f"part {number}", "--goal", f"build part {number}", "--agent", f"b{number}")
-    (tmp_path / "sprite.md").write_text("Order (his words): ship it\nServes: his order\nResearched: j0\nDrive: demo, order o1, job j1\n")
-    (tmp_path / "mac.md").write_text("Order (his words): ship it\nServes: his order\nMac: prove it on a Mac box with ci mac-box prove\nResearched: j0\nDrive: demo, order o1, job j2\n")
-    assert cli.main(["job", "launch", "j1", "sprite.md", "--local"]) == 2
-    err = capsys.readouterr().err
-    assert err.startswith("drive: j1: refused, not launched: 8 builders already run on this Mac, its cap of 8 on builders that compile here, where a staging tester, a merged PR's prover or another builder marked --builds-nothing holds no slot (j3 on o2, its agent b1 last wrote at ")
-    assert err.endswith("so it starts on a Sprite at once: drive job launch j1, with no --local\n")
-    assert cli.main(["job", "launch", "j2", "mac.md", "--local"]) == 2
-    assert capsys.readouterr().err.endswith("so j2 waits its turn for a builder slot on this Mac, 1 of 1 in line, and the watch's FREE line names it as a slot opens\n")
-    held = state.load(demo)["jobs"]["j2"]
-    assert (held["state"], held["waits"], held.get("launching")) == ("waiting", [state.SLOT_WAIT], None)
-    run("job", "set", "j3", "--state", "stopped")
-    with edit(demo) as data:
-        data["jobs"]["j2"].update(waits=[], slot=state.stamp())
-    assert run("job", "launch", "j2", "mac.md", "--local") == (0, "j2 started on this Mac as its own claude --bg session bg-1")
-    assert [job_id for job_id, _, _ in bg_starts] == ["j2"]
-
-
-def test_a_resume_of_a_builder_none_started_waiting_its_turn_holds_its_text_for_the_first_worker_the_watch_starts_and_says_when_it_went(
-    run: Run, demo: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], bg_starts: list[tuple[str, dict, Path]]
-) -> None:
-    cloned(tmp_path, demo)
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "prove it on a Mac")
-    run("job", "add", "builder", "--order", "o1", "--goal", "prove it on a Mac")
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "build the parts", "--parts", *(f"part {number}" for number in range(1, 9)))
-    for number in range(1, 9):
-        run("job", "add", "builder", "--order", "o2", "--part", f"part {number}", "--goal", f"build part {number}", "--agent", f"b{number}")
-    brief = tmp_path / "mac.md"
-    brief.write_text("Order (his words): prove it on a Mac\nServes: his order\nMac: prove it on a Mac box with ci mac-box prove\nResearched: j0\nDrive: demo, order o1, job j1\n")
-    assert cli.main(["job", "launch", "j1", "mac.md", "--local"]) == 2
-    assert capsys.readouterr().err.endswith("so j1 waits its turn for a builder slot on this Mac, 1 of 1 in line, and the watch's FREE line names it as a slot opens\n")
-    with edit(demo) as data:
-        data["jobs"]["j1"]["brief"] = str(brief)
-    assert run("job", "resume", "j1", "rebase on main first") == (
-        0,
-        "j1: held for its first worker under From the coordinator since:, since none has started: it waits its turn for a builder slot on this Mac,"
-        " 1 of 1 in line, and the watch starts that worker as its turn comes, its brief carrying each text the job holds, and says when it goes",
-    )
-    held = state.load(demo)
-    job = held["jobs"]["j1"]
-    assert (job["state"], job["waits"], [kept["words"] for kept in job["undelivered"]], watch.carrier("j1", job, held, None), bg_starts) == (
-        "waiting",
-        [state.SLOT_WAIT],
-        ["rebase on main first"],
-        None,
-        [],
-    )
-    run("job", "set", "j2", "--state", "stopped")
-    with edit(demo) as data:
-        data["jobs"]["j1"].update(waits=[], slot=state.stamp())
-    freed = state.load(demo)
-    assert watch.carrier("j1", freed["jobs"]["j1"], freed, None) == ["job", "launch", "j1", "--local"]
-    assert run("job", "launch", "j1", "--local") == (0, "j1 started on this Mac as its own claude --bg session bg-1")
-    [(_, call, _)] = bg_starts
-    assert ("\nFrom the coordinator since:\n- rebase on main first" in bg_brief(call), state.load(demo)["jobs"]["j1"]["undelivered"]) == (True, [])
-    assert [(event["words"], event["how"]) for event, _ in state.read_events(demo) if event["kind"] == state.TEXT_WENT] == [("rebase on main first", "in the brief of its worker started as its own claude --bg session bg-1")]
-
-
 def test_place_counts_a_builder_here_only_while_its_agent_is_in_its_turn(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1778,7 +1711,7 @@ def test_a_pushed_builders_takeover_that_started_no_worker_keeps_its_agent_and_h
         "dispatch": None,
         "launching": None,
     }
-    assert ([held["words"] for held in job["undelivered"]], view.start_refusal(data, "j1", False)) == (["PR #54870: red at bf02e37"], None)
+    assert ([held["words"] for held in job["undelivered"]], view.start_refusal(data, "j1")) == (["PR #54870: red at bf02e37"], None)
     monkeypatch.setattr(orca, "launch", starts)
     stop = f'its last response ended on refusal at {watch.when(STOPPED["timestamp"])}: "{render.cut(STOPPED_TEXT, 100)}"'
     assert run("job", "resume", "j1", "PR #54870: red at 655db93") == (
@@ -2617,7 +2550,7 @@ def test_a_second_death_since_the_jobs_last_line_while_eight_builders_hold_this_
     data = state.load(remote)
     job = data["jobs"]["j1"]
     assert (code, "relaunched on Sprite" in out.splitlines()[0], "waits its turn" in out) == (0, True, False)
-    assert (state.SLOT_WAIT in job["waits"], place.waiting_builders(data), job["where"]) == (False, [], "remote")
+    assert job["where"] == "remote"
 
 
 def test_a_second_death_since_the_jobs_last_line_on_a_sprite_whose_vm_booted_after_its_worker_started_resumes_that_workers_claude_session_there(
@@ -3934,61 +3867,6 @@ def test_a_resume_of_a_sprite_job_whose_brief_gained_a_mac_line_sends_its_live_w
     assert (job["where"], job["route"], job["dispatch"], job["bg"]["session"], job["undelivered"]) == ("local", None, None, "bg-moved", [])
 
 
-def test_a_resume_of_a_sprite_job_declaring_a_mac_step_while_eight_builders_hold_this_macs_slots_holds_its_text_and_waits_its_turn_to_move_whatever_its_waits(
-    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    cloned(tmp_path, remote)
-    first = tmp_path / "first.md"
-    first.write_text(orca.vm_brief(remote, "j1", "builder", f"Order (his words): run the staging cases\nMac: {J4455_STEP}\nDrive: demo, order o1, job j1", None))
-    with edit(remote) as data:
-        data["jobs"]["j1"].update(brief=str(first), workspace="pool-one", environment="pool-one", lane="demo-j1", state="waiting", waits=["Forge-AI/monorepo#56299"])
-    monkeypatch.setattr(orca, "call", lambda *args: pytest.fail(f"nothing is sent to the Sprite worker of a job that waits to move here: {args}"))
-    monkeypatch.setattr(orca, "reclaim", lambda *args: pytest.fail("a move waiting its turn stops nothing"))
-    monkeypatch.setattr(orca, "launch", lambda *args: pytest.fail("a move waiting its turn launches nothing"))
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "build the parts", "--parts", *(f"part {number}" for number in range(1, 9)))
-    for number in range(1, 9):
-        run("job", "add", "builder", "--order", "o2", "--part", f"part {number}", "--goal", f"build part {number}", "--agent", f"b{number}")
-    text = "Handoff: the staging slot is yours; run the cases"
-    assert cli.main(["job", "resume", "j1", text]) == 2
-    err = capsys.readouterr().err
-    assert err.startswith("drive: j1: refused, no worker started: 8 builders already run on this Mac, its cap of 8 on builders that compile here, where a staging tester, a merged PR's prover or another builder marked --builds-nothing holds no slot (j2 on o2, its agent b1 last wrote at ")
-    assert err.endswith(
-        "so j1 waits its turn for a builder slot on this Mac, 1 of 1 in line, and the watch moves it here from its Sprite with drive job launch j1 --local"
-        " as its turn comes, its handoff carrying the texts the job holds\n"
-    )
-    data = state.load(remote)
-    job = data["jobs"]["j1"]
-    assert (job["state"], job["waits"], job["where"], job["dispatch"], [held["words"] for held in job["undelivered"]]) == (
-        "waiting",
-        ["Forge-AI/monorepo#56299", state.SLOT_WAIT],
-        "remote",
-        DISPATCH,
-        [text],
-    )
-    assert (place.waiting_builders(data), "j1" in place.local_builders(data, state.now())) == (["j1"], False)
-
-
-def test_the_watchs_turn_for_a_sprite_job_waiting_to_move_here_stamps_its_slot_keeps_its_other_waits_and_starts_the_move_itself(
-    run: Run, remote: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    run("job", "add", "reader", "--order", "o1", "--goal", "read the staging run", "--agent", "r")
-    with edit(remote) as data:
-        data["jobs"]["j1"].update(workspace="pool-one", environment="pool-one", state="waiting", waits=["j2", state.SLOT_WAIT])
-    held = state.load(remote)
-    assert watch.carrier("j1", held["jobs"]["j1"] | {"waits": [state.SLOT_WAIT]}, held, None) is None
-    detached: list[list[str]] = []
-    monkeypatch.setattr(state, "detach", lambda name, args, log: detached.append(args) or os.getpid())
-    moment = state.now()
-    watching = watch.Watcher(remote, offset=state.events_end(remote))
-    assert watch.waits_lines(watching, moment) == []
-    data = state.load(remote)
-    job = data["jobs"]["j1"]
-    assert (detached, job["waits"], job["slot"], watching.started) == ([["job", "launch", "j1", "--local"]], ["j2"], state.stamp(moment), {"j1": moment})
-    assert place.local_builders(data, moment)["j1"] == f"j1 on o1, its turn to move here from its Sprite came at {render.when(state.stamp(moment), seconds=True)}, its lane here not started yet"
-    assert (place.local_builders(data, moment + watch.RELAUNCH), place.waiting_builders(data)) == ({}, [])
-    assert watch.waits_lines(watching, moment) == [] and detached == [["job", "launch", "j1", "--local"]]
-
-
 @pytest.mark.parametrize(("wait", "carried"), [("Forge-AI/monorepo#7", ["job", "resume", "j1"]), ("Forge-AI/monorepo#8", None)])
 def test_the_watch_carries_a_held_text_to_a_sprite_job_waiting_on_its_own_open_pr_as_j5031_waited_but_not_to_one_waiting_on_another_open_pr(
     run: Run, remote: str, wait: str, carried: list[str] | None
@@ -4024,7 +3902,7 @@ def test_a_resume_of_a_running_sprite_job_that_builds_nothing_and_declares_a_mac
     assert "its lane on Sprite pool-one was stopped (its worker was still at work there)" in out
     assert out.endswith(f"; it moved to this Mac, since its brief declares {J4507_STEP}, a step only this Mac runs")
     job = state.load(remote)["jobs"]["j1"]
-    assert (job["where"], job["route"], job["dispatch"], state.SLOT_WAIT in job["waits"], kept_transcripts) == ("local", None, None, False, [("j1", DISPATCH)])
+    assert (job["where"], job["route"], job["dispatch"], kept_transcripts) == ("local", None, None, [("j1", DISPATCH)])
 
 
 def test_a_resume_moving_a_sprite_job_to_this_mac_whose_launch_started_no_worker_says_its_texts_wait_on_its_lane_here(
@@ -4151,40 +4029,6 @@ def test_a_pr_wake_of_a_red_pr_reaches_its_live_sprite_worker_while_eight_builde
     assert [args[:9] for args in sent] == [("send", "--to", f"dispatch:{DISPATCH}", "--run", RUN, "--subject", f"{key}: its next step is yours", "--body", line)]
     job = state.load(remote)["jobs"]["j1"]
     assert (job["route"], job["dispatch"], job["waits"]) == (None, DISPATCH, [])
-
-
-def test_a_resume_of_an_agent_here_whose_brief_declares_a_mac_step_while_eight_builders_hold_this_macs_slots_holds_its_text_and_takes_over_at_its_turn(
-    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    launched = agent_on_this_mac(run, demo, tmp_path, monkeypatch, ENDED_TURN, timedelta(seconds=30))
-    with edit(demo) as data:
-        data["jobs"]["j1"]["waits"] = []
-    brief = Path(state.load(demo)["jobs"]["j1"]["brief"])
-    brief.write_text(brief.read_text() + "Mac: proves the desktop change on a Mac box with ci mac-box prove\n")
-    eight_builders_here(run)
-    text = "PR #54870: checks failed"
-    assert cli.main(["job", "resume", "j1", text]) == 2
-    err = capsys.readouterr().err
-    assert err.startswith("drive: j1: refused, not launched: 8 builders already run on this Mac, its cap of 8 on builders that compile here, where a staging tester, a merged PR's prover or another builder marked --builds-nothing holds no slot (j2 on o2, its agent b1 last wrote at ")
-    assert err.endswith(
-        "so j1 waits its turn for a builder slot on this Mac, 1 of 1 in line, and the watch hands it from its agent a1 to a lane here with drive job launch j1 --local"
-        " as its turn comes, its handoff carrying the texts the job holds\n"
-    )
-    data = state.load(demo)
-    job = data["jobs"]["j1"]
-    assert (launched, job["state"], job["waits"], job["agent"], [held["words"] for held in job["undelivered"]]) == ([], "waiting", [state.SLOT_WAIT], "a1", [text])
-    assert (place.waiting_builders(data), "j1" in place.local_builders(data, state.now())) == (["j1"], False)
-    with edit(demo) as data:
-        data["jobs"]["j2"]["state"] = "done"
-    detached: list[list[str]] = []
-    monkeypatch.setattr(state, "detach", lambda name, args, log: detached.append(args) or os.getpid())
-    moment = state.now()
-    watching = watch.Watcher(demo, offset=state.events_end(demo))
-    assert watch.waits_lines(watching, moment) == []
-    data = state.load(demo)
-    assert (detached, data["jobs"]["j1"]["waits"], data["jobs"]["j1"]["slot"]) == ([["job", "launch", "j1", "--local"]], [], state.stamp(moment))
-    assert place.local_builders(data, moment)["j1"] == f"j1 on o1, its turn to take over from its agent a1 came at {render.when(state.stamp(moment), seconds=True)}, its lane here not started yet"
-    assert place.crowded(data, "j1", moment) is None
 
 
 def test_a_takeover_of_a_job_whose_earlier_lanes_kept_their_attempts_starts_a_fresh_attempt_as_j795_needed(
@@ -4840,39 +4684,6 @@ def test_a_pr_wake_for_an_adopted_prs_job_holds_its_line_once_making_it_a_build_
     assert run("job", "brief", "j1", "--handoff", handoff)[0] == 0
 
 
-def test_a_pr_wake_for_a_builder_waiting_its_turn_for_a_slot_here_asks_no_resume_and_holds_its_stage_line_once_for_the_worker_its_turn_starts_as_j3927_needed(
-    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "fix the conflict")
-    run("job", "add", "builder", "--order", "o1", "--goal", "fix the conflict", "--agent", "a1")
-    url = "https://github.com/Forge-AI/monorepo/pull/56074"
-    key = state.pr_key(url)
-    with edit(demo) as data:
-        data["jobs"]["j1"].update(session=data["roles"]["coordinator"]["session"], prs=[url])
-        place.queue(data["jobs"]["j1"], state.now())
-        data["prs"][key] = state.new_pr(url, "j1", "o1")
-    monkeypatch.delenv("CLAUDE_CODE_SESSION_ID")
-    posted = []
-    monkeypatch.setattr(tools, "sent", lambda name, lane, posts: posted.extend(posts) or ["9"])
-    line = f"{key} red since 2026-11-15T16:06:32-08:00, owed by its builder: it conflicts with its base dev [o1 j1]"
-    for _ in range(2):
-        assert run("pr", "wake", url, "--text", line) == (0, f"{key}: held on j1, which waits its turn for a builder slot on this Mac, for the worker the watch starts as its turn comes")
-    in_line = "nothing to run: j1 waits its turn for a builder slot on this Mac, 1 of 1 in line, and the worker the watch starts as its turn comes carries this line"
-    assert posted == []
-    data = state.load(demo)
-    assert [held["words"] for held in data["jobs"]["j1"]["undelivered"]] == [f"STAGE {line}"]
-    assert superseded.delivery(data, "j1", data["jobs"]["j1"], "his answer") == ("root", in_line.replace("this line", "his words"))
-
-
-def test_a_builder_waiting_its_turn_to_move_here_from_its_sprite_is_still_reached_through_its_lane_there(remote: str) -> None:
-    with edit(remote) as data:
-        data["jobs"]["j1"].update(workspace="pool-one", environment="pool-one", state="waiting", waits=[state.SLOT_WAIT])
-    data = state.load(remote)
-    job = data["jobs"]["j1"]
-    assert (place.positions(data), superseded.in_line(data, "j1", job)) == ({"j1": "1 of 1 in line"}, None)
-    assert superseded.delivery(data, "j1", job, "PR #7: checks failed", "this line")[1] == "drive job resume j1 with this line verbatim"
-
-
 def test_a_second_pr_wake_arriving_while_the_first_relaunches_the_dead_lane_waits_for_it_and_sends_that_worker_its_line(
     remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -5261,17 +5072,6 @@ def test_a_running_jobs_lane_that_died_again_since_its_last_line_is_said_to_move
         " its output in the drive's relaunches.log"
     ]
     assert relaunches == ["j1"]
-
-
-def test_a_twice_dead_lane_waiting_its_turn_to_move_here_or_moving_in_that_turn_is_no_gap_until_the_move_overran(remote: str) -> None:
-    first = {"dispatch": "ctx_first", "workspace": "sprite-first", "why": "its worker exited", "at": state.stamp(T0 - timedelta(minutes=20)), "cause": HIGH_CAUSE}
-    relaunch = {"pid": ENDED_READER, "at": state.stamp(T0 - timedelta(minutes=2))}
-    second = {"dispatch": DISPATCH, "workspace": "sprite-old", "why": "its worker exited", "at": state.stamp(T0 - timedelta(minutes=2)), "relaunch": relaunch, "cause": HIGH_CAUSE}
-    job = state.load(remote)["jobs"]["j1"] | {"workspace": "sprite-old", "deaths": [first, second]}
-    waiting = job | {"waits": [state.SLOT_WAIT]}
-    moving = job | {"slot": state.stamp(T0 - timedelta(minutes=1))}
-    assert (bool(state.died_before(waiting, DISPATCH)), watch.ended_gap("j1", waiting, second, T0), watch.ended_gap("j1", moving, second, T0)) == (True, None, None)
-    assert watch.ended_gap("j1", moving, second, T0 + watch.RELAUNCH).startswith("j1's lane ended ")
 
 
 def branches(monkeypatch: pytest.MonkeyPatch, prs: dict[str, dict]) -> list[list[tuple[str, str]]]:

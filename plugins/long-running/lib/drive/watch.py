@@ -707,7 +707,7 @@ def bare(wait: str) -> str:
 
 
 def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Drop each wait of a job or PR that ended, his card answered, the job finished, a job's wait on another job's change once that job registers a PR, by state.change_pr, its FREE line and its brief's Where: then naming the branch to cut its own from, by state.stacked_on, the release out by the watch's release live read or its PR closed unmerged, a staging:<target>/<env>@<commit> wait of a test whose freeze gave way to a staging release for production, by gave_way, the Buildkite build finished or stopped at an approve step by the watch's Buildkite read, a process on this Mac ended, a teammate's reply come, a job a job waits on returned BUILT, by built_bases, a builder slot on this Mac given to the earliest due builder waiting its turn, one per slot no builder holds, or a once-only pass of state.shaped ended it, each by the reason that pass handed by state.drop_waits, forgotten as this edit saves, and say once, as its last wait ends, that nothing holds it, saying nothing of a job the watch starts itself: a work queue item, a codex job's included, whose run the spawner launches, and a Sprite job no worker took, which the watch launches by drive job launch once busy lets it, that launch waiting on place.admission in its own process, so no session is woken to run the launch; holding back the job's ORPHAN for 30 minutes, but for a builder's READY or PUSHED whose PRs all merged, which the watch finishes next in the same pass, or else says once as an ORPHAN naming who finishes it; a builder given its slot waits on nothing with no agent yet, its slot stamped with when its turn came, and holds that slot until its agent starts, and one moving here from its Sprite, or taking over here from its agent on this Mac, keeps its other waits, its slot stamped, while drive job launch <j> --local, run by start_verb, moves it, a refusal of that launch reaching the watch's lines as its relaunch_refused event; a Sprite job busy reads another drive verb acting on takes its turn on a pass after that verb ends. The cards a job asked him on hold it too, so it keeps its waits until he answers them. A codex job whose process ended holds the text exited_text writes, which carry_held's launch of its next codex-ask run carries, so its FREE line asks nobody to launch it; a job holding texts that carry_held launches, by carrier's drive job launch, names no brief and says the watch launches it and to start no agent for it, so no session starts a second worker beside that launch, while one whose worker carry_held resumes says it carries them. A release wait is a wake the job set, freed by out_because once every cluster of its service, or the one env it names, serves the PR's merge, and never comes back."""
+    """Drop each wait of a job or PR that ended, his card answered, the job finished, a job's wait on another job's change once that job registers a PR, by state.change_pr, its FREE line and its brief's Where: then naming the branch to cut its own from, by state.stacked_on, the release out by the watch's release live read or its PR closed unmerged, a staging:<target>/<env>@<commit> wait of a test whose freeze gave way to a staging release for production, by gave_way, the Buildkite build finished or stopped at an approve step by the watch's Buildkite read, a process on this Mac ended, a teammate's reply come, a job a job waits on returned BUILT, by built_bases, or a once-only pass of state.shaped ended it, each by the reason that pass handed by state.drop_waits, forgotten as this edit saves, and say once, as its last wait ends, that nothing holds it, saying nothing of a job the watch starts itself: a work queue item, a codex job's included, whose run the spawner launches, and a Sprite job no worker took, which the watch launches by drive job launch once busy lets it, that launch waiting on place.admission in its own process, so no session is woken to run the launch; holding back the job's ORPHAN for 30 minutes, but for a builder's READY or PUSHED whose PRs all merged, which the watch finishes next in the same pass, or else says once as an ORPHAN naming who finishes it; a Sprite job busy reads another drive verb acting on takes its turn on a pass after that verb ends. The cards a job asked him on hold it too, so it keeps its waits until he answers them. A codex job whose process ended holds the text exited_text writes, which carry_held's launch of its next codex-ask run carries, so its FREE line asks nobody to launch it; a job holding texts that carry_held launches, by carrier's drive job launch, names no brief and says the watch launches it and to start no agent for it, so no session starts a second worker beside that launch, while one whose worker carry_held resumes says it carries them. A release wait is a wake the job set, freed by out_because once every cluster of its service, or the one env it names, serves the PR's merge, and never comes back."""
     data = state.load(watcher.name)
     out, lines = replies(watcher, data, moment)
     out |= freed_waits(watcher, data)
@@ -717,30 +717,22 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
     lines += unread
     if gave:
         data = state.load(watcher.name)
-    turns, held = place.turns(data, moment)
-    turned = {job_id for job_id in turns if heard_job(watcher, data, data["jobs"][job_id]) and not (place.moves_here(data["jobs"][job_id]) and busy(watcher, job_id, moment))}
     jobs = [job for job in data["jobs"].values() if heard_job(watcher, data, job) and not view.open_cards(job)]
     opened = {wait: key for job in jobs for wait in job["waits"] if wait in data["jobs"] and (key := state.change_pr(data, wait))}
     owners = [*jobs, *(pr for pr in data["prs"].values() if hears(watcher, data, pr["order"]))]
     dropped = any(heard_job(watcher, data, job := data["jobs"][job_id]) and not view.open_cards(job) for job_id in data["dropped_waits"])
-    if not out and not bases and not opened and not turned and not dropped and all(view.holding(data, owner["waits"], watcher.cards) == owner["waits"] for owner in owners):
+    if not out and not bases and not opened and not dropped and all(view.holding(data, owner["waits"], watcher.cards) == owner["waits"] for owner in owners):
         return lines
     changed = {wait: f"{wait} registered {key}" for wait, key in opened.items()} | out
-    slot = {state.SLOT_WAIT: f"its turn came as a builder slot opened on this Mac, {held} of its {place.LOCAL_BUILDERS} held"}
-    def waits_lines_write(data: dict) -> tuple[list[str], list[str], list[str], list[str]]:
-        freed, moves, rebriefs, launches = [], [], [], []
+    def waits_lines_write(data: dict) -> tuple[list[str], list[str], list[str]]:
+        freed, rebriefs, launches = [], [], []
         for job_id, job in data["jobs"].items():
             if not heard_job(watcher, data, job):
                 continue
-            if job_id in turned and place.moves_here(job):
-                job["waits"] = [wait for wait in job["waits"] if wait != state.SLOT_WAIT]
-                job.update(slot=state.stamp(moment), updated=state.stamp(moment))
-                moves.append(job_id)
             if view.open_cards(job):
                 continue
-            turn = job_id in turned and job["state"] == "waiting" and state.SLOT_WAIT in job["waits"]
             waited = job["waits"]
-            ended = released(data, job, job_id, watcher.cards, changed | bases | data["dropped_waits"].pop(job_id, {}) | (slot if turn else {}))
+            ended = released(data, job, job_id, watcher.cards, changed | bases | data["dropped_waits"].pop(job_id, {}))
             for wait in waited:
                 if wait in bases and job["kind"] == "builder" and not state.builds_nothing(job):
                     state.hold_text(job, BUILT_BASE.format(built=bases[wait]), state.WATCH_SENDER)
@@ -751,8 +743,6 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 state.hold_text(job, exited_text(watcher.name, job_id, exited), state.WATCH_SENDER)
             if ended and job["state"] not in state.FINISHED_JOB_STATES and not (watch_proves(data, job_id) or at_merge(data, job_id)):
                 job["updated"] = state.stamp(moment)
-                if turn:
-                    job["slot"] = state.stamp(moment)
                 for order_id in [job["order"], *job["carries"]]:
                     parts = data["orders"][order_id]["parts"]
                     for part in parts.keys() & set(state.job_parts(job, order_id)):
@@ -782,12 +772,10 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
         for key, pr in data["prs"].items():
             if hears(watcher, data, pr["order"]) and (ended := released(data, pr, pr["job"], watcher.cards, out)) and pr["state"] == "open":
                 freed.append(f"FREE {key} {pr['job']} {pr['order']}: {ended}, nothing else holds it")
-        return freed, moves, rebriefs, launches
+        return freed, rebriefs, launches
 
-    freed, moves, rebriefs, launches = state.write(watcher.name, waits_lines_write, budget=state.WATCH_WRITE_SECONDS)
+    freed, rebriefs, launches = state.write(watcher.name, waits_lines_write, budget=state.WATCH_WRITE_SECONDS)
     lines += freed
-    for job_id in moves:
-        start_verb(watcher, job_id, ["job", "launch", job_id, "--local"], moment)
     lines += [refused for job_id in rebriefs if (refused := stack_brief(watcher.name, job_id))]
     for job_id in launches:
         start_verb(watcher, job_id, ["job", "launch", job_id], moment)
@@ -4273,9 +4261,7 @@ def bg_death(job: dict) -> str | None:
 
 
 def ended_gap(job_id: str, job: dict, ended: dict, moment: datetime) -> str | None:
-    """A running job whose lane died or finished, which the watch relaunched, and no next lane replaced in the time a relaunch takes: none while it waits its turn for a builder slot on this Mac, or within the time a relaunch takes since that turn came and started its next worker, or while that relaunch runs, and once that relaunch ended or overran, the line names it and its log."""
-    if state.SLOT_WAIT in job["waits"] or (slot := job.get("slot")) and moment - state.parse_time(slot) < RELAUNCH:
-        return None
+    """A running job whose lane died or finished, which the watch relaunched, and no next lane replaced in the time a relaunch takes: none while that relaunch runs, and once that relaunch ended or overran, the line names it and its log."""
     gone = moment - state.parse_time(ended["at"])
     relaunch = ended["relaunch"]
     if land.runs(relaunch) and moment - state.parse_time(relaunch["at"]) < RELAUNCH:
@@ -4409,7 +4395,7 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
                     lines += read_failed(watcher, f"mail of {job_id}", error, moment)
                 else:
                     watcher.failures.pop(f"mail of {job_id}", None)
-            if job["undelivered"] and state.SLOT_WAIT not in job["waits"] and orca.takes_messages(job, worker) and not busy(watcher, job_id, moment):
+            if job["undelivered"] and orca.takes_messages(job, worker) and not busy(watcher, job_id, moment):
                 send_held(watcher, job_id, moment)
             if why := orca.death(worker):
                 deaths[job_id] = (job["dispatch"], why)
@@ -5210,7 +5196,7 @@ def relaunch(watcher: Watcher, job_id: str, moment: datetime, token: str) -> int
 
 
 def send_held(watcher: Watcher, job_id: str, moment: datetime) -> int:
-    """Run `drive job resume` with no text by start_verb on a job holding texts a resume could not deliver, once Orca reads its worker alive and no wait on builder-slot holds it to move here, so the pass never waits on Orca or the job's lock; each goes under the request id it was held with, so Orca never applies one twice."""
+    """Run `drive job resume` with no text by start_verb on a job holding texts a resume could not deliver, once Orca reads its worker alive, so the pass never waits on Orca or the job's lock; each goes under the request id it was held with, so Orca never applies one twice."""
     return start_verb(watcher, job_id, ["job", "resume", job_id], moment)
 
 
@@ -5336,7 +5322,7 @@ def carrier(job_id: str, job: dict, data: dict, cards: dict | None) -> list[str]
         return None
     remote = job.get("where") == "remote" and bool(job.get("dispatch"))
     local = not remote and bool(job.get("brief")) and bool(place.mac_step(Path(job["brief"]).read_text()))
-    if any(remote or local or wait != state.SLOT_WAIT for wait in view.start_waits(data, job, cards)):
+    if view.start_waits(data, job, cards):
         return None
     return ["job", "resume", job_id] if remote else ["job", "launch", job_id, *(["--local"] if local else [])]
 

@@ -878,6 +878,16 @@ def test_load_drops_the_readings_of_his_answers_drive_job_ask_once_kept_beside_a
     assert ("may_settle" in loaded["jobs"]["j1"], "may_settle_by_subject" in loaded, "may_settle_per_answer" in loaded) == (False, False, False)
 
 
+def test_load_drops_the_builder_slot_wait_and_its_turn_stamps_a_job_kept_from_the_mac_line(state_root: Path) -> None:
+    data = state.new_drive("demo", "coordinator", None, "/work")
+    queued = {"waits": ["j2", "builder-slot", "sprite-slot"], "slot": "2026-11-10T21:05:00-08:00", "slot_since": "2026-11-10T21:00:00-08:00"}
+    data["jobs"]["j2"] = state.new_job("o1", "builder", "fix the watch", [], "2026-11-10T21:00:00-08:00")
+    data["jobs"]["j1"] = state.new_job("o1", "builder", "fix the card", [], "2026-11-10T21:00:00-08:00") | queued
+    state.create(data)
+    job = state.load("demo")["jobs"]["j1"]
+    assert (job["waits"], "slot" in job, "slot_since" in job) == (["j2"], False, False)
+
+
 def test_a_job_saved_with_one_question_and_card_reads_as_a_list_of_its_questions_once(state_root: Path) -> None:
     make("demo")
     data = state.load("demo")
@@ -3186,17 +3196,6 @@ def test_changed_since_names_each_row_committed_after_a_revision_and_none_once_t
     with edit("demo") as data:
         data["binder"] = "term-3"
     assert state.changed_since("demo", rev)[1] is None
-
-
-def test_a_running_job_queued_for_a_builder_slot_by_its_mac_line_has_a_place_in_line() -> None:
-    from drive import place
-
-    created = "2026-11-16T02:00:00-08:00"
-    data = {"orders": {"o1": {"project": "P", "workstream": "W", "updated": created, "state": "open", "priority": None, "incident": False}}, "jobs": {
-        "j1": {"kind": "builder", "order": "o1", "parts": [], "carries": [], "state": "running", "waits": [state.SLOT_WAIT], "created": created, "where": "local"},
-        "j2": {"kind": "builder", "order": "o1", "parts": [], "carries": [], "state": "done", "waits": [state.SLOT_WAIT], "created": created, "where": "local"},
-    }}
-    assert place.positions(data) == {"j1": "1 of 1 in line"}
 
 
 def test_the_mac_queue_puts_a_priority_orders_waiting_job_first(state_root: Path) -> None:

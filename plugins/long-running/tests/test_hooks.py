@@ -669,7 +669,6 @@ def test_a_fresh_agent_started_on_a_stopped_jobs_brief_leaves_it_stopped_and_its
     proof.write_text("#!/bin/sh\nexit 0\n")
     proof.chmod(0o755)
     with edit("demo") as data:
-        place.queue(data["jobs"]["j1"], state.now())
         data["jobs"]["j1"]["repro"] = str(proof)
     run("job", "set", "j1", "--state", "stopped")
     hook_output(no_file_tools, monkeypatch, capsys, json.dumps(file_call("Edit") | stepped(tmp_path, "Handoff: 681835\nDrive: demo, order o1, job j1")))
