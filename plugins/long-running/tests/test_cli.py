@@ -6837,15 +6837,14 @@ def test_a_staging_line_puts_its_pr_on_the_staging_test_another_order_holds_or_o
     home_repo: None,
     run: Run, with_pr: str, held: str, tester_wait: str | None, home: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    part, under = state.STAGING_TEST.format(number=42), f"Forge-AI/monorepo#43"
+    part, under = state.STAGING_TEST.format(number=42), "Forge-AI/monorepo#43"
     run("order", "add", "--title", "Soak them", "--project", "The drive", "--workstream", "Drive tooling", "soak them", "--kind", "build", "--parts", held)
     assert run("job", "add", "builder", "--order", "o2", "--part", held, "--goal", "soak them on staging", "--builds-nothing")[0] == 0
-    run("job", "add", "builder", "--order", "o1", "--goal", "land the base")
     with state.edit("demo") as data:
         if tester_wait == "its own":
             data["prs"][with_pr]["waits"] = ["j2"]
         if tester_wait == "the PR under it":
-            data["prs"][under] = state.new_pr("https://github.com/Forge-AI/monorepo/pull/43", "j3", "o1") | {"waits": ["j2"]}
+            data["prs"][under] = state.new_pr("https://github.com/Forge-AI/monorepo/pull/43", "j1", "o1") | {"waits": ["j2"]}
             data["prs"][with_pr]["under"] = under
     assert keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\nSTAGING: #42 run the migration twice\n") == (0, "")
     data = state.load("demo")

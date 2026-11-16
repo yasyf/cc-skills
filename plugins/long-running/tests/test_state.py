@@ -14,7 +14,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
-from conftest import LEAD, REAL_DOWN_MAC_BOXES, REAL_SCRATCH, provide
+from conftest import LEAD, REAL_DOWN_MAC_BOXES, REAL_SCRATCH, EnvsRelease, provide
 from drive import cli, github, install, picture, providers, reads, render, served, settled, stage, state
 from drive.state import DriveError
 
@@ -2045,6 +2045,7 @@ def test_a_staging_tests_done_frees_the_prs_held_on_it_only_by_a_check_build_tha
     proof = tmp_path / "proof.sh"
     proof.write_text("#!/bin/sh\nexit 0\n")
     proof.chmod(0o755)
+    provide(monkeypatch, clone, release=EnvsRelease)
     data = state.new_drive("demo", "coordinator", None, str(clone))
     state.create(data)
     data = state.load("demo")
