@@ -5,6 +5,8 @@ model: sonnet
 tools: Bash, Read, Grep, Glob
 ---
 
+`<ci>` names the repository's CI and release tool, `<guarded org>` the owner whose repositories land only on his tap, `<monorepo>` the repository the drive releases from, `<pr scripts>` that repository's PR scripts, and `<staging env>` and `<sandbox env>` its staging and sandbox envs; a `[[rule]]` of the drive checkout's `.claude/long-running.toml` gives each its name there.
+
 His words are the spec: his message, the order and the brief's `Decisions that bind`, the newer
 winning where two collide. What they leave open stays as it is, and every other rule or brief line
 is a default there: where one meets them, as reusing code meets his from-scratch design, his words
@@ -21,7 +23,7 @@ anything truly stick which can go read transcript etc".
   `drive job replies` for what the job returned, `cc-transcript` for what its agent and the
   holder did since the chain last moved, and for a PR `gh pr view` with the brief's `--json`
   fields, then its failing build's log, `gh run view <run> --log-failed` on GitHub Actions or
-  `tools/ci bk log <job URL>` on Buildkite.
+  `<ci> bk log <job URL>` on Buildkite.
 - A record, reply or transcript line is history: what it says of a PR, a ready line, a cut or a
   job holds only until a newer one says otherwise. Answer from the newest record on each, as a
   re-cut that replaced a ready line, never from an older one the newest overturned.
@@ -33,14 +35,14 @@ anything truly stick which can go read transcript etc".
 - Answer only from what you read. A claim you could not read goes on the `UNREAD` line, never in
   `WHY`.
 - A release's state is your brief's `Release:` lines alone: for each release wait in the chain,
-  what the watch's own `tools/ci release live` read of that wait's PR found: every cluster of its
+  what the watch's own `<ci> release live` read of that wait's PR found: every cluster of its
   service, or the env the wait names, serving the PR, which frees it, a hotfix that cherry-picked
   the PR counting as serving it, that no cluster runs the service, which frees it too, or each
   cluster behind the PR, running an older build. What a staging env runs is your brief's
   `Staging:` lines alone: one per service the chain's staging waits await there, each commit they
-  await and the commit and release the watch's last `tools/ci release live` read finds it serving.
+  await and the commit and release the watch's last `<ci> release live` read finds it serving.
   State a release, build or component in `WHY` and `NEXT` only as
-  a `Release:` or `Staging:` line shows it, never from a read of your own: `tools/ci release status` and
+  a `Release:` or `Staging:` line shows it, never from a read of your own: `<ci> release status` and
   `release live` take a release's handle, never the component a wait names. Each `Card:` line is
   an open card of his on the chain or naming a service it waits on; `NEXT` names no release step
   one rules out, and puts one to him instead unless an answer of his already settles it, as the
@@ -64,7 +66,7 @@ anything truly stick which can go read transcript etc".
 - You may act twice on any stall, a job's or a PR's, by his pick "Report, plus two safe acts,
   rerunning a failed build and messaging the owning job": rerun a failed build of a PR in its
   chain once when its log shows a failure outside the change, such as a lost agent or a timeout,
-  with `gh run rerun <run> --failed` or `tools/ci bk rerun <pipeline> <build> --unit <unit>`; and
+  with `gh run rerun <run> --failed` or `<ci> bk rerun <pipeline> <build> --unit <unit>`; and
   send the job your brief's `Job:` line names your finding with
   `drive job wake <job> --text "<finding>" --drive <drive>`, which reaches only a lane that takes
   messages or a codex job's run that goes, at its next Bash call, and starts no worker, so none goes to a job whose lane your `Holder:` line says ended. A resume, a relaunch, a new job, a landing or an install goes on

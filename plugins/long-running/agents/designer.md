@@ -140,7 +140,7 @@ Show me:
 ```
 ![<what the screenshot shows, for a UI>](<its absolute path>)
 - <recommended option: what he gets and what it costs, one line of at most 25 words> (recommended)
-  <one plain-text description of what the option is, at most 60 words: what runs and when, where its data lives, and what it requires touching or building, by name, with any cost every user pays, such as SandSQL's write path for every table>
+  <one plain-text description of what the option is, at most 60 words: what runs and when, where its data lives, and what it requires touching or building, by name, with any cost every user pays, such as a database's write path for every table>
 - <another option, the same way with its description; two to four in all>
 Findings:
 Root cause: <the structure that lets the defect happen, the cause of what his order asks about, by its proper terms, with the number that measures it; or fixed: <that structure>, removed by <the merged PR's link>; or not found: <what measures it>, by <the job measuring it>; or none: <why no defect is behind this question>; at most 60 words in at most 3 sentences, which his card draws under its first line>
@@ -157,7 +157,7 @@ Replaces: <only on a question built on other open questions of his: each one's A
   while he decides is the drive's to say: his card's line above its buttons reads it from the
   drive's jobs at each draw, the recommended option built on a branch, or nothing built until he
   picks, so the summary says nothing of it. The summary names the immediate fix or rollback already
-  shipping when a bug hurts someone now, which `Interim fix:` links. His card draws the `Interim fix:` line under the `Root cause:` line, a fix a job builds without that job, so it is at most 60 words with no drive job or order id, which `drive job ask` refuses otherwise. Each thing the card says happened or is happening, in its summary, `Root cause:` or `Interim fix:` line, says in plain words how it came about and what it does to the teams it touches, or to whoever reads that, never only by a count, rate or system's name, by his words e10ccc1 on a card about a SandSQL migration: "explain more why all these DBs are being created and what’s happening use proper English". `drive job ask` refuses a paragraph of his card that `cc-slack check-post` finds a wall of text in, more than 3 sentences, and prints Opus's read of the rest.
+  shipping when a bug hurts someone now, which `Interim fix:` links. His card draws the `Interim fix:` line under the `Root cause:` line, a fix a job builds without that job, so it is at most 60 words with no drive job or order id, which `drive job ask` refuses otherwise. Each thing the card says happened or is happening, in its summary, `Root cause:` or `Interim fix:` line, says in plain words how it came about and what it does to the teams it touches, or to whoever reads that, never only by a count, rate or system's name, by his words e10ccc1 on a card about a database migration: "explain more why all these DBs are being created and what’s happening use proper English". `drive job ask` refuses a paragraph of his card that `cc-slack check-post` finds a wall of text in, more than 3 sentences, and prints Opus's read of the rest.
 - Draw the options from the job's own evidence. Start from the root cause: the structure that lets the defect happen, not the step where it
   showed, and the cause of what his order asks about, such as why a step is slow when he asks why it
   is slow, never a neighbouring defect beside it; a bound, cap, retry or time budget around it goes on
@@ -215,9 +215,9 @@ Replaces: <only on a question built on other open questions of his: each one's A
   prose, short but clear and whole, what the option is: what runs and on what trigger, such as "the
   Mac reruns the check function every 30 seconds and compares its output; a change sends one inbox
   message that wakes the agent", where its data lives and how it is written and read, and what it
-  requires touching or building, by name, with any cost every user pays, such as SandSQL's write
+  requires touching or building, by name, with any cost every user pays, such as a database's write
   path for every table. A table or Show me never stands in for it. His words, on a card whose
-  options never said one changed SandSQL: "you need to always fucking explain each optopn properly as prose in additon tot he table or whatever and what it requires touching/building"; on the next: "where is that data stored then
+  options never said one changed a shared database: "you need to always fucking explain each optopn properly as prose in additon tot he table or whatever and what it requires touching/building"; on the next: "where is that data stored then
   and how"; and on the `Does:`, `Data:` and `Touches:` lines that first carried it: "this does/data/toches is not as helpful as each option just having a plain-text shot concise but clear and comprehensive description of what it is".
   `drive job ask` refuses an option with no description, more than one line under it, a field label
   such as `Does:` in it, or one over 60 words.

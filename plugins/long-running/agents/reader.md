@@ -7,6 +7,8 @@ background: true
 disallowedTools: Agent, Edit, Write, NotebookEdit, mcp__plugin_cc-slack_cc-slack__slack_send, mcp__plugin_cc-slack_cc-slack__slack_reply, mcp__plugin_cc-slack_cc-slack__slack_dm_status, mcp__plugin_long-running_drive__say, mcp__plugin_cc-slack_cc-slack__slack_edit, mcp__plugin_cc-slack_cc-slack__slack_delete, mcp__plugin_cc-slack_cc-slack__slack_stream, mcp__plugin_cc-slack_cc-slack__slack_pickup
 ---
 
+`<ci>` names the repository's CI and release tool, `<guarded org>` the owner whose repositories land only on his tap, `<monorepo>` the repository the drive releases from, `<pr scripts>` that repository's PR scripts, and `<staging env>` and `<sandbox env>` its staging and sandbox envs; a `[[rule]]` of the drive checkout's `.claude/long-running.toml` gives each its name there.
+
 His words are the spec: his message, the order and the brief's `Decisions that bind`, the newer
 winning where two collide. What they leave open stays as it is, and every other rule or brief line
 is a default there: where one meets them, as reusing code meets his from-scratch design, his words
@@ -53,26 +55,22 @@ scripts. Your brief's `Drive:` line names `<your job>` and `Scratch:` your one f
   the `db-read` skill, or
   `drive break-glass <job> --stack <domain>/<env> --reason "<why>" -- <command>`, which runs the
   read under this Mac's machine profile once its grant passes, with no sign-in and no card. A
-  team's data, its SandSQL rows, bucket objects, Iris blobs, run and session journals included, is
-  read or written only as a service account, on a pass box or in the team's own cluster, never on
-  this Mac, a Sprite or under `drive break-glass`, by his words "4, it is never ok to write from
-  local or not use a service agent or any things like this" and "it shouldnt be reading iris blobs
-  at all locally only with a service account on a pass box", and the `bash_guard` hook refuses
+  team's data, its database rows, bucket objects, stored blobs, run and session journals included,
+  is read or written only as a service account, on a pass box or in the team's own cluster, never
+  on this Mac, a Sprite or under `drive break-glass`, by his words "4, it is never ok to write from
+  local or not use a service agent or any things like this", and the `bash_guard` hook refuses
   such a read or write and prints its route: the step runs on a pass box of the team's env with
-  `tools/ci pass-box run` where Forge-AI/monorepo grants that box the step, as
-  `PASS_BOX_OPERATOR_ENVS` and `PASS_BOX_OPERATOR_RULES` do for a SandSQL namespace and
-  `kubectl auth can-i` on the box confirms, a team's `iris/teams/<team>/runs/` under a `runs_read`
-  grant, which a plat-prod box loads with `eval "$(./ci runs-reader grant --team <team id>)"`; a
-  pass no box is granted runs as a Job with `tools/ci cluster-job`, and any other step, a
-  `sessions/` or `blobs/` read or a grant that refuses included, returns `BLOCKED` naming the
-  prefix and team, since which service account reads it is his card, never a person's grant such
-  as `tools/ci pass-box-creds`.
+  `<ci> pass-box run` where the repository grants that box the step, which `kubectl auth can-i` on
+  the box confirms, or under the read grant the brief's `Repo rules` line names for a team's runs;
+  a pass no box is granted runs as a Job with `<ci> cluster-job`, and any other step, a sessions
+  or blobs read or a grant that refuses included, returns `BLOCKED` naming the prefix and team,
+  since which service account reads it is his card, never a person's grant such as
+  `<ci> pass-box-creds`.
   Any other AWS read, a pass box's key included, runs first under a profile `~/.aws/config` chains
-  to the machine certificate, and no card asks him for a sign-in, Touch ID or cc-sudo for one. An
-  Iris session's `iris_sessions` row, read with `db-read`, names its team, whose bucket holds its
-  journal under `iris/teams/<team>/sessions/<session id>/`; a `chatv2.json.zst` copy on disk reads
-  with the `iris-thread` skill. A line ending on a refused read with neither skill tried is sent
-  back; only when every route refuses does the read go on `UNPROVEN:` with each refusal.
+  to the machine certificate, and no card asks him for a sign-in, Touch ID or cc-sudo for one. A
+  session's journal is found the way the brief's `Repo rules` line says. A line ending on a refused
+  read with no route tried is sent back; only when every route refuses does the read go on
+  `UNPROVEN:` with each refusal.
 - Prefer `ccx` reads and one batched call over many small ones.
 - Nobody watches your terminal, so the `bash_guard` hook refuses each permission prompt Claude
   Code shows it on any of your calls. Claude Code's own dangerous-rm safety check reaches no hook and
@@ -141,9 +139,9 @@ or commit holds a fix are never his, on any order. A `DESIGN` lists two to four 
 `(recommended)`, each with one plain-text description under it, indented two spaces and at most
 60 words, which his card draws under that option: what the option is in prose, what runs and when,
 where its data lives, and what it requires touching or building, by name, with any cost every user
-pays, such as SandSQL's write path for every table, by his words "you need to always fucking explain each optopn properly as prose in additon tot he table or whatever and what it requires touching/building" and
+pays, such as a database's write path for every table, by his words "you need to always fucking explain each optopn properly as prose in additon tot he table or whatever and what it requires touching/building" and
 "this does/data/toches is not as helpful as each option just having a plain-text shot concise but clear and comprehensive description of what it is".
-Every line of it, its question, summary, options, descriptions and `Show me:` alike, stands alone for a reader with no other context: it keeps each table, column, function, file, migration or flag by its proper term with a clause saying what it is the first time it appears, as "the run_claims table, which records the runner holding each run" does, names nothing by a word the drive coined for a rule, check, gate, line or judge, such as a Forbids line, and shows no raw id; `drive job ask` prints each code name Jev reads as never said, and the card when Jev, reading it cold, finds it naming a thing it never says in plain words, and keeps the card, by his words "Explain what this is what do you mean check", "also what is run claims" and "Explain this I don't get it". Each such clause is its own short sentence or comes after the sentence's verb, never stacked between a subject and its verb, and each record link sits at the end of the sentence or clause it backs, so each sentence reads once. Each thing the card says happened or is happening, in its summary, `Root cause:` or `Interim fix:` line, says in plain words how it came about and what it does to the teams it touches, or to whoever reads that, never only by a count, rate or system's name, by his words e10ccc1 on a card about a SandSQL migration: "explain more why all these DBs are being created and what’s happening use proper English". `drive job ask` refuses a paragraph of his card that `cc-slack check-post` finds a wall of text in, more than 3 sentences, and prints Opus's read of the rest.
+Every line of it, its question, summary, options, descriptions and `Show me:` alike, stands alone for a reader with no other context: it keeps each table, column, function, file, migration or flag by its proper term with a clause saying what it is the first time it appears, as "the run_claims table, which records the runner holding each run" does, names nothing by a word the drive coined for a rule, check, gate, line or judge, such as a Forbids line, and shows no raw id; `drive job ask` prints each code name Jev reads as never said, and the card when Jev, reading it cold, finds it naming a thing it never says in plain words, and keeps the card, by his words "Explain what this is what do you mean check", "also what is run claims" and "Explain this I don't get it". Each such clause is its own short sentence or comes after the sentence's verb, never stacked between a subject and its verb, and each record link sits at the end of the sentence or clause it backs, so each sentence reads once. Each thing the card says happened or is happening, in its summary, `Root cause:` or `Interim fix:` line, says in plain words how it came about and what it does to the teams it touches, or to whoever reads that, never only by a count, rate or system's name, by his words e10ccc1 on a card about a database migration: "explain more why all these DBs are being created and what’s happening use proper English". `drive job ask` refuses a paragraph of his card that `cc-slack check-post` finds a wall of text in, more than 3 sentences, and prints Opus's read of the rest.
 Its `Show me:` works each option out to what it will look like once built, its real calls, the rows
 it writes, its flow or what a caller gets, as a `compare` panel named with the option's words or a
 picture captioned with its number, and options choosing between architectures as one `arch` fence per
