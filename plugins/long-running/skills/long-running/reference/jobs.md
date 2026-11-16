@@ -33,9 +33,12 @@ Contents:
   `drive job launch <j> <brief>`. Only a builder whose brief declares a step only this Mac runs, on
   its `Mac:` or `Release:` line below, waits its turn for a slot, held on `builder-slot`;
   `drive status` shows its place, and the watch reads the job waiting, never abandoned.
-  A builder on an open incident's order or on an `immediate fix` part never waits its turn: it
-  starts here at once past the cap and the line, and holds a slot against later builders once it
-  runs.
+  A builder on an open incident's order, on an open order `drive order set <o> --priority` marked
+  first in line, or on an `immediate fix` part never waits its turn: it starts here at once past the
+  cap and the line, and holds a slot against later builders once it runs. A priority order's
+  builder also starts here past the load gate, and one already waiting its turn takes it on the
+  watch's next pass, ahead of every other job in line; his words: "they aren't slowed down at any
+  cost by anything".
   A builder added with `drive job add builder --order <o> --goal "<goal>" --builds-nothing`, one whose whole work holds no
   checkout or compiler, such as a read, or one whose goal reads `prove <PRs> live`, a merged PR's
   live proof, marked or not, holds no slot at all, and `drive job prove` proves the PRs its goal names when no

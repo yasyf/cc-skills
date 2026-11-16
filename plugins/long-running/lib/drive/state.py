@@ -894,6 +894,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         order.setdefault("complex", False)
         order.setdefault("options_only", False)
         order.setdefault("once", False)
+        order.setdefault("priority", False)
         order.pop("releases", None)
         order.pop("shipped", None)
         order.setdefault("proof", None)
@@ -3316,6 +3317,7 @@ def new_order(text: str, source: str, thread: tuple[str, str] | None, parts: dic
         "complex": False,
         "options_only": False,
         "once": False,
+        "priority": False,
         "owner": None,
         "project": None,
         "workstream": None,
@@ -4601,6 +4603,11 @@ def show_overdue(name: str, caller: str, shown: list[list]) -> bool:
 
 def open_incidents(data: dict, order_ids: list[str]) -> list[str]:
     return [order_id for order_id in order_ids if data["orders"][order_id]["incident"] and data["orders"][order_id]["state"] not in CLOSED_ORDER_STATES]
+
+
+def first_in_line(data: dict, job: dict) -> bool:
+    """Whether the job serves an open order marked first in line by drive order set --priority, its own or one it carries, so it starts ahead of every other order's work at each admission point."""
+    return any(data["orders"][order_id]["priority"] and data["orders"][order_id]["state"] not in CLOSED_ORDER_STATES for order_id in [job["order"], *job["carries"]])
 
 
 def hurts_now(data: dict, order: dict) -> bool:

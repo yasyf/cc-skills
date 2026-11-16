@@ -204,6 +204,33 @@ def test_an_open_incidents_fix_builder_and_an_immediate_fix_start_here_at_once_w
     assert "so j9 starts on a Sprite at once" in agent_brief.deny_reason(briefed("long-running:builder", f"{order}order o1, job j9"))
 
 
+def test_a_priority_orders_builder_starts_here_at_once_past_a_full_cap_the_line_and_the_load_gate_and_one_already_in_line_takes_its_turn_first(
+    demo: str, run: Run, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "tidy the docs", "--parts", *(f"part {number}" for number in range(1, 9)), "docs")
+    for number in range(1, 9):
+        run("job", "add", "builder", "--order", "o1", "--part", f"part {number}", "--goal", f"build part {number}", "--agent", f"a{number}")
+    run("job", "add", "builder", "--order", "o1", "--part", "docs", "--goal", "tidy the docs")
+    run("order", "add", "--title", "Short title", "--project", "Releases", "--workstream", "Hotfix", "ship his fix alone first", "--parts", "the hotfix", "the cut")
+    run("job", "add", "builder", "--order", "o2", "--part", "the hotfix", "--goal", "build the hotfix")
+    with state.edit(demo) as data:
+        for job_id in ("j9", "j10"):
+            place.queue(data["jobs"][job_id], state.now())
+    data = state.load(demo)
+    assert (place.waiting_builders(data), place.turns(data, state.now())) == (["j9", "j10"], ([], 8))
+    assert run("order", "set", "o2", "--priority")[0] == 0
+    data = state.load(demo)
+    assert (data["orders"]["o2"]["priority"], data["orders"]["o1"]["priority"]) == (True, False)
+    assert (place.waiting_builders(data), place.turns(data, state.now()), place.crowded(data, "j10", state.now())) == (["j10", "j9"], (["j10"], 8), None)
+    assert run("job", "add", "builder", "--order", "o2", "--part", "the cut", "--goal", "cut it", "--repo", "Forge-AI/monorepo") == (0, "j11")
+    assert state.load(demo)["jobs"]["j11"]["where"] == "local"
+    monkeypatch.setattr(place, "busy", lambda: 0.95)
+    monkeypatch.setattr(place, "limit", lambda: 0.5)
+    assert agent_brief.deny_reason(briefed("long-running:builder", "Order (his words): ship his fix alone first\nServes: his order\nGoal: cut it\nDrive: demo, order o2, job j11")) is None
+    assert run("order", "set", "o2", "--no-priority")[0] == 0
+    assert place.crowded(state.load(demo), "j10", state.now()).startswith("8 builders already run on this Mac")
+
+
 def test_a_builder_whose_wait_still_holds_starts_here_only_on_its_free_line_by_the_refusal_drive_job_launch_gives(demo: str, run: Run) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "copy one store", "--parts", "the interface", "the reads")
     run("job", "add", "builder", "--order", "o1", "--part", "the interface", "--goal", "build the interface")
