@@ -1987,9 +1987,12 @@ def migrate(name: str) -> None:
 def wait_unstarted(name: str, data: dict) -> None:
     """Record each job an older install recorded running, or waiting under its waits line, though no worker or codex-ask run ever started it, as drive job add records one now, waiting and said not started, so none reads at work while nobody works it and the watch's ORPHAN names it; marked so this runs once."""
     if stale := [job_id for job_id, job in data["jobs"].items() if untaken(job) and not (job["worker_started"] or job.get("codex_run")) and (job["said"] or "waits on ").startswith("waits on ")]:
-        with edit(name) as data:
+
+        def unstarted(data: dict) -> None:
             for job_id in stale:
                 data["jobs"][job_id].update(state="waiting", said=NOT_STARTED)
+
+        update(name, None, unstarted)
     (drive_dir(name) / UNSTARTED_WAITING).touch()
 
 
