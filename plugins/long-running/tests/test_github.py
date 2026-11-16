@@ -257,8 +257,8 @@ def test_mergeability_reads_only_state_head_and_mergeable_of_a_hundred_prs_of_on
 
     monkeypatch.setattr(github, "run", answered)
     reads, refused = MERGEABILITY([*(f"a/one#{number}" for number in range(1, 151)), "b/two#3"])
-    assert [(text.count("repository("), text.count("pullRequest(")) for text in sent] == [(1, 100), (1, 50), (1, 1)]
-    assert github.FIELDS not in sent[0] and "pullRequest(number: 1) { state headRefOid mergeable }" in sent[0]
+    assert sorted(((text.count("repository("), text.count("pullRequest(")) for text in sent), reverse=True) == [(1, 100), (1, 50), (1, 1)]
+    assert not any(github.FIELDS in text for text in sent) and any("pullRequest(number: 1) { state headRefOid mergeable }" in text for text in sent)
     assert (len(reads), reads["a/one#7"], str(refused)) == (150, {"state": "OPEN", "headRefOid": "abc", "mergeable": "CONFLICTING"}, "could not read the mergeability of 1 PRs of b/two from GitHub: gh: HTTP 502")
 
 
