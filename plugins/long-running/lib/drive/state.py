@@ -460,13 +460,16 @@ def limit_reset(resets: str, zone: ZoneInfo, moment: datetime) -> datetime:
 
 def keep_limit_hit(names: list[str], session: str, cwd: str, hit: dict) -> str | None:
     """Keep a session's stop on a usage limit, with whether Escape dismissed the dialog it drew in its terminal: a line of the usage-limit log every drive on this Mac shares, since they share one account, and, on the job whose lane on this Mac runs in the session's worktree, a hit beside the others it met, which neither fails nor relaunches it; that job, or None for a session no job's lane runs, such as a role's."""
+
+    def hit_kept(data: dict) -> str | None:
+        job_id = next((found for found, job in data["jobs"].items() if job.get("worktree") == cwd and job["state"] not in FINISHED_JOB_STATES), None)
+        if job_id:
+            data["jobs"][job_id].setdefault("limit_hits", []).append(hit)
+        return job_id
+
     job_id = None
     for name in names:
-        with edit(name) as data:
-            job_id = next((found for found, job in data["jobs"].items() if job.get("worktree") == cwd and job["state"] not in FINISHED_JOB_STATES), None)
-            if job_id:
-                data["jobs"][job_id].setdefault("limit_hits", []).append(hit)
-        if job_id:
+        if job_id := update(name, None, hit_kept):
             break
     log = root() / USAGE_LIMIT_LOG
     log.parent.mkdir(parents=True, exist_ok=True)
