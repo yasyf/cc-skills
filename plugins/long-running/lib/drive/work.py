@@ -22,7 +22,8 @@ READS_PER_PASS = 12
 CUT_SHAPE = {"cut_items": 6, "cut_minutes": 30, "train_minutes": 60, "promotion_minutes": 30, "ci_minutes": 20, "start_moves": 10, "cut_steps": ""}
 CUT_STEPS = "start one cut on {env} of the items' PR heads through the release provider, then run the items' cases once staging serves it"
 STALL_AFTER = timedelta(minutes=10)
-DONE_WHEN = "drive work pull --worker {worker} prints NONE or HOLD and every item it gave you is reported; return DONE ran <each item you reported>"
+DONE_WHEN = "drive work pull --worker {worker} prints NONE or HOLD and every item it gave you is reported; then end in two steps, in this order: pipe `DONE ran <each item you reported>` into `drive job report {worker} -` from a quoted heredoc, and once it is kept, end on that line alone"
+ENDS = "pipe `DONE ran <each item you reported>` into `drive job report {worker} -` from a quoted heredoc, and once it is kept, end on that line alone, since ending first sends it back to you for the report, a whole extra turn"
 ADDRESSED = " Where an item's brief or handoff names a lane its result goes to, such as `post the result there and to lane fable-fix`, post that lane the item's result as it says, beside its drive work done."
 
 
@@ -310,7 +311,7 @@ class StageTest(Kind):
         " 2) Read every item's brief and last return whole. Their cases all run on the one cut the GO line names: post one staging claim naming every PR, start one release carrying every item's PR head, and take one Mac box for the whole group when a brief asks for one."
         " 3) Once staging serves the cut, run each item's cases as its brief says, and as each finishes pipe its whole return, in the shape its brief asks, CASE lines and all, into `drive work done {worker} <item> -` from a quoted heredoc; an item whose case waits on something returns `WAITING <what>` the same way and keeps its place in the cut for a later worker, while any other return, an ASK included, gives its place back, so staging never waits on his card."
         " 4) Go to 1."
-        " 5) Give back any Mac box you took, then return. Never start a second cut while `drive work pull` says the queue's cut still holds the slot, and never report an item another worker holds."
+        " 5) Give back any Mac box you took, then " + ENDS + ". Never start a second cut while `drive work pull` says the queue's cut still holds the slot, and never report an item another worker holds."
     )
 
     def matches(self, data: dict, job: dict) -> bool:
@@ -409,7 +410,7 @@ class Prove(Kind):
         " 1) Run `drive work pull --worker {worker}`: it prints your group, each item's job id, its brief and, for an item that ran before, the `drive job report <item>` that prints its last return; on `NONE` or `HOLD` go to 4. Give back an item that does not fit the group, naming why, with `drive work back {worker} <item> \"<why>\"`, and another worker takes it."
         " 2) For each item, read its brief and last return whole and do what its handoff says: install by the INSTALL: line it names, or run its after-merge staging pass, then write its proof file from the PROVE: lines it names, keep it with `drive job set <item> --repro <file>` and run `drive job prove <item>`, whose exit 0 takes the item's DONE. An item whose proof cannot pass yet returns `WAITING <what>` or `BLOCKED <why>` by piping its whole return into `drive work done {worker} <item> -` from a quoted heredoc."
         " 3) Go to 1."
-        " 4) Return. Never report an item another worker holds."
+        " 4) End: " + ENDS + ". Never report an item another worker holds."
     )
 
     def matches(self, data: dict, job: dict) -> bool:
@@ -429,7 +430,7 @@ class Build(Kind):
         " 1) Run `drive work pull --worker {worker}`: it prints your group, each item's job id and brief; on `NONE` or `HOLD` go to 4. Give back an item that does not fit the group, naming why, with `drive work back {worker} <item> \"<why>\"`, and another worker takes it."
         " 2) For each item, read its brief whole and build it as a builder builds its own job, the item's id standing for your job wherever agents/builder.md names it, such as `drive pr add <url> --job <item>`, in the order the pull lists them, each on the branch its brief names or stacked on the one before it, and when it is pushed or blocked pipe its whole return, in the shape agents/builder.md gives a builder's, into `drive work done {worker} <item> -` from a quoted heredoc."
         " 3) Go to 1."
-        " 4) Return. Never push a branch another worker builds, and never report an item another worker holds."
+        " 4) End: " + ENDS + ". Never push a branch another worker builds, and never report an item another worker holds."
     )
 
     def matches(self, data: dict, job: dict) -> bool:
@@ -474,7 +475,7 @@ class Research(Kind):
         " 1) Run `drive work pull --worker {worker}`: it prints your group, each item's job id, its brief and, for an item that ran before, the `drive job report <item>` that prints its last return; on `NONE` or `HOLD` go to 4. Give back an item that does not fit the group, naming why, with `drive work back {worker} <item> \"<why>\"`, and another worker takes it."
         " 2) For each item, read its brief and last return whole and answer it as a reader answers its own job, the item's id standing for your job wherever agents/reader.md names it, then pipe its whole return, in the shape agents/reader.md gives a reader's, into `drive work done {worker} <item> -` from a quoted heredoc."
         " 3) Go to 1."
-        " 4) Return. Never report an item another worker holds."
+        " 4) End: " + ENDS + ". Never report an item another worker holds."
     )
 
     def matches(self, data: dict, job: dict) -> bool:
@@ -500,7 +501,7 @@ class Design(Kind):
         " 1) Run `drive work pull --worker {worker}`: it prints your item, its job id, its brief and, for an item that ran before, the `drive job report <item>` that prints its last return; on `NONE` or `HOLD` go to 4. Give back an item that does not fit the group, naming why, with `drive work back {worker} <item> \"<why>\"`, and another worker takes it."
         " 2) Read its brief and last return whole and design it as a designer designs its own job, the item's id standing for your job wherever agents/designer.md names it, then pipe its whole return, in the shape agents/designer.md gives a designer's, into `drive work done {worker} <item> -` from a quoted heredoc."
         " 3) Go to 1."
-        " 4) Return. Never report an item another worker holds."
+        " 4) End: " + ENDS + ". Never report an item another worker holds."
     )
 
     def matches(self, data: dict, job: dict) -> bool:

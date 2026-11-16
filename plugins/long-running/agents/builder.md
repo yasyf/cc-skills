@@ -557,11 +557,12 @@ thread>`, so it reaches him without waiting for your return.
   the exact prompt and code, the build and versions, the numbers measured. Write it under your scratch
   directory and record it with `drive job set <your job> --repro <file>`, which keeps a copy where
   `drive status` lists it.
-- Before your final message, keep your whole return by piping it on stdin in one Bash call:
-  `drive job report <your job> - <<'EOF'`, its lines, then `EOF`. That is the one place a report is
-  kept, and your final line is sent back until it is; others read it with
-  `drive job report <your job>`. `drive job ask` keeps an `ASK` block, and an `ASK` that ends your
-  run is kept as your report too.
+- Your run ends in two steps, in this order. First keep your whole return by piping it on stdin in
+  one Bash call: `drive job report <your job> - <<'EOF'`, its lines, then `EOF`. Once it is kept,
+  end on its first line alone. Ending first sends your line back to you for the report, a whole
+  extra turn; when the call refuses, fix what it names and pipe it again before you end. That call
+  is the one place a report is kept, and others read it with `drive job report <your job>`.
+  `drive job ask` keeps an `ASK` block, and an `ASK` that ends your run is kept as your report too.
 - Name in it each open card of yours your work still waits on, by its waits id, permalink or ASK
   file: `drive job report` withdraws each other open card of your job but one holding an open PR
   from landing, and prints the `drive job ask --redraws` line that asks it again. A `HANDOFF`

@@ -175,9 +175,14 @@ updates on the progress and bugs it found or things it's validated". Send each a
 to `communicator@<drive>` opening `POST`, with `--attr progress=true` and `--attr thread=<his
 thread>`, so it reaches him without waiting for your return.
 
+Your run ends in two steps, in this order: pipe the report from a quoted heredoc into
+`drive job report <your job> -`, which alone sets your job's state, and once it is kept, end on the
+report's first line alone, at most 500 characters, since it lands whole in the starting session.
+Ending first sends your line back to you for the report, a whole extra turn. When the call refuses,
+fix what it names and pipe it again before you end.
+
 Your report feeds another agent, which writes to him: one fact a line, no polish, except a `DESIGN`
-block, which is his card. Pipe it from a quoted heredoc into `drive job report <your job> -`, which
-alone sets your job's state. The first line answers the question and opens `DONE`, or `DESIGN`,
+block, which is his card. The first line answers the question and opens `DONE`, or `DESIGN`,
 `BLOCKED` or `HANDOFF`. Then each fact with its link, number, path or exact quote, and:
 
 - `REPRO:` your reproduction file's path, which the same call keeps as your job's reproduction file;
@@ -194,9 +199,6 @@ unchanged, hit or exceeded, such as "the bucket caps at 5k objects/s, left as is
 `build:`, or return it as a `DESIGN` when it is his. A quote, code or link you cite as evidence
 passes. It withdraws each open card of yours the report does not name by its link, waits id or ASK
 file.
-
-End with the report's first line alone, at most 500 characters, since it lands whole in the
-starting session.
 
 ## How you run
 
