@@ -3511,9 +3511,11 @@ def fix_shipped(name: str, builder_id: str) -> str:
 
 
 def session_of(job: dict, data: dict) -> dict | None:
-    """The bound session whose agent runs a local job."""
+    """The bound session whose agent runs a local job; for an agent drive job start started as its own `claude --bg` session, which outlives the session that held its order, the coordinator's once that one is bound no more, so a restart of the drive's sessions reads none of those agents as ended."""
     session = job.get("session")
-    return next((held for held in state.bound_sessions(data).values() if session and held["session"] == session), None)
+    bound = state.bound_sessions(data)
+    held = next((held for held in bound.values() if session and held["session"] == session), None)
+    return held or (bound["coordinator"] if state.own_session(job) else None)
 
 
 def local_gap(job_id: str, job: dict, data: dict, moment: datetime) -> str | None:
@@ -4365,8 +4367,8 @@ def send_held(watcher: Watcher, job_id: str, moment: datetime) -> int:
 
 
 def starts_itself(job: dict) -> bool:
-    """Whether the watch starts a job's first worker itself, by start_jobs: a briefed builder or reader no agent, lane or start took yet, on this Mac by drive job start, or on a Sprite by drive job launch when it was placed there."""
-    return job["kind"] in ("builder", "reader") and bool(job.get("brief")) and not (job.get("agent") or job.get("dispatch") or job.get("bg"))
+    """Whether the watch starts a job's first worker itself, by start_jobs: a briefed builder, reader or design job no agent, lane or start took yet, on this Mac by drive job start, or on a Sprite by drive job launch when it was placed there."""
+    return job["kind"] in state.STARTS_ITSELF and bool(job.get("brief")) and not (job.get("agent") or job.get("dispatch") or job.get("bg"))
 
 
 def start_jobs(watcher: Watcher, moment: datetime, first: bool = False) -> None:

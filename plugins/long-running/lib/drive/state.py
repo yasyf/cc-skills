@@ -41,6 +41,7 @@ TURN_ENDS = ("worker_done", "escalation")
 EARLIER_RETURN = "--- an earlier return, kept {at} ---"
 EARLIER_LINE = "an earlier return, kept {at}: {line}"
 JOB_ID = re.compile(r"j\d+")
+STARTS_ITSELF = ("builder", "reader", "design")
 JOB_AGENTS = {"builder": ("long-running:builder",), "reader": ("long-running:reader",), "design": ("long-running:designer",), "codex": ("long-running:builder",)}
 JOB_STATES = ("running", "waiting", "built", "done", "failed", "stopped")
 ENDED_JOB_STATES = ("failed", "stopped")
@@ -1356,6 +1357,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         kept.setdefault("pinned", False)
     for job in data["jobs"].values():
         job.pop("may_settle", None)
+        if job.get("bg"):
+            job["bg"].setdefault("pool", False)
         for question in job["questions"]:
             question.setdefault("refused", None)
             if "settled" in question:

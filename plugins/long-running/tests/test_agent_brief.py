@@ -483,7 +483,7 @@ def test_drive_job_start_starts_a_briefed_reader_as_its_own_session_bound_as_the
     assert run("job", "start", "j1")[0] == 0
     [(job_id, agent, call)] = launches
     assert (job_id, call["subagent_type"], call["prompt"]) == ("j1", "long-running:reader", f"Read your brief first: {kept}")
-    assert state.load(demo)["jobs"]["j1"]["bg"] | {"started": None} == {"agent": agent, "session": "bg-session", "started": None, "cwd": str(tmp_path), "pointed": []}
+    assert state.load(demo)["jobs"]["j1"]["bg"] | {"started": None} == {"agent": agent, "session": "bg-session", "started": None, "cwd": str(tmp_path), "pointed": [], "pool": False}
     monkeypatch.setattr(agents, "gone", lambda entry: False)
     assert run("job", "start", "j1")[0] == 2
     assert len(launches) == 1
@@ -495,6 +495,10 @@ def test_drive_job_start_starts_a_briefed_reader_as_its_own_session_bound_as_the
         data["jobs"]["j1"].update(agent=agent, where="local", session=os.environ["CLAUDE_CODE_SESSION_ID"], state="running")
     assert state.agent_address(state.load(demo)["jobs"]["j1"]) == "peer:bg-session"
     assert watch.carrier("j1", state.load(demo)["jobs"]["j1"], state.load(demo), None) == ["job", "resume", "j1"]
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["session"] = "earlier-session"
+    data = state.load(demo)
+    assert (watch.session_of(data["jobs"]["j1"], data)["session"], watch.agent_death(data["jobs"]["j1"], data)) == (data["roles"]["coordinator"]["session"], None)
 
 
 def test_the_load_gate_reads_the_machine_caps_json_injects_and_closes_on_load_or_memory(monkeypatch: pytest.MonkeyPatch) -> None:
