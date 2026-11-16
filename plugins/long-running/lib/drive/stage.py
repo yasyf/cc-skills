@@ -86,7 +86,7 @@ def alone(data: dict, key: str, cards: dict) -> Stage:
             return Stage("blocked", HIM, f"its builder {pr['job']} waits on {', '.join(fix_words(data, wait, cards) for wait in mine)}")
         return Stage("unlanded", ORDER, ended)
     if step := owed(data, key):
-        if (waits := answered(data, key, step)) is not None and (waits := waits or onward(data, owner_job(data, key), cards)):
+        if (waits := answered(data, key, step)) is not None and (waits := waits or beyond_own(data, owner_job(data, key), cards)):
             return blocked(data, key, step, waits, cards)
         return Stage("rework", BUILDER, step) if pr["rework"] else flake_red(data, key, step, cards) or Stage("red", BUILDER, step)
     if built := state.built_base(data, pr):
@@ -408,9 +408,14 @@ def fixer(data: dict, key: str) -> str | None:
 
 
 def parked(data: dict, key: str) -> bool:
-    """Whether the job answering for a PR stands on a WAITING whose waits have not ended, by onward(), so the PR's stage wakes it again only when one ends or its stage changes, never on the clock: each repeat costs its session a turn for nothing it can do."""
+    """Whether the job answering for a PR stands on a kept WAITING or ASK whose waits beyond its own PRs have not ended, by onward(), so the PR's stage wakes it again only when one ends or its stage changes, never on the clock: each repeat costs its session a turn for nothing it can do."""
     owner = owner_job(data, key)
-    return bool(owner) and data["jobs"][owner]["state"] == "waiting" and bool(onward(data, owner, None))
+    return bool(owner) and data["jobs"][owner]["state"] == "waiting" and bool(data["jobs"][owner]["waited"]) and bool(beyond_own(data, owner, None))
+
+
+def beyond_own(data: dict, job_id: str, cards: dict | None) -> list[str]:
+    own = [key for key, pr in data["prs"].items() if pr["url"] in data["jobs"][job_id]["prs"]]
+    return [wait for wait in onward(data, job_id, cards) if wait not in own]
 
 
 def owner_job(data: dict, key: str) -> str | None:
