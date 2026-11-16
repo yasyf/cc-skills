@@ -7558,6 +7558,43 @@ def test_a_waiting_line_naming_a_teammates_reply_to_the_drives_question_keeps_th
     assert (job["state"], job["waits"]) == ("waiting", [f"reply:{question}"])
 
 
+def test_a_job_waits_on_another_drives_next_record_after_one_on_a_topic_and_never_on_one_of_its_own_drive_one_with_no_topic_or_none_as_j276s_free_staging_line_needed(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "test on staging once durable-agents frees it")
+    tester = run("job", "add", "builder", "--order", "o1", "--goal", "test on staging")[1].splitlines()[0]
+    rerun = run("job", "add", "builder", "--order", "o1", "--goal", "rerun the soak")[1].splitlines()[0]
+    held = {
+        "722599": {"seq": 722599, "drive": "durable-agents", "lane": "root", "kind": "answer", "topic": "o78-staging-collision", "text": "Start no staging run before my FREE line on this topic"},
+        "722600": {"seq": 722600, "drive": "demo", "lane": "meta", "kind": "ask", "topic": "o78-staging-collision", "text": "Is staging free?"},
+        "722601": {"seq": 722601, "drive": "durable-agents", "lane": "root", "kind": "note", "text": "staging runs release 2"},
+    }
+    shown: list[list[str]] = []
+    unstubbed = reads.run
+
+    def show(argv: list[str], checkout: Path, env: dict | None = None, bounded: bool = True, stdin: str | None = None) -> str:
+        if argv[:3] != ["cci", "show", "--json"]:
+            return unstubbed(argv, checkout, env, bounded, stdin)
+        shown.append(argv[3:])
+        if missing := [seq for seq in argv[3:] if seq not in held]:
+            raise reads.ReadError(f"cci show exited 1: cci: show: no record #{missing[0]}")
+        return "".join(json.dumps(held[seq]) + "\n" for seq in argv[3:])
+
+    monkeypatch.setattr(reads, "run", show)
+    code, err = keep(monkeypatch, capsys, tester, "WAITING durable-agents' FREE line, reply:cci:722600 and reply:cci:722601\n")
+    assert (code, "722600 is a record of demo, whose own next line on its topic would end the wait" in err, "722601 has no topic, so no record follows it on one" in err) == (2, True, True)
+    code, err = keep(monkeypatch, capsys, tester, "WAITING reply:cci:722602\n")
+    assert (code, "cci could not read the record at 722602 that reply:cci:<seq> follows: cci show exited 1: cci: show: no record #722602" in err) == (2, True)
+    assert keep(monkeypatch, capsys, tester, "WAITING root@durable-agents's FREE line on o78-staging-collision, reply:cci:722599\n") == (0, "")
+    data = state.load("demo")
+    assert (data["jobs"][tester]["state"], data["jobs"][tester]["waits"], state.card_wait(data, "reply:cci:722599"), view.holding(data, ["reply:cci:722599"], None)) == ("waiting", ["reply:cci:722599"], False, ["reply:cci:722599"])
+    assert cli.main(["job", "set", rerun, "--waits", "reply:cci:722600"]) == 2
+    assert "722600 is a record of demo" in capsys.readouterr().err
+    assert run("job", "set", rerun, "--waits", "reply:cci:722599")[0] == 0
+    assert state.load("demo")["jobs"][rerun]["waits"] == ["reply:cci:722599"]
+    assert shown == [["722600", "722601"], ["722602"], ["722599"], ["722600"], ["722599"]]
+
+
 def test_a_waiting_waits_only_on_what_its_first_line_names_that_still_holds_never_its_body_as_j3122s_codex_reply_citing_merged_prs_did(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

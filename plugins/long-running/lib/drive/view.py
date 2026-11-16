@@ -326,7 +326,7 @@ def waits_id(drive: dict, listed: list[dict], wait: str) -> str:
 
 
 def holding(drive: dict, waits: list[str], found: dict | None) -> list[str]:
-    """The waits of a job or PR that still hold: each of his cards still open, each job whose work is still to come, each job's next report until a report or its end comes, each PR still open or folded into another open PR's branch, by github.landing, each PR the drive does not track until the watch's GitHub read finds it merged or closed, by state.untracked_wait, each part of an open order until it is delivered, or whatever any job's DONE and the order's state read while open PRs of other jobs outside one stack wait on it, since one DONE never proves each of them, each release until the watch sees it out while its PR is not closed unmerged, a staging test's soak commit until the watch sees its env's target serve it, each Buildkite build until the watch reads it finished or stopped at an approve step, each process on this Mac until it ends, each teammate's reply until the watch reads it, each teammate's review of a PR's head until the watch's GitHub read finds it landed there, and a builder slot on this Mac until the watch gives the job its turn."""
+    """The waits of a job or PR that still hold: each of his cards still open, each job whose work is still to come, each job's next report until a report or its end comes, each PR still open or folded into another open PR's branch, by github.landing, each PR the drive does not track until the watch's GitHub read finds it merged or closed, by state.untracked_wait, each part of an open order until it is delivered, or whatever any job's DONE and the order's state read while open PRs of other jobs outside one stack wait on it, since one DONE never proves each of them, each release until the watch sees it out while its PR is not closed unmerged, a staging test's soak commit until the watch sees its env's target serve it, each Buildkite build until the watch reads it finished or stopped at an approve step, each process on this Mac until it ends, each teammate's reply and each other drive's next record on a topic until the watch reads it, each teammate's review of a PR's head until the watch's GitHub read finds it landed there, and a builder slot on this Mac until the watch gives the job its turn."""
     return [wait for wait in waits if holds(drive, wait, found)]
 
 
@@ -962,7 +962,7 @@ def wait_entry(drive: dict, wait: str, found: dict) -> dict:
     if build := github.BUILD.fullmatch(wait):
         return {"title": build_title(build), "url": wait}
     if reply := state.REPLY_WAIT.fullmatch(wait):
-        return {"title": "a teammate's reply to the drive's question", "url": reply["link"]}
+        return {"title": f"another drive's next record after its record {reply['seq']} on that topic", "url": None} if reply["seq"] else {"title": "a teammate's reply to the drive's question", "url": reply["link"]}
     if review := state.REVIEW_WAIT.fullmatch(wait):
         return {"title": f"{review['login']}'s review of its head on GitHub", "url": None}
     if wait == state.SLOT_WAIT:

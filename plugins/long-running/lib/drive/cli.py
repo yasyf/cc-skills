@@ -4315,7 +4315,7 @@ def pr_set(args: argparse.Namespace) -> int:
             " the PR makes, or --design none: a design he never answered goes back as a question, never on a card"
         )
     if replies := [wait for wait in args.waits if state.REPLY_WAIT.fullmatch(wait)]:
-        raise DriveError(f"--waits {', '.join(replies)}: refused, nothing set: a teammate's reply frees the job waiting on it, never a PR: drive job set {before['job']} --waits <it>")
+        raise DriveError(f"--waits {', '.join(replies)}: refused, nothing set: a teammate's reply or another drive's next record frees the job waiting on it, never a PR: drive job set {before['job']} --waits <it>")
     if cards := [wait for wait in args.waits if state.card_wait(known, wait) and not state.PR_KEY.fullmatch(wait) and not state.ORDER_PART.fullmatch(wait)]:
         raise DriveError(
             f"--waits {', '.join(cards)}: refused, nothing set: a card of his holds a PR from landing only by its question's Holds: line,"
@@ -4421,7 +4421,7 @@ def withdrawal(args: argparse.Namespace) -> str | None:
 
 
 def check_waits(name: str, waits: list[str]) -> dict | None:
-    """Refuse a wait that names nothing the drive can wait on, note each release wait whose service never carries its PR's change by unreached, and give back his cards as last stored, which view.stored_waits reads each card's waits id from."""
+    """Refuse a wait that names nothing the drive can wait on, a reply:cci:<seq> among them naming no other drive's record on a topic, by state.anchors, note each release wait whose service never carries its PR's change by unreached, and give back his cards as last stored, which view.stored_waits reads each card's waits id from."""
     from drive import view
 
     if not waits:
@@ -4437,7 +4437,8 @@ def check_waits(name: str, waits: list[str]) -> dict | None:
             raise DriveError(f"--waits {wait}: name a part of {named[1]} still to be delivered, word for word, as {named[1]}:<part>: {'; '.join(left) or 'none is left'}{staging}")
         if state.PID_WAIT.fullmatch(wait) and not state.pid_waits(wait):
             raise DriveError(f"--waits {wait}: no process on this Mac holds that number now, so nothing is left to wait on")
-    cards = [wait for wait in waits if state.card_wait(data, wait)]
+    state.anchors(data, waits)
+    cards =[wait for wait in waits if state.card_wait(data, wait)]
     found = view.live_cards(name)
     if not all(view.card_open(wait, found) for wait in cards):
         view.refresh_cards(name)
@@ -4451,7 +4452,8 @@ def check_waits(name: str, waits: list[str]) -> dict | None:
                 " names it, held until every cluster of that service, or that one env, serves a commit holding the PR's merge, either one moving to the change"
                 " of the job that opened the PR once it closes unmerged, a Buildkite build by its link,"
                 " https://buildkite.com/<org>/<pipeline>/builds/<n>, held until it finishes or stops at an approve step, or"
-                " reply:<the permalink of a question the drive asked a teammate>, held until their reply"
+                " reply:<the permalink of a question the drive asked a teammate>, held until their reply, or reply:cci:<the seq of another drive's record>,"
+                " held until that drive's next record on its topic"
             )
     unreached(name, data, waits)
     return found
@@ -5695,6 +5697,7 @@ def parser() -> argparse.ArgumentParser:
             " a process on this Mac that still runs as pid:<n>, stored pinned to the second it started,"
             " a Buildkite build by its link, https://buildkite.com/<org>/<pipeline>/builds/<n>,"
             " reply:<the permalink of a question the drive asked a teammate>, say's job field setting it,"
+            " reply:cci:<the seq of another drive's cci record>, held until the watch's minute read finds that drive's next record on its topic, whose words it holds on the job,"
             " on drive pr set alone review:<a teammate's GitHub login>, their review of the PR's head, which holds his card from drawing and the PR from landing"
             " until the watch's GitHub read finds their newest review is of its head, said on the PR's line,"
             " or a job of this drive still at work, of any kind, it waits on;"
@@ -6110,7 +6113,7 @@ def parser() -> argparse.ArgumentParser:
         metavar="CARD|PR|RELEASE|BUILD|JOB|PART",
         help=(
             "a card of his still open, a PR the drive tracks as <owner>/<repo>#<n> or release:<service>:<owner>/<repo>#<n>, a Buildkite build by its link, a part of an open order as <order>:<part>,"
-            " a teammate's reply as reply:<the question's permalink>, or a job"
+            " a teammate's reply as reply:<the question's permalink>, another drive's next record as reply:cci:<the seq of the record it follows>, or a job"
             " of this drive still at work, of any kind, a reader that just started included, as job set takes them, that this job waits on: it is recorded"
             " waiting with no agent, so its part is never in no job, and the watch says FREE once the last wait ends, when its agent starts"
         ),
