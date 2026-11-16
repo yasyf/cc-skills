@@ -493,6 +493,14 @@ def test_say_posts_no_reference_token_or_stub_line_its_text_or_blocks_still_hold
     assert posts == []
 
 
+def test_a_block_post_slack_shows_as_text_alone_or_drops_a_block_of_is_said_to_its_writer(monkeypatch: pytest.MonkeyPatch) -> None:
+    link = "https://acme.slack.com/archives/C1/p1794829439040349?thread_ts=1794827701.310319"
+    blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": "*Cases*"}}, {"type": "table", "rows": []}]
+    for shown, said in (([{"type": "rich_text"}], "shows this post as its text alone"), ([{"type": "section"}], "dropped its table blocks"), ([{"type": "section"}, {"type": "table"}], None)):
+        monkeypatch.setattr(slack, "cc_slack", lambda *argv, shown=shown: {"messages": [{"ts": "1794829439.040349", "raw": {"blocks": shown}}]})
+        assert (said in found) if said and (found := talk.drawn_as(link, blocks)) else talk.drawn_as(link, blocks) is None, shown
+
+
 def test_say_posts_the_words_its_hook_judged_and_checks_none_of_them_again(demo: str, posts: list[tuple[str, ...]], checked: Checked) -> None:
     checked.findings = ["1:5 drive-term 'fence': say what happens to the reader's work instead"]
     with state.edit(demo) as data:
