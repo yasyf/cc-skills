@@ -264,7 +264,7 @@ def flake_retry(words: list[str], cwd: str) -> str | None:
 
 
 def rerun_target(words: list[str], cwd: str) -> tuple[str, Callable[[], tuple[str, str]]] | None:
-    """The step a command reruns with and the read of what it reruns, which answers that build, job or run by name and its state: what a run of the repository's own CI tool reruns, as its BuildProvider reads it, a branch meaning its pipeline's newest build there to finish, a `bk build rebuild` build, the job a `bk job retry` or a Buildkite API retry names and the build an API rebuild names, or a `gh run rerun` run or job; None for a command that reruns nothing, such as a help read or one naming no target, which its tool refuses."""
+    """The step a command reruns with and the read of what it reruns, which answers that build, job or run by name and its state: what a run of the repository's own CI tool reruns, as its BuildProvider reads it, a branch meaning its pipeline's newest build there to finish, a `bk build rebuild` build, the job a `bk job retry` or a CI API retry names and the build an API rebuild names, or a `gh run rerun` run or job; None for a command that reruns nothing, such as a help read or one naming no target, which its tool refuses."""
     if HELP & set(words):
         return None
     if (own := own_build(cwd).retried(words)) is not None:

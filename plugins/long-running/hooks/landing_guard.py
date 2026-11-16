@@ -30,7 +30,7 @@ from drive.cli import sent_kept, tap_verdict
 from drive.github import repo_name
 from drive.shell import KEYWORDS, Case, Function, Loop, expanded, grouped, runnable
 
-ADMIN_REASON = "Admin merges bypass required review; never on Forge-AI repos"
+ADMIN_REASON = "Admin merges bypass required review; never on a guarded owner's repos"
 TAP_HINT = "Draw his PR card with slack_dm_status tap_prs, or record an exemption with drive pr set --exempt"
 ENV_ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=.*")
 SHELL_SCRIPT_FLAG = re.compile(r"-[A-Za-z]*c[A-Za-z]*")
@@ -89,7 +89,7 @@ UNCHECKED = (
     " checked. Run this again once both answer"
 )
 UNREAD = (
-    "landing_guard let this run unchecked, since a read it needed failed, so a Forge-AI drive PR's tap and open cards"
+    "landing_guard let this run unchecked, since a read it needed failed, so a guarded drive PR's tap and open cards"
     " went unread. Once GitHub answers, read them with `drive status <PR url>`. The read said: {error}"
 )
 CCI_SERVER = "plugin:cc-inbox:cci"
@@ -843,7 +843,7 @@ def unprevented_reports(payload: dict) -> str | None:
 
 
 def guarded_reason(payload: dict) -> str | None:
-    """Why a Bash call must not run, a refusal capt-hook's Jev never weighs again: it lands a Forge-AI drive PR without his tap or merges with --admin there, in a drive session or agent lands a Forge-AI PR someone else opened that no order of his names, starts, approves or rolls back a production cut from a sub-coordinator's session, starts a Job on a production cluster while he is not present, cancels a release from a drive job or starts one in a drive session or agent rather than through `drive job add --release`, and in a drive session or agent lands a Forge-AI PR while his card on it is open, around the monorepo's queue or apart from its stack, or on a Sprite lane lands one while `drive job held --pr` on the coordinator's Mac names his card on it open or does not answer, puts up a drive's public PR body showing what only a private place may, or posts with `cci post` an owner or answer record of his words on an open card of his, which only the drive's `record` tool closes in the same call, or an owner record naming no about, which picks the session it reaches."""
+    """Why a Bash call must not run, a refusal capt-hook's Jev never weighs again: it lands a guarded drive PR without his tap or merges with --admin there, in a drive session or agent lands a Forge-AI PR someone else opened that no order of his names, starts, approves or rolls back a production cut from a sub-coordinator's session, starts a Job on a production cluster while he is not present, cancels a release from a drive job or starts one in a drive session or agent rather than through `drive job add --release`, and in a drive session or agent lands a guarded PR while his card on it is open, around the repository's queue or apart from its stack, or on a Sprite lane lands one while `drive job held --pr` on the coordinator's Mac names his card on it open or does not answer, puts up a drive's public PR body showing what only a private place may, or posts with `cci post` an owner or answer record of his words on an open card of his, which only the drive's `record` tool closes in the same call, or an owner record naming no about, which picks the session it reaches."""
     names, shell = shell_of(payload)
     command = payload["tool_input"]["command"]
     if shell.driving and (exposed := body_reason(command, shell)):

@@ -1020,8 +1020,8 @@ def sign_in_problems(shared: list[tuple[str, str]], options: Iterable[tuple[str,
     around = [unquoted(line) for _, line in shared]
     return [
         f'{where} asks him to sign in with "{line[found.start() : found.end()].strip(" .;:")}": this Mac\'s machine profile runs it with no'
-        " sign-in, Touch ID or cc-sudo, every AWS call under a profile ~/.aws/config chains to the machine certificate, such as"
-        ' `AWS_PROFILE=plat-prod tools/ci pass-box launch`, and break-glass as `drive break-glass <job> --stack <domain>/<env> --reason "<why>"'
+        " sign-in, Touch ID or cc-sudo, every AWS call under a profile ~/.aws/config chains to the machine certificate,"
+        ' and break-glass as `drive break-glass <job> --stack <domain>/<env> --reason "<why>"'
         f" -- <command>` from a lane on this Mac, so that run takes its place ({MACHINE_PROFILE_RULING})"
         for where, lines in [*((where, [line]) for where, line in shared), *options]
         if not any(OFF_AWS_SIGN_IN.search(unquoted(line)) for line in lines) and any(AWS_ACTION.search(text) for text in [*around, *map(unquoted, lines)])
