@@ -4795,10 +4795,14 @@ def slot_hand(args: argparse.Namespace) -> int:
 def mac_box_handed(args: argparse.Namespace) -> int:
     """Take the drive pool's word that it handed a job a Mac box, by tools/ci mac-box lend or up naming the job as holder: each mac-box:<box> or mac-box:any wait of the job ends, so the watch's next pass frees it with its FREE line, and the hand is kept as an event; refused for a job that waits on no box."""
     name = state.resolve(args.drive)
-    with state.edit(name) as data:
+
+    def handed(data: dict) -> list[str]:
         job = find(data["jobs"], args.job, "job")
         if not (marked := state.mac_box_handed(data, args.job, args.box)):
             raise DriveError(f"{args.job}: refused, nothing written: it waits on no Mac box ({', '.join(job['waits']) or 'no waits'}), so a WAITING naming mac-box:<box> or mac-box:any is what this frees")
+        return marked
+
+    marked = state.update(name, None, handed)
     state.append_event(name, "mac_box_handed", job=args.job, box=args.box, host=args.host, ended=marked)
     line = f"{args.job} has Mac box {args.box}{f' on {args.host}' if args.host else ''}: {', '.join(marked)} ended, so the watch frees it on its next pass"
     return emit(args, line, {"job": args.job, "box": args.box, "ended": marked})
