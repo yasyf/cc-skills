@@ -1943,7 +1943,7 @@ def prebuild(name: str, job_id: str, command: str, commit: str | None) -> list[s
 
 
 def release_running(name: str, command: str) -> str | None:
-    """Why a release may not start while a start of the same release runs, the same by settled.shipped past the --order approving it: a job of the drive holding it unfinished with no build, its start still running or never having named one, or one whose build Buildkite reads as unfinished, an approve hold included, read in one `tools/ci bk graphql` call, so a call that failed once its release started never starts it twice."""
+    """Why a release may not start while a start of the same release runs, the same by shipped_release past the --order approving it: a job of the drive holding it unfinished with no build, its start still running or never having named one, or one whose build Buildkite reads as unfinished, an approve hold included, read in one `tools/ci bk graphql` call, so a call that failed once its release started never starts it twice."""
     data = state.load(name)
     ships = shipped_release(command, data)
     same = {job_id: job for job_id, job in data["jobs"].items() if state.starts_cut(job) and shipped_release(job["brief_flags"]["release"], data) == ships}
