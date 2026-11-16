@@ -1041,7 +1041,9 @@ def test_the_watch_hands_on_each_line_its_relay_process_writes_keeps_the_untrack
         started.append((flag, child))
         return child
 
-    again = threading.Event()
+    again, landed = threading.Event(), threading.Event()
+    took = watch.took_untracked
+    monkeypatch.setattr(watch, "took_untracked", lambda watcher, line: (took(watcher, line), landed.set()))
 
     class Relayed(list[str]):
         def append(self, line: str) -> None:
@@ -1054,7 +1056,7 @@ def test_the_watch_hands_on_each_line_its_relay_process_writes_keeps_the_untrack
     watching = watcher(demo)
     watching.relayed = Relayed()
     with watch.relaying(watching):
-        assert again.wait(30)
+        assert again.wait(30) and landed.wait(30)
     [first, second] = [child for flag, child in started if flag == "--relay"]
     assert (list(watching.relayed), watching.untracked) == (
         ["DUE o1 was due", "DUE o2 was due", f"WATCH the relay, process {first.pid}, exited 2; the watch starts it again within 0 seconds; its output is in {state.watch_log_path(demo)}", "DUE o3 was due"],
