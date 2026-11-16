@@ -131,7 +131,7 @@ def danger(data: dict, key: str) -> str:
     if found := dangerous(data, github.files(key)):
         return f"it changes {', '.join(found[:3])}{', …' if len(found) > 3 else ''}"
     part = state.STAGING_TEST.format(number=key.partition("#")[2])
-    if not state.home_repo(data, github.repo_of(key)) or not (order_id := next((order_id for order_id, order in data["orders"].items() if part in order["parts"]), None) or next(iter((data["prs"].get(key) or {}).get("staged_for") or ()), None)):
+    if not state.home_repo(data, github.repo_of(key)) or not (order_id := next((order_id for order_id, order in data["orders"].items() if part in order["parts"]), None)):
         return ""
     return f"{order_id} holds its {part} part, given only to a change its builder read as dangerous"
 
@@ -728,7 +728,7 @@ def run(name: str, keys: list[str], dry_run: bool = False) -> str:
         else:
             below = uncleared_below(data, keys)
             misfiled = {key: why for key in keys if (why := unexempt(data, key))}
-            changed = {key: github.files(key) for key in keys if not state.staging_tested(data, key) and not lifted(data["prs"][key]) and not state.go_clears(data["prs"][key]) and not any(state.part_wait(data, wait) for wait in data["prs"][key]["waits"])}
+            changed = {key: github.files(key) for key in keys if not state.staging_tested(data, key) and not lifted(data["prs"][key]) and not any(state.part_wait(data, wait) for wait in data["prs"][key]["waits"])}
             risky = {key: made for key, files in changed.items() if (made := [path for found in state.dangerous(data, files).values() for path in found])}
             if (misfiled or risky) and not dry_run:
 

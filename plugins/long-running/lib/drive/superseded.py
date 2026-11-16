@@ -807,10 +807,10 @@ def stops_open_pr(data: dict, key: str, into: str | None) -> bool:
 
 
 def drop(data: dict, answer_id: str, order_id: str, part: str) -> list[str]:
-    """Take a part his answer removes off its order, every job delivering it and every PR naming it, by state.drop_part, which drops each text a job it stops held, a staging test part being his go on each PR it names, by state.give_go, keeping each live job it trims waiting to hear his words; what was done, a line each, naming each text dropped."""
+    """Take a part his answer removes off its order, every job delivering it and every PR naming it, by state.drop_part, which drops each text a job it stops held, except a staging test part naming an open PR, which stays with its tester running, since a dangerous change merges only after its staging test passes, an incident fix included, by his answer 0048b14, keeping each live job it trims waiting to hear his words; what was done, a line each, naming each text dropped."""
+    if staged := state.staged_open(data, part):
+        return [f"{order_id}:{part} kept: {', '.join(staged)} changes something dangerous, which merges only after its staging test passes, an incident fix included"]
     trimmed, stopped = state.drop_part(data, order_id, part, f"his answer {answer_id} dropped every part it delivered")
-    for key in state.staged_open(data, part):
-        state.give_go(data, key, order_id)
     for job_id in trimmed:
         if data["jobs"][job_id]["state"] not in state.FINISHED_JOB_STATES:
             owe(data, answer_id, job_id)

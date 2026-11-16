@@ -1387,11 +1387,6 @@ def test_a_monorepo_pr_its_builder_lifted_off_staging_says_why_on_its_cards(name
     assert view.staging(lifted, "Forge-AI/monorepo#7") == "Not on staging: its builder says AGENTS.md's dangerous rule misses it: it changes only the docs"
 
 
-def test_a_monorepo_pr_his_go_cleared_says_on_its_cards_it_merges_first_and_is_tested_after(named_repo: None) -> None:
-    freed = drive_of({"o1": order("ship it", [])}, {}, [tracked(7, go="o1")])
-    assert view.staging(freed, "Forge-AI/monorepo#7") == "Not on staging before it merges: his go on o1 merges it first, so it is tested on staging after its merge"
-
-
 @pytest.mark.parametrize(
     ("part", "tester", "unstaged", "drawn"),
     [

@@ -8174,7 +8174,7 @@ def test_an_incidents_stop_is_its_immediate_fix_and_lands_at_once_as_an_incident
     assert state.load("demo")["prs"]["Forge-AI/monorepo#42"]["exempt"] == "incident fix"
 
 
-def test_his_go_on_an_order_lands_its_prs_with_no_staging_test_no_approve_card_and_no_merge_queue_and_one_added_later_too(
+def test_his_go_on_an_order_lands_its_prs_with_no_approve_card_and_no_merge_queue_keeping_their_staging_test_and_one_added_later_too(
     home_repo: None, run: Run, with_pr: str, on_github: dict
 ) -> None:
     part = state.STAGING_TEST.format(number=42)
@@ -8183,11 +8183,11 @@ def test_his_go_on_an_order_lands_its_prs_with_no_staging_test_no_approve_card_a
         data["prs"][with_pr] |= {"waits": [f"o1:{part}"], "reached": True}
     said = "https://poetic-technology.slack.com/archives/C0GO/p1794800000000100"
     code, out = run("order", "go", "o1", "--words", "merge and hotfix", "--from", said)
-    assert code == 0 and f"o1: his go recorded; {with_pr} lands with no staging test" in out
+    assert code == 0 and f"o1: his go recorded; {with_pr} lands with no Approve card and no merge queue" in out
     data = state.load("demo")
     pr = data["prs"][with_pr]
-    assert (data["orders"]["o1"]["go"]["words"], data["orders"]["o1"]["go"]["link"], pr["go"], pr["waits"], pr["reached"]) == ("merge and hotfix", said, "o1", [], False)
-    assert part not in data["orders"]["o1"]["parts"]
+    assert (data["orders"]["o1"]["go"]["words"], data["orders"]["o1"]["go"]["link"], pr["go"], pr["waits"], pr["reached"]) == ("merge and hotfix", said, "o1", [f"o1:{part}"], True)
+    assert part in data["orders"]["o1"]["parts"]
     assert (state.go_clears(pr), state.cleared(pr), state.asks_tap(data, pr), state.queued_by_lander(data, with_pr)) == (True, True, False, False)
     on_github.update(url="https://github.com/Forge-AI/monorepo/pull/43")
     assert run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/43", "--job", "j1", *LEAD)[0] == 0

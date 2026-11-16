@@ -1521,7 +1521,7 @@ def answered_by(name: str, order_id: str, part: str, link: str) -> tuple[str, di
 
 
 def order_go(args: argparse.Namespace) -> int:
-    """Record his go on an order from his words, whichever session heard them, by his words state.GO_WORDS: every open PR it serves, and each one added to it later, by add_pr, lands with no staging test before its merge, no Approve card and no merge queue, by state.give_go. A dangerous change still lands only while he is present, and the release provider's scope still holds."""
+    """Record his go on an order from his words, whichever session heard them, by his words state.GO_WORDS: every open PR it serves, and each one added to it later, by add_pr, lands with no Approve card and no merge queue, its staging test kept, by state.give_go. A dangerous change still lands only while he is present, and the release provider's scope still holds."""
     name = state.resolve(args.drive)
     created = state.stamp()
 
@@ -1531,12 +1531,13 @@ def order_go(args: argparse.Namespace) -> int:
             raise DriveError(f"{args.id}: refused, it is {order['state']}, so no PR of it waits on a gate")
         order.update(go={"words": args.words, "link": args.source, "at": created, "by": os.environ.get("CLAUDE_CODE_SESSION_ID")}, updated=created)
         keys = [key for key, pr in data["prs"].items() if pr["state"] == "open" and args.id in state.served_orders(data, pr)]
-        return keys, [job_id for key in keys for job_id in state.give_go(data, key, args.id)]
+        for key in keys:
+            state.give_go(data, key, args.id)
+        return keys
 
-    keys, stopped = state.write(name, order_go_write)
-    lines = [f"{args.id}: his go recorded; {', '.join(keys) if keys else 'no open PR of it yet'} {'lands' if len(keys) == 1 else 'land'} with no staging test before merging, no Approve card and no merge queue; a PR added to it later does too"]
-    lines += [f"{job_id} stopped: its staging test is now the after-merge pass" for job_id in stopped]
-    return emit(args, "\n".join(lines), {"id": args.id, "prs": keys, "stopped": stopped})
+    keys = state.write(name, order_go_write)
+    line = f"{args.id}: his go recorded; {', '.join(keys) if keys else 'no open PR of it yet'} {'lands' if len(keys) == 1 else 'land'} with no Approve card and no merge queue, and a PR added to it later does too; a dangerous change still merges only after its staging test passes and while he is present"
+    return emit(args, line, {"id": args.id, "prs": keys})
 
 
 def order_told(args: argparse.Namespace) -> int:
@@ -8063,7 +8064,7 @@ def parser() -> argparse.ArgumentParser:
         ),
     )
     verb.set_defaults(run=order_posted)
-    verb = order.add_parser("go", parents=both, help="his go on an order, from his words, whichever session heard them: every PR it serves lands with no staging test before merging, no Approve card and no merge queue; dangerous changes still wait for him and the release provider's scope still holds")
+    verb = order.add_parser("go", parents=both, help="his go on an order, from his words, whichever session heard them: every PR it serves lands with no Approve card and no merge queue; a dangerous change, an incident fix included, still merges only after its staging test passes and while he is present, and the release provider's scope still holds")
     verb.add_argument("id", help="the order")
     verb.add_argument("--words", required=True, help="his words giving the go, verbatim")
     verb.add_argument("--from", dest="source", required=True, metavar="LINK", help="the Slack permalink of his message")

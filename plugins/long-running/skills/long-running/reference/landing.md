@@ -647,7 +647,8 @@ not serve, so its first real request failed.
   the production start at that commit signs, notarizes and bakes nothing again.
 - **A green, approved PR does not hold a cut.** A PR changing nothing dangerous owes no staging
   test, so it lands on green CI and the cut carries it. A dangerous PR waits on its test and the
-  presence limit; his pick to merge it first is his go, recorded with `drive order go`.
+  presence limit, an incident fix included; his go, recorded with `drive order go`, lifts its Approve card and
+  the merge queue, never its staging test.
 - **Drive tooling does not hold a release.** A release-path PR whose staging cases passed while
   the drive refused or never kept their `DONE` lands once that `DONE` is kept, the turn the defect
   goes to meta, since `drive order set --drop-part` refuses an open PR's staging part.

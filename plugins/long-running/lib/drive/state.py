@@ -1379,7 +1379,6 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         pr.setdefault("own_reds", None)
         pr.setdefault("review_asked", None)
         pr.setdefault("go", None)
-        pr.setdefault("staged_for", [])
         pr.setdefault("author", None)
         pr.setdefault("checked", None)
         pr.setdefault("undrawn", None)
@@ -3096,7 +3095,7 @@ def renamed_change(name: str, data: dict, order_id: str, named: list[str], desig
 
 
 def staging_testers(data: dict, job_id: str, report: str) -> list[str]:
-    """Stage each PR the drive tracks that a builder's READY or PUSHED names on a `STAGING: #N <cases>` line, by stage_pr, lifting by unstage one reading `#N none: <why>`, those cases its tester's goal, or held on the unended tester already on it, so a tester the drive gave a PR from its changed files hears them, and lift by unstage each PR of the providers' repository its first line names that no such line stages once a `STAGING: none: <why>` line says AGENTS.md's dangerous rule misses it, at every head and whatever tap he gave: a `#N <cases>` line stages a PR his go cleared too, since a builder asking for the test only holds the PR to his words a9c9edc, while neither none line touches such a PR, by go_clears, since a builder's word never undoes his answer 2eb7e76; the testers added."""
+    """Stage each PR the drive tracks that a builder's READY or PUSHED names on a `STAGING: #N <cases>` line, by stage_pr, lifting by unstage one reading `#N none: <why>`, those cases its tester's goal, or held on the unended tester already on it, so a tester the drive gave a PR from its changed files hears them, and lift by unstage each PR of the providers' repository its first line names that no such line stages once a `STAGING: none: <why>` line says AGENTS.md's dangerous rule misses it, at every head and whatever tap he gave: a `#N <cases>` line stages a PR his go named too, since a dangerous change merges only after its staging test passes, an incident fix included; the testers added."""
     job = data["jobs"][job_id]
     if not REPORTED_LINE.match(report.lstrip()):
         return []
@@ -3108,14 +3107,13 @@ def staging_testers(data: dict, job_id: str, report: str) -> list[str]:
             continue
         staged.add(key)
         if UNSTAGED.match(found["cases"]):
-            if not go_clears(data["prs"][key]):
-                unstage(data, key, found["cases"].partition(":")[2].strip(), job_id)
+            unstage(data, key, found["cases"].partition(":")[2].strip(), job_id)
         elif tester_id := stage_pr(data, key, found["cases"], job.get("session")):
             added.append(tester_id)
     if why := next((staging.partition(":")[2].strip() for staging in stagings if UNSTAGED.match(staging)), None):
         named = (keys.get(f"{found[1]}/{found[2]}#{found[3]}".casefold()) for found in PR_URL.finditer(report.lstrip().partition("\n")[0]) if home_repo(data, f"{found[1]}/{found[2]}"))
         for key in dict.fromkeys(named):
-            if key and key not in staged and not go_clears(data["prs"][key]):
+            if key and key not in staged:
                 unstage(data, key, why, job_id)
     return added
 
@@ -3193,25 +3191,19 @@ def class_rank(data: dict, job: dict) -> int:
 
 
 def go_clears(pr: dict) -> bool:
-    """Whether his go on an order the PR serves, by drive order go, clears its person and process gates: no staging test before it merges, no Approve card and no merge queue. A dangerous change still lands only while he is present, and the release provider's scope still holds."""
+    """Whether his go on an order the PR serves, by drive order go, clears its person and process gates: no Approve card and no merge queue. Its staging test stays, since a dangerous change merges only after that test passes, an incident fix included. A dangerous change still lands only while he is present, and the release provider's scope still holds."""
     return bool(pr.get("go"))
 
 
-def give_go(data: dict, key: str, order_id: str) -> list[str]:
-    """Mark an open PR cleared by his go on order_id, by his words GO_WORDS: its `staging test of #N before it lands` part off each order, by drop_part, with its waits on it ended and its reach mark cleared, so it merges first and is tested on staging after its merge. Each live job drop_part stopped."""
-    pr, part = data["prs"][key], STAGING_TEST.format(number=key.rpartition("#")[2])
-    pr.update(go=order_id, reached=False, staged_for=list(dict.fromkeys([*pr["staged_for"], *(holder for holder, order in data["orders"].items() if part in order["parts"])])))
-    stopped = []
-    for holder in [holder for holder, order in data["orders"].items() if part in order["parts"]]:
-        stopped += drop_part(data, holder, part, f"his go on {order_id} merges {key} before any staging test, which runs after its merge")[1]
-    pr["waits"] = [wait for wait in pr["waits"] if not staging_tester(data, wait) and not ((named := STAGING_PARTS.fullmatch(wait.partition(":")[2])) and key.rpartition("#")[2] in re.findall(r"\d+", named["numbers"]))]
-    return stopped
+def give_go(data: dict, key: str, order_id: str) -> None:
+    """Mark an open PR cleared by his go on order_id, by his words GO_WORDS, so it lands with no Approve card and no merge queue. Its staging test stays: a dangerous change, an incident fix included, merges only after its staging test passes, by his rule in the monorepo's AGENTS.md and his answer 0048b14, and a started test runs to its end."""
+    data["prs"][key]["go"] = order_id
 
 
 def markable(data: dict, key: str, head: str) -> bool:
-    """Whether mark_dangerous may stage a PR at a head from its changed files: an open PR of the providers' repository no order holds the staging test part of whose builder's `STAGING: none` lifted no test at that head, and that his go does not clear, by go_clears."""
+    """Whether mark_dangerous may stage a PR at a head from its changed files: an open PR of the providers' repository no order holds the staging test part of whose builder's `STAGING: none` lifted no test at that head, at any head."""
     pr, part = data["prs"][key], STAGING_TEST.format(number=key.split("#")[1])
-    return pr["state"] == "open" and home_repo(data, github.repo_of(key)) and not go_clears(pr) and not (pr["unstaged"] and pr["unstaged"]["head"] == head) and not any(part in order["parts"] for order in data["orders"].values())
+    return pr["state"] == "open" and home_repo(data, github.repo_of(key)) and not (pr["unstaged"] and pr["unstaged"]["head"] == head) and not any(part in order["parts"] for order in data["orders"].values())
 
 
 def unmarked(data: dict) -> list[str]:
@@ -7302,7 +7294,6 @@ def new_pr(url: str, job_id: str, order_id: str) -> dict:
         "exception": None,
         "fundamental": None,
         "go": None,
-        "staged_for": [],
         "state": "open",
         "title": "",
         "head": "",

@@ -8328,22 +8328,20 @@ def test_a_lander_lands_an_approved_green_pr_changing_nothing_dangerous_on_green
     assert (data["prs"][KEY]["waits"], state.STAGING_TEST.format(number=42) in data["orders"]["o1"]["parts"]) == ([], False)
 
 
-def dropped_by_answer(demo: str, part: str) -> None:
+def dropped_by_answer(demo: str, part: str) -> list[str]:
     with edit(demo) as data:
         data["answers"]["a1"] = {"words": "merge it, then test it", "link": f"{CARD}9", "at": state.stamp(T0), "said": state.stamp(T0), "cards": {}, "jobs": {}}
-        superseded.drop(data, "a1", "o1", part)
+        return superseded.drop(data, "a1", "o1", part)
 
 
-def test_a_builders_staging_line_naming_cases_puts_its_pr_on_its_staging_test_and_wait_in_the_same_save_even_after_his_answer_freed_it_as_56896_needed(home_repo: None, demo: str) -> None:
+def test_his_answer_dropping_an_open_prs_staging_test_keeps_it_and_its_tester_since_a_dangerous_change_merges_only_after_it_passes_as_57676_needed(home_repo: None, demo: str) -> None:
     part = state.STAGING_TEST.format(number=42)
     with edit(demo) as data:
         data["orders"]["o1"]["parts"][part] = state.new_part()
         data["prs"][KEY]["waits"] = [f"o1:{part}"]
-    dropped_by_answer(demo, part)
-    with edit(demo) as data:
-        [tester] = state.staging_testers(data, "j1", "PUSHED https://github.com/Forge-AI/monorepo/pull/42\nSTAGING: #42 replay the writer log on a replica and read through it\n")
+    assert dropped_by_answer(demo, part) == [f"o1:{part} kept: {KEY} changes something dangerous, which merges only after its staging test passes, an incident fix included"]
     data = state.load(demo)
-    assert (data["prs"][KEY]["waits"], data["prs"][KEY]["unstaged"], data["jobs"][tester]["parts"], data["jobs"][tester]["goal"]) == ([f"o1:{part}"], None, [part], "replay the writer log on a replica and read through it")
+    assert (part in data["orders"]["o1"]["parts"], data["prs"][KEY]["waits"]) == (True, [f"o1:{part}"])
 
 
 def test_a_load_puts_back_on_its_staging_test_each_open_pr_an_older_drop_part_let_merge_first_and_leaves_his_answers_lift(home_repo: None, demo: str) -> None:

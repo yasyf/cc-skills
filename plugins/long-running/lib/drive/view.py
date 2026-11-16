@@ -455,8 +455,6 @@ def before_merge(drive: dict, key: str, part: str, held: list[str], run: dict | 
         if excepted := drive["prs"][key]["exception"]:
             components = ", ".join(excepted["components"])
             return (f"Not on staging: staging has no copy of {components}, so it lands on your exception {excepted['granted']}" if excepted["granted"] else f"Not on staging: staging has no copy of {components}, so it lands on your exception once you read the production dry run's plan of each",)
-        if go := drive["prs"][key]["go"]:
-            return (f"Not on staging before it merges: his go on {go} merges it first", ", so it is tested on staging after its merge")
         if not (lifted := drive["prs"][key]["unstaged"]):
             return ("Not on staging: no staging test is set for it",)
         return ("Not on staging: its builder says AGENTS.md's dangerous rule misses it", Pasted(f": {cut(lifted['why'], NOW_CHARS)}"))
