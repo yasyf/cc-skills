@@ -220,7 +220,7 @@ def test_a_priority_orders_builder_starts_here_at_once_past_a_full_cap_the_line_
     assert (place.waiting_builders(data), place.turns(data, state.now())) == (["j9", "j10"], ([], 8))
     assert run("order", "set", "o2", "--priority")[0] == 0
     data = state.load(demo)
-    assert (data["orders"]["o2"]["priority"], data["orders"]["o1"]["priority"]) == (True, False)
+    assert (data["orders"]["o2"]["priority"], data["orders"]["o1"]["priority"]) == ("Priority o2", None)
     assert (place.waiting_builders(data), place.turns(data, state.now()), place.crowded(data, "j10", state.now())) == (["j10", "j9"], (["j10"], 8), None)
     assert run("job", "add", "builder", "--order", "o2", "--part", "the cut", "--goal", "cut it", "--repo", "Forge-AI/monorepo") == (0, "j11")
     assert state.load(demo)["jobs"]["j11"]["where"] == "local"

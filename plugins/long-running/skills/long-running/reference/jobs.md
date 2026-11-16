@@ -38,7 +38,9 @@ Contents:
   cap and the line, and holds a slot against later builders once it runs. A priority order's
   builder also starts here past the load gate, and one already waiting its turn takes it on the
   watch's next pass, ahead of every other job in line; his words: "they aren't slowed down at any
-  cost by anything".
+  cost by anything". The mark also starts a coordinator session for that order alone, the
+  sub-coordinator for `Priority <o>`, so no other order's events queue ahead of its own; his words:
+  "when something gets marked as priority it gets its own dedicated coordinator spun uo for it".
   A builder added with `drive job add builder --order <o> --goal "<goal>" --builds-nothing`, one whose whole work holds no
   checkout or compiler, such as a read, or one whose goal reads `prove <PRs> live`, a merged PR's
   live proof, marked or not, holds no slot at all, and `drive job prove` proves the PRs its goal names when no
