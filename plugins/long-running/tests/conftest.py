@@ -655,6 +655,14 @@ def launched_sessions(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     return named
 
 
+@pytest.fixture
+def bg_starts(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, dict, Path]]:
+    """Each lane a launch started on this Mac as its own `claude --bg` session, by job, Agent call and cwd, the nth naming session bg-n."""
+    started: list[tuple[str, dict, Path]] = []
+    monkeypatch.setattr(agents, "start_job", lambda name, job_id, agent, call, held, cwd: started.append((job_id, call, cwd)) or f"bg-{len(started)}")
+    return started
+
+
 @dataclass
 class Judge:
     against: list[dict] = field(default_factory=list)
