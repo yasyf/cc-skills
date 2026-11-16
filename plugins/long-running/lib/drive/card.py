@@ -649,7 +649,7 @@ def refusing(known: dict[str, tuple[str, dict]], keys: list[str], reason: str, c
 
 
 def kept_later(known: dict[str, tuple[str, dict]], changes: dict[str, dict]) -> None:
-    """Keep what a card request changed on its PRs' entries in a receipt per drive, which `drive card-record` applies in a process of its own that waits out the drive lock, so a card never waits on the lock however long the watch or another verb holds it; a request that changed nothing starts none."""
+    """Keep what a card request changed on its PRs' entries in a receipt per drive, which `drive card-record` applies in a process of its own that waits out the drive's database, so a card never waits on a write however long the watch or another verb holds the database; a request that changed nothing starts none."""
     by_drive: dict[str, dict[str, dict]] = {}
     for key, change in changes.items():
         by_drive.setdefault(known[key][0], {})[key] = change
@@ -661,7 +661,7 @@ def kept_later(known: dict[str, tuple[str, dict]], changes: dict[str, dict]) -> 
 
 
 def record_kept(name: str, kept: Path) -> None:
-    """Apply a receipt kept_later kept to the drive in one write that is never refused and waits out the drive's lock however long it is held, since the card is already drawn: each PR's stack, its undrawn pictures and its refusal, telling the session hearing its order a reason it was not told before, so a refusal cc-slack gives again after every draw is told once until its reason changes; a PR the drive stopped tracking since is passed over. The receipt is removed once applied."""
+    """Apply a receipt kept_later kept to the drive in one write that is never refused and waits out the drive's database however long another write holds it, since the card is already drawn: each PR's stack, its undrawn pictures and its refusal, telling the session hearing its order a reason it was not told before, so a refusal cc-slack gives again after every draw is told once until its reason changes; a PR the drive stopped tracking since is passed over. The receipt is removed once applied."""
     changes = json.loads(kept.read_text())
 
     def applied(data: dict) -> list[tuple[str, dict]]:

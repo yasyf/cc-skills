@@ -1,8 +1,8 @@
-import fcntl
 import json
 import os
 import re
 import shlex
+import sqlite3
 import subprocess
 from collections.abc import Callable
 from datetime import timedelta
@@ -381,7 +381,7 @@ def test_a_job_naming_a_pr_the_drive_keeps_no_row_for_is_judged_beside_only_the_
     assert "other open PRs" not in said
 
 
-def test_a_check_process_starts_once_the_drive_lock_is_let_go_and_its_pr_is_marked_with_that_process(run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_check_process_starts_outside_any_write_of_the_drive_and_its_pr_is_marked_with_that_process(run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "land it")
     run("job", "add", "builder", "--order", "o1", "--goal", "land")
     run("pr", "add", URL, "--job", "j1", *LEAD)
@@ -390,11 +390,12 @@ def test_a_check_process_starts_once_the_drive_lock_is_let_go_and_its_pr_is_mark
     held = []
 
     def spawn(name: str, key: str) -> int:
-        with open(state.drive_dir(name) / ".lock", "a") as handle:
-            try:
-                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError:
-                held.append(key)
+        probe = sqlite3.connect(state.database_path(name), timeout=0, isolation_level=None)
+        try:
+            probe.execute("BEGIN IMMEDIATE")
+        except sqlite3.OperationalError:
+            held.append(key)
+        probe.close()
         return 4242
 
     monkeypatch.setattr(served, "spawn", spawn)

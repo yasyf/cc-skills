@@ -293,7 +293,7 @@ CHECKS_AT_ONCE = 2
 
 
 def start(name: str, keys: list[str]) -> None:
-    """Start one check of each stack, or PR in none, that a PR in keys sits in and no check runs on, as its own process: each of its PRs is marked under the drive's lock as checked at its head by this process, so no second check starts there, the checks' processes start once that lock is let go, however many there are, and a second hold of it gives each mark its own check's process, but a mark a check already replaced with its outcome, which stands, and a mark whose process never started goes back to the check it replaced."""
+    """Start one check of each stack, or PR in none, that a PR in keys sits in and no check runs on, as its own process: each of its PRs is marked in one write of the drive as checked at its head by this process, so no second check starts there, the checks' processes start once that write commits, however many there are, and a second hold of it gives each mark its own check's process, but a mark a check already replaced with its outcome, which stands, and a mark whose process never started goes back to the check it replaced."""
     from drive import land
 
     loaded = state.load(name)

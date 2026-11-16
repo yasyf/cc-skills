@@ -285,7 +285,7 @@ def awaiting(name: str, job_id: str, link: str) -> str:
 
 
 def recording(name: str, receipt: dict) -> tuple[Path, int]:
-    """Keep the receipt of a post on its order in the drive and record the post there in its own process, which outlives the say call and waits out the drive lock, so a say killed, or held behind the lock, after cc-slack returned its post still records it: the receipt, where that process writes the line it ends with, and its pid. say refused, before it posted, a post its session may not record on the order, so the process, which runs as no session, records every post it is handed."""
+    """Keep the receipt of a post on its order in the drive and record the post there in its own process, which outlives the say call and waits out the drive's database, so a say killed, or held behind another write, after cc-slack returned its post still records it: the receipt, where that process writes the line it ends with, and its pid. say refused, before it posted, a post its session may not record on the order, so the process, which runs as no session, records every post it is handed."""
     kept = state.drive_dir(name) / "posts" / f"{uuid.uuid4().hex}.json"
     kept.parent.mkdir(parents=True, exist_ok=True)
     kept.write_text(json.dumps(receipt))
@@ -293,7 +293,7 @@ def recording(name: str, receipt: dict) -> tuple[Path, int]:
 
 
 def record_line(order: str, kept: Path, recorder: int, close: bool) -> str:
-    """The line the record of a say post on order ends with, read from its receipt: once it lands within RECORD_WAIT_SECONDS, so a slow Slack read, Jev call or drive lock never holds the say call past that, else where the receipt keeps it; a post closing its order waits for its recorder to end, so the order takes the post before it is set done."""
+    """The line the record of a say post on order ends with, read from its receipt: once it lands within RECORD_WAIT_SECONDS, so a slow Slack read, Jev call or database write never holds the say call past that, else where the receipt keeps it; a post closing its order waits for its recorder to end, so the order takes the post before it is set done."""
     ends = time.monotonic() + RECORD_WAIT_SECONDS
     while not (line := json.loads(kept.read_text()).get("line")):
         if close:
@@ -313,7 +313,7 @@ def unrecorded(name: str, text: str) -> None:
 
 
 def record_kept(name: str, kept: Path) -> str:
-    """Record a say post on its order from the receipt `recording` kept, waiting out the drive lock however long it is held, since the post is already out, and writing the line it ends with back into the receipt; one that cannot be recorded is sent to the meta session as a defect naming the receipt."""
+    """Record a say post on its order from the receipt `recording` kept, waiting out the drive's database however long another write holds it, since the post is already out, and writing the line it ends with back into the receipt; one that cannot be recorded is sent to the meta session as a defect naming the receipt."""
     receipt = json.loads(kept.read_text())
     line = recorded(name, receipt, f"; receipt {kept}")
     tmp = kept.with_suffix(".tmp")

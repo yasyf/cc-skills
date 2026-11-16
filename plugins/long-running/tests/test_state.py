@@ -117,7 +117,6 @@ def test_edit_saves_atomically_and_leaves_no_temp(state_root: Path) -> None:
         data["orders"]["o1"] = state.new_order("ship it", "terminal", None, {}, state.stamp())
     assert state.load("demo")["orders"]["o1"]["text"] == "ship it"
     assert [path.name for path in (state_root / "demo").iterdir() if path.name.endswith(".tmp")] == []
-    assert (state_root / "demo" / ".lock").exists()
 
 
 @pytest.mark.parametrize(
@@ -327,43 +326,37 @@ def test_a_write_outside_any_save_is_read_by_the_next_load_even_once_the_changed
     assert loaded == state.shaped("demo", state.stored("demo"))[0]
 
 
-def test_a_write_waiting_past_the_drive_lock_wait_changes_nothing_and_names_the_lock_held(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_write_waiting_past_its_budget_on_the_database_changes_nothing_and_says_so(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     make("demo")
-    monkeypatch.setattr(state, "DRIVE_LOCK_SECONDS", 0.3)
-    with open(state.drive_dir("demo") / ".lock", "a") as stuck:
-        fcntl.flock(stuck, fcntl.LOCK_EX)
-        with pytest.raises(DriveError, match=r"demo's drive lock is still held after 0\.3s, so this changed nothing: "):
-            with edit("demo") as data:
-                data["terminal"] = "term-1"
-    assert state.load("demo")["terminal"] is None
-    with edit("demo") as data:
+    monkeypatch.setattr(state, "WRITE_BUDGET_SECONDS", 0.3)
+
+    def terminal(data: dict) -> None:
         data["terminal"] = "term-1"
+
+    stuck = sqlite3.connect(state.database_path("demo"), isolation_level=None)
+    stuck.execute("BEGIN IMMEDIATE")
+    with pytest.raises(DriveError, match=r"demo's database is still locked after 0\.3s, so this changed nothing$"):
+        state.write("demo", terminal)
+    stuck.close()
+    assert state.load("demo")["terminal"] is None
+    state.write("demo", terminal)
     assert state.load("demo")["terminal"] == "term-1"
 
 
-def test_a_priority_orders_verb_takes_the_drive_lock_ahead_of_a_writer_that_waited_for_it_first(state_root: Path) -> None:
-    make("demo")
-    with edit("demo") as data:
-        for order_id, priority in (("o1", None), ("o2", "Priority o2")):
-            data["orders"][order_id] = state.new_order(f"order {order_id}", "slack", None, {}, state.stamp()) | {"priority": priority}
-        data["jobs"] |= {"j1": state.new_job("o1", "builder", "build o1", [], state.stamp()), "j2": state.new_job("o2", "builder", "build o2", [], state.stamp())}
-    took: list[str] = []
+def test_a_write_moving_a_drive_out_of_drive_json_waits_for_the_migrate_lock_no_longer_than_its_budget(state_root: Path) -> None:
+    state.drive_dir("demo").mkdir(parents=True)
+    state.state_path("demo").write_text(json.dumps(state.new_drive("demo", "coordinator", None, "/work")))
 
-    def report(job_id: str) -> None:
-        with state.naming({"ops": [{"report": {"id": job_id}}]}), edit("demo") as data:
-            took.append(job_id)
-            data["terminal"] = job_id
+    def terminal(data: dict) -> None:
+        data["terminal"] = "term-1"
 
-    with ThreadPoolExecutor(2) as pool, open(state.drive_dir("demo") / ".lock", "a") as held:
+    with open(state.migrate_lock("demo"), "a") as held:
         fcntl.flock(held, fcntl.LOCK_EX)
-        waited = pool.submit(report, "j1")
-        time.sleep(0.3)
-        first = pool.submit(report, "j2")
-        time.sleep(0.3)
-        fcntl.flock(held, fcntl.LOCK_UN)
-        waited.result()
-        first.result()
-    assert (took, state.load("demo")["terminal"]) == (["j2", "j1"], "j1")
+        with pytest.raises(DriveError, match=r"demo's migrate lock is still held after 0\.3s, so this moved nothing: "):
+            state.write("demo", terminal, budget=0.3)
+    assert not state.database_path("demo").exists()
+    state.write("demo", terminal, budget=0.3)
+    assert (state.database_path("demo").exists(), state.load("demo")["terminal"]) == (True, "term-1")
 
 
 def test_a_batch_holds_no_lock_while_its_writes_run_and_its_one_save_keeps_what_another_write_changed_meanwhile(state_root: Path) -> None:
@@ -373,10 +366,9 @@ def test_a_batch_holds_no_lock_while_its_writes_run_and_its_one_save_keeps_what_
         with edit("demo") as data:
             data["terminal"] = "term-1"
             data["orders"]["o1"] = state.new_order("order o1", "terminal", None, {"order o1": state.new_part()}, created)
-        with open(state.drive_dir("demo") / ".lock", "a") as free:
-            fcntl.flock(free, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            time.sleep(0.1)
-            fcntl.flock(free, fcntl.LOCK_UN)
+        free = sqlite3.connect(state.database_path("demo"), timeout=0, isolation_level=None)
+        free.execute("BEGIN IMMEDIATE")
+        free.close()
         saved = state.stored("demo")
         saved["orders"]["o2"] = state.new_order("order o2", "terminal", None, {"order o2": state.new_part()}, created)
         state.save("demo", saved | {"binder": "term-2"})
@@ -455,17 +447,6 @@ def test_an_update_changing_a_row_it_did_not_name_runs_again_as_a_write_naming_n
 
     state.write("demo", keep)
     assert (state.load("demo")["terminal"], state.load("demo")["binder"]) == ("term-1", "term-2")
-
-
-def test_a_hold_of_the_drive_lock_past_its_stuck_seconds_logs_the_line_it_holds_on_while_it_still_holds(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    make("demo")
-    monkeypatch.setattr(state, "STUCK_HOLD_SECONDS", 0.05)
-    with edit("demo") as data:
-        data["terminal"] = "term-1"
-        time.sleep(0.5)
-        logged = (state.drive_dir("demo") / "locks.log").read_text()
-    assert "still holds the lock 0.05s on: drive " in logged
-    assert "in test_a_hold_of_the_drive_lock_past_its_stuck_seconds_logs_the_line_it_holds_on_while_it_still_holds" in logged
 
 
 def test_migrate_gives_each_picture_drawn_before_pictures_kept_their_source_its_kept_question_or_pr_fence_once_and_load_never_does(state_root: Path) -> None:

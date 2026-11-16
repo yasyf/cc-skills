@@ -2090,7 +2090,7 @@ def owners_cards(demo: str, monkeypatch: pytest.MonkeyPatch) -> dict:
     return found
 
 
-def test_keeping_a_ruling_reads_his_words_and_holds_the_lock_as_often_however_many_other_answers_its_jobs_owe(
+def test_keeping_a_ruling_reads_his_words_as_often_however_many_other_answers_its_jobs_owe(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run("order", "add", "--title", "SandSQL supervisor", "--project", "Iris", "--workstream", "Durable agents", "move every helper under sandsql-proc", "--parts", *SANDSQL_PARTS)
@@ -2103,21 +2103,18 @@ def test_keeping_a_ruling_reads_his_words_and_holds_the_lock_as_often_however_ma
     given.parent.mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess([], 0, '{"seq": 684800}\n', ""))
     spaced: list[str] = []
-    held: list[str] = []
-    real_spaced, real_writing = superseded.spaced, state.writing
+    real_spaced = superseded.spaced
     monkeypatch.setattr(superseded, "spaced", lambda text: spaced.append(text) or real_spaced(text))
-    monkeypatch.setattr(state, "writing", lambda name: held.append(name) or real_writing(name))
 
-    def keep(owed: int, ruling: str, words: str, waits: str, under: str) -> tuple[int, int]:
+    def keep(owed: int, ruling: str, words: str, waits: str, under: str) -> int:
         with edit(demo) as data:
             data["answers"] |= {f"{owed}owed{n}": {"words": f"his answer {n}", "link": "terminal", "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {"j2": None}} for n in range(owed)}
         given.write_text(f"His words, verbatim:\n\n{words}\n" + "and the rest of the brief\n" * 10000)
         ahead = (datetime.now() + timedelta(hours=1)).timestamp()
         os.utime(given, (ahead, ahead))
         spaced.clear()
-        held.clear()
         tools.run("record", demo, {"records": [{"kind": "owner", "text": words, "url": under, "thread_card": waits, "about": "his work", "ruling": ruling}]})
-        return len(spaced), len(held)
+        return len(spaced)
 
     alone = keep(1, "8427b3c", RULED, "demo:j1-684776", UNDER_CARD)
     found["questions"].pop(0)

@@ -1,7 +1,7 @@
-import fcntl
 import json
 import os
 import re
+import sqlite3
 import threading
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta, timezone
@@ -1121,24 +1121,24 @@ def test_a_report_naming_no_order_goes_on_the_newest_open_order_in_its_thread_as
         talk.say(demo, {"text": "The run page shows it.", "thread_ts": thread, "record": "720580"})
 
 
-def test_say_records_its_post_from_when_cc_slack_returns_it_waiting_out_a_drive_lock_held_past_the_wait_before_any_write_of_its_own(
+def test_say_records_its_post_from_when_cc_slack_returns_it_waiting_out_a_database_write_held_past_the_wait_before_any_write_of_its_own(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread, unrecorded: list[str]
 ) -> None:
     thread = "1794200000.000100"
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Questions", "which page shows a run's history?", "--thread", thread, "--owner", "communicator")
     communicating(run, demo)
-    monkeypatch.setattr(state, "DRIVE_LOCK_SECONDS", 0.2)
+    monkeypatch.setattr(state, "WRITE_BUDGET_SECONDS", 0.2)
     answer = slack_thread.post(state.now(), from_claude=True)
-    with open(state.drive_dir(demo) / ".lock", "a") as stuck:
 
-        def held_once_posted(*argv: str) -> dict:
-            fcntl.flock(stuck, fcntl.LOCK_EX)
-            threading.Timer(4 * state.DRIVE_LOCK_SECONDS, fcntl.flock, [stuck, fcntl.LOCK_UN]).start()
-            return {"permalink": answer, "thread_ts": thread}
+    def held_once_posted(*argv: str) -> dict:
+        stuck = sqlite3.connect(state.database_path(demo), isolation_level=None, check_same_thread=False)
+        stuck.execute("BEGIN IMMEDIATE")
+        threading.Timer(4 * state.WRITE_BUDGET_SECONDS, stuck.close).start()
+        return {"permalink": answer, "thread_ts": thread}
 
-        monkeypatch.setattr(slack, "cc_slack", held_once_posted)
-        report(monkeypatch, {"order": "o1"}, lane="communicator")
-        assert talk.say(demo, {"text": "The run page shows it.", "thread_ts": thread, "record": "720560"}) == f"POSTED {answer}; o1 progress line, no part delivered: {answer}"
+    monkeypatch.setattr(slack, "cc_slack", held_once_posted)
+    report(monkeypatch, {"order": "o1"}, lane="communicator")
+    assert talk.say(demo, {"text": "The run page shows it.", "thread_ts": thread, "record": "720560"}) == f"POSTED {answer}; o1 progress line, no part delivered: {answer}"
     assert (state.load(demo)["carried"], unrecorded) == ({"720560": answer}, [])
 
 

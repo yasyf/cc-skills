@@ -1543,7 +1543,7 @@ def test_a_native_stack_of_six_prs_draws_one_card_whose_approve_taps_each(stacke
 
 
 @pytest.mark.parametrize("count", [1, 1000 if os.environ.get("FORGE_CI_AT_SCALE") == "1" else 100])
-def test_a_stack_card_reads_github_once_per_25_prs_and_draws_under_no_drive_lock_however_tall_the_stack(
+def test_a_stack_card_reads_github_once_per_25_prs_and_records_its_stack_in_a_process_of_its_own_however_tall_the_stack(
     stacked: list[list[str]], native_stacks: dict[str, list[tuple[str, str]]], monkeypatch: pytest.MonkeyPatch, count: int
 ) -> None:
     numbers = range(41, 41 + count)
@@ -1555,15 +1555,12 @@ def test_a_stack_card_reads_github_once_per_25_prs_and_draws_under_no_drive_lock
     monkeypatch.setattr(github, "files", lambda key: pytest.fail(f"drive card read the files of {key}"))
     receipts: list[list[str]] = []
     monkeypatch.setattr(state, "detach", lambda name, args, log: receipts.append(args) or 0)
-    taken: list[str] = []
-    locked = state.locked
-    monkeypatch.setattr(state, "locked", lambda name: taken.append(name) or locked(name))
     stacked.clear()
     [drawn] = ask(asks(*numbers))["cards"]
-    assert (len(drawn["card"]["prs"]), len(stacked), taken) == (count, -(-count // github.PRS_PER_QUERY), [])
+    assert (len(drawn["card"]["prs"]), len(stacked)) == (count, -(-count // github.PRS_PER_QUERY))
     [(verb, receipt)] = receipts
     card.record_kept("demo", Path(receipt))
-    assert (verb, taken, Path(receipt).exists()) == ("card-record", [], False)
+    assert (verb, Path(receipt).exists()) == ("card-record", False)
     assert all(state.load("demo")["prs"][key]["stack"] == keys for key in keys)
     ask(asks(*numbers))
     assert len(receipts) == 1

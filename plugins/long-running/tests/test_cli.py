@@ -1,5 +1,4 @@
 import argparse
-import fcntl
 import hashlib
 import io
 import json
@@ -487,10 +486,9 @@ def test_the_meta_session_holds_every_tooling_order_but_no_product_order(
 
 
 def test_a_drive_saved_with_one_driver_reads_as_its_coordinator(home_repo: None, run: Run, demo: str) -> None:
-    with state.locked("demo"):
-        saved = state.stored("demo")
-        saved["driver"] = saved.pop("roles")["coordinator"]
-        state.save("demo", saved)
+    saved = state.stored("demo")
+    saved["driver"] = saved.pop("roles")["coordinator"]
+    state.save("demo", saved)
     data = state.load("demo")
     assert "driver" not in data
     assert data["roles"]["coordinator"]["session"] == os.environ["CLAUDE_CODE_SESSION_ID"]
@@ -4974,33 +4972,6 @@ def test_a_return_kept_twice_prints_once_where_it_was_kept_last(run: Run, demo: 
     assert run("job", "report", "j1")[1].count("DONE graded three PRs") == 1
 
 
-def test_a_report_an_older_install_kept_beside_a_job_moves_into_its_history_once_and_its_file_goes(
-    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
-    run("job", "add", "reader", "--order", "o1", "--goal", "grade")
-    run("job", "add", "reader", "--order", "o1", "--goal", "grade again", "--remote")
-    monkeypatch.setattr("sys.stdin", io.StringIO("DONE graded three PRs\n"))
-    run("job", "report", "j1", "-")
-    with edit("demo") as data:
-        data["jobs"]["j2"]["report"] = "DONE the lane's latest\n"
-    folder = state.drive_dir("demo") / "reports"
-    folder.mkdir(exist_ok=True)
-    older = datetime(2026, 11, 1, 9, tzinfo=UTC)
-    for job_id, text in (("j1", "DONE graded three PRs\n"), ("j2", "DONE graded two PRs\nCHECK: the diffs\n"), ("j9", "DONE a job the drive no longer has\n")):
-        (folder / f"{job_id}.md").write_text(text)
-        os.utime(folder / f"{job_id}.md", (older.timestamp(), older.timestamp()))
-    (folder / "j2.proof.txt").write_text("proof output\n")
-    for _ in range(2):
-        monkeypatch.setattr(state, "MOVED_REPORTS", set())
-        with edit("demo"):
-            pass
-    assert (sorted(path.name for path in folder.iterdir()), [reply["body"] for reply in state.returns("demo", "j1")]) == (["j2.proof.txt"], ["DONE graded three PRs\n"])
-    assert [reply["body"] for reply in state.returns("demo", "j2")] == ["DONE the lane's latest\n", "DONE graded two PRs\nCHECK: the diffs\n"]
-    earlier = state.EARLIER_RETURN.format(at=state.stamp(older.astimezone()))
-    assert run("job", "report", "j2", "--all") == (0, f"DONE the lane's latest\n\n{earlier}\nDONE graded two PRs\nCHECK: the diffs")
-
-
 def test_a_builders_done_names_its_proof_and_what_he_sees_is_proven_on_that_surface(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -7663,7 +7634,7 @@ def test_job_set_refuses_any_state_but_stopped_changing_nothing(run: Run, demo: 
     assert state.load("demo")["jobs"]["j1"]["state"] == "stopped"
 
 
-def test_a_job_set_whose_save_waits_past_the_drive_lock_exits_2_and_keeps_no_proof_file(
+def test_a_job_set_whose_save_waits_past_its_write_budget_exits_2_and_keeps_no_proof_file(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
@@ -7671,11 +7642,12 @@ def test_a_job_set_whose_save_waits_past_the_drive_lock_exits_2_and_keeps_no_pro
     proof = tmp_path / "proof.sh"
     proof.write_text("#!/bin/sh\necho PASS kept\n")
     proof.chmod(0o755)
-    monkeypatch.setattr(state, "DRIVE_LOCK_SECONDS", 0.3)
-    with open(state.drive_dir(demo) / ".lock", "a") as held:
-        fcntl.flock(held, fcntl.LOCK_EX)
-        assert cli.main(["job", "set", "j1", "--repro", str(proof)]) == 2
-    assert "drive lock is still held after 0.3s, so this changed nothing" in capsys.readouterr().err
+    monkeypatch.setattr(state, "WRITE_BUDGET_SECONDS", 0.3)
+    held = sqlite3.connect(state.database_path(demo), isolation_level=None)
+    held.execute("BEGIN IMMEDIATE")
+    assert cli.main(["job", "set", "j1", "--repro", str(proof)]) == 2
+    held.close()
+    assert "demo's database is still locked after 0.3s, so this changed nothing" in capsys.readouterr().err
     assert not state.load(demo)["jobs"]["j1"].get("repro")
 
 
@@ -10202,14 +10174,13 @@ def test_an_alert_saved_before_joins_was_kept_loads_joined_to_the_incident_its_o
     run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "SandSQL errors on plat", "--incident", "--parts", "fix", "first check")
     run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "SandSQL error log count", "--joins", "o1")
     run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "SandSQL restore runs retrying", "--joins", "o2")
-    with state.locked("demo"):
-        saved = state.stored("demo")
-        assert [saved["orders"][order_id]["joins"] for order_id in ("o1", "o2", "o3")] == [None, "o1", "o1"]
-        for order in saved["orders"].values():
-            del order["joins"]
-        saved["jobs"]["j1"]["carries"]["o2"] = ["Short title"]
-        saved["orders"]["o2"]["jobs"].append("j1")
-        state.save("demo", saved)
+    saved = state.stored("demo")
+    assert [saved["orders"][order_id]["joins"] for order_id in ("o1", "o2", "o3")] == [None, "o1", "o1"]
+    for order in saved["orders"].values():
+        del order["joins"]
+    saved["jobs"]["j1"]["carries"]["o2"] = ["Short title"]
+    saved["orders"]["o2"]["jobs"].append("j1")
+    state.save("demo", saved)
     data = state.load("demo")
     assert [data["orders"][order_id]["joins"] for order_id in ("o1", "o2", "o3")] == [None, "o1", None]
     assert state.feature_orders(data, "o2") == ["o1", "o2"]
@@ -10825,11 +10796,10 @@ def test_an_incident_order_is_never_limited_to_options_since_its_codex_jobs_star
 
 def test_an_order_saved_before_options_only_and_once_loads_as_neither(run: Run, demo: str) -> None:
     run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "fix the watch")
-    with state.locked("demo"):
-        saved = state.stored("demo")
-        for field in ("options_only", "once"):
-            del saved["orders"]["o1"][field]
-        state.save("demo", saved)
+    saved = state.stored("demo")
+    for field in ("options_only", "once"):
+        del saved["orders"]["o1"][field]
+    state.save("demo", saved)
     order = state.load("demo")["orders"]["o1"]
     assert (order["options_only"], order["once"]) == (False, False)
 

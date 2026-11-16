@@ -1627,7 +1627,7 @@ def answers_order(data: dict, order_id: str, post: dict) -> bool:
 
 
 def claim_close(name: str, report: dict) -> list[str]:
-    """Claim each order the report closes for it under the drive's lock, just before say posts it, so of two reports closing one order at once only the first posts and second_close refuses the other; the orders claimed, which a post that fails gives back, never one the watch's post of this report already marked."""
+    """Claim each order the report closes for it in one write of the drive, just before say posts it, so of two reports closing one order at once only the first posts and second_close refuses the other; the orders claimed, which a post that fails gives back, never one the watch's post of this report already marked."""
     if not state.closed_orders(report):
         return []
     def claim_close_write(data: dict):
@@ -7478,14 +7478,13 @@ def run_tool(tool: str, given: dict) -> str:
 
     try:
         arguments = tools.parsed_arguments(given, mcp.tool_named(tool)["inputSchema"]["properties"])
-        with state.naming(arguments):
-            name = state.resolve(arguments.pop("drive", None))
-            if tool == "record" and not arguments.get("dry_run") and not os.environ.get(BACKGROUND_RECORD_ENV) and state.session_role(state.saved(name), os.environ.get("CLAUDE_CODE_SESSION_ID")) == "communicator":
-                tools.run(tool, name, arguments | {"dry_run": True})
-                return backgrounded(name, given)
-            if os.environ.get(BACKGROUND_RECORD_ENV):
-                return kept_record(name, lambda: tools.run(tool, name, arguments))
-            return tools.run(tool, name, arguments)
+        name = state.resolve(arguments.pop("drive", None))
+        if tool == "record" and not arguments.get("dry_run") and not os.environ.get(BACKGROUND_RECORD_ENV) and state.session_role(state.saved(name), os.environ.get("CLAUDE_CODE_SESSION_ID")) == "communicator":
+            tools.run(tool, name, arguments | {"dry_run": True})
+            return backgrounded(name, given)
+        if os.environ.get(BACKGROUND_RECORD_ENV):
+            return kept_record(name, lambda: tools.run(tool, name, arguments))
+        return tools.run(tool, name, arguments)
     except reads.ReadError as error:
         raise DriveError(str(error)) from None
 
@@ -9431,8 +9430,7 @@ def main(argv: list[str] | None = None) -> int:
             args.sprite_lane = bool(lane)
             if "TMUX" in os.environ and (attached := orca.own_terminal()):
                 os.environ["ORCA_TERMINAL_HANDLE"] = attached
-            with state.naming(vars(args)):
-                return args.run(args)
+            return args.run(args)
     except VERB_ERRORS as error:
         return refused(args, error, detached, own)
 

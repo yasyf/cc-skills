@@ -597,7 +597,8 @@ def edit(name: str) -> Iterator[dict]:
         yield data
         state.BATCHED[name] = marshal.dumps(data)
         return
-    with state.editing(name), state.writing(name):
+    state.moved(name)
+    with state.editing(name):
         data = state.load(name)
         before = state.holding_lanes(data)
         yield data

@@ -67,9 +67,8 @@ Contents:
     session holding its order.
   - A builder on an open incident's order, on an order `drive order set <o> --priority` marked, or
     on an `immediate fix` part starts here at once past the cap and the line, and holds a slot once
-    it runs. A priority order's builder also starts past the load gate, and a drive verb or MCP call
-    naming that order, its jobs or its PRs takes the drive's lock ahead of other writers. The mark
-    also starts a coordinator session for that order alone, the sub-coordinator for `Priority <o>`.
+    it runs. A priority order's builder also starts past the load gate. The mark also starts a
+    coordinator session for that order alone, the sub-coordinator for `Priority <o>`.
   - A builder that builds nothing holds no slot and starts here at once past the load gate: one
     added with `drive job add builder --order <o> --goal "<goal>" --builds-nothing`, such as a read,
     or one whose goal reads `prove <PRs> live`. `drive job set <j> --builds-nothing` marks one already
@@ -386,7 +385,7 @@ with a blocking question.
   `scratch/` or `jobs/` folder. A `READ` naming one of those folders lists it one level deep. A
   `LOG <url>` question reads nothing: its answer tells the lane to read the log on its Sprite.
 - The watch's relay answers it with no event, as it answers a `DRIVE` question. It checks Orca's
-  mail every 2 s and starts `drive job read` in a process of its own that takes no drive lock, so a
+  mail every 2 s and starts `drive job read` in a process of its own, so a
   long pass delays no read. A command's output is cut to 12,000 characters, except a
   `cc-slack thread` or `history` read. An answer past the 64 KiB one Orca message carries is
   written onto the lane's Sprite and named in the reply. A question older than 240 s is dropped,

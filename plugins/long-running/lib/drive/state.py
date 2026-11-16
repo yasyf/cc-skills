@@ -1,4 +1,3 @@
-import ctypes
 import fcntl
 import functools
 import gc
@@ -238,7 +237,6 @@ STAGING_RULE = (
 )
 FREED = "FREE"
 PR_KEY = re.compile(r"([^/\s#]+)/([^/\s#]+)#(\d+)")
-NAMED_WORD = re.compile(rf"[jo]\d+|{PR_KEY.pattern}")
 DATADOG_MONITOR = re.compile(r"https://(?:[\w-]+\.)*datadoghq\.(?:com|eu)/monitors/(\d+)(?:[/?#]\S*)?")
 SENTRY_ISSUE = re.compile(r"https://(?:[\w-]+\.)*sentry\.io/(?:organizations/[\w-]+/)?issues/[\w-]+(?:[/?#]\S*)?")
 KEPT_ASK = re.compile(r"(?P<job>[\w.-]+)-(?P<hash>[0-9a-f]{8})")
@@ -294,7 +292,6 @@ JEV_FOLD = ("durable-agents", "j5389", "j5389-ec812baf.md")
 HANDOFF_JOBS = ".handoff-jobs-read"
 CARDS_NOTED = "card_answers_noted"
 INDEX: ContextVar["Index | None"] = ContextVar("index", default=None)
-NAMED: ContextVar[frozenset[str]] = ContextVar("named", default=frozenset())
 LOADED_VERSION: ContextVar[int | None] = ContextVar("loaded_version", default=None)
 LOADED_REV: ContextVar[int | None] = ContextVar("loaded_rev", default=None)
 ATTEMPT: ContextVar["Attempt | None"] = ContextVar("attempt", default=None)
@@ -304,28 +301,19 @@ BUDGET: ContextVar["Budget | None"] = ContextVar("budget", default=None)
 ACTIVE: ContextVar[frozenset[str]] = ContextVar("active", default=frozenset())
 EDITING: ContextVar[str | None] = ContextVar("editing", default=None)
 TAKEN_IDS: ContextVar[list[tuple[str, str, int]] | None] = ContextVar("taken_ids", default=None)
-PTHREADS = ctypes.CDLL(None, use_errno=True)
-QOS = sys.platform == "darwin"
-if QOS:
-    PTHREADS.qos_class_self.restype = ctypes.c_uint
-QOS_USER_INTERACTIVE = 0x21
-QOS_DEFAULT = 0x15
 BATCHED: dict[str, bytes] = {}
 WHOLE_READS: dict[tuple[Path, int], "Copy"] = {}
 READING = threading.Lock()
-MOVED_REPORTS: set[Path] = set()
 LOCK_POLL_SECONDS = 0.1
 HOLDER_CHARS = 200
 HOLDERS_SECONDS = 5
-DRIVE_LOCK_SECONDS = 300
+WRITE_BUDGET_SECONDS = 300
 WATCH_WRITE_SECONDS = 30
 ADOPT_SECONDS = 120
 WAL_KEPT_BYTES = 64 << 20
 UPDATE_TRIES = 5
 CHANGES_KEPT = 500
 ROW_MARSHAL = 2
-SLOW_HOLD_SECONDS = 2
-STUCK_HOLD_SECONDS = 30
 AFTER_SAVE: dict[str, list[Callable[[], list[str]]]] = {}
 REHEARSING: set[str] = set()
 MEMO: dict[str, object] = {}
@@ -376,7 +364,7 @@ class Refused(DriveError):
 
 
 class Busy(Refused):
-    """The drive's lock or its database stayed held by another write for all the time a write had left to wait, so it changed nothing."""
+    """The drive's database, or its migrate lock, stayed held by another process for all the time a write had left to wait, so it changed nothing."""
 
 
 class Raced(Exception):
@@ -418,7 +406,7 @@ sys.addaudithook(outside)
 
 @contextmanager
 def remembered() -> Iterator[None]:
-    """Answer each command subprocess.run starts in the block that only reads, by reads_only, and each question settled.jev asks, as the first one with the same arguments was answered, raising what it raised then, until outside forgets them all at a command that does more; so a call checking its ops in a dry pass and then running them under the drive's lock reads and asks each thing once, such as the drive's checkout move, his cards, each PR's release reach, Jev's read of an order's words and Opus's read of his answer ordering a release, whose `claude -p` reads only."""
+    """Answer each command subprocess.run starts in the block that only reads, by reads_only, and each question settled.jev asks, as the first one with the same arguments was answered, raising what it raised then, until outside forgets them all at a command that does more; so a call checking its ops in a dry pass and then running them in its write reads and asks each thing once, such as the drive's checkout move, his cards, each PR's release reach, Jev's read of an order's words and Opus's read of his answer ordering a release, whose `claude -p` reads only."""
     from drive import settled
 
     run, ask = subprocess.run, settled.jev
@@ -722,32 +710,6 @@ def report_text(name: str, job_id: str, every: bool = True) -> str:
 def keep_report(name: str, job_id: str, line: str, whole: str, at: datetime | None = None) -> None:
     """Keep a return in the job's history, beside each earlier one and each message a remote lane sent, which every reader takes as the job's report, so a later return, its own agent's or anyone else's such as a coordinator restating its result, never takes the place of an earlier one."""
     keep_reply(name, job_id, {"created_at": stamp(at), "id": f"{REPORT_REPLY}{uuid.uuid4().hex[:12]}", "type": "worker_done", "subject": line, "body": whole})
-
-
-def moved_reports(name: str) -> None:
-    """Move into each job's history, as the return it was, what an older install kept beside it as reports/<j>.md, its report until the history became it, and what a remote lane's job holds as its latest report when that is a result the history lacks, then delete the file, so the history is every reader's one record of a job's returns: once a process, under the drive's lock, and only while such a file is left."""
-    folder = drive_dir(name) / "reports"
-    if folder in MOVED_REPORTS:
-        return
-    MOVED_REPORTS.add(folder)
-    files = [path for path in folder.glob("j*.md") if JOB_ID.fullmatch(path.stem)]
-    if not files:
-        return
-    jobs = load(name)["jobs"]
-    for path in files:
-        if path.stem in jobs:
-            keep_return(name, path.stem, path.read_text(), datetime.fromtimestamp(path.stat().st_mtime).astimezone())
-        path.unlink()
-    for job_id, job in jobs.items():
-        if reported(opening(job.get("report") or "")):
-            keep_return(name, job_id, job["report"], parse_time(job["returned"] or job["updated"]))
-
-
-def keep_return(name: str, job_id: str, whole: str, at: datetime) -> None:
-    """Keep a return an older install held outside the job's history in it, unless it is blank or a row of the history already holds it."""
-    if not whole.strip() or whole.strip() in {(reply["body"] or "").strip() for reply in replies(name, job_id)}:
-        return
-    keep_report(name, job_id, opening(whole), whole, at)
 
 
 def keep_reply(name: str, job_id: str, message: dict) -> None:
@@ -1061,7 +1023,7 @@ def whole(path: Path, shape: Callable[[dict], tuple[dict, bool]], fields: tuple[
     with READING:
         if (copy := WHOLE_READS.get(key)) is None:
             copy = WHOLE_READS[key] = Copy(path)
-        copy.watcher.execute(f"PRAGMA busy_timeout = {int(min(waiting().left(), DRIVE_LOCK_SECONDS) * 1000)}")
+        copy.watcher.execute(f"PRAGMA busy_timeout = {int(min(waiting().left(), WRITE_BUDGET_SECONDS) * 1000)}")
         if (now := copy.watcher.execute("PRAGMA data_version").fetchone()[0]) == copy.version and copy.shaped:
             LOADED_VERSION.set(now)
             LOADED_REV.set(copy.shaped_rev)
@@ -1094,7 +1056,7 @@ class Copy:
     """This process's copy of a drive's database: each row's place and body, parsed and kept as marshal bytes, by collection and key, as of rev, the newest entry the changed table held then, or None while it held no such table; shaped, what those rows shaped into last when shaping read nothing outside the database."""
 
     def __init__(self, path: Path) -> None:
-        self.watcher = sqlite3.connect(path, timeout=DRIVE_LOCK_SECONDS, check_same_thread=False, isolation_level=None)
+        self.watcher = sqlite3.connect(path, timeout=WRITE_BUDGET_SECONDS, check_same_thread=False, isolation_level=None)
         self.version: int | None = None
         self.rev: int | None = None
         self.rows: dict[str, dict[str, tuple[int, bytes | None]]] = {}
@@ -1171,8 +1133,8 @@ def stored_json(name: str) -> dict:
 
 
 def connect(path: Path, seconds: float | None = None) -> sqlite3.Connection:
-    """A connection to a drive's database that begins each transaction itself, waiting up to seconds, DRIVE_LOCK_SECONDS unless named, for another's write, and cuts the WAL back to WAL_KEPT_BYTES each time a checkpoint resets it, which SQLite otherwise never shrinks from its largest burst."""
-    db = sqlite3.connect(path, timeout=DRIVE_LOCK_SECONDS if seconds is None else seconds, isolation_level=None)
+    """A connection to a drive's database that begins each transaction itself, waiting up to seconds, WRITE_BUDGET_SECONDS unless named, for another's write, and cuts the WAL back to WAL_KEPT_BYTES each time a checkpoint resets it, which SQLite otherwise never shrinks from its largest burst."""
+    db = sqlite3.connect(path, timeout=WRITE_BUDGET_SECONDS if seconds is None else seconds, isolation_level=None)
     db.execute("PRAGMA synchronous = NORMAL")
     db.execute(f"PRAGMA journal_size_limit = {WAL_KEPT_BYTES}")
     return db
@@ -2106,12 +2068,12 @@ def kept_hash(file: Path, jobs: dict) -> str | None:
 
 
 def migrate(name: str) -> None:
-    """Make each one-time change to the drive's files that an older install's drive still owes, each skipped once its mark exists, and an older install's driver row, dropped by a save of the whole drive as it loads; `drive install` runs it from the new install before any session reloads onto it and `drive start` on the drive it makes, and two at once take turns, the second finding each mark written."""
-    with flocked(drive_dir(name) / ".migrate.lock"):
+    """Make each one-time change to the drive's files that an older install's drive still owes, each skipped once its mark exists, and an older install's driver row, dropped by folded_driver; `drive install` runs it from the new install before any session reloads onto it and `drive start` on the drive it makes, and two at once take turns under the drive's migrate lock, the second finding each mark written. A drive still in drive.json moves into its database first, by moved, before this takes that lock, which moved takes too."""
+    moved(name)
+    with migrating(name):
         data = load(name)
         if "driver" in stored(name, ("driver",)):
-            with writing(name):
-                save(name, load(name))
+            folded_driver(name)
         if (pictures := drive_dir(name) / "pictures").is_dir() and not (pictures / picture.SOURCED).exists():
             picture.fill(pictures, [*map(Path.read_text, sorted((drive_dir(name) / "asks").glob("*.md"))), *pr_bodies(name)])
         if cards_path(name).exists() and not (drive_dir(name) / "asks" / REBUILT_ASKS).exists():
@@ -2126,6 +2088,18 @@ def migrate(name: str) -> None:
             reopen_jev_fold(name, data)
         if not (drive_dir(name) / HANDOFF_JOBS).exists():
             read_handoff_jobs(name, data)
+
+
+def folded_driver(name: str) -> None:
+    """Save the drive whole as it loads, which folds an older install's driver row into its roles and drops that row, loaded inside the transaction that saves it, so no write committing between the load and the save is written over."""
+    with closing(connect(database_path(name))) as db:
+        db.execute("BEGIN IMMEDIATE")
+        try:
+            rewrite(db, load(name), None)
+        except BaseException:
+            db.execute("ROLLBACK")
+            raise
+        db.execute("COMMIT")
 
 
 def wait_unstarted(name: str, data: dict) -> None:
@@ -4507,19 +4481,13 @@ def same_question(one: str | None, other: str | None) -> bool:
     return bool(one and other) and re.findall(r"\w+", one.casefold()) == re.findall(r"\w+", other.casefold())
 
 
-def taken(handle: IO, seconds: float, line: IO | None = None) -> bool:
-    """Take handle's lock exclusive within seconds, polling, since a blocking flock waits forever and on macOS lets new shared holders past a waiting exclusive one; with line, trying it only while line's lock is free, which every writer going first holds shared as it waits, so this one tries only once none waits; whether it was taken."""
+def taken(handle: IO, seconds: float) -> bool:
+    """Take handle's lock exclusive within seconds, polling, since a blocking flock waits forever and on macOS lets new shared holders past a waiting exclusive one; whether it was taken."""
     ends = time.monotonic() + seconds
     while True:
         try:
-            if line:
-                fcntl.flock(line, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            try:
-                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                return True
-            finally:
-                if line:
-                    fcntl.flock(line, fcntl.LOCK_UN)
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return True
         except BlockingIOError:
             if time.monotonic() >= ends:
                 return False
@@ -4679,19 +4647,35 @@ def placed(before: dict[str, tuple[int, str | None]], order: list[str]) -> dict[
 
 
 def moved(name: str) -> None:
-    """Move a drive an older install saved to drive.json into its database, under the drive's lock, which every older install's write takes, once each older install's verb that may read it ended: drive.json kept as it was beside it, then replaced by the pointer every older install refuses, then the database moved into place; a move cut short goes on from the kept copy."""
+    """Move a drive an older install saved to drive.json into its database, under the drive's migrate lock, so two processes finding it there move it once: drive.json kept as it was beside it, then replaced by the pointer every older install refuses, then the database moved into place; a move cut short goes on from the kept copy. It waits for that lock no longer than the running write has left of its budget, by waiting, without end for a patient write, then raises Busy naming who holds it, moving nothing. A drive already in its database, or with no drive.json, returns before taking that lock, so migrate, which moves the drive before it takes the lock, writes it under the lock without waiting on itself."""
     if database_path(name).exists() or not (path := state_path(name)).exists():
         return
-    found = json.loads(path.read_text())
-    data = json.loads(backup_path(name).read_text()) if MOVED in found else found
-    if MOVED not in found:
-        linking = backup_path(name).with_name(f"{BACKUP}.{os.getpid()}.tmp")
-        linking.unlink(missing_ok=True)
-        os.link(path, linking)
-        os.replace(linking, backup_path(name))
-    database = built(name, data)
-    pointed(name, data)
-    os.replace(database, database_path(name))
+    lock = migrate_lock(name)
+    with open(lock, "a") as handle:
+        if not taken(handle, (waits := waiting()).left()):
+            raise Busy(f"{name}'s migrate lock is still held after {waits.seconds:g}s, so this moved nothing: {holders(lock)}")
+        if database_path(name).exists():
+            return
+        found = json.loads(path.read_text())
+        data = json.loads(backup_path(name).read_text()) if MOVED in found else found
+        if MOVED not in found:
+            linking = backup_path(name).with_name(f"{BACKUP}.{os.getpid()}.tmp")
+            linking.unlink(missing_ok=True)
+            os.link(path, linking)
+            os.replace(linking, backup_path(name))
+        database = built(name, data)
+        pointed(name, data)
+        os.replace(database, database_path(name))
+
+
+def migrate_lock(name: str) -> Path:
+    """The file whose flock migrate holds for its one-time changes and moved for its move out of drive.json."""
+    return drive_dir(name) / ".migrate.lock"
+
+
+def migrating(name: str) -> AbstractContextManager[None]:
+    """Hold the drive's migrate lock for migrate's one-time changes, waiting as long as another migrate or move holds it."""
+    return flocked(migrate_lock(name))
 
 
 def pointed(name: str, data: dict) -> None:
@@ -4727,89 +4711,11 @@ def flocked(path: Path) -> Iterator[None]:
             fcntl.flock(handle, fcntl.LOCK_UN)
 
 
-@contextmanager
-def locked(name: str) -> Iterator[None]:
-    """Hold the drive's lock for one load and save, but for a dry run's, which keeps nothing and so takes none, waiting up to DRIVE_LOCK_SECONDS for the process holding it, then refusing with who that is, so a process stuck under it fails this verb instead of holding every writer of the drive behind it, but for a patient write's, which waits as long as the lock is held; a process's first hold moves the reports an older install kept into their jobs' histories.
-    A writer that finds the lock held and acts for a priority order, by named_first, holds the drive's .first.lock shared while it waits, and every other writer tries the lock only while no one holds that, so a priority order's verbs take it ahead of every writer waiting beside them, by his words "so they aren't slowed down at any cost by anything"."""
-    if name in REHEARSING:
-        yield
-        return
-    path = drive_dir(name) / ".lock"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    asked = time.monotonic()
-    with open(path, "a") as handle, open(path.with_name(".first.lock"), "a") as line:
-        if not taken(handle, 0, line):
-            if first := bool(NAMED.get()) and named_first(load(name), NAMED.get()):
-                fcntl.flock(line, fcntl.LOCK_SH)
-            if not taken(handle, (waits := waiting()).left(), None if first else line):
-                raise Busy(f"{name}'s drive lock is still held after {waits.seconds:g}s, so this changed nothing: {holders(path)}")
-        got = time.monotonic()
-        stuck = threading.Timer(STUCK_HOLD_SECONDS, kept_stack, (name, threading.get_ident()))
-        stuck.daemon = True
-        stuck.start()
-        try:
-            with foremost():
-                moved_reports(name)
-                yield
-        finally:
-            stuck.cancel()
-            kept_write(name, got - asked, held := time.monotonic() - got, "drive")
-            if held >= SLOW_HOLD_SECONDS or got - asked >= SLOW_HOLD_SECONDS:
-                kept_hold(name, held, got - asked)
-
-
-@contextmanager
-def foremost() -> Iterator[None]:
-    """Run this thread, on macOS alone, whose libc has QoS classes, at its user-interactive QoS while it holds the drive's lock, then at the QoS it ran at before, so on a Mac whose cores every session's processes keep busy the scheduler runs the one holder every writer of the drive waits on first, instead of sharing its cores evenly with the processes that wait."""
-    if not QOS:
-        yield
-        return
-    was = PTHREADS.qos_class_self()
-    PTHREADS.pthread_set_qos_class_self_np(QOS_USER_INTERACTIVE, 0)
-    try:
-        yield
-    finally:
-        PTHREADS.pthread_set_qos_class_self_np(was or QOS_DEFAULT, 0)
-
-
-@contextmanager
-def naming(given: object) -> Iterator[None]:
-    """Run a verb or a drive MCP call under each job, order and PR its arguments name, at any depth, a PR by its key, so each wait for the drive's lock under it reads by named_first whether it acts for a priority order, and one naming none, such as the watch, reads nothing."""
-
-    def words(value: object) -> frozenset[str]:
-        if isinstance(value, str):
-            return frozenset([pr_key(value)] if PR_URL.search(value) else [value] if NAMED_WORD.fullmatch(value) else [])
-        if isinstance(value, dict):
-            return words(list(value.values()))
-        return frozenset().union(*map(words, value)) if isinstance(value, list | tuple) else frozenset()
-
-    token = NAMED.set(NAMED.get() | words(given))
-    try:
-        yield
-    finally:
-        NAMED.reset(token)
-
-
-def kept_hold(name: str, held: float, waited: float, lock: str = "") -> None:
-    """Log a hold of the drive's lock, or of the scope's lock named, or a wait for it, past SLOW_HOLD_SECONDS to locks.log: how long, how long it waited first, the drive code that held it and the verb, so the verb holding every writer behind it is named."""
-    holder = next(frame for frame in reversed(traceback.extract_stack()[:-1]) if Path(frame.filename).name not in ("state.py", "contextlib.py"))
-    with open(drive_dir(name) / "locks.log", "a") as log:
-        log.write(f"{stamp()} pid {os.getpid()} held {lock + ' ' if lock else ''}{held:.1f}s after waiting {waited:.1f}s in {holder.name} ({Path(holder.filename).name}:{holder.lineno}): drive {' '.join(sys.argv[1:])[:HOLDER_CHARS]}\n")
-
-
-def kept_write(name: str, waited: float, held: float, how: str) -> None:
-    """Log each hold of the drive's lock to writes.log, one tab-separated line: when, the drive code that held it, whether it saved the whole drive or a write's rows alone, how long it waited and how long it held, the pid and the install it ran, so each verb's write latency reads from every write, not only the slow ones locks.log names, and a hold of the whole drive names whether a current install or an older one took it."""
+def kept_write(name: str, waited: float, held: float) -> None:
+    """Log each transaction of a write's rows to writes.log, one tab-separated line: when, the drive code that wrote them, "rows", how long it waited for the database's write lock and how long its transaction held it, the pid and the install it ran, so each verb's write latency reads from every write, not only the slow ones locks.log names."""
     holder = next(frame for frame in reversed(traceback.extract_stack()[:-1]) if Path(frame.filename).name not in ("state.py", "contextlib.py"))
     with open(drive_dir(name) / "writes.log", "a") as log:
-        log.write(f"{stamp()}\t{holder.name}\t{how}\t{waited:.3f}\t{held:.3f}\t{os.getpid()}\t{VERSION}\n")
-
-
-def kept_stack(name: str, thread: int) -> None:
-    """Log to locks.log the stack of the thread still holding the drive's lock STUCK_HOLD_SECONDS after it took it, so a hold that jams every writer names the line it waits on while it still holds, before kept_hold can, or if it never lets go; nothing when that thread let go and ended as the timer fired."""
-    if (frame := sys._current_frames().get(thread)) is None:
-        return
-    with open(drive_dir(name) / "locks.log", "a") as log:
-        log.write(f"{stamp()} pid {os.getpid()} still holds the lock {STUCK_HOLD_SECONDS}s on: drive {' '.join(sys.argv[1:])[:HOLDER_CHARS]}\n{''.join(traceback.format_stack(frame))}")
+        log.write(f"{stamp()}\t{holder.name}\trows\t{waited:.3f}\t{held:.3f}\t{os.getpid()}\t{VERSION}\n")
 
 
 def binding(name: str) -> AbstractContextManager[None]:
@@ -4871,14 +4777,6 @@ def launch_waiting(name: str, job_id: str) -> int | None:
     return pid if pid != os.getpid() and alive(pid) else None
 
 
-@contextmanager
-def writing(name: str) -> Iterator[None]:
-    """Hold the drive's lock for a write, moving a drive.json an older install saved into the drive's database first."""
-    with locked(name):
-        moved(name)
-        yield
-
-
 Row = tuple[str, ...]
 
 
@@ -4931,7 +4829,7 @@ def released(taken: list[tuple[str, str, int]]) -> None:
     for name, counter, taken_id in reversed(taken):
         while True:
             try:
-                with unlocked(name, waits), closing(connect(database_path(name), min(waits.left(), DRIVE_LOCK_SECONDS))) as db:
+                with unlocked(name, waits), closing(connect(database_path(name), min(waits.left(), WRITE_BUDGET_SECONDS))) as db:
                     db.execute("UPDATE meta SET value = CAST(value AS INTEGER) - 1 WHERE key = ? AND CAST(value AS INTEGER) = ?", (counter, taken_id))
                 break
             except Busy:
@@ -4971,13 +4869,13 @@ def raw_row(raw: dict[str, dict[str, tuple[int, bytes | None]]], row: Row) -> ob
 
 
 def waiting() -> "Budget":
-    """How long a wait on the drive's lock or database may take now: what the write running in this context has left of its budget, without end for a patient one, else DRIVE_LOCK_SECONDS from now."""
-    return BUDGET.get() or Budget(time.monotonic(), DRIVE_LOCK_SECONDS)
+    """How long a wait on the drive's database may take now: what the write running in this context has left of its budget, without end for a patient one, else WRITE_BUDGET_SECONDS from now."""
+    return BUDGET.get() or Budget(time.monotonic(), WRITE_BUDGET_SECONDS)
 
 
 @contextmanager
 def unlocked(name: str, budget: "Budget") -> Iterator[None]:
-    """Raise SQLite's busy error on the drive's database, its wait for another connection's write lock run out, as Busy, so a write's retry or a patient write's wait takes it like the drive's own lock; every other error as it is."""
+    """Raise SQLite's busy error on the drive's database, its wait for another connection's write lock run out, as Busy, which a write refuses with or a patient write runs again on; every other error as it is."""
     try:
         yield
     except sqlite3.OperationalError as busy:
@@ -4987,7 +4885,7 @@ def unlocked(name: str, budget: "Budget") -> Iterator[None]:
 
 
 class Budget(NamedTuple):
-    """How long a write may wait on the drive's lock and database in all: seconds from asked, math.inf for a patient write, which waits however long they are held."""
+    """How long a write may wait on the drive's database in all: seconds from asked, math.inf for a patient write, which waits however long they are held."""
 
     asked: float
     seconds: float
@@ -4997,7 +4895,7 @@ class Budget(NamedTuple):
 
 
 def rows_saved(name: str, held: dict[Row, object], base: dict, mine: dict, rows: tuple[Row, ...], since: int | None = None, reads: frozenset[Row] = frozenset(), budget: Budget | None = None) -> tuple[int, list[Callable[[], list[str]]]]:
-    """Save a write of rows alone in one short transaction of the drive's database, writing only the records the rows name: each as mine holds it, a row naming one field of a record that field alone on the record as the database holds it, while every record reads as held, the database's when the write loaded the drive as base; Raced at the first another write changed since, even to the value mine holds, since a write that read it may have counted on what it held; with since, the revision of the drive base was loaded at, Raced instead at the first row any write committed after it that is one of the records, one reads names or the order of a job the save finishes, whose standing part keeps its texts, a record or every record of a collection by "*", or at any once the changed table no longer reaches back to it. It waits on the drive's lock and then the database's write lock no longer than budget leaves, DRIVE_LOCK_SECONDS from now unless named, or for good for a patient write, then raises Busy, keeping nothing. New records take places after the collection's last in the order mine holds them. A job the save moves into done or stopped drops the texts it holds, as rewrite drops them. It returns the drive's newest revision once it commits and what the commit leaves to do outside the drive, for its caller to run by ran, so a failure there never reads as nothing kept, gives back no id the write took, and stops none of the write's own effects: logging the hold to writes.log, taking down the Mac boxes of each job it moves into done, failed or stopped, and telling the lane losing each open order the save moved to another lane, by its own record or by the drive's bindings, by told_moved; the drive's clocks are drawn again by redrawn. The drive's lock is held for that transaction alone, while older installs still save the whole drive under it; what a write left to do outside the drive runs after it, by write, in no order across processes, so a file a record names is written by publish."""
+    """Save a write of rows alone in one short transaction of the drive's database, writing only the records the rows name: each as mine holds it, a row naming one field of a record that field alone on the record as the database holds it, while every record reads as held, the database's when the write loaded the drive as base; Raced at the first another write changed since, even to the value mine holds, since a write that read it may have counted on what it held; with since, the revision of the drive base was loaded at, Raced instead at the first row any write committed after it that is one of the records, one reads names or the order of a job the save finishes, whose standing part keeps its texts, a record or every record of a collection by "*", or at any once the changed table no longer reaches back to it. It waits on the database's write lock no longer than budget leaves, WRITE_BUDGET_SECONDS from now unless named, or for good for a patient write, then raises Busy, keeping nothing. New records take places after the collection's last in the order mine holds them. A job the save moves into done or stopped drops the texts it holds, as rewrite drops them. It returns the drive's newest revision once it commits and what the commit leaves to do outside the drive, for its caller to run by ran, so a failure there never reads as nothing kept, gives back no id the write took, and stops none of the write's own effects: logging the transaction to writes.log, by kept_write, as a transaction that raises logs itself as it ends, taking down the Mac boxes of each job it moves into done, failed or stopped, and telling the lane losing each open order the save moved to another lane, by its own record or by the drive's bindings, by told_moved; the drive's clocks are drawn again by redrawn. What a write left to do outside the drive runs after it, by write, in no order across processes, so a file a record names is written by publish."""
     budget = budget or waiting()
     jobs = mine.get("jobs", {})
     ended = {key: then["state"] for collection, key in held if collection == "jobs" and isinstance(then := held[(collection, key)], dict) and key in jobs and jobs[key]["state"] in FINISHED_JOB_STATES and then.get("state") != jobs[key]["state"]}
@@ -5011,9 +4909,10 @@ def rows_saved(name: str, held: dict[Row, object], base: dict, mine: dict, rows:
             fields[("jobs", job_id)].add("undelivered")
     order = {collection: {key: index for index, key in enumerate(records)} for collection, records in mine.items() if collection in COLLECTIONS}
     records = sorted(held, key=lambda record: (record[0], order.get(record[0], {}).get(record[1], -1), record[1]))
-    with handled_lock(name, budget) as waited, unlocked(name, budget), closing(connect(database_path(name), min(budget.left(), DRIVE_LOCK_SECONDS))) as db:
-        got = time.monotonic()
+    with unlocked(name, budget), closing(connect(database_path(name), min(budget.left(), WRITE_BUDGET_SECONDS))) as db:
+        asked = time.monotonic()
         db.execute("BEGIN IMMEDIATE")
+        got = time.monotonic()
         try:
             for statement in LISTED:
                 db.execute(statement)
@@ -5041,11 +4940,12 @@ def rows_saved(name: str, held: dict[Row, object], base: dict, mine: dict, rows:
             db.execute("DELETE FROM changed WHERE rev <= ?", (newest - CHANGES_KEPT,))
         except BaseException:
             db.execute("ROLLBACK")
+            kept_write(name, got - asked, time.monotonic() - got)
             raise
         db.execute("COMMIT")
+        held_for = time.monotonic() - got
         with suppress(sqlite3.OperationalError):
             db.execute("PRAGMA wal_checkpoint(PASSIVE)")
-    held_for = time.monotonic() - got
     boxes = [key for collection, key in held if collection == "jobs" and isinstance(then := held[(collection, key)], dict) and key in jobs and gave_box_back(then.get("state"), jobs[key]["state"])]
     bound = any(collection == "" and key in BINDINGS for collection, key in held)
     moved: dict[str, tuple[str, str]] = {}
@@ -5055,7 +4955,7 @@ def rows_saved(name: str, held: dict[Row, object], base: dict, mine: dict, rows:
         moved = {key: (holding_lane(base, base["orders"][key]), holding_lane(base, mine["orders"][key])) for collection, key in held if collection == "orders" and key in open_orders(base) and key in mine["orders"]}
 
     def logged() -> list[str]:
-        kept_write(name, waited, held_for, "rows")
+        kept_write(name, got - asked, held_for)
         return []
 
     def boxes_down() -> list[str]:
@@ -5245,24 +5145,8 @@ def fields_set(record: dict, mine: object, fields: set[str]) -> dict:
     return kept | {field: mine[field] for field in fields if isinstance(mine, dict) and field in mine}
 
 
-@contextmanager
-def handled_lock(name: str, budget: Budget) -> Iterator[float]:
-    """Hold the drive's lock exclusive for one short transaction, without its waits' logging or the reports moved on a first hold, while writes of no rows and older installs still load, change and save the whole drive under it, so no such save of what it loaded before this one writes over it; waiting no longer than budget leaves, then raising Busy naming who holds it; the seconds it waited. A hold that ends in an exception logs itself to writes.log by kept_write as it ends, and one that commits leaves that log to its caller, rows_saved, which runs it after the commit by ran, so a log that cannot be written never stops a committed write's effects."""
-    path = drive_dir(name) / ".lock"
-    asked = time.monotonic()
-    with open(path, "a") as handle:
-        if not taken(handle, budget.left()):
-            raise Busy(f"{name}'s drive lock is still held after {budget.seconds:g}s, so this changed nothing: {holders(path)}")
-        got = time.monotonic()
-        try:
-            yield got - asked
-        except BaseException:
-            kept_write(name, got - asked, time.monotonic() - got, "rows")
-            raise
-
-
 def write[T](name: str, change: Callable[[dict], T], *, budget: float | None = None, patient: bool = False) -> T:
-    """The one way to change a drive: apply change, a function of the drive that only reads and changes data and leaves each effect outside the drive to after, to the drive as it loads, holding no lock while it runs, recording each row it reads, by ReadDrive, and every row once it loads the drive again itself, since those reads go untracked, and save each record it changed in one short transaction, refused when another write committed one of those rows or one it read since the load, by rows_saved's since, or, on a database no install gave a changed table yet, when the database no longer holds each record it changed as that load read it, unshaped; each effect it left runs once its save commits, the effects of a refused run dropped with it. A refused run runs change again on the drive as it then stands, at once for UPDATE_TRIES runs and then after a growing random pause, until budget, DRIVE_LOCK_SECONDS unless named, passes, counting each wait on the drive's lock or database against it, its move out of drive.json, the ids its change takes and those a refused run gives back included, then refuses as Refused, which locks.log names, or as Busy once a wait ran it out; a patient write, which records an outside action already done, waits and runs again for good. Inside a batch it runs change once on the batch's copy, its effects waiting for the batch's save; a drive still in drive.json moves into its database first. A write of a drive inside the change of another write of that drive raises, at any depth, by unnested, since its commit would race the outer one's on every run."""
+    """The one way to change a drive: apply change, a function of the drive that only reads and changes data and leaves each effect outside the drive to after, to the drive as it loads, holding no lock while it runs, recording each row it reads, by ReadDrive, and every row once it loads the drive again itself, since those reads go untracked, and save each record it changed in one short transaction, refused when another write committed one of those rows or one it read since the load, by rows_saved's since, or, on a database no install gave a changed table yet, when the database no longer holds each record it changed as that load read it, unshaped; each effect it left runs once its save commits, the effects of a refused run dropped with it. A refused run runs change again on the drive as it then stands, at once for UPDATE_TRIES runs and then after a growing random pause, until budget, WRITE_BUDGET_SECONDS unless named, passes, counting each wait on the drive's database against it, the ids its change takes and those a refused run gives back included, then refuses as Refused, which locks.log names, or as Busy once a wait ran it out; a patient write, which records an outside action already done, waits and runs again for good. Inside a batch it runs change once on the batch's copy, its effects waiting for the batch's save; a drive still in drive.json moves into its database first, by moved, under the drive's migrate lock, its wait counted against the budget. A write of a drive inside the change of another write of that drive raises, at any depth, by unnested, since its commit would race the outer one's on every run."""
     unnested(name)
     if name in BATCHED:
         data = load(name)
@@ -5270,13 +5154,11 @@ def write[T](name: str, change: Callable[[dict], T], *, budget: float | None = N
             done = change(data)
         BATCHED[name] = marshal.dumps(data)
         return done
-    seconds = DRIVE_LOCK_SECONDS if budget is None else budget
+    seconds = WRITE_BUDGET_SECONDS if budget is None else budget
     waits = Budget(time.monotonic(), math.inf if patient else seconds)
     budgeted, why, landed = BUDGET.set(waits), "", None
     try:
-        if not database_path(name).exists():
-            with locked(name):
-                moved(name)
+        moved(name)
         for tried in itertools.count():
             if tried and not waits.left():
                 break
@@ -5308,7 +5190,7 @@ def write[T](name: str, change: Callable[[dict], T], *, budget: float | None = N
                 except Busy:
                     if not patient:
                         raise
-                    why = "another write held the drive's lock or database each time it ran"
+                    why = "another write held the drive's database each time it ran"
                     released(taken)
                     continue
             landed = [*([functools.partial(kept_runs, name, tried + 1, time.monotonic() - waits.asked, why)] if tried >= UPDATE_TRIES else []), *post, *attempt.effects]
@@ -5353,10 +5235,8 @@ def update[T](name: str, rows: tuple[Row, ...] | None, change: Callable[[dict], 
 
 
 def committed(name: str, base: bytes, mine: dict) -> tuple[int | None, list[Callable[[], list[str]]]]:
-    """Save a write's changes, mine, made on the drive as base held it, holding no lock while it merges: a drive an older install kept in drive.json moved into its database first, under the drive's lock, by moved; mine laid over a copy of the drive as it stands now, by merged, which raises Raced at the first field both changed differently, saved as the records that merge changed by rows_saved, which keeps them only while no other write committed one of them, the drive's bindings, or the order of a job the save finishes since that load, and merged again over the drive as it then stands each time another write did, up to UPDATE_TRIES times; the revision that commit left and what it leaves to do outside the drive, by rows_saved, neither when the merge changed nothing."""
-    if not database_path(name).exists():
-        with locked(name):
-            moved(name)
+    """Save a write's changes, mine, made on the drive as base held it, holding no lock while it merges: a drive an older install kept in drive.json moved into its database first, by moved; mine laid over a copy of the drive as it stands now, by merged, which raises Raced at the first field both changed differently, saved as the records that merge changed by rows_saved, which keeps them only while no other write committed one of them, the drive's bindings, or the order of a job the save finishes since that load, and merged again over the drive as it then stands each time another write did, up to UPDATE_TRIES times; the revision that commit left and what it leaves to do outside the drive, by rows_saved, neither when the merge changed nothing."""
+    moved(name)
     was = marshal.loads(base)
     for _ in range(UPDATE_TRIES):
         now = load(name)
@@ -5481,7 +5361,7 @@ def publish(path: Path, text: str | bytes, current: Callable[[dict], bool], mode
 
 
 def create_or_write[T](name: str, fresh: dict, change: Callable[[dict], T]) -> T:
-    """Apply change to the drive by write, or, while the drive does not exist yet, to fresh, saved as the drive's first database, built beside it and linked into place, so a drive another start made first meanwhile is never written over and change runs on that drive instead, by write; neither holds the drive's lock. Each effect change leaves by after runs once its drive is in place, and a run on fresh that lost the race drops its effects."""
+    """Apply change to the drive by write, or, while the drive does not exist yet, to fresh, saved as the drive's first database, built beside it and linked into place, so a drive another start made first meanwhile is never written over and change runs on that drive instead, by write; neither holds a lock while change runs. Each effect change leaves by after runs once its drive is in place, and a run on fresh that lost the race drops its effects."""
     unnested(name)
     if exists(name):
         return write(name, change)
@@ -5624,9 +5504,9 @@ def cancel(name: str, reservation: Reservation) -> list[int | None] | None:
 
 def create(data: dict) -> None:
     """Save a drive built whole in code, as a proof or a test builds one, marked as needing no label_approvals pass, since its coordinator's cwd may be no checkout at all and every tap `drive answer` records for it is labelled already; `drive start` makes its drives through create_or_write, then migrates each, which labels the older taps of the checkout it starts in."""
-    with writing(data["name"]):
-        save(data["name"], data)
-        (drive_dir(data["name"]) / APPROVALS_LABELLED).touch()
+    drive_dir(data["name"]).mkdir(parents=True, exist_ok=True)
+    save(data["name"], data)
+    (drive_dir(data["name"]) / APPROVALS_LABELLED).touch()
 
 
 def next_id(records: dict, prefix: str) -> str:
@@ -5637,7 +5517,7 @@ def next_id(records: dict, prefix: str) -> str:
         return f"{prefix}{fresh}"
     counter = f"ids-{prefix}"
     waits = waiting()
-    with unlocked(name, waits), closing(connect(database_path(name), min(waits.left(), DRIVE_LOCK_SECONDS))) as db:
+    with unlocked(name, waits), closing(connect(database_path(name), min(waits.left(), WRITE_BUDGET_SECONDS))) as db:
         fresh = int(db.execute("INSERT INTO meta VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = MAX(CAST(value AS INTEGER) + 1, CAST(excluded.value AS INTEGER)) RETURNING value", (counter, str(fresh))).fetchone()[0])
     if (taken := TAKEN_IDS.get()) is not None:
         taken.append((name, counter, fresh))
@@ -6561,12 +6441,6 @@ def first_in_line(data: dict, job: dict) -> bool:
 
 def prioritized(order: dict) -> bool:
     return bool(order["priority"]) and order["state"] not in CLOSED_ORDER_STATES
-
-
-def named_first(data: dict, named: Iterable[str]) -> bool:
-    """Whether a call naming these jobs, orders and PR keys acts for an open priority order: it names the order, a job first_in_line reads as serving one, or a PR such a job carries."""
-    jobs = [data["jobs"][key] for key in named if key in data["jobs"]] + [data["jobs"][job_id] for key in named if (job_id := data["prs"].get(key, {}).get("job")) in data["jobs"]]
-    return any(prioritized(data["orders"][key]) for key in named if key in data["orders"]) or any(first_in_line(data, job) for job in jobs)
 
 
 def hurts_now(data: dict, order: dict) -> bool:
