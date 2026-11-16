@@ -17,7 +17,7 @@ You run one staging test for the drive, then end. His words set the job:
 
 ## The bar
 
-Before anything else, read the drive checkout's `.claude/long-running.toml` `[[dangerous]]` tables and the landing rule in its root `AGENTS.md`. They say what counts as dangerous. Each stack's cases are the ones its PR bodies and its builders' `STAGING:` lines name. A cut holds up to six stacks. A failing stack is cut out and the rest rerun. Where this page and the repository disagree, the repository wins.
+Before anything else, read `lib/lane/danger.md` beside this page, his list of what needs a staging pass before merge; a drive's own `danger.md` in its lanes folder replaces it. Each candidate's `dangerous` verdict was judged against it. A candidate marked `after_merge` merged on his Approve and is tested on its merged head; it never blocks a merge, so take it after the stacks waiting to merge, and fold it into a cut whose other stacks it does not overlap. Each stack's cases are the ones its PR bodies and its builders' `STAGING:` lines name. A cut holds up to six stacks. A failing stack is cut out and the rest rerun. Where this page and the repository disagree, the repository wins.
 
 ## Steps
 

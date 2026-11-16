@@ -43,7 +43,7 @@ def written(path: Path, body: dict) -> Path:
 
 
 def lane_candidates(drive: str) -> list[dict]:
-    """Each stack of a lane holding a dangerous PR with no proof at the stack's top head, its PRs green, in rank.json's order of lanes."""
+    """Each stack of a lane holding a PR danger.md says needs a staging pass before merge with no proof at the stack's top head, its PRs green, in rank.json's order of lanes; then each PR his Approve merged with no staging proof yet, marked after_merge, whose test runs on its merged head, by his 14:33 ruling."""
     folder = lanes_dir(drive)
     order = json.loads((folder / RANK).read_text())["order"]
     read = rows.view(drive)
@@ -65,6 +65,7 @@ def lane_candidates(drive: str) -> list[dict]:
                         "dangerous": {landing.key(row): row["dangerous"] for row in open_rows if landing.judged(row) and landing.dangerous(row)},
                     }
                 )
+    found += [{"rank": rank, "lane": lane_id, "stack": [landing.key(row)], "top_head": row["head"], "after_merge": True} for rank, lane_id in enumerate(order) for row in rows.seen(store.load(drive, lane_id), read)["prs"] if row.get("merged") and not row.get("staging") and row.get("approved_head")]
     return found
 
 

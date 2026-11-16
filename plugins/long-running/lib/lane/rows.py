@@ -1,13 +1,23 @@
 """lane-land's reads and writes of lane PRs: their state from GitHub, kept in memory and never on a row, and on each row the dangerous reader's verdict at a head and its stack's staging proof."""
 
+import hashlib
 import subprocess
 from functools import cache
 from pathlib import Path
 
+import httpx
+from spawnllm import JEV, Binary, BinaryAnswer, DecideError, DecideKeyMissing, decide_sync
+
 from lane import facts, landing, store
 
 CHECKS = {"SUCCESS": "pass", "FAILURE": "fail", "ERROR": "fail"}
-PR_STATE = ("head", "checks", "merged", "under", "commits", "whole", "foreign")
+PR_STATE = ("head", "checks", "merged", "under", "commits", "whole", "foreign", "title")
+DANGER = Path(__file__).with_name("danger.md")
+BEFORE_MERGE = "needs a staging pass before merge, by his 14:33 list in danger.md"
+DANGER_AT = 0.35
+JUDGED_AT = 20
+FILES_SHOWN = 150
+JUDGE_SECONDS = 60.0
 
 
 def view(drive: str) -> dict[str, dict]:
@@ -17,7 +27,7 @@ def view(drive: str) -> dict[str, dict]:
     heads = {(repo, pull["branch"]): f"{repo}#{number}" for (repo, number), pull in read.items() if pull["state"] == "OPEN"}
     found = {}
     for (repo, number), pull in read.items():
-        facts_of = {"head": pull["head"] if pull["state"] == "OPEN" or pull["merged"] else None, "checks": CHECKS.get(pull["rollup"] or "", "pending"), "merged": pull["merged"], "commits": pull["commits"], "whole": pull["commit_count"] <= len(pull["commits"])}
+        facts_of = {"head": pull["head"] if pull["state"] == "OPEN" or pull["merged"] else None, "checks": CHECKS.get(pull["rollup"] or "", "pending"), "merged": pull["merged"], "title": pull["title"], "commits": pull["commits"], "whole": pull["commit_count"] <= len(pull["commits"])}
         if pull["base"] == pull["default"]:
             facts_of["under"] = None
         elif below := heads.get((repo, pull["base"])):
@@ -51,31 +61,53 @@ def ours() -> str:
     return subprocess.run(["gh", "api", "user", "-q", ".login"], capture_output=True, text=True, check=True, timeout=60).stdout.strip()
 
 
-def unjudged(lanes: dict[str, dict]) -> list[str]:
-    """Each open lane PR with a head and no verdict at it."""
-    return list(dict.fromkeys(landing.key(row) for lane in lanes.values() for row in lane["prs"] if row["head"] and not row.get("merged") and not landing.judged(row)))
+def unjudged(lanes: dict[str, dict], key: str) -> list[str]:
+    """Each open lane PR with a head and no verdict at it under the rule whose key is given, so a change to danger.md judges every open head again."""
+    return list(dict.fromkeys(landing.key(row) for lane in lanes.values() for row in lane["prs"] if row["head"] and not row.get("merged") and not (landing.judged(row) and row["dangerous"].get("rule") == key)))
 
 
 def judge(drive: str, read: dict[str, dict]) -> int:
-    """Read each unjudged head, as view() read it,'s changed files in one batched GitHub read and write its verdict, {head, classes}, by state.dangerous_in as the providers of the drive's checkout, its config's `checkout`, read the repository's [[dangerous]] tables and dangerous_paths; with no checkout configured nothing is judged, so nothing lands. The count written."""
-    from drive import providers, state
-
-    checkout = store.config(drive)["checkout"]
-    if not checkout or not (waiting := unjudged({lane_id: seen(lane, read) for lane_id, lane in store.load_all(drive).items()})):
+    """Write each unjudged head's verdict, {head, classes}: a model reads danger.md, his 14:33 list of what needs a staging pass before merge, against each PR's title and changed files, JUDGED_AT a request, and a yes at DANGER_AT or more names the class `before merge` with its why; a no leaves classes empty, so his Approve merges it and the tester runs its test after the merge. A head whose files or answer could not be read stays unjudged and holds. The count written."""
+    key = rule_key(drive)
+    if not (waiting := unjudged({lane_id: seen(lane, read) for lane_id, lane in store.load_all(drive).items()}, key)):
         return 0
-    found = providers.at(Path(checkout))
-    verdicts = {key: {"head": head, "classes": state.dangerous_in(found.config, found.repo, paths)} for key, (head, paths) in readable(waiting).items()}
+    files = readable(waiting)
+    verdicts: dict[str, dict] = {}
+    for start in range(0, len(files), JUDGED_AT):
+        chunk = {key: files[key] for key in list(files)[start : start + JUDGED_AT]}
+        verdicts |= {pr: verdict | {"rule": key} for pr, verdict in asked(drive, chunk, read).items()}
 
     def written(lanes: dict[str, dict]) -> int:
         count = 0
         for lane in lanes.values():
             for row in lane["prs"]:
-                if (verdict := verdicts.get(landing.key(row))) and verdict["head"] == read[landing.key(row)]["head"] and (row.get("dangerous") or {}).get("head") != verdict["head"]:
+                if (verdict := verdicts.get(landing.key(row))) and verdict["head"] == read[landing.key(row)]["head"] and (row.get("dangerous") or {}).get("rule") != key:
                     row["dangerous"] = verdict
                     count += 1
         return count
 
     return store.transact(drive, written)
+
+
+def rule(drive: str) -> str:
+    own = store.drive_dir(drive) / "danger.md"
+    return (own if own.is_file() else DANGER).read_text()
+
+
+def asked(drive: str, chunk: dict[str, tuple[str, list[str]]], read: dict[str, dict]) -> dict[str, dict]:
+    """One model request judging each PR of chunk against the rule; none when the request fails, so those heads stay unjudged."""
+    told = [{"id": f"p{index}", "pr": key, "title": read[key].get("title") or "", "files": paths[:FILES_SHOWN], "more_files": max(0, len(paths) - FILES_SHOWN)} for index, (key, (_, paths)) in enumerate(chunk.items())]
+    questions = {item["id"]: Binary(f"By the rule, does {item['pr']} need a staging pass before it merges?", yes="it changes one of the five listed kinds", no="it merges on his Approve and is tested after the merge") for item in told}
+    try:
+        decision = decide_sync({"rule": rule(drive), "prs": told}, questions, provider=JEV, timeout=JUDGE_SECONDS)
+    except (TimeoutError, ValueError, DecideError, DecideKeyMissing, httpx.HTTPError):
+        return {}
+    found = {}
+    for item in told:
+        if isinstance(answer := decision.answers.get(item["id"]), BinaryAnswer):
+            head = chunk[item["pr"]][0]
+            found[item["pr"]] = {"head": head, "classes": {BEFORE_MERGE: [f"p(yes) {answer.p_yes:.2f} by danger.md"]} if answer.p_yes >= DANGER_AT else {}, "p_yes": round(answer.p_yes, 3)}
+    return found
 
 
 def prove(drive: str, cut: str, stacks: dict[str, dict]) -> None:
@@ -107,3 +139,7 @@ def readable(keys: list[str]) -> dict[str, tuple[str, list[str]]]:
                 except github.GithubError:
                     continue
     return found
+
+
+def rule_key(drive: str) -> str:
+    return hashlib.sha256(rule(drive).encode()).hexdigest()[:16]
