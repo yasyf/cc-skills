@@ -32,6 +32,19 @@ STAMPS = (
     " build or tool, so its first write passes the check that refuses a typed one; a time after the write passes, naming its day when it falls on another, as \"6:54 AM tomorrow\", and a"
     " SendMessage, a defect or any other record between sessions quotes times as it needs."
 )
+BLOCK_SHAPES = """Pick the shape for the content, by his words "not using Block Kit properly, the checkmarks aren't rendering, it's making a table with bold headings instead of an actual table, it could have used a visual":
+- rows of several columns, such as cases and their results: a real table block, one a post;
+- coverage, what of a list is done: a checklist of emoji lines, never [x] or [ ], which Slack shows as typed;
+- a few named things' states: section fields, up to ten;
+- progress through stages, or a flow: a picture, a chart or mermaid visual, or for a short run a bar line in a context block.
+Shapes, one each:
+checklist {"type": "section", "text": {"type": "mrkdwn", "text": ":white_check_mark: Installs, signed by Apple\\n:white_check_mark: Signed-out first launch\\n:hourglass_flowing_sand: Signed-in cases\\n:white_large_square: Old-tree app"}}
+table {"type": "table", "rows": [[{"type": "raw_text", "text": "Case"}, {"type": "raw_text", "text": "Result"}], [{"type": "raw_text", "text": "Right click"}, {"type": "raw_text", "text": "pass"}]]}
+fields {"type": "section", "fields": [{"type": "mrkdwn", "text": "*API*\\n:white_check_mark: passing"}, {"type": "mrkdwn", "text": "*Worker*\\n:arrows_counterclockwise: rerunning"}]}
+progress {"type": "context", "elements": [{"type": "mrkdwn", "text": "▰▰▰▱▱ 3 of 5 stages · staging next"}]}
+Keep text as the one-line notification. say reads the post back and warns when Slack drops a block or shows only the text: then fix the blocks and redraw it with say(edit=…)."""
+
+
 POST_CRAFT = """How to think about a post, held to his gold-standard post (https://poetic-technology.slack.com/archives/C0C4WDYA9UM/p1794717967971669): it names who it is for, then short bold-headed parts in plain words, bullets for lists, a small sketch when it helps, every link on its words.
 - Who reads it, and what do they need first? He reads it once, on his phone, between other things. Lead with what changed for him or what he must do, in one sentence; then only what helps him act on it or trust it. A short answer is that one line.
 - Make it scannable. Past a couple of lines: a bold lead, short parts under bold headings that say what they hold, bullets for parallel items, no paragraph over three sentences. Status or progress of several things goes in Block Kit: a fields section of item and state, a context line for where it comes from.
@@ -45,7 +58,9 @@ After: "*The timeout fix is up for review.* <https://github.com/acme/app/pull/91
 Before: "API is green, worker is red on a flaky test, scheduler still deploying, migration done."
 After: the lead "*Three of four are done; the worker is rerunning a flaky test.*" with a fields section: *API* passing, *Worker* rerunning, *Scheduler* deploying, *Migration* done.
 Before: "As discussed in the other thread, this is pending on your card."
-After: "*Needs you: which region goes first?*" with its two options restated in a line each and the card drawn right under the post."""
+After: "*Needs you: which region goes first?*" with its two options restated in a line each and the card drawn right under the post.
+
+""" + BLOCK_SHAPES
 
 
 COMMUNICATOR_RULES = (

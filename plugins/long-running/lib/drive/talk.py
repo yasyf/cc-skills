@@ -231,6 +231,8 @@ def spoken(name: str, post: dict, known: dict, recorded_first: bool = False) -> 
         state.update(name, None, spoken_write)
     if warning := reply.get("warning"):
         line += f" WARNING {warning}"
+    if post.get("blocks") and (unshown_blocks := drawn_as(link, post["blocks"])):
+        line += f" WARNING {unshown_blocks}"
     if found := amended["correction"].get(seq):
         line += f"; cci holds corrections of report {seq}, {', '.join(found)}: unless this post carries each, reword it with say(edit={link}, text=…)"
     if order:
@@ -879,13 +881,33 @@ def replied(post: dict, pictures: list[str], sent: str) -> list[str]:
     return argv + blocked(post) + keyed(post) + ticketed(post)
 
 
+POSTED_TS = re.compile(r"/p(\d{10})(\d{6})")
+
+
+def drawn_as(link: str, blocks: object) -> str | None:
+    """What Slack shows of the blocks a post sent, read back from the message itself: None when it draws each kind of block sent, else which it dropped or that it shows only the text, so the writer redraws it with say(edit=…), by his words "not using Block Kit properly, the checkmarks aren't rendering"."""
+    sent = [block.get("type") for block in (json.loads(blocks) if isinstance(blocks, str) else blocks) if isinstance(block, dict)]
+    ts = ".".join(POSTED_TS.search(link).groups())
+    try:
+        read = slack.cc_slack("thread", "--raw", "--url", link)
+    except slack.SlackError as error:
+        return f"its blocks were not read back to check how Slack draws them: {error}"
+    message = next((each for each in read.get("messages") or [] if each.get("ts") == ts), None)
+    shown = [block.get("type") for block in ((message or {}).get("raw") or {}).get("blocks") or []]
+    if not shown or shown == ["rich_text"] != sent:
+        return f"Slack shows this post as its text alone, none of its {', '.join(dict.fromkeys(sent))} blocks: fix them and redraw it with say(edit={link}, …)"
+    if dropped := [kind for kind in dict.fromkeys(sent) if kind not in shown]:
+        return f"Slack dropped its {', '.join(dropped)} blocks: fix them and redraw it with say(edit={link}, …)"
+    return None
+
+
 STUB = re.compile(r"^\W*\(?(?:its facts|the facts|facts|source|record)\)?\W*$", re.IGNORECASE)
 
 
 def block_words(blocks: object) -> list[str]:
     """Each mrkdwn or plain text a Block Kit array holds, wherever it nests."""
     if isinstance(blocks, dict):
-        return [blocks["text"]] if isinstance(blocks.get("text"), str) and blocks.get("type") in ("mrkdwn", "plain_text") else [word for value in blocks.values() for word in block_words(value)]
+        return [blocks["text"]] if isinstance(blocks.get("text"), str) and blocks.get("type") in ("mrkdwn", "plain_text", "raw_text", "text") else [word for value in blocks.values() for word in block_words(value)]
     if isinstance(blocks, list):
         return [word for value in blocks for word in block_words(value)]
     return []
@@ -896,7 +918,7 @@ def linked_blocks(blocks: object, found: dict[str, dict], thread: str | None) ->
     if isinstance(blocks, dict):
         if blocks.get("type") == "mrkdwn" and isinstance(blocks.get("text"), str):
             return blocks | {"text": refs.slack(blocks["text"], found, thread)}
-        if blocks.get("type") == "plain_text" and isinstance(blocks.get("text"), str):
+        if blocks.get("type") in ("plain_text", "raw_text", "text") and isinstance(blocks.get("text"), str):
             return blocks | {"text": re.sub(r"<[^|<>]+\|([^<>]+)>", r"\1", refs.slack(blocks["text"], found, thread))}
         return {key: linked_blocks(value, found, thread) for key, value in blocks.items()}
     if isinstance(blocks, list):

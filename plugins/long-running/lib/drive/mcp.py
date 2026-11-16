@@ -207,9 +207,14 @@ SAY = {
                 "type": "array",
                 "items": {"type": "object"},
                 "description": (
-                    "Slack Block Kit blocks the post draws as, such as section, fields, context, divider, header, image and actions,"
-                    " with text kept as the notification and fallback words; the checks read every text the blocks show. Attach a"
-                    " picture or file through visuals, an image visual taking a file's absolute path"
+                    "Slack Block Kit blocks the post draws as, with text kept as the notification and fallback words; the checks read"
+                    " every text the blocks show. Pick the shape for the content: rows of several columns a real table block"
+                    ' ({"type": "table", "rows": [[{"type": "raw_text", "text": "Case"}, …], …]}, one a post); coverage a checklist'
+                    " of emoji lines in a mrkdwn section (:white_check_mark:, :hourglass_flowing_sand:, :white_large_square:, never"
+                    " [x] or [ ]); a few named states section fields; progress or a flow a chart or mermaid visual. Shapes:"
+                    " \"Block Kit\" in communicator.md. say reads the post back and warns when Slack drops a block or shows only"
+                    " the text, to redraw with edit. Attach a picture or file through visuals, an image visual taking a file's"
+                    " absolute path"
                 ),
             },
             "visuals": {"type": "array", "items": VISUAL},

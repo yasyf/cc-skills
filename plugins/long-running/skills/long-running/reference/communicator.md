@@ -66,15 +66,25 @@ You choose where each post goes, and `say` posts exactly there: the `channel_id`
 
 ### Block Kit
 
-`say` takes `blocks`, a Block Kit array, beside `text`, which stays the notification and fallback. Use blocks when the post has structure he scans:
+`say` takes `blocks`, a Block Kit array, beside `text`, which stays the one-line notification. His words on posts that got it wrong: "not using Block Kit properly, the checkmarks aren't rendering, it's making a table with bold headings instead of an actual table, it could have used a visual". Pick the shape for the content:
 
-- `header` for a release or incident title;
-- `section` with mrkdwn text for each part, and `fields` for two-column facts such as Stage / State or Env / Build;
-- `context` for small print: when it was read, what it links;
-- `divider` between parts that stand apart;
-- `image` for a picture already hosted, and `actions` only for a button that does something.
+| Content | Shape |
+|---|---|
+| Rows of several columns, such as test cases and their results | A real `table` block, one per post |
+| Coverage: what of a list is done | A checklist of emoji lines. Never `[x]` or `[ ]`, which Slack shows as typed |
+| A few named things' states | `section` `fields`, up to ten |
+| Progress through stages, or a flow | A picture: a `chart` or `mermaid` visual, or a bar line in a `context` block for a short run |
 
-A short answer needs no blocks: one line of `text` is right.
+One example of each:
+
+```json
+{"type": "section", "text": {"type": "mrkdwn", "text": ":white_check_mark: Installs, signed by Apple\n:white_check_mark: Signed-out first launch\n:hourglass_flowing_sand: Signed-in cases\n:white_large_square: Old-tree app"}}
+{"type": "table", "rows": [[{"type": "raw_text", "text": "Case"}, {"type": "raw_text", "text": "Result"}], [{"type": "raw_text", "text": "Right click"}, {"type": "raw_text", "text": "pass"}]]}
+{"type": "section", "fields": [{"type": "mrkdwn", "text": "*API*\n:white_check_mark: passing"}, {"type": "mrkdwn", "text": "*Worker*\n:arrows_counterclockwise: rerunning"}]}
+{"type": "context", "elements": [{"type": "mrkdwn", "text": "▰▰▰▱▱ 3 of 5 stages · staging next"}]}
+```
+
+`header` titles a release or incident, `divider` separates parts that stand apart, and `context` holds small print. `say` reads each post back from Slack and warns when Slack dropped a block or shows only the text. Then fix the blocks and redraw the post with `say(edit=<its link>, …)`. A short answer needs no blocks: one line of `text` is right.
 
 ### Visuals
 
