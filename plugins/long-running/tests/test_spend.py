@@ -47,7 +47,7 @@ def test_a_job_whose_project_hit_its_daily_budget_waits_for_tomorrow_unless_a_pr
     assert (state.load(demo)["jobs"]["j1"]["waits"], place.sprite_line(state.load(demo))) == ([state.SPRITE_WAIT], [])
     assert run("job", "set", "j1", "--priority")[0] == 0
     data = state.load(demo)
-    assert (place.admission(data, "j1", "sprite", state.now()), place.sprite_line(data)) == (None, ["j1"])
+    assert (place.admission(data, "j1", "sprite", state.now()), state.SPRITE_WAIT in data["jobs"]["j1"]["waits"], place.sprite_line(data)) == (None, False, [])
 
 
 def test_drive_tooling_hits_its_share_of_the_days_total_counted_over_every_drive_and_his_line_says_it_in_dollars(monkeypatch: pytest.MonkeyPatch) -> None:

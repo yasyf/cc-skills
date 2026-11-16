@@ -5646,7 +5646,8 @@ def test_a_restarted_watch_asks_for_a_left_sprite_again_only_once_the_reclaim_an
 
 
 def test_the_watch_takes_down_each_live_mac_box_named_after_a_finished_job_once_an_hour_unless_an_open_job_names_it(run: Run, remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    run("job", "add", "builder", "--order", "o1", "--goal", "still at work", "--remote")
+    run("order", "set", "o1", "--add-part", "still at work")
+    run("job", "add", "builder", "--order", "o1", "--part", "still at work", "--goal", "still at work", "--remote")
     checkout = Path(state.load(remote)["roles"]["coordinator"]["cwd"])
     (checkout / ".claude").mkdir(parents=True, exist_ok=True)
     (checkout / ".claude" / "long-running.toml").write_text('[mac_box]\nlist = "echo j1 j2 step7-rss"\ndown = "true"\n')
@@ -8634,8 +8635,10 @@ def test_the_watch_says_a_dead_local_lane_died_on_this_mac(rooted: str, monkeypa
 def test_a_live_sprite_of_a_jobs_lane_that_neither_its_row_nor_its_deaths_name_is_adopted_into_its_deaths_whatever_its_pool_record_says(
     run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, sprites_listed: set[str]
 ) -> None:
-    run("job", "add", "builder", "--order", "o1", "--goal", "more remote builders", "--remote")
-    run("job", "add", "builder", "--order", "o1", "--goal", "a launch that recorded no Sprite", "--remote")
+    goals = ("more remote builders", "a launch that recorded no Sprite")
+    run("order", "set", "o1", *(flag for goal in goals for flag in ("--add-part", goal)))
+    for goal in goals:
+        run("job", "add", "builder", "--order", "o1", "--part", goal, "--goal", goal, "--remote")
     pool, workspaces = tmp_path / "cc-remote" / "pool", tmp_path / "cc-remote" / "workspaces"
     pool.mkdir(parents=True)
     workspaces.mkdir()
