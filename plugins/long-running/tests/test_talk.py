@@ -1377,6 +1377,22 @@ def test_a_correction_of_a_report_already_posted_names_the_post_it_went_out_in_t
     assert len(posts) == 1
 
 
+def test_721809_a_report_one_handler_posted_goes_nowhere_from_a_second_handler_and_names_that_post_while_the_first_may_post_it_again(
+    demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch, cci_amendments: dict[str, dict[str, list[str]]]
+) -> None:
+    report(monkeypatch, {"orders": "o1"})
+    entry = {"transcript": None, "started": state.stamp(), "holds": {"record": "721809"}, "handed": [], "posted": []}
+    with state.edit(demo) as data:
+        data["handlers"]["f85f14dd"] = entry | {"session": os.environ["CLAUDE_CODE_SESSION_ID"]}
+    talk.say(demo, {"text": "Testing the journal fix on staging for 30 minutes.", "record": "721809"})
+    talk.say(demo, {"text": "The journal fix holds staging for 30 minutes.", "record": "721809"})
+    with state.edit(demo) as data:
+        data["handlers"] = {"f85f14dd": data["handlers"]["f85f14dd"] | {"session": "f85f14dd-session"}, "a2c4e6f8": entry | {"session": os.environ["CLAUDE_CODE_SESSION_ID"]}}
+    with pytest.raises(DriveError, match=f"^nothing posted: report 721809 already went out in {re.escape(POSTED)}, which another handler or a line carrying it at his return posted: return NOTHING already posted at {re.escape(POSTED)}$"):
+        talk.say(demo, {"text": "Testing the journal fix on staging for 30 minutes.", "record": "721809"})
+    assert len(posts) == 2
+
+
 def test_a_held_report_its_writer_withdrew_goes_out_in_no_post_and_gives_back_the_close_it_claimed_on_an_open_order(
     demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch, cci_amendments: dict[str, dict[str, list[str]]]
 ) -> None:
