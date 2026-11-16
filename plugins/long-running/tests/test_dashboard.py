@@ -2936,12 +2936,12 @@ done({ tall: row.getBoundingClientRect().height, open: lightbox.open, kind: ligh
     assert {key: seen[key] for key in ("open", "kind", "caption")} == {"open": True, "kind": "mermaid", "caption": "the flow"}
 
 
-def test_a_tap_on_a_fact_shows_its_tip_until_a_second_tap_a_tap_elsewhere_or_a_scroll_and_a_mouse_gets_hover_back(tmp_path: Path) -> None:
+def test_a_tap_on_a_reason_chip_shows_its_tip_until_a_second_tap_a_tap_elsewhere_or_a_scroll_and_a_mouse_gets_hover_back(tmp_path: Path) -> None:
     seen = browse(tmp_path, """
 location.hash = '#/queue/all';
 await wait(100);
 const tip = document.querySelector('#srctip');
-const fact = () => document.querySelector('#main .fact[data-tip]');
+const fact = () => document.querySelector('#main .queue-current .reason-chip[data-tip]');
 const open = () => tip.matches(':popover-open');
 const tap = async (el) => {
   for (const kind of ['pointerover', 'pointerdown']) el.dispatchEvent(new PointerEvent(kind, { pointerType: 'touch', bubbles: true }));
@@ -2951,7 +2951,7 @@ const tap = async (el) => {
   await wait(50);
 };
 await tap(fact());
-const opened = { open: open(), says: tip.textContent.startsWith('Waiting on you for') };
+const opened = { open: open(), says: tip.textContent.startsWith('Nothing else waits on it') };
 await tap(fact());
 const again = open();
 await tap(fact());

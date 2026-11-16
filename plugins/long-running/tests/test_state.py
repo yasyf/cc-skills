@@ -3005,8 +3005,8 @@ def test_a_running_job_queued_for_a_builder_slot_by_its_mac_line_has_a_place_in_
 
     created = "2026-11-16T02:00:00-08:00"
     data = {"orders": {"o1": {"project": "P", "workstream": "W", "updated": created, "state": "open", "priority": None, "incident": False}}, "jobs": {
-        "j1": {"kind": "builder", "order": "o1", "carries": [], "state": "running", "waits": [state.SLOT_WAIT], "created": created, "where": "local"},
-        "j2": {"kind": "builder", "order": "o1", "carries": [], "state": "done", "waits": [state.SLOT_WAIT], "created": created, "where": "local"},
+        "j1": {"kind": "builder", "order": "o1", "parts": [], "carries": [], "state": "running", "waits": [state.SLOT_WAIT], "created": created, "where": "local"},
+        "j2": {"kind": "builder", "order": "o1", "parts": [], "carries": [], "state": "done", "waits": [state.SLOT_WAIT], "created": created, "where": "local"},
     }}
     assert place.positions(data) == {"j1": "1 of 1 in line"}
 
@@ -3017,7 +3017,7 @@ def test_a_tester_waiting_on_a_cut_with_no_slot_place_is_queued_at_its_waiting_t
     monkeypatch.setattr(state, "tested_prs", lambda data, job: ["Forge-AI/monorepo#55891"])
     orders = {"o1": {"incident": False, "priority": None, "state": "open"}}
     job = lambda **extra: {"state": "waiting", "order": "o1", "carries": [], "goal": "", "priority": None, "waits": [], "release_build": None, "updated": "2026-11-15T06:00:00+00:00"} | extra
-    data = {"slots": {}, "orders": orders, "jobs": {"j1": job(updated="2026-11-16T01:00:00+00:00"), "j2": job(), "j4862": job(waits=["staging:api/plat-usw2-staging@abc1234"])}}
+    data = {"slots": {}, "orders": orders, "prs": {"Forge-AI/monorepo#55891": {"state": "open", "tap": None}}, "jobs": {"j1": job(updated="2026-11-16T01:00:00+00:00"), "j2": job(), "j4862": job(waits=["staging:api/plat-usw2-staging@abc1234"])}}
     state.slot_claim(data, "plat-usw2-staging", "j1", 20, [], None, moment)
     assert state.queue_waiters(data) == ["SLOT plat-usw2-staging queued j4862, whose WAITING on a staging cut held no place in its queue, at its place from 2026-11-15T06:00:00+00:00"]
     assert state.queue_waiters(data) == []

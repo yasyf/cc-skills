@@ -2876,7 +2876,9 @@ def owed_lines(watcher: Watcher, moment: datetime) -> list[str]:
         seat = state.channel_seat(data, channel)
         lane = state.communicator_lane(seat) if seat in data["communicators"] else "communicator"
         try:
-            if not mark["handed"] and not agents.handle(watcher.name, owed_brief(watcher.name, reply, channel, thread), lane)[1]:
+            if not mark["handed"]:
+                agents.handle(watcher.name, owed_brief(watcher.name, reply, channel, thread), lane)
+
                 def owed_lines_write2(saved: dict):
                     saved["owed_replies"][ts]["handed"] = True
 

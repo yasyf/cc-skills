@@ -1475,22 +1475,20 @@ def owed_brief(demo: str, reply: dict) -> str:
     )
 
 
-def test_a_message_of_his_cc_slack_owes_starts_one_handler_two_minutes_on_whatever_it_posts_and_no_report_later_and_is_forgotten_once_answered(
-    demo: str, monkeypatch: pytest.MonkeyPatch, owed_replies: list[dict], ended_sessions: set[str]
+def test_a_message_of_his_cc_slack_owes_is_handed_to_the_communicator_once_ten_minutes_on_and_is_forgotten_once_answered(
+    demo: str, monkeypatch: pytest.MonkeyPatch, owed_replies: list[dict]
 ) -> None:
     calls = catching_up(monkeypatch, demo)
     asked = owed_reply(T0, "why did the release stop?")
     owed_replies.append(asked)
     watching = watcher(demo)
-    assert REAL_OWED(watching, T0 + timedelta(minutes=1, seconds=59)) == []
+    assert REAL_OWED(watching, T0 + timedelta(minutes=9, seconds=59)) == []
     assert calls == []
-    assert REAL_OWED(watching, T0 + timedelta(minutes=2)) == []
+    assert REAL_OWED(watching, T0 + timedelta(minutes=10)) == []
     [(start, _)] = calls
     assert start[-1] == "ANSWER THIS: " + owed_brief(demo, asked)
-    ended_sessions.add("launched-1")
-    assert REAL_OWED(watching, T0 + timedelta(minutes=9)) == []
+    assert REAL_OWED(watching, T0 + timedelta(minutes=11)) == []
     assert len(calls) == 1
-    assert REAL_OWED(watching, T0 + timedelta(minutes=10)) == []
     assert REAL_OWED(watching, T0 + timedelta(minutes=30)) == []
     assert len(calls) == 1
     assert state.load(demo)["owed_replies"] == {asked["ts"]: {"handed": True, "lined": None}}
@@ -1647,7 +1645,7 @@ def asked_teammate(demo: str, monkeypatch: pytest.MonkeyPatch, top: list[dict]) 
     return histories
 
 
-def test_a_teammates_first_message_after_the_drives_question_frees_the_job_waiting_on_their_reply_and_reaches_him_and_the_job(
+def test_a_teammates_first_message_after_the_drives_question_frees_the_job_waiting_on_their_reply_and_reaches_the_job_alone(
     demo: str, monkeypatch: pytest.MonkeyPatch, slack_thread: Thread
 ) -> None:
     calls = catching_up(monkeypatch, demo)
@@ -1662,21 +1660,12 @@ def test_a_teammates_first_message_after_the_drives_question_frees_the_job_waiti
     watching = watcher(demo)
     assert watch.waits_lines(watching, T0 + timedelta(minutes=13)) == [f"FREE j1 o1: Dana replied {answer['permalink']}, nothing else holds it"]
     words = f'Dana replied {answer["permalink"]} to the question the drive asked them for j1 at {ASKED_TEAMMATE}: "yes, run it tonight"'
-    [(report, body), (start, _)] = calls
-    assert (report["text"], report["topic"], report["id"], report["to"]) == (
-        "POST Dana replied to the question the drive asked them for j1: post their words in the thread of o1",
-        "reply-j1",
-        f"reply-j1-{answer['ts']}",
-        [f"communicator@{demo}"],
-    )
-    assert report["attr"] == {"order": "o1", "job": "j1", "progress": "true"}
-    assert body.splitlines() == ["His order o1: ship the watch", words]
-    assert start[-1] == "ANSWER THIS: " + f"Record: 901 Drive: {demo} Scratch: {state.drive_dir(demo) / 'scratch' / 'reply-901'}"
+    assert calls == []
     job = state.load(demo)["jobs"]["j1"]
     assert (job["waits"], job["said"], [held["words"] for held in job["undelivered"]]) == ([], None, [words])
     assert (histories, slack_thread.reads) == ([("history", "--channel", "C0TEAM0001", "--limit", "100", "--json")], [])
     assert watch.waits_lines(watching, T0 + timedelta(minutes=14)) == []
-    assert (len(calls), len(histories)) == (2, 1)
+    assert (calls, len(histories)) == ([], 1)
 
 
 def test_a_reply_wait_ends_on_a_teammates_reply_in_the_questions_thread_never_on_the_drives_or_a_bots_message(
@@ -1700,8 +1689,7 @@ def test_a_reply_wait_ends_on_a_teammates_reply_in_the_questions_thread_never_on
     top[1]["latest_reply"] = reply_ts
     reply_link = f"https://acme.slack.com/archives/C0TEAM0001/p{reply_ts.replace('.', '')}?thread_ts={ASKED_TS}&cid=C0TEAM0001"
     assert watch.waits_lines(watching, T0 + timedelta(minutes=7)) == [f"FREE j1 o1: Dana replied {reply_link}, nothing else holds it"]
-    assert calls[0][0]["id"] == f"reply-j1-{reply_ts}"
-    assert len(histories) == 2
+    assert (calls, len(histories)) == ([], 2)
     assert slack_thread.reads == [("--channel", "C0TEAM0001", "--thread", ASKED_TS, "--since-ts", ASKED_TS, "--limit", "1000")] * 2
 
 
