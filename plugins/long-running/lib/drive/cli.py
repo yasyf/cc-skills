@@ -1020,7 +1020,7 @@ def order_set(args: argparse.Namespace) -> int:
     if args.standing_check is not None and args.standing is None:
         raise DriveError("--standing-check: refused, give it with --standing and the part's goal, since a check is how a standing part's passes run")
     standing = standing_parts(data, args.id, args.add_part, args.drop_part, args.part, args.standing, args.standing_check) if args.standing is not None else []
-    sorted_parts = sorted_as(data, args.id, args.kind, args.part if args.kind or args.standing is None and not followed else [])
+    sorted_parts = sorted_as(data, args.id, args.kind, args.part if args.kind or args.standing is None and args.urgent is None and not followed else [])
     if (order["incident"] if args.incident is None else args.incident) and (order["options_only"] if args.options_only is None else args.options_only):
         raise DriveError(
             f"{args.id}: refused, an incident order is never limited to options, since its codex jobs start at the alert, before he picks:"
