@@ -15,6 +15,16 @@ def test_a_gate_refuses_a_sessions_first_try_naming_every_finding_and_lets_its_r
     assert gate.gate(None, "release ci hotfix 8", [], "s1") is None
 
 
+def test_a_gate_refuses_a_new_finding_once_on_its_own_and_a_dry_run_never_uses_up_the_refusal(capsys: pytest.CaptureFixture[str]) -> None:
+    assert gate.gate(None, "ask j1", ["no link"], "s1", dry_run=True) is not None
+    assert gate.gate(None, "ask j1", ["no link"], "s1") is not None
+    assert gate.gate(None, "ask j1", ["no link"], "s1", dry_run=True) is None
+    assert gate.gate(None, "ask j1", ["no link", "summary too long"], "s1") == f"refused once: no link; summary too long. {gate.REPEAT}"
+    assert gate.gate(None, "ask j1", ["summary too long"], "s1") is None
+    assert gate.gate(None, "ask j1", ["no link", "summary too long"], "s1") is None
+    assert capsys.readouterr().err.count("going through, as a repeat of a try this gate refused once") == 2
+
+
 def test_a_gate_whose_store_cannot_be_read_lets_the_try_through_with_a_warning(capsys: pytest.CaptureFixture[str]) -> None:
     path = gate.store(None)
     path.parent.mkdir(parents=True, exist_ok=True)

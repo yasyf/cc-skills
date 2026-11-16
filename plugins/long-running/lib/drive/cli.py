@@ -2746,7 +2746,7 @@ def ask_checked(name: str, job_id: str, text: str, unsettled: str | None, redraw
     if answer := settled.answered(state.load(name), asked_title(text)):
         return f"no card: he already answered this same question, asked in the same words, at {answered_at(answer)}, so drive job ask keeps it settled on his words, checking nothing and drawing no card"
     with tempfile.TemporaryDirectory(prefix="drive-ask-check-") as scratch:
-        asked, *_, deciding = checked_ask(name, job_id, text, unsettled, redraws, Path(scratch))
+        asked, *_, deciding = checked_ask(name, job_id, text, unsettled, redraws, Path(scratch), dry_run=True)
     option = render.cut(asked.recommended, 200)
     if deciding in settled.RULED:
         print(settled.RULED[deciding][2].format(option=option, ruling=deciding), file=sys.stderr)
@@ -2767,7 +2767,7 @@ def asked_unsettled(job: dict, text: str, unsettled: str | None) -> str | None:
     return next((question["unsettled"] for question in job["questions"] if question["unsettled"] and not settled.READ_MARK.search(question["unsettled"]) and state.same_question(question["title"], title)), None)
 
 
-def checked_ask(name: str, job_id: str, text: str, unsettled: str | None, redraws: str | None, pictures: Path) -> tuple[limits.Question, str, str | None, list[dict], str | None]:
+def checked_ask(name: str, job_id: str, text: str, unsettled: str | None, redraws: str | None, pictures: Path, dry_run: bool = False) -> tuple[limits.Question, str, str | None, list[dict], str | None]:
     """The question the job's ASK block puts to him, the words of its `Holds:` line his card holds, the --unsettled it is kept under, the one `asked_unsettled` reads else Opus's mark, and the recorded answers the release gate, `brief.approval_refusal`, reads as ordering a release its recommended option names in backticks, which his card offers as its Already answered tap, and the ruling or standing approval of his under which `keep_ask` keeps it decided on its recommended option with no card, else None, once every check `drive job ask <j>` runs passes: refused naming at once every way its words, the card cc-slack draws from them and the job it is asked for are out of shape, a summary sentence recommending an option by a recorded answer of his that --unsettled does not name among them, since that answer already chose it, each rule one entry of the list, its words counted as his card draws them, each reference in the summary filled as say fills it, an {order:<o>} as the opening of his order's words, and each paragraph `cc-slack check-post` finds a wall of text in on the card as it draws; then each Show me picture drawn under pictures, refused with why one does not draw; then Jev's read of whether its options differ in how a screen looks with a screenshot missing or choose between architectures with an ```arch diagram missing, by `limits.unread`, which in the same call prints each name the card never says in plain words, a code name, a capitalised word no sentence opens, or a run id or word the drive coined that `cc-slack check-post` finds on the card as it draws; each raw id check-post finds there is printed too, refusing nothing, by his pick 320b7a7; then each release note `brief.release_notes` reads as speaking to a release its options, their descriptions or its Show me name in backticks is printed on stderr with its words, refusing nothing; last, for a card nothing keeps unsettled, no answer of his orders its release and no card of his already asks, his standing approval covering its order or holding it in Opus's read, by `settled.approved_by`, said by `--check` as APPROVES, else, for a job a ruling of his leaves some questions to, by settled.leaving, a drive tooling order's or a builder's of a design his words ordered from scratch, Opus's read of whether it asks him only what that ruling leaves to the job, by `settled.detail`, said by `--check` as DECIDES; and on any order, before those reads, a card whose recommended option names in backticks only releases brief.rehearsal(, data) reads as on staging or sandbox alone, and that no --unsettled, --redraws, `Replaces:` line or drawn card of the same question holds, decided under his ruling state.REHEARSAL_RULING, said by `--check` as REHEARSES. `drive job ask <j> --check` and `keep_ask` both check here, so --check prints every finding before any card draws."""
 
     data = state.load(name)
@@ -2856,7 +2856,7 @@ def checked_ask(name: str, job_id: str, text: str, unsettled: str | None, redraw
     undrawable = slack.draw_refusal(asked.card(name, f"{name}:{job_id}-0"))
     if undrawable:
         problems.append(f"the ASK's card is out of shape, so cc-slack would not draw it: {undrawable}")
-    if (refused := limits.shaped(problems)) and (undrawable or gate.gate(name, f"ask {job_id}", refused)):
+    if (refused := limits.shaped(problems)) and (undrawable or gate.gate(name, f"ask {job_id}", refused, dry_run=dry_run)):
         raise DriveError(limits.out_of_shape(refused))
     picture.drawn(pictures, asked.show_me)
     if raw := limits.checked(findings, limits.RAW_IDS):

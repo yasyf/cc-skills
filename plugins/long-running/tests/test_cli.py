@@ -2329,19 +2329,18 @@ def test_job_ask_refuses_a_compare_fence_holding_a_markdown_table_by_the_fence_i
 ) -> None:
     block = tmp_path / "ask.md"
     block.write_text(SPLIT_JOURNAL_ASK)
-    unparsed = (
-        "the Show me ```compare fence is not the JSON it draws from: Expecting value at its line 1, column 1;"
-        f" write {limits.COMPARE_SHAPE}, or put a markdown table outside any fence, which Slack draws as its own table"
-    )
-    assert cli.main(["job", "ask", asking, "--check", str(block)]) == 2
-    refusal = capsys.readouterr().err
-    assert ("drive: the ASK is out of shape" in refusal, unparsed in refusal, "Traceback" in refusal) == (True, True, False)
+    for argv in (["job", "ask", asking, "--check", str(block)], ["job", "ask", asking, str(block)]):
+        assert cli.main(argv) == 2
+        refusal = capsys.readouterr().err
+        assert "drive: the ASK is out of shape" in refusal
+        assert (
+            "the Show me ```compare fence is not the JSON it draws from: Expecting value at its line 1, column 1;"
+            f" write {limits.COMPARE_SHAPE}, or put a markdown table outside any fence, which Slack draws as its own table"
+        ) in refusal
+        assert "Traceback" not in refusal
     job = state.load("demo")["jobs"]["j1"]
     assert (job["state"], job["questions"]) == ("running", [])
     assert not (state_root / "demo" / "asks").exists()
-    assert cli.main(["job", "ask", asking, str(block)]) == 0
-    warned = capsys.readouterr().err
-    assert (unparsed in warned, "going through, as a repeat of a try this gate refused once" in warned) == (True, True)
 
 
 def test_job_ask_check_says_ready_or_every_fix_its_words_card_and_job_need_at_once_and_keeps_nothing(
@@ -2430,7 +2429,7 @@ def test_job_ask_check_passes_a_first_line_naming_the_work_it_serves_and_what_hi
 
 
 def test_job_ask_and_its_check_refuse_a_summary_over_his_length_as_his_card_draws_its_order_references_and_keep_one_whose_references_carry_words(
-    run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+    run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Copy each store of a team once, in the order its list names", "--project", "The drive", "--workstream", "Drive tooling", "copy every store of the team in the order its list names them, one at a time, with no store skipped or copied twice")
     block = tmp_path / "ask.md"
@@ -2438,10 +2437,8 @@ def test_job_ask_and_its_check_refuse_a_summary_over_his_length_as_his_card_draw
     block.write_text(RESTORE_ASK.replace(RESTORE_OPENING, f"For {{order:o2}}: your pick decides who relinks a moved table. It serves {repeated}."))
     assert cli.main(["job", "ask", asking, "--check", str(block)]) == 2
     checked = capsys.readouterr().err
-    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "a-session-that-never-checked")
     assert cli.main(["job", "ask", asking, str(block)]) == 2
     refusal = capsys.readouterr().err
-    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", SESSION)
     assert refusal == checked
     assert "words as his card draws them, each reference in the summary drawn as the words that name it" in refusal
     assert state.load("demo")["jobs"]["j1"]["questions"] == []
@@ -2592,9 +2589,8 @@ def test_job_ask_refuses_a_pr_named_with_no_link_and_keeps_the_linked_copy(
     block.write_text(TEAMMATE_FIX_SHOWN.replace("theirs first, then ours", "with their PR, then ours"))
     assert run("job", "ask", asking, str(block))[0] == 0
     block.write_text(TEAMMATE_FIX_SHOWN.replace("A teammate's PR for the update button>", "A teammate's change>").replace("theirs first, then ours", "with their PR, then ours"))
-    assert cli.main(["job", "ask", asking, str(block)]) == 0
-    warned = capsys.readouterr().err
-    assert ('"their PR" names something he could open with no link there, in "with their PR"' in warned, "going through, as a repeat" in warned) == (True, True)
+    assert cli.main(["job", "ask", asking, str(block)]) == 2
+    assert '"their PR" names something he could open with no link there, in "with their PR"' in capsys.readouterr().err
 
 
 def test_job_ask_draws_a_question_that_hides_the_terms_its_findings_name_with_the_rule_printed_for_its_asker(
@@ -2622,9 +2618,8 @@ def test_job_ask_refuses_a_show_me_out_of_shape(run: Run, asking: str, tmp_path:
     head, shown = SHORT_ASK.split("Show me:\n")
     example, options = shown.split("- One snapshot", 1)
     block.write_text(f"{head}- One snapshot{options.split('Findings:')[0]}Show me:\n{example}Findings:\nmeasured\n")
-    assert cli.main(["job", "ask", asking, str(block)]) == 0
-    warned = capsys.readouterr().err
-    assert ("the options come after the Show me, never above it" in warned, "going through, as a repeat" in warned) == (True, True)
+    assert cli.main(["job", "ask", asking, str(block)]) == 2
+    assert "the options come after the Show me, never above it" in capsys.readouterr().err
 
 
 PLANNED_TABLE = """| Database size | 0 change files | 100 change files |
@@ -5456,16 +5451,14 @@ def test_a_reports_researched_block_opens_at_the_first_researched_line_with_bloc
 
 
 def test_a_builders_card_whose_holds_line_names_no_pr_the_drive_tracks_or_branch_is_refused_since_it_would_hold_none_of_its_work(
-    run: Run, demo: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+    run: Run, demo: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "copy one store")
     run("job", "add", "builder", "--order", "o1", "--goal", "copy it")
     block = tmp_path / "ask.md"
     for holds in ("copy one store", "copy one store, in #4127"):
         block.write_text(SHORT_ASK.replace("Holds: none: no option changes code any job builds", f"Holds: {holds}"))
-        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", f"first try of {holds}")
         assert cli.main(["job", "ask", "j1", str(block)]) == 2
-        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", SESSION)
         assert f"`Holds: {holds}` names no PR the drive tracks on j1's orders or waiting on a part j1 carries, as the PR its staging test tests, and no branch" in capsys.readouterr().err
     block.write_text(SHORT_ASK.replace("Holds: none: no option changes code any job builds", "Holds: copy one store, built on `j1-copy-store`"))
     assert run("job", "ask", "j1", str(block))[0] == 0
@@ -5479,9 +5472,7 @@ def test_a_builders_card_whose_holds_line_names_no_pr_the_drive_tracks_or_branch
     assert run("pr", "set", tested, "--waits", f"o3:{staging}")[0] == 0
     gating = "Holds: #4127, the store copy this staging test gates"
     block.write_text(SHORT_ASK.replace("opens without guessing?", "opens on its first read?").replace("Holds: none: no option changes code any job builds", gating))
-    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "first try of the gating holds")
     assert cli.main(["job", "ask", "j1", str(block)]) == 2
-    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", SESSION)
     assert f"`{gating}` names no PR the drive tracks on j1's orders or waiting on a part j1 carries" in capsys.readouterr().err
     assert run("job", "ask", "j3", str(block))[0] == 0
     data = state.load("demo")

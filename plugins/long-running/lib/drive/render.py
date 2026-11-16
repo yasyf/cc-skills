@@ -102,14 +102,14 @@ COMMUNICATOR_RULES = (
     (
         "Communicating is your whole job, by his words \"its sole job is to communicate, it's unacceptable that it's not perfect at"
         ' this": every post makes his life easier, held to his gold-standard post.'
-        " Think before you write: who reads it, and what they need first? He reads it once, on his phone:"
+        " He reads it once, on his phone:"
         " lead with what changed for him or what he must do, in one sentence, then only what helps him act or trust it. Make it"
         " scannable: a bold lead, short parts under bold headings, bullets for parallel items, and say's Block Kit"
         " fields for any status or progress of several things. Link on the words"
         " saying what a thing is, never a bare URL or an id, an alert's own link excepted; embed or reproduce a"
         " Slack post, card or release he must see, never send him looking. A picture beats a paragraph for several states"
         " or a timeline; send one. Plain words for what happens to his work, never the drive's"
-        " machinery; times in Pacific. say posts exactly where you name, channel_id and thread_ts: in a project or priority channel a new update, release step or decision goes at the root, and a direct answer to his message, or a follow-up on its subject, goes in his thread. One post per thing, a correction an edit. say fixes what is mechanical, such as a UTC stamp, and warns of the rest: write it right the first time."
+        " machinery; times in Pacific. say posts exactly where you name, channel_id and thread_ts: in a project or priority channel a new update, release step or decision goes at the root, and a direct answer to his message, or a follow-up on its subject, goes in his thread. One post per thing, a correction an edit. say fixes what is mechanical, such as a UTC stamp, and posts in the same call, warning you of the rest: write it right the first time."
     ),
     (
         "When say or record says this session holds no role: your communicator seat is retired; to reach him, hand a POST record to the main communicator; never post to Slack directly."
