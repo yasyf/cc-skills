@@ -460,15 +460,16 @@ function filterOf(id) {
   return QUEUE_FILTERS.some(([filter]) => filter === id) ? id : 'all';
 }
 
-function shownQueue(filter, project = route().query.get('project'), stream = route().query.get('stream')) {
+function shownQueue(filter, project = route().query.get('project'), stream = route().query.get('stream'), priority = route().query.get('priority')) {
   const [, , keep] = QUEUE_FILTERS.find(([id]) => id === filter);
-  const inScope = (item) => (project === null || sameChannel(fileKey(item.project)) === sameChannel(project)) && (stream === null || fileKey(item.workstream) === stream);
+  const members = priority === null ? null : new Set(lensOf(priority)?.members ?? []);
+  const inScope = (item) => (project === null || sameChannel(fileKey(item.project)) === sameChannel(project)) && (stream === null || fileKey(item.workstream) === stream) && (members === null || item.tasks.some((id) => members.has(id)));
   const shown = model.queue.filter((item) => keep(item) && inScope(item) && !(answers.has(answerKey(item)) && !answers.get(answerKey(item)).error));
   return filter === 'question' ? byNeeds(shown) : shown;
 }
 
-function scopeQuery(project = route().query.get('project'), stream = route().query.get('stream')) {
-  const query = new URLSearchParams([...(project === null ? [] : [['project', project]]), ...(stream === null ? [] : [['stream', stream]])]);
+function scopeQuery(project = route().query.get('project'), stream = route().query.get('stream'), priority = project === null && stream === null ? route().query.get('priority') : null) {
+  const query = new URLSearchParams([...(project === null ? [] : [['project', project]]), ...(stream === null ? [] : [['stream', stream]]), ...(priority === null ? [] : [['priority', priority]])]);
   return query.size ? `?${query}` : '';
 }
 
@@ -482,11 +483,13 @@ function queueScope(filter) {
   const project = route().query.get('project');
   const stream = route().query.get('stream');
   const choice = (label, href, on, n, parent = false) => `<a href="${esc(href)}"${on ? ' class="on" aria-current="true"' : ''}${parent ? ' data-scope-project' : ''}><span>${esc(label)}</span><span class="n">${n}</span></a>`;
-  const rows = [choice('All projects', `#/queue/${filter}`, project === null, shownQueue(filter, null, null).length), ...scopeKeys(filter).map((key) => choice(fileName(key), `#/queue/${filter}${scopeQuery(key, null)}`, key === project, shownQueue(filter, key, null).length, true))];
+  const priority = route().query.get('priority');
+  const rows = [choice('All projects', `#/queue/${filter}`, project === null && priority === null, shownQueue(filter, null, null, null).length), ...scopeKeys(filter).map((key) => choice(fileName(key), `#/queue/${filter}${scopeQuery(key, null)}`, key === project, shownQueue(filter, key, null, null).length, true))];
+  const lenses = model.priorities.length ? `<nav class="scope-priorities" aria-label="Priority"><h2>★ Priorities <span>across projects</span></h2>${model.priorities.map((lens) => choice(`★ ${lens.name}`, `#/queue/${filter}?priority=${encodeURIComponent(lens.id)}`, lens.id === priority, shownQueue(filter, null, null, lens.id).length)).join('')}</nav>` : '';
   const streams = project === null ? '' : `<nav class="scope-streams" aria-label="Workstream"><h2>${esc(fileName(project))} <span>workstreams</span></h2>${choice('All workstreams', `#/queue/${filter}${scopeQuery(project, null)}`, stream === null, shownQueue(filter, project, null).length)}${scopeKeys(filter, project).map((key) => choice(fileName(key), `#/queue/${filter}${scopeQuery(project, key)}`, key === stream, shownQueue(filter, project, key).length)).join('')}</nav>`;
   return `<details class="queue-scope" id="queue-scope">
-    <summary aria-label="Filter by project and workstream: ${esc(project === null ? 'All projects' : fileName(project))}${stream === null ? '' : ` / ${esc(fileName(stream))}`}, ${counted(shownQueue(filter).length, 'item')}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M7 12h10M10 17h4"/></svg><span class="scope-label">${project === null ? 'All projects' : `${esc(fileName(project))}${stream === null ? '' : `<span class="scope-divider">/</span>${esc(fileName(stream))}`}`}</span><span class="n">${shownQueue(filter).length}</span><svg class="scope-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 10 4 4 4-4"/></svg></summary>
-    <div class="scope-panel${project === null ? '' : ' has-project'}"><nav class="scope-projects" aria-label="Project"><h2>Projects</h2>${rows.join('')}</nav>${streams}</div>
+    <summary aria-label="Filter by project and workstream: ${esc(project === null ? 'All projects' : fileName(project))}${stream === null ? '' : ` / ${esc(fileName(stream))}`}, ${counted(shownQueue(filter).length, 'item')}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M7 12h10M10 17h4"/></svg><span class="scope-label">${priority !== null && lensOf(priority) ? `★ ${esc(lensOf(priority).name)}` : project === null ? 'All projects' : `${esc(fileName(project))}${stream === null ? '' : `<span class="scope-divider">/</span>${esc(fileName(stream))}`}`}</span><span class="n">${shownQueue(filter).length}</span><svg class="scope-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 10 4 4 4-4"/></svg></summary>
+    <div class="scope-panel${project === null ? '' : ' has-project'}"><div class="scope-col"><nav class="scope-projects" aria-label="Project"><h2>Projects</h2>${rows.join('')}</nav>${lenses}</div>${streams}</div>
   </details>`;
 }
 
@@ -924,9 +927,10 @@ function nowScreen() {
   const picks = queued.filter((item) => item.kind === 'question').length;
   const taps = queued.filter((item) => item.kind === 'tap').length;
   const metrics = [['Decisions', picks, 'warm', `#/queue/question${scopeQuery(project ?? null, stream ?? null)}`], ['PRs to approve', taps, 'you', `#/queue/tap${scopeQuery(project ?? null, stream ?? null)}`], ['Moving', entries.filter((entry) => entry.state === 'running').length, 'doing', null], ['Blocked', entries.filter((entry) => entry.state === 'blocked').length, 'bad', null], ['Live', entries.filter((entry) => entry.state === 'live').length, 'done', '#/history']];
-  const side = task ? '' : `<aside class="now-side" aria-label="What is happening here">${priorityLenses(project ?? null)}${scopeWork(scope, project ?? null, stream ?? null)}${story(scope, 'Latest movement')}</aside>`;
+  const side = task ? '' : `<aside class="now-side" aria-label="What is happening here">${scopeWork(scope, project ?? null, stream ?? null)}${story(scope, 'Latest movement')}</aside>`;
   return `<div class="now-head"><div><div class="eyebrow">Now · ${keys.length ? 'In focus' : 'Across the drive'}</div><h1 class="h1 zoom-title">${esc(keys.length ? fileName(keys.at(-1)) : 'What needs you')}</h1></div><div class="now-actions">${project !== undefined ? `<a class="map-btn" href="${zoomHref('now', ...keys.slice(0, -1))}">← Back</a>` : ''}<a class="map-btn primary" href="#/queue/all${scopeQuery(project ?? null, stream ?? null)}">Open queue →</a></div></div>
     <div class="now-metrics">${metrics.map(([label, count, tone, href]) => `<${href ? 'a' : 'div'} class="metric t-${tone}"${href ? ` href="${esc(href)}"` : ''}><span>${label}</span><b>${count}</b>${href ? '<span class="metric-arrow" aria-hidden="true">›</span>' : ''}</${href ? 'a' : 'div'}>`).join('')}</div>
+    ${stream === undefined ? priorityLenses(project ?? null) : ''}
     ${slackBars(project)}
     ${prStatus(scope)}
     ${nowCanvas(tree, project, stream, task, side)}`;
@@ -2663,7 +2667,9 @@ function measure() {
 
 function render() {
   if (!model) return;
-  const { screen, id } = route();
+  const { screen, id, query } = route();
+  const seated = screen === 'queue' && model.priorities.find((lens) => lens.seat === query.get('project'));
+  if (seated) return location.replace(`#/priority/${seated.id}`);
   document.title = `${model.drive}: ${model.counts.queue} waiting on you`;
   const at = { feature: 'now', file: 'work', priority: 'now' }[screen] ?? (SCREENS.some(([name]) => name === screen) ? screen : 'queue');
   const counts = { queue: model.counts.queue, now: model.counts.jobs, work: model.counts.lanes, history: model.counts.merged_today, pages: model.pages.filter((page) => page.live).length };

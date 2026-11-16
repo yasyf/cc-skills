@@ -599,7 +599,7 @@ def test_the_watch_renames_a_priority_channel_named_for_its_id_and_sets_each_cha
     assert "WATCH #him-drive-demo-priority-o1 is now #him-drive-demo-prio-blue-green-sandsql-handoff" in said
     assert renames == [
         ["operator-channel", "him-drive-demo", "--rename", "C100", "--purpose", f"The demo drive: what spans its projects, and a link to each project's channel. Dashboard: {link}"],
-        ["operator-channel", "him-drive-demo-prio-blue-green-sandsql-handoff", "--rename", "C300", "--purpose", f"Priority: Blue-green SandSQL handoff, designed from scratch. Dashboard: {link}#/queue/all?project=Priority+o1"],
+        ["operator-channel", "him-drive-demo-prio-blue-green-sandsql-handoff", "--rename", "C300", "--purpose", f"Priority: Blue-green SandSQL handoff, designed from scratch. Dashboard: {link}#/priority/o1"],
     ]
     assert state.load(demo)["slack"]["channels"][state.priority_seat("o1")]["name"] == "him-drive-demo-prio-blue-green-sandsql-handoff"
     watch.run_pass(watch.Watcher(demo, offset=state.events_end(demo)), T0 + timedelta(minutes=1))

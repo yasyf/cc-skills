@@ -1245,7 +1245,7 @@ button.task-row { cursor: pointer; }
 .qgroup { list-style: none; margin: 14px 0 4px; font-size: 12px; font-weight: 600; letter-spacing: .02em; color: var(--muted); }
 .qgroup:first-child { margin-top: 0; }
 .qgroup span { font-weight: 400; margin-left: 4px; }
-.needs-chip { display: inline-block; font-size: 11px; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); margin-right: 6px; }
+.needs-chip { display: inline-block; align-self: flex-start; width: max-content; font-size: 11px; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); margin-right: 6px; }
 
 .df { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .df-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; font-size: 13px; }
@@ -1312,3 +1312,11 @@ button.task-row { cursor: pointer; }
 .prio-project { margin-top: 18px; }
 .sb-group th { text-align: left; font-size: 11px; letter-spacing: .04em; text-transform: uppercase; color: #9a6700; background: color-mix(in srgb, #f5c542 9%, var(--paper)); }
 .sb-prio th a { color: #9a6700; font-weight: 600; text-decoration: none; }
+
+.scope-col { min-width: 0; display: grid; align-content: start; }
+.scope-priorities { margin-top: 4px; padding-top: 8px; border-top: 1px dashed color-mix(in srgb, #b8860b 45%, var(--line)); background: color-mix(in srgb, #f5c542 7%, transparent); border-radius: 8px; }
+.scope-priorities h2 { color: #9a6700; }
+.scope-panel .scope-priorities a { color: #7a5200; }
+.scope-panel .scope-priorities a.on { background: color-mix(in srgb, #f5c542 22%, transparent); color: #7a5200; }
+.prio-lenses { grid-template-columns: auto; }
+@media (min-width: 900px) { .prio-lenses { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); } .prio-lenses > .eyebrow, .prio-lenses > .meta { grid-column: 1 / -1; } }

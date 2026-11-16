@@ -10,9 +10,8 @@ import time
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from urllib.parse import urlencode
 
-from drive import agents, brief, cli, dashboard, limits, picture, reads, refs, render, slack, state, view
+from drive import agents, brief, cli, dashboard, limits, page, picture, reads, refs, render, slack, state, view
 from drive.state import DriveError
 
 SPAN = re.compile(r"\bfor (?:about |~)?(?:(\d+(?:\.\d+)?)(?: ?(m|mins?|minutes?|h|hrs?|hours?))?|(an|half an) hour)\b", re.IGNORECASE)
@@ -331,7 +330,7 @@ def waiting_posts(name: str, data: dict, found: dict, moment: datetime) -> dict[
     words = {
         channel: "\n".join(
             [
-                f"*<{board}#/queue/all{'' if channel == slack.dm() else '?' + urlencode({'project': items[0]['project']})}|Waiting on you: {card_counts(items)}>*",
+                f"*<{board if channel == slack.dm() else page.seat_query(board, data, items[0]['project'])}{'#/queue/all' if channel == slack.dm() else ''}|Waiting on you: {card_counts(items)}>*",
                 *(f"{{card:{item['card']['waits']}}}" for item in items[:CARDS_A_MESSAGE]),
             ]
         )
@@ -340,7 +339,7 @@ def waiting_posts(name: str, data: dict, found: dict, moment: datetime) -> dict[
         for channel, items in here.items()
     }
     if "" in held:
-        index = [f"*<{board}#/|{name}>* projects:", *(f"<#{channel}> · <{board}#/queue/all?{urlencode({'project': project})}|{card_counts(here[channel]) or 'nothing'} waiting>" for channel, project in projects.items())]
+        index = [f"*<{board}#/|{name}>* projects:", *(f"<#{channel}> · <{page.seat_query(board, data, project)}|{card_counts(here[channel]) or 'nothing'} waiting>" for channel, project in projects.items())]
         own = words[held[""]["id"]]
         words[held[""]["id"]] = "\n".join([*index, *([] if own == NO_CARDS else ["", own])])
     if held and slack.dm() in data["slack"]["waiting"]:

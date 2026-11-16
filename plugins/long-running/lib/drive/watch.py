@@ -2601,7 +2601,7 @@ def named_lines(watcher: Watcher, data: dict, link: str, moment: datetime) -> li
     lines = []
     for seat, made in data["slack"]["channels"].items():
         wanted = slack.seat_channel_name(watcher.name, data, seat or None)
-        purpose = slack.seat_purpose(watcher.name, data, seat, page.seat_query(link, seat) if seat else link)
+        purpose = slack.seat_purpose(watcher.name, data, seat, page.seat_query(link, data, seat) if seat else link)
         if (made["name"], made.get("purpose")) == (wanted, purpose):
             continue
         try:
