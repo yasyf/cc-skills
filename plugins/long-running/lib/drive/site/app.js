@@ -157,6 +157,8 @@ const restored = new Set();
 let outdated = false;
 let placeAfterLoad = null;
 const prTabs = new Map();
+const prChapters = new Map();
+const PR_CHAPTERS = [['problem', 'The problem'], ['change', 'The change'], ['runtime', 'At runtime'], ['evidence', 'The evidence'], ['choice', 'Your call']];
 const prRows = new Map();
 const prReads = new Map();
 const reviews = new Map();
@@ -774,10 +776,39 @@ function serves(entry) {
   return `<div class="rail-block"><div class="eyebrow">Part of</div><p class="serves">${task ? `<a href="#/feature/${esc(task.id)}">${esc(bare(task.title))}</a>` : esc(bare(entry.feature_title))}</p></div>`;
 }
 
+function chapterBody(id, { item, key, row, pr, head, read, entry, lead, told, beats, pictured }) {
+  const story = told?.story;
+  if (id === 'problem') {
+    const text = story ? `<p class="ch-who"><span>Who feels it</span><b>${esc(story.problem.who)}</b></p><p class="ch-lead">${esc(story.problem.text)}</p>` : `<div class="pr-story">${beats}</div>`;
+    return pictured ? `<div class="pr-lede"><div>${text}</div>${pictured}</div>` : text;
+  }
+  if (id === 'change') return `${story ? '' : '<p class="meta">The why of each part is still being written; the change itself is below.</p>'}${diffBlock(pr, head, story?.hunks ?? [])}`;
+  if (id === 'runtime') {
+    if (!story) return `<p>${lead?.what ? inline(unjobbed(lead.what), pr) : esc(row.summary ?? 'Its runtime story is still being written.')}</p>${lead?.downstream ? `<p><b>Downstream:</b> ${inline(unjobbed(lead.downstream), pr)}</p>` : ''}`;
+    return `<div class="ap-ba"><div><span>Before</span><p>${esc(story.runtime.before)}</p></div><i aria-hidden="true">→</i><div class="after"><span>After</span><p>${esc(story.runtime.after)}</p></div></div>${story.runtime.diagram ? visual('mermaid', story.runtime.diagram, 'What happens after the change') : ''}`;
+  }
+  if (id === 'evidence') {
+    const status = prWord(entry, row);
+    const staged = entry?.staging_plain;
+    const tiles = `<div class="ch-tiles"><div class="ap-stage ${esc(status.tone)}"><span>Now</span><b>${esc(status.word)}</b></div>${staged ? `<div class="ap-stage ${esc(staged.tone)}"><span>Staging</span><b>${esc(staged.word)}</b></div>` : ''}<div class="ap-stage ${esc({ pass: 'good', fail: 'bad', pending: 'warn' }[entry?.checks ?? row.checks] ?? '')}"><span>Tests</span><b>${esc({ pass: 'Pass', fail: 'Failing', pending: 'Running' }[entry?.checks ?? row.checks] ?? 'None ran')}</b></div></div>`;
+    return `${tiles}${story?.tested ? `<p class="ch-lead">${esc(story.tested)}</p>` : entry?.staging ? `<p>${inline(unjobbed(entry.staging), pr)}</p>` : ''}${risks(entry, row, pr, read)}`;
+  }
+  const sides = story ? `<div class="ap-compare"><div class="ap-choice recommended"><b>If you approve</b><p>${esc(story.approve)}</p></div><div class="ap-choice"><b>If you hold</b><p>${esc(story.hold)}</p></div></div>` : '';
+  return `${item.untapped ? `<p class="approve-says">${esc(item.untapped)}</p>` : approvePath(entry, row)}${sides}`;
+}
+
+function chapters(key, pr, parts) {
+  const at = prChapters.get(pr) ?? 0;
+  const nav = PR_CHAPTERS.map(([id, label], i) => `<li><button class="${i === at ? 'on' : ''}${i < at ? ' seen' : ''}" data-chapter="${i}" data-chapter-of="${esc(pr)}" aria-current="${i === at}"><span class="n">${i + 1}</span>${label}</button></li>`).join('');
+  const [id, label] = PR_CHAPTERS[at];
+  const next = PR_CHAPTERS[at + 1];
+  const foot = `<div class="ch-foot">${at ? `<button class="btn ghost" data-chapter="${at - 1}" data-chapter-of="${esc(pr)}" data-chapter-step="-1">‹ ${PR_CHAPTERS[at - 1][1]}</button>` : '<span></span>'}${next ? `<button class="btn" data-chapter="${at + 1}" data-chapter-of="${esc(pr)}" data-chapter-step="1">Next: ${next[1]} ›</button>` : ''}</div>`;
+  return `<nav class="ch-nav" aria-label="Its story, step by step"><ol>${nav}</ol></nav><section class="ch-body ch-${id}" aria-label="${label}">${chapterBody(id, parts)}${foot}</section>`;
+}
+
 function prRail(item, key, rows, row, pr, head, read, inline) {
   const entry = entryOf(pr);
   return `<aside class="context-rail pr-rail" aria-label="About this change">
-    ${risks(entry, row, pr, read)}
     ${entry ? serves(entry) : ''}
     <details class="story-disclosure"><summary>Pictures, lines and files</summary>${jumps(key, row, pr, read)}</details>
     <div class="rail-block"><div class="eyebrow">Question or line comment</div>${noteBox(key, pr)}</div>
@@ -801,9 +832,9 @@ function prCard(item, at, total, embedded = false) {
   const told = slice(`/api/told?${new URLSearchParams({ pr })}`)?.told;
   const title = told?.story?.headline ?? lead?.headline ?? decisionPlain(read?.pr?.title ?? row.title).replace(/^./, (c) => c.toUpperCase());
   const context = read?.pr?.body?.match(/^## Context\s*\n([\s\S]*?)(?=^## |$(?![\s\S]))/m)?.[1]?.trim();
-  const beats = told?.story?.beats.map((beat) => [beat.label, beat.text]) ?? [['Why this exists', lead?.why ?? context ?? row.refresher], ['What changes', lead?.what ?? row.summary], ['Downstream', lead?.downstream ?? row.hate_most]].map(([label, text]) => [label, text && unjobbed(text)]);
+  const beats = [['Why this exists', lead?.why ?? context ?? row.refresher], ['What changes', lead?.what ?? row.summary], ['Downstream', lead?.downstream ?? row.hate_most]].map(([label, text]) => [label, text && unjobbed(text)]);
   const story = beats.map(([label, text]) => `<div><strong>${esc(label)}</strong><p>${text ? inline(text, pr) : 'The author has not supplied this explanation yet.'}</p></div>`).join('');
-  const pictured = firstPicture(key, row, pr, read);
+  const walk = chapters(key, pr, { item, key, row, pr, head, read, entry, lead, told, beats: story, pictured: firstPicture(key, row, pr, read) });
   const stack = rows.length > 1 ? `<p class="spot-head stack-head">Approve lands these ${rows.length} together, bottom first</p><ol class="stack" aria-label="The PRs on this card, in the order they land">${rows.map((each, i) => stackRow(each, i, i === chosen, key)).join('')}</ol>` : '';
   const tabs = PR_TABS.map(([id, label]) => `<button role="tab" class="${id === tab ? 'on' : ''}" aria-selected="${id === tab}" data-prtab="${id}" data-item="${esc(key)}">${label}</button>`).join('');
   const panes = PR_TABS.map(([id]) => `<div class="pr-pane ${id}" role="tabpanel"${id === tab ? '' : ' hidden'}>${prPane(id, row, pr, head, read, embedded)}</div>`).join('');
@@ -812,8 +843,7 @@ function prCard(item, at, total, embedded = false) {
       <div class="card-content">
         <div class="card-top"><span class="type-label">Pull request <a href="${esc(row.url)}" target="_blank" rel="noopener" data-github data-tip="Open it on GitHub"${embedded ? '' : ' data-key="o"'}>${esc(pr)}</a></span>${embedded ? '' : counter(at, total)}</div>
         <h2 class="card-title" id="item-title">${esc(title)}</h2>
-        ${item.untapped ? `<p class="approve-says">${esc(item.untapped)}</p>` : approvePath(entry, row)}
-        ${pictured ? `<div class="pr-lede"><div class="pr-story">${story}</div>${pictured}</div>` : `<div class="pr-story">${story}</div>`}
+        ${walk}
         ${told && !told.story ? untold(told) : ''}
         ${stack}
       </div>
@@ -3017,6 +3047,12 @@ document.addEventListener('click', (event) => {
   }
   const moved = event.target.closest('[data-move]');
   if (moved) return move(Number(moved.dataset.move));
+  const chapter = event.target.closest('[data-chapter]');
+  if (chapter) {
+    prChapters.set(chapter.dataset.chapterOf, Number(chapter.dataset.chapter));
+    render();
+    return $('#main .ch-nav')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
   const prtab = event.target.closest('[data-prtab]');
   if (prtab) {
     prTabs.set(prtab.dataset.item, prtab.dataset.prtab);
@@ -3262,6 +3298,8 @@ document.addEventListener('keydown', (event) => {
       o: $('#main .focus-card [data-github]'),
       e: $('#main .focus-card [data-more]'),
       v: $('#main .focus-card .pr-example :is([data-shot], [data-enlarge])'),
+      n: $('#main .focus-card [data-chapter-step="1"]'),
+      p: $('#main .focus-card [data-chapter-step="-1"]'),
     }[event.key];
     if (target) {
       event.preventDefault();

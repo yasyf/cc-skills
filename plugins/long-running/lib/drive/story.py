@@ -5,7 +5,7 @@ import threading
 import time
 from collections.abc import Callable
 
-from drive import card, served, state
+from drive import card, diff, served, state
 from drive.render import cut
 from drive.state import DriveError
 
@@ -40,13 +40,18 @@ Then tell its story:
 - ask: an interview's question on his priority, empty outside an interview.
 - needs_him: why this is his to decide and not the drive's, the one that fits best: "dangerous act" when the answer lets a step run that can break customers' work or lose their data, "customer data" when it touches what customers stored, "money" when it spends money, "his hands" when he must do something himself, such as sign in, tap or hand over a secret, "his own words" when the drive needs a ruling only his words give, "only he knows" when it turns on a fact only he holds.
 - waits: what waits on his answer, in actions a user of the product or the drive would see and for how long, such as "New chats stop being searchable until you answer; about 40 a day queue up", never code paths, by his words on a card about a lock: "is this all row writes? if so do 2. if its only creation of dbs etc then do 1. this was not clear at all"; one sentence, empty when nothing waits."""
-CHANGE_RULES = f"""You write the story of one pull request card for the dashboard's decision view, where he decides whether to approve it to land. His words on a card that failed him: "has a lot of facts but is compeltely useless for me figuring ut if I want to meg eit or not, I have no idea why were doing this change, what it does, or what the downstream impacts of it are", and on another that never said where it was tested: "IS THIS FUCKING TRSTED ON STSGIGN WHY DO I HAVE TI KEEO ASKING". {EFFORT}
+CHANGE_RULES = f"""You write the interactive story of one pull request card for the dashboard, which he walks chapter by chapter to decide whether to approve it to land: the problem, the change file by file, what it does at runtime, the evidence, then his choice. His words on the cards: "these also need to tell an interactive story, as do the decision cards, to help make decisions and review the changes", and on a card that failed him: "has a lot of facts but is compeltely useless for me figuring ut if I want to meg eit or not, I have no idea why were doing this change, what it does, or what the downstream impacts of it are", and on another that never said where it was tested: "IS THIS FUCKING TRSTED ON STSGIGN WHY DO I HAVE TI KEEO ASKING". {EFFORT}
 
-<order> holds his words the change serves; <change> its title, the lead its builder wrote, its state and its description.
+<order> holds his words the change serves; <change> its title, the lead its builder wrote, its state and its description; <diff> its changed files, each hunk numbered as [hunk N] within its file, from 0.
 
 Tell its story:
 - headline: what the change does for him, a plain statement of at most 90 characters.
-- beats: three to five beats he reads in order, each `label` a few words and each `text` one or two sentences, together saying why it exists, what it changes, what it does downstream and to whom, and where it was tested, on staging, elsewhere or not at all, as its description and state say, saying so when they do not; order them as this change's story needs."""
+- problem: `who` names in a few words who feels the problem, such as "customers whose chats fail to load" or "you, approving PRs"; `text` says in one or two sentences what goes wrong today without this change.
+- hunks: the why of each hunk that matters, in the diff's order: `file` its path exactly as <diff> names it, `hunk` its number, `why` one sentence on why this hunk changes what it does and what that buys, in plain words, never a restatement of the code; leave out lockfiles, generated files, renames and formatting; at most 30.
+- runtime: what it does when it runs: `before` and `after` one or two concrete sentences each on what a user, a service or the drive sees before and after; `diagram` a Mermaid flowchart of the path after the change when a picture makes it clearer, its node labels plain words, never an id, else empty.
+- tested: one or two sentences on where it was tested, on staging, elsewhere or not at all, and what that proved, as its description and state say, saying so when they do not.
+- approve: one or two sentences on what happens once he taps Approve: when it lands and ships and who sees the change.
+- hold: one or two sentences on what stays true while he holds it."""
 NEEDS_HIM = ("dangerous act", "customer data", "money", "his hands", "his own words", "only he knows")
 QUESTION_VERSION = 2
 QUESTION = {
@@ -74,7 +79,22 @@ QUESTION = {
     },
     "required": ["format", "headline", "beats", "ask", "needs_him", "waits", "options"],
 }
-CHANGE = {"type": "object", "properties": {"headline": {"type": "string"}, "beats": pairs("label", "text")}, "required": ["headline", "beats"]}
+CHANGE_VERSION = 2
+CHANGE = {
+    "type": "object",
+    "properties": {
+        "headline": {"type": "string"},
+        "problem": {"type": "object", "properties": {"who": {"type": "string"}, "text": {"type": "string"}}, "required": ["who", "text"]},
+        "hunks": {"type": "array", "items": {"type": "object", "properties": {"file": {"type": "string"}, "hunk": {"type": "integer"}, "why": {"type": "string"}}, "required": ["file", "hunk", "why"]}},
+        "runtime": {"type": "object", "properties": {"before": {"type": "string"}, "after": {"type": "string"}, "diagram": {"type": "string"}}, "required": ["before", "after", "diagram"]},
+        "tested": {"type": "string"},
+        "approve": {"type": "string"},
+        "hold": {"type": "string"},
+    },
+    "required": ["headline", "problem", "hunks", "runtime", "tested", "approve", "hold"],
+}
+DIFF_CHARS = 60_000
+HUNK_LINES = 60
 ASKED = ("title", "body", "options", "recommended", "hints")
 
 
@@ -83,7 +103,7 @@ def question_key(asked: dict) -> str:
 
 
 def change_key(entry: dict) -> str:
-    return digest({field: entry[field] for field in ("key", "head", "lead", "staging")})
+    return digest({field: entry[field] for field in ("key", "head", "lead", "staging")} | {"version": CHANGE_VERSION})
 
 
 def digest(told: dict) -> str:
@@ -107,7 +127,20 @@ def change(name: str, entry: dict) -> dict:
     facts = [f"checks {entry['checks']}", f"review {entry['review']}", entry["staging"], (entry["stage"] or {}).get("why"), entry["approve_waits"] and f"after his Approve it waits on {entry['approve_waits']}"]
     body = cut(card.body_of(read), BODY_CHARS) if read else "GitHub gave no description"
     told = "\n".join([f'{entry["key"]} "{entry["title"]}"', f"Lead: {json.dumps(entry['lead'])}", f"State: {'; '.join(filter(None, facts))}", "", body])
-    return served.structured(state.drive_dir(name), CHANGE_RULES, f"<order>\n{words}\n</order>\n\n<change>\n{told}\n</change>", CHANGE, STORY_SECONDS, f"writing the story of {entry['key']}")
+    return served.structured(state.drive_dir(name), CHANGE_RULES, f"<order>\n{words}\n</order>\n\n<change>\n{told}\n</change>\n\n<diff>\n{diff_text(entry['key'])}\n</diff>", CHANGE, STORY_SECONDS, f"writing the story of {entry['key']}")
+
+
+def diff_text(key: str) -> str:
+    """The PR's diff as its story reads it: each file's path, state and counts, then each hunk numbered within its file, its lines cut at HUNK_LINES, the whole cut at DIFF_CHARS."""
+    read = diff.read(key)
+    told = []
+    for file in read["files"]:
+        told.append(f"### {file['path']} ({file['status']}, +{file['added']} -{file['removed']})")
+        for n, hunk in enumerate(file["hunks"]):
+            lines = [{"add": "+", "del": "-", "ctx": " "}[line["kind"]] + line["text"] for line in hunk["lines"]]
+            told.append(f"[hunk {n}] at line {hunk['new']} {hunk['section']}".rstrip())
+            told.extend(lines[:HUNK_LINES] + ([f"... {len(lines) - HUNK_LINES} more lines"] if len(lines) > HUNK_LINES else []))
+    return cut("\n".join(told), DIFF_CHARS)
 
 
 class Writer:
