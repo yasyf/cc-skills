@@ -420,11 +420,13 @@ def entered(kept: dict | None, now: Stage) -> bool:
 
 
 def overdue(pr: dict, now: Stage, moment: datetime) -> bool:
-    """Whether the stage's deadline passed since it began or its owner was last woken: every stage but behind, whose PR below names its owner, reviewing, which a teammate outside the drive moves, and any he owes, since nothing asks him again."""
+    """Whether the stage's deadline passed since it began or its owner was last woken: every stage but behind, whose PR below names its owner, reviewing, which a teammate outside the drive moves, and any he owes, since nothing asks him again, nor one whose STAGE line the watch said already, which it says once per stage."""
     every = EVERY.get(now.name)
     if every is None or now.owner == HIM:
         return False
     kept = pr["stage"]
+    if kept.get("said"):
+        return False
     return moment - state.parse_time(kept["woke"] or kept["since"]) >= every and not waking(kept.get("waking"), moment)
 
 

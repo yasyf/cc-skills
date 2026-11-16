@@ -925,7 +925,7 @@ def test_a_pr_on_a_repository_no_hook_delivers_from_says_its_checks_passed_withi
     )
 
 
-def test_a_receiver_that_does_not_answer_three_minutes_in_a_row_is_replaced_and_said_once_each_time_it_stops_answering(
+def test_a_receiver_that_does_not_answer_three_minutes_in_a_row_is_replaced_and_said_once_each_time_it_stops_answering_never_again_while_it_stays_down(
     demo: str, monkeypatch: pytest.MonkeyPatch, receiving: Receiver
 ) -> None:
     kicked: list[tuple[str, ...]] = []
@@ -938,8 +938,7 @@ def test_a_receiver_that_does_not_answer_three_minutes_in_a_row_is_replaced_and_
         said.append([line for line in watch.run_pass(watching, T0 + timedelta(minutes=minutes)) if line.startswith("WATCH")])
     service = f"gui/{os.getuid()}/com.yasyf.long-running.receiver"
     replaced = f"WATCH the receiver took no delivery and answered nothing on its port {receiver.PORT} 3 passes in a row, so the watch replaced it with `launchctl kickstart -k {service}` and reads every open PR from GitHub each minute until it takes a delivery or answers; its log is {receiver.log_path()}"
-    still = f"WATCH the receiver's check failed 13 times in a row: it takes no delivery and nothing answers on its port {receiver.PORT}; its log is {receiver.log_path()}"
-    assert (said, kicked) == ([[], [], [replaced], *[[]] * 9, [still], [], [], [], [replaced]], [("kickstart", "-k", service)] * 2)
+    assert (said, kicked) == ([[], [], [replaced], *[[]] * 10, [], [], [], [replaced]], [("kickstart", "-k", service)] * 2)
 
 
 def test_a_receiver_that_cannot_be_replaced_says_why(demo: str, monkeypatch: pytest.MonkeyPatch, receiving: Receiver) -> None:
@@ -1988,13 +1987,13 @@ def test_the_watch_waits_for_one_an_older_install_ran_under_a_monitor_and_sends_
     passes = []
     monkeypatch.setattr(watch, "passed", lambda watching, moment, until: passes.append(moment) or [])
     sent = posts(monkeypatch)
-    state.held_path(demo).write_text(f"PR {KEY}: approved [o1 j1]\n")
+    state.held_path(demo).write_text('ORPHAN o1 "ship": no job\n')
     state.monitor_pid_path(demo).write_text(f"{os.getppid()}\n")
     run_watch(demo, monkeypatch)
     assert (passes, sent) == ([], [])
     state.monitor_pid_path(demo).write_text("999999999\n")
     run_watch(demo, monkeypatch)
-    assert (passes, posted(sent)) == ([], [("evidence", f"root@{demo}", f"PR {KEY}: approved [o1 j1]")])
+    assert (passes, posted(sent)) == ([], [("handoff", f"root@{demo}", 'ORPHAN o1 "ship": no job')])
     run_watch(demo, monkeypatch)
     assert (len(passes), len(sent)) == (1, 1)
 
@@ -6832,8 +6831,18 @@ def test_a_line_the_coordinator_acts_on_now_wakes_it_and_the_rest_wait_for_its_b
     ]
     watching = watcher(demo)
     assert [watch.sent(watching, "root", [line], T0) for line in waking + batched] == [[]] * len(waking + batched)
-    assert posted(sent) == [("handoff", f"root@{demo}", line) for line in waking] + [("evidence", f"root@{demo}", line) for line in batched]
+    assert posted(sent) == [("handoff", f"root@{demo}", line) for line in waking] + [("evidence", f"root@{demo}", "EVENT note")]
     assert len({argv[argv.index("--topic") + 1] for argv in sent}) == len(sent)
+
+
+def test_a_line_said_to_a_lane_is_said_once_however_often_a_pass_makes_it_again_its_elapsed_minutes_aside(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    sent = posts(monkeypatch)
+    watching = watcher(demo)
+    lines = [f'ORPHAN o1 "ship": j1\'s agent stopped {minutes} minutes ago' for minutes in (5, 10, 15)]
+    assert [watch.sent(watching, lane, [line], T0 + timedelta(minutes=n)) for n, line in enumerate(lines) for lane in ("root", "meta")] == [[]] * 6
+    assert posted(sent) == [("handoff", f"root@{demo}", lines[0]), ("handoff", f"meta@{demo}", lines[0])]
+    watch.sent(watching, "root", [lines[0]], T0 + watch.SAID_FOR)
+    assert posted(sent)[-1] == ("handoff", f"root@{demo}", lines[0])
 
 
 def test_the_lines_one_stage_makes_for_a_lane_go_as_one_record_counting_them_by_kind_its_body_holding_each_and_a_lane_message_named_whole_under_its_line(
@@ -6841,28 +6850,29 @@ def test_the_lines_one_stage_makes_for_a_lane_go_as_one_record_counting_them_by_
 ) -> None:
     sent = posts(monkeypatch)
     orphans = [f'ORPHAN o1 "part {n}": no job' for n in range(35)]
-    checks = [f"PR {KEY}: checks passed [o1 j1]", f"PR {KEY}: approved [o1 j1]"]
-    monkeypatch.setattr(watch, "whole_message", lambda name, line: "the status\nsaid whole" if line == checks[0] else None)
+    checks = ["EVENT one", "EVENT two"]
+    later = ["EVENT three", "EVENT four"]
+    monkeypatch.setattr(watch, "whole_message", lambda name, line: "the status\nsaid whole" if line in (checks[0], later[0]) else None)
     watching = watcher(demo)
-    assert (watch.sent(watching, "root", orphans + checks, T0), watch.sent(watching, "root", checks, T0)) == ([], [])
+    assert (watch.sent(watching, "root", orphans + checks, T0), watch.sent(watching, "root", later, T0)) == ([], [])
     assert [(argv[argv.index("--kind") + 1], argv[argv.index("--text") + 1], argv[argv.index("--path") + 1]) for argv in sent] == [
-        ("handoff", "37 lines: 35 ORPHAN, 2 PR", "".join(f"{line}\n" for line in orphans) + f"{checks[0]}\n  the status\n  said whole\n{checks[1]}\n"),
-        ("evidence", "2 lines: 2 PR", f"{checks[0]}\n  the status\n  said whole\n{checks[1]}\n"),
+        ("handoff", "37 lines: 35 ORPHAN, 2 EVENT", "".join(f"{line}\n" for line in orphans) + f"{checks[0]}\n  the status\n  said whole\n{checks[1]}\n"),
+        ("evidence", "2 lines: 2 EVENT", f"{later[0]}\n  the status\n  said whole\n{later[1]}\n"),
     ]
 
 
 @pytest.mark.parametrize(
     ("standing", "job_state", "said", "clause", "kind"),
     [
-        (True, "stopped", "HANDOFF /drive/scratch/j2/handoff.md: box i-0ee4 under o2-codex-box, round 4 ran, staging untested", "", "evidence"),
-        (True, "done", "DONE round 4 ran on box i-0ee4; round 5 starts at staging", "", "evidence"),
+        (True, "stopped", "HANDOFF /drive/scratch/j2/handoff.md: box i-0ee4 under o2-codex-box, round 4 ran, staging untested", "", None),
+        (True, "done", "DONE round 4 ran on box i-0ee4; round 5 starts at staging", "", None),
         (True, "failed", "BLOCKED codex-ask failed: its log is empty", "", "handoff"),
         (True, "stopped", "HANDOFF /drive/scratch/j2/handoff.md: round 4 ran", f"; {watch.UNKEPT_ASK.format(job='j2')}", "handoff"),
         (False, "stopped", "HANDOFF /drive/scratch/j2/handoff.md: round 4 ran", "", "handoff"),
     ],
 )
 def test_a_standing_pass_ending_its_round_wakes_no_coordinator_since_the_watch_alone_starts_the_next_while_its_block_or_a_clause_the_drive_adds_still_wakes_it(
-    demo: str, monkeypatch: pytest.MonkeyPatch, standing: bool, job_state: str, said: str, clause: str, kind: str
+    demo: str, monkeypatch: pytest.MonkeyPatch, standing: bool, job_state: str, said: str, clause: str, kind: str | None
 ) -> None:
     sent = posts(monkeypatch)
     with state.edit(demo) as data:
@@ -6872,12 +6882,12 @@ def test_a_standing_pass_ending_its_round_wakes_no_coordinator_since_the_watch_a
         data["jobs"]["j2"] = job(order="o2", kind="codex", goal=BOX_GOAL, parts=["codex test box"], state=job_state, said=said)
     line = f"JOB j2 o2 {said}{clause}"
     assert watch.sent(watcher(demo), "root", [line], T0) == []
-    assert posted(sent) == [(kind, f"root@{demo}", line)]
+    assert posted(sent) == ([(kind, f"root@{demo}", line)] if kind else [])
 
 
-@pytest.mark.parametrize(("job_state", "merged_kind"), [("running", "handoff"), ("waiting", "handoff"), ("done", "evidence")])
+@pytest.mark.parametrize(("job_state", "merged_kind"), [("running", "handoff"), ("waiting", "handoff"), ("done", None)])
 def test_a_prs_red_wakes_no_coordinator_since_its_stage_wakes_its_builder_and_its_merge_wakes_it_until_its_job_is_done(
-    demo: str, monkeypatch: pytest.MonkeyPatch, job_state: str, merged_kind: str
+    demo: str, monkeypatch: pytest.MonkeyPatch, job_state: str, merged_kind: str | None
 ) -> None:
     with state.edit(demo) as data:
         data["jobs"]["j1"]["state"] = job_state
@@ -6886,7 +6896,7 @@ def test_a_prs_red_wakes_no_coordinator_since_its_stage_wakes_its_builder_and_it
     reds = [f"PR {KEY}: {move} [o1 j1]" for move in ("checks failed", "conflicts with its base", "changes requested")]
     watching = watcher(demo)
     assert (watch.sent(watching, "root", [merged], T0), watch.sent(watching, "root", reds, T0)) == ([], [])
-    assert posted(sent) == [(merged_kind, f"root@{demo}", merged), *[("evidence", f"root@{demo}", line) for line in reds]]
+    assert posted(sent) == ([(merged_kind, f"root@{demo}", merged)] if merged_kind else [])
 
 
 @pytest.mark.parametrize(("wants_tap", "exempt"), [(True, "incident fix"), (False, "incident fix"), (True, None), (False, None)])
@@ -6900,7 +6910,7 @@ def test_a_monorepo_pr_going_green_and_approved_wakes_no_one_since_the_lander_qu
     sent = posts(monkeypatch)
     watching = watcher(demo)
     assert watch.sent(watching, "root", watch.run_pass(watching, T0), T0) == []
-    assert posted(sent) == [("evidence", f"root@{demo}", f"PR {KEY}: checks passed [o1 j1]")]
+    assert posted(sent) == []
     assert (draws.keys, landers) == ([[KEY]] * (wants_tap and not exempt), [(KEY,)] * bool(exempt))
 
 
@@ -8158,7 +8168,7 @@ def test_his_approve_wakes_no_coordinator_whatever_its_pr_reads_since_the_lander
     sent = posts(monkeypatch)
     line = f"TAP Approve {KEY} [o1 j1]"
     watch.sent(watcher(demo), "root", [line], T0)
-    assert posted(sent) == [("evidence", f"root@{demo}", line)]
+    assert posted(sent) == []
 
 
 def test_a_pr_trunk_ejects_from_the_merge_queue_is_said_once_and_reads_unlanded_waking_the_session_holding_its_order(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -10004,7 +10014,7 @@ def test_a_yasyf_landing_whose_read_ccxs_rate_limit_floor_refuses_ends_unread_sa
 def test_a_line_the_coordinator_did_not_get_goes_again_and_says_so_from_the_third_failure(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     sent = posts(monkeypatch, [False, False, False, True])
     watching = watcher(demo)
-    line = f"TAP Approve {KEY} [o1 j1]"
+    line = 'ORPHAN o1 "ship": no job'
     said = [watch.sent(watching, "root", [line] if second == 0 else [], T0 + timedelta(seconds=second)) for second in (0, 5, 10, 15, 20)]
     assert said == [[], [], ["WATCH post to the coordinator failed 3 times in a row: cci post exited 1: no drive demo"], [], []]
     assert [argv[-1] for argv in sent] == [line]

@@ -63,6 +63,10 @@ STAGE_LINE = re.compile(r"STAGE (?P<key>\S+) (?P<name>\w+)\b")
 ENDED = ("merged", "closed", PROOF_FAILED)
 NOT_LANDED = "not landed"
 LANDER = "LANDER "
+FAILED_LINE = re.compile(r"WATCH .+ failed \d+ times in a row: ")
+QUIET_LINES = ("CARD ", "WAITING-ON-HIM ", "STANDING ", "WATCH compacted", "WATCH status page")
+SAID_FILE = "said.json"
+SAID_FOR = timedelta(hours=24)
 TAP_EVENT = re.compile(rf"TAP (?P<label>\S+) (?P<key>\S+)(?P<stalled> {NOT_LANDED})?")
 LANE = "watch"
 READS_LOG = "reads.log"
@@ -217,7 +221,7 @@ def read_failed(watcher: Watcher, source: str, error: Exception, moment: datetim
 
 def failed(watcher: Watcher, source: str, what: str, error: Exception, moment: datetime) -> list[str]:
     failures = watcher.failures[source] = watcher.failures.get(source, 0) + 1
-    if failures < FAILURES_BEFORE_SAYING:
+    if failures != FAILURES_BEFORE_SAYING:
         return []
     said = watcher.failure_said.get(source)
     if said and moment - said < FAILURE_EVERY:
@@ -5222,6 +5226,9 @@ def acted(watcher: Watcher, key: str, now: stage.Stage, entered: bool, line: str
                 data["prs"][key]["review_asked"] = pr["head"]
     elif now.name == "unlanded" or not entered:
         said.append(f"STAGE {line}")
+        with state.edit(watcher.name) as data:
+            if kept := data["prs"][key]["stage"]:
+                kept["said"] = state.stamp(moment)
     return said
 
 
@@ -5308,7 +5315,7 @@ def handed(watcher: Watcher, lines: list[str], moment: datetime) -> list[str]:
     data = state.load(watcher.name)
     kept, routed = [], {}
     for line in lines:
-        if line.startswith(LANDER):
+        if line.startswith(LANDER) or FAILED_LINE.match(line):
             if line not in [*watcher.unsent.get("meta", []), *(meta := routed.setdefault("meta", []))]:
                 meta.append(line)
         elif (lane := line_lane(line, data)) not in (None, watcher.lane):
@@ -5323,7 +5330,7 @@ def handed(watcher: Watcher, lines: list[str], moment: datetime) -> list[str]:
 
 
 def sent(watcher: Watcher, lane: str, lines: list[str], moment: datetime) -> list[str]:
-    """Post the lines owed the lane over cci as one record, by posted_record, a handoff when any of them asks a step now, by wakes, or the lane is the communicator's or the meta session's, else evidence, which reaches the lane with others at most every five minutes, the lander's own failures apart as one defect, which the meta session starts a fix from, so a pass that says many gaps reaches the lane as one record however many it says; but drop each one owed the communicator or the meta session that needs_step, judging it as it posts, finds asks no step now, or that is a READY whose fix its builder owes, by fixing(), so a line held across a newer install's takeover or a failed post never hands work that ended meanwhile: each credential cci refuses is withheld from it, and a record that fails goes again when the next pass starts, sent with no lines, each line made meanwhile waiting behind it, so a pass tries a failing lane once and its third failure in a row is said. The lines stay among the watcher's unsent until their record posts, so a newer install that takes the watch over meanwhile gets them."""
+    """Post the lines owed the lane over cci as one record, by posted_record, a handoff when any of them asks a step now, by wakes, or the lane is the communicator's or the meta session's, else evidence, which reaches the lane with others at most every five minutes, the lander's own failures and the watch's failed reads apart as one defect, which the meta session starts a fix from, so a pass that says many gaps reaches the lane as one record however many it says; but drop each line that needs_step, judging it as it posts, finds asks no step now, each one quiet() reads its row saying Nothing for, each one said to the lane already within SAID_FOR, by unsaid, and each one owed the communicator or the meta session that is a READY whose fix its builder owes, by fixing(), by his words "make everything less chatty", so a line held across a newer install's takeover or a failed post never hands work that ended meanwhile: each credential cci refuses is withheld from it, and a record that fails goes again when the next pass starts, sent with no lines, each line made meanwhile waiting behind it, so a pass tries a failing lane once and its third failure in a row is said. The lines stay among the watcher's unsent until their record posts, so a newer install that takes the watch over meanwhile gets them."""
     if lines and watcher.unsent.get(lane):
         watcher.unsent[lane] += lines
         return []
@@ -5331,8 +5338,8 @@ def sent(watcher: Watcher, lane: str, lines: list[str], moment: datetime) -> lis
     if not owed:
         return []
     data = state.load(watcher.name)
-    posting = [line for line in owed if lane not in state.HOLDERS or needs_step(line, data, watcher.cards) and not fixing(line, data, watcher.cards)]
-    defects = [line for line in posting if line.startswith(LANDER)]
+    posting = unsaid(watcher.name, lane, [line for line in owed if needs_step(line, data, watcher.cards) and not quiet(line) and (lane not in state.HOLDERS or not fixing(line, data, watcher.cards))], moment)
+    defects = [line for line in posting if line.startswith(LANDER) or FAILED_LINE.match(line)]
     rest = [line for line in posting if line not in defects]
     kind = "handoff" if lane in state.HOLDERS or any(wakes(line, data, watcher.cards) for line in rest) else "evidence"
     refusal, unsent = None, []
@@ -5342,6 +5349,7 @@ def sent(watcher: Watcher, lane: str, lines: list[str], moment: datetime) -> lis
         except reads.ReadError as error:
             unsent += said
             refusal = error
+    keep_said(watcher.name, lane, [line for line in posting if line not in unsent], moment)
     watcher.unsent[lane] = unsent
     project = next((project for project in data["subcoordinators"] if state.project_lane(project) == lane), lane)
     what = {"communicator": "handoff post to the communicator", "meta": "handoff post to the meta session", "root": "post to the coordinator"}.get(lane, f"post to the sub-coordinator for {project}")
@@ -5349,6 +5357,37 @@ def sent(watcher: Watcher, lane: str, lines: list[str], moment: datetime) -> lis
         watcher.failures.pop(what, None)
         return []
     return failed(watcher, what, what, refusal, moment)
+
+
+def quiet(line: str) -> bool:
+    """Whether a line is one whose row of the coordinator's manual says Nothing, so no lane hears it: a card settled or withdrawn in place, a built answer paused on his pick, a standing part's next pass, a compaction, a status page redraw, or a receiver the watch replaced."""
+    return line.startswith(QUIET_LINES) or line.startswith("WATCH the receiver") and "could not replace it" not in line
+
+
+def said_key(lane: str, line: str) -> str:
+    return hashlib.sha1(f"{lane}\n{ELAPSED.sub('', line)}".encode()).hexdigest()[:16]
+
+
+def said_lines(name: str) -> dict[str, str]:
+    path = state.drive_dir(name) / SAID_FILE
+    return json.loads(path.read_text()) if path.exists() else {}
+
+
+def unsaid(name: str, lane: str, lines: list[str], moment: datetime) -> list[str]:
+    """The lines not said to the lane within SAID_FOR, each read with its elapsed and clock times taken out, so a line a pass makes again unchanged, by any watch, reaches its lane once."""
+    said = said_lines(name)
+    return [line for line in dict.fromkeys(lines) if not (at := said.get(said_key(lane, line))) or moment - state.parse_time(at) >= SAID_FOR]
+
+
+def keep_said(name: str, lane: str, lines: list[str], moment: datetime) -> None:
+    """Record the lines posted to the lane, dropping those older than SAID_FOR, written aside and renamed over the file so a reader never reads half of it."""
+    if not lines:
+        return
+    path = state.drive_dir(name) / SAID_FILE
+    said = {key: at for key, at in said_lines(name).items() if moment - state.parse_time(at) < SAID_FOR}
+    taking = path.with_name(f"{SAID_FILE}.{os.getpid()}.{threading.get_ident()}")
+    taking.write_text(json.dumps(said | {said_key(lane, line): state.stamp(moment) for line in lines}))
+    os.replace(taking, path)
 
 
 def posted_record(name: str, lane: str, kind: str, lines: list[str], checkout: Path) -> None:
