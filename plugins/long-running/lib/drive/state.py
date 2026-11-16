@@ -356,6 +356,7 @@ LISTED = (
     "CREATE TRIGGER IF NOT EXISTS row_updated AFTER UPDATE ON rows BEGIN INSERT INTO changed (collection, key) VALUES (OLD.collection, OLD.key), (NEW.collection, NEW.key); END",
     "CREATE TRIGGER IF NOT EXISTS row_deleted AFTER DELETE ON rows BEGIN INSERT INTO changed (collection, key) VALUES (OLD.collection, OLD.key); END",
     "CREATE INDEX IF NOT EXISTS pending_outboxes ON rows (collection, place) WHERE collection = 'jobs' AND json_array_length(body, '$.outbox') > 0",
+    "CREATE INDEX IF NOT EXISTS pending_close_reports ON rows (collection, place) WHERE collection = 'orders' AND json_type(body, '$.close_report') = 'object' AND json_extract(body, '$.state') NOT IN ('done', 'dropped')",
 )
 VERSION = json.loads((Path(__file__).resolve().parents[2] / ".claude-plugin" / "plugin.json").read_text())["version"]
 
@@ -819,6 +820,12 @@ def replay(name: str) -> list[str]:
         pending = [(key, json.loads(body)) for key, body in db.execute("SELECT key, json_extract(body, '$.outbox') FROM rows WHERE collection = 'jobs' AND json_array_length(body, '$.outbox') > 0 ORDER BY place")]
     ran([functools.partial(deliver_owed, name, job_id, rows, WATCH_WRITE_SECONDS) for job_id, rows in pending], [])
     return []
+
+
+def has_close_reports(name: str) -> bool:
+    """Whether an open order holds a close report, read through its pending index without loading the drive."""
+    with closing(connect(database_path(name).resolve(strict=True))) as db:
+        return db.execute("SELECT 1 FROM rows WHERE collection = 'orders' AND json_type(body, '$.close_report') = 'object' AND json_extract(body, '$.state') NOT IN ('done', 'dropped') ORDER BY place LIMIT 1").fetchone() is not None
 
 
 def owed(name: str, job_id: str) -> list[dict]:

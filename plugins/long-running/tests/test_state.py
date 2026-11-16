@@ -323,6 +323,34 @@ def test_outbox_replay_reads_only_pending_messages_through_its_index(state_root:
 
 
 
+@pytest.mark.parametrize("order_state", ["working", "done", "dropped"])
+@pytest.mark.parametrize("report", [None, {"text": "Fixed"}, {"text": "Fixed", "seq": "123"}])
+def test_close_report_presence_uses_its_index_and_tracks_row_changes(state_root: Path, monkeypatch: pytest.MonkeyPatch, order_state: str, report: dict | None) -> None:
+    make("demo")
+    path = state.database_path("demo")
+    with closing(state.connect(path)) as db:
+        db.execute("INSERT INTO rows VALUES ('orders', 'o1', 1, ?)", (json.dumps({"state": order_state, "close_report": report}),))
+    connect = state.connect
+    statements = []
+
+    def traced(path: Path, seconds: float | None = None) -> sqlite3.Connection:
+        db = connect(path, seconds)
+        db.set_trace_callback(statements.append)
+        return db
+
+    monkeypatch.setattr(state, "connect", traced)
+    monkeypatch.setattr(state, "load", lambda *args: pytest.fail("pending close reports must not load the drive"))
+    assert state.has_close_reports("demo") == (order_state == "working" and report is not None)
+    [selected] = [statement for statement in statements if statement.startswith("SELECT 1 FROM rows")]
+    with closing(connect(path)) as db:
+        assert any("USING INDEX pending_close_reports" in row[3] for row in db.execute("EXPLAIN QUERY PLAN " + selected))
+        db.execute("UPDATE rows SET body = ? WHERE collection = 'orders' AND key = 'o1'", (json.dumps({"state": "working", "close_report": {"text": "Fixed"}}),))
+    assert state.has_close_reports("demo")
+    with closing(connect(path)) as db:
+        db.execute("DELETE FROM rows WHERE collection = 'orders' AND key = 'o1'")
+    assert not state.has_close_reports("demo")
+
+
 def test_row_cache_updates_and_deletions_do_not_sort_unchanged_positions(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     copy = state.Copy(tmp_path / "drive.db")
     with closing(copy.watcher):

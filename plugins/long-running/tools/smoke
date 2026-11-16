@@ -128,6 +128,9 @@ tests=plugins/long-running/tests
   "$tests/test_modules.py" \
   "$tests/test_installed_hooks.py" \
   "$tests/test_state.py::test_outbox_replay_reads_only_pending_messages_through_its_index" \
+  "$tests/test_state.py::test_close_report_presence_uses_its_index_and_tracks_row_changes" \
+  "$tests/test_watch.py::test_empty_close_report_stage_does_not_load_the_drive" \
+  "$tests/test_watch.py::test_a_close_report_drive_install_kept_posts_from_the_watch_once_cci_takes_it_and_survives_a_refusal_to_the_next_watch" \
   "$tests/test_state.py::test_a_save_keeps_the_newest_release_that_saved_the_drive_which_each_older_install_reads_as_newer" \
   "$tests/test_state.py::test_row_cache_updates_and_deletions_do_not_sort_unchanged_positions" \
   "$tests/test_state.py::test_row_cache_reorders_inserted_or_moved_rows" \
