@@ -2261,6 +2261,35 @@ def test_a_record_cci_cannot_read_that_a_job_waits_after_frees_nothing_and_is_sa
     assert state.load(demo)["jobs"]["j1"]["waits"] == ["reply:cci:722599"]
 
 
+def test_incident_pr_lines_stage_only_the_named_prs_and_reuse_one_projection_index(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    with state.edit(demo) as data:
+        data["orders"]["o4"] = order(text="unrelated", jobs=["j4"])
+        data["jobs"]["j4"] = job(order="o4")
+        data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j4", "o4")
+    data = cli.with_cards(demo, state.load(demo))
+    jobs = state.orders_jobs(data, ["o1"])
+    keys = watch.incident_prs(data, ["o1"], jobs, render.prs_by_job(data))
+    expected = [f"PRs, as the watch last read them from GitHub: {len(keys)}", *(f"- {render.pr_line(data, key, data['prs'][key]['card_state'])}" for key in keys)]
+    staged: list[str] = []
+    indexed: list[bool] = []
+    of, graph = stage.of, state.pr_graph
+
+    def stage_one(data: dict, key: str, *args: object) -> stage.Stage:
+        staged.append(key)
+        return of(data, key, *args)
+
+    def graph_of(data: dict) -> object:
+        indexed.append(state.index_of(data) is not None)
+        return graph(data)
+
+    monkeypatch.setattr(stage, "of", stage_one)
+    monkeypatch.setattr(state, "pr_graph", graph_of)
+    assert watch.incident_pr_lines(demo, ["o1"]) == expected
+    assert staged == [key for key in keys if data["prs"][key]["state"] == "open"]
+    assert OTHER not in staged
+    assert indexed and all(indexed)
+
+
 def test_a_quiet_incidents_report_names_its_merged_fix_from_the_row_github_refreshed_never_the_note_typed_before_the_merge(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:

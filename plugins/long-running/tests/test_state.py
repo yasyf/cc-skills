@@ -242,6 +242,43 @@ def test_cold_cached_and_batched_loads_skip_cyclic_scans_and_preserve_caller_col
         (gc.enable if was_collecting else gc.disable)()
 
 
+@pytest.mark.parametrize("fields", [("owner",), ("orders", "subcoordinators"), ()])
+def test_selected_loads_decode_only_requested_fields_and_keep_independent_copies(state_root: Path, monkeypatch: pytest.MonkeyPatch, fields: tuple[str, ...]) -> None:
+    path = ordered("demo", 3)
+    whole = state.load("demo")
+    cached = state.WHOLE_READS[(path, path.stat().st_ino)].shaped
+    decoded: list[bytes] = []
+    loads = state.marshal.loads
+
+    def decode(body: bytes) -> dict:
+        decoded.append(body)
+        return loads(body)
+
+    monkeypatch.setattr(state.marshal, "loads", decode)
+    selected = state.load("demo", fields)
+    assert selected == {field: whole[field] for field in fields}
+    assert decoded == [cached[field] for field in fields]
+    if "orders" in selected:
+        selected["orders"]["o0"]["text"] = "only this caller"
+        assert state.load("demo", fields)["orders"]["o0"]["text"] == "order 0"
+
+
+def test_selected_loads_observe_other_processes_saves_and_batch_writes(state_root: Path) -> None:
+    ordered("demo", 3)
+    fields = ("terminal", "orders")
+    assert "o2" in state.load("demo", fields)["orders"]
+    other_process_save()
+    selected = state.load("demo", fields)
+    assert selected["terminal"] == "the other process's terminal"
+    assert "o2" not in selected["orders"]
+    assert selected == {field: state.load("demo")[field] for field in fields}
+    with state.batch("demo"):
+        with state.edit("demo") as data:
+            data["terminal"] = "this batch's terminal"
+        assert state.load("demo", ("terminal",)) == {"terminal": "this batch's terminal"}
+    assert state.load("demo", ("terminal",)) == {"terminal": "this batch's terminal"}
+
+
 def test_a_write_outside_any_save_is_read_by_the_next_load_even_once_the_changed_table_dropped_its_entries(state_root: Path) -> None:
     path = ordered("demo", 3)
     state.load("demo")
