@@ -4228,8 +4228,7 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 if running and orca.UNREACHABLE in str(error) and busy(watcher, job_id, moment):
                     continue
                 if running and orca.UNREACHABLE in str(error):
-                    if not orca.exec_answers(watcher.name, job["workspace"]):
-                        deaths[job_id] = (job["dispatch"], f"{orca.UNREACHED_DEATH}: {error}, and its Sprite answered no command in {orca.EXEC_PROBE_SECONDS} s")
+                    start_verb(watcher, job_id, ["lane-probe", job_id], moment)
                     continue
                 lines += read_failed(watcher, source, error, moment)
                 continue
@@ -5013,8 +5012,6 @@ def death_lines(watcher: Watcher, deaths: dict[str, tuple[str, str]], moment: da
             if job[state.worker_key(job)] != worker or not relaunchable(state.lane_death(job), moment) or busy(watcher, job_id, moment):
                 continue
             state.lane_died(job, worker, why, moment)
-            if why.startswith(orca.UNREACHED_DEATH) and not state.lane_death(job).get("lane_end"):
-                state.lane_death(job)["lane_end"] = orca.LaneEnd(why, None, None, unfit=True)._asdict()
             claims[job_id] = state.lane_death(job).get("relaunch")
             tries = (claims[job_id] or {}).get("tries", 0) + 1
             state.lane_death(job)["relaunch"] = {"pid": os.getpid(), "at": at, "tries": tries}

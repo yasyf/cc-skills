@@ -4937,7 +4937,7 @@ def test_the_watch_sends_a_jobs_held_texts_once_orca_reads_its_lane_alive_and_ne
 
 
 @pytest.mark.parametrize("answers", [False, True], ids=["silent-sprite", "orca-blip"])
-def test_the_watch_records_a_running_lane_orca_could_not_reach_dead_once_its_sprite_answers_no_command_says_so_once_and_relaunches_it_fresh_as_j7933s_was_not(
+def test_the_watch_hands_a_running_lane_orca_could_not_reach_to_a_detached_probe_which_records_it_dead_only_when_its_sprite_answers_no_command_as_j7933s_was_not(
     remote: str, monkeypatch: pytest.MonkeyPatch, answers: bool
 ) -> None:
     deliver(monkeypatch)
@@ -4945,20 +4945,22 @@ def test_the_watch_records_a_running_lane_orca_could_not_reach_dead_once_its_spr
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(dispatch=dispatch, workspace=workspace, state="running", said="building the tallies")
     monkeypatch.setattr(orca, "worker", refused("remote_runtime_unavailable", f"Could not connect to the remote Orca runtime at ws://127.0.0.1:{port}"))
-    resumes = []
-    probed = []
-    monkeypatch.setattr(orca, "exec_answers", lambda drive, workspace, seconds=orca.EXEC_PROBE_SECONDS: probed.append((workspace, seconds)) or answers)
-    monkeypatch.setattr(state, "detach", lambda name, args, log: (resumes.append(args) if args[:2] == ["job", "resume"] else None) or os.getpid())
+    detached = []
+    monkeypatch.setattr(state, "detach", lambda name, args, log: (detached.append(args) if args[0] == "lane-probe" or args[:2] == ["job", "resume"] else None) or os.getpid())
+    monkeypatch.setattr(orca, "exec_answers", lambda drive, workspace, seconds=orca.EXEC_PROBE_SECONDS: answers)
     watching = watch.Watcher(remote, offset=state.events_end(remote))
-    said = [line for s in (0, 5) for line in watch.run_pass(watching, T0 + timedelta(seconds=s)) if line.startswith("LANE j1 ")]
-    assert probed[0] == (workspace, orca.EXEC_PROBE_SECONDS)
+    first = [line for line in watch.run_pass(watching, T0) if line.startswith("LANE j1 ")]
+    assert (first, detached) == ([], [["lane-probe", "j1"]])
+    assert cli.main(["lane-probe", "j1"]) == 0
     death = state.lane_death(state.load(remote)["jobs"]["j1"], "dispatch")
     if answers:
-        assert (said, resumes, death) == ([], [], None)
+        assert death is None
         return
-    assert [line.startswith(f"LANE j1 o1 died on Sprite {workspace}: {orca.UNREACHED_DEATH}: orca orchestration worker-show: remote_runtime_unavailable") for line in said] == [True]
-    assert resumes == [["job", "resume", "j1", state.CARRY_ON]]
     assert (death["lane_end"]["unfit"], death["lane_end"]["why"].endswith(f"answered no command in {orca.EXEC_PROBE_SECONDS} s")) == (True, True)
+    detached.clear()
+    said = [line for line in watch.run_pass(watching, T0 + timedelta(seconds=5)) if line.startswith("LANE j1 ")]
+    assert [line.startswith(f"LANE j1 o1 died on Sprite {workspace}: {orca.UNREACHED_DEATH}, and its Sprite {workspace} answered no command") for line in said] == [True]
+    assert detached == [["job", "resume", "j1", state.CARRY_ON]]
 
 
 def test_the_watch_starts_one_verb_on_a_job_a_pass_and_none_while_another_drive_verb_holds_its_lock(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:

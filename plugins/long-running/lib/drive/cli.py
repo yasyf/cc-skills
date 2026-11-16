@@ -7152,6 +7152,20 @@ def disks_check(args: argparse.Namespace) -> int:
     return emit(args, "\n".join(lines) or f"no disk of the {len(reads)} Sprites read of {len(lanes)} is wedged", {"read": len(reads), "lanes": len(lanes), "wedged": wedged, "silent": silent})
 
 
+def lane_probe(args: argparse.Namespace) -> int:
+    """Run one command on the Sprite of a job's lane that Orca read as remote_runtime_unavailable, by orca.exec_answers within EXEC_PROBE_SECONDS, under the job's own lock, so the watch, which starts it detached, starts no second one and holds no pass on it: a Sprite that answers is alive and nothing is recorded; one that does not has its lane's death recorded unfit, which the watch's next pass says and relaunches on a fresh Sprite."""
+    name = state.resolve(args.drive)
+    with state.job_locked(name, args.id, orca.LAUNCH_SECONDS):
+        job = find(state.load(name)["jobs"], args.id, "job")
+        if not job.get("dispatch") or state.on_mac(job) or state.lane_death(job, "dispatch"):
+            return emit(args, f"{args.id}: no live Sprite lane to probe", {"id": args.id, "dead": None})
+        if orca.exec_answers(name, job["workspace"]):
+            return emit(args, f"{args.id}: Sprite {job['workspace']} answered, so its lane is alive though Orca could not reach it", {"id": args.id, "dead": False})
+        why = f"{orca.UNREACHED_DEATH}, and its Sprite {job['workspace']} answered no command in {orca.EXEC_PROBE_SECONDS} s"
+        orca.died(name, args.id, job["dispatch"], orca.LaneEnd(why, job.get("branch"), None, unfit=True))
+    return emit(args, f"{args.id}: {why}, so its lane is recorded dead", {"id": args.id, "dead": True})
+
+
 def disk_wedge(errors: int, stats: dict[str, list[str]], seen: dict[str, list[str]]) -> str | None:
     """Why a Sprite's disks read wedged: ext4 counted errors on them, or one holds requests in flight with its stat line unchanged since the last check, as a home volume stalled under memory pressure does; None when neither."""
     if errors:
@@ -8940,6 +8954,9 @@ def parser() -> argparse.ArgumentParser:
     verb = verbs.add_parser("transcripts-keep", parents=both, help="copy the Claude Code transcripts the Sprite of a job's lane holds now to the drive's folder; the watch runs it detached at each turn end of a Sprite lane")
     verb.add_argument("id", help="the job")
     verb.set_defaults(run=transcripts_keep)
+    verb = verbs.add_parser("lane-probe", parents=both, help="run one command on the Sprite of a job's lane Orca could not reach and record the lane dead when it gives no answer; the watch runs it detached")
+    verb.add_argument("id", help="the job")
+    verb.set_defaults(run=lane_probe)
     verb = verbs.add_parser("disks-check", parents=both, help="read the nbd0 root disk and loop0 home volume of each Sprite lane through the Sprites file API and checkpoint-restore a wedged one at once; the watch runs it detached every two minutes")
     verb.set_defaults(run=disks_check)
     verb = verbs.add_parser("mcp", help="serve say and the drive's verbs as MCP tools to a Claude Code session over stdio")
