@@ -4962,7 +4962,7 @@ def slot_queue(args: argparse.Namespace) -> int:
 def queue_items(data: dict, env: str) -> list[str]:
     """The stage-test items the work queue holds for an env, in its own order, by work.rank, each marked in the queue with whether it is ready to pull, so a tester the queue took off the slot's old line never reads as dropped."""
     kind = work.KIND[work.STAGE_TEST]
-    if env != work.ENV or not work.enabled(data, work.STAGE_TEST):
+    if env != work.env(data) or not work.enabled(data, work.STAGE_TEST):
         return []
     items = sorted((job_id for job_id, job in data["jobs"].items() if kind.queued(data, job)), key=lambda job_id: work.rank(data, job_id))
     return [f"  q{place}. {job_id} in the queue, {'ready to pull' if kind.ready(data, job_id) else 'waiting on ' + (', '.join(kind.blocking(data, job_id)) or data['jobs'][job_id]['state'])}" for place, job_id in enumerate(items, 1)]
