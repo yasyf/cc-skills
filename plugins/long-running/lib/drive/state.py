@@ -3042,12 +3042,13 @@ def design_builders(data: dict, design_id: str) -> list[str]:
         return []
     changes = designed(data, design_id, design["order"])
     parts = set(design["parts"])
+    candidates = ((job_id, data["jobs"][job_id]) for job_id in order_jobs(data, design["order"]))
     return [
         job_id
         for _, job_id in sorted(
             (job["state"] != "done", job_id)
-            for job_id in order_jobs(data, design["order"])
-            if (job := data["jobs"][job_id])["kind"] == "builder"
+            for job_id, job in candidates
+            if job["kind"] == "builder"
             and job["state"] not in ENDED_JOB_STATES
             and (parts <= set(job["parts"]) or changes & set(job["parts"]))
         )
