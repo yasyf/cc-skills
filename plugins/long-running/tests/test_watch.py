@@ -6510,11 +6510,11 @@ def test_a_lander_outside_forge_ai_monorepo_lands_one_pr_and_credits_no_other_wi
 @pytest.mark.parametrize(
     ("exempt", "path", "refused", "remedy"),
     [
-        ("ci-only", "api/src/index.ts", 'is no "ci-only"', ["--no-exempt", "--tap"]),
+        ("ci-only", "api/src/index.ts", 'is no "ci-only" at its head: it changes api/src/index.ts, outside CI configuration and CI tooling; its class comes off', []),
         ("flake fix", "go/sand/next/internal/vm_run/vmruntest/vmruntest.go", 'is a "flake fix", which lands with no tap only in test or fixture code', ["--tap"]),
     ],
 )
-def test_a_try_its_files_put_outside_its_exempt_class_stops_standing_once_drive_pr_set_puts_it_on_his_card_and_his_approve_lands_it(
+def test_a_try_its_files_put_outside_its_exempt_class_stops_standing_once_his_card_asks_his_approve_a_ci_only_one_with_no_session_word_and_his_approve_lands_it(
     demo: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]], exempt: str, path: str, refused: str, remedy: list[str]
 ) -> None:
     waiting_job(demo)
@@ -6523,8 +6523,9 @@ def test_a_try_its_files_put_outside_its_exempt_class_stops_standing_once_drive_
     diff = f"diff --git a/{path} b/{path}\n--- a/{path}\n+++ b/{path}\n@@ -1 +1 @@\n-a\n+b\n"
     monkeypatch.setattr(land.served, "change", lambda key: {"title": "Fix: pin the release image digest", "body": "", "head": "aaaaaaa111", "diff": diff.encode()})
     assert land.run(demo, [KEY]).startswith(f"not landed: {KEY} {refused}")
-    assert cli.main(["pr", "set", KEY, *remedy, "--drive", demo]) == 0
-    assert state.load(demo)["prs"][KEY]["exempt"] == (None if "--no-exempt" in remedy else exempt)
+    if remedy:
+        assert cli.main(["pr", "set", KEY, *remedy, "--drive", demo]) == 0
+    assert (state.load(demo)["prs"][KEY]["exempt"], state.load(demo)["prs"][KEY]["wants_tap"]) == (None if exempt == "ci-only" else exempt, True)
     monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [], "closed": [], "pr_cards": [pr_card(KEY)]})
     serve(monkeypatch, {KEY: read(checks=GREEN, reviewDecision="APPROVED")})
     watching = watcher(demo)

@@ -144,6 +144,11 @@ def unattended(data: dict, key: str, moment: datetime) -> str | None:
     )
 
 
+def not_ci(paths: list[str]) -> list[str]:
+    """The paths outside CI configuration and CI tooling, those CI_FILES does not match, which no ci-only PR changes."""
+    return [path for path in paths if not CI_FILES.search(path)]
+
+
 def outside(exempt: str, key: str, read: dict) -> str:
     """Why a PR, by its changed files, title and body as served.change read them, or for a main fix by its repository's default branch's CI, is not in the exempt class, the one check of an exempt class: the lander's before it lands, `drive pr add`'s and `drive pr set`'s before they keep the class, and a flake fix's tap; "" when it is."""
     paths = [path for path, _ in served.files(read["diff"])]
@@ -157,15 +162,15 @@ def outside(exempt: str, key: str, read: dict) -> str:
         case "test-only" | state.FLAKE_FIX:
             found = [path for path in paths if not served.TESTS.search(path)]
             return f"it changes {', '.join(found)}, outside test and fixture code" if found else ""
-        case "ci-only":
-            found = [path for path in paths if not CI_FILES.search(path)]
+        case state.CI_ONLY:
+            found = not_ci(paths)
             return f"it changes {', '.join(found)}, outside CI configuration and CI tooling" if found else ""
         case "incident fix":
             return "its title or body says it reverts a change, which lands only on his tap" if REVERT.search(f"{read['title']}\n{read['body']}") else ""
 
 
 def unexempt(data: dict, key: str) -> str | None:
-    """Why a PR landing by its exempt class rather than his Approve is not in that class, by outside() on its changed files, title and body on GitHub now, by his ruling that the landing tool checks the PR really is in the exempt class before it lands; None when it is, or he approved it."""
+    """Why a PR landing by its exempt class rather than his Approve is not in that class, by outside() on its changed files, title and body on GitHub now, by his ruling that the landing tool checks the PR really is in the exempt class before it lands; None when it is, or he approved it. A ci-only PR whose head left its class loses the class the paths gave it, by run(), so his card asks his Approve with no session's word."""
     pr = data["prs"][key]
     if approved(pr):
         return None
@@ -173,6 +178,8 @@ def unexempt(data: dict, key: str) -> str | None:
         return None
     if pr["exempt"] == state.FLAKE_FIX:
         return f'{key} is a "{pr["exempt"]}", which lands with no tap only in test or fixture code, and {why}; it lands on his Approve once drive pr set {state.pr_url(key)} --tap puts it on his card'
+    if pr["exempt"] == state.CI_ONLY:
+        return f'{key} is no "{pr["exempt"]}" at its head: {why}; its class comes off, so it lands on his Approve, which his card asks'
     return f'{key} is no "{pr["exempt"]}": {why}; it lands on his Approve once drive pr set {state.pr_url(key)} --no-exempt --tap puts it on his card'
 
 
@@ -559,7 +566,7 @@ def spawn(name: str, keys: tuple[str, ...]) -> int:
 
 
 def run(name: str, keys: list[str], dry_run: bool = False) -> str:
-    """Land one unit his Approve or exempt classes clear, or one yasyf/* PR, in whichever repository the drive tracks it, never a PR the drive does not track or one someone else opened that no order of his it serves names, nor several PRs outside a Forge-AI/monorepo unit, then record what came of it on each PR, which its stage reads, and as a landing event: a yasyf/* PR merges with gh pr merge --admin at the head a fresh read finds every check finished on with none failing on its own change, a Forge-AI/monorepo unit queues through stack-enqueue, and a PR of any other repository merges with gh pr merge at the head its stage read ready, which GitHub merges only once its repository's rules pass, each by the method its repository allows, by github.merge_method. His Approve lands the PR whatever the check of its change against his words says, which only informs his card and its owner; a unit with a PR below it that nothing clears is not landed, since its landing would land that PR too, nor one with a PR its changes put outside its exempt class, nor one a hold of his holds, his Hold, the hold label or an open card of his on the work of any job carrying a PR of it, nor a Forge-AI one unattended() holds while he is not present, nor one with a PR whose started staging test has not passed, by state.staging_runs, nor one with a PR waiting on his tap whose paths at its head reach a component staging runs and that no staging test passed yet, by cli.staging_reach, which it puts on its staging test first, but one drive order set --drop-part or his answer let merge before that test, by state.merge_first, which lands and gets its after-merge staging pass. A GitHub read or drive read that fails before it queues or merges anything, in any repository, ends the try not landed by UNREAD's rule, so the next watch pass lands it again. A dry run runs stack-enqueue --check as the landing would, says what it would do, and lands and records nothing."""
+    """Land one unit his Approve or exempt classes clear, or one yasyf/* PR, in whichever repository the drive tracks it, never a PR the drive does not track or one someone else opened that no order of his it serves names, nor several PRs outside a Forge-AI/monorepo unit, then record what came of it on each PR, which its stage reads, and as a landing event: a yasyf/* PR merges with gh pr merge --admin at the head a fresh read finds every check finished on with none failing on its own change, a Forge-AI/monorepo unit queues through stack-enqueue, and a PR of any other repository merges with gh pr merge at the head its stage read ready, which GitHub merges only once its repository's rules pass, each by the method its repository allows, by github.merge_method. His Approve lands the PR whatever the check of its change against his words says, which only informs his card and its owner; a unit with a PR below it that nothing clears is not landed, since its landing would land that PR too, nor one with a PR its changes put outside its exempt class, a ci-only one losing that class so his card asks his Approve, nor one a hold of his holds, his Hold, the hold label or an open card of his on the work of any job carrying a PR of it, nor a Forge-AI one unattended() holds while he is not present, nor one with a PR whose started staging test has not passed, by state.staging_runs, nor one with a PR waiting on his tap whose paths at its head reach a component staging runs and that no staging test passed yet, by cli.staging_reach, which it puts on its staging test first, but one drive order set --drop-part or his answer let merge before that test, by state.merge_first, which lands and gets its after-merge staging pass. A GitHub read or drive read that fails before it queues or merges anything, in any repository, ends the try not landed by UNREAD's rule, so the next watch pass lands it again. A dry run runs stack-enqueue --check as the landing would, says what it would do, and lands and records nothing."""
     data = state.load(name)
     if untracked := [key for key in keys if key not in data["prs"]]:
         raise state.DriveError(f"{', '.join(untracked)}: the drive tracks no such PR, so it lands none; drive pr add <url> --job <job> registers one first")
@@ -582,14 +589,17 @@ def run(name: str, keys: list[str], dry_run: bool = False) -> str:
             from drive import cli
 
             below = uncleared_below(data, keys)
-            misfiled = "; ".join(why for key in keys if (why := unexempt(data, key)))
+            misfiled = {key: why for key in keys if (why := unexempt(data, key))}
             untested = [key for key in cli.staging_reach(name, data, [key for key in keys if data["prs"][key]["wants_tap"]]) if not state.staging_tested(data, key)]
-            if untested and not dry_run:
+            if (untested or misfiled) and not dry_run:
                 with state.edit(name) as edited:
                     for key in untested:
                         state.reach_staging(edited, key)
+                    for key in misfiled:
+                        if edited["prs"][key]["exempt"] == state.CI_ONLY:
+                            edited["prs"][key].update(exempt=None, wants_tap=True)
             if misfiled:
-                outcome = f"not landed: {misfiled}"
+                outcome = f"not landed: {'; '.join(misfiled.values())}"
             elif untested:
                 outcome = f"{WAITED}: {', '.join(untested)} waits on its staging test before it lands, since its paths at its head reach a component staging runs"
             elif away := next((why for key in keys if (why := unattended(data, key, state.now()))), None):

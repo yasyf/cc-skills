@@ -244,7 +244,8 @@ and waits ids, record seqs), never a technical name.
    redraws his card. When your job's parts are split across several PRs, add `--part "<part>"` for
    each part this PR delivers, so its first check judges it on those alone. Add `--port-of <N>` for a port, `--exempt <class>` for an exempt class, or
    `--no-tap --why "<reason>"` for a PR its author lands outside `Forge-AI`, where only his tap or an
-   exempt class lands one.
+   exempt class lands one. A PR whose every changed file is CI configuration or CI tooling needs no
+   flag: its first registration keeps it `ci-only` from its paths, so no card of his draws on it.
 7. Return `PUSHED` once, as soon as the head you mean to ship is pushed and registered, with CI and
    review still running, and with `INSTALL:` and `PROVE:` lines; never a `WAITING` for CI or review
    first. `READY` counts only on a green required check, so `PUSHED` waits, waking nobody, until the

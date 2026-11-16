@@ -370,7 +370,8 @@ class from its changed files, title and body at its head, by his ruling that the
 the class before it lands: no file that changes how data is stored for a `pure port`, only test and
 fixture files for `test-only` and for a `flake fix` landing with no tap, only CI files for `ci-only`,
 a failed newest run of some workflow on the default branch for a `main fix`, and no revert for an
-`incident fix`. One outside its class comes back as `PR … not landed: <why>`.
+`incident fix`. One outside its class comes back as `PR … not landed: <why>`, and a `ci-only` one
+loses its class there, so his card asks his Approve on it with no session's word.
 
 - `pure port`: a `Port:` PR that does what its old-tree PR #N does, line for line, with that PR's tests,
   and nothing more. The coordinator records it with `drive pr set <url> --port-of <N>`. It ports work
@@ -384,7 +385,11 @@ a failed newest run of some workflow on the default branch for a `main fix`, and
 - `test-only`: only test and fixture files.
 - `ci-only`: only CI configuration and CI tooling: files under `.github/`, `.buildkite/`, `go/ci/` and
   `infra/ci/`, whose Buildkite pipeline definitions are CI configuration, and the `tools/ci` and
-  `tools/ci-ts` shims.
+  `tools/ci-ts` shims. The class comes from the paths: the first registration of a PR he opened,
+  by `drive pr add`, a builder's `READY` or `PUSHED` or a report's `FIX` line, keeps it `ci-only`
+  when no class or port is named and GitHub lists at least one changed file, every one of them CI,
+  by his words "any CI fix PRs uoiu can merge without getting a tp from me". A revert on the order
+  of an open incident keeps his tap.
 - `flake fix`: the whole change fixes one named flaking test at its cause, whatever files it touches,
   and adds no retry, skip, timeout or rerun, by his ruling 532cd3d, "and ffs fix these flaky tgests how
   many times do I have to tell yoiu". It serves that ruling, never the order whose PR the flake reddened,
@@ -488,7 +493,7 @@ again at the watch's next pass with no new tap. So does a try that ended on a fa
 queued or merged anything, such as a TLS handshake timeout on its diff read or on the landing clone's fetch of the
 default branch, said on the PR's line and named by its `ready` stage until a try lands it. A try that
 comes to what the one before it on that head did is said once. A try stands only at the head and base it ran on, so a push, or GitHub moving the PR onto the default branch once the PR under it merges, reads it `ready` again, and only while what let it run does: once `drive pr set <url> --no-exempt --tap`
-puts the PR on his card, or his tap comes after the try started, the PR reads his card or `ready` again, never
+or the try itself, for a `ci-only` PR its head left, puts the PR on his card, or his tap comes after the try started, the PR reads his card or `ready` again, never
 `unlanded`. Its outcome comes back as the PR's stage:
 `landing` while Trunk holds it and nothing stops its landing, else what stops it, such as `waiting` on a wait of its own,
 out of the queue once Trunk's `trunk-cancelled` label on its queue entry is newer than the try, which the watch records
