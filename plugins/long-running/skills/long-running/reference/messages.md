@@ -486,16 +486,7 @@ When it is answered, replaced or redone:
 - A PR has one card. The drive's own draw sends cc-slack the PRs with no line: cc-slack redraws
   their card where it sits, offering Approve again when the drive still asks it, or first posts it
   in his DM's thread of the first order they carry out, at his DM root when they carry out none, and
-  posts nothing else. While its PRs wait on him and fix a bug hurting someone now, the watch asks
-  his tap again, once per card, at its next 30-minute wake after he was heard later than that card
-  went up and than its last wake on them, so while he stays silent it asks none: one line in that thread, else his open card's own,
-  `Asking again, since it fixes a reported bug: <what each PR does>`, or `an open incident`, naming
-  the PRs, under which cc-slack posts the card with Approve and Hold and edits the card it replaces
-  to say it was asked again under a newer line, linking the new one, with no buttons, by his words
-  "you keep sending these but there's nothing attached to them". A line with no thread to go in
-  posts nothing, and one cc-slack drew no card under is kept as said and fails the ask, so it goes
-  out once per word of his. Before it posts, `cc-slack check-post` reads the line, and Jev
-  judges what it finds by the plain-words rule in one request, one yes-or-no question a finding. A
+  posts nothing else. No card is posted again to ask him twice: the Waiting on you post lists it. A
   flake fix's card says under its body that it fixes a flaking test at its cause, quoting his ruling. The order's thread hears one line when the PR merges. A card drawn through `say` carries a
   line above it quoting that order: his words, or the tooling order's "Drive tooling: …" words. The say hook finds a PR card whose PR serves a drive tooling order while
   its text leaves out that order's words, naming them, for Jev to judge. Those words pass
@@ -546,8 +537,7 @@ When it is answered, replaced or redone:
   already posted redraws in place when a PR's head or staging line changes, and whole once a PR it
   asks his tap on no longer asks it. A stack card whose other
   PRs still ask his tap keeps Approve and Hold for them. A head that moved under his card keeps Approve showing, and a head the check against
-  his words judges against them keeps Approve and any Approve he gave, since his Approve lands it whatever that check says, by his words "why the fuck would you keep eveyhting broken to make it perfect". While a PR
-  fixes a bug hurting someone now, a card that waits on him is posted again under the line asking his tap again, once each time he is heard after it went up, until it lands. Its Show me comes last,
+  his words judges against them keeps Approve and any Approve he gave, since his Approve lands it whatever that check says, by his words "why the fuck would you keep eveyhting broken to make it perfect". Its Show me comes last,
   its pictures inline. A stack card's summary comes from `## The stack` in its bottom PR, under its PRs' leads.
 - Once he answers, the card folds to its title, his pick and one line per PR. When an answer or ruling
   of his replaces the work it carries, `drive answer` settles it as it does a question card.
@@ -619,6 +609,12 @@ Tables follow for his questions, his PR taps, promised times that passed, every 
 state, each open state's features, and finished work. Each table shows its first eight rows and says
 how many more the dashboard holds. When a line says where things stand, link the page instead of
 restating it.
+
+**The Waiting on you post.** You never write it either: the watch keeps one post at the root of his
+DM and of each operator channel, posted when a card first waits on him there and edited in place
+whenever what waits there changes, so it never pings him again. It counts the open cards whose
+project posts there, linking that queue on the dashboard, then links the first five, those fixing a
+bug hurting someone now first. Once nothing waits there it reads "No open cards".
 
 ## When it goes out
 

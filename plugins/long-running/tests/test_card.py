@@ -726,7 +726,7 @@ def test_an_open_pr_only_its_upstream_maintainers_merge_waits_on_them_with_no_ca
     data = state.load(drive)
     now = stage.of(data, key, view.NO_CARDS)
     assert (now.name, now.owner, now.why) == ("upstream", stage.NOBODY, "waits on stablyai's maintainers to merge it")
-    assert not stage.overdue(data, data["prs"][key], now, datetime.now().astimezone() + timedelta(days=7))
+    assert not stage.overdue(data["prs"][key], now, datetime.now().astimezone() + timedelta(days=7))
     assert stall.chain(data, view.NO_CARDS, False, key, set()) is None
     monkeypatch.setattr(card, "run", answering(pr_json(url=url)))
     assert ask({"prs": [{"repo": "stablyai/orca", "number": 40518}]})["skipped"] == [

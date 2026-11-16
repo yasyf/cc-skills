@@ -16,19 +16,16 @@ ACCEPT_RULING = '2bb0472, "you have to accept the risk stop just pretendinf urbl
 UNLANDED_SILENT = "no outcome: its process ended before it said whether it queued anything"
 WAKES_LOG = "wakes.log"
 NAMED_HEAD = re.compile(r"\bat ([0-9a-f]{7,40})\b")
-ASKS_HIM = ("held", "card")
 OWN_STEP = ("uncarded", "landing", "unlanded", "unscheduled", "held", "rework", "merged", github.FOLDED, "closed")
 EVERY = {
     "uncarded": timedelta(minutes=30),
     "landing": timedelta(minutes=90),
     "unlanded": timedelta(minutes=30),
     "blocked": timedelta(minutes=60),
-    "held": timedelta(minutes=30),
     "rework": timedelta(minutes=30),
     "red": timedelta(minutes=30),
     "waiting": timedelta(minutes=60),
     "grading": timedelta(minutes=60),
-    "card": timedelta(minutes=30),
     "ready": timedelta(minutes=30),
     "author": timedelta(minutes=30),
 }
@@ -407,11 +404,6 @@ def fixer(data: dict, key: str) -> str | None:
     return next((wait for wait in data["prs"][key]["waits"] if wait in data["prs"] and data["prs"][wait]["state"] == "open"), None)
 
 
-def live(data: dict, pr: dict) -> bool:
-    """Whether the PR fixes a bug hurting someone now, so a card asking him is asked again every EVERY of its stage."""
-    return any(state.hurts_now(data, data["orders"][order_id]) for order_id in state.served_orders(data, pr))
-
-
 def owner_job(data: dict, key: str) -> str | None:
     """The job that answers for the PR now: the one its row names, which its stage line's tag prints and drive pr add --job, drive job set --pr and a superseded fold move, whose finished or dead lane drive pr wake replaces with a fresh builder; None when that job is stopped, so no wake starts work he called off and the session holding its order closes the PR or moves it to a live job."""
     job_id = data["prs"][key]["job"]
@@ -423,10 +415,10 @@ def entered(kept: dict | None, now: Stage) -> bool:
     return not kept or (kept["name"], kept["owner"]) != (now.name, now.owner)
 
 
-def overdue(data: dict, pr: dict, now: Stage, moment: datetime) -> bool:
-    """Whether the stage's deadline passed since it began or its owner was last woken: every stage but behind, whose PR below names its owner, and reviewing, which a teammate outside the drive moves, and one he owes only while it asks him on his card, held or card, and the PR fixes a live bug."""
+def overdue(pr: dict, now: Stage, moment: datetime) -> bool:
+    """Whether the stage's deadline passed since it began or its owner was last woken: every stage but behind, whose PR below names its owner, reviewing, which a teammate outside the drive moves, and any he owes, since nothing asks him again."""
     every = EVERY.get(now.name)
-    if every is None or now.owner == HIM and (now.name not in ASKS_HIM or not live(data, pr)):
+    if every is None or now.owner == HIM:
         return False
     kept = pr["stage"]
     return moment - state.parse_time(kept["woke"] or kept["since"]) >= every

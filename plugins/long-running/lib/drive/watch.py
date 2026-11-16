@@ -1839,6 +1839,29 @@ def send_answer(name: str, job_id: str, message_id: str, kept: dict) -> orca.Orc
     return None
 
 
+def waiting_post_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Keep the one post in his DM and in each operator channel that says what waits on him there, in the words talk.waiting_posts gives it, which stands in for asking any card again: posted once a card first waits on him there and edited in place whenever its words change, each kept with its words in the drive across watch restarts; a post or edit that fails goes again on the next pass and is said from its third failure in a row."""
+    if watcher.project or watcher.cards is None:
+        return []
+    from drive import talk
+
+    data = state.load(watcher.name)
+    lines = []
+    for channel, words in talk.waiting_posts(watcher.name, data, watcher.cards, moment).items():
+        kept = data["slack"]["waiting"].get(channel)
+        if words == (kept["words"] if kept else talk.NO_CARDS):
+            continue
+        try:
+            reply = talk.posted(watcher.name, {"edit": kept["message"], "text": words} if kept else {"text": words} | ({} if channel == slack.dm() else {"channel_id": channel}))
+        except (slack.SlackError, state.DriveError) as error:
+            lines += failed(watcher, f"waiting post {channel}", f"post of what waits on him in {channel}", error, moment)
+            continue
+        watcher.failures.pop(f"waiting post {channel}", None)
+        with state.edit(watcher.name) as saved:
+            saved["slack"]["waiting"][channel] = {"message": reply["permalink"], "words": words}
+    return lines
+
+
 def page_lines(watcher: Watcher, moment: datetime) -> list[str]:
     """Redraw the drive's Slack status page when what it shows changed since the last drawing, its "Updated" line aside; say once, kept in the drive across watch restarts, when Slack starts refusing so the page he sees is stale, once when it takes a redraw again, and with the link whenever the page moved to a new tab."""
     if watcher.project:
@@ -4302,7 +4325,7 @@ def crossed(watcher: Watcher, data: dict, offset: int, moment: datetime) -> tupl
     for event, offset in state.read_events(watcher.name, offset):
         said.append(event)
     waits = view.slack_waits(data, said, slack.owed(agents.beside(data)[1]["session"]), moment)
-    answers, owed, reasks, approved = waits["answers"], waits["owed"], waits["reasks"], waits["approved"]
+    answers, owed, approved = waits["answers"], waits["owed"], waits["approved"]
     found = f"{state.TOOLING} the daily Slack sweep found"
     bars = []
     if view.crossing("answers", answers):
@@ -4310,8 +4333,6 @@ def crossed(watcher: Watcher, data: dict, offset: int, moment: datetime) -> tupl
         bars.append((f"{found} more than 1 in 10 answers to your messages taking over 2 minutes", "Answers slower than 2 minutes", f"{len(answers)} answers, 90th percentile {view.p90(answers).total_seconds() / 60:.1f} min, slowest {slowest['wait'].total_seconds() / 60:.1f} min: {slowest['link']}"))
     if owed:
         bars.append((f"{found} a message of yours still unanswered after 10 minutes", "Message unanswered past 10 minutes", f"{len(owed)} owed, the oldest since {when(owed[0]['at'])}: {owed[0]['link']}"))
-    if reasks:
-        bars.append((f"{found} a card asked again in a new top-level post instead of its own thread", "Card asked again at a channel's top level", f"{len(reasks)} re-asks, the first {reasks[0]['link']}"))
     if approved:
         bars.append((f"{found} a pull request you approved still open after 24 hours", "Approved pull request open past 24 hours", f"{len(approved)} PRs: {cut(', '.join(state.pr_key(pr['link']) for pr in approved), 300)}"))
     return bars, offset
@@ -4334,7 +4355,7 @@ def passed(watcher: Watcher, moment: datetime, until: Callable[[], object] = lam
 
 
 def stages(watcher: Watcher, moment: datetime, until: Callable[[], object] = lambda: None, lands: bool = False) -> Iterator[list[str]]:
-    """The lines of each stage of one loop of the watch, as it returns: first the lines its relay made since the last pass, so a pass that crashes while it reads every live lane's mail holds back none it already had, and new events, so a return `drive job report` took in another process is said in the pass its event wakes, then each part a job drive job add recorded not started leaves with no one, on every pass after the watch's first, so its ORPHAN comes on time whatever the length of a pass, then the drive's own Orca terminal every Orca call speaks as, his cards as the landing loop last stored them and the messages of his cc-slack owes an answer, or, in a pass run in-process, which lands, the landing stages, the finish of each builder whose READY's PRs all merged, DONE at the merge of a product change or the proof of a yasyf/* one, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, where each merged PR a release wait or an incident fix names runs, each Buildkite build a wait names or a part follows that is newly held or a delivery of Buildkite's named, the status message of each build a part follows, the waits his answers, a job's end, that read or the Buildkite read release or hold again, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, agents, the chains of waits that stood unmoved, the texts jobs hold that no worker taking messages gets, the communicator's compaction, the status page, a coordinator whose process exited, a dashboard whose server exited, each teammate thread an order watches and each message of his cc-slack owes an answer every 60 s, then events written since, its own stages' among them, and, in a pass that lands, the GitHub reads they and the rest owe while its last read answered, so a delivery is read in the pass it wakes, and each builder's PUSHED or lane's READY those settle, so one a lane sent this pass is taken in it, then the catch-up owed him, the daily Slack sweep's drive tooling orders, claims whose end passed, the line owed in each thread whose order or incident has news, job clocks run out, his answers no resume has carried to their jobs, each answer order left nothing owed, fixes proven live whose bug report has not heard, the next pass of each standing part no job holds, and parts nothing carries. Each stage after the orphans is named by its function: the pass starts those at the watcher's resume when one of them bears its name, so the watch after one that ended mid-pass for a newer install runs only the stages that one had not, and ends before the first one it reaches once until answers, keeping that one's name as the resume. A stage that keeps working after its save joins the lines it made by then to the watcher's made lines itself."""
+    """The lines of each stage of one loop of the watch, as it returns: first the lines its relay made since the last pass, so a pass that crashes while it reads every live lane's mail holds back none it already had, and new events, so a return `drive job report` took in another process is said in the pass its event wakes, then each part a job drive job add recorded not started leaves with no one, on every pass after the watch's first, so its ORPHAN comes on time whatever the length of a pass, then the drive's own Orca terminal every Orca call speaks as, his cards as the landing loop last stored them and the messages of his cc-slack owes an answer, or, in a pass run in-process, which lands, the landing stages, the finish of each builder whose READY's PRs all merged, DONE at the merge of a product change or the proof of a yasyf/* one, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, where each merged PR a release wait or an incident fix names runs, each Buildkite build a wait names or a part follows that is newly held or a delivery of Buildkite's named, the status message of each build a part follows, the waits his answers, a job's end, that read or the Buildkite read release or hold again, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, agents, the chains of waits that stood unmoved, the texts jobs hold that no worker taking messages gets, the communicator's compaction, the post in each place saying what waits on him, the status page, a coordinator whose process exited, a dashboard whose server exited, each teammate thread an order watches and each message of his cc-slack owes an answer every 60 s, then events written since, its own stages' among them, and, in a pass that lands, the GitHub reads they and the rest owe while its last read answered, so a delivery is read in the pass it wakes, and each builder's PUSHED or lane's READY those settle, so one a lane sent this pass is taken in it, then the catch-up owed him, the daily Slack sweep's drive tooling orders, claims whose end passed, the line owed in each thread whose order or incident has news, job clocks run out, his answers no resume has carried to their jobs, each answer order left nothing owed, fixes proven live whose bug report has not heard, the next pass of each standing part no job holds, and parts nothing carries. Each stage after the orphans is named by its function: the pass starts those at the watcher's resume when one of them bears its name, so the watch after one that ended mid-pass for a newer install runs only the stages that one had not, and ends before the first one it reaches once until answers, keeping that one's name as the resume. A stage that keeps working after its save joins the lines it made by then to the watcher's made lines itself."""
     yield drained(watcher.relayed)
     yield event_lines(watcher)
     if watcher.read_at is not None:
@@ -4376,6 +4397,7 @@ def stages(watcher: Watcher, moment: datetime, until: Callable[[], object] = lam
                     stall_lines,
                     carry_held,
                     compact_lines,
+                    waiting_post_lines,
                     page_lines,
                     down_lines,
                 )
@@ -4479,14 +4501,13 @@ def redraw_lines(watcher: Watcher, moment: datetime, keys: set[str] | None = Non
 
 
 def stage_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Keep each heard unmerged PR's stage, as stage.of names it from the approval, checks and head GitHub last answered for it, and act once on each open one that entered a stage or passed its deadline, leaving a PR never read, or whose last read failed, as it stands until a read answers for it: draw his card on each PR that entered uncarded or passed its deadline there, one card for the PRs of one card unit as drive card draws them, or redraw in place the card cc-slack keeps closed on one, so it offers Approve again and no second card shares its waits id, or, once a card of the unit leaves off a PR of its stack, native or chained by base branch, by view.apart, draw one fresh card for the unit and those PRs, which cc-slack marks each older card of theirs replaced by, wake the builder answering for a PR rework or red owe, ask forge-pr-reviewer once for a review of a head grading an hour and then wake its builder, wake past its deadline the job a waiting or blocked PR names as owing it and the builder of one its author lands, wake the session holding its order on one unlanded and on any other past its deadline but uncarded, and draw his card again, once per card unit, on the PRs that wait on him while they fix a live bug and whose card asks his tap, by state.asks_tap, once he was heard after that card went up and after the watch last woke on them, by heard_since_shown, with a line in its thread saying why it asks, under which cc-slack posts the card. A draw or redraw in place that fails, or leaves a PR that asks his tap with no card of his offering Approve at its head, as one cc-slack answers by linking a card he already answered does or a redraw cc-slack leaves the card closed under, clears the PR's stage, so the next read enters uncarded again and draws, and is said to the meta session from its third failure in a row."""
+    """Keep each heard unmerged PR's stage, as stage.of names it from the approval, checks and head GitHub last answered for it, and act once on each open one that entered a stage or passed its deadline, leaving a PR never read, or whose last read failed, as it stands until a read answers for it: draw his card on each PR that entered uncarded or passed its deadline there, one card for the PRs of one card unit as drive card draws them, or redraw in place the card cc-slack keeps closed on one, so it offers Approve again and no second card shares its waits id, or, once a card of the unit leaves off a PR of its stack, native or chained by base branch, by view.apart, draw one fresh card for the unit and those PRs, which cc-slack marks each older card of theirs replaced by, wake the builder answering for a PR rework or red owe, ask forge-pr-reviewer once for a review of a head grading an hour and then wake its builder, wake past its deadline the job a waiting or blocked PR names as owing it and the builder of one its author lands, wake the session holding its order on one unlanded and on any other past its deadline but uncarded. A draw or redraw in place that fails, or leaves a PR that asks his tap with no card of his offering Approve at its head, as one cc-slack answers by linking a card he already answered does or a redraw cc-slack leaves the card closed under, clears the PR's stage, so the next read enters uncarded again and draws, and is said to the meta session from its third failure in a row."""
     if watcher.cards is None:
         return []
     with state.edit(watcher.name) as data:
         stacks = land.landing_stacks(data)
         units = {key: state.card_unit(key, stacks.get(key, ()), pr) for key, pr in data["prs"].items()}
         acts = []
-        woke = {}
         for key in state.unmerged_pr_keys(data):
             pr = data["prs"][key]
             if key in watcher.stale or pr["required"] is None or not hears(watcher, data, pr["order"]):
@@ -4496,23 +4517,17 @@ def stage_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 stage.stamp(pr, now, moment)
                 if pr["state"] == "open":
                     acts.append((key, now, True, stage.line(key, pr, now) + f" {ids(pr)}"))
-            elif stage.overdue(data, pr, now, moment):
+            elif stage.overdue(pr, now, moment):
                 stage.kept(pr, now)
-                woke[key] = pr["stage"]["woke"] or pr["stage"]["since"]
                 pr["stage"]["woke"] = state.stamp(moment)
                 acts.append((key, now, False, stage.line(key, pr, now) + f" {ids(pr)}"))
             else:
                 stage.kept(pr, now)
     lines: list[str] = []
     uncarded = {}
-    asked = {}
     for key, now, entered, line in acts:
         if now.name == "uncarded":
             uncarded.setdefault(units[key], []).append(key)
-            continue
-        if now.owner == stage.HIM and not entered:
-            if state.asks_tap(data, data["prs"][key]):
-                asked.setdefault(units[key], []).append(key)
             continue
         lines += acted(watcher, key, now, entered, line, moment)
     from drive import talk
@@ -4539,24 +4554,7 @@ def stage_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 lines += sent(watcher, "meta", said, moment)
             continue
         watcher.failures.pop("card draw", None)
-    for keys in asked.values():
-        if not heard_since_shown(data, keys, watcher.cards, max((woke[key] for key in keys), key=state.parse_time)):
-            continue
-        try:
-            talk.draw(watcher.name, keys, again=True)
-        except (slack.SlackError, state.DriveError) as error:
-            lines += failed(watcher, "card ask", f"ask again of his card on {', '.join(keys)}", error, moment)
-            continue
-        watcher.failures.pop("card ask", None)
     return lines
-
-
-def heard_since_shown(data: dict, keys: list[str], found: dict, woke: str) -> bool:
-    """Whether he was heard since the watch last woke on these PRs' stage, woke, its wake before this one, else when the stage began, and since his open card on any of them was last put in front of him, so the drive asks his tap again at most once while he is not heard, a line cc-slack drew no card under included: each line asking it again posts that card fresh under itself, so the card's own post time is when he was last asked; a PR with no open card at its head counts as never shown."""
-    if not (heard := data["owner"]["heard"]) or state.parse_time(heard) <= state.parse_time(woke):
-        return False
-    shown = [view.tap_card(data, data["prs"][key], found) for key in keys]
-    return any(card is None or state.parse_time(heard).timestamp() > int(view.message_key(card)) / 1_000_000 for card in shown)
 
 
 def draw_questions(watcher: Watcher, moment: datetime) -> None:
