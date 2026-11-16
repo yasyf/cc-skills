@@ -279,6 +279,9 @@ CARDS_NOTED = "card_answers_noted"
 INDEX: ContextVar["Index | None"] = ContextVar("index", default=None)
 WAITS_OUT_LOCK: ContextVar[bool] = ContextVar("waits_out_lock", default=False)
 NAMED: ContextVar[frozenset[str]] = ContextVar("named", default=frozenset())
+LOADED_VERSION: ContextVar[int | None] = ContextVar("loaded_version", default=None)
+EDITING: ContextVar[str | None] = ContextVar("editing", default=None)
+HELD_SCOPES: set[tuple[int, Path]] = set()
 BATCHED: dict[str, bytes] = {}
 WHOLE_READS: dict[tuple[Path, int], "Copy"] = {}
 READING = threading.Lock()
@@ -895,6 +898,7 @@ def whole(path: Path, shape: Callable[[dict], tuple[dict, bool]]) -> dict:
         if (copy := WHOLE_READS.get(key)) is None:
             copy = WHOLE_READS[key] = Copy(path)
         if (now := copy.watcher.execute("PRAGMA data_version").fetchone()[0]) == copy.version and copy.shaped:
+            LOADED_VERSION.set(now)
             return marshal.loads(copy.shaped)
         if now != copy.version:
             caught_up(copy)
@@ -905,7 +909,18 @@ def whole(path: Path, shape: Callable[[dict], tuple[dict, bool]]) -> dict:
         with READING:
             if (copy.rev, copy.version) == (rev, now):
                 copy.shaped = marshal.dumps(data)
+    LOADED_VERSION.set(now)
     return data
+
+
+def unchanged_since(name: str, version: int | None) -> bool:
+    """Whether no connection committed to the drive's database since this process's load read it at version, by PRAGMA data_version on the connection that load reads through, which moves on every commit another connection makes."""
+    if version is None:
+        return False
+    path = database_path(name)
+    with READING:
+        copy = WHOLE_READS.get((path, path.stat().st_ino))
+        return copy is not None and copy.version == version and copy.watcher.execute("PRAGMA data_version").fetchone()[0] == version
 
 
 class Copy:
@@ -4267,7 +4282,7 @@ def locked(name: str) -> Iterator[None]:
             yield
         finally:
             stuck.cancel()
-            if (held := time.monotonic() - got) >= SLOW_HOLD_SECONDS:
+            if (held := time.monotonic() - got) >= SLOW_HOLD_SECONDS or got - asked >= SLOW_HOLD_SECONDS:
                 kept_hold(name, held, got - asked)
 
 
@@ -4299,11 +4314,11 @@ def naming(given: object) -> Iterator[None]:
         NAMED.reset(token)
 
 
-def kept_hold(name: str, held: float, waited: float) -> None:
-    """Log a hold of the drive's lock past SLOW_HOLD_SECONDS to locks.log: how long, how long it waited first, the drive code that held it and the verb, so the verb holding every writer behind it is named."""
+def kept_hold(name: str, held: float, waited: float, lock: str = "") -> None:
+    """Log a hold of the drive's lock, or of the scope's lock named, or a wait for it, past SLOW_HOLD_SECONDS to locks.log: how long, how long it waited first, the drive code that held it and the verb, so the verb holding every writer behind it is named."""
     holder = next(frame for frame in reversed(traceback.extract_stack()[:-1]) if Path(frame.filename).name not in ("state.py", "contextlib.py"))
     with open(drive_dir(name) / "locks.log", "a") as log:
-        log.write(f"{stamp()} pid {os.getpid()} held {held:.1f}s after waiting {waited:.1f}s in {holder.name} ({Path(holder.filename).name}:{holder.lineno}): drive {' '.join(sys.argv[1:])[:HOLDER_CHARS]}\n")
+        log.write(f"{stamp()} pid {os.getpid()} held {lock + ' ' if lock else ''}{held:.1f}s after waiting {waited:.1f}s in {holder.name} ({Path(holder.filename).name}:{holder.lineno}): drive {' '.join(sys.argv[1:])[:HOLDER_CHARS]}\n")
 
 
 def kept_stack(name: str, thread: int) -> None:
@@ -4382,19 +4397,70 @@ def writing(name: str) -> Iterator[None]:
 
 
 @contextmanager
-def edit(name: str) -> Iterator[dict]:
-    """Load the drive under its lock, yield it for changes, and save it atomically on exit, telling each session the save took open orders from; inside a batch, keep the changes on its copy for its one save."""
+def scoped(name: str, scope: tuple[str, ...] | None) -> Iterator[None]:
+    """Hold the lock of one scope of the drive, such as one job's or the watch's relaunches, for a write that reads the drive, acts outside it at most once on what it read and records that it did, so a second such write of the same scope reads what the first recorded, while writes of every other scope and every write of no scope run beside it; waiting up to DRIVE_LOCK_SECONDS, then refusing with who holds it. A scope this thread holds already is held on, so a write inside another of the same scope never waits on itself."""
+    if scope is None or (held_here := (threading.get_ident(), drive_dir(name) / "locks" / f"{'-'.join(part.replace('/', '_') for part in scope)}.lock")) in HELD_SCOPES:
+        yield
+        return
+    path = held_here[1]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    asked = time.monotonic()
+    with open(path, "a") as handle:
+        if not taken(handle, math.inf if WAITS_OUT_LOCK.get() else DRIVE_LOCK_SECONDS):
+            raise DriveError(f"{name}'s {'/'.join(scope)} lock is still held after {DRIVE_LOCK_SECONDS}s, so this changed nothing: {holders(path)}")
+        got = time.monotonic()
+        HELD_SCOPES.add(held_here)
+        try:
+            yield
+        finally:
+            HELD_SCOPES.discard(held_here)
+            if (held := time.monotonic() - got) >= SLOW_HOLD_SECONDS or got - asked >= SLOW_HOLD_SECONDS:
+                kept_hold(name, held, got - asked, f"the {'/'.join(scope)} lock")
+
+
+@contextmanager
+def edit(name: str, scope: tuple[str, ...] | None = None) -> Iterator[dict]:
+    """Load the drive, yield it for changes and save them on exit, telling each session the save took open orders from; inside a batch, keep the changes on its copy for its one save. A write of no scope holds the drive's lock from its load through its save, so its every field reads as the drive stands at its save. A write naming its scope, one shown to decide nothing from the drive outside that scope, holds that scope's lock alone from its load through its save, by scoped, so its process, Orca or model calls hold no other write behind it: its save alone takes the drive's lock, by committed, laying its changes over what other writes saved meanwhile and refusing, keeping nothing, when one changed a field it changed differently, which locks.log names."""
     if name in BATCHED:
         data = load(name)
         yield data
         BATCHED[name] = marshal.dumps(data)
         return
+    token = EDITING.set(name)
+    try:
+        if scope is None or WAITS_OUT_LOCK.get() or not database_path(name).exists():
+            with writing(name):
+                data = load(name)
+                before = holding_lanes(data)
+                yield data
+                save(name, data | {CLOCKS: clocks(data)})
+                tell_moved(name, data, before)
+            return
+        with scoped(name, scope):
+            data = load(name)
+            version, base, before = LOADED_VERSION.get(), marshal.dumps(data), holding_lanes(data)
+            yield data
+            try:
+                committed(name, base, data, version, before)
+            except Raced as raced:
+                with open(drive_dir(name) / "locks.log", "a") as log:
+                    log.write(f"{stamp()} pid {os.getpid()} refused: another write changed {'.'.join(raced.args[0])} differently while it ran: drive {' '.join(sys.argv[1:])[:HOLDER_CHARS]}\n")
+                raise DriveError(f"refused, nothing kept: another write changed {'.'.join(raced.args[0])} differently while this ran, so send it again") from None
+    finally:
+        EDITING.reset(token)
+
+
+def committed(name: str, base: bytes, mine: dict, version: int | None, before: dict[str, str]) -> None:
+    """Save a write's changes, mine, made on the drive as base held it at version, under the drive's lock for the save alone: mine whole while no other connection committed since, else mine laid over the drive as it stands now, by merged, which raises Raced at the first field both changed differently."""
     with writing(name):
-        data = load(name)
-        before = holding_lanes(data)
-        yield data
-        save(name, data | {CLOCKS: clocks(data)})
-        tell_moved(name, data, before)
+        if unchanged_since(name, version):
+            saved = mine
+        else:
+            now = load(name)
+            before = holding_lanes(now)
+            saved = merged(marshal.loads(base), mine, now)
+        save(name, saved | {CLOCKS: clocks(saved)})
+        tell_moved(name, saved, before)
 
 
 @contextmanager
@@ -4405,8 +4471,10 @@ def batch(name: str, dry: bool = False) -> Iterator[list[str]]:
         return
     after: list[str] = []
     loaded = load(name)
-    BATCHED[name] = marshal.dumps(loaded)
+    version = LOADED_VERSION.get()
+    BATCHED[name] = base = marshal.dumps(loaded)
     AFTER_SAVE[name] = []
+    token = EDITING.set(name)
     WENT.clear()
     if dry:
         REHEARSING.add(name)
@@ -4416,19 +4484,16 @@ def batch(name: str, dry: bool = False) -> Iterator[list[str]]:
     finally:
         del BATCHED[name], AFTER_SAVE[name]
         REHEARSING.discard(name)
+        EDITING.reset(token)
     if dry:
         return
-    with writing(name):
-        now = load(name)
-        try:
-            saved = merged(loaded, mine, now)
-        except Raced as raced:
-            raise DriveError(
-                f"refused, nothing kept: another write changed {'.'.join(raced.args[0])} differently while this call ran, so send it again"
-                + (f" once you have checked what it started as it ran: {', '.join(dict.fromkeys(WENT))}" if WENT else "")
-            ) from None
-        save(name, saved | {CLOCKS: clocks(saved)})
-        tell_moved(name, saved, holding_lanes(now))
+    try:
+        committed(name, base, mine, version, holding_lanes(loaded))
+    except Raced as raced:
+        raise DriveError(
+            f"refused, nothing kept: another write changed {'.'.join(raced.args[0])} differently while this call ran, so send it again"
+            + (f" once you have checked what it started as it ran: {', '.join(dict.fromkeys(WENT))}" if WENT else "")
+        ) from None
     failed: list[str] = []
     for effect in effects:
         try:
@@ -4485,8 +4550,17 @@ def create(data: dict) -> None:
 
 
 def next_id(records: dict, prefix: str) -> str:
+    """The next id of a collection: past every one records holds and, inside a write of a drive, past every one any write of that drive took, which ids/<prefix> keeps under its own lock, so two writes adding at once from the drive as each loaded it never take one id; a dry batch takes none."""
     taken = [int(key[len(prefix) :]) for key in records if key.startswith(prefix) and key[len(prefix) :].isdigit()]
-    return f"{prefix}{max(taken, default=0) + 1}"
+    fresh = max(taken, default=0) + 1
+    if (name := EDITING.get()) is None or name in REHEARSING:
+        return f"{prefix}{fresh}"
+    path = drive_dir(name) / "locks" / f"ids-{prefix}"
+    with flocked(path.with_name(f"{path.name}.lock")):
+        if path.exists():
+            fresh = max(fresh, int(path.read_text()) + 1)
+        path.write_text(f"{fresh}\n")
+    return f"{prefix}{fresh}"
 
 
 def session_role(data: dict, session: str | None) -> str | None:

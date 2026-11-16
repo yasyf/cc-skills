@@ -334,6 +334,58 @@ def test_a_batch_holds_no_lock_while_its_writes_run_and_its_one_save_keeps_what_
     assert state.load("demo")["terminal"] == "term-4"
 
 
+def test_a_scoped_edit_holds_no_drive_lock_while_its_body_runs_and_keeps_what_another_write_saved_meanwhile(state_root: Path) -> None:
+    make("demo")
+    with state.edit("demo", ("job", "j1")) as data:
+        data["terminal"] = "term-1"
+        with open(state.drive_dir("demo") / ".lock", "a") as free:
+            fcntl.flock(free, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl.flock(free, fcntl.LOCK_UN)
+        with state.edit("demo") as other:
+            other["binder"] = "term-2"
+    data = state.load("demo")
+    assert (data["terminal"], data["binder"]) == ("term-1", "term-2")
+
+
+def test_a_scoped_edit_racing_another_on_one_field_is_refused_keeping_nothing_and_logs_the_field(state_root: Path) -> None:
+    make("demo")
+    with pytest.raises(DriveError, match=r"refused, nothing kept: another write changed terminal differently while this ran, so send it again$"):
+        with state.edit("demo", ("job", "j1")) as data:
+            data["terminal"] = "mine"
+            data["binder"] = "mine too"
+            with state.edit("demo") as other:
+                other["terminal"] = "theirs"
+    assert (state.load("demo")["terminal"], state.load("demo")["binder"]) == ("theirs", None)
+    assert "refused: another write changed terminal differently while it ran" in (state.drive_dir("demo") / "locks.log").read_text()
+
+
+def test_two_writes_adding_at_once_from_one_load_take_two_ids(state_root: Path) -> None:
+    make("demo")
+    created = state.stamp()
+    with state.edit("demo", ("job", "j1")) as data:
+        mine = state.next_id(data["orders"], "o")
+        data["orders"][mine] = state.new_order("mine", "terminal", None, {"mine": state.new_part()}, created)
+        with state.edit("demo") as other:
+            theirs = state.next_id(other["orders"], "o")
+            other["orders"][theirs] = state.new_order("theirs", "terminal", None, {"theirs": state.new_part()}, created)
+    assert (mine, theirs, sorted(state.load("demo")["orders"])) == ("o1", "o2", ["o1", "o2"])
+
+
+def test_a_scoped_edit_holds_its_scope_from_load_to_save_so_a_second_of_that_scope_reads_the_first_s_write(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    make("demo")
+    monkeypatch.setattr(state, "DRIVE_LOCK_SECONDS", 0.3)
+    with state.edit("demo", ("job", "j1")) as data:
+        data["terminal"] = "term-1"
+        with open(state.drive_dir("demo") / "locks" / "job-j1.lock", "a") as held:
+            with pytest.raises(BlockingIOError):
+                fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with state.edit("demo", ("job", "j1")) as inner:
+            inner["binder"] = "term-2"
+        with state.edit("demo", ("job", "j2")) as other:
+            other["binder"] = "term-3"
+    assert (state.load("demo")["terminal"], state.load("demo")["binder"]) == ("term-1", "term-3")
+
+
 def test_a_hold_of_the_drive_lock_past_its_stuck_seconds_logs_the_line_it_holds_on_while_it_still_holds(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     make("demo")
     monkeypatch.setattr(state, "STUCK_HOLD_SECONDS", 0.05)
