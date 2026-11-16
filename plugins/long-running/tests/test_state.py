@@ -249,6 +249,27 @@ def test_a_row_save_indexes_only_written_collections_and_keeps_insertion_order(s
             assert json.loads(db.execute("SELECT body FROM rows WHERE collection = '' AND key = 'terminal'").fetchone()[0]) == "the new terminal"
 
 
+@pytest.mark.parametrize("order_state", ["open", "done", "dropped"])
+def test_a_row_save_checks_only_its_changed_order_for_lane_moves(state_root: Path, monkeypatch: pytest.MonkeyPatch, order_state: str) -> None:
+    ordered("demo", 3)
+    with edit("demo") as data:
+        data["orders"]["o0"]["state"] = order_state
+    base, raw, _ = state.loaded_raw("demo")
+    since = state.LOADED_REV.get()
+    mine = dict(base, orders=dict(base["orders"]))
+    mine["orders"]["o0"] = dict(base["orders"]["o0"], owner="meta")
+    row = ("orders", "o0")
+    held = {row: state.row_of(base, row) if raw is None else state.raw_row(raw, row)}
+    before = state.holding_lane(base, base["orders"]["o0"])
+    moved: list[dict] = []
+    monkeypatch.setattr(state, "open_orders", lambda _: pytest.fail("a changed order must not scan all orders"))
+    monkeypatch.setattr(state, "told_moved", lambda name, data, changes: moved.append(changes))
+    _, after = state.rows_saved("demo", held, base, mine, (row,), since)
+    after[-1]()
+    assert moved == ([{"o0": (before, "meta")}] if order_state == "open" else [{}])
+    assert state.stored("demo")["orders"]["o0"]["owner"] == "meta"
+
+
 def other_process_save() -> None:
     subprocess.run([sys.executable, "-c", OTHER_PROCESS_SAVE, str(Path(state.__file__).resolve().parents[1])], check=True, timeout=30)
 
