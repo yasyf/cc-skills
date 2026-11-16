@@ -1711,6 +1711,15 @@ def test_five_prs_of_one_order_in_no_native_stack_draw_one_card(stacked: list[li
     assert drawn["skipped"] == []
 
 
+def test_a_pr_reworked_to_his_words_holds_only_its_own_tap_never_the_sibling_prs_of_its_order_on_its_card(stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch) -> None:
+    siblings(monkeypatch, dict.fromkeys((51, 52, 53), "o601"))
+    with edit("demo") as data:
+        state.rework(data["prs"]["Forge-AI/monorepo#51"], "o601", "Keep the old reader", "https://acme.slack.com/archives/D123/p1794300000000600")
+    drawn = ask(asks(51, 52, 53))
+    assert [[row["url"] for row in each["card"]["prs"]] for each in drawn["cards"]] == [[stack_url(52), stack_url(53)]]
+    assert [skipped["number"] for skipped in drawn["skipped"]] == [51]
+
+
 def test_a_base_branch_chain_keeps_its_own_card_beside_a_sibling_pr_of_its_order_as_the_watch_names_them(stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch) -> None:
     with edit("demo") as data:
         data["prs"]["Forge-AI/monorepo#50"] = {**kept_entry(), "url": stack_url(50)}

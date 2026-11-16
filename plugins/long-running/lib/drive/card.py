@@ -750,6 +750,16 @@ def reworked(known: dict[str, tuple[str, dict]], members: list[str]) -> str:
     )
 
 
+def held_by_rework(known: dict[str, tuple[str, dict]], members: list[str], reads: dict[str, dict]) -> list[str]:
+    """The members a rework keeps off his card: each PR being reworked to his words, and each PR above it on its branch, whose base is a held PR's head, since none of those lands without it; never a PR that only shares its card by repository and order, by meta's fix of 735990, where #57649's rework refused his cards on three PRs it held nothing of."""
+    branches = ends(known, members, reads)
+    held: list[str] = []
+    for key in members:
+        if reworked(known, [key]) or any(branches[key][1] and branches[key][1] == branches[below][0] for below in held):
+            held.append(key)
+    return held
+
+
 def foreign(drives: dict[str, dict], known: dict[str, tuple[str, dict]], members: list[str]) -> str:
     """Why no card is drawn for the members: one of them is someone else's PR that no order of his it serves names, which the drive never cards."""
     return "; ".join(why for key in members if (why := state.foreign_pr(drives[known[key][0]], key)))
@@ -764,7 +774,7 @@ def on_his_card(known: dict[str, tuple[str, dict]], founds: dict[str, dict | Non
 
 
 def cards(asked: list[dict], redraw: bool = False) -> dict:
-    """One card per stack the asked PRs form, by groups(), bottom PR first, cut below its lowest PR reworked to his words, which with every PR above it is refused by reworked() since none lands without it, each card drawn kept on its PRs and asking under ask_waits, so Approve lands exactly the PRs it asks, and a fresh one only when tap_refused finds one of them asking his Approve, the same check that puts Approve on a card. A redraw of a card cc-slack already posted draws it as the PRs stand now, a wait that holds back a fresh Approve shown on it rather than refusing it. A PR body's sections are drawn as they stand and never hold a card, a Show me picture that does not draw included, such as an arch diagram whose store node names a medium the drawing does not know: it is left off, the card's Show me saying why in one line, which `drawn` tells the session hearing its order. The reply skips only PRs it was asked for, since cc-slack refuses a whole draw or redraw whose reply skips any PR, so a stack mate refused beside an asked PR, such as the reworked PR above it, never keeps the asked PR's card from drawing."""
+    """One card per stack the asked PRs form, by groups(), bottom PR first, with each PR reworked to his words and each PR on its branch above it refused by reworked(), since none of those lands without it, and the rest of the card drawn, each card drawn kept on its PRs and asking under ask_waits, so Approve lands exactly the PRs it asks, and a fresh one only when tap_refused finds one of them asking his Approve, the same check that puts Approve on a card. A redraw of a card cc-slack already posted draws it as the PRs stand now, a wait that holds back a fresh Approve shown on it rather than refusing it. A PR body's sections are drawn as they stand and never hold a card, a Show me picture that does not draw included, such as an arch diagram whose store node names a medium the drawing does not know: it is left off, the card's Show me saying why in one line, which `drawn` tells the session hearing its order. The reply skips only PRs it was asked for, since cc-slack refuses a whole draw or redraw whose reply skips any PR, so a stack mate refused beside an asked PR, such as the reworked PR above it, never keeps the asked PR's card from drawing."""
     from drive import view
 
     at, drives = state.stamp(), {name: state.load(name) for name in state.names()}
@@ -787,13 +797,15 @@ def cards(asked: list[dict], redraw: bool = False) -> dict:
         if not members:
             continue
         founds = {name: view.live_cards(name) for name in {known[key][0] for key in members}}
-        lowest = next((index for index, key in enumerate(members) if reworked(known, [key])), len(members))
-        reason = foreign(drives, known, members) or ("" if lowest else reworked(known, members))
-        if not reason and lowest < len(members):
+        reason = foreign(drives, known, members)
+        held = held_by_rework(known, members, reads)
+        if not reason and held:
             why = reworked(known, members)
-            skipped += [skip(key, why) for key in members[lowest:]]
-            refusing(known, members[lowest:], why, changes)
-            members = members[:lowest]
+            skipped += [skip(key, why) for key in held]
+            refusing(known, held, why, changes)
+            members = [key for key in members if key not in held]
+            if not members:
+                continue
         fresh = not redraw and not on_his_card(known, founds, reads, members)
         if fresh and not reason and (off := untapped(drives, known, reads, members)):
             skipped += [skip(key, off) for key in members]
