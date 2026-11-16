@@ -5,7 +5,7 @@ from pathlib import Path
 
 import one_line_result
 import pytest
-from conftest import LANE_SPEC, Thread
+from conftest import LANE_SPEC, Thread, own_time
 from drive import agents, install, reads, slack, state, talk
 
 THREAD = "1794200000.000100"
@@ -99,14 +99,14 @@ def test_a_session_no_drive_binds_resumes_after_an_api_error_only_as_an_orca_lan
             with transcript.open("a") as handle:
                 handle.write(json.dumps({"type": "user", "timestamp": datetime.now(UTC).isoformat(), "message": {"role": "user", "content": "his answer"}}) + "\n")
 
-    monkeypatch.setattr(agents.time, "sleep", wait)
+    own_time(monkeypatch, agents, sleep=wait)
     assert failed(monkeypatch, capsys, "lane-session", transcript, (DIED,)) == ((2, f"{agents.RESUMED}\n") if resumed else (0, ""))
     assert waits == ([60] if lane else [])
 
 
 def test_an_orca_lane_a_models_safeguards_stopped_is_never_resumed(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     monkeypatch.setenv(state.REMOTE_LANE_ENV, "1")
-    monkeypatch.setattr(agents.time, "sleep", lambda seconds: pytest.fail("a safeguards stop waits on no resume"))
+    own_time(monkeypatch, agents, sleep=lambda seconds: pytest.fail("a safeguards stop waits on no resume"))
     assert failed(monkeypatch, capsys, "lane-session", tmp_path / "lane.jsonl", (SAFEGUARDED,)) == (0, "")
 
 

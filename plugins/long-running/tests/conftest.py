@@ -5,11 +5,13 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 import urllib.parse
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import ModuleType, SimpleNamespace
 
 import pytest
 from drive import (
@@ -256,6 +258,10 @@ def kept_brief(text: str, name: str = "demo") -> str:
 def git_in(repo: Path, *args: str) -> str:
     identity = ["-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false"]
     return subprocess.run(["git", "-C", str(repo), *identity, *args], check=True, capture_output=True, text=True).stdout.strip()
+
+
+def own_time(monkeypatch: pytest.MonkeyPatch, module: ModuleType, **calls: Callable) -> None:
+    monkeypatch.setattr(module, "time", SimpleNamespace(**vars(time) | calls))
 
 
 def staged(stage: Callable[[watch.Watcher, datetime], list[str]], watching: watch.Watcher, moment: datetime) -> list[str]:

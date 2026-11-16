@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
+from conftest import own_time
 from drive import orca, reads, state
 from drive.render import clock
 
@@ -459,8 +460,7 @@ def test_credentials_sts_stamps_past_the_grants_end_are_never_used(tmp_path: Pat
 
 def slept(monkeypatch: pytest.MonkeyPatch) -> list[float]:
     naps: list[float] = []
-    monkeypatch.setattr(reads.time, "sleep", naps.append)
-    monkeypatch.setattr(reads.time, "monotonic", lambda: sum(naps))
+    own_time(monkeypatch, reads, sleep=naps.append, monotonic=lambda: sum(naps))
     return naps
 
 

@@ -19,7 +19,7 @@ import quiet_turn
 import role_rules
 import scratch_folder
 import session_start
-from conftest import QUEUE_REASON, ACME_CUT, ANSWERED_CUT, CUT_LINK, CUT_PICK, CUT_TAP, LEAD, RESEARCH, SANDSQL_NOTE, SHORT_ASK, WRITTEN_AT, answered_cut, cloned, drawn_card, kept_brief, unheld, Answers, Jev, WatchProcess
+from conftest import QUEUE_REASON, ACME_CUT, ANSWERED_CUT, CUT_LINK, CUT_PICK, CUT_TAP, LEAD, RESEARCH, SANDSQL_NOTE, SHORT_ASK, WRITTEN_AT, answered_cut, cloned, drawn_card, kept_brief, unheld, Answers, Jev, WatchProcess, own_time
 from drive import agents, brief, cli, github, land, limits, orca, place, render, settled, slack, state, watch
 
 Run = Callable[..., tuple[int, str]]
@@ -1268,7 +1268,7 @@ def release_posts(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
 @pytest.fixture
 def release_sleeps(monkeypatch: pytest.MonkeyPatch) -> list[float]:
     slept: list[float] = []
-    monkeypatch.setattr(cli.time, "sleep", slept.append)
+    own_time(monkeypatch, cli, sleep=slept.append)
     return slept
 
 
