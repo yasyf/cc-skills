@@ -62,3 +62,5 @@ jobs:
         env:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before || 'HEAD~1' }}
         run: plugins/long-running/tools/foreign-names "$BASE"
+      - name: no repository specifics anywhere in long-running
+        run: plugins/long-running/tools/foreign-names --tree
