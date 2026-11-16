@@ -3099,40 +3099,6 @@ def test_a_design_job_redraws_a_card_another_orders_job_asked_about_its_order_an
     )
 
 
-def test_j6887_an_ask_jev_reads_as_asking_again_what_its_jobs_open_cards_ask_draws_a_card_of_its_own_and_names_each_card_with_the_replaces_line_that_would_fold_it(
-    run: Run, asking: str, tmp_path: Path, jev: Jev, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], slack_calls: list[tuple[str, ...]]
-) -> None:
-    for _ in range(2):
-        run("job", "add", "reader", "--order", "o1", "--goal", "research the run page")
-    titles = ["Which layout should a finished run's files take?", "Where should a finished run's files go so its page opens?", "How are a finished run's files laid out for its page?"]
-    cards = [f"https://acme.slack.com/archives/D123/p{1794300000000100 + n}" for n in (2, 3, 1)]
-    waits = ["demo:j3-1", "demo:j3-2", "demo:j2-3"]
-    with state.edit("demo") as data:
-        for job_id, title, card, wait in zip(("j3", "j3", "j2"), titles, cards, waits):
-            data["jobs"][job_id]["questions"].append(state.new_question(str(tmp_path / f"{wait}.md"), title, state.stamp(), card=card) | {"waits": wait})
-            data["jobs"][job_id]["waits"].append(wait)
-    jev.again = set(titles)
-    monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK))
-    kept = state.drive_dir("demo") / "asks" / f"j3-{state.ask_hash(SHORT_ASK)}.md"
-    assert cli.main(["job", "ask", "j3", "-"]) == 0
-    out, err = capsys.readouterr()
-    assert out.strip() == f"{kept}\nhis card {slack_card(1)} asks it under demo:j3-7"
-    assert sorted(line for line in err.splitlines() if line.startswith("drive job ask: Opus reads this card")) == sorted(
-        settled.REPEATED.format(job="j3", card=card, order="o1", prs="no PR", title=title, waits=wait) for title, card, wait in zip(titles[:2], cards, waits)
-    )
-    [request] = [request for request in jev.asked if "again1" in request["questions"]]
-    assert sorted(key for key in request["questions"] if key.startswith("again")) == ["again1", "again2"]
-    assert drawn_waits(slack_calls) == ["demo:j3-7"]
-    assert [argv for argv in slack_calls if argv[0] == "card-answer"] == []
-    data = state.load("demo")
-    assert [(job_id, question["waits"], question["card"], question["replaced"]) for job_id in ("j2", "j3") for question in data["jobs"][job_id]["questions"]] == [
-        ("j2", "demo:j2-3", cards[2], None),
-        ("j3", "demo:j3-1", cards[0], None),
-        ("j3", "demo:j3-2", cards[1], None),
-        ("j3", "demo:j3-7", slack_card(1), None),
-    ]
-
-
 def test_j4050_a_replaces_line_naming_two_cards_redraws_the_first_shows_the_second_asked_again_linking_it_and_his_one_answer_ends_both(
     run: Run, asking: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, slack_calls: list[tuple[str, ...]]
 ) -> None:
@@ -3167,8 +3133,8 @@ def test_j4050_a_replaces_line_naming_two_cards_redraws_the_first_shows_the_seco
         ended = superseded.end(data, "j4", data["jobs"]["j4"]["questions"][-1], closed)
     assert sorted(job_id for job_id, _ in ended) == ["j1", "j2", "j4"]
 
-def test_j4258_a_reader_whose_card_another_jobs_redraws_took_draws_nothing_for_it_in_its_old_words_and_a_card_of_its_own_in_new_ones_naming_the_card_taken(
-    run: Run, meta: str, jev: Jev, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], slack_calls: list[tuple[str, ...]]
+def test_j4258_a_reader_whose_card_another_jobs_redraws_took_draws_nothing_for_it_in_its_old_words_and_a_card_of_its_own_in_new_ones(
+    run: Run, meta: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], slack_calls: list[tuple[str, ...]]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
     run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
@@ -3178,11 +3144,8 @@ def test_j4258_a_reader_whose_card_another_jobs_redraws_took_draws_nothing_for_i
     monkeypatch.setattr("sys.stdin", io.StringIO(DESIGN_RESEARCH.replace(DESIGN_TITLE, taken)))
     took = run("job", "ask", "j2", "-", "--redraws", "demo:j1-7")[1].splitlines()[0]
     assert keep(monkeypatch, capsys, "j1", DESIGN_RESEARCH)[0] == 0
-    jev.again = {taken}
     reworded = "Should each store be copied on the primary or on a worker?"
-    code, err = keep(monkeypatch, capsys, "j1", DESIGN_RESEARCH.replace(DESIGN_TITLE, reworded))
-    assert code == 0
-    assert settled.REPEATED.format(job="j2", card=slack_card(2), order="o1", prs="no PR", title=taken, waits="demo:j1-7") in err.splitlines()
+    assert keep(monkeypatch, capsys, "j1", DESIGN_RESEARCH.replace(DESIGN_TITLE, reworded))[0] == 0
     assert drawn_waits(slack_calls) == ["demo:j1-7", "demo:j1-7", "demo:j1-8"]
     assert [argv for argv in slack_calls if argv[0] == "card-answer"] == []
     jobs = state.load("demo")["jobs"]
@@ -4117,196 +4080,11 @@ def test_job_ask_never_settles_a_question_on_his_message_in_its_orders_thread_so
     assert not [request for request in jev.asked if any(key.startswith("orders.") for key in request["questions"])]
 
 
-def test_job_ask_hands_jev_his_order_from_his_slack_message_and_his_thread_words_without_the_lines_he_quoted_so_an_alerts_amounts_are_never_his(
-    run: Run, demo: str, slack_thread: Thread, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, jev: Jev
-) -> None:
-    monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS | {"team_url": "https://acme.slack.com/"})
-    view.refresh_cards("demo")
-    alert = "snapshot monitor: a finished snapshot took 15 minutes to copy 64 rows"
-    his = "why is it copied twice? keep each finished snapshot 30 days"
-    slack_thread.messages.append({"ts": "1794200000.000100", "thread_ts": "1794200000.000100", "from_user": True, "text": f"&gt; {alert}\n{his}"})
-    filed = ["order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", f"> {alert} {his}"]
-    run(*filed, "--from", "slack:D123/1794200000.000100/1794200000.000100")
-    run("job", "add", "builder", "--order", "o1", "--goal", "design it")
-    slack_thread.post(state.now(), from_user=True, text=f"&gt; {alert}")
-    block = tmp_path / "ask.md"
-    block.write_text(SHORT_ASK)
-    assert run("job", "ask", "j1", str(block))[0] == 0
-    assert [(word_id, word["said"]) for word_id, word in handed(*jev.asked).items() if not word_id.startswith(("ruling:", "words:"))] == [("p1794200000000100", his)]
-
-
-def handed(*requests: dict) -> dict[str, dict]:
-    """Each of his words or rulings a card's requests hand Jev, by its id, as the `words` slot its Nouls name holds it, in whichever request holds it."""
-    return {key.partition(".")[2]: request["state"]["words"][found[1]] for request in requests for key, noul in request["questions"].items() if (found := re.search(r"`words\.(w\d+)\.", noul.ask))}
-
-
-def test_job_ask_keeps_a_card_whose_option_his_words_rule_out_and_prints_jevs_finding_to_the_agent(
-    run: Run, demo: str, slack_thread: Thread, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], jev: Jev
-) -> None:
-    monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS | {"team_url": "https://acme.slack.com/"})
-    view.refresh_cards("demo")
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "design the run page", "--thread", "1794200000.000100")
-    run("job", "add", "builder", "--order", "o1", "--goal", "design it")
-    words = "never write a second object per journal file, the bucket is billed per object"
-    his = slack_thread.post(state.now(), from_user=True, text=words)
-    key = re.search(r"/(p\d+)\?", his)[1]
-    jev.breaks("breaks2", key)
-    jev.breaks("untapped", key)
-    block = tmp_path / "ask.md"
-    block.write_text(SHORT_ASK)
-    assert cli.main(["job", "ask", "j1", str(block)]) == 0
-    advice = capsys.readouterr().err
-    broken = f'as breaking {key}, his message in the order\'s thread, "{words}". This finding refuses no card, by his pick 320b7a7'
-    assert f'drive job ask: Opus reads option "A map file beside each journal file: no guessing, but one request per file and twice the objects" {broken}' in advice
-    assert f"drive job ask: Opus reads the card {broken}" in advice
-    assert "--unsettled" not in advice
-    [question] = state.load("demo")["jobs"]["j1"]["questions"]
-    assert (question["refused"], question["waits"] is not None, question["unsettled"]) == (None, True, None)
-
-
-def test_job_ask_keeps_a_card_whose_option_jev_reads_as_never_worked_out_and_prints_jevs_finding_naming_that_option(
-    run: Run, demo: str, slack_thread: Thread, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], jev: Jev
-) -> None:
-    monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS | {"team_url": "https://acme.slack.com/"})
-    view.refresh_cards("demo")
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "design the run page", "--thread", "1794200000.000100")
-    run("job", "add", "builder", "--order", "o1", "--goal", "design it")
-    unworked = "Map at the start of each file: changes the shared file format and still needs a length read first"
-    jev.breaks("worked3", limits.WORKED_WORDS["id"])
-    block = tmp_path / "ask.md"
-    block.write_text(SHORT_ASK)
-    assert cli.main(["job", "ask", "j1", str(block)]) == 0
-    advice = capsys.readouterr().err
-    assert f'drive job ask: Opus reads option "{unworked}" as breaking ruling:77b577b, {limits.WORKED_WORDS["asked"]}, "dontg be lazy flash this out' in advice
-    assert [line.partition(" as breaking ")[0] for line in advice.splitlines() if line.startswith("drive job ask: Opus reads")] == [f'drive job ask: Opus reads option "{unworked}"']
-    [request] = jev.asked
-    assert ("`card.options[2]`" in request["questions"][f"worked3.{limits.WORKED_WORDS['id']}"].ask, request["state"]["card"]["options"][2]) == (True, unworked)
-    assert state.load("demo")["jobs"]["j1"]["questions"][-1]["refused"] is None
-
-
-def test_job_ask_hands_jev_the_words_of_his_an_order_the_drive_wrote_quotes(
-    run: Run, meta: str, slack_thread: Thread, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, jev: Jev
-) -> None:
-    monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS | {"team_url": "https://acme.slack.com/"})
-    view.refresh_cards("demo")
-    run("order", "add", "--title", "Short title", 'Drive tooling: the finished snapshot page waited 10 minutes for its card, and he ruled "keep each finished snapshot 30 days"')
-    run("job", "add", "builder", "--order", "o1", "--goal", "design it")
-    block = tmp_path / "ask.md"
-    block.write_text(SHORT_ASK)
-    assert run("job", "ask", "j1", str(block))[0] == 0
-    assert handed(*jev.asked)["o1"]["said"] == '"keep each finished snapshot 30 days"'
-
-
 WAIT_RULING = {
     "id": "9992100",
     "asked": "When should the js_func helper process and its memory cap ship?",
     "said": "Wait for the four queue PRs to merge, then build the separate process and the cap on top. No clashes, and nothing ships until then",
 }
-
-
-def test_job_ask_reads_his_recorded_answers_ccn_ranks_nearest_and_a_card_asking_him_to_lift_one_holds_its_incident_pr_until_he_answers(
-    run: Run, demo: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], jev: Jev, recorded: Answers
-) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "chat turns run out of memory on plat", "--incident", "--parts", "fix", "first check")
-    run("job", "add", "builder", "--order", "o1", "--part", "fix", "--goal", "move js_func into its own helper process")
-    recorded.matched = [WAIT_RULING]
-    jev.breaks("breaks1", WAIT_RULING["id"])
-    asked = SHORT_ASK.replace("Holds: none: no option changes code any job builds", "Holds: fix, built on `land-it`") + "Interim fix: a restart of the pods that ran out of memory, by j1\n"
-    block = tmp_path / "ask.md"
-    block.write_text(asked)
-    assert cli.main(["job", "ask", "j3", str(block)]) == 0
-    advice = capsys.readouterr().err
-    assert f'as breaking 9992100, {WAIT_RULING["asked"]}, "{WAIT_RULING["said"]}". This finding refuses no card' in advice
-    assert f'drive job ask: kept the card unsettled as "9992100: {settled.MARKED.format(option="the recommended option")}", asking him to lift 9992100, {WAIT_RULING["asked"]}, so it holds its PR' in advice
-    assert handed(*jev.asked)[WAIT_RULING["id"]] == {"asked": WAIT_RULING["asked"], "said": WAIT_RULING["said"]}
-    question = state.load("demo")["jobs"]["j3"]["questions"][-1]
-    assert (question["unsettled"], land.open_cards(state.load("demo"), "j3", None)) == (f"9992100: {settled.MARKED.format(option="the recommended option")}", [question["card"]])
-    unsettled = "9992100: this card asks whether the incident overrides his wait"
-    assert run("job", "ask", "j3", str(block), "--unsettled", unsettled)[0] == 0
-    question = state.load("demo")["jobs"]["j3"]["questions"][-1]
-    assert (question["unsettled"], land.open_cards(state.load("demo"), "j3", None)) == (unsettled, [question["card"]])
-    url = "https://github.com/Forge-AI/monorepo/pull/43"
-    assert run("pr", "add", url, "--job", "j3", *LEAD)[0] == 0
-    unlinked = asked.replace("Meanwhile nothing is built on either layout.", "Meanwhile this job builds it on a branch, no PR.")
-    block.write_text(unlinked)
-    assert cli.main(["job", "ask", "j3", str(block)]) == 2
-    assert f"\n- j3 has {url} open, which its ASK's summary does not link" in capsys.readouterr().err
-    block.write_text(unlinked.replace("on a branch, no PR.", f"in <{url}|the helper process PR>, held until you answer.").replace("Holds: fix, built on `land-it`", "Holds: fix, in #43"))
-    assert run("job", "ask", "j3", str(block))[0] == 0
-    data = state.load("demo")
-    assert land.pr_cards(data, data["prs"]["Forge-AI/monorepo#43"]) == [data["jobs"]["j3"]["questions"][-1]["card"]]
-
-
-def test_job_ask_asked_again_with_no_unsettled_is_marked_by_jevs_fresh_read_never_by_his_earlier_mark(run: Run, demo: str, tmp_path: Path, jev: Jev, recorded: Answers) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "chat turns run out of memory on plat")
-    run("job", "add", "builder", "--order", "o1", "--goal", "move js_func into its own helper process")
-    recorded.matched = [WAIT_RULING]
-    block = tmp_path / "ask.md"
-    block.write_text(SHORT_ASK)
-    unsettled = []
-    for ruled in ({"breaks1": (WAIT_RULING["id"], 0.9)}, {}):
-        jev.ruled = ruled
-        assert run("job", "ask", "j1", str(block))[0] == 0
-        unsettled.append(state.load("demo")["jobs"]["j1"]["questions"][-1]["unsettled"])
-    assert unsettled == [f"9992100: {settled.MARKED.format(option='the recommended option')}", None]
-
-
-NIGHTLY_EXPORT = {
-    "id": "7a1c0de" + "0" * 33,
-    "title": "Which identity runs each team's nightly export?",
-    "body": "A scheduled job in each team's cluster runs the export as that team's service account; each team is one reviewed config line",
-    "tags": ["scope:durable"],
-    "created_at": "2026-11-11T18:07:00Z",
-}
-DEPARTS = "7a1c0de: option 1 replaces the per-team line with discovery"
-
-
-def test_job_ask_keeps_unsettled_a_card_that_says_its_recommended_option_replaces_words_of_an_answer_it_cites_so_its_incident_pr_waits_on_his_answer(
-    run: Run, demo: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], jev: Jev, recorded: Answers
-) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "nightly exports stall", "--incident", "--parts", "fix", "first check")
-    run("job", "add", "builder", "--order", "o1", "--part", "fix", "--goal", "run each team's export")
-    recorded.shown = {NIGHTLY_EXPORT["id"]: NIGHTLY_EXPORT}
-    block = tmp_path / "ask.md"
-    block.write_text(SHORT_ASK.replace("Holds: none: no option changes code any job builds", f"Holds: fix, built on `j3-team-export`\n{DEPARTS}") + "Interim fix: a restart of the stalled exports, by j1\n")
-    assert cli.main(["job", "ask", "j3", str(block)]) == 0
-    assert "kept the card unsettled" not in capsys.readouterr().err
-    [request] = [request for request in jev.asked if "says.7a1c0de" in request["questions"]]
-    assert handed(request)["7a1c0de"] == {"asked": NIGHTLY_EXPORT["title"], "said": NIGHTLY_EXPORT["body"]}
-    assert DEPARTS in request["state"]["card"]["text"].splitlines()
-    assert land.open_cards(state.load("demo"), "j3", None) == []
-    jev.breaks("says", "7a1c0de")
-    assert cli.main(["job", "ask", "j3", str(block)]) == 0
-    assert f'drive job ask: kept the card unsettled as "7a1c0de: {settled.MARKED.format(option="the recommended option")}", asking him to lift 7a1c0de, {NIGHTLY_EXPORT["title"]}, so it holds its PR from landing on an incident too' in capsys.readouterr().err
-    question = state.load("demo")["jobs"]["j3"]["questions"][-1]
-    assert (question["unsettled"], land.open_cards(state.load("demo"), "j3", None)) == (f"7a1c0de: {settled.MARKED.format(option="the recommended option")}", [question["card"]])
-
-
-def test_job_ask_keeps_unsettled_a_card_whose_other_option_breaks_his_ruling_so_its_incident_pr_waits_on_his_answer_though_it_recommends_keeping_it_unless_that_ruling_already_answers_the_card(
-    run: Run, demo: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], jev: Jev, recorded: Answers
-) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "chat turns run out of memory on plat", "--incident", "--parts", "fix", "first check")
-    run("job", "add", "builder", "--order", "o1", "--part", "fix", "--goal", "move js_func into its own helper process")
-    recorded.matched = [WAIT_RULING]
-    asked = SHORT_ASK.replace("Holds: none: no option changes code any job builds", "Holds: fix, built on `j3-helper-process`") + "Interim fix: a restart of the pods that ran out of memory, by j1\n"
-    other = f'option "{limits.question(asked, kept=True).options[1]}"'
-    jev.breaks("breaks2", WAIT_RULING["id"], 0.5)
-    block = tmp_path / "ask.md"
-    block.write_text(asked)
-    assert cli.main(["job", "ask", "j3", str(block)]) == 0
-    assert "kept the card unsettled" not in capsys.readouterr().err
-    assert land.open_cards(state.load("demo"), "j3", None) == []
-    jev.breaks("breaks2", WAIT_RULING["id"])
-    assert cli.main(["job", "ask", "j3", str(block)]) == 0
-    marked = f"9992100: {settled.MARKED.format(option=other)}"
-    assert f'drive job ask: kept the card unsettled as "{marked}", asking him to lift 9992100, {WAIT_RULING["asked"]}, so it holds its PR' in capsys.readouterr().err
-    question = state.load("demo")["jobs"]["j3"]["questions"][-1]
-    assert (question["unsettled"], land.open_cards(state.load("demo"), "j3", None)) == (marked, [question["card"]])
-    recorded.lined = [WAIT_RULING]
-    jev.breaks(f"{settled.LINE_KEY}2", WAIT_RULING["id"])
-    assert cli.main(["job", "ask", "j3", str(block)]) == 0
-    assert "kept the card unsettled" not in capsys.readouterr().err
-    assert (state.load("demo")["jobs"]["j3"]["questions"][-1]["unsettled"], land.open_cards(state.load("demo"), "j3", None)) == (None, [])
 
 
 def test_job_ask_prints_each_release_note_in_its_range_jev_reads_as_speaking_to_a_start_any_option_offers_with_what_git_finds_at_its_commit_refusing_nothing(
@@ -4340,8 +4118,8 @@ def test_job_ask_prints_each_release_note_in_its_range_jev_reads_as_speaking_to_
     ])
 
 
-def test_job_ask_draws_a_cited_answer_whose_order_the_recommended_option_starts_by_the_release_gates_own_reading_as_his_cards_already_answered_tap_never_asking_him_to_lift_it_or_an_older_answer_it_breaks(
-    run: Run, demo: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], jev: Jev, recorded: Answers
+def test_job_ask_draws_a_cited_answer_whose_order_the_recommended_option_starts_by_the_release_gates_own_reading_as_his_cards_already_answered_tap(
+    run: Run, demo: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], recorded: Answers
 ) -> None:
     answered_cut(run, demo, [CUT_PICK, CUT_TAP])
     recorded.shown = {answer["id"][:7]: answer for answer in (CUT_PICK, CUT_TAP)}
@@ -4356,7 +4134,6 @@ def test_job_ask_draws_a_cited_answer_whose_order_the_recommended_option_starts_
     assert cli.main(["job", "ask", builder, "--check", str(block)]) == 2
     assert f'his card adds the option "{limits.ALREADY_ANSWERED}" for his recorded answer 5d17d9c, which already answers it' in capsys.readouterr().err
     block.write_text(asked.replace(holds, f"{holds}\n5d17d9c: option 1 carries out his pick"))
-    jev.breaks("says", "5d17d9c")
     ordered = settled.ORDERED.format(id="5d17d9c", asked=CUT_PICK["title"], release=release)
     assert cli.main(["job", "ask", builder, "--check", str(block)]) == 0
     assert ordered in capsys.readouterr().err
@@ -4369,36 +4146,6 @@ def test_job_ask_draws_a_cited_answer_whose_order_the_recommended_option_starts_
     code, printed = run("job", "card", builder)
     drawn = json.loads(printed)
     assert (code, drawn["options"][-1], drawn["hints"][limits.ALREADY_ANSWERED]) == (0, limits.ALREADY_ANSWERED, f'"{CUT_PICK["body"]}" (<{CUT_LINK}|your answer>)')
-    block.write_text(asked.replace(holds, f"{holds}\n7ab1e20: option 1 leaves out the full release"))
-    jev.breaks("says", "7ab1e20")
-    assert cli.main(["job", "ask", builder, str(block)]) == 0
-    advice = capsys.readouterr().err
-    assert ("orders the recommended option's" in advice, f'kept the card unsettled as "7ab1e20: {settled.MARKED.format(option="the recommended option")}"' in advice) == (False, True)
-    assert state.load(demo)["jobs"][builder]["questions"][-1]["ordered"] == []
-    recorded.shown["7ab1e20"] = CUT_TAP | {"created_at": "2026-11-14T05:00:00Z"}
-    block.write_text(asked.replace(holds, f"{holds}\n5d17d9c: option 1 carries out his pick\n7ab1e20: option 1 leaves out the full release"))
-    assert cli.main(["job", "ask", builder, str(block)]) == 0
-    advice = capsys.readouterr().err
-    assert (settled.OUTWEIGHED.format(id="7ab1e20", later="5d17d9c", asked=CUT_PICK["title"]) in advice, "kept the card unsettled" in advice) == (True, False)
-    assert state.load(demo)["jobs"][builder]["questions"][-1]["unsettled"] is None
-
-
-def test_job_ask_draws_no_card_when_an_order_its_job_carries_says_ask_him_nothing_unless_the_card_asks_a_step_his_rules_keep_for_him(
-    run: Run, demo: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], jev: Jev
-) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "chat turns run out of memory on plat")
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", 'adopt the stale lane, "Do this autonomously without asking me anything"')
-    run("job", "add", "builder", "--order", "o1", "--goal", "move js_func into its own helper process")
-    assert run("job", "set", "j1", "--carries", "o2")[0] == 0
-    block = tmp_path / "ask.md"
-    block.write_text(SHORT_ASK)
-    jev.breaks("unasked", "o2")
-    assert cli.main(["job", "ask", "j1", str(block)]) == 2
-    assert settled.UNASKED.format(said='"Do this autonomously without asking me anything"', job="j1") in capsys.readouterr().err
-    assert state.load(demo)["jobs"]["j1"]["questions"] == []
-    jev.breaks("owed", "")
-    assert cli.main(["job", "ask", "j1", str(block)]) == 0
-    assert len(state.load(demo)["jobs"]["j1"]["questions"]) == 1
 
 
 def test_his_recorded_answers_reach_jev_as_ccn_ranks_them_nearest_to_the_whole_block_his_words_alone_never_a_tap_approving_a_pr(
@@ -4640,31 +4387,6 @@ def test_his_undo_takes_back_only_the_supersede_his_undone_answer_wrote_on_an_an
     recorded.shown = {"3537819": LOCK_KEPT | {"superseded_by": [LOCK_DELETED["id"]]}, "b6135be": {"id": f"b6135be{'0' * 33}", "title": "Old lock?", "body": "Lock", "tags": [], "superseded_by": [LOCK_KEPT["id"]]}}
     settled.unlift(LOCK_DELETED["id"], ["3537819", "b6135be"], "/")
     assert [argv[2:] for argv in calls] == [["supersede", "3537819", "--by", LOCK_DELETED["id"], "--clear"]]
-
-
-def test_job_ask_and_its_check_print_his_recorded_answer_jev_reads_as_already_answering_the_card_with_where_he_gave_it_and_both_ways_on_refusing_nothing(
-    run: Run, demo: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], jev: Jev, recorded: Answers
-) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "chat turns run out of memory on plat")
-    run("job", "add", "builder", "--order", "o1", "--goal", "move js_func into its own helper process")
-    recorded.lined = [WAIT_RULING | {"link": PICK}]
-    jev.breaks(f"{settled.LINE_KEY}2", WAIT_RULING["id"])
-    block = tmp_path / "ask.md"
-    block.write_text(SHORT_ASK)
-    assert cli.main(["job", "ask", "j1", "--check", str(block)]) == 0
-    checked = capsys.readouterr()
-    assert (checked.out, "drive job ask j1 --drop <the file its question is kept in> --answer 9992100" in checked.err, "outside the sentence recommending an option" in checked.err) == ("ready\n", True, True)
-    assert state.load("demo")["jobs"]["j1"]["questions"] == []
-    assert cli.main(["job", "ask", "j1", str(block)]) == 0
-    assert f'Opus reads his answer 9992100 to "{WAIT_RULING["asked"]}" ({PICK}) as already answering this card: "{WAIT_RULING["said"]}"' in capsys.readouterr().err
-    assert state.load("demo")["jobs"]["j1"]["questions"][-1]["card"]
-    lines = next(request["state"]["lines"] for request in jev.asked if "lines" in request["state"])
-    assert list(lines.values()) == [
-        "How should a finished run's files be laid out so its page opens without guessing?",
-        "One snapshot file per finished run, written when it ends, old runs backfilled: opens in 3 requests",
-        "A map file beside each journal file: no guessing, but one request per file and twice the objects",
-        "Map at the start of each file: changes the shared file format and still needs a length read first",
-    ]
 
 
 def test_his_thread_words_reach_only_the_order_they_are_about_never_another_order_sharing_its_thread(run: Run, demo: str, slack_thread: Thread) -> None:
@@ -11850,190 +11572,6 @@ Root cause: agent::start branches on whether its caller is a chat, so a chat's c
 First principles: One api start
 (1) `go/sand/internal/iris/agents.go` holds the branch.
 """
-NOT_SPECIAL = {
-    "id": "p1794200000000200",
-    "asked": "why can a chat's subagent not start subagents of its own?",
-    "said": "how many times do I have to say subagents aren't special they're like any other agent other than in UI so there should be no hard coded thing preventing them from starting subagents",
-}
-
-
-def test_jev_reads_every_option_of_a_card_in_one_request_one_noul_an_option_and_word_and_prints_what_it_reads_at_yes_or_in_the_band(
-    jev: Jev, capsys: pytest.CaptureFixture[str]
-) -> None:
-    asked = limits.question(AGENT_START, kept=True)
-    case = limits.ask_case(AGENT_START, asked)
-    jev.picks(NOT_SPECIAL["id"], 0.25)
-    settled.judged(case, asked, [NOT_SPECIAL], [], {})
-    assert capsys.readouterr().err == ""
-    [request] = jev.asked
-    questions = request["questions"]
-    fact, team, worked, cause, told = limits.FACT_WORDS["id"], "ruling:32f49af", limits.WORKED_WORDS["id"], "ruling:0c59046", "ruling:e10ccc1"
-    assert list(questions) == [
-        "releases",
-        *(f"worked{number}.{worked}" for number in (1, 2, 3)),
-        f"card.{cause}",
-        *(f"breaks{number}.{team}" for number in (1, 2, 3)),
-        f"card.{team}",
-        *(f"breaks{number}.{fact}" for number in (1, 2, 3)),
-        f"card.{fact}",
-        f"card.{told}",
-        *(f"breaks{number}.{NOT_SPECIAL['id']}" for number in (1, 2, 3)),
-        f"untapped.{NOT_SPECIAL['id']}",
-        f"card.{NOT_SPECIAL['id']}",
-    ]
-    assert questions[f"breaks2.{NOT_SPECIAL['id']}"] == settled.asking(settled.BREAKS, slot="w5", index=1)
-    assert questions[f"worked3.{worked}"] == settled.asking(settled.WORKED, index=2)
-    assert request["state"]["card"] == {"text": case, "options": asked.options, "recommended": asked.recommended, "show_me": asked.show_me}
-    assert handed(request) == {
-        cause: {"asked": limits.ROOT_CAUSE_WORDS["asked"], "said": limits.ROOT_CAUSE_QUOTE, "rule": limits.ROOT_CAUSE_RULES["found"]},
-        team: {"asked": limits.TEAM_DATA_WORDS["asked"], "said": limits.TEAM_DATA_WORDS["said"]},
-        fact: {"asked": limits.FACT_WORDS["asked"], "said": limits.FACT_WORDS["said"], "rule": limits.FACT_WORDS["rule"]},
-        told: {"asked": limits.TOLD_WORDS["asked"], "said": limits.TOLD_WORDS["said"], "rule": limits.TOLD_WORDS["rule"]},
-        NOT_SPECIAL["id"]: {"asked": NOT_SPECIAL["asked"], "said": NOT_SPECIAL["said"]},
-    }
-    assert settled.size(request["state"], questions) <= settled.REQUEST_CHARS
-    jev.picks("none")
-    jev.breaks("breaks2", NOT_SPECIAL["id"])
-    settled.judged(case, asked, [NOT_SPECIAL], [], {})
-    assert capsys.readouterr().err.startswith(f'drive job ask: Opus reads option "{asked.options[1]}" as breaking {NOT_SPECIAL["id"]}, {NOT_SPECIAL["asked"]}, "{NOT_SPECIAL["said"]}". This finding refuses no card')
-    jev.breaks("breaks2", NOT_SPECIAL["id"], 0.5)
-    settled.judged(case, asked, [NOT_SPECIAL], [], {})
-    assert capsys.readouterr().err.startswith(f'drive job ask: Opus is unsure whether option "{asked.options[1]}" goes against {NOT_SPECIAL["id"]}')
-    settled.judged(case, asked, [], [], {})
-    assert not [key for key in jev.asked[-1]["questions"] if NOT_SPECIAL["id"] in key]
-
-
-def test_his_ruling_on_root_causes_is_judged_once_on_the_card_beside_its_simplest_line_and_only_advises(jev: Jev, capsys: pytest.CaptureFixture[str]) -> None:
-    flagged = AGENT_START.replace("First principles: One api start\n", "First principles: One api start\nSimplest: The Mac builds a chat's children\n")
-    asked = limits.question(flagged, kept=True)
-    case = limits.ask_case(flagged, asked)
-    assert case.splitlines()[-3:] == [limits.ROOT_CAUSE.search(flagged)[0], "First principles: One api start", "Simplest: The Mac builds a chat's children"]
-    assert "speaks only to the recommended option" in settled.BREAKS_CARD.no
-    assert "root causes" not in settled.BREAKS.ask
-    jev.breaks("card", "ruling:0c59046")
-    settled.judged(case, asked, [NOT_SPECIAL], [], {})
-    assert [key for key in jev.asked[-1]["questions"] if "ruling:0c59046" in key] == ["card.ruling:0c59046"]
-    advice = capsys.readouterr().err
-    assert advice.startswith(f'drive job ask: Opus reads the card as breaking ruling:0c59046, his ruling on root causes, "{limits.ROOT_CAUSE_QUOTE}". Its rule: {limits.ROOT_CAUSE_RULES["found"]}')
-    assert "This finding refuses no card, by his pick 320b7a7" in advice
-
-
-PROOF_IDENTITY = """ASK Which identity should start the cloud agent of a production proof that a release build runs?
-Drive tooling: your pick decides whose name starts each production proof's cloud agent, and what is built before a production cloud agent can prove a fix.
-I recommend the existing smoke session in a new release-build mode: no new principal or permission. Meanwhile nothing is built.
-Show me:
-What the production API records as each proof's starter, and what must be built first
-| Option | Starter the API records | Built first |
-|---|---|---|
-| Smoke session, new mode | the smoke team owner, its session minted by the release build | a release-build mode |
-| Smoke Workflow | the Workflow run, as its Env | agent::start and its cloud-runner driver |
-- Smoke owner's session in a new release-build proof mode: ready once the mode ships; the starter reads the smoke owner (recommended)
-  A new release-build mode mints the smoke team owner's session through the existing smoke-session route, starts the cloud agent with the given first message, reads its chat back and archives it.
-- A smoke Workflow starts the agent as its Env: the agent names no person; waits for the unbuilt agent::start Sand call
-  The same mode invokes a smoke project Workflow that calls agent::start, so the run is the agent's starter and it runs as its Env; that call and its driver ship first.
-Findings:
-Root cause: startCloudAgent admits only a signed-in person's session, the only one a machine can get in production is the smoke team owner's, and no release mode starts a cloud agent, so every proof fell back to a person's sign-in
-First principles: Smoke owner's session in a new release-build proof mode
-Holds: none: no option changes code any job builds
-"""
-PROOF_IDENTITY_REDRAWN = """ASK Which identity should start the cloud agent of a production proof that a release build runs?
-Drive tooling: your pick decides whose session each production proof's cloud agent and page pictures run under, and what is built before a production cloud agent can prove a fix.
-A customer team's page is shown on a smoke-team run instead. I recommend a test account. Meanwhile nothing is built.
-Show me:
-Which session each proof holds, whom the audit rows name, and how a page in a customer team is proven
-| Option | Session the proof holds | Starter the API records | Page in a customer team |
-|---|---|---|---|
-| Test account | a smoke team test member's, minted by the release build | the test account | the same page on a smoke-team run |
-| Owner session | the smoke owner's, a platform admin's | the smoke owner | the same stand-in |
-- A dedicated smoke test account in a new release-build proof mode: neither a person nor an admin (recommended)
-  Each production smoke team gains a test member, which releases create through the existing members route; the mode mints its session, starts the cloud agent, reads its chat, pictures its pages and archives the agent.
-- The smoke owner's pipeline-minted session: no env change, but each proof holds a platform admin's session
-  The same mode mints the smoke owner session the release smoke already uses, a platform admin who may act as any user of any team, so proof code holds that power.
-Findings:
-Root cause: startCloudAgent admits only a signed-in person's session, the only one a machine can get in production is the smoke team owner's, a platform admin, and no release mode starts a cloud agent or pictures a page, so every proof fell back to a person's sign-in
-First principles: A dedicated smoke test account in a new release-build proof mode
-Holds: none: no option changes code any job builds
-"""
-
-
-def test_a_redrawn_card_is_judged_against_the_rulings_its_first_draft_was_never_his_words_on_another_area(jev: Jev, capsys: pytest.CaptureFixture[str]) -> None:
-    jev.breaks("card", "ruling:a99b78b")
-    offered = []
-    for text in (PROOF_IDENTITY, PROOF_IDENTITY_REDRAWN):
-        asked = limits.question(text, kept=True)
-        settled.judged(limits.ask_case(text, asked), asked, [], [], {})
-        assert capsys.readouterr().err == ""
-        request = jev.asked[-1]
-        offered.append(([key for key in request["questions"] if key.startswith("card.")], list(handed(request))))
-    assert offered == [(["card.ruling:0c59046", "card.ruling:32f49af", f"card.{limits.FACT_WORDS['id']}", "card.ruling:e10ccc1"], ["ruling:0c59046", "ruling:32f49af", limits.FACT_WORDS["id"], "ruling:e10ccc1"])] * 2
-    assert "story" not in settled.BREAKS_CARD.ask
-
-
-def test_jev_names_the_recorded_answer_or_ruling_it_reads_at_yes_for_the_recommended_option_the_cited_answer_the_card_says_it_goes_against_first(
-    jev: Jev, capsys: pytest.CaptureFixture[str]
-) -> None:
-    text = AGENT_START.replace("(1) `go/sand", f"{DEPARTS}\n(1) `go/sand")
-    asked = limits.question(text, kept=True)
-    case = limits.ask_case(text, asked, frozenset({"7a1c0de"}))
-    assert [line for line in case.splitlines() if line != DEPARTS] == limits.ask_case(text, asked).splitlines()
-    assert DEPARTS in case.splitlines() and "holds the branch" not in case
-    cited = {"id": "7a1c0de", "asked": NIGHTLY_EXPORT["title"], "said": NIGHTLY_EXPORT["body"]}
-    assert settled.judged(case, asked, [NOT_SPECIAL], [cited], {})[0] is None
-    read = next(read for read in jev.asked if "says.7a1c0de" in read["questions"])
-    assert (read["questions"]["says.7a1c0de"], handed(read)["7a1c0de"]) == (settled.asking(settled.SAYS, slot="w1"), {"asked": cited["asked"], "said": cited["said"]})
-    jev.breaks("breaks1", NOT_SPECIAL["id"])
-    assert settled.judged(case, asked, [NOT_SPECIAL], [cited], {})[0] is None
-    jev.breaks("breaks1", "ruling:32f49af")
-    assert settled.judged(case, asked, [NOT_SPECIAL], [cited], {})[0] == (limits.TEAM_DATA_WORDS, "the recommended option")
-    jev.breaks("says", "7a1c0de")
-    assert settled.judged(case, asked, [NOT_SPECIAL], [cited], {})[0] == (cited, "the recommended option")
-    capsys.readouterr()
-    jev.ruled = {}
-    jev.picks("7a1c0de", 0.55)
-    assert settled.judged(case, asked, [NOT_SPECIAL], [cited], {})[0] is None
-    assert capsys.readouterr().err.startswith(f'drive job ask: Opus is unsure whether option "{asked.options[0]}" goes against 7a1c0de')
-    jev.picks("7a1c0de", 0.7)
-    assert settled.judged(case, asked, [NOT_SPECIAL], [cited], {})[0] == (cited, "the recommended option")
-    capsys.readouterr()
-    jev.breaks("awaited", "7a1c0de")
-    assert settled.judged(case, asked, [NOT_SPECIAL], [cited], {})[0] is None
-    advice = capsys.readouterr().err
-    assert (settled.CARRIED.format(id="7a1c0de", asked=cited["asked"], said=cited["said"]) in advice, "breaking 7a1c0de" in advice, "against 7a1c0de" in advice) == (True, False, False)
-
-
-def test_jev_names_a_ruling_another_option_breaks_at_yes_beside_that_option_after_the_recommended_options_own(jev: Jev) -> None:
-    asked = limits.question(AGENT_START, kept=True)
-    case = limits.ask_case(AGENT_START, asked)
-    jev.breaks("breaks2", "ruling:32f49af", 0.5)
-    assert settled.judged(case, asked, [NOT_SPECIAL], [], {})[0] is None
-    jev.breaks("breaks2", "ruling:32f49af")
-    assert settled.judged(case, asked, [NOT_SPECIAL], [], {})[0] == (limits.TEAM_DATA_WORDS, f'option "{asked.options[1]}"')
-    jev.breaks("breaks1", "ruling:32f49af")
-    assert settled.judged(case, asked, [NOT_SPECIAL], [], {})[0] == (limits.TEAM_DATA_WORDS, "the recommended option")
-
-
-def test_opus_reads_every_one_of_his_words_whole_in_one_request_past_the_old_jev_limit(jev: Jev) -> None:
-    asked = limits.question(AGENT_START, kept=True)
-    case = limits.ask_case(AGENT_START, asked)
-    words = [{"id": f"p{number}", "asked": "his message in the order's thread", "said": f"{number} " + "x" * 2000} for number in range(8)]
-    assert settled.judged(case, asked, words, [], {})[0] is None
-    [read] = jev.asked
-    assert settled.size(read["state"], read["questions"]) > settled.REQUEST_CHARS
-    assert sorted(key for key in read["questions"] if key.startswith("untapped.")) == [f"untapped.p{number}" for number in range(8)]
-    assert read["questions"]["card.p0"].no == settled.AGAINST_CARD.no
-
-
-def test_job_ask_says_on_stderr_that_jev_gave_no_answer_and_sends_the_question_to_him(
-    run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], jev: Jev
-) -> None:
-    block = tmp_path / "ask.md"
-    block.write_text(SHORT_ASK)
-    jev.answer = None
-    assert cli.main(["job", "ask", asking, str(block)]) == 0
-    unheard = capsys.readouterr().err
-    assert "drive job ask: Opus gave no reading of this question against his words, so it goes to him: no jev decision within 20s" in unheard
-    assert "drive job ask: Jev did not say whether this question needs a screenshot or an architecture diagram of each option or plain words beside the code it names, so it goes up unchecked" in unheard
-    assert state.load("demo")["jobs"]["j1"]["questions"][0]["refused"] is None
 
 
 def test_backfill_labels_as_approvals_every_tap_on_a_pr_card_by_its_question_whatever_his_words(

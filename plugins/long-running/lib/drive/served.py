@@ -748,13 +748,13 @@ def structured(cwd: str | Path, rules: str, prompt: str, schema: dict, seconds: 
     try:
         ran = subprocess.run(argv, input=prompt, cwd=cwd, env=os.environ | {"DISABLE_AUTOUPDATER": "1"}, capture_output=True, text=True, timeout=seconds, check=False)
     except subprocess.TimeoutExpired:
-        raise DriveError(f"{doing} ran past {seconds} seconds; run this again") from None
+        raise DriveError(f"{doing} ran past {seconds} seconds") from None
     try:
         result = json.loads(ran.stdout)
     except json.JSONDecodeError:
         result = {"result": ran.stderr or ran.stdout}
     if ran.returncode or result.get("is_error") or "structured_output" not in result:
-        raise DriveError(f"{doing} failed: {cut(str(result.get('result')), 300)}; run this again")
+        raise DriveError(f"{doing} failed: {cut(str(result.get('result')), 300)}")
     return result["structured_output"]
 
 

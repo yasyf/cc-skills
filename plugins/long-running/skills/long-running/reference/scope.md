@@ -125,19 +125,6 @@ under.
   `--unsettled` names that answer as words the card asks him to lift. A card already drawn for it
   ends with `drive job ask <j> --drop <file> --answer <id>`, which closes it showing his words and
   their link.
-- **Reads the card against his words, as advice.** In one request Opus reads the card against his
-  words on each order its job works, their threads, the recorded answers the card cites and the
-  answers cc-notes ranks nearest. Each reading is a probability: 0.7 or more is a finding, under 0.3
-  none, between is printed as unsure. It prints each option his words rule out, each amount or
-  choice his words name that the card offers no tap for, and each part that breaks the card rules
-  below or what a linked page shows. The card is kept: no card is refused on merits. Weigh a
-  finding, and when it holds, rewrite that part and ask again, which redraws the card.
-- **Finds an answer that already decides it.** When Opus reads 0.7 or more that a nearby answer
-  answers the card, the verb prints it with its id and where he gave it. When his words choose the
-  recommended option, build it, name the id on your `DONE` return's `rulings:` line and end a drawn
-  card with `--drop <file> --answer <id>`. Otherwise cite the id in the summary, outside the
-  recommending sentence, and ask again: the card redraws with his words as its `Already answered`
-  tap, so one tap settles it.
 - **Draws the `Already answered` option** from the cited answers Opus reads 0.7 or more as deciding
   the question, from an answer the brief binds with `--ruling` or you cite under `Findings:`, and
   from each answer the release gate reads as ordering a release the recommended option names in
@@ -145,17 +132,6 @@ under.
   `drive job add --release "<release> --order <id>"` starts it
   ([landing.md](landing.md#after-merge)). Such a block keeps at most three options of its own,
   since a card draws four.
-- **Keeps a card unsettled** when Opus reads 0.7 or more that the recommended option, or another
-  option offered, breaks a recorded answer of his. The card asks him to lift those words, as
-  `<id>: Opus reads the recommended option as breaking it` or
-  `<id>: Opus reads option "<that option>" as breaking it`, and holds its PR, on an incident too.
-  His answer marks the lifted answer superseded in cc-notes, so no brief binds it, and his Undo
-  takes the mark back. Nothing is marked when a newer cited answer of his decides the card, when the
-  answer only waited for something the card shows has come, or when the card merely offers an
-  option beside the one he chose.
-- **Draws no card on an order that says to ask nothing**, as "Do this autonomously without asking
-  me anything" does. It tells you to build the recommended option and name his words on `RULINGS:`.
-  A card asking him to land a PR, release to production or post as him still draws.
 - **Keeps a refused block** under `asks/` as the job's pending question with its refusal.
   `drive status` lists it refused, and the watch says the job waits on a card never posted until the
   job asks again, in the same words or others sharing three rare words, or

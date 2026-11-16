@@ -183,30 +183,6 @@ CAUSE_RULING = 'his words "this still doesnt tell us why its so slow/how to spee
 MEASURED = re.compile(r"\d")
 ROOT_CAUSE_QUOTE = "Update your skill to not just brush over the root cause ever"
 ROOT_CAUSE_RULING = f'his ruling 0c59046, "{ROOT_CAUSE_QUOTE}"'
-ROOT_CAUSE_RULES = {
-    "none": (
-        "This card says no defect is behind it, and passes only when that is true: a pick between designs that are his, or"
-        " his approval of an action his rules hold for him, such as a benchmark run or a release. A card that ships,"
-        " releases or works around a fix or retry for a defect has one behind it and fails here, as does one recommending"
-        " an option that keeps a defect behind a cap, timer, retry, exit, flag, pin, sweeper or raised threshold; a"
-        " release of a merged fix says `Root cause: fixed:` instead."
-    ),
-    "fixed": (
-        "This card says a merged PR removed the defect's root cause and asks him only whether to release that PR now. It"
-        " passes when its Root cause line names the structure that let the defect happen and the PR it links removed that"
-        " structure. It fails when the line names only the step where the defect showed, or the PR adds a cap, timer,"
-        " retry, exit, flag, pin or sweeper, which removes nothing."
-    ),
-    "found": (
-        "This card starts from the root cause, the structure that lets the defect happen, or says it is not found yet and"
-        " which job is finding it. It passes when it recommends the option that removes that structure through one"
-        " abstraction every caller goes through, or the option his own pick or order chooses, which beats this"
-        " preference; what happens until it ships is no part of that option. It fails when the recommended option keeps"
-        " the structure behind a cap, timer, retry, exit, flag, pin or sweeper his words never chose, or, with the cause"
-        " not found, the card offers one around a step it has not explained."
-    ),
-}
-ROOT_CAUSE_WORDS = {"id": "ruling:0c59046", "asked": "his ruling on root causes", "said": ROOT_CAUSE_QUOTE}
 TEAM_DATA_QUOTE = "4, it is never ok to write from local or not use a service agent or any things like this"
 IRIS_BLOBS_QUOTE = "it shouldnt be reading iris blobs at all locally only with a service account on a pass box"
 TEAM_DATA_RULE = (
@@ -219,31 +195,10 @@ CLUSTER_JOB = (
     ' <release env> --cronjob <name> --reason "<why>"`'
 )
 UNMADE = "returns `BLOCKED` naming it and the team, which leaves him to pick the service account that makes it"
-TEAM_DATA_WORDS = {
-    "id": "ruling:32f49af",
-    "asked": (
-        "The staging pass box can neither write a SandSQL row nor read the smoke team's R2 bucket. How should the row write"
-        " and map.pmap listing run?"
-    ),
-    "said": TEAM_DATA_QUOTE,
-}
 PAGE_LINK = re.compile(r"https?://[^\s<>|]+")
 LINK_END = ".,;:!?)"
 SIGNED_IN = re.compile(r"https://(?:[\w-]+\.)*(?:slack|github)\.com/")
 PAGE_CHARS = 1500
-PAGE_LINE = re.compile(r"^Page \S+ (?:shows|did not open):", re.MULTILINE)
-LINK_VIEW_WORDS = {
-    "id": "words:card-link-view",
-    "asked": "his words Nov 12 2026 4:05 AM on a card whose link opened a prototype's queue screen, not the Slack preview the card described",
-    "said": "I dont see tthe slack tab on that link what are you talking abit?",
-    "rule": (
-        "Each page a card links opens the exact view the card's words say it shows. A page with several views, a screen"
-        " reached by a route, tab, anchor or query string, is linked at the address of the one described, never its root,"
-        " and a view still to build is called unbuilt, never linked as if it exists. A Page line whose words lack what the"
-        " card says that link shows breaks this: the finding names the link, what its page shows instead, and the fix. A"
-        " page showing only a sign-in screen was not read and breaks nothing."
-    ),
-}
 WORKED_QUOTE = (
     "dontg be lazy flash this out wayu more and od that for everyhtrfing in the future … shoujld not be so high lelkver. this"
     " would also satidyt the rtequriement you care curently violating by not having a show-me bc then shw show-0me cvould be code snipeptrs"
@@ -500,7 +455,6 @@ TOLD_WORDS = {
         " stacked before it, and a record link sits at the sentence's end. A card with nothing behind it that happened breaks nothing."
     ),
 }
-CARD_WORDS = frozenset({ROOT_CAUSE_WORDS["id"], TOLD_WORDS["id"]})
 TOLD_RULING = f'his words e10ccc1, "{TOLD_WORDS["said"]}"'
 FACT_VERB = r"(?:paste|copy|send|share|type|enter|tell|reply(?:\s+with)?|look\s+up|find|give|provide|fill\s+in|dig\s+up)"
 ASKS_HIM_FOR_A_VALUE = re.compile(
@@ -510,18 +464,6 @@ ASKS_HIM_FOR_A_VALUE = re.compile(
 )
 FACT_QUOTE = "no, go pull it from wherver it was befofre and set it"
 FACT_ASKED = "his Sep 24 answer to a card asking whether he had set the SSM parameter a landing reads"
-FACT_WORDS = {
-    "id": "words:card-fact-ask",
-    "asked": FACT_ASKED,
-    "said": FACT_QUOTE,
-    "rule": (
-        "A card asks him only a decision that is his. A question, option or description whose answer or step from him is a fact"
-        " or value, such as an ID, key, token, URL, name or setting, breaks this in whatever words it asks, since its job reads"
-        " that value where it is defined, such as the app's own settings, its manifest or the infra that makes it, or returns"
-        " BLOCKED naming the read it needs. A choice between options that each name the value, or a card saying a job reads it,"
-        " breaks nothing."
-    ),
-}
 RECORD_CHARS = 120
 THIRD_PERSON = re.compile(r"\b(?:he|him|his|himself)\b|(?<!\w[ \t])\b(?:He|Him|His|Himself)\b")
 WHOLE_KINDS = {"owner", "answer", "incident"}
@@ -1285,13 +1227,6 @@ def offered(asked: Question) -> list[str]:
         f"Option {number}{' (recommended)' if option == asked.recommended else ''}: {option}" + (f" -- {asked.hints[option]}" if option in asked.hints else "")
         for number, option in enumerate(asked.options, 1)
     ]
-
-
-def rule_words(case: str) -> list[dict[str, str]]:
-    """His rulings Opus weighs a card's case by beside his words: his ruling on root causes, with the rule it sets by the form of the case's `Root cause:` line, a cause named, one fixed by a merged PR or none behind the question, his words that a team's data is read or written only as a service account, beside the question they answered, whatever order the card serves, his words that a job reads a value itself rather than asking him for it, with the rule they set, his words that a card tell in plain English how what it says happened came about and what it does, with the rule they set, and, when the case reads a page the card links, his words on a link that opened another view than its card described, with the rule they set."""
-    cause = ROOT_CAUSE.findall(case)[-1]
-    form = "none" if NONE_WHY.match(cause) else "fixed" if FIXED.match(cause) else "found"
-    return [ROOT_CAUSE_WORDS | {"rule": ROOT_CAUSE_RULES[form]}, TEAM_DATA_WORDS, FACT_WORDS, TOLD_WORDS, *([LINK_VIEW_WORDS] if PAGE_LINE.search(case) else [])]
 
 
 def linked_pages(asked: Question) -> list[str]:

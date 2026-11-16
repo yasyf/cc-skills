@@ -178,9 +178,7 @@ up at once and the work goes on, on the recommended option.
   communicator that report itself, and again only once those facts change.
   `drive job set <j> --card <link>` or `--waits <card>` on an incident's job refuses without
   `--told <link>` naming that post.
-- A card that asks him to lift a ruling of his holds its PR. `drive job ask` reads each card
-  against his recorded answers and keeps one unsettled when an option it offers goes against them,
-  as `--unsettled` does. The builder then pushes with `ccx vcs ship --no-pr` and returns `BUILT`.
+- A card that asks him to lift a ruling of his, kept with `--unsettled`, holds its PR. The builder then pushes with `ccx vcs ship --no-pr` and returns `BUILT`.
   The `bash_guard` hook refuses the `ccx vcs ship` that would open its PR, and the lander holds an
   open one until he answers on the card or approves the PR.
 
