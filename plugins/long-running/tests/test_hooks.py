@@ -2075,6 +2075,66 @@ def test_his_number_on_a_kept_card_orders_the_release_its_option_names_in_prose_
     assert [asked["state"]["action"] for asked in jev.asked] == [f"start this release on {where}: `{release}`" for where, release in zip(places, read, strict=True)]
 
 
+
+LISTED_RELEASES = {
+    "id": "304ffb2" + "0" * 33,
+    "title": "Nov 15 3:00 PM: are his 2:32 PM plan's 3 releases approved? 1) `tools/ci release hotfix 56539 --only api --without plat-usw2-staging,plat-gbl-staging`, #56539 alone; 2) all but SandSQL; 3) SandSQL's HA release",
+    "body": "All 3 of these are approved given my constraints and top priority don't block on me for anything in them just get it done",
+    "tags": ["scope:durable"],
+    "created_at": "2026-11-15T23:01:30Z",
+}
+RELEASE_TARGETS = """components:
+  api:
+    title: API
+targets:
+  platform:
+    title: Platform
+    components: [sanddb, api, forge-dns, router]
+  dashboard:
+    title: Dashboard
+    components: [dashboard]
+  sandsql:
+    title: SandSQL
+    components: [sandsql]
+  infra:
+    title: Infrastructure
+    components:
+    - accounts
+    - storage
+"""
+
+
+def test_his_all_to_a_question_listing_releases_orders_each_listed_release_in_code_and_jev_reads_one_mixing_them(demo: str, run: Run, recorded: Answers, jev: Jev) -> None:
+    answered_cut(run, demo, [CUT_PICK])
+    data = state.load(demo)
+    (Path(data["roles"]["coordinator"]["cwd"]) / "release").mkdir()
+    (Path(data["roles"]["coordinator"]["cwd"]) / "release" / "targets.yaml").write_text(RELEASE_TARGETS)
+    with state.edit(demo) as data:
+        data["answers"][LISTED_RELEASES["id"]] = {"words": LISTED_RELEASES["body"], "link": drawn_card(99), "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {}}
+    recorded.shown = {"304ffb2": LISTED_RELEASES}
+    data = state.load(demo)
+    ordered = (
+        "tools/ci release hotfix 56539 --only api --without plat-usw2-staging,plat-gbl-staging --order 304ffb2",
+        "tools/ci release start platform dashboard infra --from 216f90221a4708e2f694823ea207ae738992e829 --without plat-usw2-staging,plat-gbl-staging --order 304ffb2",
+        "tools/ci release start --targets platform,sandsql --exclude sandsql --from 216f90221a4708e2f694823ea207ae738992e829 --order 304ffb2",
+        "tools/ci release start sandsql --from 216f90221a4708e2f694823ea207ae738992e829 --order 304ffb2",
+        "tools/ci release start sandsql --only sandsql/plat-usw2-prod --from 216f90221a4708e2f694823ea207ae738992e829 --order 304ffb2",
+    )
+    assert [brief.approval_refusal(release, data) for release in ordered] == [None] * len(ordered)
+    assert jev.asked == []
+    read = (
+        "tools/ci release start platform sandsql --from 216f90221a4708e2f694823ea207ae738992e829 --order 304ffb2",
+        "tools/ci release hotfix 56540 --order 304ffb2",
+        "tools/ci release start nosuch --from 216f90221a4708e2f694823ea207ae738992e829 --order 304ffb2",
+        "tools/ci release hotfix 56539 --only api,rsw-cp --order 304ffb2",
+    )
+    refused = f'refused: `--order 304ffb2` names his answer to "{brief.cut(LISTED_RELEASES["title"], 200)}", "{LISTED_RELEASES["body"]}", and Jev does not read it as approving this release. {brief.RELEASE_APPROVAL}'
+    assert [brief.approval_refusal(release, data) for release in read] == [refused] * len(read)
+    assert len(jev.asked) == len(read)
+    turned = LISTED_RELEASES | {"id": "304ffb3" + "0" * 33, "body": "All 3 of these are not approved yet"}
+    recorded.shown["304ffb3"] = turned
+    assert brief.approval_refusal(ordered[3].replace("304ffb2", "304ffb3"), data) is not None
+
 STANDING_SOAK_CARD = """ASK May the drive soak each dangerous branch on frozen staging under your playbook unasked, or is each soak your exception?
 Drive tooling: your pick decides whether a staging-only soak waits for your word each time.
 - A standing yes: the drive soaks any dangerous branch on staging alone, while production keeps waiting for your word (recommended)
