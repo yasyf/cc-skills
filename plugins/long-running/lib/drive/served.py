@@ -343,8 +343,9 @@ def carry(name: str, keys: list[str]) -> list[str]:
     if not moved:
         return []
     reads = {key: change(key) for key in moved}
-    carried = []
-    with state.edit(name) as data:
+
+    def carried_checks(data: dict) -> list[str]:
+        carried = []
         for key, read in reads.items():
             pr = data["prs"][key]
             if read["head"] != pr["head"] or not unread(pr):
@@ -356,7 +357,9 @@ def carry(name: str, keys: list[str]) -> list[str]:
                         stamp["beside"][key] = pr["head"]
                 pr["checked"]["head"] = pr["head"]
                 carried.append(key)
-    return carried
+        return carried
+
+    return state.update(name, None, carried_checks)
 
 
 def unread(pr: dict) -> bool:
