@@ -5277,7 +5277,7 @@ def end_lane(name: str, job_id: str) -> tuple[str, dict]:
 
 
 def release_idle_kept(name: str, root: Path) -> list[str]:
-    """Save and destroy, by release_sprite under each job's own lock, every Sprite a drive job end kept for its job's next lane once KEPT_IDLE has passed with no worker on it, by his ruling that a waiting job holds no machine and an idle one goes back soon, so that job's next lane starts fresh and resumes its session from the transcript kept here; a job whose lock another verb holds is passed over until the next check. A line for each one freed or kept by a refusal."""
+    """Save and destroy, by release_sprite under each job's own lock, every Sprite a drive job end kept for its job's next lane once KEPT_IDLE has passed with no worker on it, by his ruling that a waiting job holds no machine and an idle one goes back soon, so that job's next lane starts fresh and resumes its session from the transcript kept here; a job whose lock another verb holds is passed over until the next check. A line for each one freed, kept by a refusal or passed over."""
     data = state.load(name)
     idle = [job_id for job_id, job in data["jobs"].items() if (death := state.lane_death(job, "dispatch")) and (death.get("ended") or {}).get("kept") and orca.holds_sprite(job) and state.now() - state.parse_time(death["ended"]["at"]) >= KEPT_IDLE]
     lines = []
@@ -5294,7 +5294,7 @@ def release_idle_kept(name: str, root: Path) -> list[str]:
 
                 state.write(name, unkept)
         except DriveError:
-            continue
+            lines.append(f"{job_id}'s kept Sprite waits for the next check, as another verb holds its job's lock")
     return lines
 
 
