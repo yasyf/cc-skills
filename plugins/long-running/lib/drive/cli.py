@@ -5336,9 +5336,6 @@ def wake_pr(args: argparse.Namespace) -> int:
         job_id = None
     pr = data["prs"][key]
     job = data["jobs"][target]
-    if job_id and state.adopted_pr_job(data, job):
-        state.detach(name, ["job", "launch", job_id, "--handoff", f"{pr['url']} at {pr['head']}: {text}"], watch.RELAUNCHES_LOG)
-        return emit(args, f"{key}: ran drive job launch {job_id} with this line as its handoff, its output in the drive's {watch.RELAUNCHES_LOG}", {"key": key, "job": job_id, "how": "launch"})
     if job_id and (turn := slot_turn(data, job_id)):
         def turned(held: dict) -> bool:
             heads = held["jobs"][job_id].setdefault("stage_heads", {})
@@ -5350,6 +5347,9 @@ def wake_pr(args: argparse.Namespace) -> int:
 
         kept = state.update(name, None, turned)
         return emit(args, f"{key}: {'held on' if kept else 'not sent again to'} {job_id}, which {turn}, so no wake goes out: its worker reads it when its turn starts it", {"key": key, "job": job_id, "how": "held" if kept else None})
+    if job_id and state.adopted_pr_job(data, job):
+        state.detach(name, ["job", "launch", job_id, "--handoff", f"{pr['url']} at {pr['head']}: {text}"], watch.RELAUNCHES_LOG)
+        return emit(args, f"{key}: ran drive job launch {job_id} with this line as its handoff, its output in the drive's {watch.RELAUNCHES_LOG}", {"key": key, "job": job_id, "how": "launch"})
     if job_id:
         queued = superseded.in_line(data, job_id, job)
         fresh = superseded.fresh_builder(data, job_id, job, text, "this line")

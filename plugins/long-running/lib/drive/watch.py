@@ -478,10 +478,8 @@ def floored(watcher: Watcher, lines: list[str], reset: datetime, refusal: str) -
 
 
 def dangerous_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Read in one github.paths call the changed files of each heard PR whose head no read of its files saw, by state.unmarked, while the repository's .claude/long-running.toml names a [[dangerous]] class, and put each whose head changes one on its staging test with a tester, by state.mark_dangerous, ahead of the stage_lines that draws his card on it; each tester added said as drive pr add says it. A PR registered before an install that brought this stage has no head read, so the first pass after it reads every open one."""
+    """Read in one github.paths call the changed files of each heard PR whose head no read of its files saw, by state.unmarked, whether the repository's .claude/long-running.toml or its provider's dangerous_paths classes it, and put each whose head changes one on its staging test with a tester, by state.mark_dangerous, ahead of the stage_lines that draws his card on it; each tester added said as drive pr add says it. A PR registered before an install that brought this stage has no head read, so the first pass after it reads every open one."""
     data = state.load(watcher.name)
-    if not state.repo_config(data).get("dangerous"):
-        return []
     keys = [key for key in state.unmarked(data) if key not in watcher.stale and hears(watcher, data, data["prs"][key]["order"])]
     if not keys:
         return []
@@ -5291,7 +5289,7 @@ def job_gap(watcher: Watcher, job_id: str, job: dict, data: dict, order_id: str,
                 f"{job_id} {job['kind']} not started, waiting its turn for a slot {minutes(now - state.parse_time(data['jobs'][read]['updated']))} minutes after its reader {read} finished:"
                 f" if his words want it soon, drive order set {order_id} --part \"{part}\" --urgent starts it past the caps; if they already settle the design, start its builder on them and put only the open fork on his card"
             )
-        if not job.get("brief"):
+        if not job.get("brief") and not job.get("launching"):
             refused = f", which refused: {job['brief_error']}" if job.get("brief_error") else ""
             return NotStarted(f"{job_id} has no brief {minutes(now - state.parse_time(job['created']))} minutes after drive job add, so nothing starts it: `drive job brief {job_id}`{refused}, then `drive job launch {job_id}`")
         return NotStarted(f"{job_id} not started {minutes(now - state.parse_time(job['created']))} minutes after drive job add{brief_first(job)}")

@@ -366,6 +366,19 @@ def test_the_watch_reads_the_reach_once_and_takes_each_pr_an_older_reach_staged_
     assert (watch.reach_lines(watcher(demo), T0), asked) == ([], [[KEY, OTHER]])
 
 
+def test_a_head_read_under_an_older_classifier_is_read_again_once_the_classifier_changes_as_57562s_was_not(home_repo: None, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    changed = {KEY: ("aaaaaaa111", ["go/sand/next/internal/vm/builtins/browserpkg/extract.go"])}
+    monkeypatch.setattr(github, "paths", lambda keys: {key: changed[key] for key in keys if key in changed})
+    monkeypatch.setattr(state, "classifier", lambda data: "old")
+    assert watch.dangerous_lines(watcher(demo), T0) == []
+    assert (state.load(demo)["prs"][KEY]["paths_by"], state.unmarked(state.load(demo))) == ("old", [])
+    monkeypatch.setattr(state, "classifier", lambda data: "new")
+    monkeypatch.setattr(providers.RepoProvider, "dangerous_paths", lambda self, paths: [path for path in paths if "/builtins/" in path])
+    assert KEY in state.unmarked(state.load(demo))
+    [line] = watch.dangerous_lines(watcher(demo), T0)
+    assert line.startswith(f"PR {KEY}: ") and state.load(demo)["prs"][KEY]["waits"] == [f"o1:{state.STAGING_TEST.format(number=42)}"]
+
+
 def test_a_pr_whose_head_changes_a_path_the_repository_providers_dangerous_paths_names_is_staged_with_no_dangerous_table_as_57530_and_57528_were_not(
     home_repo: None, demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:

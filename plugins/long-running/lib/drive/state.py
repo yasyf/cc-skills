@@ -3,6 +3,7 @@ import fcntl
 import functools
 import gc
 import hashlib
+import inspect
 import itertools
 import json
 import math
@@ -1408,6 +1409,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         pr.setdefault("design", None)
         pr.setdefault("answers", None)
         pr.setdefault("paths_at", None)
+        pr.setdefault("paths_by", None)
         pr.setdefault("stored", [])
         pr.setdefault("unstaged", None)
         pr.setdefault("exception", None)
@@ -3179,17 +3181,26 @@ def markable(data: dict, key: str, head: str) -> bool:
 
 def unmarked(data: dict) -> list[str]:
     """Each PR the drive tracks whose head no read of its changed files saw and that mark_dangerous may stage, by markable: those the watch reads the files of."""
-    return [key for key, pr in data["prs"].items() if pr["head"] and pr["paths_at"] != pr["head"] and markable(data, key, pr["head"])]
+    by = classifier(data)
+    return [key for key, pr in data["prs"].items() if pr["head"] and (pr["paths_at"] != pr["head"] or pr["paths_by"] != by) and markable(data, key, pr["head"])]
+
+
+def classifier(data: dict) -> str:
+    """The fingerprint of what reads a head's files as dangerous: the [[dangerous]] and skip tables of the repository's .claude/long-running.toml and the source of the module holding its repository provider, whose dangerous_paths names the rest, so an edit to either re-reads every open PR's head, as #57562's did not once its head was read before the provider's classes were."""
+    config = repo_config(data)
+    tables = json.dumps([config.get("dangerous", []), config.get("skip", {})], sort_keys=True)
+    source = inspect.getsourcefile(type(provided(data).repo))
+    return hashlib.sha256((tables + (Path(source).read_text() if source else "")).encode()).hexdigest()[:16]
 
 
 def mark_dangerous(data: dict, key: str, head: str, paths: list[str]) -> str | None:
     """Stage a PR whose head changes a dangerous class of file, by dangerous(), as its builder's `STAGING: #N` line would, by stage_pr, in the session of its job, its tester's goal naming each class and its files, while markable, keeping the head read so each head is read once, and the paths that change how its data is stored, by land.stored, which his card reads on a PR changing more files than its read of the card lists: the check of a PR's changed files that `drive pr add` and the watch make, so the staging test AGENTS.md asks never rests on its builder's word alone, the tooling only helping the builder keep the prose rule, by his words 17f763e; the tester added, or None."""
     from drive import land
 
-    pr = data["prs"][key]
-    if pr["paths_at"] == head:
+    pr, by = data["prs"][key], classifier(data)
+    if pr["paths_at"] == head and pr["paths_by"] == by:
         return None
-    pr.update(paths_at=head, stored=land.stored(paths))
+    pr.update(paths_at=head, paths_by=by, stored=land.stored(paths))
     if not markable(data, key, head) or not (classes := dangerous(data, paths)):
         return None
     changes = "; ".join(f"{kind}: {', '.join(made[:DANGEROUS_SHOWN])}{f' and {len(made) - DANGEROUS_SHOWN} more' if len(made) > DANGEROUS_SHOWN else ''}" for kind, made in classes.items())
@@ -7332,6 +7343,7 @@ def new_pr(url: str, job_id: str, order_id: str) -> dict:
         "design": None,
         "answers": None,
         "paths_at": None,
+        "paths_by": None,
         "stored": [],
         "unstaged": None,
         "after_merge": None,
