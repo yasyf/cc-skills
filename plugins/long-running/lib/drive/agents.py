@@ -407,7 +407,9 @@ def handled_post(data: dict, seq: str, owed: set[str]) -> bool:
 
 
 def start_posts(name: str, moment: datetime) -> None:
-    """Hand each `POST` report handled_post keeps to the communicator, once, from the drive's mark on, and carry every other as progress, so no report is handed twice and none waits on a post; the watch's own close reports it posts itself, by state.watch_posting, and a report cci took under SETTLE_WINDOW ago waits for the next read, so the watch's save of a close report's seq lands first."""
+    """Post each `POST` report handled_post keeps from the watch itself, by talk.report_line, so his messages never queue behind the communicator posting reports, and hand the communicator only one that refuses, once, from the drive's mark on, and carry every other as progress, so no report is handed twice and none waits on a post; the watch's own close reports it posts itself, by state.watch_posting, and a report cci took under SETTLE_WINDOW ago waits for the next read, so the watch's save of a close report's seq lands first."""
+    from drive import talk
+
     data = state.load(name, ("posts",))
     since = seeded(name) if data["posts"]["mark"] is None else data["posts"]["mark"]
     read, newest = posts(name, since)
@@ -430,9 +432,17 @@ def start_posts(name: str, moment: datetime) -> None:
         if not handled_post(data, seq, owed):
             carried[seq] = "progress: the dashboard and records alone"
             continue
+        try:
+            said = talk.report_line(name, seq)
+            carried[seq] = "the watch"
+            with open(state.drive_dir(name) / "posts.log", "a") as log:
+                log.write(f"{state.stamp(moment)} report {seq} posted by the watch: {said}\n")
+            continue
+        except (state.DriveError, slack.SlackError) as error:
+            refused = str(error)
         carried[seq] = "the communicator"
         try:
-            handle(name, f"Record: {seq} Drive: {name} Scratch: {state.drive_dir(name) / 'scratch' / f'post-{seq}'}")
+            handle(name, f"Record: {seq} Drive: {name} Scratch: {state.drive_dir(name) / 'scratch' / f'post-{seq}'} Why the watch did not post it: {refused}")
         except Exception as error:
             errors.append(f"POST report {seq} did not reach the communicator: {start_error(error)}")
     def marked(data: dict) -> None:

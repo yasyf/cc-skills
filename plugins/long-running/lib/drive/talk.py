@@ -62,6 +62,28 @@ def watch_line(name: str, post: dict) -> str:
     return spoken(name, post, state.load(name))
 
 
+def report_line(name: str, seq: str) -> str:
+    """Post a `POST` report the drive's watch keeps for him itself, through say, so no message of his waits behind the communicator posting it: the report's own words, its POST taken off, citing the report, in the thread its thread attr names or the thread of his message it answers, else at the place say puts a post of its order, once `cc-slack check-post` finds nothing in them after fixes.mended makes each mechanical fix. A correction, which rewords an earlier post, a report answering teammates in a thread an order watches, a post at the root or in a thread of a channel outside his DM, the operator channels and the channels the drive keeps, and words check-post still finds fault with go to the communicator as this refusal says."""
+    from drive import fixes
+
+    read = agents.answered(seq)
+    attrs, report = read["attrs"], read["report"]
+    if report["kind"] == "correction" or attrs.get("watch") == "true" or agents.rooted(attrs):
+        raise DriveError(f"nothing posted: report {seq} is a correction, an answer to teammates in a watched thread or a post at another channel's root, which the communicator writes")
+    known = state.load(name)
+    place = {}
+    if thread := attrs.get("thread") or read["thread"]:
+        if channel := outside(known, thread):
+            raise DriveError(f"nothing posted: report {seq}'s line goes in a thread of {channel}, which cc-slack's Slack permission hook judges for a say call")
+        place = {"thread_ts": thread} | ({"channel_id": channel} if (channel := attrs.get("channel") or kept_in(known, thread)) else {})
+    text = f"{report['text'].removeprefix('POST').strip()} ({{record:{seq}|its facts}})."
+    if findings := slack.post_findings(text, False):
+        text = fixes.mended(text, findings, state.now())
+        if findings := slack.post_findings(text, False):
+            raise DriveError(f"nothing posted: `cc-slack check-post` still finds in report {seq}'s words: {' | '.join(findings)}")
+    return spoken(name, {"text": text, "record": seq} | place, known)
+
+
 def hook_refusal(name: str, data: dict, post: dict) -> str | None:
     """What the say hook refuses of a say post the drive's watch makes, run as message_limits.py runs on a say call of the communicator's own session, each check and Jev's verdict alike, its words a claim the report it cites must back, as Jev weighs an agent's claims against their reads: a refusal no Jev weighs, Jev's hold, and a drive with no communicator, whose posts no check reads, since the communicator posts the report then; a warning, and a check or Jev call that fails, let it post, since a gate that cannot finish fails open."""
     from drive import settled

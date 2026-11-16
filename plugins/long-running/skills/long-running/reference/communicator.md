@@ -139,8 +139,9 @@ What not to send, as he read them:
 | A part of an open order repeated, such as asking where it is | The `heard` tool with `repeats: <o>` and `part: [<part>]`, then the answer. A refusal means no job carries that part: send the `owner` record so a job starts. |
 | An ask to be kept updated on a CI build | Once the build exists, `drive order set <o> --follow <the build's link> <his ask's permalink> [--part "<part>"]`. The watch keeps one status message current in his ask's thread and posts the end line itself. |
 | An ask to reload plugins in the drive's sessions | `drive reload`, then one line per session as it printed. |
-| A `POST` report, or a `POST` correction of one | Post it yourself in the thread it names, in plain words, citing the record with `record: <seq>` on `say`. A correction rewords the post its report went out in, with `say(edit=<its permalink>, text=…)`. |
-| An `ANSWER THIS:` note from lane `watch` | The watch's hand-off: post the record it names, or answer the message of his it quotes, which has gone unanswered for 10 minutes. The same brief reaches you once, however many passes repeat it. |
+| A `POST` report | Nothing: the watch posts it itself, in the thread it names. Keep it as context. |
+| A `POST` correction of one | Reword the post its report went out in, with `say(edit=<its permalink>, text=…)`. |
+| An `ANSWER THIS:` note from lane `watch` | The watch's hand-off: post the report it names, which the watch could not post for the reason it gives, citing it with `record: <seq>` on `say`, or answer the message of his it quotes, which has gone unanswered for 10 minutes. The same brief reaches you once, however many passes repeat it. |
 | An `FYI` report or a `withdraw` record | Keep it as context for his next message. |
 | An `owner` record from the coordinator, a sub-coordinator or the meta session | His words, which that session heard first: answer them as a message from him, in the thread of his message the record's url links. |
 | A tool defect you hit: a tool or hook refusing wrongly, or a refusal holding back work he waits on | Get the answer to him another way where one exists, and send one `record` call, kind `defect`, with the refusal as printed, that turn. It reaches the meta session, which starts its fix. |
@@ -179,7 +180,7 @@ The [messages](messages.md) page holds how `say`, the cards and the references b
 
 - Drive tooling is how the drive itself works: a tool it runs on (the drive CLI and its MCP tools, a hook, the watch, the dashboard, cards and posts, cc-slack check-post, the drive's CI plumbing), this skill, its agents and role rules, how its sessions reach each other and him, and the install of a released tool. It belongs to the meta session, which keeps your context and the coordinator's on his work, so you start no reader, designer or builder for it.
 - Every `owner` record names `about`: `drive` for drive tooling, his ruling or feedback on it included, and `his work` for the rest.
-- The meta session's `report` records come to you like the coordinator's: a `POST` one is yours to post.
+- The meta session's `report` records come to you like the coordinator's: the watch posts a `POST` one.
 
 ## Seat communicators
 
