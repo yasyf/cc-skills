@@ -1660,14 +1660,15 @@ def owed_replies(demo: str, monkeypatch: pytest.MonkeyPatch) -> list[dict]:
     return owed
 
 
-def owed_reply(moment: datetime, text: str) -> dict:
+def owed_reply(moment: datetime, text: str, thread: str | None = HIS_THREAD) -> dict:
     ts = f"{moment.timestamp():.6f}"
-    return {"ts": ts, "thread_ts": HIS_THREAD, "text": text, "permalink": f"https://acme.slack.com/archives/D123/p{ts.replace('.', '')}?thread_ts={HIS_THREAD}&cid=D123"}
+    link = f"https://acme.slack.com/archives/D123/p{ts.replace('.', '')}"
+    return {"ts": ts, "thread_ts": thread or ts, "text": text, "permalink": f"{link}?thread_ts={thread}&cid=D123" if thread else link}
 
 
 def owed_brief(demo: str, reply: dict) -> str:
     return (
-        f"Message (his words): {reply['text']}\nLink: {reply['permalink']}\nThread: D123 {HIS_THREAD}\nDrive: {demo}\n"
+        f"Message (his words): {reply['text']}\nLink: {reply['permalink']}\nThread: D123 {reply['thread_ts']}\nDrive: {demo}\n"
         f"Scratch: {state.drive_dir(demo) / 'scratch' / f'owed-{reply['ts']}'}\n"
         f"Context: cc-slack has owed him an answer to this message since {watch.when(state.stamp(slack.sent_at(reply)))}, since no post answering it named it as asked"
     )
@@ -1720,6 +1721,26 @@ def test_a_message_of_his_cc_slack_owes_goes_to_the_live_handler_in_its_thread_e
     assert start[-1] == owed_brief(demo, asked) + UNFROZEN
     assert [entry["handed"] for entry in state.load(demo)["handlers"].values()] == [[]]
     assert state.load(demo)["owed_replies"][asked["ts"]]["handed"] is True
+
+
+def test_a_read_owing_several_messages_of_his_keeps_a_handler_and_a_report_for_each_and_launches_no_handler_before_it_returns(
+    demo: str, monkeypatch: pytest.MonkeyPatch, owed_replies: list[dict], cci_records: dict[str, dict]
+) -> None:
+    calls = catching_up(monkeypatch, demo)
+    detached = launches(monkeypatch)
+    asked = [owed_reply(T0 + timedelta(minutes=minute), text, thread=None) for minute, text in enumerate(("is the release out?", "and the hotfix?", "Hello are you listening?"))]
+    owed_replies.extend(asked)
+    for seq, reply in enumerate(asked, start=901):
+        cci_records[str(seq)] = {"seq": seq, "kind": "report", "lane": "watch", "fields": {"attrs": {"owed": reply["ts"], "progress": "true", "thread": reply["ts"]}}}
+    assert REAL_OWED(watcher(demo), T0 + timedelta(minutes=30)) == []
+    assert [record["attr"]["owed"] for record, _ in calls] == [reply["ts"] for reply in asked]
+    assert state.load(demo)["owed_replies"] == {reply["ts"]: {"handed": True, "lined": str(seq)} for seq, reply in enumerate(asked, start=901)}
+    handlers = state.load(demo)["handlers"]
+    assert [(entry["session"], entry["handed"]) for entry in handlers.values()] == [(None, [f"Record: {seq} Drive: {demo} Scratch: {state.drive_dir(demo) / 'scratch' / f'owed-{seq}'}"]) for seq in range(901, 904)]
+    assert detached == [["handler-start", handler] for handler in handlers]
+    for _, handler in detached:
+        agents.start_kept(demo, handler)
+    assert [argv[-1] for argv, _ in calls[3:]] == [owed_brief(demo, reply) + UNFROZEN for reply in asked]
 
 
 def test_a_message_of_his_that_started_an_open_order_is_left_to_its_lines_and_handed_once_the_order_ends_still_owed(
