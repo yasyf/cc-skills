@@ -310,6 +310,24 @@ def lane_exit(status: int, printed: str) -> str:
     return f"{DRIVE_EXIT} {status}\n{printed}"
 
 
+def exited(answer: str) -> int:
+    """The status a lane's drive answer opens with, by lane_exit."""
+    return int(answer.partition("\n")[0].removeprefix(DRIVE_EXIT))
+
+
+def report_taken_later(question: str) -> str | None:
+    """The first line of the report a lane's `DRIVE job report <job> -` sends on stdin, which the reader answers as kept before the take runs, so the lane waits on no lock or judge the take holds; None for any other question, a `job report` reading the kept report included."""
+    line, _, rest = question.partition("\n")
+    try:
+        argv = shlex.split(DRIVE.fullmatch(line)[1])
+        sent = json.loads(rest) if rest.strip() else {}
+    except ValueError:
+        return None
+    if argv[:2] != ["job", "report"] or "-" not in argv[2:] or not (stdin := sent.get("stdin", "").strip()):
+        return None
+    return stdin.splitlines()[0].strip()
+
+
 def read_records(command: str, checkout: Path, drive: str) -> str:
     """Run one listed record read with its words as the lane wrote them, a search, grep or match joining several into one query itself, else read the drive files the read names; a ccn show, which takes one ID, runs once for each ID, its outputs joined, and a Slack read runs through this Mac's cc-slack and answers whole, since sprite_answer sends a long answer as a file on the lane's Sprite."""
     argv = read_words(command)
