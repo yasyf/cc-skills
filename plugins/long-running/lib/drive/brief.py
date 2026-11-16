@@ -157,8 +157,8 @@ RELEASE_HELD = (
     + ". Once he says releases can go again, his answer saying so supersedes the hold: `ccn answer supersede {hold} --by <id>`"
 )
 UNCARRIED = (
-    '`--order {order}` names his answer to the card asking "{asked}", which names {named}, and {why}: start it from a commit'
-    " holding each merged pull request that card names, such as `--from {newest}`, the newest of their merge commits, or name each in `--landed`"
+    '`--order {order}` names his answer to the card asking "{asked}", which names {named}, and {why}: it starts as given, since his answer may leave one out; to carry each,'
+    " start from a commit holding them, such as `--from {newest}`, the newest of their merge commits"
 )
 JOB_HELD = (
     'refused: he holds every release, by his words "{said}" ({where}), and only he grants an exception, so the {cronjob} Job on {cluster},'
@@ -360,7 +360,7 @@ def scope_refusal(release: str, record: dict, data: dict, said: str) -> str | No
 
 
 def uncarried(command: str, data: dict) -> str | None:
-    """The note a release start prints when its commit lacks a pull request his card names, never a refusal, since his answer can waive one: the card his `--order` answer answers, by settled.answered_card, names a merged PR of the drive's checkout's repository, in a link of its words or by link or #N on its `Holds:` line, that its `--landed` does not name, and its `--from` or `--commit` lacks that PR's merge commit, as contained() reads it once each commit the checkout lacks is fetched by its sha, or it names no commit, so go/ci picks one; refused naming the newest of those merge commits to pass as `--from`, and naming the read when GitHub or git could not read one. A hotfix or rollback, a rehearsal() naming no `--order`, a PR the card names that has not merged, and an answer no kept card holds pass."""
+    """The note a release start prints when its commit lacks a pull request his card names, never a refusal, since his answer can waive one: the card his `--order` answer answers, by settled.answered_card, names a merged PR of the drive's checkout's repository, in a link of its words or by link or #N on its `Holds:` line, that its `--landed` does not name, and its `--from` or `--commit` lacks that PR's merge commit, as contained() reads it once each commit the checkout lacks is fetched by its sha, or it names no commit, so the release tool picks one; refused naming the newest of those merge commits to pass as `--from`, and naming the read when GitHub or git could not read one. A hotfix or rollback, a rehearsal() naming no `--order`, a PR the card names that has not merged, and an answer no kept card holds pass."""
     from drive import github
 
     [flags] = map(settled.shipped, started(command))
