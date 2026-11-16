@@ -1495,7 +1495,7 @@ def test_a_resume_with_no_text_posts_every_text_an_agent_its_session_started_hol
     assert run("job", "resume", "j1") == (0, 'j1: owed, send it now: SendMessage a4e953525ff2a4e17 "Read cci record 720371 whole and act on it"')
     assert [(lane, post["kind"], post["to"], post.get("body", post["text"])) for lane, post in posted] == [("root", "handoff", [f"peer:{top}/a4e953525ff2a4e17"], f"{URGENT}\n\n{joined}\n\n{merged}")]
     jobs = state.drive_dir(demo) / "jobs"
-    assert ((jobs / "j1.sent-720371.md").read_text(), state.load(demo)["jobs"]["j1"]["undelivered"]) == (f"{joined}\n\n{merged}", [])
+    assert ((jobs / "j1.sent-720371.md").read_text(), state.load(demo)["jobs"]["j1"]["undelivered"]) == (f"{URGENT}\n\n{joined}\n\n{merged}", [])
     assert run("job", "resume", "j1") == (0, "j1 holds no message to send")
     assert len(posted) == 1
 
