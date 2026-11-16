@@ -1446,13 +1446,16 @@ def reloaded_row(line: bytes) -> bool:
 
 
 def newest_update() -> tuple[str, str]:
-    """When a session last had a plugin install to load: the newest lastUpdated in installed_plugins.json of an install a session can load, one whose project folder is still on this Mac, which moves only when an install changes, and that plugin and version."""
+    """When a session last had a plugin install to load: the newest of the times each plugin version first showed in installed_plugins.json, among installs a session can load, ones whose project folder is still on this Mac, and that plugin and version. A version already installed that Claude Code installs again, as it does for a project's plugin in each new worktree of that project, moves nothing, so no session reloads onto the version it already runs."""
     plugins = json.loads((config_dir() / "plugins" / "installed_plugins.json").read_text())["plugins"]
-    key, entry = max(
-        ((key, entry) for key, entries in plugins.items() for entry in entries if "projectPath" not in entry or Path(entry["projectPath"]).is_dir()),
-        key=lambda pair: pair[1]["lastUpdated"],
-    )
-    return entry["lastUpdated"], f"{key} {entry['version']}"
+    first: dict[tuple[str, str], str] = {}
+    for key, entries in plugins.items():
+        for entry in entries:
+            if "projectPath" not in entry or Path(entry["projectPath"]).is_dir():
+                pair = (key, entry["version"])
+                first[pair] = min(first.get(pair, entry["lastUpdated"]), entry["lastUpdated"])
+    (key, version), at = max(first.items(), key=lambda item: item[1])
+    return at, f"{key} {version}"
 
 
 def reloaded_onto(drive: str, seat: str) -> str:
