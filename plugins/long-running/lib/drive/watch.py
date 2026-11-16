@@ -4124,8 +4124,9 @@ def stall_lines(watcher: Watcher, moment: datetime) -> list[str]:
     except state.DriveError as error:
         return failed(watcher, "stall hold", "stall read of his hold on every release", error, moment)
     watcher.failures.pop("stall hold", None)
-    found = stall.things(known, stall.chains(known, watcher.cards, on_hold, moment), state.others_claims(watcher.name, moment))
-    printed = {thing: stall.words(known, watcher.cards, held) for thing, held in found.items()}
+    with state.indexed(known):
+        found = stall.things(known, stall.chains(known, watcher.cards, on_hold, moment), state.others_claims(watcher.name, moment))
+        printed = {thing: stall.words(known, watcher.cards, held) for thing, held in found.items()}
     aged = {thing: stall.aged(known["stalls"].get(thing), printed[thing], held["joins"], moment) for thing, held in found.items()}
     if aged == known["stalls"] and not owed(watcher, known, found, aged, moment):
         return []
