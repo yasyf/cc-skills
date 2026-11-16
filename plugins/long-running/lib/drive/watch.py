@@ -1845,7 +1845,7 @@ def send_answer(name: str, job_id: str, message_id: str, kept: dict) -> orca.Orc
 
 
 def waiting_post_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Keep the one post in his DM and in each operator channel that says what waits on him there, in the words talk.waiting_posts gives it, which stands in for asking any card again: posted once a card first waits on him there and edited in place whenever its words change, each kept with its words in the drive across watch restarts; a post or edit that fails goes again on the next pass and is said from its third failure in a row."""
+    """Keep the one post in his DM and in each operator channel that says what waits on him there, in the words talk.waiting_posts gives it, which stands in for asking any card again: posted once a card first waits on him there and edited in place whenever its words change, and pinned to its conversation once, so it stays in that conversation's pinned list; each kept with its words and whether it is pinned in the drive across watch restarts, so a post kept before pinning began is pinned on the next pass. A post, edit or pin that fails goes again on the next pass and is said from its third failure in a row."""
     if watcher.project or watcher.cards is None:
         return []
     from drive import talk
@@ -1854,16 +1854,26 @@ def waiting_post_lines(watcher: Watcher, moment: datetime) -> list[str]:
     lines = []
     for channel, words in talk.waiting_posts(watcher.name, data, watcher.cards, moment).items():
         kept = data["slack"]["waiting"].get(channel)
-        if words == (kept["words"] if kept else talk.NO_CARDS):
+        if words != (kept["words"] if kept else talk.NO_CARDS):
+            try:
+                reply = talk.posted(watcher.name, {"edit": kept["message"], "text": words} if kept else {"text": words} | ({} if channel == slack.dm() else {"channel_id": channel}))
+            except (slack.SlackError, state.DriveError) as error:
+                lines += failed(watcher, f"waiting post {channel}", f"post of what waits on him in {channel}", error, moment)
+                continue
+            watcher.failures.pop(f"waiting post {channel}", None)
+            kept = {"message": reply["permalink"], "words": words, "pinned": bool(kept and kept["pinned"])}
+            with state.edit(watcher.name) as saved:
+                saved["slack"]["waiting"][channel] = kept
+        if not kept or kept["pinned"]:
             continue
         try:
-            reply = talk.posted(watcher.name, {"edit": kept["message"], "text": words} if kept else {"text": words} | ({} if channel == slack.dm() else {"channel_id": channel}))
-        except (slack.SlackError, state.DriveError) as error:
-            lines += failed(watcher, f"waiting post {channel}", f"post of what waits on him in {channel}", error, moment)
+            slack.pin(kept["message"])
+        except slack.SlackError as error:
+            lines += failed(watcher, f"waiting pin {channel}", f"pin of the post of what waits on him in {channel}", error, moment)
             continue
-        watcher.failures.pop(f"waiting post {channel}", None)
+        watcher.failures.pop(f"waiting pin {channel}", None)
         with state.edit(watcher.name) as saved:
-            saved["slack"]["waiting"][channel] = {"message": reply["permalink"], "words": words}
+            saved["slack"]["waiting"][channel]["pinned"] = True
     return lines
 
 

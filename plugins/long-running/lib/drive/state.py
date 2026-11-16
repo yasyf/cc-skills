@@ -1217,6 +1217,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     data["slack"].pop("channel", None)
     data["slack"].setdefault("swept", None)
     data["slack"].setdefault("waiting", {})
+    for kept in data["slack"]["waiting"].values():
+        kept.setdefault("pinned", False)
     for job in data["jobs"].values():
         job.pop("may_settle", None)
         for question in job["questions"]:

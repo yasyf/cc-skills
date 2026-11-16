@@ -150,6 +150,11 @@ def group_dm(person: str) -> str:
     return cc_slack("history", "--channel", person, "--limit", "1", "--json")["channel_id"]
 
 
+def pin(link: str) -> None:
+    """Pin the message at link to its conversation as the bot through `cc-slack pin`, which answers ok for a message already pinned."""
+    cc_slack("pin", "--url", link)
+
+
 def withdraw_pr_card(url: str, reason: str, via: str = "") -> list[str]:
     """Withdraw every open card carrying the PR, the reason linked to via, the permalink of his words it quotes, and redraw in place each card on it withdrawn under another reason; each card's permalink."""
     return cc_slack("withdraw-pr-card", "--pr", url, "--reason", reason, *(("--via", via) if via else ()))["withdrawn"]
