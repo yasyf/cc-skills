@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import NamedTuple, Self
 
 from drive import agents, brief, children, codex, dashboard, github, install, land, launchd, limits, orca, page, place, procs, reads, receiver, refs, render, served, settled, slack, stage, stall, state, superseded, superseded_procs, view
-from drive.install import PROOF_FAILED, add_prover, config_dir, done_before_proofs, done_unproven, merged_done, merged_ready, merged_said, product, proof_gap, proofless, proved_prs, prover_of, proves, released_prs, reported_prs, upgraded, watch_proves, widen
+from drive.install import PROOF_FAILED, add_prover, config_dir, done_before_proofs, done_unproven, merged_done, merged_ready, merged_said, product, proof_gap, proofless, proved_prs, prover_of, proves, released_prs, reported_prs, watch_upgraded as upgraded, watch_proves, widen
 from drive.render import cut, when
 
 POLL_SECONDS = 5
@@ -4590,9 +4590,10 @@ def stages(watcher: Watcher, moment: datetime, until: Callable[[], object] = lam
             *(functools.partial(stage, watcher, moment) for stage in (watched_lines, withdrawn_lines, owed_lines)),
         ]
     later += [
+        functools.partial(superseded_lines, watcher, moment),
         functools.partial(event_lines, watcher),
         *(owed_reads(watcher, moment) if lands else []),
-        *(functools.partial(stage, watcher, moment) for stage in (sweep_lines, claim_reply_lines, claim_lines, quiet_lines, clock_lines, undelivered_lines, close_answered, tell_lines, standing_lines, orphan_lines, superseded_lines)),
+        *(functools.partial(stage, watcher, moment) for stage in (sweep_lines, claim_reply_lines, claim_lines, quiet_lines, clock_lines, undelivered_lines, close_answered, tell_lines, standing_lines, orphan_lines)),
     ]
     names = [stage.func.__name__ for stage in later]
     resume, watcher.resume = watcher.resume, None
@@ -4604,10 +4605,10 @@ def stages(watcher: Watcher, moment: datetime, until: Callable[[], object] = lam
 
 
 def superseded_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """End, from the drive's own watch alone, each `drive job prove` and `drive reload --seat` an older install left with no parent, by superseded_procs.end, said in the watch's log, never to a session, since nothing waits on them."""
-    if watcher.project or state.scratch():
+    """End, first in each pass of every watch of the drive, each `drive pr check`, `drive pr wake` and `drive job prove` an older install left with no parent, and from the drive's own watch alone each `drive reload --seat`, whose end starts the drive's reload once, by superseded_procs.end, said in the watch's log, never to a session, since nothing waits on them."""
+    if state.scratch():
         return []
-    for line in superseded_procs.end(watcher.name):
+    for line in superseded_procs.end(watcher.name, not watcher.project):
         print(f"{state.stamp(moment)} {line}", flush=True)
     return []
 

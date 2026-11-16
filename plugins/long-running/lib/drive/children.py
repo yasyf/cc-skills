@@ -2,14 +2,13 @@
 
 import argparse
 import fcntl
-import functools
 import os
 import threading
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 
-from drive import state
+from drive import procs, state
 
 SLOTS = 8
 WAIT_SECONDS = 1.0
@@ -17,22 +16,25 @@ WATCH_PID_ENV = "CLAUDE_LONG_RUNNING_WATCH_PID"
 
 
 def mark_watch() -> None:
-    """Name this process as the watch in the environment each process it starts inherits, so a check or wake it starts directly ends with it."""
-    os.environ[WATCH_PID_ENV] = str(os.getpid())
+    """Name this process, by its pid and start, as the watch in the environment every process it starts inherits, its land and relay loops and what they start included, so each check or wake started under it ends with it."""
+    os.environ[WATCH_PID_ENV] = f"{os.getpid()}:{procs.started(os.getpid())}"
 
 
 def die_with_watch() -> None:
-    """End this process once the watch that started it ends, by a thread that reads its parent each WAIT_SECONDS: a process the watch started directly is reparented once that watch exits, however it exits, and then exits too, its slot freed with it; a process anything else started runs on."""
-    watch = os.environ.get(WATCH_PID_ENV)
-    if not watch or int(watch) != os.getppid():
+    """End this process once the watch it was started under ends, by a thread that reads that watch's start each WAIT_SECONDS, however far below the watch it was started and whether or not it was detached, its slot freed with it, since a pid whose start moved is a process the system handed that pid since; a process no watch started, or the watch itself running a verb in place, runs on."""
+    if not (watch := os.environ.get(WATCH_PID_ENV)):
         return
+    pid, _, started = watch.partition(":")
+    if int(pid) == os.getpid():
+        return
+    ticks = threading.Event()
 
-    def watch_parent() -> None:
-        while os.getppid() == int(watch):
-            time.sleep(WAIT_SECONDS)
+    def watch_alive() -> None:
+        while str(procs.started(int(pid))) == started:
+            ticks.wait(WAIT_SECONDS)
         os._exit(1)
 
-    threading.Thread(target=watch_parent, daemon=True).start()
+    threading.Thread(target=watch_alive, daemon=True).start()
 
 
 @contextmanager
@@ -55,12 +57,17 @@ def slot() -> Iterator[None]:
 
 
 def capped(verb: Callable[[argparse.Namespace], int]) -> Callable[[argparse.Namespace], int]:
-    """Run a drive verb a watch starts per PR, a check or a wake, ending with the watch that started it, and in a slot, so however many watches run, at most SLOTS such verbs load the drive at once."""
+    """Mark a drive verb a watch starts per PR, a check or a wake, for held, which cli.main enters before the verb reads anything of the drive."""
+    verb.capped = True
+    return verb
 
-    @functools.wraps(verb)
-    def run(args: argparse.Namespace) -> int:
-        die_with_watch()
-        with slot():
-            return verb(args)
 
-    return run
+@contextmanager
+def held(verb: Callable[[argparse.Namespace], int]) -> Iterator[None]:
+    """Run a verb capped marks ending with the watch it was started under and in a slot, taken before it parses its PRs or loads the drive, so however many watches and land loops run, at most SLOTS such verbs hold the drive in memory at once and each one waiting costs only the interpreter; any other verb runs as it is."""
+    if not getattr(verb, "capped", False):
+        yield
+        return
+    die_with_watch()
+    with slot():
+        yield

@@ -464,7 +464,7 @@ def test_an_objection_to_a_file_faults_only_the_prs_of_the_stack_changing_it(
     assert [state.load(demo)["prs"][key]["checker"]["faulted"] for key in keys] == [[keys[1]]] * 3
 
 
-def test_the_judge_reads_each_prs_files_at_its_head_from_a_tree_of_its_own_deleted_once_it_answers_and_a_read_claude_code_refused_keeps_its_verdict(
+def test_the_judge_reads_each_prs_files_at_its_head_from_a_tree_kept_for_those_heads_that_a_second_check_reuses_and_a_read_claude_code_refused_keeps_its_verdict(
     demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     clone, other = tmp_path / "clone", "yasyf/cc-skills#7"
@@ -499,9 +499,11 @@ def test_the_judge_reads_each_prs_files_at_its_head_from_a_tree_of_its_own_delet
     assert JUDGE(demo, "his words", changes) == met
     root = seen["root"]
     assert fetched == [(str(clone), key, head) for key, head in heads.items()]
-    assert seen["dirs"] == [str(root)] and seen["tools"] == "Read,Grep,Glob" and not root.exists()
+    assert seen["dirs"] == [str(root)] and seen["tools"] == "Read,Grep,Glob" and root.parent == state.root() / "judge-trees"
     assert seen["files"] == {"Forge-AI-monorepo-42": "export function run() { return !staff(); }\n", "yasyf-cc-skills-7": "def run(): return True\n"}
     assert f'### {KEY} "Fix" at {heads[KEY]}, its tree {root}/Forge-AI-monorepo-42' in str(seen["prompt"])
+    assert JUDGE(demo, "his words", changes) == met
+    assert (seen["root"], len(fetched), [path.name for path in root.parent.iterdir()]) == (root, 2, [root.name])
 
 
 def test_a_stack_whose_middle_pr_writes_the_ruling_into_agents_md_passes_in_its_first_check_since_each_other_pr_counts_that_write_from_the_diff_the_check_just_read(

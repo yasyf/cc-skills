@@ -2,8 +2,10 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
 import tempfile
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -15,6 +17,7 @@ from drive.state import DriveError
 MODEL = "claude-opus-5-5"
 EFFORT = "high"
 JUDGE_SECONDS = 600
+JUDGE_TREES = 8
 CHANGE_CHARS = 80_000
 FILE_CHARS = 12_000
 LEFT_OUT_CHARS = 8_000
@@ -582,18 +585,47 @@ def shown(changes: dict[str, dict], trees: dict[str, str]) -> str:
 
 
 def judged(name: str, said: str, changes: dict[str, dict]) -> dict:
-    """Where a Claude session given only Read, Grep and Glob over each change's tree, its repository's files at its head, fetched into the coordinator's clone and extracted from it with git archive into a temporary directory that is the session's cwd and only --add-dir, deleted once it answers, judges of the change, by RULES, once it has listed each change to what already exists, before and after, reading at the head the code a hunk relies on that its diff does not show, such as a parent PR's lines under a stacked child: `against`, each place it goes against his words, empty when it meets them."""
+    """Where a Claude session given only Read, Grep and Glob over each change's tree, its repository's files at its head, kept for the PRs at those heads by judge_trees, which is the session's cwd and only --add-dir, judges of the change, by RULES, once it has listed each change to what already exists, before and after, reading at the head the code a hunk relies on that its diff does not show, such as a parent PR's lines under a stacked child: `against`, each place it goes against his words, empty when it meets them."""
     clone = state.load(name)["roles"]["coordinator"]["cwd"]
-    with tempfile.TemporaryDirectory(prefix="drive-judge-") as root:
-        trees = {key: tree(clone, key, read["head"], root) for key, read in changes.items()}
-        prompt = f"<his_words>\n{said}\n</his_words>\n\n<change>\n{shown(changes, trees)}\n</change>"
-        return structured(root, RULES, prompt, VERDICT, JUDGE_SECONDS, f"judging {', '.join(changes)} against his words", reads=True)
+    root = judge_trees(clone, changes)
+    trees = {key: str(root / tree_name(key)) for key in changes}
+    prompt = f"<his_words>\n{said}\n</his_words>\n\n<change>\n{shown(changes, trees)}\n</change>"
+    return structured(root, RULES, prompt, VERDICT, JUDGE_SECONDS, f"judging {', '.join(changes)} against his words", reads=True)
+
+
+def judge_trees(clone: str, changes: dict[str, dict]) -> Path:
+    """The folder holding each PR's files at its head, extracted once for those PRs at those heads and kept under the state root's judge-trees, so every check of the same heads, a retry or a check after his answers changed, reads it again with no extraction; built aside and renamed into place, so a second check building it meanwhile keeps the first, and the oldest beyond JUDGE_TREES kept that no check used for twice JUDGE_SECONDS deleted."""
+    trees = state.root() / "judge-trees"
+    kept = trees / hashlib.sha256(json.dumps(sorted((key, read["head"]) for key, read in changes.items())).encode()).hexdigest()[:20]
+    if not kept.is_dir():
+        trees.mkdir(parents=True, exist_ok=True)
+        building = Path(tempfile.mkdtemp(prefix="drive-judge-", dir=trees))
+        try:
+            for key, read in changes.items():
+                tree(clone, key, read["head"], str(building))
+            building.rename(kept)
+        except OSError:
+            if not kept.is_dir():
+                raise
+        finally:
+            if building.exists():
+                shutil.rmtree(building)
+    os.utime(kept)
+    stale = sorted((path for path in trees.iterdir() if path.is_dir() and not path.name.startswith("drive-judge-")), key=lambda path: path.stat().st_mtime, reverse=True)[JUDGE_TREES:]
+    for path in stale:
+        if time.time() - path.stat().st_mtime >= 2 * JUDGE_SECONDS:
+            shutil.rmtree(path, ignore_errors=True)
+    return kept
+
+
+def tree_name(key: str) -> str:
+    return key.replace("/", "-").replace("#", "-")
 
 
 def tree(clone: str, key: str, head: str, root: str) -> str:
     """The directory under root holding the PR's files at its head, fetched into the clone, by fetched, and extracted from its objects with git archive."""
     fetched(clone, key, head)
-    path = Path(root, key.replace("/", "-").replace("#", "-"))
+    path = Path(root, tree_name(key))
     path.mkdir()
     with subprocess.Popen(["git", "-C", clone, "archive", head], stdout=subprocess.PIPE) as archive:
         subprocess.run(["tar", "-x", "-C", str(path)], stdin=archive.stdout, check=True)
