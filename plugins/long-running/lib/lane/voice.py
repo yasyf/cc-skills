@@ -62,8 +62,8 @@ def send(drive: str, lane: dict, text: str) -> str:
 
 
 def asked_thread(lane: dict) -> str:
-    """The thread a post of a lane with no thread of its own goes in: that of his newest ask, the thread his message sat in or the one under it, so the lane answers him where he asked, never at the channel's root; the root when he has asked nothing."""
-    if not (asks := [ask for ask in lane.get("asks") or [] if ask.get("ts") and f"/archives/{lane['channel']}/" in (ask.get("link") or "")]):
+    """The thread a post of a lane with no thread of its own goes in: a reply to his newest ask the lane has not answered goes in that ask's thread, where he asked, and news nobody asked for goes at the channel's root, by his words "for prio lanes most things that aren't immediate replies to the thread or directly relevant should be channel messages"."""
+    if not (asks := [ask for ask in lane.get("asks") or [] if ask.get("ts") and not ask.get("replied") and f"/archives/{lane['channel']}/" in (ask.get("link") or "")]):
         return ""
     newest = max(asks, key=lambda ask: float(ask["ts"]))
     return (found[1] if (found := THREAD_OF.search(newest.get("link") or "")) else None) or newest["ts"]

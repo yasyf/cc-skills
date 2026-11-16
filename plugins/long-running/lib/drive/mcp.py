@@ -18,10 +18,10 @@ from typing import TextIO
 import drive
 from drive import cli, reads, state, tools
 from drive.install import config_dir, installed
-from lane import voice
 
 PLUGIN = "long-running@skills"
 PLUGIN_ROOT = Path(__file__).resolve().parents[2]
+LANE_ENV = "LONG_RUNNING_LANE"
 CALL_SECONDS = 180
 TOOL_USE_META = "claudecode/toolUseId"
 OWN_DRIVE = str(PLUGIN_ROOT / "bin" / "drive")
@@ -29,6 +29,8 @@ LISTED: dict[str, str] = {}
 CALLS: dict[int | str, "subprocess.Popen | WarmCall"] = {}
 WARM: dict[str, "Warm"] = {}
 WARMING = threading.Lock()
+VOICE: dict = {}
+VOICING = threading.Lock()
 KILL_SECONDS = 10
 WARM_IDLE = 600
 WARM_CHECK = 60
@@ -286,8 +288,8 @@ def respond(request: dict, stdout: TextIO, writing: threading.Lock) -> None:
         case "tools/list":
             LISTED["drive"] = newest_drive()
             reply["result"] = {"tools": listed(LISTED["drive"])}
-        case "tools/call" if request["params"]["name"] == "say" and (owner := voice.own_lane()):
-            reply["result"] = {"content": [{"type": "text", "text": voice.owner_say(*owner, request["params"].get("arguments") or {})}]}
+        case "tools/call" if request["params"]["name"] == "say" and os.environ.get(LANE_ENV):
+            reply["result"] = {"content": [{"type": "text", "text": (voice := newest_voice()).owner_say(*voice.own_lane(), request["params"].get("arguments") or {})}]}
         case "tools/call":
             result = call(request["id"], request["params"]["name"], ticketed(request["params"]))
             if result is None:
@@ -559,6 +561,18 @@ def forked(request: dict, woken: int, wake: int) -> None:
         sys.stdout.flush()
         sys.stderr.flush()
         os._exit(code)
+
+
+def newest_voice():
+    """The newest install's lane.voice, imported afresh whenever an install lands, so a long-lived owner session posts through the voice code installed now, as every other verb runs the newest drive: the server's own lane modules are dropped and the newest install's lib leads the path."""
+    lib = str(Path(newest_drive()).parents[1] / "lib")
+    with VOICING:
+        if VOICE.get("lib") != lib:
+            for name in [name for name in sys.modules if name == "lane" or name.startswith("lane.")]:
+                del sys.modules[name]
+            sys.path[:] = [lib, *(entry for entry in sys.path if entry != VOICE.get("lib"))]
+            VOICE.update(lib=lib, module=importlib.import_module("lane.voice"))
+        return VOICE["module"]
 
 
 def newest_drive() -> str:
