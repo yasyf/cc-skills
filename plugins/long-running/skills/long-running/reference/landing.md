@@ -547,7 +547,10 @@ hook refuses `--admin`, and on a drive PR `gh pr merge`, the merge API or a `mer
 incident fix lands as [incidents.md](incidents.md) says.
 
 **Every red on your PR is yours**, whether your change or `dev` caused it, and while it waits on his tap
-too. First read the same check on `dev`'s newest run: a red `dev` shows too is inherited, and `dev`'s
+too. A GitHub Actions job that failed on its run's first attempt at its checkout, before any step ran the
+PR's code, is the one red no builder owes: the watch reruns that run once with `gh run rerun --failed`
+and reads the PR grading meanwhile, and a checkout failing again on the rerun reads red as any failure.
+First read the same check on `dev`'s newest run: a red `dev` shows too is inherited, and `dev`'s
 own gate is a gate of the drive's, so the first job to meet an inherited red names the merge on `dev`
 whose run first failed it, then finds the PR fixing it (`drive status`, `cci who --pr`) or opens that
 fix itself, one owner for every PR it blocks. Fix your own; for an

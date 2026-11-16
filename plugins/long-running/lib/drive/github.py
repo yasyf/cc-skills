@@ -241,6 +241,13 @@ def job_log(repo: str, job: int) -> str:
     return read(f"{repo}'s job {job} log", ["gh", "api", f"repos/{repo}/actions/jobs/{job}/logs"])
 
 
+def failed_at_checkout(repo: str, job: int) -> bool:
+    """Whether a GitHub Actions job failed on its run's first attempt at a checkout, before any step could run what the checkout fetches: the first of its steps that failed names a checkout, as actions/checkout's unnamed step reads "Run actions/checkout@<sha>"; an ended job's record never changes, so a read of it within the hour answers."""
+    ran = json.loads(read(f"{repo}'s job {job}", ["gh", "api", f"repos/{repo}/actions/jobs/{job}"], max_age="1h"))
+    first = next((step["name"] for step in ran["steps"] if step["conclusion"] == "failure"), "")
+    return ran["run_attempt"] == 1 and "checkout" in first.casefold()
+
+
 def failed_tests(log: str) -> set[str]:
     """Each test a GitHub Actions job's log names failing: each node id pytest's short test summary says FAILED or ERROR, and each test go test says `--- FAIL:` of, plainly or inside `go test -json` output."""
     return {found["pytest"] or found["go"] for found in FAILED_TEST.finditer(log)}

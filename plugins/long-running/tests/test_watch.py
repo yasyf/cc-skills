@@ -38,6 +38,8 @@ GATE = "LTX Behavioral Gate (short)"
 RUNNING = [{"name": "test", "conclusion": None}]
 GREEN = [{"name": "test", "conclusion": "SUCCESS"}]
 RED = [{"name": "test", "conclusion": "FAILURE"}]
+CHECKOUT_FAILED = [{"name": "Set up job", "conclusion": "success"}, {"name": "Run actions/checkout@3d3c42e5", "conclusion": "failure"}, {"name": "Label the PR", "conclusion": "failure"}]
+TEST_FAILED = [{"name": "Set up job", "conclusion": "success"}, {"name": "Run actions/checkout@3d3c42e5", "conclusion": "success"}, {"name": "Run tests", "conclusion": "failure"}]
 ASKED = "Should Iris, desktop and the sand CLI show sign-in when an api session expires?"
 REPORTED = "https://acme.slack.com/archives/C0REPORTS01/p1794400100000200"
 BOX_GOAL = "test runs on the new tree on the devbox under key o2-codex-box, round after round"
@@ -808,6 +810,36 @@ def test_a_delivery_of_a_failed_check_is_said_in_the_pass_it_wakes(demo: str, mo
     assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == []
     deliver("check_run", checked(42))
     assert watch.run_pass(watching, T0 + timedelta(seconds=10)) == [f"PR {KEY}: checks failed [o1 j1]"]
+
+
+@pytest.mark.parametrize(
+    ("jobs", "rerun"),
+    [
+        ({70: (1, CHECKOUT_FAILED)}, True),
+        ({70: (2, CHECKOUT_FAILED)}, False),
+        ({70: (1, TEST_FAILED)}, False),
+        ({70: (1, CHECKOUT_FAILED), 71: (1, TEST_FAILED)}, False),
+    ],
+)
+def test_a_github_actions_run_whose_every_failed_job_failed_at_its_checkout_on_its_first_attempt_is_rerun_once_and_reads_grading_waking_no_builder(
+    demo: str, monkeypatch: pytest.MonkeyPatch, jobs: dict[int, tuple[int, list[dict]]], rerun: bool
+) -> None:
+    ran = []
+
+    def answer(cmd: list[str], **_: object) -> str:
+        ran.append(cmd)
+        if cmd[1] != "api":
+            return ""
+        attempt, steps = jobs[int(cmd[2].rsplit("/", 1)[1])]
+        return json.dumps({"run_attempt": attempt, "steps": steps})
+
+    monkeypatch.setattr(github, "run", answer)
+    failed = [{"name": f"pr-events {job}", "conclusion": "FAILURE", "detailsUrl": f"https://github.com/Forge-AI/monorepo/actions/runs/7/job/{job}", "workflowName": "PR Events"} for job in jobs]
+    serve(monkeypatch, {KEY: read(checks=[*GREEN, *failed])})
+    lines = watch.github_lines(watcher(demo), T0)
+    assert [cmd for cmd in ran if cmd[1] == "run"] == ([["gh", "run", "rerun", "7", "--failed", "-R", "Forge-AI/monorepo"]] if rerun else [])
+    assert lines == [f"PR {KEY}: reran PR Events, whose checkout failed before any of its code ran [o1 j1]" if rerun else f"PR {KEY}: checks failed [o1 j1]"]
+    assert stage.of(state.load(demo), KEY, NO_CARDS).name == ("grading" if rerun else "red")
 
 
 def test_a_builders_pushed_owes_a_read_of_each_pr_it_names_github_has_not_answered_for_since_the_take(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -10776,12 +10808,14 @@ def test_reported_yasyf_prs_start_no_lander_while_a_check_runs_as_4755_did_and_o
     demo: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]], woken: list[tuple[str, str]]
 ) -> None:
     reads = replayed(demo, monkeypatch, {"yasyf/cc-skills#4756": [long_running_test("FAILURE") | {"detailsUrl": f"{CC_SKILLS_RUNS}/43376582331/job/3"}, SOCKET]})
-    logs = {
+    answers = {
+        "repos/yasyf/cc-skills/actions/jobs/1": json.dumps({"run_attempt": 1, "steps": TEST_FAILED}),
         "repos/yasyf/cc-skills/actions/jobs/1/logs": checked_out_4755(pytest_failed("t.py::a")),
         "repos/yasyf/cc-skills/actions/jobs/2/logs": pytest_failed("t.py::b"),
+        "repos/yasyf/cc-skills/actions/jobs/3": json.dumps({"run_attempt": 1, "steps": TEST_FAILED}),
         "repos/yasyf/cc-skills/actions/jobs/3/logs": checked_out_4755(pytest_failed("t.py::b")),
     }
-    monkeypatch.setattr(github, "run", lambda cmd, **_: branch_history([("ran", "FAILURE")]) if cmd[2] == "graphql" else logs[cmd[2]])
+    monkeypatch.setattr(github, "run", lambda cmd, **_: branch_history([("ran", "FAILURE")]) if cmd[2] == "graphql" else answers[cmd[2]])
     watching = watcher(demo)
     for minute in (0, 1, 9):
         watch.run_pass(watching, T0 + timedelta(minutes=minute))

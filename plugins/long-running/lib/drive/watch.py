@@ -2,6 +2,7 @@ import collections
 import contextlib
 import functools
 import hashlib
+import itertools
 import json
 import mmap
 import os
@@ -234,8 +235,30 @@ def judged(data: dict, reads: dict[str, dict]) -> tuple[dict[str, dict], dict[st
     return owns, misjudged
 
 
+def reran(data: dict, reads: dict[str, dict]) -> list[str]:
+    """Rerun once, with gh run rerun --failed, each GitHub Actions run on an open PR's head whose every failed job failed on the run's first attempt at its checkout, by github.failed_at_checkout, since no step ran the PR's code there and its builder has nothing to fix, and read those jobs queued, so the PR's checks read pending and its stage grading, waking no builder; a checkout that fails again on the rerun reads red, owed by its builder, as any failure does. A job read or rerun GitHub refused leaves the run red, said."""
+    lines = []
+    for key, read in reads.items():
+        if read["state"] != "OPEN":
+            continue
+        failed = sorted((check for check in github.counted(read["checks"]) if github.outcome(check) in github.FAILED and github.job_of(check)), key=github.run_of)
+        for (workflow, run_id), jobs in itertools.groupby(failed, key=github.run_of):
+            jobs = list(jobs)
+            try:
+                if not all(github.failed_at_checkout(github.repo_of(key), github.job_of(check)) for check in jobs):
+                    continue
+                github.run(["gh", "run", "rerun", run_id, "--failed", "-R", github.repo_of(key)])
+            except github.GithubError as error:
+                lines.append(f"WATCH {key}'s failed {workflow} run {run_id} stays red, since GitHub refused its read or rerun: {error}")
+                continue
+            for check in jobs:
+                check["conclusion"] = None
+            lines.append(f"PR {key}: reran {workflow}, whose checkout failed before any of its code ran {ids(data['prs'][key])}")
+    return lines
+
+
 def github_lines(watcher: Watcher, moment: datetime, polled: bool = False) -> list[str]:
-    """Read from GitHub each heard unmerged PR the watch owes a read, and say what changed on each. It reads whole every one at a watch's start that no watch before it handed its owed reads to from the same GitHub query, by state.take_held_reads, so a field a new install reads fills on every row, then each a delivery named, each open one on a repository the receiver holds no hook for on each READ_EVERY pass, polled, ahead of that pass's stage_lines, since no delivery ever says it changed, each never asked for, each any waiting builder's PUSHED names unread since its take, whichever watch hears that builder, each folded into another open PR's branch, beside the PR it folded into, every pass until that PR lands or closes, and again each whose read GitHub refused, a read of an open yasyf/* PR failing a check carrying the watch's verdict on whether its own change fails it, by judged(), and refused when GitHub would not give that verdict. Of each open PR a push to its base named, and each whose mergeability GitHub had not worked out yet, since no delivery says when it has, it reads only the state, head and mergeability, by github.mergeability, saying a conflict that read starts, and reads whole in the same call each that read finds moved or ended. A PR GitHub answered nothing for stays stale, as its stage does, until a read answers for it. In the same call it reads each PR the drive does not track that carries a stopped builder's parts or that a live job keeps or waits on, by state.carrier_keys, once until GitHub answers for it and again each time a delivery names it, keeping only GitHub's state of it on the watcher for job_gap and out_because, and saying nothing of it. What it still owes is kept on the watcher only once the reads are saved, so a pass that ends before then hands the next watch the reads it owed. Once they are saved it redraws in place, by redraw_lines, his card on each PR it read that the read left drawn stale, so a read that turns a PR green takes "CI passes" off his card in the same pass, never at the next pass's redraw_lines minutes later."""
+    """Read from GitHub each heard unmerged PR the watch owes a read, and say what changed on each. It reads whole every one at a watch's start that no watch before it handed its owed reads to from the same GitHub query, by state.take_held_reads, so a field a new install reads fills on every row, then each a delivery named, each open one on a repository the receiver holds no hook for on each READ_EVERY pass, polled, ahead of that pass's stage_lines, since no delivery ever says it changed, each never asked for, each any waiting builder's PUSHED names unread since its take, whichever watch hears that builder, each folded into another open PR's branch, beside the PR it folded into, every pass until that PR lands or closes, and again each whose read GitHub refused, a read of an open PR whose GitHub Actions run failed only at its checkout rerunning that run and reading it queued, by reran(), a read of an open yasyf/* PR failing a check carrying the watch's verdict on whether its own change fails it, by judged(), and refused when GitHub would not give that verdict. Of each open PR a push to its base named, and each whose mergeability GitHub had not worked out yet, since no delivery says when it has, it reads only the state, head and mergeability, by github.mergeability, saying a conflict that read starts, and reads whole in the same call each that read finds moved or ended. A PR GitHub answered nothing for stays stale, as its stage does, until a read answers for it. In the same call it reads each PR the drive does not track that carries a stopped builder's parts or that a live job keeps or waits on, by state.carrier_keys, once until GitHub answers for it and again each time a delivery names it, keeping only GitHub's state of it on the watcher for job_gap and out_because, and saying nothing of it. What it still owes is kept on the watcher only once the reads are saved, so a pass that ends before then hands the next watch the reads it owed. Once they are saved it redraws in place, by redraw_lines, his card on each PR it read that the read left drawn stale, so a read that turns a PR green takes "CI passes" off his card in the same pass, never at the next pass's redraw_lines minutes later."""
     data = state.load(watcher.name)
     pushed = {key for job_id, job in data["jobs"].items() if awaits_checks(job) for key in state.unread_since_take(data, job_id)}
     heard = [key for key in state.unmerged_pr_keys(data) if hears(watcher, data, data["prs"][key]["order"])]
@@ -260,6 +283,7 @@ def github_lines(watcher: Watcher, moment: datetime, polled: bool = False) -> li
     keys = [*owed, *(key for key in remerge if key in moved)]
     reads, refused = github.fetch([*keys, *carried], {key: into for key in keys if (into := data["prs"][key]["into"])}) if keys or carried else ({}, None)
     carrying = {key: github.landing(reads.pop(key))["state"] for key in carried if key in reads}
+    reruns = reran(data, reads)
     owns, misjudged = judged(data, reads)
     if misjudged:
         reads = {key: read for key, read in reads.items() if key not in misjudged}
@@ -270,7 +294,7 @@ def github_lines(watcher: Watcher, moment: datetime, polled: bool = False) -> li
     merging = (unanswered if unmerged else set()) | {key for key, read in reads.items() if read["mergeable"] == "UNKNOWN"} | {key for key, read in merged.items() if key not in moved and read["mergeable"] == "UNKNOWN"}
     stale = watcher.stale - set(reads) | unread
     failure = "; ".join(str(error) for error in (unmerged, refused) if error)
-    lines = read_failed(watcher, "github", github.GithubError(failure), moment) if failure else []
+    lines = [*reruns, *(read_failed(watcher, "github", github.GithubError(failure), moment) if failure else [])]
     if not failure:
         watcher.failures.pop("github", None)
     foreign, redraws = {}, []
