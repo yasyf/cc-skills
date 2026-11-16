@@ -289,6 +289,13 @@ def unannounced(name: str) -> list[tuple[dict, str, dict]]:
     return due
 
 
-def announce(name: str, slug: str, laid: str, layout: dict) -> None:
-    """Keep the layout, basis and tone he was last sent of a page, which unannounced weighs the next compose against."""
-    seen_path(name, slug).write_text(json.dumps({"laid": laid, "basis": layout["basis"], "tone": layout["glance"]["tone"]}) + "\n")
+def announce(name: str, slug: str, laid: str, layout: dict, posted: bool = True) -> None:
+    """Keep the layout, basis and tone of a page's newest compose, which unannounced weighs the next compose against, and the glance he was last posted, kept from the last post when this one was skipped, which the next post's writer weighs as what he already knows."""
+    shown = layout["glance"] if posted else last_sent(name, slug)
+    seen_path(name, slug).write_text(json.dumps({"laid": laid, "basis": layout["basis"], "tone": layout["glance"]["tone"], "glance": shown}) + "\n")
+
+
+def last_sent(name: str, slug: str) -> dict | None:
+    """The glance of the page he was last posted, None before his first."""
+    seen = seen_path(name, slug)
+    return json.loads(seen.read_text()).get("glance") if seen.is_file() else None

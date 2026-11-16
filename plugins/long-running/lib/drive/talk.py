@@ -101,6 +101,12 @@ A line saying work he asked for is live, or an incident he was told about is ove
 {"skip": "<why>"} when it holds no news for him, or asks the poster to decide or do something besides posting, such as answer a teammate, or is a progress line that neither answers a message of his, nor is on an incident, nor is on a cadence order he set, nor reports a finding or the regular progress of work he explicitly asked for (his 03:40 rule: each finding as it happens, a progress line about every 30 minutes), which goes as FYI; the why goes back to its writer, so name the rule it broke; else
 {"text": "<the post>", "place": "thread" | "root" | "edit", "blocks": [<Block Kit blocks>], "visuals": [<visuals>]}, blocks and visuals optional.
 
+A page report (its facts name a "page", and "last_posted_to_him" is the glance he was last posted of it, null before the first): post only when the page's status or next step changed, since that last post, in a way he acts on or would want to know; otherwise skip, as the dashboard already shows the page. A plain repeat of the same status, reworded or recounted, is never news. For example:
+- last "36 PRs and 20 picks wait on you; approve 20 PRs, then make three picks", now "approve the 18 ready PRs, then make three picks": skip, the same asks in new words.
+- a "changed" reading "Nothing new needs you since you last looked": skip.
+- last "36 PRs and 20 picks wait on you", now "the release is blocked: its staging check failed, and its re-run needs your tap": post, a new step for him.
+- last "waiting on your pick of the writer handover", now "all its orders are done and live": post, its state changed.
+
 Where it goes:
 - A reply to his message goes in his message's thread. News nobody asked for goes at the root of its project's channel. A line on an order's own subject goes in the thread its record's thread attr names. A PR card for an incident's fix also goes in the incident's thread.
 - "thread": in the thread the report names, a direct follow-up on its subject. "root": a new update, a release step or a decision at the channel's root. "edit": a correction rewords the post it corrects, in that post's own place, keeping its subject; a correction that adds news rather than fixing words goes "thread", under the post it corrects.

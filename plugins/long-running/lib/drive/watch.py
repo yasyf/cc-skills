@@ -3017,13 +3017,13 @@ def applet_lines(watcher: Watcher, moment: datetime) -> list[str]:
             "attr": {"order": order_id} | ({"channel": made["id"]} if made else {}),
             "topic": f"page-{page_shown['slug']}",
             "id": f"page-{page_shown['slug']}-{laid}",
-            "body": json.dumps({"page": page_shown["slug"], "glance": glance, "changed_for_him": layout["changed_for_him"]}, indent=1) + "\n",
+            "body": json.dumps({"page": page_shown["slug"], "glance": glance, "changed_for_him": layout["changed_for_him"], "last_posted_to_him": applet.last_sent(watcher.name, page_shown["slug"])}, indent=1) + "\n",
         }
         try:
-            milestone(watcher, record, words)
+            posted = milestone(watcher, record, words)
         except (slack.SlackError, state.DriveError) as error:
             return failed(watcher, f"page {page_shown['slug']}", f"post sending him the page {page_shown['slug']}", error, moment)
-        applet.announce(watcher.name, page_shown["slug"], laid, layout)
+        applet.announce(watcher.name, page_shown["slug"], laid, layout, posted=not posted.startswith("SKIPPED"))
         watcher.failures.pop(f"page {page_shown['slug']}", None)
     return []
 

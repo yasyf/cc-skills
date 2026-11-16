@@ -609,3 +609,6 @@ def test_a_page_reaches_him_once_when_first_composed_and_again_only_when_what_it
     assert applet.unannounced(demo) == []
     laid("changed.json", 3, basis=asks | {"questions": ["https://x.slack.com/archives/D1/p1"]}, changed_for_him="A decision now waits on you")
     assert [file for page, file, layout in applet.unannounced(demo)] == ["changed.json"]
+    assert applet.last_sent(demo, "run-page") == glance
+    applet.announce(demo, "run-page", "changed.json", layout | {"glance": glance | {"status": "Blocked on you: 28 approvals"}}, posted=False)
+    assert applet.last_sent(demo, "run-page") == glance
