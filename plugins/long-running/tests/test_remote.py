@@ -6175,6 +6175,7 @@ def test_marking_lane_mail_read_checks_the_run_until_it_returns_none_as_the_bind
     with state.edit(remote) as data:
         data["terminal"] = DRIVE_TERMINAL
     REAL_MARK_READ(remote, RUN)
+    replies[(RUN, BINDER_TERMINAL)] = [{"messages": []}]
     REAL_MARK_READ(remote, "run_gone")
     assert asked == [
         ("check", "--run", RUN, DRIVE_TERMINAL),
@@ -6183,6 +6184,8 @@ def test_marking_lane_mail_read_checks_the_run_until_it_returns_none_as_the_bind
         ("check", "--run", RUN, BINDER_TERMINAL),
         ("check", "--run", "run_gone", DRIVE_TERMINAL),
     ]
+    REAL_MARK_READ(remote, RUN)
+    assert asked[5:] == [("run-use", "--id", RUN, BINDER_TERMINAL), ("check", "--run", RUN, BINDER_TERMINAL)]
 
 
 @pytest.mark.parametrize(

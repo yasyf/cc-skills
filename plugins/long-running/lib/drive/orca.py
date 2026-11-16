@@ -40,6 +40,7 @@ RECLAIM_SECONDS = 300
 WAKE_SECONDS = 90
 MAIL_LIMIT = 100
 MARK_BATCHES = 20
+FENCED_RUNS: set[str] = set()
 DRAIN_LIMIT = 50000
 FENCED = "consumer_fenced"
 RUN_NOT_FOUND = "run_not_found"
@@ -939,14 +940,21 @@ def mail(after: int | None) -> list[dict]:
 def mark_read(drive: str, run: str) -> int | None:
     """Mark the Run's unread mail read with consuming checks, once the watch took that mail by mail, whose read ignores the read flag, so nothing the drive reads is lost: as the drive's own terminal, named by the handle the drive records, never by this process's environment, which a watch whose speak_as_drive failed leaves unset, or, for a Run Orca fences because that terminal does not hold it, as binder_terminal once binder binds the Run there, as an answer goes; at most MARK_BATCHES batches, the next pass marking the rest, and none for a Run Orca no longer keeps: how many messages it marked, or None for that gone Run."""
     try:
-        return marked(run, state.load(drive)["terminal"])
+        if run not in FENCED_RUNS:
+            return marked(run, state.load(drive)["terminal"])
     except OrcaError as error:
         if error.code == RUN_NOT_FOUND:
             return None
         if error.code != FENCED:
             raise
+        FENCED_RUNS.add(run)
+    try:
         with binder(drive, run) as terminal:
             return marked(run, terminal)
+    except OrcaError as error:
+        if error.code == RUN_NOT_FOUND:
+            return None
+        raise
 
 
 def marked(run: str, caller: str | None = None) -> int:

@@ -477,6 +477,7 @@ def drive_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
     """Every drive speaks to Orca as the terminals of its own it already keeps, never ones Orca opens for the test."""
     monkeypatch.setattr(orca, "drive_terminal", lambda drive: DRIVE_TERMINAL)
     monkeypatch.setattr(orca, "binder_terminal", lambda drive: BINDER_TERMINAL)
+    monkeypatch.setattr(orca, "FENCED_RUNS", set())
 
 
 @pytest.fixture(autouse=True)
