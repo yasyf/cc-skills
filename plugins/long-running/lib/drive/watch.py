@@ -4288,8 +4288,10 @@ def safeguard_lines(watcher: Watcher, refusals: dict[str, tuple[str, dict, str |
                 job.update(state="stopped", said=said, safeguard_card=str(safeguard_ask(watcher.name, data, job_id)), updated=state.stamp(moment))
                 steps.append((
                     job_id,
-                    f"LANE {job_id} {job['order']} {said}: the watch set it stopped and asks him on his card. His Restart tap restarts it in a fresh session with no step of yours,"
-                    " and Leave it stopped keeps it stopped",
+                    (
+                        f"LANE {job_id} {job['order']} {said}: the watch set it stopped and asks him on his card. His Restart tap restarts it in a fresh session with no step of yours,"
+                        " and Leave it stopped keeps it stopped"
+                    ),
                 ))
                 continue
             if stop["tries"] and moment - state.parse_time(stop["at"]) < RELAUNCH_RETRY:
