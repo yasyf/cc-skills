@@ -228,7 +228,7 @@ def off_sprite(drive: str, job_id: str, paths: list[str]) -> dict[str, str]:
     from drive import orca
 
     into = sprite_folder(drive, job_id)
-    orca.take_off_sprite(state.load(drive)["jobs"][job_id]["workspace"], paths, into)
+    orca.take_off_sprite(drive, state.load(drive)["jobs"][job_id]["workspace"], paths, into)
     return {path: str(into / path.lstrip("/")) for path in paths}
 
 

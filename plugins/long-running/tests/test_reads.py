@@ -655,7 +655,7 @@ def test_a_drive_question_whose_block_shows_a_picture_on_its_sprite_runs_on_a_co
     (sprite / shot.lstrip("/")).write_bytes(b"png bytes")
     ssh = []
 
-    def on_sprite(workspace: str, command: str, given: bytes, seconds: float) -> subprocess.CompletedProcess:
+    def on_sprite(drive: str, workspace: str, command: str, given: bytes, seconds: float) -> subprocess.CompletedProcess:
         ssh.append(workspace)
         login = "echo '/home/sprite/.bashrc: line 22: bind: warning: line editing not enabled' >&2"
         return subprocess.run(f"{login}; {command.replace('-C /', f'-C {sprite}', 1)}", shell=True, capture_output=True, check=False)
@@ -684,7 +684,7 @@ def test_a_drive_question_keeping_a_report_copies_the_proof_file_its_repro_line_
     proof = "/home/sprite/scratch/j7/proof.sh"
     (sprite / proof.lstrip("/")).parent.mkdir(parents=True)
     (sprite / proof.lstrip("/")).write_text("#!/bin/sh\nexit 0\n")
-    monkeypatch.setattr(orca, "on_sprite", lambda workspace, command, given, seconds: subprocess.run(command.replace("-C /", f"-C {sprite}", 1), shell=True, capture_output=True, check=False))
+    monkeypatch.setattr(orca, "on_sprite", lambda drive, workspace, command, given, seconds: subprocess.run(command.replace("-C /", f"-C {sprite}", 1), shell=True, capture_output=True, check=False))
     monkeypatch.setattr(state, "load", lambda name: {"jobs": {"j7": {"workspace": "pool-one"}}})
     reads.DRIVE_BIN.write_text('#!/bin/sh\nproof=$(sed -n "s/^REPRO: \\([^,]*\\).*/\\1/p")\necho "$proof"\ncat "$proof"\n')
     copy = state_root / "demo" / "scratch" / "j7" / "sprite" / proof.lstrip("/")
@@ -704,7 +704,7 @@ def test_a_drive_question_copies_no_picture_off_its_sprite_for_text_that_only_na
     words: str, sent: dict, passed: str, fake_drive: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     fake_drive.mkdir()
-    monkeypatch.setattr(orca, "on_sprite", lambda *args: pytest.fail(f"copied off the Sprite: {args[1]}"))
+    monkeypatch.setattr(orca, "on_sprite", lambda *args: pytest.fail(f"copied off the Sprite: {args[2]}"))
     said = reads.answer(f"DRIVE {words}\n{json.dumps(sent)}", fake_drive, "demo", "j7")
     assert said.startswith("drive exited 3\n")
     assert passed.rstrip("\n") in said
