@@ -399,6 +399,12 @@ RESTACK = restack.restack
 
 
 @pytest.fixture(autouse=True)
+def hands_off_at_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every watch ends for a newer install at its first pass boundary, never waiting out HAND_OFF_EVERY, outside the test of that wait."""
+    monkeypatch.setattr(watch, "HAND_OFF_EVERY", timedelta(0))
+
+
+@pytest.fixture(autouse=True)
 def restacks(monkeypatch: pytest.MonkeyPatch) -> None:
     """No watch pass restacks a stack outside the tests that call RESTACK, since each would fetch its branches from GitHub."""
     monkeypatch.setattr(restack, "restack", lambda name, keys, seen: [])

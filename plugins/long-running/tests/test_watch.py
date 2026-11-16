@@ -3279,7 +3279,7 @@ def spied(monkeypatch: pytest.MonkeyPatch, names: tuple[str, ...]) -> list[str]:
     return ran
 
 
-def test_a_watch_that_finds_a_newer_install_between_two_stages_of_a_pass_after_its_first_ends_before_the_next_and_the_watch_on_that_install_runs_only_the_stages_it_had_not(
+def test_a_watch_that_finds_a_newer_install_between_two_stages_of_a_pass_runs_that_pass_to_its_end_and_ends_before_the_next(
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     serve(monkeypatch, {})
@@ -3299,12 +3299,17 @@ def test_a_watch_that_finds_a_newer_install_between_two_stages_of_a_pass_after_i
     monkeypatch.setattr(watch.time, "sleep", lambda seconds: None)
     launched(monkeypatch, demo)
     assert watch.main(demo) == 0
-    assert (ran, state.resume_path(demo).read_text()) == (["settle_lines", "release_lanes", "standing_lines", "settle_lines"], "release_lanes")
-    assert f"ended on long-running {state.VERSION} for {install}, before release_lanes" in capsys.readouterr().out.splitlines()
-    ran.clear()
-    newer.clear()
-    run_watch(demo, monkeypatch)
-    assert (ran, state.resume_path(demo).exists()) == (["release_lanes", "standing_lines"], False)
+    assert (ran, state.resume_path(demo).exists()) == (["settle_lines", "release_lanes", "standing_lines"] * 2, False)
+    assert f"ended on long-running {state.VERSION} for {install}, before its next pass" in capsys.readouterr().out.splitlines()
+
+
+def test_a_watch_hands_off_to_a_newer_install_only_once_it_ran_hand_off_every_or_while_an_incident_is_open(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(watch, "HAND_OFF_EVERY", timedelta(minutes=10))
+    watching = watcher(demo)
+    assert (watch.handing_off(watching, 599.0), watch.handing_off(watching, 600.0)) == (False, True)
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["incident"] = True
+    assert watch.handing_off(watching, 0.0) is True
 
 
 def test_a_held_resume_naming_no_stage_of_this_install_runs_the_whole_pass(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
