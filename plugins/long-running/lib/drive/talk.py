@@ -155,7 +155,7 @@ def report_line(name: str, seq: str) -> str:
     if findings := slack.post_findings(text, bool(made.get("blocks")) and "{card:" in text):
         text = fixes.mended(text, findings, state.now())
     shown = {"text": text} | {key: made[key] for key in ("blocks", "visuals") if made.get(key)}
-    if made.get("place") == "edit":
+    if made.get("place") == "edit" or report["kind"] == "correction" and state.CARD_LINK.search(corrected):
         if not corrected.startswith("https://"):
             raise DriveError(f"it corrects report {report.get('re')}, which went out in no post")
         return spoken(name, shown | {"edit": corrected, "record": seq}, known)
@@ -168,11 +168,32 @@ def report_line(name: str, seq: str) -> str:
 
 
 def edited(channel: str | None, ts: str | None, thread: str | None) -> str:
-    """The permalink of the post a report's edit attr names by its ts in the report's channel, the post its words reword; empty with no edit attr or channel."""
+    """The permalink of the post a report's edit attr names, as a permalink kept as given or by its ts in the report's channel, the post its words reword; empty with no edit attr or channel."""
+    if ts and ts.startswith("https://"):
+        return ts
     if not (ts and channel):
         return ""
     query = f"?thread_ts={thread}&cid={channel}" if thread and thread != ts else ""
     return f"{slack.whoami()['team_url']}archives/{channel}/p{ts.replace('.', '')}{query}"
+
+
+def handed_posts(data: dict, seq: str | None, place: tuple[str, str] | None) -> list[str]:
+    """The reports handed to the communicator to post outside the drive's channels that this post carries: the one it names as its record, or any whose channel and thread it posts in, since the communicator may post one before its note reaches it, by meta's rule that every path posting a POST records its outcome."""
+    handed = data["posts"].get("handed", {})
+    return [held for held, where in handed.items() if held == seq or place and place[0] == where["channel"] and where["thread"] in (None, place[1])]
+
+
+def carry_handed(data: dict, seq: str, link: str) -> None:
+    """Mark a handed report posted at link, and the reporter of its order whose thread it went in as told, as `drive order told` does."""
+    where = data["posts"]["handed"].pop(seq)
+    data["carried"][seq] = link
+    data["posts"].get("claimed", {}).pop(seq, None)
+    if (order := data["orders"].get(where["order"] or "")) is None:
+        return
+    for held in order["reporters"]:
+        kept = state.kept_record(data, held)[1]
+        if (kept["channel"], kept["thread"]) == (where["channel"], where["thread"]) and not kept["told"]:
+            kept["told"] = link
 
 
 def report_post(name: str, seq: str) -> str:
@@ -184,6 +205,8 @@ def report_post(name: str, seq: str) -> str:
     read = agents.answered(seq)
     target = read["attrs"].get("channel") or ((thread := read["attrs"].get("thread") or read["thread"]) and outside(state.load(name), thread))
     if target and target not in slack.homes(state.load(name)):
+        handed_thread = read["attrs"].get("thread") or read["thread"]
+        state.write(name, lambda data: data["posts"].setdefault("handed", {}).__setitem__(seq, {"channel": target, "thread": handed_thread, "order": read["attrs"].get("order")}), patient=True)
         agents.handle(name, f"Record: {seq} Drive: {name} Scratch: {state.drive_dir(name) / 'scratch' / f'post-{seq}'} Where: {target}, a channel outside the drive's, whose members read it and where cc-slack posts only on the ticket a session's permission hook names, so post it there yourself with say naming record {seq}, which marks it posted so the drive posts it never again")
         return f"report {seq} handed to the communicator: it posts in {target}, outside the drive's channels"
     try:
@@ -264,6 +287,8 @@ def spoken(name: str, post: dict, known: dict, recorded_first: bool = False) -> 
         def spoken_write(data: dict):
             if seq:
                 data["carried"][seq] = link
+            for handed in handed_posts(data, seq, place):
+                carry_handed(data, handed, link)
             if place:
                 at = state.stamp(slack.sent_at(slack.posted(link, "")))
                 for each in state.open_orders(data).values():

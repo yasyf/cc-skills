@@ -583,6 +583,52 @@ def test_a_report_post_edit_named_by_its_edit_attr_posts_as_that_report_so_no_ha
     agents.unposted(demo, state.now())
 
 
+def test_a_correction_of_a_posted_report_rewords_that_post_itself_rather_than_bouncing_to_a_writer_that_cannot_post(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    from drive import answer
+
+    posted = "https://acme.slack.com/archives/C1/p1794847894692869?thread_ts=1794847681.824529&cid=C1"
+    with edit(demo) as data:
+        data["carried"]["735590"] = posted
+    monkeypatch.setattr(agents, "answered", lambda seq: {"attrs": {"channel": "C1"}, "report": {"kind": "correction", "re": "735590", "text": "POST the cause is the pool", "seq": seq}, "thread": None})
+    monkeypatch.setattr(answer, "ask", lambda facts, prompt, rules, tag: (json.dumps({"text": "The cause is the pool.", "place": "thread"}), None))
+    monkeypatch.setattr(slack, "homes", lambda data: {"C1"})
+    monkeypatch.setattr(slack, "post_findings", lambda text, draws_card, asked="": [])
+    spoken: list[dict] = []
+    monkeypatch.setattr(talk, "spoken", lambda name, post, known, recorded_first=False: spoken.append(post) or f"EDITED {post['edit']}")
+    assert talk.report_line(demo, "735599") == f"EDITED {posted}"
+    assert spoken[0]["edit"] == posted
+
+
+@pytest.mark.parametrize("given", ["1794853324.557129", "https://acme.slack.com/archives/C0CELUMJ6MU/p1794853324557129?thread_ts=1794847111.398069&cid=C0CELUMJ6MU"])
+def test_a_reports_edit_attr_names_its_post_by_ts_or_by_its_permalink_as_given(given: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(slack, "whoami", lambda: {"team_url": "https://acme.slack.com/"})
+    assert talk.edited("C0CELUMJ6MU", given, "1794847111.398069") == "https://acme.slack.com/archives/C0CELUMJ6MU/p1794853324557129?thread_ts=1794847111.398069&cid=C0CELUMJ6MU"
+
+
+def test_a_report_handed_to_the_communicator_for_another_channel_counts_as_posted_and_its_reporter_told_once_it_posts_there(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    channel, thread = "C0CELUMJ6MU", "1794847111.398069"
+    link = f"https://acme.slack.com/archives/{channel}/p1794853324557129?thread_ts={thread}&cid={channel}"
+    with edit(demo) as data:
+        data["orders"]["o1"] = state.new_order("fix the 401s", "terminal", None, {}, ASKED)
+        data["orders"]["o1"]["reporters"] = [{"channel": channel, "thread": thread, "link": f"https://acme.slack.com/archives/{channel}/p{thread.replace('.', '')}", "told": None}]
+        data["carried"]["735525"] = agents.DRIVE_CLAIM
+        data["posts"]["claimed"] = {"735525": state.stamp()}
+    monkeypatch.setattr(agents, "answered", lambda seq: {"attrs": {"channel": channel, "thread": thread, "order": "o1"}, "report": {"kind": "report", "text": "POST fix is live", "seq": seq}, "thread": None})
+    monkeypatch.setattr(slack, "homes", lambda data: {"C1"})
+    monkeypatch.setattr(agents, "handle", lambda name, brief, lane="communicator": (lane, True))
+    assert "handed to the communicator" in talk.report_post(demo, "735525")
+
+    def posting_there(data: dict) -> None:
+        for handed in talk.handed_posts(data, None, (channel, thread)):
+            talk.carry_handed(data, handed, link)
+
+    state.write(demo, posting_there)
+    data = state.load(demo)
+    assert data["carried"]["735525"] == link
+    assert data["posts"]["claimed"] == {} and data["posts"]["handed"] == {}
+    assert data["orders"]["o1"]["reporters"][0]["told"] == link
+
+
 def test_a_channel_thread_post_naming_a_pr_by_its_github_link_links_its_open_card(communicator: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
     card = "https://acme.slack.com/archives/D123/p1794300000000777"
     monkeypatch.setattr(view, "live_cards", lambda name: {"pr_cards": []})
