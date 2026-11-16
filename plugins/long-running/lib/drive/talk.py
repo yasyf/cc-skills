@@ -4,7 +4,6 @@ import io
 import json
 import os
 import re
-import sys
 import time
 import uuid
 from datetime import datetime, timedelta
@@ -753,7 +752,7 @@ def waits_line(data: dict, keys: list[str], titles: list[str]) -> str:
 
 
 def plain(line: str) -> None:
-    """Refuse a line asking his tap again that `cc-slack check-post` finds something in and Jev, in one request with one Noul a finding, reads as breaking the plain-words rule at settled.YES or more; a line Jev reads in the band between settled.NO and settled.YES, or gives no reading of, goes out, said on stderr, as a say post does when its judge cannot finish."""
+    """Refuse a line asking his tap again that `cc-slack check-post` finds something in and Jev, in one request with one Noul a finding, reads as breaking the plain-words rule at settled.NO or more, or gives no reading of, as a say post's findings hold unless Jev clears them."""
     from drive import settled
 
     if not (findings := slack.post_findings(line, True)):
@@ -763,13 +762,9 @@ def plain(line: str) -> None:
     try:
         read = settled.jev(told, questions)
     except settled.Unheard as failure:
-        print(f"drive: Jev gave no reading of the line asking his tap again, so it goes out with what check-post found in it, {'; '.join(findings)}: {failure}", file=sys.stderr)
-        return
-    holds = {found: settled.reading(read.get(f"f{number}.holds")) for number, found in enumerate(findings, 1)}
-    if broken := [found for found, held in holds.items() if held]:
-        raise DriveError(f"nothing was posted: the line asking his tap again breaks the plain-words rule, as `cc-slack check-post` finds and Jev reads it: {'; '.join(broken)}. Line: {line}")
-    if unsure := [found for found, held in holds.items() if held is None]:
-        print(f"drive: Jev is unsure whether the plain-words rule holds against {'; '.join(unsure)} in the line asking his tap again, so it goes out", file=sys.stderr)
+        raise DriveError(f"nothing was posted: Jev gave no reading ({failure}) of what `cc-slack check-post` finds in the line asking his tap again: {'; '.join(findings)}. Line: {line}") from failure
+    if broken := [found for number, found in enumerate(findings, 1) if settled.reading(read.get(f"f{number}.holds")) is not False]:
+        raise DriveError(f"nothing was posted: the line asking his tap again breaks the plain-words rule, as `cc-slack check-post` finds and Jev does not clear: {'; '.join(broken)}. Line: {line}")
 
 
 def withdraw(name: str, key: str) -> list[str]:
