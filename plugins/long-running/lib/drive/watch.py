@@ -5189,7 +5189,7 @@ def work_lines(watcher: Watcher, moment: datetime) -> list[str]:
         if not work.wanted(data, moment) or work.admitted(data, moment):
             return lines, None
         worker_id = work.add_worker(data, watcher.name, moment)
-        return [*lines, f"WORK {worker_id} records a stage-test worker for {work.ENV}, its first group claimed"], worker_id
+        return [*lines, f"WORK {worker_id} records a stage-test worker for {work.env(data)}, its first group claimed"], worker_id
 
     lines, worker_id = state.update(watcher.name, None, work_lines_write)
     if worker_id:

@@ -4,12 +4,11 @@ import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from drive import agents, orca, place, reads, state, view
+from drive import agents, orca, place, providers, reads, state, view
 
 STAGE_TEST = "stage-test"
 KINDS = (STAGE_TEST,)
 WORKER = "worker"
-ENV = state.STAGING_ENV
 GROUP = state.PACKED_CUT
 WORKER_ITEMS = 18
 READS_PER_PASS = 12
@@ -30,6 +29,11 @@ You are {worker}, the drive's stage-test worker for {env}. You run groups of sta
 
 Never start a second cut while `drive work pull` says your cut still holds the slot, and never report an item another worker holds.
 """
+
+
+def env(data: dict) -> str | None:
+    """The staging env whose slot the queue's cuts hold, the repository's staging provider's."""
+    return providers.of(data).staging.env
 
 
 def enabled(data: dict, kind: str) -> bool:
@@ -113,15 +117,15 @@ def entry(data: dict, job_id: str, moment: datetime) -> dict:
 
 def why_not(data: dict, moment: datetime) -> str | None:
     """Why no new cut of queued work takes the env now, None when one may: the slot is held, held for another job, or the old line's turn comes first."""
-    slot = data["slots"].setdefault(ENV, {"holder": None, "queue": [], "hold": None})
+    slot = data["slots"].setdefault(env(data), {"holder": None, "queue": [], "hold": None})
     if slot["holder"]:
-        return f"the {ENV} slot is held by {slot['holder']['job']}'s cut until {slot['holder']['until']}"
+        return f"the {env(data)} slot is held by {slot['holder']['job']}'s cut until {slot['holder']['until']}"
     if not (items := line(data)):
         return "no stage-test item is ready"
     if not state.held_for(data, slot, items[0], moment):
-        return f"the {ENV} slot is held for {slot['hold']['for']} until {slot['hold']['until']}"
+        return f"the {env(data)} slot is held for {slot['hold']['for']} until {slot['hold']['until']}"
     if ahead := legacy_ahead(data, slot, items[0]):
-        return f"{ahead} of the {ENV} slot's old line comes first"
+        return f"{ahead} of the {env(data)} slot's old line comes first"
     return None
 
 
@@ -132,29 +136,29 @@ def claim(data: dict, worker_id: str, items: list[str], moment: datetime, go: st
         job.update(
             claim={"worker": worker_id, "attempt": uuid.uuid4().hex[:12], "at": state.stamp(moment)},
             waits=list(dict.fromkeys([*job["waits"], worker_id])),
-            said=f"claimed by worker {worker_id} on the {ENV} cut",
+            said=f"claimed by worker {worker_id} on the {env(data)} cut",
             updated=state.stamp(moment),
         )
 
 
 def take(data: dict, worker_id: str, moment: datetime) -> tuple[str, list[str], str]:
     """Claim the worker's next group, in one write: the ready items of the queue's cut on the env first, else, when why_not lets a cut start, the head of the queue and up to GROUP - 1 items behind it whose PRs change no file and reach no stack of the cut's, by state.packed, taking the slot for them; the word, the items and the line the worker reads."""
-    slot = data["slots"].setdefault(ENV, {"holder": None, "queue": [], "hold": None})
+    slot = data["slots"].setdefault(env(data), {"holder": None, "queue": [], "hold": None})
     if again := members_ready(data, slot):
-        go = f"GO run these on the {ENV} cut the queue already holds until {slot['holder']['until']}, starting no new cut"
+        go = f"GO run these on the {env(data)} cut the queue already holds until {slot['holder']['until']}, starting no new cut"
         claim(data, worker_id, again, moment, go)
         return "GO", again, go
     if slot["holder"] and our_cut(slot) and any(data["jobs"][member]["state"] not in state.FINISHED_JOB_STATES for member in state.slot_members(slot)):
         waiting = ", ".join(member for member in state.slot_members(slot) if data["jobs"][member]["state"] not in state.FINISHED_JOB_STATES)
-        return "HOLD", [], f"HOLD the queue's {ENV} cut still holds {waiting}, waiting on what each returned; a fresh worker runs them there once their waits end"
+        return "HOLD", [], f"HOLD the queue's {env(data)} cut still holds {waiting}, waiting on what each returned; a fresh worker runs them there once their waits end"
     if why := why_not(data, moment):
         return "NONE", [], f"NONE {why}"
     queue = [entry(data, job_id, moment) for job_id in line(data)]
     head, riders = state.packed(queue)
     slot["holder"] = state.leased(head, moment, riders) | {"work": worker_id}
     group = [head["job"], *(rider["job"] for rider in riders)]
-    steps = state.SLOT_GO_STEPS.format(env=ENV, job=head["job"])
-    go = f"GO staging {ENV} until {slot['holder']['until']} for {', '.join(group)}, one cut carrying {', '.join(pr for job_id in group for pr in state.tested_prs(data, data['jobs'][job_id]))}: {steps}"
+    steps = state.SLOT_GO_STEPS.format(env=env(data), job=head["job"])
+    go = f"GO staging {env(data)} until {slot['holder']['until']} for {', '.join(group)}, one cut carrying {', '.join(pr for job_id in group for pr in state.tested_prs(data, data['jobs'][job_id]))}: {steps}"
     claim(data, worker_id, group, moment, go)
     return "GO", group, go
 
@@ -194,9 +198,9 @@ def done(name: str, worker_id: str, job_id: str, whole: str) -> tuple[str, dict]
     def done_write(data: dict) -> None:
         data["jobs"][job_id].update(claim=None, waits=[wait for wait in data["jobs"][job_id]["waits"] if wait != worker_id])
         data["jobs"][worker_id]["work_done"] = [*(data["jobs"][worker_id].get("work_done") or []), job_id]
-        slot = data["slots"].get(ENV) or {"holder": None}
+        slot = data["slots"].get(env(data)) or {"holder": None}
         if whole.strip().startswith("DONE") and slot["holder"] and job_id in state.slot_members(slot):
-            state.slot_release(data, ENV, job_id)
+            state.slot_release(data, env(data), job_id)
 
     state.update(name, None, done_write)
     return said, payload
@@ -208,14 +212,14 @@ def brief_path(name: str, worker_id: str) -> Path:
 
 def add_worker(data: dict, name: str, moment: datetime) -> str:
     """Record a new stage-test worker job on the order of the queue's head item, a builder building nothing, briefed with WORKER_BRIEF, its first group claimed by take in the same write; its id."""
-    head = members_ready(data, data["slots"].get(ENV) or {}) or line(data)
+    head = members_ready(data, data["slots"].get(env(data)) or {}) or line(data)
     order_id = data["jobs"][head[0]]["order"]
     worker_id = state.next_id(data["jobs"], "j")
     path = brief_path(name, worker_id)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(WORKER_BRIEF.format(worker=worker_id, env=ENV))
+    path.write_text(WORKER_BRIEF.format(worker=worker_id, env=env(data)))
     _, held = state.holding_role(data, data["orders"][order_id])
-    data["jobs"][worker_id] = state.new_job(order_id, "builder", WORKER_GOAL.format(env=ENV), [], state.stamp(moment)) | {
+    data["jobs"][worker_id] = state.new_job(order_id, "builder", WORKER_GOAL.format(env=env(data)), [], state.stamp(moment)) | {
         "work": WORKER,
         "builds_nothing": True,
         "brief": str(path),
@@ -235,7 +239,7 @@ def wanted(data: dict, moment: datetime) -> bool:
     """Whether the queue wants a stage-test worker it does not have: none lives, none failed to start in the last STALL_AFTER, so a start that fails is tried again at that pace, and ready items of its cut wait to run there or a new cut may start, by why_not."""
     if not enabled(data, STAGE_TEST) or live_worker(data) or any(worker(job) and job["state"] == "failed" and not job["agent"] and moment - state.parse_time(job["updated"]) < STALL_AFTER for job in data["jobs"].values()):
         return False
-    return bool(members_ready(data, data["slots"].get(ENV) or {})) or why_not(data, moment) is None
+    return bool(members_ready(data, data["slots"].get(env(data)) or {})) or why_not(data, moment) is None
 
 
 def start(name: str, worker_id: str) -> str:
@@ -278,7 +282,7 @@ def unread(data: dict) -> list[str]:
 
 def admitted(data: dict, moment: datetime) -> str | None:
     """Why this Mac takes no new worker now, by place.admission for a local lane, None when it may, or when the queue's head serves a priority order or an open incident, by state.jumps_queue, which starts past every cap."""
-    head = members_ready(data, data["slots"].get(ENV) or {}) or line(data)
+    head = members_ready(data, data["slots"].get(env(data)) or {}) or line(data)
     if head and state.jumps_queue(data, head[0]):
         return None
     return place.admission(data, None, "local", moment)
@@ -294,8 +298,8 @@ def stalled(data: dict, job_id: str, moment: datetime) -> str | None:
 
 def drop_legacy(data: dict) -> list[str]:
     """Take each item the queue runs off the staging slot's old first-in-first-out line, where a lease that ended before its cut started, or the watch's own queue_waiters, would put it, so only a worker of the queue runs it."""
-    slot = data["slots"].get(ENV)
+    slot = data["slots"].get(env(data))
     if not slot or not (ours := [each["job"] for each in slot["queue"] if queued(data, data["jobs"][each["job"]])]):
         return []
     slot["queue"] = [each for each in slot["queue"] if each["job"] not in ours]
-    return [f"WORK took {', '.join(ours)} off the {ENV} slot's old line into the queue"]
+    return [f"WORK took {', '.join(ours)} off the {env(data)} slot's old line into the queue"]
