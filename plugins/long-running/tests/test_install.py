@@ -1623,6 +1623,18 @@ def test_a_cut_provers_order_unit_that_passes_closes_its_order_while_another_ord
         install.prove("demo", "j1", 900)
 
 
+
+def test_a_prover_whose_proof_files_are_kept_per_order_alone_proves_with_no_job_wide_file(config: Path, tmp_path: Path, fake: Callable[..., FakeGit]) -> None:
+    handing(config, tmp_path, fake([BUILD], {BUILD}), 0, {"state": "running", "said": None, "shipped": ["release:platy:Forge-AI/monorepo#9"]})
+    passing = tmp_path / "o1.sh"
+    passing.write_text("#!/bin/sh\necho 'PASS o1 is live'\n")
+    passing.chmod(0o755)
+    with state.edit("demo") as data:
+        data["jobs"]["j1"].pop("repro", None)
+        data["jobs"]["j1"]["repros"] = {"o1": str(passing)}
+    install.prove("demo", "j1", 900)
+    assert "result" in state.load("demo")["jobs"]["j1"]["units"]["o1"]
+
 def test_only_a_goal_reading_prove_prs_live_proves_those_prs_once_each_merged(config: Path, tmp_path: Path, fake: Callable[..., FakeGit]) -> None:
     handing(config, tmp_path, fake([BUILD], {BUILD}), 0, {"state": "running", "said": None, "brief_flags": {}, "builds_nothing": True})
     data = state.load("demo")

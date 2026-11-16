@@ -6241,6 +6241,8 @@ def only(data: dict, ids: list[str]) -> dict:
     keys = {each for each in ids if reads.DRIVE_RECORD.fullmatch(each) or state.PR_WORD.fullmatch(each)}
     if unknown := keys - set(data["orders"]) - set(data["jobs"]) - set(data["prs"]):
         raise DriveError(f"no order, job or PR {', '.join(sorted(unknown))}; name {ID_FORMS}")
+    if keys and keys <= set(data["jobs"]) and len(keys) == len(ids):
+        return job_rows(data, keys)
     named = {key if key in data["orders"] else (data["jobs"].get(key) or data["prs"][key])["order"] for key in keys}
     if words := [each.casefold() for each in ids if each not in keys]:
         found = {order_id for order_id, order in state.open_orders(data).items() if all(word in searched(data, order_id, order) for word in words)}
@@ -6256,6 +6258,18 @@ def only(data: dict, ids: list[str]) -> dict:
         "jobs": jobs,
         "prs": {key: pr for key, pr in data["prs"].items() if pr["order"] in named or pr["job"] in jobs or key in carried},
     }
+
+
+def job_rows(data: dict, job_ids: set[str]) -> dict:
+    """The drive narrowed, never saved, to these jobs alone, each order holding them listing only them and their parts, and the PRs they open or carry, so a status of one job on an order of hundreds prints that job's row and its PRs, not the order whole."""
+    jobs = {key: job for key, job in data["jobs"].items() if key in job_ids}
+    carried = {state.pr_key(url) for job in jobs.values() for url in job["prs"]}
+    orders = {}
+    for order_id in dict.fromkeys(job["order"] for job in jobs.values()):
+        order = data["orders"][order_id]
+        held = {part for job in jobs.values() if job["order"] == order_id for part in job["parts"]}
+        orders[order_id] = order | {"jobs": [job_id for job_id in order["jobs"] if job_id in job_ids], "parts": {part: value for part, value in order["parts"].items() if part in held}}
+    return data | {"orders": orders, "jobs": jobs, "prs": {key: pr for key, pr in data["prs"].items() if pr["job"] in jobs or key in carried}}
 
 
 def searched(data: dict, order_id: str, order: dict) -> str:

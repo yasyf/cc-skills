@@ -12978,3 +12978,12 @@ def test_a_slot_go_names_every_job_of_its_cut_as_a_freeze_holder_only_where_the_
     assert goes["j1"].endswith("with `--holder demo/j1 --holder demo/j2`.")
     assert goes["j2"].endswith("Join j1's freeze with `tools/ci release freeze join <its freeze id> --holder demo/j2` unless it names you, and run each staging command with `--holder demo/j2`.")
     assert "--holder" not in state.slot_claim({"name": "demo", "slots": {}, "jobs": {"j9": {"state": "waiting", "order": "o1", "carries": []}}, "orders": data["orders"]}, "plat-usw2-staging", "j9", 20, [], None, moment)
+
+
+def test_a_status_of_one_job_prints_that_jobs_row_and_its_prs_not_its_whole_order(run: Run, demo: str) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it", "--kind", "build", "--parts", "the copy", "the proof")
+    run("job", "add", "builder", "--order", "o1", "--part", "the copy", "--goal", "copy one store")
+    run("job", "add", "builder", "--order", "o1", "--part", "the proof", "--goal", "prove the copy")
+    code, out = run("status", "j1")
+    assert (code, "j1 builder" in out, "j2 builder" not in out, "the proof" not in out) == (0, True, True, True)
+    assert set(run("job", "show", "j1", "--json")[1] and json.loads(run("job", "show", "j1", "--json")[1])["jobs"]) == {"j1"}
