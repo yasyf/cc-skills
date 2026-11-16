@@ -38,6 +38,7 @@ RESPOND_SECONDS = 5
 RELAY_JOIN_SECONDS = 10
 RELAY = "--relay"
 READ_EVERY = timedelta(seconds=60)
+CHECK_SWEEP = timedelta(minutes=30)
 SETTLED_READ_EVERY = timedelta(minutes=10)
 PASS_FOR = timedelta(minutes=5)
 HAND_OFF_EVERY = timedelta(minutes=10)
@@ -199,6 +200,9 @@ class Watcher:
     relayed: collections.deque[str] = field(default_factory=collections.deque)
     redrawn_whole: set[str] = field(default_factory=set)
     restacked: dict[str, tuple] = field(default_factory=dict)
+    checking: set[str] = field(default_factory=set)
+    swept_at: datetime | None = None
+    rulings: frozenset[str] | None = None
     others: dict[str, Self] = field(default_factory=dict)
     joined_at: datetime | None = None
     passed_version: int | None = None
@@ -1413,12 +1417,18 @@ def follow_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def checks(watcher: Watcher, moment: datetime) -> None:
-    """Start the check against his words of each PR the watch hears that owes one, within one GitHub read of finding it unchecked and with no coordinator turn: redraw_lines draws its verdict on his card in place, so his Approve of a changed patch lands it once it is green, and its NOT READY goes to the builders of the PRs it faults, by objections."""
+    """Start the check against his words of each PR an event names that owes one, with no coordinator turn: a GitHub delivery naming it, such as a push to its head or a review, by take_deliveries, every PR once his rulings change, and every PR on the watch's first pass and each CHECK_SWEEP after, the one sweep that catches a delivery the receiver missed or a check that failed; redraw_lines draws its verdict on his card in place, so his Approve of a changed patch lands it once it is green, and its NOT READY goes to the builders of the PRs it faults, by objections."""
     if watcher.cards is None:
         return
     data = state.load(watcher.name)
+    rulings = frozenset(data["answers"])
+    if watcher.swept_at is None or moment - watcher.swept_at >= CHECK_SWEEP or rulings != watcher.rulings:
+        watcher.swept_at, watcher.rulings, named = moment, rulings, set(data["prs"])
+    else:
+        named = watcher.checking & data["prs"].keys()
+    watcher.checking = set()
     stacks = land.landing_stacks(data)
-    if owed := [key for key, pr in data["prs"].items() if hears(watcher, data, pr["order"]) and check_owed(watcher.name, key, pr, data, stacks.get(key, (key,)), moment)]:
+    if owed := [key for key in sorted(named) if hears(watcher, data, (pr := data["prs"][key])["order"]) and check_owed(watcher.name, key, pr, data, stacks.get(key, (key,)), moment)]:
         served.start(watcher.name, owed)
     objections(watcher)
 
@@ -2181,8 +2191,8 @@ def landing_pass(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
 
 
 def owed_reads(watcher: Watcher, moment: datetime) -> list[functools.partial]:
-    """The stages that take the GitHub reads the deliveries since the last read owe, by github_owed_lines, then each builder's PUSHED, or READY a lane sent since, that read settles, so a READY whose checks are green waits on no 60-second landing pass."""
-    return [functools.partial(stage, watcher, moment) for stage in (github_owed_lines, pushed_lines)]
+    """The stages that take the GitHub reads the deliveries since the last read owe, by github_owed_lines, then each builder's PUSHED, or READY a lane sent since, that read settles, so a READY whose checks are green waits on no 60-second landing pass, then the check of each PR those deliveries named that owes one, by checks."""
+    return [functools.partial(stage, watcher, moment) for stage in (github_owed_lines, pushed_lines, checks)]
 
 
 def respond_pass(watcher: Watcher, moment: datetime) -> list[str]:
@@ -2588,6 +2598,7 @@ def take_deliveries(watcher: Watcher) -> list[str] | None:
             prs |= {int(key.partition("#")[2]): {} for key in carried if github.repo_of(key) == repo}
         keys = [f"{repo}#{number}" for number in receiver.named(delivery, prs)]
         (watcher.merging if delivery["event"] in receiver.REMERGES else watcher.owed).update(keys)
+        watcher.checking.update(keys)
         named += keys
     return named
 

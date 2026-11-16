@@ -5566,7 +5566,7 @@ def test_a_check_names_every_pr_its_job_and_the_job_it_was_handed_from_carry_wit
     delivered = f'its job\'s merged PRs already deliver their share of these orders: {merged} "Fix: a Sprite lane gets the wasm toolchain"'
     told: list[str] = []
     wasm = {"order": "o1", "words": "ship the watch", "file": "", "change": "no PR gives Sprites the wasm toolchain"}
-    monkeypatch.setattr(served, "judged", lambda name, said, changes: told.append(said) or {"against": [] if delivered in said else [wasm]})
+    monkeypatch.setattr(served, "judged", lambda name, said, changes, ruled: told.append(said) or {"against": [] if delivered in said else [wasm]})
     assert cli.main(["pr", "check", state.pr_url(KEY), "--drive", demo]) == 0
     [said] = told
     assert f'{delivered}\nits job\'s other open PRs, each judged on its own, deliver their share of these orders: {OTHER} "Fix: the stack\'s top"' in said
@@ -5583,7 +5583,7 @@ def test_a_check_whose_judge_failed_is_said_nowhere_and_tried_again_ten_minutes_
         data["jobs"]["j1"].update(state="waiting", said=f"READY {state.pr_url(KEY)}")
         data["prs"][KEY] |= {"wants_tap": True, "checked": None}
 
-    def failing(name: str, said: str, changes: dict) -> dict:
+    def failing(name: str, said: str, changes: dict, ruled: list[str]) -> dict:
         raise state.DriveError("the judge timed out")
 
     monkeypatch.setattr(served, "judged", failing)
@@ -11797,3 +11797,26 @@ def test_a_stage_that_raises_is_logged_and_skipped_and_its_third_failure_in_a_ro
     assert capsys.readouterr().out.count("stage broken of the drive raised KeyError") == 4
     assert watch.contained(watching, functools.partial(lambda watching, moment: ["FREE j1"], watching, T0), T0) == ["FREE j1"]
     assert watching.failures["stage broken"] == 4
+
+
+def test_a_pr_is_checked_on_the_first_pass_then_only_once_a_delivery_names_it_his_rulings_change_or_the_sweep_comes_round(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    started: list[list[str]] = []
+    monkeypatch.setattr(served, "start", lambda name, keys: started.append(keys))
+    monkeypatch.setattr(watch, "check_owed", lambda name, key, pr, data, unit, moment: True)
+    monkeypatch.setattr(watch, "hears", lambda watcher, data, order: True)
+    monkeypatch.setattr(watch, "objections", lambda watcher: None)
+    with state.edit(demo) as data:
+        data["prs"] = {KEY: state.new_pr(state.pr_url(KEY), "j1", "o1"), "Forge-AI/monorepo#43": state.new_pr(state.pr_url("Forge-AI/monorepo#43"), "j1", "o1")}
+    watching = watcher(demo)
+    watching.cards = NO_CARDS
+    watch.checks(watching, T0)
+    watch.checks(watching, T0 + timedelta(minutes=1))
+    watching.checking.add(KEY)
+    watch.checks(watching, T0 + timedelta(minutes=2))
+    with state.edit(demo) as data:
+        data["answers"]["a1"] = {}
+    watch.checks(watching, T0 + timedelta(minutes=3))
+    watch.checks(watching, T0 + timedelta(minutes=3) + watch.CHECK_SWEEP)
+    assert started == [["Forge-AI/monorepo#42", "Forge-AI/monorepo#43"], [KEY], ["Forge-AI/monorepo#42", "Forge-AI/monorepo#43"], ["Forge-AI/monorepo#42", "Forge-AI/monorepo#43"]]
