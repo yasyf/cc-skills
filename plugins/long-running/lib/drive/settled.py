@@ -1753,12 +1753,10 @@ def asked(output: dict) -> tuple[dict, list[tuple[str, tuple[dict, dict[str, Nou
         ),
         *([("his words in the thread it goes in", scoped)] if scoped and size(*scoped) <= REQUEST_CHARS else []),
     ]
+    said = {word["id"]: word["quote"] for word in [*(word for word in words if not word.get("said_at")), *sorted((word for word in words if word.get("said_at")), key=lambda word: word["said_at"], reverse=True)]}
     rest = [
-        *(
-            ({"findings": {f"f{number}": finding}}, {f"f{number}.holds": asking(HOLDS, finding=f"f{number}"), **({f"f{number}.lifted": asking(LIFTED, finding=f"f{number}")} if words else {})})
-            for number, finding in enumerate(check_findings(output), 1)
-        ),
-        *(({"his_words": {word["id"]: word["quote"]}}, {}) for word in [*(word for word in words if not word.get("said_at")), *sorted((word for word in words if word.get("said_at")), key=lambda word: word["said_at"], reverse=True)]),
+        ({"findings": {f"f{number}": finding}} | ({"his_words": said} if said else {}), {f"f{number}.holds": asking(HOLDS, finding=f"f{number}"), **({f"f{number}.lifted": asking(LIFTED, finding=f"f{number}")} if said else {})})
+        for number, finding in enumerate(check_findings(output), 1)
     ]
     return base, weighs, rest
 
@@ -1774,7 +1772,7 @@ def requests(output: dict) -> list[tuple[dict, dict[str, Noul]]]:
                 break
         else:
             packed.append(item)
-    return [*packed, *((joined(base, part), asked) for part, asked in rest if asked)]
+    return [*packed, *(request for part, asked in rest if size(*(request := (joined(base, part), asked))) <= REQUEST_CHARS)]
 
 
 def refusal_reason(output: dict) -> str:
