@@ -254,7 +254,7 @@ def draw(name: str, seat: str, title: str, markdown: str) -> Drawn:
     def draw_write(data: dict):
         data["slack"]["channels"][seat] |= {"canvas": drawn["canvas_id"], "canvas_digest": digest(markdown)}
 
-    state.write(name, draw_write)
+    state.write(name, draw_write, patient=True)
     return Drawn(drawn["url"], drawn["canvas_id"] != made.get("canvas"))
 
 

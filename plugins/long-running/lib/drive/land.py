@@ -428,7 +428,7 @@ def answer_picks(name: str, keys: list[str]) -> list[str]:
                 if (now := data["prs"][key]["tap"]) and now["at"] == tap["at"]:
                     now["picks"][wait]["seq"] = seq
 
-    state.write(name, answer_picks_write)
+    state.write(name, answer_picks_write, patient=True)
     superseded.follow(name, [(job_id, question) for job_id, question in view.drawn_on(state.load(name), *seqs) if (question["closed"] or {}).get("seq") in seqs.values()])
     return failed
 
@@ -753,7 +753,7 @@ def record(name: str, keys: list[str], outcome: str, below: list[str], asked: di
             data["prs"][key]["review_asked"] = head
         noted(name, data, keys, outcome, below)
 
-    state.write(name, recorded)
+    state.write(name, recorded, patient=True)
     return outcome
 
 
@@ -896,7 +896,7 @@ def merged(name: str, key: str, method: str, flags: list[str], past: str = "") -
         urgent = hotfix(data, data["prs"][key])
         return urgent
 
-    urgent = state.write(name, merged_write)
+    urgent = state.write(name, merged_write, patient=True)
     if landed["state"] != "merged":
         return f"not landed: GitHub reads it {landed['state']} after {' '.join(MERGE)} said it merged, so nothing was installed"
     sha = landed["merged_sha"]

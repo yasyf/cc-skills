@@ -454,7 +454,7 @@ def start(name: str, worker_id: str) -> str:
         data["jobs"][worker_id].update(agent=agent, launching=None)
         state.start(data["jobs"][worker_id])
 
-    state.write(name, started_write)
+    state.write(name, started_write, patient=True)
     return session
 
 

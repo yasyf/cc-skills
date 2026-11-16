@@ -1012,7 +1012,7 @@ def answer_question(name: str, ask: dict) -> dict:
             fresh = [each for job_id, question in on_card if view.tappable(question, ask.get("action_ts")) for each in superseded.end(data, job_id, question, closed | {"replaces": question["closed"]})]
         return data, on_card, fresh
 
-    data, on_card, fresh = state.write(name, closed_on_card)
+    data, on_card, fresh = state.write(name, closed_on_card, patient=True)
     shown = view.stored_cards(name)[0]
     card = view.asked_card(shown, ask["url"])
     if fresh or not on_card:
@@ -1039,7 +1039,7 @@ def answer_question(name: str, ask: dict) -> dict:
                         state.question_in(data["jobs"][job_id], question)["closed"]["noted"] = answer_id
                     return data
 
-                data = state.write(name, noted_answer)
+                data = state.write(name, noted_answer, patient=True)
             item["attrs"] = item.get("attrs", {}) | {"noted": answer_id}
     made = tools.post(item, data, "root", (data["roles"].get("communicator") or {}).get("session"))
     [seq] = tools.sent(name, "communicator", [made])

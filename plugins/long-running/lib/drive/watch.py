@@ -1637,7 +1637,7 @@ def closed(watcher: Watcher, head: str, links: list[str], fix: str, moment: date
         for order_id in group:
             data["orders"][order_id]["recovered"] = state.stamp(moment)
 
-    state.write(watcher.name, recovered_write, budget=state.WATCH_WRITE_SECONDS)
+    state.write(watcher.name, recovered_write, patient=True)
     lines = []
     try:
         said = f"the drive posted its Live line: {talk.report_line(watcher.name, seq)}"
@@ -3194,7 +3194,7 @@ def watched_lines(watcher: Watcher, moment: datetime) -> list[str]:
             def watched_lines_write(data: dict):
                 data["orders"][order_id]["watch"]["record"] = None
 
-            state.write(watcher.name, watched_lines_write, budget=state.WATCH_WRITE_SECONDS)
+            state.write(watcher.name, watched_lines_write, patient=True)
     return lines
 
 
@@ -3289,7 +3289,7 @@ def retire_communicator(name: str, seat: str) -> str:
         saved["communicators"].pop(seat)
         saved["launched"].pop(f"communicator {seat}", None)
 
-    state.write(name, retire_communicator_write, budget=state.WATCH_WRITE_SECONDS)
+    state.write(name, retire_communicator_write, patient=True)
     print(f"{state.stamp()} retired the communicator for {seat}, session {session}, idle {minutes(COMMUNICATOR_IDLE)} minutes", flush=True)
     return f"retired the communicator for {seat}, session {session}: its channel #{data['slack']['channels'][seat]['name']} had no message of his owed for {minutes(COMMUNICATOR_IDLE)} minutes, so the drive's communicator holds it again until his next message there starts one"
 
@@ -6779,7 +6779,7 @@ def retire_seat(name: str, seat: str) -> str:
         data["subcoordinators"].pop(seat)
         data["launched"].pop(f"sub-coordinator {seat}", None)
 
-    state.write(name, retire_seat_write, budget=state.WATCH_WRITE_SECONDS)
+    state.write(name, retire_seat_write, patient=True)
     install.forget_reloads(name, f"sub-coordinator {seat}")
     return f"retired the seat {seat}: no open order holds it, so its alias {alias} is removed from cci and nothing starts session {session} again, `claude stop` ends it now when it runs in the background, else it ends at its own exit, and its binding is dropped"
 

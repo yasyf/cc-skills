@@ -259,7 +259,7 @@ def seat_started(name: str, seat: str) -> str:
     def seat_started_write(data: dict):
         data["launched"][key] = handle
 
-    state.write(name, seat_started_write)
+    state.write(name, seat_started_write, patient=True)
     return f"started the sub-coordinator for {seat}, which holds this order alone, in Orca terminal {handle}; its project's coordinator hears it until it binds"
 
 
@@ -286,7 +286,7 @@ def communicator_started(name: str, seat: str) -> str:
     def communicator_started_write(data: dict):
         data["launched"][key] = handle
 
-    state.write(name, communicator_started_write)
+    state.write(name, communicator_started_write, patient=True)
     return f"started the communicator for {seat}, which holds its channel #{data['slack']['channels'][seat]['name']}, in Orca terminal {handle}"
 
 
@@ -996,7 +996,7 @@ def closed_prs(name: str, order_id: str, keys: list[str], why: str) -> list[str]
         def closed_prs_write(data: dict):
             data["prs"][key]["state"] = "closed"
 
-        state.write(name, closed_prs_write)
+        state.write(name, closed_prs_write, patient=True)
         lines.append(f"{key} closed with {order_id}: {why}")
     return lines
 
@@ -1408,7 +1408,7 @@ def order_check(args: argparse.Namespace) -> int:
     def order_check_write(data: dict):
         data["orders"][args.id]["parts"][part]["check"].update(exit=code, said=render.cut(said, 300))
 
-    state.write(name, order_check_write)
+    state.write(name, order_check_write, patient=True)
     return emit(args, f'{args.id} "{part}": its check exited {code}: {said}', {"id": args.id, "part": part, "exit": code, "said": said})
 
 
@@ -1881,7 +1881,7 @@ def job_release(args: argparse.Namespace) -> int:
     def job_release_write(data: dict):
         data["jobs"][args.id]["release_build"] = build
 
-    state.write(name, job_release_write)
+    state.write(name, job_release_write, patient=True)
     def job_release_write2(data: dict):
         job = data["jobs"][args.id]
         state.end_carried_designs(data, job["order"], job["created"])
@@ -1946,7 +1946,7 @@ def prebuild(name: str, job_id: str, command: str, commit: str | None) -> list[s
     def prebuild_write(data: dict):
         data["jobs"][job_id]["prebuild_build"] = url
 
-    state.write(name, prebuild_write)
+    state.write(name, prebuild_write, patient=True)
     return [f"{job_id} kicked off {url}, which builds every image and app a release at {commit} adopts, so the production start at {commit} reuses them"]
 
 
@@ -2325,7 +2325,7 @@ def follow_card(name: str, waits: str, asked: set[str], url: str) -> None:
         for job in data["jobs"].values():
             job["waits"] = list(dict.fromkeys(waits if view.message_key(wait) in moved else wait for wait in job["waits"]))
 
-    state.write(name, follow_card_write)
+    state.write(name, follow_card_write, patient=True)
 
 
 def job_ask(args: argparse.Namespace) -> int:
@@ -2456,7 +2456,7 @@ def decision(name: str, job_id: str, question: dict, words: str) -> str:
         data["answers"][decided] = {"words": words, "link": question["card"], "at": moment, "said": moment, "cards": cards, "jobs": {}, "approves": None}
         return data
 
-    state.write(name, decision_write)
+    state.write(name, decision_write, patient=True)
     return decided
 
 
@@ -2864,7 +2864,7 @@ def post_ask(name: str, job_id: str, file: Path, card: dict) -> str:
         ended = [(job_id, other) for other in doubled] + fold_onto(data, live)
         return ended
 
-    ended = state.write(name, post_ask_write)
+    ended = state.write(name, post_ask_write, patient=True)
     return "; ".join([f"his card {link} asks it under {card['waits']}", *superseded.follow(name, ended)])
 
 
@@ -3940,7 +3940,7 @@ def codex_launch(name: str, job_id: str, brief_file: str | None) -> Path:
             state.start(job)
             superseded.hear(data, job_id, written, state.now())
 
-        state.write(name, codex_started)
+        state.write(name, codex_started, patient=True)
     return folder
 
 
@@ -3989,7 +3989,7 @@ def job_start(args: argparse.Namespace) -> int:
             data["jobs"][args.id].update(agent=agent, launching=None)
             state.start(data["jobs"][args.id])
 
-        state.write(name, job_start_write2)
+        state.write(name, job_start_write2, patient=True)
     return emit(args, f"{args.id} started as agent {agent}, its own claude --bg session {session}: start no agent for it", {"id": args.id, "agent": agent, "session": session})
 
 
@@ -4195,7 +4195,7 @@ def deliver_held(name: str, job_id: str, job: dict, lane: str, held: list[dict])
         data["jobs"][job_id]["undelivered"] = [kept for kept in data["jobs"][job_id]["undelivered"] if kept["request"] not in taken]
         return data
 
-    state.write(name, deliver_held_write)
+    state.write(name, deliver_held_write, patient=True)
     if OWED in line and state.session_lane(state.load(name), os.environ.get("CLAUDE_CODE_SESSION_ID")) != lane:
         his = any(kept["sender"] == state.HIM for kept in held)
         tools.sent(name, state.WATCH_SENDER, [{"kind": "handoff", "to": [f"{lane}@{name}"], "attr": {"order": job["order"], "job": job_id, "urgent": "true"}, "text": f"{job_id}: {'his words: ' if his else ''}{line[line.index(OWED):]}"}])
@@ -4236,7 +4236,7 @@ def deliver_to_order(name: str, job_id: str, job: dict, held: list[dict]) -> str
                 kept["told"] = seq
         return data
 
-    state.write(name, told_write)
+    state.write(name, told_write, patient=True)
     return f"{job_id}: his held words went to {lane}@{name}, which holds its order, as record {seq} to read"
 
 
@@ -4300,7 +4300,7 @@ def own_post(name: str, job_id: str, session: str, seq: str) -> str:
         def own_post_write(data: dict):
             data["jobs"][job_id]["bg"]["pointed"].append(pointer)
 
-        state.write(name, own_post_write)
+        state.write(name, own_post_write, patient=True)
         return f"{job_id}: posted to its own session {session}'s cci address as handoff record {seq}, which its next step reads"
     kept = state.returns(name, job_id)
     if why := finished(job, kept, bg):
@@ -4438,7 +4438,7 @@ def sent_kept(name: str, job_id: str, sent: dict) -> dict:
         superseded.hear(data, job_id, sent["words"], state.parse_time(sent["at"]))
         return fresh
 
-    fresh = state.write(name, sent_kept_write)
+    fresh = state.write(name, sent_kept_write, patient=True)
     return fresh
 
 
@@ -4613,7 +4613,7 @@ def record_start(name: str, job_id: str, started: dict | None, handoff: str | No
             superseded.hear_start(data, job_id)
         return job
 
-    job = state.write(name, record_start_write)
+    job = state.write(name, record_start_write, patient=True)
     return job
 
 
@@ -4831,7 +4831,7 @@ def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEn
         data["jobs"][args.id] = job | {"route": route}
         return data, job
 
-    data, job = state.write(name, restart_write)
+    data, job = state.write(name, restart_write, patient=True)
     ended = job["deaths"][-1]
     kept = launch_brief(name, args.id, job)
     attempt = kept.stem
@@ -5283,7 +5283,7 @@ def evict_kept(name: str, job_id: str, root: Path) -> list[str]:
                 def evict_kept_write(data: dict):
                     state.lane_death(data["jobs"][other], "dispatch")["ended"]["kept"] = False
 
-                state.write(name, evict_kept_write)
+                state.write(name, evict_kept_write, patient=True)
         except DriveError:
             continue
     return lines
@@ -5308,7 +5308,7 @@ def end_kept(name: str, job_id: str, result: dict) -> dict:
                 death["ended"]["kept"] = True
         return ended
 
-    ended = state.write(name, end_kept_write)
+    ended = state.write(name, end_kept_write, patient=True)
     return ended
 
 
@@ -5368,7 +5368,7 @@ def job_reclaim(args: argparse.Namespace) -> int:
     def job_reclaim_write(data: dict):
         state.death_on(data["jobs"][args.id], args.lane)["freed"] = state.stamp()
 
-    state.write(name, job_reclaim_write)
+    state.write(name, job_reclaim_write, patient=True)
     return emit(args, reclaimed, {"id": args.id, "lane": args.lane, "reclaimed": reclaimed})
 
 
@@ -6995,7 +6995,7 @@ def open_channel(name: str, project: str | None) -> dict:
     def open_channel_write(fresh: dict):
         fresh["slack"]["channels"][project or ""] = fresh["slack"]["channels"].get(project or "", {}) | {"id": made["id"], "name": made["name"]}
 
-    state.write(name, open_channel_write)
+    state.write(name, open_channel_write, patient=True)
     slack.whoami.cache_clear()
     return made
 

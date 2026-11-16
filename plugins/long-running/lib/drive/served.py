@@ -332,7 +332,7 @@ def start(name: str, keys: list[str]) -> None:
         for unit, (key, _) in marked.items():
             started[unit] = spawn(name, key)
     finally:
-        state.write(name, own)
+        state.write(name, own, patient=True)
 
 
 def spawn(name: str, key: str) -> int:

@@ -319,7 +319,7 @@ def kept_terminal(drive: str, key: str, title: str) -> str:
             data[key] = opened
         return data[key]
 
-    if (won := state.write(drive, keep)) != opened:
+    if (won := state.write(drive, keep, patient=True)) != opened:
         close_pane(opened)
     return won
 
@@ -1211,7 +1211,7 @@ def death_kept(drive: str, job_id: str, dispatch: str, why: str, kept: dict) -> 
         if job.get("dispatch") == dispatch:
             state.lane_died(job, dispatch, why, state.now())
             state.lane_death(job, "dispatch").update(kept)
-    state.write(drive, died)
+    state.write(drive, died, patient=True)
 
 
 def followed(drive: str, job_id: str, job: dict, shown: dict) -> dict:

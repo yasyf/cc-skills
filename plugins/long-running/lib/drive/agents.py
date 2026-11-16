@@ -444,7 +444,7 @@ def start_posts(name: str, moment: datetime) -> None:
         claimed |= {seq: state.stamp(moment) for seq, why in carried.items() if why == DRIVE_CLAIM}
         data["posts"]["mark"] = min(young) - 1 if young else newest
 
-    state.write(name, marked)
+    state.write(name, marked, patient=True)
     unposted(name, moment)
     if errors:
         raise state.DriveError("; ".join(errors))
@@ -467,7 +467,7 @@ def unposted(name: str, moment: datetime) -> None:
         for seq in [*posted, *late]:
             data["posts"]["claimed"].pop(seq, None)
 
-    state.write(name, unposted_write)
+    state.write(name, unposted_write, patient=True)
 
 
 def trunk_failures(keys: list[str], since: str) -> list[dict]:
@@ -608,7 +608,7 @@ def resume_job(name: str, job_id: str, bg: dict, text: str) -> None:
     def resume_job_write(data: dict):
         data["jobs"][job_id]["bg"].update(session=resumed, resumed=state.stamp())
 
-    state.write(name, resume_job_write)
+    state.write(name, resume_job_write, patient=True)
     if resumed != bg["session"]:
         if found:
             subprocess.Popen(["claude", "rm", found[0]], cwd=bg["cwd"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)

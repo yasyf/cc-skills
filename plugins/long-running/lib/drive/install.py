@@ -1123,7 +1123,7 @@ def close_installed(clone: str, repo: str, key: str, build: str, version: str, d
             data["orders"][his[0]].update(state="open", close_report=live_report(name, his, key.partition("@")[0], version, build))
         return closes
 
-    return lines + [line for name in owed for line in state.write(name, partial(installed_closes, name))]
+    return lines + [line for name in owed for line in state.write(name, partial(installed_closes, name), patient=True)]
 
 
 def unbatched(data: dict) -> list[str]:
@@ -1537,7 +1537,7 @@ def unit_kept(name: str, job_id: str, order_id: str, repro: str, code: int | str
             change = f"{PROOF_FAILED}: {order_id}'s {repro} exits {code} on {versions}, its output {kept}: {quoted(output)[:SAID_CHARS]}"
         said_on_prs(name, data, job_id, keys, change)
 
-    state.write(name, kept_unit)
+    state.write(name, kept_unit, patient=True)
 
 
 def after_steps(name: str, steps: list[str], path: str, timeout: int) -> tuple[str, tuple[str, str] | None]:
@@ -1646,7 +1646,7 @@ def proof_kept(name: str, job_id: str, line: str, output: str, versions: str, co
                 change = f"{proven}; its close report of {job['order']} waits on the order for the watch, which posts it to the communicator on its next read and again each read until cci takes it"
         return None, (data, keys, change, repeated)
 
-    refused, proved = state.write(name, proving)
+    refused, proved = state.write(name, proving, patient=True)
     if refused:
         return refused
     data, keys, change, repeated = proved

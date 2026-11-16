@@ -840,7 +840,7 @@ def stamped(name: str, posts: list[dict], seqs: list[str]) -> list[tuple[int, st
                         ended.append((index, job_id, question))
         return ended
 
-    return state.write(name, named)
+    return state.write(name, named, patient=True)
 
 
 def handed(name: str, lane: str, posts: list[dict], seqs: list[str]) -> None:
@@ -880,7 +880,7 @@ def keep_undelivered(name: str, posts: list[dict], seqs: list[str], closes: list
                 else:
                     state.hold_text(data["jobs"][job_id], verbatim(made, questions, found), state.HIM, seq=seq)
 
-    state.write(name, keep_undelivered_write)
+    state.write(name, keep_undelivered_write, patient=True)
 
 
 def hearers(data: dict, asking: list[str], cards: set[str], since: str | None) -> list[str]:

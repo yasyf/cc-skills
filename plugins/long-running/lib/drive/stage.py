@@ -505,7 +505,7 @@ def mark_woken(name: str, marks: list[str], at: str) -> None:
                 if kept := data["mains"].get(repo, {}).get(test):
                     kept.update(woke=at, waking=None)
 
-    state.write(name, mark_woken_write)
+    state.write(name, mark_woken_write, patient=True)
 
 
 def left_head(data: dict, marks: list[str]) -> str | None:
