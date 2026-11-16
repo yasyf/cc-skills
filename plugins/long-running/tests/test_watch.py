@@ -96,6 +96,7 @@ MERGE_CONFLICTS = "GraphQL: Pull Request has merge conflicts (mergePullRequest)"
 POLICY = f"X Pull request {YASYF} is not mergeable: the base branch policy prohibits the merge."
 ROWS = "| `drive a` | runs a. Then b. Then c. |\n| `drive d` | runs d. |\n"
 T0 = state.parse_time("2026-11-09T10:00:00-05:00")
+LOADER_AT, DEFAULT_HEAD = providers.at, providers.default_head
 GATE = "LTX Behavioral Gate (short)"
 RUNNING = [{"name": "test", "conclusion": None}]
 GREEN = [{"name": "test", "conclusion": "SUCCESS"}]
@@ -438,7 +439,8 @@ def test_the_watch_classifies_a_head_through_a_provider_the_loader_executes_from
     )
     for argv in (["init", "-q", "-b", "main"], ["add", "-A"], ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "providers"], ["update-ref", "refs/remotes/origin/HEAD", "HEAD"]):
         subprocess.run(["git", "-C", str(clone), *argv], check=True)
-    loaded = providers.at(clone)
+    monkeypatch.setattr(providers, "default_head", DEFAULT_HEAD)
+    loaded = LOADER_AT(clone)
     monkeypatch.setattr(providers, "of", lambda data: loaded)
     monkeypatch.setattr(state, "repo_config", lambda data: {})
     with edit(demo) as data:
@@ -453,6 +455,7 @@ def test_a_head_read_under_an_older_classifier_is_read_again_once_the_classifier
     changed = {KEY: ("aaaaaaa111", ["go/sand/next/internal/vm/builtins/browserpkg/extract.go"])}
     monkeypatch.setattr(github, "paths", lambda keys: {key: changed[key] for key in keys if key in changed})
     monkeypatch.setattr(state, "classifier", lambda data: "old")
+    monkeypatch.setattr(state, "repo_config", lambda data: {})
     assert watch.dangerous_lines(watcher(demo), T0) == []
     assert (state.load(demo)["prs"][KEY]["paths_by"], state.unmarked(state.load(demo))) == ("old", [])
     monkeypatch.setattr(state, "classifier", lambda data: "new")
@@ -6427,6 +6430,7 @@ def test_a_try_its_files_put_outside_its_exempt_class_stops_standing_once_his_ca
         data["prs"][KEY] |= {"exempt": exempt, "wants_tap": False, "checks": "pass", "review": "approved"}
     diff = f"diff --git a/{path} b/{path}\n--- a/{path}\n+++ b/{path}\n@@ -1 +1 @@\n-a\n+b\n"
     monkeypatch.setattr(land.served, "change", lambda key: {"title": "Fix: pin the release image digest", "body": "", "head": "aaaaaaa111", "diff": diff.encode()})
+    monkeypatch.setattr(github, "files", lambda key: [])
     assert land.run(demo, [KEY]).startswith(f"not landed: {KEY} {refused}")
     if remedy:
         assert cli.main(["pr", "set", KEY, *remedy, "--drive", demo]) == 0

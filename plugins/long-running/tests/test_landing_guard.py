@@ -13,6 +13,7 @@ from drive import (
     brief,
     github,
     land,
+    providers,
     render,
     settled,
     shell,
@@ -23,6 +24,7 @@ from drive import (
 
 Run = Callable[..., tuple[int, str]]
 PR = "https://github.com/Forge-AI/monorepo/pull/42"
+DEFAULT_HEAD = providers.default_head
 SIBLINGS = ("https://github.com/Forge-AI/monorepo/pull/41", "https://github.com/Forge-AI/monorepo/pull/43")
 CARD = "demo:j1-661229"
 LIVE = "https://github.com/yasyf/cc-skills/blob/3d8111f/pr-shots/live-hover.png?raw=true"
@@ -680,8 +682,6 @@ def test_a_sub_coordinators_job_holding_the_staging_slot_starts_its_staging_cut_
 def test_the_release_guard_reads_the_drives_own_checkout_never_a_removed_lane_worktree_the_session_runs_in_as_733991_crashed_on(
     demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    from drive import providers
-
     removed = tmp_path / "worktrees" / "j7843-reslice"
     drives = HomeRelease(Path(), Path(), {})
     monkeypatch.setattr(providers, "of", lambda data: providers.Providers(None, {}, release=drives))
@@ -694,12 +694,12 @@ def test_a_merge_queue_landing_named_under_a_folder_that_is_no_directory_is_judg
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, folder: str
 ) -> None:
     from conftest import HomeRepo
-    from drive import providers
 
     missing = tmp_path / folder
     shell = landing_guard.Shell(str(missing), {}, "s1", True, True)
     monkeypatch.delenv(state.DRIVE_ENV, raising=False)
     monkeypatch.setattr(state, "session_drives", lambda session: [])
+    monkeypatch.setattr(providers, "default_head", DEFAULT_HEAD)
     with pytest.raises(providers.ProviderError):
         providers.default_head(missing)
     assert landing_guard.queue_landings(shell) == ()

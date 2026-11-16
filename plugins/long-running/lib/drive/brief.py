@@ -1005,10 +1005,6 @@ def report_refusal(name: str, data: dict, job_id: str, text: str) -> str | None:
             " name each PR the passing test tested, by link or #N, and leave out each it did not test, which waits on a rerun"
         )
     if job["kind"] == "builder" and opening == "DONE":
-        from drive import install
-
-        if install.own_proof(data, job_id) and not install.proof_gap(data, job_id):
-            return None
         return unproven(text, job_id, job, data)
     if job["kind"] == "builder" and opening in READY_OPENINGS and not state.REPORT_CHANGE.search(text):
         if reworked := [key for key in state.named_prs(data, job["order"], lines[0]) if data["prs"][key]["rework"]]:
@@ -1246,7 +1242,9 @@ def unproven(text: str, job_id: str, job: dict, data: dict) -> str | None:
     sees = reported_surface(text) or surface(job)
     told = stories((job.get("brief_flags") or {}).get("interactions"))
     if sees and told and not staged_stories(job):
-        if job["kind"] == "codex" and job.get("repro"):
+        from drive import install
+
+        if job.get("repro") and (job["kind"] == "codex" or install.own_proof(data, job_id) and not install.proof_gap(data, job_id)):
             return None
         prover = (
             "a codex job's DONE names its proof file on a REPRO: line, which the watch's drive job prove runs, reading"
