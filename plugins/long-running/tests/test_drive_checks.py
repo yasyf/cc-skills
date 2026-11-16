@@ -151,22 +151,26 @@ def test_an_answer_under_a_card_is_asked_whether_it_leaves_a_term_of_the_cards_f
     assert "card" not in jev.asked[-1]["questions"]
 
 
-def test_a_post_in_a_thread_of_his_dm_holding_orders_is_asked_whether_it_reaches_past_that_threads_work_holds_at_yes_and_warns_when_the_work_has_no_room(jev: Jev) -> None:
-    scope = {"work": 'In his thread:\n- o1 "Copy fix": open\n  - j1 reader: running', "asked": "what else is waiting on me for this work"}
+def test_a_post_in_a_thread_of_his_dm_holding_orders_holds_when_jev_reads_it_telling_of_the_whole_drives_work_unless_his_words_there_name_more(jev: Jev) -> None:
+    scope = {"asked": "what else is waiting on me for this work"}
     output = {"post": {"text": "Nothing else of the copy fix waits on you."}, "his_words": [], "thread_scope": scope}
     assert settled.post_verdict(output) == PASSES
-    assert (jev.asked[-1]["state"]["thread"], jev.asked[-1]["questions"]["scope"]) == (scope, settled.SCOPE)
+    assert jev.asked[-1]["state"]["thread"] == scope
+    assert (jev.asked[-1]["questions"]["scope"], jev.asked[-1]["questions"]["wider"]) == (settled.SCOPE, settled.WIDER)
     jev.breaks("scope", "", 0.9)
     assert settled.post_verdict(output) == {
         "verdict": "hold",
-        "note": "Jev held back this post: it tells him of work past what his thread holds, which his words there never asked about: answer from the orders its In his thread lines list, with each card and PR their jobs wait on, and leave the rest of the drive out. So fix each, then call say again.",
+        "note": "Jev held back this post: it tells him of the whole drive's work, which his words in this thread never asked about: answer from the orders its In his thread lines list, with each card and PR their jobs wait on, and leave the rest of the drive out. So fix each, then call say again.",
     }
-    asked = len(jev.asked)
-    assert settled.post_verdict(output | {"thread_scope": scope | {"work": "x" * settled.REQUEST_CHARS}}) == {
+    jev.breaks("wider", "", 0.5)
+    assert settled.post_verdict(output)["verdict"] == "hold"
+    jev.breaks("wider", "", 0.9)
+    assert settled.post_verdict(output) == PASSES
+    jev.ruled = {"scope": ("", 0.5)}
+    assert settled.post_verdict(output) == {
         "verdict": "warn",
-        "note": "message_limits: this post goes out as written; Jev is unsure of whether it reaches past the work of his thread: if one is wrong, reword the post in place.",
+        "note": f"{settled.GOES_OUT} Jev is unsure of whether it tells him of the whole drive's work: if one is wrong, reword the post in place.",
     }
-    assert len(jev.asked) == asked
 
 
 @pytest.mark.parametrize(
@@ -178,11 +182,10 @@ def test_a_post_in_a_thread_of_his_dm_holding_orders_is_asked_whether_it_reaches
             "139 question cards and 110 PR Approve taps still wait on you in the dashboard's queue. By your words 'You should surface them to me if I ask and they are blocking', the queue ranks these four first. The rest are in the dashboard's queue.",
             "Left here: the copy fix, which waits on your Approve of its PR.",
         ),
-        ("what else is waiting on me for this work", "Also waiting on you: the auto-partition PRs under SandSQL.", "Nothing else of the copy fix waits on you."),
     ],
 )
 def test_jev_holds_a_post_counting_the_whole_drives_cards_in_a_works_thread_and_passes_one_scoped_to_that_work(jev: Jev, asked: str, post: str, rewrite: str) -> None:
-    scope = {"work": 'In his thread:\n- o1 "Copy fix": open\n  - j1 builder: waiting', "asked": asked}
+    scope = {"asked": asked}
     jev.breaks("scope", "", 0.9)
     assert settled.post_verdict({"post": {"text": post}, "his_words": [], "thread_scope": scope})["verdict"] == "hold"
     assert (jev.asked[-1]["state"]["post"]["text"], jev.asked[-1]["state"]["thread"]) == (post, scope)
