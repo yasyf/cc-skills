@@ -8396,24 +8396,33 @@ def test_placing_tools_on_a_sprite_runs_the_orca_step_on_its_cc_remote_task_with
 
 
 def test_a_sprite_says_whether_anything_listens_on_the_port_its_cc_remote_task_runs_orcas_runtime_on_and_why_when_it_does_not_answer(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     workspace, dispatch, port = J982_10
     monkeypatch.setattr(orca, "CC_REMOTE_TASKS", tmp_path)
-    (tmp_path / f"{workspace}.json").write_text(json.dumps({"port": port, "forward": {"host": workspace, "config": "/ssh/j982-10.ssh"}}))
-    answers = [(0, b"", b""), (0, f"LISTEN 0 4096 127.0.0.1:{port} 0.0.0.0:*\n".encode(), b""), (255, b"", b"Connection timed out during banner exchange\r\n"), None]
+    (tmp_path / f"{workspace}.json").write_text(json.dumps({"port": port, "machine": workspace, "forward": {"host": workspace, "config": "/ssh/j982-10.ssh"}}))
+    root = tmp_path / "drive-demo"
+    root.mkdir()
+    (root / ".orca.json").write_text(json.dumps({"ccRemote": "cc-remote", "ccRemoteConfig": "config.yaml"}))
+    monkeypatch.setattr(orca, "checkout", lambda drive, clone: root)
+    monkeypatch.delenv("WORKER_CC_REMOTE", raising=False)
+    listening = f"LISTEN 0 4096 127.0.0.1:{port} 0.0.0.0:*\n".encode()
+    banner = (255, b"", b"Connection timed out during banner exchange\r\n")
+    answers = [(0, b"", b""), (0, listening, b""), banner, (0, listening, b""), banner, (255, b"", b"Error: sprite exec: connection refused\n"), None]
     ran = []
 
-    def ssh(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
-        ran.append((argv[:3], argv[-2:]))
+    def run(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+        ran.append(argv[:3])
         if not (answer := answers[len(ran) - 1]):
             raise subprocess.TimeoutExpired(argv, orca.CALL_SECONDS)
         return subprocess.CompletedProcess(argv, answer[0], stdout=answer[1], stderr=answer[2])
 
-    monkeypatch.setattr(orca.subprocess, "run", ssh)
-    assert [RUNTIME_LISTENING("demo", workspace) for _ in answers] == [False, True, SILENT_SPRITE, f"ssh to it ran past {orca.CALL_SECONDS} s"]
-    assert ran == [(["ssh", "-F", "/ssh/j982-10.ssh"], [workspace, f"ss -Hltn 'sport = :{port}'"])] * 4
-    assert RUNTIME_LISTENING("demo", "pool-unrecorded") == "cc-remote records no task for it"
+    monkeypatch.setattr(orca.subprocess, "run", run)
+    said = [RUNTIME_LISTENING(remote, workspace) for _ in range(5)]
+    assert said == [False, True, True, "ssh exited 255: Error: sprite exec: connection refused", f"ssh to it ran past {orca.CALL_SECONDS} s"]
+    ssh, step = ["ssh", "-F", "/ssh/j982-10.ssh"], ["cc-remote", "step", workspace]
+    assert ran == [ssh, ssh, ssh, step, ssh, step, ssh]
+    assert RUNTIME_LISTENING(remote, "pool-unrecorded") == "cc-remote records no task for it"
 
 
 def test_putting_a_file_on_a_sprite_sends_it_through_ssh_stdin_and_returns_the_path_only_when_the_sprite_kept_those_bytes(
