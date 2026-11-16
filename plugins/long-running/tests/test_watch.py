@@ -11449,7 +11449,7 @@ def test_23_staging_waits_of_4_jobs_on_one_env_make_one_stall_one_watchdog_and_o
     ]
     watchdog_answered(out)
     assert watch.stall_lines(watching, T0 + timedelta(minutes=168)) == [
-        f"STUCK j3 o1: {thing}, which holds j3, unmoved 68 minutes: {STAGING_ENV} running cloudrunner-next at 5f986a0 or a build carrying it https://github.com/{state.MONOREPO}/commit/5f986a0."
+        f"STUCK j3 o1: {thing}, which holds j3, unmoved 68 minutes: {STAGING_ENV} running cloudrunner-next at 5f986a0 or a build carrying it https://github.com/Forge-AI/monorepo/commit/5f986a0."
         f" WHY: {READERS_FIRST}, and j2 waits on {FOOTER}, which the lander has not merged; NEXT: drive pr land {FOOTER}; its whole answer, WHO and UNREAD with it, in {out}"
     ]
 
