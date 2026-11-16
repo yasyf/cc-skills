@@ -3715,7 +3715,7 @@ def test_a_done_design_job_is_carried_by_its_open_card_and_its_part_needs_a_job_
             updated=state.stamp(T0 - timedelta(minutes=10)),
         )
     watching = watcher(demo)
-    assert watch.run_pass(watching, T0) == []
+    assert watch.run_pass(watching, T0) == ["HELD j2: his held words went to root@demo, which holds its order, as record 9 to read"]
     monkeypatch.setattr(watch.view, "cards", lambda name: watch.view.NO_CARDS)
     with state.edit(demo) as data:
         data["jobs"]["j2"]["questions"][0]["closed"] = state.new_close("answered", "First", None, seq="9", at=state.stamp(T0 - timedelta(minutes=10)))
