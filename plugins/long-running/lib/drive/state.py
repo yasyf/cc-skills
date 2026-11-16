@@ -5071,7 +5071,7 @@ def exempted(pr: dict) -> str | None:
 
 
 def port_hold(data: dict, pr: dict) -> str | None:
-    """The original a pure port waits on, #port_of in its own repository, while the drive tracks it unlanded and neither it nor the port carries his Approve, since the exemption covers only work that merged or that he approved: the port waits on it, reads blocked on his card on it, and lands after it; None for a port of merged or approved work, and for any other PR."""
+    """The original a pure port waits on, #port_of in its own repository, while the drive tracks it unlanded and neither it nor the port carries his Approve, since the exemption covers only work that merged or that he approved: the port waits on it, reads blocked, and lands after it; None for a port of merged or approved work, and for any other PR."""
     if pr.get("exempt") != "pure port" or not pr.get("port_of") or (pr["tap"] or {}).get("label") == "Approve":
         return None
     original = f"{github.repo_of(pr_key(pr['url']))}#{pr['port_of']}"

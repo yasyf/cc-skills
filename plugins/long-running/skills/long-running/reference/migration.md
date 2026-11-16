@@ -169,8 +169,7 @@ His rulings already live in cc-notes answers.
    lands without one.
 5. Carry a tap he gave when the old drive's `lr board rows` show it in force, so he is never asked
    again: `drive pr set <url> --tapped Approve --tap-source <the permalink of his message or card>`,
-   or `--tapped Hold`. A hold the old drive or a desk made itself is not his, and his PR card would
-   say he held it: it carries as `--waits` on what it waits for, a job, PR, release or part,
+   or `--tapped Hold`. A hold the old drive or a desk made itself is not his: it carries as `--waits` on what it waits for, a job, PR, release or part,
    such as a deletion held for the cutover as a wait on the cutover's part, never as a `hold`
    label on GitHub, a check that holds the PR whatever he taps. `drive pr set`
    refuses `--tapped` with no permalink of his, and one already recorded as his tap drops with
