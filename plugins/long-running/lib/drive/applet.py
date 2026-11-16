@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import os
 import queue
 import threading
 import time
@@ -260,7 +261,9 @@ class Composer:
         folder = self.folder / slug
         folder.mkdir(parents=True, exist_ok=True)
         (folder / f"{key}.failed").unlink(missing_ok=True)
-        (folder / kept).write_text(written)
+        fresh = folder / f".{kept}.{os.getpid()}.tmp"
+        fresh.write_text(written)
+        fresh.replace(folder / kept)
         self.folder.touch()
         with self.lock:
             self.queued.discard(f"{key}.json")

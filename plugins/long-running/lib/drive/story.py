@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 import queue
 import threading
 import time
@@ -243,13 +244,15 @@ class Writer:
             self.write(*self.writing.get())
 
     def write(self, key: str, write: Callable[[], dict]) -> None:
-        """Keep the story write returns as key's, or why it failed in its place."""
+        """Keep the story write returns as key's, or why it failed in its place, written whole in one rename, so a dashboard reading it while another writes, as one install hands over to the next, never reads it empty."""
         try:
             written, kept = json.dumps(write()), f"{key}.json"
         except DriveError as error:
             written, kept = str(error), f"{key}.failed"
         self.folder.mkdir(parents=True, exist_ok=True)
         (self.folder / f"{key}.failed").unlink(missing_ok=True)
-        (self.folder / kept).write_text(written)
+        fresh = self.folder / f".{kept}.{os.getpid()}.tmp"
+        fresh.write_text(written)
+        fresh.replace(self.folder / kept)
         with self.lock:
             self.queued.discard(key)
