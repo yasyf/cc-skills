@@ -130,7 +130,7 @@ def danger(data: dict, key: str) -> str:
     if found := dangerous(github.files(key)):
         return f"it changes {', '.join(found[:3])}{', …' if len(found) > 3 else ''}"
     part = state.STAGING_TEST.format(number=key.partition("#")[2])
-    if github.repo_of(key).lower() != state.MONOREPO.lower() or not (order_id := next((order_id for order_id, order in data["orders"].items() if part in order["parts"]), None)):
+    if not state.home_repo(data, github.repo_of(key)) or not (order_id := next((order_id for order_id, order in data["orders"].items() if part in order["parts"]), None)):
         return ""
     return f"{order_id} holds its {part} part, given only to a change its builder read as dangerous"
 

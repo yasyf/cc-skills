@@ -2500,7 +2500,7 @@ def release_holds(data: dict, job: dict, asked: limits.Question, text: str) -> l
     """Why a card on a production release's order may not ask about a PR the ASK names that only its staging test holds, green and approved, by state.release_held: one changing nothing dangerous, by land.dangerous, the watch lands now and the cut waits on, so no option skips a component or holds the release for it; a dangerous one his card asks to merge, an option naming merge and the PR, never one leaving a component out or holding the release on its test; by his words state.RELEASE_HOLD_WORDS."""
     if not any(state.releasing(data, order_id) for order_id in [job["order"], *job["carries"]]):
         return []
-    named = {state.pr_key(found[0]) for found in state.PR_URL.finditer(text)} | {f"{state.MONOREPO}#{number}" for number in re.findall(r"(?<![\w/])#(\d+)\b", text)}
+    named = {state.pr_key(found[0]) for found in state.PR_URL.finditer(text)} | {f"{state.home(data)}#{number}" for number in re.findall(r"(?<![\w/])#(\d+)\b", text)}
     problems = []
     for key in sorted(key for key in named if key in data["prs"] and state.release_held(data, key)):
         number = key.rpartition("#")[2]
@@ -5194,8 +5194,8 @@ def pr_set(args: argparse.Namespace) -> int:
             f"{key}: refused, nothing set: --flaky {args.flaky[0]} names its cause and no fix PR, which queues again only a green head Trunk ejected,"
             f" and its own checks fail at {before['head'][:7]}, where a rerun grades the same merge commit: name that test's fix, a PR the drive tracks, to restack onto"
         )
-    if args.staging and key.rpartition("#")[0].casefold() != state.MONOREPO.casefold():
-        raise DriveError(f"{key}: refused, nothing set: --staging runs a {state.MONOREPO} PR's cases on plat-usw2-staging, and {key} is no {state.MONOREPO} PR")
+    if args.staging and not state.home_repo(known := state.load(name), key.rpartition("#")[0]):
+        raise DriveError(f"{key}: refused, nothing set: --staging runs a {state.home(known)} PR's cases on {providers.of(known).staging.env}, and {key} is no {state.home(known)} PR")
     if args.exempt == state.FLAKE_FIX and args.tap is None:
         args.tap = flake_tap(key, state.waits_his_tap(known, key, before["order"]))
     after = dict(before)

@@ -1799,7 +1799,7 @@ def mark_cut_backlog(data: dict) -> None:
             and unstarted(job)
             and all(RELEASE_WAIT.fullmatch(wait) for wait in job["waits"])
             and (keys := install.proves(data, job_id))
-            and all(github.repo_of(key).casefold() == MONOREPO.casefold() for key in keys)
+            and all(home_repo(data, github.repo_of(key)) for key in keys)
             and AFTER_MERGE_PASS not in handoff
             and "changing only tests or CI config" not in handoff
         ):
@@ -2544,19 +2544,19 @@ def staging_refusal(data: dict, job_id: str, line: str, report: str) -> str | No
     """Why a builder's READY or PUSHED naming a Forge-AI/monorepo PR by link may not be taken: a `STAGING:` line of its report names no such PR as `#N <cases>` nor opens `none: <why>`, a PR the release reach put on its staging test, by reach_staging, has no `#N <cases>` line giving its tester's cases, which no `none` line stands in for, or another such PR has neither, as fix_refusal asks a FIX line, the tooling only helping the builder keep the prose rule, by his words 17f763e."""
     if data["jobs"][job_id]["kind"] != "builder" or not REPORTED_LINE.match(line):
         return None
-    named = [found[3] for found in PR_URL.finditer(line) if f"{found[1]}/{found[2]}".casefold() == MONOREPO.casefold()]
+    named = [found[3] for found in PR_URL.finditer(line) if home_repo(data, f"{found[1]}/{found[2]}")]
     if not named:
         return None
     stagings = STAGING_LINE.findall(report)
     if wrong := [staging for staging in stagings if not UNSTAGED.match(staging) and not ((found := STAGED.fullmatch(staging)) and found["number"] in named)]:
-        return f"its STAGING line `{wrong[0]}` neither stages a {MONOREPO} PR its first line names, as `#N <cases>`, nor reads `none: <why AGENTS.md's dangerous rule misses it>`"
+        return f"its STAGING line `{wrong[0]}` neither stages a {home(data)} PR its first line names, as `#N <cases>`, nor reads `none: <why AGENTS.md's dangerous rule misses it>`"
     said = {found["number"]: found["cases"] for staging in stagings if (found := STAGED.fullmatch(staging))}
     staged = {number for number, cases in said.items() if not UNSTAGED.match(cases)}
-    if untested := sorted({number for number in named if (pr := data["prs"].get(f"{MONOREPO}#{number}")) and pr["reached"]} - staged):
-        return f"{', '.join(f'{MONOREPO}#{number}' for number in untested)} waits on its staging test before it lands, since its paths reach a component staging runs, so no `STAGING: none` line stands for it: end your report with {STAGING_CASES}"
+    if untested := sorted({number for number in named if (pr := data["prs"].get(f"{home(data)}#{number}")) and pr["reached"]} - staged):
+        return f"{', '.join(f'{home(data)}#{number}' for number in untested)} waits on its staging test before it lands, since its paths reach a component staging runs, so no `STAGING: none` line stands for it: end your report with {STAGING_CASES}"
     if any(UNSTAGED.match(staging) for staging in stagings) or not (unstaged := set(named) - set(said)):
         return None
-    return f"it names {', '.join(f'{MONOREPO}#{number}' for number in sorted(unstaged))}, so {STAGING_RULE}"
+    return f"it names {', '.join(f'{home(data)}#{number}' for number in sorted(unstaged))}, so {STAGING_RULE}"
 
 
 def traced(data: dict, job_id: str, line: str) -> str | None:
@@ -2904,7 +2904,7 @@ def staging_testers(data: dict, job_id: str, report: str) -> list[str]:
     keys = {key.casefold(): key for key in data["prs"]}
     stagings = STAGING_LINE.findall(report)
     for staging in stagings:
-        if not (found := STAGED.fullmatch(staging)) or not (key := keys.get(f"{MONOREPO}#{found['number']}".casefold())):
+        if not (found := STAGED.fullmatch(staging)) or not (key := keys.get(f"{home(data)}#{found['number']}".casefold())):
             continue
         staged.add(key)
         if UNSTAGED.match(found["cases"]):
@@ -2913,7 +2913,7 @@ def staging_testers(data: dict, job_id: str, report: str) -> list[str]:
         elif tester_id := stage_pr(data, key, found["cases"], job.get("session")):
             added.append(tester_id)
     if why := next((staging.partition(":")[2].strip() for staging in stagings if UNSTAGED.match(staging)), None):
-        named = (keys.get(f"{found[1]}/{found[2]}#{found[3]}".casefold()) for found in PR_URL.finditer(report.lstrip().partition("\n")[0]) if f"{found[1]}/{found[2]}".casefold() == MONOREPO.casefold())
+        named = (keys.get(f"{found[1]}/{found[2]}#{found[3]}".casefold()) for found in PR_URL.finditer(report.lstrip().partition("\n")[0]) if home_repo(data, f"{found[1]}/{found[2]}"))
         for key in dict.fromkeys(named):
             if key and key not in staged and not merges_first_lift(data["prs"][key]):
                 unstage(data, key, why, job_id)
@@ -2978,7 +2978,7 @@ def staged_open(data: dict, part: str) -> list[str]:
     """Each open monorepo PR the drive tracks that a `staging test of #N before it lands` part names, a combined `staging test of #A with #B before they land` included; none for any other part."""
     if not (named := STAGING_PARTS.fullmatch(part)):
         return []
-    return [key for number in re.findall(r"\d+", named["numbers"]) if (pr := data["prs"].get(key := f"{MONOREPO}#{number}")) and pr["state"] == "open"]
+    return [key for number in re.findall(r"\d+", named["numbers"]) if (pr := data["prs"].get(key := f"{home(data)}#{number}")) and pr["state"] == "open"]
 
 
 def merge_first(data: dict, order_id: str, part: str, why: str) -> None:
@@ -2997,7 +2997,7 @@ def merges_first_lift(pr: dict | None) -> bool:
 def markable(data: dict, key: str, head: str) -> bool:
     """Whether mark_dangerous may stage a PR at a head from its changed files: an open monorepo PR no order holds the staging test part of whose builder's `STAGING: none` lifted no test at that head, and whose staging test his answer did not let it merge before, by merges_first_lift, at any head, by his answer 2eb7e76."""
     pr, part = data["prs"][key], STAGING_TEST.format(number=key.split("#")[1])
-    return pr["state"] == "open" and github.repo_of(key).casefold() == MONOREPO.casefold() and not (pr["unstaged"] and (pr["unstaged"]["merges_first"] or pr["unstaged"]["head"] == head)) and not any(part in order["parts"] for order in data["orders"].values())
+    return pr["state"] == "open" and home_repo(data, github.repo_of(key)) and not (pr["unstaged"] and (pr["unstaged"]["merges_first"] or pr["unstaged"]["head"] == head)) and not any(part in order["parts"] for order in data["orders"].values())
 
 
 def unmarked(data: dict) -> list[str]:
@@ -3073,7 +3073,7 @@ def releasing(data: dict, order_id: str) -> bool:
 def release_held(data: dict, key: str) -> list[str]:
     """The orders covering a production release, by releasing, whose `staging test of #N before it lands` part alone holds the open Forge-AI/monorepo PR at key: green, his Approve on it and its GitHub review approved, every wait of it on that part of those orders, so the release waits on nothing of it but its landing, by his words RELEASE_HOLD_WORDS; none otherwise."""
     pr, part = data["prs"][key], STAGING_TEST.format(number=key.rpartition("#")[2])
-    if pr["state"] != "open" or github.repo_of(key).casefold() != MONOREPO.casefold() or pr["checks"] != "pass" or pr["review"] != "approved" or not cleared(pr):
+    if pr["state"] != "open" or not home_repo(data, github.repo_of(key)) or pr["checks"] != "pass" or pr["review"] != "approved" or not cleared(pr):
         return []
     held = [found[0] for wait in pr["waits"] if (found := part_wait(data, wait)) and found[1] == part]
     return held if held and len(held) == len(pr["waits"]) and all(releasing(data, order_id) for order_id in held) else []
@@ -3510,7 +3510,7 @@ def staging_parts(data: dict, job: dict) -> list[tuple[str, str]]:
 
 def tested_prs(data: dict, job: dict) -> list[str]:
     """The key of the Forge-AI/monorepo PR each staging test part of a job's tests, by staging_parts, its own order's first."""
-    return [f"{MONOREPO}#{STAGING_PART.fullmatch(part)['number']}" for _, part in staging_parts(data, job)]
+    return [f"{home(data)}#{STAGING_PART.fullmatch(part)['number']}" for _, part in staging_parts(data, job)]
 
 
 def part_testers(data: dict, order_id: str, part: str) -> list[tuple[str, dict]]:
@@ -3533,7 +3533,7 @@ def keep_after_merge(data: dict, job_id: str, report: str, moment: str) -> None:
 
     if starts_cut(data["jobs"][job_id]) or not CASE_LINE.search(report):
         return
-    proven = {key.rpartition("#")[2]: key for key in install.proves(data, job_id) if key.rpartition("#")[0].casefold() == MONOREPO.casefold() and data["prs"][key]["merged_sha"]}
+    proven = {key.rpartition("#")[2]: key for key in install.proves(data, job_id) if home_repo(data, key.rpartition("#")[0]) and data["prs"][key]["merged_sha"]}
     for number, key in proven.items():
         cases, proofs = pr_run(report, number, set(proven))
         if number in named_numbers(report) and not all(UNEXERCISED_CASE.match(verdict) for _, verdict in cases):
@@ -3662,7 +3662,7 @@ def named_numbers(text: str) -> list[str]:
 
 def part_soak(data: dict, waits: list[str], part: str) -> str | None:
     """The staging wait among a tester's waits that soaks one staging test part: the one at a commit the head of the PR it tests opens with, else the first at a commit no other PR the drive tracks has for its head, so a tester of two PRs in turn keeps each one's own commit; None when neither."""
-    key = f"{MONOREPO}#{STAGING_PART.fullmatch(part)['number']}".casefold()
+    key = f"{home(data)}#{STAGING_PART.fullmatch(part)['number']}".casefold()
     heads = {other.casefold(): pr["head"] or "" for other, pr in data["prs"].items()}
     commits = [(wait, found["commit"]) for wait in waits if (found := STAGING_WAIT.fullmatch(wait))]
     own = next((wait for wait, commit in commits if heads.get(key, "").startswith(commit)), None)
@@ -3686,7 +3686,7 @@ def unstaged(data: dict, job_id: str, line: str, report: str) -> str | None:
     if not (freed := [key for key, waits in held.items() if not view.holding(taken, waits, None)]):
         return None
     clone = data["roles"]["coordinator"]["cwd"]
-    tested = {f"{MONOREPO}#{STAGING_PART.fullmatch(part)['number']}".casefold(): part for _, part in staging_parts(data, job)}
+    tested = {f"{home(data)}#{STAGING_PART.fullmatch(part)['number']}".casefold(): part for _, part in staging_parts(data, job)}
     every = [proof for check in brief.CHECK.findall(report) for proof in brief.proofs(check)]
     named = {key: part_run(data, job_id, report, tested[key.casefold()])[1] if key.casefold() in tested else every for key in freed}
     runs = {key: [found[0] for proof in proofs if (found := github.BUILD.match(proof))] for key, proofs in named.items()}
@@ -3770,7 +3770,7 @@ def job_waits(data: dict, pr: dict) -> list[str]:
 def staging_runs(data: dict, pr: dict) -> list[str]:
     """Each `staging test of #N before it lands` part naming a Forge-AI/monorepo PR, on any order, that a tester started on, by part_testers, or the PR waits on, by wait_on_staging, and that is not delivered, as `<order>:<part>`, so it lands only once that run passes and its proof is posted, by his ruling 0048b14 that a started staging test is finished before its PR merges."""
     repo, number = pr_key(pr["url"]).split("#")
-    if repo.lower() != MONOREPO.lower():
+    if not home_repo(data, repo):
         return []
     part = STAGING_TEST.format(number=number)
     orders = orders_holding(data, part)
@@ -5264,6 +5264,16 @@ def provided(data: dict) -> Any:
     from drive import providers
 
     return providers.of(data)
+
+
+def home(data: dict) -> str | None:
+    """The repository the drive's repository provider names, whose releases, staging and queue its providers describe; None when it names none, so no PR is its."""
+    return provided(data).repo.name
+
+
+def home_repo(data: dict, repo: str) -> bool:
+    """Whether repo, as `owner/name`, is the drive's home repository, by home."""
+    return (name := home(data)) is not None and repo.casefold() == name.casefold()
 
 
 def drive_checkout(name: str, clone: str) -> Path:

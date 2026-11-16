@@ -1271,7 +1271,7 @@ def serving_lines(watcher: Watcher, moment: datetime) -> list[str]:
     merged = [
         wait
         for wait in followed(watcher, data)
-        if (found := state.RELEASE_WAIT.fullmatch(wait)) and data["prs"][found["pr"]]["merged_sha"] and github.repo_of(found["pr"]).lower() == state.MONOREPO.lower()
+        if (found := state.RELEASE_WAIT.fullmatch(wait)) and data["prs"][found["pr"]]["merged_sha"] and state.home_repo(data, github.repo_of(found["pr"]))
     ]
     soaks = {wait: found for wait in followed(watcher, data) if (found := state.STAGING_WAIT.fullmatch(wait))}
     fixes = sorted({key for keys in incident_fixes(watcher, data).values() for key in keys})
@@ -1350,7 +1350,7 @@ def incident_fixes(watcher: Watcher, data: dict) -> dict[str, list[str]]:
         prs = [key for key, pr in data["prs"].items() if pr["job"] in jobs and pr["state"] != "closed"]
         if (
             prs
-            and all(data["prs"][key]["state"] == "merged" and key.split("#")[0].lower() == state.MONOREPO.lower() for key in prs)
+            and all(data["prs"][key]["state"] == "merged" and state.home_repo(data, key.split("#")[0]) for key in prs)
             and all(job["state"] in state.FINISHED_JOB_STATES for job in jobs.values())
         ):
             fixes[head] = prs
@@ -1797,8 +1797,8 @@ def out_because(watcher: Watcher, data: dict, wait: str) -> str | None:
         key, service, env = found["pr"], found["service"], found["env"]
         if not data["prs"][key]["merged_sha"]:
             return None
-        if github.repo_of(key).lower() != state.MONOREPO.lower():
-            return f"{key} merged, and the release live read finds only {state.MONOREPO}, so nothing follows its release"
+        if not state.home_repo(data, github.repo_of(key)):
+            return f"{key} merged, and the release live read finds only {state.home(data)}, so nothing follows its release"
         if watcher.serving is None or (clusters := watcher.serving.get(wait)) is None:
             return None
         if env and env not in clusters:
@@ -5069,7 +5069,7 @@ def job_gap(watcher: Watcher, job_id: str, job: dict, data: dict, order_id: str,
         if done_unproven(data, job_id):
             return None if proving(data, job_id) else merged_gap(job_id, data)
         if job["kind"] in state.CHANGE_KINDS and (staging := state.STAGING_PART.fullmatch(part)):
-            held, key, add = data["orders"][order_id]["parts"][part], f"{state.MONOREPO}#{staging['number']}", f"drive job add builder --order {order_id} --part {shlex.quote(part)}"
+            held, key, add = data["orders"][order_id]["parts"][part], f"{state.home(data)}#{staging['number']}", f"drive job add builder --order {order_id} --part {shlex.quote(part)}"
             if held["posted_by"] != job_id:
                 return f"{job_id}'s DONE ran no case of {key}'s staging test, so the part waits on a run of it: {add} --goal '<run it>'"
             if held["posted"]:

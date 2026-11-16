@@ -12,7 +12,6 @@ from drive import agents, brief, orca, spend, state, view, watch
 from drive.render import when
 
 LIMIT_ENV = "HOOKS_ADMISSION_LOAD_PER_CORE"
-MONOREPO = "Forge-AI/monorepo"
 LOCAL_BUILDERS = 8
 CAP_RULE = "on builders that compile here, where a staging tester, a merged PR's prover or another builder marked --builds-nothing holds no slot"
 MAC_LINES = "its Mac: line, which drive job brief --mac writes, or its Release: line"

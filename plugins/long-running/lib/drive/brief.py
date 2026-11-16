@@ -418,7 +418,7 @@ def harmless(release: str, data: dict) -> bool:
     named = started(release)
     if len(named) != 1 or not (pulls := named[0].get("hotfix")):
         return False
-    return not any(land.danger(data, f"{state.MONOREPO}#{number}") for number in pulls)
+    return not any(land.danger(data, f"{state.home(data)}#{number}") for number in pulls)
 
 
 def cluster_job_refusal(job: dict, data: dict, moment: datetime, top: bool = False) -> str | None:
