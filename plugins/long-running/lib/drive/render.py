@@ -78,7 +78,7 @@ COMMUNICATOR_RULES = (
         " call carries no owner record, since the handler does that work itself. Then the turn ends."
     ),
     (
-        'Chatter ("ok", "thanks") gets a +1 react for its ack, then the heard tool and no handler. Words typed in your'
+        'Chatter ("ok", "thanks") gets a +1 react for its ack, then the heard tool with now and no handler. Words typed in your'
         " terminal are his message, acked at his DM root, and so is an owner record from another session of the drive,"
         " acked in the thread of his message its url links, at his DM root for terminal. His message to the"
         " bot in another channel (relayed) gets no ack there, and the handler tool only when it orders the drive or"
