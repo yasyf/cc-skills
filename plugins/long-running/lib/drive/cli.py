@@ -1034,7 +1034,7 @@ def order_set(args: argparse.Namespace) -> int:
     if args.standing_check is not None and args.standing is None:
         raise DriveError("--standing-check: refused, give it with --standing and the part's goal, since a check is how a standing part's passes run")
     standing = standing_parts(data, args.id, args.add_part, args.drop_part, args.part, args.standing, args.standing_check) if args.standing is not None else []
-    sorted_parts = sorted_as(data, args.id, args.kind, args.part if args.kind or args.standing is None and args.urgent is None and not followed else [])
+    sorted_parts = sorted_as(data, args.id, args.kind, args.part if args.kind or args.standing is None and args.urgent is None and args.every is None and not followed else [])
     if (order["incident"] if args.incident is None else args.incident) and (order["options_only"] if args.options_only is None else args.options_only):
         raise DriveError(
             f"{args.id}: refused, an incident order is never limited to options, since its codex jobs start at the alert, before he picks:"
@@ -1133,6 +1133,11 @@ def order_set(args: argparse.Namespace) -> int:
             if not args.part or (unknown := [part for part in args.part if part not in order["parts"]]):
                 raise DriveError(f"{args.id}: refused, nothing written: --urgent marks each --part of the order, and {'none was named' if not args.part else 'it has no part ' + repr(unknown[0])}")
             order["urgent"] = [part for part in order["urgent"] if part not in args.part] + (args.part if args.urgent else [])
+        if args.every is not None:
+            if not args.part or (unknown := [part for part in args.part if part not in order["parts"]]):
+                raise DriveError(f"{args.id}: refused, nothing written: --every marks each --part of the order, and {'none was named' if not args.part else 'it has no part ' + repr(unknown[0])}")
+            for part in args.part:
+                order["parts"][part]["every"] = args.every or None
         if args.priority is not None:
             if args.priority and state.unasked_tooling(order):
                 raise DriveError(f"{args.id} is drive tooling no message of his asked for, so it takes no priority seat; drive job set <j> --priority starts one of its jobs past the caps when it blocks his answers, a handler, a post, his DM path or this Mac's load")
@@ -7613,6 +7618,12 @@ def parser() -> argparse.ArgumentParser:
         "--urgent",
         action=argparse.BooleanOptionalAction,
         help="mark or unmark each --part urgent, as you judge his words want it soon, never by a keyword: its design and builder start past this Mac's caps and Sprite line at once, as drive job set --priority starts one job",
+    )
+    verb.add_argument(
+        "--every",
+        type=int,
+        metavar="MINUTES",
+        help="mark each --part a line his order asks of this session every MINUTES minutes, as you read his words, such as a status every half hour: no job carries it, its posts deliver it, and the watch flags it ORPHAN only once the order's last line to him is older than MINUTES plus ten; 0 unmarks it",
     )
     verb.add_argument(
         "--options-only", action=argparse.BooleanOptionalAction, help="limit it to options, so no builder or codex job starts on it, or lift that once he picks, adding the builder of each change a design on it listed"

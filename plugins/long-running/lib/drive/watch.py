@@ -5709,6 +5709,8 @@ def part_gap(watcher: Watcher, data: dict, order_id: str, part: str, moment: dat
         return stuck[-1]
     if order["parts"][part]["standing"]:
         return standing_gap(jobs, gaps, order["parts"][part]["check"], moment)
+    if every := order["parts"][part].get("every"):
+        return reported_gap(order, every, moment)
     if state.following(order["parts"][part]):
         return None
     if fixer := no_fix_job(data, order_id, part, jobs):
@@ -5758,6 +5760,16 @@ class Recheck(Restart):
         made = str.__new__(cls, "its check is due")
         made.last = None
         return made
+
+
+REPORT_GRACE = timedelta(minutes=10)
+
+
+def reported_gap(order: dict, every: int, moment: datetime) -> str | None:
+    """Who holds a part the order's own session delivers by a line to him every so many minutes, by drive order set --every: that session, while the order's last line to him is younger than its cadence and REPORT_GRACE, so no job is made just to quiet its line; else the line naming it overdue."""
+    if order["last_line"] and moment - state.parse_time(order["last_line"]) < timedelta(minutes=every) + REPORT_GRACE:
+        return None
+    return f"its line to him every {every} minutes is overdue: the order's last went out {f'at {order['last_line']}' if order['last_line'] else 'never'}; its session posts it now"
 
 
 def standing_gap(jobs: list[tuple[str, dict]], gaps: dict[str, str | None], check: dict | None, moment: datetime) -> str | None:

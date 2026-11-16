@@ -12255,3 +12255,12 @@ def test_a_restarted_watch_reads_whole_only_the_prs_whose_github_signature_moved
     monkeypatch.setattr(github, "signatures", lambda keys: ({key: "moved" for key in keys}, None))
     watch.github_lines(watcher(demo), T0 + timedelta(minutes=2))
     assert calls == [[KEY], [KEY]]
+
+
+def test_a_part_its_orders_session_delivers_every_thirty_minutes_is_no_orphan_while_its_last_line_is_younger_and_is_once_it_is_overdue() -> None:
+    moment = datetime(2026, 11, 16, 6, 0, tzinfo=UTC)
+    order = {"last_line": state.stamp(moment - timedelta(minutes=35))}
+    assert watch.reported_gap(order, 30, moment) is None
+    order["last_line"] = state.stamp(moment - timedelta(minutes=41))
+    assert watch.reported_gap(order, 30, moment) == f"its line to him every 30 minutes is overdue: the order's last went out at {order['last_line']}; its session posts it now"
+    assert watch.reported_gap({"last_line": None}, 30, moment).startswith("its line to him every 30 minutes is overdue: the order's last went out never")
