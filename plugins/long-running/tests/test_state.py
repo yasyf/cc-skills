@@ -398,7 +398,7 @@ def test_a_write_of_its_rows_is_refused_keeping_nothing_once_another_write_chang
     assert "refused: another write changed terminal while it ran" in (state.drive_dir("demo") / "locks.log").read_text()
 
 
-def test_an_update_another_write_raced_runs_again_under_the_drive_lock_on_the_drive_as_it_stands(state_root: Path) -> None:
+def test_an_update_another_write_raced_runs_again_on_the_drive_as_it_then_stands(state_root: Path) -> None:
     make("demo")
     runs: list[str | None] = []
 
@@ -413,10 +413,27 @@ def test_an_update_another_write_raced_runs_again_under_the_drive_lock_on_the_dr
 
     assert state.update("demo", (("", "terminal"),), keep) == "mine over theirs"
     assert (runs, state.load("demo")["terminal"], state.load("demo")["binder"]) == ([None, "theirs too"], "mine over theirs", "theirs too")
-    assert "ran again under the drive lock, since another write changed terminal while it ran" in (state.drive_dir("demo") / "locks.log").read_text()
+    assert not (state.drive_dir("demo") / "locks.log").exists()
 
 
-def test_an_update_changing_a_row_it_did_not_name_runs_again_under_the_drive_lock(state_root: Path) -> None:
+def test_an_update_raced_on_every_run_runs_last_as_a_write_of_the_whole_drive(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    make("demo")
+    monkeypatch.setattr(state, "UPDATE_TRIES", 2)
+    runs: list[str] = []
+
+    def keep(data: dict) -> None:
+        runs.append(data["terminal"] or "")
+        if len(runs) <= 2:
+            with state.edit("demo") as other:
+                other["terminal"] = f"theirs {len(runs)}"
+        data["terminal"] = "mine"
+
+    state.update("demo", (("", "terminal"),), keep)
+    assert (runs, state.load("demo")["terminal"]) == (["", "theirs 1", "theirs 2"], "mine")
+    assert "ran as a write of the whole drive, since another write changed terminal each time it ran" in (state.drive_dir("demo") / "locks.log").read_text()
+
+
+def test_an_update_changing_a_row_it_did_not_name_runs_again_as_a_write_of_the_whole_drive(state_root: Path) -> None:
     make("demo")
 
     def keep(data: dict) -> None:
@@ -425,7 +442,7 @@ def test_an_update_changing_a_row_it_did_not_name_runs_again_under_the_drive_loc
 
     state.update("demo", (("", "terminal"),), keep)
     assert (state.load("demo")["terminal"], state.load("demo")["binder"]) == ("term-1", "term-2")
-    assert "ran again under the drive lock, since it changed binder too" in (state.drive_dir("demo") / "locks.log").read_text()
+    assert "ran as a write of the whole drive, since it changed binder too" in (state.drive_dir("demo") / "locks.log").read_text()
 
 
 def test_a_write_of_its_rows_changing_another_row_raises_keeping_nothing(state_root: Path) -> None:
@@ -449,16 +466,18 @@ def test_two_writes_adding_at_once_from_one_load_take_two_ids(state_root: Path) 
     assert (mine, theirs, sorted(state.load("demo")["orders"])) == ("o1", "o2", ["o1", "o2"])
 
 
-def test_a_write_of_its_rows_holds_each_row_s_lock_from_load_to_save(state_root: Path) -> None:
+def test_a_write_of_its_rows_saves_those_records_alone_with_the_ids_it_took_counted_in_the_database(state_root: Path) -> None:
     make("demo")
-    with state.edit("demo", (("", "terminal"),)) as data:
-        data["terminal"] = "term-1"
-        with open(state.drive_dir("demo") / "locks" / "drive-terminal.lock", "a") as held:
-            with pytest.raises(BlockingIOError):
-                fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        with open(state.drive_dir("demo") / "locks" / "drive-binder.lock", "a") as free:
-            fcntl.flock(free, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    assert state.load("demo")["terminal"] == "term-1"
+    created = state.stamp()
+    with state.edit("demo", (("orders", "o1"),)) as data:
+        data["orders"][state.next_id(data["orders"], "o")] = state.new_order("mine", "terminal", None, {"mine": state.new_part()}, created)
+        with closing(sqlite3.connect(state.database_path("demo"))) as db, db:
+            db.execute("UPDATE rows SET body = ? WHERE collection = '' AND key = 'terminal'", (json.dumps("written beside it"),))
+    data = state.load("demo")
+    assert (list(data["orders"]), data["terminal"]) == (["o1"], "written beside it")
+    assert not (state.drive_dir("demo") / "locks").exists()
+    with closing(sqlite3.connect(state.database_path("demo"))) as db:
+        assert db.execute("SELECT value FROM meta WHERE key = 'ids-o'").fetchone() == ("1",)
 
 
 def test_a_hold_of_the_drive_lock_past_its_stuck_seconds_logs_the_line_it_holds_on_while_it_still_holds(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
