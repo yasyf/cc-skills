@@ -2255,7 +2255,7 @@ def refuse_a_mark_off_a_builder(kind: str, builds_nothing: bool | None) -> None:
 
 
 def unreturned_builders(data: dict, order_id: str, parts: list[str]) -> list[str]:
-    """Each builder on these parts of the order that has not returned and builds something, that a builder add would run beside rather than fold into or be refused by: on an incident any, since change_job names none there, elsewhere one that worked and no agent or lane holds now, as the add's sibling path reads it, so a codex HANDOFF's builder and a second added by hand never ship one fix twice, as j8238 and j8244 did on o2316."""
+    """Each builder on these parts of the order that has not returned and builds something, that a builder add would run beside or queue behind: on an incident any, since change_job names none there and the add starts beside it, elsewhere any but one running at work, whose add one_change_job refuses outright, so a codex HANDOFF's builder and a second added by hand never ship one fix twice, as j8238 and j8244 did on o2316."""
     incident = data["orders"][order_id]["incident"]
     return list(
         dict.fromkeys(
@@ -2266,7 +2266,7 @@ def unreturned_builders(data: dict, order_id: str, parts: list[str]) -> list[str
             and job["state"] not in state.FINISHED_JOB_STATES
             and not job.get("returned")
             and not state.builds_nothing(job)
-            and (incident or state.untaken(job) and not state.never_worked(job))
+            and (incident or not (job["state"] == "running" and not state.untaken(job)))
         )
     )
 
