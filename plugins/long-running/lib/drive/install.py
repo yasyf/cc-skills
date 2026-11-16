@@ -1825,6 +1825,14 @@ def hold_reload(drive: str, seat: str) -> None:
         path.write_text(json.dumps(sent | {seat: sent[seat] | {"held": True}}))
 
 
+def forget_reloads(drive: str, seat: str) -> None:
+    """Drop a retired seat's row from reloads.json, so a version check never reads a seat that is gone as one lagging."""
+    path = state.drive_dir(drive) / RELOADS
+    with state.locked(drive):
+        if path.exists() and seat in (sent := json.loads(path.read_text())):
+            path.write_text(json.dumps({key: value for key, value in sent.items() if key != seat}))
+
+
 def due_reloads(drive: str) -> list[str]:
     """Reload each session of the drive an install marked held once its hour is up, reading only reloads.json until one is due, then Orca as reload_sessions does, taking the held mark off each due seat first, so a reload that fails waits for the next install, as one an install started does, rather than being typed again on every watch pass; a line each."""
     path = state.drive_dir(drive) / RELOADS

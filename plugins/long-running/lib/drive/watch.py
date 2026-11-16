@@ -6716,6 +6716,7 @@ def retire_seat(name: str, seat: str) -> str:
         data["launched"].pop(f"sub-coordinator {seat}", None)
 
     state.update(name, None, retire_seat_write)
+    install.forget_reloads(name, f"sub-coordinator {seat}")
     return f"retired the seat {seat}: no open order holds it, so its alias {alias} is removed from cci and nothing starts session {session} again, `claude stop` ends it now when it runs in the background, else it ends at its own exit, and its binding is dropped"
 
 
