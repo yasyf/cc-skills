@@ -8888,7 +8888,7 @@ def test_his_ruling_on_a_whole_workstream_refuses_a_job_on_a_part_it_removes_and
     code, out = run("job", "brief", builder, "--serves", "drive tooling", "--done-when", "merged", "--where", "yasyf/cc-skills main")
     written = Path(out.splitlines()[0].removeprefix("Read your brief first: ")).read_text()
     assert (code, "Decisions that bind:\n- Why am I still getting cards about park? (4a5f9cd, 2026-11-12T11:36:00Z)\n  stop all the conflicting work and just get the HA rewrite done for ssql\n" in written) == (0, True)
-    changed = "Keep every word of this updated ruling: " + "complete body " * settled.BODY_CHARS
+    changed = "Keep every word of this updated ruling: " + "complete body " * settled.BODY_CHARS + "End of the updated ruling."
     recorded.listed = [PARK_RULING | {"body": changed}]
     code, out = run("job", "brief", builder, "--serves", "drive tooling", "--done-when", "merged", "--where", "yasyf/cc-skills main")
     written = Path(out.splitlines()[0].removeprefix("Read your brief first: ")).read_text()
