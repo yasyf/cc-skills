@@ -556,7 +556,7 @@ def test_page_make_keeps_an_applet_titled_by_its_order_that_a_second_make_widens
     run("page", "make", "run-page", "--order", "o2", "--goal", "the run page and its follow-up")
     [page] = pages.listed(ordered)
     assert {key: page[key] for key in ("slug", "kind", "title", "goal", "orders", "scope", "made_by")} == {
-        "slug": "run-page", "kind": "applet", "title": "Run page", "goal": "the run page and its follow-up", "orders": ["o1", "o2"], "scope": None, "made_by": "communicator",
+        "slug": "run-page", "kind": "applet", "title": "Run page", "goal": "the run page and its follow-up", "orders": ["o1", "o2"], "scope": {"projects": ["Iris"]}, "made_by": "communicator",
     }
 
 

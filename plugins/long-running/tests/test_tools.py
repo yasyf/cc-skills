@@ -404,11 +404,11 @@ def test_a_grant_whose_record_for_root_cci_refuses_runs_no_command(
     [
         (
             ["order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "count"],
-            "drive order add: refused, nothing ran: a lane runs only these verbs: job report, job ask, job set, job replies, job held, pr add, pr set, slot claim, slot release, plan search, datadog, fde-scan, manual, page-owner, status, wait",
+            "drive order add: refused, nothing ran: a lane runs only these verbs: job report, job ask, job set, job replies, job held, pr add, pr set, slot claim, slot release, work pull, work done, plan search, datadog, fde-scan, manual, page-owner, status, wait",
         ),
         (
             ["job", "report", "j8", "-"],
-            "drive job report: refused, nothing ran: it names j8, and a lane's drive writes act on its own job, j7, alone, while its reads read any job",
+            "drive job report: refused, nothing ran: it names j8, and a lane's drive writes act on its own job, j7, alone, or on the items it holds as a worker of the queue, while its reads read any job",
         ),
         (["job", "report", "--", "j8", "-"], "drive job report: refused, nothing ran: it names j8"),
         (["job", "ask", "j8", "ask.md"], "drive job ask: refused, nothing ran: it names j8"),

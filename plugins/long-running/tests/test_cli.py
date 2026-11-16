@@ -9080,11 +9080,12 @@ def test_a_red_pr_whose_builder_waits_on_an_unended_job_reads_blocked_on_it_and_
         data["jobs"]["j1"].update(state="waiting", waits=["j2"], waited={"owed": {with_pr: step}, "waits": []}, agent="a1")
         data["jobs"]["j2"]["state"] = "running"
     data = state.load("demo")
-    assert step and (stage.of(data, with_pr, {}).name, stage.parked(data, with_pr)) == ("blocked", True)
+    cards = view.NO_CARDS | {"pr_cards": [{"url": CARDED, "prs": [PR], "card": {"waits": "merge:Forge-AI:monorepo:42", "prs": [{"url": PR, "head": "c792ecebf2aa"}]}}]}
+    assert step and (stage.of(data, with_pr, cards).name, stage.parked(data, with_pr)) == ("blocked", True)
     with state.edit("demo") as data:
         data["jobs"]["j2"]["state"] = "done"
     data = state.load("demo")
-    assert (stage.of(data, with_pr, {}).name, stage.parked(data, with_pr)) == ("red", False)
+    assert (stage.of(data, with_pr, cards).name, stage.parked(data, with_pr)) == ("red", False)
 
 
 def test_status_reads_the_prs_from_the_drive_and_never_from_github(run: Run, with_pr: str, monkeypatch: pytest.MonkeyPatch) -> None:
