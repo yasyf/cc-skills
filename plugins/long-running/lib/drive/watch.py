@@ -24,7 +24,7 @@ from pathlib import Path
 from time import monotonic
 from typing import NamedTuple, Self
 
-from drive import agents, answer, brief, children, codex, dashboard, github, install, land, launchd, limits, orca, page, place, procs, reads, receiver, refs, render, served, settled, slack, stage, stall, state, superseded, superseded_procs, train, view
+from drive import agents, answer, brief, children, codex, dashboard, github, install, land, launchd, limits, orca, page, place, procs, reads, receiver, refs, render, restack, served, settled, slack, stage, stall, state, superseded, superseded_procs, train, view
 from drive.install import PROOF_FAILED, add_prover, config_dir, handed_on, open_cut, done_before_proofs, done_unproven, merged_done, merged_ready, merges_of, merged_said, product, proof_gap, proofless, proved_prs, prover_of, proves, released_prs, reported_prs, watch_upgraded as upgraded, watch_proves, widen
 from drive.render import cut, when
 
@@ -175,6 +175,7 @@ class Watcher:
     untracked: dict[str, str] = field(default_factory=dict)
     relayed: collections.deque[str] = field(default_factory=collections.deque)
     redrawn_whole: set[str] = field(default_factory=set)
+    restacked: dict[str, tuple] = field(default_factory=dict)
     others: dict[str, Self] = field(default_factory=dict)
     joined_at: datetime | None = None
 
@@ -5222,7 +5223,7 @@ def landing_stages(watcher: Watcher, moment: datetime) -> list[functools.partial
     watcher.cards, watcher.redrawn_whole = view.live_cards(watcher.name), set()
     return [
         functools.partial(github_lines, watcher, moment, polled=True),
-        *(functools.partial(stage, watcher, moment) for stage in (pushed_lines, main_lines, dangerous_lines, reach_lines, release_lines, carried_lines, checks, stage_lines, unscheduled_questions, draw_questions, landed, receiver_lines, redraw_lines)),
+        *(functools.partial(stage, watcher, moment) for stage in (restack_lines, pushed_lines, main_lines, dangerous_lines, reach_lines, release_lines, carried_lines, checks, stage_lines, unscheduled_questions, draw_questions, landed, receiver_lines, redraw_lines)),
     ]
 
 
@@ -5235,6 +5236,19 @@ def post_lines(watcher: Watcher, moment: datetime) -> list[str]:
     except state.DriveError as error:
         return failed(watcher, "POST reports", "start of the POST reports' handlers", error, moment)
     watcher.failures.pop("POST reports", None)
+    return []
+
+
+def restack_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Restack each heard stack a merge or rewrite below left carrying stale commits, by restack.restack, with no model session, so only a real conflict reaches a builder, through its stage; a git or GitHub step that fails is retried and said as any read is."""
+    data = state.load(watcher.name)
+    tries = restack.restack(watcher.name, [key for key in state.open_pr_keys(data) if hears(watcher, data, data["prs"][key]["order"])], watcher.restacked)
+    if failures := [found["failed"] for found in tries if "failed" in found]:
+        for found in tries:
+            if "failed" in found:
+                watcher.restacked.pop(found["root"], None)
+        return read_failed(watcher, "stacks to restack", restack.RestackError("; ".join(failures)), moment)
+    watcher.failures.pop("stacks to restack", None)
     return []
 
 

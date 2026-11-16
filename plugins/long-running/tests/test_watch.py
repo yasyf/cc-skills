@@ -352,7 +352,7 @@ REPLAYED_55220 = "Forge-AI/monorepo#55220"
 REPLAYED_54904 = "Forge-AI/monorepo#54904"
 STACKED_BASE = "durable-agents-j1389-send-user-question"
 ON_TRUNK = "dev, the trunk of its native stack"
-CONFLICTS_WITH_TRUNK = f"it conflicts with {ON_TRUNK}: restack the whole stack onto dev with ccx vcs stack rebase"
+CONFLICTS_WITH_TRUNK = f"it conflicts with {ON_TRUNK}: the watch restacks it, so a conflict left is a real one: resolve it with ccx vcs stack rebase onto dev"
 
 
 def test_replayed_55220_a_conflicting_pr_pushed_one_ahead_of_its_base_waits_on_his_approve_while_github_reads_unknown_and_turns_red_once_it_answers_conflicting(
