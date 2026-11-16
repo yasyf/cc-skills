@@ -196,7 +196,7 @@ FIRST_CALL = {
         " select:mcp__plugin_long-running_drive__say,mcp__plugin_cc-slack_cc-slack__slack_dm_status,"
         "mcp__plugin_cc-slack_cc-slack__slack_thread,mcp__plugin_cc-slack_cc-slack__slack_react,"
         "mcp__plugin_long-running_drive__record,mcp__plugin_long-running_drive__status,"
-        "mcp__plugin_long-running_drive__order,mcp__plugin_long-running_drive__job"
+        "mcp__plugin_long-running_drive__order,mcp__plugin_long-running_drive__job,mcp__plugin_long-running_drive__page"
     ),
     "coordinator": (
         "The watch runs as its own process and posts the lines each stage of its pass makes for you over cci as one"

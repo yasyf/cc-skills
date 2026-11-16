@@ -13,7 +13,7 @@ from drive.state import DriveError
 
 UNTYPED = {"help", "drive", "json", "dry_run"}
 OPS = {"order": ("add", "set", "posted", "told"), "job": ("add", "set", "brief"), "pr": ("add", "set"), "incident": ("open", "stop", "freeze")}
-ONE_VERB = {"heard": ("heard",), "handler": ("handler",), "status": ("status",), "search_plan": ("plan", "search")}
+ONE_VERB = {"heard": ("heard",), "handler": ("handler",), "status": ("status",), "search_plan": ("plan", "search"), "page": ("page", "make")}
 POST_SECONDS = 60
 POSTED_KEPT = 100
 UNHEARD = "Opus did not read whether his words pick or direct ({failure}), so they could end a card he only asked about; run this again"
@@ -278,6 +278,19 @@ def verb_tools() -> list[dict]:
             "inputSchema": {"type": "object", "properties": {**schema(leaf("plan", "search", root=root))["properties"], "drive": DRIVE, "dry_run": DRY_RUN}, "required": ["words"]},
             "annotations": {"readOnlyHint": True},
         },
+        {
+            "name": "page",
+            "description": (
+                "Make the dashboard page for one goal or one decision of an order, as drive page make does: an applet the dashboard"
+                " composes itself from its component library (the story, each decision as its own applet with its paths and their"
+                " consequences, PRs to approve together, stacks, staging evidence, the path to live, a timeline, comparisons, before"
+                " and after, diagrams, live counts), every PR, decision and order on it live, and composed again when the work in its"
+                " scope changes. The communicator calls it whenever a page helps him decide or see where a goal stands: a goal he"
+                " names, his asking where a project or body of work stands, an ask spanning several PRs or decisions; drive order set"
+                " --priority makes one for its order on its own. Returns the page's link, which the answer to him names."
+            ),
+            "inputSchema": {"type": "object", "properties": {**schema(leaf("page", "make", root=root))["properties"], "drive": DRIVE, "dry_run": DRY_RUN}, "required": ["order", "goal"]},
+        },
     ]
 
 
@@ -324,7 +337,7 @@ def run(tool: str, name: str, arguments: dict) -> str:
     match tool:
         case "record":
             return record(name, listing(arguments, "records", "owner, answer, handoff or defect records"), dry_run)
-        case "heard" | "handler" | "status" | "search_plan":
+        case "heard" | "handler" | "status" | "search_plan" | "page":
             records = arguments.pop("records", None)
             sent = record(name, records, dry_run).splitlines() if records else []
             if sent and not dry_run:

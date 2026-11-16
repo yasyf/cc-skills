@@ -2,11 +2,34 @@
 
 A page is a one-off live dashboard built for an order and its scoped work, such as a migration's progress, a stack's landing lane, or an incident's timeline. It lives in the drive's state dir at `pages/<slug>/`. The drive's dashboard lists it under Pages and serves it at `/pages/<slug>/`, with no second server or port.
 
-## Build one
+## Applet pages
 
-When Jev reads his order as naming a goal or asking where a project or body of work stands, `drive order add` adds a `page` part to it and a `codex` job on that part, briefed by the drive with this section as its plan. An answer order becomes a build whose other parts stay answers. The job starts at once, past the research the order's other parts wait on, and builds the page in a scratch folder outside any checkout:
+Most pages are applets the dashboard composes itself. `drive page make [<slug>] --order <o> --goal "<the goal or decision>"`, the drive MCP server's `page` tool, keeps `pages/<slug>/page.json` alone, `kind: applet`, and prints the page's link, `<dashboard>/#/pages/<slug>`. `--project`, `--workstream` and `--word` widen its scope as `scope` below does, and `--whole-drive` takes the whole drive. `drive order set --priority` makes one for its order, and the communicator makes one whenever a page helps him decide or see where a goal stands.
 
-1. Write strict user stories and acceptance criteria before implementation.
+The dashboard reads the page's live slice and has a Claude session compose it from the component library in `applet.py`, five to nine blocks in the order that tells the goal's story:
+
+| Block | Draws |
+|---|---|
+| `story` | beats he reads in order: why the goal exists, where it stands, what is at stake |
+| `decide` | each decision live as its own applet, with its paths and their consequences, answered as the queue answers |
+| `approve` | PRs he approves together or one by one, each with its plain status and what Approve does |
+| `stack` | a stack bottom first, each change with what it does and where it stands |
+| `staging` | where each PR was tested: passed, running, queued, failed or no test |
+| `path` | the steps to the goal as a track, each step's orders done of all |
+| `timeline` | the newest moments of its scope, live |
+| `compare` | options side by side, each with its consequence, one recommended |
+| `before_after` | what is true before the goal is met and after |
+| `diagram` | a Mermaid diagram labelled in plain words |
+| `metrics` | live counts: PRs ready to land, PRs waiting, decisions, orders done |
+| `callout` | one line he must not miss |
+
+A layout is kept under `applets/<slug>/<digest>.json` by the digest of the page's goal and the PRs, decisions and orders its slice holds, so state changes redraw live with no new compose, and new work in scope composes it again. Until a compose lands the page draws its last layout, else the dashboard's own: the counts, the decisions, the PRs to approve, the path and the timeline.
+
+## Build one by hand
+
+When Jev reads his order as naming a goal or asking where a project or body of work stands, `drive order add` adds a `page` part to it and a `codex` job on that part, briefed by the drive with this section as its plan. An answer order becomes a build whose other parts stay answers. The job starts at once, past the research the order's other parts wait on:
+
+1. Run `drive page make --order <order> --goal "<his goal in plain words>"`, open its link on the installed dashboard once it composes, and click through it. When its blocks show everything his words ask for, report its link in `DONE` and stop here. Otherwise write strict user stories and acceptance criteria for what the blocks leave out, and build that page by hand in a scratch folder outside any checkout.
 2. Build the page using `/kit/kit.js`, `/kit/kit.css`, and the shared kit renderers.
 3. Run `drive page add <slug> --order <order> --dir <folder>`, which runs the screenshot gate and registers the page only if the gate passes.
 4. Look at the gate's screenshots in `drive/page-checks`, then click through every user story on the installed live dashboard. Input values, focus and open state should survive stream updates, and `prefers-reduced-motion` should hold. Three facts about the browser:

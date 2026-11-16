@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 from drive import (
+    applet,
     artifacts,
     card,
     children,
@@ -324,6 +325,7 @@ class Board:
         self.timings: dict[str, float] = {}
         self.pages: tuple[int, list[dict]] = (0, [])
         self.stories = story.Writer(name)
+        self.composer = applet.Composer(name)
 
     def stamp(self) -> tuple[int, ...]:
         """What the board is built from, as it stands: the database's data_version on this board's own connection, which changes with each commit another connection makes, the time drive.json, his stored cards, the messages of his stored as owed an answer, the pages and the stories written for his cards last changed, and how many events of the board's history the events log holds, each new one read here, so an event the board never shows rebuilds nothing."""
@@ -331,7 +333,7 @@ class Board:
             self.database = state.connect(state.database_path(self.name))
         committed = self.database.execute("PRAGMA data_version").fetchone()[0] if self.database else 0
         self.read_history()
-        paths = (state.state_path(self.name), state.cards_path(self.name), state.owed_path(self.name), pages.pages_dir(self.name), self.stories.folder)
+        paths = (state.state_path(self.name), state.cards_path(self.name), state.owed_path(self.name), pages.pages_dir(self.name), self.stories.folder, self.composer.folder)
         return (committed, *(path.stat().st_mtime_ns if path.exists() else 0 for path in paths), len(self.events), self.records)
 
     def read_history(self) -> None:
@@ -371,6 +373,7 @@ class Board:
             }
             model["sweep"] = view.sweep(drive, model, self.events, owed, read, moment)
         self.stories.tell(model)
+        self.composer.tell(model)
         built = time.thread_time()
         self.show(model)
         self.timings = {"prepare_ms": (prepared - started) * 1000, "load_ms": (loaded - prepared) * 1000, "model_ms": (built - loaded) * 1000, "publish_ms": (time.thread_time() - built) * 1000}

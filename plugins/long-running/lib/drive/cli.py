@@ -155,7 +155,7 @@ PAGE_STORIES = (
 LIST_ITEM = re.compile(r"\s*(?:[-*] |\d+\. )")
 MANIFEST = Path(__file__).resolve().parents[2] / ".claude-plugin" / "plugin.json"
 LAUNCHED = ("run", "dispatch", "task", "terminal", "workspace", "environment", "lane", "worktree", "sprite_config")
-MCP_TOOLS = ("say", "heard", "handler", "record", "order", "job", "pr", "incident", "status", "search_plan")
+MCP_TOOLS = ("say", "heard", "handler", "record", "order", "job", "pr", "incident", "status", "search_plan", "page")
 
 
 def emit(args: argparse.Namespace, line: str, payload: object) -> int:
@@ -534,7 +534,7 @@ def backlog_line(order_id: str, order: dict, why: str | None) -> str:
 def page_brief(name: str, job_id: str) -> str:
     """Write the brief of the codex job building the page the drive adds to an order whose words name a goal or ask where work stands, which starts at once: planned by the Pages manual's Build one section, rebuilding the slug of a page Pages lists whose goal is his, done once `drive page add` registers it and each of PAGE_STORIES clicks on the installed dashboard; the line that starts it."""
     listed = "; ".join(f"/pages/{page['slug']}/, {page['goal']}" for page in pages.listed(name)) or "none"
-    build = page_parts((PAGES / "pages.md").read_text(), "## Build one")[0].partition("\n1. ")[2].strip()
+    build = page_parts((PAGES / "pages.md").read_text(), "## Build one by hand")[0].partition("\n1. ")[2].strip()
     flags = dict.fromkeys(state.BRIEF_FLAGS) | {
         "done_when": "drive page add registered the page on this order with its gate passed, and each story below clicks through on the installed dashboard",
         "native": "the drive dashboard's Pages and the page at /pages/<its slug>/",
@@ -1080,8 +1080,19 @@ def order_set(args: argparse.Namespace) -> int:
     turned += state.asked_lines(data, order["text"]) if turning else []
     repeated = repeated_lines(data, args.id, list(dict.fromkeys(args.add_part)))
     seated = [said] if args.priority and (said := seat_started(name, order["priority"])) else []
+    seated += [priority_page(name, args.id, order)] if args.priority and not args.dry_run else []
     retired = list(seats_retired(name).values()) if args.state in state.CLOSED_ORDER_STATES or args.priority is False else []
     return emit(args, render.order_line(data, args.id, order) + "".join(f"\n{line}" for line in [*turned, *unjoined, *parts, *stopped, *restarted, *repeated, *render.builder_lines(name, data, added), *reworked, *seated, *retired]), {"id": args.id, **(state.load(name)["orders"][args.id] if restarted else order)})
+
+
+def priority_page(name: str, order_id: str, order: dict) -> str:
+    """Make the applet page of an order marked priority, by his words that one "should always be created for a priority project", keeping the page an earlier mark made; the line naming its link."""
+    from drive import applet, dashboard, view
+
+    title = view.order_title(order)
+    slug = next((page["slug"] for page in pages.listed(name) if order_id in page["orders"] and page.get("kind") == applet.KIND), None) or applet.slug_of(title)
+    applet.make(name, slug, order_id, f"Everything left to finish {title}, and what needs you", None, "priority")
+    return f"its page: {dashboard.link(name)}#/pages/{slug}"
 
 
 def unjoined_lines(order_id: str, head: str, carriers: list[str], told: list[str]) -> list[str]:
@@ -6574,6 +6585,18 @@ def page_add(args: argparse.Namespace) -> int:
     return emit(args, f"page {page['slug']} for {args.order}: /pages/{page['slug']}/ on the dashboard, listed under Pages as {page['title']!r}", page)
 
 
+def page_make(args: argparse.Namespace) -> int:
+    """Make the applet page for an order's goal or decision, which the dashboard composes and keeps live, and print its link."""
+    from drive import applet, dashboard
+
+    name = state.resolve(args.drive)
+    scope = pages.WHOLE_DRIVE if args.whole_drive else {key: values for key, values in (("projects", args.project), ("workstreams", args.workstream), ("words", args.word)) if values} or None
+    slug = args.slug or applet.slug_of(state.load(name)["orders"][args.order]["title"] or args.goal)
+    page = applet.make(name, slug, args.order, args.goal, scope, args.made_by)
+    url = f"{dashboard.link(name)}#/pages/{slug}"
+    return emit(args, f"page {slug} for {args.order}: {url}, composed by the dashboard from its live slice and listed under Pages as {page['title']!r}", page | {"url": url})
+
+
 def page_frame(args: argparse.Namespace) -> int:
     """Open <session>-frame, an agent-browser session inside the page frame the dashboard in <session> shows, where every command but screenshot acts on the page, eval, get count, wait --fn and set media included, which agent-browser's own frame command leaves on the dashboard."""
     framed = page_check.frame(args.session, args.slug)
@@ -8226,6 +8249,28 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--order", required=True, help="the order it serves, whose project and workstream file it")
     verb.add_argument("--dir", required=True, metavar="FOLDER", help="the folder the page job built it in")
     verb.set_defaults(run=page_add)
+    verb = page.add_parser(
+        "make",
+        parents=both,
+        help="make the page for one goal or decision of an order, which the dashboard composes from its typed blocks and keeps live, and print its link",
+        description=(
+            "Keep pages/<slug>/page.json for the order, titled by it, with the goal or decision the page serves; the dashboard"
+            " composes the page itself from its component library (story, decide, approve, stack, staging, path, timeline,"
+            " compare, before and after, diagram, metrics, callout), each PR, decision and order drawn live, and composes it"
+            " again whenever the PRs, decisions or orders in its scope change. Making it again keeps its orders and adds this one."
+            " drive order set --priority makes one for its order; the communicator makes one whenever a page helps him decide or"
+            " see where a goal stands. See reference/pages.md."
+        ),
+    )
+    verb.add_argument("slug", nargs="?", help="its name in #/pages/<slug>: lowercase letters, digits and dashes; default its order's title")
+    verb.add_argument("--order", required=True, help="the order it serves, whose project and workstream file it")
+    verb.add_argument("--goal", required=True, help="the one goal or decision the page helps him with, in plain words")
+    verb.add_argument("--project", action="append", metavar="NAME", help="also show every order filed under this project; repeatable")
+    verb.add_argument("--workstream", action="append", metavar="NAME", help="also show every order filed under this workstream; repeatable")
+    verb.add_argument("--word", action="append", metavar="WORD", help="also show every order whose title holds this word; repeatable")
+    verb.add_argument("--whole-drive", action="store_true", help="show every open order, PR and decision of the drive")
+    verb.add_argument("--made-by", default="communicator", help="who asked for it: communicator, priority or a session's role")
+    verb.set_defaults(run=page_make)
     verb = page.add_parser(
         "frame",
         parents=[json_opt],

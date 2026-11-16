@@ -545,3 +545,40 @@ def test_a_page_frame_session_opens_on_the_one_frame_of_its_slug_through_a_provi
     listing.append(dict(listing[-1], webSocketDebuggerUrl='ws://127.0.0.1:9333/devtools/page/lane2'))
     with pytest.raises(state.DriveError, match='shows 2 page frames at /pages/run-lane/'):
         page_check.frame('top', 'run-lane')
+
+
+def test_page_make_keeps_an_applet_titled_by_its_order_that_a_second_make_widens(run: Run, ordered: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(dashboard, "link", lambda name: "http://127.0.0.1:1/")
+    run("order", "add", "--title", "Run page follow-up", "--project", "Iris", "--workstream", "Run page", "then the follow-up")
+    code, said = run("page", "make", "--order", "o1", "--goal", "what is left before the run page ships", "--project", "Iris")
+    assert (code, said) == (0, "page run-page for o1: http://127.0.0.1:1/#/pages/run-page, composed by the dashboard from its live slice and listed under Pages as 'Run page'")
+    run("page", "make", "run-page", "--order", "o2", "--goal", "the run page and its follow-up")
+    [page] = pages.listed(ordered)
+    assert {key: page[key] for key in ("slug", "kind", "title", "goal", "orders", "scope", "made_by")} == {
+        "slug": "run-page", "kind": "applet", "title": "Run page", "goal": "the run page and its follow-up", "orders": ["o1", "o2"], "scope": None, "made_by": "communicator",
+    }
+
+
+def test_an_order_marked_priority_gets_its_applet_page(run: Run, ordered: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    from drive import applet, cli as drive_cli
+
+    monkeypatch.setattr(dashboard, "link", lambda name: "http://127.0.0.1:1/")
+    monkeypatch.setattr(drive_cli, "seat_started", lambda name, seat: None)
+    code, said = run("order", "set", "o1", "--priority")
+    assert code == 0 and "its page: http://127.0.0.1:1/#/pages/run-page" in said
+    [page] = pages.listed(ordered)
+    assert (page["kind"], page["made_by"], page["orders"]) == (applet.KIND, "priority", ["o1"])
+
+
+def test_a_composed_layout_keeps_only_the_keys_its_slice_holds_and_composes_again_only_when_its_work_changes(monkeypatch: pytest.MonkeyPatch, state_root: Path) -> None:
+    from drive import applet, served
+
+    told = {"orders": [{"key": "o1"}], "prs": [{"key": "a/b#1"}], "questions": [{"key": "https://x.slack.com/archives/D1/p1"}], "moments": []}
+    block = applet.SCHEMA["properties"]["blocks"]["items"]["required"]
+    drawn = {field: [] for field in block} | {"kind": "approve", "title": "Land it", "text": "", "tone": "plain", "before": "", "after": "", "diagram": "", "prs": ["a/b#1", "a/b#9"], "orders": ["o1", "o7"], "steps": [{"label": "Ship", "orders": ["o1", "o8"]}]}
+    monkeypatch.setattr(served, "structured", lambda *args: {"headline": "h", "summary": "s", "blocks": [drawn]})
+    [composed] = applet.compose("demo", {"slug": "run-page", "title": "Run page", "goal": "ship it"}, told)["blocks"]
+    assert (composed["prs"], composed["orders"], composed["steps"]) == (["a/b#1"], ["o1"], [{"label": "Ship", "orders": ["o1"]}])
+    page = {"goal": "ship it"}
+    assert applet.digest(page, told) == applet.digest(page, told | {"moments": [{"at": "now"}]})
+    assert applet.digest(page, told) != applet.digest(page, told | {"prs": [{"key": "a/b#2"}]})

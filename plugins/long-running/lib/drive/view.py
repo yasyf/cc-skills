@@ -948,7 +948,7 @@ def staging_plain(line: str) -> dict:
     return next({"word": word, "tone": tone} for shape, word, tone in STAGING_PLAIN if shape.search(line))
 
 
-def approve_plain(waits: str | None, staging: dict) -> str:
+def approve_plain(waits: str | None) -> str:
     """What his Approve does to a PR, in one plain sentence from its lander's read: merges now, or what it still waits on, never a job's own words."""
     if waits is None:
         return "Approve records your yes; its author merges it."
@@ -956,7 +956,7 @@ def approve_plain(waits: str | None, staging: dict) -> str:
         return "Approve sends it to merge now."
     name = waits.split(":", 1)[0]
     if name == "waiting" and "staging" in waits:
-        return f"It merges once its staging test passes. {staging['word']}."
+        return "It merges once its staging test passes."
     return AFTER_APPROVE.get(name, "It merges once the work it waits on finishes.")
 
 
@@ -1259,8 +1259,8 @@ def review_entry(key: str, pr: dict, drive: dict, found: dict) -> dict:
         "stack": pr.get("stack") or [],
         "landing": landing_words(pr),
         "approve_waits": (waits := approve_waits(drive, key, pr, found)),
-        "staging_plain": (plain := staging_plain(staged)),
-        "approve_plain": approve_plain(waits, plain),
+        "staging_plain": staging_plain(staged),
+        "approve_plain": approve_plain(waits),
         "parts": pr["parts"],
         "lead": pr["lead"],
         "job": pr["job"],

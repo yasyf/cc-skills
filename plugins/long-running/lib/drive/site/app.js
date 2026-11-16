@@ -728,13 +728,21 @@ function risks(entry, row, pr, read) {
   const staged = proof ? `<li class="good"><span class="mark">✓</span><span>${link('Open its staging proof', proof)}</span></li>` : '';
   const said = RISK_FIELDS.filter(([field]) => row[field]).map(([field, label]) => {
     const text = row[field].replace(/^\s*[-*•]\s*/, '').trim();
-    const cut = text.search(/(?<=[.;])\s/);
-    const [lead, rest] = cut > 0 && cut < text.length - 1 ? [text.slice(0, cut), text.slice(cut + 1)] : [text, ''];
+    const [lead, rest] = firstSentence(text);
     const body = `<b>${esc(label)}.</b> ${inline(lead, pr)}`;
     return `<li><span class="mark">!</span>${rest ? `<details><summary>${body}</summary><p>${inline(rest, pr)}</p></details>` : `<span>${body}</span>`}</li>`;
   }).join('');
   const html = conflict + failed + said + staged + size;
   return html ? `<div class="rail-block"><div class="eyebrow">Before you approve</div><ul class="checklist">${html}</ul></div>` : '';
+}
+
+function firstSentence(text) {
+  for (const found of text.matchAll(/(?<=[.;])\s+(?=[A-Z])/g)) {
+    const lead = text.slice(0, found.index);
+    const count = (open, shut) => lead.split(open).length - lead.split(shut).length;
+    if (!count('(', ')') && !count('[', ']') && !(lead.split('`').length % 2 === 0)) return [lead, text.slice(found.index + found[0].length)];
+  }
+  return [text, ''];
 }
 
 function serves(entry) {
@@ -942,8 +950,136 @@ function pagesScreen(slug) {
     ${rows.length ? `<ol class="page-list">${rows.join('')}</ol>` : `<p class="empty">${model.pages.length ? 'No page here.' : 'No page yet. A page job puts one here with <code>drive page add</code>.'}</p>`}`;
 }
 
+const DONE_STATES = new Set(['merged', 'live']);
+const STAGE_ORDER = [['not started', 'Not started'], ['waiting', 'Waiting'], ['blocked', 'Blocked'], ['running', 'Being built'], ['built', 'Built, waits on you'], ['merged', 'Merged'], ['live', 'Live']];
+const BLOCK_DEFAULTS = { title: '', text: '', tone: 'plain', prs: [], questions: [], orders: [], beats: [], steps: [], options: [], before: '', after: '', diagram: '' };
+const appletPicks = new Map();
+
+function defaultLayout(page, shown) {
+  const waiting = shown.prs.filter((entry) => entry.group === 'you').map((entry) => entry.key);
+  const steps = STAGE_ORDER.map(([state, label]) => ({ label, orders: shown.features.filter((entry) => entry.state === state).map((entry) => entry.id) })).filter((step) => step.orders.length);
+  return {
+    headline: page.title,
+    summary: page.goal,
+    blocks: [
+      { kind: 'metrics', title: 'Where it stands' },
+      ...(shown.questions.length ? [{ kind: 'decide', title: 'Decisions only you can make', questions: shown.questions.map((item) => item.answer) }] : []),
+      ...(waiting.length ? [{ kind: 'approve', title: 'Changes waiting on your Approve', prs: waiting }] : []),
+      ...(steps.length ? [{ kind: 'path', title: 'The path to done', steps }] : []),
+      { kind: 'timeline', title: 'What moved lately' },
+    ],
+  };
+}
+
+function appletScreen(page) {
+  const shown = pageSlice(page);
+  const layout = page.layout ?? {};
+  const composed = layout.composed ?? defaultLayout(page, shown);
+  const status = layout.writing ? '<span class="ap-status">Composing this page from the latest work…</span>' : layout.error ? `<span class="ap-status bad">Its last compose failed, so it shows the one before: ${esc(layout.error)}</span>` : '';
+  const blocks = composed.blocks.map((block) => appletBlock(page, shown, { ...BLOCK_DEFAULTS, ...block })).filter(Boolean).join('');
+  return `<div class="page-head applet-head">
+      <div><div class="eyebrow">Page · ${esc([fileName(fileKey(page.project)), fileName(fileKey(page.workstream))].join(' / '))}</div><h1 class="h1">${esc(composed.headline)}</h1><p class="lead">${esc(composed.summary)}</p>${status}</div>
+      <a class="map-btn" href="#/feature/${esc(page.orders[0])}">Open its order ›</a>
+    </div>
+    <div class="applet" data-applet="${esc(page.slug)}">${blocks}</div>`;
+}
+
+function blockShell(block, kind, body, wide = true) {
+  return `<section class="ap-block kind-${kind}${wide ? ' wide' : ''}">${block.title ? `<h2>${esc(block.title)}</h2>` : ''}${block.text ? `<p class="ap-text">${esc(block.text)}</p>` : ''}${body}</section>`;
+}
+
+function sentence(text) {
+  return String(text).replace(/^./, (c) => c.toUpperCase());
+}
+
+function blockPRs(shown, keys) {
+  return keys.map((key) => shown.prs.find((entry) => entry.key === key)).filter(Boolean);
+}
+
+function appletBlock(page, shown, block) {
+  const draw = APPLET_BLOCKS[block.kind];
+  return draw ? draw(page, shown, block) : '';
+}
+
+const APPLET_BLOCKS = {
+  metrics(page, shown, block) {
+    const ready = shown.prs.filter((entry) => prWord(entry).word === 'Ready to land').length;
+    const yours = shown.prs.filter((entry) => entry.group === 'you').length;
+    const done = shown.features.filter((entry) => DONE_STATES.has(entry.state)).length;
+    const total = shown.features.length;
+    const tile = (n, label, tone = '') => `<div class="ap-tile ${tone}"><b>${n}</b><span>${esc(label)}</span></div>`;
+    return blockShell(block, 'metrics', `<div class="ap-tiles">${tile(shown.questions.length, 'decisions for you', shown.questions.length ? 'warm' : '')}${tile(yours, 'changes waiting on your Approve', yours ? 'warm' : '')}${tile(ready, 'ready to land on Approve', ready ? 'good' : '')}<div class="ap-tile ap-done"><b>${done}<small>/${total}</small></b><span>orders finished</span><i style="--done:${total ? Math.round((done / total) * 100) : 0}%"></i></div></div>`);
+  },
+  story(page, shown, block) {
+    return block.beats.length ? blockShell(block, 'story', `<ol class="ap-beats">${block.beats.map((beat, i) => `<li><span class="n">${i + 1}</span><b>${esc(beat.label)}</b><p>${esc(beat.text)}</p></li>`).join('')}</ol>`) : '';
+  },
+  decide(page, shown, block) {
+    const items = block.questions.map((key) => shown.questions.find((item) => item.answer === key)).filter(Boolean);
+    if (!items.length) return '';
+    return blockShell(block, 'decide', `<div class="ap-decisions">${items.map((item) => {
+      const full = opened(model.queue.find((each) => each.answer === item.answer) ?? item);
+      const told = full.told?.story;
+      const given = answers.get(item.answer);
+      const options = item.card.options.map((label, i) => {
+        const path = told?.options[i];
+        const recommended = label === item.card.recommended;
+        return `<button class="ap-option${recommended ? ' recommended' : ''}" data-card="${esc(item.answer)}" data-label="${esc(label)}"${given && !given.error ? ' disabled' : ''}><strong>${esc(path?.title ?? decisionPlain(optionParts(label)[0]))}${recommended ? '<em>Recommended</em>' : ''}</strong>${path?.consequence ? `<small>${esc(path.consequence)}</small>` : ''}</button>`;
+      }).join('');
+      return `<article class="ap-decision"><h3>${esc(told?.headline ?? item.headline ?? decisionPlain(item.title))}</h3>${told?.beats?.[0] ? `<p>${esc(told.beats[0].text)}</p>` : ''}<div class="ap-options">${options}</div>${given?.done || given?.label ? `<p class="answered">✓ ${esc(given.label)}</p>` : ''}<a class="linkish" href="${esc(item.href)}">Open its full story in the queue ›</a></article>`;
+    }).join('')}</div>`);
+  },
+  approve(page, shown, block) {
+    const entries = blockPRs(shown, block.prs).filter((entry) => !answers.get(entry.answer)?.label || answers.get(entry.answer)?.error);
+    if (!entries.length) return blockShell(block, 'approve', '<p class="ap-empty">✓ Nothing here waits on your Approve now.</p>');
+    const yours = (entry) => entry.group === 'you';
+    const picked = appletPicks.get(`${page.slug}:${block.title}`) ?? new Set(entries.filter((entry) => yours(entry) && prWord(entry).tone !== 'bad').map((entry) => entry.key));
+    appletPicks.set(`${page.slug}:${block.title}`, picked);
+    const rows = entries.map((entry) => {
+      const status = prWord(entry);
+      return `<li${yours(entry) ? '' : ' class="moving"'}><label>${yours(entry) ? `<input type="checkbox" data-ap-pick="${esc(page.slug)}:${esc(block.title)}" value="${esc(entry.key)}"${picked.has(entry.key) ? ' checked' : ''}>` : '<span class="ap-moving" title="Needs nothing from you">↻</span>'}<span class="ap-pr"><b>${esc(sentence(entry.headline ?? bare(entry.title)))}</b><small>${dot(status)} ${esc(status.word)} · ${esc(yours(entry) ? entry.approve_plain : 'Needs nothing from you')}</small></span></label><button class="linkish" data-pr="${esc(entry.key)}">Review</button></li>`;
+    }).join('');
+    const count = entries.filter((entry) => picked.has(entry.key)).length;
+    const mine = entries.filter(yours).length;
+    return blockShell(block, 'approve', `<ul class="ap-approve">${rows}</ul><div class="ap-actions"><button class="btn" data-ap-approve="${esc(page.slug)}:${esc(block.title)}"${count ? '' : ' disabled'}>Approve ${count === mine && count > 1 ? `all ${count}` : count}</button><small>Each sends at once, with Undo, as the queue sends it.</small></div>`);
+  },
+  stack(page, shown, block) {
+    const entries = blockPRs(shown, block.prs);
+    return entries.length ? blockShell(block, 'stack', `<ol class="ap-stack">${entries.map((entry, i) => { const status = prWord(entry); return `<li class="${esc(status.tone)}"><span class="n">${i + 1}</span><span><b>${esc(entry.headline ?? bare(entry.title))}</b><small>${esc(status.word)}</small></span><button class="linkish" data-pr="${esc(entry.key)}">Review</button></li>`; }).join('')}</ol><p class="ap-note">Bottom first: each lands only after the one under it.</p>`) : '';
+  },
+  staging(page, shown, block) {
+    const entries = blockPRs(shown, block.prs.length ? block.prs : shown.prs.map((entry) => entry.key));
+    return entries.length ? blockShell(block, 'staging', `<div class="ap-staging">${entries.map((entry) => { const proof = (entry.staging ?? '').match(/\[proof\]\((https?:[^)\s]+)\)/)?.[1]; const status = prWord(entry); return `<div class="ap-stage ${esc(status.tone)}"><b>${esc(status.word)}</b><span>${esc(sentence(entry.headline ?? bare(entry.title)))}</span>${status.word === entry.staging_plain.word ? '' : `<small>${esc(entry.staging_plain.word)}</small>`}${proof ? link('Its proof', proof) : ''}</div>`; }).join('')}</div>`) : '';
+  },
+  path(page, shown, block) {
+    const steps = block.steps.map((step) => ({ ...step, entries: step.orders.map((id) => shown.features.find((entry) => entry.id === id)).filter(Boolean) })).filter((step) => step.entries.length);
+    if (!steps.length) return '';
+    return blockShell(block, 'path', `<ol class="ap-path">${steps.map((step) => {
+      const done = step.entries.filter((entry) => DONE_STATES.has(entry.state)).length;
+      const tone = done === step.entries.length ? 'good' : step.entries.some((entry) => entry.state === 'blocked') ? 'bad' : done ? 'warn' : '';
+      return `<li class="${tone}"><div class="ap-step"><b>${esc(step.label)}</b><span>${done} of ${step.entries.length} done</span><i style="--done:${Math.round((done / step.entries.length) * 100)}%"></i></div><ul>${step.entries.map((entry) => `<li><a href="#/feature/${esc(entry.id)}">${esc(bare(entry.title))}</a>${pill(STOP_WORDS[entry.state], STOP_TONES[entry.state])}</li>`).join('')}</ul></li>`;
+    }).join('')}</ol>`);
+  },
+  timeline(page, shown, block) {
+    const moments = shown.story.filter((entry) => entry.kind !== 'heard');
+    return moments.length ? blockShell(block, 'timeline', `<ol class="ap-timeline">${moments.slice(0, 12).map((entry) => `<li><time>${clock(entry.at)}</time><p>${momentText(entry)}</p></li>`).join('')}</ol>`, false) : '';
+  },
+  compare(page, shown, block) {
+    return block.options.length ? blockShell(block, 'compare', `<div class="ap-compare">${block.options.map((option) => `<div class="ap-choice${option.recommended ? ' recommended' : ''}">${option.recommended ? '<em>Recommended</em>' : ''}<b>${esc(option.title)}</b><p>${esc(option.consequence)}</p></div>`).join('')}</div>`) : '';
+  },
+  before_after(page, shown, block) {
+    return block.before && block.after ? blockShell(block, 'before-after', `<div class="ap-ba"><div><span>Before</span><p>${esc(block.before)}</p></div><i aria-hidden="true">→</i><div class="after"><span>After</span><p>${esc(block.after)}</p></div></div>`) : '';
+  },
+  diagram(page, shown, block) {
+    return block.diagram ? blockShell(block, 'diagram', visual('mermaid', block.diagram, block.title)) : '';
+  },
+  callout(page, shown, block) {
+    return block.text ? `<section class="ap-block kind-callout wide ${esc(block.tone)}">${block.title && !block.text.toLowerCase().startsWith(block.title.toLowerCase()) ? `<b>${esc(block.title)}.</b> ` : ''}${esc(block.text)}</section>` : '';
+  },
+};
+
 function pageScreen(page) {
   if (!page) return gone('This page', 'pages');
+  if (page.kind === 'applet') return appletScreen(page);
   return `<div class="page-head">
       <div><div class="eyebrow">Page · ${esc([fileName(fileKey(page.project)), fileName(fileKey(page.workstream))].join(' / '))}</div><h1 class="h1">${esc(page.title)}</h1><p class="lead">${esc(page.goal)}</p></div>
       <a class="map-btn" href="#/feature/${esc(page.orders[0])}">Open its task ›</a>
@@ -2635,6 +2771,14 @@ function connect() {
   };
 }
 
+document.addEventListener('change', (event) => {
+  const picking = event.target.closest('input[data-ap-pick]');
+  if (!picking) return;
+  const picked = appletPicks.get(picking.dataset.apPick);
+  if (picking.checked) picked.add(picking.value);
+  else picked.delete(picking.value);
+  render();
+});
 document.addEventListener('input', (event) => {
   const box = event.target.closest('textarea[data-draft]');
   if (box) drafts.set(box.dataset.draft, box.value);
@@ -2704,6 +2848,13 @@ document.addEventListener('click', (event) => {
   }
   const pr = event.target.closest('button[data-pr]');
   if (pr) return openPR(pr.dataset.pr);
+  const approving = event.target.closest('button[data-ap-approve]');
+  if (approving) {
+    const page = model.pages.find((each) => approving.dataset.apApprove.startsWith(`${each.slug}:`));
+    const shown = pageSlice(page);
+    const picks = [...(appletPicks.get(approving.dataset.apApprove) ?? [])].map((key) => shown.prs.find((entry) => entry.key === key)).filter(Boolean).map((entry) => ({ card: entry.answer, label: 'Approve' }));
+    return answerBatch(picks).then(render);
+  }
   const queued = event.target.closest('[data-queue]');
   if (queued) {
     queueAt = queued.dataset.queue;
