@@ -761,8 +761,8 @@ MAC_BOX_OWN_HEAD = "; {tested} changes iris-desktop or sand-next too, so run the
 LIVE_UNREAD = "; the drive could not read that commit ({error}), so read it first"
 
 
-class MonorepoRepo(HomeRepo):
-    """The monorepo's landing reads, as its own providers make them."""
+class MonorepoPaths(providers.RepoProvider):
+    """The monorepo's path reads, as its own providers make them, naming no repository."""
 
     def ci_config(self, path: str) -> bool:
         return bool(re.match(r"^\.(?:buildkite|github)/", path))
@@ -772,6 +772,10 @@ class MonorepoRepo(HomeRepo):
 
     def dangerous_paths(self, paths: list[str]) -> list[str]:
         return [path for path in paths if MONOREPO_DANGEROUS.search(path)]
+
+
+class MonorepoRepo(MonorepoPaths, HomeRepo):
+    """The monorepo's path reads under its name."""
 
 
 class EnvsRelease(providers.ReleaseProvider):
