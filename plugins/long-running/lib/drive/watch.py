@@ -4246,14 +4246,19 @@ def adopt_sprites(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def pool_claims(drive: str) -> dict[str, tuple[str, str, datetime]]:
-    """Each Sprite `sprite list` names that cc-remote still records a workspace for, whose lane, by its cc-remote pool record in whatever state that record is, else by its own name, is a lane of the drive's, with the job whose lane it is, that lane and when its pool record, else its workspace record, last moved; so a Sprite whose pool record went stopped or failed without a destroy, or that a lane started by name with no pool record, is found as well as a claimed one."""
+    """Each Sprite `sprite list` names that cc-remote still records a workspace for, whose lane, by its cc-remote pool record in whatever state that record is, else by its own name, is a lane of the drive's, a record cc-remote removes as it is read counting as none, with the job whose lane it is, that lane and when its pool record, else its workspace record, last moved; so a Sprite whose pool record went stopped or failed without a destroy, or that a lane started by name with no pool record, is found as well as a claimed one."""
     lane = re.compile(rf"{re.escape(orca.lane_name(drive, 'j0')[:-2])}(j\d+)(?:-\d+)?")
     claims = {}
     for name in orca.sprites():
         workspace, pooled = orca.CC_REMOTE_WORKSPACES / f"{name}.json", orca.CC_REMOTE / "pool" / f"{name}.json"
         if not workspace.is_file():
             continue
-        record = json.loads((pooled if pooled.is_file() else workspace).read_text())
+        for path in (pooled, workspace):
+            with contextlib.suppress(FileNotFoundError):
+                record = json.loads(path.read_text())
+                break
+        else:
+            continue
         if named := lane.fullmatch(record.get("lane") or name):
             claims[name] = (named[1], named[0], datetime.fromisoformat(record["updatedAt"]).astimezone())
     return claims

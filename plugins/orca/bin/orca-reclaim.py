@@ -443,8 +443,8 @@ class Orca:
             raise RuntimeError(f"orca {' '.join(args[:2])} {error_of(reply)}")
         return reply["result"]
 
-    def environments(self) -> set[str]:
-        return {environment["id"] for environment in self.result("environment", "list")["environments"]}
+    def environments(self) -> dict[str, str]:
+        return {environment["id"]: environment["name"] for environment in self.result("environment", "list")["environments"]}
 
     def workers(self, run: str) -> list[Worker]:
         rows: list[dict] = []
@@ -626,23 +626,19 @@ class CcRemote:
     def __init__(self, state: Path = CC_REMOTE_STATE):
         self.state = state
 
-    def recorded(self) -> Iterator[tuple[dict, Sprite]]:
-        for path in sorted((self.state / "orca").glob("*.json")):
-            try:
-                task = json.loads(path.read_text())
-            except FileNotFoundError:
-                continue
-            if task.get("schemaVersion") != CC_REMOTE_TASK_SCHEMA or task.get("provider") != "sprites" or not task.get("forward") or not task.get("environmentId"):
-                continue
-            if not (self.state / "workspaces" / f"{task['workspace']}.json").is_file():
-                continue
-            yield task, Sprite(task["workspace"], task["forward"]["host"], task["forward"]["config"], task["projectRoot"], task["environmentId"])
-
-    def sprites(self) -> dict[tuple[str, str], Sprite]:
-        return {(task["worktreeId"], task["terminal"]): sprite for task, sprite in self.recorded() if task.get("worktreeId") and task.get("terminal")}
+    def task(self, workspace: str) -> tuple[dict, Sprite] | None:
+        try:
+            task = json.loads((self.state / "orca" / f"{workspace}.json").read_text())
+        except FileNotFoundError:
+            return None
+        if task.get("schemaVersion") != CC_REMOTE_TASK_SCHEMA or task.get("provider") != "sprites" or not task.get("forward") or not task.get("environmentId"):
+            return None
+        if not (self.state / "workspaces" / f"{workspace}.json").is_file():
+            return None
+        return task, Sprite(task["workspace"], task["forward"]["host"], task["forward"]["config"], task["projectRoot"], task["environmentId"])
 
     def sprite(self, workspace: str) -> Sprite | None:
-        return next((sprite for _, sprite in self.recorded() if sprite.workspace == workspace), None)
+        return found[1] if (found := self.task(workspace)) else None
 
     def checkout(self, sprite: Sprite) -> Checkout | str:
         git_c = f"git -C {shlex.quote(sprite.root)}"
@@ -1074,10 +1070,11 @@ def gc(
     live_worktrees = {(worker.environment, worker.worktree) for worker in workers if worker.dispatch not in settled}
     live_workspaces = {worker.workspace for worker in workers if worker.dispatch not in settled}
     finished = [worker for worker in workers if worker.dispatch in settled and (not scope or worker.dispatch in scope)]
-    sprites = cc_remote.sprites() if finished else {}
+    known = orca.environments() if any(worker.environment for worker in finished) else {}
+    tasks = [found for environment in {worker.environment for worker in finished if worker.environment} & known.keys() if (found := cc_remote.task(known[environment]))]
+    sprites = {(task["worktreeId"], task["terminal"]): sprite for task, sprite in tasks if task.get("worktreeId") and task.get("terminal")}
     hosted = {sprite: worker for worker in finished if (sprite := sprites.get((worker.workspace, worker.terminal)))}
     finished = [worker for worker in finished if worker not in hosted.values()]
-    known = orca.environments() if any(worker.environment for worker in finished) else set()
     gone = [worker for worker in finished if worker.environment and worker.environment not in known]
     finished = [worker for worker in finished if worker not in gone]
     sprite_checkouts = {workspace for workspace, _ in sprites}

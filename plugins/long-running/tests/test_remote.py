@@ -8649,6 +8649,29 @@ def test_a_finished_jobs_sprite_is_adopted_at_once_and_a_failed_sprite_list_adop
     assert [(death["workspace"], death["why"]) for death in state.load(remote)["jobs"]["j1"]["deaths"]] == [(f"{remote}-j1", watch.ADOPTED)]
 
 
+def test_a_cc_remote_record_removed_as_the_watch_reads_it_counts_as_absent(remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, sprites_listed: set[str]) -> None:
+    pool, workspaces = tmp_path / "cc-remote" / "pool", tmp_path / "cc-remote" / "workspaces"
+    pool.mkdir(parents=True)
+    workspaces.mkdir()
+    monkeypatch.setattr(orca, "CC_REMOTE", tmp_path / "cc-remote")
+    monkeypatch.setattr(orca, "CC_REMOTE_WORKSPACES", workspaces)
+    pooled, unpooled = f"{remote}-j1", f"{remote}-j2"
+    (pool / f"{pooled}.json").write_text(json.dumps({"lane": f"{remote}-j1-2", "updatedAt": T0.isoformat()}))
+    for name in (pooled, unpooled):
+        (workspaces / f"{name}.json").write_text(json.dumps({"updatedAt": T0.isoformat()}))
+    sprites_listed.update({pooled, unpooled})
+    vanishing = {pool / f"{pooled}.json", workspaces / f"{unpooled}.json"}
+    read_text = Path.read_text
+
+    def removed_as_read(path: Path, *args, **kwargs) -> str:
+        if path in vanishing:
+            path.unlink()
+        return read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", removed_as_read)
+    assert watch.pool_claims(remote) == {pooled: ("j1", pooled, T0)}
+
+
 def mock_failing_list(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     asked: list[str] = []
 
