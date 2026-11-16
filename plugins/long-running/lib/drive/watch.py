@@ -3023,8 +3023,9 @@ def tell_lines(watcher: Watcher, moment: datetime) -> list[str]:
     data = state.load(watcher.name)
     if not (owing := [order_id for order_id, order in heard_orders(watcher, data).items() if owed_reporters(data, order, moment)]):
         return []
-    lines = []
-    with state.edit(watcher.name) as data:
+
+    def tell_said(data: dict) -> list[str]:
+        lines = []
         for order_id in owing:
             owed = owed_reporters(data, data["orders"][order_id], moment)
             for held in owed:
@@ -3041,7 +3042,9 @@ def tell_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 f" send its report with --attr close={order_id}, which the communicator posts {note} {'there' if len(owed) == 1 else 'in each'} and records it with"
                 f" drive order told {order_id} <its permalink>; done refuses until then"
             )
-    return lines
+        return lines
+
+    return state.update(watcher.name, None, tell_said)
 
 
 def ran_out(job: dict, moment: datetime) -> bool:
