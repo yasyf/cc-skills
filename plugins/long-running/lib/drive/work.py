@@ -232,8 +232,8 @@ def live_worker(data: dict) -> str | None:
 
 
 def wanted(data: dict, moment: datetime) -> bool:
-    """Whether the queue wants a stage-test worker it does not have: none lives, and ready items of its cut wait to run there or a new cut may start, by why_not."""
-    if not enabled(data, STAGE_TEST) or live_worker(data):
+    """Whether the queue wants a stage-test worker it does not have: none lives, none failed to start in the last STALL_AFTER, so a start that fails is tried again at that pace, and ready items of its cut wait to run there or a new cut may start, by why_not."""
+    if not enabled(data, STAGE_TEST) or live_worker(data) or any(worker(job) and job["state"] == "failed" and not job["agent"] and moment - state.parse_time(job["updated"]) < STALL_AFTER for job in data["jobs"].values()):
         return False
     return bool(members_ready(data, data["slots"].get(ENV) or {})) or why_not(data, moment) is None
 
