@@ -3270,7 +3270,7 @@ def mark_dangerous(data: dict, key: str, head: str, paths: list[str]) -> str | N
     if pr["paths_at"] == head and pr["paths_by"] == by:
         return None
     pr.update(paths_at=head, paths_by=by, stored=land.stored(paths))
-    if not markable(data, key, head) or not (classes := dangerous(data, paths)):
+    if not markable(data, key, head) or not (classes := dangerous(data, paths, head)):
         return None
     changes = "; ".join(f"{kind}: {', '.join(made[:DANGEROUS_SHOWN])}{f' and {len(made) - DANGEROUS_SHOWN} more' if len(made) > DANGEROUS_SHOWN else ''}" for kind, made in classes.items())
     return stage_pr(data, key, DANGEROUS_GOAL.format(key=key, number=key.split("#")[1], changes=changes, rules=REPO_RULES), data["jobs"][pr["job"]].get("session"))
@@ -5819,17 +5819,53 @@ def repo_rules(data: dict) -> list[str]:
     return [f"{rule['id']}: {rule['text']}" for rule in repo_config(data).get("rule", [])]
 
 
-def dangerous(data: dict, paths: list[str]) -> dict[str, list[str]]:
-    """Each class of dangerous change a [[dangerous]] table of the repository's .claude/long-running.toml names, and beside them each path the repository provider's dangerous_paths names, as PROVIDER_DANGEROUS, since a repository may move its classes there and list none in its toml, which let #57530 and #57528 reach his Approve with no staging test, with the paths of these that make it: each its globs match, as fnmatch reads a glob, whose `*` crosses a `/`, that is no test file, as served.TESTS reads one, and that no glob of its [skip] table matches."""
+def dangerous(data: dict, paths: list[str], head: str | None = None) -> dict[str, list[str]]:
+    """Each class of dangerous change a [[dangerous]] table of the repository's .claude/long-running.toml names, and beside them each path the repository provider's dangerous_paths names, as PROVIDER_DANGEROUS, since a repository may move its classes there and list none in its toml, which let #57530 and #57528 reach his Approve with no staging test, with the paths of these that make it: each its globs match, as fnmatch reads a glob, whose `*` crosses a `/`, that is no test file, as served.TESTS reads one, and that no glob of its [skip] table matches.; and, given the head of the PR changing paths, the rule files it changes, the toml and the providers module, as NARROWED when a path dangerous at its base is not dangerous at that head, by narrowed(), since today's untested merges came from a list that was too narrow, while a change only adding entries stays tooling."""
+    found = dangerous_in(repo_config(data), provided(data).repo, paths)
+    if head and (rules := [path for path in paths if path in rule_files(provided(data).config)]) and narrowed(data, head):
+        found[NARROWED] = rules
+    return found
+
+
+def dangerous_in(config: dict, repo: Any, paths: list[str]) -> dict[str, list[str]]:
+    """Each class of dangerous change among paths by the [[dangerous]] tables of config and the repo provider's dangerous_paths, outside tests and the toml's skip globs, as dangerous() reads them at the default branch's head."""
     from drive import served
 
-    config = repo_config(data)
     skipped = config.get("skip", {}).get("paths", [])
     counted = [path for path in paths if not served.TESTS.search(path) and not any(fnmatchcase(path, glob) for glob in skipped)]
     found = {table["class"]: [path for path in counted if any(fnmatchcase(path, glob) for glob in table["paths"])] for table in config.get("dangerous", [])}
     listed = {path for made in found.values() for path in made}
-    found[PROVIDER_DANGEROUS] = [path for path in provided(data).repo.dangerous_paths(counted) if path not in listed]
+    found[PROVIDER_DANGEROUS] = [path for path in repo.dangerous_paths(counted) if path not in listed]
     return {kind: made for kind, made in found.items() if made}
+
+
+NARROWED = "a change that narrows the dangerous list, by his ruling that narrowing it is itself dangerous"
+NARROWED_READS: dict[str, list[str]] = {}
+
+
+def rule_files(config: dict) -> list[str]:
+    """The files that say what is dangerous: the toml and the providers module it names."""
+    return [REPO_RULES, *([module] if (module := config.get("providers", {}).get("module")) else [])]
+
+
+def narrowed(data: dict, head: str) -> list[str]:
+    """Each path the repository tracks at the merge base of head and the default branch that the rules at that base read as dangerous and the rules at head do not, read once per head, and one line saying so when git or the providers cannot be read, since a list that may narrow keeps his card: the toml's [[dangerous]] tables and the providers module's dangerous_paths, each from its own commit; none for a change that only adds."""
+    from drive import github, providers
+
+    if head in NARROWED_READS:
+        return NARROWED_READS[head]
+    clone = Path(next(iter(bound_sessions(data).values()))["cwd"])
+    try:
+        github.fetch_commit(str(clone), head)
+        base = github.run(["git", "-C", str(clone), "merge-base", head, providers.default_head(clone)]).strip()
+        tracked = github.run(["git", "-C", str(clone), "ls-tree", "-r", "--name-only", base]).splitlines()
+        before, after = providers.at_commit(clone, base), providers.at_commit(clone, head)
+    except (github.GithubError, providers.ProviderError) as error:
+        return [f"unread, so read as narrowing: {error}"]
+    was = {path for made in dangerous_in(before.config, before.repo, tracked).values() for path in made}
+    now = {path for made in dangerous_in(after.config, after.repo, tracked).values() for path in made}
+    NARROWED_READS[head] = sorted(was - now)
+    return NARROWED_READS[head]
 
 
 PROVIDER_DANGEROUS = "a dangerous change its repository provider's dangerous_paths names"

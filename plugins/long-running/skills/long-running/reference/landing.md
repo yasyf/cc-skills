@@ -52,7 +52,9 @@ card a job only waits on wakes that job and holds no PR. No card holds a `flake 
   `staging test of #N before it lands` part is undelivered and has a job on it, or the PR waits on
   it, the PR reads waiting on that run. It reads `red`, owed by its builder, while no tester runs it.
 - `drive pr add`, the watch and the lander put that part on each PR whose paths are a dangerous
-  class, by the repository's provider, whatever its exempt class. Every other PR owes no test
+  class, by the repository's provider, whatever its exempt class. A PR changing the toml or the
+  providers module so that a file dangerous at its base is no longer dangerous at its head narrows
+  the list, and is dangerous itself, by his ruling; one that only adds entries stays tooling. Every other PR owes no test
   before its merge: it merges on green CI and is proven after it on what the half-hourly
   promotion deploys. His go on its order, `drive order go`, takes the part off and lands the PR
   first, with its staging pass after the merge; a dangerous one still waits for his presence.

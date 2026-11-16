@@ -6937,6 +6937,29 @@ def dangerous_repo(tmp_path: Path, on_github: dict, changed: list[str]) -> None:
     on_github |= {"changedFiles": len(changed), "files": [{"path": path} for path in changed]}
 
 
+def test_a_change_narrowing_the_dangerous_list_reads_as_narrowing_and_one_only_adding_to_it_does_not(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo = tmp_path / "narrowing"
+    (repo / ".claude").mkdir(parents=True)
+    (repo / "api" / "migrations").mkdir(parents=True)
+    (repo / "api" / "migrations" / "1700_runs.sql").write_text("select 1;\n")
+
+    def commit(globs: list[str]) -> str:
+        (repo / state.REPO_RULES).write_text(f'[[dangerous]]\nclass = "a database migration"\npaths = {json.dumps(globs)}\n')
+        subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
+        subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "rules"], check=True)
+        return subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
+
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    base = commit(["api/migrations/*"])
+    narrowing = commit(["api/other/*"])
+    subprocess.run(["git", "-C", str(repo), "checkout", "-q", base], check=True)
+    widening = commit(["api/migrations/*", "api/other/*"])
+    monkeypatch.setattr(state, "bound_sessions", lambda data: {"coordinator": {"cwd": str(repo)}})
+    monkeypatch.setattr(providers, "default_head", lambda clone: base)
+    monkeypatch.setattr(github, "fetch_commit", lambda clone, sha: None)
+    assert (state.narrowed({}, narrowing), state.narrowed({}, widening)) == (["api/migrations/1700_runs.sql"], [])
+
+
 def test_a_pr_of_only_the_tooling_paths_the_repositorys_toml_lists_is_ci_only_and_a_dangerous_path_among_them_never_is(home_repo: None, demo: str, tmp_path: Path) -> None:
     (tmp_path / ".claude").mkdir(exist_ok=True)
     tooling = '[[tooling]]\nclass = "drive and CI tooling"\npaths = [".claude/long-running*", ".agents/skills/*", "tools/*", "api/migrations/tools/*"]\n'

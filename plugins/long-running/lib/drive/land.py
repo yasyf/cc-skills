@@ -154,10 +154,10 @@ def awaits_word(data: dict, pr: dict) -> bool:
     return approved(pr) and lander.get("head") == pr["head"] and (outcome or "").startswith(AWAY) and bool(state.absence(data, state.now()))
 
 
-def not_ci(data: dict, paths: list[str]) -> list[str]:
+def not_ci(data: dict, paths: list[str], head: str | None = None) -> list[str]:
     """The paths no ci-only PR changes: each dangerous one first, by state.dangerous, since a dangerous change is never tooling whatever its directory, as go/ci/internal/release is not; then each outside CI configuration and CI tooling as the repository's provider reads them and outside the drive and CI tooling paths its toml's [[tooling]] tables list, by his rulings 02a1e36 and d2a8213 that a PR of only long-running or tooling fixes merges with no tap of his."""
     repo = providers.of(data).repo
-    found = {path for made in state.dangerous(data, paths).values() for path in made}
+    found = {path for made in state.dangerous(data, paths, head).values() for path in made}
     globs = [glob for table in state.repo_config(data).get("tooling", []) for glob in table["paths"]]
     return [path for path in paths if path in found or not (repo.ci_config(path) or repo.checkout_tools(path) or any(fnmatchcase(path, glob) for glob in globs))]
 
@@ -176,7 +176,7 @@ def outside(data: dict, exempt: str, key: str, read: dict) -> str:
             found = [path for path in paths if not served.TESTS.search(path)]
             return f"it changes {', '.join(found)}, outside test and fixture code" if found else ""
         case state.CI_ONLY:
-            found = not_ci(data, paths)
+            found = not_ci(data, paths, read["head"])
             return f"it changes {', '.join(found)}, outside CI configuration and CI tooling" if found else ""
         case "incident fix":
             return "its title or body says it reverts a change, which lands only on his tap" if REVERT.search(f"{read['title']}\n{read['body']}") else ""
@@ -732,7 +732,7 @@ def run(name: str, keys: list[str], dry_run: bool = False) -> str:
             below = uncleared_below(data, keys)
             misfiled = {key: why for key in keys if (why := unexempt(data, key))}
             changed = {key: github.files(key) for key in keys if not state.staging_tested(data, key) and not lifted(data["prs"][key]) and not any(state.part_wait(data, wait) for wait in data["prs"][key]["waits"])}
-            risky = {key: made for key, files in changed.items() if (made := [path for found in state.dangerous(data, files).values() for path in found])}
+            risky = {key: made for key, files in changed.items() if (made := [path for found in state.dangerous(data, files, data["prs"][key]["head"]).values() for path in found])}
             if (misfiled or risky) and not dry_run:
 
                 def reached(edited: dict) -> None:

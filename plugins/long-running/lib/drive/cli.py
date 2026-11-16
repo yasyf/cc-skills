@@ -6273,7 +6273,7 @@ def refuse_an_unexempt(name: str, key: str, exempt: str, done: str) -> None:
 def path_class(data: dict, key: str, job: dict, read: dict) -> str | None:
     """The exempt class the files a PR's GitHub read lists put it in when the drive first registers it: ci-only when it lists any and land.not_ci finds none outside CI configuration and CI tooling, so a CI fix lands with no tap and no session names its class by hand, by his words "any CI fix PRs uoiu can merge without getting a tp from me"; None for a PR the drive tracks, which keeps the class it has, someone else's, which only his tap lands, and a revert on an order an incident is open on, which no incident approves."""
     paths = [changed["path"] for changed in read["files"]]
-    if key in data["prs"] or not paths or land.not_ci(data, paths) or read["author"]["login"].casefold() != state.HIS_LOGIN:
+    if key in data["prs"] or not paths or land.not_ci(data, paths, read["headRefOid"]) or read["author"]["login"].casefold() != state.HIS_LOGIN:
         return None
     if state.open_incidents(data, [job["order"], *job["carries"]]) and land.REVERT.search(f"{read['title']}\n{read['body']}"):
         return None

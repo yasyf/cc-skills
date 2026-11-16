@@ -397,7 +397,11 @@ def blob(clone: Path, sha: str, path: str) -> str | None:
 
 def at(clone: Path, checkout: Path | None = None) -> Providers:
     """The providers the .claude/long-running.toml at the default branch's head of the repository cloned at clone names, their module read from that same commit, never a working tree, so no branch changes the providers that judge it; each run commands in checkout, the clone when none is named. One load per process per clone, checkout and commit."""
-    sha = default_head(clone)
+    return at_commit(clone, default_head(clone), checkout)
+
+
+def at_commit(clone: Path, sha: str, checkout: Path | None = None) -> Providers:
+    """The providers the .claude/long-running.toml at commit sha names, their module read from that same commit, as at() reads them at the default branch's head, so a change to them is judged by what it makes them."""
     if (key := (str(clone), str(checkout or clone), sha)) in LOADED:
         return LOADED[key]
     text = blob(clone, sha, REPO_RULES)
