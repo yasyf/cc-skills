@@ -416,6 +416,35 @@ def uncarried(command: str, data: dict) -> str | None:
     return UNCARRIED.format(order=flags["order"][-1], asked=cut(asked.title, 200), named=", ".join(merges), why=why, newest=newest)
 
 
+SHIPPED_NONE = (
+    "{key} ships only in {reach}, which `{release}`, naming {targets}, does not carry, so it is not shipped by it, by defect 736343:"
+    " name it as left out, with the release that would ship it, never as shipped"
+)
+SHIPPED_SOME = "{key} ships in {reach}, of which `{release}` carries only {carried}: say which part went out and which waits on a release of {left}"
+
+
+def shipped_claims(command: str, data: dict, keys: list[str]) -> tuple[list[str], list[str]]:
+    """Which PRs a release cannot ship, each a finding, and which it ships only in part, each a warning, by the targets each PR's change ships in, as the release provider's components give them through cli.release_reach, against the targets its start names by --targets or --only: a desktop release never ships a PR whose change ships only in the dashboard, since the desktop app loads its UI from the production dashboard, by defect 736343. None for a start naming no target or the whole word, which the release tool fills, and none when the read fails, its warning printed, since an unreadable input never holds the action."""
+    from drive import cli, github
+
+    named = {target for flags in started(command, data) for target in (*flags.get("targets", ()), *flags.get("only", ()))}
+    if not keys or not named or providers.of(data).release.whole in named:
+        return [], []
+    try:
+        reach = cli.release_reach(data["name"], data, keys)
+    except (state.DriveError, reads.ReadError, providers.ProviderError, github.GithubError) as error:
+        print(f"drive: what {', '.join(keys)} ships in did not read, so whether `{command}` ships them goes unchecked: {error}", file=sys.stderr)
+        return [], []
+    none, some = [], []
+    for key, found in reach.items():
+        ships = set(found["releases"])
+        if not ships or ships <= named:
+            continue
+        shown = dict(key=key, reach=", ".join(sorted(ships)), release=command, targets=", ".join(sorted(named)))
+        (none.append(SHIPPED_NONE.format(**shown)) if not ships & named else some.append(SHIPPED_SOME.format(**shown, carried=", ".join(sorted(ships & named)), left=", ".join(sorted(ships - named)))))
+    return none, some
+
+
 ASK_UNCARRIED = (
     "this release leaves out asks of his it is made for: {missed}. A release made for his asks carries them, by his words \"it thought it was ok to do a release"
     " without including either of the 2 fixes\": land what is missing, or name in --asks only the asks it carries; his thread hears which it leaves out and why before it starts"

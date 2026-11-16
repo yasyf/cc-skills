@@ -1863,11 +1863,16 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
     if args.asks and not args.release:
         raise DriveError("--asks names the asks of his the release --release starts is made for, so it needs --release")
     carried, missed = brief.release_asks(args.release, known, args.asks) if args.release and args.asks and not unreleased else ({}, {})
+    if args.release and not unreleased:
+        none, some = brief.shipped_claims(args.release, known, state.named_prs(known, args.order, args.goal))
+        for warning in some:
+            print(f"drive job add: warning: {warning}", file=sys.stderr)
+        unreleased = gate.gate(name, f"shipped {args.order} {args.release}", none)
     if missed:
         why = brief.ASK_UNCARRIED.format(missed="; ".join(missed.values()))
         refused = gate.gate(name, f"release {args.order} {args.release}", [why])
-        asks_missed(name, args.order, args.release, why, starts=not refused)
-        unreleased = refused
+        asks_missed(name, args.order, args.release, why, starts=not (refused or unreleased))
+        unreleased = unreleased or refused
     if args.release and not unreleased:
         for line in filter(None, [brief.uncarried(args.release, known), *brief.release_notes([args.release], known)]):
             print(f"drive job add: {line}", file=sys.stderr)
@@ -1976,8 +1981,10 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
 
 def asks_missed(name: str, order_id: str, command: str, why: str, starts: bool) -> None:
     """Post one handoff record to the communicator, the one voice in his threads, before a release made for his asks starts, saying which asks it names it leaves out and why, so his thread hears that before the release starts, not after: on the first try, which the gate refuses once, and again on the repeat that starts it."""
-    find(state.load(name)["orders"], order_id, "order")
-    lane = "communicator"
+    from drive import talk
+
+    data = state.load(name)
+    lane = talk.voice_lane(data, find(data["orders"], order_id, "order"))
     text = f"RELEASE {order_id}: `{command}` {'starts now, as a repeat' if starts else 'was refused once'}: {why}. Tell him in the order's thread, before it starts, which of his asks it leaves out and why, naming each by his words"
     argv = ["cci", "post", "--drive", name, "--lane", watch.LANE, "--kind", "handoff", "--to", f"{lane}@{name}", "--topic", f"release-{order_id}"]
     reads.run([*argv, "--text", reads.withheld(text)], Path.cwd(), reads.posting())
@@ -3583,6 +3590,8 @@ def job_report(args: argparse.Namespace) -> int:
             raise DriveError(f"stdin held no report for {args.id}; pipe its whole return in: printf '%s\\n' '<line>' ... | drive job report {args.id} -")
         if stray := stray_reporter(job, os.environ.get("CLAUDE_CODE_SESSION_ID")):
             return emit(args, *stray_return(name, args.id, whole, stray))
+        if release := (job.get("brief_flags") or {}).get("release"):
+            refuse_unshipped(name, data, args.id, release, state.named_prs(data, job["order"], whole))
         return emit(args, *take_report(name, args.id, whole, read_prs=not args.sprite_lane))
     text = state.report_text(name, args.id, args.all)
     if not text and job["said"] in (None, state.NOT_STARTED):
@@ -3590,6 +3599,15 @@ def job_report(args: argparse.Namespace) -> int:
     if not text:
         return emit(args, f"{job['said']}\n({args.id} kept no report; this one-line result is all it returned)", {"id": args.id, "report": None, "said": job["said"]})
     return emit(args, text.rstrip("\n"), {"id": args.id, "report": text})
+
+
+def refuse_unshipped(name: str, data: dict, job_id: str, release: str, keys: list[str]) -> None:
+    """Refuse once, through gate.gate, a release job's report or start naming a PR its release cannot ship, by brief.shipped_claims, and warn of each it ships only in part, so no report tells him a fix went out that his release never carried, by defect 736343; a repeat goes through, warned."""
+    none, some = brief.shipped_claims(release, data, keys)
+    for warning in some:
+        print(f"warning: {job_id}: {warning}", file=sys.stderr)
+    if refused := gate.gate(name, f"shipped {job_id} {release}", none):
+        raise DriveError(f"{job_id}: {refused}")
 
 
 def job_check(args: argparse.Namespace) -> int:

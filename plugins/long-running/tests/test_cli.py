@@ -12674,6 +12674,25 @@ def test_a_release_carries_an_ask_it_names_only_once_each_pr_delivering_it_merge
     assert brief.release_asks("tools/ci release start desktop", state.load(demo), ["a1"]) == ({"a1": 'a1 on o1, "show my agents": Forge-AI/monorepo#1'}, {})
 
 
+def test_a_release_ships_no_pr_whose_change_ships_only_in_targets_it_does_not_name_and_a_report_saying_so_is_refused_once(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    run("order", "add", "--title", "Desktop release", "--project", "The drive", "--workstream", "Drive tooling", "release the desktop apps")
+    reached = {"Forge-AI/monorepo#57634": {"releases": ["dashboard"]}, "Forge-AI/monorepo#57633": {"releases": ["api", "desktop"]}, "Forge-AI/monorepo#57649": {"releases": ["desktop"]}}
+    monkeypatch.setattr(brief, "started", lambda command, data: [{"targets": ("desktop",)}])
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {key: reached[key] for key in keys})
+    release = "tools/ci release start desktop"
+    none, some = brief.shipped_claims(release, state.load(demo), list(reached))
+    assert ([line.split(" ships")[0] for line in none], [line.split(" ships")[0] for line in some]) == (["Forge-AI/monorepo#57634"], ["Forge-AI/monorepo#57633"])
+    assert "of which `tools/ci release start desktop` carries only desktop: say which part went out and which waits on a release of api" in some[0]
+    assert run("job", "add", "builder", "--order", "o1", "--goal", "follow the desktop release")[0] == 0
+    with edit(demo) as data:
+        data["jobs"]["j1"]["brief_flags"] = {"release": release}
+        for key in reached:
+            data["prs"][key] = state.new_pr(state.pr_url(key), None, "o1")
+    with pytest.raises(state.DriveError, match=r"j1: refused once: Forge-AI/monorepo#57634 ships only in dashboard"):
+        cli.refuse_unshipped(demo, state.load(demo), "j1", release, ["Forge-AI/monorepo#57634", "Forge-AI/monorepo#57649"])
+    cli.refuse_unshipped(demo, state.load(demo), "j1", release, ["Forge-AI/monorepo#57634", "Forge-AI/monorepo#57649"])
+
+
 def test_a_staging_release_start_names_one_rehearsal_env_alone() -> None:
     start = "tools/ci release start api rsw-cp --from b --emergency --env plat-usw2-staging --order 23eefb9"
     assert (brief.leased_env(start.split(), {}), brief.leased_env("tools/ci release start api --order 23eefb9".split(), {}), brief.leased_env(f"{start} --env core-usw2-prod".split(), {})) == ("plat-usw2-staging", None, None)
