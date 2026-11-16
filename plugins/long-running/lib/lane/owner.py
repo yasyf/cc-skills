@@ -119,7 +119,7 @@ def brief(drive: str, lane: dict, woke: str) -> str:
         promise=json.dumps(lane.get("promise")) if lane.get("promise") else "none",
         lane=shlex.quote(str(BIN)),
     )
-    if store.config(drive)["shadow"]:
+    if not store.live(drive):
         text += "\n\n" + SHADOW.read_text().format(id=lane["id"], lane=shlex.quote(str(BIN)))
     return text
 
@@ -137,7 +137,7 @@ def settings(drive: str, lane_id: str, token: str) -> dict:
             "PreToolUse": [{"matcher": "Bash|Edit|Write|NotebookEdit", "hooks": [{"type": "command", "command": fence}]}],
         },
     }
-    if store.config(drive)["shadow"]:
+    if not store.live(drive):
         shaped["permissions"] = {"deny": SHADOW_DENY}
     return shaped
 
@@ -169,7 +169,7 @@ def launch(drive: str, lane: dict, token: str, woke: str) -> dict:
         shape["effort"],
         "--permission-mode",
         "bypassPermissions",
-        *(["--strict-mcp-config"] if shape["shadow"] else []),
+        *(["--strict-mcp-config"] if not store.live(drive) else []),
         "--settings",
         json.dumps(settings(drive, lane["id"], token)),
         "-n",

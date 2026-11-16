@@ -1,6 +1,6 @@
 """The staging tester's facts and writes: the dangerous stacks waiting on a proof, in rank order, each with what the tester needs to choose its batch, the env's lease, and each stack's result.
 
-The tester is an agent (agents/stager.md). Code here gathers facts and records results; it never sizes a cut or packs stacks. Until cutover writes LIVE beside the lanes, every verb runs in shadow: it reads the old drive's approved dangerous stacks, takes no lease, starts no cut, merges nothing, and keeps the tester's decision under shadow/.
+The tester is an agent (agents/stager.md). Code here gathers facts and records results; it never sizes a cut or packs stacks. Until cutover writes the lanes/<drive>/live marker, store.live, every verb runs in shadow: it reads the old drive's approved dangerous stacks, takes no lease, starts no cut, merges nothing, and keeps the tester's decision under shadow/.
 """
 
 import json
@@ -10,7 +10,6 @@ from pathlib import Path
 
 from lane import landing, rows, store
 
-LIVE = "live"
 SHADOW = "shadow"
 ENV_LEASE = "staging-env.json"
 CUTS = "cuts"
@@ -28,12 +27,12 @@ def lanes_dir(drive: str) -> Path:
 
 
 def live(drive: str) -> bool:
-    return (lanes_dir(drive) / LIVE).exists()
+    return store.live(drive)
 
 
 def refuse_in_shadow(drive: str, what: str) -> None:
     if not live(drive):
-        raise ShadowRefusal(f"shadow: {what} waits for cutover, which writes {lanes_dir(drive) / LIVE}")
+        raise ShadowRefusal(f"shadow: {what} waits for cutover, which writes {lanes_dir(drive) / store.LIVE}")
 
 
 def written(path: Path, body: dict) -> Path:

@@ -22,7 +22,6 @@ DEFAULTS = {
     "model": "opus",
     "effort": "high",
     "posting": True,
-    "shadow": False,
     "pass_seconds": 30,
     "max_wait_hours": 24,
     "launch_grace_seconds": 180,
@@ -31,6 +30,7 @@ DEFAULTS = {
 }
 LOG_KEEP = 200
 PRESENCE = "presence.json"
+LIVE = "live"
 NOT_LANES = ("rank", "config", "supervisor", "staging-env", "presence")
 
 
@@ -42,6 +42,11 @@ def root() -> Path:
     if explicit := os.environ.get("LONG_RUNNING_STATE"):
         return Path(explicit) / "lanes"
     return Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state") / "long-running" / "lanes"
+
+
+def live(drive: str) -> bool:
+    """Whether the drive runs live: its lanes/<drive>/live marker, the one switch cutover writes. Without it the supervisor starts owners in shadow and lane-land merges nothing and starts no cut."""
+    return (drive_dir(drive) / LIVE).exists()
 
 
 def drive_dir(drive: str) -> Path:
