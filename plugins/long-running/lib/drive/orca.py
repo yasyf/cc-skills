@@ -776,7 +776,7 @@ def launch(drive: str, lane: str, brief: Path, checkout: Path, run: str, route: 
         servers = brief.with_suffix(".mcp.json")
         servers.write_text(json.dumps(agents.datadog_servers()))
         rules = " ".join(f"{key}={value}" for key, value in agents.LANE_RULES_ENV.items())
-        leafed = agents.light({"env": {}} | json.loads(os.environ.get("CLAUDE_LANE_SETTINGS") or "{}"), agents.BUILDER, checkout)
+        leafed = agents.light({"env": {}, "enabledPlugins": {}} | json.loads(os.environ.get("CLAUDE_LANE_SETTINGS") or "{}"), agents.BUILDER, checkout)
         lane_settings = {key: value for key, value in leafed.items() if key != "env"}
         env |= {"WORKER_LOCAL": "1", "WORKER_REPO": repo, "WORKER_ENV": f"{LANE_ENV} {rules} CCI_PARENT_SESSION={drive}", "WORKER_MCP_CONFIG": str(servers), "WORKER_ADD_DIR": agents.LANE_RULES_ARGS[1], "CLAUDE_LANE_SETTINGS": json.dumps(lane_settings)}
     else:

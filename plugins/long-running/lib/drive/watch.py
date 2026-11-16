@@ -5021,7 +5021,7 @@ def orphan_change(data: dict, key: tuple[str, str], gap: str | None, moment: dat
         return "say"
     if state.orphan_stands(data, *key):
         return None
-    return "keep" if gap_shape(gap) == gap_shape(part["orphan_gap"]) else "say"
+    return "keep" if part["orphan_gap"] and gap_shape(gap) == gap_shape(part["orphan_gap"]) else "say"
 
 
 def orphan_lines(watcher: Watcher, moment: datetime, said: type | tuple[type, ...] = object) -> list[str]:
