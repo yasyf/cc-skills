@@ -1226,17 +1226,15 @@ def test_no_cc_slack_plugin_goes_out_unchecked_saying_his_thread_could_not_be_re
     )
 
 
-def test_the_communicators_own_post_goes_out_in_one_call_with_each_mechanical_check_post_fix_made_and_the_rest_warned(
+def test_the_communicators_own_post_goes_out_in_one_call_with_each_mechanical_check_post_fix_made_and_no_other_check_post_finding(
     talker: str, transcript: Path, checked: Checked, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     payload = call("slack_dm_status", transcript, text=HISTORY_POST, thread_ts="1.2", asked="why did it reset?")
     del payload["agent_id"]
     payload |= {"tool_name": message_limits.SAY}
     assert message_limits.hook_output(payload) == {}
-    checked.findings = ["1:40 jargon 'a builder': say what it does"]
-    warned = message_limits.hook_output(payload)["hookSpecificOutput"]
-    assert "permissionDecision" not in warned
-    assert "still finds, and the post went out: 1:40 jargon 'a builder'" in warned["additionalContext"]
+    checked.findings = ["1:40 option-reference 'option 2': name the option in its own words"]
+    assert message_limits.hook_output(payload) == {}
     assert checked.texts[-1] == HISTORY_POST.strip()
     assert checked.asked[-1] == ["why did it reset?"]
     late = payload | {"tool_input": payload["tool_input"] | {"text": "It failed at 2026-11-16T09:15:42Z. See https://github.com/acme/app/pull/12 for the fix."}}
