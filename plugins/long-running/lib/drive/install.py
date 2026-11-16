@@ -1673,7 +1673,7 @@ def typed_reload(drive: str, seat: str, held: dict, terminal: str, onto: str, pl
         return f"not reloaded ({failed})", False
     if not moved and not reload_shown(pid, held["session"], transcript, start):
         return f"{typed} typed in {terminal}, but no {RELOADED.removeprefix('<local-command-stdout>')} line showed in {transcript} while it sat idle {RELOAD_WAIT_SECONDS}s", False
-    with state.locked(drive):
+    with state.flocked(state.drive_dir(drive) / f"{RELOADS}.lock"):
         path = state.drive_dir(drive) / RELOADS
         sent = json.loads(path.read_text()) if path.exists() else {}
         path.write_text(json.dumps(sent | {seat: {"onto": onto, "at": state.stamp()}}))
@@ -1807,7 +1807,7 @@ def reload_held(drive: str, seat: str) -> str | None:
 
 def hold_reload(drive: str, seat: str) -> None:
     """Mark in reloads.json that an install the seat's session has not loaded waits for its hour, which typed_reload's next stamp clears."""
-    with state.locked(drive):
+    with state.flocked(state.drive_dir(drive) / f"{RELOADS}.lock"):
         path = state.drive_dir(drive) / RELOADS
         sent = json.loads(path.read_text())
         path.write_text(json.dumps(sent | {seat: sent[seat] | {"held": True}}))
@@ -1819,7 +1819,7 @@ def due_reloads(drive: str) -> list[str]:
     held = [seat for seat, stamp in (json.loads(path.read_text()) if path.exists() else {}).items() if stamp.get("held")]
     if not (due := [seat for seat in held if not reload_held(drive, seat)]):
         return []
-    with state.locked(drive):
+    with state.flocked(path.with_name(f"{RELOADS}.lock")):
         sent = json.loads(path.read_text())
         path.write_text(json.dumps(sent | {seat: {key: value for key, value in sent[seat].items() if key != "held"} for seat in due}))
     return reload_sessions([drive], False)
