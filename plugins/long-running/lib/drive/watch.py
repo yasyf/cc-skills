@@ -2321,7 +2321,7 @@ def watched_report(watcher: Watcher, order_id: str, order: dict) -> str | None:
 
 
 def owed_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Get each message of his answered that `cc-slack dm-owed` lists, in his DM and each operator channel, since no post answering it named it as asked, as an ack never does, while the session this drive's handlers run beside holds his DM, so the drive owes it: two minutes on, the watch hands it as a message of his to the live handler holding its thread each read until it starts one of its own on it, which it does once, and ten minutes on writes one report for the handler in its thread to say there what the answer waits on. An open order the message started is left to that order's own lines. The drive keeps each message's marks while cc-slack owes it, so a watch restart hands nothing twice. A failed read, start or write is said as a failed read is and tried again next read."""
+    """Get each message of his answered that `cc-slack dm-owed` lists, in his DM and each operator channel, since no post answering it named it as asked, as an ack never does, while the session this drive's handlers run beside holds his DM, so the drive owes it: two minutes on, the watch hands it as a message of his to the live handler holding its thread each read until it starts one of its own on it, which it does once, and ten minutes on writes one report for the handler in its thread to say there what the answer waits on. Each handler starts detached, as the handler tool starts one, so a read owing many messages hands and reports each in seconds, never waiting on one `claude --bg` launch after another while the messages after it go stale. An open order the message started is left to that order's own lines. The drive keeps each message's marks while cc-slack owes it, so a watch restart hands nothing twice. A failed read or write is said as a failed read is and tried again next read; a launch that fails tells the session the handlers run beside, as the handler tool's does."""
     if watcher.project:
         return []
     data = state.load(watcher.name)
@@ -2342,14 +2342,14 @@ def owed_lines(watcher: Watcher, moment: datetime) -> list[str]:
             continue
         source = f"owed {ts}"
         try:
-            if not mark["handed"] and not agents.handle(watcher.name, owed_brief(watcher.name, reply, channel, thread))[1]:
+            if not mark["handed"] and not agents.handle(watcher.name, owed_brief(watcher.name, reply, channel, thread), detached=True)[1]:
                 with state.edit(watcher.name) as saved:
                     saved["owed_replies"][ts]["handed"] = True
             if owed_for >= view.OWED_WAIT and not mark["lined"]:
                 seq = owed_report(watcher, data, reply, channel, thread, owed_for)
                 with state.edit(watcher.name) as saved:
                     saved["owed_replies"][ts]["lined"] = seq
-                agents.handle_report(watcher.name, seq, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'owed-{seq}'}")
+                agents.handle_report(watcher.name, seq, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'owed-{seq}'}", detached=True)
         except (reads.ReadError, state.DriveError) as error:
             lines += failed(watcher, source, f"answer of his message {reply['permalink']}, owed {minutes(owed_for)} minutes", error, moment)
             continue
