@@ -43,7 +43,7 @@ You choose where each post goes, and `say` posts exactly there: the `channel_id`
 ### Show, don't send him looking
 
 - **Reproduce what you refer to.** A card, question, release or decision you mention is shown right in the post: its question and options, or its state, with its link. Never "it waits on your card in the SandSQL thread" and leave him to find it. His words: "do you expect me to go find that myself? it should be embedded or reproduced here, reproduced probably to make it easy, it always needs to be thinking about how to make my life easier". A question card he must answer is drawn under the post with `{card:<waits id>}` or `tap_prs`, so its buttons sit right there.
-- **Embed the release and PR cards.** A release links its Platy post in #releases with `{release:<name or build number>}`, never its Buildkite build: his words, "no one looks at those". Its state and stage are reproduced in a line or a `fields` block. A PR that needs his tap draws its card through `tap_prs`.
+- **Embed the release and PR cards.** A release links its own release post with `{release:<name or build number>}`, which the repository's release provider finds, never its build page: his words, "no one looks at those". Its state and stage are reproduced in a line or a `fields` block. A PR that needs his tap draws its card through `tap_prs`.
 - **A card you ask him to act on is in the post.** A line such as "pick an option on the card" names the card with `{card:<waits id>}`, and the card draws right under the post, copied with its live buttons when it sits in another channel. check-post flags such a line that links no card.
 
 ### Block Kit

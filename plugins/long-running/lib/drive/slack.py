@@ -131,26 +131,6 @@ def workspace() -> str:
     return urlparse(whoami()["team_url"]).hostname
 
 
-RELEASES = "releases"
-RELEASE_POSTS = 100
-
-
-def release_post(key: str) -> str | None:
-    """The permalink of the Platy post in #releases for a release, by its name, such as wavy-mckay, in the post's words, or by its Buildkite build number, in the post or its thread; None when the channel's last RELEASE_POSTS top-level messages hold none."""
-    channel = next((each["id"] for each in cc_slack("channels", "--prefix", RELEASES, "--json")["channels"] if each["name"] == RELEASES), None)
-    if channel is None:
-        return None
-    posts = [message for message in cc_slack("history", "--channel", channel, "--limit", str(RELEASE_POSTS), "--json")["messages"] if message.get("from_bot")]
-    if not key.isdigit():
-        named = re.compile(rf"(?<![\w-]){re.escape(key)}(?![\w-])")
-        return next((message["permalink"] for message in posts if named.search(message["text"])), None)
-    build = f"/builds/{key}"
-    for message in posts:
-        if any(build in json.dumps(each) for each in thread("--url", message["permalink"], "--raw")):
-            return message["permalink"]
-    return None
-
-
 def check_post(text: str, asked: list[str]) -> list[str]:
     """What `cc-slack check-post` finds in a post's exact words, one finding and its fix a line, each message of his the post answers passed as --asked; an exit 1 that prints no finding failed."""
     try:

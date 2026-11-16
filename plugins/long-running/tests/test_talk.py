@@ -15,6 +15,7 @@ from drive import (
     cli,
     dashboard,
     picture,
+    providers,
     reads,
     refs,
     render,
@@ -1679,11 +1680,11 @@ def test_a_picture_already_shown_in_a_thread_or_its_root_is_dropped_from_a_post_
     assert talk.unshown(demo, ("C1", "9.9"), [str(copy)]) == ([str(copy)], [])
 
 
-def test_a_release_reference_links_its_platy_post_and_one_naming_no_post_refuses(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    platy = "https://acme.slack.com/archives/C0REL/p1794826033725399"
-    monkeypatch.setattr(slack, "release_post", lambda key: platy if key in ("wavy-mckay", "17672") else None)
+def test_a_release_reference_links_the_post_its_release_provider_names_and_one_it_names_none_for_refuses(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    announced = "https://acme.slack.com/archives/C0REL/p1794826033725399"
+    monkeypatch.setattr(providers.ReleaseProvider, "post", lambda self, key: announced if key in ("wavy-mckay", "17672") else None)
     found = refs.resolved(demo, "{release:wavy-mckay} is live, as is {release:17672|the infra release}.")
-    assert found["{release:wavy-mckay}"] == {"kind": "release", "title": "wavy-mckay", "url": platy, "board": platy}
-    assert found["{release:17672|the infra release}"]["url"] == platy
-    with pytest.raises(DriveError, match=r"\{release:nope\} names no Platy post in #releases"):
+    assert found["{release:wavy-mckay}"] == {"kind": "release", "title": "wavy-mckay", "url": announced, "board": announced}
+    assert found["{release:17672|the infra release}"]["url"] == announced
+    with pytest.raises(DriveError, match=r"\{release:nope\} names no release post"):
         refs.resolved(demo, "{release:nope} is live.")
