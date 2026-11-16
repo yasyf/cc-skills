@@ -104,13 +104,13 @@ def at_work_here(job_id: str, job: dict, data: dict, moment: datetime) -> str | 
 
 
 def waiting_builders(data: dict) -> list[str]:
-    """The builder jobs waiting their turn for a slot on this Mac, earliest due first: the earliest time promised him on an order each serves, then the oldest added; a job moving here from its Sprite waits in whatever state its lane there left it."""
+    """The builder jobs waiting their turn for a slot on this Mac, a priority order's first, by state.first_in_line, then earliest due: the earliest time promised him on an order each serves, then the oldest added; a job moving here from its Sprite waits in whatever state its lane there left it."""
     waiting = [
         job_id
         for job_id, job in data["jobs"].items()
         if state.SLOT_WAIT in job["waits"] and (job["state"] == "waiting" or on_sprite(job) and job["state"] not in state.FINISHED_JOB_STATES)
     ]
-    return sorted(waiting, key=lambda job_id: due_first(data, data["jobs"][job_id]))
+    return sorted(waiting, key=lambda job_id: (not state.first_in_line(data, data["jobs"][job_id]), *due_first(data, data["jobs"][job_id])))
 
 
 def positions(data: dict) -> dict[str, str]:
@@ -120,9 +120,9 @@ def positions(data: dict) -> dict[str, str]:
 
 
 def crowded(data: dict, job_id: str | None, moment: datetime) -> str | None:
-    """Why the builder job takes no slot on this Mac now, None when it may: the cap's builders hold every slot but its own, or builders wait their turn ahead of a job that holds none, since the watch's FREE line gives each open slot to the earliest due. A builder on an open incident's order or on an immediate fix part starts at once past both, counting against the cap for later builders once it runs, by his pick "Start at once past the cap", and one that builds nothing starts at once past both, holding no slot."""
+    """Why the builder job takes no slot on this Mac now, None when it may: the cap's builders hold every slot but its own, or builders wait their turn ahead of a job that holds none, since the watch's FREE line gives each open slot to the earliest due. A builder on an open incident's order, on an open priority order, by state.first_in_line, or on an immediate fix part starts at once past both, counting against the cap for later builders once it runs, by his pick "Start at once past the cap" and his words on a priority order, "they aren't slowed down at any cost by anything", and one that builds nothing starts at once past both, holding no slot."""
     job = data["jobs"].get(job_id)
-    if job and (state.builds_nothing(job) or state.open_incidents(data, orders := [job["order"], *job["carries"]]) or any(state.IMMEDIATE_FIX in state.job_parts(job, order_id) for order_id in orders)):
+    if job and (state.builds_nothing(job) or state.first_in_line(data, job) or state.open_incidents(data, orders := [job["order"], *job["carries"]]) or any(state.IMMEDIATE_FIX in state.job_parts(job, order_id) for order_id in orders)):
         return None
     builders = local_builders(data, moment)
     others = {other: line for other, line in builders.items() if other != job_id}
@@ -177,11 +177,12 @@ def moves_here(job: dict) -> bool:
 
 
 def turns(data: dict, moment: datetime) -> tuple[list[str], int]:
-    """The builder jobs whose turn comes now, earliest due first, one for each slot on this Mac no builder holds, and how many builders hold one."""
+    """The builder jobs whose turn comes now, and how many builders hold a slot on this Mac: each priority order's builder in line at once, as crowded starts one past the cap, then the earliest due, one for each slot no builder holds."""
     if not (line := waiting_builders(data)):
         return [], 0
     held = len(local_builders(data, moment))
-    return line[: max(LOCAL_BUILDERS - held, 0)], held
+    first = [job_id for job_id in line if state.first_in_line(data, data["jobs"][job_id])]
+    return [*first, *line[len(first) :][: max(LOCAL_BUILDERS - held - len(first), 0)]], held
 
 
 def promised(data: dict, job: dict) -> str | None:

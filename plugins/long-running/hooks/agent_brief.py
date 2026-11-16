@@ -105,10 +105,10 @@ def waiting(data: dict, text: str) -> str | None:
 
 
 def overloaded(data: dict, text: str) -> str | None:
-    """Why a Forge-AI/monorepo builder starts on a Sprite, not here: this Mac is at or over its load gate's limit and its brief declares no step only this Mac runs, by place.mac_step, which starts here at any load."""
+    """Why a Forge-AI/monorepo builder starts on a Sprite, not here: this Mac is at or over its load gate's limit and its brief declares no step only this Mac runs, by place.mac_step, which starts here at any load, as a priority order's builder does, by state.first_in_line, so no launch delays it."""
     match = brief.BRIEF_JOB.search(text)
     job = data["jobs"].get(match[1]) if match else None
-    if job is None or (job.get("repo") or "").casefold() != place.MONOREPO.casefold() or place.mac_step(text):
+    if job is None or (job.get("repo") or "").casefold() != place.MONOREPO.casefold() or place.mac_step(text) or state.first_in_line(data, job):
         return None
     where, why = place.verdict(place.busy(), place.limit(), {})
     if where == "local":
@@ -120,7 +120,7 @@ def overloaded(data: dict, text: str) -> str | None:
 
 
 def crowded(name: str, data: dict, text: str) -> str | None:
-    """Why no builder starts on this Mac now: a job waiting its turn for a builder slot starts only on the watch's FREE line naming it, and any other only while a slot is open, its cap's builders holding every other one, each named, and no builder waits its turn ahead of it, unless it builds for an open incident or an immediate fix, which starts at once. A job let start is stamped launching, so place.local_builders counts its slot before its agent's first step records the agent, and a burst of starts fills the cap rather than passing it. A refused job whose brief this Mac alone runs, by place.mac_step, and that no agent runs and nothing else holds is held waiting its turn, so the watch reads it waiting, never abandoned, and frees the earliest due as each slot opens; any other starts on a Sprite at once."""
+    """Why no builder starts on this Mac now: a job waiting its turn for a builder slot starts only on the watch's FREE line naming it, and any other only while a slot is open, its cap's builders holding every other one, each named, and no builder waits its turn ahead of it, unless it builds for an open incident, an open priority order or an immediate fix, which starts at once. A job let start is stamped launching, so place.local_builders counts its slot before its agent's first step records the agent, and a burst of starts fills the cap rather than passing it. A refused job whose brief this Mac alone runs, by place.mac_step, and that no agent runs and nothing else holds is held waiting its turn, so the watch reads it waiting, never abandoned, and frees the earliest due as each slot opens; any other starts on a Sprite at once."""
     match = brief.BRIEF_JOB.search(text)
     job_id = match[1] if match and match[1] in data["jobs"] else None
     moment = state.now()
