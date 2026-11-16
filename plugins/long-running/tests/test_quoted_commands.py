@@ -178,6 +178,18 @@ def test_drive_manual_fills_each_session_start_with_every_lane_variable_and_one_
         assert "-p" not in session and "--print" not in session
 
 
+def test_root_launches_block_the_legacy_project_slack_server_without_disabling_native_slack(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CLAUDE_LANE_SETTINGS", json.dumps({"disabledMcpjsonServers": ["unused", "slack"], "enabledPlugins": {"cc-slack@cc-slack": True}}))
+    for line in session_starts(agents.filled(agents.START_PAGE.read_text())):
+        script = shlex.split(line)
+        session = shlex.split(script[script.index("--command") + 1])
+        settings = json.loads(session[session.index("--settings") + 1])
+        assert settings["disabledMcpjsonServers"] == ["unused", "slack"]
+        assert settings["enabledPlugins"]["cc-slack@cc-slack"] is True
+        assert "plugin:cc-inbox@cc-inbox" in session
+        assert ("plugin:cc-slack@cc-slack" in session) == ("<drive>-meta" not in script)
+
+
 @pytest.mark.parametrize("words", [pytest.param(words, id=f"{page}: {line}") for (page, line, _), words in every_quote().items()])
 def test_every_quoted_drive_command_parses(words: list[str], monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(sys, "stdin", io.StringIO())
