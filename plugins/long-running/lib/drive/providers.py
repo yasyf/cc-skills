@@ -254,6 +254,7 @@ class BuildProvider(Provider):
     """The repository's CI builds, as links, reads, logs and webhook events."""
 
     build_url: re.Pattern | None = None
+    artifact_url: re.Pattern | None = None
     receiver_path: str | None = None
     graders: str = "CI"
 
@@ -284,6 +285,14 @@ class BuildProvider(Provider):
     def log_tip(self, job_url: str) -> str:
         """Where a failed CI job's own output is read, for the guard refusing a rerun past it."""
         return ""
+
+    def artifact_link(self, text: str) -> re.Match | None:
+        """The CI artifact link text is whole, by artifact_url; None for any other text, or for every text when the repository names no artifact links."""
+        return self.artifact_url.fullmatch(text) if self.artifact_url else None
+
+    def artifact(self, link: re.Match, out: Path) -> None:
+        """Write the CI artifact a link matched by artifact_url names to out, such as a picture a lane on another machine uploaded for a Show me; a ProviderError when it does not download."""
+        raise ProviderError("this repository names no CI artifacts")
 
     def retried(self, words: list[str]) -> dict | None:
         """The build or job a run of the repository's own CI tool reruns, as `{"step": <the words naming the rerun>, "pipeline": <org/slug>, "build": <number or None>, "job": <job id or None>, "branch": <branch or None>}`, a branch meaning its pipeline's newest build there to finish; None for a command of its tool that reruns nothing, and for any other command."""

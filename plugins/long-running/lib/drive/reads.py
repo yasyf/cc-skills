@@ -1,5 +1,6 @@
 import argparse
 import contextlib
+import hashlib
 import itertools
 import json
 import os
@@ -227,9 +228,36 @@ def shown_here(text: str, shown: dict[str, str]) -> str:
 
 
 def shown_off_sprite(drive: str, jobs: list[str], text: str) -> str:
-    """The text with each picture it shows by a path that is no file here named by its copy off a Sprite, as off_sprite kept it under the first of the jobs holding one, such as the PR's builder before a handoff; a picture with no copy is left as it is."""
+    """The text with each picture it shows by a CI artifact link named by its download here, by artifacts_here, and each it shows by a path that is no file here named by its copy off a Sprite, as off_sprite kept it under the first of the jobs holding one, such as the PR's builder before a handoff; a picture with no copy is left as it is."""
+    text = artifacts_here(drive, text)
     copies = {path: [sprite_folder(drive, job_id) / path.lstrip("/") for job_id in jobs] for path in unfound(text)}
     return shown_here(text, {path: str(held[0]) for path, kept in copies.items() if (held := [copy for copy in kept if copy.is_file()])})
+
+
+def artifacts_here(drive: str, text: str) -> str:
+    """The text with each picture it shows by a link to one of the repository's CI artifacts, such as a picture a Sprite lane uploaded from its build, named by its download under the drive's pictures, fetched once through the repository's build provider; one that does not download is left as its link, which then names why."""
+    from drive import providers
+
+    links = [source for image in picture.IMAGE.finditer(text) if (source := image[1] or image[2]).startswith("https://")]
+    if not links:
+        return text
+    build = providers.of(state.load(drive)).build
+    shown = {}
+    for source in dict.fromkeys(links):
+        if not (link := build.artifact_link(source)):
+            continue
+        out = state.drive_dir(drive) / "pictures" / "artifacts" / f"{hashlib.sha256(source.encode()).hexdigest()[:16]}.png"
+        if not out.is_file():
+            out.parent.mkdir(parents=True, exist_ok=True)
+            partial = out.with_suffix(".part")
+            try:
+                build.artifact(link, partial)
+            except providers.ProviderError as error:
+                print(f"drive pictures: the CI artifact {source} did not download: {error}", file=sys.stderr)
+                continue
+            partial.replace(out)
+        shown[source] = str(out)
+    return shown_here(text, shown)
 
 
 def unfound(text: str) -> list[str]:

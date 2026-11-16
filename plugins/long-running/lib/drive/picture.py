@@ -422,7 +422,7 @@ def shot(folder: Path, name: str, kind: str, source: str, which: str) -> Path:
 
     if kind == "image" and not source.startswith(("http://", "https://")):
         if not ((local := Path(source).expanduser()).is_absolute() and local.is_file()):
-            raise DriveError(f"{which}: {source} is neither a link nor a file here")
+            raise DriveError(f"{which}: {source} is neither a link nor a file here; a picture a lane made on another machine, such as a Sprite, reaches his card only as a CI artifact: upload it as one of its build's artifacts and name that artifact's link in Show me")
         source = local.as_uri()
     try:
         return cached(folder, name, kind, source)

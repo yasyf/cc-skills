@@ -151,7 +151,7 @@ def test_a_local_image_is_copied_in_under_its_caption_and_a_missing_one_is_left_
     assert Path(copied).name == "The card after his tap"
     assert Path(copied).read_bytes() == shot.read_bytes()
     drawn, undrawn = picture.pictures(tmp_path / "pictures", f"![The card after his tap]({shot})\n![gone](/nowhere/gone.png)\n", set())
-    assert ([Path(path).name for path in drawn], undrawn) == (["The card after his tap"], ['the Show me picture "gone": /nowhere/gone.png is neither a link nor a file here'])
+    assert ([Path(path).name for path in drawn], undrawn) == (["The card after his tap"], ['the Show me picture "gone": /nowhere/gone.png is neither a link nor a file here; a picture a lane made on another machine, such as a Sprite, reaches his card only as a CI artifact: upload it as one of its build\'s artifacts and name that artifact\'s link in Show me'])
 
 
 def test_a_github_hosted_image_downloads_on_the_gh_token_a_repository_file_through_the_contents_api_and_an_attachment_from_its_signed_address(tmp_path, monkeypatch) -> None:

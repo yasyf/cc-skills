@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import signal
 import subprocess
 import threading
@@ -9,7 +10,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
-from drive import orca, reads, state
+from conftest import provide
+from drive import orca, providers, reads, state
 from drive.render import clock
 
 BUILD = "https://buildkite.com/forge/test/builds/121531"
@@ -534,3 +536,22 @@ def test_a_break_glass_told_to_stop_and_stopped_again_while_it_ends_its_command_
     assert granted.stops.signals == [signal.SIGTERM, signal.SIGTERM]
     assert ended(int(child.read_text()))
     assert capsys.readouterr().err == "break-glass stopped by SIGTERM, so its command was stopped with every process left in its group\n"
+
+
+def test_a_show_me_picture_named_by_a_ci_artifact_link_draws_from_its_download_here_fetched_once(state_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    fetched = []
+
+    class ArtifactBuild(providers.BuildProvider):
+        artifact_url = re.compile(r"https://ci\.example/artifacts/(?P<id>\w+)")
+
+        def artifact(self, link: re.Match, out: Path) -> None:
+            fetched.append(link["id"])
+            out.write_bytes(b"png " + link["id"].encode())
+
+    provide(monkeypatch, tmp_path, build=ArtifactBuild)
+    monkeypatch.setattr(state, "load", lambda name: {})
+    text = "![After](https://ci.example/artifacts/a1)\n![Before](https://example.com/b.png)\n"
+    shown = reads.shown_off_sprite("demo", ["j7"], text)
+    [kept] = (state.drive_dir("demo") / "pictures" / "artifacts").glob("*.png")
+    assert (shown, kept.read_bytes()) == (f"![After]({kept})\n![Before](https://example.com/b.png)\n", b"png a1")
+    assert (reads.shown_off_sprite("demo", ["j7"], text), fetched) == (shown, ["a1"])
