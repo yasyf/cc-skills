@@ -4793,8 +4793,9 @@ def test_a_testers_staging_waiting_report_keeps_its_slot_claim_and_a_queued_stag
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "test it")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "cut it")
     run("job", "add", "builder", "--order", "o1", "--goal", "test it")
-    run("job", "add", "builder", "--order", "o1", "--goal", "cut it")
+    run("job", "add", "builder", "--order", "o2", "--goal", "cut it")
     env = work.env(state.load(demo))
     with state.edit(demo) as data:
         data["jobs"]["j1"]["state"] = data["jobs"]["j2"]["state"] = "running"
