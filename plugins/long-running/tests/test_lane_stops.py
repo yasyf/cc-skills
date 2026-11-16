@@ -48,13 +48,14 @@ def failed(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], 
 
 
 def test_the_watchs_own_live_line_of_a_proved_order_posts_through_report_line_from_no_session_and_closes_its_order_on_its_report(
-    communicator: str, run, started: list[list[str]], slack_thread: Thread, monkeypatch: pytest.MonkeyPatch
+    communicator: str, run, started: list[list[str]], slack_thread: Thread, cci_records: dict[str, dict], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run("order", "add", "--title", "Copy fix", "--project", "The drive", "--workstream", "Copies", "fix the copy", "--from", f"https://acme.slack.com/archives/D123/p{THREAD.replace('.', '')}")
     kept = {"id": "install-proved-j1", "kind": "report", "to": ["communicator@demo"], "topic": "install-proved-o1", "attr": {"close": "o1", "thread": THREAD}, "text": "POST Copy fix is live in long-running 1.0.3", "body": "Fixed: Copy fix\n"}
     with state.edit("demo") as data:
         data["orders"]["o1"] |= {"close_report": kept | {"seq": "700002"}, "closed_on": "700002"}
     report = {"seq": 700002, "kind": "report", "lane": "watch", "at": state.stamp(), "text": kept["text"], "refs": {}, "fields": {"attrs": {"close": "o1", "thread": THREAD}}}
+    cci_records["700002"] = report
     monkeypatch.setattr(reads, "run", lambda argv, checkout, env=None: started.append(argv) or (json.dumps(report) if argv[1] == "show" else ""))
     live = slack_thread.post(state.now(), from_claude=True)
     monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": live, "thread_ts": THREAD})
