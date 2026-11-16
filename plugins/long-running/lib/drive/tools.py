@@ -452,7 +452,7 @@ def batch(name: str, group: str, ops: list[dict], dry_run: bool) -> str:
             return "\n".join(performed(name, group, ops, False))
         kept: list[str] = []
         with state.batch(name) as after:
-            state.after_save(name, lambda: print("\n".join([KEPT, *kept]), file=sys.stderr, flush=True) or [])
+            state.after(lambda: print("\n".join([KEPT, *kept]), file=sys.stderr, flush=True) or [])
             kept += performed(name, group, ops, False)
         return "\n".join([*kept, *after])
 
@@ -650,7 +650,7 @@ def record(name: str, records: list[dict], dry_run: bool) -> str:
         hearing = [state.hold_addressed(kept, made, lane, seq, role) for made, seq in zip(posts, seqs, strict=True)]
         return hearing
 
-    hearing = state.update(name, None, record_write)
+    hearing = state.write(name, record_write)
     said += went
     said += [f"{index} held on {', '.join(jobs)} for its running worker or codex run, as drive job resume holds a text" for index, jobs in enumerate(hearing, start=1) if jobs]
     ended = stamped(name, posts, seqs)
@@ -693,7 +693,7 @@ def keep_rulings(name: str, posts: list[dict], found: dict) -> list[str]:
         def kept_ruling(data: dict) -> tuple[dict, dict]:
             return superseded.record(data, ruling, words, made["url"], asked, bound, state.stamp(), made["attr"].get("about") == state.ABOUT_DRIVE), data
 
-        kept, data = state.update(name, None, kept_ruling)
+        kept, data = state.write(name, kept_ruling)
         said.append(superseded.listing(ruling, kept, superseded.unmarked(kept, asked), asked, data) or f"his ruling {ruling} kept as a drive answer: nothing it could change asks him or waits on it")
     return said
 
@@ -825,7 +825,7 @@ def keep_closed(name: str, posts: list[dict], closes: list[list[tuple[str, dict]
             for job_id, older, question in deciding:
                 if (kept := state.question_in(data["jobs"][job_id], older))["closed"] is None:
                     superseded.end(data, job_id, kept, superseded.superseded_by(closed, question))
-    state.update(name, None, closed)
+    state.write(name, closed)
 
 
 def stamped(name: str, posts: list[dict], seqs: list[str]) -> list[tuple[int, str, dict]]:
@@ -840,7 +840,7 @@ def stamped(name: str, posts: list[dict], seqs: list[str]) -> list[tuple[int, st
                         ended.append((index, job_id, question))
         return ended
 
-    return state.update(name, None, named)
+    return state.write(name, named)
 
 
 def handed(name: str, lane: str, posts: list[dict], seqs: list[str]) -> None:
@@ -855,7 +855,7 @@ def handed(name: str, lane: str, posts: list[dict], seqs: list[str]) -> None:
                 data["orders"][order_id]["handoffs"].append({"seq": seq, "text": made["text"], "at": state.stamp(), "jobs": list(filter(None, [state.named_job(data, attrs)]))})
         state.answer_handoffs(data, answers)
 
-    state.update(name, None, handed_write)
+    state.write(name, handed_write)
 
 
 def ended_by(closed: dict, made: dict, seq: str | None = None) -> bool:
@@ -880,7 +880,7 @@ def keep_undelivered(name: str, posts: list[dict], seqs: list[str], closes: list
                 else:
                     state.hold_text(data["jobs"][job_id], verbatim(made, questions, found), state.HIM, seq=seq)
 
-    state.update(name, None, keep_undelivered_write)
+    state.write(name, keep_undelivered_write)
 
 
 def hearers(data: dict, asking: list[str], cards: set[str], since: str | None) -> list[str]:
