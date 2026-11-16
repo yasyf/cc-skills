@@ -382,6 +382,33 @@ def test_migrate_records_each_job_an_older_install_left_running_or_waiting_with_
     assert state.load("demo")["jobs"]["j1"]["state"] == "running"
 
 
+def test_migrate_reopens_once_the_question_jev_folded_into_another_prs_hotfix_question_his_answer_taken_off_its_job_and_recorded_under_the_question_he_answered(
+    state_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    make("demo")
+    monkeypatch.setattr(state, "JEV_FOLD", ("demo", "j1", "j1-ec812baf.md"))
+    retitled: list[tuple[str, str, str]] = []
+    monkeypatch.setattr(settled, "retitled", lambda answer, title, cwd: retitled.append((answer["id"], title, cwd)) or title)
+    link = "https://acme.slack.com/archives/D123/p1794739468345719"
+    noted = f"0a3bed1{'0' * 33}"
+    answered = "Should the hotfix of this fix alone start now?"
+    with state.edit("demo") as data:
+        data["jobs"] |= {job_id: state.new_job("o1", "builder", "ship it", [], state.stamp()) for job_id in ("j1", "j2")}
+        for job_id, file, title, replaced in (("j1", "/asks/j1-ec812baf.md", "Will you grant one exception to your release hold?", "/asks/j2-fc6d3e9d.md"), ("j2", "/asks/j2-fc6d3e9d.md", answered, None)):
+            closed = state.new_close("answered", "Start it", link, seq="721471", noted=noted)
+            data["jobs"][job_id]["questions"] = [state.new_question(file, title, state.stamp(), card=link) | {"waits": "demo:j1-1", "replaced": replaced, "closed": closed}]
+        data["jobs"]["j1"]["undelivered"] = [state.kept_text("His answer on card", state.HIM, seq="721471"), state.kept_text("Ship it", state.HIM, seq="721470")]
+    for _ in range(2):
+        state.migrate("demo")
+        jobs = state.load("demo")["jobs"]
+        assert [(question["closed"] and question["closed"]["how"], question["replaced"], question["card"], question["waits"]) for job_id in ("j1", "j2") for question in jobs[job_id]["questions"]] == [
+            (None, None, None, "demo:j1-7"),
+            ("answered", None, link, "demo:j1-1"),
+        ]
+        assert [kept["seq"] for kept in jobs["j1"]["undelivered"]] == ["721470"]
+        assert retitled == [(noted, answered, "/work")]
+
+
 def test_migrations_run_at_once_take_turns_so_only_the_first_makes_the_change(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     make("demo")
     (state.drive_dir("demo") / state.APPROVALS_LABELLED).unlink()

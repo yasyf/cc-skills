@@ -1006,6 +1006,12 @@ def test_his_tap_is_recorded_in_cc_notes_once_under_its_cards_question_its_id_ke
     assert [record["attr"]["noted"] for [record] in posted] == [answer_id] * 2
 
 
+def test_j6887_his_answer_on_a_card_one_question_replaced_another_on_is_recorded_under_the_question_that_replaced_it() -> None:
+    older = state.new_question("older.md", "Will you grant one exception to your release hold?", state.stamp(), card=NEWER_CARD) | {"waits": "demo:j1-7", "replaced": "newer.md"}
+    newer = state.new_question("newer.md", "Should the hotfix of this fix alone start now?", state.stamp(), card=NEWER_CARD) | {"waits": "demo:j1-7"}
+    assert card.card_question([("j1", older), ("j2", newer)], "demo:j1-7") is newer
+
+
 def test_his_undo_is_recorded_in_cc_notes_once_under_its_cards_question_as_never_given_and_his_next_tap_records_his_answer_again(
     drive: str, monkeypatch: pytest.MonkeyPatch, noted: list[tuple[str, str, str]]
 ) -> None:
