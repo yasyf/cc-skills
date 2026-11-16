@@ -5483,7 +5483,7 @@ def handler(args: argparse.Namespace) -> int:
         )
     if re.search(rf"^{re.escape(agents.HIS_WORDS)}:", args.brief, re.MULTILINE):
         watch.hear(name, state.now(), args.away)
-        if (link := agents.LINK.search(args.brief)) and (answered := answer_first(name, link[1], agents.his_words(args.brief)))["answered"]:
+        if (link := agents.LINK.search(args.brief)) and (answered := answer_from_rows(name, link[1], agents.his_words(args.brief)))["answered"]:
             return emit(args, f"ANSWERED {answered['answered']}: the drive answered his message from its rows, so no handler started", answered)
     briefs = briefing(name, args.brief, args.answer) is not None
     owed = bool((named := agents.RECORD.search(args.brief)) and agents.posting(name, agents.shown(named[1])))
@@ -5493,7 +5493,7 @@ def handler(args: argparse.Namespace) -> int:
     return emit(args, f"started {handler_id}", {"handler": handler_id})
 
 
-def answer_first(name: str, link: str, words: str) -> dict:
+def answer_from_rows(name: str, link: str, words: str) -> dict:
     """The drive's own answer of his message from its rows, by answer.answer, or why it posted none, a refused post or failed Slack call included, so a handler takes the message."""
     from drive import answer
 
