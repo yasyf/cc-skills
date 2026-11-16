@@ -47,7 +47,6 @@ GONE = {
     "peer_changed": "Orca no longer pairs with its Sprite's server",
 }
 FINISHED = ("succeeded", "failed", "stopped", "abandoned")
-START_TIMEOUT_MS = "600000"
 BRIEF_HEADING = "\n# Brief\n\n"
 TAKING_OVER = "## Taking over from "
 TRANSCRIPTS_FIELD = re.compile(r"^Transcripts:\n(?:- .*(?:\n|$))+", re.MULTILINE)
@@ -301,10 +300,10 @@ def send_command(terminal: str, text: str, request_id: str) -> None:
         raise OrcaError(f"orca terminal send: refused: {sent.get('refusedReason')}", "refused")
 
 
-def type_prompt(terminal: str, text: str) -> None:
-    """Type a one-line prompt into a Claude Code session's terminal and submit it as two writes, the text and then Enter, which Orca takes whatever it reads of the pane, since it refuses one write of both as agent_prompt_blocked on a pane it reads as showing a permission prompt, as it reads a lane's API error; a drive lane runs with every permission granted and no question tool, so no prompt shows that the Enter could answer."""
-    request("terminal", "send", "--terminal", terminal, "--text", text)
-    request("terminal", "send", "--terminal", terminal, "--enter")
+def type_prompt(terminal: str, text: str, *served: str) -> None:
+    """Type a one-line prompt into a Claude Code session's terminal, through the Orca that served names when that terminal is on a Sprite, and submit it as two writes, the text and then Enter, which Orca takes whatever it reads of the pane, since it refuses one write of both as agent_prompt_blocked on a pane it reads as showing a permission prompt, as it reads a lane's API error; a drive lane runs with every permission granted and no question tool, so no prompt shows that the Enter could answer."""
+    request("terminal", "send", *served, "--terminal", terminal, "--text", text)
+    request("terminal", "send", *served, "--terminal", terminal, "--enter")
 
 
 def terminal(handle: str) -> dict:
@@ -551,7 +550,7 @@ def handoff(brief: str, ended: dict, saved: list[str], job: dict, report: str, t
     how = "finished" if end.worktree or end.live else "ended" if end.ended else "died"
     mac = f"in the worktree that holds its PR branch {ON_MAC}" if holder else f"in a fresh worktree {ON_MAC}"
     if end.worktree and not here:
-        where = f"You continue the job in its terminal and checkout {ON_MAC}, as it left them." if local else "You continue the job on the same Sprite, in the checkout it left as it was."
+        where = f"You continue the job in its worktree {ON_MAC}, as it left it." if local else "You continue the job on the same Sprite, in the checkout it left as it was."
     elif since:
         where = f"You continue the job on the same Sprite, in the checkout it left as it was, since {since}. Read its git status and log before anything else."
     elif holder and not here:
@@ -813,9 +812,13 @@ def mail(after: int | None) -> list[dict]:
 
 def mailbox(job: dict, dispatch: str) -> list[dict]:
     """The mail in one Dispatch mailbox of the job, read or not, oldest first, from the Orca that keeps it: this Mac's for a lane here, and for a lane on a Sprite that Sprite's own, by the job's environment, since this Mac's Orca only relays a Sprite lane's mail and keeps none of it; read without binding or consuming as mail reads every Run's. A message keeps its read flag there once its worker reads it, and Orca moves a reported worker's unread mail to the mailbox of the follow-up it starts to carry it."""
-    environment = [] if state.on_mac(job) else ["--environment", job["environment"]]
-    messages = call("inbox", *environment, "--terminal", f"dispatch:{dispatch}", "--limit", str(MAIL_LIMIT))["messages"]
+    messages = call("inbox", *served_by(job), "--terminal", f"dispatch:{dispatch}", "--limit", str(MAIL_LIMIT))["messages"]
     return sorted((message for message in messages if message["to_handle"] == f"dispatch:{dispatch}"), key=lambda message: message["sequence"])
+
+
+def served_by(job: dict) -> list[str]:
+    """The flags that address the Orca keeping the job's lane: none for this Mac's, and the job's environment for a lane on a Sprite, whose Orca alone keeps its mailbox and terminal."""
+    return [] if state.on_mac(job) else ["--environment", job["environment"]]
 
 
 def unread_notice(message: dict) -> bool:
@@ -1012,44 +1015,6 @@ def typed(job: dict, shown: dict) -> str | None:
     if not state.on_mac(job) or shown["worker"]["state"] in FINISHED or not reachable:
         return None
     return shown["worker"]["agentTerminalHandle"]
-
-
-def start_after(drive: str, lane: str, brief: Path, end: LaneEnd) -> dict:
-    """Start the job's next worker on this Mac in the terminal and worktree of the one that finished, on its Run, with a Task spec that names the brief where the worker reads it: the start Orca names for a finished worker. Orca keeps every Task spec until its database is pruned, and a brief runs to hundreds of kilobytes, so the spec carries only where the brief is, as the launcher's does."""
-    spec = f"Lane '{lane}'. Your full brief is the file {brief}: read it in full with the Read tool before anything else and execute it exactly."
-    argv = [
-        "orca",
-        "orchestration",
-        "worker-start",
-        "--run",
-        end.run,
-        "--worktree",
-        end.worktree,
-        "--terminal",
-        end.terminal,
-        "--task-title",
-        lane,
-        "--spec",
-        spec,
-        "--timeout-ms",
-        START_TIMEOUT_MS,
-        "--full",
-        "--json",
-    ]
-    receipt = result_of("orchestration worker-start", bound_command(drive, end.run, argv))
-    if receipt["state"] != "ready":
-        raise OrcaError(f"orca orchestration worker-start: its worker came back {receipt['state']}, not ready: {json.dumps(receipt)}")
-    return {
-        "run": end.run,
-        "terminal": end.terminal,
-        "workspace": None,
-        "environment": None,
-        "dispatch": receipt["dispatchId"],
-        "task": receipt["taskId"],
-        "lane": lane,
-        "worktree": worktree_path(end.worktree),
-        "sprite_config": None,
-    }
 
 
 def place_tools(workspace: str) -> None:
@@ -1375,7 +1340,7 @@ def answer(drive: str, job: dict, kept: dict) -> tuple[str, str | None]:
 
 
 def send(drive: str, job: dict, subject: str, text: str, request: str | None = None) -> str:
-    """Send the text to the lane's Dispatch as a message, as the drive's own terminal, which neither answers nor clears a question it asked; what came of it: queued in that Dispatch's mailbox, where its live worker reads it at its next check, and carried by the job's next worker when this one ends with it unread, which the watch's read of an ended worker's mail holds it for."""
+    """Send the text to the lane's Dispatch as a message, as the drive's own terminal, which neither answers nor clears a question it asked; what came of it: queued in that Dispatch's mailbox, where its live worker reads it at its next check, the next turn of a worker whose turn is over started by woke, and carried by the job's next worker when this one ends with it unread, which the watch's read of an ended worker's mail holds it for."""
     speak_as_drive(drive)
     call("send", "--to", f"dispatch:{job['dispatch']}", "--run", job["run"], "--subject", subject, "--body", text, *retried(request))
     queued = woke(job, f"queued in dispatch {job['dispatch']} for its live worker, read at its next check")
@@ -1383,11 +1348,21 @@ def send(drive: str, job: dict, subject: str, text: str, request: str | None = N
 
 
 def woke(job: dict, how: str) -> str:
-    """How a message reached the lane, once a lane on this Mac that Orca cannot tell is live has had MAIL typed into its terminal, since Orca may hold a message for such a worker without delivering it."""
-    if not state.on_mac(job) or (shown := worker(job["dispatch"]))["projection"]["liveness"]["verdict"] == "live" or not (terminal := typed(job, shown)):
+    """How a message reached the lane, once MAIL is typed into its worker's terminal by wake_turn when that worker's turn is over, or when Orca cannot tell a lane on this Mac is live, since Orca hands a worker its mail only inside a turn, a worker whose turn ended starts none on its own, and Orca may hold a message for a lane on this Mac it cannot tell is live without delivering it."""
+    if job["turn_open"] and not state.on_mac(job):
         return how
-    type_prompt(terminal, MAIL)
+    shown = worker(job["dispatch"])
+    if job["turn_open"] and shown["projection"]["liveness"]["verdict"] == "live" or not (terminal := wake_turn(job, shown)):
+        return how
     return f"{how}, and typed into its terminal {terminal} that it has mail"
+
+
+def wake_turn(job: dict, shown: dict) -> str | None:
+    """Start the next turn of the job's unfinished worker by typing MAIL into its terminal, by typed on this Mac and on a Sprite through that Sprite's Orca, so it reads the mail its Dispatch holds; the terminal typed into, or None when its worker has none to type into."""
+    terminal = typed(job, shown) if state.on_mac(job) else None if shown["worker"]["state"] in FINISHED else shown["worker"]["agentTerminalHandle"]
+    if terminal:
+        type_prompt(terminal, MAIL, *served_by(job))
+    return terminal
 
 
 def takes_messages(job: dict, worker: dict) -> bool:

@@ -1907,6 +1907,8 @@ def event_line(event: dict, data: dict) -> str:
         return f"{LANDER}{event['change']}"
     if event["kind"] == state.RETURNED:
         return f"JOB {event['job']} {event['order']} {event['line']}"
+    if event["kind"] == state.TEXT_WENT:
+        return f'ANSWER went {event["job"]}: "{cut(event["words"], 80)}", held at {when(event["held"])}, went {event["how"]} at {when(event["at"])} [{event["order"]} {event["job"]}]'
     if event["kind"] == "proof" and "job" in event:
         return f"JOB {event['job']} {event['order']}: {event['change']}"
     if event["kind"] in ("landing", "check", "proof"):
@@ -2582,14 +2584,16 @@ def undelivered_lines(watcher: Watcher, moment: datetime) -> list[str]:
         for job_id, answer in owed_answers(watcher, data, moment):
             answer["said"] = state.stamp(moment)
             job = data["jobs"][job_id]
-            lines.append(f'ANSWER undelivered {job_id}: {unreached(job_id, job, data, answer, locked.get(job_id))} [{job["order"]} {job_id}]')
+            lines.append(f'ANSWER undelivered {job_id}: {unreached(job_id, job, data, answer, locked.get(job_id), moment)} [{job["order"]} {job_id}]')
     return lines
 
 
-def unreached(job_id: str, job: dict, data: dict, answer: dict, locked: str | None) -> str:
-    """A text the job holds that has not reached it, what the watch does with such texts, and the delivery that reaches the job now: for a lane on Orca, drive job resume with no text, which sends it what it holds, or, while orca.locked_out names why that resume is refused, the local launch orca.moved_here names; for an agent on this Mac, the same resume, which posts each text the job holds whole to the agent and prints the SendMessage pointing it at each while its starter reaches it, else hands each to the job's next worker in its handoff, so the line's cut quote is never the text anyone sends; else, a builder that returned, which superseded.fresh_builder sends a fresh builder, among them, the step superseded.delivery names from the session holding the job."""
+def unreached(job_id: str, job: dict, data: dict, answer: dict, locked: str | None, moment: datetime) -> str:
+    """A text the job holds that has not reached it, by the time its words name once that passed, what the watch does with such texts, and the delivery that reaches the job now: for a lane on Orca, drive job resume with no text, which sends it what it holds, or, while orca.locked_out names why that resume is refused, the local launch orca.moved_here names; for an agent on this Mac, the same resume, which posts each text the job holds whole to the agent and prints the SendMessage pointing it at each while its starter reaches it, else hands each to the job's next worker in its handoff, so the line's cut quote is never the text anyone sends; else, a builder that returned, which superseded.fresh_builder sends a fresh builder, among them, the step superseded.delivery names from the session holding the job."""
+    named = named_time(answer)
+    by = f" by {when(state.stamp(named))}, the time it names" if named and named <= moment else ""
     held = (
-        f'"{cut(answer["words"], 80)}", held at {when(answer["at"])}, has not reached {job_id}; the watch sends it to a worker that takes messages,'
+        f'"{cut(answer["words"], 80)}", held at {when(answer["at"])}, has not reached {job_id}{by}; the watch sends it to a worker that takes messages,'
         " hands it to the next worker of one that returned and launches a builder never started with it"
     )
     if locked:
@@ -2600,14 +2604,20 @@ def unreached(job_id: str, job: dict, data: dict, answer: dict, locked: str | No
 
 
 def owed_answers(watcher: Watcher, data: dict, moment: datetime) -> list[tuple[str, dict]]:
-    """Each text a live job an agent or lane started holds that was last said ten minutes ago or more, while none of its waits holds; a job none started gets its texts from the launch that starts it, which carries them, one whose waits hold gets them from the watch once they end, and a finished job's is its ORPHAN's, since no resume carries it."""
+    """Each text a live job an agent or lane started holds that was last said ten minutes ago or more, or whose words name a time, by named_time, that passed since it was last said, while none of its waits holds; a job none started gets its texts from the launch that starts it, which carries them, one whose waits hold gets them from the watch once they end, and a finished job's is its ORPHAN's, since no resume carries it."""
     return [
         (job_id, answer)
         for job_id, job in data["jobs"].items()
         if job["state"] not in state.FINISHED_JOB_STATES and (job.get("agent") or job.get("dispatch")) and heard_job(watcher, data, job) and not view.holding(data, job["waits"], watcher.cards)
         for answer in job["undelivered"]
-        if moment - state.parse_time(answer["said"] or answer["at"]) >= DUE_EVERY
+        if moment - (said := state.parse_time(answer["said"] or answer["at"])) >= DUE_EVERY or (named := named_time(answer)) and said < named <= moment
     ]
+
+
+def named_time(answer: dict) -> datetime | None:
+    """The first time after a held text was held that its words name, such as 9:00 AM in "start by 9:00 AM", read as limits.typed_moment reads a clock time for the moment it was held; None for a text naming none."""
+    held = state.parse_time(answer["at"])
+    return min((moment for found in limits.CLOCK_TIME.finditer(answer["words"]) if (moment := limits.typed_moment(answer["words"], found, held)) > held), default=None)
 
 
 def hear_sent(name: str, job_ids: set[str]) -> dict:
@@ -3115,9 +3125,9 @@ def launching(job: dict, moment: datetime) -> bool:
 
 
 def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Each running job's gap from its agent or lane, with each PR it has open, a remote lane, running or waiting, whose worker died, and a running job's lane Orca could not reach, which wake hands to drive job resume at the first failed read and again each REWAKE, its failed reads neither counted nor said while busy reads another drive verb acting on the job, as the wake an earlier watch started does, and a running lane on this Mac whose last response ended on an API error, which resume_lane resumes through its terminal, while a job whose agent or lane on this Mac a model's safeguards stopped goes to safeguard_lines; a lane recorded by its dispatch alone gets its Run, Task and terminal from the worker-show read for its liveness, and a lane filed on this Mac whose worker-show names a Sprite is filed on that Sprite; a live lane whose job keeps texts queued has them settled by its mailbox each pass, by state.take_mail, and a remote lane whose worker finished or exited has the mail it never read held on its job once for its dispatch by unread_lines, before death_lines relaunches a running job's lane. A local agent that ended its turn on a message opening with a result word its job never took has that message taken by cli.take_report, as `drive job report` takes a return, once for each such message, a refusal its gap naming the transcript it ends; a codex job whose codex-ask run ended, or that has none going and none left to take, by Gone, has no gap here, since the relay takes it, by codex_takes, while one whose run codex-ask cannot read counts lost, as a lane Orca cannot read does."""
+    """Each running job's gap from its agent or lane, with each PR it has open, a remote lane, running or waiting, whose worker died, and a running job's lane Orca could not reach, which wake hands to drive job resume at the first failed read and again each REWAKE, its failed reads neither counted nor said while busy reads another drive verb acting on the job, as the wake an earlier watch started does, and a running lane on this Mac whose last response ended on an API error, which resume_lane resumes through its terminal, while a job whose agent or lane on this Mac a model's safeguards stopped goes to safeguard_lines; a lane recorded by its dispatch alone gets its Run, Task and terminal from the worker-show read for its liveness, and a lane filed on this Mac whose worker-show names a Sprite is filed on that Sprite; a live lane whose job keeps texts queued has them settled by its mailbox each pass, by state.take_mail, its worker's next turn started by orca.wake_turn when that read leaves a text unread and its turn is over, and a remote lane whose worker finished or exited has the mail it never read held on its job once for its dispatch by unread_lines, before death_lines relaunches a running job's lane. A local agent that ended its turn on a message opening with a result word its job never took has that message taken by cli.take_report, as `drive job report` takes a return, once for each such message, a refusal its gap naming the transcript it ends; a codex job whose codex-ask run ended, or that has none going and none left to take, by Gone, has no gap here, since the relay takes it, by codex_takes, while one whose run codex-ask cannot read counts lost, as a lane Orca cannot read does."""
     data = state.load(watcher.name)
-    gaps, deaths, refusals, heads, found, finished, boxes, lost, lines = {}, {}, {}, {}, {}, {}, {}, {}, []
+    gaps, deaths, refusals, heads, found, finished, boxes, lost, idle, lines = {}, {}, {}, {}, {}, {}, {}, {}, {}, []
     read: set[str] = set()
     for order_id, order in heard_orders(watcher, data).items():
         for job_id in order["jobs"]:
@@ -3197,7 +3207,7 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 finished[job_id] = job | lane
             elif job["queued"]:
                 try:
-                    boxes[job_id] = (job["dispatch"], orca.mailbox(job, job["dispatch"]))
+                    boxes[job_id] = (job["dispatch"], orca.mailbox(job, job["dispatch"]), (job | lane, worker))
                 except orca.OrcaError as error:
                     lines += read_failed(watcher, f"mail of {job_id}", error, moment)
                 else:
@@ -3219,10 +3229,15 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
         with state.edit(watcher.name) as data:
             for job_id, lane in found.items():
                 data["jobs"][job_id].update(lane)
-            for job_id, (dispatch, box) in boxes.items():
-                if data["jobs"][job_id]["dispatch"] == dispatch:
-                    state.take_mail(data["jobs"][job_id], box, False)
+            for job_id, (dispatch, box, shown) in boxes.items():
+                if (job := data["jobs"][job_id])["dispatch"] == dispatch:
+                    unread = len(job["queued"])
+                    state.take_mail(job, box, False)
+                    job["turn_open"] = job["turn_open"] or len(job["queued"]) < unread
+                    if job["queued"] and not job["turn_open"]:
+                        idle[job_id] = shown
     lines += unread_lines(watcher, finished, {job_id for job_id, job in finished.items() if job_id in deaths and job["state"] == "running"}, moment)
+    lines += wake_lines(watcher, idle, moment)
     watcher.made += lines
     gapped = {job_id: gap for job_id, gap in gaps.items() if gap}
     unlisted, failed = untracked_prs(watcher, data, {job_id: heads[job_id] for job_id in gapped if job_id in heads}, moment)
@@ -3274,6 +3289,25 @@ def unread_lines(watcher: Watcher, finished: dict[str, dict], relaunched: set[st
         if job_id not in relaunched:
             send_held(watcher, job_id, moment)
         lines.append(f"JOB {job_id} {lane['order']} {render.unread(held)}; {carried}")
+    return lines
+
+
+def wake_lines(watcher: Watcher, idle: dict[str, tuple[dict, dict]], moment: datetime) -> list[str]:
+    """Start the next turn of each worker whose turn is over while its mailbox read left a text queued for it unread, by orca.wake_turn typing into its terminal that it has mail, since a worker reads its mail only inside a turn and starts none on its own, so no text waits past one pass and no end takes a lane mid-turn; one that takes no messages, or that busy reads another drive verb acting on, waits for a later pass, and a type Orca refuses is tried again next pass. The lane is the job as the watch read it with that worker."""
+    lines = []
+    for job_id, (lane, shown) in idle.items():
+        if not orca.takes_messages(lane, shown) or busy(watcher, job_id, moment):
+            continue
+        source = f"wake of {job_id}"
+        try:
+            woken = orca.wake_turn(lane, shown)
+        except orca.OrcaError as error:
+            lines += read_failed(watcher, source, error, moment)
+            continue
+        watcher.failures.pop(source, None)
+        if woken:
+            with state.edit(watcher.name) as data:
+                data["jobs"][job_id]["turn_open"] = True
     return lines
 
 
@@ -3610,9 +3644,9 @@ def in_flight(started: dict | None, moment: datetime) -> bool:
 
 
 def unended(job: dict, moment: datetime) -> bool:
-    """Whether the job's own lane on a Sprite cc-remote still records is due its `drive job end`: the job is not running, its worker's turn is over, by a worker_done or escalation from that worker or its death, and no end ended that lane nor is in_flight on it; a done, failed or stopped job whose worker's turn is still open is due once HANDOFF has passed since the line that stopped it, or at once when it was stopped with none, so the lane finishes its last turn. So a waiting or built job whose worker still waits inside its own question, his ASK's included, which Orca keeps that worker's turn open for, or on a read it asked after its line, keeps its Sprite, and the answer `drive job resume` or its reader sends reaches that worker in its own session."""
+    """Whether the job's own lane on a Sprite cc-remote still records is due its `drive job end`: the job is not running, its worker's turn is over, by a worker_done or escalation from that worker or its death, with no text queued for it unread, whose read reopens its turn and whose wait starts the next by wake_lines, and no end ended that lane nor is in_flight on it; a done, failed or stopped job whose worker's turn is still open is due once HANDOFF has passed since the line that stopped it, or at once when it was stopped with none, so the lane finishes its last turn. So a waiting or built job whose worker still waits inside its own question, his ASK's included, which Orca keeps that worker's turn open for, or on a read it asked after its line, keeps its Sprite, and the answer `drive job resume` or its reader sends reaches that worker in its own session."""
     settled = not job["returned"] or moment - state.parse_time(job["returned"]) >= HANDOFF
-    turn_over = not job["turn_open"] or bool(state.lane_death(job)) or job["state"] in state.FINISHED_JOB_STATES and settled
+    turn_over = not (job["turn_open"] or job["queued"]) or bool(state.lane_death(job)) or job["state"] in state.FINISHED_JOB_STATES and settled
     return job["state"] != "running" and turn_over and not state.lane_ended(job) and not in_flight(job.get("end"), moment) and orca.holds_sprite(job)
 
 
@@ -3742,7 +3776,7 @@ def unanswered(name: str, job_id: str, job: dict, data: dict, moment: datetime) 
         return None
     question = f'"{cut(job["said"] or "", 80)}" {minutes(moment - asked)} minutes ago'
     if answers := [answer for answer in job["undelivered"] if state.parse_time(answer["at"]) >= asked]:
-        return f"{unreached(job_id, job, data, answers[-1], orca.locked_out(name, job_id, job))}, answering its lane's question {question}"
+        return f"{unreached(job_id, job, data, answers[-1], orca.locked_out(name, job_id, job), moment)}, answering its lane's question {question}"
     if reads.asks(job["report"] or "") and not state.asked_in(job, reads.opening(job["report"])):
         return f"{job_id}'s lane asked {question}, an ASK only his card answers: {UNKEPT_ASK.format(job=job_id)}"
     return f'{job_id}\'s lane asked {question} and nothing answered it: drive job resume {job_id} "<the answer>" answers it'
