@@ -93,7 +93,7 @@ REPORTED_LINE = re.compile(r"(?:READY|PUSHED)\b")
 REPRO = re.compile(r"^REPRO:[ \t]*(?P<path>\S+?)(?=[,;:.]?(?:\s|$))", re.MULTILINE)
 REPORT_CHANGE = re.compile(r"^CHANGE:[ \t]*(?P<change>.+?)[ \t]*$", re.MULTILINE)
 SUMMARY_LINE = re.compile(r"^SUMMARY:[ \t]*(?P<first>.*)$", re.MULTILINE)
-REPORT_LINE = re.compile(r"^[A-Z][A-Z ]*:|^(?:READY|PUSHED|DONE|BUILT|WAITING|BLOCKED|ASK|DESIGN)\b")
+REPORT_LINE = re.compile(r"^(?:[A-Z][A-Z ]*|Mac):|^(?:READY|PUSHED|DONE|BUILT|WAITING|BLOCKED|ASK|DESIGN|FIX)\b")
 SUMMARY_LINES = 15
 LISTED_CHANGE = r"[ \t]*(?P<change>.+?)(?:[ \t]*\(waits on (?P<waits>[^()]*)\))?[ \t]*$"
 CHANGE_LINE = re.compile(rf"^Change:{LISTED_CHANGE}", re.MULTILINE)

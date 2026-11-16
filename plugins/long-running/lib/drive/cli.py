@@ -1159,7 +1159,7 @@ def order_pilot(args: argparse.Namespace) -> int:
     known = {order["project"] for order in state.load(name)["orders"].values()}
     if args.project and args.project not in known:
         raise DriveError(f"{args.project!r} names no project an order is filed under; drive order unfiled lists the ones in use")
-    since = state.now()
+    since = state.now().replace(microsecond=0) + timedelta(seconds=1)
     pilot = {"project": args.project, "since": state.stamp(since), "until": state.stamp(since + timedelta(days=args.days))} if args.project else None
     with state.edit(name) as data:
         data["reader_pilot"] = pilot
@@ -3399,14 +3399,15 @@ def release_rule() -> str:
 
 def earlier_parts(name: str, data: dict, job_id: str) -> list[str]:
     """The SUMMARY: block of the newest return carrying one of each other builder on the job's order, headed by that builder and its parts, so the next part's builder starts from what the earlier ones touched, decided and left open instead of reading their work again."""
-    order = data["orders"][data["jobs"][job_id]["order"]]
+    order_id = data["jobs"][job_id]["order"]
+    order = data["orders"][order_id]
     found = []
     for other in order["jobs"]:
         held = data["jobs"][other]
         if other == job_id or held["kind"] != "builder":
             continue
         if lines := next((kept for reply in state.returns(name, other) if (kept := state.summary(reply["body"]))), []):
-            found.append(f"{other} on {', '.join(map(repr, held['parts']))}:" + "".join(f"\n  {line}" for line in lines))
+            found.append(f"{other} on {', '.join(map(repr, state.job_parts(held, order_id)))}:" + "".join(f"\n  {line}" for line in lines))
     return found
 
 

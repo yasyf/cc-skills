@@ -5489,6 +5489,8 @@ def test_a_reader_pilot_orders_builder_starts_with_no_research_while_a_complex_d
     assert cli.main(["order", "pilot", "Nowhere"]) == 2
     assert "'Nowhere' names no project an order is filed under" in capsys.readouterr().err
     assert run("order", "pilot", "The drive", "--days", "1")[1].startswith("reader pilot on The drive from ")
+    with state.edit("demo") as data:
+        data["reader_pilot"]["since"] = state.stamp(state.now() - timedelta(minutes=1))
     run("order", "add", *drive, "copy two stores")
     run("order", "add", *drive, "copy three stores", "--complex")
     run("order", "add", *iris, "copy two chats")
