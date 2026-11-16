@@ -669,15 +669,15 @@ def none_only(words: str) -> bool:
     return words.strip().casefold().rstrip(".") == "none"
 
 
-def line_answers(lines: list[str], data: dict, besides: frozenset[str] = frozenset()) -> list[tuple[str, list[dict]]]:
-    """Each line beside the first LINE_CANDIDATES of his recorded answers `ccn answer match` ranks nearest to it and the first LINE_CANDIDATES `ccn answer search` finds for its first LINE_WORDS words, once each, nearest first with the two rankings taken in turn, with where he gave it and the tags naming the area it rules on, never one besides names, a tap approving a PR nor a provisional pick."""
+def line_answers(lines: list[str], data: dict, besides: frozenset[str] = frozenset(), floored: bool = False) -> list[tuple[str, list[dict]]]:
+    """Each line beside the first LINE_CANDIDATES of his recorded answers `ccn answer match` ranks nearest to it and the first LINE_CANDIDATES `ccn answer search` finds for its first LINE_WORDS words, once each, nearest first with the two rankings taken in turn, with where he gave it and the tags naming the area it rules on, never one besides names, a tap approving a PR nor a provisional pick; floored, only the first LINE_CANDIDATES `ccn answer match` finds with its floors, two of the line's rare words in an answer's question or three anywhere, so a line sharing one word with an answer on another subject, such as cut, reaches none."""
     cwd = data["roles"]["coordinator"]["cwd"]
     failure = "could not check its lines against his recorded answers"
     lined = []
     for line in lines:
         words = read(line)
-        match = ccn(["ccn", "answer", "match", "-", "--label", "scope:durable", "--nearest", "--limit", "-1", "--json"], words, cwd, failure)
-        search = ccn(["ccn", "answer", "search", "--label", "scope:durable", "--limit", "0", "--json", "--", " ".join(words.split()[:LINE_WORDS])], "", cwd, failure)
+        match = ccn(["ccn", "answer", "match", "-", "--label", "scope:durable", *([] if floored else ["--nearest"]), "--limit", "-1", "--json"], words, cwd, failure)
+        search = "[]" if floored else ccn(["ccn", "answer", "search", "--label", "scope:durable", "--limit", "0", "--json", "--", " ".join(words.split()[:LINE_WORDS])], "", cwd, failure)
         matched, searched = ([answer for answer in json.loads(ranked) if APPROVAL not in answer["tags"] and his(answer["body"]) and answer["id"][:7] not in besides][:LINE_CANDIDATES] for ranked in (match, search))
         found: dict[str, dict] = {}
         for answer in (answer for pair in zip_longest(matched, searched) for answer in pair if answer):
@@ -708,8 +708,8 @@ def line_read(lined: Sequence[tuple[str, list[dict]]]) -> list[tuple[str, dict, 
 
 
 def overruled(lines: list[str], data: dict) -> list[tuple[str, dict]]:
-    """Each of these lines `line_read` reads at YES or more, against the recorded answers of his `line_answers` finds for it, as saying no ruling of his covers, putting up for change or asking him again an item that answer, given before it, orders or keeps, beside that answer; Unheard when Jev gives no reading. A line whose words after its first colon, or whole words when it has none, are only none, as a bare `open: none` or a `none` list item, names no item to go against, so it reaches neither ccn nor Jev, which would otherwise read it against whatever answer its key word ranks first."""
-    return [(line, answer) for line, answer, sure in line_read(line_answers([line for line in lines if not none_only(line.partition(":")[2] or line)], data)) if reading(sure)]
+    """Each of these lines `line_read` reads at YES or more, against the recorded answers of his `line_answers` finds for it floored, as saying no ruling of his covers, putting up for change or asking him again an item that answer, given before it, orders or keeps, beside that answer; Unheard when Jev gives no reading. A line whose words after its first colon, or whole words when it has none, are only none, as a bare `open: none` or a `none` list item, names no item to go against, so it reaches neither ccn nor Jev, which would otherwise read it against whatever answer its key word ranks first."""
+    return [(line, answer) for line, answer, sure in line_read(line_answers([line for line in lines if not none_only(line.partition(":")[2] or line)], data, floored=True)) if reading(sure)]
 
 
 def overruling(picks: list[tuple[str, dict]]) -> str:
@@ -1288,13 +1288,13 @@ def size(state: dict, questions: dict[str, Noul]) -> int:
 
 BACKED = Noul(
     "Does `reads.{read}.result`, that call's whole output, show what `claims.{claim}.claim` says?",
-    yes="The read's own output holds what the claim says, as it stands now for a state told as it stands, or a record's or report's line in it shows the read that measured just that.",
-    no="The read does not hold it, or only a doc, PR body, comment or log line, or a record's or report's line showing no read, inside it says so about code.",
+    yes="The read's own output holds what the claim says, in its words or nearly, as it stands now for a state told as it stands, a record's or report's line in it showing the read behind it holding what that line states, such as whose a red is to fix, and a PR's body what that PR changes.",
+    no="The read does not hold it, or only a doc, comment or log line, or a record's or report's line showing no read, inside it says so about code.",
 )
 BACKED_LINES = Noul(
     "Do the lines of `reads.{read}.result`, one part of that call's output by line number out of its `reads.{read}.lines`, show what `claims.{claim}.claim` says?",
     yes=BACKED.yes,
-    no="These lines do not hold it, or only a doc, PR body, comment or log line, or a record's or report's line showing no read, inside them says so about code.",
+    no="These lines do not hold it, or only a doc, comment or log line, or a record's or report's line showing no read, inside them says so about code.",
 )
 SPANS = Noul(
     "Does `claims.{claim}.claim` say only, every, all, no, nobody or never of a set, such as the routes minting a key or the callers of a function, while `reads.{read}.call` reads one member of that set rather than what decides every member?",
@@ -1355,7 +1355,7 @@ def refusal_verdict(rule: str, call: dict, findings: list[dict], seconds: float 
 
 
 def post_verdict(output: dict, seconds: float = DECIDE_SECONDS) -> dict:
-    """Whether a post the drive's checks hand with his words holds, by the requests `requests` packs, asked of Jev at once, every item Jev cannot weigh the post without whole in one of them, a read too long for one request by whole lines across several, since `unfit` refuses a post before it reaches here when one item alone has no room: it holds for a claim whose read, or each part of it, is under BACKS or matched none of the handler's calls, a claim saying only, every, no or never of a set whose read reads one member rather than what decides every member at YES, a sentence no claim holds whole that states a fact beyond the claims at YES, a post answering his question under a card while leaving a term of the card's first line it turns on unexplained at YES, a post in a thread of his DM holding orders that tells him of work past that thread's while his words there name no more at YES, by his ruling 98c20ce "we're talking about the work this thread is about", and a finding that holds at YES with no lift at NO or more, by his pick f9e9302 "The handler names the read behind each claim; Jev checks each claim against that read, whole, and holds only unbacked claims"; a claim at BACKS or more stands, since every unbacked claim of the drive's recorded posts drew under it; any other Noul in the band between, or a finding with no room left, only warns, naming it; a post that goes out says so first and names what it warns of, never in a refusal's words, which would tell the session nothing went out. When Jev cannot finish, a finding a count or a mark decides still holds, since no judgment lifts it, and every other only warns, by his pick b80a8b1 "Refusals only warn when the judge cannot finish: no post ever waits, but it goes out unchecked, as twice this morning"."""
+    """Whether a post the drive's checks hand with his words holds, by the requests `requests` packs, asked of Jev at once, every item Jev cannot weigh the post without whole in one of them, a read too long for one request by whole lines across several, since `unfit` refuses a post before it reaches here when one item alone has no room: it holds for a claim whose read, or each part of it, is under BACKS or matched none of the handler's calls, a claim saying only, every, no or never of a set whose read reads one member rather than what decides every member at YES, a sentence no claim holds whole that states a fact beyond the claims at YES, a post answering his question under a card while leaving a term of the card's first line it turns on unexplained at YES, a post in a thread of his DM holding orders that tells him of work past that thread's while his words there name no more at YES, by his ruling 98c20ce "we're talking about the work this thread is about", and a finding Jev reads neither as a match its rule never meant, under NO, nor as lifted by his words, at YES, so a finding in the band holds as a refused call's does, by his pick f9e9302 "The handler names the read behind each claim; Jev checks each claim against that read, whole, and holds only unbacked claims"; a claim at BACKS or more stands, since every unbacked claim of the drive's recorded posts drew under it; any other Noul in the band between, or a finding with no room left, only warns, naming it; a post that goes out says so first and names what it warns of, never in a refusal's words, which would tell the session nothing went out. When Jev cannot finish, a finding a count or a mark decides still holds, since no judgment lifts it, and every other only warns, by his pick b80a8b1 "Refusals only warn when the judge cannot finish: no post ever waits, but it goes out unchecked, as twice this morning"."""
     reason = refusal_reason(output)
     reads = {item["id"]: item for item in output.get("reads") or []}
     claims = output["post"].get("claims") or []
@@ -1380,10 +1380,8 @@ def post_verdict(output: dict, seconds: float = DECIDE_SECONDS) -> dict:
         holds, lifted = read.get(f"f{number}.holds"), read.get(f"f{number}.lifted", 0.0)
         if holds is None:
             unsure.append(f"finding {finding['found']}, which had no room in Jev's {REQUEST_CHARS:,} characters")
-        elif reading(holds) and lifted < NO:
+        elif reading(holds) is not False and reading(lifted) is not True:
             held.append(f"{finding['found']}, by its rule: {finding['rule']}")
-        elif (rule := reading(holds)) is None or rule and reading(lifted) is None:
-            unsure.append(f"finding {finding['found']}")
     for index, sentence in uncovered(output):
         if (fact := reading(read[f"s{index}.fact"])) is True:
             held.append(f'"{sentence}" states a fact no claim holds whole: pass that sentence, or each part of it, as claims beside the read behind each')

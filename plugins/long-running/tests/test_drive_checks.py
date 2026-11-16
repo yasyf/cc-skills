@@ -200,7 +200,7 @@ def test_jev_reads_the_typed_words_beside_slacks_and_asks_no_fact_of_a_sentence_
     assert list(jev.asked[-1]["questions"]) == ["c1.backed"]
 
 
-def test_a_finding_holds_at_yes_unless_his_words_lift_it_and_jev_reads_his_words_beside_it(jev: Jev) -> None:
+def test_a_finding_holds_unless_jev_reads_its_rule_never_meant_it_or_his_words_lift_it_and_jev_reads_his_words_beside_it(jev: Jev) -> None:
     reason = f"refused: {FINDING['found']}"
     output = {"post": {"text": "Waits on your Approve: the first PR."}, "findings": [FINDING], "his_words": [{"id": "w1", "quote": "land the first PR"}], "hookSpecificOutput": {"permissionDecisionReason": reason}}
     jev.breaks("f1", "holds", 0.9)
@@ -213,6 +213,10 @@ def test_a_finding_holds_at_yes_unless_his_words_lift_it_and_jev_reads_his_words
     jev.picks("lifted", 0.5)
     jev.breaks("f1", "holds", 0.1)
     assert settled.post_verdict(output) == stands
+    jev.breaks("f1", "holds", 0.5)
+    assert settled.post_verdict(output)["verdict"] == "hold"
+    jev.breaks("f1", "holds", 0.9)
+    assert settled.post_verdict(output)["verdict"] == "hold"
 
 
 def test_a_post_jev_gives_no_verdict_on_holds_only_for_a_finding_a_count_decides(jev: Jev) -> None:

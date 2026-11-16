@@ -4273,6 +4273,20 @@ def test_each_line_reaches_jev_beside_his_answers_ccn_ranks_nearest_to_it_and_fi
     assert (kept, found[0], [answer["id"] for answer in found[1:]]) == (line, WAIT_RULING | {"link": None, "area": ["card:card-js-func-cap", "drive-tooling"]}, ["0000009", "0000000", "0000008", "0000001", "0000007", "0000002", "0000006"])
 
 
+def test_a_report_post_or_handoff_line_reaches_jev_only_beside_the_answers_ccn_answer_match_finds_with_its_floors_never_nearest_nor_searched_by_its_first_words(
+    monkeypatch: pytest.MonkeyPatch, jev: Jev
+) -> None:
+    calls: list[tuple[list[str], str, str]] = []
+    ruling = {"id": f"{WAIT_RULING['id']}3{'0' * 32}", "title": WAIT_RULING["asked"], "body": WAIT_RULING["said"], "tags": ["scope:durable"]}
+    monkeypatch.setattr(settled, "line_answers", SETTLED_LINE_ANSWERS)
+    monkeypatch.setattr(settled, "ccn", lambda argv, text, cwd, failure: calls.append((argv, text, cwd)) or json.dumps([ruling]))
+    line = "Ship the js_func helper process before the four queue PRs merge"
+    jev.breaks(f"{settled.LINE_KEY}1", WAIT_RULING["id"])
+    picks = settled.overruled([line], {"roles": {"coordinator": {"cwd": "/work"}}, "answers": {}, "jobs": {}})
+    assert calls == [(["ccn", "answer", "match", "-", "--label", "scope:durable", "--limit", "-1", "--json"], settled.read(line), "/work")]
+    assert picks == [(line, WAIT_RULING | {"link": None, "area": []})]
+
+
 def test_list_lines_are_each_bullet_numbered_item_and_table_row_but_its_rule_without_its_marker_once_each() -> None:
     text = (
         "Where each item stands:\n- the cloud tree's own cap\n* same-root sends skip safe mode\n• the say judge's 20 s\n2. the team default of 300\n3) the tap\n"
