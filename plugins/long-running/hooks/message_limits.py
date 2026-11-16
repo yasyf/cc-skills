@@ -1168,7 +1168,7 @@ def block_words(blocks: object) -> list[str]:
 
 
 def crafted(text: str, pictures: int, rules: tuple[str, ...] = ()) -> list[str]:
-    """What one quick Jev read of the post against CRAFT_GUIDE finds, by his words "have the check be super quick, like a tiny jev check with their smallest model that just gets the guidelines and compares against the post": each rule it reads as broken at settled.YES or more, with its fix; none when Jev gives no reading within CRAFT_SECONDS, since this check fails open. Each post rule of the drive's repository is asked beside them, by his words "there should be both rules and transforms monorepo can specify for it that get incorporated into the plugin"."""
+    """What one quick Jev read of the post against CRAFT_GUIDE finds, by his words "have the check be super quick, like a tiny jev check with their smallest model that just gets the guidelines and compares against the post": each rule it reads as broken at settled.YES or more, with its fix; none when Jev gives no reading within CRAFT_SECONDS, since this check fails open. Each post rule of the drive's repository is asked beside them, since he asked for both rules and transforms a repository can specify for it that get incorporated into the plugin."""
     asked = CRAFT | {f"craft.repo{number}": settled.Noul(f"Does `post.text` break this rule of his repository: {rule}") for number, rule in enumerate(rules)}
     fixed = CRAFT_FIXES | {f"craft.repo{number}": rule for number, rule in enumerate(rules)}
     guidelines = CRAFT_GUIDE + (" His repository's own rules for every post: " + " ".join(rules) if rules else "")
