@@ -12,7 +12,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import NoReturn, Self
 
-from drive import install, limits, procs, reads, render, slack, state, superseded, view
+from drive import install, limits, procs, reads, render, state, superseded, view
 from drive.brief import BRIEF_JOB, carried, heavier
 
 HIS_KINDS = ("owner", "answer")
@@ -398,16 +398,10 @@ def seeded(name: str) -> int:
     return json.loads(newest)["seq"] if newest.strip() else 0
 
 
-def handled_post(data: dict, seq: str, owed: set[str]) -> bool:
-    """Whether a `POST` report goes to the communicator, by his words "clearly these reports are useless / not valuable / spammy, so remove them entirely or rethink the whole model": one closing an order or delivering a part, one on a customer team's outage, and of progress lines only one answering a message of his that cc-slack still owes an answer, one on an open incident or an order he asked a line every so many minutes on, one answering a teammate's messages in a thread an order watches, or one posting at the root of a channel outside his DM, such as a staging claim; every other report is progress, kept on the drive's dashboard and records alone."""
+def handled_post(seq: str) -> bool:
+    """Whether a `POST` report goes out: every one its writer sent, since the writer decides from its role's rules when a line is worth his read, by his words "get rid of hard-coded stuff, give it the rules, and let it make the call", but a progress line the watch wrote on no watched thread, which no session judged."""
     read = answered(seq)
-    attrs = read["attrs"]
-    order_id = state.report_order(data, attrs)
-    if read["report"]["lane"] == LANE_WATCH and attrs.get("progress") == "true" and attrs.get("watch") != "true":
-        return False
-    if attrs.get("progress") != "true" or attrs.get("milestone") == "true" or attrs.get("close") or attrs.get("part") or attrs.get("customer_outage") == "true":
-        return True
-    return read["message"] in owed or attrs.get("watch") == "true" or rooted(attrs) or bool(order_id and (data["orders"][order_id]["incident"] or data["orders"][order_id]["every"]))
+    return not (read["report"]["lane"] == LANE_WATCH and read["attrs"].get("progress") == "true" and read["attrs"].get("watch") != "true")
 
 
 def start_posts(name: str, moment: datetime) -> None:
@@ -423,7 +417,6 @@ def start_posts(name: str, moment: datetime) -> None:
         data = state.update(name, None, start_posts_write)
         return
     data = state.load(name)
-    owed = {reply["ts"] for reply in slack.owed(beside(data)[1]["session"])}
     errors, carried, young = [], {}, []
     for seq, at in read:
         if at + SETTLE_WINDOW > moment:
@@ -431,7 +424,7 @@ def start_posts(name: str, moment: datetime) -> None:
             continue
         if seq in data["carried"] or seq in state.watch_posting(data):
             continue
-        if not handled_post(data, seq, owed):
+        if not handled_post(seq):
             carried[seq] = "progress: the dashboard and records alone"
             continue
         if answered(seq)["attrs"].get("watch") == "true":

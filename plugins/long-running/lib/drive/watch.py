@@ -2544,7 +2544,7 @@ def posts_heard(name: str) -> Heard:
 
 
 def post_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Start the handler on each `POST` report to communicator@<drive> that answers a message of his, an incident's, a watched thread's or a channel root's, once, by agents.start_posts, and carry every other as progress; a start that fails is said as a failed read is. It reads cci only once posts_due says a report or correction to the communicator arrived or POSTS_IDLE went by, so the relay runs no cci tail every RELAY_SECONDS."""
+    """Post each `POST` report its writer sent, once, by agents.start_posts, the watch's own progress lines carried as progress; a start that fails is said as a failed read is. It reads cci only once posts_due says a report or correction to the communicator arrived or POSTS_IDLE went by, so the relay runs no cci tail every RELAY_SECONDS."""
     if watcher.project or not posts_due(watcher.name):
         return []
     try:
