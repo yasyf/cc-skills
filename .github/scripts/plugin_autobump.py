@@ -27,6 +27,8 @@ Env contract:
                      from, and the directory that binary is built from
   AUTOBUMP_LOCKSTEP_CHECK  command that exits 0 when the plugin at HEAD asks nothing
                      the pinned binary lacks; run only when a newer pin would wait
+  AUTOBUMP_BATCH_SECONDS  a drifted plugin whose last release is younger than this waits,
+                     so one release carries every commit of the window; 0 or unset bumps at once
   AUTOBUMP_RELEASE_CHECK  newline-separated `<plugin root> <command>` pairs: a command
                      that exits 0 when the plugin's tree at HEAD may be released
   AUTOBUMP_FORCE     "1" to allow mutation outside CI (deliberate local use)
@@ -208,6 +210,14 @@ def wait_reason(repo: Path, root: str, lockstep: tuple[tuple[str, str], ...], ba
     return None
 
 
+def batch_reason(repo: Path, baseline: str) -> str | None:
+    window = int(os.environ.get("AUTOBUMP_BATCH_SECONDS") or 0)
+    released = int(_git_out(repo, "show", "-s", "--format=%ct", baseline).strip())
+    if (left := released + window - int(time.time())) > 0:
+        return f"its last release {baseline[:7]} is under {window // 60} minutes old, so this drift ships with the next run past {time.strftime("%H:%M UTC", time.gmtime(released + window))}, {left} seconds from now"
+    return None
+
+
 def release_check_failure(repo: Path, root: str) -> str | None:
     checks = dict(line.split(maxsplit=1) for line in os.environ.get("AUTOBUMP_RELEASE_CHECK", "").splitlines() if line.strip())
     if not (command := checks.get(root)):
@@ -244,6 +254,8 @@ def analyze(repo: Path, guard: set[str], excludes: list[str], lockstep: tuple[tu
         elif name in guard:
             results.append(Result(name, root, manifest, version, baseline, "guarded"))
         elif reason := wait_reason(repo, root, lockstep, baseline):
+            results.append(Result(name, root, manifest, version, baseline, "waiting", message=reason))
+        elif drifted and (reason := batch_reason(repo, baseline)):
             results.append(Result(name, root, manifest, version, baseline, "waiting", message=reason))
         elif failure := release_check_failure(repo, root):
             results.append(Result(name, root, manifest, version, baseline, "error", message=failure))
@@ -398,7 +410,7 @@ def main() -> int:
             if strict:
                 print(f"::error::guarded plugin {r.name} drifted (strict)")
         elif r.verdict == "waiting":
-            print(f"::notice::plugin {r.name} waits for its pin: {r.message}")
+            print(f"::notice::plugin {r.name} waits: {r.message}")
         elif r.verdict == "error":
             print(f"::error::plugin {r.name}: {r.message}")
 

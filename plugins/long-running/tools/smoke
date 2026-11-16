@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+set -euo pipefail
+plugin=$(cd "$(dirname "$0")/.." && pwd)
+repo=$(git -C "$plugin" rev-parse --show-toplevel)
+scratch=$(mktemp -d)
+trap 'rm -rf "$scratch"' EXIT
+export LONG_RUNNING_STATE="$scratch/state" CLAUDE_CONFIG_DIR="$scratch/config"
+mkdir -p "$LONG_RUNNING_STATE" "$CLAUDE_CONFIG_DIR"
+python=(uv run --no-project --quiet --python 3.13 --with pytest --with pytest-timeout --with pytest-xdist --with "spawnllm>=0.17.7" python -I)
+
+"${python[@]}" - "$plugin" <<'EOF'
+import argparse
+import contextlib
+import importlib
+import io
+import pkgutil
+import sys
+from pathlib import Path
+
+plugin = Path(sys.argv[1])
+sys.path.insert(0, str(plugin / "lib"))
+import drive
+
+modules = sorted(found.name for found in pkgutil.iter_modules(drive.__path__))
+for module in modules:
+    importlib.import_module(f"drive.{module}")
+print(f"smoke: imported {len(modules)} drive modules")
+
+from drive import cli
+
+
+def leaves(parser: argparse.ArgumentParser, words: list[str]):
+    groups = [action for action in parser._actions if isinstance(action, argparse._SubParsersAction)]
+    if not groups:
+        yield words
+    for group in groups:
+        for name, child in group.choices.items():
+            yield from leaves(child, [*words, name])
+
+
+failed = []
+verbs = list(leaves(cli.parser(), []))
+for words in verbs:
+    out = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+            cli.main([*words, "--help"])
+    except SystemExit as done:
+        if done.code in (0, None):
+            continue
+        failed.append(f"drive {' '.join(words)} --help exited {done.code}: {out.getvalue().strip()[-400:]}")
+    except Exception as error:
+        failed.append(f"drive {' '.join(words)} --help raised {type(error).__name__}: {error}")
+    else:
+        failed.append(f"drive {' '.join(words)} --help printed help without exiting")
+if failed:
+    raise SystemExit("smoke: " + "\nsmoke: ".join(failed))
+print(f"smoke: drive --help ran for {len(verbs)} verbs")
+EOF
+
+"${python[@]}" "$plugin/bin/drive" --help > /dev/null
+echo "smoke: bin/drive --help runs"
+
+"${python[@]}" - "$plugin" "$scratch" <<'EOF'
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+plugin, scratch = Path(sys.argv[1]), Path(sys.argv[2])
+events = json.loads((plugin / "hooks" / "hooks.json").read_text())["hooks"]
+failed, ran = [], 0
+for event, groups in events.items():
+    for group in groups:
+        for command in group["hooks"]:
+            hook = command["command"].rsplit(" ", 1)[-1]
+            payload = {
+                "session_id": "smoke",
+                "transcript_path": str(scratch / "transcript.jsonl"),
+                "cwd": str(scratch),
+                "hook_event_name": event,
+                "source": "startup",
+                "trigger": "auto",
+                "tool_name": "Bash",
+                "tool_input": {"command": "echo smoke"},
+                "permission_mode": "default",
+            }
+            done = subprocess.run(["python3", "-I", str(plugin / "hooks" / "installed.py"), hook], input=json.dumps(payload), capture_output=True, text=True, timeout=120)
+            ran += 1
+            if done.returncode not in (0, 2) or "Traceback" in done.stderr:
+                failed.append(f"{event} {hook} exited {done.returncode}: {done.stderr.strip()[-600:]}")
+if failed:
+    raise SystemExit("smoke: " + "\nsmoke: ".join(failed))
+print(f"smoke: {ran} hooks ran on a canned payload")
+EOF
+
+cd "$repo"
+tests=plugins/long-running/tests
+"${python[@]}" -m pytest -q -n 4 --timeout=30 -p no:cacheprovider \
+  "$tests/test_quoted_commands.py" \
+  "$tests/test_modules.py" \
+  "$tests/test_installed_hooks.py" \
+  "$tests/test_cli.py::test_start_creates_the_drive_and_prints_the_roles_context" \
+  "$tests/test_cli.py::test_order_show_and_job_show_print_what_status_prints" \
+  "$tests/test_cli.py::test_status_prints_each_order_its_ids_name_whole_and_closed_ones_too" \
+  "$tests/test_cli.py::test_drive_manual_with_no_page_lists_the_pages" \
+  "$tests/test_watch.py::test_merge_is_reported_and_the_pr_leaves_the_read_set" \
+  "$tests/test_watch.py::test_drive_status_shows_each_open_prs_stage_now_keeping_its_since_only_while_the_watch_kept_that_stage"
+echo "smoke: passed"

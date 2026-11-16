@@ -7,6 +7,7 @@ import importlib.util
 import json
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -97,6 +98,25 @@ def test_content_after_version_change_bumps(repo):
     r = _by_name(autobump.analyze(repo, set(), []), "a")
     assert r.verdict == "bump"
     assert r.new_version == "0.2.1"
+
+
+def test_content_within_the_batch_window_of_the_last_release_waits_and_bumps_once_it_passes(repo, monkeypatch):
+    m = _manifest_path("plugins/a")
+    _write(repo, m, _manifest_text("a", "0.1.0"))
+    _commit(repo, "create a")
+    _write(repo, m, _manifest_text("a", "0.2.0"))
+    _commit(repo, "bump a")
+    _write(repo, "plugins/a/src.py", "print('x')\n")
+    _commit(repo, "add content")
+
+    monkeypatch.setenv("AUTOBUMP_BATCH_SECONDS", "600")
+    waiting = _by_name(autobump.analyze(repo, set(), []), "a")
+    assert waiting.verdict == "waiting"
+    assert "under 10 minutes old" in waiting.message
+
+    later = time.time() + 601
+    monkeypatch.setattr(autobump.time, "time", lambda: later)
+    assert _by_name(autobump.analyze(repo, set(), []), "a").verdict == "bump"
 
 
 # 2 — last change was the version bump itself ⇒ clean

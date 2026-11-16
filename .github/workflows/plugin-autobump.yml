@@ -15,6 +15,12 @@ on:
       strict:
         type: boolean
         default: false
+      strict-on-schedule:
+        type: boolean
+        default: true
+      batch-seconds:
+        type: number
+        default: 0
       lockstep:
         type: string
         default: ""
@@ -71,7 +77,8 @@ jobs:
           AUTOBUMP_DRY_RUN: ${{ inputs.dry-run }}
           AUTOBUMP_GUARD: ${{ inputs.guard-plugins }}
           AUTOBUMP_EXCLUDES: ${{ inputs.exclude-paths }}
-          AUTOBUMP_STRICT: ${{ github.event_name == 'schedule' || inputs.strict }}
+          AUTOBUMP_STRICT: ${{ (inputs.strict-on-schedule && github.event_name == 'schedule') || inputs.strict }}
+          AUTOBUMP_BATCH_SECONDS: ${{ inputs.batch-seconds }}
           AUTOBUMP_LOCKSTEP: ${{ inputs.lockstep }}
           AUTOBUMP_LOCKSTEP_CHECK: ${{ inputs.lockstep-check }}
           AUTOBUMP_RELEASE_CHECK: ${{ inputs.release-check }}

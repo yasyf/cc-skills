@@ -6,6 +6,7 @@ on:
     paths: ["plugins/**"]
   schedule:
     - cron: "23 10 * * 1"
+    - cron: "*/10 * * * *"
   workflow_dispatch:
     inputs:
       dry_run:
@@ -27,6 +28,8 @@ jobs:
     uses: ./.github/workflows/plugin-autobump.yml
     with:
       dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
-      strict: ${{ github.event_name == 'workflow_dispatch' && inputs.strict || false }}
+      strict: ${{ github.event.schedule == '23 10 * * 1' || (github.event_name == 'workflow_dispatch' && inputs.strict) || false }}
+      strict-on-schedule: false
+      batch-seconds: 600
       guard-plugins: "codex slop-cop"
-      release-check: "plugins/long-running plugins/long-running/tools/try-release"
+      release-check: "plugins/long-running plugins/long-running/tools/release-check"

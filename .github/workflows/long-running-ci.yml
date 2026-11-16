@@ -21,6 +21,15 @@ permissions:
   contents: read
 
 jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v8.2.0
+      - name: smoke
+        run: plugins/long-running/tools/smoke
+
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 10
