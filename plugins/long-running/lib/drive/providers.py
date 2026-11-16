@@ -141,6 +141,10 @@ class ReleaseProvider(Provider):
         """The permalink of the Slack post that announces release, named by its name or build number, which a post to him links in place of its build page; None when the repository keeps none."""
         return None
 
+    def released(self, link: str) -> str | None:
+        """The release a link to one of its builds names, by build number, which a post links as its Slack post in place of the build page; None for any other link, or when the repository keeps no release posts."""
+        return None
+
     def freezes(self) -> list[dict]:
         return []
 

@@ -610,18 +610,25 @@ def test_a_report_sent_back_to_its_writer_counts_as_handled_so_no_has_no_post_de
     assert [record["kind"] for records in sent for record in records] == ["refused"]
 
 
-def test_a_release_still_running_with_no_post_links_the_build_a_job_started_and_its_post_once_one_exists(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    build = "https://buildkite.com/forge/release/builds/18149"
-    posted: dict[str, str] = {}
-    monkeypatch.setattr(providers, "of", lambda data: SimpleNamespace(release=SimpleNamespace(post=posted.get)))
-    with edit(demo) as data:
-        data["jobs"]["j9"] = state.new_job("o1", "builder", "cut release 3", [], state.stamp()) | {"release_build": build}
-    data = state.load(demo)
-    assert refs.release(data, "18149")["url"] == build
-    posted["18149"] = "https://acme.slack.com/archives/C9/p1794840000000100"
-    assert refs.release(data, "18149")["url"] == posted["18149"]
+def test_a_release_linked_by_its_build_page_goes_out_linking_its_slack_post_looked_up_again_until_it_exists(communicator: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
+    build = "https://buildkite.com/forge/release/builds/18219"
+    post = "https://acme.slack.com/archives/C9/p1794851300000100"
+    looks: list[str] = []
+
+    def posted_after_one_look(release: str) -> str | None:
+        looks.append(release)
+        return post if len(looks) > 1 and release == "18219" else None
+
+    release = SimpleNamespace(post=posted_after_one_look, released=lambda link: link.rsplit("/", 1)[1] if link.startswith("https://buildkite.com/forge/release/builds/") else None)
+    monkeypatch.setattr(providers, "of", lambda data: SimpleNamespace(release=release))
+    monkeypatch.setattr(refs.time, "sleep", lambda seconds: None)
+    talk.say(communicator, {"text": f"Release 9 is on staging: <{build}|release 9>."})
+    assert posts[-1][-1] == f"Release 9 is on staging: <{post}|release 9>."
+    assert looks == ["18219", "18219"]
+    looks.clear()
     with pytest.raises(DriveError, match="names no release post"):
-        refs.release(data, "18150")
+        refs.release(state.load(communicator), "18220")
+    assert looks == ["18220"] * refs.RELEASE_POST_TRIES
 
 
 def test_a_report_post_may_link_what_the_reports_references_draw_but_no_other_link(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:

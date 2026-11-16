@@ -1,5 +1,6 @@
 import json
 import re
+import time
 from pathlib import Path
 
 from drive import dashboard, limits, picture, providers, reads, render, settled, state, view
@@ -94,6 +95,9 @@ def resolved(name: str, text: str) -> dict[str, dict]:
     return found
 
 
+RELEASE_POST_TRIES = 3
+RELEASE_POST_WAIT = 5
+LINKED_URL = re.compile(r"<(?P<url>https://[^\s|>]+)\|(?P<words>[^>]+)>|<?(?P<bare>https://[^\s<>|]+?)>?(?=[).,;:!?]*(?:\s|$))")
 PR_MENTION = re.compile(
     r"<(?P<linked>https://github\.com/[\w.-]+/[\w.-]+/pull/\d+)[^|>]*\|(?P<words>[^>]+)>"
     r"|<?(?P<bare>https://github\.com/[\w.-]+/[\w.-]+/pull/\d+)[^\s<>|)]*>?"
@@ -272,15 +276,26 @@ def order(name: str, data: dict, order_id: str) -> dict:
 
 
 def release(data: dict, key: str) -> dict:
-    """A release under its name, linked to the post his repository's release provider names as its own, by its post method, never its build page, by his words "no one looks at those"; a running release a job started, with no post yet, links its build until the post exists; any other the provider names no post for refuses the post."""
-    if not (url := providers.of(data).release.post(key) or running_build(data, key)):
-        raise DriveError(f"{{release:{key}}} names no release post the repository's release provider finds by that name or build number, nor a release build a job of the drive started")
-    return {"kind": "release", "title": key, "url": url, "board": url}
+    """A release under its name, linked to the Slack post his repository's release provider names as its own, by its post method, never its build page, by his words "still using bk links instead of slack links for releases"; the post lands within seconds of a start, so a release with none yet is looked up again RELEASE_POST_TRIES times, RELEASE_POST_WAIT apart, before the post is refused."""
+    provider = providers.of(data).release
+    for attempt in range(RELEASE_POST_TRIES):
+        if url := provider.post(key):
+            return {"kind": "release", "title": key, "url": url, "board": url}
+        if attempt + 1 < RELEASE_POST_TRIES:
+            time.sleep(RELEASE_POST_WAIT)
+    raise DriveError(f"{{release:{key}}} names no release post the repository's release provider finds by that name or build number, after {RELEASE_POST_TRIES} looks {RELEASE_POST_WAIT}s apart; name the release once its post is in #releases")
 
 
-def running_build(data: dict, key: str) -> str | None:
-    """The build link of a release a job of the drive started, by its build number, for a release still running that has no release post yet; the post takes its place once the provider finds one."""
-    return next((build for job in data["jobs"].values() if (build := job.get("release_build")) and build.rstrip("/").endswith(f"/builds/{key}")), None)
+def released(data: dict, text: str) -> str:
+    """The text with each link to a release's build written as its {release:} reference, as the repository's release provider reads the build a link names, so every post links the release's Slack post, never its build page; a link the provider names no release for stays as written."""
+    provider = providers.of(data).release
+
+    def releasing(match: re.Match[str]) -> str:
+        if not (build := provider.released(match["url"] or match["bare"])):
+            return match[0]
+        return f"{{release:{build}|{match['words']}}}" if match["words"] else f"{{release:{build}}}"
+
+    return LINKED_URL.sub(releasing, text)
 
 
 def record(name: str, seq: str, label: str) -> dict:
