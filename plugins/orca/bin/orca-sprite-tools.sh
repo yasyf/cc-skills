@@ -80,6 +80,35 @@ while [ $# -gt 0 ]; do
     echo "$name $tag"
   done
 done
+if [ -L "$dest/gh" ]; then
+  ln -sfn "$(readlink -f "$dest/gh")" "$dest/gh.real"
+elif [ -f "$dest/gh" ] && ! grep -q GH_SHIM_ACTIVE "$dest/gh"; then
+  mv -f "$dest/gh" "$dest/gh.real"
+fi
+if [ -x "$dest/gh.real" ]; then
+  cat >"$staged/gh" <<'SHIM'
+#!/bin/sh
+real=$HOME/.local/bin/gh.real
+[ -z "$CCX_CHILD$GH_SHIM_ACTIVE" ] || exec "$real" "$@"
+case "$1" in
+  ""|auth|config|alias|extension|completion|help|version|--version|--help|-h) exec "$real" "$@" ;;
+  api) case "$2" in rate_limit|/rate_limit) exec "$real" "$@" ;; esac ;;
+esac
+age=60s
+case "$*" in
+  "pr checks"*|"pr diff"*|"pr status"*|"api graphql"*|"api /graphql"*) age=0s ;;
+  *headRefOid*|*statusCheckRollup*|*mergeable*|*mergeStateStatus*|*reviewDecision*|*latestReviews*|*reviews*|*commits*|*files*|*additions*|*deletions*|*changedFiles*|*updatedAt*|*headSha*) age=0s ;;
+  *check-runs*|*check-suites*|*/status*|*/branches*|*/git/*|*/compare/*|*repos/*/pulls/[0-9]*) age=0s ;;
+  "pr view"*--json*) ;;
+  "pr view"*) age=0s ;;
+  "run list"*--branch*|"run list"*--commit*|"run list"*" -b "*|"run list"*" -c "*) age=0s ;;
+esac
+GH_SHIM_ACTIVE=1 CCX_GH=$real CCX_GH_RUN_GUARDED=1 exec "$HOME/.local/bin/ccx" vcs gh --max-age "$age" -- "$@"
+SHIM
+  chmod 755 "$staged/gh"
+  mv -f "$staged/gh" "$dest/gh"
+  echo "gh through ccx vcs gh"
+fi
 rustup=/.sprite/bin/rustup
 if ! sudo -n "$rustup" target list --installed --toolchain stable 2>/dev/null | grep -qx wasm32-unknown-unknown; then
   sudo -n "$rustup" toolchain install stable --profile minimal --target wasm32-unknown-unknown --no-self-update >&2
