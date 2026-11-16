@@ -1183,7 +1183,7 @@ def test_a_drive_saved_with_one_mail_cursor_per_run_reads_it_as_the_mark_of_each
 def test_a_mail_cursor_an_old_watch_writes_again_after_the_migration_raises_each_mark_on_its_run_and_never_lowers_one(state_root: Path) -> None:
     make("demo")
     data = state.load("demo")
-    base = {"order": "o1", "said": None, "updated": "2026-11-11T08:00:00-08:00", "where": "remote"}
+    base = {"order": "o1", "state": "running", "said": None, "updated": "2026-11-11T08:00:00-08:00", "where": "remote"}
     data["jobs"] = {"j1": base | {"run": "run_a"}, "j2": base | {"run": "run_a"}, "j3": base | {"run": "run_b"}}
     data["lane_mail"] = {"run_a": 41}
     state.create(data)
@@ -2813,7 +2813,7 @@ def test_a_staging_slot_goes_to_its_first_claimer_and_then_to_each_queued_job_in
 def test_a_staging_lease_that_runs_past_its_end_extends_once_and_an_incident_tester_jumps_the_queue() -> None:
     moment = datetime(2026, 11, 15, 22, 5, tzinfo=UTC)
     orders = {"o1": {"incident": False, "priority": None, "state": "open"}, "o2": {"incident": True, "priority": None, "state": "open"}}
-    data = {"slots": {}, "orders": orders, "jobs": {"j1": {"state": "running", "order": "o1", "carries": [], "goal": "", "waits": ["staging:api/plat-usw2-staging@abc1234"], "release_build": None}, "j2": {"state": "waiting", "order": "o1", "carries": [], "goal": "", "waits": []}, "j3": {"state": "waiting", "order": "o2", "carries": [], "goal": "", "waits": []}}}
+    data = {"slots": {}, "orders": orders, "jobs": {"j1": {"state": "running", "order": "o1", "carries": [], "parts": [], "goal": "", "waits": ["staging:api/plat-usw2-staging@abc1234"], "release_build": None}, "j2": {"state": "waiting", "order": "o1", "carries": [], "parts": [], "goal": "", "waits": []}, "j3": {"state": "waiting", "order": "o2", "carries": [], "parts": [], "goal": "", "waits": []}}}
     state.slot_claim(data, "plat-usw2-staging", "j1", 30, [], None, moment)
     state.slot_claim(data, "plat-usw2-staging", "j2", 25, [], None, moment)
     assert state.slot_claim(data, "plat-usw2-staging", "j3", 10, [], None, moment).startswith("QUEUED j3 for the plat-usw2-staging slot, place 1, behind j1")

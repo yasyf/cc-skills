@@ -5931,7 +5931,7 @@ def test_replayed_design_docs_363_a_lander_try_that_merged_the_pr_reads_merged_o
     with monkeypatch.context() as merging:
         merging.setattr(land.subprocess, "run", lambda argv, **kwargs: land.subprocess.CompletedProcess(argv, 0, "", ""))
         merging.setattr(github, "fetch", lambda keys, into=None: ({docs: read(state="MERGED", mergeCommit="967f1e30740f", headRefOid=new)}, None))
-        merging.setattr(github, "run", lambda cmd, **_: "README.md\n")
+        merging.setattr(github, "files", lambda key: ["README.md"])
         merging.setattr(install, "touched", lambda repo, files: [])
         assert land.run(demo, [docs]) == merged
     fetched = len(calls)
@@ -5956,7 +5956,7 @@ def test_a_merge_github_reads_open_after_gh_pr_merge_said_it_merged_is_not_lande
     runs: list[list[str]] = []
     pr_reads[docs] = read(headRefOid="ddddddd444", mergeable="CONFLICTING")
     monkeypatch.setattr(land.subprocess, "run", lambda argv, **kwargs: runs.append(argv) or land.subprocess.CompletedProcess(argv, 0, "", ""))
-    monkeypatch.setattr(github, "run", lambda cmd, **_: "plugins/long-running/lib/drive/land.py\n")
+    monkeypatch.setattr(github, "files", lambda key: ["plugins/long-running/lib/drive/land.py"])
     monkeypatch.setattr(install, "touched", lambda repo, files: ["long-running@skills"])
     assert land.run(demo, [docs]) == "not landed: GitHub reads it open after gh pr merge said it merged, so nothing was installed"
     assert runs == [["gh", "pr", "merge", "5", "-R", "Forge-AI/design-docs", "--squash", "--match-head-commit", "ddddddd444"]]
@@ -8183,7 +8183,7 @@ def test_a_lander_merges_a_pr_he_approved_in_another_repository_with_gh_pr_merge
     runs: list[list[str]] = []
     monkeypatch.setattr(land.subprocess, "run", lambda argv, **kwargs: runs.append(argv) or land.subprocess.CompletedProcess(argv, 0, "", ""))
     pr_reads[docs] = read(state="MERGED", mergeCommit="eee555fff666")
-    monkeypatch.setattr(github, "run", lambda cmd, **_: "README.md\n")
+    monkeypatch.setattr(github, "files", lambda key: ["README.md"])
     monkeypatch.setattr(install, "touched", lambda repo, files: [])
     assert land.run(demo, [docs]) == "merged at eee555fff666; it changes no plugin installed on this Mac"
     assert land.run(demo, [docs], dry_run=True) == "would merge it with gh pr merge --rebase --match-head-commit ddddddd444"
@@ -8629,7 +8629,7 @@ def test_a_yasyf_lander_merges_with_admin_records_its_merge_commit_and_installs_
 ) -> None:
     runs: list[list[str]] = []
     pr_reads["yasyf/cc-skills#7"] = read(state="MERGED", mergeCommit="ccc333ddd444eee")
-    monkeypatch.setattr(github, "run", lambda cmd, **_: "plugins/long-running/lib/drive/land.py\nREADME.md\n")
+    monkeypatch.setattr(github, "files", lambda key: ["plugins/long-running/lib/drive/land.py", "README.md"])
     monkeypatch.setattr(install, "touched", lambda repo, files: ["long-running@skills"] if "plugins/long-running/lib/drive/land.py" in files else [])
     monkeypatch.setattr(
         land.subprocess, "run", lambda argv, **kwargs: runs.append(argv) or land.subprocess.CompletedProcess(argv, 0, "long-running@skills 1.0.4 installed\n", "")
@@ -8649,7 +8649,7 @@ def test_a_yasyf_lander_merges_with_admin_records_its_merge_commit_and_installs_
 def test_a_yasyf_merge_for_any_other_order_boards_the_install_train_and_installs_nothing_until_it_leaves(demo: str, monkeypatch: pytest.MonkeyPatch, pr_reads: dict[str, dict]) -> None:
     runs: list[list[str]] = []
     pr_reads["yasyf/cc-skills#7"] = read(state="MERGED", mergeCommit="ccc333ddd444eee")
-    monkeypatch.setattr(github, "run", lambda cmd, **_: "plugins/long-running/lib/drive/land.py\n")
+    monkeypatch.setattr(github, "files", lambda key: ["plugins/long-running/lib/drive/land.py"])
     monkeypatch.setattr(install, "touched", lambda repo, files: ["long-running@skills"])
     monkeypatch.setattr(land.subprocess, "run", lambda argv, **kwargs: runs.append(argv) or land.subprocess.CompletedProcess(argv, 0, "", ""))
     monkeypatch.setattr(state, "now", lambda: T0)
@@ -9494,7 +9494,7 @@ def test_a_yasyf_merge_whose_base_moved_merges_again_on_the_new_base_and_never_u
     merges = iter([(1, "", BASE_MOVED), (1, "", BASE_MOVED), (0, "", "")])
     runs: list[list[str]] = []
     pr_reads[YASYF] = read(state="MERGED", mergeCommit="ccc333ddd444eee")
-    monkeypatch.setattr(github, "run", lambda cmd, **kwargs: "README.md\n")
+    monkeypatch.setattr(github, "files", lambda key: ["README.md"])
     monkeypatch.setattr(install, "touched", lambda repo, files: [])
     monkeypatch.setattr(land.subprocess, "run", lambda argv, **kwargs: runs.append(argv) or land.subprocess.CompletedProcess(argv, *next(merges)))
     tried(demo, "")
@@ -9682,12 +9682,11 @@ def test_a_stacked_yasyf_pr_gh_pr_merge_refuses_merges_through_githubs_merge_asy
 
     def gh(cmd: list[str], **kwargs: object) -> str:
         reads_.append(cmd)
-        if cmd[1] == "api" and land.MERGE_ASYNC in cmd[2]:
-            return json.dumps(next(results))
-        return "README.md\n"
+        return json.dumps(next(results))
 
     pr_reads[stacked_pr] = read(state="MERGED", mergeCommit="ccc333ddd444eee")
     monkeypatch.setattr(github, "run", gh)
+    monkeypatch.setattr(github, "files", lambda key: ["README.md"])
     monkeypatch.setattr(land.time, "sleep", lambda seconds: None)
     monkeypatch.setattr(install, "touched", lambda repo, files: [])
     monkeypatch.setattr(land.subprocess, "run", lambda argv, **kwargs: runs.append(argv) or land.subprocess.CompletedProcess(argv, *next(merges)))
@@ -10018,6 +10017,7 @@ def test_a_yasyf_lander_rereads_its_checks_and_merges_with_admin_at_that_head_on
     monkeypatch.setattr(land.subprocess, "run", lambda argv, **kwargs: merged_4755(reads, runs, argv))
     monkeypatch.setattr(land.time, "sleep", slept.append)
     monkeypatch.setattr(github, "run", gh)
+    monkeypatch.setattr(github, "files", lambda key: ["plugins/long-running/hooks/message_limits.py"])
     monkeypatch.setattr(install, "touched", lambda repo, files: [])
     assert (land.run(demo, ["yasyf/cc-skills#4755"]), runs, len(slept)) == (outcome, [MERGE_4755] if outcome.startswith("merged") else [], waits)
 
@@ -10030,7 +10030,7 @@ def test_a_yasyf_lander_under_ccxs_rate_limit_floor_merges_a_green_pr_reading_it
     runs: list[list[str]] = []
     monkeypatch.setattr(land.subprocess, "run", lambda argv, **kwargs: merged_4755(reads, runs, argv))
     monkeypatch.setattr(github, "default_branch", lambda repo: pytest.fail(f"read {repo}'s default branch through GitHub's REST API, which the floor refuses"))
-    monkeypatch.setattr(github, "run", lambda cmd, **_: "plugins/long-running/hooks/message_limits.py\n")
+    monkeypatch.setattr(github, "files", lambda key: ["plugins/long-running/hooks/message_limits.py"])
     monkeypatch.setattr(install, "touched", lambda repo, files: [])
     assert (land.run(demo, ["yasyf/cc-skills#4755"]), runs) == (MERGED_4755, [MERGE_4755])
 

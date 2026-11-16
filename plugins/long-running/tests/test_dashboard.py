@@ -1802,8 +1802,8 @@ done({ title: card().querySelector('.card-title').textContent, problem, runtime,
 """, board(queue=[STACK], review=[entry | ({"lead": lead, "told": {"story": told}} if entry["key"].endswith("#41") else {"lead": None}) for entry in OPEN]), "1440,900", before=STAND_IN)
     assert led == {
         "title": "A stuck lock frees itself in 30 seconds",
-        "problem": ["1The problem", ["Who feels it", "teammates whose runs hang", "A held lock never lets go.", "Next: The change ›"]],
-        "runtime": ["3At runtime", ["Before", "A crashed writer holds the lock forever.", "→", "After", "The lock frees itself after 30 s.", "‹ The change", "Next: The evidence ›"]],
+        "problem": ["1The problem", ["WHO FEELS IT", "teammates whose runs hang", "A held lock never lets go.", "Next: The change ›"]],
+        "runtime": ["3At runtime", ["BEFORE", "A crashed writer holds the lock forever.", "→", "AFTER", "The lock frees itself after 30 s.", "‹ The change", "Next: The evidence ›"]],
         "evidence": "Not yet on staging.",
         "choice": [["If you approve", "It lands and ships with the next release."], ["If you hold", "Runs keep hanging on a stuck lock."]],
         "last": True,
@@ -1971,7 +1971,7 @@ const drawer = document.querySelector('#drawer');
 const card = drawer.querySelector('.pr-card');
 const opened = {
   open: drawer.open, hash: location.hash, parts: [...card.children].map((part) => part.className), rail: Boolean(drawer.querySelector('.pr-rail')),
-  title: card.querySelector('.card-title').textContent, counter: Boolean(card.querySelector('.counter')), actions: card.querySelector('.pr-actions').textContent.trim() + card.querySelector('.approve-says').textContent.trim(),
+  title: card.querySelector('.card-title').textContent, counter: Boolean(card.querySelector('.counter')), actions: card.querySelector('.pr-actions').textContent.trim(),
   focus: document.activeElement.matches('#drawer [data-prtab][aria-selected="true"]'),
 };
 drawer.querySelector('[data-prtab="change"]').click();
@@ -1985,7 +1985,7 @@ done({ opened, changed, closed: !drawer.open, back: document.activeElement === o
     assert seen == {
         "opened": {
             "open": True, "hash": "#/feature/o1", "parts": ["card-content", "pr-tabs", "pr-pane show", "pr-pane change", "pr-pane context", "pr-actions"], "rail": True,
-            "title": "Time out the lock", "counter": False, "actions": "ApproveHoldYou tapped Approve. Approve sends it to merge now.", "focus": True,
+            "title": "Time out the lock", "counter": False, "actions": "ApproveHold", "focus": True,
         },
         "changed": {"embed": "?embed=1", "visible": "visible", "overlays": 0, "files": ["lib/lock.py", "lib/queue.py"]},
         "closed": True,
@@ -2046,7 +2046,7 @@ done({ rows, words, why: rail.querySelector('.rank-why').textContent, said: [...
 
 def test_the_decisions_queue_groups_each_card_under_why_it_needs_him_most_dangerous_first(tmp_path: Path) -> None:
     cards = [
-        QUESTION | {"answer": f"https://x.slack.com/archives/D1/p179438245385930{n}", "title": title, "needs": needs, "priority": QUESTION["priority"] | {"rank": n + 1}, "card": QUESTION["card"] | {"title": title}}
+        QUESTION | {"answer": f"https://x.slack.com/archives/D1/p179438245385930{n}", "title": title, "priority": QUESTION["priority"] | {"rank": n + 1}, "card": QUESTION["card"] | {"title": title}, "told": {"story": TOLD | {"headline": title, "needs_him": needs}}}
         for n, (title, needs) in enumerate([("Spend it?", "money"), ("Drop the table?", "dangerous act"), ("Which name?", "his own words"), ("Pay more?", "money")])
     ]
     seen = browse(tmp_path, """
