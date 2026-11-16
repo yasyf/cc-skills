@@ -6861,7 +6861,7 @@ def parser() -> argparse.ArgumentParser:
     verb = job.add_parser(
         "read",
         parents=both,
-        help=f"what the watch starts on a remote lane's READ, LOG or DRIVE question: claim it by creating its answer file, run it here unless asked over {reads.DRIVE_SECONDS} s ago, and send the answer",
+        help=f"what the watch starts on a remote lane's READ, LOG or DRIVE question: claim it by creating its answer file, run it here unless asked over {reads.LANE_GIVES_UP} s ago, and send the answer",
     )
     verb.add_argument("id")
     verb.add_argument("message", help="the question's Orca message id")

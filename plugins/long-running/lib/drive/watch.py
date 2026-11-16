@@ -15,7 +15,7 @@ import subprocess
 import threading
 import time
 from collections.abc import Callable, Iterator
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -56,7 +56,8 @@ CONFLICTS = "conflicts with its base"
 NEWEST_MAIL = "newest lane mail"
 LANE_MAIL = "lane mail"
 ANSWERS = "answers"
-LANE_WAIT = timedelta(seconds=reads.DRIVE_SECONDS)
+LANE_WAIT = timedelta(seconds=reads.LANE_GIVES_UP)
+ANSWER_BY = timedelta(seconds=reads.ANSWER_BY)
 RELAUNCHES_LOG = "relaunches.log"
 PROOF_TAIL = 20
 PASS_DONE = (
@@ -71,8 +72,10 @@ CUT_OFF = (
     f"its read stopped before it finished, so what it did and printed are unknown, its output in the drive's {READS_LOG}, and no read"
     " runs twice: read what a drive command changed, then ask again if it must run again"
 )
-TAKEN_LATER = "kept {job}'s report for the drive to take now; a refusal comes back to you as a message naming its fix, so end your turn as after any report"
-REPORT_REFUSED = "The drive refused the report you sent with drive job report {job} -, answered as kept before its take ran, and kept none of it: {taken}. Fix what it names and send drive job report {job} - again."
+TAKEN_LATER = "kept for the drive to run now; a refusal comes back to you as a message naming its fix, so carry on, or end your turn as after any report"
+REFUSED_LATER = "The drive refused `{command}`, answered as kept before it ran, and it changed nothing: {taken}. Fix what it names and run it again."
+STILL_RUNNING = "still running on the coordinator's Mac {seconds} s after you asked, so this answer stops your wait before your prompt cache lapses; what it prints comes back to you as a message once it ends, so do not run it again: carry on, or end your turn"
+LATE_ANSWER = "The answer to `{command}`, which ran past {seconds} s on the coordinator's Mac after you asked:\n{answer}"
 LIVE_JOB_STATES = ("running", "waiting")
 SAFEGUARDED = "stopped by its model's safeguards"
 QUIET_LANE = timedelta(minutes=5)
@@ -1948,7 +1951,7 @@ def spawn_reader(name: str, job_id: str, message_id: str) -> None:
 
 
 def answer_read(name: str, job_id: str, message_id: str, moment: datetime) -> tuple[str | None, str | None]:
-    """Run a lane's read here and send its answer in one orca.reply, with why it is no answer when it failed, and why none ran; a `drive job report <job> -` is answered as kept before its take runs, by take_after_reply: no worker waits on it, by still_asked, so no write a lane asked runs after its lane gave up on it, or another reader took it. A reader takes its question by creating its answer file exclusively, holding the answer a reader stopped mid-run leaves and this process's id, then marking it unsent, so no read runs twice, a `drive break-glass` in production included, and none that crashes starts again; it writes its own answer over that file before it sends it, and the relay sends again one Orca refused. An answer past one Orca relay message is written onto the lane's Sprite first and sent as the line naming that file; one the Sprite cannot take is answered with why, as a failed read is."""
+    """Run a lane's read here and send its answer in one orca.reply, with why it is no answer when it failed, and why none ran; a `drive job report <job> -`, `drive pr add` or `drive job set` is answered as kept before it runs, by run_after_reply, and any other read still running ANSWER_BY after its lane asked is answered as still running and its output carried to the lane once it ends, by answer_late, so no lane waits on one past its prompt cache: no worker waits on it, by still_asked, so no write a lane asked runs after its lane gave up on it, or another reader took it. A reader takes its question by creating its answer file exclusively, holding the answer a reader stopped mid-run leaves and this process's id, then marking it unsent, so no read runs twice, a `drive break-glass` in production included, and none that crashes starts again; it writes its own answer over that file before it sends it, and the relay sends again one Orca refused. An answer past one Orca relay message is written onto the lane's Sprite first and sent as the line naming that file; one the Sprite cannot take is answered with why, as a failed read is."""
     data = state.load(name)
     job, message = data["jobs"][job_id], kept_question(name, job_id, message_id)
     if not still_asked(job, message, moment):
@@ -1965,39 +1968,59 @@ def answer_read(name: str, job_id: str, message_id: str, moment: datetime) -> tu
     finally:
         claim.unlink()
     path.with_suffix(".unsent").touch()
-    if (reported := reads.report_taken_later(question)) is not None:
-        return take_after_reply(name, job_id, message_id, question, reported, Path(data["roles"]["coordinator"]["cwd"]))
-    try:
-        said = reads.answer(question, Path(data["roles"]["coordinator"]["cwd"]), name, job_id)
-    except reads.ReadError as error:
-        answer = why = f"{question}: {error}"
-    else:
+    checkout = Path(data["roles"]["coordinator"]["cwd"])
+    if (kept_as := reads.run_after_reply(question)) is not None:
+        return run_after_reply(name, job_id, message_id, question, kept_as, checkout)
+    with ThreadPoolExecutor(1) as pool:
+        running = pool.submit(reads.answer, question, checkout, name, job_id)
         try:
-            answer, why = orca.sprite_answer(said, job, message_id), None
-        except orca.OrcaError as error:
-            why = f"{question.partition("\n")[0]}: its {len(said.encode())}-byte answer, past one Orca relay message, could not go to its Sprite: {error}"
-            answer = orca.exit_line(said) + why
+            said = running.result(max(0.0, (state.parse_time(message["created_at"]) + ANSWER_BY - moment).total_seconds()))
+        except TimeoutError:
+            keep_answer(name, job_id, message_id, reads.lane_exit(0, STILL_RUNNING.format(seconds=reads.ANSWER_BY)), None)
+            return answer_late(name, job_id, job, message_id, question, running)
+        except reads.ReadError as error:
+            return keep_answer(name, job_id, message_id, f"{question}: {error}", f"{question}: {error}")
+    return keep_answer(name, job_id, message_id, *sprite_answered(job, message_id, question, said))
+
+
+def sprite_answered(job: dict, message_id: str, question: str, said: str) -> tuple[str, str | None]:
+    """The answer a lane's question gets for what its read printed, with why it is no answer when the Sprite could not take one past one Orca relay message, by orca.sprite_answer."""
+    try:
+        return orca.sprite_answer(said, job, message_id), None
+    except orca.OrcaError as error:
+        why = f"{question.partition("\n")[0]}: its {len(said.encode())}-byte answer, past one Orca relay message, could not go to its Sprite: {error}"
+        return orca.exit_line(said) + why, why
+
+
+def keep_answer(name: str, job_id: str, message_id: str, answer: str, why: str | None) -> tuple[str, str | None]:
+    """Write the answer to a lane's question over its answer file and send it, by send_answer; the answer and why it is none."""
     kept = {"job": job_id, "reader": None, "answer": answer, "why": why}
-    written = path.with_name(f"{message_id}.{os.getpid()}.answer")
-    written.write_text(json.dumps(kept))
-    os.replace(written, path)
-    send_answer(name, job_id, message_id, kept)
-    return answer, why
-
-
-def take_after_reply(name: str, job_id: str, message_id: str, question: str, reported: str, checkout: Path) -> tuple[str | None, str | None]:
-    """Answer a lane's `drive job report <job> -` as kept the moment its reader takes it, then take the report as drive job report does, its refusals, Jev's and Opus's reads and every lock it waits on included, so the lane waits on none of them; a take that refuses or fails keeps nothing, and its lane is woken with what the take printed, by `drive job resume`, to fix and report again."""
-    kept = {"job": job_id, "reader": None, "answer": reads.lane_exit(0, f"{TAKEN_LATER.format(job=job_id)}: {reported}"), "why": None}
     written = answer_file(name, message_id).with_name(f"{message_id}.{os.getpid()}.answer")
     written.write_text(json.dumps(kept))
     os.replace(written, answer_file(name, message_id))
     send_answer(name, job_id, message_id, kept)
-    taken = reads.answer(question, checkout, name, job_id)
-    if reads.exited(taken) == 0:
-        return taken, None
-    why = REPORT_REFUSED.format(job=job_id, taken=taken.partition("\n")[2].strip())
+    return answer, why
+
+
+def answer_late(name: str, job_id: str, job: dict, message_id: str, question: str, running: Future) -> tuple[str, str | None]:
+    """Carry to its lane, by `drive job resume`, what a read printed once it ends, after its answer told the lane at ANSWER_BY that it still ran, so no Sprite lane waits on one past its prompt cache's life."""
+    try:
+        said, why = sprite_answered(job, f"{message_id}-late", question, running.result())
+    except reads.ReadError as error:
+        said = why = f"{question}: {error}"
+    state.detach(name, ["job", "resume", job_id, LATE_ANSWER.format(command=question.partition("\n")[0].removeprefix("DRIVE ").removeprefix("READ "), seconds=reads.ANSWER_BY, answer=said)], READS_LOG)
+    return said, why
+
+
+def run_after_reply(name: str, job_id: str, message_id: str, question: str, kept_as: str, checkout: Path) -> tuple[str | None, str | None]:
+    """Answer a lane's `drive job report <job> -`, `drive pr add` or `drive job set` as kept the moment its reader takes it, then run it as drive does, its refusals, Jev's and Opus's reads, GitHub reads and every lock it waits on included, so the lane waits on none of them; one that refuses or fails changes nothing, and its lane is woken with what it printed, by `drive job resume`, to fix and run it again."""
+    keep_answer(name, job_id, message_id, reads.lane_exit(0, f"{TAKEN_LATER}: {kept_as}"), None)
+    ran = reads.answer(question, checkout, name, job_id)
+    if reads.exited(ran) == 0:
+        return ran, None
+    why = REFUSED_LATER.format(command=f"drive {question.partition("\n")[0].removeprefix("DRIVE ")}", taken=ran.partition("\n")[2].strip())
     state.detach(name, ["job", "resume", job_id, why], READS_LOG)
-    return taken, why
+    return ran, why
 
 
 def send_answer(name: str, job_id: str, message_id: str, kept: dict) -> orca.OrcaError | None:

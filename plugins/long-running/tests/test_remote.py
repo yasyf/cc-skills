@@ -6441,32 +6441,60 @@ def test_a_read_still_running_starts_no_second_reader_and_its_reader_sends_its_a
     watching = watch.Watcher(remote, offset=state.events_end(remote))
     assert [staged(watch.lane_lines, watching, T0 + timedelta(seconds=s)) for s in (0, 5)] == [[], []]
     assert (started, [args for args in replies if args[0] == "reply"]) == (["relay_drive"], [])
-    sent = [("reply", "--id", "relay_drive", "--run", RUN, "--body", reads.lane_exit(0, f"{watch.TAKEN_LATER.format(job='j1')}: READY x"))]
+    sent = [("reply", "--id", "relay_drive", "--run", RUN, "--body", reads.lane_exit(0, f"{watch.TAKEN_LATER}: READY x"))]
     watch.answer_read(remote, "j1", "relay_drive", T0)
     assert [args for args in replies if args[0] == "reply"] == sent
     assert staged(watch.lane_lines, watching, T0 + timedelta(seconds=10)) == []
     assert (started, [args for args in replies if args[0] == "reply"], unsent(remote)) == (["relay_drive"], sent, [])
 
 
-@pytest.mark.parametrize(("status", "woken"), [(0, False), (2, True)], ids=["a taken report wakes nobody", "a refused report wakes its lane"])
-def test_a_lanes_report_is_answered_as_kept_before_its_take_runs_and_a_refused_take_wakes_its_lane(status: int, woken: bool, remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    question = 'DRIVE job report j1 -\n{"files": {}, "stdin": "PUSHED https://github.com/yasyf/demo/pull/9\\nPR: x\\n"}'
-    state.keep_reply(remote, "j1", message("question", question, id="relay_report"))
+@pytest.mark.parametrize(("status", "woken"), [(0, False), (2, True)], ids=["a run that takes wakes nobody", "a refused run wakes its lane"])
+@pytest.mark.parametrize(
+    ("question", "kept_as"),
+    [
+        ('DRIVE job report j1 -\n{"files": {}, "stdin": "PUSHED https://github.com/yasyf/demo/pull/9\\nPR: x\\n"}', "PUSHED https://github.com/yasyf/demo/pull/9"),
+        ('DRIVE pr add https://github.com/yasyf/demo/pull/9 --job j1\n{"files": {}}', "drive pr add https://github.com/yasyf/demo/pull/9 --job j1"),
+        ('DRIVE job set j1 --repro /tmp/j1/prove.sh\n{"files": {}}', "drive job set j1 --repro /tmp/j1/prove.sh"),
+    ],
+    ids=["job report", "pr add", "job set"],
+)
+def test_a_lanes_write_is_answered_as_kept_before_it_runs_and_a_refused_one_wakes_its_lane(question: str, kept_as: str, status: int, woken: bool, remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    state.keep_reply(remote, "j1", message("question", question, id="relay_write"))
     replies, detached = [], []
     refusal = "drive: j1: refused, nothing kept: name each such piece on an UNBUILT: line"
 
-    def take(asked: str, root: Path, drive: str, job_id: str) -> str:
-        assert [args[2] for args in replies if args[0] == "reply"] == ["relay_report"]
-        return reads.lane_exit(status, refusal if status else f"kept {job_id}'s report")
+    def run_it(asked: str, root: Path, drive: str, job_id: str) -> str:
+        assert [args[2] for args in replies if args[0] == "reply"] == ["relay_write"]
+        return reads.lane_exit(status, refusal if status else "done")
 
-    monkeypatch.setattr(reads, "answer", take)
+    monkeypatch.setattr(reads, "answer", run_it)
     monkeypatch.setattr(orca, "call", lambda *args: replies.append(args) or {})
     monkeypatch.setattr(state, "detach", lambda name, args, log: detached.append(args) or 1)
-    said, why = watch.answer_read(remote, "j1", "relay_report", T0)
-    kept = reads.lane_exit(0, f"{watch.TAKEN_LATER.format(job='j1')}: PUSHED https://github.com/yasyf/demo/pull/9")
-    assert [args[6] for args in replies if args[0] == "reply"] == [kept]
-    assert detached == ([["job", "resume", "j1", watch.REPORT_REFUSED.format(job="j1", taken=refusal)]] if woken else [])
+    said, why = watch.answer_read(remote, "j1", "relay_write", T0)
+    assert [args[6] for args in replies if args[0] == "reply"] == [reads.lane_exit(0, f"{watch.TAKEN_LATER}: {kept_as}")]
+    command = f"drive {question.partition(chr(10))[0].removeprefix('DRIVE ')}"
+    assert detached == ([["job", "resume", "j1", watch.REFUSED_LATER.format(command=command, taken=refusal)]] if woken else [])
     assert (why is not None, reads.exited(said)) == (woken, status)
+    assert unsent(remote) == []
+
+
+def test_a_read_still_running_four_minutes_after_its_lane_asked_is_answered_as_running_and_its_output_reaches_the_lane_once_it_ends(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    asked = state.stamp(T0)
+    state.keep_reply(remote, "j1", message("question", 'DRIVE fde-scan -- --symbol memory::flag\n{"files": {}}', id="relay_slow", created_at=asked))
+    replies, detached = [], []
+    ended = threading.Event()
+
+    def slow(question: str, root: Path, drive: str, job_id: str) -> str:
+        assert ended.wait(30)
+        return reads.lane_exit(0, "3 callers")
+
+    monkeypatch.setattr(reads, "answer", slow)
+    monkeypatch.setattr(orca, "call", lambda *args: replies.append(args) or ended.set() or {})
+    monkeypatch.setattr(state, "detach", lambda name, args, log: detached.append(args) or 1)
+    assert watch.answer_read(remote, "j1", "relay_slow", T0 + watch.ANSWER_BY) == (reads.lane_exit(0, "3 callers"), None)
+    assert [args[6] for args in replies if args[0] == "reply"] == [reads.lane_exit(0, watch.STILL_RUNNING.format(seconds=reads.ANSWER_BY))]
+    late = watch.LATE_ANSWER.format(command="fde-scan -- --symbol memory::flag", seconds=reads.ANSWER_BY, answer=reads.lane_exit(0, "3 callers"))
+    assert detached == [["job", "resume", "j1", late]]
     assert unsent(remote) == []
 
 
