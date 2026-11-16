@@ -178,6 +178,9 @@ class FakeCcRemote(orca_gc.CcRemote):
         self.checkouts = checkouts or {}
         self.refusal = refusal
         self.destroyed: list[str] = []
+        self.state = Path(os.devnull) / "no-cc-remote-state"
+        self.listed = True
+        self.forgotten: list[str] = []
 
     def task(self, workspace: str) -> tuple[dict, orca_gc.Sprite] | None:
         return next((({"worktreeId": worktree, "terminal": terminal}, sprite) for (worktree, terminal), sprite in self.hosted.items() if sprite.workspace == workspace), None)
@@ -191,6 +194,12 @@ class FakeCcRemote(orca_gc.CcRemote):
     def destroy(self, sprite: orca_gc.Sprite) -> str | None:
         self.destroyed.append(sprite.workspace)
         return self.refusal
+
+    def exists(self, sprite: orca_gc.Sprite) -> bool:
+        return self.listed
+
+    def forget(self, sprite: orca_gc.Sprite) -> None:
+        self.forgotten.append(sprite.workspace)
 
 
 class StateCcRemote(FakeCcRemote):
@@ -1214,6 +1223,13 @@ class DestroyTest(unittest.TestCase):
         with self.assertRaisesRegex(orca_gc.Unsaved, "^GitHub could not answer"):
             orca_gc.destroy("pool-abc", "demo-j1", refused, unverified=True)
         self.assertEqual(refused.destroyed, [])
+
+    def test_destroy_drops_the_records_of_a_sprite_it_cannot_read_once_the_sprite_list_no_longer_has_it(self):
+        unread = orca_gc.Unreachable("ssh to pool-abc could not read /home/sprite/repo: cc-remote step on pool-abc gave no answer in 240 s")
+        gone = self.hosting(unread)
+        gone.listed = False
+        self.assertEqual(orca_gc.destroy("pool-abc", "demo-j1", gone), f"Sprite pool-abc no longer exists, so nothing on it is left to read: dropped its cc-remote records ({unread})")
+        self.assertEqual((gone.destroyed, gone.forgotten), ([], ["pool-abc"]))
 
     def test_destroy_of_a_workspace_no_task_records_fails_naming_that_it_destroyed_nothing(self):
         cc_remote = self.hosting(checkout(SPRITE.root))

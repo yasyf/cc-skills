@@ -709,9 +709,20 @@ class CcRemote:
         (KEPT / sprite.workspace).unlink(missing_ok=True)
         return None
 
-    def revive(self, sprite: Sprite) -> str | None:
+    def org(self, sprite: Sprite) -> tuple[str, ...]:
         org = SPRITE_ORG.search(Path(sprite.ssh_config).read_text()) if sprite.ssh_config else CONFIG_ORG.search(Path(os.environ["CC_REMOTE_CONFIG"]).read_text())
-        named = (*(("-o", org[1]) if org else ()), "-s", sprite.workspace)
+        return ("-o", org[1]) if org else ()
+
+    def exists(self, sprite: Sprite) -> bool:
+        listed = subprocess.run([SPRITE_CLI, "list", *self.org(sprite)], capture_output=True, text=True, check=True, timeout=REVIVE_S)
+        return sprite.workspace in {line.split()[0] for line in listed.stdout.splitlines() if line.strip()}
+
+    def forget(self, sprite: Sprite) -> None:
+        for record in (self.state / "workspaces" / f"{sprite.workspace}.json", self.state / "orca" / f"{sprite.workspace}.json", KEPT / sprite.workspace):
+            record.unlink(missing_ok=True)
+
+    def revive(self, sprite: Sprite) -> str | None:
+        named = (*self.org(sprite), "-s", sprite.workspace)
         try:
             made = subprocess.run([SPRITE_CLI, "checkpoint", "create", *named], capture_output=True, text=True, timeout=REVIVE_S)
             if not (point := CHECKPOINTED.search(made.stdout)):
@@ -842,6 +853,9 @@ def destroy(workspace: str, lane: str, cc_remote: CcRemote, unverified: bool = F
             if isinstance(checkout, str):
                 raise (Unread if isinstance(checkout, Unreachable) else Unsaved)(checkout)
         except Unread as unread:
+            if not cc_remote.exists(sprite):
+                cc_remote.forget(sprite)
+                return f"Sprite {workspace} no longer exists, so nothing on it is left to read: dropped its cc-remote records ({unread})"
             if not unverified:
                 raise
             if refusal := cc_remote.destroy(sprite):
