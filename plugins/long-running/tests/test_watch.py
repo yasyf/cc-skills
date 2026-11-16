@@ -4770,6 +4770,46 @@ def test_a_builder_waiting_its_turn_for_a_slot_is_no_orphan_and_the_watch_frees_
     assert place.waiting_builders(state.load(demo)) == ["j9"]
 
 
+def test_a_staging_test_whose_freeze_gave_way_to_a_staging_release_for_production_is_told_once_to_rerun_its_slots_lease_starting_again(
+    demo: str, monkeypatch: pytest.MonkeyPatch, freezes: list[dict]
+) -> None:
+    serve(monkeypatch, {})
+    live_reads(monkeypatch)
+    launched = launches(monkeypatch)
+    build = "https://buildkite.com/forge/release/builds/16950"
+    soak = "staging:api/plat-usw2-staging@044e8552b694"
+    with state.edit(demo) as data:
+        data["prs"].clear()
+        data["jobs"]["j1"].update(state="waiting", said=f"WAITING {soak}", waits=[soak], prs=[])
+        data["jobs"]["j2"] = job(state="waiting", said=f"WAITING {soak}", waits=[soak])
+        data["jobs"]["j3"] = job(state="waiting", said="WAITING release", release_build=build)
+        data["orders"]["o1"]["jobs"] += ["j2", "j3"]
+        state.slot_claim(data, state.STAGING_ENV, "j1", 30, [], None, T0 - timedelta(minutes=20))
+    gave = {"id": "bypassed-0190", "kind": "bypassed", "starter": "root@example.com", "at": "2026-11-15T23:10:00Z", "picks": ["platform"], "build": "0190", "forProduction": True, "url": build}
+    text = "freeze f8erwzvg6c: api/plat-usw2-staging until Nov 15, 5:00 PM for fork cases, set by Ada Lovelace. Staging runs only for its holders."
+    freezes.append({"freeze": {"id": "f8erwzvg6c", "holders": [f"{demo}/j1", f"{demo}/j2", f"{demo}/j3"], "notices": [{**gave, "id": "bypassed-0189", "forProduction": False}, gave]}, "text": text})
+    watching = watcher(demo)
+    reason = f"freeze f8erwzvg6c it holds gave way to the staging release for production {build}"
+    launch = "nothing else holds it, and the watch now launches it with the texts it holds: start no agent for it"
+    assert [line for line in watch.run_pass(watching, T0) if line.startswith("FREE ")] == [f"FREE j1 o1: {reason}, {launch}", f"FREE j2 o1: {reason}, {launch}"]
+    data = state.load(demo)
+    leased, unleased = (watch.gave_way_text(freezes[0]["freeze"], gave, held) for held in (True, False))
+    assert [[kept["words"] for kept in data["jobs"][job_id]["undelivered"]] for job_id in ("j1", "j2", "j3")] == [[leased], [unleased], []]
+    assert leased.startswith(f"Release freeze f8erwzvg6c, which names you its holder on staging, gave way at `2026-11-15T23:10:00Z` to root@example.com's staging release for production of platform, {build},")
+    assert f"return `WAITING {build}`, and again on a wake that finds that build stopped at an approve step, until it passed, failed or was canceled." in leased
+    assert leased.endswith("lease started again at the give-way, so then do the steps of your GO, or of your RIDE on another pass's cut, again from the cut on and run every case.")
+    assert "`<ci> release unfreeze f8erwzvg6c`" in unleased and unleased.endswith("claim the staging slot again with `drive slot claim`, whose GO runs every case again.")
+    holder = data["slots"][state.STAGING_ENV]["holder"]
+    assert (holder["job"], holder["since"], holder["until"], holder["extended"]) == ("j1", state.stamp(T0), state.stamp(T0 + state.CLAIM_WAIT + timedelta(minutes=30)), False)
+    assert [(data["jobs"][job_id]["waits"], data["jobs"][job_id]["gave_way"]) for job_id in ("j1", "j2", "j3")] == [([], ["f8erwzvg6c/bypassed-0190"])] * 2 + [([], [])]
+    assert ["job", "launch", "j1"] in launched and ["job", "launch", "j2"] in launched
+    with state.edit(demo) as data:
+        for job_id in ("j1", "j2"):
+            data["jobs"][job_id]["undelivered"].clear()
+    assert not [line for line in watch.run_pass(watching, T0 + timedelta(minutes=2)) if line.startswith("FREE ")]
+    assert [state.load(demo)["jobs"][job_id]["undelivered"] for job_id in ("j1", "j2")] == [[], []]
+
+
 def live_reads(monkeypatch: pytest.MonkeyPatch, serving: list[dict] | None = None, carried: set[str] | None = None) -> list[list[str]]:
     calls = []
 

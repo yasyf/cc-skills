@@ -127,6 +127,11 @@ def leased_env(words: list[str]) -> str | None:
     return envs[0] if len(envs) == 1 and envs[0] in REHEARSAL_CLUSTERS else None
 
 
+def gives_way(words: list[str]) -> bool:
+    """Whether a `ci release start` is the staging release of a production release, `--for-production`, which goes through every staging freeze and every staging slot a test holds, by his pick 18c2fda, "Every staging freeze … gives way to a staging release started for production; its thread says so"."""
+    return "--for-production" in words
+
+
 REHEARSAL_SAID = '"You never have to ask for sandbox"'
 UNSURE_READING = (
     "When Opus is unsure whether his words order it, or gave no reading, the top coordinator's own reading starts it: from its"

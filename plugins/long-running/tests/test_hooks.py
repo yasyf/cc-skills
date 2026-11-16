@@ -1441,6 +1441,22 @@ def test_a_release_starts_from_the_drives_checkout_at_its_default_branchs_head_n
     assert started.read_text() == "release start platform runtime-api-next restate --order 5419ffd --json\n"
 
 
+def test_a_staging_release_for_production_starts_at_once_through_a_staging_slot_a_test_holds_and_leaves_that_slot_to_the_test(
+    demo: str, run: Run, no_calls: list[list[str]], recorded: Answers, jev: Jev, release_starts: list[list[str]]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "release the clock")
+    run("job", "add", "builder", "--order", "o1", "--goal", "test the clock on staging")
+    released(demo, f"echo '{STARTED}'")
+    recorded.shown = {CLOCK_PICK["id"][:7]: CLOCK_PICK}
+    jev.picks("5419ffd")
+    with state.edit(demo) as data:
+        state.slot_claim(data, state.STAGING_ENV, "j1", 30, [], None, state.now())
+    start = f"{J2666_START} --for-production --env {state.STAGING_ENV}"
+    assert run("job", "add", "builder", "--order", "o1", "--goal", "release the merged clock", "--release", start)[1].splitlines()[:2] == ["j2", starting(demo, "j2", start)]
+    slot = state.load(demo)["slots"][state.STAGING_ENV]
+    assert (slot["holder"]["job"], slot["queue"]) == ("j1", [])
+
+
 MANUAL_START = "tools/ci release start --stack sandsql/plat-usw2-sandbox --commit b79714bb452c562078e4446680106140f721e8ed --manual --emergency --order 5419ffd"
 MANUAL_BUILD = "https://buildkite.com/forge/release/builds/16621"
 MANUAL_SAID = (
