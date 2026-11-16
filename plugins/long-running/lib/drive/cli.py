@@ -902,7 +902,7 @@ def quoted_parts(parts: Iterable[str]) -> str:
 
 
 def change_parts(name: str, data: dict, order_id: str, added: list[str], dropped: list[str]) -> list[str]:
-    """Add and take off an order's parts one name a flag, so no call retypes a part it leaves alone, and each part it keeps keeps its posted mark, design and the jobs naming it, a dropped one leaving every job and PR too, by state.drop_part, a dropped `staging test of #N before it lands` part letting each PR it names merge before that test, by state.merge_first: an add is refused for a name the order holds, a drop for a name it does not hold, for its every part, which a close takes off, and for a change a design listed that no builder delivered, which only his answer drops, unless its design's newest DESIGN no longer lists it and no work on it began, by state.unlisted_changes. A line for each live job a drop left with no part, which it stopped, naming each text the stop dropped."""
+    """Add and take off an order's parts one name a flag, so no call retypes a part it leaves alone, and each part it keeps keeps its posted mark, design and the jobs naming it, a dropped one leaving every job and PR too, by state.drop_part: an add is refused for a name the order holds, a drop for a name it does not hold, for its every part, which a close takes off, for a `staging test of #N before it lands` part naming an open PR, which only his answer lets merge before that test, by his words a9c9edc, and for a change a design listed that no builder delivered, which only his answer drops, unless its design's newest DESIGN no longer lists it and no work on it began, by state.unlisted_changes. A line for each live job a drop left with no part, which it stopped, naming each text the stop dropped."""
     parts = data["orders"][order_id]["parts"]
     if held := [part for part in added if part in parts]:
         raise DriveError(f"{order_id}: refused, its parts stay as they are: it holds {quoted_parts(held)} already, so --add-part adds none; name it as it stands with --part")
@@ -910,6 +910,11 @@ def change_parts(name: str, data: dict, order_id: str, added: list[str], dropped
         pick_parts(order_id, data["orders"][order_id], dropped)
     if not added and set(parts) <= set(dropped):
         raise DriveError(f"{order_id}: refused, its parts stay as they are: --drop-part takes off its every part, which closes it: drive order set {order_id} --state done or dropped")
+    if tested := [part for part in dropped if state.staged_open(data, part)]:
+        raise DriveError(
+            f"{order_id}: refused, its parts stay as they are: --drop-part takes off {quoted_parts(tested)}, the staging test {', '.join(key for part in tested for key in state.staged_open(data, part))} waits on before it merges,"
+            f" which only his answer lifts, by his words {state.TESTED_FIRST_RULING}: drive answer <his answer> --dropped {order_id}:<the part>"
+        )
     if designed := [
         f'{json.dumps(part, ensure_ascii=False)} of {design}\'s design'
         for part in dropped
@@ -923,8 +928,6 @@ def change_parts(name: str, data: dict, order_id: str, added: list[str], dropped
     state.split_research(data, order_id, added, dropped)
     parts |= {part: state.new_part() for part in added}
     stopped = {job_id: held for part in dropped for job_id, held in state.drop_part(data, order_id, part, f"drive order set {order_id} --drop-part took off every part it delivered")[1].items()}
-    for part in dropped:
-        state.merge_first(data, order_id, part, "drive order set --drop-part took its staging test off its order")
     return [superseded.stopped_line(f"{job_id} stopped, left with no part: end its agent, or its lane with drive job end {job_id}", held) for job_id, held in stopped.items()]
 
 
@@ -7051,7 +7054,7 @@ def parser() -> argparse.ArgumentParser:
         default=[],
         type=str.strip,
         metavar="PART",
-        help="a part to take off, one name a flag, each other part staying as it is, and off every job and PR, stopping each live job left with no part; refused for a name the order does not hold, for its every part, which a close takes off, and for a change a design listed that no builder delivered, which only his answer's --dropped takes off, unless its design's newest DESIGN no longer lists it and no builder an agent or lane took or open PR carries it",
+        help="a part to take off, one name a flag, each other part staying as it is, and off every job and PR, stopping each live job left with no part; refused for a name the order does not hold, for its every part, which a close takes off, for a `staging test of #N before it lands` part naming an open PR, which only his answer's --dropped lets merge first, and for a change a design listed that no builder delivered, which only his answer's --dropped takes off, unless its design's newest DESIGN no longer lists it and no builder an agent or lane took or open PR carries it",
     )
     reported = verb.add_mutually_exclusive_group()
     reported.add_argument("--reporter", metavar="LINK", help=REPORTER_HELP)

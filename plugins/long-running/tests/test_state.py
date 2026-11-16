@@ -1970,6 +1970,27 @@ def test_a_staging_test_parts_full_pass_holds_only_while_its_tester_still_holds_
     ]
 
 
+
+@pytest.mark.parametrize(
+    ("cases", "tap"),
+    [
+        ("CASE a rollback refused: pass\nCASE a write lands: not exercised: staging signs in as one account\n", None),
+        ("CASE a rollback refused: pass\nCASE a write lands: pass\n", "Approve"),
+    ],
+)
+def test_a_staging_pass_leaving_a_case_not_exercised_takes_back_his_older_approve_so_his_card_asks_again_as_56963_needed_while_a_full_pass_keeps_it(
+    state_root: Path, cases: str, tap: str | None
+) -> None:
+    data = staging_drive("j1")
+    key = "Forge-AI/monorepo#42"
+    data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {"waits": [f"o1:{STAGING}"], "tap": state.new_tap("Approve", "abc", "card", at="2026-11-14T06:00:00-08:00")}
+    staging_return(data, "j1", "DONE ran the staging test of #42 on cut 1", cases)
+    pr = data["prs"][key]
+    assert ((pr["tap"] or {}).get("label"), state.cleared(pr)) == (tap, tap == "Approve")
+    if not tap:
+        assert pr["fundamental"] == "staging did not exercise a write lands after your Approve, so only an Approve you give now lands it without them"
+
+
 def git_head(clone: Path, *args: str) -> str:
     subprocess.run(["git", "-C", str(clone), "-c", "user.name=t", "-c", "user.email=t@t", *args], check=True, capture_output=True)
     return subprocess.run(["git", "-C", str(clone), "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()

@@ -7489,6 +7489,20 @@ def test_a_dequeue_stack_enqueue_fails_on_its_own_keeps_the_pr_queued_says_so_as
     assert landers == [("--dequeue", KEY), ("--dequeue", KEY)]
 
 
+def test_a_dequeue_trunk_answers_not_queued_for_as_56900s_after_its_tests_passed_took_nothing_out_says_so_and_the_next_pass_dequeues_again(
+    demo: str, tmp_path: Path, landers: list[tuple[str, ...]]
+) -> None:
+    on_main(tmp_path, demo, '#!/bin/sh\necho "#42 NOT_QUEUED"\nexit 2\n')
+    queued(demo)
+    assert land.halt(demo, [KEY], NO_CARDS) == [KEY]
+    failed = f"{land.NO_DEQUEUE} {KEY} out of Trunk's merge queue: #42 NOT_QUEUED; its whole output is in {state.drive_dir(demo) / land.LOG}"
+    assert land.dequeue(demo, [KEY], f"{land.WAITED}: {KEY} waits on o1:staging test of #42 before it lands") == failed
+    lander = state.load(demo)["prs"][KEY]["lander"]
+    assert (lander["outcome"], "dequeue" in lander) == (land.QUEUED, False)
+    assert land.halt(demo, [KEY], NO_CARDS) == [KEY]
+    assert landers == [("--dequeue", KEY), ("--dequeue", KEY)]
+
+
 @pytest.mark.parametrize(("cards", "first"), [(ONE_CARD, []), (TWO_CARDS, [(KEY,)])])
 def test_a_pr_above_waiting_on_an_open_pr_holds_the_bottom_of_its_own_card_and_no_other_card_and_lands_once_that_pr_merges(
     demo: str, landers: list[tuple[str, ...]], cards: list[list[str]], first: list[tuple[str, ...]]
@@ -7720,7 +7734,7 @@ def test_a_lander_lands_no_approved_pr_whose_paths_at_its_head_reach_a_component
     assert (now.name, now.owner, now.why) == ("red", stage.BUILDER, f"it waits on {part}, which no staging tester runs: return PUSHED with {state.STAGING_CASES}")
 
 
-def test_a_lander_puts_an_approved_pr_reaching_only_platy_on_a_tester_asking_his_exception_after_a_dry_run_from_this_mac_and_lands_it_once_the_test_is_dropped(
+def test_a_lander_puts_an_approved_pr_reaching_only_platy_on_a_tester_asking_his_exception_after_a_dry_run_from_this_mac_and_lands_it_once_his_answer_drops_the_test(
     demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     approve(demo, KEY)
@@ -7735,12 +7749,18 @@ def test_a_lander_puts_an_approved_pr_reaching_only_platy_on_a_tester_asking_his
     [(_, tester)] = state.part_testers(data, "o1", part)
     assert (state.EXCEPTED.match(tester["goal"])["components"], cli.mac_lines(demo, tester, {"mac": None, "release": None})[0]) == ("platy", cli.EXCEPTION_MAC)
     assert view.staging(data, KEY) == "Not on staging: staging has no copy of platy, so it lands on your exception once you read the release dry run's preview of each"
-    assert cli.main(["order", "set", "o1", "--drop-part", part, "--drive", demo]) == 0
+    dropped_by_answer(demo, part)
     assert land.run(demo, [KEY]) == land.QUEUED
 
 
-def test_a_pr_whose_staging_test_part_drive_order_set_drops_lands_on_his_approve_at_every_head_whatever_its_builders_staging_line_says(
-    demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+def dropped_by_answer(demo: str, part: str) -> None:
+    with state.edit(demo) as data:
+        data["answers"]["a1"] = {"words": "merge it, then test it", "link": f"{CARD}9", "at": state.stamp(T0), "said": state.stamp(T0), "cards": {}, "jobs": {}}
+        superseded.drop(data, "a1", "o1", part)
+
+
+def test_drive_order_set_refuses_to_drop_an_open_prs_staging_test_and_only_his_answer_lets_it_merge_first_at_every_head(
+    demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     approve(demo, KEY)
     with state.edit(demo) as data:
@@ -7751,18 +7771,40 @@ def test_a_pr_whose_staging_test_part_drive_order_set_drops_lands_on_his_approve
     part = state.STAGING_TEST.format(number=42)
     held = f"{land.WAITED}: {KEY} waits on its staging test before it lands, since its paths at its head reach a component staging runs"
     assert land.run(demo, [KEY]) == held
-    assert cli.main(["order", "set", "o1", "--drop-part", part, "--drive", demo]) == 0
+    assert cli.main(["order", "set", "o1", "--drop-part", part, "--drive", demo]) == 2
+    assert f"the staging test {KEY} waits on before it merges, which only his answer lifts, by his words {state.TESTED_FIRST_RULING}: drive answer <his answer> --dropped o1:<the part>" in capsys.readouterr().err
+    assert land.run(demo, [KEY]) == f"{land.WAITED}: its staging test o1:{part} has not passed"
+    dropped_by_answer(demo, part)
     assert land.run(demo, [KEY]) == land.QUEUED
     with state.edit(demo) as data:
         data["prs"][KEY]["head"] = "ccccccc333"
+        state.staging_testers(data, "j1", "PUSHED https://github.com/Forge-AI/monorepo/pull/42\nSTAGING: none: it changes only the docs\n")
     assert land.run(demo, [KEY]) == land.QUEUED
     data = state.load(demo)
     assert (data["prs"][KEY]["waits"], data["prs"][KEY]["reached"], part in data["orders"]["o1"]["parts"], state.markable(data, KEY, "ccccccc333")) == ([], False, False, False)
-    assert view.staging(data, KEY) == "Not on staging before it merges: drive order set --drop-part took its staging test off its order, so it is tested on staging after its merge"
+    assert view.staging(data, KEY) == "Not on staging before it merges: his answer took its staging test off its order, so it is tested on staging after its merge"
+
+
+def test_a_builders_staging_line_naming_cases_puts_its_pr_on_its_staging_test_and_wait_in_the_same_save_even_after_his_answer_freed_it_as_56896_needed(demo: str) -> None:
+    part = state.STAGING_TEST.format(number=42)
     with state.edit(demo) as data:
-        tested = state.staging_testers(data, "j1", "PUSHED https://github.com/Forge-AI/monorepo/pull/42\nSTAGING: #42 deploy the api to staging and run its smoke\n")
-        state.staging_testers(data, "j1", "PUSHED https://github.com/Forge-AI/monorepo/pull/42\nSTAGING: none: it changes only the docs\n")
-    assert (tested, land.run(demo, [KEY]), state.load(demo)["prs"][KEY]["waits"]) == ([], land.QUEUED, [])
+        data["orders"]["o1"]["parts"][part] = state.new_part()
+        data["prs"][KEY]["waits"] = [f"o1:{part}"]
+    dropped_by_answer(demo, part)
+    with state.edit(demo) as data:
+        [tester] = state.staging_testers(data, "j1", "PUSHED https://github.com/Forge-AI/monorepo/pull/42\nSTAGING: #42 replay the writer log on a replica and read through it\n")
+    data = state.load(demo)
+    assert (data["prs"][KEY]["waits"], data["prs"][KEY]["unstaged"], data["jobs"][tester]["parts"], data["jobs"][tester]["goal"]) == ([f"o1:{part}"], None, [part], "replay the writer log on a replica and read through it")
+
+
+def test_a_load_puts_back_on_its_staging_test_each_open_pr_an_older_drop_part_let_merge_first_and_leaves_his_answers_lift(demo: str) -> None:
+    with state.edit(demo) as data:
+        data["prs"][KEY] |= {"paths_at": "abc", "unstaged": {"why": "drive order set --drop-part took its staging test off its order", "head": "abc", "merges_first": True}}
+        data["prs"]["Forge-AI/monorepo#43"] = data["prs"][KEY] | {"unstaged": {"why": "his answer took its staging test off its order", "head": "abc", "merges_first": True}}
+        data["untested_restaged"] = False
+    data = state.load(demo)
+    assert (data["prs"][KEY]["unstaged"], data["prs"][KEY]["paths_at"], state.merges_first_lift(data["prs"]["Forge-AI/monorepo#43"])) == (None, None, True)
+    assert KEY in state.unmarked(data)
 
 
 @pytest.mark.parametrize("code", [0, 3])
