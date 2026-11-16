@@ -35,6 +35,7 @@ LANE_SECTIONS = ("## On a Sprite\n", "## Waits and reads\n")
 LANE_ENV = f"{state.REMOTE_LANE_ENV}=1"
 LAUNCH_SECONDS = 1800
 RECLAIM_SECONDS = 300
+WAKE_SECONDS = 90
 MAIL_LIMIT = 100
 FENCED = "consumer_fenced"
 UNREACHABLE = "remote_runtime_unavailable"
@@ -825,12 +826,12 @@ def lane_of(drive: str, job_id: str, job: dict) -> str:
     return job.get("lane") or lane_name(drive, job_id)
 
 
-def reclaimer(checkout: Path, *args: str) -> str:
-    """The reclaimer's output, run by grouped; OrcaError naming its last line when it fails, or naming RECLAIM_SECONDS once it runs past them and grouped killed it with every process it started."""
+def reclaimer(checkout: Path, *args: str, seconds: int = RECLAIM_SECONDS) -> str:
+    """The reclaimer's output, run by grouped; OrcaError naming its last line when it fails, or naming seconds once it runs past them and grouped killed it with every process it started."""
     try:
-        done = grouped([tool(RECLAIMER), *args], cwd=checkout, timeout=RECLAIM_SECONDS)
+        done = grouped([tool(RECLAIMER), *args], cwd=checkout, timeout=seconds)
     except subprocess.TimeoutExpired:
-        raise OrcaError(f"{RECLAIMER} {args[0]} ran past {RECLAIM_SECONDS} s, so it was killed with every process it started") from None
+        raise OrcaError(f"{RECLAIMER} {args[0]} ran past {seconds} s, so it was killed with every process it started") from None
     if done.returncode:
         said = done.stderr.strip().splitlines()
         raise OrcaError(f"{RECLAIMER} exited {done.returncode}: {said[-1] if said else 'no output'}")
@@ -1029,9 +1030,9 @@ def woken(drive: str, job_id: str, job: dict, unreached: str) -> LaneEnd | None:
     """Wake the Sprite of a lane Orca cannot reach with the reclaimer's --wake from the drive's checkout, which reopens its forward and adopts the Orca runtime a cold boot started, then read the lane again, saying each step by state.said: None when its worker takes messages again, its end when its worker finished with its terminal held, and else what its Sprite says over cc-remote's ssh: the refusal again when something listens on the port Orca's runtime serves on there, since Orca then fails on this Mac and no lane restarts for it, and otherwise an unfit end, which restarts the lane on a fresh Sprite, by his pick "Wake and restart in place: on an unreachable lane the watch wakes its Sprite and restarts the lane there, else on a fresh Sprite": when it answers with nothing listening there, as when a full disk crash-loops that runtime, which saves the lane first, and when it does not answer, as a Sprite whose memory thrashes until its sshd sends no banner does, which restart asks nothing more over ssh and keeps, since every later step there, a launcher's prepare --existing included, waits on that same silence. A Sprite that does not answer ssh is read through the Sprites file API too, by transcript_written, since a worker can write its transcript and relay questions for 40 minutes after its Sprite's sshd sends no banner: while a transcript there was written under QUIET_SECONDS ago its worker reads as at work, so it raises an OrcaError naming that write and nothing restarts, and only a Sprite whose transcripts stayed unwritten that long, or that the file API cannot list, ends unfit. Every end it comes to but a finished worker's is kept on the lane's death by died, so the wake runs once per death."""
     workspace = job["workspace"]
     root = checkout(drive, state.load(drive)["roles"]["coordinator"]["cwd"])
-    state.said(job_id, f"Orca cannot reach its lane, so it wakes Sprite {workspace} with {RECLAIMER} --wake, for at most {RECLAIM_SECONDS} s")
+    state.said(job_id, f"Orca cannot reach its lane, so it wakes Sprite {workspace} with {RECLAIMER} --wake, for at most {WAKE_SECONDS} s")
     try:
-        reclaimer(root, "--wake", workspace)
+        reclaimer(root, "--wake", workspace, seconds=WAKE_SECONDS)
         end = shown_end(job, worker(job["dispatch"]))
     except OrcaError as error:
         unreached = f"{unreached}, and its wake read {error}"

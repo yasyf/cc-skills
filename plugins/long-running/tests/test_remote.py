@@ -2710,7 +2710,8 @@ def unreachable_lane(remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     wakes, launches = [], []
     down = refused("remote_runtime_unavailable", f"Could not connect to the remote Orca runtime at ws://127.0.0.1:{port}")
 
-    def reclaimer(checkout: Path, *args: str) -> str:
+    def reclaimer(checkout: Path, *args: str, seconds: int = orca.RECLAIM_SECONDS) -> str:
+        assert seconds == orca.WAKE_SECONDS
         wakes.append(args)
         if after_wake is None:
             raise orca.OrcaError(f"orca-reclaim.py exited 1: {NO_WAKE}")
@@ -4435,7 +4436,7 @@ def test_a_resume_that_takes_the_jobs_lock_after_the_job_stopped_reads_wakes_sen
 
     monkeypatch.setattr(state, "job_locked", stopped_on_the_way)
     monkeypatch.setattr(orca, "worker", lambda dispatch: pytest.fail("a stopped job's lane is never read"))
-    monkeypatch.setattr(orca, "reclaimer", lambda *args: pytest.fail("a stopped job's Sprite is never woken"))
+    monkeypatch.setattr(orca, "reclaimer", lambda *args, **kwargs: pytest.fail("a stopped job's Sprite is never woken"))
     monkeypatch.setattr(orca, "call", lambda *args: pytest.fail(f"a stopped job is sent nothing: {args}"))
     monkeypatch.setattr(orca, "launch", lambda *args: pytest.fail("a resume starts no worker for a stopped job"))
     assert cli.main(["job", "resume", "j1", *filter(None, [text])]) == 2
@@ -4452,7 +4453,7 @@ def test_a_launch_of_a_stopped_job_reads_wakes_writes_and_starts_nothing_naming_
         data["jobs"]["j1"].update(state="stopped", said="handed to j2", workspace="pool-txgdh6qfdwhn72iy")
     brief = state.load(remote)["jobs"]["j1"].get("brief")
     monkeypatch.setattr(orca, "worker", lambda dispatch: pytest.fail("a stopped job's lane is never read"))
-    monkeypatch.setattr(orca, "reclaimer", lambda *args: pytest.fail("a stopped job's Sprite is never woken"))
+    monkeypatch.setattr(orca, "reclaimer", lambda *args, **kwargs: pytest.fail("a stopped job's Sprite is never woken"))
     monkeypatch.setattr(orca, "launch", lambda *args: pytest.fail("a launch starts no worker for a stopped job"))
     assert cli.main(["job", "launch", "j1", *flags]) == 2
     assert "j1: refused, nothing sent, held or started: it is stopped; drive job add builder --order o1 --part 'Short title' adds the job that takes its parts" in capsys.readouterr().err
@@ -5542,6 +5543,23 @@ def test_reclaim_destroys_a_superseded_attempts_sprite_unverified_but_never_the_
         data["jobs"]["j1"]["workspace"] = None
     run("job", "reclaim", "j1", "pool-old")
     assert asked == [("pool-old", True), ("pool-new", False), ("pool-old", False)]
+
+
+def test_a_running_job_on_this_mac_has_each_lane_a_relaunch_left_reclaimed_once_quiet_never_its_current_one(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    quiet, fresh = state.stamp(T0 - watch.QUIET_LANE), state.stamp(T0)
+    earlier = [
+        {"dispatch": "ctx_first", "workspace": None, "why": "its worker exited", "at": quiet},
+        {"dispatch": "ctx_second", "workspace": None, "why": "its worker exited", "at": fresh},
+        {"dispatch": "ctx_last", "workspace": None, "why": "its worker exited", "at": quiet},
+    ]
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(**state.local_lane("ctx_last"), run="run_mac", updated=fresh, deaths=earlier)
+    started: list[list[str]] = []
+    monkeypatch.setattr(state, "detach", lambda name, args, log: started.append(args) or ENDED_READER)
+    monkeypatch.setattr(state, "scratch", lambda: False)
+    watch.release_lanes(watch.Watcher(remote, offset=state.events_end(remote)), T0)
+    assert started == [["job", "reclaim", "j1", "ctx_first"]]
+    assert state.load(remote)["jobs"]["j1"]["state"] == "running"
 
 
 def test_a_finished_job_on_this_mac_has_every_lane_its_relaunches_left_reclaimed_in_one_pass(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
