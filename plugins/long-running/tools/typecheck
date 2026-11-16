@@ -25,7 +25,7 @@ DIAGNOSTIC = re.compile(r"(?P<path>[^:\s]+):\d+:\d+: \w+\[(?P<rule>[a-z-]+)\] (?
 plugin = Path(__file__).resolve().parent.parent
 baseline = plugin / "tools" / "typecheck-baseline.txt"
 checked = subprocess.run(
-    ["uvx", "-q", TY, "check", "--python-version", "3.13", "--extra-search-path", "lib", "--extra-search-path", "hooks", "--extra-search-path", "tests", "--output-format", "concise", "lib/drive", "hooks", "tests"],
+    ["uvx", "-q", TY, "check", "--python-version", "3.13", "--python-platform", "darwin", "--extra-search-path", "lib", "--extra-search-path", "hooks", "--extra-search-path", "tests", "--output-format", "concise", "lib/drive", "hooks", "tests"],
     cwd=plugin,
     capture_output=True,
     text=True,
