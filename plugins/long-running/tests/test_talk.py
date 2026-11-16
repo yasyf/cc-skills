@@ -905,7 +905,7 @@ def test_a_report_post_may_link_what_the_reports_references_draw_but_no_other_li
     monkeypatch.setattr(slack, "homes", lambda data: {"C1"})
     monkeypatch.setattr(slack, "post_findings", lambda text, draws_card, asked="": [])
     monkeypatch.setattr(view, "live_cards", lambda name: None)
-    monkeypatch.setattr(talk, "spoken", lambda name, post, known: f"POSTED {post['text']}")
+    monkeypatch.setattr(talk, "spoken", lambda name, post, known, recorded_first=False: f"POSTED {post['text']}")
     for link, refused in ((pull, False), ("https://github.com/yasyf/cc-skills/pull/9999", True)):
         monkeypatch.setattr(answer, "ask", lambda facts, prompt, rules, tag, link=link: (json.dumps({"text": f"<{link}|Required staging cases> now gate every cut.", "place": "root"}), None))
         if refused:
@@ -1441,7 +1441,7 @@ def test_a_say_of_a_record_retried_after_cc_slack_posted_and_failed_hands_cc_sla
     assert [(kept["url"], kept["order"]) for kept in said(demo)] == [(link, "o1")]
 
 
-def test_a_records_post_keys_on_its_words_so_a_second_line_on_one_record_goes_out_while_a_retry_of_one_line_does_not(
+def test_a_records_post_keys_on_its_words_so_a_retry_after_a_timeout_reposts_its_line_under_one_key_and_a_carried_record_posts_nothing_again(
     demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     thread = "1794200000.000100"
@@ -1451,10 +1451,23 @@ def test_a_records_post_keys_on_its_words_so_a_second_line_on_one_record_goes_ou
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
     report(monkeypatch, {"order": "o1", "thread": thread}, lane="communicator", kind="owner")
-    for text in ("The copy stalls on the lock.", "The copy stalls on the lock.", "The lock is released."):
-        talk.say(demo, {"text": text, "thread_ts": thread, "record": "690001"})
+    sending, timeouts = slack.cc_slack, [True, True]
+
+    def timing_out(*argv: str) -> dict:
+        reply = sending(*argv)
+        if timeouts and timeouts.pop():
+            raise slack.SlackError("deadline exceeded")
+        return reply
+
+    monkeypatch.setattr(slack, "cc_slack", timing_out)
+    for text in ("The copy stalls on the lock.", "The lock is released."):
+        with pytest.raises(slack.SlackError):
+            talk.say(demo, {"text": text, "thread_ts": thread, "record": "690001"})
+    talk.say(demo, {"text": "The copy stalls on the lock.", "thread_ts": thread, "record": "690001"})
+    with pytest.raises(state.DriveError, match="report 690001 went out meanwhile"):
+        talk.say(demo, {"text": "The lock is released.", "thread_ts": thread, "record": "690001"})
     keys = [argv[argv.index("--request-key") + 1] for argv in posts]
-    assert keys[0] == keys[1] != keys[2]
+    assert keys[0] == keys[2] != keys[1] and len(keys) == 3
     assert all(key.startswith("1794388096896-demo.690001.") for key in keys)
 
 

@@ -155,7 +155,7 @@ def awaits_word(data: dict, pr: dict) -> bool:
 
 
 def not_ci(data: dict, paths: list[str], head: str | None = None) -> list[str]:
-    """The paths no ci-only PR changes: each dangerous one first, by state.dangerous, since a dangerous change is never tooling whatever its directory, as go/ci/internal/release is not; then each outside CI configuration and CI tooling as the repository's provider reads them and outside the drive and CI tooling paths its toml's [[tooling]] tables list, by his rulings 02a1e36 and d2a8213 that a PR of only long-running or tooling fixes merges with no tap of his."""
+    """The paths no ci-only PR changes: each dangerous one first, by state.dangerous, since a dangerous change is never tooling whatever its directory, as a release tool's own source is not; then each outside CI configuration and CI tooling as the repository's provider reads them and outside the drive and CI tooling paths its toml's [[tooling]] tables list, by his rulings 02a1e36 and d2a8213 that a PR of only long-running or tooling fixes merges with no tap of his."""
     repo = providers.of(data).repo
     found = {path for made in state.dangerous(data, paths, head).values() for path in made}
     globs = [glob for table in state.repo_config(data).get("tooling", []) for glob in table["paths"]]

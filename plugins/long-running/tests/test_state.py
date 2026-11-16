@@ -2907,7 +2907,7 @@ def test_projection_partitions_design_builders_without_repeated_job_scans() -> N
 
 
 def train_drive(*job_ids: str, **extra: dict) -> dict:
-    job = {"state": "waiting", "order": "o1", "carries": [], "goal": "", "priority": None, "waits": [], "said": None, "release_build": None, "train": None, "created": "2026-11-16T01:00:00+00:00"}
+    job = state.new_job("o1", state.JOB_KINDS[0], "", [], "2026-11-16T01:00:00+00:00") | {"state": "waiting", "priority": None, "said": None, "release_build": None, "train": None}
     return {"slots": {}, "orders": {"o1": {"incident": False, "priority": None, "state": "open", "class": "process"}}, "jobs": {job_id: job | extra.get(job_id, {}) for job_id in job_ids}}
 
 

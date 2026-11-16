@@ -5806,7 +5806,7 @@ TEMPLATE_GROUP = re.compile(r"\$(\d+)")
 
 
 def posting_rules(data: dict) -> list[str]:
-    """The rules, each one plain sentence, the [posting] table of the repository's .claude/long-running.toml holds every post to him to, which the communicator's role text and the one quick Jev read of each post carry, by his words "there should be both rules and transforms monorepo can specify for it that get incorporated into the plugin"; none for a drive no session is bound to yet."""
+    """The rules, each one plain sentence, the [posting] table of the repository's .claude/long-running.toml holds every post to him to, which the communicator's role text and the one quick Jev read of each post carry, by his words "there should be both rules and transforms … can specify for it that get incorporated into the plugin"; none for a drive no session is bound to yet."""
     return list(repo_config(data).get(POSTING, {}).get("rules", [])) if bound_sessions(data) else []
 
 
