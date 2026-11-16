@@ -84,6 +84,7 @@ PEER_CHANGED = (
     " Re-pairing adds the server as a new environment."
 )
 SEQUENCE = itertools.count(1)
+URGENT = "URGENT: his words come first; act on them before anything else."
 FINISHED_WORKER = {
     "worker": {"state": "succeeded", "agentTerminalHandle": "term_lane", "startOptions": {"worktree": "id:repo-1::/home/sprite/monorepo"}},
     "projection": {"liveness": {"verdict": "live"}, "outcome": "succeeded", "attention": {"categories": ["root_completion"]}},
@@ -1492,7 +1493,7 @@ def test_a_resume_with_no_text_posts_every_text_an_agent_its_session_started_hol
     seqs = iter(["720371", "720372"])
     monkeypatch.setattr(tools, "sent", lambda name, lane, posts: posted.extend((lane, post) for post in posts) or [next(seqs)])
     assert run("job", "resume", "j1") == (0, 'j1: owed, send it now: SendMessage a4e953525ff2a4e17 "Read cci record 720371 whole and act on it"')
-    assert [(lane, post["kind"], post["to"], post.get("body", post["text"])) for lane, post in posted] == [("root", "handoff", [f"peer:{top}/a4e953525ff2a4e17"], f"{joined}\n\n{merged}")]
+    assert [(lane, post["kind"], post["to"], post.get("body", post["text"])) for lane, post in posted] == [("root", "handoff", [f"peer:{top}/a4e953525ff2a4e17"], f"{URGENT}\n\n{joined}\n\n{merged}")]
     jobs = state.drive_dir(demo) / "jobs"
     assert ((jobs / "j1.sent-720371.md").read_text(), state.load(demo)["jobs"]["j1"]["undelivered"]) == (f"{joined}\n\n{merged}", [])
     assert run("job", "resume", "j1") == (0, "j1 holds no message to send")
@@ -1519,7 +1520,10 @@ def test_a_resume_with_no_text_from_another_session_posts_the_held_text_to_the_a
         0,
         f"j1: posted to agent a3c1d2e4f5a6b7c8d's cci address and to communicator@{demo} as handoff record 8, its sendmessage attr naming the agent whose SendMessage alone reaches it: {pointer}",
     )
-    assert [(lane, post["to"], post["text"]) for lane, post in posted] == [("root", ["peer:talker/a3c1d2e4f5a6b7c8d", f"communicator@{demo}"], words)]
+    assert [(lane, post["to"], post.get("body", post["text"])) for lane, post in posted] == [
+        ("root", ["peer:talker/a3c1d2e4f5a6b7c8d", f"communicator@{demo}"], f"{URGENT}\n\n{words}"),
+        ("watch", [f"communicator@{demo}"], f"j1: URGENT, his words: {pointer.removeprefix('j1: ')}"),
+    ]
     assert state.load(demo)["jobs"]["j1"]["undelivered"] == []
 
 
