@@ -2117,6 +2117,25 @@ def test_a_full_pass_by_the_builder_of_the_pr_it_tests_delivers_its_staging_part
     assert [held, (data["jobs"]["j1"]["state"], staging_reads(data))] == [("waiting", (True, PROOF, "j1")), ("done", (True, PROOF, "j1"))]
 
 
+def test_a_testers_passing_done_delivers_its_staging_part_for_the_head_it_tested_whatever_the_tester_says_after_and_a_new_head_reopens_it_as_j4481s_did_not(
+    named_repo: None, state_root: Path
+) -> None:
+    data = staging_drive("j1")
+    url = "https://github.com/Forge-AI/monorepo/pull/42"
+    data["jobs"]["j1"]["prs"] = [url]
+    data["prs"] = {"Forge-AI/monorepo#42": state.new_pr(url, "j1", "o1") | {"head": "75ddb639b7a1336f43f77a6e3be38bfac80f1828"}}
+    staging_return(data, "j1", "DONE every case of #42 passed", f"CASE a rollback refused: pass\nCHECK: {PROOF}, carrying {url} at 75ddb639b7a1\n")
+    passed = (data["jobs"]["j1"]["state"], staging_reads(data), data["orders"]["o1"]["parts"][STAGING]["passed_head"])
+    state.take_result(data, "j1", f"WAITING {url} to land: it passed its staging test, is approved and green")
+    waiting = (data["jobs"]["j1"]["state"], staging_reads(data))
+    data["prs"]["Forge-AI/monorepo#42"]["head"] = "0123456789abcdef0123456789abcdef01234567"
+    assert [passed, waiting, staging_reads(data)] == [
+        ("waiting", (True, PROOF, "j1"), "75ddb639b7a1"),
+        ("waiting", (True, PROOF, "j1")),
+        (False, PROOF, "j1"),
+    ]
+
+
 def test_a_job_following_a_release_it_started_on_a_staging_test_part_is_no_staging_run_and_its_done_naming_no_case_leaves_the_testers_pass_as_j5978s_did_not(named_repo: None, state_root: Path) -> None:
     data = staging_drive("j1", "j2")
     data["jobs"]["j2"] |= {"brief_flags": {"release": "kaleidoscopic-gamsakhurdia"}, "builds_nothing": True, "waits": ["staging:monorepo/plat-usw2-staging@70f5e5b"]}

@@ -1292,6 +1292,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
             part.setdefault("check", None)
             part.setdefault("posted_by", None)
             part.setdefault("passed_at", None)
+            part.setdefault("passed_head", None)
             part.setdefault("cases", [])
             part.setdefault("soak", None)
             part.setdefault("follow", None)
@@ -1639,7 +1640,7 @@ def reread_staging_runs(name: str, data: dict) -> None:
                 continue
             testers = [(job_id, job) for job_id, job in part_testers(data, order_id, part) if job["kind"] in CHANGE_KINDS]
             kept = sorted(((parse_time(reply["created_at"]), job_id, reply["body"]) for job_id, _ in testers for reply in returns(name, job_id) if reported(opening(reply["body"]))), key=lambda each: each[0])
-            held.update(posted=None, posted_by=None, passed_at=None, cases=[], soak=next((soak for _, job in reversed(testers) if (soak := part_soak(data, job["waits"], part))), None))
+            held.update(posted=None, posted_by=None, passed_at=None, passed_head=None, cases=[], soak=next((soak for _, job in reversed(testers) if (soak := part_soak(data, job["waits"], part))), None))
             for moment, job_id, body in kept:
                 keep_pass(data, order_id, part, job_id, line := opening(body), body, stamp(moment))
                 held["soak"] = part_soak(data, [found[0] for found in STAGING_WAIT.finditer(line)], part) or held["soak"]
@@ -3744,7 +3745,7 @@ def keep_pass(data: dict, order_id: str, part: str, job_id: str, line: str, repo
 
     held = data["orders"][order_id]["parts"][part]
     if not re.match(r"DONE\b", line):
-        if held["posted_by"] == job_id:
+        if held["posted_by"] == job_id and not held["passed_head"]:
             held.update(posted=None, passed_at=None)
         return
     cases, proof = full_pass(data, job_id, report, part)
@@ -3755,13 +3756,30 @@ def keep_pass(data: dict, order_id: str, part: str, job_id: str, line: str, repo
     kept = (held["posted"], held["posted_by"]) == (proof, job_id)
     held.update(posted_by=job_id, cases=[[case, verdict] for case, verdict in cases])
     if not proof:
-        held.update(posted=None, passed_at=None)
+        held.update(posted=None, passed_at=None, passed_head=None)
         return
+    held["passed_head"] = tested_head(data, report, part)
     if kept:
         return
     moment = min([moment, *(reply["created_at"] for reply in replies(data["name"], job_id) if re.match(r"DONE\b", body := reply["body"] or reply["subject"]) and (not staged or PROVEN_LINE.match(body)) and full_pass(data, job_id, body, part)[1] == proof)], key=parse_time)
     held.update(posted=proof, passed_at=moment)
     take_unexercised_approves(data, order_id, part, moment)
+
+
+def tested_head(data: dict, report: str, part: str) -> str | None:
+    """The head of the PR a staging test part tests that a passing report ran on: the commit its report names beside the PR's link, `pull/<n> at <sha>`, else the PR's head when the drive kept the report; None for a PR the drive tracks no head of."""
+    number = STAGING_PART.fullmatch(part)["number"]
+    pr = data["prs"].get(f"{home(data)}#{number}")
+    if pr is None or not pr["head"]:
+        return None
+    named = re.search(rf"/pull/{number}\b\S* at ([0-9a-f]{{7,40}})\b", report)
+    return named[1] if named else pr["head"]
+
+
+def on_tested_head(data: dict, part: str, held: dict) -> bool:
+    """Whether the PR a staging test part tests still has the head its kept pass ran on, so a new head re-opens the part."""
+    pr = data["prs"].get(f"{home(data)}#{STAGING_PART.fullmatch(part)['number']}")
+    return pr is not None and bool(pr["head"]) and pr["head"].startswith(held["passed_head"])
 
 
 def take_unexercised_approves(data: dict, order_id: str, part: str, moment: str) -> None:
@@ -3944,6 +3962,8 @@ def proven(data: dict, order_id: str, part: str) -> bool:
     if not held["posted"] or ran is None:
         return False
     (_, job), *after = jobs[ran:]
+    if staging and held["passed_head"]:
+        return on_tested_head(data, part, held) and all(other["state"] == "stopped" or done_or_held(other) for _, other in after)
     return (done_or_held(job) or unit_passed(job, order_id)) and all(other["state"] == "stopped" or staging and done_or_held(other) for _, other in after)
 
 
@@ -4254,7 +4274,7 @@ def new_order(text: str, source: str, thread: tuple[str, str] | None, parts: dic
 
 def new_part() -> dict:
     """A part of an order, undelivered and not standing: a standing part holds the goal each pass of it runs on, which drive order set --standing keeps."""
-    return {"posted": None, "posted_by": None, "passed_at": None, "cases": [], "orphan_said": None, "orphan_gap": None, "design": None, "answer": False, "standing": None, "check": None, "soak": None, "follow": None}
+    return {"posted": None, "posted_by": None, "passed_at": None, "passed_head": None, "cases": [], "orphan_said": None, "orphan_gap": None, "design": None, "answer": False, "standing": None, "check": None, "soak": None, "follow": None}
 
 
 def following(part: dict) -> bool:
