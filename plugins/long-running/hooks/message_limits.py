@@ -766,17 +766,17 @@ def reporter_post(payload: dict, drive: dict) -> str | None:
         return None
     link = state.CARD_LINK.search(tool_input.get("url") or "")
     where = (tool_input.get("channel_id") or (link and link[1]), tool_input.get("thread_ts") or (link and (link[4] or f"{link[2]}.{link[3]}")))
-    reported = [(order, held) for order in drive["orders"].values() for held in order["reporters"] if "kept_by" not in held and (held["channel"], held["thread"]) == where]
-    if not reported or any(order["state"] not in state.CLOSED_ORDER_STATES and state.may_tell(drive, order) and not held["told"] for order, held in reported):
+    reported = [(order_id, order, held) for order_id, order in drive["orders"].items() for held in order["reporters"] if "kept_by" not in held and (held["channel"], held["thread"]) == where]
+    if not reported or any(order["state"] not in state.CLOSED_ORDER_STATES and state.may_tell(drive, order_id) and not held["told"] for order_id, order, held in reported):
         return None
     if any(state.own_thread(order) == where for order in state.open_orders(drive).values()):
         return None
-    told_order, told = next(((order, held["told"]) for order, held in reported if held["told"]), (None, None))
+    told_order, told = next(((order, held["told"]) for _, order, held in reported if held["told"]), (None, None))
     if told and told_order["kind"] == "answer":
         found, then = f"this thread already heard the answer to its question, in {told}, and hears it once", "Post nothing more there."
     elif told:
         found, then = f"this thread already heard its bug is fixed, in {told}, and a bug report's thread gets its fix-live note once", "Post nothing more there."
-    elif any(order["kind"] == "answer" for order, _ in reported):
+    elif any(order["kind"] == "answer" for _, order, _ in reported):
         found, then = "the answer to the question asked in this thread is not posted to him yet, so a note now would come before it", "It goes once the answer is posted."
     else:
         found = (

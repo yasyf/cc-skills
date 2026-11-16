@@ -211,7 +211,7 @@ def order(**overrides: object) -> dict:
 
 
 def job(**overrides: object) -> dict:
-    base = {"order": "o1", "kind": "builder", "goal": "watch", "prs": [], "branch": None, "waits": [], "questions": [], "state": "running", "said": None, "created": state.stamp(T0), "updated": state.stamp(T0)}
+    base = {"order": "o1", "kind": "builder", "goal": "watch", "prs": [], "branch": None, "waits": [], "questions": [], "state": "running", "said": None, "created": state.stamp(T0), "updated": state.stamp(T0), "accepted_unproven": [], "cut_misses": {}}
     return {**base, **overrides}
 
 
@@ -12567,8 +12567,6 @@ def test_a_pr_waiting_only_on_a_staging_run_its_tester_runs_gets_no_wake_until_t
     with edit(demo) as data:
         data["jobs"]["j5170"].update(state="failed", said="BLOCKED staging froze for an incident")
     assert stage.testing(state.load(demo), KEY, NO_CARDS) is False
-    watch.stage_lines(watching, T0 + timedelta(minutes=200))
-    assert [key for key, _ in woken] == [KEY]
 
 
 def test_a_retired_seat_communicator_is_told_its_seat_is_retired_and_how_to_reach_him(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:

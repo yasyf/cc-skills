@@ -4076,11 +4076,22 @@ def merge_proven(order: dict) -> bool:
 
 
 def may_tell(data: dict, order_id: str) -> bool:
-    """Whether the threads whose records an order keeps may hear from it now: an answer order's once every part of its answer is posted, any other's once its fix is proven live, by fix_proof, and each part carrying a reported bug reads delivered by its own proof, by delivered, never by another job's proof nor a standing pass's, which delivers no part."""
+    """Whether the threads whose records an order keeps may hear from it now: an answer order's once every part of its answer is posted; any other's once its fix is proven live, by fix_proof, and its own proof stands or each part carrying a reported bug, by reported_parts, reads delivered or a job carrying that part holds its passing drive job prove, never another job's proof nor a standing pass's."""
+    from drive import brief
+
     order = data["orders"][order_id]
     if order["kind"] == "answer":
         return all(held["posted"] for held in order["parts"].values())
-    return bool(fix_proof(data, order)) and all(delivered(data, order_id, part) for reporter in order["reporters"] for part in reported_parts(order, reporter))
+    if not fix_proof(data, order):
+        return False
+    if order["proof"] and not brief.unseen(data, order, order["proof"]):
+        return True
+    return all(delivered(data, order_id, part) or part_proven(data, order_id, part) for reporter in order["reporters"] for part in reported_parts(order, reporter))
+
+
+def part_proven(data: dict, order_id: str, part: str) -> bool:
+    """Whether a job carrying the part, by part_jobs, is done on its passing drive job prove."""
+    return any(job["state"] == "done" and PROVEN_LINE.match(job["said"] or "") for _, job in part_jobs(data, order_id, part))
 
 
 def reported_parts(order: dict, reporter: dict) -> list[str]:
