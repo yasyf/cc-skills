@@ -4869,7 +4869,7 @@ def work_start(args: argparse.Namespace) -> int:
     """Brief a worker the watch's spawner recorded and start it: as an Orca lane on a Sprite by the launch drive job launch runs, or as its own claude --bg session on this Mac for a group only this Mac runs; a start that fails marks the worker failed, so its group goes back to the queue."""
     name = state.resolve(args.drive)
     try:
-        write_brief(name, args.worker, {"handoff": work.WORKER_LOOP.format(worker=args.worker, env=work.ENV), "done_when": work.WORKER_DONE_WHEN.format(worker=args.worker)})
+        write_brief(name, args.worker, work.brief_flags(state.load(name), args.worker))
         if state.load(name)["jobs"][args.worker]["where"] == "remote":
             return relaunch(argparse.Namespace(**vars(args), id=args.worker, local=False, brief=None, text=None), name, None, resume=False)
     except DriveError as error:
@@ -4880,12 +4880,12 @@ def work_start(args: argparse.Namespace) -> int:
 
 
 def work_show(args: argparse.Namespace) -> int:
-    """The queue on this drive: the kinds it runs, its live worker, its ready items in order and why no new cut starts."""
+    """The queue on this drive: the kinds it runs, and for each its live worker, its ready items in order and why no new group starts."""
     data = state.load(state.resolve(args.drive))
-    ready = work.line(data)
-    why = work.why_not(data, state.now()) if work.enabled(data, work.STAGE_TEST) else None
-    shown = [f"kinds: {', '.join(data['work']['kinds']) or 'none'}", f"worker: {work.live_worker(data) or 'none'}", f"ready: {', '.join(ready) or 'none'}", f"no new cut: {why}" if why else "a new cut may start"]
-    return emit(args, "\n".join(shown), {"kinds": data["work"]["kinds"], "worker": work.live_worker(data), "ready": ready, "why": why})
+    moment = state.now()
+    kinds = {name: {"worker": work.live_worker(data, name), "ready": kind.line(data), "why": kind.why_not(data, moment)} for name, kind in work.KIND.items() if work.enabled(data, name)}
+    shown = [f"kinds: {', '.join(kinds) or 'none'}"] + [f"{name}: worker {held['worker'] or 'none'}; ready {', '.join(held['ready']) or 'none'}; {f'no new group: {held['why']}' if held['why'] else 'a new group may start'}" for name, held in kinds.items()]
+    return emit(args, "\n".join(shown), kinds)
 
 
 def slot_queue(args: argparse.Namespace) -> int:

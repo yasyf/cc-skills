@@ -5160,24 +5160,20 @@ def slot_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def work_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Run the work queue's spawner on a drive whose stage-test work the queue runs: read the files and stacks of ready items it has not read, so packing pairs only passes it can see, take each queued item off the staging slot's old line, and record and start a worker when ready items have none and this Mac admits one, by work.wanted and work.admitted, an urgent head past the cap; its lines go as evidence and wake nobody."""
+    """Run the work queue's spawner on a drive that turned any kind of work over to it: read the files and stacks of ready stage-test items it has not read, so packing pairs only passes it can see, take the staging slot's old line into the queue, and record and start a worker of each kind whose items have none and that this Mac admits, by work.spawned, an urgent head past the cap; its lines go as evidence and wake nobody."""
     data = state.load(watcher.name)
-    if watcher.project or not work.enabled(data, work.STAGE_TEST):
+    if watcher.project or not data.get("work", {}).get("kinds"):
         return []
     read = {job_id: pass_reads(watcher.name, data, state.tested_prs(data, data["jobs"][job_id])) for job_id in work.unread(data)}
 
-    def work_lines_write(data: dict) -> tuple[list[str], str | None]:
+    def work_lines_write(data: dict) -> tuple[list[str], list[str]]:
         for job_id, (paths, stacks) in read.items():
             if paths is not None and stacks is not None:
                 data["jobs"][job_id]["work_reads"] = {"paths": paths, "stacks": stacks}
-        lines = work.absorb_legacy(data)
-        if not work.wanted(data, moment) or work.admitted(data, moment):
-            return lines, None
-        worker_id = work.add_worker(data, watcher.name, moment)
-        return [*lines, f"WORK {worker_id} records a stage-test worker for {work.ENV}, its first group claimed"], worker_id
+        return work.spawned(data, moment)
 
-    lines, worker_id = state.update(watcher.name, None, work_lines_write)
-    if worker_id:
+    lines, workers = state.update(watcher.name, None, work_lines_write)
+    for worker_id in workers:
         start_verb(watcher, worker_id, ["work", "start", worker_id], moment)
     return lines
 
