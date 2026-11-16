@@ -82,7 +82,8 @@ STAGING_MAC = (
     "claim the staging slot for the PR each `staging test of #N before it lands` part of yours names, from this Mac or from a Sprite lane, whose drive runs it on the drive's Mac:"
     " `drive slot claim plat-usw2-staging --job <your job> --minutes <how long your cut and cases run> --pr <the PR> --cases \"<your cases>\"`, which prints GO and its steps"
     " when the slot is free, else QUEUED and your place, a priority or incident tester ahead of the rest; while queued, return `WAITING staging:<target>/plat-usw2-staging@<head>`,"
-    " one per target its paths reach by `the release provider's reach read <N>`, and the watch resumes you with GO and its steps once the slot is yours"
+    " one per target its paths reach by `the release provider's reach read <N>`, and the watch resumes you with GO and its steps once the slot is yours; "
+    + state.STAGE_ASK
 )
 EXCEPTION_MAC = (
     "start the release dry run of each component the `staging test of #N before it lands` part of yours names that staging has no copy of, from this Mac, since go/ci's sprite door refuses a release start from a Sprite:"

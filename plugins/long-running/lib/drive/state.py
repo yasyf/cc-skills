@@ -6953,11 +6953,16 @@ def new_pr(url: str, job_id: str, order_id: str) -> dict:
 
 
 CLAIM_WAIT = timedelta(minutes=5)
+STAGE_ASK = (
+    "a staging cut you cannot start yourself, as while a release freeze stands, you ask for with one `ask` on topic staging-slots addressed to the lane that packs"
+    " staging cuts, the lane of the newest `ready` record on that topic, which `cci grep . --topic staging-slots --kind ready -n 1` prints, never to root, which hears only that lane's READY"
+)
 SLOT_GO_STEPS = (
     "post the staging claim the repository's staging-claim rule names, a `POST` report to the communicator with `until` the lease's end; a tester whose PR has not merged"
     " then starts its cut at once, `tools/ci release start <each target its paths reach> --from <your branch> --emergency --env {env} --order 23eefb9`, and returns"
     " `WAITING staging:<target>/{env}@<head>` for each target; run your cases once staging serves your commit, past the claim's 5 minutes, and"
-    " `drive slot release {env} --job {job}` gives the slot back when you finish early"
+    " `drive slot release {env} --job {job}` gives the slot back when you finish early; "
+    + STAGE_ASK
 )
 
 
@@ -6978,7 +6983,7 @@ def slot_claim(data: dict, env: str, job_id: str, minutes: int, prs: list[str], 
         behind = f"behind {slot['holder']['job']}, whose lease ends {slot['holder']['until']}"
     else:
         behind = f"held for {slot['hold']['for']} until {slot['hold']['until']}: {slot['hold']['reason']}"
-    return f"QUEUED {job_id} for the {env} slot, place {place + 1}, {behind}"
+    return f"QUEUED {job_id} for the {env} slot, place {place + 1}, {behind}; {STAGE_ASK}"
 
 
 def jumps_queue(data: dict, job_id: str) -> bool:

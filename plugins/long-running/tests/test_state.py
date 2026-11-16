@@ -2799,6 +2799,17 @@ def test_projection_partitions_design_builders_without_repeated_job_scans() -> N
     assert state.INDEX.get() is None
 
 
+def test_a_testers_go_queued_line_and_brief_address_a_cut_it_cannot_start_to_the_lane_that_packs_staging_cuts_never_root() -> None:
+    from drive import cli
+
+    moment = datetime(2026, 11, 15, 22, 5, tzinfo=UTC)
+    data = {"slots": {}, "orders": {"o1": {"incident": False, "priority": None, "state": "open"}}, "jobs": {job_id: {"state": "waiting", "order": "o1", "carries": [], "goal": "", "waits": []} for job_id in ("j1", "j2")}}
+    asked = "addressed to the lane that packs staging cuts, the lane of the newest `ready` record on that topic"
+    lines = [state.slot_claim(data, "plat-usw2-staging", job_id, 30, [], None, moment) for job_id in ("j1", "j2")]
+    assert [line.split()[0] for line in lines] == ["GO", "QUEUED"]
+    assert all(asked in line and line.endswith("never to root, which hears only that lane's READY") for line in [*lines, cli.STAGING_MAC])
+
+
 def test_a_staging_slot_goes_to_its_first_claimer_and_then_to_each_queued_job_in_order_as_each_lease_ends() -> None:
     moment = datetime(2026, 11, 15, 22, 5, tzinfo=UTC)
     data = {"slots": {}, "orders": {"o1": {"incident": False, "priority": None, "state": "open"}}, "jobs": {job_id: {"state": "waiting", "order": "o1", "carries": [], "goal": "", "waits": []} for job_id in ("j1", "j2", "j3")}}
