@@ -25,10 +25,11 @@ Every session and job of a drive is a frontier model, trusted to use its judgmen
 
 ## The limits
 
-- **Dangerous changes wait for him.** A change the repository's root `AGENTS.md` calls dangerous (a migration, a backfill, a delete of user data, a storage, consistency or write path, a builtin, the parser, checker or VM, the runtime API), and a production release carrying one, merges or releases only while he is present: his word or tap in the last 15 minutes.. A rollback, and a hotfix changing nothing dangerous, run without him (`incidents`).
+- **Dangerous changes wait for him.** A change the repository's root `AGENTS.md` calls dangerous (a migration, a backfill, a delete of user data, a storage, consistency or write path, a builtin, the parser, checker or VM, the runtime API), and a production release carrying one, merges or releases only while he is present: his word or tap in the last 15 minutes. A rollback, and a hotfix changing nothing dangerous, run without him (`incidents`).
 - **Customer data stays off this Mac.** Read it only through the repository's team-data route.
 - **Other sessions are not yours.** Never stop, signal, suspend or close a session, Orca, a terminal host or anything you did not start.
 - **Scan FDE impact first.** Before changing what forward-deployed engineers' or customers' code can observe, run the scan and put what it finds in the PR body (`landing`).
+- **The GitHub quota is never a reason to wait.** When ccx refuses a GitHub read under its rate-limit floor, read the same state at once through one batched `gh api graphql` query, which spends its own budget. Back off only on a 403 or 429 from GitHub itself.
 
 Two more things are his because the machine works that way: a PR of the guarded owner outside an exempt class lands on his Approve tap (`landing`), and a post in his own name to another person waits for his word.
 

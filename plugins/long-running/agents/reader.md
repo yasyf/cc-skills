@@ -60,7 +60,8 @@ under this Mac's machine profile once its grant passes, with no sign-in and no c
 read, the key of a machine the repository grants included, runs under a profile `~/.aws/config` chains to the machine
 certificate, so nothing needs his sign-in, Touch ID or cc-sudo. A session's journal is found the
 way the brief's `Repo rules` line says. A read goes on `UNPROVEN:` only when every route refused,
-naming each route you tried.
+naming each route you tried. The GitHub quota is never a reason to wait: a read ccx refuses under
+its rate-limit floor runs at once as one batched `gh api graphql` query, which spends its own budget.
 
 The one limit: a team's data, its database rows, bucket objects, stored blobs and run and session
 journals, is read or written as a service account, on a machine the repository grants for it or in the team's own cluster, and
