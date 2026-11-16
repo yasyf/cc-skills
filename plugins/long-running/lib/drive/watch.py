@@ -3765,6 +3765,20 @@ def launching(job: dict, moment: datetime) -> bool:
     return bool(job.get("launching")) and moment - state.parse_time(job["launching"]) < RELAUNCH
 
 
+def mailboxes_read(jobs: list[dict]) -> dict[str, list[dict] | orca.OrcaError]:
+    """Each queued remote lane's Dispatch mailbox, by its dispatch, or the OrcaError its read raised, read LANE_READS_AT_ONCE at a time beside lanes_shown, for the lanes whose held texts agent_lines checks were taken."""
+
+    def box(job: dict) -> list[dict] | orca.OrcaError:
+        try:
+            return orca.mailbox(job, job["dispatch"])
+        except orca.OrcaError as error:
+            return error
+
+    by_dispatch = {job["dispatch"]: job for job in jobs}
+    with ThreadPoolExecutor(LANE_READS_AT_ONCE) as pool:
+        return dict(zip(by_dispatch, pool.map(box, by_dispatch.values())))
+
+
 def lanes_shown(jobs: list[dict]) -> dict[str, dict | orca.OrcaError]:
     """Each live remote lane's worker-show, by its dispatch, or the OrcaError its read raised, read LANE_READS_AT_ONCE at a time, so a pass waits on the slowest read of each batch rather than on every lane's read in turn."""
 
@@ -3784,7 +3798,8 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
     data = state.load(watcher.name)
     gaps, deaths, refusals, heads, found, finished, boxes, lost, idle, lines = {}, {}, {}, {}, {}, {}, {}, {}, {}, []
     read: set[str] = set()
-    shown = lanes_shown([job for order_id, order in heard_orders(watcher, data).items() for job_id in order["jobs"] if (job := data["jobs"][job_id])["order"] == order_id and job.get("where") == "remote" and job.get("dispatch") and job["state"] in LIVE_JOB_STATES and not state.lane_death(job)])
+    live = [job for order_id, order in heard_orders(watcher, data).items() for job_id in order["jobs"] if (job := data["jobs"][job_id])["order"] == order_id and job.get("where") == "remote" and job.get("dispatch") and job["state"] in LIVE_JOB_STATES and not state.lane_death(job)]
+    shown, held = lanes_shown(live), mailboxes_read([job for job in live if job["queued"]])
     for order_id, order in heard_orders(watcher, data).items():
         for job_id in order["jobs"]:
             job = data["jobs"][job_id]
@@ -3869,7 +3884,9 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 finished[job_id] = job | lane
             elif job["queued"]:
                 try:
-                    boxes[job_id] = (job["dispatch"], orca.mailbox(job, job["dispatch"]), (job | lane, worker))
+                    if isinstance(box := held[job["dispatch"]], orca.OrcaError):
+                        raise box
+                    boxes[job_id] = (job["dispatch"], box, (job | lane, worker))
                 except orca.OrcaError as error:
                     lines += read_failed(watcher, f"mail of {job_id}", error, moment)
                 else:
