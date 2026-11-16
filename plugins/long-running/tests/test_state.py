@@ -382,6 +382,37 @@ def test_writes_reuse_the_loaded_snapshot_without_encoding_the_whole_drive(
     assert state.stored("demo", ("terminal",)) == {"terminal": "changed terminal"}
 
 
+@pytest.mark.parametrize("collecting", [True, False])
+def test_write_baseline_reuses_unchanged_fields_and_decodes_changes_without_cyclic_scans(monkeypatch: pytest.MonkeyPatch, collecting: bool) -> None:
+    before = {"jobs": {"j1": {"text": "unchanged"}}, "orders": {"o1": {"text": "before"}}, "terminal": "removed"}
+    encoded = {field: state.marshal.dumps(value) for field, value in before.items()}
+    mine = {"jobs": before["jobs"], "orders": {"o1": {"text": "after"}}, "owner": "added"}
+    loads = state.marshal.loads
+    decoded: list[bytes] = []
+
+    def decode(value: bytes):
+        assert not gc.isenabled()
+        decoded.append(value)
+        return loads(value)
+
+    monkeypatch.setattr(state.marshal, "loads", decode)
+    was_collecting = gc.isenabled()
+    (gc.enable if collecting else gc.disable)()
+    try:
+        baseline = state.write_baseline(encoded, mine)
+        assert gc.isenabled() == collecting
+        assert baseline == before
+        assert baseline["jobs"] is mine["jobs"]
+        assert baseline["orders"] is not mine["orders"]
+        assert decoded == list(encoded.values())
+        assert state.written_rows(baseline, mine) == {("orders", "o1"), ("", "terminal"), ("", "owner")}
+        with pytest.raises(EOFError):
+            state.write_baseline({"broken": b""}, {})
+        assert gc.isenabled() == collecting
+    finally:
+        (gc.enable if was_collecting else gc.disable)()
+
+
 def test_selected_loads_observe_other_processes_saves_and_batch_writes(state_root: Path) -> None:
     ordered("demo", 3)
     fields = ("terminal", "orders")

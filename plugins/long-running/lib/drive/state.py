@@ -4846,6 +4846,21 @@ def set_row(data: dict, row: Row, value: object) -> None:
         home[row[1]] = value
 
 
+def write_baseline(encoded: dict[str, bytes], mine: dict) -> dict:
+    """The pre-change fields, retaining separate copies only for changed values. Decode one field at a time without cyclic scans and restore the caller's collector setting on return or error."""
+    collecting = gc.isenabled()
+    gc.disable()
+    try:
+        baseline = {}
+        for field, value in encoded.items():
+            previous = marshal.loads(value)
+            baseline[field] = mine[field] if field in mine and previous == mine[field] else previous
+        return baseline
+    finally:
+        if collecting:
+            gc.enable()
+
+
 def written_rows(base: dict, mine: dict) -> set[Row]:
     """Each row mine holds differently from base: a top-level field under "", else a collection's record by its key."""
     rows = {("", field) for field in {*base, *mine} if field not in COLLECTIONS and base.get(field, ABSENT) != mine.get(field, ABSENT)}
@@ -5231,7 +5246,7 @@ def write[T](name: str, change: Callable[[dict], T], *, budget: float | None = N
                     released(taken)
                     continue
                 mine = plain(attempt.data)
-                was = {field: marshal.loads(value) for field, value in base.items()}
+                was = write_baseline(base, mine)
                 written = tuple(sorted(written_rows(was, mine)))
                 try:
                     rev, post = rows_saved(name, {row: row_of(was, row) if raw is None else raw_row(raw, row) for row in written}, was, mine, written, since, frozenset(reads), waits) if written or attempt.effects else (None, [])
@@ -7460,4 +7475,3 @@ def unlaunched(data: dict, job_id: str, env: str) -> bool:
     """Whether the release a train lease went to has not started and no process starts it now, so the watch starts it again, by his rule that a release never strands: its job holds the lease for the env, kept no build, holds no release start's reservation and has not finished; drive job release refuses a second run beside a live one."""
     job = data["jobs"][job_id]
     return job.get("train") == env and not job.get("release_build") and job["state"] not in FINISHED_JOB_STATES and not any(RESERVED_WAIT.fullmatch(wait) for wait in job["waits"])
-
