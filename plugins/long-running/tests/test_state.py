@@ -3086,21 +3086,6 @@ def test_a_reporters_fix_live_note_is_owed_only_once_the_part_carrying_the_repor
     assert (other, state.reported_parts(data["orders"]["o1"], data["orders"]["o1"]["reporters"][0]), state.may_tell(data, "o1")) == (False, [reported], True)
 
 
-def test_an_unproven_line_keeps_a_staging_tests_passing_cases_from_delivering_its_part_until_the_coordinator_accepts_that_line_as_root_did_j4852s(
-    named_repo: None, state_root: Path
-) -> None:
-    data = staging_drive("j1")
-    unproven = "whether case 3's call met a 503 and was resent: retry.Do logs no tries"
-    staging_return(data, "j1", "DONE #42's staging test passed", f"CASE 1 pass (W2m c2475b75c178): the CronJobs run the cut's image\nUNPROVEN: {unproven}\n")
-    held = staging_reads(data)
-    report = f"DONE #42's staging test passed\nCHECK: {PROOF}\nCASE 1 pass (W2m c2475b75c178): the CronJobs run the cut's image\nUNPROVEN: {unproven}\n"
-    left = state.open_unproven(data["jobs"]["j1"], report)
-    data["jobs"]["j1"]["accepted_unproven"].append({"line": unproven, "why": "CI carries the resend", "by": "root", "at": state.stamp()})
-    state.take_result(data, "j1", "DONE #42's staging test passed", report)
-    none = state.open_unproven(data["jobs"]["j1"], "DONE x\nUNPROVEN: none\n")
-    assert (held, left, staging_reads(data), none) == ((False, None, "j1"), [unproven], (True, PROOF, "j1"), [])
-
-
 def test_a_staging_case_run_on_a_cut_that_does_not_carry_the_prs_head_is_no_pass_naming_that_cut_and_one_on_cuts_that_carry_it_passes(
     named_repo: None, state_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

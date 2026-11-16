@@ -1547,6 +1547,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         drop_stale_queued(data)
     if not data.get("untested_restaged"):
         restage_untested(data)
+    incident_goes(data)
     if not data.get("staging_approves_restored"):
         restore_staging_approves(name, data)
     if not data.get("proofs_rehomed"):
@@ -3180,14 +3181,19 @@ def staged_open(data: dict, part: str) -> list[str]:
 
 
 def order_class(order: dict) -> str:
-    """The class of an order, by which code sorts every grant, by the repository's class rules that the model applies with drive order set --class: incident, asked or process. An order no session classed reads as an incident while it is one, else as asked, since his words outrank the drive's own work until a session reads it as process."""
-    return order.get("class") or (CLASSES[0] if order["incident"] else CLASSES[1])
+    """The class of an order, by which code sorts every grant, by the repository's class rules that the model applies with drive order set --class: incident, asked or process. An order no session classed reads as an incident while it is one, as process when the meta session owns it, else as asked, since his words outrank the drive's own work until a session reads it as process."""
+    return order.get("class") or (CLASSES[0] if order["incident"] else CLASSES[2] if order.get("owner") == "meta" else CLASSES[1])
 
 
 def class_rank(data: dict, job: dict) -> int:
     """Where a job's class sorts, lower first: the best class among its own order and each it carries, by order_class."""
     orders = data.get("orders") or {}
     return min((CLASSES.index(order_class(orders[order_id])) for order_id in [job.get("order"), *job.get("carries", ())] if order_id in orders), default=CLASSES.index("asked"))
+
+
+def has_go(order: dict) -> bool:
+    """Whether his go stands on an order: drive order go recorded it, or the order is an open incident, by his ruling that an open incident is his go to merge and hotfix its fix."""
+    return bool(order["go"]) or order_class(order) == CLASSES[0] and order["state"] not in CLOSED_ORDER_STATES
 
 
 def go_clears(pr: dict) -> bool:
@@ -3198,6 +3204,13 @@ def go_clears(pr: dict) -> bool:
 def give_go(data: dict, key: str, order_id: str) -> None:
     """Mark an open PR cleared by his go on order_id, by his words GO_WORDS, so it lands with no Approve card and no merge queue. Its staging test stays: a dangerous change, an incident fix included, merges only after its staging test passes, by his rule in the monorepo's AGENTS.md and his answer 0048b14, and a started test runs to its end."""
     data["prs"][key]["go"] = order_id
+
+
+def incident_goes(data: dict) -> None:
+    """Give each open PR serving an open incident-class order that order's go, by give_go, by his ruling that an open incident is his go to merge and hotfix its fix, with no session recording it: its dangerous change still keeps its staging test and his presence."""
+    for key, pr in data["prs"].items():
+        if pr["state"] == "open" and not pr["go"] and (order_id := next((order_id for order_id in served_orders(data, pr) if order_id in data["orders"] and has_go(data["orders"][order_id])), None)):
+            give_go(data, key, order_id)
 
 
 def markable(data: dict, key: str, head: str) -> bool:
@@ -3792,13 +3805,7 @@ def take_unexercised_approves(data: dict, order_id: str, part: str, moment: str)
 def full_pass(data: dict, job_id: str, report: str, part: str) -> tuple[list[tuple[str, str]], str | None]:
     """The cases a tester's report ran for a staging test part, by part_run, beside the first proof its CHECK: lines name for them when they make a full pass, by passing, the report names the PR of the drive's home repository the part tests, by tests_named, and it leaves no UNPROVEN: line the coordinator owning the test has not accepted, by open_unproven, else None."""
     cases, proofs = part_run(data, job_id, report, part)
-    return cases, proofs[0] if proofs and passing(cases) and tests_named(report, part, home(data)) and not open_unproven(data["jobs"][job_id], report) else None
-
-
-def open_unproven(job: dict, report: str) -> list[str]:
-    """Each UNPROVEN: line of a tester's report, but one reading none, that `drive job set <j> --accept-unproven` has not recorded the coordinator owning the test accepting: each stays a reason its staging part is not delivered."""
-    accepted = {held["line"] for held in job["accepted_unproven"]}
-    return [found["what"] for found in UNPROVEN_LINE.finditer(report) if found["what"].casefold().rstrip(".") != "none" and found["what"] not in accepted]
+    return cases, proofs[0] if proofs and passing(cases) and tests_named(report, part, home(data)) else None
 
 
 def passing(cases: list[tuple[str, str]]) -> bool:
@@ -4441,7 +4448,6 @@ def new_job(order_id: str, kind: str, goal: str, parts: list[str], created: str)
         "lost_since": None,
         "woken": None,
         "handed_to": None,
-        "accepted_unproven": [],
         "cut_misses": {},
     }
 

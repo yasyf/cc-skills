@@ -240,14 +240,14 @@ def card_releases(text: str, data: dict) -> list[str]:
     return named
 
 
-def release_refusal(command: str, data: dict, reading: str | None = None) -> str | None:
+def release_refusal(command: str, data: dict, reading: str | None = None, order_id: str | None = None) -> str | None:
     """Why `drive job add --release` may not start a command: it is not one `ci release start` or `hotfix` alone, naming in --order the answer of his it starts on unless it is a rehearsal() or the top coordinator gave its reading, or it deploys `--local`, which runs in the shell that starts it and starts no build its job could follow."""
     commands = simple_commands(command)
     if len(commands) != 1 or (flags := providers.of(data).release.start(commands[0])) is None:
         return f"--release `{command}` is not one release start or hotfix of the release provider alone: name the one release to start, with its flags as it runs"
     if "local" in flags:
         return f"--release `{command}` deploys `--local`, whose plan and apply run in the shell that starts it and start no build its job could follow, so no job starts it: a `--manual` or regular start names the build its job follows"
-    if not flags.get("order") and not reading and not rehearsal(command, data) and not went(command, data):
+    if not flags.get("order") and not reading and not rehearsal(command, data) and not went(command, data, order_id):
         return f"--release names no --order. {RELEASE_APPROVAL}"
     return None
 
@@ -258,24 +258,26 @@ def rehearsal(release: str, data: dict) -> bool:
     return bool(reads) and all(settled.FOR_PRODUCTION not in read and (places := set(read.get("env", ())) - set(read.get("without", ()))) and places <= providers.of(data).release.rehearsal_envs for read in reads)
 
 
-def went(command: str, data: dict) -> str | None:
-    """The order whose go, by drive order go, approves a hotfix the command starts: one every PR it hotfixes serves and he gave his go on, so the go that merged a fix also releases it with no answer named in --order, by his words state.GO_WORDS; None for any other start."""
+def went(command: str, data: dict, order_id: str | None = None) -> str | None:
+    """The order whose go, by state.has_go, approves the release the command starts, so the go that merged a fix also releases it with no answer named in --order and past his standing hold, by his words state.GO_WORDS: the job's own order when his go stands on it, a hotfix or an `--emergency` start alike, else the one every PR a hotfix names serves with his go on it."""
+    if order_id and order_id in data["orders"] and state.has_go(data["orders"][order_id]):
+        return order_id
     [flags] = started(command, data)
     keys = [f"{state.home(data)}#{number}" for number in flags.get("hotfix", ())]
     if not keys or any(key not in data["prs"] for key in keys):
         return None
-    gone = [{order_id for order_id in state.served_orders(data, data["prs"][key]) if data["orders"][order_id]["go"]} for key in keys]
+    gone = [{served for served in state.served_orders(data, data["prs"][key]) if state.has_go(data["orders"][served])} for key in keys]
     return next(iter(set.intersection(*gone)), None)
 
 
-def approval_refusal(command: str, data: dict, reading: str | None = None) -> str | None:
-    """Why the one release a command starts may not start on the answer of his its --order names: none for a rehearsal(); while he holds every release, hold_refusal() refuses it; none for a hotfix his go on its order approves, by went(); else unapproved() objects to it. Given the top coordinator's reading, none outside his hold: the release starts on that reading, whatever Opus read, and the objection is printed on stderr."""
-    if rehearsal(command, data):
+def approval_refusal(command: str, data: dict, reading: str | None = None, order_id: str | None = None) -> str | None:
+    """Why the one release a command starts may not start on the answer of his its --order names: none for a rehearsal() or a start his go on its order approves, by went(), his go being his exception to his standing hold too; while he holds every release, hold_refusal() refuses it; else unapproved() objects to it. Given the top coordinator's reading, none outside his hold: the release starts on that reading, whatever Opus read, and the objection is printed on stderr."""
+    if rehearsal(command, data) or went(command, data, order_id):
         return None
     cwd = data["roles"]["coordinator"]["cwd"]
     if hold := settled.hold(cwd):
         return hold_refusal(command, data, hold, reading)
-    if went(command, data) or not (why := unapproved(command, data, cwd)):
+    if not (why := unapproved(command, data, cwd)):
         return None
     if reading:
         print(f'drive job add: {why}; it starts on the top coordinator\'s reading "{cut(reading, 200)}"', file=sys.stderr)

@@ -253,10 +253,13 @@ check's verdict, or from the order when none ran.
 - His go clears every gate the drive can lift. His words: "I told you 3 times to merge snd release
   why do you keep delaying". When his words tell you to merge, ship or release an order's work, run
   `drive order go <o> --words "<his words>" --from <his message>` in the turn you hear them,
-  whichever session you are. Every open PR the order serves, and each one added to it later, then
-  lands with no Approve card and no merge queue: the lander squash-merges it directly, the merge
-  the repository names under `## In this repository`. A hotfix of its PRs starts with no answer of
-  his named for it. Three rules stay: a dangerous change, an incident fix included, merges only
+  whichever session you are. An open incident is his go already, with no command. Every open PR
+  the order serves, and each one added to it later, then lands with no Approve card and no merge
+  queue: the lander squash-merges it directly, the merge the repository names under `## In this
+  repository`. A release a job of the order starts, a hotfix or an `--emergency` start alike,
+  needs no answer of his named for it and passes his standing release hold; when no green release
+  candidate carries its PRs, start it with the release tool's `--emergency`, at the scope his
+  words name. Three rules stay: a dangerous change, an incident fix included, merges only
   after its staging test passes, and a started test runs to its end; it lands only while he is
   present, his word or tap within 15 minutes; and the release provider's scope holds.
 - His ruling: any release that stops, cancels or waits on approval reaches the incident thread and
