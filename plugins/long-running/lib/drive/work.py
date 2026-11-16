@@ -7,6 +7,8 @@ from drive import agents, orca, place, reads, state, view
 
 STAGE_TEST = "stage-test"
 PROVE = "prove"
+BUILD = "build"
+TOLD = ("ASK", "BLOCKED", "DONE")
 WORKER = "worker"
 ENV = state.STAGING_ENV
 WORKER_ITEMS = 18
@@ -268,8 +270,52 @@ class Prove(Kind):
         return not worker(job) and job["kind"] == "builder" and bool(state.PROVER_GOAL.fullmatch(job["goal"])) and not state.starts_cut(job)
 
 
+class Build(Kind):
+    """First builds: a builder or codex-free change job that no worker ever started, neither a staging tester nor a prover, run in groups on one stack, its repo and branch, or its order where it names no branch yet, so one worker pushes each branch; once it returns, its PR's events go to its own next worker as before."""
+
+    name = BUILD
+    group = 3
+    goal = "pull and build changes, a group on one stack at a time"
+    loop = (
+        "You are {worker}, the drive's build worker: you build a group of changes on one stack, each its own job, then pull the next group."
+        " 1) Run `drive work pull --worker {worker}`: it prints your group, each item's job id and brief; on `NONE` or `HOLD` go to 4."
+        " 2) For each item, read its brief whole and build it as a builder builds its own job, in the order the pull lists them, each on the branch its brief names or stacked on the one before it, and when it is pushed or blocked pipe its whole return, in the shape agents/builder.md gives a builder's, into `drive work done {worker} <item> -` from a quoted heredoc."
+        " 3) Go to 1."
+        " 4) Return. Never push a branch another worker builds, and never report an item another worker holds."
+    )
+
+    def matches(self, data: dict, job: dict) -> bool:
+        return (
+            not worker(job)
+            and job["kind"] == "builder"
+            and not state.staging_parts(data, job)
+            and not state.PROVER_GOAL.fullmatch(job["goal"])
+            and not state.starts_cut(job)
+            and not job["prs"]
+            and (job["said"] == state.NOT_STARTED or claimed_by(data, job) is not None)
+        )
+
+    def stack(self, data: dict, job: dict) -> tuple:
+        """The stack an item builds on: its repo and branch, or its order while it names no branch."""
+        return (job["repo"] or "", job["branch"] or job["order"])
+
+    def worth(self, data: dict, job: dict) -> bool:
+        """Whether no live worker builds a branch this item works, by state.works_branch, so one worker pushes each branch."""
+        return not any(
+            claimed_by(data, other) and state.works_branch(other, job["branch"], job["repo"])
+            for other_id, other in data["jobs"].items()
+            if other is not job and other.get("claim")
+        )
+
+    def group_of(self, data: dict, items: list[str], moment: datetime) -> tuple[list[str], str]:
+        """The head of the line and the items behind it on its stack, up to group."""
+        stack = self.stack(data, data["jobs"][items[0]])
+        group = [job_id for job_id in items if self.stack(data, data["jobs"][job_id]) == stack][: self.group]
+        return group, f"GO build {', '.join(group)} on {' '.join(filter(None, stack))}"
+
+
 STAGE = StageTest()
-KIND = {kind.name: kind for kind in (STAGE, Prove())}
+KIND = {kind.name: kind for kind in (STAGE, Prove(), Build())}
 KINDS = tuple(KIND)
 
 
@@ -315,13 +361,13 @@ def pulled(name: str, worker_id: str) -> str:
 
 
 def done(name: str, worker_id: str, job_id: str, whole: str) -> tuple[str, dict]:
-    """drive work done: take an item's whole return as drive job report takes it, refused unless its claim is the worker's, then end the claim and the item's wait on its worker, and give back what its kind holds for it; a refused return leaves the claim with the worker, to fix and send again."""
+    """drive work done: take an item's whole return as drive job report takes it, refused unless its claim is the worker's, then end the claim and the item's wait on its worker, and give back what its kind holds for it; a refused return leaves the claim with the worker, to fix and send again. Its line stays on the item, and only one someone must act on, ASK, BLOCKED or DONE, goes to the session holding its order as a JOB line, so the queue's workers add no cci record for a WAITING, READY or PUSHED."""
     from drive import cli
 
     data = state.load(name)
     if not (job := data["jobs"].get(job_id)) or claimed_by(data, job) != worker_id:
         raise state.DriveError(f"{job_id}: refused, {worker_id} holds no claim on it: drive work pull --worker {worker_id} names what it holds")
-    said, payload = cli.take_report(name, job_id, whole)
+    said, payload = cli.take_report(name, job_id, whole, tell=whole.strip().startswith(TOLD))
 
     def done_write(data: dict) -> None:
         data["jobs"][job_id].update(claim=None, waits=[wait for wait in data["jobs"][job_id]["waits"] if wait != worker_id])

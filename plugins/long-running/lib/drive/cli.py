@@ -3417,8 +3417,8 @@ def job_check(args: argparse.Namespace) -> int:
     return emit(args, f"{args.id}: {refused}", {"id": args.id, "refused": refused})
 
 
-def take_report(name: str, job_id: str, whole: str, read_prs: bool = True) -> tuple[str, dict]:
-    """Take a job's whole return as drive job report <j> - takes it, the one place a return is kept or refused, for that verb and for the watch's take of a local agent's last message; what it prints and its JSON. With read_prs False, as a Sprite lane's report is taken, the GitHub read of a READY's PRs runs after it is kept, in a `drive job check` of its own, so the lane's answer waits on none of it."""
+def take_report(name: str, job_id: str, whole: str, read_prs: bool = True, tell: bool = True) -> tuple[str, dict]:
+    """Take a job's whole return as drive job report <j> - takes it, the one place a return is kept or refused, for that verb and for the watch's take of a local agent's last message; what it prints and its JSON. With read_prs False, as a Sprite lane's report is taken, the GitHub read of a READY's PRs runs after it is kept, in a `drive job check` of its own, so the lane's answer waits on none of it. With tell False, as a work queue item's return no one must act on is taken, its line stays on the item and no JOB line goes to the session holding its order."""
     data = state.load(name)
     job = data["jobs"][job_id]
     line = whole.strip().splitlines()[0].strip()
@@ -3487,7 +3487,7 @@ def take_report(name: str, job_id: str, whole: str, read_prs: bool = True) -> tu
     briefed = state.after_save(name, lambda: [f"{builder_id}: {write_brief(name, builder_id, {})[0]}" for builder_id in rebriefed])
     told = state.load(name)
     started = render.builder_lines(name, data, added)
-    if (taken := told["jobs"][job_id])["said"] and not state.PUSHED_LINE.match(taken["said"]) and not state.agent_lane(told, taken):
+    if tell and (taken := told["jobs"][job_id])["said"] and not state.PUSHED_LINE.match(taken["said"]) and not state.agent_lane(told, taken):
         state.returned(name, told, job_id, "; ".join([taken["said"], *replaced, *([render.unread([text["words"] for text in taken["undelivered"]])] if taken["undelivered"] else []), *started]))
     elif started:
         state.returned(name, told, job_id, "; ".join(started))
