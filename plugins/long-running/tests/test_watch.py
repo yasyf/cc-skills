@@ -12820,3 +12820,14 @@ def test_a_prover_waits_on_no_staging_deploy_once_a_production_cluster_of_every_
     [line] = watch.shipped_lines(watching, T0)
     assert "waits on no staging deploy: production already carries" in line
     assert state.load(demo)["jobs"]["j9"]["waits"] == []
+
+def test_a_gate_refusal_on_his_ask_owes_one_blocked_step_naming_its_findings_and_the_episode_ends_once_the_refusal_is_older_than_gate_holds(demo: str) -> None:
+    moment = state.parse_time("2026-11-09T05:07:00-08:00")
+    with edit(demo) as data:
+        data["orders"]["o1"]["gated"] = {"release": {"at": state.stamp(moment), "findings": ["it names no answer of his"]}}
+        assert owing.settle(data, moment)
+        [item] = [item for item in data["orders"]["o1"]["owed"] if item["done_when"] == {"blocked": "o1"}]
+        assert (data["orders"]["o1"]["blocked"], item["what"].endswith("the drive refused release: it names no answer of his")) == ("gate:release", True)
+        assert not owing.settle(data, moment + timedelta(minutes=5))
+        assert owing.settle(data, moment + owing.GATE_HOLDS + timedelta(minutes=1))
+        assert data["orders"]["o1"]["blocked"] is None

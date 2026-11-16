@@ -14,6 +14,7 @@ KINDS = (STEP, FIX_LIVE, CLAIM, CARD, DELIVER, REVERT)
 TELL_AFTER = timedelta(minutes=10)
 BLOCKED_DUE = timedelta(minutes=5)
 SLOT_QUIET = timedelta(minutes=10)
+GATE_HOLDS = timedelta(minutes=15)
 FOLD_WITHIN = timedelta(minutes=10)
 SPAN_FLOOR = timedelta(minutes=15)
 SPAN_CEILING = timedelta(minutes=60)
@@ -166,10 +167,14 @@ def waiting(data: dict, moment: datetime) -> dict[str, tuple[str, str]]:
 
 
 def blocks(data: dict, moment: datetime) -> bool:
-    """Owe one step per blocking episode of each ask, by blocked, the reasons its jobs wait on making the episode; an ask none of whose jobs waits any more ends its episode, so blocking again later owes a new post. Whether anything changed."""
+    """Owe one step per blocking episode of each ask, by blocked, the reasons its jobs wait on making the episode, with each action gate() refused on it within GATE_HOLDS, as the watch keeps them from its blocked events; an ask none of whose jobs waits any more ends its episode, so blocking again later owes a new post. Whether anything changed."""
     episodes: dict[str, dict[str, str]] = {}
     for job_id, (reason, why) in waiting(data, moment).items():
         episodes.setdefault(data["jobs"][job_id]["order"], {}).setdefault(reason, why)
+    for order_id, order in data["orders"].items():
+        for action, refused in order["gated"].items():
+            if moment - state.parse_time(refused["at"]) < GATE_HOLDS and state.order_class(order) != state.CLASSES[2]:
+                episodes.setdefault(order_id, {})[f"gate:{action}"] = f"the drive refused {action}: {'; '.join(map(str, refused['findings']))}"
     changed = False
     for order_id, order in data["orders"].items():
         if order["blocked"] and order_id not in episodes:

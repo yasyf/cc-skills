@@ -4364,6 +4364,7 @@ def new_order(text: str, source: str, thread: tuple[str, str] | None, parts: dic
         "last_line": None,
         "owed": [],
         "blocked": None,
+        "gated": {},
         "asks": {},
         "dropped_parts": {},
     }

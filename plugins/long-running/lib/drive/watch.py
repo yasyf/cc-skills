@@ -27,7 +27,7 @@ from pathlib import Path
 from time import monotonic
 from typing import NamedTuple, Self
 
-from drive import agents, answer, brief, children, codex, dashboard, github, install, land, launchd, limits, orca, owing, page, place, procs, providers, reads, receiver, refs, render, restack, served, settled, slack, stage, stall, state, superseded, superseded_procs, train, view, work
+from drive import agents, answer, brief, children, codex, dashboard, gate, github, install, land, launchd, limits, orca, owing, page, place, procs, providers, reads, receiver, refs, render, restack, served, settled, slack, stage, stall, state, superseded, superseded_procs, train, view, work
 from drive.install import PROOF_FAILED, add_prover, config_dir, handed_on, open_cut, outrun, done_before_proofs, done_unproven, merged_done, merged_ready, merges_of, merged_said, product, proof_gap, proofless, proved_prs, prover_of, proves, released_prs, reported_prs, watch_upgraded as upgraded, watch_proves, widen
 from drive.render import cut, when
 
@@ -3041,6 +3041,14 @@ def event_lines(watcher: Watcher) -> list[str]:
     data = state.load(watcher.name)
     heard = (watcher.lane,) if watcher.project else (watcher.lane, *state.HOLDERS)
     said = [event_line(event, data) for event, _ in events if event["kind"] not in (*view.HISTORY_ONLY, receiver.DELIVERY, receiver.BUILD_DELIVERY) and event.get("lane", "root") in heard]
+    gated = [event for event, _ in events if event["kind"] == gate.BLOCKED and event["order"] in data["orders"]]
+    if gated and not watcher.project:
+
+        def gated_write(data: dict) -> None:
+            for event in gated:
+                data["orders"][event["order"]]["gated"][event["action"]] = {"at": event["at"], "findings": event["findings"]}
+
+        state.write(watcher.name, gated_write, budget=state.WATCH_WRITE_SECONDS)
     watcher.offset = events[-1][1]
     return said
 
