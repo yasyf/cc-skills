@@ -748,7 +748,7 @@ POST_RULES_HEADING = "The repository's rules for every post to him, beside his o
 
 def post_rules(drive: dict) -> list[str]:
     """The rules the drive's repository holds every post to him to, by its providers' post_rules; none for a drive no session is bound to yet or whose providers do not load, so a broken provider never blocks a session's start."""
-    from drive import providers
+    from drive import providers, state
 
     if not state.bound_sessions(drive):
         return []

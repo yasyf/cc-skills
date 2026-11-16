@@ -224,6 +224,8 @@ def test_a_row_save_indexes_only_written_collections_and_keeps_insertion_order(s
     traversed: list[str] = []
 
     class Records(dict):
+        collection: str
+
         def __iter__(self):
             traversed.append(self.collection)
             return super().__iter__()
