@@ -51,7 +51,7 @@ from conftest import (
     staged,
     unheld,
 )
-from drive import agents, artifacts, cli, github, install, orca, place, reads, render, state, superseded, tools, view, watch
+from drive import agents, artifacts, cli, github, install, orca, place, reads, render, state, superseded, talk, tools, view, watch
 
 pytestmark = pytest.mark.usefixtures("ccx_worktrees")
 
@@ -1400,7 +1400,7 @@ def test_launch_local_from_a_session_that_did_not_start_the_jobs_ended_agent_sta
     [(_, call, _)] = bg_starts
     assert "Drive: demo, order o1, job j1\n\n## Taking over from an agent of another session\n\nThe agent that held this job, a-1 of session session-under-test," in bg_brief(call)
     job = state.load(demo)["jobs"]["j1"]
-    assert (job["agent"], job["session"], job["where"], job["route"], job["dispatch"], job["bg"]["session"]) == (None, "meta-session", "local", None, None, "bg-1")
+    assert (job["agent"], job["session"], job["where"], job["route"], job["dispatch"], job["bg"]["session"]) == (job["bg"]["agent"], "meta-session", "local", None, None, "bg-1")
 
 
 def test_a_resume_from_another_session_posts_the_text_to_the_session_that_started_the_jobs_live_agent_and_a_launch_is_refused(
@@ -1543,8 +1543,8 @@ def test_the_watch_posts_a_staging_case_to_the_running_tester_its_session_starte
     posted = []
     monkeypatch.setattr(tools, "sent", lambda name, lane, posts: posted.extend((lane, post) for post in posts) or ["720380"])
     assert watch.case_lines(watch.Watcher(demo, offset=state.events_end(demo)), T0) == []
-    pointer = 'j1: SendMessage a4e953525ff2a4e17 "Read cci record 720380 whole and act on it"'
-    assert [(lane, post["to"], post["text"]) for lane, post in posted] == [("j1", [f"peer:{top}/a4e953525ff2a4e17"], case), ("j1", [f"root@{demo}"], pointer)]
+    pointer = 'j1: owed, send it now: SendMessage a4e953525ff2a4e17 "Read cci record 720380 whole and act on it"'
+    assert [(lane, post["to"], post.get("body", post["text"])) for lane, post in posted] == [("j1", [f"peer:{top}/a4e953525ff2a4e17"], case), ("j1", [f"root@{demo}"], pointer)]
     assert [kept["request"] for kept in state.load(demo)["jobs"]["j1"]["undelivered"]] == ["req-other"]
     assert watch.case_lines(watch.Watcher(demo, offset=state.events_end(demo)), T0) == []
     assert len(posted) == 2
@@ -1652,7 +1652,7 @@ def test_a_job_whose_stopped_agent_has_a_brief_declaring_a_step_only_this_mac_ru
     [(_, call, _)] = bg_starts
     assert (launched, "\n## Taking over from " in bg_brief(call)) == ([], True)
     job = state.load(demo)["jobs"]["j1"]
-    assert (job["agent"], job["where"], job["route"], job["dispatch"], job["bg"]["session"]) == (None, "local", None, None, "bg-1")
+    assert (job["agent"], job["where"], job["route"], job["dispatch"], job["bg"]["session"]) == (job["bg"]["agent"], "local", None, None, "bg-1")
 
 
 def test_a_resume_of_an_agent_here_whose_turn_ended_while_eight_builders_hold_this_macs_slots_hands_the_job_to_a_lane_on_a_sprite(
@@ -1770,7 +1770,7 @@ def test_the_watch_hands_a_job_whose_agent_on_this_mac_stopped_on_an_api_error_t
     assert lane_lines(watching, T0 + timedelta(minutes=1)) == []
     assert relaunches == ["j1"]
     job = state.load(demo)["jobs"]["j1"]
-    assert [(death["agent"], death["dispatch"], death["relaunch"]) for death in job["deaths"]] == [("a1", None, {"pid": os.getpid(), "at": state.stamp(T0)})]
+    assert [(death["agent"], death["dispatch"], death["relaunch"]) for death in job["deaths"]] == [("a1", None, {"pid": os.getpid(), "at": state.stamp(T0), "tries": 1})]
     assert "lane dead since" in render.job_line(state.load(demo), "j1", job)
 
 
@@ -1790,19 +1790,23 @@ SAFEGUARDED_LINE = (
 
 
 def safeguards_posts(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
-    """Each POST report the watch sends the communicator on a stop a model's safeguards made."""
+    """Each record the watch sends, and each line it says to him through say, on a stop a model's safeguards made."""
     posted: list[dict] = []
     monkeypatch.setattr(tools, "sent", lambda name, lane, records: posted.extend(records) or [str(seq) for seq, _ in enumerate(records, 9)])
+    monkeypatch.setattr(talk, "watch_line", lambda name, post: posted.append(post) or "posted")
     return posted
 
 
-def safeguards_reports(posted: list[dict]) -> list[tuple[str, str, list[str]]]:
-    return [(record["text"], record["body"].splitlines()[-1], record["to"]) for record in posted if record.get("topic") == "watch-safeguards-j1"]
+def safeguards_reports(posted: list[dict]) -> list[tuple[str, str, str]]:
+    records = [record for record in posted if record.get("topic") == "watch-safeguards-j1"]
+    said = [post["text"].partition(", and the drive restarts nothing. ")[2] for post in posted if post.get("record") == "9"]
+    return [(record["text"], record["body"].splitlines()[-1], line) for record, line in zip(records, said, strict=True)]
 
 
 SAFEGUARDS_REPORT = (
-    "POST j1's agent was stopped by its model's safeguards and the drive restarts nothing: post Claude Code's notice to him whole, as it asks",
+    "j1's agent was stopped by its model's safeguards and the drive restarts nothing",
     f"Claude Code's notice: {STOPPED_TEXT}",
+    f"Claude Code's notice: {STOPPED_TEXT} ({{record:9|its facts}}).",
 )
 
 
@@ -1813,7 +1817,7 @@ def test_the_watch_stops_a_job_whose_agent_on_this_mac_a_models_safeguards_stopp
     watching = stopped_agent_watched(run, demo, tmp_path, monkeypatch, [EARLIER], STOPPED)
     assert lane_lines(watching, T0) == [SAFEGUARDED_LINE]
     assert lane_lines(watching, T0 + timedelta(minutes=1)) == []
-    assert (relaunches, safeguards_reports(posted)) == ([], [(*SAFEGUARDS_REPORT, ["communicator@demo"])])
+    assert (relaunches, safeguards_reports(posted)) == ([], [SAFEGUARDS_REPORT])
     data = state.load(demo)
     job = data["jobs"]["j1"]
     assert (job["state"], job["said"], job.get("deaths", [])) == ("stopped", SAFEGUARDED_SAID, [])
@@ -1914,7 +1918,7 @@ def test_the_watch_stops_a_lane_on_this_mac_a_models_safeguards_stopped_at_once_
     watching = quiet_lane_watched(remote, tmp_path, monkeypatch, [CALLED, CALL_RESULT, STOPPED], [EARLIER])
     assert lane_lines(watching, T0) == [SAFEGUARDED_LINE]
     assert lane_lines(watching, T0 + timedelta(seconds=5)) == []
-    assert (sends, relaunches, safeguards_reports(posted)) == ([], [], [(*SAFEGUARDS_REPORT, [f"communicator@{remote}"])])
+    assert (sends, relaunches, safeguards_reports(posted)) == ([], [], [SAFEGUARDS_REPORT])
     assert (state.load(remote)["jobs"]["j1"]["state"], state.load(remote)["jobs"]["j1"]["said"]) == ("stopped", SAFEGUARDED_SAID)
 
 
@@ -2731,6 +2735,7 @@ def test_a_copy_after_each_turn_reads_only_the_transcripts_that_changed_and_keep
     projects.mkdir(parents=True)
     (projects / "0b1c9e.jsonl").write_text("{}\n")
     (projects / "old.jsonl").write_text("{}\n")
+    os.utime(projects / "old.jsonl", (time.time() - 60, time.time() - 60))
     listed, reads = orca.sprite_api, []
 
     def counted(root: Path, workspace: str, call: str, *curl: str) -> str:
@@ -4627,7 +4632,7 @@ def test_the_watch_neither_records_nor_relaunches_a_lane_death_while_another_dri
     assert (line.startswith(f"LANE j1 o1 died on Sprite pool-txgdh6qfdwhn72iy: {GONE_SPRITE}"), relaunches, death["relaunch"]) == (
         True,
         ["j1"],
-        {"pid": os.getpid(), "at": state.stamp(T0 + timedelta(minutes=1))},
+        {"pid": os.getpid(), "at": state.stamp(T0 + timedelta(minutes=1)), "tries": 1},
     )
 
 
@@ -5128,7 +5133,7 @@ def test_a_running_job_whose_lane_died_is_relaunched_that_pass_once(remote: str,
     assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == []
     assert relaunches == ["j1"]
     job = state.load(remote)["jobs"]["j1"]
-    assert (job["state"], job["deaths"][-1]["relaunch"]) == ("running", {"pid": os.getpid(), "at": state.stamp(T0)})
+    assert (job["state"], job["deaths"][-1]["relaunch"]) == ("running", {"pid": os.getpid(), "at": state.stamp(T0), "tries": 1})
     assert "lane dead since" in render.job_line(state.load(remote), "j1", job)
 
 
@@ -5283,7 +5288,7 @@ def test_a_running_job_whose_lane_died_while_it_waited_is_resumed_once_with_no_m
     assert line.startswith("LANE j1 o1 died on Sprite sprite-old: its worker exited")
     assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == []
     assert relaunches == ["j1"]
-    assert state.load(remote)["jobs"]["j1"]["deaths"] == [death | {"relaunch": {"pid": os.getpid(), "at": state.stamp(T0)}}]
+    assert state.load(remote)["jobs"]["j1"]["deaths"] == [death | {"relaunch": {"pid": os.getpid(), "at": state.stamp(T0), "tries": 1}}]
 
 
 def test_a_lane_result_opens_with_the_subject_it_was_sent_under(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -7959,11 +7964,11 @@ def test_a_drives_binder_is_a_second_terminal_it_opens_and_keeps_beside_its_own(
 
 
 @pytest.mark.parametrize(
-    ("kept", "orphaned", "spoken"),
-    [("term_kept", False, "term_kept"), ("term_kept", True, "term_opened"), ("term_kept", None, "term_opened"), (None, None, "term_opened")],
+    ("kept", "connected", "spoken"),
+    [("term_kept", True, "term_kept"), ("term_kept", False, "term_opened"), ("term_kept", None, "term_opened"), (None, None, "term_opened")],
 )
 def test_a_drive_speaks_as_the_terminal_it_keeps_while_orca_shows_its_pane_else_one_it_opens_in_the_coordinators_checkout_and_keeps(
-    remote: str, monkeypatch: pytest.MonkeyPatch, kept: str | None, orphaned: bool | None, spoken: str
+    remote: str, monkeypatch: pytest.MonkeyPatch, kept: str | None, connected: bool | None, spoken: str
 ) -> None:
     with state.edit(remote) as data:
         data["terminal"] = kept
@@ -7974,9 +7979,9 @@ def test_a_drive_speaks_as_the_terminal_it_keeps_while_orca_shows_its_pane_else_
         if args[:2] == ("terminal", "create"):
             opened.append(args[2:])
             return {"terminal": {"handle": "term_opened"}}
-        if orphaned is None:
-            raise orca.OrcaError("orca terminal show: terminal_not_found: no such terminal")
-        return {"terminal": {"orphaned": orphaned}}
+        if connected is None:
+            raise orca.OrcaError(f"orca terminal show: {orca.STALE_TERMINAL}: no such terminal", orca.STALE_TERMINAL)
+        return {"terminal": {"connected": connected}}
 
     monkeypatch.setattr(orca, "request", orca_request)
     assert (REAL_DRIVE_TERMINAL(remote), state.load(remote)["terminal"]) == (spoken, spoken)
