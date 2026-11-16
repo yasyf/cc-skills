@@ -146,7 +146,8 @@ def report_line(name: str, seq: str) -> str:
         raise Skipped(f"its post was skipped: {made['skip']}")
     if not (text := (made.get("text") or "").strip()):
         raise DriveError(f"its post was not written: {render.cut(said, 200)}")
-    if strays := [url for url in answer.URL.findall(json.dumps(made)) if url not in words and url not in corrected]:
+    drawn = {link for ref in refs.resolved(name, words).values() for link in (ref.get("url"), ref.get("card"), ref.get("board")) if link}
+    if strays := [url for url in answer.URL.findall(json.dumps(made)) if url not in words and url not in corrected and url not in drawn]:
         raise DriveError(f"its post links {strays[0]}, which the report does not print")
     if findings := slack.post_findings(text, bool(made.get("blocks")) and "{card:" in text):
         text = fixes.mended(text, findings, state.now())

@@ -624,6 +624,25 @@ def test_a_release_still_running_with_no_post_links_the_build_a_job_started_and_
         refs.release(data, "18150")
 
 
+def test_a_report_post_may_link_what_the_reports_references_draw_but_no_other_link(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    from drive import answer
+
+    pull = "https://github.com/yasyf/cc-skills/pull/6064"
+    words = "POST the retro: {pr:yasyf/cc-skills#6064|required staging cases} now gates every cut"
+    monkeypatch.setattr(agents, "answered", lambda seq: {"attrs": {"channel": "C1"}, "report": {"kind": "report", "text": words, "seq": seq}, "thread": None})
+    monkeypatch.setattr(slack, "homes", lambda data: {"C1"})
+    monkeypatch.setattr(slack, "post_findings", lambda text, draws_card, asked="": [])
+    monkeypatch.setattr(view, "live_cards", lambda name: None)
+    monkeypatch.setattr(talk, "spoken", lambda name, post, known: f"POSTED {post['text']}")
+    for link, refused in ((pull, False), ("https://github.com/yasyf/cc-skills/pull/9999", True)):
+        monkeypatch.setattr(answer, "ask", lambda facts, prompt, rules, tag, link=link: (json.dumps({"text": f"<{link}|Required staging cases> now gate every cut.", "place": "root"}), None))
+        if refused:
+            with pytest.raises(DriveError, match="which the report does not print"):
+                talk.report_line(demo, "735031")
+        else:
+            assert talk.report_line(demo, "735031").startswith("POSTED")
+
+
 def test_say_posts_the_words_its_hook_judged_and_checks_none_of_them_again(demo: str, posts: list[tuple[str, ...]], checked: Checked) -> None:
     checked.findings = ["1:5 drive-term 'fence': say what happens to the reader's work instead"]
     with edit(demo) as data:
