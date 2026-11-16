@@ -487,7 +487,9 @@ def floored(watcher: Watcher, lines: list[str], reset: datetime, refusal: str) -
 
 
 def dangerous_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Read in one github.paths call the changed files of each heard PR whose head no read of its files saw, by state.unmarked, whether the repository's .claude/long-running.toml or its provider's dangerous_paths classes it, and put each whose head changes one on its staging test with a tester, by state.mark_dangerous, ahead of the stage_lines that draws his card on it; each tester added said as drive pr add says it. A PR registered before an install that brought this stage has no head read, so the passes after it read every open one, at most MARK_READS a pass so one write never drops hundreds of staging parts at once."""
+    """Read in one github.paths call the changed files of each heard PR whose head no read of its files saw, by state.unmarked, whether the repository's .claude/long-running.toml or its provider's dangerous_paths classes it, and the release reach of each it classes, and put each whose head changes one and whose stacks have staging on its staging test with a tester, by state.mark_dangerous, ahead of the stage_lines that draws his card on it; each tester added said as drive pr add says it. A PR registered before an install that brought this stage has no head read, so the passes after it read every open one, at most MARK_READS a pass so one write never drops hundreds of staging parts at once."""
+    from drive import cli
+
     data = state.load(watcher.name)
     keys = [key for key in state.unmarked(data) if key not in watcher.stale and hears(watcher, data, data["prs"][key]["order"])][:MARK_READS]
     if not keys:
@@ -497,8 +499,13 @@ def dangerous_lines(watcher: Watcher, moment: datetime) -> list[str]:
     except github.GithubError as error:
         return read_failed(watcher, "changed files", error, moment)
     watcher.failures.pop("changed files", None)
+    try:
+        reach = cli.release_reach(watcher.name, data, [key for key, (head, paths) in read.items() if state.dangerous(data, paths, head)]) if state.reads_reach(data) else {}
+    except (github.GithubError, reads.ReadError, state.DriveError, json.JSONDecodeError) as error:
+        return read_failed(watcher, "release reach", error, moment)
+    watcher.failures.pop("release reach", None)
     def dangerous_lines_write(data: dict):
-        added = {key: tester for key, (head, paths) in read.items() if key in data["prs"] and (tester := state.mark_dangerous(data, key, head, paths))}
+        added = {key: tester for key, (head, paths) in read.items() if key in data["prs"] and (tester := state.mark_dangerous(data, key, head, paths, reach.get(key)))}
         return added, data
 
     added, data = state.write(watcher.name, dangerous_lines_write, budget=state.WATCH_WRITE_SECONDS)

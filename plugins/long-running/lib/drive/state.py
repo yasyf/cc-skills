@@ -191,6 +191,9 @@ STAGING_PART = re.compile(STAGING_TEST.format(number=r"(?P<number>\d+)"))
 STAGING_PARTS = re.compile(r"staging test of (?P<numbers>#\d+(?:(?:,| with| and)+ #\d+)*) before (?:it lands|they land)")
 AFTER_MERGE_PASS = "after-merge staging pass"
 UNDANGEROUS_MERGES = "{key} changes nothing dangerous, so it owes no staging test before it merges: it merges on green CI, and its after-merge proof reads what the promotion deploys"
+UNSTAGED_STACKS = "its stacks have no staging, so the pre-merge proof posted on it, its tests and a read-only dry run or probe against production, is its staging test, by his answer b2ba5d3"
+UNSTAGED_PATHS = "his answer {answer} says {globs} need no staging test"
+UNSTAGED_SAID = "{key} needs no staging test: {why}"
 PID_WAIT = re.compile(r"pid:(?P<pid>\d+)(?:@(?P<started>\d+))?")
 NAMED_PIDS = re.compile(r"\bpid:(?P<pids>\d+(?:,\d+)*)(?:@(?P<box>[A-Za-z][\w.-]*))?(?!\w)")
 BOX_PID_WAIT = re.compile(r"pid:(?P<pid>\d+)@(?P<box>[A-Za-z][\w.-]*)")
@@ -1048,6 +1051,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str) -> dict:
         "cut_provers_marked": True,
         "staging_owed_on_prs": True,
         "reader_pilot": None,
+        "unstaged_paths": None,
         "tooling_backlog": False,
     }
 
@@ -1467,6 +1471,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
             slot["holder"].setdefault("released", False)
             slot["holder"].setdefault("gave_way_to", None)
     data.setdefault("reader_pilot", None)
+    data.setdefault("unstaged_paths", None)
     data.setdefault("tooling_backlog", False)
     for answer in data["answers"].values():
         answer.setdefault("jobs", {})
@@ -3235,12 +3240,36 @@ def unstage(data: dict, key: str, why: str, job_id: str) -> None:
     if pr["owes_staging"]:
         hold_text(data["jobs"][job_id], OWED_STAGING.format(key=key), WATCH_SENDER)
         return
-    pr["unstaged"] = {"why": why, "head": pr["paths_at"] or pr["head"]}
+    lift(data, key, {"why": why}, f"{job_id} says {UNSTAGED_SAID.format(key=key, why=why)}")
+
+
+def lift(data: dict, key: str, unstaged: dict, said: str) -> None:
+    """Lift a PR off its staging test at the head whose files were read last, keeping unstaged, its why and whether a rule of his made it, for his card: its part leaves each order on which it is not delivered and no job runs it now, every job on it untaken or finished, by drop_part, each told said, with the PR's wait on it, while a test a job runs stays to its end, by his ruling 0048b14."""
+    pr = data["prs"][key]
+    pr["unstaged"] = unstaged | {"head": pr["paths_at"] or pr["head"]}
     part = STAGING_TEST.format(number=key.split("#")[1])
     for order_id in [order_id for order_id, order in data["orders"].items() if part in order["parts"]]:
         if not delivered(data, order_id, part) and all(untaken(job) or job["state"] in FINISHED_JOB_STATES for _, job in part_jobs(data, order_id, part)):
-            drop_part(data, order_id, part, f"{job_id} says {key} needs no staging test: {why}")
+            drop_part(data, order_id, part, said)
             pr["waits"] = [wait for wait in pr["waits"] if wait != f"{order_id}:{part}"]
+
+
+def staging_free(data: dict, classes: dict[str, list[str]], reach: dict | None) -> str | None:
+    """Why a PR whose head changes these dangerous classes owes no staging test before it merges: every path making it one matches a glob of the paths his answer says need none in this drive, set by drive order unstaged, or the release reach of its paths, as cli.release_reach reads it through a release provider that reads one, names none of its releases as staged and touches no client the Mac box provider signs in to staging, so its stacks have no staging and its posted pre-merge proof is its test, by his answer b2ba5d3; None when neither holds, its reach was not read, or it narrows the dangerous list, by NARROWED."""
+    if NARROWED in classes:
+        return None
+    if (unstaged := data["unstaged_paths"]) and all(any(fnmatchcase(path, glob) for glob in unstaged["globs"]) for made in classes.values() for path in made):
+        return UNSTAGED_PATHS.format(answer=unstaged["answer"][:7], globs=", ".join(unstaged["globs"]))
+    if reach and reads_reach(data) and not set(reach["releases"]) & set(reach["staged"]) and not provided(data).mac_box.affected(reach["touched"]):
+        return UNSTAGED_STACKS
+    return None
+
+
+def reads_reach(data: dict) -> bool:
+    """Whether the repository's release provider reads what a PR reaches, so its stacks' staging can be read from it; a provider reading none says nothing of staging."""
+    from drive import providers
+
+    return type(provided(data).release).components is not providers.ReleaseProvider.components
 
 
 def staged_open(data: dict, part: str) -> list[str]:
@@ -3331,15 +3360,15 @@ def classifier(data: dict) -> str:
     key = (found.sha, module)
     if key not in CLASSIFIER_SOURCES:
         CLASSIFIER_SOURCES[key] = providers.blob(Path(next(iter(bound_sessions(data).values()))["cwd"]), found.sha, module) or "" if module else ""
-    return hashlib.sha256((JUDGING + tables + CLASSIFIER_SOURCES[key]).encode()).hexdigest()[:16]
+    return hashlib.sha256((JUDGING + tables + json.dumps(data["unstaged_paths"], sort_keys=True) + CLASSIFIER_SOURCES[key]).encode()).hexdigest()[:16]
 
 
 CLASSIFIER_SOURCES: dict[tuple[str | None, str | None], str] = {}
-JUDGING = "every open head judged, a held staging part included"
+JUDGING = "every open head judged, a held staging part included, its stacks' staging and his unstaged paths read"
 
 
-def mark_dangerous(data: dict, key: str, head: str, paths: list[str]) -> str | None:
-    """Stage a PR whose head changes a dangerous class of file, by dangerous(), as its builder's `STAGING: #N` line would, by stage_pr, in the session of its job, its tester's goal naming each class and its files, while markable, keeping the head read so each head is read once, and the paths that change how its data is stored, by land.stored, which his card reads on a PR changing more files than its read of the card lists: the check of a PR's changed files that `drive pr add` and the watch make, so the staging test AGENTS.md asks never rests on its builder's word alone, the tooling only helping the builder keep the prose rule, by his words 17f763e. A PR an order already holds the staging part of is judged too: a dangerous head only records owes_staging on it, adding no tester and holding no case, and a head the reader finds nothing dangerous in leaves its staging test, as unreach takes it off, so his Approve merges it; the tester added, or None."""
+def mark_dangerous(data: dict, key: str, head: str, paths: list[str], reach: dict | None) -> str | None:
+    """Stage a PR whose head changes a dangerous class of file, by dangerous(), as its builder's `STAGING: #N` line would, by stage_pr, in the session of its job, its tester's goal naming each class and its files, while markable, keeping the head read so each head is read once, and the paths that change how its data is stored, by land.stored, which his card reads on a PR changing more files than its read of the card lists: the check of a PR's changed files that `drive pr add` and the watch make, so the staging test AGENTS.md asks never rests on its builder's word alone, the tooling only helping the builder keep the prose rule, by his words 17f763e. A PR an order already holds the staging part of is judged too: a dangerous head only records owes_staging on it, adding no tester and holding no case, and a head the reader finds nothing dangerous in leaves its staging test, as unreach takes it off, so his Approve merges it. A dangerous head that staging_free frees, given the PR's release reach, owes no test at that head, lifted as lift lifts one, by his answers b2ba5d3 and those drive order unstaged names; the tester added, or None."""
     from drive import land
 
     pr, by = data["prs"][key], classifier(data)
@@ -3352,6 +3381,10 @@ def mark_dangerous(data: dict, key: str, head: str, paths: list[str]) -> str | N
     if not (classes := dangerous(data, paths, head)):
         if held:
             unreach(data, key)
+        return None
+    if free := staging_free(data, classes, reach):
+        pr["owes_staging"] = None
+        lift(data, key, {"why": free, "ruled": True}, UNSTAGED_SAID.format(key=key, why=free))
         return None
     changes = "; ".join(f"{kind}: {', '.join(made[:DANGEROUS_SHOWN])}{f' and {len(made) - DANGEROUS_SHOWN} more' if len(made) > DANGEROUS_SHOWN else ''}" for kind, made in classes.items())
     pr["owes_staging"] = {"head": head, "at": stamp()}

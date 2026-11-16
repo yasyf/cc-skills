@@ -1412,6 +1412,24 @@ def order_backlog(args: argparse.Namespace) -> int:
     return emit(args, line, {"tooling_backlog": args.switch == "on", "held": held})
 
 
+def order_unstaged(args: argparse.Namespace) -> int:
+    """Keep the path globs his answer says need no staging test in this drive, by state.staging_free: a PR whose every dangerous path matches one owes no staging test at any head and lands on his tap or its exempt class, and setting them reads every open PR's head again, by state.classifier, lifting each held test no job runs now; with no glob, it ends."""
+    name = state.resolve(args.drive)
+    if args.globs and not args.answer:
+        raise DriveError("refused, nothing kept: name his answer in cc-notes saying these paths need no staging test with --answer")
+    cited = settled.shown(args.answer, state.load(name)["roles"]["coordinator"]["cwd"]) if args.globs else None
+    if cited and settled.paraphrased(cited):
+        raise DriveError(f"refused, nothing kept: {args.answer} is a session's paraphrase, labelled {settled.PARAPHRASE_LABEL}, and only his own words lift a staging test")
+    unstaged = {"globs": args.globs, "answer": cited["id"], "title": cited["title"]} if cited else None
+
+    def order_unstaged_write(data: dict):
+        data["unstaged_paths"] = unstaged
+
+    state.write(name, order_unstaged_write)
+    line = f"{', '.join(args.globs)} need no staging test, by his answer {cited['id'][:7]}: {render.cut(cited['title'], 120)}" if cited else "no paths are unstaged: every dangerous change owes its staging test where its stacks have staging"
+    return emit(args, line, {"unstaged_paths": unstaged})
+
+
 def owed_list(args: argparse.Namespace) -> int:
     """List each open order's open owed items, overdue first, by owing.status_lines, or one order's."""
     data = state.load(state.resolve(args.drive))
@@ -5731,7 +5749,7 @@ def unsent_wake(args: argparse.Namespace, key: str, head: str, data: dict) -> in
 
 
 def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = None, exempt: str | None = None, no_tap: bool = False, lead: dict | None = None, parts: list[str] | None = None, waits: list[str] = ()) -> tuple[dict, list[str]]:
-    """Register a PR on its job from its GitHub read, refused as `drive pr add` refuses, keeping the title and branch it read, so a PR merged and proved before the watch's next read is named by it and a card naming its branch holds it at once, and the parts of its job's orders it names as delivering, so its first check judges it on those, and, for an open one whose head changes a dangerous class of file, its staging test with a tester, by state.mark_dangerous, before his card draws; the PR as registered, which ends each wait on its job's change, and the tester added. `drive pr add` runs it, and `drive job report` for each PR a builder's READY or PUSHED names that no `drive pr add` registered, so every PR a result names lands as one its builder added does, and for each GitHub PR the drive does not track that the FIX line of a report tracing a live bug's cause links. Someone else's PR his words on its order do not name is refused before any check that would have its title or body edited. The lead lines given are kept over those kept before, and each teammate's review it waits on, as review:<login>, beside its other waits, so his card draws only once each lands on its head. A PR is refused once, nothing written, naming every one of these it has, so one relayed call or dry run names them all: a title his card cannot name the kind of, a Show me picture that does not draw, and, on a PR his card asks his tap on, a lead that does not tell him why it is made, what it does and what it changes downstream, by limits.lead_problems; a FIX line's PR, given no lead, is someone else's and kept as it reads. A PR registered for the first time with no class or port named keeps the class its listed files put it in, by path_class, so a CI fix of his draws no card from any of these callers. A PR first registered open where his card would ask his tap takes his Approve from his standing approval covering it, by settled.approved_by, so no card draws. An open PR waiting on his tap whose paths reach a component staging runs is kept waiting on its staging test, by staging_reach, so his first card on it names that wait, and a failed read of that reach refuses the add, nothing kept. It keeps the head and base GitHub read on a row holding none, so a row the watch never read carries them for every check reading its changes, and refuses a read giving no head or base."""
+    """Register a PR on its job from its GitHub read, refused as `drive pr add` refuses, keeping the title and branch it read, so a PR merged and proved before the watch's next read is named by it and a card naming its branch holds it at once, and the parts of its job's orders it names as delivering, so its first check judges it on those, and, for an open one whose head changes a dangerous class of file, its staging test with a tester, by state.mark_dangerous, before his card draws, unless its release reach, read first, or his unstaged paths free it, by state.staging_free; the PR as registered, which ends each wait on its job's change, and the tester added. `drive pr add` runs it, and `drive job report` for each PR a builder's READY or PUSHED names that no `drive pr add` registered, so every PR a result names lands as one its builder added does, and for each GitHub PR the drive does not track that the FIX line of a report tracing a live bug's cause links. Someone else's PR his words on its order do not name is refused before any check that would have its title or body edited. The lead lines given are kept over those kept before, and each teammate's review it waits on, as review:<login>, beside its other waits, so his card draws only once each lands on its head. A PR is refused once, nothing written, naming every one of these it has, so one relayed call or dry run names them all: a title his card cannot name the kind of, a Show me picture that does not draw, and, on a PR his card asks his tap on, a lead that does not tell him why it is made, what it does and what it changes downstream, by limits.lead_problems; a FIX line's PR, given no lead, is someone else's and kept as it reads. A PR registered for the first time with no class or port named keeps the class its listed files put it in, by path_class, so a CI fix of his draws no card from any of these callers. A PR first registered open where his card would ask his tap takes his Approve from his standing approval covering it, by settled.approved_by, so no card draws. An open PR waiting on his tap whose paths reach a component staging runs is kept waiting on its staging test, by staging_reach, so his first card on it names that wait, and a failed read of that reach refuses the add, nothing kept. It keeps the head and base GitHub read on a row holding none, so a row the watch never read carries them for every check reading its changes, and refuses a read giving no head or base."""
     from drive import stage
 
     url = state.pr_url(key)
@@ -5790,6 +5808,8 @@ def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = N
         raise DriveError("\n".join([f"{key}: refused, nothing added, for each of these {len(problems)}:", *(f"{number}. {why}" for number, why in enumerate(problems, 1))]))
     work = {"order": known["orders"][added["order"]]["text"], "pr": {"title": read["title"], **(pending["lead"] or {})}}
     approval = settled.approved_by(known, key, added["order"], work) if key not in known["prs"] and read["state"] == "OPEN" and state.asks_tap(known, pending) else None
+    changed = [each["path"] for each in read["files"]]
+    reach = release_reach(name, known, [key]).get(key) if read["state"] == "OPEN" and changed and state.reads_reach(known) and state.dangerous(known, changed, read["headRefOid"]) else None
     def add_pr_write(data: dict):
         job = find(data["jobs"], job_id, "job")
         if data["orders"][job["order"]]["once"]:
@@ -5803,7 +5823,7 @@ def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = N
             pr["parts"] = list(dict.fromkeys(parts))
         if (given := next((order_id for order_id in state.served_orders(data, pr) if state.has_go(data["orders"][order_id])), None)) and read["state"] == "OPEN":
             state.give_go(data, key, given)
-        testers = [state.mark_dangerous(data, key, read["headRefOid"], [changed["path"] for changed in read["files"]])] if read["state"] == "OPEN" and read["files"] else []
+        testers = [state.mark_dangerous(data, key, read["headRefOid"], changed, reach)] if read["state"] == "OPEN" and changed else []
         if approval:
             pr["tap"] = state.new_tap("Approve", read["headRefOid"], data["answers"][approval]["link"], card=[key], approval=approval)
         return pr, testers
@@ -8198,6 +8218,14 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("switch", choices=("on", "off"), help="on or off")
     verb.set_defaults(run=order_backlog)
+    verb = order.add_parser(
+        "unstaged",
+        parents=both,
+        help="keep the path globs his answer says need no staging test in this drive: a PR whose every dangerous path matches one owes no staging test and lands on his tap or its exempt class; with no glob, it ends",
+    )
+    verb.add_argument("globs", nargs="*", metavar="GLOB", help="a path glob, as fnmatch reads one, whose `*` crosses a `/`")
+    verb.add_argument("--answer", metavar="ANSWER", help="his answer in cc-notes saying these paths need no staging test; needed with a glob")
+    verb.set_defaults(run=order_unstaged)
     verb = order.add_parser("ask", parents=[*both, dry_opt], help="keep one thing he asked for on an order, in his words, on the part that delivers it")
     verb.add_argument("id", help="the order")
     verb.add_argument("--words", help="his words asking this one thing, verbatim, split from his message by the hearing session; needed unless --ask")

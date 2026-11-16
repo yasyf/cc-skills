@@ -457,7 +457,7 @@ def before_merge(drive: dict, key: str, part: str, held: list[str], run: dict | 
             return (f"Not on staging: staging has no copy of {components}, so it lands on your exception {excepted['granted']}" if excepted["granted"] else f"Not on staging: staging has no copy of {components}, so it lands on your exception once you read the production dry run's plan of each",)
         if not (lifted := drive["prs"][key]["unstaged"]):
             return ("Not on staging: no staging test is set for it",)
-        return ("Not on staging: its builder says AGENTS.md's dangerous rule misses it", Pasted(f": {cut(lifted['why'], NOW_CHARS)}"))
+        return ("Not on staging: none needed" if lifted.get("ruled") else "Not on staging: its builder says AGENTS.md's dangerous rule misses it", Pasted(f": {cut(lifted['why'], NOW_CHARS)}"))
     parts = [drive["orders"][order_id]["parts"][part] for order_id in held]
     soak = next((state.STAGING_WAIT.fullmatch(each["soak"]) for each in parts if each["soak"]), None)
     where = f"{soak['env']} at {soak['commit'][:7]}, " if soak else ""
