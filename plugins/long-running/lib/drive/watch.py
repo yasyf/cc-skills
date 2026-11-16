@@ -1011,7 +1011,7 @@ def serving_lines(watcher: Watcher, moment: datetime) -> list[str]:
     try:
         checkout, live = live_rows(watcher, data)
         reach = cli.release_reach(watcher.name, data, fixes) if fixes else {}
-        fix_waits = {key: [f"release:{component}:{key}" for component in reach[key]["releases"]] for key in fixes}
+        fix_waits = {key: [f"release:{component}:{key}" for component in reach[key]["releases"]] for key in fixes if key in reach}
         carries = github.carrier(str(checkout))
         production = {env for env in {row["env"] for row in live} if settled.prod(env, str(checkout))}
         serving = {
