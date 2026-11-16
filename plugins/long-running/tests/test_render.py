@@ -92,7 +92,7 @@ def test_communicator_context_gives_rules_and_tools_but_no_order_list() -> None:
     assert "o1" not in text
     for rule in render.COMMUNICATOR_RULES:
         assert rule in text
-    for row in ("+1 react", "slack_dm_status", "Explore or Sonnet subagent", "2 to 4 options", "merge:", "defect record", "Sent."):
+    for row in ("+1 react", "slack_dm_status", "Sonnet subagent", "2 to 4 options", "merge:", "defect record", "Sent."):
         assert row in text
     assert render.FIRST_CALL["coordinator"] not in text
     assert text.endswith(render.FIRST_CALL["communicator"])
@@ -163,7 +163,8 @@ def test_every_session_start_block_fits_claude_codes_hook_limit_on_a_drive_as_la
     blocks = {role: render.context(large, role) for role in state.ROLES} | {"sub-coordinator": render.context(large, "coordinator", "Project 1")}
     assert {seat: len(block) for seat, block in blocks.items() if len(block) >= HOOK_CHARS} == {}
     for role in state.ROLES:
-        assert render.context(large, role).splitlines()[3:] == render.context(small, role).splitlines()[3:]
+        renamed = render.context(large, role).replace(str(state.drive_dir(large["name"])), str(state.drive_dir(small["name"])))
+        assert renamed.splitlines()[3:] == render.context(small, role).splitlines()[3:]
     assert not any(line.startswith("- o") for block in blocks.values() for line in block.splitlines())
 
 

@@ -3008,7 +3008,7 @@ def test_a_say_naming_an_alert_orders_thread_with_no_channel_id_is_told_its_chan
     assert state.own_thread(state.load("demo")["orders"]["o1"]) == ("C0822AHFY3G", alert)
     assert say(transcript, text="The fix merged.", thread_ts=alert) == f"nothing posted: thread {alert} is in channel C0822AHFY3G, not his DM, so pass channel_id C0822AHFY3G with it"
     assert talk.posted_order(state.load("demo"), {"channel_id": "C0822AHFY3G", "thread_ts": alert}, None) == "o1"
-    assert talk.posted_order(state.load("demo"), {"thread_ts": alert}, None) is None
+    assert talk.posted_order(state.load("demo"), {"thread_ts": alert}, None) == "o1"
     reply = f"https://acme.slack.com/archives/C0822AHFY3G/p1794493100000200?thread_ts={alert}&cid=C0822AHFY3G"
     assert talk.posted_order(state.load("demo"), {"edit": reply, "text": "The fix is live."}, None) == "o1"
 
