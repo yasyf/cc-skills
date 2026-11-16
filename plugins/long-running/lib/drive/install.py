@@ -570,7 +570,7 @@ def prefetch(clone: str, ref: str, folder: str, deadline: float) -> None:
 
 
 def try_drives(clone: str, ref: str, folder: str, deadline: float) -> None:
-    """Run the release's own drive status on a copy of each drive on this Mac before any scope switches to it, then its drive status of a job no drive holds, refusing a release that cannot read a drive or that answers that refusal with anything but its `drive:` line and exit 2, how every caller of drive reads a refusal, since every drive verb, tool, watch and hook runs the newest install."""
+    """Run the release's own drive status on a copy of each drive on this Mac before any scope switches to it, then one relay and one watch pass of its own on those copies with no process, signal or network, by tools/try-watch, so a stage that would crash on a live drive's rows never reaches its watch, then its drive status of a job no drive holds, refusing a release that cannot read a drive or that answers that refusal with anything but its `drive:` line and exit 2, how every caller of drive reads a refusal, since every drive verb, tool, watch and hook runs the newest install."""
     if not (names := state.names()):
         return
     with tempfile.TemporaryDirectory(prefix="drive-try-") as scratch:
@@ -586,6 +586,10 @@ def try_drives(clone: str, ref: str, folder: str, deadline: float) -> None:
                 run([*drive, "status", "--drive", name], deadline)
             except InstallError as error:
                 raise InstallError(f"refused {ref}, keeping the release installed now: its own drive status failed on a copy of the {name} drive: {error}") from None
+        try:
+            run(["env", f"LONG_RUNNING_STATE={copies}", str(tree / folder / "tools" / "try-watch"), *names], deadline)
+        except InstallError as error:
+            raise InstallError(f"refused {ref}, keeping the release installed now: one relay and one watch pass of its own crashed on a copy of the drives: {error}") from None
         refusal = ran([*drive, "status", NO_JOB, "--drive", names[0]], deadline)
         if refusal.returncode != 2 or not refusal.stderr.startswith("drive: "):
             raise InstallError(

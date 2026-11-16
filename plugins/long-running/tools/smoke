@@ -62,6 +62,7 @@ EOF
 echo "smoke: bin/drive --help runs"
 
 "${python[@]}" "$plugin/tools/demo-drive" "$LONG_RUNNING_STATE"
+"$plugin/tools/try-watch" demo
 
 "${python[@]}" - "$plugin" "$scratch" <<'EOF'
 import json

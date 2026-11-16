@@ -1,0 +1,96 @@
+#!/usr/bin/env -S python3 -I
+"""Run one relay pass and one watch pass of each drive named, in this process, on the copy of its state LONG_RUNNING_STATE holds, with no process started, no signal sent and no network reached, and exit 1 naming each stage that raised anything but the drive's own refusals or a stubbed command's failure, so a release whose watch would crash on a live drive's rows never reaches it."""
+
+import os
+import runpy
+import signal
+import socket
+import subprocess
+import sys
+import time
+import traceback
+from pathlib import Path
+
+plugin = Path(__file__).resolve().parent.parent
+runpy.run_path(str(plugin / "hooks" / "installed.py"))["entered"](plugin, [__file__, *sys.argv[1:]])
+sys.path.insert(0, str(plugin / "lib"))
+
+PASS_SECONDS = 40
+
+
+class Stubbed(OSError):
+    pass
+
+
+def refuse(*args, **kwargs):
+    raise Stubbed("try-watch starts no process and reaches no network")
+
+
+GIT_READS = {"rev-parse", "log", "show", "diff", "ls-tree", "ls-files", "cat-file", "merge-base", "for-each-ref", "rev-list", "name-rev", "describe", "worktree"}
+LOCAL_READS = {"cci": {"show", "grep", "find", "digest", "state"}, "ps": None, "lsof": None, "tmux": {"show-environment", "list-clients", "list-panes"}}
+start = subprocess.Popen.__init__
+
+
+def local_read(argv: list[str]) -> bool:
+    program, words = Path(argv[0]).name, [word for word in argv[1:] if not word.startswith("-")]
+    if program == "git":
+        verbs = [word for index, word in enumerate(argv[1:], 1) if not word.startswith("-") and argv[index - 1] not in ("-C", "-c")]
+        return bool(verbs) and verbs[0] in GIT_READS and (verbs[0] != "worktree" or verbs[1:2] == ["list"])
+    return program in LOCAL_READS and (LOCAL_READS[program] is None or words[:1] and words[0] in LOCAL_READS[program])
+
+
+def started(self, args, *rest, **kwargs):
+    if not local_read([str(word) for word in ([args] if isinstance(args, (str, bytes)) else args)]):
+        refuse()
+    start(self, args, *rest, **kwargs)
+
+
+subprocess.Popen.__init__ = started
+socket.socket.connect = refuse
+socket.create_connection = refuse
+os.kill = os.killpg = refuse
+os.execv = os.execve = os.execvp = refuse
+
+from drive import state, watch
+
+if not state.scratch():
+    raise SystemExit("try-watch: LONG_RUNNING_STATE must name a copy of the drives, never their live state")
+
+crashes: list[str] = []
+
+
+def counted(watcher, stage, moment):
+    try:
+        return stage() or []
+    except Exception as error:
+        if not expected(error):
+            where = traceback.extract_tb(error.__traceback__)[-1]
+            crashes.append(f"{watcher.name}: stage {stage.func.__name__} raised {type(error).__name__}: {error} at {Path(where.filename).name}:{where.lineno}")
+        return []
+
+
+def expected(error: BaseException) -> bool:
+    return isinstance(error, (Stubbed, TimeoutError)) or type(error).__module__.startswith("drive.")
+
+
+def timed_out(*_):
+    raise TimeoutError(f"a pass ran past {PASS_SECONDS} seconds")
+
+
+watch.contained = counted
+signal.signal(signal.SIGALRM, timed_out)
+for name in sys.argv[1:]:
+    for passing in (watch.relay_pass, watch.run_pass):
+        started = time.monotonic()
+        signal.alarm(PASS_SECONDS)
+        try:
+            passing(watch.Watcher(name, offset=state.watch_cursor(name)), state.now())
+        except Exception as error:
+            if not expected(error):
+                crashes.append(f"{name}: {passing.__name__} raised {type(error).__name__}: {error}")
+        finally:
+            signal.alarm(0)
+        print(f"try-watch: {name} {passing.__name__} ran in {time.monotonic() - started:.1f}s", flush=True)
+if crashes:
+    raise SystemExit("try-watch: " + "\ntry-watch: ".join(crashes))
+print(f"try-watch: {len(sys.argv) - 1} drive(s) passed one relay and one watch pass")
