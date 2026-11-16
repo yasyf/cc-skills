@@ -824,8 +824,8 @@ def owe_reply(name: str, data: dict, job_id: str, message: dict) -> None:
         after(delivery)
 
 
-def deliver_owed(name: str, job_id: str, rows: list[dict]) -> list[str]:
-    """Deliver messages a job's outbox holds to its history in their order, each kept once, by keep_reply, then ack the ones delivered off the outbox, by acked; a delivery that raises stops there, acking only those before it, so no later message lands ahead of an earlier one that failed, and the rest stay owed for replay."""
+def deliver_owed(name: str, job_id: str, rows: list[dict], budget: float | None = None) -> list[str]:
+    """Deliver messages a job's outbox holds to its history in their order, each kept once, by keep_reply, then ack the ones delivered off the outbox, by acked, its write given budget; a delivery that raises stops there, acking only those before it, so no later message lands ahead of an earlier one that failed, and the rest stay owed for replay."""
     delivered: list[str] = []
     try:
         for row in rows:
@@ -833,11 +833,11 @@ def deliver_owed(name: str, job_id: str, rows: list[dict]) -> list[str]:
             delivered.append(row["id"])
     finally:
         if delivered:
-            acked(name, job_id, delivered)
+            acked(name, job_id, delivered, budget)
     return []
 
 
-def acked(name: str, job_id: str, ids: list[str]) -> None:
+def acked(name: str, job_id: str, ids: list[str], budget: float | None = None) -> None:
     """Take messages a job's history now keeps off its outbox by their ids, in a fresh write that keeps every message owed since, the field gone once it holds none; a job no longer in the drive took its outbox with it."""
 
     def taken(data: dict) -> None:
@@ -848,12 +848,12 @@ def acked(name: str, job_id: str, ids: list[str]) -> None:
         else:
             del job["outbox"]
 
-    write(name, taken)
+    write(name, taken, budget=budget)
 
 
 def replay(name: str) -> list[str]:
-    """Deliver what each job's outbox still holds, which a process that died between a write's commit and its delivery left, by deliver_owed, each message kept once whoever else delivers it meanwhile; one load and nothing more while no outbox holds anything, so the start of each watch pass can call it. Each job's delivery runs apart, by ran, so a job whose history cannot be written holds back no other job's, the failures raised together once every job was tried, while within one job delivery still stops at its first failure, so no later message lands ahead of it."""
-    ran([functools.partial(deliver_owed, name, job_id, job["outbox"]) for job_id, job in load(name)["jobs"].items() if job.get("outbox")], [])
+    """Deliver what each job's outbox still holds, which a process that died between a write's commit and its delivery left, by deliver_owed, each message kept once whoever else delivers it meanwhile; one load and nothing more while no outbox holds anything, so the start of each watch pass can call it. Each job's delivery runs apart, by ran, so a job whose history cannot be written holds back no other job's, the failures raised together once every job was tried, while within one job delivery still stops at its first failure, so no later message lands ahead of it. Its acks write with WATCH_WRITE_SECONDS, as a watch stage's writes do, so a drive held past that refuses the ack and the next pass delivers again, which keeps each message once."""
+    ran([functools.partial(deliver_owed, name, job_id, job["outbox"], WATCH_WRITE_SECONDS) for job_id, job in load(name)["jobs"].items() if job.get("outbox")], [])
     return []
 
 
