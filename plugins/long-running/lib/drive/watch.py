@@ -3638,7 +3638,8 @@ def transcript(holder: dict, agent: str) -> Path:
     return session_transcript(holder).with_suffix("") / "subagents" / f"agent-{agent}.jsonl"
 
 
-def last_turn(path: Path, kinds: tuple[str, ...] = ("user", "assistant")) -> dict | None:
+def newest_entries(path: Path) -> Iterator[dict]:
+    """The transcript's entries newest first, from its tail in spans that grow fourfold, each wider span yielding the narrower one's entries again: for a search that takes the first match."""
     with open(path, "rb") as handle:
         end = handle.seek(0, os.SEEK_END)
         span = TAIL_BYTES
@@ -3647,14 +3648,28 @@ def last_turn(path: Path, kinds: tuple[str, ...] = ("user", "assistant")) -> dic
             handle.seek(start)
             for line in reversed(handle.read().splitlines()[1 if start else 0 :]):
                 try:
-                    entry = json.loads(line)
+                    yield json.loads(line)
                 except ValueError:
                     continue
-                if entry.get("type") in kinds:
-                    return entry
             if not start:
-                return None
+                return
             span *= 4
+
+
+def last_turn(path: Path, kinds: tuple[str, ...] = ("user", "assistant")) -> dict | None:
+    return next((entry for entry in newest_entries(path) if entry.get("type") in kinds), None)
+
+
+def last_tool_call(path: Path) -> datetime | None:
+    """When the session last called a tool, by its newest assistant entry carrying a tool_use block."""
+    return next(
+        (
+            state.parse_time(entry["timestamp"])
+            for entry in newest_entries(path)
+            if entry.get("type") == "assistant" and any(isinstance(block, dict) and block.get("type") == "tool_use" for block in entry["message"].get("content") or [])
+        ),
+        None,
+    )
 
 
 def running_build(path: Path) -> tuple[str | None, str | None]:

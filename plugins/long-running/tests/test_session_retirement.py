@@ -85,3 +85,66 @@ def test_a_dead_session_resumes_first_and_starts_fresh_on_its_brief_once_it_died
     assert cli.fresh_start(bg | {"resumed": state.stamp(state.now() - timedelta(minutes=30))}) is None
     resumed = state.stamp(state.now() - timedelta(minutes=4))
     assert cli.fresh_start(bg | {"resumed": resumed}) == f"died again within 10 minutes of its resume at {resumed}"
+
+
+REPORTED = {"created_at": "2026-11-16T07:06:12-08:00", "body": "DONE https://buildkite.com/forge/release/builds/17947: #56306 and #56314 passed"}
+
+
+def tool_call(at: str) -> str:
+    return f'{{"type": "assistant", "timestamp": "{at}", "message": {{"content": [{{"type": "tool_use", "name": "Bash"}}]}}}}\n'
+
+
+def closing_text(at: str) -> str:
+    return f'{{"type": "assistant", "timestamp": "{at}", "message": {{"content": [{{"type": "text", "text": "Reported."}}]}}}}\n'
+
+
+@pytest.fixture
+def ended_session(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple[Path, dict]:
+    transcript = tmp_path / "299d123b.jsonl"
+    monkeypatch.setattr(watch, "session_transcript", lambda holder: transcript)
+    return transcript, {"session": "299d123b", "cwd": str(tmp_path), "started": "2026-11-16T05:12:40-08:00"}
+
+
+def test_a_gone_session_whose_kept_report_came_after_its_last_tool_call_finished_as_j4481s_did_at_7_06(ended_session: tuple[Path, dict]) -> None:
+    from drive import cli
+
+    transcript, bg = ended_session
+    transcript.write_text(tool_call("2026-11-16T15:06:10.412Z") + closing_text("2026-11-16T15:06:20.003Z"))
+    job = {"said": "running", "undelivered": [{"words": "an answer", "request": "734148"}]}
+    called = state.stamp(state.parse_time("2026-11-16T15:06:10Z").astimezone())
+    assert cli.finished(job, [REPORTED], bg) == f"kept its report at 2026-11-16T07:06:12-08:00 after its last tool call at {called}, so it ended its turn on that report"
+
+
+@pytest.mark.parametrize("said", ["DONE https://buildkite.com/forge/release/builds/17947", "BUILT j4481-strip, waits on #56306", "BLOCKED no staging slot", "WAITING #56306 to merge"])
+def test_a_gone_session_whose_job_reads_finished_with_nothing_held_is_left_alone(ended_session: tuple[Path, dict], said: str) -> None:
+    from drive import cli
+
+    transcript, bg = ended_session
+    transcript.write_text(tool_call("2026-11-16T15:09:00Z"))
+    assert cli.finished({"said": said, "undelivered": []}, [REPORTED], bg) == f"reads {said.split()[0]} with nothing held for it"
+
+
+@pytest.mark.parametrize("said", ["running", "WAITING #56306 to merge"])
+def test_a_gone_session_still_owing_work_with_held_texts_wakes(ended_session: tuple[Path, dict], said: str) -> None:
+    from drive import cli
+
+    transcript, bg = ended_session
+    transcript.write_text(tool_call("2026-11-16T15:09:00Z") + closing_text("2026-11-16T15:09:30Z"))
+    held = [{"words": "rerun the strip on cut W2n", "request": "734190"}]
+    assert cli.finished({"said": said, "undelivered": held}, [REPORTED], bg) is None
+    assert cli.finished({"said": "running", "undelivered": []}, [], bg) is None
+
+
+def test_own_post_to_a_finished_gone_session_neither_resumes_nor_starts_it(monkeypatch: pytest.MonkeyPatch, ended_session: tuple[Path, dict]) -> None:
+    from drive import cli
+
+    transcript, bg = ended_session
+    transcript.write_text(tool_call("2026-11-16T15:06:10Z"))
+    monkeypatch.setattr(agents, "gone", lambda holder: True)
+    monkeypatch.setattr(state, "load", lambda name: {"jobs": {"j4481": {"bg": bg, "said": "DONE https://buildkite.com/forge/release/builds/17947", "undelivered": []}}})
+    monkeypatch.setattr(state, "returns", lambda name, job_id: [REPORTED])
+    monkeypatch.setattr(agents, "resume_job", lambda *args: pytest.fail("resumed a finished session"))
+    monkeypatch.setattr(state, "detach", lambda *args: pytest.fail("started a fresh agent for a finished session"))
+    line = cli.own_post("durable-agents", "j4481", "299d123b", "734148")
+    assert line.startswith("j4481: posted as handoff record 734148; its session 299d123b is gone but kept its report at 2026-11-16T07:06:12-08:00")
+    assert line.endswith("so nothing resumes or starts it: the record waits at its cci address")

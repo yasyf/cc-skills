@@ -4212,16 +4212,33 @@ def fresh_start(bg: dict) -> str | None:
     return None
 
 
+FINISHED_SAID = re.compile(r"(DONE|BUILT|BLOCKED|WAITING)\b")
+
+
+def finished(job: dict, kept: list[dict], bg: dict) -> str | None:
+    """Why a job's gone `claude --bg` session is left alone, neither resumed nor started fresh: a session that finished is not dead, so only a job still owing work with held texts wakes. It finished when the job's newest kept report came after its session's last tool call, or the job reads DONE, BUILT, BLOCKED or WAITING with nothing held for it."""
+    path = watch.session_transcript(bg)
+    called = watch.last_tool_call(path) if path.exists() else None
+    if kept and called and state.parse_time(kept[0]["created_at"]) > called:
+        return f"kept its report at {kept[0]['created_at']} after its last tool call at {state.stamp(called.astimezone())}, so it ended its turn on that report"
+    if (said := FINISHED_SAID.match(job["said"] or "")) and not job["undelivered"]:
+        return f"reads {said[1]} with nothing held for it"
+    return None
+
+
 def own_post(name: str, job_id: str, session: str, seq: str) -> str:
     """Point a job's agent running as its own `claude --bg` session at the record starter_post just posted to its address, with no SendMessage: while its turn runs, its next step's hook, or its stop's, hands it the pointer, and once its turn ended `claude --bg --resume` wakes it on the pointer; the line the verb prints."""
     pointer = superseded.POINTER.format(seq)
-    bg = state.load(name)["jobs"][job_id]["bg"]
+    job = state.load(name)["jobs"][job_id]
+    bg = job["bg"]
     if not agents.gone(bg):
         def own_post_write(data: dict):
             data["jobs"][job_id]["bg"]["pointed"].append(pointer)
 
         state.write(name, own_post_write)
         return f"{job_id}: posted to its own session {session}'s cci address as handoff record {seq}, which its next step reads"
+    if why := finished(job, state.returns(name, job_id), bg):
+        return f"{job_id}: posted as handoff record {seq}; its session {session} is gone but {why}, so nothing resumes or starts it: the record waits at its cci address"
     if why := fresh_start(bg):
         old = watch.session_transcript(bg)
         def fresh_write(data: dict):
