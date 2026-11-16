@@ -6833,7 +6833,7 @@ def test_a_tester_a_builders_staging_line_adds_is_briefed_on_its_builders_mac_st
     assert f"; he tapped Approve on {with_pr} at {at}, head 3fd9f47986fa{cli.STAGING_APPROVED}\n" in written
 
 
-def test_a_staging_testers_brief_runs_a_dashboard_prs_cases_on_a_mac_box_at_the_live_sand_next_commit_and_at_its_own_head_when_it_changes_sand_next_too(
+def test_a_staging_testers_brief_runs_a_dashboard_prs_cases_on_a_mac_box_at_the_live_sand_next_commit_and_at_its_own_head_when_it_changes_iris_desktop_or_sand_next_too(
     run: Run, with_pr: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     live = "6c751b8b101597fbef4464a3cc7dee314ef778a1"
@@ -6858,12 +6858,12 @@ def test_a_staging_testers_brief_runs_a_dashboard_prs_cases_on_a_mac_box_at_the_
 
     monkeypatch.setattr(github, "run", answered)
     monkeypatch.setattr(orca, "checkout", lambda name, cwd: tmp_path)
-    for touched, boxed, own in ((["api"], False, False), (["dashboard"], True, False), (["dashboard", "sand-next"], True, True)):
+    for touched, boxed, own in ((["api"], False, False), (["dashboard"], True, False), (["dashboard", "sand-next"], True, True), (["dashboard", "iris-desktop"], True, True)):
         monkeypatch.setattr(cli, "release_reach", lambda name, data, keys, touched=touched: {key: {"touched": touched} for key in keys})
         assert run("job", "brief", tester_id)[0] == 0
         staging = next(line for line in Path(state.load("demo")["jobs"][tester_id]["brief"]).read_text().splitlines() if line.startswith("Staging: "))
         assert (f"`tools/ci mac-box prove <box> --commit {live}`" in staging, "--commit <its head's full sha>" in staging) == (boxed, own)
-    assert len(asked) == 4
+    assert len(asked) == 6
     monkeypatch.setattr(github, "run", lambda cmd, cwd=None, **_: listed.splitlines()[0])
     assert run("job", "brief", tester_id)[0] == 0
     staging = next(line for line in Path(state.load("demo")["jobs"][tester_id]["brief"]).read_text().splitlines() if line.startswith("Staging: "))
