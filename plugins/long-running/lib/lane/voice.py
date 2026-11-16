@@ -1,6 +1,6 @@
-"""A lane owner's say: hand the post to the cc-slack daemon's voice sender and return at once.
+"""A lane owner's say: lane.say writes the promise, and this sender hands the post to the cc-slack daemon's voice sender and returns at once.
 
-The owner never waits on Jev or Slack and never sees a refusal. The sender formats the post, has Jev move or cut sentences against the role page, and posts it in the lane's thread, end to end in under a second; its before and after land in cc-slack's voice.jsonl, which `cc-slack voice --last N` prints.
+The owner never waits on Jev or Slack. The daemon formats the post, has Jev move or cut sentences against the role page, and posts it in the lane's channel and thread, end to end in under a second; its before and after land in cc-slack's voice.jsonl, which `cc-slack voice --last N` prints.
 """
 
 import json
@@ -9,17 +9,14 @@ import re
 import urllib.request
 from pathlib import Path
 
+from lane import say, store
+
 LANE_ENV = "LONG_RUNNING_LANE"
+TOKEN_ENV = "LANE_TOKEN"
 VOICE_URL = "http://127.0.0.1:7378/voice"
 ENQUEUE_SECONDS = 2
-ROLE_PAGE = Path("skills") / "long-running" / "reference" / "voice.md"
+ROLE_PAGE = Path(__file__).resolve().parents[2] / "skills" / "long-running" / "reference" / "voice.md"
 PR_REF = re.compile(r"\{pr:(?:([\w.-]+/[\w.-]+)#)?#?(\d+)(?:\|([^{}]*))?\}")
-
-
-def lane_file(drive: str, lane_id: str) -> Path:
-    from drive import state
-
-    return state.root() / "lanes" / drive / f"{lane_id}.json"
 
 
 def own_lane() -> tuple[str, str] | None:
@@ -30,16 +27,26 @@ def own_lane() -> tuple[str, str] | None:
     return drive, lane_id
 
 
-def say(plugin_root: Path, drive: str, lane_id: str, arguments: dict) -> str:
-    """Queue one post in the lane's own channel and thread, read from its lane file, against the role page of the newest install, and return QUEUED and its id."""
-    lane = json.loads(lane_file(drive, lane_id).read_text())
+def owner_say(drive: str, lane_id: str, arguments: dict) -> str:
+    """The MCP say of a lane's owner: lane.say with its promise, and when the promise's shape is refused, the post alone, since the owner never sees a post refused."""
+    token = os.environ.get(TOKEN_ENV) or None
+    try:
+        return say.say(drive, lane_id, arguments["text"], arguments.get("next"), arguments.get("by"), token, arguments.get("answers"))
+    except store.Refused as refused:
+        if not (arguments.get("next") or arguments.get("by")):
+            raise
+        return f"{say.say(drive, lane_id, arguments['text'], token=token, answers=arguments.get('answers'))}; its promise was not kept: {refused}"
+
+
+def send(drive: str, lane: dict, text: str) -> str:
+    """lane.say's SENDER: queue one post in the lane's channel and thread with the role page beside it, and return QUEUED and its id."""
     body = {
-        "lane": lane_id,
+        "lane": lane["id"],
         "channel_id": lane["channel"],
-        "thread_ts": arguments.get("thread_ts") or lane.get("thread_ts") or "",
-        "text": linked(arguments["text"], lane.get("prs") or []),
-        "rules": str(plugin_root / ROLE_PAGE),
-        "asked": arguments.get("asked") or "",
+        "thread_ts": lane.get("thread") or "",
+        "text": linked(text, lane.get("prs") or []),
+        "rules": str(ROLE_PAGE),
+        "asked": "",
     }
     request = urllib.request.Request(VOICE_URL, json.dumps(body).encode(), {"Content-Type": "application/json", "X-Claude-Pid": str(os.getppid())})
     with urllib.request.urlopen(request, timeout=ENQUEUE_SECONDS) as answer:
@@ -47,14 +54,17 @@ def say(plugin_root: Path, drive: str, lane_id: str, arguments: dict) -> str:
 
 
 def linked(text: str, prs: list[dict]) -> str:
-    """The text with each {pr:N} or {pr:owner/repo#N|words} the lane's prs rows hold drawn as `<url|#N words>`; one the lane does not hold stays as typed, which the sender drops as a dead link."""
+    """The text with each {pr:N} or {pr:owner/repo#N|words} the lane's prs rows hold drawn as `<url|#N words>`, the row's own words when the post gives none; one the lane does not hold stays as typed, which the sender drops as a dead link."""
 
     def drawn(match: re.Match[str]) -> str:
-        repo, number, words = match[1], int(match[2]), (match[3] or "").strip()
+        repo, number = match[1], int(match[2])
         held = [row for row in prs if row["number"] == number and (repo is None or row["repo"].casefold() == repo.casefold())]
         if len(held) != 1:
             return match[0]
-        label = " ".join(filter(None, [f"#{number}", words]))
-        return f"<https://github.com/{held[0]['repo']}/pull/{number}|{label}>"
+        words = (match[3] or held[0].get("words") or "").strip()
+        return f"<https://github.com/{held[0]['repo']}/pull/{number}|{' '.join(filter(None, [f'#{number}', words]))}>"
 
     return PR_REF.sub(drawn, text)
+
+
+say.SENDER = send

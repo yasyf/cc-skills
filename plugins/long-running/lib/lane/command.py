@@ -6,7 +6,7 @@ import os
 import sys
 
 from lane import queue, store, supervisor, verbs
-from lane import say as saying
+from lane import voice
 
 STOP_BLOCKS = 3
 
@@ -188,7 +188,7 @@ def run(args: argparse.Namespace) -> int:
             print(f"waiting until {lane['wait']['until']}; end your turn now")
         case "say":
             drive, lane_id = where(args)
-            print(saying.say(drive, lane_id, args.text, args.next, args.by, token(), args.answers))
+            print(voice.owner_say(drive, lane_id, {"text": args.text, "next": args.next, "by": args.by, "answers": args.answers}))
         case "log":
             verbs.log(*where(args), token(), args.text)
         case "next":

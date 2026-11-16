@@ -311,7 +311,7 @@ def respond(request: dict, stdout: TextIO, writing: threading.Lock) -> None:
             LISTED["drive"] = newest_drive()
             reply["result"] = {"tools": listed(LISTED["drive"])}
         case "tools/call" if request["params"]["name"] == "say" and (owner := voice.own_lane()):
-            reply["result"] = {"content": [{"type": "text", "text": voice.say(Path(newest_drive()).parents[1], *owner, request["params"].get("arguments") or {})}]}
+            reply["result"] = {"content": [{"type": "text", "text": voice.owner_say(*owner, request["params"].get("arguments") or {})}]}
         case "tools/call":
             result = call(request["id"], request["params"]["name"], ticketed(request["params"]))
             if result is None:
