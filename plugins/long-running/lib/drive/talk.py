@@ -160,7 +160,7 @@ def report_post(name: str, seq: str) -> str:
     """`drive report-post`: hand a report posting in a channel outside the drive's, such as a staging claim to its members, to the communicator as one note, since cc-slack posts there only on the ticket a session's permission hook names; post any other by report_line, or send why it posted nothing back to the session that wrote it, as a refused record re the report, so that session sends it again fixed; one the watch wrote goes to the meta session as a defect."""
     from drive import tools
 
-    if link := state.load(name)["carried"].get(seq):
+    if (link := state.load(name)["carried"].get(seq) or "").startswith("https://"):
         return f"report {seq} already posted at {link}: nothing posted again"
     read = agents.answered(seq)
     target = read["attrs"].get("channel") or ((thread := read["attrs"].get("thread") or read["thread"]) and outside(state.load(name), thread))
@@ -170,7 +170,7 @@ def report_post(name: str, seq: str) -> str:
     try:
         return f"report {seq} posted by the drive: {report_line(name, seq)}"
     except (DriveError, slack.SlackError) as error:
-        if link := state.load(name)["carried"].get(seq):
+        if (link := state.load(name)["carried"].get(seq) or "").startswith("https://"):
             return f"report {seq} posted at {link}, then: {error}"
         writer = agents.shown(seq)["lane"]
         made = {"kind": "defect", "to": [f"meta@{name}"]} if writer == "watch" else {"kind": "refused", "re": [seq], "to": [f"{writer}@{name}"]}
