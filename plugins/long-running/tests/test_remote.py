@@ -8400,8 +8400,6 @@ def test_a_sprite_launch_gives_the_sprite_the_drive_that_asks_each_verb_of_this_
     brief = tmp_path / "j1.md"
     brief.write_text("brief")
     monkeypatch.setattr(orca, "tool", lambda name: name)
-    datadog = {"type": "http", "url": "https://mcp.datadoghq.com/v1/mcp", "headers": {"DD_API_KEY": "${DD_API_KEY:-}"}}
-    monkeypatch.setattr(agents, "datadog_servers", lambda: {"mcpServers": {"plugin:datadog:mcp": datadog}})
     ran = {}
 
     def launcher(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
@@ -8413,7 +8411,8 @@ def test_a_sprite_launch_gives_the_sprite_the_drive_that_asks_each_verb_of_this_
         orca.launch("demo", "demo-j1", brief, tmp_path, RUN, None, None, None)
     assert ran["env"]["WORKER_TOOLS"] == f"drive={orca.PLUGIN / 'lib' / 'sprite' / 'drive'}"
     assert json.loads(ran["env"]["CLAUDE_LANE_SETTINGS"]) == agents.sprite_lane(tmp_path)
-    assert json.loads(ran["env"]["WORKER_MCP_CONFIG"]) == {"mcpServers": {"plugin:datadog:mcp": datadog, "plugin:cc-slack:cc-slack": {"command": "/home/sprite/.local/bin/cc-slack", "args": ["channel"]}}}
+    assert json.loads(ran["env"]["WORKER_MCP_CONFIG"]) == agents.sprite_servers()
+    assert agents.SPRITE_CC_SLACK_LOGIN in agents.sprite_servers()["mcpServers"]["plugin:cc-slack:cc-slack"]["args"][1]
     assert (orca.PLUGIN / "lib" / "sprite" / "drive").stat().st_mode & 0o111
     assert "WORKER_LOCAL" not in ran["env"]
 

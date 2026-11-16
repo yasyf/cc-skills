@@ -17,7 +17,8 @@ LANE_SETTINGS = '{"spinnerTipsEnabled":false,"prefersReducedMotion":true,"verbos
 LANE_DENIED_TOOLS = "AskUserQuestion,EnterPlanMode,ExitPlanMode,PushNotification,DesignSync"
 SPRITE_HOOKS = json.loads((SCRIPT.parents[1] / "lib/lane.json").read_text())["spriteSettings"]
 SPRITE_ENV = [f"{name}={value}" for name, value in json.loads((SCRIPT.parents[1] / "lib/lane.json").read_text())["spriteEnv"].items()]
-SPRITE_SETTINGS = json.dumps({**json.loads(LANE_SETTINGS), **SPRITE_HOOKS, "permissions": {"deny": LANE_DENIED_TOOLS.split(",")}}, separators=(",", ":"))
+SPRITE_DENIED_TOOLS = json.loads((SCRIPT.parents[1] / "lib/lane.json").read_text())["spriteDeniedTools"]
+SPRITE_SETTINGS = json.dumps({**json.loads(LANE_SETTINGS), **SPRITE_HOOKS, "permissions": {"deny": LANE_DENIED_TOOLS.split(",") + SPRITE_DENIED_TOOLS}}, separators=(",", ":"))
 WORKSPACE = "pool-spare"
 SESSION = "5d576546-4c87-4a78-94b4-945eb9e49c86"
 REPO = "repo-local"
@@ -370,7 +371,7 @@ class PreAllocationTest(LaunchTest):
 
     def test_lane_settings_reach_a_sprites_prepare_over_the_lane_spec(self):
         lane = {"enabledPlugins": {"wlm@write-like-me": False}, "skillOverrides": {"break-glass": "name-only"}, "skillListingMaxDescChars": 300}
-        settings = json.dumps({**json.loads(LANE_SETTINGS), **SPRITE_HOOKS, **lane, "permissions": {"deny": LANE_DENIED_TOOLS.split(",")}}, separators=(",", ":"))
+        settings = json.dumps({**json.loads(LANE_SETTINGS), **SPRITE_HOOKS, **lane, "permissions": {"deny": LANE_DENIED_TOOLS.split(",") + SPRITE_DENIED_TOOLS}}, separators=(",", ":"))
         self.launch.sprite()
         self.launch.reply("cc-remote orca prepare", {"rc": 1})
         failed = f"cc-remote orca prepare exited 1; {self.launch.attempt} keeps its output, nothing was attached, and launching this brief again prepares afresh"

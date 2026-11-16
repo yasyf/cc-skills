@@ -100,20 +100,20 @@ Before the releases it places each tool `WORKER_TOOLS` names, its words
 sent whole over the same ssh session, and checks a login shell runs it from
 there: the long-running plugin's drive launcher passes
 `drive=<its lib/sprite/drive>`, so a Sprite lane types the same `drive` verbs a
-Mac lane does. It also gives the lane Slack and Datadog reads. It installs cc-slack's
+Mac lane does. It also gives the lane Slack reads. It installs cc-slack's
 newest `linux_amd64` release, checked against its SHA-256, and runs its
 `supervise` as the Sprite service `cc-slack` through cc-remote's
 `supervise.py`, needing `cc-remote-payload`. It then logs cc-slack in
-`--post-only` on the shared bot token. Into the Sprite's
-`~/.claude/settings.json` env (mode 600) it writes ai-oncall's Datadog API and
-application keys, the ones `drive datadog` reads, plus `DD_MCP_TOOLSETS=core,dbm`.
-The same file gets deny rules for cc-slack's and the Datadog MCP's write tools.
-This Mac reads the token and keys from SSM on `core-auto` and sends them on a
-separate ssh session's stdin to a tmpfs file, `/dev/shm/sprite-lane/secrets`,
-that the step deletes when it exits, so they reach no command line. The long-running
-launcher's `WORKER_MCP_CONFIG` names `plugin:datadog:mcp` and
-`plugin:cc-slack:cc-slack`, whose header placeholders fill from that env. A
-failure in this part only warns, and the lane reads through this Mac's relay.
+`--post-only` on the shared bot token and touches
+`~/.local/state/cc-slack/sprite-login`. This Mac reads the token from SSM on
+`core-auto` and sends it on a separate ssh session's stdin to a tmpfs file,
+`/dev/shm/sprite-lane/secrets`, which the step deletes when it exits, so the
+token reaches no command line. A failure in this part only warns, and the lane
+reads Slack through this Mac's relay. The worker's `claude` starts at prepare,
+before this step, so the long-running launcher's `plugin:cc-slack:cc-slack`
+server waits for that marker. lane.json's `spriteEnv` raises `MCP_TIMEOUT` past
+that wait. Its `spriteDeniedTools` joins the prepare `--settings` deny list, so
+cc-slack's and the Datadog MCP's write tools are refused from the first turn.
 When a step on this Mac fails, such as a release read, the
 launcher starts no worker, leaves the prepared one idle, and prints the reason
 from the attempt's `tools.err`. Launching the same brief again reuses that

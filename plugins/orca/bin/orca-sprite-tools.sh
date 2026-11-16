@@ -52,7 +52,7 @@ slack_release() {
   printf '%s %s %s' "${tag#v}" "https://github.com/yasyf/cc-slack/releases/download/$tag/$asset" "$digest"
 }
 slacked=(- - - -)
-slack_token= dd_api= dd_app=
+slack_token=
 if ! release=$(slack_release); then
   warn "GitHub named no checksummed linux_amd64 asset on cc-slack's latest release"
 elif ! email=$(git config --global user.email); then
@@ -63,10 +63,6 @@ elif ! slack_token=$(secret /ci/slack-agent/bot-token); then
 else
   read -r slack url digest <<<"$release"
   slacked=("$slack" "$url" "$digest" "$email")
-fi
-if ! dd_api=$(secret /ci/ai-oncall/datadog-api-key) || ! dd_app=$(secret /ci/ai-oncall/datadog-app-key); then
-  dd_api= dd_app=
-  warn "SSM on core-auto refused ai-oncall's Datadog keys"
 fi
 
 read -ra tools <<<"${WORKER_TOOLS:-}"
@@ -80,7 +76,7 @@ done
 
 printf -v args ' %q' "$root" "$((${#placed[@]} / 2))" ${placed[@]+"${placed[@]}"} "${slacked[@]}" "${words[@]}"
 status=0
-printf 'slack_token=%q\ndd_api=%q\ndd_app=%q\n' "$slack_token" "$dd_api" "$dd_app" |
+printf 'slack_token=%q\n' "$slack_token" |
   ssh -F "$config" -o BatchMode=yes -o ConnectTimeout=30 "$host" 'umask 077 && mkdir -p /dev/shm/sprite-lane && cat >/dev/shm/sprite-lane/secrets' || status=$?
 [ "$status" -ne 0 ] || ssh -F "$config" -o BatchMode=yes -o ConnectTimeout=30 "$host" "bash -s --$args" <<'SPRITE' || status=$?
 set -eu
@@ -167,17 +163,8 @@ slack_setup() {
     [ "$tries" -lt 5 ] || return 1
     sleep 3
   done
+  mkdir -p "$HOME/.local/state/cc-slack" && touch "$HOME/.local/state/cc-slack/sprite-login" || return 1
   echo "cc-slack $slack reads as $(PATH=$dest:$PATH timeout 20 cc-slack whoami | jq -r .username)"
-}
-datadog_setup() {
-  settings=$HOME/.claude/settings.json
-  [ -s "$settings" ] || echo '{}' >"$settings" || return 1
-  denied='["mcp__plugin_cc-slack_cc-slack__slack_send","mcp__plugin_cc-slack_cc-slack__slack_reply","mcp__plugin_cc-slack_cc-slack__slack_edit","mcp__plugin_cc-slack_cc-slack__slack_delete","mcp__plugin_cc-slack_cc-slack__slack_react","mcp__plugin_cc-slack_cc-slack__slack_unreact","mcp__plugin_cc-slack_cc-slack__slack_stream","mcp__plugin_cc-slack_cc-slack__slack_pickup","mcp__plugin_cc-slack_cc-slack__slack_dm_status","mcp__plugin_cc-slack_cc-slack__slack_card_answer","mcp__plugin_cc-slack_cc-slack__slack_revoke","mcp__plugin_cc-slack_cc-slack__slack_withdraw_pr_card","mcp__plugin_cc-slack_cc-slack__slack_channel_archive","mcp__plugin_cc-slack_cc-slack__slack_channel_create","mcp__plugin_cc-slack_cc-slack__slack_channel_invite","mcp__plugin_cc-slack_cc-slack__slack_channel_join","mcp__plugin_cc-slack_cc-slack__slack_channel_topic","Bash(cc-slack send:*)","Bash(cc-slack reply:*)","Bash(cc-slack edit:*)","Bash(cc-slack delete:*)","Bash(cc-slack react:*)","Bash(cc-slack unreact:*)","Bash(cc-slack pin:*)","Bash(cc-slack stream:*)","Bash(cc-slack pickup:*)","Bash(cc-slack dm-status:*)","Bash(cc-slack dm-relay:*)","Bash(cc-slack apply:*)","Bash(cc-slack canvas:*)","Bash(cc-slack card-answer:*)","Bash(cc-slack card-reopen:*)","Bash(cc-slack move-card:*)","Bash(cc-slack withdraw-pr-card:*)","Bash(cc-slack channel-archive:*)","Bash(cc-slack channel-create:*)","Bash(cc-slack channel-invite:*)","Bash(cc-slack channel-join:*)","Bash(cc-slack channel-topic:*)","mcp__plugin_datadog_mcp__execute_code_write","mcp__plugin_datadog_mcp__upsert_datadog_dashboard","mcp__plugin_datadog_mcp__create_datadog_notebook","mcp__plugin_datadog_mcp__edit_datadog_notebook","mcp__plugin_datadog_mcp__delete_datadog_notebook","mcp__plugin_datadog_mcp__recover_datadog_notebook"]'
-  DD_API_KEY=$dd_api DD_APPLICATION_KEY=$dd_app jq --argjson denied "$denied" \
-    '.env = (.env // {}) + {DD_API_KEY: env.DD_API_KEY, DD_APPLICATION_KEY: env.DD_APPLICATION_KEY, DD_MCP_TOOLSETS: "core,dbm"} | .permissions.deny = ((.permissions.deny // []) + $denied | unique)' \
-    "$settings" >"$staged/settings.json" || return 1
-  chmod 600 "$settings" && cat "$staged/settings.json" >"$settings" || return 1
-  echo "ai-oncall's Datadog keys and the Slack and Datadog write denials in $settings"
 }
 if [ "$slack" = - ]; then
   echo "cc-slack not installed, as this Mac's warning says" >&2
@@ -185,13 +172,6 @@ elif ! said=$(slack_setup 2>&1); then
   echo "cc-slack not set up, so this Sprite's lane reads Slack through this Mac's relay: $(printf '%s' "$said" | tail -n 1)" >&2
 else
   echo "$said" | tail -n 1
-fi
-if [ -z "$dd_api" ]; then
-  echo "no Datadog keys placed, as this Mac's warning says" >&2
-elif ! said=$(datadog_setup 2>&1); then
-  echo "Datadog keys not placed, so this Sprite's lane reads Datadog through this Mac's relay: $(printf '%s' "$said" | tail -n 1)" >&2
-else
-  echo "$said"
 fi
 rustup=/.sprite/bin/rustup
 if ! sudo -n "$rustup" target list --installed --toolchain stable 2>/dev/null | grep -qx wasm32-unknown-unknown; then
