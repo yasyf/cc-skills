@@ -4,6 +4,7 @@ import uuid
 from datetime import datetime, timedelta
 
 from drive import agents, orca, place, providers, reads, state, view
+from drive.render import when
 
 STAGE_TEST = "stage-test"
 PROVE = "prove"
@@ -220,13 +221,13 @@ class StageTest(Kind):
         """Why no new cut of queued work takes the env now, None when one may: the slot is held, held for another job, or the old line's turn comes first."""
         slot = self.slot(data)
         if slot["holder"]:
-            return f"the {env(data)} slot is held by {slot['holder']['job']}'s cut until {slot['holder']['until']}"
+            return f"waits on {env(data)}, held by {slot['holder']['job']}'s cut until {when(slot['holder']['until'])}; the queue takes it next" + (f", ahead of {slot['hold']['for']}'s hold" if slot.get("hold") and not state.urgent_hold(data, slot["hold"]) else "")
         if not (items := self.line(data)):
             return f"no {self.name} item is ready"
         if not state.held_for(data, slot, items[0], moment) and state.urgent_hold(data, slot["hold"]):
-            return f"the {env(data)} slot is held for {slot['hold']['for']} until {slot['hold']['until']}, an urgent hold ahead of the queue"
+            return f"waits on {env(data)}, held for {slot['hold']['for']} until {when(slot['hold']['until'])} by an urgent hold, which goes before the queue; the queue takes it next"
         if not (slot.get("hold") and parse_live(slot["hold"], moment)) and (ahead := self.legacy_ahead(data, items[0])):
-            return f"{ahead} of the {env(data)} slot's old line comes first"
+            return f"waits on {env(data)}, which {ahead} of its old line takes first by age; the queue takes it after"
         return None
 
     def entry(self, data: dict, job_id: str, moment: datetime) -> dict:
