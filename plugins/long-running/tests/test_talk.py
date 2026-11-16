@@ -91,7 +91,11 @@ def test_post_validation_reads_only_addressed_collections(communicator: str, pos
 
     monkeypatch.setattr(state, "load", selected)
     monkeypatch.setattr(slack, "operators", lambda: {"D123", "C1"})
-    talk.check(communicator, post)
+    if post.get("job"):
+        with pytest.raises(DriveError, match="job j1 is no job of this drive"):
+            talk.check(communicator, post)
+    else:
+        talk.check(communicator, post)
     assert loaded == fields
 
 
