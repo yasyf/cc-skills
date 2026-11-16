@@ -6980,9 +6980,16 @@ def test_a_dangerous_prs_staging_wait_lives_on_the_pr_so_its_order_closing_leave
     run("pr", "add", PR, "--job", "j1", *LEAD)
     assert state.load(demo)["prs"][key]["owes_staging"]["head"] == state.load(demo)["prs"][key]["head"]
     with edit(demo) as data:
+        state.unstage(data, key, "it only renames a column comment", "j1")
+    data = state.load(demo)
+    assert (bool(data["prs"][key]["owes_staging"]), state.STAGING_TEST.format(number=42) in data["orders"]["o1"]["parts"], data["jobs"]["j1"]["undelivered"][-1]["words"]) == (True, True, state.OWED_STAGING.format(key=key))
+    with edit(demo) as data:
         data["orders"]["o1"]["state"] = "done"
     data = state.load(demo)
     assert (data["orders"]["o1"]["state"], land.staged(data, data["prs"][key])) == ("done", [f"o1:{state.STAGING_TEST.format(number=42)}"])
+    with edit(demo) as data:
+        state.lift_staging(data, key, "https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794506760000100")
+    assert state.load(demo)["prs"][key]["owes_staging"] is None
 
 
 def test_pr_add_stages_a_monorepo_pr_whose_head_changes_a_dangerous_class_of_file_with_a_tester_naming_each_class_and_its_files_and_none_that_changes_only_tests_docs_and_skipped_paths(

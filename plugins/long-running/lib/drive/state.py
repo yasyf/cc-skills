@@ -3174,8 +3174,10 @@ def given_case(data: dict, job_id: str, case: str) -> bool:
 def unstage(data: dict, key: str, why: str, job_id: str) -> None:
     """Lift a PR of the providers' repository off its staging test once its builder's `STAGING: none: <why>` or `#N none: <why>` says AGENTS.md's dangerous rule misses it, keeping why for his card with the head it spoke of, the one whose files were read last, so that head's changed files mark it no more, by markable, while a new head's are read again: the part leaves each order on which it is not delivered and no job runs it now, every job on it untaken or finished, by drop_part, with the PR's wait on it, while a test a job runs stays to its end, by his ruling 0048b14, and one that ended with no pass waits on no rerun once the lift says why."""
     pr = data["prs"][key]
+    if pr["owes_staging"]:
+        hold_text(data["jobs"][job_id], OWED_STAGING.format(key=key), WATCH_SENDER)
+        return
     pr["unstaged"] = {"why": why, "head": pr["paths_at"] or pr["head"]}
-    pr["owes_staging"] = None
     part = STAGING_TEST.format(number=key.split("#")[1])
     for order_id in [order_id for order_id, order in data["orders"].items() if part in order["parts"]]:
         if not delivered(data, order_id, part) and all(untaken(job) or job["state"] in FINISHED_JOB_STATES for _, job in part_jobs(data, order_id, part)):
@@ -3230,6 +3232,7 @@ def lift_staging(data: dict, key: str, link: str) -> None:
     """Lift an open PR off its staging test on his words at link, by order go --staging: its waits on a staging part or tester end and it is marked unstaged at its head, so it merges with no test; a tester already running finishes, by his answer 0048b14."""
     pr = data["prs"][key]
     pr["unstaged"] = {"why": f"his words {link} say it needs no staging test", "head": pr["head"], "his": link}
+    pr["owes_staging"] = None
     pr["waits"] = [wait for wait in pr["waits"] if not staging_tester(data, wait) and not ((named := STAGING_PARTS.fullmatch(wait.partition(":")[2])) and key.rpartition("#")[2] in re.findall(r"\d+", named["numbers"]))]
 
 
@@ -3285,8 +3288,14 @@ def mark_dangerous(data: dict, key: str, head: str, paths: list[str]) -> str | N
     return stage_pr(data, key, DANGEROUS_GOAL.format(key=key, number=key.split("#")[1], changes=changes, rules=REPO_RULES), data["jobs"][pr["job"]].get("session"))
 
 
+OWED_STAGING = (
+    "{key} changes something dangerous, so its staging test stays: a session's own reading never lifts a dangerous change's test, by the hard list."
+    " It lifts only when the test passes at its current head, or by his words through drive order go --staging <his permalink> within 15 minutes of his message"
+)
+
+
 def owes_staging(data: dict, part: str) -> bool:
-    """Whether a staging test part names an open PR the drive staged for a dangerous change, its owes_staging kept on the PR itself, so its wait on that part holds whether or not the order holding the part is still open, and closing an order never lets it land untested."""
+    """Whether a staging test part names an open PR the drive staged for a dangerous change, its owes_staging kept on the PR itself, so its wait on that part holds whether or not the order holding the part is still open, and closing an order never lets it land untested. It clears only when that test passes at the PR's current head, by keep_pass, by his words through order go --staging within 15 minutes, by lift_staging, or by unreach for a PR the dangerous list no longer marks; a builder's STAGING: none never clears it, by unstage."""
     return bool((named := STAGING_PART.fullmatch(part)) and (pr := data["prs"].get(f"{home(data)}#{named['number']}")) and pr["state"] == "open" and pr["owes_staging"])
 
 
@@ -3807,6 +3816,9 @@ def keep_pass(data: dict, order_id: str, part: str, job_id: str, line: str, repo
         held.update(posted=None, passed_at=None, passed_head=None)
         return
     held["passed_head"] = tested_head(data, report, part)
+    for key in staged_open(data, part):
+        if (pr := data["prs"][key])["owes_staging"] and held["passed_head"] and pr["head"].startswith(held["passed_head"]):
+            pr["owes_staging"] = None
     if kept:
         return
     moment = min([moment, *(reply["created_at"] for reply in replies(data["name"], job_id) if re.match(r"DONE\b", body := reply["body"] or reply["subject"]) and (not staged or PROVEN_LINE.match(body)) and full_pass(data, job_id, body, part)[1] == proof)], key=parse_time)
