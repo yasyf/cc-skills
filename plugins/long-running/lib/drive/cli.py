@@ -5202,12 +5202,13 @@ def pr_set(args: argparse.Namespace) -> int:
     except DriveError as error:
         raise DriveError(f"{key}: refused, nothing set: {error}") from None
     serving = "".join(f"\nhis answer its design cites, kept: {answer}" for answer in (answered["cited"] if answered else []))
-    with state.edit(name) as data:
+    def pr_kept(data: dict):
         pr = find(data["prs"], key, "drive PR")
         if refused := state.claim_mains(data, github.repo_of(key), pr["job"], failing, key, state.stamp(state.now())):
             raise DriveError(f"{key}: refused, nothing set: {refused}")
+        serves_line = ""
         if args.serves:
-            serving += f"\nserves {args.serves}, his words: {find(data['orders'], args.serves, 'order')['text']}"
+            serves_line = f"\nserves {args.serves}, his words: {find(data['orders'], args.serves, 'order')['text']}"
         set_pr(pr, args, answered)
         if args.tapped == "Hold":
             state.end_approvals(data, key, before["tap"])
@@ -5217,7 +5218,10 @@ def pr_set(args: argparse.Namespace) -> int:
         delivering = f"\ndelivers {'; '.join(pr['parts'])}" if args.part else ""
         if args.part and delivers:
             delivering += shipped(data, pr["job"], order, args.part)
-    serving += "".join(f"\n{line}" for line in render.builder_lines(name, data, testers)) + delivering
+        return data, pr, serves_line, testers, delivering
+
+    data, pr, serves_line, testers, delivering = state.update(name, None, pr_kept)
+    serving += serves_line + "".join(f"\n{line}" for line in render.builder_lines(name, data, testers)) + delivering
     untapped = f"\ndropped the {dropped['label']} the drive gave itself ({dropped['source']}): {args.why}" if args.no_tapped else ""
     lane = state.heard_lane(data, order)
     withdrawn: list[str] = []
