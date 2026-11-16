@@ -155,8 +155,6 @@ def waiting(data: dict, moment: datetime) -> dict[str, tuple[str, str]]:
     from drive import work
 
     held = {}
-    if why := work.STAGE.why_not(data, moment):
-        held |= dict.fromkeys(work.STAGE.line(data), (f"staging:{work.env(data)}", f"its staging test {why}"))
     for env, slot in data["slots"].items():
         if slot["holder"]:
             held |= dict.fromkeys(state.train_waiting(data, env), (f"train:{env}", f"its release waits for {env}, which {slot['holder']['job']} holds until {when(slot['holder']['until'])}"))

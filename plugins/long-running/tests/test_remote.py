@@ -8928,15 +8928,15 @@ def test_one_mailbox_read_serves_each_watcher_of_the_process_within_the_shared_w
     assert len(reads) == 3
 
 
-def test_a_stage_line_for_a_tester_the_work_queue_holds_is_held_once_per_head_and_never_sent_as_a_wake(run: Run, remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_stage_line_for_an_item_the_work_queue_holds_is_held_once_per_head_and_never_sent_as_a_wake(run: Run, remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
     url = "https://github.com/Forge-AI/monorepo/pull/7"
     key = state.pr_key(url)
     with edit(remote) as data:
         data["jobs"]["j1"].update(prs=[url], dispatch=None, where="local", state="waiting")
         data["prs"][key] = state.new_pr(url, "j1", "o1") | {"head": "aaaaaaa111"}
     monkeypatch.setattr(work, "queued", lambda data, job: job is data["jobs"]["j1"])
-    monkeypatch.setattr(work, "item_of", lambda data, job: work.KIND[work.STAGE_TEST])
-    turn = "waits in the work queue for its stage-test cut, so no wake goes out: its worker reads it when its turn starts it"
+    monkeypatch.setattr(work, "item_of", lambda data, job: work.KIND[work.PROVE])
+    turn = "waits in the work queue for its worker, so no wake goes out: its worker reads it when its turn starts it"
     assert run("pr", "wake", url, "--text", "PR #7 waits on its staging run") == (0, f"{key}: held on j1, which {turn}")
     assert run("pr", "wake", url, "--text", "PR #7 waits on its staging run") == (0, f"{key}: not sent again to j1, which {turn}")
     with edit(remote) as data:

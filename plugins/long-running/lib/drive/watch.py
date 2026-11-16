@@ -2693,7 +2693,7 @@ def relay_pass(watcher: Watcher, moment: datetime) -> list[str]:
     stages = [
         functools.partial(clocks_drawn, watcher),
         functools.partial(codex_takes, watcher),
-        *(functools.partial(stage, watcher, moment) for stage in (limit_lines, applet_lines, check_disks, slot_lines, work_lines, post_lines, reaction_lines)),
+        *(functools.partial(stage, watcher, moment) for stage in (limit_lines, applet_lines, check_disks, slot_lines, post_lines, reaction_lines)),
     ]
     return [line for stage in stages for line in contained(watcher, stage, moment)]
 
@@ -5274,7 +5274,7 @@ def spawn_lines(watcher: Watcher, moment: datetime) -> list[str]:
         except cli.VERB_ERRORS as error:
             state.write(watcher.name, lambda data, job_id=job_id, error=error: data["jobs"][job_id].update(brief_error=cut(str(error), 300)), budget=state.WATCH_WRITE_SECONDS)
     data = state.load(watcher.name)
-    kinds = [kind for kind in work.KIND.values() if kind is not work.STAGE]
+    kinds = list(work.KIND.values())
     if not any(kind.wanted(data, where, moment) for kind in kinds for where in work.POOLS):
         return []
     lines, starts = state.write(watcher.name, lambda data: work.spawned(data, moment, kinds), budget=state.WATCH_WRITE_SECONDS)
@@ -5289,27 +5289,6 @@ def seated_first(watcher: Watcher) -> list[Watcher]:
     return sorted([watcher, *watcher.others.values()], key=lambda one: one.project not in seats)
 
 
-def pass_reads(name: str, data: dict, prs: list[str]) -> tuple[list[str] | None, list[str] | None]:
-    """Every file a staging pass's PRs change, by github.paths, and every component they reach, by cli.release_reach, the repository's own reach read, which slot_turns packs passes by; None for each that a pass naming no PR, or whose PRs GitHub or the release provider could not read, leaves unread, so it rides no other pass's cut."""
-    from drive import cli
-
-    if not prs:
-        return None, None
-    try:
-        read = github.paths(prs)
-    except github.GithubError:
-        return None, None
-    paths = sorted({path for key in prs if key in read for path in read[key][1]}) if all(key in read for key in prs) else None
-    try:
-        reach = cli.release_reach(name, data, prs)
-    except (github.GithubError, reads.ReadError, state.DriveError, json.JSONDecodeError):
-        return paths, None
-    return paths, sorted({component for key in prs if key in reach for component in reach[key]["touched"]}) if all(key in reach for key in prs) else None
-
-
-READS_PER_PASS = 12
-
-
 def slot_lines(watcher: Watcher, moment: datetime) -> list[str]:
     """End each staging env's lease whose cut or release finished, and start the release the train holds for an env that freed, by state.slot_ends, before the work queue's packer forms its next cut; it says nothing, since no session acts on a lease's end."""
     if watcher.project or not state.load(watcher.name, ("slots",))["slots"]:
@@ -5317,41 +5296,6 @@ def slot_lines(watcher: Watcher, moment: datetime) -> list[str]:
     for _, job_id in state.write(watcher.name, lambda data: state.slot_ends(data, moment), budget=state.WATCH_WRITE_SECONDS):
         start_verb(watcher, job_id, ["job", "release", job_id], moment)
     return []
-
-
-PROMOTION_READ_EVERY = timedelta(minutes=5)
-
-
-def work_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Read the files and stacks of ready stage-test items the queue has not read, so packing pairs only passes it can see, then record and start the stage-test worker once its line may form a cut, by work.spawned, and keep each queued item's planned start; spawn_lines starts every other kind's workers. Its lines go as evidence and wake nobody."""
-    if watcher.project:
-        return []
-    data = state.load(watcher.name)
-    read = {job_id: pass_reads(watcher.name, data, state.tested_prs(data, data["jobs"][job_id])) for job_id in work.unread(data)}
-    staged = work.env(data)
-    due, said = None, []
-    if work.STAGE.line(data) and moment - watcher.polled.get(f"promotion {staged}", moment - PROMOTION_READ_EVERY) >= PROMOTION_READ_EVERY:
-        watcher.polled[f"promotion {staged}"] = moment
-        try:
-            due = providers.of(data).release.promotion_due(staged)
-            watcher.failures.pop(f"promotion {staged}", None)
-        except providers.ProviderError as error:
-            said = failed(watcher, f"promotion {staged}", f"read of whether {staged}'s promotion skipped its tick", error, moment)
-
-    def work_lines_write(data: dict) -> tuple[list[str], list[list[str]]]:
-        if due is not None:
-            data["slots"].setdefault(staged, {"holder": None})["promotion_due"] = due
-        for job_id, (paths, stacks) in read.items():
-            if paths is not None and stacks is not None:
-                data["jobs"][job_id]["work_reads"] = {"paths": paths, "stacks": stacks}
-        spawned = work.spawned(data, moment, [work.STAGE])
-        work.scheduled(data, moment)
-        return spawned
-
-    lines, starts = state.write(watcher.name, work_lines_write, budget=state.WATCH_WRITE_SECONDS)
-    for start in starts:
-        start_verb(watcher, start[-1], start, moment)
-    return [*said, *lines]
 
 
 def carry_held(watcher: Watcher, moment: datetime) -> None:
@@ -5429,7 +5373,7 @@ class NotStarted(str):
 
 def job_gap(watcher: Watcher, job_id: str, job: dict, data: dict, order_id: str, part: str, moment: datetime) -> str | None:
     """Why the job leaves the order's part with no one, None when it carries it or is a design its builder carries, or SETTLING while a change in the last two minutes is still being handed over; a builder that took DONE at its merge carries it only through the builder proving it live; a done tester leaves a staging test part whose PR it ran no full pass of waiting on a rerun; a DONE of a job's own carries work only while drive job prove's run of its proof file is to come; a job drive job add recorded not started that waits on nothing settles one minute, or while its launch takes, a drive job launch only while it holds the job's lock, read against state.now() since the pass may have started long before, or while this Mac's admission holds its Claude lane by place.admission, its cap, load gate or daily budget, since work that waits its turn is no orphan, then names the minutes since drive job add and the brief its agent reads first; a waiting job nothing can wake also names what its line names that ended or moved; a builder stopped before any agent took it carries the part by the PRs the drive does not track that it holds, by untracked_gap."""
-    if work.worker(job) or work.claimed_by(data, job) or work.item_of(data, job) in (work.STAGE, work.KIND[work.PROVE]):
+    if work.worker(job) or work.claimed_by(data, job) or work.item_of(data, job) is work.KIND[work.PROVE]:
         return work.stalled(data, job_id, state.now())
     if state.unstarted(job) and not job["waits"]:
         if (now := state.now()) - state.parse_time(job["updated"]) < UNSTARTED_FOR or launching(job, now) and (job["where"] != "remote" or state.launch_in_flight(watcher.name, job_id, job)):
