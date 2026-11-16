@@ -1490,9 +1490,10 @@ def test_the_now_screen_rows_each_project_by_the_daily_sweeps_bars_filing_each_w
     none = {"count": 0, "crossed": False, "link": None, "p90": None, "since": None}
     assert view.sweep(data, model, events, owed, "live", T0) == {
         "rows": [
-            {"project": "Iris", "bars": {"answers": {"count": 1, "crossed": True, "link": slow, "p90": 180.0, "since": None}, "owed": none, "cards": {"count": 1, "crossed": True, "link": card["url"], "p90": None, "since": at(-49 * 60)}, "approved": none}},
+            {"project": "Iris", "priority": None, "bars": {"answers": {"count": 1, "crossed": True, "link": slow, "p90": 180.0, "since": None}, "owed": none, "cards": {"count": 1, "crossed": True, "link": card["url"], "p90": None, "since": at(-49 * 60)}, "approved": none}},
             {
                 "project": "Platform",
+                "priority": None,
                 "bars": {
                     "answers": {"count": 1, "crossed": False, "link": quick, "p90": 60.0, "since": None},
                     "owed": {"count": 1, "crossed": True, "link": owed[0]["permalink"], "p90": None, "since": slack.sent_at(owed[0]).isoformat()},
@@ -1503,6 +1504,31 @@ def test_the_now_screen_rows_each_project_by_the_daily_sweeps_bars_filing_each_w
         ],
         "owed": "live",
     }
+
+
+def test_a_priority_is_a_lens_across_projects_counting_its_open_orders_and_its_sweep_row_reads_by_its_name() -> None:
+    data = drive_of(
+        {
+            "o1": order("ship the release", ["j1"], project="Platform", workstream="Releases", title="Whole-platform release", priority=state.priority_seat("o1")),
+            "o2": order("cut the notes", [], project="Platform", workstream="Releases"),
+            "o3": order("fix the reader", [], project="SandSQL", workstream="Reader"),
+            "o4": order("tidy the queue", [], project="Platform", workstream="Queue"),
+            "o5": order("old release", [], project="Platform", workstream="Releases", state="done"),
+        },
+        {"j1": job("o1", "running", carries={"o3": ["the reader fix"]})},
+        [],
+    )
+    [lens] = view.priorities(data)
+    assert lens == {
+        "id": "o1", "name": "Releases", "title": "Whole-platform release", "home": "Platform", "seat": "Priority o1",
+        "members": ["o1", "o2", "o3", "o5"], "open": 3, "projects": ["Platform", "SandSQL"],
+    }
+    data["slack"]["channels"] = {"Priority o1": {"id": "C7", "name": "him-drive-demo-prio-releases"}}
+    asked = (T0 - timedelta(minutes=9)).timestamp()
+    events = [{"kind": "said", "at": state.stamp(T0 - timedelta(minutes=5)), "text": "Out.", "channel": "C7", "thread": None, "url": f"{TEAM}archives/C7/p1794200000000900", "card": None, "order": None, "visuals": [], "prs": [], "edited": False, "answers": [f"{asked:.6f}"]}]
+    model = view.board(data, found(), "live", events, T0, set(), {})
+    assert [(row["project"], row["priority"]) for row in view.sweep(data, model, events, [], "live", T0)["rows"]] == [("Releases", "o1")]
+    assert {entry["id"]: entry["priorities"] for group in model["status"] for entry in group["features"]}["o3"] == ["o1"]
 
 
 def test_staging_lookups_share_one_order_partition_per_projection() -> None:

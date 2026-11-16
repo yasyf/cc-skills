@@ -1317,6 +1317,9 @@ def board(drive: dict, found: dict, source: str, events: Iterable[dict], moment:
         }
     for item in (item for item in model["queue"] if item["kind"] == "question"):
         item["rail"] = rail(drive, item, reports, heard)
+    lenses = priorities(drive)
+    for entry in (entry for group in model["status"] for entry in group["features"]):
+        entry["priorities"] = [lens["id"] for lens in lenses if entry["id"] in lens["members"]]
     active = [job_entry(job_id, job, reports, heard) for job_id, job in drive["jobs"].items() if job["order"] in shown_ids and job["state"] not in state.FINISHED_JOB_STATES]
     active.sort(key=lambda entry: (entry["state"] != "running", state.parse_time(entry["updated"])))
     told = history(drive, events, found["team_url"])
@@ -1331,7 +1334,37 @@ def board(drive: dict, found: dict, source: str, events: Iterable[dict], moment:
         "bug_reports": [entry | {"orphaned": orphaned(drive, entry["id"])} for entry in bug_reports(drive, moment, served)],
         "edges": edges(drive),
         "channel": slack.dm(),
+        "priorities": lenses,
     }
+
+
+def priorities(drive: dict) -> list[dict]:
+    """Each open priority order as a lens across projects, by his words "they span across projects and everything in them necessarily must be in exactly one normal project but then can be in any number of prios": its plain name, its workstream or else its title, its home project, and each order in it, by priority_members, with how many of them are open."""
+    lenses = []
+    for order_id, order in drive["orders"].items():
+        if not state.prioritized(order):
+            continue
+        members = priority_members(drive, order_id)
+        lenses.append({
+            "id": order_id,
+            "name": order["workstream"] or order_title(order),
+            "title": order_title(order),
+            "home": order["project"],
+            "seat": state.priority_seat(order_id),
+            "members": members,
+            "open": sum(drive["orders"][member]["state"] not in state.CLOSED_ORDER_STATES for member in members),
+            "projects": sorted({drive["orders"][member]["project"] for member in members if drive["orders"][member]["project"]}),
+        })
+    return lenses
+
+
+def priority_members(drive: dict, order_id: str) -> list[str]:
+    """The orders in a priority: itself, each order filed under its project and workstream, whose lines go to its channel by state.channel_seat_of, each order a job of it carries and each order whose job carries it, in drive order."""
+    held = drive["orders"][order_id]
+    carried = {carried for job_id in held["jobs"] for carried in drive["jobs"][job_id]["carries"]}
+    carrying = {job["order"] for job in drive["jobs"].values() if order_id in job["carries"]}
+    home = (held["project"], held["workstream"]) if held["workstream"] else None
+    return [member for member, order in drive["orders"].items() if member == order_id or member in carried or member in carrying or home and (order["project"], order["workstream"]) == home]
 
 
 def sweep(drive: dict, model: dict, events: list[dict], owed: list[dict], read: str, moment: datetime) -> dict:
@@ -1347,8 +1380,9 @@ def sweep(drive: dict, model: dict, events: list[dict], owed: list[dict], read: 
     for bar in SWEEP_BARS:
         for wait in waits[bar]:
             rows.setdefault(wait["project"] and spelled.get(wait["project"].casefold(), wait["project"]), {name: [] for name in SWEEP_BARS})[bar].append(wait)
-    shown = [{"project": project, "bars": {bar: bar_cell(bar, found) for bar, found in bars.items()}} for project, bars in rows.items()]
-    shown.sort(key=lambda row: (not any(cell["crossed"] for cell in row["bars"].values()), row["project"] is None, (row["project"] or "").casefold()))
+    seats = {lens["seat"].casefold(): lens for lens in model["priorities"]}
+    shown = [{"project": (lens := seats.get((project or "").casefold())) and lens["name"] or project, "priority": lens and lens["id"], "bars": {bar: bar_cell(bar, found) for bar, found in bars.items()}} for project, bars in rows.items()]
+    shown.sort(key=lambda row: (bool(row["priority"]), not any(cell["crossed"] for cell in row["bars"].values()), row["project"] is None, (row["project"] or "").casefold()))
     return {"rows": shown, "owed": read}
 
 

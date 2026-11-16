@@ -924,7 +924,7 @@ function nowScreen() {
   const picks = queued.filter((item) => item.kind === 'question').length;
   const taps = queued.filter((item) => item.kind === 'tap').length;
   const metrics = [['Decisions', picks, 'warm', `#/queue/question${scopeQuery(project ?? null, stream ?? null)}`], ['PRs to approve', taps, 'you', `#/queue/tap${scopeQuery(project ?? null, stream ?? null)}`], ['Moving', entries.filter((entry) => entry.state === 'running').length, 'doing', null], ['Blocked', entries.filter((entry) => entry.state === 'blocked').length, 'bad', null], ['Live', entries.filter((entry) => entry.state === 'live').length, 'done', '#/history']];
-  const side = task ? '' : `<aside class="now-side" aria-label="What is happening here">${scopeWork(scope, project ?? null, stream ?? null)}${story(scope, 'Latest movement')}</aside>`;
+  const side = task ? '' : `<aside class="now-side" aria-label="What is happening here">${priorityLenses(project ?? null)}${scopeWork(scope, project ?? null, stream ?? null)}${story(scope, 'Latest movement')}</aside>`;
   return `<div class="now-head"><div><div class="eyebrow">Now · ${keys.length ? 'In focus' : 'Across the drive'}</div><h1 class="h1 zoom-title">${esc(keys.length ? fileName(keys.at(-1)) : 'What needs you')}</h1></div><div class="now-actions">${project !== undefined ? `<a class="map-btn" href="${zoomHref('now', ...keys.slice(0, -1))}">← Back</a>` : ''}<a class="map-btn primary" href="#/queue/all${scopeQuery(project ?? null, stream ?? null)}">Open queue →</a></div></div>
     <div class="now-metrics">${metrics.map(([label, count, tone, href]) => `<${href ? 'a' : 'div'} class="metric t-${tone}"${href ? ` href="${esc(href)}"` : ''}><span>${label}</span><b>${count}</b>${href ? '<span class="metric-arrow" aria-hidden="true">›</span>' : ''}</${href ? 'a' : 'div'}>`).join('')}</div>
     ${slackBars(project)}
@@ -932,9 +932,49 @@ function nowScreen() {
     ${nowCanvas(tree, project, stream, task, side)}`;
 }
 
+function lensOf(id) {
+  return model.priorities.find((lens) => lens.id === id);
+}
+
+function lensQueue(lens) {
+  const members = new Set(lens.members);
+  return model.queue.filter((item) => item.tasks.some((id) => members.has(id)));
+}
+
+function prioChips(ids) {
+  return ids.map(lensOf).filter(Boolean).map((lens) => `<span class="prio-chip" title="${esc(`Also in the ${lens.name} priority`)}">★ ${esc(lens.name)}</span>`).join('');
+}
+
+function priorityLenses(project) {
+  const lenses = model.priorities.filter((lens) => project === null || lens.projects.includes(project));
+  if (!lenses.length) return '';
+  return `<section class="prio-lenses" aria-labelledby="prio-title"><div class="eyebrow" id="prio-title">Priorities <span class="reason-chip">${lenses.length}</span></div><p class="meta">Each cuts across projects; its work stays filed under its own project too.</p>${lenses.map((lens) => {
+    const asks = lensQueue(lens);
+    const decisions = asks.filter((item) => item.kind === 'question').length;
+    const taps = asks.length - decisions;
+    return `<a class="prio-lens" href="#/priority/${esc(lens.id)}"><span class="prio-star" aria-hidden="true">★</span><span class="prio-body"><b>${esc(lens.name)}</b><small>${esc(counted(lens.open, 'open order'))} across ${esc(lens.projects.join(', '))}</small>${decisions || taps ? `<small class="prio-asks">${[decisions && counted(decisions, 'decision'), taps && counted(taps, 'PR card')].filter(Boolean).join(' · ')} for you</small>` : ''}</span><span class="arrow" aria-hidden="true">›</span></a>`;
+  }).join('')}</section>`;
+}
+
+function priorityScreen(id) {
+  const lens = lensOf(id);
+  if (!lens) return gone('This priority');
+  const shown = lens.members.map(featureOf).filter(Boolean);
+  const byProject = new Map();
+  for (const entry of shown) byProject.set(fileKey(entry.project), [...(byProject.get(fileKey(entry.project)) ?? []), entry]);
+  const asks = lensQueue(lens);
+  const page = model.pages.find((each) => each.orders?.includes(lens.id));
+  const metrics = [['Open orders', lens.open, 'doing'], ['Projects', lens.projects.length, ''], ['Decisions', asks.filter((item) => item.kind === 'question').length, 'warm'], ['PR cards', asks.filter((item) => item.kind !== 'question').length, 'you']];
+  return `<div class="now-head"><div><div class="eyebrow prio-eyebrow">★ Priority · across ${esc(counted(lens.projects.length, 'project'))}</div><h1 class="h1 zoom-title">${esc(lens.name)}</h1><p class="meta">${esc(bare(lens.title))}</p></div><div class="now-actions">${page ? `<a class="map-btn" href="#/pages/${esc(page.slug)}">Its page ›</a>` : ''}<a class="map-btn primary" href="#/feature/${esc(lens.id)}">The priority order ›</a></div></div>
+    <div class="now-metrics">${metrics.map(([label, count, tone]) => `<div class="metric t-${tone}"><span>${label}</span><b>${count}</b></div>`).join('')}</div>
+    ${asks.length ? `<section class="scope-work prio-asks-list"><div class="eyebrow">Waiting on you <span class="reason-chip">${asks.length}</span></div>${queueList(asks, -1, 'all')}</section>` : ''}
+    ${[...byProject].sort(byName).map(([project, entries]) => `<section class="prio-project"><h2 class="eyebrow">${esc(fileName(project))} <span class="reason-chip">${entries.length}</span></h2><div class="task-list">${entries.map((entry) => taskRow(entry)).join('')}</div></section>`).join('')}
+    ${lens.members.length > shown.length ? `<p class="meta">${esc(counted(lens.members.length - shown.length, 'finished order'))} no longer shown.</p>` : ''}`;
+}
+
 function slackBars(project) {
   const { rows, owed } = model.sweep;
-  const shown = rows.filter((row) => project === undefined || fileKey(row.project) === project);
+  const shown = rows.filter((row) => project === undefined || (row.priority ? lensOf(row.priority)?.projects.includes(project) : fileKey(row.project) === project));
   if (!shown.length) return '';
   const unread = owed !== 'live';
   const crossed = shown.reduce((sum, row) => sum + SWEEP_BARS.filter(([key]) => row.bars[key].crossed).length, 0);
@@ -943,7 +983,7 @@ function slackBars(project) {
     <div class="sb-head"><h2 class="eyebrow" id="slack-bars-title">Drive follow-through</h2><span id="slack-bars-summary">${esc(summary)}</span></div>
     <div class="sb-scroll" role="region" aria-label="Follow-through by project" tabindex="0"><table aria-describedby="slack-bars-summary">
       <thead><tr><th scope="col">Project</th>${SWEEP_BARS.map(([, label, hint, title]) => `<th scope="col" title="${esc(title)}">${label}<small>${esc(hint)}</small></th>`).join('')}</tr></thead>
-      <tbody>${shown.map((row) => `<tr><th scope="row"><span>${esc(fileName(fileKey(row.project)))}</span></th>${SWEEP_BARS.map(([key]) => `<td>${sweepCell(key, row.bars[key], unread && key === 'owed' ? owed : '')}</td>`).join('')}</tr>`).join('')}</tbody>
+      <tbody>${shown.map((row, i) => `${row.priority && !shown[i - 1]?.priority ? `<tr class="sb-group"><th scope="rowgroup" colspan="${SWEEP_BARS.length + 1}">Priorities</th></tr>` : ''}<tr${row.priority ? ' class="sb-prio"' : ''}><th scope="row">${row.priority ? `<a href="#/priority/${esc(row.priority)}">★ ${esc(row.project)}</a>` : `<span>${esc(fileName(fileKey(row.project)))}</span>`}</th>${SWEEP_BARS.map(([key]) => `<td>${sweepCell(key, row.bars[key], unread && key === 'owed' ? owed : '')}</td>`).join('')}</tr>`).join('')}</tbody>
     </table></div>
   </section>`;
 }
@@ -1249,7 +1289,7 @@ function gone(what, screen = 'now') {
 
 function trail() {
   const { screen, path } = route();
-  const at = { feature: 'now', file: 'work' }[screen] ?? (SCREENS.some(([name]) => name === screen) ? screen : 'queue');
+  const at = { feature: 'now', file: 'work', priority: 'now' }[screen] ?? (SCREENS.some(([name]) => name === screen) ? screen : 'queue');
   const [, href, label] = SCREENS.find(([name]) => name === at);
   const zooms = (where, keys) => keys.map((key, i) => [fileName(key), zoomHref(where, ...keys.slice(0, i + 1))]);
   const entry = screen === 'feature' ? featureOf(path[0]) : screen === 'now' && path[2] ? featureOf(path[2]) : null;
@@ -1259,6 +1299,7 @@ function trail() {
   if (entry) steps.push([entry.title, location.hash]);
   if (screen === 'work' && path[2]) steps.push([path[2], location.hash]);
   if (screen === 'history' && path[0]) steps.push([dayName(path[0]), historyHref(path[0])]);
+  if (screen === 'priority' && lensOf(path[0])) steps.push([`★ ${lensOf(path[0]).name}`, location.hash]);
   if (screen === 'pages' && path[0]) steps.push([model.pages.find((page) => page.slug === path[0])?.title ?? path[0], location.hash]);
   if (screen === 'file') steps.push([`${path[0]} ${(FILE_WORDS[path[1]] ?? 'file').toLowerCase()}`, location.hash]);
   return steps.map(([name, to], i) => (i === steps.length - 1 ? `<strong aria-current="page">${esc(name)}</strong>` : `<a href="${esc(to)}">${esc(name)}</a>`)).join('<span aria-hidden="true">/</span>');
@@ -1578,7 +1619,7 @@ function taskRow(entry, href = `#/feature/${entry.id}`) {
   const facts = [entry.prs.length ? `${merged} of ${counted(entry.prs.length, 'PR')} merged` : '', entry.cards.length ? `${counted(entry.cards.length, 'decision')} for you` : ''].filter(Boolean).join(' · ');
   return `<a class="task-row" href="${esc(href)}" data-tip="${esc(taskTip(entry))}">
     <span class="task-mark t-${STOP_TONES[entry.state]}" aria-hidden="true"></span>
-    <span class="task-body"><b>${esc(bare(entry.title))}</b>${entry.now ? `<small>${esc(named(entry.now.replace(REPORT_WORD, '')))}</small>` : ''}</span>
+    <span class="task-body"><b>${esc(bare(entry.title))}</b>${entry.priorities?.length ? `<span class="prio-chips">${prioChips(entry.priorities)}</span>` : ''}${entry.now ? `<small>${esc(named(entry.now.replace(REPORT_WORD, '')))}</small>` : ''}</span>
     <span class="task-facts">${pill(STOP_WORDS[entry.state], STOP_TONES[entry.state])}${facts ? `<small>${esc(facts)}</small>` : ''}</span>
     <span class="arrow" aria-hidden="true">›</span>
   </a>`;
@@ -2536,7 +2577,7 @@ function featureScreen(id) {
   const entry = featureOf(id);
   if (!entry) return '<p class="empty">This feature is no longer on the dashboard. <a href="#/now">Back to Now</a></p>';
   return `<div class="eyebrow">Task</div>
-    <h1 class="h1 zoom-title">${esc(bare(entry.title))}</h1>
+    <h1 class="h1 zoom-title">${esc(bare(entry.title))}</h1>${entry.priorities?.length ? `<p class="prio-chips">${entry.priorities.map(lensOf).filter(Boolean).map((lens) => `<a class="prio-chip" href="#/priority/${esc(lens.id)}">★ ${esc(lens.name)}</a>`).join('')}</p>` : ''}
     <div class="now-grid"><div class="zoom-body">${taskBody(entry)}</div>${story([entry], 'Latest')}</div>`;
 }
 
@@ -2624,7 +2665,7 @@ function render() {
   if (!model) return;
   const { screen, id } = route();
   document.title = `${model.drive}: ${model.counts.queue} waiting on you`;
-  const at = { feature: 'now', file: 'work' }[screen] ?? (SCREENS.some(([name]) => name === screen) ? screen : 'queue');
+  const at = { feature: 'now', file: 'work', priority: 'now' }[screen] ?? (SCREENS.some(([name]) => name === screen) ? screen : 'queue');
   const counts = { queue: model.counts.queue, now: model.counts.jobs, work: model.counts.lanes, history: model.counts.merged_today, pages: model.pages.filter((page) => page.live).length };
   const said = { queue: 'waiting on you', now: 'jobs running', work: 'lanes at work', history: 'merged today', pages: 'live' };
   $('#tabs').innerHTML = SCREENS.map(([name, href, label]) => `<a class="tab${name === at ? ' on' : ''}" href="${href}"${name === at ? ' aria-current="page"' : ''} data-tip="${esc([label, counts[name] ? `${counts[name]} ${said[name]}` : '', name === 'now' && model.incidents.length ? `${counted(model.incidents.length, 'incident')} open` : ''].filter(Boolean).join('\n'))}">${icon(name)}<span>${label}</span>${counts[name] ? `<b class="count${name === 'queue' ? '' : ' soft'}" aria-label="${counts[name]} ${said[name]}">${counts[name]}</b>` : ''}${name === 'now' && model.incidents.length ? `<i class="alarm" aria-label="${counted(model.incidents.length, 'incident')} open"></i>` : ''}</a>`).join('');
@@ -2634,7 +2675,7 @@ function render() {
   $('#alerts').hidden = !raised;
   morphChildren($('#incidents'), Object.assign(document.createElement('div'), { innerHTML: incidentList() }));
   morphChildren($('#bug-reports'), Object.assign(document.createElement('div'), { innerHTML: bugReportList() }));
-  const screens = { queue: () => queueScreen(id), now: nowScreen, work: workScreen, history: historyScreen, pages: () => pagesScreen(id), feature: () => featureScreen(id), file: () => fileScreen(route().path) };
+  const screens = { queue: () => queueScreen(id), now: nowScreen, work: workScreen, history: historyScreen, pages: () => pagesScreen(id), feature: () => featureScreen(id), priority: () => priorityScreen(id), file: () => fileScreen(route().path) };
   const open = new Set(model.review.map((entry) => entry.key));
   for (const [key, frame] of slotted) {
     if (open.has(key)) continue;
