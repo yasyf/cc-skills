@@ -285,16 +285,25 @@ def binds(name: str, data: dict, pr: dict) -> list[str]:
     return list(dict.fromkeys([*ruled, *cited]))
 
 
+CHECKS_AT_ONCE = 2
+
+
 def start(name: str, keys: list[str]) -> None:
     """Start one check of each stack, or PR in none, that a PR in keys sits in and no check runs on, as its own process: each of its PRs is marked under the drive's lock as checked at its head by this process, so no second check starts there, the checks' processes start once that lock is let go, however many there are, and a second hold of it gives each mark its own check's process, but a mark a check already replaced with its outcome, which stands, and a mark whose process never started goes back to the check it replaced."""
     from drive import land
 
-    stacks = land.landing_stacks(state.load(name))
+    loaded = state.load(name)
+    stacks = land.landing_stacks(loaded)
+    budget = CHECKS_AT_ONCE - sum(1 for pr in loaded["prs"].values() if pr.get("checker") and pr["checker"]["outcome"] is None and state.alive(pr["checker"]["pid"]))
+    if budget <= 0:
+        return
     rows = tuple(("prs", member, field) for key in keys for member in stacks.get(key, (key,)) for field in ("checker", "head"))
 
     def mark(data: dict) -> tuple[str, dict[tuple[str, ...], tuple[str, list]]]:
         stacks, at, marked = land.landing_stacks(data), state.stamp(), {}
         for key in keys:
+            if len(marked) >= budget:
+                break
             unit = stacks.get(key, (key,))
             prs = [data["prs"][member] for member in unit]
             if not any(pr["checker"] and pr["checker"]["outcome"] is None and state.alive(pr["checker"]["pid"]) for pr in prs):

@@ -58,6 +58,8 @@ LANE_RULES_ENV = {"CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD": "1"}
 LANE_RULES_HOLE = "<lane rules>"
 TOP_SEATS = ("coordinator", "communicator", "meta")
 SEAT = re.compile(r"^cci session register <drive>-(\S+) ")
+FIRST_LINE = timedelta(minutes=1)
+FIRST_LINE_TOOLS = (f"{render.DRIVE_TOOLS}say", "ToolSearch")
 RESUMED = "Resumed: an API error ended your last turn before it was done, so do now what the prompt it answered asked, from where it stopped."
 MESSAGE_ORIGIN = "coordinator"
 DESIGNER = "long-running:designer"
@@ -228,15 +230,8 @@ def parts(row: dict) -> list[dict]:
 
 def unread_job(payload: dict, text: str) -> str | None:
     """Why a line calling a job stuck or silent, a report to the communicator or a post to him, waits for a read of that job's transcript: the poster's own calls in the last 10 minutes show none."""
-    if not (jobs := unread_jobs(payload, text)):
-        return None
-    return UNREAD_JOB.format(jobs=", ".join(jobs), its="their" if len(jobs) > 1 else "its")
-
-
-def unread_jobs(payload: dict, text: str) -> list[str]:
-    """Each job a line calls stuck or silent whose transcript the poster's own calls in the last 10 minutes show no read of."""
     if not (named := dict.fromkeys(STUCK.findall(text))):
-        return []
+        return None
     since = datetime.now(UTC) - READ_WINDOW
     calls = " ".join(
         json.dumps(part.get("input"))
@@ -245,7 +240,10 @@ def unread_jobs(payload: dict, text: str) -> list[str]:
         for part in parts(row)
         if part.get("type") == "tool_use"
     )
-    return [job for job in named if f"replies {job}" not in calls and not any(read in calls for read in TRANSCRIPT_READ)]
+    jobs = [job for job in named if f"replies {job}" not in calls and not any(read in calls for read in TRANSCRIPT_READ)]
+    if not jobs:
+        return None
+    return UNREAD_JOB.format(jobs=", ".join(jobs), its="their" if len(jobs) > 1 else "its")
 
 
 def unowned_work(text: str) -> Ruled | None:
@@ -596,7 +594,7 @@ def signalled(pid: int) -> bool:
 def handle(name: str, brief: str, detached: bool = False, answer: str | None = None, briefs: bool = False, prefer: str | None = None) -> tuple[str, bool]:
     """Hand a brief to the communicator, which answers him itself, as one cci note from lane watch keyed by the brief so a pass repeating it sends nothing new, by his ruling "get rid of handlers": a `Record:` brief names a record for it to post, and a message of his one it owes an answer."""
     key = hashlib.sha256(brief.strip().encode()).hexdigest()[:16]
-    reads.run(["cci", "post", "--drive", name, "--lane", "watch", "--kind", "note", "--to", f"communicator@{name}", "--id", f"hand-{key}", "--text", f"ANSWER THIS: {brief.strip()}"], Path.cwd())
+    reads.run(["cci", "post", "--drive", name, "--lane", "watch", "--kind", "note", "--to", f"communicator@{name}", "--id", f"hand-{key}", "--text", f"ANSWER THIS: {brief.strip()}"], Path.cwd(), reads.posting())
     return "communicator", True
 
 
@@ -1191,18 +1189,38 @@ def due_rules(data: dict, session: str) -> str | None:
     return role
 
 
-def take_handed(name: str, handler: str) -> list[str]:
-    """The briefs drive handler handed the handler since its last step, moved to the ones it took so each reaches it once and a restart hands them again."""
-    if not state.saved(name)["handlers"][handler]["handed"]:
-        return []
+def take_handed(name: str, handler: str) -> tuple[list[str], dict]:
+    """The briefs drive handler handed the handler since its last step, moved to the ones it took so each reaches it once and a restart hands them again, beside the handler's entry as this step read it."""
+    if not (entry := state.saved(name)["handlers"][handler])["handed"]:
+        return [], entry
 
-    def take(data: dict) -> list[str]:
+    def take(data: dict) -> tuple[list[str], dict]:
         entry = data["handlers"][handler]
         briefs, entry["handed"] = entry["handed"], []
         entry["took"] += briefs
-        return briefs
+        return briefs, entry
 
     return state.update(name, (("handlers", handler),), take)
+
+
+def unposted(entry: dict) -> tuple[str, bool] | None:
+    """The line each step of a handler that has posted nothing reads while the entry holds a message of his, by his words 92abf2c, "add something in our tooling so the agent can see whenever it takes an action, how long since it last messaged the user / gave an update, and how far over it's SLA is it": the time since his message and how far its first line, owed FIRST_LINE after it, is over, beside True once that minute is past, when the hook refuses every tool but FIRST_LINE_TOOLS until it posts."""
+    if entry["posted"] or not (message := (entry["holds"] or {}).get("message")):
+        return None
+    since = state.now() - slack.sent_at({"ts": message})
+    if (over := since - FIRST_LINE) <= timedelta():
+        return (
+            f"{since.seconds} s since his message and you have posted nothing: post your first line in his thread with say and no record"
+            f" within {FIRST_LINE // timedelta(minutes=1)} min of it, what you are doing and when he hears next, then record after it;"
+            " past that minute this line says how far over it is at every step.",
+            False,
+        )
+    return (
+        f"{since // timedelta(minutes=1)} min since his message and you have posted nothing: your first line in his thread, owed"
+        f" {FIRST_LINE // timedelta(minutes=1)} min after it, is {over // timedelta(minutes=1)} min over."
+        " Post it now with say and no record, what you are doing and when he hears next, then record after it.",
+        True,
+    )
 
 
 def end_handler(payload: dict, refused: Callable[[dict], str | None]) -> str | None:
