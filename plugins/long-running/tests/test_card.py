@@ -1897,3 +1897,17 @@ def test_a_stack_card_opens_with_each_prs_lead_under_its_headline_and_takes_the_
         False,
     )
     assert led["body"].startswith(f"**{LEAD_55405['headline']}**\n**Why this exists:** {LEAD_55405['why']}")
+
+
+def test_a_stack_too_long_to_number_in_its_waits_id_asks_under_its_bottom_pr_count_and_hash_within_64_characters() -> None:
+    numbers = [48841, 48867, 48894, 49164, 49184, 49192, 49237, 49258, 49290, 49372, 49417, 49420]
+    asked = [(pr_json(url=f"https://github.com/Forge-AI/monorepo/pull/{number}"), entry()) for number in numbers]
+    waits = card.ask_waits(asked)
+    grown = card.ask_waits([*asked, (pr_json(url="https://github.com/Forge-AI/monorepo/pull/49500"), entry())])
+    assert (waits, len(waits) <= state.WAITS_MAX, bool(state.LONG_ASK_WAITS.fullmatch(waits)), state.ASK_WAITS.fullmatch(waits)) == (
+        f"merge:48841-12:{state.ask_hash(' '.join(['.'.join(map(str, numbers)), *[HEAD] * 12]))}",
+        True,
+        True,
+        None,
+    )
+    assert grown.startswith("merge:48841-13:") and card.ask_waits(asked[:2]) == asked_waits(48841, 48867)

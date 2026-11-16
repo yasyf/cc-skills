@@ -6805,6 +6805,18 @@ def test_a_stack_whose_prs_each_sit_on_a_card_of_their_own_draws_one_fresh_card_
     assert draws.keys == [list(STACKED)]
 
 
+def test_a_stack_waiting_on_his_tap_draws_its_first_card_only_once_no_pr_of_it_entered_uncarded_for_ten_minutes(
+    demo: str, monkeypatch: pytest.MonkeyPatch, draws: Draws, stack_quiet: Callable[[timedelta], None]
+) -> None:
+    stack_quiet(timedelta(minutes=10))
+    three_stacked(demo, monkeypatch)
+    watching = watcher(demo)
+    lines = [*watch.run_pass(watching, T0), *watch.run_pass(watching, T0 + timedelta(minutes=5))]
+    assert (draws.keys, len([line for line in lines if line.startswith("HELD his card on")])) == ([], 1)
+    watch.run_pass(watching, T0 + timedelta(minutes=16))
+    assert draws.keys == [list(STACKED)]
+
+
 def test_a_restack_moving_a_head_under_his_card_draws_no_other_card(demo: str, monkeypatch: pytest.MonkeyPatch, draws: Draws) -> None:
     reads = three_stacked(demo, monkeypatch)
     watching = watcher(demo)

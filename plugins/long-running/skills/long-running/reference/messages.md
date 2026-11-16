@@ -525,7 +525,10 @@ When it is answered, replaced or redone:
   posts the card right under it there, editing the card that asked before, wherever it sits, to say
   it was asked again under a newer line, with no buttons, and a card he answered stays where it sits,
   by his words "You can't say that and not link me to anything I can tap we already agreed in this
-  rule ^^". The line then goes in the thread of each other open order those PRs carry out, the one
+  rule ^^". A line asking again what his open card at the head of each of those PRs already asks, no
+  PR of their stack left off it, links that card in place of `tap_prs`, so nothing moves and no card
+  is marked replaced, by his words "you keep bringing me old questions"; an ask that changed, a new
+  head, PR or Hold, draws as above. The line then goes in the thread of each other open order those PRs carry out, the one
   each serves, its own and each its job carries, in his DM or an operator channel, with the card's
   link under it, so one card carries the buttons; with none, the line goes at his DM root. An incident whose thread is outside his DM, such as an alert's, gets the line with
   the card's link through `cc-slack reply`, so the call names that thread with `channel_id` and

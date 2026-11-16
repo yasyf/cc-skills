@@ -589,6 +589,7 @@ def posted(name: str, post: dict, order: str | None = None, receipt: dict | None
     sent = refs.slack(words, found, shown_in(name, post))
     pictures = [*(visual["picture"] for visual in visuals if "picture" in visual), *lifted]
     asked = cli.asked_on(name, card["waits"]) if card and card.get("waits") else set()
+    standing = None if card or post.get("edit") else asked_already(name, data, stack)
     drawn = bool(card or stack)
     first, *rest = places(data, post, stack)
     if first == (dm, None) and not post.get("edit"):
@@ -600,9 +601,13 @@ def posted(name: str, post: dict, order: str | None = None, receipt: dict | None
             if post.get("edit")
             else replied(post, pictures, sent)
             if first[0] not in operators
+            else status(name, data, post | {"channel_id": first[0], "thread_ts": first[1]}, [], pictures, card_link({"permalink": standing}, sent, "; ".join(view.pr_title(data["prs"][key]) for key in stack))[1])
+            if standing
             else status(name, data, post | {"channel_id": first[0], "thread_ts": first[1]}, stack, pictures, sent)
         )
     )
+    if standing:
+        reply |= {"card_permalink": standing}
     if receipt is not None:
         reply |= {"recorder": recording(name, receipt | {"order": order, "link": reply["permalink"], "sent": sent, "channel": post.get("channel_id")})}
     if card:
@@ -639,6 +644,15 @@ def posted(name: str, post: dict, order: str | None = None, receipt: dict | None
     for place in [place for place in rest if place[0] not in operators]:
         reply |= {"permalink": carried(name, reply, place, post, refs.slack(words, found, place[1]), label, kept, stack)}
     return reply
+
+
+def asked_already(name: str, data: dict, stack: list[str]) -> str | None:
+    """The link of his one open card already asking his tap on every PR a post names in tap_prs at its head, none of their stack mates left off it, by view.apart: the post links that card in place of tap_prs, so a line that asks again what he has not answered moves no card and marks none replaced, and only an ask that changed, a new head, PR or Hold, draws one."""
+    found = view.live_cards(name) if stack else None
+    links = {view.tap_card(data, data["prs"][key], found) for key in stack}
+    if found is None or len(links) != 1 or None in links or any(view.apart(data, key, found["pr_cards"]) for key in stack):
+        return None
+    return links.pop()
 
 
 def answered_ts(data: dict, post: dict) -> list[str]:

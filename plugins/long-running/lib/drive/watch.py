@@ -4972,7 +4972,7 @@ def redraw_lines(watcher: Watcher, moment: datetime, keys: set[str] | None = Non
 
 
 def stage_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Keep each heard unmerged PR's stage, as stage.of names it from the approval, checks and head GitHub last answered for it, redraw whole from drive card his card standing on each open one whose stage owner changed, so the stage his card says, such as blocked on him, never outlives the line that set it, and act once on each open one that entered a stage or passed its deadline, leaving a PR never read, or whose last read failed, as it stands until a read answers for it: draw his card on each PR that entered uncarded or passed its deadline there, one card for the PRs of one card unit as drive card draws them, or redraw in place the card cc-slack keeps closed on one, so it offers Approve again and no second card shares its waits id, or, once a card of the unit leaves off a PR of its stack, native or chained by base branch, by view.apart, draw one fresh card for the unit and those PRs, which cc-slack marks each older card of theirs replaced by, wake the builder answering for a PR rework or red owe, ask forge-pr-reviewer once for a review of a head grading an hour and then wake its builder, wake past its deadline the job a waiting or blocked PR names as owing it and the builder of one its author lands, wake the session holding its order on one unlanded and on any other past its deadline but uncarded. A draw or redraw in place that fails, or leaves a PR that asks his tap with no card of his offering Approve at its head, as one cc-slack answers by linking a card he already answered does or a redraw cc-slack leaves the card closed under, clears the PR's stage, so the next read enters uncarded again and draws, and is said to the meta session from its third failure in a row."""
+    """Keep each heard unmerged PR's stage, as stage.of names it from the approval, checks and head GitHub last answered for it, redraw whole from drive card his card standing on each open one whose stage owner changed, so the stage his card says, such as blocked on him, never outlives the line that set it, and act once on each open one that entered a stage or passed its deadline, leaving a PR never read, or whose last read failed, as it stands until a read answers for it: draw his card on each PR that entered uncarded or passed its deadline there, one card for the PRs of one card unit as drive card draws them, once no PR of the unit entered uncarded for stage.STACK_QUIET or one of them passed its deadline, by quiet_draws, unless a card of his already stands on one of them, or redraw in place the card cc-slack keeps closed on one, so it offers Approve again and no second card shares its waits id, or, once a card of the unit leaves off a PR of its stack, native or chained by base branch, by view.apart, draw one card for the unit and those PRs, which cc-slack draws in place over the newest card carrying some of them and marks each other one replaced by, wake the builder answering for a PR rework or red owe, ask forge-pr-reviewer once for a review of a head grading an hour and then wake its builder, wake past its deadline the job a waiting or blocked PR names as owing it and the builder of one its author lands, wake the session holding its order on one unlanded and on any other past its deadline but uncarded. A draw or redraw in place that fails, or leaves a PR that asks his tap with no card of his offering Approve at its head, as one cc-slack answers by linking a card he already answered does or a redraw cc-slack leaves the card closed under, clears the PR's stage, so the next read enters uncarded again and draws, and is said to the meta session from its third failure in a row."""
     if watcher.cards is None:
         return []
     with state.edit(watcher.name) as data, state.indexed(data):
@@ -4995,15 +4995,15 @@ def stage_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 stage.kept(pr, now)
                 pr["stage"]["waking"] = state.stamp(moment)
                 acts.append((key, now, False, stage.line(key, pr, now) + f" {ids(pr)}"))
+            elif now.name == "uncarded" and pr["state"] == "open" and pr["stage"].get("quiet"):
+                stage.kept(pr, now)
+                acts.append((key, now, None, stage.line(key, pr, now) + f" {ids(pr)}"))
             else:
                 stage.kept(pr, now)
-    lines: list[str] = []
-    uncarded = {}
+        uncarded, lines = quiet_draws(data, watcher.cards, units, acts, moment)
     for key, now, entered, line in acts:
-        if now.name == "uncarded":
-            uncarded.setdefault(units[key], []).append(key)
-            continue
-        lines += acted(watcher, key, now, entered, line, moment)
+        if now.name != "uncarded":
+            lines += acted(watcher, key, now, entered, line, moment)
     for key in moved:
         if key in watcher.redrawn_whole or not view.standing_card(data["prs"][key], watcher.cards):
             continue
@@ -5040,6 +5040,27 @@ def stage_lines(watcher: Watcher, moment: datetime) -> list[str]:
         watcher.failures.pop("card draw", None)
     return lines
 
+
+
+def quiet_draws(data: dict, cards: dict, units: dict, acts: list[tuple[str, stage.Stage, bool | None, str]], moment: datetime) -> tuple[dict, list[str]]:
+    """The uncarded PRs of each card unit the watch draws his card on now: a unit with a card of his standing on one of its PRs, which cc-slack redraws in place, one with a PR past its uncarded deadline, and one none of whose PRs entered uncarded within stage.STACK_QUIET, so a stack its builder is still opening PR by PR goes up as one card once it settles; each other unit's PRs are marked quiet, which acts on them again every pass, and said once when first held."""
+    drawn, said = {}, []
+    for key, now, entered, _ in acts:
+        if now.name == "uncarded":
+            drawn.setdefault(units[key], []).append((key, entered))
+    for unit, members in list(drawn.items()):
+        rows = [data["prs"][key] for key, _ in members]
+        changed = max(state.parse_time(row["stage"]["since"]) for row in rows)
+        if any(entered is False for _, entered in members) or moment - changed >= stage.STACK_QUIET or any(view.standing_card(row, cards) for row in rows):
+            for row in rows:
+                row["stage"]["quiet"] = None
+            continue
+        if not any(row["stage"].get("quiet") for row in rows):
+            said.append(f"HELD his card on {', '.join(key for key, _ in members)}: its stack changed {minutes(moment - changed)} minutes ago, so it draws once quiet {minutes(stage.STACK_QUIET)} minutes")
+        for row in rows:
+            row["stage"]["quiet"] = state.stamp(moment)
+        del drawn[unit]
+    return {unit: [key for key, _ in members] for unit, members in drawn.items()}, said
 
 def unscheduled_questions(watcher: Watcher, moment: datetime) -> list[str]:
     """Withdraw his card on each open question of a heard job that waits on an order he has not scheduled, by state.unscheduled_job, drawn before it began waiting, the orders' titles its reason, by his answer state.UNSCHEDULED_RULING, leaving the question open under its waits id with no card, as `drive job ask` keeps one asked while it waits, so `draw_questions` draws it again once he schedules them, which cc-slack does in place; a job that failed or stopped keeps its card, since nothing draws it again, and a withdrawal that fails keeps the card on its question for the next read to try again."""

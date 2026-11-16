@@ -331,10 +331,11 @@ def in_turn(steps: list[str]) -> str:
 
 
 def ask_waits(asked: list[tuple[dict, dict]]) -> str:
-    """The waits id his PR card asks under, from the `gh pr view` payload and the drive's entry of each PR on it still asking his tap: their numbers and the hash of the heads they are asked at, each held one's beside the time of his Hold, inside the 64 characters cc-slack takes, so his answer to one ask never closes a later one: a push that takes his Approve back asks at a new head, and his Hold asks his Approve again, which cc-slack opens the answered card for again in place under the new id."""
+    """The waits id his PR card asks under, from the `gh pr view` payload and the drive's entry of each PR on it still asking his tap: their numbers and the hash of the heads they are asked at, each held one's beside the time of his Hold, inside the 64 characters cc-slack takes, a stack too long to name each number within them named by its bottom PR and its count beside the hash of its numbers and heads, as state.LONG_ASK_WAITS reads, so his answer to one ask never closes a later one: a push that takes his Approve back asks at a new head, and his Hold asks his Approve again, which cc-slack opens the answered card for again in place under the new id."""
     numbers = ".".join(state.pr_key(pr["url"]).split("#")[1] for pr, _ in asked)
-    heads = (f"{pr['headRefOid']}@{entry['tap']['at']}" if tap_label(entry) == "Hold" else pr["headRefOid"] for pr, entry in asked)
-    return f"merge:{numbers}:{state.ask_hash(' '.join(heads))}"
+    heads = [f"{pr['headRefOid']}@{entry['tap']['at']}" if tap_label(entry) == "Hold" else pr["headRefOid"] for pr, entry in asked]
+    waits = f"merge:{numbers}:{state.ask_hash(' '.join(heads))}"
+    return waits if len(waits) <= state.WAITS_MAX else f"merge:{numbers.split('.')[0]}-{len(asked)}:{state.ask_hash(' '.join([numbers, *heads]))}"
 
 
 def body_of(pr: dict) -> str:
@@ -550,7 +551,7 @@ def pictured(name: str, pr: dict, jobs: list[str], taken: set[str]) -> tuple[tup
 
 
 def groups(known: dict[str, tuple[str, dict]], keys: list[str], reads: dict[str, dict], redraw: bool = False) -> list[list[str]]:
-    """The cards the asked PRs draw on, bottom PR first. A PR in a native GitHub stack, the one stack-enqueue and his Approve land, draws with every PR of it the drives track that is not closed, so a PR added to the stack later joins its stack's card, but a redraw keeps the card each was last drawn on, since cc-slack redraws only the one card in place and the fresh card the watch draws for a stack split across cards replaces the rest. Any other read PR draws on its loose_cards() card, the rule state.card_unit names: its chain by base branch, by chained(), every open PR of its drive on that chain with it, so a PR added to the chain later joins its chain's card, a redraw keeping the PRs asked, else the PRs among them of its repository serving its order, keeping the card it was drawn on, closed and natively stacked PRs left out, until they group into a longer card around it."""
+    """The cards the asked PRs draw on, bottom PR first. A PR in a native GitHub stack, the one stack-enqueue and his Approve land, draws with every PR of it the drives track that is not closed, so a PR added to the stack later joins its stack's card, but a redraw keeps the card each was last drawn on, since cc-slack redraws only the one card in place and the card the watch draws for a stack split across cards goes in place over the newest of them, which cc-slack redraws under the new PR set, and replaces the rest. Any other read PR draws on its loose_cards() card, the rule state.card_unit names: its chain by base branch, by chained(), every open PR of its drive on that chain with it, so a PR added to the chain later joins its chain's card, a redraw keeping the PRs asked, else the PRs among them of its repository serving its order, keeping the card it was drawn on, closed and natively stacked PRs left out, until they group into a longer card around it."""
     native = github.stacks(list(dict.fromkeys([*keys, *(mate for key in keys for mate in known[key][1].get("stack") or [] if mate in known)])))
     stacked = {member for stack in native.values() for member, _ in stack}
     units = dict.fromkeys(tuple(member for member, status in native[key] if status != "closed" and member in known) for key in keys if key in native)
@@ -814,7 +815,7 @@ def refused(asks: list[dict]) -> dict:
 
 
 def answered(ask: dict) -> dict:
-    """Keep his tap on a PR card on each open PR it covers, one tap event each, his Approve with the cards it picks the recommended option of, each card picks() finds holding the PR, and on his Approve run land.start, the one path that answers each of those cards and starts the lander, which every watch pass runs again, or on his Hold stop each landing of them by land.halt; a card's tap covers the PRs its waits id asks, by ask_waits, and an answer whose waits id names no ask the PR it names; on a card of several PRs a member he already approved keeps that Approve through a later tap on the card, while one he held takes the tap, so one Approve on a stack card lifts each member's Hold and lands the card whole, by his pick eb69825, and cc-slack applies a tap again when its first card command did not finish, so a member already holding this tap's Slack action keeps it and gets no second event. His reply in the card's thread comes as WORDS, which taken_back() answers."""
+    """Keep his tap on a PR card on each open PR it covers, one tap event each, his Approve with the cards it picks the recommended option of, each card picks() finds holding the PR, and on his Approve run land.start, the one path that answers each of those cards and starts the lander, which every watch pass runs again, or on his Hold stop each landing of them by land.halt; a card's tap covers the PRs its waits id asks, by ask_waits, or for a stack too long for its id to name them, every PR the tapped card lists, by its heads, and an answer whose waits id names no ask the PR it names; on a card of several PRs a member he already approved keeps that Approve through a later tap on the card, while one he held takes the tap, so one Approve on a stack card lifts each member's Hold and lands the card whole, by his pick eb69825, and cc-slack applies a tap again when its first card command did not finish, so a member already holding this tap's Slack action keeps it and gets no second event. His reply in the card's thread comes as WORDS, which taken_back() answers."""
     from drive import land, view
 
     if "repo" not in ask:
@@ -828,7 +829,9 @@ def answered(ask: dict) -> dict:
     name = known[key][0]
     hear_tap(name)
     asked = state.ASK_WAITS.fullmatch(ask["waits"])
-    members = keys_of([{"repo": ask["repo"], "number": number} for number in asked[1].split(".")], known) if asked else [key]
+    stacked = asked or state.LONG_ASK_WAITS.fullmatch(ask["waits"])
+    numbers = asked[1].split(".") if asked else [member.rpartition("#")[2] for member in ask["heads"]]
+    members = keys_of([{"repo": ask["repo"], "number": number} for number in numbers], known) if stacked else [key]
     if ask["label"] == WORDS:
         return {"ok": True, "taken": taken_back(name, members, ask)}
     found = view.live_cards(name)
@@ -840,7 +843,7 @@ def answered(ask: dict) -> dict:
             picked = {wait: pick | {"seq": None} for wait, pick in picks(data, entry, found).items()} if ask["label"] == "Approve" else {}
             if ask["label"] == "Hold":
                 state.end_approvals(data, member, entry["tap"])
-            entry["tap"] = state.new_tap(ask["label"], ask["heads"].get(member, entry["head"]), ask["source"], ask["action_ts"], picks=picked, card=asked and entry.get("stack") or [member])
+            entry["tap"] = state.new_tap(ask["label"], ask["heads"].get(member, entry["head"]), ask["source"], ask["action_ts"], picks=picked, card=stacked and entry.get("stack") or [member])
             entry["fundamental"] = None
             entry["updated"] = entry["tap"]["at"]
             repo, number = member.split("#")

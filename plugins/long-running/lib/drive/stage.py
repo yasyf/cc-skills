@@ -30,6 +30,7 @@ EVERY = {
     "ready": timedelta(minutes=30),
     "author": timedelta(minutes=30),
 }
+STACK_QUIET = timedelta(minutes=10)
 
 
 @dataclass(frozen=True)
@@ -50,7 +51,7 @@ def on_card(data: dict, key: str, cards: dict) -> Stage:
 
 
 def own(data: dict, key: str, cards: dict | None) -> Stage:
-    """The PR's stage by its own row, whatever the rest of its landing stack reads: uncarded, owed by the watch, only while neither it nor a PR below it in its stack, native or chained by base branch, is being reworked to his words, by state.reworked_under, since drive card draws none of them, and state.asks_tap finds his card would offer Approve, the check every draw of his card makes, so the watch owes no draw the draw refuses, and no card of his offers it at its head, by view.tap_card, the one read of his card every line naming it makes, whole: none is drawn, the one open on it shows an older head or asks his tap on its other PRs alone, or cc-slack keeps the one drawn closed in place, any of which the watch redraws in place, none open asks his Approve on a PR he held, which the watch draws one asking, or the one open on it leaves off a PR of its stack, by view.apart, which the watch replaces with one card for the stack, so no stage names a card as his to tap that the say hook finds not open at its head; with his cards unread, whatever rule comes next."""
+    """The PR's stage by its own row, whatever the rest of its landing stack reads: uncarded, owed by the watch, only while neither it nor a PR below it in its stack, native or chained by base branch, is being reworked to his words, by state.reworked_under, since drive card draws none of them, and state.asks_tap finds his card would offer Approve, the check every draw of his card makes, so the watch owes no draw the draw refuses, and no card of his offers it at its head, by view.tap_card, the one read of his card every line naming it makes, whole: none is drawn, the one open on it shows an older head or asks his tap on its other PRs alone, or cc-slack keeps the one drawn closed in place, any of which the watch redraws in place, none open asks his Approve on a PR he held, which the watch draws one asking, or the one open on it leaves off a PR of its stack, by view.apart, which the watch redraws as one card for the stack, cc-slack drawing it in place over that card, so no stage names a card as his to tap that the say hook finds not open at its head; with his cards unread, whatever rule comes next."""
     pr = data["prs"][key]
     if not state.reworked_under(data["prs"], key, state.pr_graph(data)) and cards is not None and state.asks_tap(data, pr) and (not view.tap_card(data, pr, cards) or view.apart(data, key, cards["pr_cards"])):
         return Stage("uncarded", WATCH, uncarded(data, key, cards))
@@ -60,7 +61,7 @@ def own(data: dict, key: str, cards: dict | None) -> Stage:
 def uncarded(data: dict, key: str, cards: dict) -> str:
     pr = data["prs"][key]
     if left := view.apart(data, key, cards["pr_cards"]):
-        return f"his card on it leaves off {', '.join(left)} of its stack, so the watch draws one card for the whole stack in its place"
+        return f"his card on it leaves off {', '.join(left)} of its stack, so the watch redraws it as one card for the whole stack"
     if view.head_card(pr, cards["pr_cards"]):
         return "his card on it asks his Approve on its other PRs alone, so the watch redraws it in place asking it too"
     if shown := view.card_for(cards["pr_cards"], pr["url"]):
