@@ -3155,3 +3155,25 @@ def test_a_row_saved_without_a_field_its_constructor_gives_renders_through_drive
 
     assert code == 0
     assert key in state.load(demo)[collection][row_id]
+
+
+def test_a_detached_report_post_runs_under_drive_retried_on_the_newest_install_and_any_other_verb_runs_alone(demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    newest = tmp_path / "1.0.9" / "bin" / "drive"
+    started: list[list[str]] = []
+    monkeypatch.setattr(install, "upgraded", lambda: newest)
+    monkeypatch.setattr(state.subprocess, "Popen", lambda argv, **options: started.append(argv) or type("Started", (), {"pid": 7})())
+
+    state.detach(demo, ["report-post", "735816"], "posts.log")
+    state.detach(demo, ["transcripts-keep", "j1"], "posts.log")
+
+    assert [argv[2:] for argv in started] == [[str(newest), "retried", "report-post", "735816", "--drive", demo], [str(newest), "transcripts-keep", "j1", "--drive", demo]]
+
+
+def test_drive_retried_runs_a_verb_that_exits_non_zero_once_more_on_the_install_newest_by_then(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    installs = iter([tmp_path / "1.0.8" / "bin" / "drive", tmp_path / "1.0.9" / "bin" / "drive"])
+    ran: list[list[str]] = []
+    monkeypatch.setattr(install, "upgraded", lambda: next(installs))
+    monkeypatch.setattr(cli.subprocess, "run", lambda argv, check: ran.append(argv[2:]) or subprocess.CompletedProcess(argv, 1 if len(ran) == 1 else 0))
+
+    assert cli.main(["retried", "report-post", "735816", "--drive", "demo"]) == 0
+    assert ran == [[str(tmp_path / "1.0.8" / "bin" / "drive"), "report-post", "735816", "--drive", "demo"], [str(tmp_path / "1.0.9" / "bin" / "drive"), "report-post", "735816", "--drive", "demo"]]

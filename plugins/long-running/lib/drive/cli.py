@@ -7314,6 +7314,15 @@ def receive(args: argparse.Namespace) -> int:
     return receiver.main(args.listening)
 
 
+def retried(args: argparse.Namespace) -> int:
+    for attempt in range(2):
+        drive = install.upgraded() or install.DRIVE
+        if not (code := subprocess.run([sys.executable, "-I", str(drive), *args.verb], check=False).returncode) or attempt:
+            return code
+        print(f"drive retried: {' '.join(args.verb)} exited {code} on {drive.parents[1].name}; running it once more on the newest install", flush=True)
+    return code
+
+
 def try_install(args: argparse.Namespace) -> int:
     return 0 if install.try_install(Path(args.plugin)) else 1
 
@@ -9145,6 +9154,9 @@ def parser() -> argparse.ArgumentParser:
         help="serve on this inherited listening socket, asking GitHub nothing: an older install's receiver hands its socket to the newest this way",
     )
     verb.set_defaults(run=receive)
+    verb = verbs.add_parser("retried", help="run a drive verb a background start detaches, and once more on the newest long-running installed when it exits non-zero, as state.detach runs report-post")
+    verb.add_argument("verb", nargs=argparse.REMAINDER, help="the drive verb and its arguments")
+    verb.set_defaults(run=retried)
     verb = verbs.add_parser(
         "try-install", help="run one relay and one watch pass of the install at plugin on a copy of each drive, keeping its verdict for the watch: the process a watch starts once per new install before it moves onto it"
     )

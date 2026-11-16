@@ -160,6 +160,7 @@ OWN_JOB_ENV = "LONG_RUNNING_OWN_JOB"
 REMOTE_LANE_ENV = "LONG_RUNNING_REMOTE_LANE"
 WATCHDOG_ENV = "LONG_RUNNING_WATCHDOG"
 DETACHED_ENV = "LONG_RUNNING_DETACHED"
+RETRIED_ONCE = ("report-post",)
 HIM = "him"
 ORDER_FIELDS = {"class": None, "go": None, "paged": None, "paged_by": None, "page_post": None, "users": None, "users_by": None}
 WATCH_SENDER = "watch"
@@ -513,9 +514,10 @@ def detach(name: str, args: list[str], log: str) -> int:
     from drive import install
 
     env = {variable: value for variable, value in os.environ.items() if variable != "CLAUDE_CODE_SESSION_ID"} | {"PATH": install.plugin_copies_first(), DRIVE_ENV: name, DETACHED_ENV: log}
+    argv = [*args, "--drive", name]
     with (drive_dir(name) / log).open("a") as out:
         return subprocess.Popen(
-            [sys.executable, "-I", str(Path(__file__).resolve().parents[2] / "bin" / "drive"), *args, "--drive", name],
+            [sys.executable, "-I", str(install.upgraded() or install.DRIVE), *(["retried", *argv] if args[0] in RETRIED_ONCE else argv)],
             cwd=drive_dir(name),
             env=env,
             stdin=subprocess.DEVNULL,
