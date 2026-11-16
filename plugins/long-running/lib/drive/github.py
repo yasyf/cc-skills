@@ -90,10 +90,10 @@ def run(cmd: list[str], cwd: str | None = None, timeout: int = 120, max_age: str
     return result.stdout
 
 
-def read(what: str, cmd: list[str], max_age: str = "0s", text: bool = True) -> str | bytes:
+def read(what: str, cmd: list[str], max_age: str = "0s", text: bool = True, timeout: int = 120) -> str | bytes:
     """Run a gh read; one that fails names what it could not read."""
     try:
-        return run(cmd, max_age=max_age, text=text)
+        return run(cmd, timeout=timeout, max_age=max_age, text=text)
     except GithubError as error:
         raise GithubError(f"could not read {what} from GitHub: {error}") from None
 
@@ -467,6 +467,12 @@ def stacks(keys: list[str]) -> dict[str, list[tuple[str, str]]]:
             if node["stack"]:
                 found[key] = entries(repo_of(key), node["stack"])
     return found
+
+
+def merge_commit(key: str) -> str:
+    """The merge commit of a PR named owner/repo#N, empty while it is not merged."""
+    repo, number = key.split("#")
+    return read(f"{key}'s merge commit", ["gh", "pr", "view", number, "-R", repo, "--json", "mergeCommit", "-q", '.mergeCommit.oid // ""']).strip()
 
 
 def holds(repo: str, ref: str, commit: str) -> bool:

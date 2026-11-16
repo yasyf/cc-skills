@@ -18,7 +18,7 @@ from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from drive import agents, artifacts, brief, children, codex, github, install, land, limits, orca, page_check, pages, picture, place, reads, receiver, refs, render, route, served, settled, slack, state, superseded, watch
+from drive import agents, artifacts, brief, children, codex, github, install, land, limits, orca, page_check, pages, picture, place, published, reads, receiver, refs, render, route, served, settled, slack, state, superseded, watch
 from drive.shell import simple_commands
 from drive.state import DriveError
 
@@ -59,7 +59,7 @@ ON_THE_DRIVE = {RULING, "header:post-feedback", "header:drive-tooling"}
 PR_FORMS = "owner/repo#N, its URL, #N or its bare number"
 ID_FORMS = f"an order o<n>, a job j<n>, or a PR as {PR_FORMS}"
 ON_A_SPRITE = "starts on a Sprite"
-UNTRACKED_PRS = {("pr", "add"): "url", ("pr", "tapped"): "url", ("pr", "ci"): "url", ("job", "set"): "pr", ("job", "held"): "pr"}
+UNTRACKED_PRS = {("pr", "add"): "url", ("pr", "tapped"): "url", ("pr", "ci"): "url", ("pr", "published"): "url", ("job", "set"): "pr", ("job", "held"): "pr"}
 WAITS_CARD = re.compile(rf"https://\S+/archives/\S+/p\d+\S*|[\w.-]+:[\w.-]+|{state.ASK_WAITS.pattern}")
 WAITS_ARGS = ("waits", "redraws", "card", "via", "stands", "dropped", "settled", "superseded", "reopened")
 GO_CI = Path("tools", "ci")
@@ -5514,15 +5514,23 @@ def pr_land(args: argparse.Namespace) -> int:
 
 def pr_ci(args: argparse.Namespace) -> int:
     key = state.pr_key(args.url)
-    repo, number = key.split("#")
-    sha = github.read(f"{key}'s merge commit", ["gh", "pr", "view", number, "-R", repo, "--json", "mergeCommit", "-q", '.mergeCommit.oid // ""']).strip()
-    if not sha:
+    repo = key.split("#")[0]
+    if not (sha := github.merge_commit(key)):
         raise DriveError(f"{key} is not merged, so no CI run on its default branch judges it")
     runs = install.ci_verdict(repo, sha)
     lines, unpassed = [line for line, _ in runs], [line for line, passed in runs if not passed]
     verdict = f"not passed: {'; '.join(unpassed)}" if unpassed else "passed"
     emit(args, "\n".join([*lines, f"{key} merged at {sha[:12]}: {verdict}"]), {"pr": key, "sha": sha, "passed": not unpassed, "runs": lines})
     return 1 if unpassed else 0
+
+
+def pr_published(args: argparse.Namespace) -> int:
+    """Run a proof's command against the files the newest Pages deployment holding a merged PR published, served on this Mac by published.served, its URL in published.SERVED_ENV, after the lines saying what those files are; the command's exit status."""
+    if not (command := args.command[1:] if args.command[:1] == ["--"] else args.command):
+        raise DriveError("name the command that clicks the published pages after --, such as -- python3 clicks.py")
+    with published.served(state.pr_key(args.url)) as (root, lines):
+        print("\n".join(lines), flush=True)
+        return subprocess.run(command, env=os.environ | {published.SERVED_ENV: root}).returncode
 
 
 @children.capped
@@ -7735,6 +7743,19 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("url", help=f"the PR, as {PR_FORMS}")
     verb.set_defaults(run=pr_ci)
+    verb = pr.add_parser(
+        "published",
+        parents=both,
+        help=(
+            "run a proof's command against the exact files GitHub Pages published for a merged PR, for a private Pages site no lane can sign in to:"
+            " read the repository's newest github-pages deployment, following the Actions run deploying it as drive wait does while it still deploys the merge, download the artifact that run deployed,"
+            f" check its sha256 against the digest GitHub keeps, serve it on a loopback port named in {published.SERVED_ENV} while the command runs,"
+            " print the deployment, run and digest first, delete the files after, and exit with the command's status"
+        ),
+    )
+    verb.add_argument("url", help=f"the merged PR, as {PR_FORMS}")
+    verb.add_argument("command", nargs=argparse.REMAINDER, help="after --, the command that clicks the pages and its arguments")
+    verb.set_defaults(run=pr_published)
     verb = pr.add_parser(
         "wake",
         parents=both,
