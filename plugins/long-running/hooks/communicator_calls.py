@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import agents, place, render, shell, state, superseded
+from drive import agents, limits, place, render, shell, state, superseded
 
 OWN_TOOLS = {
     *(render.SLACK_TOOLS + tool for tool in render.COMMUNICATOR_SLACK),
@@ -91,7 +91,7 @@ def aimed(payload: dict) -> bool:
 
 
 def messages(payload: dict, data: dict) -> list[tuple[str, str, str]]:
-    """Each job a coordinator's call messages, with the words it says to that job and the command before them: a local agent's by its SendMessage `to`, with the whole message, and each remote lane a `drive job resume` names, with that resume's own words up to the next one."""
+    """Each job a coordinator's call messages, with the words it says to that job and the command before them: a local agent's by its SendMessage `to`, with the whole message, and each remote lane a `drive job resume` names, with that resume's own words up to the next one as the job reads them."""
     call = payload["tool_input"]
     if payload["tool_name"] == "SendMessage":
         job_id = state.agent_job(data, call.get("to"))
@@ -99,10 +99,16 @@ def messages(payload: dict, data: dict) -> list[tuple[str, str, str]]:
     command = call.get("command") or ""
     resumes = list(RESUME.finditer(command))
     return [
-        (resumed[1], command[resumed.end() : following.start() if following else None], command[: resumed.start()])
+        (resumed[1], spoken(command[resumed.end() : following.start() if following else None]), command[: resumed.start()])
         for resumed, following in zip(resumes, [*resumes[1:], None], strict=True)
         if resumed[1] in data["jobs"]
     ]
+
+
+def spoken(words: str) -> str:
+    """Shell words as the program they run receives them: the lines unquoted, so `\\"` inside double quotes is a plain quote, and each heredoc body they open as written, its quotes and apostrophes kept."""
+    lines, bodies = shell.scanned(words)
+    return "\n".join([shell.expanded(shell.template(lines), {}), *bodies])
 
 
 def resumed_builder(payload: dict, data: dict, job_id: str, said: str) -> str | None:
@@ -155,9 +161,9 @@ def read_job(path: Path, job_id: str, job: dict) -> bool:
 
 
 def unread_job(payload: dict, data: dict, job_id: str, said: str, before: str) -> str | None:
-    """Why a message to a running job waits for a read of its transcript, earlier in the same command or in the last 10 minutes, when it tells the job what state it is in or asks it: an absent message is no evidence, and a state guessed reaches the job as fact. An order, a ruling, an answer or a refusal relayed states no state, even one that says stop, land or stuck, so it goes through unread, and so does a question whose subject is another job or CI, or another resume's words in the same command, since neither is about this job; Jev judges each refusal by its rule."""
+    """Why a message to a running job waits for a read of its transcript, earlier in the same command or in the last 10 minutes, when it tells the job what state it is in or asks it: an absent message is no evidence, and a state guessed reaches the job as fact. An order, a ruling, an answer or a refusal relayed states no state, even one that says stop, land or stuck, so it goes through unread, and so does a question whose subject is another job or CI, words the message quotes, such as his about another session stopping, or another resume's words in the same command, since none is about this job; Jev judges each refusal by its rule."""
     job = data["jobs"][job_id]
-    claim = STATE_CLAIM.search(said)
+    claim = STATE_CLAIM.search(limits.SAID.sub("", said))
     if job["state"] != "running" or not claim or transcript_read(job_id, job).search(before):
         return None
     if read_job(Path(payload["transcript_path"]), job_id, job):
