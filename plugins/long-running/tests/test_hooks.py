@@ -910,6 +910,8 @@ def test_a_drive_roles_agent_runs_unnamed_with_fable_on_its_designer_alone_and_n
     assert agents.shaped(fable) == {key: value for key, value in fable["tool_input"].items() if key != "model"}
     designer = started_by_role(coordinator, subagent_type="long-running:designer", model="fable")
     assert agents.shaped(designer) == designer["tool_input"]
+    for effort, kept in (("xhigh", "high"), ("max", "high"), ("high", "high"), ("medium", "medium")):
+        assert agents.shaped(started_by_role(coordinator, subagent_type="long-running:designer", model="fable", effort=effort))["effort"] == kept
     unscoped = started_by_role(coordinator, subagent_type="long-running:builder", prompt=kept_brief("Order (his words): fix it\nGoal: fix it"))
     assert agent_brief.deny_reason(unscoped).startswith("refused: a builder's brief, in its prompt or the brief file the prompt names")
     assert agent_brief.deny_reason(started_by_role(coordinator, subagent_type="long-running:builder", prompt=kept_brief(handoff))) is None

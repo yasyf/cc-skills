@@ -88,7 +88,7 @@ and waits ids, record seqs), never a technical name.
      [data table](https://docs.slack.dev/reference/block-kit/blocks/data-table-block) blocks, and
      [link unfurls](https://docs.slack.dev/messaging/unfurling-links-in-messages).
      Its visual design, the layout, hierarchy, type and spacing of each view, is codex's: ask
-     `codex-ask` with those docs, his words and each user story, and build its design, never a draft
+     `codex-ask --effort high` with those docs, his words and each user story, and build its design, never a draft
      of your own, by his words "get codex to design and stop doing the bare minimum". Before any
      code, write each user story on the brief's `Interactions:` line into your proof file as strict
      acceptance criteria, what he sees first, the result of each click, key or hover, and its empty

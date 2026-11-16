@@ -160,15 +160,17 @@ def test_a_handler_whose_start_raised_what_the_drive_did_not_expect_leaves_nothi
     assert " in start_handler: 'answers'; its brief is kept in " in post[-1]
 
 
-def test_a_handler_is_keyed_at_launch_by_the_session_of_the_job_claude_bg_prints_and_a_launch_naming_no_job_claude_code_keeps_leaves_nothing_behind(
+def test_a_handler_is_keyed_at_launch_by_the_session_of_the_job_claude_bg_says_it_backgrounded_past_any_note_naming_another_and_a_launch_naming_no_job_claude_code_keeps_leaves_nothing_behind(
     communicator: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     config = tmp_path / "claude"
     (config / "jobs" / "a81dc737").mkdir(parents=True)
     (config / "jobs" / "a81dc737" / "state.json").write_text(json.dumps({"sessionId": "a81dc737-4f1e-4883-b14e-3c520f1f2737", "state": "working", "tempo": "active"}))
+    (config / "jobs" / "47b7af8f").mkdir(parents=True)
+    (config / "jobs" / "47b7af8f" / "state.json").write_text(json.dumps({"sessionId": "47b7af8f-93c4-416c-b9f0-7bcc1c51ea18", "state": "done", "tempo": "idle"}))
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config))
     monkeypatch.setattr(agents, "launched", LAUNCHED)
-    printed = iter(["backgrounded · a81dc737 · demo handler 1a2b3c4d\n  claude agents             list sessions\n", "backgrounded · 0badf00d · demo handler 2b3c4d5e\n"])
+    printed = iter(["note: session 47b7af8f is already running in the background, so this started a copy as a81dc737. `claude attach 47b7af8f` opens the original.\nbackgrounded · a81dc737 · demo handler 1a2b3c4d\n  claude agents             list sessions\n", "backgrounded · 0badf00d · demo handler 2b3c4d5e\n"])
     posted: list[list[str]] = []
     monkeypatch.setattr(reads, "run", lambda argv, checkout, env=None: next(printed) if argv[:2] == ["claude", "--bg"] else posted.append(argv) or "")
     handler = start(run, tmp_path)
@@ -595,7 +597,7 @@ def test_a_post_report_gets_one_handler_whichever_of_the_handler_tool_and_the_wa
     assert state.load("demo")["posts"]["mark"] == 706843
 
 
-def test_the_post_reports_of_one_thread_inside_a_minute_go_to_one_handler_and_the_threads_next_handler_resumes_the_last_ones_session(
+def test_the_post_reports_of_one_thread_inside_a_minute_go_to_one_handler_and_a_report_after_its_handler_ended_starts_a_fresh_one(
     communicator: str, started: list[list[str]], cci_records: dict[str, dict], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     thread, moment = "1794440505.483109", state.now()
@@ -612,14 +614,13 @@ def test_the_post_reports_of_one_thread_inside_a_minute_go_to_one_handler_and_th
     with state.edit("demo") as data:
         data["handlers"].clear()
         data["carried"] |= {"706844": "posted", "706845": "posted"}
-        data["resumable"][thread] = {"session": "s-thread", "ended": state.stamp()}
     read[:] = [("706846", moment - timedelta(seconds=10), thread)]
     agents.start_posts("demo", moment)
     assert len([argv for argv in started if argv[:2] == ["claude", "--bg"]]) == 1
     agents.start_posts("demo", moment + timedelta(minutes=1))
-    resumed = [argv for argv in started if argv[:2] == ["claude", "--bg"]][-1]
-    assert (resumed[-1].split()[1], resumed[resumed.index("--resume") + 1], state.load("demo")["resumable"]) == ("706846", "s-thread", {})
-    settings = json.loads(resumed[resumed.index("--settings") + 1])
+    fresh = [argv for argv in started if argv[:2] == ["claude", "--bg"]][-1]
+    assert (fresh[-1].split()[1], "--resume" in fresh) == ("706846", False)
+    settings = json.loads(fresh[fresh.index("--settings") + 1])
     assert (settings["autoMemoryEnabled"], [Path(path).name for path in settings["claudeMdExcludes"]]) == (False, ["CLAUDE.md", "AGENTS.md"])
 
 
