@@ -23,6 +23,7 @@ BLOCKS = {
     "decide": "the decisions in questions, each drawn live as its own decision applet with its paths and their consequences",
     "approve": "the PRs in prs as one list he approves together or one by one, each with its plain status",
     "stack": "the PRs in prs as one stack, bottom first, each with what it does and where it stands",
+    "diff": "the code change of each PR in prs, at most three, file by file with its hunks, each file folding open, the reviewer bot's comments and his own on the lines they name",
     "staging": "the PRs in prs as tiles, each with where it stands and where it was tested, for work that needs nothing from him",
     "path": "steps toward the goal in order, each naming its orders; drawn as a track showing how many of each step's orders are done",
     "timeline": "the newest moments of the slice, live",

@@ -160,6 +160,8 @@ const prTabs = new Map();
 const prRows = new Map();
 const prReads = new Map();
 const reviews = new Map();
+const diffs = new Map();
+const diffOpen = new Map();
 const pointed = new Map();
 const notes = new Map();
 const told = new Map();
@@ -1093,6 +1095,10 @@ const APPLET_BLOCKS = {
   compare(page, shown, block) {
     return block.options.length ? blockShell(block, 'compare', `<div class="ap-compare">${block.options.map((option) => `<div class="ap-choice${option.recommended ? ' recommended' : ''}">${option.recommended ? '<em>Recommended</em>' : ''}<b>${esc(option.title)}</b><p>${esc(option.consequence)}</p></div>`).join('')}</div>`) : '';
   },
+  diff(page, shown, block) {
+    const entries = blockPRs(shown, block.prs).slice(0, 3);
+    return entries.length ? blockShell(block, 'diff', entries.map((entry) => `${entries.length > 1 ? `<h3 class="df-title">${esc(sentence(entry.headline ?? bare(entry.title)))}</h3>` : ''}${diffBlock(entry.key, entry.head)}`).join('')) : '';
+  },
   before_after(page, shown, block) {
     return block.before && block.after ? blockShell(block, 'before-after', `<div class="ap-ba"><div><span>Before</span><p>${esc(block.before)}</p></div><i aria-hidden="true">→</i><div class="after"><span>After</span><p>${esc(block.after)}</p></div></div>`) : '';
   },
@@ -1678,6 +1684,64 @@ function reveal(control) {
   if (top < 0 || top > innerHeight / 2) tabs.scrollIntoView({ block: 'start', behavior: 'smooth' });
 }
 
+async function readDiff(key, head) {
+  diffs.set(key, { head });
+  const [repo, number] = key.split('#');
+  const { ok, error, ...read } = await ask(`/api/diff/${repo}/${number}`);
+  diffs.set(key, ok ? { head, read } : { head, error });
+  render();
+}
+
+const DIFF_WORDS = { added: 'New', removed: 'Deleted', renamed: 'Moved', modified: '', changed: '', copied: 'Copied' };
+const HUNK_LINES = 80;
+
+function diffAuthor(said) {
+  return said.his ? 'You' : said.bot ? `${said.author.replace(/\[bot\]$/, '')} (bot)` : said.author;
+}
+
+function diffNotes(notes, replies) {
+  return notes.map((said) => `<div class="df-note${said.his ? ' his' : said.bot ? ' bot' : ''}"><b>${esc(diffAuthor(said))}</b>${said.url ? ` <a class="meta" href="${esc(said.url)}" target="_blank" rel="noopener">on GitHub</a>` : ''}${prose(said.body)}${diffNotes(replies.get(said.id) ?? [], replies)}</div>`).join('');
+}
+
+function diffRows(lines, placed, replies) {
+  return lines.map((line) => {
+    const notes = [...(line.new === null ? [] : placed.get(`RIGHT:${line.new}`) ?? []), ...(line.old === null ? [] : placed.get(`LEFT:${line.old}`) ?? [])];
+    return `<tr class="df-${line.kind}"><td class="df-n">${line.old ?? ''}</td><td class="df-n">${line.new ?? ''}</td><td class="df-t"><span aria-hidden="true">${{ add: '+', del: '−', ctx: ' ' }[line.kind]}</span>${esc(line.text)}</td></tr>${notes.length ? `<tr class="df-notes"><td colspan="3">${diffNotes(notes, replies)}</td></tr>` : ''}`;
+  }).join('');
+}
+
+function diffFile(key, file, open, comments, replies, whys) {
+  const mine = comments.filter((said) => said.path === file.path && !said.reply_to);
+  const placed = new Map();
+  for (const said of mine.filter((each) => each.line !== null)) placed.set(`${said.side}:${said.line}`, [...(placed.get(`${said.side}:${said.line}`) ?? []), said]);
+  const stale = mine.filter((said) => said.line === null);
+  const flagged = mine.filter((said) => said.bot || said.his).length;
+  const hunks = file.hunks.map((hunk, h) => {
+    const why = whys.find((each) => each.file === file.path && each.hunk === h)?.why;
+    const [shown, rest] = [hunk.lines.slice(0, HUNK_LINES), hunk.lines.slice(HUNK_LINES)];
+    return `<div class="df-hunk">${why ? `<p class="df-why"><b>Why:</b> ${esc(why)}</p>` : ''}<div class="df-sec">Line ${hunk.new}${hunk.section ? ` · ${esc(hunk.section)}` : ''}</div><table class="df-lines"><tbody>${diffRows(shown, placed, replies)}</tbody></table>${rest.length ? `<details class="df-rest"><summary>${rest.length} more lines</summary><table class="df-lines"><tbody>${diffRows(rest, placed, replies)}</tbody></table></details>` : ''}</div>`;
+  }).join('');
+  const word = DIFF_WORDS[file.status] ?? file.status;
+  return `<details class="df-file" data-df-file="${esc(file.path)}"${diffOpen.get(`${key}:${file.path}`) ?? open ? ' open' : ''}><summary><span class="df-path">${word ? `<em>${esc(word)}</em> ` : ''}${esc(file.path)}${file.was ? ` <small>from ${esc(file.was)}</small>` : ''}</span><span class="df-count"><b class="add">+${file.added}</b> <b class="del">−${file.removed}</b>${mine.length ? ` <span class="df-badge${flagged ? ' flagged' : ''}">${counted(mine.length, 'comment')}</span>` : ''}</span></summary>${stale.length ? `<div class="df-stale"><p class="meta">On an earlier version of this file</p>${diffNotes(stale, replies)}</div>` : ''}${file.whole ? hunks : `<p class="meta df-none">GitHub shows no line changes for this file: it is binary or too large. ${file.url ? link('Open it on GitHub', file.url) : ''}</p>`}</details>`;
+}
+
+function diffBlock(key, head, whys = []) {
+  const got = diffs.get(key);
+  const shell = (body) => `<div class="df" data-diff="${esc(key)}" data-head="${esc(head)}">${body}</div>`;
+  if (!got?.read && !got?.error) return shell('<p class="meta">Reading the change from GitHub…</p>');
+  if (got.error) return shell(`<p class="refused">${esc(got.error)}</p>`);
+  const { files, comments, more } = got.read;
+  const replies = new Map();
+  for (const said of comments.filter((each) => each.reply_to)) replies.set(said.reply_to, [...(replies.get(said.reply_to) ?? []), said]);
+  const added = files.reduce((sum, file) => sum + file.added, 0);
+  const removed = files.reduce((sum, file) => sum + file.removed, 0);
+  const bots = comments.filter((said) => said.bot && !said.reply_to).length;
+  const his = comments.filter((said) => said.his).length;
+  const top = `<div class="df-head"><b>${counted(files.length + more, 'file')} changed</b><span class="df-count"><b class="add">+${added}</b> <b class="del">−${removed}</b></span>${bots ? `<span class="df-badge flagged">${counted(bots, 'bot comment')}</span>` : ''}${his ? `<span class="df-badge his">${counted(his, 'comment')} of yours</span>` : ''}<span class="df-tools"><button class="linkish" data-df-all="open">Open all</button><button class="linkish" data-df-all="close">Close all</button></span></div>`;
+  const firstFlagged = files.findIndex((file) => comments.some((said) => said.path === file.path));
+  return shell(`${top}${files.map((file, i) => diffFile(key, file, i === (firstFlagged === -1 ? 0 : firstFlagged) || whys.some((each) => each.file === file.path) && files.length <= 6, comments, replies, whys)).join('')}${more ? `<p class="meta">${counted(more, 'more file')} not shown here.</p>` : ''}`);
+}
+
 async function readPR(key, head) {
   prReads.set(key, { head });
   const [repo, number] = key.split('#');
@@ -1689,6 +1753,7 @@ async function readPR(key, head) {
 function fill() {
   for (const pane of document.querySelectorAll('[data-talk]')) if (!talked.has(pane.dataset.talk)) readTalk(pane.dataset.talk);
   for (const card of document.querySelectorAll('[data-read]')) if (prReads.get(card.dataset.read)?.head !== card.dataset.head) readPR(card.dataset.read, card.dataset.head);
+  for (const block of document.querySelectorAll('[data-diff]')) if (diffs.get(block.dataset.diff)?.head !== block.dataset.head) readDiff(block.dataset.diff, block.dataset.head);
   for (const slot of document.querySelectorAll('[data-slot]')) if (reviews.get(slot.dataset.slot)?.head !== slot.dataset.head) openReview(slot.dataset.slot, slot.dataset.head);
   place();
 }
@@ -3099,6 +3164,15 @@ window.addEventListener('scroll', () => {
   keepPlace.timer = setTimeout(keepPlace, 120);
 }, { passive: true });
 document.addEventListener('click', keepPlace, true);
+document.addEventListener('toggle', (event) => {
+  const file = event.target.closest?.('.df-file');
+  if (file) diffOpen.set(`${file.closest('[data-diff]').dataset.diff}:${file.dataset.dfFile}`, file.open);
+}, true);
+document.addEventListener('click', (event) => {
+  const all = event.target.closest('[data-df-all]');
+  if (!all) return;
+  for (const file of all.closest('[data-diff]').querySelectorAll('.df-file')) file.open = all.dataset.dfAll === 'open';
+});
 document.addEventListener('keydown', (event) => {
   touched = false;
   const scope = $('#queue-scope');

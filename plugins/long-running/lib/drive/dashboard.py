@@ -30,6 +30,7 @@ from drive import (
     card,
     children,
     completion,
+    diff,
     github,
     install,
     launchd,
@@ -75,6 +76,7 @@ CERT_REFRESH_SECONDS = 24 * 60 * 60
 THREAD_PATH = re.compile(r"/api/thread/(\d+\.\d+)")
 THREAD_MESSAGES = "200"
 PR_PATH = re.compile(r"/api/pr/([\w.-]+/[\w.-]+)/(\d+)")
+DIFF_PATH = re.compile(r"/api/diff/([\w.-]+/[\w.-]+)/(\d+)")
 REVIEW_PATH = re.compile(r"/api/review/([\w.-]+/[\w.-]+)/(\d+)")
 FILE_PATH = re.compile(r"/api/file/(j[\w-]+)/(\w+)")
 PAGE_PATH = re.compile(r"/pages/([^/]+)/(.*)")
@@ -318,6 +320,7 @@ class Board:
         self.repo: str | None = None
         self.channel = ""
         self.assistant = review.Assistant(name)
+        self.diffs = diff.Reader()
         self.database: sqlite3.Connection | None = None
         self.heard: dict[str, list[dict]] = {}
         self.watch: subprocess.Popen | None = None
@@ -485,6 +488,8 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
                 self.lane(asked["id"])
             elif found := PR_PATH.fullmatch(self.path):
                 self.pull_request(f"{found[1]}#{found[2]}")
+            elif found := DIFF_PATH.fullmatch(self.path):
+                self.diff(f"{found[1]}#{found[2]}")
             elif found := THREAD_PATH.fullmatch(self.path):
                 self.thread(found[1])
             elif self.path.startswith("/api/picture?"):
@@ -652,6 +657,17 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
                 self.answered(200, read)
             else:
                 self.answered(502, {"error": f"{key}: GitHub refused the read and it was never read before"})
+
+        def diff(self, key: str) -> None:
+            if not owner_calling(self.client_address[0], net):
+                self.answered(403, {"error": NOT_OWNER})
+            elif key not in board.heads:
+                self.answered(404, {"error": f"{key} is not an open PR of this drive"})
+            else:
+                try:
+                    self.answered(200, board.diffs.at(key, board.heads[key]) | {"head": board.heads[key]})
+                except github.GithubError as error:
+                    self.answered(502, {"error": str(error)})
 
         def review(self, key: str) -> None:
             if key not in board.heads:

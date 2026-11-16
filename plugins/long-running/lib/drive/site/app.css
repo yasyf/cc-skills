@@ -1246,3 +1246,38 @@ button.task-row { cursor: pointer; }
 .qgroup:first-child { margin-top: 0; }
 .qgroup span { font-weight: 400; margin-left: 4px; }
 .needs-chip { display: inline-block; font-size: 11px; padding: 1px 6px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); margin-right: 6px; }
+
+.df { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.df-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; font-size: 13px; }
+.df-tools { margin-left: auto; display: flex; gap: 10px; }
+.df-count { font-family: var(--mono, ui-monospace, monospace); font-size: 12px; white-space: nowrap; }
+.df-count .add, .df-add .df-t span { color: #1a7f37; }
+.df-count .del, .df-del .df-t span { color: #cf222e; }
+.df-badge { font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+.df-badge.flagged { border-color: #d4a72c; color: #9a6700; }
+.df-badge.his { border-color: #0969da; color: #0969da; }
+.df-file { border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--bg); }
+.df-file > summary { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 12px; cursor: pointer; font-size: 13px; background: color-mix(in srgb, var(--line) 30%, transparent); }
+.df-path { font-family: var(--mono, ui-monospace, monospace); font-size: 12px; overflow-wrap: anywhere; min-width: 0; }
+.df-path em { font-style: normal; font-family: inherit; font-size: 11px; color: var(--muted); }
+.df-hunk { border-top: 1px solid var(--line); }
+.df-why { margin: 0; padding: 8px 12px; font-size: 13px; background: color-mix(in srgb, #0969da 7%, transparent); }
+.df-sec { padding: 4px 12px; font-size: 11px; color: var(--muted); font-family: var(--mono, ui-monospace, monospace); background: color-mix(in srgb, var(--line) 20%, transparent); overflow-wrap: anywhere; }
+.df-lines { width: 100%; border-collapse: collapse; font-family: var(--mono, ui-monospace, monospace); font-size: 12px; line-height: 1.5; table-layout: fixed; }
+.df-lines td { padding: 0 8px; vertical-align: top; }
+.df-n { width: 44px; text-align: right; color: var(--muted); user-select: none; font-size: 11px; }
+.df-t { white-space: pre-wrap; overflow-wrap: anywhere; }
+.df-t span { display: inline-block; width: 1.2em; user-select: none; color: var(--muted); }
+.df-add { background: #e6ffec; }
+.df-del { background: #ffebe9; }
+.df-notes td { padding: 6px 12px; background: var(--bg); }
+.df-note { border: 1px solid var(--line); border-left: 3px solid var(--muted); border-radius: 8px; padding: 6px 10px; margin: 4px 0; font-family: inherit; font-size: 13px; white-space: normal; }
+.df-note .df-note { margin-left: 12px; }
+.df-note.bot { border-left-color: #d4a72c; }
+.df-note.his { border-left-color: #0969da; }
+.df-note p { margin: 4px 0 0; }
+.df-stale { padding: 6px 12px; border-top: 1px solid var(--line); }
+.df-none { padding: 8px 12px; }
+.df-rest > summary { padding: 4px 12px; font-size: 12px; color: var(--muted); cursor: pointer; }
+.df-title { font-size: 14px; margin: 12px 0 6px; }
+@media (max-width: 600px) { .df-n { width: 30px; padding: 0 4px; } .df-lines td.df-t { padding: 0 4px; } }
