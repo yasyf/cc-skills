@@ -4866,8 +4866,16 @@ def work_done(args: argparse.Namespace) -> int:
 
 
 def work_start(args: argparse.Namespace) -> int:
-    """Start a worker's agent on this Mac, as the watch's spawner does once it records one."""
-    session = work.start(state.resolve(args.drive), args.worker)
+    """Brief a worker the watch's spawner recorded and start it: as an Orca lane on a Sprite by the launch drive job launch runs, or as its own claude --bg session on this Mac for a group only this Mac runs; a start that fails marks the worker failed, so its group goes back to the queue."""
+    name = state.resolve(args.drive)
+    try:
+        write_brief(name, args.worker, {"handoff": work.WORKER_LOOP.format(worker=args.worker, env=work.ENV), "done_when": work.WORKER_DONE_WHEN.format(worker=args.worker)})
+        if state.load(name)["jobs"][args.worker]["where"] == "remote":
+            return relaunch(argparse.Namespace(**vars(args), id=args.worker, local=False, brief=None, text=None), name, None, resume=False)
+    except DriveError as error:
+        work.failed(name, args.worker, str(error))
+        raise
+    session = work.start(name, args.worker)
     return emit(args, f"{args.worker} started as its own claude --bg session {session}", {"worker": args.worker, "session": session})
 
 

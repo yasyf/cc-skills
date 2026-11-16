@@ -47,6 +47,8 @@ LANE_VERBS = (
     ("pr", "set"),
     ("slot", "claim"),
     ("slot", "release"),
+    ("work", "pull"),
+    ("work", "done"),
     ("plan", "search"),
     ("datadog",),
     ("fde-scan",),
@@ -55,7 +57,7 @@ LANE_VERBS = (
     ("status",),
     ("wait",),
 )
-LANE_WRITES = (("job", "ask"), ("job", "set"), ("pr", "add"), ("pr", "set"), ("slot", "claim"), ("slot", "release"))
+LANE_WRITES = (("job", "ask"), ("job", "set"), ("pr", "add"), ("pr", "set"), ("slot", "claim"), ("slot", "release"), ("work", "pull"), ("work", "done"))
 LANE_FLAGS = {("job", "set"): "repro", ("pr", "set"): "flaky"}
 LANE_CARDS = (("job", "ask"), ("job", "report"))
 NO_SPRITE_GRANT = 'his pick "No Sprite lane runs break-glass: a step needing a grant moves to a lane on this Mac"'
@@ -254,6 +256,14 @@ def unfound(text: str) -> list[str]:
     return list(dict.fromkeys(path for image in picture.IMAGE.finditer(text) if (path := image[1] or image[2]).startswith("/") and not Path(path).is_file()))
 
 
+def claimed(drive: str, worker_id: str) -> set[str]:
+    """The items a worker of the drive's work queue holds a claim on, which its lane's work verbs may name beside its own job."""
+    from drive import work
+
+    data = state.load(drive)
+    return {job_id for job_id, job in data["jobs"].items() if work.claimed_by(data, job) == worker_id}
+
+
 def lane_refusal(args: argparse.Namespace, parse: Callable[[list[str]], argparse.Namespace], drive: str, job_id: str) -> str | None:
     """Why a Sprite lane's drive command, as drive parsed it to run, may not: a `break-glass`, whose command would run on this Mac as its user, so the step moves to a lane on this Mac; a verb no builder runs, such as a tap or an order verb; a write, a `job report` keeping stdin or one of LANE_WRITES, naming a job other than its own in any value it parsed, while a read, such as another job's `job report`, `job replies` or `status`, reads it as a Mac lane does; a `job set` other than its `--repro`; a `pr set` other than its `--flaky`, or on a PR its own job does not carry; or another drive. It reads the parsed values, so an abbreviated flag, a `--flag=value` and a word after `--` mean here what they mean to the verb."""
     words = tuple(word for word in (args.verb, getattr(args, "action", None)) if word)
@@ -266,8 +276,8 @@ def lane_refusal(args: argparse.Namespace, parse: Callable[[list[str]], argparse
     parsed = {key: value for key, value in vars(args).items() if key != "run"}
     values = {word for value in parsed.values() for word in (value if isinstance(value, list | tuple) else [value]) if isinstance(word, str)}
     writes = verb in LANE_WRITES or verb == ("job", "report") and args.stdin
-    if writes and (others := sorted({word for word in values if JOB_WORD.fullmatch(word)} - {job_id})):
-        return f"{refused} it names {', '.join(others)}, and a lane's drive writes act on its own job, {job_id}, alone, while its reads read any job"
+    if writes and (others := sorted({word for word in values if JOB_WORD.fullmatch(word)} - {job_id} - (claimed(drive, job_id) if verb[0] == "work" else set()))):
+        return f"{refused} it names {', '.join(others)}, and a lane's drive writes act on its own job, {job_id}, alone, or on the items it holds as a worker of the queue, while its reads read any job"
     if verb in LANE_FLAGS and (
         flags := sorted(
             f"--{key.replace('_', '-')}"

@@ -5132,7 +5132,7 @@ def pass_reads(name: str, data: dict, prs: list[str]) -> tuple[list[str] | None,
         reach = cli.release_reach(name, data, prs)
     except (github.GithubError, reads.ReadError, state.DriveError, json.JSONDecodeError):
         return paths, None
-    return paths, sorted({component for key in prs if key in reach for component in reach[key]["components"]}) if all(key in reach for key in prs) else None
+    return paths, sorted({component for key in prs if key in reach for component in reach[key]["touched"]}) if all(key in reach for key in prs) else None
 
 
 READS_PER_PASS = 12
@@ -5178,7 +5178,7 @@ def work_lines(watcher: Watcher, moment: datetime) -> list[str]:
         for job_id, (paths, stacks) in read.items():
             if paths is not None and stacks is not None:
                 data["jobs"][job_id]["work_reads"] = {"paths": paths, "stacks": stacks}
-        lines = work.drop_legacy(data)
+        lines = work.absorb_legacy(data)
         if not work.wanted(data, moment) or work.admitted(data, moment):
             return lines, None
         worker_id = work.add_worker(data, watcher.name, moment)

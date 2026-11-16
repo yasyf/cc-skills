@@ -16,20 +16,15 @@ READS_PER_PASS = 12
 CUT_MINUTES = 45
 STALL_AFTER = timedelta(minutes=10)
 WORKER_GOAL = "pull and run stage-test items on {env}, one cut a group"
-WORKER_BRIEF = """# Brief
-
-You are {worker}, the drive's stage-test worker for {env}. You run groups of staging tests, each group on one cut, report every test as its own item, then pull the next group. You hold the {env} slot only while a group of yours runs.
-
-## The loop
-
-1. Run `drive work pull --worker {worker}`. It prints your group: each item's job id, its brief, the PRs it tests and the cases its brief asks for, then the GO steps for the cut they share. When it prints `NONE` or `HOLD`, go to step 5.
-2. Read every item's brief whole. Their cases all run on the one cut the GO line names: post one staging claim naming every PR, start one release carrying every item's PR head, and take one Mac box for the whole group when any brief asks for one.
-3. Once staging serves the cut, run each item's cases as its brief says. As each item finishes, pipe its whole return, in the shape its brief asks for, CASE lines and all, into `drive work done {worker} <item> -` from a quoted heredoc. An item whose case waits on something returns `WAITING <what>` the same way; it keeps its place in the cut, and a later worker runs it there.
-4. Go to step 1.
-5. Give back any Mac box you took, then pipe `DONE ran <each item you reported>` into `drive job report {worker} -` and end.
-
-Never start a second cut while `drive work pull` says your cut still holds the slot, and never report an item another worker holds.
-"""
+WORKER_LOOP = (
+    "You are {worker}, the drive's stage-test worker for {env}: you run groups of staging tests, each group on one cut, report every test as its own item, then pull the next group, holding the {env} slot only while a group of yours runs."
+    " 1) Run `drive work pull --worker {worker}`: it prints your group, each item's job id, its brief, the PRs it tests and, for an item that ran before, the `drive job report <item>` that prints its last return, then the GO steps of the cut they share; on `NONE` or `HOLD` go to 5."
+    " 2) Read every item's brief and last return whole. Their cases all run on the one cut the GO line names: post one staging claim naming every PR, start one release carrying every item's PR head, and take one Mac box for the whole group when a brief asks for one."
+    " 3) Once staging serves the cut, run each item's cases as its brief says, and as each finishes pipe its whole return, in the shape its brief asks, CASE lines and all, into `drive work done {worker} <item> -` from a quoted heredoc; an item whose case waits on something returns `WAITING <what>` the same way and keeps its place in the cut for a later worker."
+    " 4) Go to 1."
+    " 5) Give back any Mac box you took, then return. Never start a second cut while `drive work pull` says the queue's cut still holds the slot, and never report an item another worker holds."
+)
+WORKER_DONE_WHEN = "drive work pull --worker {worker} prints NONE or HOLD and every item it gave you is reported with drive work done; return DONE ran <each item you reported>"
 
 
 def enabled(data: dict, kind: str) -> bool:
@@ -53,8 +48,15 @@ def untaken(job: dict) -> bool:
 
 
 def queued(data: dict, job: dict) -> bool:
-    """Whether the queue, never start_jobs or carry_held, starts this job's work: a worker, or an item of an enabled kind that no agent or lane of its own took."""
-    return worker(job) or untaken(job) and (kind := kind_of(data, job)) is not None and enabled(data, kind)
+    """Whether the queue, never start_jobs or carry_held, starts this job's work: a worker, or an item of an enabled kind that no agent or lane of its own took or that the queue took off the staging slot's old line, by absorb_legacy."""
+    return worker(job) or (untaken(job) or bool(job.get("work_adopted"))) and (kind := kind_of(data, job)) is not None and enabled(data, kind)
+
+
+def placed(data: dict, job: dict) -> str:
+    """Where a worker runs an item: on this Mac, "local", when the lines its brief flags give it today declare a step only this Mac runs, by cli.mac_lines, the rule drive job launch places a lane by, such as a Mac box's, else on a Sprite, "remote", which keeps this Mac's load down."""
+    from drive import cli
+
+    return "local" if any(cli.mac_lines(data["name"], job, job.get("brief_flags") or {})) else "remote"
 
 
 def claimed_by(data: dict, job: dict) -> str | None:
@@ -86,6 +88,11 @@ def rank(data: dict, job_id: str) -> tuple:
 def line(data: dict) -> list[str]:
     """The stage-test items ready now, in queue order."""
     return sorted((job_id for job_id in data["jobs"] if ready(data, job_id)), key=lambda job_id: rank(data, job_id))
+
+
+def head(data: dict) -> list[str]:
+    """The items the next worker starts on: the queue's cut's members ready to run again first, else the ready line."""
+    return members_ready(data, data["slots"].get(ENV) or {}) or line(data)
 
 
 def our_cut(slot: dict) -> bool:
@@ -149,7 +156,9 @@ def take(data: dict, worker_id: str, moment: datetime) -> tuple[str, list[str], 
         return "HOLD", [], f"HOLD the queue's {ENV} cut still holds {waiting}, waiting on what each returned; a fresh worker runs them there once their waits end"
     if why := why_not(data, moment):
         return "NONE", [], f"NONE {why}"
-    queue = [entry(data, job_id, moment) for job_id in line(data)]
+    if (first := line(data)[0]) and placed(data, data["jobs"][first]) != (where := data["jobs"][worker_id]["where"]):
+        return "NONE", [], f"NONE the queue's head {first} runs {'on this Mac' if where == 'remote' else 'on a Sprite'}, so a worker there takes it: end"
+    queue = [entry(data, job_id, moment) for job_id in line(data) if placed(data, data["jobs"][job_id]) == where]
     head, riders = state.packed(queue)
     slot["holder"] = state.leased(head, moment, riders) | {"work": worker_id}
     group = [head["job"], *(rider["job"] for rider in riders)]
@@ -160,7 +169,10 @@ def take(data: dict, worker_id: str, moment: datetime) -> tuple[str, list[str], 
 
 
 def shown(data: dict, word: str, items: list[str], said: str) -> str:
-    rows = [f"- {job_id} on {data['jobs'][job_id]['order']}: brief {data['jobs'][job_id]['brief']}; tests {', '.join(state.tested_prs(data, data['jobs'][job_id]))}" for job_id in items]
+    rows = [
+        f"- {job_id} on {job['order']}: brief {job['brief']}; tests {', '.join(state.tested_prs(data, job))}{f'; its last return: drive job report {job_id}' if job.get('returned') else ''}"
+        for job_id, job in ((job_id, data["jobs"][job_id]) for job_id in items)
+    ]
     return "\n".join([said, *rows]) if word == "GO" else said
 
 
@@ -202,23 +214,16 @@ def done(name: str, worker_id: str, job_id: str, whole: str) -> tuple[str, dict]
     return said, payload
 
 
-def brief_path(name: str, worker_id: str) -> Path:
-    return state.drive_dir(name) / "jobs" / f"{worker_id}.brief.md"
-
-
 def add_worker(data: dict, name: str, moment: datetime) -> str:
-    """Record a new stage-test worker job on the order of the queue's head item, a builder building nothing, briefed with WORKER_BRIEF, its first group claimed by take in the same write; its id."""
-    head = members_ready(data, data["slots"].get(ENV) or {}) or line(data)
-    order_id = data["jobs"][head[0]]["order"]
+    """Record a new stage-test worker job on the order of the queue's head item, a builder building nothing, on a Sprite unless that item runs only on this Mac, by placed, its first group claimed by take in the same write; its id. drive work start briefs and starts it."""
+    first = data["jobs"][head(data)[0]]
+    order_id = first["order"]
     worker_id = state.next_id(data["jobs"], "j")
-    path = brief_path(name, worker_id)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(WORKER_BRIEF.format(worker=worker_id, env=ENV))
     _, held = state.holding_role(data, data["orders"][order_id])
     data["jobs"][worker_id] = state.new_job(order_id, "builder", WORKER_GOAL.format(env=ENV), [], state.stamp(moment)) | {
         "work": WORKER,
         "builds_nothing": True,
-        "brief": str(path),
+        "where": placed(data, first),
         "session": held.get("session"),
         "brief_flags": {flag: None for flag in state.BRIEF_FLAGS},
         "work_done": [],
@@ -233,7 +238,7 @@ def live_worker(data: dict) -> str | None:
 
 def wanted(data: dict, moment: datetime) -> bool:
     """Whether the queue wants a stage-test worker it does not have: none lives, none failed to start in the last STALL_AFTER, so a start that fails is tried again at that pace, and ready items of its cut wait to run there or a new cut may start, by why_not."""
-    if not enabled(data, STAGE_TEST) or live_worker(data) or any(worker(job) and job["state"] == "failed" and not job["agent"] and moment - state.parse_time(job["updated"]) < STALL_AFTER for job in data["jobs"].values()):
+    if not enabled(data, STAGE_TEST) or live_worker(data) or any(worker(job) and job["state"] == "failed" and not (job["agent"] or job.get("dispatch")) and moment - state.parse_time(job["updated"]) < STALL_AFTER for job in data["jobs"].values()):
         return False
     return bool(members_ready(data, data["slots"].get(ENV) or {})) or why_not(data, moment) is None
 
@@ -256,10 +261,7 @@ def start(name: str, worker_id: str) -> str:
         session = agents.start_job(name, worker_id, agent, call, held, cwd)
     except (reads.ReadError, state.DriveError) as error:
 
-        def failed_write(data: dict) -> None:
-            data["jobs"][worker_id].update(bg=None, state="failed", said=f"claude --bg started no agent: {error}", updated=state.stamp())
-
-        state.update(name, None, failed_write)
+        failed(name, worker_id, f"claude --bg started no agent: {error}")
         raise state.DriveError(f"{worker_id}: refused, not started: claude --bg started no agent: {error}") from None
 
     def started_write(data: dict) -> None:
@@ -271,17 +273,25 @@ def start(name: str, worker_id: str) -> str:
     return session
 
 
+def failed(name: str, worker_id: str, why: str) -> None:
+    """Mark a worker whose start failed as failed, so its claims end and its items go back to the queue, and the spawner tries again only after STALL_AFTER."""
+
+    def failed_write(data: dict) -> None:
+        data["jobs"][worker_id].update(bg=None, state="failed", said=f"not started: {why}", updated=state.stamp())
+
+    state.update(name, None, failed_write)
+
+
 def unread(data: dict) -> list[str]:
     """The ready items whose files and stacks the queue has not read, at most READS_PER_PASS, so packing never pairs a pass whose files it cannot see."""
     return [job_id for job_id in line(data) if not data["jobs"][job_id].get("work_reads")][:READS_PER_PASS]
 
 
 def admitted(data: dict, moment: datetime) -> str | None:
-    """Why this Mac takes no new worker now, by place.admission for a local lane, None when it may, or when the queue's head serves a priority order or an open incident, by state.jumps_queue, which starts past every cap."""
-    head = members_ready(data, data["slots"].get(ENV) or {}) or line(data)
-    if head and state.jumps_queue(data, head[0]):
+    """Why no new worker starts now, by place.admission for a Sprite lane or one on this Mac, as the queue's head is placed, None when it may, or when that head serves a priority order or an open incident, by state.jumps_queue, which starts past every cap."""
+    if not (first := head(data)) or state.jumps_queue(data, first[0]):
         return None
-    return place.admission(data, None, "local", moment)
+    return place.admission(data, None, "sprite" if placed(data, data["jobs"][first[0]]) == "remote" else "local", moment)
 
 
 def stalled(data: dict, job_id: str, moment: datetime) -> str | None:
@@ -292,10 +302,16 @@ def stalled(data: dict, job_id: str, moment: datetime) -> str | None:
     return f"{job_id} is ready in the work queue {int((moment - state.parse_time(job['updated'])).total_seconds() // 60)} minutes with no worker while a cut may start: drive work show says why none started"
 
 
-def drop_legacy(data: dict) -> list[str]:
-    """Take each item the queue runs off the staging slot's old first-in-first-out line, where a lease that ended before its cut started, or the watch's own queue_waiters, would put it, so only a worker of the queue runs it."""
+def absorb_legacy(data: dict) -> list[str]:
+    """Take each staging pass off the env's old first-in-first-out line into the queue, so the queue's cuts pack them: an item the queue runs already, and a tester waiting its turn there, no release of its own to start, which the queue adopts, its own waits for its turn dropped, staging serving a commit of the cut it never got and its staging-slot token, so a worker runs its cases from its brief and last return; a running pass stays on the old line."""
     slot = data["slots"].get(ENV)
-    if not slot or not (ours := [each["job"] for each in slot["queue"] if queued(data, data["jobs"][each["job"]])]):
+    if not slot:
+        return []
+    for each in slot["queue"]:
+        job = data["jobs"][each["job"]]
+        if not each["starts"] and job["state"] == "waiting" and not job.get("work_adopted") and kind_of(data, job) == STAGE_TEST and enabled(data, STAGE_TEST):
+            job.update(work_adopted=True, waits=[wait for wait in job["waits"] if not state.STAGING_WAIT.fullmatch(wait) and wait != f"staging-slot:{each['job']}"])
+    if not (ours := [each["job"] for each in slot["queue"] if queued(data, data["jobs"][each["job"]])]):
         return []
     slot["queue"] = [each for each in slot["queue"] if each["job"] not in ours]
-    return [f"WORK took {', '.join(ours)} off the {ENV} slot's old line into the queue"]
+    return [f"WORK took {len(ours)} passes off the {ENV} slot's old line into the queue: {', '.join(ours)}"]
