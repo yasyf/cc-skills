@@ -5297,29 +5297,7 @@ def slot_queue(args: argparse.Namespace) -> int:
         said = (f"the work queue's cut of {held['job']}{riding}, run by {held['work']}" if held.get("work") else f"release {held['job']}") + f" from {render.when(held['since'])} until {render.when(held['until'])}" if held else "free"
         lines.append(f"{env}: {said}")
         lines += [f"  train {place}. {job_id}, its release starts when {env} frees, before any new cut" for place, job_id in enumerate(state.train_waiting(data, env), 1)]
-        lines += queue_items(data, env)
     return emit(args, "\n".join(lines) or "no staging env is held", {"slots": shown})
-
-
-def timed(data: dict, job_id: str) -> str:
-    job = data["jobs"][job_id]
-    return f", starts about {render.when(job['starts_at'])}, ends by {render.when(job['ends_at'])}" if job.get("starts_at") else f", {work.untimed(data, job_id, state.now())}"
-
-
-def staging_times(data: dict) -> list[str]:
-    """`drive status`'s staging section: the cut or release on each env with its start and end, then each queued stage-test item of an order shown with its planned start and end, or what it waits on and when that should end."""
-    lines = [f"{env}: {'cut' if held.get('work') else 'release'} of {', '.join(state.slot_members(slot))} from {render.when(held['since'])} to {render.when(held['until'])}" for env, slot in data["slots"].items() if (held := slot["holder"])]
-    kind = work.KIND[work.STAGE_TEST]
-    return lines + [f"{job_id} ({job['order']}){timed(data, job_id)}" for job_id, job in data["jobs"].items() if job["order"] in data["orders"] and kind.queued(data, job)]
-
-
-def queue_items(data: dict, env: str) -> list[str]:
-    """The stage-test items the work queue holds for an env, in its own order, by work.rank, each marked in the queue with whether it is ready to pull, so a tester the queue took off the slot's old line never reads as dropped."""
-    kind = work.KIND[work.STAGE_TEST]
-    if env != work.env(data):
-        return []
-    items = sorted((job_id for job_id, job in data["jobs"].items() if kind.queued(data, job)), key=lambda job_id: work.rank(data, job_id))
-    return [f"  q{place}. {job_id} in the queue, {'ready to pull' if kind.ready(data, job_id) else 'waiting on ' + (', '.join(kind.blocking(data, job_id)) or data['jobs'][job_id]['state'])}{timed(data, job_id)}" for place, job_id in enumerate(items, 1)]
 
 
 def job_held(args: argparse.Namespace) -> int:
@@ -5708,7 +5686,7 @@ def wake_pr(args: argparse.Namespace) -> int:
     build_turn = "is a build item of the work queue, whose next build worker takes it at its PR's branch"
     if job_id and (
         work.queued(data, data["jobs"][job_id])
-        and (turn := build_turn if work.item_of(data, data["jobs"][job_id]) is work.KIND[work.BUILD] else "waits in the work queue for its stage-test cut")
+        and (turn := build_turn if work.item_of(data, data["jobs"][job_id]) is work.KIND[work.BUILD] else "waits in the work queue for its worker")
         or state.adopted_pr_job(data, job)
         and (turn := build_turn)
     ):
@@ -7185,9 +7163,6 @@ def status(args: argparse.Namespace) -> int:
     if owes := owing.status_lines(shown or data, state.now()):
         text += "\nOwed:\n" + "\n".join(owes)
         payload["owed"] = owes
-    if staged := staging_times(shown or data):
-        text += "\nStaging:\n" + "\n".join(staged)
-        payload["staging"] = staged
     if shown is not None and any(state.RELEASE_WAIT.fullmatch(wait) for owner in [*payload["jobs"].values(), *payload["prs"].values()] for wait in owner["waits"]):
         payload["release_freezes"] = brief.releases(name, data)
         text += f"\nRelease freezes: {payload['release_freezes']}"

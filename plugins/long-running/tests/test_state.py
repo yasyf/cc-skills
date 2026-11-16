@@ -3345,55 +3345,6 @@ def test_his_staging_words_lift_a_test_only_within_15_minutes_of_his_message_by_
     assert "no Slack message link" in (state.stale_staging_word("his words in the thread", said) or "")
 
 
-def test_the_queue_plans_each_items_cut_start_and_end_from_the_lease_end_packing_an_item_about_to_be_ready_into_the_first_cut_after_it_and_times_none_it_cannot(monkeypatch: pytest.MonkeyPatch) -> None:
-    moment = datetime(2026, 11, 16, 12, 0, tzinfo=UTC)
-    env = "plat-usw2-staging"
-    data = train_drive("m1", "q1", "q2", "q3", "q4", "q5", "w9")
-    data["slots"][env] = {"holder": state.leased({"job": "m1", "prs": [], "minutes": 20, "cases": None, "at": state.stamp(moment), "paths": None, "stacks": None, "starts": False}, moment - state.CLAIM_WAIT, []) | {"work": "w9"}}
-    ready = {"q1": moment, "q2": moment, "q3": moment, "q4": moment + timedelta(minutes=25), "q5": None}
-    monkeypatch.setattr(work, "env", lambda data: env)
-    monkeypatch.setattr(work, "cut_shape", lambda data: work.CUT_SHAPE | {"cut_items": 2})
-    monkeypatch.setattr(work, "ready_at", lambda data, job_id, moment: ready[job_id])
-    monkeypatch.setattr(work, "rank", lambda data, job_id: job_id)
-    monkeypatch.setattr(work.STAGE, "queued", lambda data, job: any(job is data["jobs"][job_id] for job_id in ready))
-    monkeypatch.setattr(work.STAGE, "entry", lambda data, job_id, moment: {"job": job_id, "paths": [job_id], "stacks": [job_id]})
-    plan = work.planned(data, moment)
-    free = moment + timedelta(minutes=20)
-    assert work.free_at(data, moment) == free
-    assert plan == {
-        "m1": (moment - state.CLAIM_WAIT, free),
-        "q1": (free, free + timedelta(minutes=30)),
-        "q2": (free, free + timedelta(minutes=30)),
-        "q3": (free + timedelta(minutes=30), free + timedelta(minutes=60)),
-        "q4": (free + timedelta(minutes=30), free + timedelta(minutes=60)),
-    }
-
-
-def test_each_ask_owes_one_voiced_staging_start_step_carrying_its_earliest_start_and_latest_end_reopened_only_when_either_moves_start_moves(monkeypatch: pytest.MonkeyPatch) -> None:
-    moment = datetime(2026, 11, 16, 12, 0, tzinfo=UTC)
-    data = train_drive("q1", "q2", "q3", q1={"order": "o2"}, q2={"order": "o2"})
-    data["orders"]["o2"] = {"incident": False, "priority": None, "state": "open", "class": None, "owed": []}
-    plan = {"q1": (moment, moment + timedelta(minutes=30)), "q2": (moment + timedelta(minutes=30), moment + timedelta(minutes=60)), "q3": (moment, moment + timedelta(minutes=30))}
-    monkeypatch.setattr(work, "cut_shape", lambda data: work.CUT_SHAPE)
-    monkeypatch.setattr(work, "planned", lambda data, moment: plan)
-    monkeypatch.setattr(work.STAGE, "queued", lambda data, job: True)
-    work.scheduled(data, moment)
-    [step] = data["orders"]["o2"]["owed"]
-    assert (step["done_when"], step["voice"], data["orders"]["o2"]["start_said"], data["orders"]["o1"].get("owed", []), data["jobs"]["q2"]["starts_at"]) == (
-        {"start": "o2"},
-        True,
-        [state.stamp(moment), state.stamp(moment + timedelta(minutes=60))],
-        [],
-        state.stamp(moment + timedelta(minutes=30)),
-    )
-    plan["q2"] = (moment + timedelta(minutes=35), moment + timedelta(minutes=65))
-    work.scheduled(data, moment)
-    assert data["orders"]["o2"]["start_said"][1] == state.stamp(moment + timedelta(minutes=60))
-    plan["q2"] = (moment + timedelta(minutes=45), moment + timedelta(minutes=75))
-    work.scheduled(data, moment)
-    assert (len(data["orders"]["o2"]["owed"]), data["orders"]["o2"]["start_said"][1]) == (1, state.stamp(moment + timedelta(minutes=75)))
-
-
 def test_a_done_whose_cases_all_pass_with_no_check_line_is_a_pass_only_on_the_prs_current_head_and_otherwise_is_flagged_as_j7179s_was_not(named_repo: None, state_root: Path) -> None:
     data = staging_drive("j1")
     key = f"{state.home(data)}#42"

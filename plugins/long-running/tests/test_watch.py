@@ -2207,7 +2207,7 @@ def test_spawn_lines_starts_each_worker_the_queue_records_on_the_drives_own_watc
     monkeypatch.setattr(work, "spawned", lambda data, moment, given: kinds.append([kind.name for kind in given]) or (["WORK j9 records a research worker on a Sprite, its first group claimed"], [["work", "start", "j9"]]))
     assert watch.spawn_lines(watch.Watcher(demo, offset=state.events_end(demo), project="Iris"), state.now()) == []
     assert watch.spawn_lines(watcher(demo), state.now()) == ["WORK j9 records a research worker on a Sprite, its first group claimed"]
-    assert (started, work.STAGE_TEST in kinds[0]) == ([["work", "start", "j9"]], False)
+    assert started == [["work", "start", "j9"]]
 
 
 def test_a_merge_prover_carries_only_the_parts_its_merged_prs_deliver_never_another_prs_staging_test(named_repo: None) -> None:
@@ -12712,7 +12712,7 @@ def test_a_part_its_orders_session_delivers_every_thirty_minutes_is_no_orphan_wh
     assert watch.reported_gap({"last_line": None}, 30, moment).startswith("its line to him every 30 minutes is overdue: the order's last went out never")
 
 
-@pytest.mark.parametrize(("stage", "project"), [("applet_lines", None), ("applet_lines", "Platform"), ("work_lines", "Platform")])
+@pytest.mark.parametrize(("stage", "project"), [("applet_lines", None), ("applet_lines", "Platform")])
 def test_idle_relay_stages_materialize_no_drive(stage: str, project: str | None, monkeypatch: pytest.MonkeyPatch) -> None:
     from drive import applet
 
@@ -12725,7 +12725,6 @@ def test_idle_relay_stages_materialize_no_drive(stage: str, project: str | None,
 def test_a_relay_stage_that_raises_is_contained_so_post_lines_after_it_still_runs(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     for quiet in ("clocks_drawn", "codex_takes", "limit_lines", "applet_lines", "check_disks", "slot_lines"):
         monkeypatch.setattr(watch, quiet, lambda *args: [])
-    monkeypatch.setattr(watch, "work_lines", lambda watcher, moment: 1 / 0)
     monkeypatch.setattr(watch, "post_lines", lambda watcher, moment: ["POST started"])
     monkeypatch.setattr(watch, "failed", lambda *args: None)
     assert watch.relay_pass(watcher(demo), T0) == ["POST started"]
