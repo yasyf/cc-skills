@@ -421,7 +421,7 @@ def staging_row(drive: dict, key: str) -> tuple[str, ...]:
     if repo.lower() != state.MONOREPO.lower():
         return (f"Not on staging: {repo} has no staging env",)
     part = state.STAGING_TEST.format(number=number)
-    held = [order_id for order_id, order in drive["orders"].items() if part in order["parts"]]
+    held = state.orders_holding(drive, part)
     run = None if held else waited_run(drive, key)
     if not (after := drive["prs"][key]["after_merge"]):
         return before_merge(drive, key, part, held, run)

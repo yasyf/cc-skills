@@ -1464,3 +1464,35 @@ def test_the_now_screen_rows_each_project_by_the_daily_sweeps_bars_filing_each_w
         ],
         "owed": "live",
     }
+
+
+def test_staging_lookups_share_one_order_partition_per_projection() -> None:
+    class Orders(dict):
+        scans = 0
+
+        def items(self):
+            self.scans += 1
+            return super().items()
+
+    parts = {n: state.STAGING_TEST.format(number=n) for n in range(1, 65)}
+    orders = Orders({f"o{n}": order("ship it", [], parts={part: state.new_part()}) for n, part in parts.items()})
+    drive = drive_of(orders, {}, [tracked(n, order=f"o{n}", waits=[f"o{n}:{part}"]) for n, part in parts.items()])
+    drive["orders"] = orders
+    expected = [(view.staging_row(drive, key), state.staging_runs(drive, pr), state.staging_tested(drive, key)) for key, pr in drive["prs"].items()]
+    assert expected[0] == (("Not on staging: its staging test has not started",), [f"o1:{parts[1]}"], False)
+    orders.scans = 0
+    other = drive | {"jobs": {}, "orders": {"other": order("other", [], parts={parts[1]: state.new_part()})}, "prs": {}}
+    with state.indexed(drive):
+        assert orders.scans == 1
+        for _ in range(3):
+            assert [(view.staging_row(drive, key), state.staging_runs(drive, pr), state.staging_tested(drive, key)) for key, pr in drive["prs"].items()] == expected
+        assert state.orders_holding(drive, "missing") == []
+        assert orders.scans == 1
+        with state.indexed(other):
+            assert state.orders_holding(other, parts[1]) == ["other"]
+        assert state.orders_holding(drive, parts[1]) == ["o1"]
+        assert orders.scans == 1
+    orders["o65"] = order("same part", [], parts={parts[1]: state.new_part()})
+    with state.indexed(drive):
+        assert state.orders_holding(drive, parts[1]) == ["o1", "o65"]
+    assert state.INDEX.get() is None
