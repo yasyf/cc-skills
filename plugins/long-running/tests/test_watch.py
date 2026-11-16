@@ -7902,7 +7902,7 @@ def test_a_dangerous_pr_trunk_queued_before_he_went_quiet_leaves_the_queue_while
     queued(demo)
     monkeypatch.setattr(github, "files", {KEY: ["go/sand/sandsql/write.go"]}.__getitem__)
     whys: list[str] = []
-    monkeypatch.setattr(land, "unqueue", lambda name, keys, why: whys.append(why) or os.getpid())
+    monkeypatch.setattr(land, "unqueue", lambda name, keys, why, token: whys.append(why) or os.getpid())
     watching = watcher(demo)
     watching.cards = NO_CARDS
     with edit(demo) as data:

@@ -657,10 +657,13 @@ def base_failures(repo: str, run: str) -> list[str]:
 
 
 def mark(data: dict, keys: tuple[str, ...]) -> state.Reservation | None:
-    """Reserve the PRs a lander starts on under one token, by state.reserve, for the lander that adopts them all, marked at the head and base it tries, each keeping what the try before it on the same head came to, so record() says an outcome the same head already said only once, and none ejected, since an ejection is Trunk's label set after the try began; the reservation, or None, marking nothing, while a lander still holds any of them."""
-    was = {key: before.get("outcome") if (before := data["prs"][key]["lander"] or {}).get("head") == data["prs"][key]["head"] else None for key in keys}
-    if not (held := state.reserve(data, tuple(("prs", key, "lander") for key in keys))):
+    """Reserve the PRs a lander starts on under one token, by state.reserve, for the lander that adopts them all, marked at the head and base it tries, each keeping what the try before it on the same head came to, so record() says an outcome the same head already said only once, and none ejected, since an ejection is Trunk's label set after the try began; the reservation, or None, marking nothing, while a lander still runs on any of them, by running(). A try that recorded its outcome holds its PRs no more, though the child that recorded it has yet to exit, or the watch or tap that reserved it, which no child adopted, still runs, so its record gives way to the new reservation rather than leaving his next head unlanded until that process ends or the reservation lapses."""
+    if any(running(data["prs"][key]) for key in keys):
         return None
+    was = {key: before.get("outcome") if (before := data["prs"][key]["lander"] or {}).get("head") == data["prs"][key]["head"] else None for key in keys}
+    for key in keys:
+        data["prs"][key]["lander"] = None
+    held = state.reserve(data, tuple(("prs", key, "lander") for key in keys))
     at = state.stamp()
     for key in keys:
         pr = data["prs"][key]
