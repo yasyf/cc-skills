@@ -4113,7 +4113,7 @@ def talking(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, entries:
     os.utime(path, (stamp, stamp))
     with state.edit(demo) as data:
         data["roles"]["communicator"] = {"session": "talker", "cwd": "/work", "started": state.stamp(T0)}
-        data["owed_replies"] = {"1794000000.000001": {"handed": False, "lined": None}} if owed else {}
+        data["owed_replies"] = {f"{state.now().timestamp():.6f}": {"handed": False, "lined": None}, "1794000000.000001": {"handed": False, "lined": None}} if owed else {"1794000000.000001": {"handed": False, "lined": None}}
 
 
 def answered(tokens: int) -> dict:

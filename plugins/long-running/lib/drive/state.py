@@ -45,6 +45,7 @@ STARTS_ITSELF = ("builder", "reader", "design")
 JOB_AGENTS = {"builder": ("long-running:builder",), "reader": ("long-running:reader",), "design": ("long-running:designer",), "codex": ("long-running:builder",)}
 JOB_STATES = ("running", "waiting", "built", "done", "failed", "stopped")
 ENDED_JOB_STATES = ("failed", "stopped")
+ANSWERING = timedelta(minutes=10)
 FINISHED_JOB_STATES = ("done", *ENDED_JOB_STATES)
 BRIEF_FLAGS = ("serves", "done_when", "where", "runs_as", "release", "mac", "after", "handoff", "ruling", "native", "interactions", "would_he_ask", "plan", "incident", "scratch")
 CHANGE_KINDS = ("builder", "codex")
@@ -5192,6 +5193,11 @@ def session_seat(data: dict, session: str | None) -> str | None:
 def channel_seat(data: dict, channel: str) -> str | None:
     """The seat, a project's or a priority order's, whose channel of the drive's slack row this is; None for the drive's own channel, his DM or any other."""
     return next((seat for seat, made in data["slack"]["channels"].items() if seat and made["id"] == channel), None)
+
+
+def answering(owed: dict, moment: datetime) -> bool:
+    """Whether a communicator is likely at work on an answer to him: a message of his cc-slack owes an answer came in the last ANSWERING, since one owed longer is one its answer named no asked for, which no wait should hold a compaction or a reload on."""
+    return any(moment.timestamp() - float(ts) < ANSWERING.total_seconds() for ts in owed)
 
 
 def brief_path(name: str, seat: str | None) -> Path:

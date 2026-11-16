@@ -1649,8 +1649,8 @@ def idle_pid(session: str, owing: Callable[[], bool] | None = None) -> int | Non
 
 
 def owes_him(drive: str) -> bool:
-    """Whether a message of his waits for its answer, as the drive's watch last read `cc-slack dm-owed` into its owed replies."""
-    return bool(state.load(drive, ("owed_replies",)).get("owed_replies"))
+    """Whether a message of his from the last ten minutes waits for its answer, as the drive's watch last read `cc-slack dm-owed` into its owed replies."""
+    return state.answering(state.load(drive, ("owed_replies",)).get("owed_replies") or {}, state.now())
 
 
 def session_status(pid: int, session: str) -> str | None:

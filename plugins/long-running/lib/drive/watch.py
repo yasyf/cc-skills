@@ -3303,7 +3303,7 @@ def compact_due(data: dict, held: dict, moment: datetime) -> str | None:
     path = session_transcript(held)
     if not path.exists() or moment - datetime.fromtimestamp(path.stat().st_mtime).astimezone() < COMPACT_WHEN_QUIET:
         return None
-    if data["owed_replies"]:
+    if state.answering(data["owed_replies"], moment):
         return None
     turn = last_turn(path)
     if not turn or not agents.ended(turn):
