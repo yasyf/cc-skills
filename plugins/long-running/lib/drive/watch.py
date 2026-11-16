@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import NamedTuple, Self
 
 from drive import agents, brief, children, codex, dashboard, github, install, land, launchd, limits, orca, page, place, procs, reads, receiver, refs, render, served, settled, slack, stage, stall, state, superseded, superseded_procs, view
-from drive.install import PROOF_FAILED, add_prover, config_dir, done_before_proofs, done_unproven, merged_done, merged_ready, merged_said, product, proof_gap, proofless, proved_prs, prover_of, proves, released_prs, reported_prs, upgraded, watch_proves, widen
+from drive.install import PROOF_FAILED, add_prover, config_dir, done_before_proofs, done_unproven, merged_done, merged_ready, merged_said, product, proof_gap, proofless, proved_prs, prover_of, proves, released_prs, reported_prs, watch_upgraded as upgraded, watch_proves, widen
 from drive.render import cut, when
 
 POLL_SECONDS = 5
@@ -5036,13 +5036,13 @@ def watching(watcher: Watcher) -> None:
     try:
         with relaying(watcher):
             for _ in rests(watcher.name):
-                if newer := install.watch_upgraded():
+                if newer := upgraded():
                     print(f"ended on long-running {state.VERSION} for {newer}, before {watcher.resume or 'its next pass'}", flush=True)
                     break
                 if watcher.relay_error:
                     raise watcher.relay_error
                 read_from, moment = watcher.offset, state.now()
-                for said in [handed(watcher, watcher.made, moment)] if watcher.made else passed(watcher, moment, install.watch_upgraded):
+                for said in [handed(watcher, watcher.made, moment)] if watcher.made else passed(watcher, moment, upgraded):
                     for line in sent(watcher, watcher.lane, said, moment):
                         print(line, flush=True)
                 if watcher.offset != read_from:
