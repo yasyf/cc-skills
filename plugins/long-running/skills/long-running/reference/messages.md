@@ -642,8 +642,9 @@ restating it.
   `NOTHING` and posts no line saying nothing moved. None goes out while he is away, since his catch-up
   carries it, nor once a report closing the order is kept or posted, whose post is its line. A job
   carrying a part of another order, and each PR registered on it, is a step in its own order's
-  thread alone, and so is each step of an order joined to another that is no incident and whose
-  lines go in a thread of its own: its report goes there, never in the thread of the order it joined.
+  thread alone, and so is each step of an order joined to another, when it is no incident and its
+  lines go in a thread of its own, or when it is an incident and the order it joined is none: its
+  report goes there, never in the thread of the order it joined, an incident's while he is away too.
 - His ask to be kept updated on a Buildkite build, such as a staging release, is the watch's to
   follow, by his pick "A live status message: one message in your thread, rewritten each minute with
   the running step, then an end line; one Buildkite read a minute" and his words "fix your toolking

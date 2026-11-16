@@ -2056,8 +2056,9 @@ def thread_group(data: dict, joined: dict[str, list[str]], head: str) -> list[st
 
 
 def in_head_thread(data: dict, order: dict) -> bool:
-    """Whether an order joined to another tells its news in that order's thread: an incident always, so an alert's order keeps its incident's line, and an order that is no incident when its own lines go there by state.promise_thread or it keeps no thread of his DM, so one with a thread of its own heads its own group and none opens a thread at his DM root."""
-    return order["incident"] or state.promise_thread(order) in (None, state.promise_thread(data["orders"][order["joins"]]))
+    """Whether an order joined to another tells its news in that order's thread: an incident only when that order is an incident too, so an alert's order keeps its incident's line and an incident joined to an order that is no incident heads its own group, its line in its own thread while he is away too and its jobs at work its news, and an order that is no incident when its own lines go there by state.promise_thread or it keeps no thread of his DM, so one with a thread of its own heads its own group and none opens a thread at his DM root."""
+    head = data["orders"][order["joins"]]
+    return head["incident"] if order["incident"] else state.promise_thread(order) in (None, state.promise_thread(head))
 
 
 def untold(order: dict, facts: dict[str, list]) -> list[str]:
