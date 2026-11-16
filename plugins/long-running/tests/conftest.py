@@ -713,7 +713,7 @@ MAC_BOX_OWN_HEAD = "; {tested} changes iris-desktop or sand-next too, so run the
 LIVE_UNREAD = "; the drive could not read that commit ({error}), so read it first"
 
 
-class MonorepoPaths(providers.RepoProvider):
+class MonorepoPaths(GuardedRepo):
     """The monorepo's path reads, as its own providers make them, naming no repository."""
 
     def ci_config(self, path: str) -> bool:
