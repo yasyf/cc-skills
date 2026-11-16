@@ -116,11 +116,11 @@ def at_work_here(job_id: str, job: dict, data: dict, moment: datetime) -> str | 
 
 
 def waiting_builders(data: dict) -> list[str]:
-    """The builder jobs waiting their turn for a slot on this Mac, a priority order's first, by state.first_in_line, then by where its project and workstream stand, by ranked, then the oldest added; a job moving here from its Sprite waits in whatever state its lane there left it."""
+    """The builder jobs waiting their turn for a slot on this Mac, a priority order's first, by state.first_in_line, then by where its project and workstream stand, by ranked, then the oldest added; a job moving here from its Sprite, or a running one whose brief's Mac line drive job launch queued here, waits in whatever state it is in."""
     waiting = [
         job_id
         for job_id, job in data["jobs"].items()
-        if state.SLOT_WAIT in job["waits"] and (job["state"] == "waiting" or on_sprite(job) and job["state"] not in state.FINISHED_JOB_STATES)
+        if state.SLOT_WAIT in job["waits"] and job["state"] not in state.FINISHED_JOB_STATES
     ]
     held = standings(data)
     return sorted(waiting, key=lambda job_id: (not state.first_in_line(data, data["jobs"][job_id]), *ranked(data, data["jobs"][job_id], held), state.parse_time(data["jobs"][job_id]["created"])))

@@ -2904,3 +2904,14 @@ def test_a_slot_held_for_an_order_goes_to_none_of_the_other_jobs_and_frees_when_
     assert ([kind for _, _, kind, _ in moved], data["slots"]["plat-usw2-sandbox"]["holder"]) == (["freed"], None)
     moved = state.slot_turns(data, moment + timedelta(hours=2))
     assert [(job_id, kind) for _, job_id, kind, _ in moved] == [("o1339", "unheld"), ("j1", "go")]
+
+
+def test_a_running_job_queued_for_a_builder_slot_by_its_mac_line_has_a_place_in_line() -> None:
+    from drive import place
+
+    created = "2026-11-16T02:00:00-08:00"
+    data = {"orders": {"o1": {"project": "P", "workstream": "W", "updated": created, "state": "open", "priority": None, "incident": False}}, "jobs": {
+        "j1": {"kind": "builder", "order": "o1", "carries": [], "state": "running", "waits": [state.SLOT_WAIT], "created": created, "where": "local"},
+        "j2": {"kind": "builder", "order": "o1", "carries": [], "state": "done", "waits": [state.SLOT_WAIT], "created": created, "where": "local"},
+    }}
+    assert place.positions(data) == {"j1": "1 of 1 in line"}
