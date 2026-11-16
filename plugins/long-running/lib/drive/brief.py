@@ -990,8 +990,8 @@ def heavier(data: dict, job_id: str, brief: str, model: str | None) -> bool:
     return bool(order["complex"])
 
 
-def report_refusal(name: str, data: dict, job_id: str, text: str) -> str | None:
-    """Why a job's return may not be kept: a builder's or designer's opens with a result word, a report naming a limit in its own words as a finding left standing is an ASK or DESIGN, a design lane's is the design in its shape, building all his words name and the abstraction several strategies share before any of them, by narrowed_design, a research reader's carries its Researched: block, a reader's DESIGN is a choice for him with its options, starting from the root cause and recommending the option that removes it, a DONE, READY or PUSHED leaves no step for someone else, nor a builder's a piece of its plan to a follow-up that no UNBUILT: line of it names, by left_piece, a builder's UNBUILT: lines naming their pieces as a design's Change: lines must and none naming work the drive already holds, by held_piece, a builder's or codex job's DONE on a staging test part carries a CASE line for each case, a design's DESIGN of several keeping the words of each change it listed before that a live builder carries, by state.renamed_change, a builder's DONE names its proof, and a picture, recording or live post when he sees the result, a DONE whose brief names user stories refused, since only drive job prove proves them from what its proof file prints, a repair keeping a proof file told to prove it with drive job prove instead, and a builder's READY or PUSHED names PRs whose tap card draws, saying how his words are met on each reworked to them, and says how it builds on what its research found."""
+def report_refusal(name: str, data: dict, job_id: str, text: str, judged: bool = True) -> str | None:
+    """Why a job's return may not be kept, with judged False leaving out the checks Jev reads, by judged_refusal, for a check that runs after the report is kept: a builder's or designer's opens with a result word, a report naming a limit in its own words as a finding left standing is an ASK or DESIGN, a design lane's is the design in its shape, building all his words name and the abstraction several strategies share before any of them, by narrowed_design, a research reader's carries its Researched: block, a reader's DESIGN is a choice for him with its options, starting from the root cause and recommending the option that removes it, a DONE, READY or PUSHED leaves no step for someone else, nor a builder's a piece of its plan to a follow-up that no UNBUILT: line of it names, by left_piece, a builder's UNBUILT: lines naming their pieces as a design's Change: lines must and none naming work the drive already holds, by held_piece, a builder's or codex job's DONE on a staging test part carries a CASE line for each case, a design's DESIGN of several keeping the words of each change it listed before that a live builder carries, by state.renamed_change, a builder's DONE names its proof, and a picture, recording or live post when he sees the result, a DONE whose brief names user stories refused, since only drive job prove proves them from what its proof file prints, a repair keeping a proof file told to prove it with drive job prove instead, and a builder's READY or PUSHED names PRs whose tap card draws, saying how his words are met on each reworked to them, and says how it builds on what its research found."""
     job = data["jobs"][job_id]
     order = data["orders"][job["order"]]
     lines = [line.strip() for line in text.strip().splitlines()]
@@ -1036,13 +1036,9 @@ def report_refusal(name: str, data: dict, job_id: str, text: str) -> str | None:
         )
     if job["kind"] == "design" and len(listed) > 1 and (renamed := state.renamed_change(name, data, job["order"], [state.whole_order(line["change"]) for line in listed], job_id)):
         return renamed
-    if job["kind"] == "builder" and (held := held_piece(name, data, job_id, listed)):
-        return (
-            f'its UNBUILT: line "{cut(held[0], 120)}" names work the drive already holds, {held[1]}, so a part of its own would build it'
-            " a second time: an UNBUILT: line names only a piece of its plan nothing on the drive builds yet, never its own change, which"
-            " CHANGE: says, nor another job's, so drop that line"
-        )
-    if job["kind"] == "design" and opening == "DESIGN" and (narrowed := narrowed_design(name, data, job, text)):
+    if judged and job["kind"] == "builder" and (held := held_refusal(name, data, job_id, listed)):
+        return held
+    if judged and job["kind"] == "design" and opening == "DESIGN" and (narrowed := narrowed_design(name, data, job, text)):
         return narrowed
     if job["kind"] == "reader" and (refused := reader_refusal(data, job_id, job, order, text, lines)):
         return refused
@@ -1051,12 +1047,8 @@ def report_refusal(name: str, data: dict, job_id: str, text: str) -> str | None:
             f'a {opening} leaves a step for someone else: "{cut(left, 120)}". Do that step yourself before you return,'
             " or return ASK when it needs his choice"
         )
-    if job["kind"] == "builder" and opening in ("DONE", *READY_OPENINGS) and (piece := left_piece(data, job, text)):
-        return (
-            f'a {opening} leaves a piece of its plan to a follow-up, as Jev reads "{cut(piece, 120)}": name each such piece on an UNBUILT:'
-            f" line of this return, in at most {state.PART_CHARS} characters with no backtick, double quote, $ or backslash, which keeps"
-            " it as a part of the order with a builder of its own, or build it before you return, or return ASK when leaving it out needs his choice"
-        )
+    if judged and job["kind"] == "builder" and opening in ("DONE", *READY_OPENINGS) and (piece := piece_refusal(data, job, opening, text)):
+        return piece
     if job["kind"] in state.CHANGE_KINDS and opening == "DONE" and (staging := state.staging_parts(data, job)) and not state.CASE_LINE.search(text):
         return (
             f'{job_id} holds "{staging[0][1]}", so its DONE names each case of the staging test on a line of its own, CASE <case>: <verdict>,'
@@ -1090,6 +1082,41 @@ def report_refusal(name: str, data: dict, job_id: str, text: str) -> str | None:
         f"{found[0]}'s research found what already does part of this: {exists}. A {opening} says, in a REUSES: line, how the"
         " PR calls or extends it rather than adding a second copy beside it"
     )
+
+
+def held_refusal(name: str, data: dict, job_id: str, listed: list[re.Match]) -> str | None:
+    """Why a builder's return may not be kept for an UNBUILT: line naming work the drive already holds, by held_piece."""
+    if not (held := held_piece(name, data, job_id, listed)):
+        return None
+    return (
+        f'its UNBUILT: line "{cut(held[0], 120)}" names work the drive already holds, {held[1]}, so a part of its own would build it'
+        " a second time: an UNBUILT: line names only a piece of its plan nothing on the drive builds yet, never its own change, which"
+        " CHANGE: says, nor another job's, so drop that line"
+    )
+
+
+def piece_refusal(data: dict, job: dict, opening: str, text: str) -> str | None:
+    """Why a builder's DONE, READY or PUSHED may not be kept for a piece of its plan left to a follow-up that no UNBUILT: line names, by left_piece."""
+    if not (piece := left_piece(data, job, text)):
+        return None
+    return (
+        f'a {opening} leaves a piece of its plan to a follow-up, as Jev reads "{cut(piece, 120)}": name each such piece on an UNBUILT:'
+        f" line of this return, in at most {state.PART_CHARS} characters with no backtick, double quote, $ or backslash, which keeps"
+        " it as a part of the order with a builder of its own, or build it before you return, or return ASK when leaving it out needs his choice"
+    )
+
+
+def judged_refusal(name: str, data: dict, job_id: str, text: str) -> str | None:
+    """Why a job's return may not stand for the checks Jev and Opus read, which report_refusal with judged False and overruled_refusal leave out: a builder's UNBUILT: line naming work the drive holds, by held_refusal, a design lane's narrowed design, by narrowed_design, a builder's piece of its plan left to a follow-up, by piece_refusal, and a reader's or design's line going against a recorded answer of his, by overruled_refusal."""
+    job = data["jobs"][job_id]
+    opening = re.match(r"[A-Z]*", text.strip())[0]
+    if job["kind"] == "builder" and (held := held_refusal(name, data, job_id, state.change_lines(job["kind"], text))):
+        return held
+    if job["kind"] == "design" and opening == "DESIGN" and (narrowed := narrowed_design(name, data, job, text)):
+        return narrowed
+    if job["kind"] == "builder" and opening in ("DONE", *READY_OPENINGS) and (piece := piece_refusal(data, job, opening, text)):
+        return piece
+    return overruled_refusal(data, job, text)
 
 
 def overruled_refusal(data: dict, job: dict, text: str) -> str | None:

@@ -6493,6 +6493,30 @@ def test_a_builders_done_leaving_a_piece_of_its_design_to_a_follow_up_is_refused
     assert (code, "\nResearched: j3\n" in written, '\nPlan: j3\'s design, change "the moved-table index": drive job report j3; j4 left it unbuilt: drive job report j4\n' in written) == (0, True, True)
 
 
+def test_a_sprite_lanes_done_is_kept_before_jev_reads_it_and_the_check_after_wakes_its_lane_with_the_refusal(
+    run: Run, meta: str, jev: Jev, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build", "--parts", "copy one store")
+    run("job", "add", "reader", "--order", "o1", "--part", "copy one store", "--goal", "research: the copy")
+    keep(monkeypatch, capsys, "j1", RESEARCH)
+    run("job", "add", "design", "--order", "o1", "--part", "copy one store", "--goal", "cards: the copy")
+    owned = DESIGNED_IN_CHANGES.replace('none: ccx code search "store copy" and rg store_copy found nothing', "supervisor/copies.rs:40 store_copy_at, extended by change 1")
+    assert keep(monkeypatch, capsys, "j3", owned) == (0, "")
+    done = "DONE the moved-table interface is live\nCHECK: https://github.com/yasyf/cc-skills/actions/runs/12\n"
+    left = "UNPROVEN: the moved-table index (design change 4) is left out of this PR for a follow-up"
+    jev.picks("leaves")
+    kept_proof(tmp_path, "j4")
+    detached: list[list[str]] = []
+    monkeypatch.setattr(state, "detach", lambda name, args, log: detached.append(args) or 1)
+    asked_before = len(jev.asked)
+    cli.take_report("demo", "j4", f"{done}{left}\n", judged=False)
+    assert (len(jev.asked), detached[-1], state.load("demo")["jobs"]["j4"]["said"]) == (asked_before, ["job", "check", "j4"], done.splitlines()[0])
+    checked = len(detached)
+    assert run("job", "check", "j4")[0] == 0
+    [resume] = detached[checked:]
+    assert resume[:3] == ["job", "resume", "j4"] and f'as Jev reads "{left}"' in resume[3]
+
+
 def test_a_follow_up_piece_a_builder_names_on_an_unbuilt_line_of_an_undesigned_order_is_read_by_its_parts_reader_so_its_builder_starts_on_that_research(
     run: Run, meta: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

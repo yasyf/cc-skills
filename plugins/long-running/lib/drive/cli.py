@@ -25,6 +25,7 @@ from drive.state import DriveError
 DRIVE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 ROLE_NAMES = {"coordinator": "top coordinator", "communicator": "communicator", "meta": "meta session"}
 FREEZE_FOR = timedelta(hours=12)
+JUDGED_LATER = "The drive kept the report you sent with drive job report {job} -, then its check refused it: {refused}. Fix what it names and send drive job report {job} - again; your newest report is the one that stands."
 KEPT_SPRITE_CAP = 60
 NBD_READS = "nbd-reads.json"
 CHECK_UNBOUND = frozenset({state.DRIVE_ENV, "CLAUDE_CODE_SESSION_ID", "CCI_AGENT_ID"})
@@ -3142,7 +3143,7 @@ def job_report(args: argparse.Namespace) -> int:
         whole = sys.stdin.read()
         if not whole.strip():
             raise DriveError(f"stdin held no report for {args.id}; pipe its whole return in: printf '%s\\n' '<line>' ... | drive job report {args.id} -")
-        return emit(args, *take_report(name, args.id, whole))
+        return emit(args, *take_report(name, args.id, whole, judged=not args.sprite_lane))
     text = state.report_text(name, args.id, args.all)
     if not text and job["said"] in (None, state.NOT_STARTED):
         raise DriveError(f"{args.id} kept no report and has returned nothing yet")
@@ -3151,8 +3152,23 @@ def job_report(args: argparse.Namespace) -> int:
     return emit(args, text.rstrip("\n"), {"id": args.id, "report": text})
 
 
-def take_report(name: str, job_id: str, whole: str) -> tuple[str, dict]:
-    """Take a job's whole return as drive job report <j> - takes it, the one place a return is kept or refused, for that verb and for the watch's take of a local agent's last message; what it prints and its JSON."""
+def job_check(args: argparse.Namespace) -> int:
+    """Read a Sprite lane's newest kept return with the checks Jev and Opus read, by brief.judged_refusal, and a READY's PRs read on GitHub, by unready, which drive job report left out to answer the lane at once; a refusal wakes the lane by drive job resume with it, to fix and report again."""
+    name = state.resolve(args.drive)
+    data = state.load(name)
+    whole = state.returns(name, args.id)[0]["body"]
+    job = data["jobs"][args.id]
+    line = whole.strip().splitlines()[0].strip()
+    ready = job["kind"] == "builder" and re.match(r"READY\b", line)
+    if not (refused := brief.judged_refusal(name, data, args.id, whole) or ready and unready(data, job, line)):
+        return emit(args, f"{args.id}: its report stands", {"id": args.id, "refused": None})
+    told = JUDGED_LATER.format(job=args.id, refused=refused)
+    state.detach(name, ["job", "resume", args.id, told], watch.READS_LOG)
+    return emit(args, f"{args.id}: {refused}", {"id": args.id, "refused": refused})
+
+
+def take_report(name: str, job_id: str, whole: str, judged: bool = True) -> tuple[str, dict]:
+    """Take a job's whole return as drive job report <j> - takes it, the one place a return is kept or refused, for that verb and for the watch's take of a local agent's last message; what it prints and its JSON. With judged False, as a Sprite lane's report is taken, the checks Jev and Opus read run after it is kept, in a `drive job check` of their own, by brief.judged_refusal, so the lane's answer waits on none of them."""
     data = state.load(name)
     job = data["jobs"][job_id]
     line = whole.strip().splitlines()[0].strip()
@@ -3165,9 +3181,9 @@ def take_report(name: str, job_id: str, whole: str) -> tuple[str, dict]:
         job["repro"] = str(repro)
     built = state.BUILT_LINE.match(line) if job["kind"] in state.CHANGE_KINDS else None
     if refused := (
-        brief.report_refusal(name, data, job_id, whole)
+        brief.report_refusal(name, data, job_id, whole, judged)
         or state.result_refusal(data, job_id, line, whole)
-        or brief.overruled_refusal(data, job, whole)
+        or judged and brief.overruled_refusal(data, job, whole)
         or (built and (held := state.change_job(data, job["order"], [], job["waits"], job_id, built["branch"], job["repo"], proving=state.builds_nothing(job))) and one_change_job(data, job["order"], job["kind"], [], held, job["waits"], branch=built["branch"], repo=job["repo"], job_id=job_id))
     ):
         raise DriveError(f"{job_id}: refused, nothing kept: {refused}")
@@ -3183,7 +3199,7 @@ def take_report(name: str, job_id: str, whole: str) -> tuple[str, dict]:
     except DriveError as error:
         raise DriveError(f"{job_id}: refused, nothing kept: drive pr add refuses a PR its first line names: {error}") from None
     data = state.load(name)
-    if job["kind"] == "builder" and re.match(r"READY\b", line) and (held := unready(data, job, line)):
+    if judged and job["kind"] == "builder" and re.match(r"READY\b", line) and (held := unready(data, job, line)):
         raise DriveError(f"{job_id}: refused, nothing kept: {held}")
     asked = said = None
     if job["kind"] == "reader" and line.startswith("DESIGN"):
@@ -3224,6 +3240,8 @@ def take_report(name: str, job_id: str, whole: str) -> tuple[str, dict]:
     shown = f"{where}\n{said}" if said else where
     unstarted = [f"no builder added: {why}" for why in removing.values()]
     shown = "\n".join([shown, *replaced, *registered, *fixes, *withdrawn, *briefed, *started, *unstarted])
+    if not judged:
+        state.detach(name, ["job", "check", job_id], watch.READS_LOG)
     return shown, {"id": job_id, "report": kept, "ask": asked and str(asked), "fixes": fixes, "builders": added, "removed": removing}
 
 
@@ -7440,6 +7458,9 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("id")
     verb.add_argument("--session", help="the session that added the job, which go/ci records as the release's starter")
     verb.set_defaults(run=job_release)
+    verb = job.add_parser("check", parents=both, help="what drive job report starts after it keeps a Sprite lane's return: read it with the checks Jev and Opus read and wake the lane with a refusal")
+    verb.add_argument("id")
+    verb.set_defaults(run=job_check)
     verb = job.add_parser(
         "replies", parents=both, help="every result and question a remote lane sent, and every return drive job report kept, oldest first, with when each came"
     )
@@ -8217,6 +8238,7 @@ def main(argv: list[str] | None = None) -> int:
                     return 2
                 if args.verb == "status" and not args.ids:
                     args.ids = [own]
+            args.sprite_lane = bool(lane)
             if "TMUX" in os.environ and (attached := orca.own_terminal()):
                 os.environ["ORCA_TERMINAL_HANDLE"] = attached
             with state.naming(vars(args)):

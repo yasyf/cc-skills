@@ -536,7 +536,9 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
   coordinator's Mac as one blocking Orca question, carrying stdin, each file a word names and each
   picture those show by its path on your Sprite, and for `pr add` and each PR a `job report` registers,
   each picture the PR's Show me shows by its path on your Sprite, then
-  prints all it printed there and exits with its status, in about a second. It runs `job report`, `job ask`,
+  prints all it printed there and exits with its status, in about a second. `drive job report <your
+  job> -` answers once your report is kept, and Jev's checks of it run after: one that refuses it
+  wakes you with a message naming the fix, so send the report again. It runs `job report`, `job ask`,
   `job set --repro`, `job replies`, `job held`, `pr add`, `pr set --flaky`, `plan search`, `datadog`, `fde-scan`, `manual`, `page-owner`, `status` and `wait` on your own
   drive, and refuses, running nothing, any other verb or drive. Its reads read any job as on this
   Mac, such as `drive job report <job>` and `drive job replies <job>` for a job your brief names,
