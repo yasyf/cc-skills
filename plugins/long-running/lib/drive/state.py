@@ -314,6 +314,7 @@ HOLDER_CHARS = 200
 HOLDERS_SECONDS = 5
 DRIVE_LOCK_SECONDS = 300
 WATCH_WRITE_SECONDS = 30
+ADOPT_SECONDS = 120
 WAL_KEPT_BYTES = 64 << 20
 UPDATE_TRIES = 5
 CHANGES_KEPT = 500
@@ -5506,19 +5507,41 @@ class Reservation(NamedTuple):
     members: tuple[Row, ...]
 
 
+def record_at(data: dict, member: Row) -> dict | None:
+    """The record holding a reservation member's field, the member's last step: each step before it walks data from its collection, a dict's by its key and a list's, written by item as <field>=<value>, to the item whose field holds that value, never by its index; None once a step finds nothing."""
+    held: object = data
+    for step in member[:-1]:
+        if isinstance(held, list):
+            field, _, value = step.partition("=")
+            held = next((entry for entry in held if isinstance(entry, dict) and str(entry.get(field)) == value), None)
+        else:
+            held = held.get(step) if isinstance(held, dict) else None
+    return held if isinstance(held, dict) else None
+
+
+def item(field: str, value: object) -> str:
+    """The step of a reservation member naming the item of a list whose field holds value, as record_at walks it, such as a lane death by its dispatch."""
+    return f"{field}={value}"
+
+
+def lapsed(record: dict) -> bool:
+    """Whether a reservation no child adopted within ADOPT_SECONDS of its reserve, by the wall clock, which no test's fixed now moves, so a child that died before adopting holds nothing: its start, a Python import and the CLI's first load, takes seconds and under a minute at the worst load this Mac has seen, and its adopt write's budget is what is left of those seconds."""
+    return record.get("state") == "reserved" and time.time() - record["reserved_at"] >= ADOPT_SECONDS
+
+
 def reserve(data: dict, members: tuple[Row, ...]) -> Reservation | None:
-    """Reserve, inside a write's change, each field members name, as (collection, key, field) of a record that exists, for one launch this process makes once the write commits, the field holding a token record beside the record's other fields: the token, every member, so a child adopts the launch whole or not at all, this process as its starter, by born, no child yet, and reserved; the Reservation, whose token the launch hands its child as --reserved <token>, and which settle and cancel take. Every member is checked before any is changed: while any is held, by holder, it reserves none and gives None, so no second launch starts beside a live or adopted one, while a member whose holder is gone, cancelled, ended or its starter dead unadopted, is taken again."""
-    if any(holder(data[collection][key].get(field)) is not None for collection, key, field in members):
+    """Reserve, inside a write's change, each field members name, as the path record_at walks to a record that exists, (collection, key, field) or deeper, a list's item named by item, never by index, for one launch this process makes once the write commits, the field holding a token record beside the record's other fields: the token, every member, so a child adopts the launch whole or not at all, this process as its starter, by born, no child yet, and reserved; the Reservation, whose token the launch hands its child as --reserved <token>, and which settle and cancel take. Every member is checked before any is changed: while any is held, by holder, it reserves none and gives None, so no second launch starts beside a live or adopted one, while a member whose holder is gone, cancelled, ended or its starter dead unadopted, is taken again."""
+    if any(holder(record_at(data, member).get(member[-1])) is not None for member in members):
         return None
     token = uuid.uuid4().hex
-    for collection, key, field in members:
-        data[collection][key][field] = {"token": token, "members": [list(member) for member in members], "starter": born(os.getpid()), "child": None, "state": "reserved"}
+    for member in members:
+        record_at(data, member)[member[-1]] = {"token": token, "members": [list(each) for each in members], "starter": born(os.getpid()), "child": None, "state": "reserved", "reserved_at": time.time()}
     return Reservation(token, members)
 
 
 def holder(value: object) -> int | None:
-    """The pid of the live process a reservation in a field holds it for, chosen by its state alone: an adopted one's child while it runs, a reserved one's starter while it runs, even when settle named a child, which holds nothing until it adopts; None for a cancelled reservation, an adopted one whose child ended, a reserved one whose starter died, which a new reserve may take and whose late child's adopt then fails, and a field holding no reservation. Liveness reads each process's pid and the second it started, never the pid alone."""
-    if not isinstance(value, dict):
+    """The pid of the live process a reservation in a field holds it for, chosen by its state alone: an adopted one's child while it runs, a reserved one's starter while it runs, even when settle named a child, which holds nothing until it adopts; None for a cancelled reservation, an adopted one whose child ended, a reserved one whose starter died or that lapsed, no child adopting it within ADOPT_SECONDS, which a new reserve may take and whose late child's adopt then fails, and a field holding no reservation. Liveness reads each process's pid and the second it started, never the pid alone."""
+    if not isinstance(value, dict) or lapsed(value):
         return None
     process = {"adopted": value.get("child"), "reserved": value.get("starter")}.get(value.get("state"))
     return process[0] if lives(process) else None
@@ -5526,7 +5549,7 @@ def holder(value: object) -> int | None:
 
 def reserved(data: dict, members: Iterable[Row], token: str) -> list[dict]:
     """Each record of the members that still holds the token, as data holds it, every other member, gone or holding another value, left out."""
-    return [record for member in members if isinstance(record := row_of(data, tuple(member)), dict) and record.get("token") == token]
+    return [record for member in members if (held := record_at(data, tuple(member))) is not None and isinstance(record := held.get(member[-1]), dict) and record.get("token") == token]
 
 
 def adopt(name: str, member: Row, token: str) -> bool:
@@ -5539,13 +5562,13 @@ def adopt(name: str, member: Row, token: str) -> bool:
         records = reserved(data, anchor[0]["members"], token)
         if len(records) != len(anchor[0]["members"]):
             return False
-        if not all(record["state"] == "reserved" and record["child"] in (None, me) or record["state"] == "adopted" and record["child"] == me for record in records):
+        if not all(record["state"] == "reserved" and not lapsed(record) and record["child"] in (None, me) or record["state"] == "adopted" and record["child"] == me for record in records):
             return False
         for record in records:
             record |= {"child": me, "state": "adopted"}
         return True
 
-    return write(name, took)
+    return write(name, took, budget=ADOPT_SECONDS)
 
 
 def adopt_reserved(name: str, member: Row, token: str | None) -> None:
