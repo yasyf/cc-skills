@@ -6774,6 +6774,14 @@ SLOT_LIVE_END = ("done", "stopped")
 SLOT_STOP = "STOP: you no longer hold the {env} staging slot, which {to} holds now: stop every staging command on {env} at once, leave what you started as it stands, and return WAITING on what you wait for; the watch resumes you with GO when the slot is yours again"
 
 
+def staging_owed(data: dict, key: str) -> bool:
+    """Whether a PR waits on its staging test while that test waits on a staging cut, its tester, or the PR's own job testing it, queued or holding a staging slot or waiting on staging serving a commit, so only the slot queue's turn or the top coordinator's START ends the wait and no line about it goes to the session holding its order."""
+    queued = {each["job"] for slot in data["slots"].values() for each in slot["queue"]} | {job_id for slot in data["slots"].values() for job_id in slot_members(slot)}
+    testers = [tester for wait in data["prs"][key]["waits"] if (part := part_wait(data, wait)) and STAGING_PART.fullmatch(part[1]) and (tester := part_tester(data, *part))]
+    testers += [data["prs"][key]["job"]] if data["prs"][key]["job"] in data["jobs"] else []
+    return any(tester in queued or any(STAGING_WAIT.fullmatch(wait) for wait in data["jobs"][tester]["waits"]) for tester in testers)
+
+
 def cut_started(data: dict, held: dict, env: str) -> bool:
     """Whether a staging slot's holder has its START: its job started a release, keeping its build, or waits on staging serving a commit of its cut on this env."""
     job = data["jobs"][held["job"]]

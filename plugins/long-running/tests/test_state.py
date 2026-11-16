@@ -2855,3 +2855,17 @@ def test_a_slot_holder_has_its_start_once_its_job_kept_a_release_build_or_waits_
     data = {"jobs": {"j1": {"waits": [], "release_build": None}, "j2": {"waits": ["staging:api/plat-usw2-staging@abc1234"], "release_build": None}, "j3": {"waits": [], "release_build": "https://buildkite.com/forge/release/builds/17522"}}}
     assert [state.cut_started(data, {"job": job_id}, "plat-usw2-staging") for job_id in ("j1", "j2", "j3")] == [False, True, True]
     assert state.cut_started(data, {"job": "j2"}, "plat-usw2-sandbox") is False
+
+
+def test_a_pr_whose_staging_tester_waits_on_a_cut_is_owed_by_the_slot_queue_and_one_waiting_on_anything_else_is_not(monkeypatch: pytest.MonkeyPatch) -> None:
+    part = "staging test of #42 before it lands"
+    data = {
+        "slots": {"plat-usw2-staging": {"holder": None, "queue": [{"job": "j3"}]}},
+        "orders": {"o1": {"parts": {part: {}}, "jobs": ["j1", "j2", "j3"]}},
+        "jobs": {"j1": {"waits": [], "state": "waiting"}, "j2": {"waits": ["staging:api/plat-usw2-staging@abc1234"], "state": "waiting"}, "j3": {"waits": [], "state": "waiting"}},
+        "prs": {"Forge-AI/monorepo#42": {"waits": [f"o1:{part}"], "job": "j1"}, "Forge-AI/monorepo#43": {"waits": ["j1"], "job": "j1"}},
+    }
+    for tester, owed in (("j2", True), ("j3", True), ("j1", False)):
+        monkeypatch.setattr(state, "part_tester", lambda data, order_id, named, tester=tester: tester)
+        assert state.staging_owed(data, "Forge-AI/monorepo#42") is owed
+    assert state.staging_owed(data, "Forge-AI/monorepo#43") is False
