@@ -260,6 +260,24 @@ def monorepo_providers(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(providers, "at", lambda clone, checkout=None: built(clone))
 
 
+class HomePaths(MonorepoPaths, HomeRepo):
+    """The HomeRepo fake with the monorepo's path reads, so its dangerous, CI config and checkout tool paths stay the monorepo's."""
+
+
+@pytest.fixture
+def home_repo(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The drive's repository the HomeRepo fake with the monorepo's path reads, its release reads LiveRelease's on the drive's clone, over the HOME fakes, with no PR reaching any release unless the test reads its reach itself."""
+
+    def built(clone: Path) -> providers.Providers:
+        roles = HOME | {"repo": HomePaths, "release": LiveRelease}
+        return providers.Providers(None, {}, **{role: made(clone, clone, {}) for role, made in roles.items()})
+
+    monkeypatch.setattr(providers, "of", lambda data: built(Path(data["roles"]["coordinator"]["cwd"])))
+    monkeypatch.setattr(providers, "at", lambda clone, checkout=None: built(clone))
+    monkeypatch.setattr(providers, "default_head", lambda clone: "0" * 40)
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {})
+
+
 @pytest.fixture(autouse=True)
 def unposted_reports(monkeypatch: pytest.MonkeyPatch) -> None:
     """talk.report_line refusing every report, as the drive does for one cci cannot read, so no test reads cci or asks Sonnet for a post; a test of a post stubs it."""
