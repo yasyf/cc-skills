@@ -63,11 +63,8 @@ ON_A_SPRITE = "starts on a Sprite"
 UNTRACKED_PRS = {("pr", "add"): "url", ("pr", "tapped"): "url", ("pr", "ci"): "url", ("pr", "published"): "url", ("job", "set"): "pr", ("job", "held"): "pr"}
 WAITS_CARD = re.compile(rf"https://\S+/archives/\S+/p\d+\S*|[\w.-]+:[\w.-]+|{state.ASK_WAITS.pattern}")
 WAITS_ARGS = ("waits", "redraws", "card", "via", "stands", "dropped", "settled", "superseded", "reopened")
-GO_CI = Path("tools", "ci")
 MAC_BOX_HAND_OVER = "<mac box hand over>"
 CARGO_LOCK = "rust/Cargo.lock"
-GO_CI_BUILT = Path("go", "ci", ".build", "ci.dev")
-LIVE_SAND_NEXT_SECONDS = 60
 CI_CONFIG = re.compile(r"^\.(?:buildkite|github)/")
 CLAUDE_BUILDS = Path.home() / ".local" / "share" / "claude" / "versions"
 READER_RESEARCH = "the Researched: block this build needs"
@@ -95,18 +92,7 @@ STAGING_FIRST = (
     " record on the cci `post` tool, `to: [communicator@{drive}]`, `text: POST <the finding>`, `attrs: {attrs}`, so it posts while he is away too;"
     " then finish the run and return as usual"
 )
-STAGING_MAC_BOX = (
-    "; {tested} changes the dashboard, so run its cases in Iris Staging on a Mac box too, once plat-usw2-staging serves its dashboard, against the sand-next his Mac runs:"
-    " `tools/ci mac-box prove <box> --commit {live}`, the commit of sand-next's newest passed release on core-usw2-auto, then `tools/ci mac-box open <box>` and"
-    " `tools/ci mac-box record <box>` for each case, by the test-mac skill's Prove a desktop change"
-)
 STAGING_APPROVED = ", which waits behind this test: a full pass keeps it, so it lands the PR once the test passes (e5e4f7b), while the lander holds a dangerous change until he is present, his word or tap within 15 minutes (27ea387)"
-STAGING_OWN_HEAD = (
-    "; {tested} changes iris-desktop or sand-next too, the two components `tools/ci mac-box prove` builds from the commit it names, so run them again after"
-    " `tools/ci mac-box prove <box> --commit <its head's full sha>`"
-)
-STAGING_UNREAD = "; the drive could not read that commit ({error}), so read it from `tools/ci release status --manual sand-next --env core-usw2-auto` first"
-LIVE_SAND_NEXT = re.compile(r"^#\d+\s+passed\s+(?:manual )?(?:release|hotfix|rollback)\s.*?\s(?P<commit>[0-9a-f]{7,40})\s+(?:not )?started\b", re.MULTILINE)
 RELEASES_LOG = "releases.log"
 MANUAL_STARTED = re.compile(rf"\S+ #\d+: (?P<build>{github.BUILD.pattern}) — follow it from anywhere: (?P<follow>.+)")
 PROMISED_TIME = re.compile(
@@ -5611,17 +5597,18 @@ def pr_reach(key: str, release: providers.ReleaseProvider) -> dict:
 
 
 def staging_mac_box(name: str, data: dict, job: dict) -> str:
-    """What a staging tester's Staging line adds for each PR its `staging test of #N before it lands` parts name whose paths reach the dashboard, by release_reach: its cases run in Iris Staging on a Mac box against the sand-next commit live on core-usw2-auto, by live_sand_next, and again at its own head when its paths reach iris-desktop or sand-next too, the two MAC_BOX_BUILDS that `tools/ci mac-box prove` builds from the commit it names, so a control calling a route the released sand-next lacks, or an Iris Staging change, fails on staging rather than for him; nothing when none reaches the dashboard. A live commit that could not be read leaves the brief kept, its line naming the read its tester makes first."""
+    """What a staging tester's Staging line adds for each PR its `staging test of #N before it lands` parts name whose paths reach a component the repository's Mac box provider calls affected, by release_reach: the provider's case steps at its live commit, and its rebuild steps for each such PR whose paths reach a component the box builds."""
+    box = providers.of(data).mac_box
     keys = state.tested_prs(data, job)
     reach = release_reach(name, data, keys)
-    if not (dashboard := [key for key in keys if key in reach and "dashboard" in reach[key]["touched"]]):
+    if not (affected := [key for key in keys if key in reach and box.affected(reach[key]["touched"])]):
         return ""
     try:
-        live, unread = live_sand_next(orca.checkout(name, data["roles"]["coordinator"]["cwd"])), ""
-    except (DriveError, github.GithubError) as error:
-        live, unread = "<that commit>", STAGING_UNREAD.format(error=error)
-    own = [key for key in dashboard if providers.of(data).mac_box.builds & set(reach[key]["touched"])]
-    return STAGING_MAC_BOX.format(tested=", ".join(dashboard), live=live) + unread + (STAGING_OWN_HEAD.format(tested=", ".join(own)) if own else "")
+        live, unread = box.live_commit(), ""
+    except (providers.ProviderError, github.GithubError) as error:
+        live, unread = "<that commit>", providers.of(data).staging.unread(str(error))
+    own = [key for key in affected if box.builds & set(reach[key]["touched"])]
+    return box.case_steps(", ".join(affected), live) + unread + (box.rebuild_steps(", ".join(own)) if own else "")
 
 
 def staging_taps(data: dict, job: dict) -> str:
@@ -5631,15 +5618,6 @@ def staging_taps(data: dict, job: dict) -> str:
         for key in state.tested_prs(data, job)
         if key in data["prs"] and (tap := data["prs"][key]["tap"])
     )
-
-
-def live_sand_next(checkout: Path) -> str:
-    """The full commit of the sand-next every Mac updates to: the newest release, hotfix or rollback `tools/ci release status --manual sand-next --env core-usw2-auto` lists as passed, run in the drive's checkout by its built go/ci binary, which skips the build tools/ci may run first, else by tools/ci, within LIVE_SAND_NEXT_SECONDS, its short commit made whole by git there."""
-    ci = checkout / GO_CI_BUILT if (checkout / GO_CI_BUILT).is_file() else checkout / GO_CI
-    listed = github.run([str(ci), "release", "status", "--manual", "sand-next", "--env", "core-usw2-auto"], cwd=str(checkout), timeout=LIVE_SAND_NEXT_SECONDS)
-    if not (found := LIVE_SAND_NEXT.search(listed)):
-        raise DriveError("`tools/ci release status --manual sand-next --env core-usw2-auto` lists no passed sand-next release among its newest builds, so no live sand-next commit was read")
-    return github.run(["git", "-C", str(checkout), "rev-parse", "--verify", f"{found['commit']}^{{commit}}"]).strip()
 
 
 def staging_reach(name: str, data: dict, keys: list[str]) -> dict[str, list[str]]:

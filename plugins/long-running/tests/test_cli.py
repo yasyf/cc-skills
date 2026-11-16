@@ -6802,42 +6802,51 @@ def test_a_tester_a_builders_staging_line_adds_is_briefed_on_its_builders_mac_st
     assert f"; he tapped Approve on {with_pr} at {at}, head 3fd9f47986fa{cli.STAGING_APPROVED}\n" in written
 
 
-def test_a_staging_testers_brief_runs_a_dashboard_prs_cases_on_a_mac_box_at_the_live_sand_next_commit_and_at_its_own_head_when_it_changes_iris_desktop_or_sand_next_too(
+class ProvenMacBox(providers.MacBoxProvider):
+    builds = frozenset({"iris-desktop", "sand-next"})
+    live: str | None = "6c751b8b101597fbef4464a3cc7dee314ef778a1"
+
+    def affected(self, components: list[str]) -> bool:
+        return "dashboard" in components
+
+    def live_commit(self) -> str:
+        if not self.live:
+            raise providers.ProviderError("no passed release")
+        return self.live
+
+    def case_steps(self, tested: str, live: str) -> str:
+        return f"; cases of {tested} at {live}"
+
+    def rebuild_steps(self, tested: str) -> str:
+        return f"; again at the head of {tested}"
+
+
+class UnreadStaging(providers.StagingProvider):
+    def unread(self, error: str) -> str:
+        return f"; unread ({error})"
+
+
+def test_a_staging_testers_brief_runs_the_mac_box_providers_case_steps_for_a_pr_reaching_a_component_it_calls_affected_at_its_live_commit_and_its_rebuild_steps_when_the_pr_changes_a_build_of_the_box(
     home_repo: None,
     run: Run, with_pr: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    live = "6c751b8b101597fbef4464a3cc7dee314ef778a1"
-    listed = (
-        "#15242  failed  rollback  sand-next  core-usw2-auto  1c6bc837a8  started 18:58 PT  -  https://buildkite.com/forge/release/builds/15242\n"
-        "#15231  passed  manual dry-run  sand-next  core-usw2-auto  9f00aa11bb  started 17:02 PT  -  https://buildkite.com/forge/release/builds/15231\n"
-        "#15220  passed  manual release  sand-next  core-usw2-auto  6c751b8b10  started 21:19 PT  -  https://buildkite.com/forge/release/builds/15220\n"
-    )
+    key = "Forge-AI/monorepo#42"
     reaching(monkeypatch, with_pr)
     assert run("pr", "add", PR, "--job", "j1", *LEAD)[0] == 0
     assert keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\nSTAGING: #42 switch a chat's topology in the app and write to a subagent\n") == (0, "")
     (tester_id,) = [job_id for job_id, job in state.load("demo")["jobs"].items() if state.builds_nothing(job)]
-    asked: list[list[str]] = []
+    provide(monkeypatch, tmp_path, repo=HomeRepo, mac_box=ProvenMacBox, staging=UnreadStaging)
 
-    def answered(cmd: list[str], cwd: str | None = None, **_: object) -> str:
-        asked.append(cmd)
-        if cmd[1:] == ["release", "status", "--manual", "sand-next", "--env", "core-usw2-auto"] and cwd == str(tmp_path):
-            return listed
-        if cmd == ["git", "-C", str(tmp_path), "rev-parse", "--verify", "6c751b8b10^{commit}"]:
-            return live + "\n"
-        return pytest.fail(f"unexpected {cmd}")
+    def staging() -> str:
+        assert run("job", "brief", tester_id)[0] == 0
+        return next(line for line in Path(state.load("demo")["jobs"][tester_id]["brief"]).read_text().splitlines() if line.startswith("Staging: "))
 
-    monkeypatch.setattr(github, "run", answered)
-    monkeypatch.setattr(orca, "checkout", lambda name, cwd, wait=0: tmp_path)
     for touched, boxed, own in ((["api"], False, False), (["dashboard"], True, False), (["dashboard", "sand-next"], True, True), (["dashboard", "iris-desktop"], True, True)):
         monkeypatch.setattr(cli, "release_reach", lambda name, data, keys, touched=touched: {key: {"touched": touched} for key in keys})
-        assert run("job", "brief", tester_id)[0] == 0
-        staging = next(line for line in Path(state.load("demo")["jobs"][tester_id]["brief"]).read_text().splitlines() if line.startswith("Staging: "))
-        assert (f"`tools/ci mac-box prove <box> --commit {live}`" in staging, "--commit <its head's full sha>" in staging) == (boxed, own)
-    assert len(asked) == 6
-    monkeypatch.setattr(github, "run", lambda cmd, cwd=None, **_: listed.splitlines()[0])
-    assert run("job", "brief", tester_id)[0] == 0
-    staging = next(line for line in Path(state.load("demo")["jobs"][tester_id]["brief"]).read_text().splitlines() if line.startswith("Staging: "))
-    assert ("`tools/ci mac-box prove <box> --commit <that commit>`" in staging, "lists no passed sand-next release" in staging) == (True, True)
+        line = staging()
+        assert (f"; cases of {key} at {ProvenMacBox.live}" in line, f"; again at the head of {key}" in line) == (boxed, own)
+    monkeypatch.setattr(ProvenMacBox, "live", None)
+    assert f"; cases of {key} at <that commit>; unread (no passed release)" in staging()
 
 
 def test_pr_set_staging_stages_a_monorepo_pr_in_one_save_as_its_builders_staging_line_does_and_a_wait_on_its_unlisted_staging_part_names_it(
