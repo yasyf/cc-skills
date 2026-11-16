@@ -53,6 +53,7 @@ os.execv = os.execve = os.execvp = refuse
 
 from drive import state, watch
 
+state.detach = refuse
 if not state.scratch():
     raise SystemExit("try-watch: LONG_RUNNING_STATE must name a copy of the drives, never their live state")
 
