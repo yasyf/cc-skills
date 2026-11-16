@@ -184,7 +184,6 @@ STAGING_WAIT = re.compile(r"staging:(?P<target>[\w.-]+)/(?P<env>[\w.-]+)@(?P<com
 STAGING_TEST = "staging test of #{number} before it lands"
 STAGING_PART = re.compile(STAGING_TEST.format(number=r"(?P<number>\d+)"))
 STAGING_PARTS = re.compile(r"staging test of (?P<numbers>#\d+(?:(?:,| with| and)+ #\d+)*) before (?:it lands|they land)")
-STAGING_ENV = "plat-usw2-staging"
 AFTER_MERGE_PASS = "after-merge staging pass"
 PID_WAIT = re.compile(r"pid:(?P<pid>\d+)(?:@(?P<started>\d+))?")
 NAMED_PIDS = re.compile(r"\bpid:(?P<pids>\d+(?:,\d+)*)(?:@(?P<box>[A-Za-z][\w.-]*))?(?!\w)")
@@ -3139,7 +3138,7 @@ def releasing(data: dict, order_id: str) -> bool:
     """Whether an order covers a production release: a job of it starts a cut reaching past staging and sandbox, by starts_cut and brief.rehearsal."""
     from drive import brief
 
-    return any(starts_cut(job) and not brief.rehearsal(job["brief_flags"]["release"]) for job_id in data["orders"][order_id]["jobs"] if (job := data["jobs"].get(job_id)))
+    return any(starts_cut(job) and not brief.rehearsal(job["brief_flags"]["release"], data) for job_id in data["orders"][order_id]["jobs"] if (job := data["jobs"].get(job_id)))
 
 
 def release_held(data: dict, key: str) -> list[str]:
