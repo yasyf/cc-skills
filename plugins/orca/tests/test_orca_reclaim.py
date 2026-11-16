@@ -1909,6 +1909,23 @@ class OrcaArgvTest(unittest.TestCase):
         self.assertIn('rev-list -1 "$ref" --not HEAD --remotes=origin', argv[0][-1])
         self.assertIn('rev-list --first-parent --max-parents=0 "$ref" --not HEAD --remotes=origin', argv[0][-1])
 
+    def test_checkout_reads_each_shared_branch_root_once_per_snapshot(self):
+        branches = [(f"known-{n}", f"tip-{n}", "known") for n in range(60)]
+        branches += [(f"unknown-{n}", f"other-{n}", "unknown") for n in range(60)]
+        branches.append(("unrooted", "unrooted-tip", ""))
+        refs = " ".join(":".join(row) for row in branches)
+        output = f"https://github.com/acme/repo\n{refs}\n\n# branch.oid head\n# branch.head lane\n"
+        remote = orca_gc.CcRemote(Path("/nonexistent"))
+        with mock.patch.object(remote, "ssh", return_value=subprocess.CompletedProcess([], 0, output, "")), \
+             mock.patch.object(orca_gc, "on_github_trunk", return_value=False), \
+             mock.patch.object(orca_gc, "github_compare", side_effect=lambda root, _: {"status": "ahead"} if root == "known" else None) as compare:
+            found = remote.checkout(SPRITE)
+            self.assertEqual(found.off_origin, tuple((name, tip) for name, tip, root in branches if root != "unknown"))
+            self.assertEqual(compare.call_args_list, [mock.call("known", "acme/repo"), mock.call("unknown", "acme/repo")])
+            compare.reset_mock()
+            remote.checkout(SPRITE)
+            self.assertEqual(compare.call_count, 2)
+
     def test_a_rate_limit_on_the_landed_check_reads_as_unsaved_not_a_crash(self):
         class Limited:
             def __contains__(self, head: str) -> bool:
