@@ -3,6 +3,7 @@ import os
 import re
 import subprocess
 from pathlib import Path
+from unittest.mock import ANY
 
 import pytest
 from conftest import commit_files, git_in
@@ -55,6 +56,8 @@ def node(**overrides: object) -> dict:
         "commits": {"nodes": [{"commit": {"statusCheckRollup": {"contexts": {"nodes": GREEN}}}}]},
         "stack": None,
         "baseRef": None,
+        "updatedAt": "2026-11-16T10:00:00Z",
+        "signatureChecks": {"nodes": []},
     }
     return {**base, **overrides}
 
@@ -171,6 +174,7 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
             "ejected_at": None,
             "cancelled_at": None,
             "key": "a/one#1",
+            "signature": ANY,
             "native": [],
             "trunk": None,
             "required_checks": [GATE, "buildkite/test"],
@@ -203,6 +207,7 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
             "ejected_at": None,
             "cancelled_at": None,
             "key": "a/one#2",
+            "signature": ANY,
             "native": [("a/one#1", "open"), ("a/one#2", "merged")],
             "trunk": "main",
             "required_checks": [GATE, "buildkite/test"],

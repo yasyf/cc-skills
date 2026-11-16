@@ -2945,6 +2945,10 @@ def test_the_watch_moves_onto_a_newer_install_only_when_its_python_differs_or_it
 
     own, same, changed = plugin("1.0.1", "PASS = 1\n"), plugin("1.0.2", "PASS = 1\n"), plugin("1.0.3", "PASS = 2\n")
     monkeypatch.setattr(install, "DRIVE", own)
+    monkeypatch.setattr(install, "upgraded", lambda: changed)
+    monkeypatch.setattr(install, "STARTED", time.monotonic())
+    assert install.watch_upgraded() is None
+    monkeypatch.setattr(install, "STARTED", time.monotonic() - install.WATCH_MOVES_EVERY)
     for newer, moved in ((same, None), (changed, changed)):
         monkeypatch.setattr(install, "upgraded", lambda newer=newer: newer)
         assert install.watch_upgraded() == moved

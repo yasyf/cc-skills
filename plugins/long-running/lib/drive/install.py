@@ -22,6 +22,8 @@ POLL_SECONDS = 20
 READ_EVERY_SECONDS = 60
 CI_HEARD = "ci-heard.sqlite3"
 CI_HEARD_SECONDS = 600
+WATCH_MOVES_EVERY = 15 * 60
+STARTED = time.monotonic()
 FAILED_TEST = re.compile(r"^\S+ (?:FAILED|ERROR) (?P<test>\S+\.py(?:::[^\r\n]+?)?)(?: - [^\r\n]*)?\r?$", re.MULTILINE)
 GITHUB_REPO = re.compile(r"github\.com[/:]([^/]+/[^/]+?)(?:\.git)?/?$")
 DEFAULT_BRANCH = "refs/heads/default"
@@ -505,8 +507,8 @@ def upgraded() -> Path | None:
 
 
 def watch_upgraded() -> Path | None:
-    """The drive of the newest installed long-running when it runs other code than this one's, so the watch moves onto an install only when that install changes what the watch runs: a newer install whose lib and bin/drive are byte for byte this one's is not one, unless this install's folder is gone, as a pruned cache leaves it."""
-    if not (newer := upgraded()):
+    """The drive of the newest installed long-running when it runs other code than this one's, so the watch moves onto an install only when that install changes what the watch runs: a newer install whose lib and bin/drive are byte for byte this one's is not one, unless this install's folder is gone, as a pruned cache leaves it. A watch process moves at most once per WATCH_MOVES_EVERY of its own run, onto the newest install then, so a burst of releases restarts it once rather than once per release, each restart owing GitHub a read of every PR it holds."""
+    if time.monotonic() - STARTED < WATCH_MOVES_EVERY or not (newer := upgraded()):
         return None
     return newer if not DRIVE.exists() or code_digest(newer.resolve().parents[1]) != code_digest(DRIVE.parents[1]) else None
 

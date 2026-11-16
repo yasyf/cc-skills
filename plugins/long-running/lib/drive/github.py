@@ -57,7 +57,8 @@ PATHS = "headRefOid baseRefOid changedFiles files(first: 100) { nodes { path } p
 STACKS_AGE = "60s"
 STACK = "stack { baseRefName entries(first: 100) { nodes { position pullRequest { number state } } } }"
 UNDER = "baseRef { associatedPullRequests(states: OPEN, first: 2) { nodes { number } } }"
-READ = f"{FIELDS} {UNDER} {STACK}"
+SIGNATURE = "updatedAt headRefOid mergeable signatureChecks: commits(last: 1) { nodes { commit { statusCheckRollup { state contexts(first: 0) { checkRunCountsByState { state count } statusContextCountsByState { state count } } } } } }"
+READ = f"{FIELDS} {UNDER} {STACK} {SIGNATURE}"
 DELETED_AUTHOR = "ghost"
 BOT_PREFIX = "app/"
 PICK = re.compile(r" \(#(\d+)\)$")
@@ -449,6 +450,7 @@ def parse(payload: dict, keys: list[str]) -> dict[str, dict]:
         key: flatten(node)
         | {
             "key": key,
+            "signature": signature(node),
             "native": entries(repo_of(key), node["stack"]) if node["stack"] else [],
             "trunk": node["stack"]["baseRefName"] if node["stack"] else None,
             "required_checks": rule_checks(repository),
@@ -601,6 +603,22 @@ def fetch(keys: list[str], into: dict[str, str] | None = None) -> tuple[dict[str
         if key in into:
             read["base_pr"] = found[into[key]]
     return {key: found[key] for key in keys if key in found}, GithubError("; ".join(refused)) if refused else None
+
+
+def signature(node: dict) -> str:
+    """What a PR's read must differ in for a fresh read to say anything new: GitHub's updatedAt, its head, its mergeability and how many of its head's checks sit in each state, which a check finishing moves though it leaves updatedAt alone."""
+    return json.dumps([node["updatedAt"], node["headRefOid"], node["mergeable"], node["signatureChecks"]], sort_keys=True)
+
+
+def signatures(keys: list[str]) -> tuple[dict[str, str], GithubError | None]:
+    """Each PR's signature, MERGEABILITY_PER_QUERY PRs of one repository to a `gh api graphql` call, QUERIES_AT_ONCE at a time: the light read a watch that starts again makes in place of reading every PR it holds whole. It gives what answered and an error joining what did not, as fetch does."""
+    found, refused = {}, []
+    for chunk, read in at_once(by_repository(keys, MERGEABILITY_PER_QUERY), lambda chunk: nodes(graphql(query(chunk, SIGNATURE), f"the signatures of {len(chunk)} PRs of {repo_of(chunk[0])}"), chunk)):
+        if isinstance(read, GithubError):
+            refused.append(str(read))
+        else:
+            found |= {key: signature(node) for key, node in read.items()}
+    return found, GithubError("; ".join(refused)) if refused else None
 
 
 def mergeability(keys: list[str]) -> tuple[dict[str, dict], GithubError | None]:
