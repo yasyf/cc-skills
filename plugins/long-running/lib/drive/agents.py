@@ -414,7 +414,7 @@ def start_posts(name: str, moment: datetime) -> None:
             data["posts"]["mark"] = newest
             return data
 
-        data = state.update(name, None, start_posts_write)
+        data = state.write(name, start_posts_write)
         return
     data = state.load(name)
     errors, carried, young = [], {}, []
@@ -440,7 +440,7 @@ def start_posts(name: str, moment: datetime) -> None:
             data["carried"].setdefault(seq, why)
         data["posts"]["mark"] = min(young) - 1 if young else newest
 
-    state.update(name, None, marked)
+    state.write(name, marked)
     if errors:
         raise state.DriveError("; ".join(errors))
 
@@ -583,7 +583,7 @@ def resume_job(name: str, job_id: str, bg: dict, text: str) -> None:
     def resume_job_write(data: dict):
         data["jobs"][job_id]["bg"].update(session=resumed, resumed=state.stamp())
 
-    state.update(name, None, resume_job_write)
+    state.write(name, resume_job_write)
     if resumed != bg["session"]:
         if found:
             subprocess.Popen(["claude", "rm", found[0]], cwd=bg["cwd"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
@@ -608,7 +608,7 @@ def take_pointed(name: str, job_id: str) -> list[str]:
         pointed, bg["pointed"] = bg["pointed"], []
         return pointed
 
-    pointed = state.update(name, None, take_pointed_write)
+    pointed = state.write(name, take_pointed_write)
     return pointed
 
 
@@ -761,7 +761,7 @@ def hold_rules(name: str, session: str) -> list[str]:
             state.seat(data, session)["rules"] = render.rules_digests(data, state.session_role(data, session), state.session_seat(data, session))
         return due
 
-    return state.update(name, None, held_rules)
+    return state.write(name, held_rules)
 
 
 def due_rules(data: dict, session: str) -> list[str]:
@@ -916,4 +916,4 @@ def hold(payload: dict) -> None:
             state.start(job)
             superseded.hear(data, job_id, prompt, state.parse_time(opening_row(transcript_of(payload))["timestamp"]))
 
-    state.update(names[0], None, hold_write)
+    state.write(names[0], hold_write)
