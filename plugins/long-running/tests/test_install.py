@@ -880,6 +880,16 @@ def test_a_reload_orca_refuses_once_is_tried_again_after_a_pause_and_reloads(fak
     assert install.RELOAD_RETRY_SECONDS in git.sleeps and defects == []
 
 
+def test_a_reload_waiting_on_a_session_never_idle_for_a_second_types_at_its_turn_end(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    waits: list[float] = []
+    monkeypatch.setattr(orca, "live_pid", lambda session: 7)
+    monkeypatch.setattr(install, "session_status", lambda pid, session: "busy")
+    monkeypatch.setattr(install, "reopen", lambda argv: None)
+    monkeypatch.setattr(install, "sleep", lambda seconds: waits.append(seconds) or install.turn_ends("s1").touch())
+    assert install.idle_pid("s1") == 7
+    assert waits == [1]
+
+
 def held(git: FakeGit, capsys: pytest.CaptureFixture[str]) -> list[str]:
     while git.detached:
         assert cli.main(git.detached.pop(0)) == 0

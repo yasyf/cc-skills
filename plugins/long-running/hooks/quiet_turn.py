@@ -114,8 +114,13 @@ def turn_text(transcript: Path) -> list[str]:
 
 
 def main() -> None:
-    if reason := block_reason(agents.seen(json.load(sys.stdin))):
+    from drive import install
+
+    payload = agents.seen(json.load(sys.stdin))
+    if reason := block_reason(payload):
         print(json.dumps({"decision": "block", "reason": reason}))
+    elif not payload.get("agent_id"):
+        install.turn_ended(payload.get("session_id") or "")
 
 
 if __name__ == "__main__":

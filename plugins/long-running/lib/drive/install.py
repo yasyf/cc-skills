@@ -47,6 +47,8 @@ UPDATE_LOCK = ".update.lock"
 RELOAD_WAIT_SECONDS = 30
 RELOAD_EVERY_SECONDS = 3600
 RELOAD_RETRY_SECONDS = 30
+TURN_ENDS = "turn-ends"
+TURN_END_SECONDS = 5
 RELOAD_TRIES = 4
 RELOAD_DEFECT_AFTER = 2
 RETRIED = ("not reloaded", "/reload-plugins typed in")
@@ -1673,12 +1675,38 @@ def idle_pid(session: str, owing: Callable[[], bool] | None = None) -> int | Non
 
     if not (pid := orca.live_pid(session)):
         return None
-    while (status := session_status(pid, session)) != "idle" or (owing and owing()):
+    since = time.time()
+    while ((status := session_status(pid, session)) != "idle" and not turn_ended_since(session, since)) or (owing and owing()):
         if status is None:
             return None
         reopen(sys.argv[1:])
         sleep(1)
     return pid
+
+
+def turn_ends(session: str) -> Path:
+    """The file the Stop hook touches as the session's turn ends, which a reload waiting on that session reads as its moment."""
+    path = state.root() / TURN_ENDS / session
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def turn_ended_since(session: str, since: float) -> bool:
+    """Whether the session's turn ended since the reload began waiting, within TURN_END_SECONDS, so a reload types into a session that is never idle for a whole second, where Claude Code queues it as the next input and runs it between turns."""
+    path = turn_ends(session)
+    return path.exists() and (ended := path.stat().st_mtime) >= since - TURN_END_SECONDS and time.time() - ended <= TURN_END_SECONDS
+
+
+def turn_ended(session: str) -> None:
+    """From the Stop hook as a drive session's turn ends: mark the moment for any reload waiting on it, and start the seat's reload when it runs an older install than the newest and no process waits to type one, unless it is the communicator owing him an answer, by "a reload that waits for idle should instead fire at the session's next turn end"."""
+    turn_ends(session).touch()
+    for drive in state.session_drives(session):
+        for seat, held in state.bound_sessions(state.saved(drive)).items():
+            if held["session"] != session or reloaded_onto(drive, seat) >= newest_update()[0] or reload_held(drive, seat):
+                continue
+            if seat.startswith("communicator") and owes_him(drive):
+                continue
+            state.detach(drive, ["reload", "--seat", seat], RELOADS_LOG)
 
 
 def owes_him(drive: str) -> bool:
