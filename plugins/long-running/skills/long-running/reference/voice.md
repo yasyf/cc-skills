@@ -49,6 +49,10 @@ After: Run page v3 is a priority lane now. Left: rework #53430 and #53305 to rea
 Before: *Needs your pick: hotfix production's executor now, or prove the resume on staging first.* … *The choice* • *Hotfix now:* … • *Prove on staging first:* adds about 30 minutes … (the card was closed, so it had no buttons, and "resume" was never explained)
 After: nothing. He had already picked "prove on staging first, no hotfix", so there was no question to ask. A question he has not answered goes out with its buttons, and it explains every term his answer turns on, such as "resume: a run that stops partway picks up later from what it saved".
 
+**Green before it was read.**
+Before: Merged nothing yet; #57803, #57810 and #57822 are all approved and green. (52 seconds later: "CI is still running on them, not green yet.")
+After: #57803, #57810 and #57822 are approved; CI is still running on them, and I read it again at 3:10 PM. Green, merged, live and fixed are words for a state read this turn, from the check, the merge or the deploy itself. A state not read this turn is said as not read.
+
 ## The gold standard, for a long post
 
 His exemplar is <https://poetic-technology.slack.com/archives/C0C4WDYA9UM/p1794717967971669|the Nov 14 post on agent inboxes>. When he asks for an explanation, write it like that one:
