@@ -588,12 +588,14 @@ def provers(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 def base_providers(monkeypatch: pytest.MonkeyPatch) -> None:
     """Every drive's providers the base classes, which do nothing, unless a test names its own by provide()."""
     monkeypatch.setattr(providers, "of", lambda data: providers.Providers(None))
+    monkeypatch.setattr(providers, "at", lambda clone, checkout=None: providers.Providers(None))
 
 
 def provide(monkeypatch: pytest.MonkeyPatch, checkout: Path, **roles: type[providers.Provider]) -> None:
     """Give every drive the providers roles names, each running its commands in checkout, the base class for each role left out."""
     built = {role: made(checkout, checkout, {}) for role, made in roles.items()}
     monkeypatch.setattr(providers, "of", lambda data: providers.Providers(None, {}, **built))
+    monkeypatch.setattr(providers, "at", lambda clone, checkout=None: providers.Providers(None, {}, **built))
 
 
 class HomeRepo(providers.RepoProvider):
