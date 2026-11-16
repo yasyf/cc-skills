@@ -73,7 +73,7 @@ def land(args: argparse.Namespace) -> None:
             print(f"{lane['id']}: {'LANDS ' + ', '.join(verdict.keys) if verdict.lands else 'HOLDS'}; {verdict.why}")
             if verdict.lands and (stager.live(args.drive) or args.dry_run):
                 with reserved(args.drive, list(verdict.keys)) as mine:
-                    print(merged(args.drive, lane, list(verdict.keys), any(landing.dangerous(by_key[key]) for key in verdict.keys), args.dry_run or not stager.live(args.drive)) if mine else f"{verdict.keys[0]}: another lander holds it")
+                    print(merged(args.drive, lane, list(verdict.keys), any(landing.guarded(by_key[key]) for key in verdict.keys), args.dry_run or not stager.live(args.drive)) if mine else f"{verdict.keys[0]}: another lander holds it")
 
 
 def spawn(drive: str) -> None:

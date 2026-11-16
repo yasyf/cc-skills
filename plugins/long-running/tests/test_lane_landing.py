@@ -7,7 +7,7 @@ SAFE: dict = {}
 MIGRATION = {"stored data": ["api/migrations/1700_add_runs.sql"]}
 
 
-def row(number: int, head: str = "h", classes: dict | None = SAFE, under: int | None = None, **changes: object) -> dict:
+def row(number: int, head: str = "h", classes: dict | None = SAFE, under: int | None = None, guarded: dict | None = None, **changes: object) -> dict:
     return {
         "repo": "Forge-AI/monorepo",
         "number": number,
@@ -16,6 +16,7 @@ def row(number: int, head: str = "h", classes: dict | None = SAFE, under: int | 
         "held": None,
         "checks": "pass",
         "dangerous": None if classes is None else {"head": head, "classes": classes},
+        "guarded": None if classes is None else {"head": head, "classes": classes if guarded is None else guarded},
         "under": f"Forge-AI/monorepo#{under}" if under else None,
     } | changes
 
@@ -83,3 +84,13 @@ def test_a_pr_sitting_on_a_pr_outside_its_lane_never_lands_since_the_queue_would
 def test_a_pr_whose_stack_link_is_unread_never_lands() -> None:
     unlinked = {field: value for field, value in row(1).items() if field != "under"}
     assert landing.verdicts(lane(unlinked), None, NOW)[0].lands is False
+
+
+def test_a_runtime_api_change_merges_with_no_staging_pass_while_he_is_present_and_holds_while_he_is_away() -> None:
+    api = row(57676, guarded={"runtime-api": ["go/runtime-api/handler.go"]})
+    assert landing.verdicts(lane(api), NOW - timedelta(minutes=5), NOW)[0].lands is True
+    assert landing.verdicts(lane(api), NOW - timedelta(minutes=20), NOW)[0].why == "Forge-AI/monorepo#57676 changes runtime-api and lands only while he is present"
+
+
+def test_a_head_the_presence_classes_have_not_read_never_lands() -> None:
+    assert landing.verdicts(lane(row(1) | {"guarded": None}), NOW, NOW)[0].lands is False

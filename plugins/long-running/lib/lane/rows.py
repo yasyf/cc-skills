@@ -2,6 +2,7 @@
 
 import hashlib
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from functools import cache
 from pathlib import Path
 
@@ -16,6 +17,7 @@ DANGER = Path(__file__).with_name("danger.md")
 BEFORE_MERGE = "plainly needs a staging pass before merge, by his 14:33 and 14:55 rulings"
 DANGER_AT = 0.6
 JUDGED_AT = 20
+JUDGES = 6
 FILES_SHOWN = 150
 JUDGE_SECONDS = 60.0
 
@@ -63,7 +65,7 @@ def ours() -> str:
 
 def unjudged(lanes: dict[str, dict], key: str) -> list[str]:
     """Each open lane PR with a head and no verdict at it under the rule whose key is given, so a change to danger.md judges every open head again."""
-    return list(dict.fromkeys(landing.key(row) for lane in lanes.values() for row in lane["prs"] if row["head"] and not row.get("merged") and not (landing.judged(row) and row["dangerous"].get("rule") == key)))
+    return list(dict.fromkeys(landing.key(row) for lane in lanes.values() for row in lane["prs"] if row["head"] and not row.get("merged") and not (landing.judged(row) and row["dangerous"].get("rule") == key and row["guarded"].get("rule") == key)))
 
 
 def judge(drive: str, read: dict[str, dict]) -> int:
@@ -73,14 +75,19 @@ def judge(drive: str, read: dict[str, dict]) -> int:
         return 0
     files = readable(waiting)
     verdicts: dict[str, dict] = {}
-    for start in range(0, len(files), JUDGED_AT):
-        chunk = {key: files[key] for key in list(files)[start : start + JUDGED_AT]}
-        verdicts |= {pr: verdict | {"rule": key} for pr, verdict in asked(drive, chunk, read).items()}
+    chunks = [dict(list(files.items())[start : start + JUDGED_AT]) for start in range(0, len(files), JUDGED_AT)]
+    with ThreadPoolExecutor(max_workers=JUDGES) as pool:
+        for answered in pool.map(lambda chunk: asked(drive, chunk, read), chunks):
+            verdicts |= {pr: verdict | {"rule": key} for pr, verdict in answered.items()}
+    marks = presence(drive, files, key)
 
     def written(lanes: dict[str, dict]) -> int:
         count = 0
         for lane in lanes.values():
             for row in lane["prs"]:
+                if (mark := marks.get(landing.key(row))) and mark["head"] == read[landing.key(row)]["head"] and (row.get("guarded") or {}).get("rule") != key:
+                    row["guarded"] = mark
+                    count += 1
                 if (verdict := verdicts.get(landing.key(row))) and verdict["head"] == read[landing.key(row)]["head"] and (row.get("dangerous") or {}).get("rule") != key:
                     row["dangerous"] = verdict
                     count += 1
@@ -149,3 +156,13 @@ def readable(keys: list[str]) -> dict[str, tuple[str, list[str]]]:
 
 def rule_key(drive: str) -> str:
     return hashlib.sha256(rule(drive).encode()).hexdigest()[:16]
+
+
+def presence(drive: str, files: dict[str, tuple[str, list[str]]], key: str) -> dict[str, dict]:
+    """Each head's presence mark, {head, classes, rule}: the repository's broad [[dangerous]] tables and its provider's dangerous_paths, by state.dangerous_in as the providers of the drive's checkout read them, which hold a merge until he is present but never ask a staging pass; none with no checkout configured, so those heads stay unjudged and hold."""
+    from drive import providers, state
+
+    if not (checkout := store.config(drive)["checkout"]):
+        return {}
+    found = providers.at(Path(checkout))
+    return {pr: {"head": head, "classes": state.dangerous_in(found.config, found.repo, paths), "rule": key} for pr, (head, paths) in files.items()}

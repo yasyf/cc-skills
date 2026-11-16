@@ -21,10 +21,16 @@ def key(row: dict) -> str:
 
 
 def judged(row: dict) -> bool:
-    return bool(row.get("dangerous")) and row["dangerous"]["head"] == row["head"]
+    return all(bool(row.get(gate)) and row[gate]["head"] == row["head"] for gate in ("dangerous", "guarded"))
+
+
+def guarded(row: dict) -> bool:
+    """Whether the repository's broad [[dangerous]] classes mark the head, so it merges only while he is present."""
+    return bool(row["guarded"]["classes"])
 
 
 def dangerous(row: dict) -> bool:
+    """Whether the narrow danger page holds the head for a staging pass before it merges."""
     return bool(row["dangerous"]["classes"])
 
 
@@ -57,7 +63,7 @@ def unready(row: dict) -> str | None:
 
 
 def stack_verdict(stack: list[dict], heard: datetime | None, moment: datetime) -> Verdict:
-    """What lands of one stack, bottom first: the longest run from its bottom whose PRs are each ready, cut at a dangerous PR unless the stack's proof passed at its top head and he is present."""
+    """What lands of one stack, bottom first: the longest run from its bottom whose PRs are each ready, cut at a PR the danger page holds until the stack's proof passed at its top head, and at a PR the repository's [[dangerous]] classes mark while he is not present; the two gates are apart, so a runtime-api change merges with no staging pass while he is present and is tested after."""
     landing: list[str] = []
     if below := stack[0].get("under"):
         return Verdict((), False, f"{key(stack[0])} sits on {below}, outside this lane, which the merge queue would land with it")
@@ -68,8 +74,8 @@ def stack_verdict(stack: list[dict], heard: datetime | None, moment: datetime) -
             return Verdict(tuple(landing), bool(landing), f"{key(row)} waits: {why}")
         if dangerous(row) and not proven(stack):
             return Verdict(tuple(landing), bool(landing), f"{key(row)} waits on a staging proof at {stack[-1]['head'][:12]}, the stack's top head")
-        if dangerous(row) and not present(heard, moment):
-            return Verdict(tuple(landing), bool(landing), f"{key(row)} is dangerous and lands only while he is present")
+        if guarded(row) and not present(heard, moment):
+            return Verdict(tuple(landing), bool(landing), f"{key(row)} changes {', '.join(row['guarded']['classes'])} and lands only while he is present")
         landing.append(key(row))
     return Verdict(tuple(landing), bool(landing), "every open PR of the stack lands" if landing else "every PR of the stack merged")
 
