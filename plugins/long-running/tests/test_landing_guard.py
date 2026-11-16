@@ -337,10 +337,12 @@ def test_a_sprite_lanes_release_verb_is_refused_while_the_coordinators_mac_does_
     assert landing_guard.deny_reason(bash(RESUME, session_id="sprite")) == landing_guard.RELEASE_UNASKED.format(release=RESUME, error="drive: no run")
 
 
-def test_a_sprite_lane_whose_folder_has_no_origin_head_is_refused_rather_than_judged_by_no_provider(monkeypatch: pytest.MonkeyPatch, no_calls: None) -> None:
+def test_a_sprite_lane_whose_folder_has_no_origin_head_goes_through_unjudged_with_a_note(monkeypatch: pytest.MonkeyPatch, no_calls: None) -> None:
     monkeypatch.setenv(state.REMOTE_LANE_ENV, "1")
+    monkeypatch.setattr(landing_guard, "UNJUDGED", [])
     monkeypatch.setattr(landing_guard.providers, "default_head", lambda clone: (_ for _ in ()).throw(landing_guard.providers.ProviderError(f"{clone} has no origin/HEAD")))
-    assert landing_guard.deny_reason(bash(RESUME, session_id="sprite")) == landing_guard.PROVIDERS_UNREAD.format(command=RESUME, error="/work has no origin/HEAD")
+    assert landing_guard.deny_reason(bash(RESUME, session_id="sprite")) is None
+    assert landing_guard.UNJUDGED == [landing_guard.PROVIDERS_UNREAD.format(command=RESUME, error="/work has no origin/HEAD")]
 
 
 @pytest.mark.parametrize(

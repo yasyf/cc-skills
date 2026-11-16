@@ -132,15 +132,20 @@ CUT_UNRESOLVED = (
 )
 UNJUDGED: list[str] = []
 JOB_UNREAD = (
-    "Refused on purpose: which cluster this release build starts a Job on could not be read, so `{command}`"
-    " waits until it can: {error}. Run it again once CI answers"
+    "landing_guard let `{command}` through unjudged: which cluster this release build starts a Job on could not be read ({error}),"
+    " and a gate that cannot read its inputs lets the call go"
+)
+HOLD_OPEN = (
+    "landing_guard let `{command}` through unjudged: whether he holds every release could not be read ({error}), and it reaches"
+    " only staging or sandbox, where a gate that cannot read its inputs lets the call go"
 )
 JOB_UNASKED = (
     "Refused on purpose: this Sprite holds no copy of the drive, so it asked the coordinator's Mac with `drive job held --cluster`"
     " whether a Job may start on {cluster} now, and the Mac did not say: {error}. Run it again once it answers"
 )
 PROVIDERS_UNREAD = (
-    "Refused on purpose: the providers that say whether `{command}` writes a release failed to load, so it waits until they do: {error}"
+    "landing_guard let `{command}` through unjudged: the providers that say whether it writes a release failed to load ({error}),"
+    " and a gate that cannot read its inputs lets the call go"
 )
 RELEASE_CANCEL = (
     "Refused on purpose: a drive job never cancels a release, one it started included, however wide its plan reads, by his"
@@ -523,7 +528,8 @@ def cut_reason(words: list[str], shell: Shell) -> str | None:
     try:
         made = release_guard(shell, names)
     except providers.ProviderError as error:
-        return PROVIDERS_UNREAD.format(command=" ".join(words), error=error)
+        UNJUDGED.append(PROVIDERS_UNREAD.format(command=" ".join(words), error=error))
+        return None
     if (found := made.mutation(words)) is None or found["kind"] == "job":
         return None
     write = found if found["kind"] == "write" else None
@@ -565,6 +571,9 @@ def cut_reason(words: list[str], shell: Shell) -> str | None:
         hold = settled.hold(data["roles"]["coordinator"]["cwd"])
         return hold and brief.hold_refusal(release, data, hold) or record and verb in SCOPED_FOLLOWS and brief.scope_refusal(release, record, data, said) or brief.away_refusal(verb, release, data, state.now())
     except state.DriveError as error:
+        if brief.rehearsal(release, data):
+            UNJUDGED.append(HOLD_OPEN.format(command=" ".join(words), error=error))
+            return None
         return HOLD_UNREAD.format(command=" ".join(words), error=error)
 
 
@@ -587,7 +596,8 @@ def job_reason(words: list[str], shell: Shell) -> str | None:
     try:
         job = cluster_job(release_guard(shell, names), words)
     except (github.GithubError, providers.ProviderError) as error:
-        return JOB_UNREAD.format(command=" ".join(words), error=error)
+        UNJUDGED.append(JOB_UNREAD.format(command=" ".join(words), error=error))
+        return None
     if job is None:
         return None
     if lane:

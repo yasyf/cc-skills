@@ -2152,28 +2152,31 @@ def release_running(name: str, command: str, starting: str | None = None) -> str
             f" and drive job set {unbuilt} --state stopped ends a job whose release did not start"
         )
     if not (builds := {job["release_build"]: job_id for job_id, job in same.items() if job["release_build"]}):
-        return running_elsewhere(data, ships)
+        return running_elsewhere(name, data, command, ships)
     try:
         read = watch.read_builds(Path(data["roles"]["coordinator"]["cwd"]), state.drive_checkout(name, data["roles"]["coordinator"]["cwd"]), list(builds))
     except (DriveError, reads.ReadError, json.JSONDecodeError) as error:
-        return f"Buildkite did not say whether {', '.join(builds)}, started for the same release, still runs: {error}; send it again once Buildkite answers"
-    return next(
+        print(f"drive job add: started unchecked, since Buildkite did not say whether {', '.join(builds)}, started for the same release, still runs: {error}", file=sys.stderr)
+        read = {}
+    running = next(
         (f"{builds[link]} started the same release as {link}, which Buildkite reads {found['state']}: its job follows it, and this one starts once it ends" for link, found in read.items() if found and found["state"] not in watch.FOLLOW_ENDS),
         None,
-    ) or running_elsewhere(data, ships)
+    )
+    return gate.gate(name, f"release {command}", [running]) if running else running_elsewhere(name, data, command, ships)
 
 
-def running_elsewhere(data: dict, ships: list[dict[str, tuple[str, ...]]]) -> str | None:
-    """Why a release start may not start while the release tool runs one shipping a target it ships, to a place it names, at the commit it ships, by the release provider's running(), whoever started that one, a start naming no place or no target's row naming one sharing every place; a start naming no commit matches none."""
+def running_elsewhere(name: str, data: dict, command: str, ships: list[dict[str, tuple[str, ...]]]) -> str | None:
+    """Why a release start may not start while the release tool runs one shipping a target it ships, to a place it names, at the commit it ships, by the release provider's running(), whoever started that one, a start naming no place or no target's row naming one sharing every place; a start naming no commit matches none. It blocks once, by gate.gate, and a release provider that cannot say what runs lets the start go, warned."""
     try:
         rows = providers.of(data).release.running()
     except (DriveError, reads.ReadError, json.JSONDecodeError) as error:
-        return f"the release provider did not say which releases run now: {error}; send it again once it answers"
+        print(f"drive job add: started unchecked, since the release provider did not say which releases run now: {error}", file=sys.stderr)
+        return None
     for flags in ships:
         for row in rows:
             shared = row["target"] in flags.get("targets", ()) and (row["env"] is None or not flags.get("env") or row["env"] in flags["env"])
             if shared and any(row["commit"].startswith(commit) or commit.startswith(row["commit"]) for commit in flags.get("from", ())):
-                return f"{row['build']} already ships {row['target']} to {row['env'] or 'every place it reaches'} at {row['commit'][:12]} and still runs: follow that one, and start this once it ends"
+                return gate.gate(name, f"release {command}", [f"{row['build']} already ships {row['target']} to {row['env'] or 'every place it reaches'} at {row['commit'][:12]} and still runs: follow that one, and start this once it ends"])
     return None
 
 

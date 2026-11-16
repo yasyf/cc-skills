@@ -55,7 +55,7 @@ def main() -> None:
     try:
         tool = providers.at(Path(cwd)).repo.lane_tool()
     except providers.ProviderError as error:
-        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": f"refused: this repository's providers failed to load, so the lane tool's checkout is unknown: {error}"}}))
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": f"ci_tip ran this unrewritten: this repository's providers failed to load, so the lane tool's checkout is unknown: {error}"}}))
         return
     if tool is None or not (made := tip_ci(command, cwd, drive, tool)):
         return

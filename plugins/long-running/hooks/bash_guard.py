@@ -47,10 +47,7 @@ RERUN_FAILED = (
     ' "Report, plus two safe acts, rerunning a failed build and messaging the owning job"; put `{command}` in your NEXT line'
     " for the holder instead"
 )
-RERUN_UNREAD = (
-    "refused: whether the build, job or run `{step}` reruns passed could not be read, so it waits until it can: {error}."
-    " Run it again once it can be read"
-)
+RERUN_UNREAD = "bash_guard let `{step}` through unjudged: whether the build, job or run it reruns passed could not be read ({error}), and a gate that cannot read its inputs lets the call go"
 BREW_RESTARTS = {"upgrade", "reinstall"}
 RESUME_TIMEOUT = 20000
 UNSEEN_PROMPT = (
@@ -236,14 +233,16 @@ def reran(found: list[list[str]], cwd: str, watchdog: bool = False) -> str | Non
         try:
             rerun = rerun_target(words, cwd)
         except (providers.ProviderError, state.DriveError) as error:
-            return RERUN_UNREAD.format(step=" ".join(verb(words)[:3]), error=error)
+            print(RERUN_UNREAD.format(step=" ".join(verb(words)[:3]), error=error), file=sys.stderr)
+            continue
         if rerun is None:
             continue
         step, read = rerun
         try:
             target, reads = read()
         except github.GithubError as error:
-            return RERUN_UNREAD.format(step=step, error=error)
+            print(RERUN_UNREAD.format(step=step, error=error), file=sys.stderr)
+            continue
         if reads not in FAILED:
             return RERUN_FAILED.format(step=step, target=target, state=reads, command=" ".join(words))
     return None
@@ -254,7 +253,8 @@ def flake_retry(words: list[str], cwd: str) -> str | None:
     try:
         made = providers.at(Path(cwd))
     except providers.ProviderError as error:
-        return f"refused: `{FLAKE}` may retry past a failing check, and the providers that name this repository's merge queue failed to load: {error}"
+        print(f"bash_guard let `{FLAKE}` through unjudged: the providers that name this repository's merge queue failed to load, and a gate that cannot read its inputs lets the call go: {error}", file=sys.stderr)
+        return None
     queue = made.repo.queue()
     if queue is None or verb(words)[0] != Path(queue.script).name:
         return None
@@ -679,7 +679,8 @@ def team_data(command: str, cwd: str, drives: list[str]) -> agents.Unjudged | No
             try:
                 data = data_guard(cwd, drives)
             except providers.ProviderError as error:
-                return agents.Unjudged(f"refused: this may reach a team's data where the job runs, and {providers.DataProvider.rule}; the providers that say whose data it is failed to load, so it is refused as one that does: {error}")
+                print(f"bash_guard let this through unjudged: the providers that say whose data it reaches failed to load, and a gate that cannot read its inputs lets the call go: {error}", file=sys.stderr)
+                return None
         for location in locations:
             if data.team_area and data.team_area.search(location):
                 return agents.Unjudged(data.refusal("team", location=location, rule=data.rule))
