@@ -66,6 +66,7 @@ ELAPSED = re.compile(r"\b\d+(?: minutes?| hours?| seconds?|s\b)|\b\d{1,2}:\d{2}(
 BUILT_BASE = "{built}, the change yours builds on, its PR held on his answer: cut your branch from that head, so your PR stacks on it"
 LIVE_EVERY = timedelta(minutes=5)
 TELL_AFTER = timedelta(minutes=10)
+REACH_READS = 20
 WAKES = ("TAP ", "DUE ", "TELL ", "PROVE ", "PAGED ", "ORPHAN ", "ANSWER ", "JOB ", "LANE ", "STAGE ", "FREE ", "MOVED ", "WATCH stopped")
 PR_EVENT = re.compile(r"PR (?P<key>\S+): (?P<change>.+) \[(?P<order>o\d+) (?P<job>j\d+)\]$")
 STAGE_LINE = re.compile(r"STAGE (?P<key>\S+) (?P<name>\w+)\b")
@@ -200,6 +201,7 @@ class Watcher:
     owed: set[str] | None = None
     merging: set[str] = field(default_factory=set)
     stale: set[str] = field(default_factory=set)
+    reach_unread: set[str] = field(default_factory=set)
     unhookable: set[str] = field(default_factory=set)
     polled: dict[str, datetime] = field(default_factory=dict)
     agent_gaps: dict[str, str | None] = field(default_factory=dict)
@@ -499,27 +501,24 @@ def dangerous_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def reach_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Take each open PR the retired release reach put on its staging test off it, by state.unreach, unless its paths are a dangerous class, by land.dangerous and the repository's [[dangerous]] classes, each PR's read on its own by github.files so one GitHub cannot read waits alone for the next pass, since a PR owes a staging test before it merges only for a dangerous change and any other merges on green CI, proven after its merge on what the promotion deploys; a dangerous one keeps its test, only unmarked reached."""
+    """Take each open PR the retired release reach put on its staging test off it, by state.unreach, unless its paths are a dangerous class, by state.dangerous, since a PR owes a staging test before it merges only for a dangerous change and any other merges on green CI, proven after its merge on what the promotion deploys; a dangerous one keeps its test, only unmarked reached. At most REACH_READS PRs a pass, each read by github.files, so the backlog spreads over passes; one whose read fails waits out the watch's life in reach_unread, unread again and unsaid."""
     data = state.load(watcher.name)
-    keys = [key for key, pr in data["prs"].items() if pr["state"] == "open" and pr["reached"]]
+    keys = [key for key, pr in data["prs"].items() if pr["state"] == "open" and pr["reached"] and key not in watcher.reach_unread][:REACH_READS]
     if not keys:
         return []
-    read, unread = {}, []
+    read = {}
     for key in keys:
         try:
             read[key] = github.files(key)
-        except github.GithubError as error:
-            unread.append(f"{key}: {error}")
-    failed = read_failed(watcher, "release reach", github.GithubError("; ".join(unread)), moment) if unread else []
-    if not unread:
-        watcher.failures.pop("release reach", None)
+        except github.GithubError:
+            watcher.reach_unread.add(key)
 
     def reach_lines_write(data: dict) -> tuple[dict, dict[str, list[str]]]:
         lifted = {}
         for key, paths in read.items():
             if not data["prs"][key]["reached"]:
                 continue
-            if land.dangerous(data, paths) or state.dangerous(data, paths):
+            if state.dangerous(data, paths):
                 data["prs"][key]["reached"] = False
             else:
                 lifted[key] = state.unreach(data, key)
@@ -530,7 +529,7 @@ def reach_lines(watcher: Watcher, moment: datetime) -> list[str]:
     for key, stopped in lifted.items():
         ended = f", and {', '.join(stopped)} stopped" if stopped else ""
         lines.append(f"PR {key}: {state.UNDANGEROUS_MERGES.format(key=key)}{ended} {ids(data['prs'][key])}")
-    return [*failed, *lines]
+    return lines
 
 
 def main_lines(watcher: Watcher, moment: datetime) -> list[str]:

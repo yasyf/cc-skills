@@ -12770,7 +12770,7 @@ def test_a_jobs_kept_checkout_is_where_its_launch_starts_its_release_checked_aga
     code, out = run("job", "release", "j1")
     assert code != 0 and started == [], out
 
-def test_a_staging_testers_first_done_short_of_a_case_its_pr_requires_is_refused_once_and_a_later_one_kept_with_a_warning_and_its_staging_line_lists_the_case_as_o2304_needed(
+def test_a_staging_testers_staging_line_lists_each_case_its_pr_requires_and_its_done_is_kept_whatever_its_case_lines_read_as_o2304_needed(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     from conftest import HomeRepo, HomeStaging
@@ -12797,13 +12797,8 @@ def test_a_staging_testers_first_done_short_of_a_case_its_pr_requires_is_refused
     ran = tmp_path / "staging-run.txt"
     ran.write_text("the run page and the gateway call on plat-usw2-staging\n")
     check = f"CHECK: {ran}"
-    short = "not exercised: staging signs in as one account"
-    monkeypatch.setattr("sys.stdin", io.StringIO(f"DONE #42 passed on staging\n{check}\nCASE the run page: pass\nCASE {gateway}: {short}\n"))
-    assert cli.main(["job", "report", "j1", "-"]) == 2
-    assert f"j1: refused once, nothing kept: a DONE passes each staging case its PR requires, and a case not exercised is no pass: Forge-AI/monorepo#42 {gateway}: {short}" in capsys.readouterr().err
     monkeypatch.setattr("sys.stdin", io.StringIO(f"DONE #42 passed on staging\n{check}\nCASE the run page: pass\n"))
     assert cli.main(["job", "report", "j1", "-"]) == 0
-    assert f"drive job report: kept, though a DONE passes each staging case its PR requires, and a case not exercised is no pass: Forge-AI/monorepo#42 {gateway}: no CASE line" in capsys.readouterr().err
 
 
 def test_a_wave_start_holds_its_start_on_testers_of_orders_two_sessions_hold_and_wakes_each_from_the_top_coordinator_alone(

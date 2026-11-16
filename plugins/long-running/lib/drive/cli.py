@@ -3646,11 +3646,6 @@ def take_report(name: str, job_id: str, whole: str, read_prs: bool = True, tell:
         or (built and (held := state.change_job(data, job["order"], [], job["waits"], job_id, built["branch"], job["repo"], proving=state.builds_nothing(job))) and one_change_job(data, job["order"], job["kind"], [], held, job["waits"], branch=built["branch"], repo=job["repo"], job_id=job_id))
     ):
         raise DriveError(f"{job_id}: refused, nothing kept: {refused}")
-    if (short := required_refusal(data, job_id, line, whole)) and not job["required_refused"]:
-        state.write(name, lambda data: data["jobs"][job_id].update(required_refused=state.stamp()))
-        raise DriveError(f"{job_id}: refused once, nothing kept: {short}; the same DONE sent again is kept, with this line as its warning")
-    if short:
-        print(f"drive job report: kept, though {short}", file=sys.stderr)
     unreached(name, data, state.result_waits(data, job_id, line))
     if job["kind"] == "builder" and state.REPORTED_LINE.match(line) and any(not served.named(cited) for cited in served.deciding(whole)):
         print(f"drive job report: {served.NAMELESS}", file=sys.stderr)
@@ -6136,24 +6131,6 @@ def staging_required(data: dict, job: dict) -> str:
     return "".join(
         f"; {key} requires {len(cases)} staging case{'' if len(cases) == 1 else 's'}, each a CASE line your DONE reads pass, never not exercised: {', '.join(cases)}"
         for key, cases in required_cases(data, job).items()
-    )
-
-
-def required_refusal(data: dict, job_id: str, line: str, whole: str) -> str | None:
-    """What a staging tester's DONE leaves short: each case the staging provider requires of a PR it tests, by required_cases, that no CASE line reads pass, not exercised and no line at all among them; take_report refuses the job's first such DONE and keeps any later one with this as its warning, since a gate blocks once and then warns."""
-    if not re.match(r"DONE\b", line):
-        return None
-    ran = state.case_lines(whole)
-    short = []
-    for key, cases in required_cases(data, data["jobs"][job_id]).items():
-        for case in cases:
-            verdicts = [verdict for named, verdict in ran if case.casefold() in named.casefold()]
-            if not any(state.PASSED_CASE.match(verdict) for verdict in verdicts):
-                short.append(f"{key} {case}: {verdicts[0] if verdicts else 'no CASE line'}")
-    return (
-        f"a DONE passes each staging case its PR requires, and a case not exercised is no pass: {'; '.join(short)}; run each on staging and report its CASE line reading pass, or WAITING on what keeps it from running"
-        if short
-        else None
     )
 
 

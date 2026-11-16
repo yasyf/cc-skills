@@ -4429,7 +4429,6 @@ def new_job(order_id: str, kind: str, goal: str, parts: list[str], created: str)
         "woken": None,
         "handed_to": None,
         "accepted_unproven": [],
-        "required_refused": None,
         "cut_misses": {},
     }
 

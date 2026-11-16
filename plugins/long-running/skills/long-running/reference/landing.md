@@ -511,7 +511,8 @@ PR hits, and the repository hooks into the drive through its providers.
 - **Which changes.** Only a PR whose paths are a dangerous class, by the repository provider's
   dangerous paths and its `[[dangerous]]` classes, owes a test before it merges; every other PR
   merges on green CI and is proven after its merge on what the half-hourly promotion deploys,
-  holding no staging slot. When the release provider's components read names none of a dangerous
+  holding no staging slot. The promotion skips while a drive holds a staging stack, so until cuts
+  give the release train the env first, a hold stalls these passes too. When the release provider's components read names none of a dangerous
   PR's releases as staged, and none is a client the Mac box provider signs in to staging, staging cannot test it
   (such as CI, an identity account or monitoring). The tester then runs each stack's release dry run from this Mac and asks his
   exception with the counts each preview plans. His yes drops the part and the PR lands on his
