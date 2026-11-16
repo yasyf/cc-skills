@@ -1182,6 +1182,7 @@ def posts(monkeypatch: pytest.MonkeyPatch, outcomes: list[bool] | None = None) -
         return ""
 
     monkeypatch.setattr(watch.reads, "run", post)
+    monkeypatch.setattr(watch, "untaken", lambda watcher, data, lane: False)
     return sent
 
 
@@ -5552,7 +5553,7 @@ def test_a_check_names_every_pr_its_job_and_the_job_it_was_handed_from_carry_wit
     assert state.load(demo)["prs"][KEY]["checker"]["outcome"].startswith(f"{served.CHECKED} against the words of o1 at aaaaaaa111")
 
 
-def test_a_check_whose_judge_failed_is_said_nowhere_and_tried_again_ten_minutes_after_it_started(
+def test_a_check_whose_judge_failed_is_said_nowhere_and_tried_again_on_the_next_sweep(
     demo: str, monkeypatch: pytest.MonkeyPatch, checkers: list[str]
 ) -> None:
     serve(monkeypatch, {})
@@ -5569,8 +5570,8 @@ def test_a_check_whose_judge_failed_is_said_nowhere_and_tried_again_ten_minutes_
     watch.run_pass(watching, T0)
     assert cli.main(["pr", "check", state.pr_url(KEY), "--drive", demo]) == 0
     assert state.load(demo)["prs"][KEY]["checker"]["outcome"] == "check failed: the judge timed out"
-    assert (watch.run_pass(watching, T0 + timedelta(minutes=9)), checkers) == ([], [KEY])
-    assert (watch.run_pass(watching, T0 + timedelta(minutes=10)), checkers) == ([], [KEY, KEY])
+    assert (watch.run_pass(watching, T0 + timedelta(minutes=10)), checkers) == ([], [KEY])
+    assert (watch.run_pass(watching, T0 + watch.CHECK_SWEEP), checkers) == ([], [KEY, KEY])
 
 
 def test_a_ports_change_after_his_approve_lands_at_its_first_green_head_and_starts_no_check_against_his_words(
@@ -6906,7 +6907,7 @@ def test_the_lines_one_stage_makes_for_a_lane_go_as_one_record_counting_them_by_
     later = ["EVENT three", "EVENT four"]
     monkeypatch.setattr(watch, "whole_message", lambda name, line: "the status\nsaid whole" if line in (checks[0], later[0]) else None)
     watching = watcher(demo)
-    assert (watch.sent(watching, "root", orphans + checks, T0), watch.sent(watching, "root", later, T0)) == ([], [])
+    assert (watch.sent(watching, "root", orphans + checks, T0), watch.sent(watching, "root", later, T0 + watch.COALESCE)) == ([], [])
     assert [(argv[argv.index("--kind") + 1], argv[argv.index("--text") + 1], argv[argv.index("--path") + 1]) for argv in sent] == [
         ("handoff", "37 lines: 35 ORPHAN, 2 EVENT", "".join(f"{line}\n" for line in orphans) + f"{checks[0]}\n  the status\n  said whole\n{checks[1]}\n"),
         ("evidence", "2 lines: 2 EVENT", f"{later[0]}\n  the status\n  said whole\n{later[1]}\n"),
@@ -9075,8 +9076,8 @@ def test_a_merged_pr_changing_only_tests_gets_a_prover_waiting_on_no_release_tha
     demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     serve(monkeypatch, {})
-    (tmp_path / "tools").mkdir()
-    (tmp_path / "tools" / "ci").write_text("")
+    (tmp_path / ".claude").mkdir()
+    (tmp_path / state.REPO_RULES).write_text('[release]\ncomponents = "tools/ci release select --pr {pr}"\n')
     with state.edit(demo) as data:
         data["roles"]["coordinator"]["cwd"] = str(tmp_path)
     monkeypatch.setattr(github, "checkout_repo", lambda cwd: "Forge-AI/monorepo")
@@ -10199,7 +10200,7 @@ def test_an_incident_with_no_monitor_held_by_its_open_fix_pr_closes_with_no_data
     live = {"42": False}
     calls = incident_reads(monkeypatch, {}, live, tmp_path)
     lined: list[dict] = []
-    monkeypatch.setattr(talk, "closed", lambda name, order_id, seq, link, text: f"; {order_id} closed on report {seq}")
+    monkeypatch.setattr(talk, "closed", lambda name, order_id, seq: f"; {order_id} closed on report {seq}")
     monkeypatch.setattr(talk, "watch_line", lambda name, post: lined.append(post) or f"POSTED {POSTED}")
     with state.edit(demo) as data:
         data["orders"]["o1"].update(incident=True, parts={"fix": state.new_part()}, jobs=["j1", "j2"])
@@ -10236,7 +10237,7 @@ def test_o761s_incident_on_a_surface_he_uses_holds_its_live_line_with_one_prove_
     serve(monkeypatch, {})
     monkeypatch.setattr(watch.agents, "handle", lambda name, brief, **_: ("h1", False))
     monkeypatch.setattr(talk, "watch_line", lambda name, post: f"POSTED {POSTED}")
-    monkeypatch.setattr(talk, "closed", lambda name, order_id, seq, link, text: f"; {order_id} closed on report {seq}")
+    monkeypatch.setattr(talk, "closed", lambda name, order_id, seq: f"; {order_id} closed on report {seq}")
     incident_reads(monkeypatch, {}, {"42": True}, tmp_path)
     surface, recording = "the Iris chat on a Mac", "/tmp/proofs/o761-chat-answers.mov"
     fixed = f"{state.pr_url(KEY)} live in production"
@@ -10338,7 +10339,7 @@ def test_a_close_report_drive_install_kept_posts_from_the_watch_once_cci_takes_i
     first = watcher(demo)
     for minute in range(3):
         said = staged(watch.close_report_lines, first, T0 + timedelta(minutes=minute))
-    assert said == ["WATCH close report post to the communicator failed 3 times in a row: cci: --body-file: not a JSON value"]
+    assert said == ["WATCH close report post failed 3 times in a row: cci: --body-file: not a JSON value"]
     assert (posts, state.load(demo)["orders"]["o1"]["close_report"]) == ([[CLOSE_REPORT]] * 3, CLOSE_REPORT)
     monkeypatch.setattr(tools, "sent", lambda name, lane, records: posts.append(records) or ["9"])
     second = watcher(demo)
@@ -10403,7 +10404,7 @@ PROVED_TEXT = "Fix: the watch is live in long-running 1.0.3 ({record:9|proof})."
 class Proved:
     sent: list[list[dict]] = field(default_factory=list)
     said: list[tuple[dict, set[str]]] = field(default_factory=list)
-    closes: list[tuple[str, str, str, str]] = field(default_factory=list)
+    closes: list[tuple[str, str]] = field(default_factory=list)
 
 
 def proved(monkeypatch: pytest.MonkeyPatch, refusal: str | None = None) -> Proved:
@@ -10421,8 +10422,8 @@ def proved(monkeypatch: pytest.MonkeyPatch, refusal: str | None = None) -> Prove
             data["carried"][post["record"]] = LIVE_LINE
         return f"POSTED {LIVE_LINE}"
 
-    def closed(name: str, order_id: str, seq: str, link: str, text: str) -> str:
-        kept.closes.append((order_id, seq, link, text))
+    def closed(name: str, order_id: str, seq: str) -> str:
+        kept.closes.append((order_id, seq))
         with state.edit(name) as data:
             data["orders"][order_id]["state"] = "done"
         return f"; {order_id} closed on report {seq}"
@@ -10438,7 +10439,7 @@ def test_the_watch_posts_a_proved_orders_live_line_itself_through_say_citing_its
         data["orders"]["o1"]["close_report"] = CLOSE_REPORT
     kept = proved(monkeypatch)
     assert staged(watch.close_report_lines, watcher(demo), T0) == []
-    assert (kept.sent, kept.said, kept.closes) == ([[CLOSE_REPORT]], [({"text": PROVED_TEXT, "record": "9"}, {"9"})], [("o1", "9", LIVE_LINE, PROVED_TEXT)])
+    assert (kept.sent, kept.said, kept.closes) == ([[CLOSE_REPORT]], [({"text": PROVED_TEXT, "record": "9"}, {"9"})], [("o1", "9")])
     data = state.load(demo)
     assert (data["orders"]["o1"]["close_report"], data["orders"]["o1"]["closed_on"], state.watch_posting(data)) == (None, "9", set())
     assert (state.drive_dir(demo) / watch.POSTS_LOG).read_text().endswith(f"o1 live line posted by the watch: POSTED {LIVE_LINE}; o1 closed on report 9\n")
@@ -10449,7 +10450,7 @@ def test_a_live_line_whose_order_did_not_close_keeps_its_report_so_the_next_pass
     with state.edit(demo) as data:
         data["orders"]["o1"]["close_report"] = CLOSE_REPORT
     kept = proved(monkeypatch)
-    monkeypatch.setattr(talk, "closed", lambda name, order_id, seq, link, text: f"; {order_id} not closed on report {seq}: drive is locked")
+    monkeypatch.setattr(talk, "closed", lambda name, order_id, seq: f"; {order_id} not closed on report {seq}: drive is locked")
     watching = watcher(demo)
     assert [line for minute in range(3) for line in staged(watch.close_report_lines, watching, T0 + timedelta(minutes=minute))] == [
         f"WATCH close of o1 on its live line failed 3 times in a row: o1 live line posted by the watch: CARRIED {LIVE_LINE}; o1 not closed on report 9: drive is locked"
@@ -10464,7 +10465,7 @@ def test_a_watch_that_ended_after_its_live_line_posted_closes_the_order_on_its_n
         data["carried"]["9"] = LIVE_LINE
     kept = proved(monkeypatch)
     assert staged(watch.close_report_lines, watcher(demo), T0) == []
-    assert (kept.sent, kept.said, kept.closes, state.load(demo)["orders"]["o1"]["close_report"]) == ([], [], [("o1", "9", LIVE_LINE, PROVED_TEXT)], None)
+    assert (kept.sent, kept.said, kept.closes, state.load(demo)["orders"]["o1"]["close_report"]) == ([], [], [("o1", "9")], None)
 
 
 def test_a_proved_order_with_a_reporter_starts_the_handler_posting_its_line_in_their_threads_from_the_watch(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -10486,7 +10487,7 @@ def test_a_proved_incident_posts_its_live_line_from_the_watch_with_no_handler(de
     kept = proved(monkeypatch)
     monkeypatch.setattr(watch.agents, "handle", lambda name, brief, **_: pytest.fail(f"handler started on {brief}"))
     assert staged(watch.close_report_lines, watcher(demo), T0) == []
-    assert (kept.sent, kept.said, kept.closes) == ([[CLOSE_REPORT]], [({"text": PROVED_TEXT, "record": "9"}, {"9"})], [("o1", "9", LIVE_LINE, PROVED_TEXT)])
+    assert (kept.sent, kept.said, kept.closes) == ([[CLOSE_REPORT]], [({"text": PROVED_TEXT, "record": "9"}, {"9"})], [("o1", "9")])
 
 
 def test_the_watchs_own_post_runs_the_say_hooks_checks_as_the_communicators_own_post_and_is_held_only_by_a_refusal_no_jev_weighs_or_jevs_hold_of_its_words_against_its_report(
@@ -10820,8 +10821,8 @@ def test_a_fix_proven_live_names_every_reporters_thread_not_yet_told_on_one_tell
         data["orders"]["o1"]["reporters"].append(state.reporter(later))
     assert watch.tell_lines(watching, T0 + timedelta(minutes=40)) == [
         "TELL o1: its fix is proven live by https://buildkite.com/forge/release/builds/14185 and nothing moved on it for 10 minutes,"
-        f" but {later}, the thread its bug was reported in, has not heard it is fixed: send its report with --attr close=o1, whose"
-        " handler posts the fix-live note there and records it with drive order told o1 <its permalink>; done refuses until then"
+        f" but {later}, the thread its bug was reported in, has not heard it is fixed: send its report with --attr close=o1, which"
+        " the communicator posts the fix-live note there and records it with drive order told o1 <its permalink>; done refuses until then"
     ]
     assert watch.tell_lines(watching, T0 + timedelta(minutes=70)) == []
 
@@ -11219,111 +11220,6 @@ def test_a_sessions_transcript_is_read_from_the_folder_it_first_ran_in_after_its
     moved = {"session": "s-1", "cwd": "/Users/me/worktrees/monorepo/drive-demo"}
     assert watch.session_transcript(moved) == first
     assert watch.session_transcript(moved | {"session": "s-2"}) == tmp_path / "projects" / "-Users-me-worktrees-monorepo-drive-demo" / "s-2.jsonl"
-
-
-def untold_stall(demo: str, agent_at: int, out: str = "/s/stall.md") -> None:
-    with state.edit(demo) as data:
-        data["stalls"][KEY] = {
-            "print": STALLED_CARD,
-            "since": state.stamp(T0),
-            "agent": {"pid": 1, "out": out, "at": state.stamp(T0 + timedelta(minutes=agent_at))},
-            "found": {"WHY": READERS_FIRST},
-            "said": state.stamp(T0 + timedelta(minutes=68)),
-            "told": None,
-            "claim": None,
-        }
-
-
-def stall_pass(watching: watch.Watcher, monkeypatch: pytest.MonkeyPatch, minutes: int, clock: int | None = None) -> list[str]:
-    monkeypatch.setattr(state, "now", lambda: T0 + timedelta(minutes=minutes if clock is None else clock))
-    return watch.stall_lines(watching, T0 + timedelta(minutes=minutes))
-
-
-def test_a_stall_the_coordinator_sat_on_reaches_him_once_he_is_back_never_while_he_is_away(
-    demo: str, monkeypatch: pytest.MonkeyPatch, watchdogs: list[tuple[str, Path]], ready_records: list[list[dict]]
-) -> None:
-    watching = stalling(demo)
-    untold_stall(demo, agent_at=60)
-    with state.edit(demo) as data:
-        data["owner"] = {"heard": state.stamp(T0), "away": state.stamp(T0)}
-    for minutes in (98, 140):
-        assert stall_pass(watching, monkeypatch, minutes) == []
-    assert (ready_records, watchdogs) == ([], [])
-    with state.edit(demo) as data:
-        data["owner"] = {"heard": state.stamp(T0 + timedelta(minutes=141)), "away": state.stamp(T0 + timedelta(minutes=201))}
-    stall_pass(watching, monkeypatch, 141)
-    [(_, out)] = watchdogs
-    watchdog_answered(out)
-    for minutes in (142, 143):
-        stall_pass(watching, monkeypatch, minutes)
-    assert [record["text"] for [record] in ready_records] == [f"POST {KEY}, which holds j1, j2, has not moved in 142 minutes and the coordinator was told 74 minutes ago: post one line on it in its thread"]
-
-
-@pytest.mark.parametrize("agent_at", [60, 80])
-def test_replayed_720931_a_stall_whose_pass_began_while_he_was_here_starts_no_watchdog_and_writes_him_nothing_once_the_clock_reads_him_away_and_takes_that_step_the_first_pass_after_he_is_heard(
-    demo: str, monkeypatch: pytest.MonkeyPatch, watchdogs: list[tuple[str, Path]], ready_records: list[list[dict]], tmp_path: Path, agent_at: int
-) -> None:
-    watching = stalling(demo)
-    out = tmp_path / "stall.md"
-    watchdog_answered(out)
-    untold_stall(demo, agent_at, str(out))
-    with state.edit(demo) as data:
-        data["owner"] = {"heard": state.stamp(T0 + timedelta(minutes=45)), "away": state.stamp(T0 + timedelta(minutes=105))}
-    assert stall_pass(watching, monkeypatch, 98, clock=107) == []
-    assert (ready_records, watchdogs, state.load(demo)["stalls"][KEY]["told"]) == ([], [], None)
-    with state.edit(demo) as data:
-        data["owner"] = {"heard": state.stamp(T0 + timedelta(minutes=140)), "away": state.stamp(T0 + timedelta(minutes=200))}
-    stall_pass(watching, monkeypatch, 141)
-    assert (len(watchdogs), [record["text"] for [record] in ready_records]) == (
-        (1, []) if agent_at < 68 else (0, [f"POST {KEY}, which holds j1, j2, has not moved in 141 minutes and the coordinator was told 73 minutes ago: post one line on it in its thread"])
-    )
-
-
-def test_replayed_720949_a_stall_report_the_pass_claimed_while_he_was_here_gives_its_claim_back_unwritten_when_he_reads_away_by_the_time_it_is_written(
-    demo: str, monkeypatch: pytest.MonkeyPatch, watchdogs: list[tuple[str, Path]], ready_records: list[list[dict]], tmp_path: Path
-) -> None:
-    watching = stalling(demo)
-    out = tmp_path / "stall.md"
-    watchdog_answered(out)
-    untold_stall(demo, 80, str(out))
-    with state.edit(demo) as data:
-        data["owner"] = {"heard": state.stamp(T0 + timedelta(minutes=45)), "away": state.stamp(T0 + timedelta(minutes=105))}
-    claiming = watch.owed
-    claims: list[dict[str, str]] = []
-
-    def claimed_then_late(watcher: watch.Watcher, data: dict, found: dict[str, dict], stalls: dict[str, dict], moment: datetime) -> dict[str, str]:
-        claims.append(steps := claiming(watcher, data, found, stalls, moment))
-        if len(claims) == 2:
-            monkeypatch.setattr(state, "now", lambda: T0 + timedelta(minutes=107))
-        return steps
-
-    monkeypatch.setattr(watch, "owed", claimed_then_late)
-    assert stall_pass(watching, monkeypatch, 98) == []
-    kept = state.load(demo)["stalls"][KEY]
-    assert (claims, ready_records, kept["told"], kept["claim"]) == ([{KEY: "told"}, {KEY: "told"}], [], None, None)
-
-
-@pytest.mark.parametrize(("kept", "thread"), [([["D123", "1794439546.145729", state.stamp(T0), "question"]], "1794439546.145729"), ([], None)])
-def test_a_stall_on_an_order_from_a_channel_thread_names_the_thread_of_his_dm_it_keeps_never_that_channel_thread(
-    demo: str, watchdogs: list[tuple[str, Path]], ready_records: list[list[dict]], kept: list[list[str]], thread: str | None
-) -> None:
-    watching = stalling(demo)
-    with state.edit(demo) as data:
-        data["orders"]["o1"].update(thread=["C0B75AL4XEW", "1794436805.002349"], threads=[["C0B75AL4XEW", "1794438322.192619", state.stamp(T0), "posted"], *kept])
-        data["stalls"][KEY] = {
-            "print": STALLED_CARD,
-            "since": state.stamp(T0),
-            "agent": {"pid": 1, "out": "/s/stall.md", "at": state.stamp(T0 + timedelta(minutes=60))},
-            "found": {"WHY": READERS_FIRST},
-            "said": state.stamp(T0 + timedelta(minutes=68)),
-            "told": None,
-            "claim": None,
-        }
-    watch.stall_lines(watching, T0 + timedelta(minutes=141))
-    watchdog_answered(watchdogs[0][1])
-    watch.stall_lines(watching, T0 + timedelta(minutes=142))
-    [[record]] = ready_records
-    assert (record["attr"]["stall"], record["attr"].get("thread")) == ("true", thread)
 
 
 def test_at_most_two_watchdog_agents_run_at_once_oldest_stall_first(demo: str, watchdogs: list[tuple[str, Path]]) -> None:

@@ -1123,7 +1123,8 @@ def add_prover(name: str, data: dict, job_id: str, reach: dict[str, dict], parts
         for target in reach.get(key, {}).get("releases", [])
         if target in staged
     ]
-    cut = not stagings and bool(keys) and all(reach.get(key, {}).get("releases") and not reach[key].get("tested") and not reach[key].get("dev") for key in keys)
+    waiting = None if stagings else next((builder_id for builder_id in found if state.untaken(data["jobs"][builder_id])), None)
+    cut = not stagings and (not waiting or state.CUT_WAIT in data["jobs"][waiting]["waits"]) and bool(keys) and all(reach.get(key, {}).get("releases") and not reach[key].get("tested") and not reach[key].get("dev") for key in keys)
     proving = (
         f"it goes live on the next production release cut, which this job waits on, and you prove it with every other merge that cut carries:"
         f" for each order your brief names, write the PROVE: lines of its merged jobs' returns, {job_id}'s in reports/{job_id}.md among them, as one proof file,"
@@ -1146,7 +1147,7 @@ def add_prover(name: str, data: dict, job_id: str, reach: dict[str, dict], parts
         for key, answer in reach.items()
         if key in keys and answer["dev"]
     )
-    lead = None if stagings else next((builder_id for builder_id in found if state.untaken(data["jobs"][builder_id])), None) or (open_cut(data) if cut else None)
+    lead = waiting or (open_cut(data) if cut else None)
     for builder_id in dict.fromkeys([*found, *filter(None, [lead])]):
         widen(data, builder_id, parts, *((keys, {"handoff": handoff, "mac": mac}) if builder_id == lead else ([], {})))
     if lead or not keys:

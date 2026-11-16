@@ -2671,7 +2671,7 @@ def limit_lines(watcher: Watcher, moment: datetime) -> list[str]:
             return []
         words = (
             f'Claude Code hit its {hit["limit"]} limit on this Mac: "{hit["notice"]}". Sessions here dismiss its dialog and keep working on paid usage,'
-            " and the watch restarts each agent and lane it stopped."
+            " and the watch restarts each agent and lane it stopped"
         )
         try:
             milestone(watcher, {"kind": "report", "attr": {}, "topic": f"usage-limit-{hit['until']}", "text": f"Claude Code hit its {hit['limit']} limit on this Mac", "body": hit["notice"] + "\n"}, words)
