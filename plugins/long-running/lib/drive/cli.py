@@ -68,8 +68,6 @@ GO_CI = Path("tools", "ci")
 MAC_BOX_HAND_OVER = "<mac box hand over>"
 CARGO_LOCK = "rust/Cargo.lock"
 GO_CI_BUILT = Path("go", "ci", ".build", "ci.dev")
-LIVE_SAND_NEXT_SECONDS = 60
-CI_CONFIG = re.compile(r"^\.(?:buildkite|github)/")
 CLAUDE_BUILDS = Path.home() / ".local" / "share" / "claude" / "versions"
 READER_RESEARCH = "the Researched: block this build needs"
 VERB_ERRORS = (DriveError, slack.SlackError, github.GithubError)
@@ -81,33 +79,17 @@ ANSWER_FIRST = (
 )
 STAGING_MAC = (
     "claim the staging slot for the PR each `staging test of #N before it lands` part of yours names, from this Mac or from a Sprite lane, whose drive runs it on the drive's Mac:"
-    " `drive slot claim plat-usw2-staging --job <your job> --minutes <how long your cut and cases run> --pr <the PR> --cases \"<your cases>\"`, which prints GO and its steps"
-    " when the slot is free, else QUEUED and your place, a priority or incident tester ahead of the rest; while queued, return `WAITING staging:<target>/plat-usw2-staging@<head>`,"
+    " `drive slot claim {env} --job <your job> --minutes <how long your cut and cases run> --pr <the PR> --cases \"<your cases>\"`, which prints GO and its steps"
+    " when the slot is free, else QUEUED and your place, a priority or incident tester ahead of the rest; while queued, return `WAITING staging:<target>/{env}@<head>`,"
     " one per target its paths reach by `the release provider's reach read <N>`, and the watch resumes you with GO and its steps once the slot is yours; "
     + state.STAGE_ASK
-)
-EXCEPTION_MAC = (
-    "start the release dry run of each component the `staging test of #N before it lands` part of yours names that staging has no copy of, from this Mac, since go/ci's sprite door refuses a release start from a Sprite:"
-    " `tools/ci release start <each target holding them> --only <those components> --from <its branch> --emergency --dry-run`, then read each stack's preview with"
-    " `tools/ci release watch <its build> --json` once the build ends"
 )
 STAGING_FIRST = (
     "a finding of your staging run that production shows too goes to his thread the moment you have it, before any other step: one `report`"
     " record on the cci `post` tool, `to: [communicator@{drive}]`, `text: POST <the finding>`, `attrs: {attrs}`, so it posts while he is away too;"
     " then finish the run and return as usual"
 )
-STAGING_MAC_BOX = (
-    "; {tested} changes the dashboard, so run its cases in Iris Staging on a Mac box too, once plat-usw2-staging serves its dashboard, against the sand-next his Mac runs:"
-    " `tools/ci mac-box prove <box> --commit {live}`, the commit of sand-next's newest passed release on core-usw2-auto, then `tools/ci mac-box open <box>` and"
-    " `tools/ci mac-box record <box>` for each case, by the test-mac skill's Prove a desktop change"
-)
 STAGING_APPROVED = ", which waits behind this test: a full pass keeps it, so it lands the PR once the test passes (e5e4f7b), while the lander holds a dangerous change until he is present, his word or tap within 15 minutes (27ea387)"
-STAGING_OWN_HEAD = (
-    "; {tested} changes iris-desktop or sand-next too, the two components `tools/ci mac-box prove` builds from the commit it names, so run them again after"
-    " `tools/ci mac-box prove <box> --commit <its head's full sha>`"
-)
-STAGING_UNREAD = "; the drive could not read that commit ({error}), so read it from `tools/ci release status --manual sand-next --env core-usw2-auto` first"
-LIVE_SAND_NEXT = re.compile(r"^#\d+\s+passed\s+(?:manual )?(?:release|hotfix|rollback)\s.*?\s(?P<commit>[0-9a-f]{7,40})\s+(?:not )?started\b", re.MULTILINE)
 RELEASES_LOG = "releases.log"
 MANUAL_STARTED = re.compile(rf"\S+ #\d+: (?P<build>{github.BUILD.pattern}) — follow it from anywhere: (?P<follow>.+)")
 PROMISED_TIME = re.compile(
@@ -703,13 +685,13 @@ def incident_freeze(args: argparse.Namespace) -> int:
     order = find(data["orders"], args.id, "order")
     if not state.open_incidents(data, [args.id]):
         raise DriveError(f"{args.id}: refused, it is no open incident order")
-    checkout_dir = orca.checkout(name, data["roles"]["coordinator"]["cwd"])
+    orca.checkout(name, data["roles"]["coordinator"]["cwd"])
     until = state.stamp(state.now() + FREEZE_FOR)
     reason = f"{args.id}, {render.cut(order['text'], 80)}: held until its root fix releases"
-    argv = [str(checkout_dir / "tools" / "ci"), "release", "freeze", *args.components, "--reason", reason, "--until", until, "--json"]
+    release = providers.of(data).release
     try:
-        freeze = state.unrehearsed(name, lambda: json.loads(reads.run(argv, checkout_dir))["freeze"]["id"], "<freeze>")
-    except reads.ReadError as error:
+        freeze = state.unrehearsed(name, lambda: release.freeze(args.components, reason, until), "<freeze>")
+    except (reads.ReadError, providers.ProviderError) as error:
         raise DriveError(f"{args.id}: no freeze set: {error}") from None
     def incident_freeze_write(data: dict):
         order = data["orders"][args.id]
@@ -720,7 +702,7 @@ def incident_freeze(args: argparse.Namespace) -> int:
     return emit(
         args,
         f"{args.id}: {', '.join(args.components)} frozen until {render.when(until)} as {freeze}; the job that merges the root fix lifts it"
-        f" with tools/ci release unfreeze {freeze} before the fix's build starts",
+        f" with {release.unfreeze(freeze) or 'the release tool'} before the fix's build starts",
         {"id": args.id, "freeze": freeze, "until": until},
     )
 
@@ -2609,7 +2591,7 @@ def release_holds(data: dict, job: dict, asked: limits.Question, text: str) -> l
     problems = []
     for key in sorted(key for key in named if key in data["prs"] and state.release_held(data, key)):
         number = key.rpartition("#")[2]
-        if not (found := land.dangerous(github.files(key))):
+        if not (found := land.dangerous(data, github.files(key))):
             problems.append(
                 f"{key} is green and approved and changes nothing dangerous, so the watch lands it now through the merge queue and the cut waits minutes on its landing,"
                 f" its staging retest rerunning only what {key} touches: ask nothing about it, and offer no option leaving a component out or holding the release for it ({state.RELEASE_HOLD_WORDS})"
@@ -3719,7 +3701,7 @@ def rewrite_brief(name: str, job_id: str, flags: dict, over: dict | None) -> tup
         "Researched": found and found[0],
         "Answer": answers and answer_first(name, order, job["order"], job_id),
         "Staging": staged
-        and STAGING_MAC.format(drive=name) + ". "
+        and STAGING_MAC.format(env=providers.of(data).staging.env) + ". "
         + STAGING_FIRST.format(drive=name, attrs=json.dumps(state.thread_attr(data, order) | {"order": job["order"], "job": job_id, "progress": "true", "incident": "true"}))
         + boxed
         + staging_taps(data, job),
@@ -4232,9 +4214,9 @@ def deliver(args: argparse.Namespace, name: str, text: str | None = None) -> int
 
 
 def mac_lines(name: str, job: dict, flags: dict) -> tuple[str | None, str | None]:
-    """The Mac: and Release: lines a job's brief flags give it, as rewrite_brief writes them and declared_step reads them: its mac flag, which write_brief fills for a staging tester from its builder's newest return holding a Mac: line, else EXCEPTION_MAC for a tester asking his exception, by state.EXCEPTED, and its release flag; a staging tester's slot claim runs from a Sprite lane too, so it goes on the Staging line, never the Mac: line, and rewrite_brief adds its Mac box cases there."""
+    """The Mac: and Release: lines a job's brief flags give it, as rewrite_brief writes them and declared_step reads them: its mac flag, which write_brief fills for a staging tester from its builder's newest return holding a Mac: line, else the staging provider's exception steps for a tester asking his exception, by state.EXCEPTED, and its release flag; a staging tester's slot claim runs from a Sprite lane too, so it goes on the Staging line, never the Mac: line, and rewrite_brief adds its Mac box cases there."""
     staged = any(state.STAGING_PART.fullmatch(part) for part in job["parts"])
-    return flags["mac"] or (EXCEPTION_MAC if staged and state.EXCEPTED.match(job["goal"]) else None), flags["release"]
+    return flags["mac"] or (providers.of(state.load(name)).staging.exception_steps() if staged and state.EXCEPTED.match(job["goal"]) else None), flags["release"]
 
 
 def declared_step(name: str, job: dict) -> str | None:
@@ -5341,7 +5323,7 @@ def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = N
     if (exempt or no_tap) and (incidents := state.open_incidents(known, [added["order"], *added["carries"]])):
         refuse_an_exempt_revert(known, key, incidents[0], read, f"Add it waiting on his tap with drive pr add {url} --job {job_id}. ")
     if exempt and exempt != state.FLAKE_FIX:
-        refuse_an_unexempt(key, exempt, "added")
+        refuse_an_unexempt(name, key, exempt, "added")
     failing = install.default_failures(github.repo_of(key)) if exempt == state.MAIN_FIX else {}
     if not (exempt or port_of):
         exempt = path_class(known, key, added, read)
@@ -5495,7 +5477,7 @@ def pr_set(args: argparse.Namespace) -> int:
         if args.exempt == INCIDENT_EXEMPTION:
             refuse_an_exempt_revert(known, key, order, read)
     if args.exempt and args.exempt != state.FLAKE_FIX:
-        refuse_an_unexempt(key, args.exempt, "set")
+        refuse_an_unexempt(name, key, args.exempt, "set")
     failing = install.default_failures(github.repo_of(key)) if args.exempt == state.MAIN_FIX else {}
     try:
         staged = staging_reach(name, known, [key] if after["wants_tap"] and before["state"] == "open" else [])
@@ -5659,29 +5641,31 @@ def release_reach(name: str, data: dict, keys: list[str]) -> dict[str, dict]:
         return {}
     orca.checkout(name, data["roles"]["coordinator"]["cwd"])
     with ThreadPoolExecutor(max_workers=8) as pool:
-        return dict(zip(ours, pool.map(lambda key: pr_reach(key, found.release), ours), strict=True))
+        return dict(zip(ours, pool.map(lambda key: pr_reach(key, found), ours), strict=True))
 
 
-def pr_reach(key: str, release: providers.ReleaseProvider) -> dict:
+def pr_reach(key: str, found: providers.Providers) -> dict:
     """What one PR reaches, by release_reach."""
     paths = github.files(key)
-    if paths and all(served.TESTS.search(path) or CI_CONFIG.match(path) for path in paths):
+    if paths and all(served.TESTS.search(path) or found.repo.ci_config(path) for path in paths):
         return {"components": [], "touched": [], "dev": [], "releases": [], "staged": [], "tested": True}
-    return release.components(key.split("#")[1], paths, github.paths([key])[key][0] if CARGO_LOCK in paths else None)
+    return found.release.components(key.split("#")[1], paths, github.paths([key])[key][0] if CARGO_LOCK in paths else None)
 
 
 def staging_mac_box(name: str, data: dict, job: dict) -> str:
     """What a staging tester's Staging line adds for each PR its `staging test of #N before it lands` parts name whose paths reach the dashboard, by release_reach: its cases run in Iris Staging on a Mac box against the sand-next commit live on core-usw2-auto, by live_sand_next, and again at its own head when its paths reach iris-desktop or sand-next too, the two MAC_BOX_BUILDS that `tools/ci mac-box prove` builds from the commit it names, so a control calling a route the released sand-next lacks, or an Iris Staging change, fails on staging rather than for him; nothing when none reaches the dashboard. A live commit that could not be read leaves the brief kept, its line naming the read its tester makes first."""
     keys = state.tested_prs(data, job)
     reach = release_reach(name, data, keys)
-    if not (dashboard := [key for key in keys if key in reach and "dashboard" in reach[key]["touched"]]):
+    found = providers.of(data)
+    if not (dashboard := [key for key in keys if key in reach and found.mac_box.affected(reach[key]["touched"])]):
         return ""
     try:
-        live, unread = live_sand_next(orca.checkout(name, data["roles"]["coordinator"]["cwd"])), ""
+        orca.checkout(name, data["roles"]["coordinator"]["cwd"])
+        live, unread = found.mac_box.live_commit(), ""
     except (DriveError, github.GithubError) as error:
-        live, unread = "<that commit>", STAGING_UNREAD.format(error=error)
-    own = [key for key in dashboard if providers.of(data).mac_box.builds & set(reach[key]["touched"])]
-    return STAGING_MAC_BOX.format(tested=", ".join(dashboard), live=live) + unread + (STAGING_OWN_HEAD.format(tested=", ".join(own)) if own else "")
+        live, unread = "<that commit>", found.staging.unread(str(error))
+    own = [key for key in dashboard if found.mac_box.builds & set(reach[key]["touched"])]
+    return found.mac_box.case_steps(", ".join(dashboard), live) + unread + (found.mac_box.rebuild_steps(", ".join(own)) if own else "")
 
 
 def staging_taps(data: dict, job: dict) -> str:
@@ -5691,15 +5675,6 @@ def staging_taps(data: dict, job: dict) -> str:
         for key in state.tested_prs(data, job)
         if key in data["prs"] and (tap := data["prs"][key]["tap"])
     )
-
-
-def live_sand_next(checkout: Path) -> str:
-    """The full commit of the sand-next every Mac updates to: the newest release, hotfix or rollback `tools/ci release status --manual sand-next --env core-usw2-auto` lists as passed, run in the drive's checkout by its built go/ci binary, which skips the build tools/ci may run first, else by tools/ci, within LIVE_SAND_NEXT_SECONDS, its short commit made whole by git there."""
-    ci = checkout / GO_CI_BUILT if (checkout / GO_CI_BUILT).is_file() else checkout / GO_CI
-    listed = github.run([str(ci), "release", "status", "--manual", "sand-next", "--env", "core-usw2-auto"], cwd=str(checkout), timeout=LIVE_SAND_NEXT_SECONDS)
-    if not (found := LIVE_SAND_NEXT.search(listed)):
-        raise DriveError("`tools/ci release status --manual sand-next --env core-usw2-auto` lists no passed sand-next release among its newest builds, so no live sand-next commit was read")
-    return github.run(["git", "-C", str(checkout), "rev-parse", "--verify", f"{found['commit']}^{{commit}}"]).strip()
 
 
 def staging_reach(name: str, data: dict, keys: list[str]) -> dict[str, list[str]]:
@@ -5887,16 +5862,16 @@ def refuse_an_untracked_original(data: dict, key: str, port_of: int) -> None:
     )
 
 
-def refuse_an_unexempt(key: str, exempt: str, done: str) -> None:
+def refuse_an_unexempt(name: str, key: str, exempt: str, done: str) -> None:
     """Refuse an exempt class the PR is not in, by land.outside, the class check the lander runs before it lands an exempt PR, on the PR as GitHub has it now, before anything is kept, so no class the lander would refuse takes Approve off his card, by his ruling to keep a lane's exempt word and check the class; a flake fix outside test and fixture code keeps his tap instead, by flake_tap."""
-    if why := land.outside(exempt, key, served.change(key)):
+    if why := land.outside(state.load(name), exempt, key, served.change(key)):
         raise DriveError(f'{key}: refused, nothing {done}: it is no "{exempt}": {why}, by the class check the lander runs before it lands an exempt PR')
 
 
 def path_class(data: dict, key: str, job: dict, read: dict) -> str | None:
     """The exempt class the files a PR's GitHub read lists put it in when the drive first registers it: ci-only when it lists any and land.not_ci finds none outside CI configuration and CI tooling, so a CI fix lands with no tap and no session names its class by hand, by his words "any CI fix PRs uoiu can merge without getting a tp from me"; None for a PR the drive tracks, which keeps the class it has, someone else's, which only his tap lands, and a revert on an order an incident is open on, which no incident approves."""
     paths = [changed["path"] for changed in read["files"]]
-    if key in data["prs"] or not paths or land.not_ci(paths) or read["author"]["login"].casefold() != state.HIS_LOGIN:
+    if key in data["prs"] or not paths or land.not_ci(data, paths) or read["author"]["login"].casefold() != state.HIS_LOGIN:
         return None
     if state.open_incidents(data, [job["order"], *job["carries"]]) and land.REVERT.search(f"{read['title']}\n{read['body']}"):
         return None

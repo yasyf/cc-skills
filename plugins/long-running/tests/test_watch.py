@@ -8713,7 +8713,7 @@ def test_a_pr_he_approved_before_he_went_quiet_whose_builder_staged_it_waits_for
         data["orders"]["o1"]["parts"][part] = state.new_part()
         data["jobs"]["j1"]["prs"] += [state.pr_url(EJECTED)]
         data["prs"][EJECTED] = state.new_pr(state.pr_url(EJECTED), "j1", "o1") | {"head": "bb28d680bf", "checks": "pass", "review": "approved", "tap": state.new_tap("Approve", "bb28d680bf", "pressed the button", at=state.stamp(T0))}
-    assert land.dangerous(github.files(EJECTED)) == []
+    assert land.dangerous(state.load(demo), github.files(EJECTED)) == []
     assert land.unattended(state.load(demo), EJECTED, T0 + timedelta(minutes=20)) == (
         f"he last wrote or tapped 20 minutes ago, and o1 holds its {part} part, given only to a change its builder read as dangerous, which can break FDE or customer runs"
         f" or lose their data, so it lands only while he is present, his word or tap within 15 minutes, at his next word, by his words {state.PRESENCE_WORDS}"
