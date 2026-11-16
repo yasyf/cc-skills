@@ -527,14 +527,15 @@ def main_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def broken(repo: str, pr: dict) -> dict[str, dict]:
-    """The tests a merged PR broke on main: each its own run failed at its head that main's last finished run before the merge passed and no finished main run since has passed, with that run's link, its workflow and when the merge landed; none once its run passed."""
+    """The tests a merged PR broke on main: each its own run failed at its head that main's last finished run before the merge passed and no finished main run since has passed, with that run's link, its workflow and when the merge landed; none once its run passed, and none of a workflow whose last run before the merge says nothing of any test, by install.main_failures, since main may have failed them already."""
     if pr["checks"] != "fail":
         return {}
     failures = install.head_failures(repo, pr["head"])
     since = install.merged_at(repo, pr["merged_sha"]) if failures else ""
     found = {}
     for workflow in {failure["workflow"] for failure in failures.values()}:
-        before = install.main_failures(repo, workflow, f"<{since}") or []
+        if (before := install.main_failures(repo, workflow, f"<{since}")) is None:
+            continue
         after = install.main_failures(repo, workflow, f">={since}")
         found |= {test: failure | {"since": since} for test, failure in failures.items() if failure["workflow"] == workflow and test not in before and (after is None or test in after)}
     return found
