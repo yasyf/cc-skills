@@ -356,6 +356,7 @@ LISTED = (
     "CREATE TRIGGER IF NOT EXISTS row_inserted AFTER INSERT ON rows BEGIN INSERT INTO changed (collection, key) VALUES (NEW.collection, NEW.key); END",
     "CREATE TRIGGER IF NOT EXISTS row_updated AFTER UPDATE ON rows BEGIN INSERT INTO changed (collection, key) VALUES (OLD.collection, OLD.key), (NEW.collection, NEW.key); END",
     "CREATE TRIGGER IF NOT EXISTS row_deleted AFTER DELETE ON rows BEGIN INSERT INTO changed (collection, key) VALUES (OLD.collection, OLD.key); END",
+    "CREATE INDEX IF NOT EXISTS pending_outboxes ON rows (collection, place) WHERE collection = 'jobs' AND json_array_length(body, '$.outbox') > 0",
 )
 VERSION = json.loads((Path(__file__).resolve().parents[2] / ".claude-plugin" / "plugin.json").read_text())["version"]
 
@@ -814,8 +815,10 @@ def acked(name: str, job_id: str, ids: list[str], budget: float | None = None) -
 
 
 def replay(name: str) -> list[str]:
-    """Deliver what each job's outbox still holds, which a process that died between a write's commit and its delivery left, by deliver_owed, each message kept once whoever else delivers it meanwhile; one load and nothing more while no outbox holds anything, so the start of each watch pass can call it. Each job's delivery runs apart, by ran, so a job whose history cannot be written holds back no other job's, the failures raised together once every job was tried, while within one job delivery still stops at its first failure, so no later message lands ahead of it. Its acks write with WATCH_WRITE_SECONDS, as a watch stage's writes do, so a drive held past that refuses the ack and the next pass delivers again, which keeps each message once."""
-    ran([functools.partial(deliver_owed, name, job_id, job["outbox"], WATCH_WRITE_SECONDS) for job_id, job in load(name)["jobs"].items() if job.get("outbox")], [])
+    """Deliver what each job's outbox still holds, which a process that died between a write's commit and its delivery left, by deliver_owed, each message kept once whoever else delivers it meanwhile; one indexed query returning no rows while no outbox holds anything, so the start of each watch pass can call it. Each job's delivery runs apart, by ran, so a job whose history cannot be written holds back no other job's, the failures raised together once every job was tried, while within one job delivery still stops at its first failure, so no later message lands ahead of it. Its acks write with WATCH_WRITE_SECONDS, as a watch stage's writes do, so a drive held past that refuses the ack and the next pass delivers again, which keeps each message once."""
+    with closing(connect(database_path(name).resolve(strict=True))) as db:
+        pending = [(key, json.loads(body)) for key, body in db.execute("SELECT key, json_extract(body, '$.outbox') FROM rows WHERE collection = 'jobs' AND json_array_length(body, '$.outbox') > 0 ORDER BY place")]
+    ran([functools.partial(deliver_owed, name, job_id, rows, WATCH_WRITE_SECONDS) for job_id, rows in pending], [])
     return []
 
 

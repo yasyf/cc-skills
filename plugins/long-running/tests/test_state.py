@@ -286,6 +286,33 @@ def test_a_row_save_checks_only_its_changed_order_for_lane_moves(state_root: Pat
     assert state.stored("demo")["orders"]["o0"]["owner"] == "meta"
 
 
+@pytest.mark.parametrize("pending", [False, True])
+def test_outbox_replay_reads_only_pending_messages_through_its_index(state_root: Path, monkeypatch: pytest.MonkeyPatch, pending: bool) -> None:
+    make("demo")
+    message = {"id": "message-1", "body": "A kept reply"}
+    path = state.database_path("demo")
+    with closing(state.connect(path)) as db:
+        for place, (key, body) in enumerate((("j1", {}), ("j2", {"outbox": []}), ("j3", {"outbox": [message]} if pending else {}))):
+            db.execute("INSERT INTO rows VALUES ('jobs', ?, ?, ?)", (key, place, json.dumps(body)))
+    connect = state.connect
+    statements, delivered = [], []
+
+    def traced(path: Path, seconds: float | None = None) -> sqlite3.Connection:
+        db = connect(path, seconds)
+        db.set_trace_callback(statements.append)
+        return db
+
+    monkeypatch.setattr(state, "connect", traced)
+    monkeypatch.setattr(state, "load", lambda *args: pytest.fail("outbox replay must not load the drive"))
+    monkeypatch.setattr(state, "deliver_owed", lambda name, job, rows, budget: delivered.append((name, job, rows, budget)) or [])
+    assert state.replay("demo") == []
+    assert delivered == ([("demo", "j3", [message], state.WATCH_WRITE_SECONDS)] if pending else [])
+    [selected] = [statement for statement in statements if statement.startswith("SELECT key,")]
+    with closing(connect(path)) as db:
+        plan = list(db.execute("EXPLAIN QUERY PLAN " + selected))
+    assert any("USING INDEX pending_outboxes" in row[3] for row in plan)
+
+
 def other_process_save() -> None:
     subprocess.run([sys.executable, "-c", OTHER_PROCESS_SAVE, str(Path(state.__file__).resolve().parents[1])], check=True, timeout=30)
 
