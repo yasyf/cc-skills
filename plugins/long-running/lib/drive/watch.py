@@ -1757,11 +1757,11 @@ def follow_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def checks(watcher: Watcher, moment: datetime) -> None:
-    """Start the check against his words of each PR an event names that owes one, with no coordinator turn: a GitHub delivery naming it, such as a push to its head or a review, by take_deliveries, every PR once his rulings or the rulings a job's brief binds change, and every PR on the watch's first pass and each CHECK_SWEEP after, the one sweep that catches a delivery the receiver missed or a check that failed; redraw_lines draws its verdict on his card in place, so his Approve of a changed patch lands it once it is green, and its NOT READY goes to the builders of the PRs it faults, by objections."""
+    """Start the check against his words of each PR an event names that owes one, with no coordinator turn: a GitHub delivery naming it, such as a push to its head or a review, by take_deliveries, every PR once his rulings change, and every PR on the watch's first pass and each CHECK_SWEEP after, the one sweep that catches a delivery the receiver missed or a check that failed; redraw_lines draws its verdict on his card in place, so his Approve of a changed patch lands it once it is green, and its NOT READY goes to the builders of the PRs it faults, by objections."""
     if watcher.cards is None:
         return
     data = state.load(watcher.name)
-    rulings = frozenset([*data["answers"], *((job_id, ruling) for job_id, job in data["jobs"].items() for ruling in (job.get("brief_flags") or {}).get("ruling") or [])])
+    rulings = frozenset(data["answers"])
     if watcher.swept_at is None or moment - watcher.swept_at >= CHECK_SWEEP or rulings != watcher.rulings:
         watcher.swept_at, watcher.rulings, named = moment, rulings, set(data["prs"])
     else:

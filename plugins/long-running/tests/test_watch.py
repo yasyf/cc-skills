@@ -5746,6 +5746,7 @@ def test_a_not_ready_keeps_its_head_however_often_its_builder_returns_and_is_jud
     assert (checkers, len(refused), "watch.py stops the watch" in refused[0]) == ([KEY], 1, True)
     with state.edit(demo) as data:
         data["jobs"]["j1"]["brief_flags"] = {"ruling": ["fd06b56"]}
+    watching.checking.add(KEY)
     watch.run_pass(watching, T0 + timedelta(minutes=3))
     judge.against = [{"order": "o1", "words": "ship the watch", "file": "watch.py", "change": "watch.py ends the watch it should keep"}]
     assert cli.main(["pr", "check", state.pr_url(KEY), "--drive", demo]) == 0
