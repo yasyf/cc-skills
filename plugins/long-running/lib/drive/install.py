@@ -576,17 +576,18 @@ def try_root(deadline: float) -> str | None:
 
 
 def try_watch(plugin: Path, names: list[str], deadline: float) -> None:
-    """Run the install at plugin's tools/try-watch on a copy of each drive named, deleted once it ends, raising InstallError with what it printed when a pass of its own crashes."""
+    """Run the install at plugin's tools/try-watch on a copy of each drive named, one process per drive at once, deleted once they end, raising InstallError with what it printed when a pass of its own crashes."""
     if not names:
         return
     if root := try_root(deadline):
         Path(root).mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="drive-try-watch-", dir=root) as copies:
         for name in names:
-            state.clone(name, Path(copies))
-        done = ran(["env", f"LONG_RUNNING_STATE={copies}", str(plugin / "tools" / "try-watch"), *names], deadline)
-    if done.returncode:
-        raise InstallError(f"one relay and one watch pass of its own crashed on a copy of the drives:\n{done.stderr.strip() or done.stdout.strip()}")
+            state.clone(name, Path(copies) / name)
+        with concurrent.futures.ThreadPoolExecutor(len(names)) as pool:
+            done = list(pool.map(lambda name: ran(["env", f"LONG_RUNNING_STATE={Path(copies) / name}", str(plugin / "tools" / "try-watch"), name], deadline), names))
+    if said := [run.stderr.strip() or run.stdout.strip() for run in done if run.returncode]:
+        raise InstallError("one relay and one watch pass of its own crashed on a copy of the drives:\n" + "\n".join(said))
 
 
 @cache

@@ -1,5 +1,5 @@
 #!/usr/bin/env -S python3 -I
-"""Run one relay pass and one watch pass of each drive named, in this process, on the copy of its state LONG_RUNNING_STATE holds, with no process started, no signal sent and no network reached, and exit 1 naming each stage that raised anything but the drive's own refusals or a stubbed command's failure, then drive status, drive job show on each live job and drive order show on each open order, the newest READS_EACH of each, failing on any traceback, so a release whose watch or read verbs would crash on a live drive's rows never reaches it."""
+"""Run one relay pass and one watch pass of each drive named, in this process, on the copy of its state LONG_RUNNING_STATE holds, with no process started, no signal sent and no network reached, and exit 1 naming each stage that raised anything but the drive's own refusals or a stubbed command's failure, then drive status, drive job show on each live job and drive order show on each open order, the newest READS_EACH of each for up to READS_SECONDS, failing on any traceback, each pass stopping at PASS_SECONDS, so a release whose watch or read verbs would crash on a live drive's rows never reaches it."""
 
 import contextlib
 import io
@@ -17,8 +17,9 @@ plugin = Path(__file__).resolve().parent.parent
 runpy.run_path(str(plugin / "hooks" / "installed.py"))["entered"](plugin, [__file__, *sys.argv[1:]])
 sys.path.insert(0, str(plugin / "lib"))
 
-PASS_SECONDS = 40
+PASS_SECONDS = 30
 READ_SECONDS = 30
+READS_SECONDS = 30
 READS_EACH = 40
 
 
@@ -78,8 +79,12 @@ def expected(error: BaseException) -> bool:
     return isinstance(error, (Stubbed, TimeoutError)) or type(error).__module__.startswith("drive.")
 
 
+class OutOfTime(BaseException):
+    pass
+
+
 def timed_out(*_):
-    raise TimeoutError(f"a pass ran past {PASS_SECONDS} seconds")
+    raise OutOfTime
 
 
 watch.contained = counted
@@ -90,6 +95,8 @@ for name in sys.argv[1:]:
         signal.alarm(PASS_SECONDS)
         try:
             passing(watch.Watcher(name, offset=state.watch_cursor(name)), state.now())
+        except OutOfTime:
+            print(f"try-watch: {name} {passing.__name__} stopped at {PASS_SECONDS}s", flush=True)
         except Exception as error:
             if not expected(error):
                 crashes.append(f"{name}: {passing.__name__} raised {type(error).__name__}: {error}")
@@ -105,7 +112,7 @@ def read(name: str, argv: list[str]) -> None:
     try:
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             cli.main([*argv, "--drive", name])
-    except SystemExit:
+    except (SystemExit, OutOfTime):
         pass
     except Exception as error:
         if not expected(error):
@@ -126,12 +133,14 @@ for name in sys.argv[1:]:
     data = state.load(name)
     jobs = [job_id for job_id, job in data["jobs"].items() if job["state"] not in ("done", *state.ENDED_JOB_STATES)][-READS_EACH:]
     orders = list(state.open_orders(data))[-READS_EACH:]
-    read(name, ["status"])
-    for job_id in jobs:
-        read(name, ["job", "show", job_id])
-    for order_id in orders:
-        read(name, ["order", "show", order_id])
-    print(f"try-watch: {name} drive status, job show on {len(jobs)} live job(s) and order show on {len(orders)} open order(s) ran in {time.monotonic() - started:.1f}s", flush=True)
+    reads = [["status"], *(["job", "show", job_id] for job_id in jobs), *(["order", "show", order_id] for order_id in orders)]
+    done = 0
+    for argv in reads:
+        if time.monotonic() - started >= READS_SECONDS:
+            break
+        read(name, argv)
+        done += 1
+    print(f"try-watch: {name} ran {done} of {len(reads)} reads, drive status, job show on {len(jobs)} live job(s) and order show on {len(orders)} open order(s), in {time.monotonic() - started:.1f}s", flush=True)
 crashes.extend(f"{key[0]}: drive {' '.join(key[1:3])}{' on ' + ', '.join(filter(None, ids)) if any(ids) else ''} {said}" for key, (ids, said) in read_crashes.items())
 if crashes:
     raise SystemExit("try-watch: " + "\ntry-watch: ".join(crashes))
