@@ -247,30 +247,8 @@ def release_refusal(command: str, data: dict, reading: str | None = None) -> str
         return f"--release `{command}` is not one release start or hotfix of the release provider alone: name the one release to start, with its flags as it runs"
     if "local" in flags:
         return f"--release `{command}` deploys `--local`, whose plan and apply run in the shell that starts it and start no build its job could follow, so no job starts it: a `--manual` or regular start names the build its job follows"
-    if not flags.get("order") and not reading and not rehearsal(command, data):
+    if not flags.get("order") and not reading and not rehearsal(command, data) and not went(command, data):
         return f"--release names no --order. {RELEASE_APPROVAL}"
-    return incident_scope(command, flags, data)
-
-
-INCIDENT_SCOPE_WORDS = "Of only llm-gateway or api or whatever the thing we need here is"
-
-
-def incident_scope(command: str, flags: dict[str, tuple[str, ...]], data: dict) -> str | None:
-    """Why a hotfix of an open incident's fix may not start: it names no `--only`, so the release tool picks every component and partner the fix's commit reaches, or one its `--only` names that none of the PRs it hotfixes reaches, by the release provider's components read, by his words INCIDENT_SCOPE_WORDS; None for any other start, and for one naming only components its PRs reach, which of them his words name being the session's reading; a components read that fails leaves its --only unchecked, since a gate fails open."""
-    from drive import cli, github
-
-    keys = [key for number in flags.get("hotfix", ()) if (key := f"{state.home(data)}#{number}") in data["prs"] and state.open_incidents(data, list(state.served_orders(data, data["prs"][key])))]
-    if not keys:
-        return None
-    try:
-        reached = sorted({component for reach in cli.release_reach(data["name"], data, keys).values() for component in reach["releases"]})
-    except (state.DriveError, reads.ReadError, providers.ProviderError, github.GithubError) as error:
-        print(f"drive job add: the components {', '.join(keys)} reach did not read, so its --only goes unchecked: {error}", file=sys.stderr)
-        reached = None
-    if not (only := flags.get("only")):
-        return f'--release `{command}` hotfixes the open incident\'s {", ".join(keys)} with no --only, so it ships whatever the release tool pairs with it, by his words "{INCIDENT_SCOPE_WORDS}": name with --only the components it needs, of the ones it reaches, {", ".join(reached or []) or "which tools/ci release select --pr names"}, narrowed to what his words name'
-    if reached is not None and (wider := sorted(set(only) - set(reached))):
-        return f'--release `{command}` names {", ".join(wider)} in --only, which {", ".join(keys)} does not reach: it reaches {", ".join(reached) or "none"}, by his words "{INCIDENT_SCOPE_WORDS}"'
     return None
 
 
@@ -280,14 +258,24 @@ def rehearsal(release: str, data: dict) -> bool:
     return bool(reads) and all(settled.FOR_PRODUCTION not in read and (places := set(read.get("env", ())) - set(read.get("without", ()))) and places <= providers.of(data).release.rehearsal_envs for read in reads)
 
 
+def went(command: str, data: dict) -> str | None:
+    """The order whose go, by drive order go, approves a hotfix the command starts: one every PR it hotfixes serves and he gave his go on, so the go that merged a fix also releases it with no answer named in --order, by his words state.GO_WORDS; None for any other start."""
+    [flags] = started(command, data)
+    keys = [f"{state.home(data)}#{number}" for number in flags.get("hotfix", ())]
+    if not keys or any(key not in data["prs"] for key in keys):
+        return None
+    gone = [{order_id for order_id in state.served_orders(data, data["prs"][key]) if data["orders"][order_id]["go"]} for key in keys]
+    return next(iter(set.intersection(*gone)), None)
+
+
 def approval_refusal(command: str, data: dict, reading: str | None = None) -> str | None:
-    """Why the one release a command starts may not start on the answer of his its --order names: none for a rehearsal(); while he holds every release, hold_refusal() refuses it; else unapproved() objects to it. Given the top coordinator's reading, none outside his hold: the release starts on that reading, whatever Opus read, and the objection is printed on stderr."""
+    """Why the one release a command starts may not start on the answer of his its --order names: none for a rehearsal(); while he holds every release, hold_refusal() refuses it; none for a hotfix his go on its order approves, by went(); else unapproved() objects to it. Given the top coordinator's reading, none outside his hold: the release starts on that reading, whatever Opus read, and the objection is printed on stderr."""
     if rehearsal(command, data):
         return None
     cwd = data["roles"]["coordinator"]["cwd"]
     if hold := settled.hold(cwd):
         return hold_refusal(command, data, hold, reading)
-    if not (why := unapproved(command, data, cwd)):
+    if went(command, data) or not (why := unapproved(command, data, cwd)):
         return None
     if reading:
         print(f'drive job add: {why}; it starts on the top coordinator\'s reading "{cut(reading, 200)}"', file=sys.stderr)

@@ -1383,13 +1383,13 @@ def test_a_merged_monorepo_prs_staging_line_reads_its_after_merge_pass_alone_or_
 
 
 def test_a_monorepo_pr_its_builder_lifted_off_staging_says_why_on_its_cards(named_repo: None) -> None:
-    lifted = drive_of({"o1": order("ship it", [])}, {}, [tracked(7, unstaged={"why": "it changes only the docs", "head": "abc", "merges_first": False})])
+    lifted = drive_of({"o1": order("ship it", [])}, {}, [tracked(7, unstaged={"why": "it changes only the docs", "head": "abc"})])
     assert view.staging(lifted, "Forge-AI/monorepo#7") == "Not on staging: its builder says AGENTS.md's dangerous rule misses it: it changes only the docs"
 
 
-def test_a_monorepo_pr_whose_staging_test_was_dropped_says_on_its_cards_it_merges_first_and_is_tested_after(named_repo: None) -> None:
-    freed = drive_of({"o1": order("ship it", [])}, {}, [tracked(7, unstaged={"why": "his answer took its staging test off its order", "head": "abc", "merges_first": True})])
-    assert view.staging(freed, "Forge-AI/monorepo#7") == "Not on staging before it merges: his answer took its staging test off its order, so it is tested on staging after its merge"
+def test_a_monorepo_pr_his_go_cleared_says_on_its_cards_it_merges_first_and_is_tested_after(named_repo: None) -> None:
+    freed = drive_of({"o1": order("ship it", [])}, {}, [tracked(7, go="o1")])
+    assert view.staging(freed, "Forge-AI/monorepo#7") == "Not on staging before it merges: his go on o1 merges it first, so it is tested on staging after its merge"
 
 
 @pytest.mark.parametrize(
@@ -1403,8 +1403,7 @@ def test_a_monorepo_pr_whose_staging_test_was_dropped_says_on_its_cards_it_merge
             None,
             f"Tested on staging: plat-usw2-staging at f3a6f23, passed, [proof]({PROOF}). Land it without what staging did not exercise. Approve lands it without them; Hold keeps it from landing",
         ),
-        (None, None, {"why": AGENT_WORDS, "head": "abc", "merges_first": True}, "Not on staging before it merges, so it is tested on staging after its merge"),
-        (None, None, {"why": AGENT_WORDS, "head": "abc", "merges_first": False}, "Not on staging: its builder says AGENTS.md's dangerous rule misses it"),
+        (None, None, {"why": AGENT_WORDS, "head": "abc"}, "Not on staging: its builder says AGENTS.md's dangerous rule misses it"),
     ],
 )
 def test_his_card_draws_a_staging_row_without_words_its_tester_or_builder_wrote_for_agents_which_the_drives_own_lines_keep(named_repo: None, part: dict | None, tester: dict | None, unstaged: dict | None, drawn: str) -> None:

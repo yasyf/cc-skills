@@ -917,7 +917,7 @@ def quoted_parts(parts: Iterable[str]) -> str:
 
 
 def change_parts(name: str, data: dict, order_id: str, added: list[str], dropped: list[str]) -> list[str]:
-    """Add and take off an order's parts one name a flag, so no call retypes a part it leaves alone, and each part it keeps keeps its posted mark, design and the jobs naming it, a dropped one leaving every job and PR too, by state.drop_part: an add is refused for a name the order holds, a drop for a name it does not hold, for its every part, which a close takes off, for a `staging test of #N before it lands` part naming an open PR, which only his answer lets merge before that test, by his words a9c9edc, and for a change a design listed that no builder delivered, which only his answer drops, unless its design's newest DESIGN no longer lists it and no work on it began, by state.unlisted_changes. A line for each live job a drop left with no part, which it stopped, naming each text the stop dropped."""
+    """Add and take off an order's parts one name a flag, so no call retypes a part it leaves alone, and each part it keeps keeps its posted mark, design and the jobs naming it, a dropped one leaving every job and PR too, by state.drop_part: an add is refused for a name the order holds, a drop for a name it does not hold, for its every part, which a close takes off, and for a change a design listed that no builder delivered, which only his answer drops, unless its design's newest DESIGN no longer lists it and no work on it began, by state.unlisted_changes. A line for each live job a drop left with no part, which it stopped, naming each text the stop dropped."""
     parts = data["orders"][order_id]["parts"]
     if held := [part for part in added if part in parts]:
         raise DriveError(f"{order_id}: refused, its parts stay as they are: it holds {quoted_parts(held)} already, so --add-part adds none; name it as it stands with --part")
@@ -925,11 +925,6 @@ def change_parts(name: str, data: dict, order_id: str, added: list[str], dropped
         pick_parts(order_id, data["orders"][order_id], dropped)
     if not added and set(parts) <= set(dropped):
         raise DriveError(f"{order_id}: refused, its parts stay as they are: --drop-part takes off its every part, which closes it: drive order set {order_id} --state done or dropped")
-    if tested := [part for part in dropped if state.staged_open(data, part)]:
-        raise DriveError(
-            f"{order_id}: refused, its parts stay as they are: --drop-part takes off {quoted_parts(tested)}, the staging test {', '.join(key for part in tested for key in state.staged_open(data, part))} waits on before it merges,"
-            f" which only his answer lifts, by his words {state.TESTED_FIRST_RULING}: drive answer <his answer> --dropped {order_id}:<the part>"
-        )
     if designed := [
         f'{json.dumps(part, ensure_ascii=False)} of {design}\'s design'
         for part in dropped
@@ -1108,6 +1103,8 @@ def order_set(args: argparse.Namespace) -> int:
             order["parts"][part]["standing"] = args.standing.strip() or None
             order["parts"][part]["check"] = state.new_check(args.standing_check) if args.standing_check and args.standing.strip() else None
         turning = args.incident and not order["incident"]
+        if args.order_class:
+            order["class"] = args.order_class
         if args.incident is not None:
             order["incident"] = args.incident
         if followed:
@@ -1521,6 +1518,25 @@ def answered_by(name: str, order_id: str, part: str, link: str) -> tuple[str, di
 
     state.write(name, answered_by_write)
     return f'{order_id} "{part}": posted {link}, the post that answered it', {"id": order_id, "parts": [part], "posted": link}
+
+
+def order_go(args: argparse.Namespace) -> int:
+    """Record his go on an order from his words, whichever session heard them, by his words state.GO_WORDS: every open PR it serves, and each one added to it later, by add_pr, lands with no staging test before its merge, no Approve card and no merge queue, by state.give_go. A dangerous change still lands only while he is present, and the release provider's scope still holds."""
+    name = state.resolve(args.drive)
+    created = state.stamp()
+
+    def order_go_write(data: dict) -> tuple[list[str], list[str]]:
+        order = find(data["orders"], args.id, "order")
+        if order["state"] in state.CLOSED_ORDER_STATES:
+            raise DriveError(f"{args.id}: refused, it is {order['state']}, so no PR of it waits on a gate")
+        order.update(go={"words": args.words, "link": args.source, "at": created, "by": os.environ.get("CLAUDE_CODE_SESSION_ID")}, updated=created)
+        keys = [key for key, pr in data["prs"].items() if pr["state"] == "open" and args.id in state.served_orders(data, pr)]
+        return keys, [job_id for key in keys for job_id in state.give_go(data, key, args.id)]
+
+    keys, stopped = state.write(name, order_go_write)
+    lines = [f"{args.id}: his go recorded; {', '.join(keys) if keys else 'no open PR of it yet'} {'lands' if len(keys) == 1 else 'land'} with no staging test before merging, no Approve card and no merge queue; a PR added to it later does too"]
+    lines += [f"{job_id} stopped: its staging test is now the after-merge pass" for job_id in stopped]
+    return emit(args, "\n".join(lines), {"id": args.id, "prs": keys, "stopped": stopped})
 
 
 def order_told(args: argparse.Namespace) -> int:
@@ -2639,7 +2655,6 @@ def checked_ask(name: str, job_id: str, text: str, unsettled: str | None, redraw
                 f"{job_id} has {', '.join(unlinked)} open, which its ASK's summary does not link, so his card would describe its work as if no PR"
                 " were up: link each in the summary by what it does, as <url|what it does>"
             )
-    problems += release_holds(data, job, asked, text)
     problems += release_scope(data, asked, text, recorded)
     if typed := limits.typed_time("\n".join([asked.title, *asked.summary, asked.cause, asked.interim, *asked.show_me, *asked.options, *asked.hints.values()]), data):
         problems.append(f"his card draws these words, and {typed}")
@@ -2703,28 +2718,6 @@ def checked_ask(name: str, job_id: str, text: str, unsettled: str | None, redraw
         return asked, holds, unsettled, ordering, approval
     leave = settled.leaving(data, job)
     return asked, holds, unsettled, ordering, leave.ruling if leave and settled.detail(case, words, leave) else None
-
-
-def release_holds(data: dict, job: dict, asked: limits.Question, text: str) -> list[str]:
-    """Why a card on a production release's order may not ask about a PR the ASK names that only its staging test holds, green and approved, by state.release_held: one changing nothing dangerous, by land.dangerous, the watch lands now and the cut waits on, so no option skips a component or holds the release for it; a dangerous one his card asks to merge, an option naming merge and the PR, never one leaving a component out or holding the release on its test; by his words state.RELEASE_HOLD_WORDS."""
-    if not any(state.releasing(data, order_id) for order_id in [job["order"], *job["carries"]]):
-        return []
-    named = {state.pr_key(found[0]) for found in state.PR_URL.finditer(text)} | {f"{state.home(data)}#{number}" for number in re.findall(r"(?<![\w/])#(\d+)\b", text)}
-    problems = []
-    for key in sorted(key for key in named if key in data["prs"] and state.release_held(data, key)):
-        number = key.rpartition("#")[2]
-        if not (found := land.dangerous(data, github.files(key))):
-            problems.append(
-                f"{key} is green and approved and changes nothing dangerous, so the watch lands it now through the merge queue and the cut waits minutes on its landing,"
-                f" its staging retest rerunning only what {key} touches: ask nothing about it, and offer no option leaving a component out or holding the release for it ({state.RELEASE_HOLD_WORDS})"
-            )
-        elif not any(re.search(r"\bmerge", option, re.IGNORECASE) and re.search(rf"#{number}\b|/pull/{number}\b", f"{option}\n{asked.hints.get(option, '')}") for option in asked.options):
-            problems.append(
-                f"{key} is green and approved, and only its staging test holds it, since it changes {', '.join(found[:3])}: his card asks to merge it, an option naming merge and #{number},"
-                f" his pick recorded with drive answer <his answer> --dropped <order>:{state.STAGING_TEST.format(number=number)} so the lander lands it while he is present and the cut's staging retest"
-                f" reruns only what it touches; offer no option leaving a component out or holding the release on its test ({state.RELEASE_HOLD_WORDS})"
-            )
-    return problems
 
 
 def release_scope(data: dict, asked: limits.Question, text: str, recorded: list[dict]) -> list[str]:
@@ -5714,8 +5707,8 @@ def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = N
         if parts:
             refuse_a_part_its_job_lacks(data, key, parts, False, "added")
             pr["parts"] = list(dict.fromkeys(parts))
-        if pr["exempt"] == state.INCIDENT_EXEMPT and read["state"] == "OPEN":
-            state.ship_as_incident_fix(data, key)
+        if (given := next((order_id for order_id in state.served_orders(data, pr) if data["orders"][order_id]["go"]), None)) and read["state"] == "OPEN":
+            state.give_go(data, key, given)
         testers = [state.mark_dangerous(data, key, read["headRefOid"], [changed["path"] for changed in read["files"]])] if read["state"] == "OPEN" and read["files"] else []
         if approval:
             pr["tap"] = state.new_tap("Approve", read["headRefOid"], data["answers"][approval]["link"], card=[key], approval=approval)
@@ -5838,8 +5831,6 @@ def pr_set(args: argparse.Namespace) -> int:
         if args.tapped == "Hold":
             state.end_approvals(data, key, before["tap"])
         pr["waits"] = merged_waits(data, pr, args.waits, args.no_waits, found)
-        if args.exempt == INCIDENT_EXEMPTION and pr["state"] == "open":
-            state.ship_as_incident_fix(data, key)
         testers = [tester_id for tester_id in [args.staging and state.stage_pr(data, key, args.staging, data["jobs"][pr["job"]].get("session"))] if tester_id]
         delivering = f"\ndelivers {'; '.join(pr['parts'])}" if args.part else ""
         if args.part and delivers:
@@ -6211,15 +6202,11 @@ def refuse_an_unexempt(name: str, key: str, exempt: str, done: str) -> None:
 
 
 def path_class(data: dict, key: str, job: dict, read: dict) -> str | None:
-    """The exempt class the files a PR's GitHub read lists put it in when the drive first registers it: an incident fix for one its job builds on an open incident's fix, stop or immediate fix, by state.incident_fixing, so no session names its class by hand and no tap or staging test holds it, by his words state.INCIDENT_SHIP_WORDS; ci-only when it lists any and land.not_ci finds none outside CI configuration and CI tooling, so a CI fix lands with no tap and no session names its class by hand, by his words "any CI fix PRs uoiu can merge without getting a tp from me"; None for a PR the drive tracks, which keeps the class it has, someone else's, which only his tap lands, and a revert on an order an incident is open on, which no incident approves."""
+    """The exempt class the files a PR's GitHub read lists put it in when the drive first registers it: ci-only when it lists any and land.not_ci finds none outside CI configuration and CI tooling, so a CI fix lands with no tap and no session names its class by hand, by his words "any CI fix PRs uoiu can merge without getting a tp from me"; None for a PR the drive tracks, which keeps the class it has, someone else's, which only his tap lands, and a revert on an order an incident is open on, which no incident approves."""
     paths = [changed["path"] for changed in read["files"]]
-    if key in data["prs"]:
+    if key in data["prs"] or not paths or land.not_ci(data, paths) or read["author"]["login"].casefold() != state.HIS_LOGIN:
         return None
     if state.open_incidents(data, [job["order"], *job["carries"]]) and land.REVERT.search(f"{read['title']}\n{read['body']}"):
-        return None
-    if state.incident_fixing(data, job):
-        return state.INCIDENT_EXEMPT
-    if not paths or land.not_ci(data, paths) or read["author"]["login"].casefold() != state.HIS_LOGIN:
         return None
     return state.CI_ONLY
 
@@ -6257,6 +6244,8 @@ def tap_verdict(data: dict, pr: dict | None) -> tuple[bool, str]:
         return True, f"approved by him at {render.when(tap['at'])}"
     if tap:
         return False, f"held by him at {render.when(tap['at'])}"
+    if state.go_clears(pr):
+        return True, f"his go on {pr['go']}"
     if pr.get("fundamental"):
         return False, f"no tap since it changed: {pr['fundamental']}"
     return False, "no tap from him yet"
@@ -7921,13 +7910,14 @@ def parser() -> argparse.ArgumentParser:
         default=[],
         type=str.strip,
         metavar="PART",
-        help="a part to take off, one name a flag, each other part staying as it is, and off every job and PR, stopping each live job left with no part; refused for a name the order does not hold, for its every part, which a close takes off, for a `staging test of #N before it lands` part naming an open PR, which only his answer's --dropped lets merge first, and for a change a design listed that no builder delivered, which only his answer's --dropped takes off, unless its design's newest DESIGN no longer lists it and no builder an agent or lane took or open PR carries it",
+        help="a part to take off, one name a flag, each other part staying as it is, and off every job and PR, stopping each live job left with no part; refused for a name the order does not hold, for its every part, which a close takes off, and for a change a design listed that no builder delivered, which only his answer's --dropped takes off, unless its design's newest DESIGN no longer lists it and no builder an agent or lane took or open PR carries it",
     )
     reported = verb.add_mutually_exclusive_group()
     reported.add_argument("--reporter", metavar="LINK", help=REPORTER_HELP)
     reported.add_argument("--no-reporter", metavar="LINK", help="his Slack message saying not to tell the reporters; the order then closes done with no note to them")
     verb.add_argument("--watch", metavar="LINK", help=f"{WATCH_HELP}; it replaces any thread the order watched, reading only messages newer than now")
     verb.add_argument("--follow", nargs=2, metavar=("BUILD", "ASK"), help=FOLLOW_HELP)
+    verb.add_argument("--class", dest="order_class", choices=state.CLASSES, help="its class, by the repository's class rules: incident, an open incident's work; asked, a deliverable he spoke about and has not received; process, work the drive added on its own; every grant sorts by it")
     verb.add_argument("--incident", action=argparse.BooleanOptionalAction, help="mark it an incident order in one save, as drive incident open opens one: its fix and cause parts, a build whose answer order's other parts stay answers, its evidence record when its note names none and a codex job on each of those two parts no unfinished codex job holds, each printed with its start line; or unmark it")
     verb.add_argument("--alert", dest="alerts", action="append", default=[], metavar="LINK", help=f"added to its alerts: {ALERT_HELP}")
     verb.add_argument(
@@ -8064,6 +8054,11 @@ def parser() -> argparse.ArgumentParser:
         ),
     )
     verb.set_defaults(run=order_posted)
+    verb = order.add_parser("go", parents=both, help="his go on an order, from his words, whichever session heard them: every PR it serves lands with no staging test before merging, no Approve card and no merge queue; dangerous changes still wait for him and the release provider's scope still holds")
+    verb.add_argument("id", help="the order")
+    verb.add_argument("--words", required=True, help="his words giving the go, verbatim")
+    verb.add_argument("--from", dest="source", required=True, metavar="LINK", help="the Slack permalink of his message")
+    verb.set_defaults(run=order_go)
     verb = order.add_parser(
         "told",
         parents=both,

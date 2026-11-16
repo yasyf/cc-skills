@@ -116,7 +116,7 @@ def alone(data: dict, key: str, cards: dict) -> Stage:
     if state.cleared(pr):
         after = f"; the check against his words objects, for after the merge: {named}" if (named := state.against(pr)) else ""
         unread = f"; its lander's last try ended {lander['outcome']}" if (lander := pr["lander"]) and lander["head"] == pr["head"] and (lander["outcome"] or "").startswith(land.UNREAD) else ""
-        return waiting(data, key, cards) or Stage("ready", LANDER, (f'green, its exempt class "{pr["exempt"]}" lands it' if state.exempted(pr) else f"green and approved by him at {pr['tap']['head'][:7]}{after}") + unread)
+        return waiting(data, key, cards) or Stage("ready", LANDER, (f"green, his go on {pr['go']} lands it" if state.go_clears(pr) else f'green, its exempt class "{pr["exempt"]}" lands it' if state.exempted(pr) else f"green and approved by him at {pr['tap']['head'][:7]}{after}") + unread)
     if carded(pr):
         objection = f"; at {pr['head'][:7]} the check against his words objects: {named}" if (named := state.against(pr)) else ""
         return Stage("card", HIM, f"green, waits on his Approve{objection}")
@@ -201,7 +201,7 @@ def his(data: dict, wait: str, cards: dict | None) -> bool:
 
 def carded(pr: dict) -> bool:
     """Whether the PR waits on his card for its landing: it wants his tap and no exempt class lands it."""
-    return pr["wants_tap"] and not state.exempted(pr)
+    return pr["wants_tap"] and not state.exempted(pr) and not state.go_clears(pr)
 
 
 def landing_why(pr: dict) -> str:

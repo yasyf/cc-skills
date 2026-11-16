@@ -122,8 +122,8 @@ def dangerous(data: dict, paths: list[str]) -> list[str]:
 
 
 def lifted(pr: dict) -> bool:
-    """Whether its builder's `STAGING: none: <why>` lifted the PR's staging test at its head, by state.unstage, or his answer let it merge first."""
-    return bool(pr["unstaged"]) and (pr["unstaged"]["merges_first"] or pr["unstaged"]["head"] == pr["head"])
+    """Whether its builder's `STAGING: none: <why>` lifted the PR's staging test at its head, by state.unstage."""
+    return bool(pr["unstaged"]) and pr["unstaged"]["head"] == pr["head"]
 
 
 def danger(data: dict, key: str) -> str:
@@ -131,9 +131,9 @@ def danger(data: dict, key: str) -> str:
     if found := dangerous(data, github.files(key)):
         return f"it changes {', '.join(found[:3])}{', …' if len(found) > 3 else ''}"
     part = state.STAGING_TEST.format(number=key.partition("#")[2])
-    if not state.home_repo(data, github.repo_of(key)) or not (order_id := next((order_id for order_id, order in data["orders"].items() if part in order["parts"]), None)):
+    if not state.home_repo(data, github.repo_of(key)) or not (order_id := next((order_id for order_id, order in data["orders"].items() if part in order["parts"]), None) or next(iter(data["prs"][key]["staged_for"]), None)):
         return ""
-    return f"{order_id} holds its {part} part, given only to a change its builder read as dangerous"
+    return f"{order_id} holds or held its {part} part, given only to a change its builder read as dangerous"
 
 
 def unattended(data: dict, key: str, moment: datetime) -> str | None:
@@ -180,9 +180,9 @@ def outside(data: dict, exempt: str, key: str, read: dict) -> str:
 
 
 def unexempt(data: dict, key: str) -> str | None:
-    """Why a PR landing by its exempt class rather than his Approve is not in that class, by outside() on its changed files, title and body on GitHub now, by his ruling that the landing tool checks the PR really is in the exempt class before it lands; None when it is, or he approved it. A ci-only PR whose head left its class loses the class the paths gave it, by run(), so his card asks his Approve with no session's word."""
+    """Why a PR landing by its exempt class rather than his Approve is not in that class, by outside() on its changed files, title and body on GitHub now, by his ruling that the landing tool checks the PR really is in the exempt class before it lands; None when it is, he approved it, or his go on an order it serves clears it. A ci-only PR whose head left its class loses the class the paths gave it, by run(), so his card asks his Approve with no session's word."""
     pr = data["prs"][key]
-    if approved(pr):
+    if approved(pr) or state.go_clears(pr):
         return None
     if not (why := outside(data, pr["exempt"], key, served.change(key))):
         return None
@@ -376,7 +376,7 @@ def units(data: dict, keys: list[str], cards: dict) -> list[tuple[str, ...]]:
     under = unders(data)
     stacks = landing_stacks(data, under)
     found = dict.fromkeys(
-        members if state.queued_by_lander(data, members[0]) and not any(refused(data["prs"][member]) for member in members) else members[:1]
+        members if all(state.queued_by_lander(data, member) for member in members) and not any(refused(data["prs"][member]) for member in members) else members[:1]
         for key in keys
         if data["prs"][key]["state"] == "open" and (members := unit(data, under, stacks, key, cards))
     )
@@ -728,7 +728,7 @@ def run(name: str, keys: list[str], dry_run: bool = False) -> str:
         else:
             below = uncleared_below(data, keys)
             misfiled = {key: why for key in keys if (why := unexempt(data, key))}
-            changed = {key: github.files(key) for key in keys if not state.staging_tested(data, key) and not lifted(data["prs"][key]) and not any(state.part_wait(data, wait) for wait in data["prs"][key]["waits"])}
+            changed = {key: github.files(key) for key in keys if not state.staging_tested(data, key) and not lifted(data["prs"][key]) and not state.go_clears(data["prs"][key]) and not any(state.part_wait(data, wait) for wait in data["prs"][key]["waits"])}
             risky = {key: made for key, files in changed.items() if (made := [path for found in state.dangerous(data, files).values() for path in found])}
             if (misfiled or risky) and not dry_run:
 

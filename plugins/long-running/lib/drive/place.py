@@ -141,11 +141,11 @@ def standings(data: dict) -> dict[tuple[str | None, str | None], float]:
 
 
 def ranked(data: dict, job: dict, held: dict[tuple[str | None, str | None], float]) -> tuple:
-    """Where the job's project and workstream stand for a turn, lower first: the project's place in the ranks list caps.json sets, highest first, an unlisted one after every listed one, then the project's standing, then its workstream's, so a full cap pauses the lowest workstream first and a whole project once its best workstream ranks lowest."""
+    """Where the job's project and workstream stand for a turn, lower first: its class, by state.class_rank, then the project's place in the ranks list caps.json sets, highest first, an unlisted one after every listed one, then the project's standing, then its workstream's, so a full cap pauses the lowest workstream first and a whole project once its best workstream ranks lowest."""
     order = data["orders"][job["order"]]
     ranks = caps().get("ranks", [])
     key = (order["project"], order["workstream"])
-    return (ranks.index(key[0]) if key[0] in ranks else len(ranks), held[(key[0], None)], held[key]) if key in held else (len(ranks),)
+    return (state.class_rank(data, job), ranks.index(key[0]) if key[0] in ranks else len(ranks), held[(key[0], None)], held[key]) if key in held else (state.class_rank(data, job), len(ranks))
 
 
 def paused(data: dict, job_id: str, line: list[str]) -> str:

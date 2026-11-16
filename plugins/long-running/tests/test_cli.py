@@ -6946,7 +6946,7 @@ def test_a_builders_staging_line_reaches_the_tester_its_prs_changed_files_gave_i
         data["jobs"][tester_id]["agent"] = "a1"
     assert keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\n{UNSTAGED}") == (0, "")
     data = state.load("demo")
-    assert (part in data["orders"]["o1"]["parts"], data["prs"][key]["waits"], data["prs"][key]["unstaged"]) == (True, [f"o1:{part}"], {"why": "it changes no path AGENTS.md calls dangerous", "head": "abc", "merges_first": False})
+    assert (part in data["orders"]["o1"]["parts"], data["prs"][key]["waits"], data["prs"][key]["unstaged"]) == (True, [f"o1:{part}"], {"why": "it changes no path AGENTS.md calls dangerous", "head": "abc"})
     with edit("demo") as data:
         data["jobs"][tester_id]["agent"] = None
     assert keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\n{UNSTAGED}") == (0, "")
@@ -8174,36 +8174,35 @@ def test_an_incidents_stop_is_its_immediate_fix_and_lands_at_once_as_an_incident
     assert state.load("demo")["prs"]["Forge-AI/monorepo#42"]["exempt"] == "incident fix"
 
 
-def test_a_pr_built_on_an_open_incidents_fix_is_an_incident_fix_with_no_tap_no_staging_test_and_no_merge_queue(
-    home_repo: None, run: Run, demo: str, on_github: dict, monkeypatch: pytest.MonkeyPatch
+def test_his_go_on_an_order_lands_its_prs_with_no_staging_test_no_approve_card_and_no_merge_queue_and_one_added_later_too(
+    home_repo: None, run: Run, with_pr: str, on_github: dict
 ) -> None:
-    monkeypatch.setattr(cli.reads, "run", recorded([]))
-    run("incident", "open", "table moves rerun on every write", "--no-rollback", *FILED)
-    run("job", "add", "builder", "--order", "o1", "--part", "fix", "--goal", "ship the fix")
-    on_github.update(title="Fix: table moves stop rerunning on every write", body=CARD_BODY)
-    assert run("pr", "add", PR, "--job", "j4", *LEAD)[0] == 0
+    part = state.STAGING_TEST.format(number=42)
+    with edit("demo") as data:
+        data["orders"]["o1"]["parts"][part] = state.new_part()
+        data["prs"][with_pr] |= {"waits": [f"o1:{part}"], "reached": True}
+    said = "https://poetic-technology.slack.com/archives/C0GO/p1794800000000100"
+    code, out = run("order", "go", "o1", "--words", "merge and hotfix", "--from", said)
+    assert code == 0 and f"o1: his go recorded; {with_pr} lands with no staging test" in out
     data = state.load("demo")
-    pr = data["prs"]["Forge-AI/monorepo#42"]
-    assert (pr["exempt"], pr["unstaged"]["merges_first"], pr["reached"]) == ("incident fix", True, False)
-    assert not any(part.startswith("staging test of #42") for order in data["orders"].values() for part in order["parts"])
-    assert not state.asks_tap(data, pr)
-    assert not state.queued_by_lander(data, "Forge-AI/monorepo#42")
+    pr = data["prs"][with_pr]
+    assert (data["orders"]["o1"]["go"]["words"], data["orders"]["o1"]["go"]["link"], pr["go"], pr["waits"], pr["reached"]) == ("merge and hotfix", said, "o1", [], False)
+    assert part not in data["orders"]["o1"]["parts"]
+    assert (state.go_clears(pr), state.cleared(pr), state.asks_tap(data, pr), state.queued_by_lander(data, with_pr)) == (True, True, False, False)
+    on_github.update(url="https://github.com/Forge-AI/monorepo/pull/43")
+    assert run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/43", "--job", "j1", *LEAD)[0] == 0
+    assert state.load("demo")["prs"]["Forge-AI/monorepo#43"]["go"] == "o1"
 
 
-def test_a_hotfix_of_an_open_incidents_pr_names_with_only_just_the_components_that_pr_reaches(home_repo: None, with_pr: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {key: {"releases": ["api", "rsw-cp", "rsw-dp"]} for key in keys})
-    command = "tools/ci release hotfix 42 --order 14e8441"
-    with edit("demo") as data:
-        data["orders"]["o1"]["incident"] = True
+def test_an_orders_class_sorts_its_jobs_ahead_of_process_work_and_an_unset_class_reads_from_the_incident_mark(run: Run, with_pr: str) -> None:
     data = state.load("demo")
-    wide = brief.incident_scope(command, {"hotfix": ("42",), "order": ("14e8441",)}, data)
-    assert wide and f"hotfixes the open incident's {with_pr} with no --only" in wide and "api, rsw-cp, rsw-dp" in wide
-    beyond = brief.incident_scope(f"{command} --only api,platy", {"hotfix": ("42",), "only": ("api", "platy")}, data)
-    assert beyond and f"names platy in --only, which {with_pr} does not reach" in beyond
-    assert brief.incident_scope(f"{command} --only api", {"hotfix": ("42",), "only": ("api",)}, data) is None
+    assert (state.order_class(data["orders"]["o1"]), state.class_rank(data, data["jobs"]["j1"])) == ("asked", 1)
+    assert run("order", "set", "o1", "--class", "process")[0] == 0
+    data = state.load("demo")
+    assert (state.order_class(data["orders"]["o1"]), state.class_rank(data, data["jobs"]["j1"])) == ("process", 2)
     with edit("demo") as data:
-        data["orders"]["o1"]["incident"] = False
-    assert brief.incident_scope(command, {"hotfix": ("42",)}, state.load("demo")) is None
+        data["orders"]["o1"].update({"class": None, "incident": True})
+    assert state.order_class(state.load("demo")["orders"]["o1"]) == "incident"
 
 
 def test_pr_set_never_leaves_a_forge_ai_pr_with_neither_his_tap_nor_an_exempt_class(

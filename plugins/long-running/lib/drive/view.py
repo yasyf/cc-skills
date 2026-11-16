@@ -455,10 +455,10 @@ def before_merge(drive: dict, key: str, part: str, held: list[str], run: dict | 
         if excepted := drive["prs"][key]["exception"]:
             components = ", ".join(excepted["components"])
             return (f"Not on staging: staging has no copy of {components}, so it lands on your exception {excepted['granted']}" if excepted["granted"] else f"Not on staging: staging has no copy of {components}, so it lands on your exception once you read the production dry run's plan of each",)
+        if go := drive["prs"][key]["go"]:
+            return (f"Not on staging before it merges: his go on {go} merges it first", ", so it is tested on staging after its merge")
         if not (lifted := drive["prs"][key]["unstaged"]):
             return ("Not on staging: no staging test is set for it",)
-        if lifted["merges_first"]:
-            return ("Not on staging before it merges", Pasted(f": {cut(lifted['why'], NOW_CHARS)}"), ", so it is tested on staging after its merge")
         return ("Not on staging: its builder says AGENTS.md's dangerous rule misses it", Pasted(f": {cut(lifted['why'], NOW_CHARS)}"))
     parts = [drive["orders"][order_id]["parts"][part] for order_id in held]
     soak = next((state.STAGING_WAIT.fullmatch(each["soak"]) for each in parts if each["soak"]), None)
@@ -887,13 +887,13 @@ def queue(drive: dict, found: dict, moment: datetime, features: list[dict], answ
         item["reason"] = reason(item, rank, urgent)
         ranked.append((rank, item))
     return [
-        item | {"priority": {"rank": position, "answering": rank[0], "incident": not rank[1], "weight": -rank[3]}}
+        item | {"priority": {"rank": position, "answering": rank[0], "incident": not rank[2], "weight": -rank[4]}}
         for position, (rank, item) in enumerate(sorted(ranked, key=lambda entry: entry[0]), 1)
     ]
 
 
 def ranking(drive: dict, item: dict, orders: list[str], urgent: dict[str, str], moment: datetime, asked: str | None) -> tuple[tuple, str]:
-    """Where an item ranks in his queue, and why in plain words: below every other while the drive answers words of his typed under its card, then an open incident it serves, a built job it holds, how much it holds, then how long it has waited."""
+    """Where an item ranks in his queue, and why in plain words: below every other while the drive answers words of his typed under its card, then its orders' best class, by state.order_class, then an open incident it serves, a built job it holds, how much it holds, then how long it has waited."""
     incident = next((urgent[order_id] for order_id in orders if order_id in urgent), None)
     built = len(item.get("built") or [])
     if item["kind"] == "question":
@@ -914,13 +914,13 @@ def ranking(drive: dict, item: dict, orders: list[str], urgent: dict[str, str], 
         holding,
         f"waiting since {when(since)}" if since else "",
     ]
-    rank = (asked is not None, incident is None, not built, -weight, state.parse_time(since) if since else datetime.max.replace(tzinfo=moment.tzinfo))
+    rank = (asked is not None, min((state.CLASSES.index(state.order_class(drive["orders"][order_id])) for order_id in orders if order_id in drive["orders"]), default=len(state.CLASSES)), incident is None, not built, -weight, state.parse_time(since) if since else datetime.max.replace(tzinfo=moment.tzinfo))
     return rank, "; ".join(part for part in why if part)
 
 
 def reason(item: dict, rank: tuple, urgent: dict[str, str]) -> dict:
     """The one plain reason an item ranks where it does, as the queue's card leads with it: `tone` (bad, warm, quiet or plain), `label` a few words, and `text` what it names."""
-    asked, calm, unbuilt, weight = rank[0], rank[1], rank[2], -rank[3]
+    asked, calm, unbuilt, weight = rank[0], rank[2], rank[3], -rank[4]
     if asked:
         return {"tone": "quiet", "label": "Drive is answering you", "text": "It waits on the drive's reply to your words, so it sits below the rest"}
     if not calm:

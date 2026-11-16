@@ -113,9 +113,9 @@ FLAKE_FIX = "flake fix"
 MAIN_FIX = "main fix"
 CI_ONLY = "ci-only"
 UNCARDED_CLASSES = (FLAKE_FIX, MAIN_FIX)
-INCIDENT_EXEMPT = "incident fix"
-EXEMPT_CLASSES = ("pure port", "test-only", CI_ONLY, FLAKE_FIX, MAIN_FIX, INCIDENT_EXEMPT)
-INCIDENT_SHIP_WORDS = "It's an incident so it should skip the merge queue, just squash merge, then hotfix release"
+EXEMPT_CLASSES = ("pure port", "test-only", CI_ONLY, FLAKE_FIX, MAIN_FIX, "incident fix")
+CLASSES = ("incident", "asked", "process")
+GO_WORDS = "I told you 3 times to merge snd release why do you keep delaying"
 FLAKE_RULING = "532cd3d"
 FLAKE_WORDS = "and ffs fix these flaky tgests how many times do I have to tell yoiu"
 SUBJECT_LABEL = ', recorded on the subject of "'
@@ -150,7 +150,6 @@ NO_TAP_OWNER = HIS_LOGIN
 BOT_SUFFIX = "[bot]"
 FOREIGN_RULING = '5815316 on a teammate\'s PRs: "Don\'t touch old tree or his PRs"'
 TOOLING_RULING = 'de88d49: "Block in a fucking tooling question for core work is not fucnigbbacceotbale"'
-TESTED_FIRST_RULING = 'a9c9edc, "remember everything has to be tested on sandbox first/ staging in detail before merging"'
 ROLES = ("communicator", "coordinator", "meta")
 REPO_RULES = ".claude/long-running.toml"
 HOLDERS = ("communicator", "meta")
@@ -162,7 +161,7 @@ REMOTE_LANE_ENV = "LONG_RUNNING_REMOTE_LANE"
 WATCHDOG_ENV = "LONG_RUNNING_WATCHDOG"
 DETACHED_ENV = "LONG_RUNNING_DETACHED"
 HIM = "him"
-ORDER_FIELDS = {"paged": None, "paged_by": None, "page_post": None, "users": None, "users_by": None}
+ORDER_FIELDS = {"class": None, "go": None, "paged": None, "paged_by": None, "page_post": None, "users": None, "users_by": None}
 WATCH_SENDER = "watch"
 WATCH_SAID_KEPT = 500
 SENDER_NAMES = {"coordinator": "the coordinator", "communicator": "the communicator", "meta": "the meta session", WATCH_SENDER: "the watch"}
@@ -215,8 +214,6 @@ SLOT_WAIT = "builder-slot"
 USAGE_LIMIT_LOG = "claude-usage-limits.jsonl"
 SPRITE_WAIT = "sprite-slot"
 CUT_WAIT = "release-cut"
-RELEASE_HOLD_WORDS = '"its saying it will wait all night or skip the mac release for 1 PR which is already green and approved, I just merged it to unblock but whatever in the tooling that did not just merge it then include mac in the release needs to be fixed"'
-APPROVE_LANDS_WORDS = '"I asked for 2 fixes and approved them asap, neither has merged and neither is in the release that\'s supposed to be for them"'
 TURN_WAITS = (SLOT_WAIT, SPRITE_WAIT, CUT_WAIT)
 USAGE_LIMIT = re.compile(r"You've hit your (?P<limit>\w+) limit · resets (?P<resets>.+?) \((?P<zone>[^)]+)\)")
 LIMIT_RESET = re.compile(r"(?:(?P<day>[A-Z][a-z]{2} \d{1,2}) at )?(?P<hour>\d{1,2})(?::(?P<minute>\d{2}))?(?P<half>am|pm)")
@@ -1379,6 +1376,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
             pr["flaky"].setdefault("cause", None)
         pr.setdefault("own_reds", None)
         pr.setdefault("review_asked", None)
+        pr.setdefault("go", None)
+        pr.setdefault("staged_for", [])
         pr.setdefault("author", None)
         pr.setdefault("checked", None)
         pr.setdefault("undrawn", None)
@@ -1389,8 +1388,6 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         pr.setdefault("stored", [])
         pr.setdefault("unstaged", None)
         pr.setdefault("exception", None)
-        if pr["unstaged"]:
-            pr["unstaged"].setdefault("merges_first", False)
         pr.setdefault("after_merge", None)
         pr.setdefault("reached", False)
         pr.setdefault("reviewed", [])
@@ -3100,14 +3097,14 @@ def staging_testers(data: dict, job_id: str, report: str) -> list[str]:
             continue
         staged.add(key)
         if UNSTAGED.match(found["cases"]):
-            if not merges_first_lift(data["prs"][key]):
+            if not go_clears(data["prs"][key]):
                 unstage(data, key, found["cases"].partition(":")[2].strip(), job_id)
         elif tester_id := stage_pr(data, key, found["cases"], job.get("session")):
             added.append(tester_id)
     if why := next((staging.partition(":")[2].strip() for staging in stagings if UNSTAGED.match(staging)), None):
         named = (keys.get(f"{found[1]}/{found[2]}#{found[3]}".casefold()) for found in PR_URL.finditer(report.lstrip().partition("\n")[0]) if home_repo(data, f"{found[1]}/{found[2]}"))
         for key in dict.fromkeys(named):
-            if key and key not in staged and not merges_first_lift(data["prs"][key]):
+            if key and key not in staged and not go_clears(data["prs"][key]):
                 unstage(data, key, why, job_id)
     return added
 
@@ -3158,7 +3155,7 @@ def given_case(data: dict, job_id: str, case: str) -> bool:
 def unstage(data: dict, key: str, why: str, job_id: str) -> None:
     """Lift a PR of the providers' repository off its staging test once its builder's `STAGING: none: <why>` or `#N none: <why>` says AGENTS.md's dangerous rule misses it, keeping why for his card with the head it spoke of, the one whose files were read last, so that head's changed files mark it no more, by markable, while a new head's are read again: the part leaves each order on which it is not delivered and no job runs it now, every job on it untaken or finished, by drop_part, with the PR's wait on it, while a test a job runs stays to its end, by his ruling 0048b14, and one that ended with no pass waits on no rerun once the lift says why."""
     pr = data["prs"][key]
-    pr["unstaged"] = {"why": why, "head": pr["paths_at"] or pr["head"], "merges_first": False}
+    pr["unstaged"] = {"why": why, "head": pr["paths_at"] or pr["head"]}
     part = STAGING_TEST.format(number=key.split("#")[1])
     for order_id in [order_id for order_id, order in data["orders"].items() if part in order["parts"]]:
         if not delivered(data, order_id, part) and all(untaken(job) or job["state"] in FINISHED_JOB_STATES for _, job in part_jobs(data, order_id, part)):
@@ -3173,39 +3170,36 @@ def staged_open(data: dict, part: str) -> list[str]:
     return [key for number in re.findall(r"\d+", named["numbers"]) if (pr := data["prs"].get(key := f"{home(data)}#{number}")) and pr["state"] == "open"]
 
 
-def merge_first(data: dict, order_id: str, part: str, why: str) -> None:
-    """Let each open PR a `staging test of #N before it lands` part names, by staged_open, merge before that test once his answer drops the part, as his answer 2eb7e76 has the PRs he freed "merge, then get tested", or once land_for_release lands a PR changing nothing dangerous that alone holds a release: a lift kept with why and merges_first, which the release reach honours at every head, by merges_first_lift, so the lander puts no test back on it, the PR's wait on that part ended and its reach mark cleared, its staging test then the after-merge pass install.add_prover owes each PR merged with none delivered. A builder's `STAGING: none`, by unstage, lifts no reach, and drive order set --drop-part refuses the part."""
-    for key in staged_open(data, part):
-        pr = data["prs"][key]
-        pr.update(unstaged={"why": why, "head": pr["paths_at"] or pr["head"], "merges_first": True}, reached=False)
-        pr["waits"] = [wait for wait in pr["waits"] if wait != f"{order_id}:{part}"]
+def order_class(order: dict) -> str:
+    """The class of an order, by which code sorts every grant, by the repository's class rules that the model applies with drive order set --class: incident, asked or process. An order no session classed reads as an incident while it is one, else as asked, since his words outrank the drive's own work until a session reads it as process."""
+    return order["class"] or (CLASSES[0] if order["incident"] else CLASSES[1])
 
 
-def incident_fixing(data: dict, job: dict) -> str | None:
-    """The open incident a job fixes: an incident order of its own or one it carries, open, of which it delivers the fix, the stop or the immediate fix; None for any other job."""
-    return next((order_id for order_id in open_incidents(data, [job["order"], *job["carries"]]) if {INCIDENT_FIX, INCIDENT_STOP, IMMEDIATE_FIX} & set(job_parts(job, order_id))), None)
+def class_rank(data: dict, job: dict) -> int:
+    """Where a job's class sorts, lower first: the best class among its own order and each it carries, by order_class."""
+    return min(CLASSES.index(order_class(data["orders"][order_id])) for order_id in [job["order"], *job["carries"]])
 
 
-def ship_as_incident_fix(data: dict, key: str) -> list[str]:
-    """Class an open PR fixing an open incident an incident fix, which lands with no tap and skips the merge queue for a straight squash merge, by state.queued_by_lander, and let it merge before any staging test, its test the after-merge pass install.add_prover owes it: its `staging test of #N before it lands` part off each order, by drop_part, its waits on it ended and its reach mark cleared, by his words INCIDENT_SHIP_WORDS, since an open incident is his go to merge and hotfix its fix. A dangerous change still lands only while he is present, by land.unattended. Each live job drop_part stopped."""
+def go_clears(pr: dict) -> bool:
+    """Whether his go on an order the PR serves, by drive order go, clears its person and process gates: no staging test before it merges, no Approve card and no merge queue. A dangerous change still lands only while he is present, and the release provider's scope still holds."""
+    return bool(pr["go"])
+
+
+def give_go(data: dict, key: str, order_id: str) -> list[str]:
+    """Mark an open PR cleared by his go on order_id, by his words GO_WORDS: its `staging test of #N before it lands` part off each order, by drop_part, with its waits on it ended and its reach mark cleared, so it merges first and is tested on staging after its merge. Each live job drop_part stopped."""
     pr, part = data["prs"][key], STAGING_TEST.format(number=key.rpartition("#")[2])
-    pr.update(exempt=INCIDENT_EXEMPT, reached=False, unstaged={"why": "an incident fix merges and hotfixes before any staging test", "head": pr["paths_at"] or pr["head"], "merges_first": True})
+    pr.update(go=order_id, reached=False, staged_for=list(dict.fromkeys([*pr["staged_for"], *(holder for holder, order in data["orders"].items() if part in order["parts"])])))
     stopped = []
     for holder in [holder for holder, order in data["orders"].items() if part in order["parts"]]:
-        stopped += drop_part(data, holder, part, f"{key} is an incident fix, which merges and hotfixes at once, so it is tested on staging after its merge")[1]
-        pr["waits"] = [wait for wait in pr["waits"] if wait != f"{holder}:{part}"]
+        stopped += drop_part(data, holder, part, f"his go on {order_id} merges {key} before any staging test, which runs after its merge")[1]
+    pr["waits"] = [wait for wait in pr["waits"] if not staging_tester(data, wait) and not ((named := STAGING_PARTS.fullmatch(wait.partition(":")[2])) and key.rpartition("#")[2] in re.findall(r"\d+", named["numbers"]))]
     return stopped
-
-
-def merges_first_lift(pr: dict | None) -> bool:
-    """Whether his answer dropping the tracked PR's staging test part, let it merge before that test, by merge_first, which the release reach honours whatever its head."""
-    return bool(pr and pr["unstaged"] and pr["unstaged"]["merges_first"])
 
 
 def markable(data: dict, key: str, head: str) -> bool:
     """Whether mark_dangerous may stage a PR at a head from its changed files: an open PR of the providers' repository no order holds the staging test part of whose builder's `STAGING: none` lifted no test at that head, and whose staging test his answer did not let it merge before, by merges_first_lift, at any head, by his answer 2eb7e76."""
     pr, part = data["prs"][key], STAGING_TEST.format(number=key.split("#")[1])
-    return pr["state"] == "open" and home_repo(data, github.repo_of(key)) and not (pr["unstaged"] and (pr["unstaged"]["merges_first"] or pr["unstaged"]["head"] == head)) and not any(part in order["parts"] for order in data["orders"].values())
+    return pr["state"] == "open" and home_repo(data, github.repo_of(key)) and not go_clears(pr) and not (pr["unstaged"] and pr["unstaged"]["head"] == head) and not any(part in order["parts"] for order in data["orders"].values())
 
 
 def unmarked(data: dict) -> list[str]:
@@ -3286,16 +3280,6 @@ def releasing(data: dict, order_id: str) -> bool:
     from drive import brief
 
     return any(starts_cut(job) and not brief.rehearsal(job["brief_flags"]["release"], data) for job_id in data["orders"][order_id]["jobs"] if (job := data["jobs"].get(job_id)))
-
-
-def release_held(data: dict, key: str) -> list[str]:
-    """The orders whose `staging test of #N before it lands` part alone holds the open PR of the providers' repository at key: green, his Approve on it and its GitHub review approved, every wait of it on that part of those orders, so it lands and is tested after its merge. Either his Approve tap itself, by his words APPROVE_LANDS_WORDS, or orders covering a production release, by releasing, so the release waits on nothing of it but its landing, by his words RELEASE_HOLD_WORDS; none otherwise."""
-    pr, part = data["prs"][key], STAGING_TEST.format(number=key.rpartition("#")[2])
-    if pr["state"] != "open" or not home_repo(data, github.repo_of(key)) or pr["checks"] != "pass" or pr["review"] != "approved" or not cleared(pr):
-        return []
-    held = [found[0] for wait in pr["waits"] if (found := part_wait(data, wait)) and found[1] == part]
-    tapped = (pr["tap"] or {}).get("label") == "Approve"
-    return held if held and len(held) == len(pr["waits"]) and (tapped or all(releasing(data, order_id) for order_id in held)) else []
 
 
 def left_changes(data: dict, builder_id: str, found: list[tuple[str, list[int]]], removed: Collection[str]) -> list[str]:
@@ -4275,6 +4259,8 @@ def new_order(text: str, source: str, thread: tuple[str, str] | None, parts: dic
         "alerts": [],
         "recovered": None,
         "prove_said": None,
+        "class": None,
+        "go": None,
         "paged": None,
         "paged_by": None,
         "page_post": None,
@@ -6888,13 +6874,13 @@ def waits_his_tap(data: dict, key: str, order_id: str) -> bool:
 
 
 def queued_by_lander(data: dict, key: str) -> bool:
-    """Whether the drive's lander queues the PR through the repository provider's merge queue once his Approve or an exempt class clears it: one of the drive's home repository, by home_repo, but an incident fix, which merges straight with a squash, by his words INCIDENT_SHIP_WORDS."""
-    return home_repo(data, key.split("#")[0]) and (data["prs"].get(key) or {}).get("exempt") != INCIDENT_EXEMPT
+    """Whether the drive's lander queues the PR through the repository provider's merge queue once his Approve or an exempt class clears it: one of the drive's home repository, by home_repo, but one his go clears, by go_clears, which merges straight with a squash, by his words GO_WORDS."""
+    return home_repo(data, key.split("#")[0]) and not (key in data["prs"] and go_clears(data["prs"][key]))
 
 
 def cleared(pr: dict) -> bool:
-    """Whether the PR may land with no more word from him: he approved it, or an exempt class lands it with no tap."""
-    return (pr["tap"] or {}).get("label") == "Approve" or bool(exempted(pr))
+    """Whether the PR may land with no more word from him: he approved it, an exempt class lands it with no tap, or his go on an order it serves clears it, by go_clears."""
+    return (pr["tap"] or {}).get("label") == "Approve" or bool(exempted(pr)) or go_clears(pr) and not pr["tap"]
 
 
 def exempted(pr: dict) -> str | None:
@@ -7145,6 +7131,8 @@ def tap_refused(data: dict, pr: dict) -> str | None:
         return f"it is {pr['state']}"
     if upstream(pr):
         return f"{upstream_owner(pr)}'s maintainers merge it, outside the drive"
+    if go_clears(pr):
+        return f"his go on {pr['go']} lands it with no tap"
     if exempted(pr):
         return f'its exempt class "{pr["exempt"]}" lands it with no tap'
     if not pr["wants_tap"]:
@@ -7263,6 +7251,8 @@ def new_pr(url: str, job_id: str, order_id: str) -> dict:
         "exempt": None,
         "exception": None,
         "fundamental": None,
+        "go": None,
+        "staged_for": [],
         "state": "open",
         "title": "",
         "head": "",

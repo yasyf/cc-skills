@@ -360,11 +360,11 @@ def test_a_tapped_monorepo_pr_landed_around_the_queue_is_refused_naming_stack_en
     assert landing_guard.deny_reason(bash(command, session_id="ordinary")) is None
 
 
-def test_a_tapped_monorepo_pr_enqueued_or_an_incident_fix_merged_passes(drive_pr: str, no_calls: None) -> None:
+def test_a_tapped_monorepo_pr_enqueued_or_one_his_go_cleared_merged_passes(home_repo: None, drive_pr: str, no_calls: None) -> None:
     approve(drive_pr)
     assert landing_guard.deny_reason(bash(".agents/skills/submit-pr/scripts/stack-enqueue 42")) is None
     with edit("demo") as data:
-        data["prs"][drive_pr]["exempt"] = "incident fix"
+        data["prs"][drive_pr].update(go="o1", tap=None)
     assert landing_guard.deny_reason(bash("gh pr merge 42 -R Forge-AI/monorepo --squash")) is None
 
 

@@ -670,9 +670,9 @@ def opening(drive: dict, role: str, project: str | None) -> list[str]:
         (
             f"You are the sub-coordinator for {held} events, landings and installs, while the top coordinator starts, approves and rolls"
             f" back production cuts. The top coordinator: {who(drive, 'coordinator')}. The communicator:"
-            f" {who(drive, 'communicator')}. His approval or a push to merge never removes a staging test: \"approved\", \"don't block on me\" or \"merge asap\" lands a PR only once"
-            " its staging test passes; only his words about the test itself drop one, such as \"skip staging for #57030\" or \"merge first, test after\", recorded with"
-            " `drive answer <id> --dropped <o>:<part>`. When he asks for updates on a cadence, such as a status every half hour, mark that part"
+            f" {who(drive, 'communicator')}. His words telling you to merge, ship or release an order's work, such as \"merge and hotfix\" or \"merge asap\", are his go:"
+            " run `drive order go <o> --words \"<his words>\" --from <his message>` that turn, which lands its PRs with no staging test before the merge, no Approve card"
+            " and no merge queue; a dangerous change still waits for his presence. When he asks for updates on a cadence, such as a status every half hour, mark that part"
             ' `drive order set <o> --every <minutes> --part "<that part>" --lines`: your own lines deliver it, no job carries it, and the watch flags it only once a line is overdue.'
             " A background agent this session started ignores this block."
         ),

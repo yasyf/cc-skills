@@ -49,7 +49,6 @@ REPO_VARIABLE = "GH_REPO"
 SHELLS = {"sh", "bash", "zsh", "dash"}
 FALSE_WORDS = {"0", "f", "false"}
 MERGE_ENDPOINT = re.compile(r"/?repos/([^/\s]+/[^/\s]+)/pulls/(\d+)/merge(?:-async)?")
-INCIDENT_FIX = "incident fix"
 PR_REF = re.compile(r"#?\d+")
 CARD_REASON = (
     "Refused on purpose: his open card {cards} holds {key}, and its recommended option never stands in for his answer."
@@ -441,7 +440,7 @@ def pr_reason(landing: Landing, key: str, shell: Shell) -> str | None:
         return f"{key}: {why}. {TAP_HINT}"
     if away := land.unattended(state.load(name), key, state.now()):
         return f"{key}: refused: {away}"
-    if shell.driving and not landing.repo and state.queued_by_lander(data, key) and pr.get("exempt") != INCIDENT_FIX and (queue := providers.at(Path(shell.cwd)).repo.queue()):
+    if shell.driving and not landing.repo and state.queued_by_lander(data, key) and (queue := providers.at(Path(shell.cwd)).repo.queue()):
         return queue.reason.format(key=key)
     return None
 

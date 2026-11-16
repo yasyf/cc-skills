@@ -250,15 +250,15 @@ check's verdict, or from the order when none ran.
 - An approved and green incident PR lands when the watch reports it: its `checks passed` or
   `approved` event wakes you, and you resume its job to land it, lift the freeze and return
   `WAITING release` naming its start.
-- An open incident is his go to merge and hotfix its fix. His ruling: "It's an incident so it
-  should skip the merge queue, just squash merge, then hotfix release". `drive pr add` classes a
-  PR its job builds on an open incident's `fix`, `stop` or `immediate fix` as an `incident fix`.
-  So does `drive pr set <url> --exempt "incident fix"` for any other PR that fixes the incident.
-  The class lands it with no Approve card, and its staging test runs as the
-  after-merge pass. The lander squash-merges it directly, with no merge queue, the merge the
-  repository names under `## In this repository`. A dangerous change still lands only while he is
-  present, his word or tap within 15 minutes. The `landing_guard` hook holds a merge to that
-  exemption, and refuses `--admin`.
+- His go clears every gate the drive can lift. His words: "I told you 3 times to merge snd release
+  why do you keep delaying". When his words tell you to merge, ship or release an order's work, run
+  `drive order go <o> --words "<his words>" --from <his message>` in the turn you hear them,
+  whichever session you are. Every open PR the order serves, and each one added to it later, then
+  lands with no staging test before the merge, no Approve card and no merge queue: the lander
+  squash-merges it directly, the merge the repository names under `## In this repository`, and its
+  staging test runs as the after-merge pass. A hotfix of its PRs starts with no `--order`. Two
+  rules stay: a dangerous change lands only while he is present, his word or tap within 15
+  minutes, and the release provider's scope holds.
 - His ruling: any release that stops, cancels or waits on approval reaches the incident thread and
   the coordinator at once, not after he notices. On an open incident, the watch tells the coordinator
   in the same pass that a release a job started failed, was canceled or stopped at an approve step,
@@ -271,13 +271,12 @@ check's verdict, or from the order when none ran.
   shipping the fix returns `WAITING release` naming the hotfix of its PR, and the top coordinator
   starts it with `drive job add --release`. The release's own approve hold is the one check, and
   every other read runs while it builds.
-- An incident's hotfix ships only what the fix needs. His ruling: "Of only llm-gateway or api or
-  whatever the thing we need here is". `drive job add --release` refuses a hotfix of an open
-  incident's PR that names no `--only`, and refuses an `--only` component the PR does not reach.
-  The refusal lists the components the PR reaches. Which of them his words name is your reading.
+- An incident's hotfix ships only what the fix needs. His words: "Of only llm-gateway or api or
+  whatever the thing we need here is". Name with `--only` the components his words name, of those
+  the release provider's components read lists for the PR.
 - Every release a drive job starts, an incident's included, starts the regular way at the merged
   fix or the default branch's head a first check proved, a release start of its target from that commit, whose footers decide what ships with
-  it, so it is not narrowed to leave out a partner they name. A hotfix of an open incident's PR is
+  it, so it is not narrowed to leave out a partner they name. A hotfix of an incident's PR is
   the one narrowed start: it names with `--only` the components its PR reaches that his words
   name. The job it started on does not cancel it, however wide its plan reads: a job that
   would decline it at approve returns with it held for the coordinator, and the `landing_guard`

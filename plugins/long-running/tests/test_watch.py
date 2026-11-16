@@ -8334,33 +8334,6 @@ def dropped_by_answer(demo: str, part: str) -> None:
         superseded.drop(data, "a1", "o1", part)
 
 
-def test_drive_order_set_refuses_to_drop_an_open_prs_staging_test_and_only_his_answer_lets_it_merge_first_at_every_head(
-    home_repo: None,
-    demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    approve(demo, KEY)
-    with edit(demo) as data:
-        data["prs"][KEY] |= {"checks": "pass", "review": "approved"}
-        data["orders"]["o1"]["parts"]["the watch"] = state.new_part()
-    enqueue_exiting(tmp_path, demo, 0)
-    monkeypatch.setattr(github, "files", lambda key: ["docs/x.md"])
-    part = state.STAGING_TEST.format(number=42)
-    with edit(demo) as data:
-        state.wait_on_staging(data, KEY)
-    assert cli.main(["order", "set", "o1", "--drop-part", part, "--drive", demo]) == 2
-    assert f"the staging test {KEY} waits on before it merges, which only his answer lifts, by his words {state.TESTED_FIRST_RULING}: drive answer <his answer> --dropped o1:<the part>" in capsys.readouterr().err
-    assert land.run(demo, [KEY]) == f"{land.WAITED}: its staging test o1:{part} has not passed"
-    dropped_by_answer(demo, part)
-    assert land.run(demo, [KEY]) == land.QUEUED
-    with edit(demo) as data:
-        data["prs"][KEY]["head"] = "ccccccc333"
-        state.staging_testers(data, "j1", "PUSHED https://github.com/Forge-AI/monorepo/pull/42\nSTAGING: none: it changes only the docs\n")
-    assert land.run(demo, [KEY]) == land.QUEUED
-    data = state.load(demo)
-    assert (data["prs"][KEY]["waits"], data["prs"][KEY]["reached"], part in data["orders"]["o1"]["parts"], state.markable(data, KEY, "ccccccc333")) == ([], False, False, False)
-    assert view.staging(data, KEY) == "Not on staging before it merges: his answer took its staging test off its order, so it is tested on staging after its merge"
-
-
 def test_a_builders_staging_line_naming_cases_puts_its_pr_on_its_staging_test_and_wait_in_the_same_save_even_after_his_answer_freed_it_as_56896_needed(home_repo: None, demo: str) -> None:
     part = state.STAGING_TEST.format(number=42)
     with edit(demo) as data:
@@ -8379,7 +8352,7 @@ def test_a_load_puts_back_on_its_staging_test_each_open_pr_an_older_drop_part_le
         data["prs"]["Forge-AI/monorepo#43"] = data["prs"][KEY] | {"unstaged": {"why": "his answer took its staging test off its order", "head": "abc", "merges_first": True}}
         data["untested_restaged"] = False
     data = state.load(demo)
-    assert (data["prs"][KEY]["unstaged"], data["prs"][KEY]["paths_at"], state.merges_first_lift(data["prs"]["Forge-AI/monorepo#43"])) == (None, None, True)
+    assert (data["prs"][KEY]["unstaged"], data["prs"][KEY]["paths_at"], data["prs"]["Forge-AI/monorepo#43"]["unstaged"]["why"]) == (None, None, "his answer took its staging test off its order")
     assert KEY in state.unmarked(data)
 
 

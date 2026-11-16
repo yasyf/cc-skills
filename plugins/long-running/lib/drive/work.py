@@ -57,8 +57,8 @@ def placed(data: dict, job: dict) -> str:
 
 
 def rank(data: dict, job_id: str) -> tuple:
-    """Where an item stands in the queue, lower first: a priority order's or an open incident's first, by state.jumps_queue, then the oldest added."""
-    return (not state.jumps_queue(data, job_id), state.parse_time(data["jobs"][job_id]["created"]))
+    """Where an item stands in the queue, lower first: its class, by state.class_rank, then a priority order's or an open incident's first, by state.jumps_queue, then the oldest added."""
+    return (state.class_rank(data, data["jobs"][job_id]), not state.jumps_queue(data, job_id), state.parse_time(data["jobs"][job_id]["created"]))
 
 
 def claim(data: dict, worker_id: str, items: list[str], moment: datetime, go: str) -> None:
