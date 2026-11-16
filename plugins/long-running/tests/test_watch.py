@@ -12789,3 +12789,25 @@ def test_an_ask_whose_job_waits_on_a_builder_slot_ten_minutes_owes_one_step_per_
         owing.settle(data, moment + timedelta(minutes=33))
         data["jobs"]["j1"]["waits"] = [state.SLOT_WAIT]
         assert not owing.settle(data, moment + timedelta(minutes=34))
+
+def test_a_prover_waits_on_no_staging_deploy_once_a_hotfix_or_a_production_target_shipping_its_pr_carries_its_merge_as_j8152_waited_on_frozen_staging(
+    demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    hotfixed, served = "Forge-AI/monorepo#57633", "Forge-AI/monorepo#57634"
+    with edit(demo) as data:
+        for key, sha in ((hotfixed, "aaa111"), (served, "bbb222")):
+            data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {"state": "merged", "merged_sha": sha}
+        data["jobs"]["j9"] = state.new_job("o1", "builder", f"prove {hotfixed}, {served} live", [], state.stamp()) | {"waits": [f"staging:dashboard/plat-usw2-staging@{'a' * 40}"]}
+        data["jobs"]["j20"] = state.new_job("o1", "builder", "hotfix it", [], state.stamp()) | {"state": "done", "brief_flags": {"release": "tools/ci release hotfix 57633 --order 14e8441"}, "release_build": "https://buildkite.com/forge/release/builds/1"}
+    monkeypatch.setattr(orca, "checkout", lambda name, cwd, wait=0: tmp_path)
+    monkeypatch.setattr(github, "carrier", lambda checkout: lambda commit, sha, repo: commit == "c0ffee12" and sha == "bbb222")
+    monkeypatch.setattr(watch.settled, "prod", lambda env, checkout: env.endswith("prod"))
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {key: {"releases": ["desktop", "sand-next"]} for key in keys})
+    watching = watcher(demo)
+    watching.live = [{"target": "dashboard", "env": "plat-usw2-prod", "commit": "c0ffee12"}]
+    assert watch.shipped(watching, state.load(demo), {hotfixed, served}) == {hotfixed: "hotfix j20 shipped it"}
+    watching.live = [{"target": "sand-next", "env": "plat-usw2-prod", "commit": "c0ffee12"}]
+    assert watch.shipped(watching, state.load(demo), {hotfixed, served}) == {hotfixed: "hotfix j20 shipped it", served: "sand-next on plat-usw2-prod serves c0ffee12"}
+    [line] = watch.shipped_lines(watching, T0)
+    assert "waits on no staging deploy: production already carries" in line
+    assert state.load(demo)["jobs"]["j9"]["waits"] == []

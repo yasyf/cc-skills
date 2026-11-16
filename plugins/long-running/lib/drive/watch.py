@@ -5619,6 +5619,58 @@ def folded_lines(watcher: Watcher, moment: datetime) -> list[str]:
     return [merged_said(watcher.name, first, f"took the parts of {job_id}, a duplicate now stopped") for first, job_id in folds]
 
 
+def shipped_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """End the staging waits of each prover whose merges production already carries, by shipped, so a fix a hotfix or release put live never waits on a staging deploy, as j8152 and j8153 waited on frozen staging for fixes their hotfix had shipped; each prover freed, said once."""
+    data = state.load(watcher.name)
+    staged = {job_id: keys for job_id, job in data["jobs"].items() if job["state"] not in state.FINISHED_JOB_STATES and any(map(state.STAGING_WAIT.fullmatch, job["waits"])) and (keys := proves(data, job_id))}
+    if not staged or not watcher.live:
+        return []
+    try:
+        carried = shipped(watcher, data, {key for keys in staged.values() for key in keys})
+    except (state.DriveError, github.GithubError, reads.ReadError) as error:
+        return read_failed(watcher, "production carries", error, moment)
+    watcher.failures.pop("production carries", None)
+    freed = [job_id for job_id, keys in staged.items() if all(key in carried for key in keys)]
+    if not freed:
+        return []
+
+    def shipped_write(data: dict) -> list[str]:
+        lines = []
+        for job_id in freed:
+            job = data["jobs"][job_id]
+            waits = [wait for wait in job["waits"] if state.STAGING_WAIT.fullmatch(wait)]
+            state.drop_waits(data, job_id, dict.fromkeys(waits, f"production already carries {', '.join(staged[job_id])}: {'; '.join(carried[key] for key in staged[job_id])}"))
+            lines.append(merged_said(watcher.name, job_id, f"waits on no staging deploy: production already carries {', '.join(staged[job_id])}"))
+        return lines
+
+    return state.write(watcher.name, shipped_write, budget=state.WATCH_WRITE_SECONDS)
+
+
+def shipped(watcher: Watcher, data: dict, keys: set[str]) -> dict[str, str]:
+    """Each merged PR among keys production already carries, with how: a hotfix the drive started naming it whose job ended done, or a production cluster of a target that ships the PR's paths, by cli.release_reach, serving a commit holding its merge in the watch's last release live read."""
+    from drive import cli
+
+    hotfixed = {
+        number: job_id
+        for job_id, job in data["jobs"].items()
+        if state.starts_cut(job) and job["state"] == "done"
+        for flags in brief.started(job["brief_flags"]["release"], data)
+        for number in flags.get("hotfix", ())
+    }
+    checkout = str(orca.checkout(watcher.name, data["roles"]["coordinator"]["cwd"], wait=0))
+    carries = github.carrier(checkout)
+    serving = [row for row in watcher.live or [] if settled.prod(row["env"], checkout)]
+    merged = {key: data["prs"][key]["merged_sha"] for key in keys if key in data["prs"] and data["prs"][key]["merged_sha"]}
+    reach = cli.release_reach(watcher.name, data, list(merged))
+    carried = {}
+    for key, sha in merged.items():
+        if cut := hotfixed.get(key.split("#")[1]):
+            carried[key] = f"hotfix {cut} shipped it"
+        elif rows := [row for row in serving if row["target"] in reach.get(key, {}).get("releases", ()) and carries(row["commit"], sha, github.split(data["prs"][key]["into"] or key)[2])]:
+            carried[key] = f"{rows[0]['target']} on {rows[0]['env']} serves {rows[0]['commit'][:12]}"
+    return carried
+
+
 def cut_lines(watcher: Watcher, moment: datetime) -> list[str]:
     """Fold each prover state.mark_cut_backlog marked, an older install's for merges outside yasyf/* that reach a release, no agent or lane having taken it, its release waits dropped, into the prover waiting on the next production release cut, by open_cut, the first such one becoming it, so one prover proves each cut; then bind each prover waiting on the cut, by state.CUT_WAIT, to the drive's own production cut still following its release whose start, by its --from commit or its start's time, carries one of its merges, as github.carrier reads them, so it waits on that cut's job, or free it once a production cluster serves a commit carrying one, as the watch's last release live read shows, a cut no job of the drive started included; one line says each fold and each bind."""
     data = state.load(watcher.name)
@@ -6184,6 +6236,7 @@ def stages(watcher: Watcher, moment: datetime, until: Callable[[], object] = lam
                     start_jobs,
                     folded_lines,
                     cut_lines,
+                    shipped_lines,
                     finished,
                     recovered_lines,
                     owner_page_lines,
