@@ -13043,3 +13043,13 @@ def test_a_parse_never_hands_a_verb_the_list_its_parser_keeps_as_a_default() -> 
     first.part.append("a part")
     again = cli.parsed(["job", "set", "j1"])
     assert (again.waits, again.part, cli.parser() is cli.parser()) == ([], [], True)
+
+
+def test_a_staging_only_release_start_is_refused_while_another_job_holds_that_envs_slot(demo: str) -> None:
+    start = "tools/ci release start api rsw-cp --from b --emergency --env plat-usw2-staging --order 23eefb9"
+    assert (brief.leased_env(start.split()), brief.leased_env("tools/ci release start api --order 23eefb9".split())) == ("plat-usw2-staging", None)
+    assert cli.slot_refusal(demo, start) is None
+    with state.edit(demo) as data:
+        data["slots"]["plat-usw2-staging"] = {"holder": {"job": "j7394", "until": "2026-11-16T01:00:00-08:00"}, "queue": []}
+    assert cli.slot_refusal(demo, start).startswith("j7394 holds the plat-usw2-staging staging slot until 2026-11-16T01:00:00-08:00")
+    assert cli.slot_refusal(demo, start.replace("plat-usw2-staging", "core-usw2-prod")) is None

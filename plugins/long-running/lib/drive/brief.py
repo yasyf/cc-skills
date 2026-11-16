@@ -120,6 +120,14 @@ HOLD_PASSES = ("approve", "api")
 REHEARSAL_CLUSTERS = frozenset({state.STAGING_ENV, "plat-usw2-sandbox"})
 RELEASE_VALUED = frozenset({"groups", "targets", "hotfix", "landed", "exclude", "only", "without", "env", "from", "order", "stack", "commit"})
 RELEASE_ASIDE = frozenset({"json"})
+
+
+def leased_env(words: list[str]) -> str | None:
+    """The one staging env a `ci release start` reaches, by one `--env` naming a rehearsal env, whose staging slot the start must hold; None for a start reaching any other env or several."""
+    envs = [word.partition("=")[2] for word in words if word.startswith("--env=")] + [after for before, after in itertools.pairwise(words) if before == "--env"]
+    return envs[0] if len(envs) == 1 and envs[0] in REHEARSAL_CLUSTERS else None
+
+
 REHEARSAL_SAID = '"You never have to ask for sandbox"'
 UNSURE_READING = (
     "When Opus is unsure whether his words order it, or gave no reading, the call is the top coordinator's, never his: from its own"

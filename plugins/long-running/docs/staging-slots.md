@@ -54,6 +54,10 @@ Each pass, for each slot:
    - it runs its cases once staging serves its commit, which is past the claim's 5 minutes;
    - a reply in the claim's thread goes to root as today's `DUE … with replies` line, which does wake root.
 
+## The top coordinator's cuts
+
+Every staging start holds the slot, the top coordinator's included. `drive job add --release` whose start names one staging `--env` takes that env's slot for the job it adds, with a 60-minute lease that ends with the job, and is refused while another job holds the slot.
+
 ## The queue
 
 Claims queue first in, first out. A pass serving a priority order or an open incident goes ahead of every pass that does not, behind only the passes that jump too, as their builders jump the builder-slot line. A holder is never cut short.

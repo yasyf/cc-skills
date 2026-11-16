@@ -1605,7 +1605,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
     if args.release and not unreleased:
         for line in brief.release_notes([args.release], state.load(name)):
             print(f"drive job add: {line}", file=sys.stderr)
-    running = args.release and not unreleased and release_running(name, args.release)
+    running = args.release and not unreleased and (release_running(name, args.release) or slot_refusal(name, args.release))
     unworded = brief.unworded_return(args.kind, {"--goal": args.goal})
     before = state.load(name)
     named = args.part or (list(filed) if len(filed := find(before["orders"], args.order, "order")["parts"]) == 1 else [])
@@ -1664,6 +1664,8 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         if args.release:
             job["brief_flags"] = (job.get("brief_flags") or {}) | {"release": args.release}
             job["release_pass"] = {"release": args.release, "at": created, "reading": args.reading}
+            if env := brief.leased_env(shlex.split(args.release)):
+                state.slot_claim(data, env, job_id, CUT_LEASE_MINUTES, [], None, state.parse_time(created))
         if args.agent:
             job["session"] = session
             state.start(job)
@@ -1687,6 +1689,16 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
     names = [f"{job_id} names {', '.join(named)}" + (f", also on {', '.join(also)}" if also else "") + ": drive status <id>"] if named else []
     names += state.asked_lines(data, args.goal)
     return job_id, job | {"builder": builder_id, "history": history}, [*took, *replaced, *started, *waiting, *names, *repeated_lines(data, args.order, new_parts)]
+
+
+CUT_LEASE_MINUTES = 60
+
+
+def slot_refusal(name: str, command: str) -> str | None:
+    """Why a staging-only release may not start now: another job holds that env's staging slot, by drive slot claim or its own staging start, so every staging start, the top coordinator's included, holds the slot, which the job added for this start then takes, its lease ending with the job or CUT_LEASE_MINUTES on, extended once."""
+    if not (env := brief.leased_env(shlex.split(command))) or not (held := (state.load(name)["slots"].get(env) or {}).get("holder")):
+        return None
+    return f"{held['job']} holds the {env} staging slot until {held['until']}: start this cut once drive slot queue {env} reads it free, or drive slot release {env} --job {held['job']} gives it back"
 
 
 def started_release(name: str, job_id: str, command: str) -> list[str]:
