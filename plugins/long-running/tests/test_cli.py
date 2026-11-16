@@ -8533,6 +8533,7 @@ def test_a_main_fix_is_refused_while_no_workflow_fails_on_the_default_branch_and
     run("job", "add", "builder", "--order", "o1", "--goal", "fix main first")
     with state.edit("demo") as data:
         data["mains"]["Forge-AI/monorepo"][test].update(job="j2", owner=None)
+        data["jobs"]["j2"]["state"] = "waiting"
     assert cli.main(["pr", "set", PR, "--exempt", "main fix"]) == 2
     assert f"Forge-AI/monorepo#42: refused, nothing set: Forge-AI/monorepo's main fails only tests another job already owns: {test}, claimed by j2 since {claimed['since']}." in capsys.readouterr().err
 
@@ -12236,7 +12237,7 @@ def test_an_answer_cc_notes_marks_superseded_owes_no_job_his_words_so_no_launch_
     assert (quoted in cli.answers_since(state.load("demo"), "j3", "Goal: build the store\n"), watch.answer_lines(watching, later + timedelta(minutes=11))) == (False, [])
     assert cli.main(["answer", "a1", "--stands", designing]) == 2
     assert "refused, nothing recorded or marked: cc-notes marks his answer a1 superseded by b2c3d4e, so it owes no job his words and leaves nothing asking him" in capsys.readouterr().err
-    assert state.load("demo")["answers"]["a1"]["jobs"] == {"j3": None}
+    assert state.load("demo")["answers"]["a1"]["jobs"] == {"j3": {"mark": "sent"}}
 
 
 def test_an_agent_the_top_started_on_an_order_a_sub_coordinator_now_hears_takes_his_answer_by_the_tops_sendmessage(
