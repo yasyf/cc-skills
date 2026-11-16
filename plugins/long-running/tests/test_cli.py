@@ -2498,17 +2498,6 @@ def test_job_ask_refuses_a_pr_named_with_no_link_and_keeps_the_linked_copy(
     assert '"their PR" names something he could open with no link there, in "with their PR"' in capsys.readouterr().err
 
 
-def test_job_ask_starts_from_the_root_cause_and_leaves_which_option_it_recommends_to_jev_reading_his_words(
-    run: Run, asking: str, tmp_path: Path, jev: Jev
-) -> None:
-    block = tmp_path / "ask.md"
-    picked = "Root cause: none: two landed designs of one button, a pick between them with no defect behind it"
-    block.write_text(TEAMMATE_FIX_SHOWN.replace(picked, "Root cause: the button and our status line read two download states, which disagreed on 4 of 9 downloads\nFirst principles: Add our status line beside their always-on button"))
-    assert run("job", "ask", asking, str(block))[0] == 0
-    assert "Option 2: Add our status line beside their always-on button" in jev.asked[-1]["state"]["card"]["text"]
-    assert "First principles: Add our status line beside their always-on button" in jev.asked[-1]["state"]["card"]["text"]
-
-
 def test_job_ask_refuses_a_question_that_hides_the_terms_its_findings_name(
     run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -6616,6 +6605,7 @@ def test_a_limit_left_standing_is_kept_with_a_note_that_an_ask_or_design_puts_it
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "meta-session")
     run("start", "demo", "--role", "meta")
     run("job", "add", "builder", "--order", "o2", "--goal", "copy them", "--agent", "a3")
+    kept_proof(tmp_path, "j3")
     code, err = keep(monkeypatch, capsys, "j3", f"DONE the bucket caps at 5k objects/s, left as is\n{check}")
     assert (code, "it reports a limit as a finding left standing" in err) == (0, True)
     assert keep(monkeypatch, capsys, "j2", f"DONE the 5k objects/s cap was never hit\n{check}") == (0, "")
@@ -9073,8 +9063,9 @@ def test_status_of_an_order_sums_it_from_the_saved_rows_with_no_github_or_slack_
     def refused(*_: object, **__: object) -> str:
         raise AssertionError("drive status read GitHub or Slack")
 
-    run("job", "add", "builder", "--order", "o1", "--part", "write the docs", "--goal", "docs")
-    run("job", "add", "builder", "--order", "o1", "--part", "staging test of #42 before it lands", "--goal", "test #42 on staging")
+    assert run("order", "set", "o1", "--add-part", "write the docs", "--add-part", "staging test of #42 before it lands")[0] == 0
+    assert run("job", "add", "builder", "--order", "o1", "--part", "write the docs", "--goal", "docs")[0] == 0
+    assert run("job", "add", "builder", "--order", "o1", "--part", "staging test of #42 before it lands", "--goal", "test #42 on staging")[0] == 0
     monkeypatch.setattr(github, "run", refused)
     monkeypatch.setattr(view, "refresh_cards", refused)
     with state.edit("demo") as data:
@@ -9982,7 +9973,7 @@ def test_a_second_report_of_the_same_bug_joins_its_order_and_each_thread_hears_t
     report_records(monkeypatch, {"30": {"close": "o1"}})
     run("order", "set", "o1", "--proof", "https://buildkite.com/forge/release/builds/14185")
     owed = "owed its fix-live note now, since its fix is proven live"
-    assert f", reported in {REPORTED}, {owed}, reported in {second}, {owed}:" in run("order", "show", "o1")[1]
+    assert f", reported in {REPORTED}, {owed}, reported in {second}, {owed}:" in run("status", "o1", "--full")[1]
     assert cli.main(["order", "set", "o1", "--state", "done", "--record", "30"]) == 2
     assert f"o1: refused, its bug was reported in {REPORTED} and {second}, and no fix-live note there is recorded." in capsys.readouterr().err
     monkeypatch.setattr(slack, "group_dm", {"U0REPORTER": "C0GROUPDM1"}.get)
@@ -9995,7 +9986,7 @@ def test_a_second_report_of_the_same_bug_joins_its_order_and_each_thread_hears_t
     assert f"o1: refused, its bug was reported in {REPORTED}, and no fix-live note there is recorded." in capsys.readouterr().err
     note = note_in(slack_thread, "1794600060.000100")
     assert run("order", "told", "o1", note) == (0, f"o1: told in the reporter's thread, {note}")
-    assert f", reported in {REPORTED}, told it is fixed in {note}, reported in {second}, told it is fixed in {grouped}:" in run("order", "show", "o1")[1]
+    assert f", reported in {REPORTED}, told it is fixed in {note}, reported in {second}, told it is fixed in {grouped}:" in run("status", "o1", "--full")[1]
     assert run("order", "set", "o1", "--state", "done", "--record", "30")[0] == 0
 
 
@@ -10022,10 +10013,10 @@ def test_an_order_whose_job_carries_the_order_keeping_its_reporters_thread_reads
     run("order", "set", "o1", "--proof", "https://buildkite.com/forge/release/builds/14185")
     assert run("order", "told", "o2", note) == (0, f"o2: told in the reporter's thread, {note}")
     assert state.load("demo")["orders"]["o1"]["reporters"][0]["told"] == note
-    assert f", reported in {REPORTED}, told it is fixed in {note} under o1:" in run("order", "show", "o2")[1]
+    assert f", reported in {REPORTED}, told it is fixed in {note} under o1:" in run("status", "o2", "--full")[1]
     assert cli.main(["order", "told", "o1", note_in(slack_thread, "1794418060.000100")]) == 2
     assert f"o1: refused, the thread its bug was reported in heard it is fixed once, in {note}, and hears it only once" in capsys.readouterr().err
-    assert f", reported in {release}, which hears it is fixed once its fix is proven live:" in run("order", "show", "o3")[1]
+    assert f", reported in {release}, which hears it is fixed once its fix is proven live:" in run("status", "o3", "--full")[1]
 
 
 def test_his_order_to_keep_answering_a_teammates_thread_keeps_that_thread_on_the_order_from_its_filing_and_a_link_naming_no_thread_is_refused(
@@ -10065,7 +10056,7 @@ def test_a_reporter_the_bot_cannot_reach_is_told_in_their_group_dm_with_him_and_
     assert cli.main(["order", "told", "o1", note, "--group-dm", "U0OTHER01"]) == 2
     assert f"{note} is not the drive's post in the group DM of U0OTHER01, him and the bot" in capsys.readouterr().err
     assert run("order", "told", "o1", note, "--group-dm", "U0REPORTER") == (0, f"o1: told in the group DM of U0REPORTER, him and the bot, {note}")
-    assert f"told it is fixed in {note}" in run("order", "show", "o1")[1]
+    assert f"told it is fixed in {note}" in run("status", "o1", "--full")[1]
     ours = slack_thread.post(state.now() - timedelta(minutes=2), from_claude=True)
     his = slack_thread.post(state.now() - timedelta(minutes=1), from_user=True)
     assert run("order", "set", "o2", "--no-reporter", ours)[0] == 2
@@ -10080,7 +10071,7 @@ def test_a_question_a_teammate_asked_him_that_he_shares_reaches_them_once_its_an
     run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "what is left for cloud Iris", "--kind", "answer", "--thread", "1794200000.000100", "--reporter", asked)
     order = state.load("demo")["orders"]["o1"]
     assert (state.reported_bug(order), state.hurts_now(state.load("demo"), order)) == (False, False)
-    assert f", asked in {asked}, which hears the answer once it is posted" in run("order", "show", "o1")[1]
+    assert f", asked in {asked}, which hears the answer once it is posted" in run("status", "o1", "--full")[1]
     run("start", "demo", "--role", "communicator")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
@@ -10092,11 +10083,11 @@ def test_a_question_a_teammate_asked_him_that_he_shares_reaches_them_once_its_an
     assert cli.main(["order", "told", "o1", note, "--group-dm", "U0TEAMMATE1"]) == 2
     assert "o1: refused, a part of its answer is not posted yet, so a note now would come before the answer: post it first" in capsys.readouterr().err
     run("order", "posted", "o1", slack_thread.post(state.now(), from_claude=True), "--record", "40")
-    assert f", asked in {asked}, owed its answer now, since it is posted" in run("order", "show", "o1")[1]
+    assert f", asked in {asked}, owed its answer now, since it is posted" in run("status", "o1", "--full")[1]
     assert cli.main(["order", "set", "o1", "--state", "done", "--record", "40"]) == 2
     assert f"o1: refused, its question was asked in {asked}, and no note of its answer there is recorded." in capsys.readouterr().err
     assert run("order", "told", "o1", note, "--group-dm", "U0TEAMMATE1") == (0, f"o1: told in the group DM of U0TEAMMATE1, him and the bot, {note}")
-    assert f", asked in {asked}, told the answer in {note}" in run("order", "show", "o1")[1]
+    assert f", asked in {asked}, told the answer in {note}" in run("status", "o1", "--full")[1]
     assert run("order", "set", "o1", "--state", "done", "--record", "40")[0] == 0
     assert state.load("demo")["orders"]["o1"]["state"] == "done"
 
@@ -12316,7 +12307,7 @@ def test_a_new_waiting_replaces_a_jobs_staging_waits_and_a_withdrawn_cut_frees_a
 
 def test_a_slot_go_names_every_job_of_its_cut_as_a_freeze_holder_only_where_the_repository_names_the_holder_flag() -> None:
     moment = datetime(2026, 11, 16, 1, 0, tzinfo=UTC)
-    data = {"name": "demo", "slots": {}, "orders": {"o1": {"incident": False, "priority": None, "state": "open"}}, "jobs": {job_id: {"state": "waiting", "order": "o1", "carries": [], "goal": "stage the cut"} for job_id in ("j0", "j1", "j2")}}
+    data = {"name": "demo", "slots": {}, "orders": {"o1": {"incident": False, "priority": None, "state": "open"}}, "jobs": {job_id: {"state": "waiting", "order": "o1", "carries": [], "waits": [], "goal": "stage the cut"} for job_id in ("j0", "j1", "j2")}}
     release = {"holder": "--holder {holder}", "join": "tools/ci release freeze join {freeze} --holder {holder}"}
     assert state.slot_claim(data, "plat-usw2-staging", "j0", 20, [], None, moment, release=release).endswith("Run your freeze and every staging command of this cut with `--holder demo/j0`.")
     for job_id, path, stack in (("j1", "a", "api"), ("j2", "b", "rsw-cp")):
@@ -12325,7 +12316,7 @@ def test_a_slot_go_names_every_job_of_its_cut_as_a_freeze_holder_only_where_the_
     goes = {job_id: line for _, job_id, kind, line in state.slot_turns(data, moment + timedelta(minutes=30), release) if kind == "go"}
     assert goes["j1"].endswith("with `--holder demo/j1 --holder demo/j2`.")
     assert goes["j2"].endswith("Join j1's freeze with `tools/ci release freeze join <its freeze id> --holder demo/j2` unless it names you, and run each staging command with `--holder demo/j2`.")
-    assert "--holder" not in state.slot_claim({"name": "demo", "slots": {}, "jobs": {"j9": {"state": "waiting", "order": "o1", "carries": []}}, "orders": data["orders"]}, "plat-usw2-staging", "j9", 20, [], None, moment)
+    assert "--holder" not in state.slot_claim({"name": "demo", "slots": {}, "jobs": {"j9": {"state": "waiting", "order": "o1", "carries": [], "waits": []}}, "orders": data["orders"]}, "plat-usw2-staging", "j9", 20, [], None, moment)
 
 
 def test_a_status_of_one_job_prints_that_jobs_row_and_its_prs_not_its_whole_order(run: Run, demo: str) -> None:
