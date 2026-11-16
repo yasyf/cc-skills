@@ -319,6 +319,8 @@ def adopt(drive: str, paths: list[str], rulings_only: bool = False) -> list[str]
             said.append(f"shared rulings: {len(store.shared_rulings(drive))}")
             continue
         lane, lines = adopted(json.loads(source.read_text()))
+        if not rulings_only and store.lane_path(drive, lane["id"]).is_file():
+            raise store.Refused(f"lane {lane['id']} is already on drive {drive}; adopt adds new lanes only, so it never drops a running owner, a worktree or his newer asks: use --rulings-only, or the lane verbs")
         if rulings_only:
             store.update(drive, lane["id"], lambda kept, rulings=lane["rulings"]: kept.__setitem__("rulings", rulings))
             said.append(f"{lane['id']}: rulings replaced, {len(lane['rulings'])}")

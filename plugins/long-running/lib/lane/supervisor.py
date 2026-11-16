@@ -5,6 +5,7 @@ import os
 import plistlib
 import subprocess
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -13,6 +14,7 @@ from lane import facts, rank, store, verbs
 from lane import owner as owners
 
 RESTART_WINDOW = timedelta(minutes=30)
+READERS = 6
 
 
 def heartbeat(drive: str, moment: datetime, errors: list[str]) -> None:
@@ -63,12 +65,20 @@ def run_pass(drive: str, only: set[str] | None = None, read_outside: bool = True
     prs: dict = {}
     if read_outside:
         heard = {}
-        for lane_id, lane in chosen.items():
+        heartbeat(drive, moment, errors)
+
+        def reading(lane: dict) -> list[dict] | str:
             try:
-                if found := facts.his_messages(lane):
-                    heard[lane_id] = found
+                return facts.his_messages(lane)
             except store.Refused as failed:
-                errors.append(str(failed))
+                return str(failed)
+
+        with ThreadPoolExecutor(max_workers=READERS) as pool:
+            for lane_id, found in zip(chosen, pool.map(reading, chosen.values()), strict=True):
+                if isinstance(found, str):
+                    errors.append(found)
+                elif found:
+                    heard[lane_id] = found
         if heard:
             store.transact(drive, lambda lanes: [verbs.take_messages(drive, lanes, lane_id, asks, shape["active"]) for lane_id, asks in heard.items()])
         try:
@@ -133,23 +143,28 @@ def run_pass(drive: str, only: set[str] | None = None, read_outside: bool = True
         return starts
 
     starts = store.transact(drive, deciding, leaving_unreplied=True)
-    for start in starts:
-        if start["old"]:
-            owners.stop(start["old"])
-        if start["token"] is None:
-            continue
-        lane = store.load(drive, start["lane"])
-        try:
-            got = owners.launch(drive, lane, start["token"], start["woke"])
-        except store.Refused as failed:
-            errors.append(f"{start['lane']}: {failed}")
-            store.update(drive, start["lane"], lambda lane, token=start["token"], why=str(failed): failed_start(lane, token, why, shape), leaving_unreplied=True)
-            continue
-        store.update(drive, start["lane"], lambda lane, token=start["token"], got=got: lane.__setitem__("owner", {**lane["owner"], **got}) if (lane.get("owner") or {}).get("token") == token else None)
+    with ThreadPoolExecutor(max_workers=READERS) as pool:
+        errors += [error for error in pool.map(lambda start: launching(drive, start, shape), starts) if error]
     if read_outside:
-        heartbeat(drive, moment, errors)
+        heartbeat(drive, store.now(), errors)
         lane_land.spawn(drive)
     return {"started": [start["lane"] for start in starts if start["token"]], "errors": errors}
+
+
+def launching(drive: str, start: dict, shape: dict) -> str | None:
+    """Start one owner the pass chose, beside the others it chose; why it failed, or None."""
+    if start["old"]:
+        owners.stop(start["old"])
+    if start["token"] is None:
+        return None
+    lane = store.load(drive, start["lane"])
+    try:
+        got = owners.launch(drive, lane, start["token"], start["woke"])
+    except store.Refused as failed:
+        store.update(drive, start["lane"], lambda lane, token=start["token"], why=str(failed): failed_start(lane, token, why, shape), leaving_unreplied=True)
+        return f"{start['lane']}: {failed}"
+    store.update(drive, start["lane"], lambda lane, token=start["token"], got=got: lane.__setitem__("owner", {**lane["owner"], **got}) if (lane.get("owner") or {}).get("token") == token else None)
+    return None
 
 
 def failed_start(lane: dict, token: str, why: str, shape: dict) -> None:

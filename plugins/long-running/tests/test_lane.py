@@ -473,3 +473,12 @@ def test_adopt_rulings_only_keeps_the_rest_of_the_lane(world: dict, tmp_path: Pa
     verbs.adopt(DRIVE, [str(source)], rulings_only=True)
     lane = store.load(DRIVE, "a")
     assert (lane["worktree"], lane["rulings"][0]["words"], lane["state"]) == ("/kept", "ship it", store.RUNNING)
+
+
+def test_adopt_never_replaces_a_lane_already_on_the_drive(world: dict, tmp_path: Path) -> None:
+    opened("a")
+    source = tmp_path / "a.json"
+    source.write_text(json.dumps({**store.load(DRIVE, "a"), "owner": None, "state": "waiting"}))
+    with pytest.raises(store.Refused, match="adds new lanes only"):
+        verbs.adopt(DRIVE, [str(source)])
+    assert store.load(DRIVE, "a")["state"] == store.RUNNING
