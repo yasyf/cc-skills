@@ -3186,7 +3186,8 @@ def order_class(order: dict) -> str:
 
 def class_rank(data: dict, job: dict) -> int:
     """Where a job's class sorts, lower first: the best class among its own order and each it carries, by order_class."""
-    return min((CLASSES.index(order_class(data["orders"][order_id])) for order_id in [job.get("order"), *job.get("carries", ())] if order_id in data["orders"]), default=CLASSES.index("asked"))
+    orders = data.get("orders") or {}
+    return min((CLASSES.index(order_class(orders[order_id])) for order_id in [job.get("order"), *job.get("carries", ())] if order_id in orders), default=CLASSES.index("asked"))
 
 
 def go_clears(pr: dict) -> bool:

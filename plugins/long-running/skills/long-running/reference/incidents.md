@@ -256,7 +256,7 @@ check's verdict, or from the order when none ran.
   whichever session you are. Every open PR the order serves, and each one added to it later, then
   lands with no staging test before the merge, no Approve card and no merge queue: the lander
   squash-merges it directly, the merge the repository names under `## In this repository`, and its
-  staging test runs as the after-merge pass. A hotfix of its PRs starts with no `--order`. Two
+  staging test runs as the after-merge pass. A hotfix of its PRs starts with no answer of his named for it. Two
   rules stay: a dangerous change lands only while he is present, his word or tap within 15
   minutes, and the release provider's scope holds.
 - His ruling: any release that stops, cancels or waits on approval reaches the incident thread and
