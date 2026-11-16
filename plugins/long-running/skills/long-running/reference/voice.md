@@ -53,6 +53,18 @@ After: nothing. He had already picked "prove on staging first, no hotfix", so th
 Before: The three PRs are all approved and green. (52 seconds later: "CI is still running on them, not green yet.")
 After: The three PRs are approved; CI is still running on them. Green, merged, live and fixed are words for a state read this turn, from the check, the merge or the deploy itself. A state not read this turn is said as not read.
 
+**The same news twice, 24 seconds apart.**
+Before: two posts, the second saying again that #57679, #57801 and #57676 are green and approved, and adding "the card for them comes next in line after two other lanes' cards".
+After: one post. Say a thing once; a post that only repeats your last one replaces it in place.
+
+**The drive's plumbing, told to him.**
+Before: Took your approval: #57746 is in the merge queue now. No card because my 2:57 PM post went out as a plain line while its card sat in the drive's card queue behind another one. That's my miss; I'm fixing the tooling so a post asking for your Approve always carries its card, or doesn't go out.
+After: Took your approval: #57746 SandDB reads its own bucket is in the merge queue now.
+
+**A long result with a raw link.**
+Before: Two results the old drive owed you and never sent: … Your 2:46 PM card asks how to fix it: https://poetic-technology.slack.com/archives/C0CHV3PTX4K/p1794869182955989?thread_ts=… . … I'm starting one reader on each.
+After: *Restore speed.* The timed 14 GiB staging restore you approved took 85.4 s, 3.8x faster than Nov 10, short of the 6-11x you picked. … *Releases of old commits.* … <link|Your 2:46 PM card> asks how to fix it.
+
 ## The gold standard, for a long post
 
 His exemplar is <https://poetic-technology.slack.com/archives/C0C4WDYA9UM/p1794717967971669|the Nov 14 post on agent inboxes>. When he asks for an explanation, write it like that one:
@@ -78,6 +90,7 @@ His exemplar is <https://poetic-technology.slack.com/archives/C0C4WDYA9UM/p17947
 
 ## Words that never reach him
 
-- Internal names: the drive, coordinator, communicator, handler, job ids such as `j1700`, order ids such as `o134`, records, sessions.
+- Internal names: the drive and the old drive, coordinator, communicator, handler, builders, readers, the card queue, another lane, job ids such as `j1700`, order ids such as `o134`, records, sessions.
+- How the tooling works or that you are fixing it. A tooling bug goes to the tooling lane, never into his post.
 - His own message restated, an apology paragraph, or "here's the longer version".
 - UTC times, bare URLs, and full PR titles.

@@ -17,6 +17,9 @@ VOICE_URL = "http://127.0.0.1:7378/voice"
 ENQUEUE_SECONDS = 2
 ROLE_PAGE = Path(__file__).resolve().parents[2] / "skills" / "long-running" / "reference" / "voice.md"
 PR_REF = re.compile(r"\{pr:(?:([\w.-]+/[\w.-]+)#)?#?(\d+)(?:\|([^{}]*))?\}")
+SEGMENTS = re.compile(r"(<[^<>]*>)")
+BARE_PR_LINK = re.compile(r"<https://github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)\|#\2>")
+BARE_NUMBER = re.compile(r"(?<![\w&/#])#(\d{3,})\b")
 
 
 def own_lane() -> tuple[str, str] | None:
@@ -64,7 +67,22 @@ def linked(text: str, prs: list[dict]) -> str:
         words = (match[3] or held[0].get("words") or "").strip()
         return f"<https://github.com/{held[0]['repo']}/pull/{number}|{' '.join(filter(None, [f'#{number}', words]))}>"
 
-    return PR_REF.sub(drawn, text)
+    return "".join(worded(piece, prs) for piece in SEGMENTS.split(PR_REF.sub(drawn, text)))
+
+
+def worded(piece: str, prs: list[dict]) -> str:
+    """One piece of a post as linked draws it: a link to a lane PR labelled with its bare number gains the row's words, and a bare #N the lane holds outside any link becomes that link, so every PR reads as `#N words`."""
+    if bare := BARE_PR_LINK.fullmatch(piece):
+        row = next((row for row in prs if row["repo"].casefold() == bare[1].casefold() and row["number"] == int(bare[2])), None)
+        return f"<https://github.com/{bare[1]}/pull/{bare[2]}|#{bare[2]} {row['words']}>" if row and row.get("words") else piece
+    if piece.startswith("<"):
+        return piece
+
+    def named(match: re.Match[str]) -> str:
+        held = [row for row in prs if row["number"] == int(match[1])]
+        return f"<https://github.com/{held[0]['repo']}/pull/{match[1]}|{' '.join(filter(None, [f'#{match[1]}', held[0].get('words')]))}>" if len(held) == 1 else match[0]
+
+    return BARE_NUMBER.sub(named, piece)
 
 
 say.SENDER = send
