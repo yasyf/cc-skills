@@ -329,10 +329,18 @@ it lands a PR when all of these hold at its current head.
   design is an `ASK`.
 - Nothing holds it: no Hold tap, no `hold` label, no conflict with the default branch, no card or staging test.
 - He tapped Approve on its card, or it is an exempt class. His approval in words, his order to
-  merge a PR as it stands, and his pick on a card asking whether to land are his Approve too. The
-  coordinator judges that and records it with
-  `drive pr set <url> --tapped Approve --tap-source <his message's permalink>`, since
-  `landing_guard` reads the recorded tap.
+  merge a PR as it stands, and his pick on a card asking whether to land are his Approve too, and
+  `landing_guard` reads only the recorded tap. His words in Slack are recorded with
+  `drive pr set <url> --tapped Approve --tap-source <his message's permalink>`. His words in a
+  terminal, a prompt he typed or an option he picked on an `AskUserQuestion`, are recorded on the
+  drive tracking the PR, which the hook's refusal names: `drive answer --drive <d> --title "<the
+  question>" --words "<his words or pick, verbatim>" --link terminal`, then
+  `drive answer <id> --drive <d> --approves <the PR, or the order whose PRs his words cover>`.
+  `terminal` reads the transcripts of the drive's sessions and of the session running the command,
+  so run it from the session where he answered. Words no prompt or pick of his holds are kept as
+  a session's paraphrase, which approves nothing, since the drive never approves for itself. A
+  standing approval lands each PR it covers once that PR is green and approved on GitHub, as every
+  other PR lands.
 - **The presence limit.** A dangerous change merges or releases only while he is present: his word
   or tap within the last 15 minutes. Dangerous is what the repository lists under `## In this repository`
   (such as a migration, a backfill, a delete of user data, or storage, consistency or write paths),

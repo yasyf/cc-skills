@@ -31,7 +31,13 @@ from drive.github import repo_name
 from drive.shell import KEYWORDS, Case, Function, Loop, expanded, grouped, runnable
 
 ADMIN_REASON = "Admin merges bypass required review; never on a guarded owner's repos"
-TAP_HINT = "Draw his PR card with slack_dm_status tap_prs, or record an exemption with drive pr set --exempt"
+TAP_HINT = (
+    "Draw his PR card with slack_dm_status tap_prs, or record an exemption with drive pr set --exempt. His approval given"
+    " elsewhere is his tap once {drive} keeps it as his answer: `drive answer --drive {drive} --title \"<the question>\" --words"
+    ' \"<his words or the option he picked, verbatim>\" --link <his permalink, or terminal for a prompt he typed or an'
+    " AskUserQuestion he answered in this session or one of the drive's>`, then `drive answer <its id> --drive {drive}"
+    " --approves {key}`, which takes his Approve from it; a session's paraphrase approves nothing"
+)
 ENV_ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=.*")
 SHELL_SCRIPT_FLAG = re.compile(r"-[A-Za-z]*c[A-Za-z]*")
 WRAPPERS = {
@@ -437,7 +443,7 @@ def pr_reason(landing: Landing, key: str, shell: Shell) -> str | None:
         return STAGED_REASON.format(key=key, runs=", ".join(testing))
     may_land, why = tap_verdict(data, pr)
     if not may_land:
-        return f"{key}: {why}. {TAP_HINT}"
+        return f"{key}: {why}. {TAP_HINT.format(drive=name, key=key)}"
     if away := land.unattended(state.load(name), key, state.now()):
         return f"{key}: refused: {away}"
     if shell.driving and not landing.repo and state.queued_by_lander(data, key) and (queue := providers.at(Path(shell.cwd)).repo.queue()):

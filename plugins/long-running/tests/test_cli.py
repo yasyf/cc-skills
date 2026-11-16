@@ -11466,6 +11466,44 @@ def test_words_count_as_his_answer_only_when_his_message_or_card_answer_at_the_l
     assert (unsaid is None) if refusal is None else (unsaid.startswith(refusal) and unsaid.endswith(f"; {settled.HIS_ANSWER}"))
 
 
+GO_QUESTION = "How should I land this drive's PRs?"
+GO_PICK = "Standing go for green PRs (Recommended)"
+
+
+def asked_row(answers: dict[str, str], kind: str = "user") -> dict:
+    """An AskUserQuestion result as Claude Code writes it to the transcript once he answers the dialog."""
+    said = ", ".join(f'"{question}"="{answer}"' for question, answer in answers.items())
+    result = {"questions": [{"question": question, "options": [{"label": GO_PICK}, {"label": "Tap each PR card"}]} for question in answers], "answers": answers}
+    return {"type": kind, "message": {"role": "user", "content": [{"type": "tool_result", "content": f"The user answered: {said}."}]}, "toolUseResult": result}
+
+
+@pytest.mark.parametrize(
+    ("rows", "words", "his"),
+    [
+        ([asked_row({GO_QUESTION: GO_PICK})], GO_PICK, True),
+        ([asked_row({GO_QUESTION: "only #55687, and land it now"})], "only #55687 … land it now", True),
+        ([asked_row({GO_QUESTION: GO_PICK})], "Standing go for green PRs: root lands every PR of the drive", False),
+        ([asked_row({GO_QUESTION: "Tap each PR card"})], "How should I land this drive's PRs", False),
+        ([asked_row({GO_QUESTION: GO_PICK}, kind="progress")], GO_PICK, False),
+        ([{"type": "assistant", "message": {"content": [{"type": "text", "text": f'"toolUseResult":{{"questions":[], "answers": {{"q": "{GO_PICK}"}}}}'}]}}], GO_PICK, False),
+        ([{"type": "user", "origin": {"kind": "human"}, "message": {"role": "user", "content": f"{GO_PICK}, land them"}}], GO_PICK, True),
+    ],
+)
+def test_terminal_words_are_his_only_in_a_prompt_he_typed_or_a_pick_he_made_on_an_ask_user_question_in_the_session_recording_them(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, rows: list[dict], words: str, his: bool
+) -> None:
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "s-root")
+    transcript = tmp_path / "config" / "projects" / "-work" / "s-root.jsonl"
+    transcript.parent.mkdir(parents=True)
+    transcript.write_text("".join(json.dumps(row, separators=(",", ":")) + "\n" for row in rows))
+    unbound = {"roles": {}, "subcoordinators": {}, "communicators": {}, "jobs": {}}
+    unsaid = UNSAID([words], [settled.TERMINAL], None, unbound)
+    assert (unsaid is None) if his else unsaid.startswith("no prompt he typed, nor pick he made on an AskUserQuestion")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "s-other")
+    assert UNSAID([words], [settled.TERMINAL], None, unbound) is not None
+
+
 NEXT_PICK = "https://acme.slack.com/archives/D123/p1794300000000400?thread_ts=1794300000.000100"
 ROOTS = [f"https://acme.slack.com/archives/D123/p17943000000006{n}" for n in ("00", "10")]
 
@@ -11510,7 +11548,7 @@ def test_his_messages_in_a_row_are_one_answer_read_joined_in_link_order_only_in_
         ('His words: "just reuse the … pointer"', [NEXT_PICK], None, f"his words at {NEXT_PICK} do not say"),
         (f'His words: "{REUSE}"', [PICK, ROOTS[1]], None, "sit in more than one thread"),
         (f'His words: "{REUSE}"', [TAP_CARD], None, f"{TAP_CARD} is neither his own message nor a card he answered"),
-        (f'His words: "{REUSE}"', ["terminal"], None, "no prompt he typed into a terminal of the drive's sessions says"),
+        (f'His words: "{REUSE}"', ["terminal"], None, "no prompt he typed, nor pick he made on an AskUserQuestion, in the drive's sessions or this one says"),
         (f"PROVISIONAL: {REUSE}", [NEXT_PICK], None, "no words of his are given"),
     ],
 )
