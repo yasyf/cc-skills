@@ -5610,8 +5610,8 @@ def starter_lane(data: dict, attrs: dict) -> str | None:
     return agent_lane(data, data["jobs"][job_id]) if (job_id := named_job(data, attrs)) else None
 
 
-def routed(drives: dict[str, dict], session: str | None, kind: str, attrs: dict, to: list[str], answered: list[str]) -> list[str]:
-    """Where a drive session's record goes: a defect to the top coordinator, the communicator or the meta session to the meta session, which holds drive tooling, unless it posts it; the communicator's owner record about the drive to the meta session alone, his ruling on how the drive works included; and the communicator's other owner, answer, handoff or refused record for a coordinator lane to the session serving_lane reads from it and the records it answers; another session's report for a communicator lane to the posts lane the drive posts from, since the communicator's input is his messages, taps and relayed words, a report on a teammate's watched thread excepted, which the communicator carries; every other record to the lanes it names."""
+def routed(drives: dict[str, dict], session: str | None, kind: str, attrs: dict, to: list[str], answered: list[str], named: bool = True) -> list[str]:
+    """Where a drive session's record goes: each lane its writer named stands, by his words "get rid of hard-coded stuff, give it the rules, and let it make the call", but another session's report for a communicator lane, which goes to the posts lane the drive posts from, a report on a teammate's watched thread excepted, which the communicator carries; for a record whose writer named no lane, `named` False: a defect to the top coordinator, the communicator or the meta session to the meta session, which holds drive tooling, unless it posts it; the communicator's owner record about the drive to the meta session alone, his ruling on how the drive works included; and the communicator's other owner, answer, handoff or refused record for a coordinator lane to the session serving_lane reads from it and the records it answers; another session's report for a communicator lane to the posts lane the drive posts from, since the communicator's input is his messages, taps and relayed words, a report on a teammate's watched thread excepted, which the communicator carries; every other record to the lanes it names."""
     made = []
     for entry in to:
         lane, _, name = entry.partition("@")
@@ -5620,14 +5620,12 @@ def routed(drives: dict[str, dict], session: str | None, kind: str, attrs: dict,
             continue
         role = session_role(data, session)
         communicates = role == "communicator"
-        if kind == "defect" and lane in ("root", *HOLDERS) and role != "meta":
-            lane = "meta"
-        elif meta_alone(role, kind, attrs):
-            lane = "meta"
-        elif communicates and lane in coordinator_lanes(data) and (serving := serving_lane(data, kind, attrs, answered)):
-            lane = serving
-        elif kind == "report" and not communicates and lane in communicator_lanes(data) and attrs.get("watch") != "true":
+        if kind == "report" and not communicates and lane in communicator_lanes(data) and attrs.get("watch") != "true":
             lane = POSTS_LANE
+        elif not named and (kind == "defect" and lane in ("root", *HOLDERS) and role != "meta" or meta_alone(role, kind, attrs)):
+            lane = "meta"
+        elif not named and communicates and lane in coordinator_lanes(data) and (serving := serving_lane(data, kind, attrs, answered)):
+            lane = serving
         made.append(f"{lane}@{name}")
     return list(dict.fromkeys(made))
 

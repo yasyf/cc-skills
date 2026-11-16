@@ -92,7 +92,7 @@ def overruled_handoffs(drive: dict, records: list[dict]) -> tuple[str | None, li
 
 
 def readdressed(drives: dict[str, dict], session: str | None, record: dict) -> dict:
-    """The record addressed where its drive routes it: a defect, and the communicator's owner record about the drive, to the meta session, the communicator's answer, handoff or refused record naming a job a coordinator session's agent runs on this Mac to that session, its answer, handoff or refused record naming no job to the coordinator that wrote the record it answers, and its other owner, answer, handoff or refused record to the session holding the order it serves."""
+    """The record addressed where its drive sends it: each lane its writer named stands, but another session's report for a communicator lane, which goes to the posts lane the drive posts from, a report on a teammate's watched thread excepted, which the communicator carries."""
     entries = listed(record.get("to"))
     to = state.routed(drives, session, kind(record), attrs(record), entries, listed(record.get("re")))
     return record if to == entries else record | {"to": to}

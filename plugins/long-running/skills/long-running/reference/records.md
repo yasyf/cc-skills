@@ -19,12 +19,11 @@ Records carry work between the drive's sessions. Three things check a record the
 
 ## Where the drive routes a record
 
-Name `root@<drive>` and let the drive route. The order a record serves is the one its `order` attr names, else its `job` or `waits` attr's, else its `thread`'s. A record naming none keeps its `to`.
+A lane you name in `to` stands: you decide which session acts. Name meta for a defect or his words about the drive, and the session holding the order, or running the job, for his words about his work. A report to the communicator still goes to the posts lane the drive posts from. The rules below route only a record of the `record` tool that names no `to`. The order a record serves is the one its `order` attr names, else its `job` or `waits` attr's, else its `thread`'s. A record naming none keeps its `to`.
 
 - An `owner` record names what it is about with `--attr about=drive` or `--attr about=his work`, and is refused with neither. One about the drive, his ruling on how the drive works included, goes to the meta session, which tells the coordinator what changes. One about his work goes to the coordinator session hearing the order it serves, and the `record` tool first keeps his words as a new part of that order.
 - An `answer` naming `waits`, and an `answer`, `handoff` or `refused` record naming a job, goes to the coordinator session whose agent runs that job on this Mac, else the meta session for a drive tooling order, else the coordinator session hearing its order. One naming no job goes to the session that wrote the record its `--re` answers, else to the session holding the order it serves.
 - A `defect` from any session goes to the meta session. Any other record from a session outside the communicator's goes to every lane its `to` names.
-- The communicator's records are routed this way whatever `to` they name.
 - A call whose `owner` or `answer` records name another drive's question card, by `waits` or `thread_card`, is kept on that drive and posted as its communicator lane, since his words under a card reach whichever drive's watch reads his DM. A call mixing two drives' records is refused.
 
 ## His words on a question card

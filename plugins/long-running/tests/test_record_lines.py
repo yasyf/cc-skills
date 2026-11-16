@@ -211,12 +211,12 @@ def called(path: Path, call: str, tool: str, tool_input: dict, failed: bool = Fa
         transcript.write(json.dumps({"type": "user", "timestamp": at, "message": {"role": "user", "content": [result]}}) + "\n")
 
 
-def test_a_reader_or_designer_posting_to_him_is_refused_and_its_defect_goes_out_to_the_meta_session(demo: str) -> None:
+def test_a_reader_or_designer_posting_to_him_is_refused_and_its_defect_goes_out_to_the_lane_it_names(demo: str) -> None:
     for agent in ("long-running:reader", "long-running:designer"):
         reason = refusal(record_lines.decision(by(agent, kind="report", text="j12 found the leak", to=["owner@demo"])))
         assert "drive job report <j>" in reason and "meta@<drive>" in reason
     assert record_lines.decision(by("long-running:reader", kind="defect", text="drive job report fails", to=META)) is None
-    assert record_lines.decision(by("long-running:reader", kind="defect", text="drive job report fails", to=TO))["updatedInput"]["to"] == META
+    assert record_lines.decision(by("long-running:reader", kind="defect", text="drive job report fails", to=TO)) is None
 
 
 def test_a_coordinators_report_to_the_communicator_goes_to_the_posts_lane_and_a_watched_threads_stays(demo: str) -> None:
@@ -661,7 +661,7 @@ def test_a_report_giving_a_jobs_start_as_when_a_release_started_is_refused_and_o
     assert record_lines.decision(coordinator(turn, kind="report", text=named, to=POSTS, attrs=PROGRESS)) is None
 
 
-def test_the_communicators_record_for_a_coordinator_goes_to_the_session_hearing_the_order_it_serves_whatever_lane_it_names(
+def test_the_communicators_record_for_a_coordinator_goes_to_the_lane_it_names_and_with_none_named_to_the_session_hearing_the_order_it_serves(
     run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
@@ -680,7 +680,9 @@ def test_the_communicators_record_for_a_coordinator_goes_to_the_session_hearing_
         {"kind": "report", "text": "FYI j1 merged", "attrs": {"close": "o1"}},
     ]
     made = record_lines.decision(post("talker", records=records))["updatedInput"]["records"]
-    assert [record.get("to") for record in made] == [["iris@demo"]] * 2 + [None]
+    assert [record.get("to") for record in made] == [root] * 2 + [None]
+    derived = [state.routed({demo: state.load(demo)}, "talker", record["kind"], record["attrs"], record["to"], record.get("re", []), named=False) for record in records[:2]]
+    assert derived == [["iris@demo"]] * 2
     about_drive = {"kind": "owner", "text": "the dashboard drops my cards", "to": ["meta@demo"], "attrs": {"thread": THREAD, "about": "drive"}}
     unordered = refusal(record_lines.decision(post("talker", **about_drive)))
     assert isinstance(unordered, agents.Unjudged) and "his words about the drive go out on the drive's `record` tool" in unordered
@@ -693,7 +695,7 @@ def test_the_communicators_record_for_a_coordinator_goes_to_the_session_hearing_
     assert 'an owner record names what his words are about, about "drive" for drive tooling' in refusal(record_lines.decision(post("talker", **unsaid)))
 
 
-def test_the_communicators_record_answering_a_coordinators_record_reaches_its_writer_and_one_naming_a_job_the_session_holding_its_order(
+def test_the_communicators_record_answering_a_coordinators_record_goes_to_the_lane_it_names_and_with_none_named_reaches_its_writer_and_one_naming_a_job_the_session_holding_its_order(
     run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Releases", "ship the production release")
@@ -713,7 +715,9 @@ def test_the_communicators_record_answering_a_coordinators_record_reaches_its_wr
         {"kind": "handoff", "text": "redraw the run page card", "to": root, "re": ["686840"], "attrs": {"order": "o1"}},
     ]
     made = record_lines.decision(post("talker", records=records))["updatedInput"]["records"]
-    assert [record["to"] for record in made] == [root, root, ["iris@demo"], ["iris@demo"], ["iris@demo"]]
+    assert [record["to"] for record in made] == [root] * 5
+    derived = [state.routed({demo: state.load(demo)}, "talker", record["kind"], record["attrs"], record["to"], record["re"], named=False) for record in records]
+    assert derived == [root, root, ["iris@demo"], ["iris@demo"], ["iris@demo"]]
 
 
 def test_a_coordinators_handoff_reaches_the_one_lane_it_names_whichever_session_holds_the_order_it_serves_and_one_to_several_is_refused(
@@ -744,7 +748,7 @@ def bound_to_iris(run: Callable[..., tuple[int, str]], demo: str, monkeypatch: p
         state.join_thread(data["orders"]["o1"], ("D123", CARD_THREAD), state.stamp(), "question")
 
 
-def test_the_communicators_record_is_routed_on_the_drive_it_names_while_its_session_holds_a_newer_one(
+def test_the_communicators_record_naming_lanes_of_two_drives_keeps_them_and_one_naming_none_is_derived_on_each_drive_while_its_session_holds_a_newer_one(
     run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     bound_to_iris(run, demo, monkeypatch)
@@ -753,17 +757,21 @@ def test_the_communicators_record_is_routed_on_the_drive_it_names_while_its_sess
         data["roles"]["communicator"]["started"] = "2099-01-01T00:00:00-08:00"
     assert state.session_drives("talker") == ["newer", demo]
     answer = {"kind": "answer", "text": "Ring", "to": ["root@demo", "root@newer"], "re": ["7"], "attrs": {"job": "j1", "maps": "none"}}
-    assert record_lines.decision(post("talker", **answer))["updatedInput"]["to"] == ["iris@demo", "root@newer"]
+    assert record_lines.decision(post("talker", **answer))["updatedInput"]["to"] == ["root@demo", "root@newer"]
+    drives = {demo: state.load(demo), "newer": state.load("newer")}
+    assert state.routed(drives, "talker", "answer", answer["attrs"], answer["to"], answer["re"], named=False) == ["iris@demo", "root@newer"]
 
 
-def test_a_record_naming_a_job_goes_to_the_session_that_started_its_agent_and_one_to_a_lane_nobody_reads_is_refused(
+def test_a_record_naming_a_job_and_a_lane_goes_to_that_lane_while_one_naming_none_goes_to_the_session_that_started_its_agent_and_one_to_a_lane_nobody_reads_is_refused(
     run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     bound_to_iris(run, demo, monkeypatch)
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", SESSION)
     run("job", "set", "j1", "--agent", "a4667d5c611bb5233")
     answer = {"kind": "answer", "text": "Ring", "to": ["iris@demo"], "re": ["7"], "attrs": {"job": "j1", "maps": "none"}}
-    assert record_lines.decision(post("talker", **answer))["updatedInput"]["to"] == ["root@demo"]
+    assert record_lines.decision(post("talker", **answer))["updatedInput"]["to"] == ["iris@demo"]
+    derived = state.routed({demo: state.load(demo)}, "talker", answer["kind"], answer["attrs"], answer["to"], answer["re"], named=False)
+    assert derived == ["root@demo"]
     for to in (["coordinator@demo"], ["coordinator"]):
         reason = refusal(record_lines.decision(post("iris-1", kind="handoff", text="j1 may start", to=to)))
         assert reason == "refused, nothing posted: to coordinator: no session of drive demo reads that lane; name one of root, communicator, meta, iris, owner, or an unfinished job's id on the drive's `record` tool", to
@@ -801,7 +809,8 @@ def test_his_words_in_the_thread_of_a_card_an_orders_job_drew_go_to_the_session_
 ) -> None:
     bound_to_iris(run, demo, monkeypatch)
     feedback = {"thread": CARD_THREAD, "about": "his work"}
-    assert state.routed({demo: state.load(demo)}, "talker", "owner", feedback, ["root@demo"], []) == ["iris@demo"]
+    assert state.routed({demo: state.load(demo)}, "talker", "owner", feedback, ["root@demo"], [], named=False) == ["iris@demo"]
+    assert state.routed({demo: state.load(demo)}, "talker", "owner", feedback, ["root@demo"], []) == ["root@demo"]
     assert state.thread_order(state.load(demo), CARD_THREAD) == "o1"
 
 

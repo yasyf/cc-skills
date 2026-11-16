@@ -883,7 +883,7 @@ def test_a_record_to_a_lane_named_alone_or_as_lane_at_drive_goes_to_that_lane_on
             tools.run("record", demo, {"records": [{"kind": "handoff", "text": "start its reader", "to": to}]})
 
 
-def test_the_communicators_records_about_the_drive_reach_the_meta_session_alone_and_each_owner_record_names_what_it_is_about(
+def test_the_communicators_records_about_the_drive_reach_the_meta_session_alone_unless_one_names_a_lane_and_each_owner_record_names_what_it_is_about(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     posted: list[tuple[str, list[dict]]] = []
@@ -916,7 +916,7 @@ def test_the_communicators_records_about_the_drive_reach_the_meta_session_alone_
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "session-under-test")
     tools.run("record", demo, {"records": [defect]})
     assert [(lane, [(record["kind"], record["to"]) for record in records]) for lane, records in posted] == [
-        ("communicator", [("defect", ["meta@demo"]), ("owner", ["meta@demo"]), ("owner", ["meta@demo"]), ("owner", ["root@demo"]), ("owner", ["root@demo"])]),
+        ("communicator", [("defect", ["meta@demo"]), ("owner", ["root@demo"]), ("owner", ["meta@demo"]), ("owner", ["root@demo"]), ("owner", ["root@demo"])]),
         ("meta", [("owner", ["root@demo"])]),
         ("root", [("defect", ["meta@demo"])]),
     ]
@@ -1212,7 +1212,7 @@ def test_a_report_he_shares_in_the_message_an_open_order_came_from_is_that_order
     assert (list(orders), list(orders["o1"]["parts"]), [held["link"] for held in orders["o1"]["reporters"]], posted[0]["attr"]["order"]) == (["o1"], ["Cloud agent PR list"], [report], "o1")
 
 
-def test_the_communicators_owner_or_answer_record_goes_to_the_session_hearing_its_jobs_or_threads_order_whatever_lane_it_names(
+def test_the_communicators_owner_or_answer_record_naming_no_lane_goes_to_the_session_hearing_its_jobs_or_threads_order_and_one_naming_a_lane_goes_there(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
@@ -1226,7 +1226,7 @@ def test_the_communicators_owner_or_answer_record_goes_to_the_session_hearing_it
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
     run("start", demo, "--role", "communicator")
     records = [
-        {"kind": "owner", "text": "also the logs page", "thread": THREAD, "to": "root", "about": "his work"},
+        {"kind": "owner", "text": "also the logs page", "thread": THREAD, "about": "his work"},
         {"kind": "owner", "text": "and the alert", "thread": other, "to": "iris", "about": "his work"},
         {"kind": "answer", "text": "Ring", "url": UNDER_CARD, "re": "7", "attrs": {"job": "j1"}, "thread": other},
         {"kind": "defect", "text": "cc-slack say fails", "thread": THREAD},
@@ -1236,7 +1236,7 @@ def test_the_communicators_owner_or_answer_record_goes_to_the_session_hearing_it
     assert said[:2] == ["1 drive order set o1 '--add-part=also the logs page'", "2 drive order set o2 '--add-part=and the alert'"]
     assert [(json.loads(line.split(": ", 1)[1])["kind"], json.loads(line.split(": ", 1)[1])["to"]) for line in said[2:6]] == [
         ("owner", ["iris@demo"]),
-        ("owner", ["root@demo"]),
+        ("owner", ["iris@demo"]),
         ("answer", ["iris@demo"]),
         ("defect", ["meta@demo"]),
     ]
@@ -1363,10 +1363,10 @@ def test_an_answer_or_handoff_naming_a_job_goes_to_the_coordinator_session_whose
     run("start", demo, "--role", "communicator")
     open_cards(monkeypatch, "demo:j1-7")
     records = [
-        {"kind": "answer", "text": "Yes: the normal release hands each primary over on its own node", "url": UNDER_CARD, "to": "root", "waits": "demo:j1-7"},
-        {"kind": "handoff", "text": "Resume j1 now: plan, then start, the clock release", "to": "root", "attrs": {"job": "j1", "order": "o1"}},
-        {"kind": "handoff", "text": "Resume j2 now: its gate is met", "to": "iris", "attrs": {"job": "j2", "order": "o1"}},
-        {"kind": "owner", "text": "also the logs page", "to": "iris", "attrs": {"job": "j1"}, "about": "his work"},
+        {"kind": "answer", "text": "Yes: the normal release hands each primary over on its own node", "url": UNDER_CARD, "waits": "demo:j1-7"},
+        {"kind": "handoff", "text": "Resume j1 now: plan, then start, the clock release", "attrs": {"job": "j1", "order": "o1"}},
+        {"kind": "handoff", "text": "Resume j2 now: its gate is met", "attrs": {"job": "j2", "order": "o1"}},
+        {"kind": "owner", "text": "also the logs page", "attrs": {"job": "j1"}, "about": "his work"},
     ]
     said = tools.run("record", demo, {"records": records, "dry_run": True}).splitlines()
     assert [(json.loads(line.split(": ", 1)[1])["kind"], json.loads(line.split(": ", 1)[1])["to"]) for line in said if ": {" in line] == [

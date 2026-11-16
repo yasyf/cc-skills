@@ -149,12 +149,13 @@ RECORD = {
             "description": (
                 "the lane it goes to, alone or as <lane>@<drive>, in place of the default, the coordinator's from the communicator, and"
                 " from any other session the communicator's but for a handoff, whose default is the coordinator session whose agent"
-                " runs the job it names on this Mac, else the session holding the order it serves; a defect goes to the meta session,"
-                " the communicator's owner record about the drive to the meta session alone, its answer or handoff record naming a job"
-                " by attrs.job or waits to the coordinator session whose agent runs that job on this Mac, its answer or handoff record"
-                " naming no job to the coordinator that wrote the record its re answers, and its other owner, answer or handoff record"
-                " to the session holding the order its attrs.order names, else the order of the job it answers, else its thread's"
-                " newest order, whatever lane this names; any other session's record goes to the lane this names, and a lane no"
+                " runs the job it names on this Mac, else the session holding the order it serves. A lane you name stands: you decide"
+                " who acts. With none named, a defect goes to the meta session, the communicator's owner record about the drive to the"
+                " meta session alone, its answer or handoff record naming a job by attrs.job or waits to the coordinator session whose"
+                " agent runs that job on this Mac, its answer or handoff record naming no job to the coordinator that wrote the record"
+                " its re answers, and its other owner, answer or handoff record to the session holding the order its attrs.order names,"
+                " else the order of the job it answers, else its thread's newest order. Name meta for a defect or his words about the"
+                " drive, and the session holding the order or running the job for his words about his work; a lane no"
                 " session of the drive reads, such as coordinator, is refused; an unfinished job's id, such as j12, is the lane that"
                 " job hears: the record goes out and is held on the job for its running worker or codex run, as drive job resume holds"
                 " a text, the one way to answer a job that asked over cci, since cci's own tools refuse that lane"
@@ -989,7 +990,7 @@ def post(item: dict, data: dict, other: str, session: str | None) -> dict:
     lane, _, named = (item.get("to") or (held if held and held != state.session_lane(data, session) else other)).partition("@")
     if named not in ("", drive):
         raise DriveError(f"to {item['to']}: names no lane of drive {drive}, which this call posts in; name its lane alone or as <lane>@{drive}")
-    made["to"] = state.routed({drive: data}, session, item["kind"], attrs, [f"{lane}@{drive}"], made.get("re") or [])
+    made["to"] = state.routed({drive: data}, session, item["kind"], attrs, [f"{lane}@{drive}"], made.get("re") or [], named=bool(item.get("to")))
     if unread := state.unread({drive: data}, made["to"], drive, held=True):
         raise DriveError(unread)
     if item.get("undone"):
