@@ -1563,7 +1563,7 @@ def shipped(job: dict) -> str:
 
 
 def quoted(output: str) -> str:
-    """The line a proof's run is said by: its last line opening FAIL, the check that failed, since a proof stopped by a failing step can print lines after it that read as passing; else its last line opening PASS or WAIT when that one opens WAIT, whatever a tool it ran wrote to stderr after it, as tools/ci's 429 WARN lines after j7710's WAIT; else that it printed no FAIL line, never a line of its own, which can be a shell's report of a killed step quoting its whole command line."""
+    """The line a proof's run is said by: its last line opening FAIL, the check that failed, since a proof stopped by a failing step can print lines after it that read as passing; else its last line opening PASS or WAIT when that one opens WAIT, whatever a tool it ran wrote to stderr after it, as a CI tool's 429 WARN lines after j7710's WAIT; else that it printed no FAIL line, never a line of its own, which can be a shell's report of a killed step quoting its whole command line."""
     lines = [line.strip() for line in output.splitlines() if line.strip()]
     if fail := next((line for line in reversed(lines) if line.startswith("FAIL")), None):
         return fail
