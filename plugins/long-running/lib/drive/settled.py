@@ -1,6 +1,7 @@
 import html
 import json
 import mmap
+import os
 import re
 import subprocess
 import sys
@@ -347,14 +348,16 @@ ELIDED = re.compile(r"\.\.\.|…|\[[^\[\]]*\]")
 UNWORDED = re.compile(r"[\W_]+")
 TERMINAL = "terminal"
 HUMAN = b'"kind":"human"'
+PICKED = b'"toolUseResult":{"questions":'
 STEP = re.compile(r"[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}")
 EVENTS = (
     "a GitHub pull request that merged or closed, a Buildkite build or the job its link names that finished, a Slack message a"
     " teammate or another bot wrote, or, on a card asking him for a fact or value, the done drive job, by its id, whose report names the card and the value it read"
 )
 HIS_ANSWER = (
-    "his words are read at the permalink of his message or of the card he answered, or at terminal for a prompt he typed into a drive"
-    " session's terminal, cut with … where words are left out"
+    "his words are read at the permalink of his message or of the card he answered, or at terminal for a prompt he typed, or an option"
+    " he picked or words he wrote on an AskUserQuestion, in a drive session's terminal or the session recording them, cut with … where"
+    " words are left out"
 )
 PARAPHRASE_LABEL = "from:paraphrase"
 PARAPHRASED = " the session's paraphrase, which he never said: "
@@ -532,7 +535,7 @@ def heard(link: str, found: dict | None, data: dict) -> str | None:
 
 
 def unsaid(kept: list[str], links: list[str], found: dict | None, data: dict) -> str | None:
-    """Why the first of the words kept as his answer that are not his is not: no link names where he said them, what is at one is not his, his messages at several links sit in more than one thread, or what is at them lacks a piece of them, split where an ellipsis or a bracketed insertion leaves his words out; None when each piece of each is his, his messages in a row at the links read once for all of them and joined in link order. At terminal, his words are a prompt he typed into a session the drive binds that holds every piece."""
+    """Why the first of the words kept as his answer that are not his is not: no link names where he said them, what is at one is not his, his messages at several links sit in more than one thread, or what is at them lacks a piece of them, split where an ellipsis or a bracketed insertion leaves his words out; None when each piece of each is his, his messages in a row at the links read once for all of them and joined in link order. At terminal, his words are a prompt he typed, or a pick he made on an AskUserQuestion, in a session `typed` reads, that holds every piece."""
     read: list[str] = []
     for words in kept:
         if not plain(ELIDED.sub(" ", words)):
@@ -542,7 +545,7 @@ def unsaid(kept: list[str], links: list[str], found: dict | None, data: dict) ->
         if links == [TERMINAL]:
             if any(lacking(words, said) is None for said in typed(data)):
                 continue
-            return f'no prompt he typed into a terminal of the drive\'s sessions says "{cut(words, 200)}"; {HIS_ANSWER}'
+            return f'no prompt he typed, nor pick he made on an AskUserQuestion, in the drive\'s sessions or this one says "{cut(words, 200)}"; {HIS_ANSWER}'
         if not read:
             if apart := unthreaded(links):
                 return f"{apart}; {HIS_ANSWER}"
@@ -630,17 +633,29 @@ def lacking(words: str, said: str) -> str | None:
 
 
 def typed(data: dict) -> Iterator[str]:
-    """Each prompt typed into a session the drive binds, read from its transcript by prompt_words; a row still being written is left for the next read."""
-    for held in state.bound_sessions(data).values():
-        path = next((config_dir() / "projects").glob(f"*/{held['session']}.jsonl"), None)
+    """His words in the transcript of each session the drive binds and of the session running this, which records an answer he gave there, since a drive session never asks him in its terminal: each prompt he typed, by prompt_words, and each pick he made on an AskUserQuestion, by `picked`; a row still being written is left for the next read."""
+    sessions = dict.fromkeys([*(held["session"] for held in state.bound_sessions(data).values()), os.environ.get("CLAUDE_CODE_SESSION_ID")])
+    for session in filter(None, sessions):
+        path = next((config_dir() / "projects").glob(f"*/{session}.jsonl"), None)
         if path is None or not path.stat().st_size:
             continue
         with path.open("rb") as handle, mmap.mmap(handle.fileno(), 0, access=mmap.ACCESS_READ) as rows:
-            at = rows.find(HUMAN)
-            while at != -1 and (end := rows.find(b"\n", at)) != -1:
-                if (said := prompt_words(json.loads(rows[rows.rfind(b"\n", 0, at) + 1 : end]), "human")) is not None:
-                    yield said
-                at = rows.find(HUMAN, end)
+            yield from filter(None, (prompt_words(row, "human") for row in marked(rows, HUMAN)))
+            yield from (pick for row in marked(rows, PICKED) for pick in picked(row))
+
+
+def marked(rows: mmap.mmap, marker: bytes) -> Iterator[dict]:
+    """Each whole transcript row holding the marker; a row still being written is left for the next read."""
+    at = rows.find(marker)
+    while at != -1 and (end := rows.find(b"\n", at)) != -1:
+        yield json.loads(rows[rows.rfind(b"\n", 0, at) + 1 : end])
+        at = rows.find(marker, end)
+
+
+def picked(row: dict) -> list[str]:
+    """His picks in a transcript row that answers an AskUserQuestion: each answer Claude Code wrote from the dialog he answered, the option he picked or the words he wrote in its place, which no agent writes; none in a row only quoting such a result, such as a subagent's progress row."""
+    result = row.get("toolUseResult")
+    return list(result["answers"].values()) if row["type"] == "user" and isinstance(result, dict) and "answers" in result else []
 
 
 def prompt_words(row: dict, origin: str) -> str | None:

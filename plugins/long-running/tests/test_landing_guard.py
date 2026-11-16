@@ -476,7 +476,10 @@ def test_enqueueing_one_sibling_pr_of_his_order_card_alone_passes_since_stack_en
 
 
 def test_his_typed_approval_recorded_with_its_source_lets_the_pr_land(home_repo: None, drive_pr: str, run: Run, no_calls: None) -> None:
-    assert landing_guard.deny_reason(bash("stack-enqueue 42")).startswith(f"{drive_pr}: no tap from him yet")
+    refusal = landing_guard.deny_reason(bash("stack-enqueue 42"))
+    assert refusal.startswith(f"{drive_pr}: no tap from him yet")
+    assert "--link <his permalink, or terminal for a prompt he typed or an AskUserQuestion he answered" in refusal
+    assert f"drive answer <its id> --drive demo --approves {drive_pr}`" in refusal
     run("pr", "set", PR, "--tapped", "Approve", "--tap-source", "slack:https://acme.slack.com/archives/D123/p1794200000000100")
     assert landing_guard.deny_reason(bash("stack-enqueue 42")) is None
 

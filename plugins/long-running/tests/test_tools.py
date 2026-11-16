@@ -1019,7 +1019,7 @@ def test_his_ruling_typed_into_the_communicators_terminal_goes_out_at_terminal_a
     order = {"words": "Drive tooling: answer things like this almost at once", "title": "Answer at once"}
     ruling = {"kind": "owner", "text": TYPED, "url": "terminal", "ruling": "07fe4ea", "about": "drive", "order": order}
     for words, answer in ((drafted, "07fe4ea"), (TYPED, "d7af7ed")):
-        with pytest.raises(DriveError, match=f'1: refused, nothing posted: no prompt he typed into a terminal of the drive\'s sessions says "{drafted}"'):
+        with pytest.raises(DriveError, match=f'1: refused, nothing posted: no prompt he typed, nor pick he made on an AskUserQuestion, in the drive\'s sessions or this one says "{drafted}"'):
             tools.run("record", demo, {"records": [ruling | {"text": words, "ruling": answer}]})
     assert posted == []
     tools.run("record", demo, {"records": [ruling]})

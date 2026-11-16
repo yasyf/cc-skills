@@ -5705,7 +5705,8 @@ def his_link(text: str) -> str:
         return text
     raise argparse.ArgumentTypeError(
         "name the Slack permalink of his message or of the card he tapped: a hold or approval the drive gave itself is never his,"
-        " and one recorded as his drops with --no-tapped --why"
+        " and one recorded as his drops with --no-tapped --why. His approval in a terminal, a prompt he typed or an AskUserQuestion he"
+        " answered, is kept with drive answer --link terminal, then taken with drive answer <its id> --approves <the PR>"
     )
 
 
@@ -8913,8 +8914,8 @@ def parser() -> argparse.ArgumentParser:
         nargs="+",
         default=[],
         help=(
-            "the permalink of his message or of the card he answered, which a superseded card links, or terminal for words he typed into a drive session's"
-            " terminal; several for his messages in a row in one thread, or all at one channel's root, in the order he sent them, which --words joins with …"
+            "the permalink of his message or of the card he answered, which a superseded card links, or terminal for words he typed, or an option he"
+            " picked or words he wrote on an AskUserQuestion, in a drive session's terminal or the session running this; several for his messages in a row in one thread, or all at one channel's root, in the order he sent them, which --words joins with …"
             " and the answer keeps at the first; the first call checks --words against those messages joined and a named answer's words"
             " above its Notes: either against them or, where those words hold more than his, as each message sitting inside them, refused on an answer recorded already;"
             f" left out, it is terminal; words that are not his there are recorded as the session's paraphrase, labelled {settled.PARAPHRASE_LABEL}, which settles nothing"
