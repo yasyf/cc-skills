@@ -6237,7 +6237,7 @@ def stages(watcher: Watcher, moment: datetime, until: Callable[[], object] = lam
             yield read_failed(watcher, "drive terminal", error, moment)
         else:
             watcher.failures.pop("drive terminal", None)
-        view.refresh_owed(watcher.name, agents.beside(state.load(watcher.name))[1]["session"])
+        view.refresh_owed(watcher.name, agents.beside(state.saved(watcher.name))[1]["session"])
         if not lands:
             watcher.cards, watcher.redrawn_whole = view.live_cards(watcher.name), set()
         later = [

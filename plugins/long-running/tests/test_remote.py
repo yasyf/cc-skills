@@ -8264,6 +8264,43 @@ def test_an_orca_refusal_raises_at_once_reading_no_status_outside_a_verb_riding_
     assert (refused.value, calls, naps, capsys.readouterr().err) == (refusal, [("orchestration", "worker-show", "--dispatch", DISPATCH, "--full")], [], "")
 
 
+@pytest.mark.parametrize("key", ["terminal", "binder"])
+def test_live_kept_terminal_reads_only_its_saved_handle(remote: str, monkeypatch: pytest.MonkeyPatch, key: str) -> None:
+    with edit(remote) as data:
+        data[key] = "term_kept"
+    stored = state.stored
+    loaded = []
+
+    def selected(name: str, fields: tuple[str, ...] | None = None) -> dict:
+        loaded.append(fields)
+        return stored(name, fields)
+
+    monkeypatch.setattr(state, "load", lambda *args: pytest.fail("terminal lookup must not shape the drive"))
+    monkeypatch.setattr(state, "stored", selected)
+    monkeypatch.setattr(orca, "SHOWN_CONNECTED", {})
+    monkeypatch.setattr(orca, "terminal", lambda handle: {"connected": True})
+    assert orca.live_kept(remote, key) == "term_kept"
+    assert loaded == [(key,)]
+
+
+def test_speaking_as_drive_reads_only_its_saved_handle(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    with edit(remote) as data:
+        data["terminal"] = "term_kept"
+    stored = state.stored
+    loaded, spoken = [], []
+
+    def selected(name: str, fields: tuple[str, ...] | None = None) -> dict:
+        loaded.append(fields)
+        return stored(name, fields)
+
+    monkeypatch.setattr(state, "load", lambda *args: pytest.fail("sender lookup must not shape the drive"))
+    monkeypatch.setattr(state, "stored", selected)
+    monkeypatch.setattr(orca, "drive_terminal", lambda name: "term_live")
+    monkeypatch.setattr(orca, "speak_as", spoken.append)
+    orca.speak_as_drive(remote)
+    assert (loaded, spoken) == ([("terminal",)], ["term_kept", "term_live"])
+
+
 def test_a_drive_whose_kept_terminal_orca_cannot_show_while_its_runtime_is_down_raises_that_refusal_and_opens_no_second_terminal(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
     with edit(remote) as data:
         data["terminal"] = "term_kept"
