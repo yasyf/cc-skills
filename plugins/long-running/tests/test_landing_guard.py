@@ -621,3 +621,14 @@ def test_a_staging_start_passes_only_for_the_job_holding_that_envs_slot_now(monk
     monkeypatch.setenv(state.JOB_ENV, "demo/j7394/a1/s1")
     data["slots"]["plat-usw2-staging"]["holder"]["until"] = state.stamp(state.now() - timedelta(minutes=1))
     assert landing_guard.leased_start(start, data, shell) is False
+
+
+def test_a_sub_coordinators_job_holding_the_staging_slot_starts_its_staging_cut_while_its_production_cut_stays_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    shell = landing_guard.Shell("/", {}, "sub-session", True, True)
+    monkeypatch.setattr(state, "session_drives", lambda session: ["demo"])
+    monkeypatch.setattr(state, "load", lambda name: {"roles": {"coordinator": {"session": "top"}}, "slots": {}})
+    monkeypatch.setattr(state, "session_project", lambda data, session: "Platform")
+    monkeypatch.setattr(landing_guard, "leased_start", lambda words, data, shell: "--env" in words)
+    staging = "tools/ci release start api --from b --emergency --env plat-usw2-staging --order 23eefb9".split()
+    assert landing_guard.cut_reason(staging, shell) is None
+    assert landing_guard.cut_reason("tools/ci release start api --order 23eefb9".split(), shell).startswith("ci release start: the sub-coordinator for Platform starts, approves and rolls back no production cut")

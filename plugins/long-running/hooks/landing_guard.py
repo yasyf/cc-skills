@@ -507,7 +507,9 @@ def cut_reason(words: list[str], shell: Shell) -> str | None:
     if verb not in RELEASE_CUTS:
         return None
     names = state.session_drives(shell.session)
-    for name in names:
+    if verb == "start" and job and (held_in := names or list(filter(None, [os.environ.get(state.DRIVE_ENV)]))) and leased_start(words, state.load(held_in[0]), shell):
+        return None
+    for name in names if not brief.leased_env(words) else []:
         data = state.load(name)
         if project := state.session_project(data, shell.session):
             top = data["roles"].get("coordinator", {}).get("session") or "not started"
@@ -516,8 +518,6 @@ def cut_reason(words: list[str], shell: Shell) -> str | None:
                 f" the top coordinator of drive {name} (session {top}) does, one at a time. Send it a record at root@{name} naming"
                 " the merged changes the cut must carry"
             )
-    if verb == "start" and job and (held_in := names or list(filter(None, [os.environ.get(state.DRIVE_ENV)]))) and leased_start(words, state.load(held_in[0]), shell):
-        return None
     if verb in brief.RELEASE_STARTS and (shell.driving or job):
         return RELEASE_BY_HAND.format(command=" ".join(words))
     if lane:
