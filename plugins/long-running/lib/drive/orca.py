@@ -40,6 +40,7 @@ WAKE_SECONDS = 90
 MAIL_LIMIT = 100
 MARK_BATCHES = 20
 FENCED = "consumer_fenced"
+RUN_NOT_FOUND = "run_not_found"
 UNREACHABLE = "remote_runtime_unavailable"
 UNLIVE = "its worker's liveness is"
 GONE = {
@@ -883,10 +884,22 @@ def mail(after: int | None) -> list[dict]:
     return sorted((message for message in messages if message["to_handle"].startswith("run:") and (after is None or message["sequence"] > after)), key=lambda message: message["sequence"])
 
 
-def mark_read(run: str) -> None:
-    """Mark the Run's unread mail read with consuming checks as this process's Orca terminal, the drive's own, which coordinates the Run, once the watch took that mail by mail, whose read ignores the read flag, so nothing the drive reads is lost: at most MARK_BATCHES batches, the next pass marking the rest."""
+def mark_read(drive: str, run: str) -> None:
+    """Mark the Run's unread mail read with consuming checks, once the watch took that mail by mail, whose read ignores the read flag, so nothing the drive reads is lost: as the drive's own terminal, or, for a Run Orca fences because that terminal does not hold it, as binder_terminal once binder binds the Run there, as an answer goes; at most MARK_BATCHES batches, the next pass marking the rest, and none for a Run Orca no longer keeps."""
+    try:
+        marked(run)
+    except OrcaError as error:
+        if error.code == RUN_NOT_FOUND:
+            return
+        if error.code != FENCED:
+            raise
+        with binder(drive, run) as terminal:
+            marked(run, terminal)
+
+
+def marked(run: str, caller: str | None = None) -> None:
     for _ in range(MARK_BATCHES):
-        if not call("check", "--run", run)["messages"]:
+        if not call("check", "--run", run, caller=caller)["messages"]:
             return
 
 

@@ -5932,12 +5932,33 @@ def test_lane_mail_becomes_job_events_and_records_the_question_and_marks_its_run
     assert marked_read == [RUN]
 
 
-def test_marking_lane_mail_read_checks_the_run_until_it_returns_none(monkeypatch: pytest.MonkeyPatch) -> None:
-    batches = iter([{"messages": [{"id": "msg_1"}]}, {"messages": [{"id": "msg_2"}]}, {"messages": []}])
+def test_marking_lane_mail_read_checks_the_run_until_it_returns_none_as_the_binder_when_fenced_and_skips_a_gone_run(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    replies = {
+        (RUN, None): [orca.OrcaError("This caller is bound to Run run_other", orca.FENCED)],
+        (RUN, BINDER_TERMINAL): [{"messages": [{"id": "msg_1"}]}, {"messages": []}],
+        ("run_gone", None): [orca.OrcaError("Run run_gone was not found.", orca.RUN_NOT_FOUND)],
+    }
     asked = []
-    monkeypatch.setattr(orca, "call", lambda *args: asked.append(args) or next(batches))
-    REAL_MARK_READ(RUN)
-    assert asked == [("check", "--run", RUN)] * 3
+
+    def call(*args: str, caller: str | None = None) -> dict:
+        asked.append((*args, caller))
+        if args[0] == "run-use":
+            return {}
+        reply = replies[(args[2], caller)].pop(0)
+        if isinstance(reply, Exception):
+            raise reply
+        return reply
+
+    monkeypatch.setattr(orca, "call", call)
+    REAL_MARK_READ(remote, RUN)
+    REAL_MARK_READ(remote, "run_gone")
+    assert asked == [
+        ("check", "--run", RUN, None),
+        ("run-use", "--id", RUN, BINDER_TERMINAL),
+        ("check", "--run", RUN, BINDER_TERMINAL),
+        ("check", "--run", RUN, BINDER_TERMINAL),
+        ("check", "--run", "run_gone", None),
+    ]
 
 
 @pytest.mark.parametrize(

@@ -1531,7 +1531,7 @@ def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
         lines.append(f"JOB {job_id} {order_id} {render.unread(held, failed)}{carried}")
     for run in sorted(unread):
         try:
-            orca.mark_read(run)
+            orca.mark_read(watcher.name, run)
         except orca.OrcaError as error:
             lines += read_failed(watcher, MARK_READ, error, moment)
     watcher.made += [line for line in lines if line]

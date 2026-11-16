@@ -439,7 +439,7 @@ def drive_terminal(monkeypatch: pytest.MonkeyPatch) -> None:
 def marked_read(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     """Each Run whose lane mail the watch marked read, in turn; a test of the mark itself calls REAL_MARK_READ."""
     marked: list[str] = []
-    monkeypatch.setattr(orca, "mark_read", marked.append)
+    monkeypatch.setattr(orca, "mark_read", lambda drive, run: marked.append(run))
     return marked
 
 
