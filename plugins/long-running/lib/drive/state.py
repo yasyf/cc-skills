@@ -7,6 +7,7 @@ import json
 import math
 import marshal
 import os
+import random
 import re
 import sqlite3
 import subprocess
@@ -5020,9 +5021,14 @@ def handled_lock(name: str) -> Iterator[None]:
 
 
 def read_updated[T](name: str, change: Callable[[dict], T]) -> T:
-    """Apply change to the drive as it loads, holding no lock while it runs, recording each row it reads, by ReadDrive, and every row once it loads the drive again itself, since those reads go untracked, and save each record it changed in one short transaction, refused when another write committed one of those rows or one it read since the load, by rows_saved's since, running each effect it left by after_save only once its save commits; else run it again on the drive as it then stands, up to UPDATE_TRIES runs, and once each raced, a last time under the drive's lock as a write naming no rows, which locks.log names."""
+    """Apply change to the drive as it loads, holding no lock while it runs, recording each row it reads, by ReadDrive, and every row once it loads the drive again itself, since those reads go untracked, and save each record it changed in one short transaction, refused when another write committed one of those rows or one it read since the load, by rows_saved's since, running each effect it left by after_save only once its save commits; else run it again on the drive as it then stands, at once for UPDATE_TRIES runs and then after a growing random pause, until DRIVE_LOCK_SECONDS pass, or for good under waiting_out_lock, then refusing as Refused, which locks.log names."""
+    asked = time.monotonic()
     why = ""
-    for _ in range(UPDATE_TRIES):
+    for tried in itertools.count():
+        if tried >= UPDATE_TRIES:
+            if not WAITS_OUT_LOCK.get() and time.monotonic() - asked >= DRIVE_LOCK_SECONDS:
+                break
+            time.sleep(random.uniform(0, min(1.0, 0.01 * 2 ** (tried - UPDATE_TRIES))))
         with editing(name) as taken:
             loaded = load(name)
             since, base, reads = LOADED_REV.get(), marshal.dumps(loaded), Reads()
@@ -5044,15 +5050,17 @@ def read_updated[T](name: str, change: Callable[[dict], T]) -> T:
                 why = f"another write changed {'.'.join(raced.args[0])} each time it ran"
                 released(taken)
                 continue
+        if tried >= UPDATE_TRIES:
+            with open(drive_dir(name) / "locks.log", "a") as log:
+                log.write(f"{stamp()} pid {os.getpid()} saved after {tried + 1} runs over {time.monotonic() - asked:.1f}s, since {why}: drive {' '.join(sys.argv[1:])[:HOLDER_CHARS]}\n")
         return done
     with open(drive_dir(name) / "locks.log", "a") as log:
-        log.write(f"{stamp()} pid {os.getpid()} ran as a write of the whole drive, since {why}: drive {' '.join(sys.argv[1:])[:HOLDER_CHARS]}\n")
-    with edit(name) as data:
-        return change(data)
+        log.write(f"{stamp()} pid {os.getpid()} refused after {DRIVE_LOCK_SECONDS}s, since {why}: drive {' '.join(sys.argv[1:])[:HOLDER_CHARS]}\n")
+    raise Refused(f"refused, nothing kept: {why} for {DRIVE_LOCK_SECONDS}s, so send it again")
 
 
 def update[T](name: str, rows: tuple[Row, ...] | None, change: Callable[[dict], T]) -> T:
-    """Apply change, a function of the drive that only reads and changes data, to the drive and return what it returns, as a write of rows that is never refused, or with rows None as a write naming no rows: on the drive as it loads, saved by rows_saved, and again on the drive as it then stands each time another write changed one of the rows meanwhile, up to UPDATE_TRIES runs; a change changing a row it did not name, or one raced past those runs, runs once more as a write naming no rows; locks.log names each such last run."""
+    """Apply change, a function of the drive that only reads and changes data, to the drive and return what it returns, as a write of rows, or with rows None as a write naming no rows, by read_updated: on the drive as it loads, saved by rows_saved, and again on the drive as it then stands each time another write changed one of the rows meanwhile, up to UPDATE_TRIES runs; a change changing a row it did not name, or one raced past those runs, runs on as a write naming no rows, by read_updated."""
     if name in BATCHED or not database_path(name).exists():
         with edit(name) as data:
             return change(data)
@@ -5063,20 +5071,15 @@ def update[T](name: str, rows: tuple[Row, ...] | None, change: Callable[[dict], 
             data, held = loaded_rows(name, rows)
             base = marshal.dumps(data)
             done = change(data)
-            if outside := outside_rows(was := marshal.loads(base), data, rows):
-                why = f"it changed {', '.join('.'.join(filter(None, row)) for row in outside)} too"
+            if outside_rows(was := marshal.loads(base), data, rows):
                 released(taken)
                 break
             try:
                 rows_saved(name, held, was, data, rows)
                 return done
-            except Raced as raced:
-                why = f"another write changed {'.'.join(raced.args[0])} each time it ran"
+            except Raced:
                 released(taken)
-    with open(drive_dir(name) / "locks.log", "a") as log:
-        log.write(f"{stamp()} pid {os.getpid()} ran as a write of the whole drive, since {why}: drive {' '.join(sys.argv[1:])[:HOLDER_CHARS]}\n")
-    with edit(name) as data:
-        return change(data)
+    return read_updated(name, change)
 
 
 def committed(name: str, base: bytes, mine: dict) -> None:
