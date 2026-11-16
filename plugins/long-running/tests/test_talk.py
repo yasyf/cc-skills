@@ -1687,7 +1687,7 @@ def test_a_release_reference_links_the_post_its_release_provider_names_and_one_i
         refs.resolved(demo, "{release:nope} is live.")
 
 
-def test_a_clock_time_typed_right_before_a_drawn_start_time_is_dropped_so_the_post_gives_one_time() -> None:
+def test_a_start_time_drawn_right_after_a_typed_clock_time_is_dropped_so_the_post_gives_one_time() -> None:
     found = {"{started:j1}": {"kind": "started", "title": f"3:20 AM {refs.JOB_START}", "url": None, "board": None}}
-    assert refs.slack("The Mac testing started at 3:23 AM ({started:j1})", found, None) == "The Mac testing started at 3:20 AM (job start)"
-    assert refs.slack("Started at 3:23 AM {started:j1}; done by 4:00 AM", found, None) == "Started at 3:20 AM (job start); done by 4:00 AM"
+    assert refs.slack("The Mac testing started at 3:23 AM ({started:j1})", found, None) == "The Mac testing started at 3:23 AM"
+    assert refs.slack("Started at 3:23 AM {started:j1}; done by 4:00 AM", found, None) == "Started at 3:23 AM; done by 4:00 AM"
