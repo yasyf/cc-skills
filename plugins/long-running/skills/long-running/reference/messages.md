@@ -1152,8 +1152,8 @@ line keeps its bold line and two sentences, as the status lines above show.
   a message of his an `asked` permalink links, the length limit lifts with no judge; otherwise Jev reads the same words.
 - A post that draws a card, or a PR card through `tap_prs` or a PR its waiting line links, carries
   the card its words say waits on him, so check-post's `waits-without-card` finding is dropped for
-  it. A check that fails on a post refuses it rather than let it out unchecked, and so does a
-  check-post that exits 1 naming no finding.
+  it. A check that fails on a post, or a check-post that cannot check its words, lets it out
+  unchecked with a warning, since a gate that cannot finish fails open.
 - A handler's new line in his thread comes back until that handler has read the thread in the last
   10 minutes, so the line cannot miss what he said there since. Past that read every other check
   runs. A post Jev holds on any finding, such as one over its limit, one check-post flags, one

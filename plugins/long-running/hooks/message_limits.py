@@ -315,7 +315,7 @@ def unchecked(tool_input: dict, messages: list[dict], linked: dict[str, dict], d
     try:
         findings = refs.answer_ids(slack.post_findings(text, bool(tool_input.get("card") or tool_input.get("tap_prs")), asked), drive)
     except slack.SlackError as error:
-        return [agents.Unjudged(f"refused: `cc-slack check-post` could not check this post's words, so it does not go out: {error}.")]
+        return [Warned(f"message_limits: this post goes out as written, unchecked: `cc-slack check-post` could not check its words: {error}.")]
     if any(ALERT_LINK.match(finding) for finding in findings) and talk.outage(drive, tool_input, report, order_id):
         findings = [finding for finding in findings if not ALERT_LINK.match(finding)]
     if not findings:
@@ -355,7 +355,7 @@ def teammate_findings(payload: dict) -> str | None:
     try:
         findings = slack.post_findings(tool_input.get("text") or "", True, tool_input.get("asked") or "")
     except slack.SlackError as error:
-        return agents.Unjudged(f"refused: `cc-slack check-post` could not check this post's words, so it does not go out: {error}.")
+        return Warned(f"message_limits: this post goes out as written, unchecked: `cc-slack check-post` could not check its words: {error}.")
     return every(check_post_refusals(findings))
 
 
@@ -719,7 +719,7 @@ def members_findings(payload: dict, dm: str) -> str | None:
         findings = slack.post_findings(text, False)
         long = limits.word_refusal(tool_input, limits.LINE_WORDS, "a line to a channel's members", edited_words(payload, dm), MEMBERS_READING, MEMBERS_REST)
     except slack.SlackError as error:
-        return agents.Unjudged(f"refused: this post's words could not be checked, by `cc-slack check-post` or against the post it edits, so it does not go out: {error}.")
+        return Warned(f"message_limits: this post goes out as written, unchecked: its words could not be checked, by `cc-slack check-post` or against the post it edits: {error}.")
     named = ", ".join(limits.code_names(text))
     lines = len(text.strip().splitlines())
     bold = BOLD.search(text)

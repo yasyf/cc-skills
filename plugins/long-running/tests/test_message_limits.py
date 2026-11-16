@@ -2905,17 +2905,14 @@ def test_every_post_passes_check_post_on_its_exact_words_a_share_outside_his_dm_
     assert posted(transcript, text="See <https://github.com/yasyf/cc-skills/pull/41|the fix> now.", thread_ts="1.2") is None
 
 
-def test_a_post_check_post_cannot_check_does_not_go_out(talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_post_check_post_cannot_check_goes_out_unchecked_with_a_warning(talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     def broken(text: str, asked: list[str]) -> list[str]:
         raise slack.SlackError("the cc-slack@cc-slack plugin is not installed")
 
     monkeypatch.setattr(slack, "check_post", broken)
     reason = posted(transcript, text="Fixed.", thread_ts="1.2")
-    assert reason == (
-        "refused: `cc-slack check-post` could not check this post's words, so it does not go out: the cc-slack@cc-slack"
-        " plugin is not installed."
-    )
-    assert isinstance(reason, agents.Unjudged)
+    assert reason == "message_limits: this post goes out as written, unchecked: `cc-slack check-post` could not check its words: the cc-slack@cc-slack plugin is not installed."
+    assert isinstance(reason, message_limits.Warned)
 
 
 def test_check_post_runs_the_installed_cc_slack_on_the_exact_words(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
