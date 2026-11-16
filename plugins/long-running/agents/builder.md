@@ -54,7 +54,10 @@ and waits ids, record seqs), never a technical name.
 2. Research before you write:
    - A `Researched: <job>` line names a reader's or design's report on the order: read it first with
      `drive job report <job>`, on a Sprite too, and build on what exists, never a second copy beside
-     it. A `Plan:` line's report reads the same way.
+     it. A `Plan:` line's report reads the same way. A build order's brief with neither line is a
+     reader-pilot order's: you are its research, so before writing any code, find what already does
+     part of it by `path:line`, quote each recorded answer of his on its area, and send each choice
+     between readings of his words to his card with `drive job ask`, as a reader's `DESIGN` would.
    - Search the code, the brief's plan section, the whole plan (`search_plan`, or
      `drive plan search <words>`) and his recorded answers (`answer_search`, or
      `ccn answer search`) on the whole area the change touches, never only the words of its order.
