@@ -1582,10 +1582,9 @@ def test_a_builder_whose_brief_only_cites_a_merged_pr_as_a_staging_tester_does_p
     handing(config, tmp_path, fake([BUILD], {BUILD}), 0, {"state": "done", "said": said, "proof": watched} | brief)
     carried = "sand exec keeps its env secrets"
     with state.edit("demo") as data:
-        data["orders"]["o2"] = state.new_order(carried, "slack", None, {carried: state.new_part()}, state.stamp()) | {"jobs": ["j1"]}
+        data["orders"]["o2"] = state.new_order(carried, "slack", None, {carried: state.new_part()}, state.stamp()) | {"jobs": ["j0"]}
         data["jobs"]["j0"]["said"] = f"DONE {PRODUCT} merged: Forge-AI/monorepo#9 at fedcba"
-        data["jobs"]["j1"]["carries"] = {"o2": [carried]}
-        data["prs"]["Forge-AI/monorepo#9"]["checker"] = carrying("", {"o2": [carried]})
+        data["jobs"]["j0"]["carries"] = {"o2": [carried]}
     data = state.load("demo")
     assert (install.proved_prs(data, "j1"), install.repair(data, "j1"), install.prover_of(data, "Forge-AI/monorepo#9")) == ([], True, None)
     install.prove("demo", "j1", 900)

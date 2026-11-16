@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
-from conftest import LEAD, REAL_DOWN_MAC_BOXES, REAL_SCRATCH, carrying
+from conftest import LEAD, REAL_DOWN_MAC_BOXES, REAL_SCRATCH
 from drive import card, cli, github, install, reads, render, served, settled, stage, state
 from drive.state import DriveError
 

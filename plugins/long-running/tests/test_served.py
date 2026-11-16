@@ -423,7 +423,7 @@ def test_one_check_judges_a_whole_stack_and_keeps_its_verdict_on_each_pr_so_a_re
     keys = stacked(run, demo, [42, 43, 44], "main")
     assert served.verdict(demo, keys[0]).startswith(f"{served.CHECKED} against the words of o1 at head42")
     [(said, changes)] = judge.asked
-    assert list(changes) == keys and f"this change delivers: {'; '.join(f'[{n}] {part}' for n, part in enumerate(CLOCKS, 1))}" in said and "other open PRs" not in said
+    assert list(changes) == keys and f"this change delivers: {'; '.join(CLOCKS)}" in said and "other open PRs" not in said
     data = state.load(demo)
     assert [data["prs"][key]["checked"]["beside"] for key in keys] == [{keys[1]: "head43", keys[2]: "head44"}, {keys[0]: "head42", keys[2]: "head44"}, {keys[0]: "head42", keys[1]: "head43"}]
     assert all(data["prs"][key]["checker"]["outcome"].startswith(served.CHECKED) and served.stands(data, key, tuple(keys)) for key in keys)
