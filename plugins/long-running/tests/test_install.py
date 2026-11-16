@@ -861,6 +861,25 @@ def sends(git: FakeGit, terminal: str) -> list[list[str]]:
     return [call[:-2] for call in git.typed_into(terminal)]
 
 
+def defected(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, int, str]]:
+    sent: list[tuple[str, int, str]] = []
+    monkeypatch.setattr(install, "reload_defect", lambda drive, seat, failures, line: sent.append((seat, failures, line)))
+    return sent
+
+
+def test_a_reload_orca_refuses_once_is_tried_again_after_a_pause_and_reloads(fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str], runs_in: dict[str, list[dict]], monkeypatch: pytest.MonkeyPatch) -> None:
+    defects = defected(monkeypatch)
+    start_drive(runs_in, "demo", communicator="term_comm")
+    running("demo-communicator")
+    git = fake(["unused"], set())
+    git.sends["term_comm"] = [{"ok": False, "error": {"code": "terminal_not_found", "message": "no terminal term_comm"}}, SENT]
+    assert install.main("long-running@skills", None, None, 900, None) == 0
+    capsys.readouterr()
+    lines = held(git, capsys)
+    assert lines[0].startswith("demo communicator: not reloaded (orca terminal send: terminal_not_found") and lines[1:] == ["demo communicator: reloaded onto long-running@skills 1.0.3 in term_comm"]
+    assert install.RELOAD_RETRY_SECONDS in git.sleeps and defects == []
+
+
 def held(git: FakeGit, capsys: pytest.CaptureFixture[str]) -> list[str]:
     while git.detached:
         assert cli.main(git.detached.pop(0)) == 0
@@ -1022,7 +1041,8 @@ def test_a_send_orca_never_answered_is_reissued_under_its_retry_request_id_so_it
     assert git.sleeps == [1, 1]
 
 
-def test_a_send_orca_never_answers_names_the_retry_request_id_that_reissues_it_and_is_left_unstamped(fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str], runs_in: dict[str, list[dict]]) -> None:
+def test_a_send_orca_never_answers_names_the_retry_request_id_that_reissues_it_and_is_left_unstamped(fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str], runs_in: dict[str, list[dict]], monkeypatch: pytest.MonkeyPatch) -> None:
+    defects = defected(monkeypatch)
     start_drive(runs_in, "demo", communicator="term_comm")
     running("demo-communicator")
     git = fake(["unused"], set())
@@ -1030,13 +1050,15 @@ def test_a_send_orca_never_answers_names_the_retry_request_id_that_reissues_it_a
     assert install.main("long-running@skills", None, None, 900, None) == 0
     capsys.readouterr()
     lines = held(git, capsys)
-    request_id = git.typed_into("term_comm")[0][-2]
-    assert {call[-2] for call in git.typed_into("term_comm")} == {request_id}
-    assert len(git.typed_into("term_comm")) == install.RELOAD_WAIT_SECONDS + 1
-    assert lines == [
+    request_id = git.typed_into("term_comm")[-1][-2]
+    assert len({call[-2] for call in git.typed_into("term_comm")}) == install.RELOAD_TRIES
+    assert len(git.typed_into("term_comm")) == (install.RELOAD_WAIT_SECONDS + 1) * install.RELOAD_TRIES
+    assert len(lines) == install.RELOAD_TRIES
+    assert lines[-1] == (
         "demo communicator: not reloaded (orca terminal send: runtime_busy: long-poll capacity reached; retry with backoff;"
         f" reissue it with: orca terminal send --terminal term_comm --text /reload-plugins --enter --retry-request {request_id})"
-    ]
+    )
+    assert [(seat, failures) for seat, failures, _ in defects] == [("communicator", install.RELOAD_DEFECT_AFTER)]
     assert not (state.drive_dir("demo") / install.RELOADS).exists()
 
 
@@ -1049,20 +1071,22 @@ def test_a_send_orca_never_answers_names_the_retry_request_id_that_reissues_it_a
     ids=["a terminal Orca cannot find", "a send Orca refuses"],
 )
 def test_a_send_orca_refuses_names_the_send_that_types_it_and_is_left_unstamped(
-    fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str], reply: dict, why: str, runs_in: dict[str, list[dict]]
+    fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str], reply: dict, why: str, runs_in: dict[str, list[dict]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    defected(monkeypatch)
     start_drive(runs_in, "demo", communicator="term_comm")
     running("demo-communicator")
     git = fake(["unused"], set())
     git.sends["term_comm"] = [reply]
     assert install.main("long-running@skills", None, None, 900, None) == 0
     capsys.readouterr()
-    assert held(git, capsys) == [f"demo communicator: not reloaded (orca terminal send: {why}; send it with: orca terminal send --terminal term_comm --text /reload-plugins --enter)"]
-    assert len(git.typed_into("term_comm")) == 1
+    assert held(git, capsys) == [f"demo communicator: not reloaded (orca terminal send: {why}; send it with: orca terminal send --terminal term_comm --text /reload-plugins --enter)"] * install.RELOAD_TRIES
+    assert len(git.typed_into("term_comm")) == install.RELOAD_TRIES
     assert not (state.drive_dir("demo") / install.RELOADS).exists()
 
 
-def test_a_reload_whose_line_never_shows_while_its_session_sits_idle_is_left_unstamped_for_the_next_install(fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str], runs_in: dict[str, list[dict]]) -> None:
+def test_a_reload_whose_line_never_shows_while_its_session_sits_idle_is_left_unstamped_for_the_next_install(fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str], runs_in: dict[str, list[dict]], monkeypatch: pytest.MonkeyPatch) -> None:
+    defected(monkeypatch)
     start_drive(runs_in, "demo", communicator="term_comm")
     running("demo-communicator")
     git = fake(["unused"], set())
@@ -1070,8 +1094,8 @@ def test_a_reload_whose_line_never_shows_while_its_session_sits_idle_is_left_uns
     assert install.main("long-running@skills", None, None, 900, None) == 0
     capsys.readouterr()
     transcript = watch.session_transcript(state.saved("demo")["roles"]["communicator"])
-    assert held(git, capsys) == [f"demo communicator: /reload-plugins typed in term_comm, but no Reloaded: line showed in {transcript} while it sat idle 30s"]
-    assert git.sleeps == [1] * install.RELOAD_WAIT_SECONDS
+    assert held(git, capsys) == [f"demo communicator: /reload-plugins typed in term_comm, but no Reloaded: line showed in {transcript} while it sat idle 30s"] * install.RELOAD_TRIES
+    assert git.sleeps == ([1] * install.RELOAD_WAIT_SECONDS + [install.RELOAD_RETRY_SECONDS]) * (install.RELOAD_TRIES - 1) + [1] * install.RELOAD_WAIT_SECONDS
     assert install.main("long-running@skills", None, None, 900, None) == 0
     assert capsys.readouterr().out.splitlines()[1:] == [f"demo communicator: {handed('demo', 'term_comm')}"]
 

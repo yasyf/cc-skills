@@ -46,6 +46,11 @@ RELOADED = "<local-command-stdout>Reloaded:"
 UPDATE_LOCK = ".update.lock"
 RELOAD_WAIT_SECONDS = 30
 RELOAD_EVERY_SECONDS = 3600
+RELOAD_RETRY_SECONDS = 30
+RELOAD_TRIES = 4
+RELOAD_DEFECT_AFTER = 2
+RETRIED = ("not reloaded", "/reload-plugins typed in")
+LANE_RELOAD = "watch"
 DRIVE = Path(__file__).resolve().parents[2] / "bin" / "drive"
 MANIFEST = ".claude-plugin/plugin.json"
 FLOOR = re.compile(r">=(\d+\.\d+\.\d+)")
@@ -1588,6 +1593,7 @@ def reload_session(drive: str, seat: str, terminals: list[dict], force: bool) ->
 
 def reload_seat(drive: str, seat: str, force: bool, terminal: str | None) -> None:
     """`drive reload --seat`: reload the seat's session onto the newest plugin install as the one process typing into its terminal, then again for each install that landed before that reload showed, printing a line for each, unforced only once its hour since the last reload is up, by reload_held, marking the install held for the watch until then; nothing once another process holds the terminal's reload lock, which does the same, or once a reload fails, which the next install tries again. What is left to load is read again each time the lock is let go, so an install that found it held while this process found nothing left is still reloaded."""
+    failures = 0
     while force or reloaded_onto(drive, seat) < newest_update()[0]:
         if not force and reload_held(drive, seat):
             hold_reload(drive, seat)
@@ -1596,9 +1602,24 @@ def reload_seat(drive: str, seat: str, force: bool, terminal: str | None) -> Non
             return
         line, reloaded = said
         print(f"{state.stamp()} {drive} {seat}: {line}", flush=True)
-        if not reloaded:
+        if not reloaded and not line.startswith(RETRIED):
             return
+        if not reloaded:
+            failures += 1
+            if failures == RELOAD_DEFECT_AFTER:
+                reload_defect(drive, seat, failures, line)
+            if failures == RELOAD_TRIES:
+                return
+            sleep(RELOAD_RETRY_SECONDS)
+            continue
         force = False
+
+
+def reload_defect(drive: str, seat: str, failures: int, line: str) -> None:
+    """Tell the meta session, as a defect, that the seat's reload failed failures times in a row and the seat still runs older code, as Orca's runtime_timeout left a seat communicator on old code for 15 minutes."""
+    from drive import tools
+
+    tools.sent(drive, LANE_RELOAD, [{"kind": "defect", "to": [f"meta@{drive}"], "text": f"{seat}'s reload failed {failures} times in a row, so it still runs older code, and the reload retries every {RELOAD_RETRY_SECONDS}s up to {RELOAD_TRIES} tries: {line}"}])
 
 
 def held_reload(drive: str, seat: str, force: bool, given: str | None) -> tuple[str, bool] | None:
