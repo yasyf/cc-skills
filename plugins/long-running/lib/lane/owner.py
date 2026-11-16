@@ -127,7 +127,7 @@ def brief(drive: str, lane: dict, woke: str) -> str:
 
 def settings(drive: str, lane_id: str, token: str) -> dict:
     token_file = store.token_path(drive, lane_id)
-    env = {"LANE_OWNER": f"{drive}/{lane_id}", "LANE_TOKEN": token, "LANE_TOKEN_FILE": str(token_file)}
+    env = {"LANE_OWNER": f"{drive}/{lane_id}", "LONG_RUNNING_LANE": f"{drive}/{lane_id}", "LANE_TOKEN": token, "LANE_TOKEN_FILE": str(token_file)}
     if explicit := os.environ.get("LONG_RUNNING_STATE"):
         env["LONG_RUNNING_STATE"] = explicit
     fence = '[ -z "$LANE_TOKEN_FILE" ] || { read -r held < "$LANE_TOKEN_FILE" 2>/dev/null; [ "$held" = "$LANE_TOKEN" ] || { echo "This lane has a new owner or none; you are fenced off. End your turn now." >&2; exit 2; }; }'
@@ -202,7 +202,7 @@ def started(drive: str, lane: dict, token: str, resume: list[str], prompt: str) 
         f"lane {drive} {lane['id']}",
         prompt,
     ]
-    env = {key: value for key, value in os.environ.items() if key not in ("CLAUDE_CODE_SESSION_ID", "LANE_OWNER", "LANE_TOKEN", "LANE_TOKEN_FILE", "LONG_RUNNING_JOB", "CLAUDE_LONG_RUNNING_LANE")}
+    env = {key: value for key, value in os.environ.items() if key not in ("CLAUDE_CODE_SESSION_ID", "LANE_OWNER", "LONG_RUNNING_LANE", "LANE_TOKEN", "LANE_TOKEN_FILE", "LONG_RUNNING_JOB", "CLAUDE_LONG_RUNNING_LANE")}
     done = subprocess.run(argv, cwd=cwd(drive, lane), env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True, check=False, timeout=120)
     if done.returncode:
         raise store.Refused(f"claude --bg exited {done.returncode}: {(done.stderr or done.stdout).strip()[:300]}")

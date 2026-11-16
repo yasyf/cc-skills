@@ -13,16 +13,28 @@ SENDER: Callable[[str, dict, str], str] = logged
 
 
 def say(drive: str, lane_id: str, text: str, next_step: str | None = None, by: str | None = None, token: str | None = None, answers: list[str] | None = None) -> str:
-    """Write the promise, clamp the wait's bound to it, hand the line to SENDER (or keep it in the log while posting is off), and mark the asks it answers replied with what the sender answered: every unanswered ask, or those whose ts answers names. What the sender answered."""
+    """Hand the line to SENDER (or keep it in the log while posting is off), then write what promise writes; what the sender answered."""
+    checked(next_step, by)
+    store.fenced(store.load(drive, lane_id), token)
+    sent = SENDER(drive, store.load(drive, lane_id), text) if store.config(drive)["posting"] else logged(drive, store.load(drive, lane_id), text)
+    promise(drive, lane_id, text, sent, next_step, by, token, answers)
+    return sent
+
+
+def checked(next_step: str | None, by: str | None) -> None:
     if bool(next_step) != bool(by):
         raise store.Refused("a promise names both what comes next and by when: --next and --by together")
+    if by and store.when(by) <= store.now():
+        raise store.Refused(f"the promise's bound {by} has passed")
+
+
+def promise(drive: str, lane_id: str, text: str, sent: str, next_step: str | None = None, by: str | None = None, token: str | None = None, answers: list[str] | None = None) -> None:
+    """The lane write a post makes, in one locked write, before or as it goes out: the promise and the wait's bound clamped to it, and each ask it answers marked replied with sent, the sender's queued id or permalink: every unanswered ask, or those whose ts answers names."""
+    checked(next_step, by)
     moment = store.now()
     bound = store.when(by, moment) if by else None
     if bound and bound <= moment:
         raise store.Refused(f"the promise's bound {store.stamp(bound)} has passed")
-    lane = store.load(drive, lane_id)
-    store.fenced(lane, token)
-    sent = SENDER(drive, lane, text) if store.config(drive)["posting"] else logged(drive, lane, text)
 
     def saying(lane: dict) -> None:
         store.fenced(lane, token)
@@ -37,7 +49,6 @@ def say(drive: str, lane_id: str, text: str, next_step: str | None = None, by: s
         store.note(lane, f"said ({sent}): {text}")
 
     store.update(drive, lane_id, saying)
-    return sent
 
 
 def replied(drive: str, lane_id: str, sent: str, permalink: str) -> None:
