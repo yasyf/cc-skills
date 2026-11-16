@@ -56,6 +56,19 @@ def stop_hook(drive: str, lane_id: str) -> int:
     return 0
 
 
+def note_hook(drive: str, lane_id: str) -> int:
+    """Show a running owner the handover set while it runs, once, as context beside its next tool call, while it still holds the lane."""
+    json.load(sys.stdin)
+    path = store.note_path(drive, lane_id)
+    lane = store.load(drive, lane_id)
+    if (lane.get("owner") or {}).get("token") != token() or not path.is_file():
+        return 0
+    text = path.read_text()
+    path.unlink()
+    print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": f"Handover for lane {lane_id}, set while you run; it is no ask of his and wants no reply:\n{text}"}}))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="lane")
     parser.add_argument("--drive")
@@ -160,7 +173,7 @@ def main(argv: list[str] | None = None) -> int:
     verbs_parser.add_parser("supervise")
     verbs_parser.add_parser("install", help="keep the drive's supervisor running under launchd")
     hooking = verbs_parser.add_parser("hook")
-    hooking.add_argument("event", choices=["stop"])
+    hooking.add_argument("event", choices=["stop", "note"])
 
     args = parser.parse_args(argv)
     try:
@@ -248,5 +261,5 @@ def run(args: argparse.Namespace) -> int:
         case "install":
             print(supervisor.install(args.drive))
         case "hook":
-            return stop_hook(*where(args))
+            return stop_hook(*where(args)) if args.event == "stop" else note_hook(*where(args))
     return 0

@@ -489,3 +489,16 @@ def test_leaving_running_on_a_past_bound_is_refused(world: dict) -> None:
     answered("a")
     with pytest.raises(store.Refused, match="has passed"):
         store.update(DRIVE, "a", lambda lane: lane.update(state=store.WAITING, owner=None, wait={"on": [{"kind": "his_reply"}], "until": "2026-01-01T00:00:00Z"}))
+
+
+def test_a_handover_set_while_the_owner_runs_reaches_it_once(world: dict, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    from lane import command
+
+    opened("a")
+    verbs.handover(DRIVE, "a", "team-lead's lane builds the parity view; do not")
+    monkeypatch.setenv("LANE_OWNER", f"{DRIVE}/a")
+    monkeypatch.setenv("LANE_TOKEN", token_of("a"))
+    monkeypatch.setattr("sys.stdin", __import__("io").StringIO("{}"))
+    assert command.note_hook(DRIVE, "a") == 0
+    assert "parity view" in json.loads(capsys.readouterr().out)["hookSpecificOutput"]["additionalContext"]
+    assert not store.note_path(DRIVE, "a").exists()

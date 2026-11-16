@@ -14,6 +14,7 @@ from lane import store
 DONE_ROLLUPS = ("SUCCESS", "FAILURE", "ERROR")
 PRS_PER_QUERY = 50
 COMMITS_READ = 50
+LIGHT_PRS_PER_QUERY = 100
 READERS = 8
 ALERTING = ("Alert", "Warn", "No Data")
 CHANNEL_EVENT = re.compile(r"^(<@\w+> has (joined|left) the channel|set the channel (description|topic|purpose|name)|renamed the channel)")
@@ -32,20 +33,21 @@ def pr_keys(lanes: dict[str, dict]) -> set[tuple[str, int]]:
     return keys | {pr_ref(event["ref"]) for lane in lanes.values() for event in (lane.get("wait") or {}).get("on", []) if event["kind"] in ("pr_merged", "check")}
 
 
-def read_prs(keys: set[tuple[str, int]]) -> dict[tuple[str, int], dict]:
-    """Each pull request's state, merged flag, head, base and head branches, its repository's default branch, review decision and check rollup, in GraphQL requests of PRS_PER_QUERY run READERS at a time, since one request for the ~490 PRs of twelve lanes outran its 60 seconds."""
+def read_prs(keys: set[tuple[str, int]], commits: int = COMMITS_READ) -> dict[tuple[str, int], dict]:
+    """Each pull request's state, merged flag, head, base and head branches, its repository's default branch, review decision and check rollup, and its last `commits` commits with their authors, in GraphQL requests of PRS_PER_QUERY run READERS at a time, since one request for the ~490 PRs of twelve lanes outran its 60 seconds. The supervisor's pass asks for one commit, the head's, which is all a wait or the rank reads, so its read stays light; lane-land asks for COMMITS_READ."""
     ordered = sorted(keys)
-    chunks = [ordered[start : start + PRS_PER_QUERY] for start in range(0, len(ordered), PRS_PER_QUERY)]
+    size = PRS_PER_QUERY if commits > 1 else LIGHT_PRS_PER_QUERY
+    chunks = [ordered[start : start + size] for start in range(0, len(ordered), size)]
     with ThreadPoolExecutor(max_workers=READERS) as pool:
-        return {key: pull for read in pool.map(read_chunk, chunks) for key, pull in read.items()}
+        return {key: pull for read in pool.map(lambda chunk: read_chunk(chunk, commits), chunks) for key, pull in read.items()}
 
 
-def read_chunk(ordered: list[tuple[str, int]]) -> dict[tuple[str, int], dict]:
+def read_chunk(ordered: list[tuple[str, int]], commits: int = COMMITS_READ) -> dict[tuple[str, int], dict]:
     parts = []
     for index, (repo, number) in enumerate(ordered):
         owner, name = repo.split("/", 1)
         parts.append(
-            f'p{index}: repository(owner: {json.dumps(owner)}, name: {json.dumps(name)}) {{ pullRequest(number: {number}) {{ title state merged headRefOid baseRefName headRefName repository {{ defaultBranchRef {{ name }} }} reviewDecision commits(last: {COMMITS_READ}) {{ totalCount nodes {{ commit {{ oid author {{ user {{ login }} }} statusCheckRollup {{ state }} }} }} }} }} }}'
+            f'p{index}: repository(owner: {json.dumps(owner)}, name: {json.dumps(name)}) {{ pullRequest(number: {number}) {{ title state merged headRefOid baseRefName headRefName repository {{ defaultBranchRef {{ name }} }} reviewDecision commits(last: {commits}) {{ totalCount nodes {{ commit {{ oid author {{ user {{ login }} }} statusCheckRollup {{ state }} }} }} }} }} }}'
         )
     done = subprocess.run(["gh", "api", "graphql", "-f", f"query={{ {' '.join(parts)} }}"], capture_output=True, text=True, check=False, timeout=60)
     if done.returncode:

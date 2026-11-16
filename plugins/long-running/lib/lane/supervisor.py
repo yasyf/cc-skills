@@ -83,7 +83,7 @@ def run_pass(drive: str, only: set[str] | None = None, read_outside: bool = True
         if heard:
             store.transact(drive, lambda lanes: [verbs.take_messages(drive, lanes, lane_id, asks, shape["active"]) for lane_id, asks in heard.items()])
         try:
-            prs = facts.read_prs(facts.pr_keys(store.load_all(drive)))
+            prs = facts.read_prs(facts.pr_keys(store.load_all(drive)), commits=1)
         except store.Refused as failed:
             errors.append(str(failed))
         lanes_now = store.load_all(drive)
@@ -236,7 +236,9 @@ def supervise(drive: str) -> None:
     here = Path(__file__).resolve().parents[2]
     store.launcher(drive)
     loaded = code_stamp()
+    heartbeat(drive, store.now(), [])
     while code_stamp() == loaded:
+        run_pass(drive, read_outside=False)
         if (newest := newest_install()) != here:
             link = store.drive_dir(drive) / "lane"
             fresh = link.with_name(f".lane.{os.getpid()}")

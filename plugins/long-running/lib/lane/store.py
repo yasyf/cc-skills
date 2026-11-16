@@ -313,6 +313,11 @@ def launcher(drive: str) -> Path:
     return path
 
 
+def note_path(drive: str, lane_id: str) -> Path:
+    """The note a running owner is shown at its next tool call, once: a handover set while it runs."""
+    return drive_dir(drive) / f"{lane_id}.note"
+
+
 def kick(drive: str) -> None:
     """Wake the supervisor's loop before its next pass is due."""
     path = drive_dir(drive) / "kick"

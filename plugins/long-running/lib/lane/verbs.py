@@ -338,10 +338,14 @@ def adopt(drive: str, paths: list[str], rulings_only: bool = False) -> list[str]
 
 
 def handover(drive: str, lane_id: str, text: str | None) -> None:
-    """Set or clear the note every owner of the lane reads at its start, such as the old jobs still running on its work, which is no ask of his and wants no reply."""
+    """Set or clear the note every owner of the lane reads at its start, such as the old jobs still running on its work, which is no ask of his and wants no reply; an owner running now is shown it at its next tool call."""
 
     def setting(lane: dict) -> None:
         lane["handover"] = text
         store.note(lane, "handover cleared" if text is None else "handover set")
+        if text and lane["state"] == store.RUNNING:
+            fresh = store.note_path(drive, lane_id).with_name(f".{lane_id}.note.tmp")
+            fresh.write_text(text)
+            fresh.replace(store.note_path(drive, lane_id))
 
     store.update(drive, lane_id, setting)
