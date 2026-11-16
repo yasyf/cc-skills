@@ -20,7 +20,7 @@ HOST_CPU_LOAD_INFO = 3
 HOST_CPU_STATES = 4
 HOST_CPU_IDLE = 2
 CAPS_FILE = "caps.json"
-CAPS = {"local": 12, "sprite": 30, "load_per_core": 1, "free_memory": 15}
+CAPS = {"local": 12, "sprite": 30, "priority": {"local": 40, "sprite": 60}, "load_per_core": 1, "free_memory": 15}
 CAP_NAMES = {"local": "local Claude lanes work", "sprite": "Sprite lanes run"}
 LANES_FILE = "lane-counts.json"
 LANES_SECONDS = 20
@@ -255,28 +255,27 @@ def counted_again() -> None:
 
 
 def preempts(data: dict, job: dict) -> bool:
-    """Whether a job starts past every cap, gate and daily budget on this Mac: one marked urgent alone by drive job add or set --priority, one carrying a part drive order set --urgent marked, one serving an open priority order, by state.first_in_line, or an open incident, or carrying an immediate fix part, by his words on a priority order, "they aren't slowed down at any cost by anything"."""
+    """Whether a job is of the priority class, which starts past the load gate, the daily budget and every other job's cap, waiting only on the higher priority cap of cap_of: one marked urgent alone by drive job add or set --priority, one carrying a part drive order set --urgent marked, one serving an open priority order, by state.first_in_line, or an open incident, or carrying an immediate fix part, by his words on a priority order, "they aren't slowed down at any cost by anything", and his Nov 16 cap ruling, "priority still bypass the caps, you can lower for rest of the work tho, or have caps for prio but just higher ones"."""
     orders = [job["order"], *job["carries"]]
     return bool(job.get("priority")) or state.urgent_part(data, job) or state.first_in_line(data, job) or bool(state.open_incidents(data, orders)) or any(state.IMMEDIATE_FIX in state.job_parts(job, order_id) for order_id in orders)
 
 
 def admission(data: dict, job_id: str | None, where: str, moment: datetime) -> str | None:
-    """Why no new Claude lane starts now, where "local" for a lane on this Mac of any role and "sprite" for one on a Sprite, None when it may: one of a job preempts lets through starts at once; a job whose project spent its daily budget waits for the next day, by spend.over; a local builder that builds nothing, by state.builds_nothing, starts at once past the load gate and the local cap, since it compiles nothing here; any other local one waits while strained reads this Mac loaded or short of memory, and either while the lanes every drive here runs fill its cap by caps, the job's own lane not counted. Its work waits its turn, never fails."""
+    """Why no new Claude lane starts now, where "local" for a lane on this Mac of any role and "sprite" for one on a Sprite, None when it may: one of a job preempts lets through waits only on the priority cap of cap_of; a job whose project spent its daily budget waits for the next day, by spend.over; a local builder that builds nothing, by state.builds_nothing, starts at once past the load gate and the local cap, since it compiles nothing here; any other local one waits while strained reads this Mac loaded or short of memory, and either while the lanes every drive here runs fill its cap by caps, the job's own lane not counted. Its work waits its turn, never fails."""
     job = data["jobs"].get(job_id) if job_id else None
-    if job and preempts(data, job):
-        return None
-    if job and (why := spend.over(data, job, moment)):
+    priority = bool(job) and preempts(data, job)
+    if not priority and job and (why := spend.over(data, job, moment)):
         return why
-    if where == "local" and job and state.builds_nothing(job):
+    if not priority and where == "local" and job and state.builds_nothing(job):
         return None
-    if where != "sprite" and (why := strained()):
+    if not priority and where != "sprite" and (why := strained()):
         return why
-    cap = caps()[where]
+    cap = cap_of(where, priority)
     held = {key: line for key, line in lanes(moment)[where].items() if not job_id or key.rpartition("/")[2] != job_id}
     if len(held) < cap:
         return None
     shown = "; ".join(list(held.values())[:5])
-    return f"{len(held)} {CAP_NAMES[where]} across this Mac's drives, at its cap of {cap} set by {state.root() / CAPS_FILE} ({shown}{'; …' if len(held) > 5 else ''})"
+    return f"{len(held)} {CAP_NAMES[where]} across this Mac's drives, at its {'priority ' if priority else ''}cap of {cap} set by {state.root() / CAPS_FILE} ({shown}{'; …' if len(held) > 5 else ''})"
 
 
 @contextlib.contextmanager
@@ -296,11 +295,17 @@ def await_admission(name: str, job_id: str, where: str) -> None:
         time.sleep(TURN_SECONDS)
 
 
-def admitted_room(where: str, moment: datetime) -> int:
-    """How many more lanes of where's cap every drive on this Mac may start now: none while a local one finds this Mac strained."""
-    if where == "local" and strained():
+def cap_of(where: str, priority: bool) -> int:
+    """How many lanes where may hold across this Mac's drives before a job of its class waits: the priority class, incidents and his priority orders, by preempts, under the higher cap caps.json sets under "priority", every other job under the cap it sets at its top level."""
+    held = caps()
+    return int(held["priority"][where] if priority else held[where])
+
+
+def admitted_room(where: str, moment: datetime, priority: bool = False) -> int:
+    """How many more lanes of where's cap for priority's class every drive on this Mac may start now: none while a local one finds this Mac strained, which holds no priority job."""
+    if where == "local" and not priority and strained():
         return 0
-    return max(int(caps()[where]) - len(lanes(moment)[where]), 0)
+    return max(cap_of(where, priority) - len(lanes(moment)[where]), 0)
 
 
 def sprite_line(data: dict) -> list[str]:
@@ -312,12 +317,12 @@ def sprite_line(data: dict) -> list[str]:
 
 
 def sprite_turns(data: dict, moment: datetime) -> tuple[list[str], int]:
-    """The jobs whose turn for a Sprite lane comes now, and how many run: each one preempts lets past every cap at once, as admission lets its launch through, so a job marked priority after it queued never waits out a full cap, then one for each lane under the cap no drive here runs."""
+    """The jobs whose turn for a Sprite lane comes now, and how many run: each one preempts lets through while the priority cap of cap_of has room, as admission lets its launch through, so a job marked priority after it queued never waits out a full cap, then one for each lane under the cap no drive here runs."""
     if not (line := sprite_line(data)):
         return [], 0
-    first = [job_id for job_id in line if preempts(data, data["jobs"][job_id])]
-    rest = [job_id for job_id in line if job_id not in first]
-    return [*first, *rest[: admitted_room("sprite", moment)]], len(lanes(moment)["sprite"])
+    first = [job_id for job_id in line if preempts(data, data["jobs"][job_id])][: admitted_room("sprite", moment, priority=True)]
+    rest = [job_id for job_id in line if not preempts(data, data["jobs"][job_id])]
+    return [*first, *rest[: max(admitted_room("sprite", moment) - len(first), 0)]], len(lanes(moment)["sprite"])
 
 
 def queue_sprite(job: dict, moment: datetime) -> None:
@@ -328,7 +333,9 @@ def queue_sprite(job: dict, moment: datetime) -> None:
 def crowded(data: dict, job_id: str | None, moment: datetime) -> str | None:
     """Why the builder job takes no slot on this Mac now, None when it may: this Mac is loaded or short of memory or its local Claude lanes fill their machine-wide cap, by admission, which a builder that builds nothing skips with every other check, since drive job add tells it it holds no slot and starts at once, the cap's builders hold every slot but its own, or builders wait their turn ahead of a job that holds none, since the watch's FREE line gives each open slot to the earliest due. A builder on an open incident's order, on an open priority order, by state.first_in_line, or on an immediate fix part starts at once past both, counting against the cap for later builders once it runs, by his pick "Start at once past the cap" and his words on a priority order, "they aren't slowed down at any cost by anything", and one that builds nothing starts at once past both, holding no slot."""
     job = data["jobs"].get(job_id)
-    if job and (preempts(data, job) or state.builds_nothing(job)):
+    if job and preempts(data, job):
+        return admission(data, job_id, "local", moment)
+    if job and state.builds_nothing(job):
         return None
     if why := admission(data, job_id, "local", moment):
         return why
@@ -385,13 +392,14 @@ def moves_here(job: dict) -> bool:
 
 
 def turns(data: dict, moment: datetime) -> tuple[list[str], int]:
-    """The builder jobs whose turn comes now, and how many builders hold a slot on this Mac: each priority order's builder in line at once, as crowded starts one past the cap, and each that builds nothing, by state.builds_nothing, at once past the load gate, holding no slot, then the earliest due, one for each slot no builder holds."""
+    """The builder jobs whose turn comes now, and how many builders hold a slot on this Mac: each priority order's builder in line at once while the priority cap of cap_of has room, as crowded starts one past the builder cap, and each that builds nothing, by state.builds_nothing, at once past the load gate, holding no slot, then the earliest due, one for each slot no builder holds."""
     if not (line := waiting_builders(data)):
         return [], 0
     held = len(local_builders(data, moment))
     line = [job_id for job_id in line if preempts(data, data["jobs"][job_id]) or not spend.over(data, data["jobs"][job_id], moment)]
-    first = [job_id for job_id in line if state.first_in_line(data, data["jobs"][job_id])]
-    free = [job_id for job_id in line[len(first) :] if state.builds_nothing(data["jobs"][job_id])]
-    rest = [job_id for job_id in line[len(first) :] if job_id not in free]
+    urgent = [job_id for job_id in line if preempts(data, data["jobs"][job_id])]
+    free = [job_id for job_id in line if job_id not in urgent and state.builds_nothing(data["jobs"][job_id])]
+    rest = [job_id for job_id in line if job_id not in urgent and job_id not in free]
     room = min(LOCAL_BUILDERS - held, admitted_room("local", moment))
+    first = urgent[: admitted_room("local", moment, priority=True)]
     return [*first, *free, *rest[: max(room - len(first), 0)]], held

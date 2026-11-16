@@ -467,10 +467,10 @@ def unread(data: dict) -> list[str]:
 
 
 def admitted(data: dict, kind: Kind, moment: datetime) -> str | None:
-    """Why no new worker of the kind starts now, by place.admission for a Sprite lane or one on this Mac, as its head item is placed, None when it may, or when that head serves a priority order or an open incident, by state.jumps_queue, which starts past every cap."""
-    if not (first := kind.head(data)) or state.jumps_queue(data, first[0]):
+    """Why no new worker of the kind starts now, by place.admission for a Sprite lane or one on this Mac, as its head item is placed and under the cap of the head's class, None when it may."""
+    if not (first := kind.head(data)):
         return None
-    return place.admission(data, None, "sprite" if kind.where(data, data["jobs"][first[0]]) == "remote" else "local", moment)
+    return place.admission(data, first[0], "sprite" if kind.where(data, data["jobs"][first[0]]) == "remote" else "local", moment)
 
 
 def spawned(data: dict, moment: datetime) -> tuple[list[str], list[str]]:

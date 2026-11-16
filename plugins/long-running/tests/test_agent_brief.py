@@ -466,7 +466,7 @@ def test_a_builder_that_builds_nothing_starts_here_at_once_past_the_load_gate_th
 
 def test_the_local_cap_counts_the_lanes_here_of_every_drive_and_the_owners_caps_file_sets_it(demo: str, run: Run) -> None:
     (state.root() / place.CAPS_FILE).write_text(json.dumps({"local": 1}))
-    assert place.caps() == {"local": 1, "sprite": 30, "load_per_core": 1, "free_memory": 15}
+    assert place.caps() == {"local": 1, "sprite": 30, "priority": {"local": 40, "sprite": 60}, "load_per_core": 1, "free_memory": 15}
     run("order", "add", "--title", "Short title", "--project", "Releases", "--workstream", "Hotfix", "ship his fix", "--parts", "the hotfix", "the cut")
     run("job", "add", "builder", "--order", "o1", "--part", "the hotfix", "--goal", "build the hotfix")
     assert run("job", "add", "reader", "--order", "o1", "--part", "the cut", "--goal", "research: the cut")[0] == 0
@@ -479,6 +479,23 @@ def test_the_local_cap_counts_the_lanes_here_of_every_drive_and_the_owners_caps_
     refused = agent_brief.deny_reason(briefed("long-running:reader", "Goal: research the cut\nDrive: demo, order o1, job j2"))
     assert refused.startswith(f"refused: 1 local Claude lanes work across this Mac's drives, at its cap of 1 set by {state.root() / place.CAPS_FILE} (j1 builder on o1, its agent launching since")
     assert refused.endswith("so j2 starts on a Sprite: write this brief to a file and run drive job launch j2 <file>")
+
+
+def test_a_priority_orders_job_passes_the_process_cap_and_waits_only_on_the_higher_priority_cap(demo: str, run: Run) -> None:
+    (state.root() / place.CAPS_FILE).write_text(json.dumps({"local": 1, "priority": {"local": 2, "sprite": 60}}))
+    run("order", "add", "--title", "Short title", "--project", "Releases", "--workstream", "Hotfix", "ship his fix", "--parts", "the hotfix", "the cut", "the notes")
+    for part in ("the hotfix", "the cut", "the notes"):
+        run("job", "add", "reader", "--order", "o1", "--part", part, "--goal", f"research: {part}")
+    with edit(demo) as data:
+        data["jobs"]["j1"].update(where="local", launching=state.stamp())
+    place.counted_again()
+    assert place.admission(state.load(demo), "j2", "local", state.now()).startswith("1 local Claude lanes work across this Mac's drives, at its cap of 1")
+    assert run("order", "set", "o1", "--priority")[0] == 0
+    assert place.admission(state.load(demo), "j2", "local", state.now()) is None
+    with edit(demo) as data:
+        data["jobs"]["j2"].update(where="local", launching=state.stamp())
+    place.counted_again()
+    assert place.admission(state.load(demo), "j3", "local", state.now()).startswith("2 local Claude lanes work across this Mac's drives, at its priority cap of 2")
 
 
 def test_a_first_lane_at_the_sprite_cap_waits_its_turn_on_sprite_slot_until_the_watch_frees_it_and_a_takeover_never_waits(demo: str, run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
