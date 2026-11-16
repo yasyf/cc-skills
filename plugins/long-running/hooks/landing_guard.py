@@ -328,9 +328,11 @@ def switched_on(options: dict[str, list[str]], name: str) -> bool:
 
 
 def queue_landings(shell: Shell) -> tuple[Landing, ...]:
-    """The landings the merge queue of the session's drive runs, read from the drive's own checkout whatever folder the judged command names, so a `stack-enqueue` written under `$(drive --root)` is judged (734096); with no drive bound, the repository at the folder's default branch, none for a folder that is no clone, while providers that fail to load raise."""
+    """The landings the merge queue of the session's drive runs, read from the drive's own checkout whatever folder the judged command names, so a queue command written under `$(drive --root)` is judged (734096); with no drive bound, the repository at the folder's default branch, none for a folder that is no clone or no longer exists, while providers that fail to load raise."""
     if named := state.session_drives(shell.session) or list(filter(None, [os.environ.get(state.DRIVE_ENV)])):
         repo = providers.of(state.load(named[0])).repo
+    elif not Path(shell.cwd).is_dir():
+        return ()
     else:
         try:
             providers.default_head(Path(shell.cwd))
