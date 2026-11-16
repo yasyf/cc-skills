@@ -17,7 +17,7 @@ def pr_key(event: dict) -> tuple[str, int]:
 
 
 def read_prs(keys: set[tuple[str, int]]) -> dict[tuple[str, int], dict]:
-    """Each pull request's state, merged flag, head, review decision and check rollup, in one GraphQL request."""
+    """Each pull request's state, merged flag, head, base and head branches, its repository's default branch, review decision and check rollup, in one GraphQL request."""
     if not keys:
         return {}
     ordered = sorted(keys)
@@ -25,7 +25,7 @@ def read_prs(keys: set[tuple[str, int]]) -> dict[tuple[str, int], dict]:
     for index, (repo, number) in enumerate(ordered):
         owner, name = repo.split("/", 1)
         parts.append(
-            f'p{index}: repository(owner: {json.dumps(owner)}, name: {json.dumps(name)}) {{ pullRequest(number: {number}) {{ state merged headRefOid reviewDecision commits(last: 1) {{ nodes {{ commit {{ statusCheckRollup {{ state }} }} }} }} }} }}'
+            f'p{index}: repository(owner: {json.dumps(owner)}, name: {json.dumps(name)}) {{ pullRequest(number: {number}) {{ state merged headRefOid baseRefName headRefName repository {{ defaultBranchRef {{ name }} }} reviewDecision commits(last: 1) {{ nodes {{ commit {{ statusCheckRollup {{ state }} }} }} }} }} }}'
         )
     done = subprocess.run(["gh", "api", "graphql", "-f", f"query={{ {' '.join(parts)} }}"], capture_output=True, text=True, check=False, timeout=60)
     if done.returncode:
@@ -38,7 +38,7 @@ def read_prs(keys: set[tuple[str, int]]) -> dict[tuple[str, int], dict]:
             continue
         nodes = pull["commits"]["nodes"]
         rollup = ((nodes[0]["commit"].get("statusCheckRollup") or {}).get("state")) if nodes else None
-        read[key] = {"state": pull["state"], "merged": pull["merged"], "head": pull["headRefOid"], "review": pull["reviewDecision"], "rollup": rollup}
+        read[key] = {"state": pull["state"], "merged": pull["merged"], "head": pull["headRefOid"], "base": pull["baseRefName"], "branch": pull["headRefName"], "default": pull["repository"]["defaultBranchRef"]["name"], "review": pull["reviewDecision"], "rollup": rollup}
     return read
 
 

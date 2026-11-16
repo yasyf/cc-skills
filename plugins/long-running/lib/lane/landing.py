@@ -67,7 +67,7 @@ def stack_verdict(stack: list[dict], heard: datetime | None, moment: datetime) -
         if dangerous(row) and not present(heard, moment):
             return Verdict(tuple(landing), bool(landing), f"{key(row)} is dangerous and lands only while he is present")
         landing.append(key(row))
-    return Verdict(tuple(landing), bool(landing), "every open PR of the stack lands")
+    return Verdict(tuple(landing), bool(landing), "every open PR of the stack lands" if landing else "every PR of the stack merged")
 
 
 def stacks(lane: dict) -> list[list[dict]]:

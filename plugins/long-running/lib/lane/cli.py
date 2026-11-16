@@ -1,13 +1,16 @@
 import argparse
+import fcntl
 import json
 import os
 import subprocess
 from datetime import datetime, timedelta
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
-from lane import landing, stager, store
+from lane import landing, rows, stager, store
 
-
+LANDING = "landing"
 
 
 def heard(drive: str) -> datetime | None:
@@ -42,15 +45,38 @@ def merged(drive: str, lane: dict, keys: list[str], dangerous: bool) -> str:
     return hold(drive, lane["id"], old_land.unfinished(drive, "--watch", keys, done) or f"not landed: --watch exited {done.returncode}: {old_land.said(done.stdout + done.stderr)}")
 
 
+@contextmanager
+def reserved(drive: str, keys: list[str]) -> Iterator[bool]:
+    """Hold a landing unit's reservation, a non-blocking lock named by its bottom PR, for the life of one lander, so a second lane-land land started while the first still runs queues nothing for it; whether this lander holds it."""
+    folder = store.drive_dir(drive) / LANDING
+    folder.mkdir(parents=True, exist_ok=True)
+    with (folder / f"{keys[0].replace('/', '_').replace('#', '-')}.lock").open("a") as held:
+        try:
+            fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            yield False
+            return
+        yield True
+
+
 def land(args: argparse.Namespace) -> None:
-    """Print what his Approve lands now in each lane, and in live mode queue each landing unit by merged()."""
+    """Refresh every lane PR's head, checks and stack link by rows.refresh and write each unjudged head's verdict by rows.judge, then print what his Approve lands now in each lane, and in live mode queue each landing unit by merged() under its reservation."""
+    rows.refresh(args.drive)
+    rows.judge(args.drive)
     moment = store.now()
     for lane in store.load_all(args.drive).values():
-        rows = {landing.key(row): row for row in lane["prs"]}
+        by_key = {landing.key(row): row for row in lane["prs"]}
         for verdict in landing.verdicts(lane, heard(args.drive), moment):
             print(f"{lane['id']}: {'LANDS ' + ', '.join(verdict.keys) if verdict.lands else 'HOLDS'}; {verdict.why}")
             if verdict.lands and stager.live(args.drive):
-                print(merged(args.drive, lane, list(verdict.keys), any(landing.dangerous(rows[key]) for key in verdict.keys)))
+                with reserved(args.drive, list(verdict.keys)) as mine:
+                    print(merged(args.drive, lane, list(verdict.keys), any(landing.dangerous(by_key[key]) for key in verdict.keys)) if mine else f"{verdict.keys[0]}: another lander holds it")
+
+
+def spawn(drive: str) -> None:
+    """Start one detached lane-land land for the drive, the supervisor's landing step each pass once live; its reservations keep two from queueing one unit."""
+    if stager.live(drive):
+        subprocess.Popen([str(Path(__file__).resolve().parents[2] / "bin" / "lane-land"), "--drive", drive, "land"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
 
 
 def candidates(args: argparse.Namespace) -> None:

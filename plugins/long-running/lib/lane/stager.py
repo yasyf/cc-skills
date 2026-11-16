@@ -8,7 +8,7 @@ import os
 from datetime import datetime
 from pathlib import Path
 
-from lane import landing, store
+from lane import landing, rows, store
 
 LIVE = "live"
 SHADOW = "shadow"
@@ -156,9 +156,10 @@ def decide(drive: str, cut: str, body: dict) -> Path:
 
 
 def result(drive: str, cut: str, stacks: dict[str, dict]) -> Path:
-    """Write a cut's result, the file lane-core's supervisor reads to wake each waiting lane: each stack by its bottom PR, with its top head, target and pass or fail."""
+    """Write a cut's result, the file lane-core's supervisor reads to wake each waiting lane, after putting each stack's proof on its top PR's row by rows.prove: stacks keyed by bottom PR, each {stack: [PRs bottom first], head: its top head, target, result: pass or fail}."""
     refuse_in_shadow(drive, "recording a cut's result")
     path = lanes_dir(drive) / CUTS / f"{cut}.json"
     kept = json.loads(path.read_text()) if path.exists() else {}
+    rows.prove(drive, cut, stacks)
     verdicts = {stack["result"] for stack in stacks.values()}
     return written(path, kept | {"stacks": stacks, "result": "pass" if verdicts == {"pass"} else "fail"})

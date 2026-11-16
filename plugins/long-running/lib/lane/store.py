@@ -27,6 +27,7 @@ DEFAULTS = {
     "max_wait_hours": 24,
     "launch_grace_seconds": 180,
     "restarts_before_backoff": 3,
+    "checkout": None,
 }
 LOG_KEEP = 200
 PRESENCE = "presence.json"

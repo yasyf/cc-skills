@@ -33,7 +33,7 @@ Before anything else, read the drive checkout's `.claude/long-running.toml` `[[d
    No formula decides this, and there is no fixed cut size beyond what `AGENTS.md` allows. Write down why you took or left each of the first several stacks.
 5. `lane-land --drive <drive> decide --cut <id> <file>` keeps the batch: each stack with its target and why, and the stacks left out with why.
 6. `lane-land --drive <drive> take --holder <your id> --minutes <n>` takes the env. Start one release carrying every stack's top head, then run each stack's cases once staging serves it. If a stack fails, cut it out and rerun the rest.
-7. `lane-land --drive <drive> result --cut <id> <file>` writes each stack's pass or fail, its top head and its target. That write wakes each stack's lane owner, and the owner lands the stack while he is present.
+7. `lane-land --drive <drive> result --cut <id> <file>` writes each stack, keyed by its bottom PR, as `{"stack": [PRs bottom first], "head": <top head>, "target": <where it ran>, "result": "pass" or "fail"}`. That write wakes each stack's lane owner, and the owner lands the stack while he is present.
 8. `lane-land --drive <drive> release --holder <your id>`, then end with one line naming the cut, the stacks and their results.
 
 Until cutover the verbs run in shadow. `take` and `result` refuse, and `decide` keeps your batch under `shadow/`. In shadow you stop after step 5 and end with the batch and your reasons.

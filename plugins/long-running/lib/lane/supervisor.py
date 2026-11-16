@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from lane import facts, rank, store, verbs
+from lane import cli as lane_land
 from lane import owner as owners
 
 RESTART_WINDOW = timedelta(minutes=30)
@@ -135,6 +136,7 @@ def run_pass(drive: str, only: set[str] | None = None, read_outside: bool = True
         store.update(drive, start["lane"], lambda lane, token=start["token"], got=got: lane.__setitem__("owner", {**lane["owner"], **got}) if (lane.get("owner") or {}).get("token") == token else None)
     if read_outside:
         heartbeat(drive, moment, errors)
+        lane_land.spawn(drive)
     return {"started": [start["lane"] for start in starts if start["token"]], "errors": errors}
 
 
