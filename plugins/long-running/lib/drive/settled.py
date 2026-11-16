@@ -471,7 +471,7 @@ def note_cards(name: str) -> None:
             state.question_in(data["jobs"][job_id], question)["closed"]["noted"] = answer_id
         data[state.CARDS_NOTED] = True
 
-    state.update(name, None, note_cards_write)
+    state.write(name, note_cards_write)
 
 
 def supersede(pick: str, answer_id: str, cwd: str) -> None:
