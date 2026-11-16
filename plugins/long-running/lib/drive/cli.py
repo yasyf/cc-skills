@@ -5516,6 +5516,33 @@ def thread_orders(data: dict, thread: str | None, but: str | None = None) -> lis
     return [order_id for order_id, order in state.open_orders(data).items() if order_id != but and any(ts == thread for _, ts in slack.order_threads(data, order_id, order))]
 
 
+def thread_strays(data: dict, ids: list[str], text: str, asked: str) -> list[str]:
+    """Each reference of a post's text naming work outside the orders the ids name, as written: a {order:…}, a {pr:…} or a link, key or #N naming a drive PR, or a {card:…} as `stray_card` reads it, that is none of those orders, the PRs they own or their jobs carry, nor an order, job or PR those jobs' and PRs' waits name; a PR his words asked name by link, key or #N, and its order, are theirs too, so an answer to his question about another order's PR stands."""
+    narrowed = only(data, ids)
+    waits = {wait for owner in [*narrowed["jobs"].values(), *narrowed["prs"].values()] for wait in owner["waits"]}
+    prs = {*narrowed["prs"], *state.named_prs(data, "", f"{' '.join(waits)} {asked}")}
+    orders = {*ids, *(data["prs"][key]["order"] for key in prs), *(wait.partition(":")[0] for wait in waits), *(data["jobs"][wait]["order"] for wait in waits if wait in data["jobs"])}
+    strays = []
+    for found in limits.REF.finditer(text):
+        match found[1], found[2]:
+            case "order", order_id if order_id not in orders:
+                strays.append(found[0])
+            case "pr", ref if (key := state.tracked_pr(data["prs"], ref, untracked=True)) in data["prs"] and key not in prs:
+                strays.append(found[0])
+            case "card", ref if (card := state.waits_of(data["name"], ref)) not in waits and stray_card(data, card, orders, prs):
+                strays.append(found[0])
+    return list(dict.fromkeys([*strays, *(key for key in state.named_prs(data, "", limits.REF.sub(" ", text)) if key not in prs)]))
+
+
+def stray_card(data: dict, waits: str, orders: set[str], prs: set[str]) -> bool:
+    """Whether the card under a waits id is work outside the orders and PRs given: a PR card asking his tap on none of those PRs, or a question card a job on another order asked whose question holds none of them."""
+    if asked := state.ASK_WAITS.fullmatch(waits):
+        return not {key.rpartition("#")[2] for key in prs} & set(asked[1].split("."))
+    if (job := data["jobs"].get(state.waits_job(data, waits))) is None or job["order"] in orders:
+        return False
+    return not any(prs & {*state.named_prs(data, "", question["holds"] or "")} for question in job["questions"] if question["waits"] == waits)
+
+
 def with_cards(name: str, data: dict, within: dict | None = None) -> dict:
     """The drive with each question and open PR marked with the state of its card of his, as the cards were last stored, and each open PR's stage as stage.shown puts it on; with within, a narrowing of the drive that shares its records, only within's questions and PRs, each still read against the whole drive."""
     from drive import stage, view

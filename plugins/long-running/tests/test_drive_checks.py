@@ -152,10 +152,10 @@ def test_an_answer_under_a_card_is_asked_whether_it_leaves_a_term_of_the_cards_f
 
 
 def test_a_post_in_a_thread_of_his_dm_holding_orders_holds_when_jev_reads_it_telling_of_the_whole_drives_work_unless_his_words_there_name_more(jev: Jev) -> None:
-    scope = {"asked": "what else is waiting on me for this work"}
+    scope = {"asked": "what else is waiting on me for this work", "strays": []}
     output = {"post": {"text": "Nothing else of the copy fix waits on you."}, "his_words": [], "thread_scope": scope}
     assert settled.post_verdict(output) == PASSES
-    assert jev.asked[-1]["state"]["thread"] == scope
+    assert jev.asked[-1]["state"]["thread"] == {"asked": scope["asked"]}
     assert (jev.asked[-1]["questions"]["scope"], jev.asked[-1]["questions"]["wider"]) == (settled.SCOPE, settled.WIDER)
     jev.breaks("scope", "", 0.9)
     assert settled.post_verdict(output) == {
@@ -185,12 +185,24 @@ def test_a_post_in_a_thread_of_his_dm_holding_orders_holds_when_jev_reads_it_tel
     ],
 )
 def test_jev_holds_a_post_counting_the_whole_drives_cards_in_a_works_thread_and_passes_one_scoped_to_that_work(jev: Jev, asked: str, post: str, rewrite: str) -> None:
-    scope = {"asked": asked}
+    scope = {"asked": asked, "strays": []}
     jev.breaks("scope", "", 0.9)
     assert settled.post_verdict({"post": {"text": post}, "his_words": [], "thread_scope": scope})["verdict"] == "hold"
-    assert (jev.asked[-1]["state"]["post"]["text"], jev.asked[-1]["state"]["thread"]) == (post, scope)
+    assert (jev.asked[-1]["state"]["post"]["text"], jev.asked[-1]["state"]["thread"]) == (post, {"asked": asked})
     jev.ruled = {}
     assert settled.post_verdict({"post": {"text": rewrite}, "his_words": [], "thread_scope": scope}) == PASSES
+
+
+def test_a_post_in_a_works_thread_naming_another_orders_pr_or_card_holds_unless_his_words_there_name_more(jev: Jev) -> None:
+    strays = ["{pr:yasyf/cc-skills#8}", "{card:demo:j2-1}"]
+    output = {"post": {"text": "Also waiting on you: {pr:yasyf/cc-skills#8} and {card:demo:j2-1}."}, "his_words": [], "thread_scope": {"asked": "what else is waiting on me for this work", "strays": strays}}
+    assert settled.post_verdict(output) == {
+        "verdict": "hold",
+        "note": "Jev held back this post: it names {pr:yasyf/cc-skills#8}, {card:demo:j2-1}, work of orders other than its thread's, which his words in this thread never asked about: answer from the orders its In his thread lines list, with each card and PR their jobs wait on, and leave the rest of the drive out. So fix each, then call say again.",
+    }
+    assert "strays" not in jev.asked[-1]["state"]["thread"]
+    jev.breaks("wider", "", 0.9)
+    assert settled.post_verdict(output) == PASSES
 
 
 def test_jev_reads_the_typed_words_beside_slacks_and_asks_no_fact_of_a_sentence_that_is_a_reference_alone(jev: Jev) -> None:

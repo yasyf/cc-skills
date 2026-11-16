@@ -1116,6 +1116,32 @@ def test_a_handlers_post_in_a_thread_of_his_dm_holding_an_order_hands_jev_his_wo
     assert asked in scope["asked"].splitlines() and root is None
 
 
+def test_a_handlers_post_in_his_thread_hands_each_order_pr_or_card_of_other_work_it_names_and_none_his_words_there_name(
+    run: Run, talker: str, transcript: Path, slack_thread: Thread, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Copy fix", "--project", "The drive", "--workstream", "Copies", "fix the copy", "--from", f"https://acme.slack.com/archives/{DM}/p1794300000000100")
+    run("order", "add", "--title", "Run page", "--project", "The drive", "--workstream", "Runs", "show a run's history", "--from", f"https://acme.slack.com/archives/{DM}/p1794100000000100")
+    run("job", "add", "builder", "--order", "o1", "--goal", "fix the copy")
+    run("job", "add", "builder", "--order", "o2", "--goal", "show a run's history")
+    monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS)
+    with state.edit("demo") as data:
+        data["orders"]["o1"]["thread"] = [DM, "1.2"]
+        data["prs"]["yasyf/cc-skills#7"] = state.new_pr("https://github.com/yasyf/cc-skills/pull/7", "j1", "o1") | {"title": "Fix: the copy reads plainly"}
+        data["prs"]["yasyf/cc-skills#8"] = state.new_pr("https://github.com/yasyf/cc-skills/pull/8", "j2", "o2") | {"title": "Fix: the run page shows its history"}
+        data["jobs"]["j2"]["questions"].append(state.new_question(None, "Keep the run page's old layout?", state.stamp(), card=f"https://acme.slack.com/archives/{DM}/p1794288799976279") | {"waits": "demo:j2-1"})
+
+    def strays(text: str, asked: str = "what else is waiting on me for this work") -> list[str]:
+        slack_thread.messages[:] = [{"ts": "1794300000.000100", "user": "U1", "text": "fix the copy"}, {"ts": "1794300001.000100", "user": "U1", "text": asked}]
+        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(call("slack_dm_status", transcript, text=text, thread_ts="1.2") | {"tool_name": message_limits.SAY})))
+        message_limits.main()
+        return json.loads(capsys.readouterr().out)["thread_scope"]["strays"]
+
+    assert strays("Also waiting on you: {pr:yasyf/cc-skills#8}, {card:demo:j2-1} and {order:o2}.") == ["{pr:yasyf/cc-skills#8}", "{card:demo:j2-1}", "{order:o2}"]
+    assert strays("Also open: https://github.com/yasyf/cc-skills/pull/8") == ["yasyf/cc-skills#8"]
+    assert strays("Only {pr:yasyf/cc-skills#7} waits on your Approve.") == []
+    assert strays("{pr:yasyf/cc-skills#8} is the run page's, apart from this work.", asked="does #8 hold this up?") == []
+
+
 def test_a_path_and_line_read_hands_jev_a_read_of_the_whole_file(
     talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
