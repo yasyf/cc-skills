@@ -19,7 +19,7 @@ import quiet_turn
 import role_rules
 import scratch_folder
 import session_start
-from conftest import QUEUE_REASON, EnvsRelease, HomeRepo, provide, ACME_CUT, ANSWERED_CUT, CUT_LINK, CUT_PICK, CUT_TAP, LEAD, RESEARCH, SANDSQL_NOTE, SHORT_ASK, WRITTEN_AT, answered_cut, cloned, drawn_card, kept_brief, unheld, Answers, Jev, WatchProcess, own_time, unreserved
+from conftest import QUEUE_REASON, EnvsRelease, HomeRepo, provide, ACME_CUT, ANSWERED_CUT, CUT_LINK, CUT_PICK, CUT_TAP, LEAD, RESEARCH, SANDSQL_NOTE, SHORT_ASK, WRITTEN_AT, answered_cut, cloned, drawn_card, kept_brief, unheld, Answers, Jev, WatchProcess, own_time, unreserved, edit
 from drive import agents, brief, cli, github, land, limits, orca, place, render, settled, slack, state, watch
 
 Run = Callable[..., tuple[int, str]]
@@ -77,7 +77,7 @@ def bash(command: str, cwd: str = "/work") -> dict:
 
 
 def approve(key: str) -> None:
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["prs"][key]["tap"] = {"label": "Approve", "at": state.stamp(), "head": "abc", "source": "slack", "picks": {}}
 
 
@@ -181,7 +181,7 @@ def test_a_communicator_holds_each_channel_drive_channels_made_from_its_next_cal
     run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
     run("start", "demo", "--role", "coordinator", "--project", "Iris")
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         del data["subcoordinators"]["Iris"]["rules"]
     assert rules_at_next_call(monkeypatch, capsys, {"session_id": "iris-1"}).splitlines()[1] == "Hold no Slack channel: the top coordinator holds the drive's."
 
@@ -201,7 +201,7 @@ def test_a_session_gets_its_repositorys_new_rules_once_at_its_next_call(
 
 def test_a_seat_bound_before_its_rules_were_kept_gets_them_once_and_a_drawn_block_holds_them(demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     coordinator = os.environ["CLAUDE_CODE_SESSION_ID"]
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         del data["roles"]["coordinator"]["rules"]
     assert rules_at_next_call(monkeypatch, capsys, {"session_id": coordinator, "agent_id": "a1", "agent_type": "long-running:builder"}) is None
     assert rules_at_next_call(monkeypatch, capsys, {"session_id": "no-drive"}) is None
@@ -425,7 +425,7 @@ def test_a_builder_asking_his_card_may_end_on_its_ask_with_a_note_and_ends_built
     run("start", "durable-agents", "--role", "coordinator")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", J2776_PART)
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it", "--agent", "a-9")
-    with state.edit("durable-agents") as data:
+    with edit("durable-agents") as data:
         data["jobs"]["j2776"] = data["jobs"].pop("j1")
         data["orders"]["o1"]["jobs"] = ["j2776"]
     block = tmp_path / "ask.md"
@@ -490,7 +490,7 @@ def test_an_agent_is_recorded_on_its_briefs_job_by_its_own_steps_and_a_step_afte
     assert hook_output(landing_guard, monkeypatch, capsys, json.dumps(bash("git status") | stepped(tmp_path, brief))) == ""
     job = state.load("demo")["jobs"]["j1"]
     assert (job["agent"], job["where"], job["session"], job["state"]) == ("a-9", "local", os.environ["CLAUDE_CODE_SESSION_ID"], "running")
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["jobs"]["j1"].update(state="waiting", returned=state.stamp())
     assert hook_output(no_file_tools, monkeypatch, capsys, json.dumps(file_call("Read") | stepped(tmp_path, brief, prompted=EARLIER))) == ""
     assert state.load("demo")["jobs"]["j1"]["state"] == "waiting"
@@ -542,7 +542,7 @@ def test_a_sendmessage_after_its_return_runs_the_job_again_resumed_until_its_nex
     run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "release the clock")
     run("job", "add", "builder", "--order", "o1", "--goal", "release it", "--agent", "a-9")
     returned = state.now() - timedelta(minutes=5)
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["jobs"]["j1"].update(state="waiting", said="WAITING his answer on the SandSQL handover card", returned=state.stamp(returned))
     steps = stepped(tmp_path, "Drive: demo, order o1, job j1", prompted=EARLIER)
     woke = returned + timedelta(minutes=2)
@@ -563,7 +563,7 @@ def test_a_sendmessage_after_its_return_runs_the_job_again_resumed_until_its_nex
     assert (job["state"], job["resumed"]) == ("running", state.stamp(woke))
     assert f"  - j1 builder running agent a-9: release it; resumed {render.when(state.stamp(woke))} by a message after its last line" in run("status", "j1")[1].splitlines()
     assert run("job", "replies", "j1") == (0, f"{state.stamp(woke)} resumed: a message woke its agent a-9 after its last return, and it runs on toward its next line")
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         state.take_result(data, "j1", "WAITING the clock release, planned next")
     assert "resumed" not in run("status", "j1")[1]
     assert run("job", "replies", "j1") == (0, "j1 has sent nothing yet")
@@ -574,7 +574,7 @@ def test_an_agent_whose_brief_names_no_job_runs_the_job_recorded_with_it_after_a
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it", "--agent", "a-9")
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["jobs"]["j1"].update(state="waiting", said="Which store?", returned=state.stamp())
     unnamed = stepped(tmp_path, "Goal: fix it\nDrive: demo, order o1.\nScratch: /x")
     assert hook_output(landing_guard, monkeypatch, capsys, json.dumps(bash("git status") | unnamed)) == ""
@@ -588,7 +588,7 @@ def test_an_agent_of_another_kind_never_holds_the_job_its_brief_names(
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
     run("job", "add", "design", "--order", "o1", "--goal", "design it", "--agent", "a-1")
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["jobs"]["j2"]["state"] = "done"
     for job_id in ("j1", "j2"):
         kept = tmp_path / "jobs" / f"{job_id}.brief.md"
@@ -606,7 +606,7 @@ def test_a_step_never_replaces_a_remote_jobs_dispatch(
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it", "--remote")
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["jobs"]["j1"].update(dispatch="ctx_lane0001", workspace="pool-one")
     hook_output(landing_guard, monkeypatch, capsys, json.dumps(bash("git status") | stepped(tmp_path, "Drive: demo, order o1, job j1")))
     job = state.load("demo")["jobs"]["j1"]
@@ -649,7 +649,7 @@ def test_a_fresh_agent_started_on_a_stopped_jobs_brief_leaves_it_stopped_and_its
     proof = tmp_path / "proof.sh"
     proof.write_text("#!/bin/sh\nexit 0\n")
     proof.chmod(0o755)
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         place.queue(data["jobs"]["j1"], state.now())
         data["jobs"]["j1"]["repro"] = str(proof)
     run("job", "set", "j1", "--state", "stopped")
@@ -1028,7 +1028,7 @@ def test_a_session_starts_no_agent_on_an_order_the_other_session_holds(demo: str
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
     brief = f"Serves: his order\nResearched: j0\nDrive: demo, order o1, job j1\nScratch: {tmp_path / 'j1'}"
     assert scratch_folder.deny_reason(drive_agent("long-running:builder", brief)) is None
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["orders"]["o1"]["owner"] = "communicator"
     assert scratch_folder.deny_reason(drive_agent("long-running:builder", brief)) == (
         "refused, no agent started: o1 is the communicator's order, session not started: only the communicator adds its jobs,"
@@ -1146,7 +1146,7 @@ def test_guard_allows_a_tapped_drive_pr(drive_pr: str, no_calls: list[list[str]]
 
 
 def test_guard_denies_a_held_drive_pr(drive_pr: str, no_calls: list[list[str]]) -> None:
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["prs"][drive_pr]["tap"] = {"label": "Hold", "at": state.stamp(), "head": "abc", "source": "slack"}
     assert "held by him" in landing_guard.deny_reason(bash(f"gh pr merge {PR} --squash"))
 
@@ -1335,7 +1335,7 @@ def test_drive_job_add_release_starts_it_on_his_answer_in_a_process_of_its_own_t
     assert f"\nRelease: {J2666_START}\nRelease build: {BUILD}\n" in written.read_text()
     assert landing_guard.deny_reason(bash(J2666_START) | stepped(tmp_path, out)) == landing_guard.RELEASE_BY_HAND.format(command=J2666_START)
     released(demo, """case "$1" in bk) echo '{"b0": {"state": "PASSED"}}'; exit;; esac\ncat <<'EOF'\n{\n  "refused": "a freeze holds platform",\n  "code": "frozen"\n}\nEOF\nexit 1""")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         for job_id in ("j1", "j2"):
             data["jobs"][job_id]["state"] = "stopped"
         data["jobs"]["j3"] = state.new_job("o1", "design", "cards: the clock", data["jobs"]["j1"]["parts"], state.stamp()) | {"state": "waiting", "said": "DESIGN the clock"}
@@ -1435,7 +1435,7 @@ def test_a_release_starts_from_the_drives_checkout_at_its_default_branchs_head_n
     started = released(demo, f"echo '{STARTED}'")
     behind = tmp_path / "behind"
     behind.mkdir()
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["roles"]["coordinator"]["cwd"] = str(behind)
     monkeypatch.setattr(orca, "checkout", lambda drive, clone, wait=0: started.parent if clone == str(behind) else pytest.fail(clone))
     recorded.shown = {CLOCK_PICK["id"][:7]: CLOCK_PICK}
@@ -1453,7 +1453,7 @@ def test_a_staging_release_for_production_starts_at_once_through_a_staging_slot_
     released(demo, f"echo '{STARTED}'")
     recorded.shown = {CLOCK_PICK["id"][:7]: CLOCK_PICK}
     jev.picks("5419ffd")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         state.slot_claim(data, "plat-usw2-staging", "j1", 30, [], None, state.now())
     start = f"{J2666_START} --for-production --env plat-usw2-staging"
     assert run("job", "add", "builder", "--order", "o1", "--goal", "release the merged clock", "--release", start)[1].splitlines()[:2] == ["j2", starting(demo, "j2", start)]
@@ -1592,7 +1592,7 @@ def test_the_top_starts_the_agent_of_a_sub_coordinators_job_only_once_it_started
     assert cli.main(["job", "brief", "j1", *where]) == 2
     held = capsys.readouterr().err.strip().removeprefix("drive: j1: refused, nothing written, sent or started: ")
     assert scratch_folder.deny_reason(drive_agent("long-running:builder", out)) == f"refused, no agent started: {held}"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"] |= {"agent": "a-1", "session": "session-under-test"}
     assert [scratch_folder.deny_reason(drive_agent("long-running:builder", out, session=session)) for session in ("session-under-test", "platform-1")] == [None, None]
 
@@ -1788,7 +1788,7 @@ def test_while_he_holds_every_release_a_drive_runs_none_but_on_his_exception_rec
     demo: str, no_calls: list[list[str]], recorded: Answers, jev: Jev, release_builds: None
 ) -> None:
     top = {"session_id": "session-under-test"}
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["answers"]["15c4de1"] = {"words": RELEASE_HOLD["body"], "link": HOLD_LINK, "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {}}
     recorded.listed = [RELEASE_HOLD, SSQL_EXCEPTION, RELEASE_PICK | {"created_at": EARLIER}, INCIDENT_ORDER | {"created_at": EARLIER}, PR_TAP | {"created_at": "2026-11-13T19:50:00Z", "tags": ["scope:durable", "kind:approval"]}]
     recorded.shown = {answer["id"][:7]: answer for answer in recorded.listed}
@@ -1869,7 +1869,7 @@ ALL_THREE = {
 def test_his_answer_pointing_at_releases_his_earlier_answers_in_its_thread_name_orders_each_while_a_dangerous_start_still_waits_for_him_once_he_is_quiet_15_minutes(
     demo: str, recorded: Answers, jev: Jev
 ) -> None:
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["answers"]["15c4de1"] = {"words": RELEASE_HOLD["body"], "link": HOLD_LINK, "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {}}
         for answer, message in ((RELEASE_PLAN, "1794781948643349"), (HOTFIX_GO, "1794782083000100"), (ALL_THREE, "1794782490000100")):
             data["answers"][answer["id"]] = {"words": settled.his(answer["body"]), "link": PLAN_THREAD.format(message), "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {}}
@@ -1894,7 +1894,7 @@ def test_his_answer_pointing_at_releases_his_earlier_answers_in_its_thread_name_
 def test_a_cluster_job_build_is_no_release_cut_so_any_drive_session_opens_its_gate_on_his_answer_since_ordering_it_while_he_holds_every_release(
     drive_pr: str, run: Run, no_calls: list[list[str]], recorded: Answers, jev: Jev, release_builds: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["answers"]["15c4de1"] = {"words": RELEASE_HOLD["body"], "link": HOLD_LINK, "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {}}
     recorded.listed = [RELEASE_HOLD]
     recorded.shown = {"15c4de1": RELEASE_HOLD, "b5763df": MOVES_ORDER}
@@ -1926,7 +1926,7 @@ def test_a_cluster_job_build_is_no_release_cut_so_any_drive_session_opens_its_ga
 def test_a_forge_release_build_created_with_its_env_inline_is_judged_by_that_env_so_a_tester_starts_a_staging_cluster_job_at_a_prs_commit_while_he_holds_every_release(
     drive_pr: str, no_calls: list[list[str]], recorded: Answers, jev: Jev, release_builds: None
 ) -> None:
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["answers"]["15c4de1"] = {"words": RELEASE_HOLD["body"], "link": HOLD_LINK, "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {}}
     recorded.listed = [RELEASE_HOLD]
     recorded.shown = {"15c4de1": RELEASE_HOLD}
@@ -1965,7 +1965,7 @@ def test_a_forge_release_build_created_with_its_env_inline_is_judged_by_that_env
 def test_a_staging_cluster_job_waits_out_another_drives_staging_claim_so_a_tester_starts_no_dry_run_inside_a_window_that_drive_claimed_and_froze(
     drive_pr: str, no_calls: list[list[str]], recorded: Answers, jev: Jev, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["answers"]["15c4de1"] = {"words": RELEASE_HOLD["body"], "link": HOLD_LINK, "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {}}
     recorded.listed = [RELEASE_HOLD]
     recorded.shown = {"15c4de1": RELEASE_HOLD}
@@ -1998,7 +1998,7 @@ def test_a_staging_cluster_job_waits_out_another_drives_staging_claim_so_a_teste
 def test_while_he_holds_every_release_build_16916s_gate_stays_shut_since_no_answer_of_his_since_orders_its_production_dry_run_at_that_moment(
     drive_pr: str, run: Run, no_calls: list[list[str]], recorded: Answers, jev: Jev, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["answers"]["15c4de1"] = {"words": RELEASE_HOLD["body"], "link": HOLD_LINK, "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {}}
     tap = PR_TAP | {"created_at": "2026-11-14T01:00:00Z"}
     earlier = RELEASE_PICK | {"created_at": EARLIER}
@@ -2091,14 +2091,14 @@ def test_a_watchdogs_rerun_of_a_release_build_meets_his_hold_on_the_release_its_
     release = "tools/ci release start sandsql --order 8b2e4f7"
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "release the fix")
     run("job", "add", "builder", "--order", "o1", "--goal", "release the fix")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"] |= {"brief_flags": {"release": release}, "release_build": f"https://buildkite.com/forge/release/builds/{RELEASE_CUT_BUILD}"}
     monkeypatch.setenv(state.DRIVE_ENV, demo)
     rerun = bash(f"tools/ci bk rerun release {RELEASE_CUT_BUILD}") | {"session_id": "watchdog-session"}
     jev.picks("none")
     refused = landing_guard.deny_reason(rerun)
     assert refused.startswith("refused: he holds every release") and f"`{release}` runs only on an answer of his" in refused
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["release_pass"] = {"release": release, "at": state.stamp(), "reading": None}
     asked = len(jev.asked)
     assert landing_guard.deny_reason(rerun) is None
@@ -2114,7 +2114,7 @@ def test_a_codex_lane_runs_a_release_verb_only_on_the_exception_its_jobs_kept_br
     run("job", "add", "codex", "--order", "o1", "--goal", "release the fix")
     kept = tmp_path / "j1.md"
     kept.write_text("Drive: demo, order o1, job j1\n")
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["jobs"]["j1"]["brief"] = str(kept)
     monkeypatch.setenv(state.OWN_JOB_ENV, "j1")
     monkeypatch.setenv(state.DRIVE_ENV, "demo")
@@ -2136,7 +2136,7 @@ def test_a_running_codex_jobs_resume_and_wake_hold_each_text_its_run_hears_once_
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "fix the incident")
     run("job", "add", "codex", "--order", "o1", "--goal", "fix the incident")
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         state.start(data["jobs"]["j1"])
         data["jobs"]["j1"]["codex_run"] = str(tmp_path / "codex")
     held = "j1: held under From the coordinator since: for its codex-ask run, which landing_guard hands it at the run's next Bash call; the watch's next launch carries it if the run ends first"
@@ -2158,11 +2158,11 @@ def test_a_running_codex_jobs_resume_and_wake_hold_each_text_its_run_hears_once_
     denied["hookSpecificOutput"]["additionalContext"] = f"{told}{refused}"
     assert json.loads(hook_output(landing_guard, monkeypatch, capsys, json.dumps(cancel))) == denied
     assert run("job", "resume", "j1", resumed) == (0, held)
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["jobs"]["j1"]["state"] = "stopped"
     assert hook_output(landing_guard, monkeypatch, capsys, json.dumps(call)) == ""
     assert state.load("demo")["jobs"]["j1"]["undelivered"] == []
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["jobs"]["j1"]["state"] = "waiting"
     assert run("job", "wake", "j1", "--text", woken)[0] == 2
     assert state.load("demo")["jobs"]["j1"]["undelivered"] == []
@@ -2175,7 +2175,7 @@ def test_a_codex_runs_cci_post_to_another_jobs_id_is_held_on_that_job_and_one_to
     run("job", "add", "codex", "--order", "o1", "--goal", "fix the incident")
     run("order", "add", "--title", "Other title", "--project", "The drive", "--workstream", "Drive tooling", "review the fix")
     asked = run("job", "add", "codex", "--order", "o2", "--goal", "review the fix")[1].splitlines()[0]
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         state.start(data["jobs"]["j1"])
     monkeypatch.setenv(state.OWN_JOB_ENV, "j1")
     monkeypatch.setenv(state.DRIVE_ENV, "demo")
@@ -2250,7 +2250,7 @@ def test_his_number_on_a_kept_card_orders_the_release_its_option_names_on_the_pl
 ) -> None:
     unread = CUT_PICK | {"id": "3c0ffee" + "0" * 33, "body": "Ship whichever is safest"}
     answered_cut(run, demo, [CUT_PICK, CUT_TAP, unread])
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["answers"]["15c4de1"] = {"words": RELEASE_HOLD["body"], "link": HOLD_LINK, "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {}}
     recorded.shown = {answer["id"][:7]: answer for answer in (CUT_PICK, CUT_TAP, unread)}
     data = state.load(demo)
@@ -2374,7 +2374,7 @@ def test_his_all_to_a_question_listing_releases_orders_each_listed_release_in_co
     data = state.load(demo)
     (Path(data["roles"]["coordinator"]["cwd"]) / "release").mkdir()
     (Path(data["roles"]["coordinator"]["cwd"]) / "release" / "targets.yaml").write_text(RELEASE_TARGETS)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["answers"][LISTED_RELEASES["id"]] = {"words": LISTED_RELEASES["body"], "link": drawn_card(99), "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {}}
     recorded.shown = {"304ffb2": LISTED_RELEASES}
     data = state.load(demo)
@@ -2444,7 +2444,7 @@ def test_a_release_on_staging_or_sandbox_alone_runs_under_his_hold_with_no_order
     demo: str, run: Run, recorded: Answers, jev: Jev
 ) -> None:
     answered_cut(run, demo, [STANDING_SOAK], STANDING_SOAK_CARD)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["answers"]["15c4de1"] = {"words": RELEASE_HOLD["body"], "link": HOLD_LINK, "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {}}
     recorded.listed = [RELEASE_HOLD, STANDING_SOAK, SOAK_CASES]
     recorded.shown = {answer["id"][:7]: answer for answer in recorded.listed}
@@ -2512,7 +2512,7 @@ SANDBOX_TESTS = {
 @pytest.mark.usefixtures("envs_release")
 def test_jev_reads_a_stack_release_on_the_places_its_stacks_name_so_a_production_stack_reads_as_production(demo: str, run: Run, recorded: Answers, jev: Jev) -> None:
     answered_cut(run, demo, [STANDING_SOAK], STANDING_SOAK_CARD)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["answers"]["15c4de1"] = {"words": RELEASE_HOLD["body"], "link": HOLD_LINK, "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {}}
     recorded.listed = [RELEASE_HOLD, SANDBOX_TESTS]
     recorded.shown = {answer["id"][:7]: answer for answer in recorded.listed}
@@ -2559,7 +2559,7 @@ def test_a_staging_release_for_production_starts_on_his_pick_of_the_production_r
 ) -> None:
     picks = [WHERE_PICK | {"id": f"f0ca00{number}" + "0" * 33, "body": str(number)} for number in (1, 2, 3)]
     answered_cut(run, demo, picks, WHERE_CARD)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["answers"]["15c4de1"] = {"words": RELEASE_HOLD["body"], "link": HOLD_LINK, "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {}}
     recorded.listed = [RELEASE_HOLD, *picks]
     recorded.shown = {answer["id"][:7]: answer for answer in recorded.listed}
@@ -2580,7 +2580,7 @@ def test_his_standing_yes_to_soak_and_his_words_to_test_on_staging_order_no_stag
     demo: str, run: Run, recorded: Answers, jev: Jev
 ) -> None:
     answered_cut(run, demo, [STANDING_SOAK], STANDING_SOAK_CARD)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["answers"]["15c4de1"] = {"words": RELEASE_HOLD["body"], "link": HOLD_LINK, "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {}}
     recorded.listed = [RELEASE_HOLD, STANDING_SOAK, SANDBOX_TESTS, WHOLE_PLATFORM]
     recorded.shown = {answer["id"][:7]: answer for answer in recorded.listed}
@@ -2677,7 +2677,7 @@ def test_his_tap_on_a_card_redrawn_for_a_newer_question_orders_its_release_narro
     answered_cut(run, demo, [HOTFIX_TAP], HOTFIX_CARD)
     older = state.drive_dir(demo) / "asks" / "j1-older.md"
     older.write_text(ANSWERED_CUT)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         del data["answers"][HOTFIX_TAP["id"]]
         [newer] = data["jobs"]["j1"]["questions"]
         newer["closed"]["noted"] = HOTFIX_TAP["id"]
@@ -2882,7 +2882,7 @@ def test_guard_looks_up_a_merge_naming_no_pr_or_repo_in_the_checkout(
 
 
 def updated_at(name: str, key: str, moment: str) -> None:
-    with state.edit(name) as data:
+    with edit(name) as data:
         data["prs"][key]["updated"] = moment
 
 
@@ -2899,7 +2899,7 @@ def test_guard_judges_a_shared_pr_by_the_entry_updated_last_not_the_drive_starte
 ) -> None:
     approve(drive_pr)
     copy_of_demo(run, "copy")
-    with state.edit("copy") as data:
+    with edit("copy") as data:
         data["roles"]["coordinator"]["session"] = "the-copy's-session"
     updated_at("demo", drive_pr, "2026-11-11T00:42:12-08:00")
     updated_at("copy", drive_pr, "2026-11-11T00:20:00-08:00")
@@ -2923,7 +2923,7 @@ def test_guard_judges_a_shared_pr_by_the_sessions_own_drive_first(
 ) -> None:
     copy_of_demo(run, "copy")
     approve(drive_pr)
-    with state.edit("copy") as data:
+    with edit("copy") as data:
         data["roles"]["coordinator"]["session"] = "the-copy's-session"
     updated_at("demo", drive_pr, "2026-11-11T00:20:00-08:00")
     updated_at("copy", drive_pr, "2026-11-11T00:43:00-08:00")
@@ -2948,7 +2948,7 @@ def test_guard_holds_a_merge_through_the_api_to_his_tap_and_the_incident_exempti
     assert landing_guard.deny_reason(bash(command)) is None
     driving = bash(command) | {"session_id": os.environ["CLAUDE_CODE_SESSION_ID"]}
     assert landing_guard.deny_reason(driving) == QUEUE_REASON.format(key=drive_pr)
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["prs"][drive_pr]["exempt"] = "incident fix"
     assert landing_guard.deny_reason(driving) is None
 
@@ -2996,7 +2996,7 @@ def test_bash_posts_no_ask_carrying_his_cards_ask_block_since_drive_job_ask_post
     kept = state.drive_dir(demo) / "asks" / "j1-0.md"
     kept.parent.mkdir(parents=True, exist_ok=True)
     kept.write_text("ASK Close these sessions?\nThe idle ones hold a slot each.\n")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"] = state.new_job("o1", "builder", "close them", [], state.stamp())
         data["jobs"]["j1"]["questions"] = [state.new_question(str(kept), "Close these sessions?", state.stamp())]
         data["subcoordinators"]["SandSQL"] = {"session": "sandsql-1", "terminal": None, "cwd": "/work", "started": state.stamp(), "from": 0}

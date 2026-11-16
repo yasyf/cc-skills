@@ -1,5 +1,6 @@
 import itertools
 import json
+import marshal
 import os
 import re
 import shutil
@@ -8,7 +9,7 @@ import sys
 import time
 import urllib.parse
 from collections.abc import Callable, Iterator
-from contextlib import suppress
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -16,8 +17,8 @@ from types import ModuleType, SimpleNamespace
 
 import pytest
 from drive import (
-    answer,
     agents,
+    answer,
     brief,
     card,
     cli,
@@ -296,7 +297,7 @@ def cloned(tmp_path: Path, name: str, files: dict[str, str] | None = None) -> st
     head = commit_files(origin, "the launch files", files or {".orca.json": "{}"})
     if not clone.exists():
         git_in(tmp_path, "clone", "-q", str(origin), str(clone))
-        with state.edit(name) as data:
+        with edit(name) as data:
             data["roles"]["coordinator"]["cwd"] = str(clone)
     return head
 
@@ -338,7 +339,7 @@ def state_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 def kept_research(name: str, order_id: str, parts: list[str]) -> None:
     """Keep reader j0's research on these parts of the order, numbered below and stamped before every job a test adds, as a build order's reader keeps it before its builder starts."""
-    with state.edit(name) as data:
+    with edit(name) as data:
         order = data["orders"][order_id]
         reader = data["jobs"].setdefault(SEEDED_READER, state.new_job(order_id, "reader", "research: the order", [], SEEDED_AT) | {"state": "done", "said": None})
         held = reader["parts"] if reader["order"] == order_id else reader["carries"].setdefault(order_id, [])
@@ -351,7 +352,7 @@ def kept_research(name: str, order_id: str, parts: list[str]) -> None:
 
 def started(name: str, *job_ids: str) -> None:
     """Start each job as its worker's start does, by state.start, so a job drive job add recorded not started runs."""
-    with state.edit(name) as data:
+    with edit(name) as data:
         for job_id in job_ids:
             state.start(data["jobs"][job_id])
 
@@ -392,7 +393,7 @@ def demo(run: Callable[..., tuple[int, str]]) -> str:
 @pytest.fixture
 def communicator(run: Callable[..., tuple[int, str]], demo: str) -> str:
     run("start", demo, "--role", "communicator")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["roles"]["coordinator"]["session"] = "elsewhere"
     return demo
 
@@ -400,7 +401,7 @@ def communicator(run: Callable[..., tuple[int, str]], demo: str) -> str:
 @pytest.fixture
 def meta(run: Callable[..., tuple[int, str]], demo: str) -> str:
     run("start", demo, "--role", "meta")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["roles"]["coordinator"]["session"] = "elsewhere"
     return demo
 
@@ -554,7 +555,7 @@ def answered_cut(run: Callable[..., tuple[int, str]], demo: str, answers: list[d
     kept = state.drive_dir(demo) / "asks" / "j1-cut.md"
     kept.parent.mkdir(exist_ok=True)
     kept.write_text(card)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         said = state.stamp()
         closed = state.new_close("answered", answers[0]["body"], CUT_LINK, seq="7")
         data["jobs"]["j1"]["questions"].append(state.new_question(str(kept), answers[0]["title"], said, card=CUT_LINK, closed=closed))
@@ -585,6 +586,23 @@ def landers(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, ...]]:
     monkeypatch.setattr(github, "default_branch", lambda repo: "main")
     monkeypatch.setattr(github, "below", lambda key: [])
     return started
+
+
+@contextmanager
+def edit(name: str) -> Iterator[dict]:
+    """Load a test's drive whole, yield it for changes and save it whole on exit, as a fixture sets a drive up, telling each session the save took open orders from; inside a batch, keep the changes on its copy for its one save; inside a write's change of the same drive it raises, as a nested write does."""
+    state.unnested(name)
+    if name in state.BATCHED:
+        data = state.load(name)
+        yield data
+        state.BATCHED[name] = marshal.dumps(data)
+        return
+    with state.editing(name), state.writing(name):
+        data = state.load(name)
+        before = state.holding_lanes(data)
+        yield data
+        state.save(name, data)
+        state.tell_moved(name, data, before)
 
 
 def unreserved(args: list[str]) -> list[str]:

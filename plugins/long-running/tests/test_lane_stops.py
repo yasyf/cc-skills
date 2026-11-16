@@ -5,7 +5,7 @@ from pathlib import Path
 
 import one_line_result
 import pytest
-from conftest import LANE_SPEC, Thread, own_time
+from conftest import LANE_SPEC, Thread, edit, own_time
 from drive import agents, answer, install, reads, slack, state, talk
 
 THREAD = "1794200000.000100"
@@ -52,7 +52,7 @@ def test_the_watchs_own_live_line_of_a_proved_order_posts_through_report_line_fr
 ) -> None:
     run("order", "add", "--title", "Copy fix", "--project", "The drive", "--workstream", "Copies", "fix the copy", "--from", f"https://acme.slack.com/archives/D123/p{THREAD.replace('.', '')}")
     kept = {"id": "install-proved-j1", "kind": "report", "to": ["communicator@demo"], "topic": "install-proved-o1", "attr": {"close": "o1", "thread": THREAD}, "text": "POST Copy fix is live in long-running 1.0.3", "body": "Fixed: Copy fix\n"}
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["orders"]["o1"] |= {"close_report": kept | {"seq": "700002"}, "closed_on": "700002"}
     report = {"seq": 700002, "kind": "report", "lane": "watch", "at": state.stamp(), "text": kept["text"], "refs": {}, "fields": {"attrs": {"close": "o1", "thread": THREAD}}}
     cci_records["700002"] = report

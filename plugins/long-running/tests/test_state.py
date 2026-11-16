@@ -8,13 +8,13 @@ import subprocess
 import sys
 import time
 from collections.abc import Callable
-from contextlib import closing
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
-from conftest import LEAD, REAL_DOWN_MAC_BOXES, REAL_SCRATCH, EnvsRelease, NamedRepo, provide
+from conftest import LEAD, REAL_DOWN_MAC_BOXES, REAL_SCRATCH, edit, EnvsRelease, NamedRepo, provide
 from drive import cli, github, install, picture, providers, reads, render, served, settled, stage, state
 from drive.state import DriveError
 
@@ -57,28 +57,28 @@ def make(name: str, session: str | None = None, started: str | None = None) -> N
 
 def test_a_save_takes_down_the_mac_boxes_of_each_job_it_moves_out_of_running_or_into_done_failed_or_stopped_once(state_root: Path, mac_boxes_downed: list[str]) -> None:
     make("demo")
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["jobs"] |= {job_id: state.new_job("o1", "builder", "use a Mac box", [], state.stamp()) for job_id in ("j1", "j2", "j3", "j4")}
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["jobs"]["j1"]["state"] = "done"
         data["jobs"]["j2"]["state"] = "waiting"
         data["jobs"]["j3"]["state"] = "built"
         data["jobs"]["j4"]["state"] = "failed"
     assert mac_boxes_downed == ["demo/j1", "demo/j4"]
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["jobs"]["j1"]["state"] = "stopped"
         data["jobs"]["j2"]["state"] = "stopped"
         data["jobs"]["j3"]["goal"] = "use another Mac box"
         data["jobs"]["j4"]["goal"] = "use another Mac box"
     assert mac_boxes_downed == ["demo/j1", "demo/j4", "demo/j2"]
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["jobs"]["j1"]["state"] = "running"
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["jobs"]["j1"]["state"] = "done"
     assert mac_boxes_downed == ["demo/j1", "demo/j4", "demo/j2", "demo/j1"]
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["jobs"]["j3"]["state"] = "running"
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["jobs"]["j3"]["state"] = "waiting"
     assert mac_boxes_downed == ["demo/j1", "demo/j4", "demo/j2", "demo/j1", "demo/j3"]
 
@@ -100,7 +100,7 @@ def test_a_save_hands_a_stopped_jobs_mac_boxes_to_a_process_of_its_own_that_retu
 
     provide(monkeypatch, checkout, mac_box=Boxes)
     state.create(state.new_drive("demo", "coordinator", None, str(checkout)))
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["jobs"] |= {job_id: state.new_job("o1", "builder", "build it", [], state.stamp()) | {"state": "stopped"} for job_id in ("j1", "j2")}
     detached: list[tuple[str, list[str], str]] = []
     monkeypatch.setattr(state, "detach", lambda name, args, log: detached.append((name, args, log)) or 0)
@@ -113,7 +113,7 @@ def test_a_save_hands_a_stopped_jobs_mac_boxes_to_a_process_of_its_own_that_retu
 
 def test_edit_saves_atomically_and_leaves_no_temp(state_root: Path) -> None:
     make("demo")
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["orders"]["o1"] = state.new_order("ship it", "terminal", None, {}, state.stamp())
     assert state.load("demo")["orders"]["o1"]["text"] == "ship it"
     assert [path.name for path in (state_root / "demo").iterdir() if path.name.endswith(".tmp")] == []
@@ -159,7 +159,7 @@ PREVIOUS_RELEASE_SAVE = """
 import sys
 sys.path.insert(0, sys.argv[1])
 from drive import state
-with state.edit("demo") as data:
+with edit("demo") as data:
     data["slack"]["page_stale"] = "the previous release's save"
 """
 
@@ -189,7 +189,7 @@ OTHER_PROCESS_SAVE = """
 import sys
 sys.path.insert(0, sys.argv[1])
 from drive import state
-with state.edit("demo") as data:
+with edit("demo") as data:
     data["terminal"] = "the other process's terminal"
     data["orders"].pop("o2")
 """
@@ -197,7 +197,7 @@ with state.edit("demo") as data:
 
 def ordered(name: str, count: int) -> Path:
     make(name)
-    with state.edit(name) as data:
+    with edit(name) as data:
         for number in range(count):
             data["orders"][f"o{number}"] = state.new_order(f"order {number}", "slack", None, {}, state.stamp()) | {"kind": "build"}
     return state.database_path(name)
@@ -292,7 +292,7 @@ def test_selected_loads_observe_other_processes_saves_and_batch_writes(state_roo
     assert "o2" not in selected["orders"]
     assert selected == {field: state.load("demo")[field] for field in fields}
     with state.batch("demo"):
-        with state.edit("demo") as data:
+        with edit("demo") as data:
             data["terminal"] = "this batch's terminal"
         assert state.load("demo", ("terminal",)) == {"terminal": "this batch's terminal"}
     assert state.load("demo", ("terminal",)) == {"terminal": "this batch's terminal"}
@@ -319,24 +319,24 @@ def test_a_write_waiting_past_the_drive_lock_wait_changes_nothing_and_names_the_
     with open(state.drive_dir("demo") / ".lock", "a") as stuck:
         fcntl.flock(stuck, fcntl.LOCK_EX)
         with pytest.raises(DriveError, match=r"demo's drive lock is still held after 0\.3s, so this changed nothing: "):
-            with state.edit("demo") as data:
+            with edit("demo") as data:
                 data["terminal"] = "term-1"
     assert state.load("demo")["terminal"] is None
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["terminal"] = "term-1"
     assert state.load("demo")["terminal"] == "term-1"
 
 
 def test_a_priority_orders_verb_takes_the_drive_lock_ahead_of_a_writer_that_waited_for_it_first(state_root: Path) -> None:
     make("demo")
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         for order_id, priority in (("o1", None), ("o2", "Priority o2")):
             data["orders"][order_id] = state.new_order(f"order {order_id}", "slack", None, {}, state.stamp()) | {"priority": priority}
         data["jobs"] |= {"j1": state.new_job("o1", "builder", "build o1", [], state.stamp()), "j2": state.new_job("o2", "builder", "build o2", [], state.stamp())}
     took: list[str] = []
 
     def report(job_id: str) -> None:
-        with state.naming({"ops": [{"report": {"id": job_id}}]}), state.edit("demo") as data:
+        with state.naming({"ops": [{"report": {"id": job_id}}]}), edit("demo") as data:
             took.append(job_id)
             data["terminal"] = job_id
 
@@ -356,7 +356,7 @@ def test_a_batch_holds_no_lock_while_its_writes_run_and_its_one_save_keeps_what_
     make("demo")
     created = state.stamp()
     with state.batch("demo"):
-        with state.edit("demo") as data:
+        with edit("demo") as data:
             data["terminal"] = "term-1"
             data["orders"]["o1"] = state.new_order("order o1", "terminal", None, {"order o1": state.new_part()}, created)
         with open(state.drive_dir("demo") / ".lock", "a") as free:
@@ -369,60 +369,32 @@ def test_a_batch_holds_no_lock_while_its_writes_run_and_its_one_save_keeps_what_
     data = state.load("demo")
     assert (data["terminal"], data["binder"], list(data["orders"])) == ("term-1", "term-2", ["o2", "o1"])
     with state.batch("demo"):
-        with state.edit("demo") as data:
+        with edit("demo") as data:
             data["orders"]["o1"]["jobs"].append("j1")
         saved = state.stored("demo")
         saved["orders"]["o1"]["jobs"] += ["j2", "j1"]
         state.save("demo", saved)
     assert state.load("demo")["orders"]["o1"]["jobs"] == ["j2", "j1"]
     with pytest.raises(DriveError, match=r"refused, nothing kept: another write changed orders\.o1\.text differently while this call ran, so send it again$"), state.batch("demo"):
-        with state.edit("demo") as data:
+        with edit("demo") as data:
             data["orders"]["o1"]["text"] = "order o1, here"
         saved = state.stored("demo")
         saved["orders"]["o1"]["text"] = "order o1, there"
         state.save("demo", saved)
     assert state.load("demo")["orders"]["o1"]["text"] == "order o1, there"
     with pytest.raises(DriveError, match=r"so send it again once you have checked what it started as it ran: true$"), state.batch("demo"):
-        with state.edit("demo") as data:
+        with edit("demo") as data:
             data["terminal"] = "term-3"
         subprocess.run(["true"], check=True)
         state.save("demo", state.stored("demo") | {"terminal": "term-4"})
     assert state.load("demo")["terminal"] == "term-4"
 
 
-def test_a_write_of_its_rows_holds_no_drive_lock_while_its_body_runs_and_keeps_what_another_write_saved_meanwhile(state_root: Path) -> None:
-    make("demo")
-    with state.edit("demo"):
-        pass
-    with state.edit("demo", (("", "terminal"),)) as data:
-        data["terminal"] = "term-1"
-        with open(state.drive_dir("demo") / ".lock", "a") as free:
-            fcntl.flock(free, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            fcntl.flock(free, fcntl.LOCK_UN)
-        with state.edit("demo") as other:
-            other["binder"] = "term-2"
-    data = state.load("demo")
-    assert (data["terminal"], data["binder"]) == ("term-1", "term-2")
-
-
-def test_a_write_of_its_rows_is_refused_keeping_nothing_once_another_write_changed_one_of_them(state_root: Path) -> None:
-    make("demo")
-    with state.edit("demo"):
-        pass
-    with pytest.raises(DriveError, match=r"refused, nothing kept: another write changed terminal while this ran, so send it again$"):
-        with state.edit("demo", (("", "terminal"), ("", "binder"))) as data:
-            data["binder"] = "mine"
-            with state.edit("demo") as other:
-                other["terminal"] = "theirs"
-    assert (state.load("demo")["terminal"], state.load("demo")["binder"]) == ("theirs", None)
-    assert "refused: another write changed terminal while it ran" in (state.drive_dir("demo") / "locks.log").read_text()
-
-
 def elsewhere(fields: dict) -> None:
     """Save fields on the demo drive from a thread of its own, as a concurrent writer does, outside the write whose change calls this, which a write of the same drive inside it would refuse."""
 
     def other() -> None:
-        with state.edit("demo") as data:
+        with edit("demo") as data:
             data.update(fields)
 
     with ThreadPoolExecutor(1) as pool:
@@ -471,47 +443,10 @@ def test_an_update_changing_a_row_it_did_not_name_runs_again_as_a_write_naming_n
     assert (state.load("demo")["terminal"], state.load("demo")["binder"]) == ("term-1", "term-2")
 
 
-def test_a_write_of_its_rows_changing_another_row_raises_keeping_nothing(state_root: Path) -> None:
-    make("demo")
-    with pytest.raises(DriveError, match=r"refused, nothing kept: a write of terminal changed binder too$"):
-        with state.edit("demo", (("", "terminal"),)) as data:
-            data["terminal"] = "term-1"
-            data["binder"] = "term-2"
-    assert state.load("demo")["terminal"] is None
-
-
-def test_two_writes_adding_at_once_from_one_load_take_two_ids(state_root: Path) -> None:
-    make("demo")
-    created = state.stamp()
-    with state.edit("demo", (("orders", "o1"),)) as data:
-        mine = state.next_id(data["orders"], "o")
-        data["orders"][mine] = state.new_order("mine", "terminal", None, {"mine": state.new_part()}, created)
-        with state.edit("demo") as other:
-            theirs = state.next_id(other["orders"], "o")
-            other["orders"][theirs] = state.new_order("theirs", "terminal", None, {"theirs": state.new_part()}, created)
-    assert (mine, theirs, sorted(state.load("demo")["orders"])) == ("o1", "o2", ["o1", "o2"])
-
-
-def test_a_write_of_its_rows_saves_those_records_alone_with_the_ids_it_took_counted_in_the_database(state_root: Path) -> None:
-    make("demo")
-    with state.edit("demo"):
-        pass
-    created = state.stamp()
-    with state.edit("demo", (("orders", "o1"),)) as data:
-        data["orders"][state.next_id(data["orders"], "o")] = state.new_order("mine", "terminal", None, {"mine": state.new_part()}, created)
-        with closing(sqlite3.connect(state.database_path("demo"))) as db, db:
-            db.execute("UPDATE rows SET body = ? WHERE collection = '' AND key = 'terminal'", (json.dumps("written beside it"),))
-    data = state.load("demo")
-    assert (list(data["orders"]), data["terminal"]) == (["o1"], "written beside it")
-    assert not (state.drive_dir("demo") / "locks").exists()
-    with closing(sqlite3.connect(state.database_path("demo"))) as db:
-        assert db.execute("SELECT value FROM meta WHERE key = 'ids-o'").fetchone() == ("1",)
-
-
 def test_a_hold_of_the_drive_lock_past_its_stuck_seconds_logs_the_line_it_holds_on_while_it_still_holds(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     make("demo")
     monkeypatch.setattr(state, "STUCK_HOLD_SECONDS", 0.05)
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["terminal"] = "term-1"
         time.sleep(0.5)
         logged = (state.drive_dir("demo") / "locks.log").read_text()
@@ -600,7 +535,7 @@ def test_migrate_labels_his_old_taps_approving_a_pr_in_the_coordinators_checkout
 
 def test_migrate_records_each_job_an_older_install_left_running_or_waiting_with_no_worker_ever_started_as_not_started_once(state_root: Path) -> None:
     make("demo")
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["jobs"] |= {job_id: state.new_job("o1", "builder", "ship it", [], state.stamp()) for job_id in ("j1", "j2", "j3", "j4", "j5")}
         data["jobs"]["j1"].update(state="running", said=None)
         data["jobs"]["j2"].update(state="waiting", said="waits on j1", waits=["j1"])
@@ -616,7 +551,7 @@ def test_migrate_records_each_job_an_older_install_left_running_or_waiting_with_
         ("running", None),
         ("waiting", "which store holds the blobs?"),
     ]
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["jobs"]["j1"].update(state="running", said=None)
     state.migrate("demo")
     assert state.load("demo")["jobs"]["j1"]["state"] == "running"
@@ -632,7 +567,7 @@ def test_migrate_reopens_once_the_question_jev_folded_into_another_prs_hotfix_qu
     link = "https://acme.slack.com/archives/D123/p1794739468345719"
     noted = f"0a3bed1{'0' * 33}"
     answered = "Should the hotfix of this fix alone start now?"
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["jobs"] |= {job_id: state.new_job("o1", "builder", "ship it", [], state.stamp()) for job_id in ("j1", "j2")}
         for job_id, file, title, replaced in (("j1", "/asks/j1-ec812baf.md", "Will you grant one exception to your release hold?", "/asks/j2-fc6d3e9d.md"), ("j2", "/asks/j2-fc6d3e9d.md", answered, None)):
             closed = state.new_close("answered", "Start it", link, seq="721471", noted=noted)
@@ -744,7 +679,7 @@ def test_a_drive_saved_while_the_card_store_held_whether_a_question_was_open_clo
         state.new_close("withdrawn", "his order replaced it", None, at=moment),
         state.new_close("answered", None, None, seq="671985", ruling="32164d3", at=moment),
     ]
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         assert data["closed_from_cards"] is True
     state.cards_path("demo").write_text(json.dumps(store | {"questions": [], "closed": [{"waits": None, "url": shown, "answer": {"label": "Here", "at": moment}}, *closed]}))
     assert state.load("demo")["jobs"]["j1"]["questions"][0]["closed"] is None
@@ -770,7 +705,7 @@ def test_a_drive_saved_holding_his_answer_on_jobs_not_owed_it_drops_each_copy_on
     }
     data["answers"] = {"e614876": {"words": "Optional NONE", "link": tap_card, "at": took, "said": took, "cards": {}, "jobs": {"j1": None, "j3": {"mark": "untouched"}}}}
     state.create(data)
-    with state.edit("demo") as drive:
+    with edit("demo") as drive:
         assert {job_id: [kept["seq"] for kept in job["undelivered"]] for job_id, job in drive["jobs"].items()} == {"j1": ["699068", "699111"], "j2": ["699111"], "j3": ["699111"]}
         assert drive["holds_owed"] is True
 
@@ -811,7 +746,7 @@ def test_a_drive_saved_before_say_kept_lines_keeps_on_each_carded_question_the_n
     for url, text in said:
         state.append_event("demo", "said", text=text, url=url)
     state.create(data)
-    with state.edit("demo") as drive:
+    with edit("demo") as drive:
         assert (drive["jobs"]["j1"]["questions"][0]["told"], drive["lines_kept"]) == ({"1794200000.000100": {"link": said[2][0], "words": said[2][1]}}, True)
 
 
@@ -925,7 +860,7 @@ def test_j3986_a_drive_saved_keying_his_rulings_as_typed_keys_each_by_its_full_i
         other: kept | {"at": late, "said": late, "cards": {}, "jobs": {}, "approves": None},
     }
     assert (drive["jobs"]["j1"]["questions"][0]["closed"]["ruling"], drive["jobs"]["j1"]["brief_flags"]["ruling"]) == (other, [ruling, "deadbee"])
-    with state.edit("demo"):
+    with edit("demo"):
         pass
     assert (state.load("demo")["answers"] == drive["answers"], len(listed)) == (True, 2)
 
@@ -958,7 +893,7 @@ def test_a_drive_saved_dating_his_late_card_taps_by_when_the_drive_took_them_dat
     kept = [(pr["answers"], pr["checker"]) for pr in drive["prs"].values()]
     assert (shown, dated) == ([["cci", "show", "--json", "699068", "699080"]], [tapped, tapped, other])
     assert kept == [(None, None), (read_typed, checker | {"faulted": []}), (read_tap, checker | {"faulted": []})]
-    with state.edit("demo"):
+    with edit("demo"):
         pass
     state.load("demo")
     assert len(shown) == 2
@@ -989,7 +924,7 @@ def test_a_drive_saved_keeping_the_answers_cc_notes_ranked_near_a_card_beside_th
     state.create(data)
     drive = state.load("demo")
     assert [(pr["answers"], pr["checker"]) for pr in drive["prs"].values()] == [(None, passed | {"faulted": []}), ({"cited": [cited, options], "near": []}, objected | {"faulted": []}), (None, passed | {"faulted": []}), (None, None)]
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["prs"]["yasyf/cc-skills#1"]["answers"] = {"cited": [cited], "near": [near]}
     assert (state.load("demo")["prs"]["yasyf/cc-skills#1"]["answers"], state.load("demo")["near_answers_apart"]) == ({"cited": [cited], "near": [near]}, True)
 
@@ -1010,7 +945,7 @@ def test_a_drive_saved_with_a_stack_refused_for_a_ruling_write_its_own_pr_makes_
     state.create(data)
     drive = state.load("demo")
     assert ([pr["checker"] for pr in drive["prs"].values()], drive["stack_writes_read"]) == ([None, None, judged | {"faulted": []}, refused | {"faulted": []}], True)
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["prs"]["Forge-AI/monorepo#1"]["checker"] = refused
     assert state.load("demo")["prs"]["Forge-AI/monorepo#1"]["checker"] == refused | {"faulted": []}
 
@@ -1351,7 +1286,7 @@ def test_a_slack_message_is_read_from_each_form_of_its_link_with_no_slack_call(s
 
 def test_edit_discards_changes_when_the_body_raises(state_root: Path) -> None:
     make("demo")
-    with pytest.raises(RuntimeError), state.edit("demo") as data:
+    with pytest.raises(RuntimeError), edit("demo") as data:
         data["orders"]["o1"] = {"text": "never saved"}
         raise RuntimeError
     assert state.load("demo")["orders"] == {}
@@ -1390,7 +1325,7 @@ def test_resolve_finds_the_newest_drive_bound_to_this_session(
     make("other", "someone-else")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "me")
     assert state.resolve() == "new"
-    with state.edit("other") as data:
+    with edit("other") as data:
         data["roles"]["communicator"] = {"session": "me", "cwd": "/work", "started": "2026-11-09T11:00:00-08:00"}
     assert state.resolve() == "other"
     assert state.session_role(state.load("other"), "me") == "communicator"
@@ -1416,7 +1351,7 @@ def test_a_drive_saved_before_sub_coordinators_loads_with_none_and_a_sub_coordin
         for order_id, project, text in (("o1", "Iris", "ship the run page"), ("o2", "Platform", "fix the alert"), ("o3", None, "a new order"))
     }
     state.save("demo", saved)
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         assert data["subcoordinators"] == {}
         data["subcoordinators"]["Iris"] = {"session": "iris", "terminal": None, "cwd": "/work", "started": "2026-11-11T02:00:00-08:00"}
     data = state.load("demo")
@@ -1435,7 +1370,7 @@ def test_a_drive_saved_before_sub_coordinators_loads_with_none_and_a_sub_coordin
 
 def test_a_jobs_agent_stays_with_the_coordinator_that_started_it_whatever_coordinator_holds_its_order_and_a_meta_held_job_takes_a_resume(state_root: Path) -> None:
     make("demo", "top", "2026-11-11T01:00:00-08:00")
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["subcoordinators"]["Iris"] = {"session": "iris", "terminal": None, "cwd": "/work", "started": "2026-11-11T02:00:00-08:00"}
         for order_id, text, project in (("o1", "ship the run page", "Iris"), ("o2", "fix the watch", "The drive"), ("o3", "Drive tooling: fix the wake", None)):
             data["orders"][order_id] = state.new_order(text, "terminal", None, {}, "2026-11-11T02:00:00-08:00") | {"project": project}
@@ -1459,21 +1394,21 @@ def test_a_jobs_agent_stays_with_the_coordinator_that_started_it_whatever_coordi
 def test_each_save_tells_each_lane_that_lost_open_orders_once_naming_them_and_their_holders_now(state_root: Path) -> None:
     created = "2026-11-11T01:00:00-08:00"
     make("demo", "top", created)
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         for order_id, project in (("o1", "Iris"), ("o2", "Iris"), ("o3", None), ("o4", "Iris")):
             data["orders"][order_id] = state.new_order(f"order {order_id}", "terminal", None, {f"order {order_id}": state.new_part()}, created) | {"project": project}
         data["orders"]["o4"]["state"] = "done"
     start = state.events_end("demo")
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["orders"]["o3"]["text"] = "a changed order"
     assert list(state.read_events("demo", start)) == []
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["subcoordinators"]["Iris"] = {"session": "iris", "terminal": None, "cwd": "/work", "started": created}
         data["orders"]["o5"] = state.new_order("order o5", "terminal", None, {"order o5": state.new_part()}, created) | {"project": "Iris"}
     with state.batch("demo"):
-        with state.edit("demo") as data:
+        with edit("demo") as data:
             data["orders"]["o3"]["owner"] = "meta"
-        with state.edit("demo") as data:
+        with edit("demo") as data:
             data["orders"]["o1"]["project"] = None
     assert [{field: event[field] for field in ("kind", "lane", "orders", "to")} for event, _ in state.read_events("demo", start)] == [
         {"kind": state.ORDERS_MOVED, "lane": "root", "orders": ["o1", "o2"], "to": ["iris"]},
@@ -1796,7 +1731,7 @@ def test_a_drive_saved_keeping_a_staging_claims_thread_as_posted_or_not_at_all_k
     said(staging, f"https://acme.slack.com/archives/{staging}/p1794694000000100", order="o9")
     kept = [[staging, second, "members"], [staging, first, "members"]]
     assert [[*where[:2], where[3]] for where in state.load("demo")["orders"]["o1"]["threads"]] == kept
-    with state.edit("demo") as drive:
+    with edit("demo") as drive:
         assert drive["members_kept"] is True
     said(staging, f"https://acme.slack.com/archives/{staging}/p1794695000000100")
     assert [[*where[:2], where[3]] for where in state.load("demo")["orders"]["o1"]["threads"]] == kept
@@ -1830,7 +1765,7 @@ def test_a_drive_saved_with_a_builders_done_on_its_own_open_pr_puts_it_back_wait
     assert (held["state"], held["said"], held["waits"], kept["state"], kept["said"]) == ("waiting", f"WAITING {open_url} to merge: {done}", ["Forge-AI/monorepo#42"], "done", "DONE the reader ships")
     posted = data["orders"]["o1"]["parts"][staging]
     assert ([state.delivered(data, "o1", part) for part in (change, staging, read_part)], posted["posted"], posted["posted_by"]) == ([False, True, False], proof, "j1")
-    with state.edit("demo") as drive:
+    with edit("demo") as drive:
         assert drive["open_dones_held"] is True
 
 
@@ -2293,7 +2228,7 @@ def test_a_drive_saved_reading_staging_passes_by_prose_case_lines_and_release_fo
         (False, None, "j7", None),
     ]
     assert ([(data["prs"][key]["tap"] or {}).get("at") for key in approves], parts[followed]["soak"]) == (["2026-11-14T10:30:00-08:00", "2026-11-14T11:30:00-08:00"], "staging:monorepo/plat-usw2-staging@346fcf4")
-    with state.edit("demo") as drive:
+    with edit("demo") as drive:
         assert (drive["staging_cases_reread"], "staging_passes_named" in drive, "staging_passes_reread" in drive) == (True, False, False)
 
 
@@ -2591,11 +2526,11 @@ def test_a_job_saved_done_or_stopped_drops_the_texts_it_holds_one_folded_into_an
     data["orders"] = {"o1": state.new_order("spike it", "terminal", None, {"spike": state.new_part()}, moment) | {"jobs": ["j1", "j2", "j3", "j4", "j5"]}}
     data["jobs"] = {job_id: state.new_job("o1", "builder", "spike it", ["spike"], moment) for job_id in ("j1", "j2", "j3", "j4", "j5")}
     state.create(data)
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         for job in data["jobs"].values():
             state.hold_text(job, wake, None)
         state.hold_text(data["jobs"]["j4"], "rebase on main first", "coordinator")
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["jobs"]["j1"].update(state="done", said="DONE the spike ran")
         data["jobs"]["j2"].update(state="stopped", said="replaced by one job per part")
         data["jobs"]["j3"].update(state="failed")
@@ -2610,7 +2545,7 @@ def test_a_job_saved_done_or_stopped_drops_the_texts_it_holds_one_folded_into_an
         "j5": [wake, "rebase on main first"],
     }
     assert ["holds to deliver" in render.job_line(data, job_id, data["jobs"][job_id]) for job_id in ("j1", "j2", "j4")] == [False, False, False]
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         state.hold_text(data["jobs"]["j1"], "one more round", "coordinator")
     assert [kept["words"] for kept in state.load("demo")["jobs"]["j1"]["undelivered"]] == ["one more round"]
 
@@ -2651,7 +2586,7 @@ def test_j4060_a_builder_failing_after_the_builder_replacing_it_was_added_stops_
         "j2": state.new_job("o1", "builder", "take its next event", ["fix the proof"], moment),
     }
     state.create(data)
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         state.take_result(data, "j1", "BLOCKED repro/j1.py exits 1")
     jobs = state.load("demo")["jobs"]
     assert {job_id: (job["state"], job["said"]) for job_id, job in jobs.items()} == {"j1": ("stopped", "replaced by j2"), "j2": ("waiting", state.NOT_STARTED)}
@@ -2667,7 +2602,7 @@ def test_j5802_a_failed_builder_stays_failed_beside_a_later_builder_that_already
         "j2": state.new_job("o1", "builder", "land it", ["fix the proof"], moment) | {"state": "done", "said": "DONE https://github.com/yasyf/cc-slack/pull/406 merged; landed"},
     }
     state.create(data)
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         state.take_result(data, "j1", "BLOCKED repro/j1.py exits 1")
     jobs = state.load("demo")["jobs"]
     assert {job_id: (job["state"], job["said"]) for job_id, job in jobs.items()} == {
@@ -3005,17 +2940,17 @@ def test_a_pr_whose_staging_tester_waits_on_a_cut_is_owed_by_the_slot_queue_and_
 
 def test_changed_since_names_each_row_committed_after_a_revision_and_none_once_the_table_no_longer_reaches_back(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     make("demo")
-    with state.edit("demo"):
+    with edit("demo"):
         pass
     rev, _ = state.changed_since("demo", 0)
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["terminal"] = "term-1"
     newest, rows = state.changed_since("demo", rev)
     assert (newest > rev, rows) == (True, {("", "terminal")})
     monkeypatch.setattr(state, "CHANGES_KEPT", 1)
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["binder"] = "term-2"
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["binder"] = "term-3"
     assert state.changed_since("demo", rev)[1] is None
 
@@ -3116,7 +3051,7 @@ def test_while_a_slot_hold_stands_only_a_tester_whose_pr_has_his_approve_is_queu
 
 def test_the_mac_queue_puts_a_priority_orders_waiting_job_first(state_root: Path) -> None:
     make("demo")
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["orders"]["o1"] = state.new_order("test on a Mac", "terminal", None, {}, state.stamp())
         data["orders"]["o2"] = data["orders"]["o1"] | {"priority": True}
         data["jobs"] |= {job_id: state.new_job(order, "builder", "test on a Mac", [], state.stamp()) | {"state": "waiting", "waits": waits} for job_id, order, waits in (("j1", "o1", ["mac-box:any"]), ("j2", "o2", ["mac-box:any"]), ("j3", "o1", ["staging:api/plat-usw2-staging@abc"]))}

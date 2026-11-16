@@ -21,8 +21,8 @@ from pathlib import Path
 from typing import Self
 
 import pytest
+from conftest import Chrome, edit
 from drive import cli, dashboard, launchd, limits, picture, slack, state, view
-from conftest import Chrome
 from test_view import drive_of, found, job, order, pr
 
 NET = dashboard.Tailnet("box", "box.tail1.ts.net", ["100.64.0.1", "fd7a::1"], "owner@example.com", False)
@@ -35,7 +35,7 @@ def test_links_lead_with_https_on_the_tailnet_name_when_the_tailnet_issues_certi
 
 
 def test_rebuild_lists_reports_only_when_jobs_directory_membership_changes(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"] = {"o1": order("ship the page", ["j1", "j2"], project="Drive", workstream="Dashboard")}
         data["jobs"] = {job_id: job("o1", "running") for job_id in ("j1", "j2")}
     folder = state.drive_dir(demo) / "jobs"

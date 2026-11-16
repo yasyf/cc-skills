@@ -9,7 +9,7 @@ from datetime import timedelta
 from pathlib import Path
 
 import pytest
-from conftest import LEAD, Answers, Judge, git_in
+from conftest import LEAD, Answers, Judge, edit, git_in
 from drive import cli, github, land, limits, refs, served, settled, slack, stage, state
 from drive.state import DriveError
 
@@ -64,13 +64,13 @@ def test_a_restack_that_moves_the_hunks_and_the_lines_around_them_carries_the_ch
     run("job", "add", "builder", "--order", "o1", "--goal", "land")
     run("pr", "add", URL, "--job", "j1", *LEAD)
     stamp = {"head": "head1", "read": "head1", "orders": ["o1"], "lines": served.digests(SMALL), "beside": {}}
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY] |= {"head": "head2", "checked": stamp}
     restacked = SMALL.replace(b"@@ -10,3 +10,3 @@ export function run() {", b"@@ -14,3 +14,3 @@ export function start() {").replace(b"1111111111aa", b"3333333333cc")
     monkeypatch.setattr(served, "change", lambda key: {"title": "Fix: run", "head": "head2", "diff": restacked.replace(b"   const flag = staff();", b"   const flag = isStaff();")})
     assert served.carry(demo, [KEY]) == [KEY]
     assert state.load(demo)["prs"][KEY]["checked"] == stamp | {"head": "head2", "read": "head2"}
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY] |= {"head": "head3"}
     monkeypatch.setattr(served, "change", lambda key: {"title": "Fix: run", "head": "head3", "diff": SMALL.replace(b"+  return !flag;", b"+  return flag && !staff();")})
     assert served.carry(demo, [KEY]) == []
@@ -90,12 +90,12 @@ def test_a_restack_keeps_the_checks_pass_on_each_file_whose_added_and_removed_li
     run("pr", "add", URL, "--job", "j1", *LEAD)
     reads = {"head": "head1", "diff": LAPSE + WAKES}
     monkeypatch.setattr(served, "change", lambda key: {"title": "Fix: watches wake their agent", "body": ""} | reads)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY] |= {"head": "head1", "checked": None}
     assert served.verdict(demo, KEY).startswith(served.CHECKED)
     restacked = LAPSE.replace(b"@@ -40,3 +40,6 @@", b"@@ -52,3 +52,6 @@").replace(b" \tdefer w.mu.Unlock()", b" \tdefer w.unlock()").replace(b"4444444444dd", b"8888888888bb")
     reads |= {"head": "head2", "diff": restacked + WAKES.replace(b"description()", b"description(ctx)")}
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["head"] = "head2"
     assert served.carry(demo, [KEY]) == []
     lapsed = {"order": "o1", "words": "gets an inbox message when it changes", "file": "watch/lapse.go", "change": "watch/lapse.go cancels a watch that lapsed, which he asked for no such lapse"}
@@ -106,7 +106,7 @@ def test_a_restack_keeps_the_checks_pass_on_each_file_whose_added_and_removed_li
     judge.against = [lapsed]
     assert served.verdict(demo, KEY).startswith(f"{served.CHECKED} against the words of o1 at head2")
     run("order", "add", "--title", "Second", "--project", "The drive", "--workstream", "Drive tooling", "suspend a chat past its limit")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["carries"]["o2"] = []
         data["prs"][KEY]["head"] = "head3"
     reads |= {"head": "head3"}
@@ -139,7 +139,7 @@ def test_a_ruling_on_code_is_owed_once_by_a_change_to_that_code_its_missing_writ
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "key the cache on the run")
     run("job", "add", "builder", "--order", "o1", "--goal", "land")
     run("pr", "add", URL, "--job", "j1", *LEAD)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["brief_flags"] = {"ruling": ["c0de123"]}
     recorded.shown |= {"c0de123": CACHE_RULING, served.WRITES_RULING: WHERE_WRITTEN, served.DEEPEST_RULING: WHERE_DEEP}
     home, based, asked = ["Forge-AI/monorepo"], {}, []
@@ -149,7 +149,7 @@ def test_a_ruling_on_code_is_owed_once_by_a_change_to_that_code_its_missing_writ
     write = added("go/sand/cache/AGENTS.md", b"- Ruled Nov 11: Key the cache on the run id")
 
     def judged_at(n: int, diff: bytes) -> str:
-        with state.edit(demo) as data:
+        with edit(demo) as data:
             data["prs"][KEY]["head"] = f"head{n}"
         monkeypatch.setattr(served, "change", lambda key: {"title": "Fix: key the cache", "body": "", "base": "dev", "head": f"head{n}", "diff": diff})
         return served.verdict(demo, KEY)
@@ -192,7 +192,7 @@ def test_a_pr_writing_any_agents_md_owed_or_ordered_has_the_judge_read_his_rulin
     recorded.shown |= {served.WRITES_RULING: WHERE_WRITTEN, served.DEEPEST_RULING: WHERE_DEEP}
 
     def judged_at(n: int, diff: bytes) -> str:
-        with state.edit(demo) as data:
+        with edit(demo) as data:
             data["prs"][KEY]["head"] = f"head{n}"
         monkeypatch.setattr(served, "change", lambda key: {"title": "New: release tooling keeps simplifying", "body": "", "base": "dev", "head": f"head{n}", "diff": diff})
         return served.verdict(demo, KEY)
@@ -215,7 +215,7 @@ def test_a_pr_bound_to_a_ruling_on_a_directory_is_judged_on_the_lines_its_diff_c
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "key the cache on the run")
     run("job", "add", "builder", "--order", "o1", "--goal", "land")
     run("pr", "add", URL, "--job", "j1", *LEAD)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["brief_flags"] = {"ruling": ["c0de123"]}
     recorded.shown |= {"c0de123": CACHE_RULING, served.WRITES_RULING: WHERE_WRITTEN}
     home = ["Forge-AI/monorepo"]
@@ -223,7 +223,7 @@ def test_a_pr_bound_to_a_ruling_on_a_directory_is_judged_on_the_lines_its_diff_c
     monkeypatch.setattr(github, "graphql", lambda text, what, max_age="0s": {"data": {"repository": {alias: {"text": CACHE_GUIDE} for alias, _, _ in GUIDE_AT.findall(text)}}})
 
     def judged_at(n: int) -> str:
-        with state.edit(demo) as data:
+        with edit(demo) as data:
             data["prs"][KEY]["head"] = f"head{n}"
         monkeypatch.setattr(served, "change", lambda key: {"title": "Fix: key the cache", "body": "", "base": "dev", "head": f"head{n}", "diff": CACHE_CODE})
         return served.verdict(demo, KEY)
@@ -245,7 +245,7 @@ def test_a_stack_none_of_whose_prs_changes_a_file_under_a_ruled_directory_is_nev
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "serve the duck tables")
     run("job", "add", "builder", "--order", "o1", "--goal", "land")
     keys = stacked(run, demo, [42, 43], "dev")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["brief_flags"] = {"ruling": ["c0de123"]}
     recorded.shown |= {"c0de123": CACHE_RULING, served.WRITES_RULING: WHERE_WRITTEN}
     monkeypatch.setattr(github, "checkout_repo", lambda cwd: "Forge-AI/monorepo")
@@ -255,7 +255,7 @@ def test_a_stack_none_of_whose_prs_changes_a_file_under_a_ruled_directory_is_nev
     assert served.coded(state.load(demo), keys[0], ["c0de123"], {key: served.change(key) for key in keys}) == []
     assert served.verdict(demo, keys[0]).startswith(f"{served.CHECKED} against the words of o1 at head42") and "go/sand/cache" not in judge.asked[-1][0]
     diffs[43] = added("go/sand/cache/lookup.go", b"func lookup() string { return session.ID }")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][keys[1]]["head"] = "head43b"
     judge.against = [{"order": "c0de123", "words": "Key the cache on the run id", "file": "go/sand/cache/lookup.go", "change": "go/sand/cache/lookup.go:1 at head43b keys on the session id"}]
     refused = served.verdict(demo, keys[0])
@@ -264,7 +264,7 @@ def test_a_stack_none_of_whose_prs_changes_a_file_under_a_ruled_directory_is_nev
 
 
 def open_rows(demo: str, rows: dict[int, tuple[str, str, str]]) -> dict:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         for number, (branch, held, changes) in rows.items():
             data["prs"][f"Forge-AI/monorepo#{number}"] = data["prs"][KEY] | {
                 "url": f"https://github.com/Forge-AI/monorepo/pull/{number}",
@@ -325,7 +325,7 @@ def test_a_ruling_labelled_with_a_file_rules_on_the_directory_holding_it_so_its_
     for path in kept:
         (tmp_path / path).parent.mkdir(parents=True)
         (tmp_path / path).touch()
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["roles"]["coordinator"]["cwd"] = str(tmp_path)
     recorded.shown |= {"c0de123": CACHE_RULING | {"tags": ["scope:durable", "code:go/sand/cache/key.go"]}}
     asked: list[list[tuple[str, str, str]]] = []
@@ -373,7 +373,7 @@ def test_a_job_naming_a_pr_the_drive_keeps_no_row_for_is_judged_beside_only_the_
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "land it")
     run("job", "add", "builder", "--order", "o1", "--goal", "land")
     run("pr", "add", URL, "--job", "j1", *LEAD)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["head"] = "head1"
         data["jobs"]["j1"]["prs"].append("https://github.com/Forge-AI/monorepo/pull/43")
     assert served.verdict(demo, KEY).startswith(served.CHECKED)
@@ -385,7 +385,7 @@ def test_a_check_process_starts_once_the_drive_lock_is_let_go_and_its_pr_is_mark
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "land it")
     run("job", "add", "builder", "--order", "o1", "--goal", "land")
     run("pr", "add", URL, "--job", "j1", *LEAD)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY] |= {"head": "head1", "checker": None}
     held = []
 
@@ -414,7 +414,7 @@ def clocks(run: Callable[..., tuple[int, str]]) -> None:
 def stacked(run: Callable[..., tuple[int, str]], demo: str, numbers: list[int], base: str, parts: tuple[str, ...] = ()) -> list[str]:
     for number in numbers:
         assert run("pr", "add", f"https://github.com/Forge-AI/monorepo/pull/{number}", "--job", "j1", *(word for part in parts for word in ("--part", part)), *LEAD)[0] == 0
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         for below, number in zip([base, *(f"b{number}" for number in numbers)], numbers, strict=False):
             under = next((key for key, pr in data["prs"].items() if pr["branch"] == below and pr["state"] == "open"), None)
             data["prs"][f"Forge-AI/monorepo#{number}"] |= {"head": f"head{number}", "branch": f"b{number}", "base": below, "under": under}
@@ -432,7 +432,7 @@ def test_one_check_judges_a_whole_stack_and_keeps_its_verdict_on_each_pr_so_a_re
     data = state.load(demo)
     assert [data["prs"][key]["checked"]["beside"] for key in keys] == [{keys[1]: "head43", keys[2]: "head44"}, {keys[0]: "head42", keys[2]: "head44"}, {keys[0]: "head42", keys[1]: "head43"}]
     assert all(data["prs"][key]["checker"]["outcome"].startswith(served.CHECKED) and served.stands(data, key, tuple(keys)) for key in keys)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][keys[2]]["head"] = "head44r"
     assert served.carry(demo, keys) == [keys[2]]
     data = state.load(demo)
@@ -440,7 +440,7 @@ def test_one_check_judges_a_whole_stack_and_keeps_its_verdict_on_each_pr_so_a_re
     joined = (*keys, *stacked(run, demo, [45], "b44", CLOCKS))
     data = state.load(demo)
     assert land.landing_stacks(data)[keys[0]] == joined and not any(served.stands(data, key, joined) for key in keys)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][keys[1]]["head"] = "head43b"
     data = state.load(demo)
     assert not any(state.checked(data, data["prs"][key]) for key in keys)
@@ -480,7 +480,7 @@ def test_the_judge_reads_each_prs_files_at_its_head_from_a_tree_kept_for_those_h
         git_in(clone, "add", "-A")
         git_in(clone, "commit", "-q", "-m", key)
         heads[key] = git_in(clone, "rev-parse", "HEAD")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["roles"]["coordinator"]["cwd"] = str(clone)
     met = {"changed": [], "against": []}
     seen: dict[str, object] = {}
@@ -515,7 +515,7 @@ def test_a_stack_whose_middle_pr_writes_the_ruling_into_agents_md_passes_in_its_
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "key the cache on the run")
     run("job", "add", "builder", "--order", "o1", "--goal", "land")
     keys = stacked(run, demo, [42, 43, 44, 45], "dev")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["brief_flags"] = {"ruling": ["c0de123"]}
     recorded.shown |= {"c0de123": CACHE_RULING, served.WRITES_RULING: WHERE_WRITTEN}
     asked: list[list[tuple[str, str, str]]] = []
@@ -536,7 +536,7 @@ def test_a_not_ready_judged_apart_from_the_stack_its_pr_sits_in_is_no_try_so_the
 ) -> None:
     clocks(run)
     keys = stacked(run, demo, [42, 43], "main", CLOCKS)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         for pid, key in enumerate(keys, start=100):
             pr = data["prs"][key]
             pr["checker"] = {
@@ -546,7 +546,7 @@ def test_a_not_ready_judged_apart_from_the_stack_its_pr_sits_in_is_no_try_so_the
     data = state.load(demo)
     assert [served.tried(demo, data, key, tuple(keys), moment) for key in keys] == [False, False]
     assert [served.tried(demo, data, key, (key,), moment) for key in keys] == [True, True]
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][keys[1]]["checker"]["pid"] = 100
     data = state.load(demo)
     assert [served.tried(demo, data, key, tuple(keys), moment) for key in keys] == [True, True]
@@ -555,15 +555,15 @@ def test_a_not_ready_judged_apart_from_the_stack_its_pr_sits_in_is_no_try_so_the
 def test_a_not_ready_stands_while_the_answers_binding_its_job_come_back_in_another_order_and_is_judged_again_once_one_is_added(run: Callable[..., tuple[int, str]], demo: str) -> None:
     clocks(run)
     [key] = stacked(run, demo, [42], "main", CLOCKS)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["brief_flags"] = {"ruling": ["c0de123", "beef456"]}
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         pr = data["prs"][key]
         pr["checker"] = {"head": pr["head"], "pid": 100, "at": state.stamp(), "orders": state.served_orders(data, pr), "answers": served.binds(demo, data, pr), "outcome": f"{served.NOT_READY}: {key} goes against his words", "against": ""}
         data["jobs"]["j1"]["brief_flags"]["ruling"].reverse()
     moment = state.parse_time(state.stamp())
     assert served.tried(demo, state.load(demo), key, (key,), moment)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["brief_flags"]["ruling"].append("f00d789")
     assert not served.tried(demo, state.load(demo), key, (key,), moment)
 
@@ -573,7 +573,7 @@ def test_a_pr_added_naming_its_part_is_judged_on_that_part_alone_and_one_naming_
 ) -> None:
     clocks(run)
     assert run("pr", "add", URL, "--job", "j1", "--part", CLOCKS[0], *LEAD)[0] == 0
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["head"] = "head1"
     assert served.verdict(demo, KEY).startswith(served.CHECKED)
     assert f"this change delivers: {CLOCKS[0]}\n  other changes deliver: {'; '.join(CLOCKS[1:])}" in judge.asked[-1][0]
@@ -634,7 +634,7 @@ def test_a_moved_check_carries_beside_his_approve_in_each_shape_a_drive_stored_i
 ) -> None:
     tap = STORED_TAPS[stored]
     moved = moved_check(run, demo, monkeypatch)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY] |= moved | {"tap": tap}
     assert served.carry(demo, [KEY]) == [KEY]
     pr = state.load(demo)["prs"][KEY]
@@ -647,10 +647,10 @@ def test_his_approve_recorded_by_pr_set_tapped_stays_on_its_head_through_a_push_
 ) -> None:
     moved = moved_check(run, demo, monkeypatch)
     link = "https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794173216327589"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["head"] = "head1"
     assert run("pr", "set", URL, "--tapped", "Approve", "--tap-source", link)[0] == 0
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY] |= moved
     assert served.carry(demo, [KEY]) == [KEY]
     pr = state.load(demo)["prs"][KEY]
@@ -792,7 +792,7 @@ def test_a_flake_fix_at_a_product_code_cause_is_judged_against_his_ruling_alone_
     data = state.load(demo)
     pr = data["prs"][KEY]
     assert (pr["exempt"], pr["wants_tap"], stage.carded(pr), state.cleared(pr), state.served_orders(data, pr)) == ("flake fix", True, True, False, [])
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["head"] = "head1"
     monkeypatch.setattr(served, "change", lambda key: {"title": "Fix: a chat reads idle once its run ends, so irisServe.e2e.ts stops flaking", "body": "", "head": "head1", "diff": STATUS})
     assert served.verdict(demo, KEY).startswith(f"{served.CHECKED} against his ruling {state.FLAKE_RULING} at head1")
@@ -811,7 +811,7 @@ def test_a_not_ready_line_carries_each_answer_his_design_line_cites_whole_for_it
     run("job", "add", "builder", "--order", "o1", "--goal", "land")
     monkeypatch.setattr(github, "files", lambda key: ["api/run.ts"])
     assert run("pr", "add", URL, "--job", "j1", *LEAD)[0] == 0
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["head"] = "head1"
         state.cite(data["prs"][KEY], "DESIGN: the handoff metric stays, by {answer:11f8cf2}")
     monkeypatch.setattr(served, "change", lambda key: {"title": "Fix: time each handoff", "body": "", "head": "head1", "diff": SMALL})
@@ -833,7 +833,7 @@ def test_a_not_ready_line_leaves_out_each_answer_his_brief_binds_that_no_objecti
     run("job", "add", "builder", "--order", "o1", "--goal", "land")
     monkeypatch.setattr(github, "files", lambda key: ["api/run.ts"])
     assert run("pr", "add", URL, "--job", "j1", *LEAD)[0] == 0
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["head"] = "head1"
         data["jobs"]["j1"]["brief_flags"] = {"ruling": ["a11c0de", "b22c0de"]}
     recorded.shown |= {
@@ -1002,7 +1002,7 @@ def test_a_check_that_objects_takes_back_the_approve_his_standing_approval_gave_
     run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch, approval: str | None, taken: bool
 ) -> None:
     moved_check(run, demo, monkeypatch)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY] |= {"head": "head2", "tap": state.new_tap("Approve", "head2", "terminal", card=[KEY], approval=approval)}
     result = {"heads": {KEY: "head2"}, "at": state.stamp(), "orders": {KEY: ["o1"]}, "answers": {KEY: []}, "outcomes": {KEY: "NOT READY"}, "against": "his words o1", "checked": {}, "carried": None, "pid": os.getpid()}
     served.kept(demo, KEY, result)
@@ -1046,7 +1046,7 @@ def test_a_not_ready_on_a_card_still_asking_him_stands_until_his_answer_ends_it(
     clocks(run)
     [key] = stacked(run, demo, [42], "main", CLOCKS)
     waits = "demo:j1-679400"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["questions"].append(state.new_question(None, ASKED, state.stamp()) | {"waits": waits})
         pr = data["prs"][key]
         pr["checker"] = {
@@ -1055,7 +1055,7 @@ def test_a_not_ready_on_a_card_still_asking_him_stands_until_his_answer_ends_it(
         }
     moment = state.parse_time(state.stamp()) + served.RETRY * 3
     assert served.tried(demo, state.load(demo), key, (key,), moment)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["questions"][-1]["closed"] = state.new_close("answered", "Land it whole", None)
     assert not served.tried(demo, state.load(demo), key, (key,), moment)
 
@@ -1067,7 +1067,7 @@ def test_a_check_a_usage_limit_stopped_waits_for_its_reset_while_one_check_a_ret
     keys = stacked(run, demo, [42, 43], "main", CLOCKS)
     started = state.parse_time(state.stamp())
     until = started + timedelta(days=2)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         for minutes, key in enumerate(keys):
             pr = data["prs"][key]
             pr["checker"] = {
@@ -1078,6 +1078,6 @@ def test_a_check_a_usage_limit_stopped_waits_for_its_reset_while_one_check_a_ret
     data = state.load(demo)
     assert [served.tried(demo, data, key, (key,), later) for key in keys] == [True, False]
     assert [served.tried(demo, data, key, (key,), until) for key in keys] == [False, False]
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][keys[1]]["checker"] |= {"outcome": f"{served.CHECKED} against the words of o1", "until": None}
     assert served.tried(demo, state.load(demo), keys[0], (keys[0],), started + timedelta(minutes=5)) is False

@@ -7,8 +7,36 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
-from conftest import Cci, Chrome, Images, Jev, Judge, Redraws, card_node, card_reads, changed_reads, unreserved
-from drive import agents, card, cli, github, land, limits, picture, render, settled, stage, stall, state, superseded, view, watch
+from conftest import (
+    Cci,
+    Chrome,
+    Images,
+    Jev,
+    Judge,
+    Redraws,
+    card_node,
+    card_reads,
+    changed_reads,
+    edit,
+    unreserved,
+)
+from drive import (
+    agents,
+    card,
+    cli,
+    github,
+    land,
+    limits,
+    picture,
+    render,
+    settled,
+    stage,
+    stall,
+    state,
+    superseded,
+    view,
+    watch,
+)
 from drive.github import GithubError
 
 URL = "https://github.com/Forge-AI/monorepo/pull/42"
@@ -512,7 +540,7 @@ def test_a_schema_named_test_fixture_stores_no_data_while_a_migration_beside_it_
 
 def test_a_card_finds_a_migration_past_the_first_100_files_its_read_lists_in_the_paths_the_drive_kept_with_no_read_of_its_files(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
     listed = tuple(f"lib/part{n}.py" for n in range(100))
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         assert state.mark_dangerous(data, "Forge-AI/monorepo#42", HEAD, [*listed, MIGRATION]) is None
     monkeypatch.setattr(card, "run", answering(pr_json(files=listed) | {"changedFiles": 101}))
     monkeypatch.setattr(github, "files", lambda key: pytest.fail(f"drive card read the files of {key}"))
@@ -625,7 +653,7 @@ def test_a_card_github_refuses_draws_from_its_last_read_with_the_state_the_drive
         raise GithubError("ccx: GitHub rate limit floor: app graphql 0/10000 left")
 
     monkeypatch.setattr(card, "run", refused)
-    with state.edit(drive) as data:
+    with edit(drive) as data:
         data["prs"]["Forge-AI/monorepo#42"]["state"] = "merged"
     [drawn] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}], "redraw": True})["cards"]
     assert (drawn["card"]["status"], drawn["card"]["prs"][0]["summary"]) == ("done", SUMMARY)
@@ -636,7 +664,7 @@ def test_a_card_github_refuses_for_a_pr_no_card_read_draws_from_its_drive_entry_
         raise GithubError("ccx: GitHub rate limit floor: app graphql 0/10000 left")
 
     monkeypatch.setattr(card, "run", refused)
-    with state.edit(drive) as data:
+    with edit(drive) as data:
         data["prs"]["Forge-AI/monorepo#42"]["review"] = "approved"
     [drawn] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["cards"]
     shown = (drawn["card"]["status"], drawn["card"]["title"], drawn["card"]["options"], drawn["card"]["prs"][0]["summary"])
@@ -648,11 +676,11 @@ def test_no_card_is_drawn_for_a_pr_someone_else_opened_unless_the_order_it_serve
 ) -> None:
     monkeypatch.setattr(card, "run", answering(pr_json()))
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "retry flaky uploads")
-    with state.edit(drive) as data:
+    with edit(drive) as data:
         data["prs"]["Forge-AI/monorepo#42"]["author"] = "rowan"
     reply = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})
     assert (reply["cards"], [skipped["reason"] for skipped in reply["skipped"]]) == ([], [state.foreign("Forge-AI/monorepo#42", "rowan", [])])
-    with state.edit(drive) as data:
+    with edit(drive) as data:
         data["orders"]["o1"]["text"] = "land #42 once it is green"
     assert ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["cards"]
 
@@ -665,7 +693,7 @@ def test_prs_matches_the_lowercase_repo_cc_slack_asks_with(drive: str, monkeypat
 
 def test_a_pr_whose_wait_holds_redraws_his_open_card_with_its_buttons(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(card, "run", answering(pr_json()))
-    with state.edit(drive) as data:
+    with edit(drive) as data:
         data["prs"]["Forge-AI/monorepo#42"]["waits"] = ["release:dashboard:Forge-AI/monorepo#7"]
     tap_card = {"url": "https://acme.slack.com/archives/D123/p1794029589141509", "prs": [URL], "asked": "2026-11-09T08:00:00-08:00", "card": {"title": "Fix: approve retry flaky uploads?"}}
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [tap_card], "closed": []})
@@ -685,7 +713,7 @@ def test_a_drive_tooling_pr_whose_his_words_say_none_draws_its_card_with_approve
     body = FIX_BODY.split("## His words, step by step")[0] + "## His words, step by step\nNone: drive tooling.\n"
     monkeypatch.setattr(card, "run", answering(pr_json(body=body)))
     assert cli.main(["order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: a tooling PR lands on his Approve", "--drive", drive]) == 0
-    with state.edit(drive) as data:
+    with edit(drive) as data:
         data["prs"]["Forge-AI/monorepo#42"]["serves"] = "o2"
     reply = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})
     assert [(drawn["number"], drawn["card"]["status"]) for drawn in reply["cards"]] == [(42, "needs_you")]
@@ -703,7 +731,7 @@ def test_a_drive_tooling_pr_whose_his_words_say_none_draws_its_card_with_approve
 def test_a_pr_his_card_would_offer_no_approve_draws_no_fresh_card_and_wakes_no_one_yet_its_posted_card_redraws(
     drive: str, monkeypatch: pytest.MonkeyPatch, held: dict, pr_state: str, why: str
 ) -> None:
-    with state.edit(drive) as data:
+    with edit(drive) as data:
         data["prs"]["Forge-AI/monorepo#42"] |= held
     monkeypatch.setattr(card, "run", answering(pr_json(pr_state=pr_state)))
     assert ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]}) == {
@@ -724,7 +752,7 @@ def test_a_card_that_waits_on_no_tap_draws_without_what_he_will_hate_most(drive:
 
 def test_an_open_pr_only_its_upstream_maintainers_merge_waits_on_them_with_no_card_deadline_or_stall_while_red_still_wakes_its_builder(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
     key, url = "stablyai/orca#40518", "https://github.com/stablyai/orca/pull/40518"
-    with state.edit(drive) as data:
+    with edit(drive) as data:
         data["prs"][key] = kept_entry(wants_tap=False, checks="pass") | {"url": url, "permission": "READ", "reviews_required": 0}
         data["jobs"]["j1"] |= {"state": "waiting", "said": f"PUSHED {url}"}
     data = state.load(drive)
@@ -738,7 +766,7 @@ def test_an_open_pr_only_its_upstream_maintainers_merge_waits_on_them_with_no_ca
     ]
     [drawn] = ask({"prs": [{"repo": "stablyai/orca", "number": 40518}], "redraw": True})["cards"]
     assert "options" not in drawn["card"]
-    with state.edit(drive) as data:
+    with edit(drive) as data:
         data["prs"][key] |= {"checks": "fail", "failed_checks": ["test"]}
     red = stage.of(state.load(drive), key, view.NO_CARDS)
     assert (red.name, red.owner) == ("red", stage.BUILDER)
@@ -777,7 +805,7 @@ def test_a_refusal_cc_slack_gives_again_after_every_draw_is_told_once_until_its_
 def test_a_refusal_and_a_tap_are_written_with_the_lane_hearing_their_order_then(drive: str) -> None:
     assert ask({"refused": [{"repo": "Forge-AI/monorepo", "number": 42, "reason": "card needs a title"}]}) == {"refused": 1}
     assert cli.main(["order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page", "--drive", drive]) == 0
-    with state.edit(drive) as data:
+    with edit(drive) as data:
         data["prs"]["Forge-AI/monorepo#42"]["order"] = "o1"
         cli.bind_subcoordinator(data, "Iris", {"session": "iris-1", "terminal": None, "cwd": "/work", "started": state.stamp()})
     answer = {"repo": "Forge-AI/monorepo", "number": 42, "waits": "", "label": "Approve", "heads": {}, "action_ts": "", "source": "s"}
@@ -789,10 +817,10 @@ def test_a_tap_goes_to_the_drive_whose_entry_for_the_pr_was_updated_last(drive: 
     copy = judged_job(state.new_drive("copy", "coordinator", "s2", "/work"))
     copy["prs"] = {"Forge-AI/monorepo#42": {**kept_entry(), "updated": "2026-11-11T00:20:00-08:00"}}
     state.create(copy)
-    with state.edit(drive) as data:
+    with edit(drive) as data:
         data["prs"]["Forge-AI/monorepo#42"]["updated"] = "2026-11-11T00:42:12-08:00"
     assert card.drive_prs()["Forge-AI/monorepo#42"][0] == drive
-    with state.edit("copy") as data:
+    with edit("copy") as data:
         data["prs"]["Forge-AI/monorepo#42"]["updated"] = "2026-11-11T00:43:00-08:00"
     assert card.drive_prs()["Forge-AI/monorepo#42"][0] == "copy"
 
@@ -850,7 +878,7 @@ NEWER_CARD = "https://acme.slack.com/archives/D123/p1794200000000100"
 
 
 def test_a_tap_on_a_question_card_cc_slack_forgot_is_recorded_and_ends_its_question(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    with state.edit(drive) as data:
+    with edit(drive) as data:
         data["jobs"]["j3"] = state.new_job("o1", "builder", "the door", [], "2026-11-08T20:00:00-08:00")
         data["jobs"]["j3"]["questions"] = [state.new_question("asks/j3-ring.md", "Ring or knock?", "2026-11-08T20:20:00-08:00", card=NEWER_CARD) | {"waits": f"{drive}:j3-661440"}]
     monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS)
@@ -868,7 +896,7 @@ def test_a_tap_on_a_question_card_cc_slack_forgot_is_recorded_and_ends_its_quest
 def test_his_tap_the_drive_takes_two_hours_late_is_held_on_every_job_it_frees_but_one_made_after_it(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
     tapped = datetime.fromtimestamp(1794200001.0001).astimezone()
     took = tapped + timedelta(hours=2)
-    with state.edit(drive) as data:
+    with edit(drive) as data:
         data["jobs"]["j1"].update(created=state.stamp(tapped - timedelta(hours=3)), waits=["j3"])
         data["jobs"]["j3"] = state.new_job("o1", "builder", "the door", [], state.stamp(tapped - timedelta(hours=1)))
         data["jobs"]["j3"]["questions"] = [state.new_question("asks/j3-ring.md", "Ring or knock?", state.stamp(tapped - timedelta(minutes=30)), card=NEWER_CARD) | {"waits": f"{drive}:j3-661440"}]
@@ -886,7 +914,7 @@ def test_his_tap_the_drive_takes_two_hours_late_is_held_on_every_job_it_frees_bu
 def test_his_tap_answers_another_jobs_card_asking_his_question_in_the_same_words_but_its_punctuation_and_frees_the_builder_waiting_on_it(
     drive: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    with state.edit(drive) as data:
+    with edit(drive) as data:
         data["jobs"]["j3"] = state.new_job("o1", "builder", "the lander", [], "2026-11-08T20:00:00-08:00")
         data["jobs"]["j4"] = state.new_job("o1", "builder", "the lander, again", [], "2026-11-08T20:10:00-08:00")
         data["jobs"]["j5"] = state.new_job("o1", "builder", "the prose merge", [], "2026-11-08T20:15:00-08:00") | {"waits": [f"{drive}:j4-661600"]}
@@ -914,7 +942,7 @@ def test_his_tap_answers_another_jobs_card_asking_his_question_in_the_same_words
 def test_his_tap_ends_its_question_before_cci_takes_its_answer_record_so_a_refusal_holds_no_builder_and_cc_slacks_run_again_posts_it_once(
     drive: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    with state.edit(drive) as data:
+    with edit(drive) as data:
         data["jobs"]["j3"] = state.new_job("o1", "builder", "the door", [], "2026-11-12T08:00:00-08:00")
         data["jobs"]["j3"]["questions"] = [state.new_question("asks/j3-ring.md", "Ring or knock?", "2026-11-12T08:20:00-08:00", card=NEWER_CARD) | {"waits": f"{drive}:j3-661440"}]
     monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS)
@@ -939,7 +967,7 @@ def test_his_restart_tap_on_a_safeguards_card_runs_the_stopped_job_again_in_a_fr
 ) -> None:
     file = state.drive_dir(drive) / "asks" / "j3-5afe0001.md"
     stop = {"worker": "a3", "turn": "2026-11-12T08:30:00.000Z", "terminal": None, "at": "2026-11-12T08:30:01-08:00", "tries": 1, "pid": None}
-    with state.edit(drive) as data:
+    with edit(drive) as data:
         data["jobs"]["j3"] = state.new_job("o1", "builder", "the door", [], "2026-11-12T08:00:00-08:00")
         data["jobs"]["j3"].update(state="stopped", agent="a3", where="local", model=watch.SAFEGUARD_MODEL, said=f"{watch.SAFEGUARDED} 3 times", safeguarded=[stop] * 3, safeguard_card=str(file))
         data["jobs"]["j3"]["questions"] = [state.new_question(str(file), "Restart the stopped job on the door?", "2026-11-12T08:31:00-08:00", card=NEWER_CARD) | {"waits": f"{drive}:j3-661440"}]
@@ -989,7 +1017,7 @@ def test_his_tap_failing_again_on_cc_slacks_retry_tells_the_meta_session_by_a_de
 def test_his_words_in_a_cards_other_box_that_only_ask_about_it_end_nothing_and_record_nothing_until_words_of_his_pick(
     drive: str, monkeypatch: pytest.MonkeyPatch, jev: Jev
 ) -> None:
-    with state.edit(drive) as data:
+    with edit(drive) as data:
         data["jobs"]["j3"] = state.new_job("o1", "builder", "the door", [], "2026-11-12T08:00:00-08:00")
         data["jobs"]["j3"]["questions"] = [state.new_question("asks/j3-ring.md", "Ring or knock?", "2026-11-12T08:20:00-08:00", card=NEWER_CARD) | {"waits": f"{drive}:j3-661440"}]
     monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS)
@@ -1016,7 +1044,7 @@ def test_his_words_in_a_cards_other_box_that_only_ask_about_it_end_nothing_and_r
 
 def two_questions_of_j3(drive: str, monkeypatch: pytest.MonkeyPatch) -> tuple[list[tuple[str, str, str, bool]], list[list[dict]]]:
     """j3's older question on one card and its newer one on another, as cc-slack lists his cards; each card the drive closes in place, and each record batch posted."""
-    with state.edit(drive) as data:
+    with edit(drive) as data:
         data["jobs"]["j3"] = state.new_job("o1", "builder", "the door", [], "2026-11-08T20:00:00-08:00")
         data["jobs"]["j3"]["questions"] = [
             state.new_question("asks/j3-bell.md", "Bell or knocker?", "2026-11-08T20:10:00-08:00", card=OLDER_CARD) | {"waits": f"{drive}:j3-661000"},
@@ -1055,7 +1083,7 @@ def test_his_tap_on_a_jobs_newer_question_ends_the_older_one_it_decides_whose_ca
     ]
     assert answered == [(OLDER_CARD, "Ring", NEWER_CARD, False)]
     assert [answer["seq"] for answer in job["undelivered"]] == ["661500"]
-    with state.edit(drive) as data:
+    with edit(drive) as data:
         data["jobs"]["j5"] = state.new_job("o1", "builder", "the hinge", [], "2026-11-08T20:00:00-08:00") | {"undelivered": list(job["undelivered"])}
         other_card = {**job["undelivered"][0], "seq": "661499", "words": f'His answer on card {drive}:j3-661000 ({OLDER_CARD}), verbatim: "Ring"'}
         data["jobs"]["j6"] = state.new_job("o1", "builder", "the bell", [], "2026-11-08T20:00:00-08:00") | {"undelivered": [other_card]}
@@ -1119,7 +1147,7 @@ def test_his_undo_is_recorded_in_cc_notes_once_under_its_cards_question_as_never
 
 def test_his_tap_on_a_card_asking_him_to_lift_an_answer_records_his_answer_against_that_one_and_his_undo_takes_back_its_supersede(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
     two_questions_of_j3(drive, monkeypatch)
-    with state.edit(drive) as data:
+    with edit(drive) as data:
         data["jobs"]["j3"]["questions"][1]["unsettled"] = "3537819: Jev reads the recommended option as breaking it"
     given: list[tuple[str, list[str]]] = []
     unlifted: list[tuple[str, list[str]]] = []
@@ -1138,7 +1166,7 @@ def test_his_undo_reopens_the_question_his_words_under_the_card_answered_and_eac
 ) -> None:
     two_questions_of_j3(drive, monkeypatch)
     words = state.new_close("answered", "why not just ring twice?", f"{NEWER_CARD[:-6]}900100?thread_ts=1794200000.000100", seq="661450")
-    with state.edit(drive) as data:
+    with edit(drive) as data:
         data["jobs"]["j3"]["questions"][1]["closed"] = words
         data["jobs"]["j4"] = state.new_job("o1", "builder", "the bell", [], "2026-11-08T20:00:00-08:00")
         data["jobs"]["j4"]["questions"] = [state.new_question("asks/j4-ring.md", "Ring or knock?", "2026-11-08T20:30:00-08:00") | {"closed": words | {"at": state.stamp()}}]
@@ -1159,7 +1187,7 @@ def test_answer_stores_his_tap_and_appends_a_tap_event(drive: str) -> None:
         "action_ts": "1762700000.000100",
         "source": "slack",
     }
-    with state.edit(drive) as data:
+    with edit(drive) as data:
         data["prs"]["Forge-AI/monorepo#42"]["fundamental"] = "rewritten to do the opposite"
     assert ask({"answer": answer}) == {"ok": True}
     stored = state.load(drive)["prs"]["Forge-AI/monorepo#42"]
@@ -1190,13 +1218,13 @@ def test_his_approve_starts_the_lander_on_a_green_monorepo_pr_at_once_and_leaves
     assert cli.main(["order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page", "--drive", drive]) == 0
     monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS)
     view.refresh_cards(drive)
-    with state.edit(drive) as data:
+    with edit(drive) as data:
         data["jobs"]["j1"] = state.new_job("o1", "builder", "the run page", [], state.stamp())
         data["prs"]["Forge-AI/monorepo#42"] |= {"order": "o1", "checks": "fail", "review": "approved"}
     answer = {"repo": "Forge-AI/monorepo", "number": 42, "waits": asked_waits(42), "label": "Approve", "heads": {}, "action_ts": "", "source": "s"}
     assert ask({"answer": answer}) == {"ok": True}
     assert landers == []
-    with state.edit(drive) as data:
+    with edit(drive) as data:
         data["prs"]["Forge-AI/monorepo#42"]["checks"] = "pass"
     assert ask({"answer": answer}) == {"ok": True}
     assert landers == [("Forge-AI/monorepo#42",)]
@@ -1212,7 +1240,7 @@ def test_his_approve_on_an_incidents_repair_his_open_card_holds_picks_its_recomm
     drive: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]], asker: str, holds: str | None
 ) -> None:
     waits = f"{drive}:{asker}-1794626572499"
-    with state.edit(drive) as data:
+    with edit(drive) as data:
         data["orders"]["o1"] |= {"incident": True, "jobs": list(dict.fromkeys(["j1", asker]))}
         data["jobs"].setdefault(asker, state.new_job("o1", "builder", "format numbers", [], "2026-11-13T19:00:00-08:00"))
         asked = state.new_question(None, JOURNAL_QUESTION, "2026-11-13T19:22:52-08:00", unsettled="aa5f6ea: Jev reads the recommended option as breaking it", card=JOURNAL_CARD, holds=holds)
@@ -1245,12 +1273,12 @@ def test_a_card_that_comes_to_hold_his_approved_pr_holds_it_on_him_naming_that_c
     monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess([], 0, '{"seq": 661500}\n', ""))
     closed: list[tuple[str, str, str, bool]] = []
     monkeypatch.setattr(superseded, "answer_card", lambda card, words, link, settled, replaces=None: closed.append((card, words, link, settled)) or {})
-    with state.edit(drive) as data:
+    with edit(drive) as data:
         data["orders"]["o1"] |= {"incident": True, "jobs": ["j1"]}
         data["prs"][key] |= {"checks": "fail", "review": "approved", "parts": ["fix"]}
     approve = {"repo": "Forge-AI/monorepo", "number": 42, "waits": asked_waits(42), "label": "Approve", "heads": {}, "action_ts": "1794626600.000100", "source": "pressed the button"}
     assert ask({"answer": approve}) == {"ok": True}
-    with state.edit(drive) as data:
+    with edit(drive) as data:
         asked = state.new_question(None, JOURNAL_QUESTION, "2026-11-13T19:22:52-08:00", unsettled="aa5f6ea: Jev reads the recommended option as breaking it", card=JOURNAL_CARD, holds="the journal heads, on #42")
         data["jobs"]["j1"]["questions"] = [asked | {"waits": waits}]
         data["prs"][key]["checks"] = "pass"
@@ -1273,7 +1301,7 @@ def test_outside_an_incident_a_pr_his_open_question_card_holds_draws_no_card_ask
     drive: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     key, waits = "Forge-AI/monorepo#42", f"{drive}:j1-1794626572499"
-    with state.edit(drive) as data:
+    with edit(drive) as data:
         asked = state.new_question(None, JOURNAL_QUESTION, "2026-11-13T19:22:52-08:00", card=JOURNAL_CARD, holds="the journal heads, on #42")
         data["jobs"]["j1"]["questions"] = [asked | {"waits": waits}]
         data["prs"][key] |= {"checks": "pass", "review": "approved"}
@@ -1300,12 +1328,12 @@ def moved_under_his_card(drive: str, monkeypatch: pytest.MonkeyPatch) -> dict:
     assert cli.main(["order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page", "--drive", drive]) == 0
     monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS)
     view.refresh_cards(drive)
-    with state.edit(drive) as data:
+    with edit(drive) as data:
         data["prs"]["Forge-AI/monorepo#42"] |= {"checks": "pass", "review": "approved"}
     monkeypatch.setattr(card, "run", answering(pr_json()))
     assert ask(asked)["cards"][0]["card"]["options"] == ["Approve", "Hold"]
     monkeypatch.setattr(card, "run", answering(pr_json() | {"headRefOid": MOVED}))
-    with state.edit(drive) as data:
+    with edit(drive) as data:
         data["prs"]["Forge-AI/monorepo#42"] |= {"head": MOVED, "checked": None}
     return asked | {"redraw": True}
 
@@ -1378,7 +1406,7 @@ def test_his_tap_on_any_card_records_him_heard_reading_nothing_from_github(
     drive: str, monkeypatch: pytest.MonkeyPatch, tap: dict
 ) -> None:
     heard, tapped = "2026-11-11T12:36:02-08:00", state.parse_time("2026-11-11T13:57:22-08:00")
-    with state.edit(drive) as data:
+    with edit(drive) as data:
         data["owner"] = {"heard": heard, "away": "2026-11-11T13:36:02-08:00"}
     monkeypatch.setattr(state, "now", lambda: tapped)
     monkeypatch.setattr(card, "run", lambda *args, **kwargs: pytest.fail("a tap read GitHub"))
@@ -1463,7 +1491,7 @@ def test_a_pr_whose_show_me_shows_a_picture_by_its_path_on_a_sprite_draws_it_fro
     copy = state_root / "demo" / "scratch" / "j1" / "sprite" / shot.lstrip("/")
     copy.parent.mkdir(parents=True)
     copy.write_bytes(b"before")
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["jobs"]["j2"] = state.new_job("o1", "builder", "take it over", [], "2026-11-09T09:00:00-08:00")
         data["jobs"]["j1"]["prs"] = [stack_url(42)]
         state.take_pr(data, "j2", "Forge-AI/monorepo#42")
@@ -1502,7 +1530,7 @@ def test_a_stack_whose_show_me_arch_does_not_draw_still_asks_his_approve_naming_
 def test_a_native_stack_of_six_prs_draws_one_card_whose_approve_taps_each(stacked: list[list[str]], native_stacks: dict[str, list[tuple[str, str]]]) -> None:
     numbers = (41, 42, 43, 44, 45, 46)
     keys = [f"Forge-AI/monorepo#{n}" for n in numbers]
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         for key in keys[4:]:
             data["prs"][key] = {**kept_entry(), "url": state.pr_url(key)}
     for key in keys:
@@ -1520,7 +1548,7 @@ def test_a_stack_card_reads_github_once_per_25_prs_and_draws_under_no_drive_lock
 ) -> None:
     numbers = range(41, 41 + count)
     keys = [f"Forge-AI/monorepo#{n}" for n in numbers]
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["prs"] = {key: {**kept_entry(), "url": state.pr_url(key)} for key in keys}
     native_stacks.update(dict.fromkeys(keys, [(key, "open") for key in keys]))
     monkeypatch.setattr(card, "run", changed_reads(card.run, lambda number, node: node | {"changedFiles": 400}))
@@ -1546,7 +1574,7 @@ def test_one_approve_on_a_stack_card_lifts_his_hold_of_a_pr_on_it_and_starts_lan
 ) -> None:
     keys = [f"Forge-AI/monorepo#{n}" for n in (41, 42, 43, 44, 45)]
     held_at = "2026-11-14T20:22:52-08:00"
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["prs"][keys[4]] = {**kept_entry(), "url": state.pr_url(keys[4])}
         data["prs"][keys[0]]["tap"] = state.new_tap("Approve", HEAD, "slack", "1794700000.000100")
         data["prs"][keys[1]]["tap"] = state.new_tap("Hold", HEAD, HIS_TAPS, at=held_at)
@@ -1566,21 +1594,21 @@ def test_a_stack_with_one_pr_reworked_to_his_words_draws_the_prs_below_it_alone_
     stacked: list[list[str]],
 ) -> None:
     ask(asks(41, 42, 43))
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         state.rework(data["prs"]["Forge-AI/monorepo#42"], "o2", "Topology goes in the meta table", "https://acme.slack.com/archives/D123/p1794300000000600")
     reason = 'Forge-AI/monorepo#42 is being reworked to his words "Topology goes in the meta table", so no card asks his tap until its builder\'s READY says how they are met'
     for drawn, skips in ((ask(asks(41, 42, 43)), [(42, reason), (43, reason)]), (ask(asks(42) | {"redraw": True}), [(42, reason)])):
         assert [([row["url"] for row in each["card"]["prs"]], each["card"]["waits"]) for each in drawn["cards"]] == [([stack_url(41)], asked_waits(41))]
         assert [(skipped["number"], skipped["reason"]) for skipped in drawn["skipped"]] == skips
     assert state.load("demo")["prs"]["Forge-AI/monorepo#41"]["stack"] == ["Forge-AI/monorepo#41"]
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["prs"]["Forge-AI/monorepo#42"].update(rework=None, fundamental='Reworked to your words "Topology goes in the meta table": it reads the meta table')
     [drawn] = ask(asks(41, 42, 43))["cards"]
     assert drawn["card"]["prs"][1]["changed"] == 'Reworked to your words "Topology goes in the meta table": it reads the meta table'
 
 
 def test_outside_an_incident_a_stack_whose_every_pr_asking_his_tap_is_held_by_his_open_card_draws_no_card_naming_why_for_each(stacked: list[list[str]]) -> None:
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["jobs"]["j1"]["questions"] = [state.new_question(None, "Which store?", "2026-11-09T08:00:00-08:00", holds="the store, on #41 and #42") | {"waits": "demo:j1-7-a"}]
         data["prs"]["Forge-AI/monorepo#43"]["wants_tap"] = False
     held = f"his cards demo:j1-7-a hold it until he answers each, by his pick {state.CARDS_FIRST}"
@@ -1602,7 +1630,7 @@ def test_a_stack_of_three_merged_prs_on_one_order_redraws_as_done(
 ) -> None:
     keys = [f"Forge-AI/monorepo#{n}" for n in (41, 42, 43)]
     ask(asks(41, 42, 43))
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         for key in keys:
             data["prs"][key]["state"] = "merged"
     monkeypatch.setattr(card, "run", changed_reads(card.run, lambda number, pr: pr | {"state": "MERGED"}))
@@ -1614,7 +1642,7 @@ def test_a_stack_of_three_merged_prs_on_one_order_redraws_as_done(
 def test_a_pr_added_to_its_base_branch_chain_later_joins_one_fresh_card_whose_approve_taps_each_while_a_redraw_keeps_each_card_as_drawn(stacked: list[list[str]]) -> None:
     keys = [f"Forge-AI/monorepo#{n}" for n in (41, 42, 43, 44)]
     ask(asks(41, 42, 43))
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         for number, (_, base, branch) in STACK.items():
             data["prs"][f"Forge-AI/monorepo#{number}"].update(base=base, branch=branch)
     [kept] = ask(asks(42) | {"redraw": True})["cards"]
@@ -1650,7 +1678,7 @@ def test_a_stack_split_by_an_ask_missing_a_member_draws_one_card_once_asked_whol
 
 def siblings(monkeypatch: pytest.MonkeyPatch, orders: dict[int, str], drawn_alone: bool = False) -> list[str]:
     keys = [f"Forge-AI/monorepo#{number}" for number in orders]
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         for number, order in orders.items():
             key = f"Forge-AI/monorepo#{number}"
             served = {"serves": order, "checked": {"head": HEAD, "read": HEAD, "orders": ["o1", order], "lines": {}, "beside": {}}}
@@ -1687,7 +1715,7 @@ def test_five_prs_of_one_order_in_no_native_stack_draw_one_card(stacked: list[li
 
 
 def test_a_base_branch_chain_keeps_its_own_card_beside_a_sibling_pr_of_its_order_as_the_watch_names_them(stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch) -> None:
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["prs"]["Forge-AI/monorepo#50"] = {**kept_entry(), "url": stack_url(50)}
     sibling = card_node(pr_json(title="Fix: a sibling on main", url=stack_url(50), base="main", branch="sibling-50"))
     monkeypatch.setattr(card, "run", changed_reads(card.run, lambda number, pr: sibling if number == 50 else pr))
@@ -1697,7 +1725,7 @@ def test_a_base_branch_chain_keeps_its_own_card_beside_a_sibling_pr_of_its_order
 
 def test_a_chain_that_cuts_through_a_stored_stack_keeps_every_pr_on_one_card(stacked: list[list[str]]) -> None:
     ask(asks(41, 42))
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         for n in (43, 44):
             data["prs"][f"Forge-AI/monorepo#{n}"]["stack"] = ["Forge-AI/monorepo#43", "Forge-AI/monorepo#44"]
     drawn = ask(asks(41, 42, 43))["cards"]
@@ -1708,7 +1736,7 @@ def test_a_chain_that_cuts_through_a_stored_stack_keeps_every_pr_on_one_card(sta
 
 def test_a_grown_stack_refused_keeps_the_stack_it_had(stacked: list[list[str]]) -> None:
     ask(asks(41, 42, 43))
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         state.rework(data["prs"]["Forge-AI/monorepo#41"], "o2", "Topology goes in the meta table", "https://acme.slack.com/archives/D123/p1794300000000600")
     assert ask(asks(41, 42, 43, 44))["cards"] == []
     keys = [f"Forge-AI/monorepo#{n}" for n in (41, 42, 43)]
@@ -1718,7 +1746,7 @@ def test_a_grown_stack_refused_keeps_the_stack_it_had(stacked: list[list[str]]) 
 
 def test_approve_on_a_stack_card_taps_each_open_pr_bottom_first(stacked: list[list[str]]) -> None:
     ask(asks(41, 42, 43))
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["prs"]["Forge-AI/monorepo#42"]["state"] = "merged"
     answer = {
         "repo": "Forge-AI/monorepo",
@@ -1750,7 +1778,7 @@ def test_a_push_that_takes_back_his_approve_on_a_stack_card_asks_again_under_a_n
 ) -> None:
     [drawn] = ask(asks(41, 42, 43))["cards"]
     ask({"answer": {"repo": "Forge-AI/monorepo", "number": 41, "waits": drawn["card"]["waits"], "label": "Approve", "heads": {}, "action_ts": "1794516000.000001", "source": "slack"}})
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["prs"]["Forge-AI/monorepo#42"].update(head=MOVED, tap=None, fundamental="it now copies rows in batches")
     monkeypatch.setattr(card, "run", changed_reads(card.run, lambda number, pr: pr | {"headRefOid": MOVED} if number == 42 else pr))
     [again] = ask(asks(41, 42, 43) | {"redraw": True})["cards"]
@@ -1786,7 +1814,7 @@ def test_his_typed_approve_of_one_pr_and_hold_of_the_other_redraw_their_stack_ca
 ) -> None:
     moment = state.parse_time("2026-11-12T12:30:00-08:00")
     on_his_stack_card(monkeypatch, 41, 42)
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["prs"]["Forge-AI/monorepo#41"]["checks"] = "fail"
     typed(41, "Approve")
     typed(42, "Hold")
@@ -1816,7 +1844,7 @@ def test_a_pr_in_a_native_stack_draws_its_native_stack_and_the_rest_of_the_chain
     stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch, native_stacks: dict[str, list[tuple[str, str]]]
 ) -> None:
     keys = {n: f"Forge-AI/monorepo#{n}" for n in (41, 42, 43, 44, 45, 46)}
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         for n in (45, 46):
             data["prs"][keys[n]] = {**kept_entry(), "url": stack_url(n)}
         data["prs"][keys[43]]["state"] = "closed"

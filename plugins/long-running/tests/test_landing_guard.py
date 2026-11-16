@@ -7,8 +7,19 @@ from pathlib import Path
 
 import landing_guard
 import pytest
-from conftest import QUEUE_REASON, LEAD, SESSION, Answers, HomeRelease, monorepo
-from drive import agents, brief, github, land, render, settled, shell, stage, state, view
+from conftest import LEAD, QUEUE_REASON, SESSION, Answers, HomeRelease, edit, monorepo
+from drive import (
+    agents,
+    brief,
+    github,
+    land,
+    render,
+    settled,
+    shell,
+    stage,
+    state,
+    view,
+)
 
 Run = Callable[..., tuple[int, str]]
 PR = "https://github.com/Forge-AI/monorepo/pull/42"
@@ -41,7 +52,7 @@ def bash(command: str, cwd: str = "/work", **fields: object) -> dict:
 
 
 def approve(key: str) -> None:
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["prs"][key].update(tap=state.new_tap("Approve", "abc", "slack", card=data["prs"][key].get("stack") or [key]), fundamental=None)
 
 
@@ -63,7 +74,7 @@ def test_the_coordinators_own_ship_commit_or_build_call_is_refused_naming_a_job(
 
 
 def test_the_meta_sessions_own_ship_call_is_refused_naming_a_job(demo: str, no_calls: None) -> None:
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["roles"]["meta"] = data["roles"]["coordinator"] | {"session": "tooler"}
     assert landing_guard.deny_reason(bash('ccx vcs ship -m "Fix: x"', session_id="tooler")) == landing_guard.COORDINATOR_STEP.format(who="meta session", step="ccx vcs ship")
 
@@ -89,12 +100,12 @@ def test_a_coordinators_agent_and_another_session_may_ship(demo: str, no_calls: 
 
 
 def ask(holds: str | None) -> None:
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["jobs"]["j1"]["questions"] = [state.new_question(None, "Ship it?", state.stamp(), holds=holds) | {"waits": CARD}]
 
 
 def answer() -> None:
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["jobs"]["j1"]["questions"][0]["closed"] = state.new_close("answered", "Ship it", None, at=state.stamp())
 
 
@@ -110,7 +121,7 @@ def test_landing_a_pr_whose_job_waits_on_drive_prs_and_its_own_holds_none_card_p
     approve(drive_pr)
     ask("")
     sibling = state.pr_key(SIBLINGS[1])
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["prs"][sibling] = state.new_pr(SIBLINGS[1], "j1", "o1")
         data["jobs"]["j1"]["waits"] = [drive_pr, sibling, CARD]
     assert landing_guard.deny_reason(bash("stack-enqueue 42")) is None
@@ -119,7 +130,7 @@ def test_landing_a_pr_whose_job_waits_on_drive_prs_and_its_own_holds_none_card_p
 def test_the_immediate_fix_lands_while_his_card_on_the_proper_fix_is_open(drive_pr: str, no_calls: None) -> None:
     approve(drive_pr)
     ask("ship the fix, on #42")
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["jobs"]["j1"]["parts"] = [state.IMMEDIATE_FIX]
     assert landing_guard.deny_reason(bash("stack-enqueue 42")) is None
 
@@ -175,7 +186,7 @@ def test_a_pr_whose_staging_test_started_on_any_order_is_enqueued_by_no_session_
     if lane:
         request.getfixturevalue("sprite")
     part = state.STAGING_TEST.format(number=42)
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["orders"]["o2"] = state.new_order("test #42 on staging", "terminal", None, {part: state.new_part()}, state.stamp()) | {"jobs": ["j2"]}
         data["jobs"]["j2"] = state.new_job("o2", "builder", "soak #42 on staging", [part], state.stamp()) | {"builds_nothing": True}
         state.start(data["jobs"]["j2"])
@@ -187,7 +198,7 @@ def test_a_pr_whose_staging_test_started_on_any_order_is_enqueued_by_no_session_
     assert list(land.held_landings(data, [drive_pr], view.NO_CARDS, {}).values()) == [f"{land.WAITED}: {drive_pr} waits on {runs}"]
     assert stage.waiting(data, drive_pr, view.NO_CARDS) == stage.Stage("waiting", "j2", "it waits on its staging run by j2, running")
     done = "DONE every case of #42 passed on staging"
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         state.take_result(data, "j2", done, f"{done}\nCHECK: https://buildkite.com/forge/release/builds/16303\nCASE a rollback refused: pass\n")
     data = state.load("demo")
     assert ((data["prs"][drive_pr]["tap"] or {}).get("label"), data["prs"][drive_pr]["fundamental"]) == ("Approve", None)
@@ -240,7 +251,7 @@ def test_a_release_resume_waits_for_his_next_word_once_he_last_wrote_15_minutes_
     monorepo(monkeypatch, Path(state.load(demo)["roles"]["coordinator"]["cwd"]))
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "release the fix")
     run("job", "add", "builder", "--order", "o1", "--goal", "release the fix")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["owner"]["heard"] = state.stamp(state.now() - timedelta(minutes=20))
     refused = landing_guard.deny_reason(bash(RESUME, session_id="sprite"))
     assert refused and refused.startswith("refused: he last wrote or tapped 20 minutes ago, and while he is not present a production release starts or resumes only as a hotfix")
@@ -266,7 +277,7 @@ def test_a_release_resume_waits_for_his_next_word_once_he_last_wrote_15_minutes_
         assert brief.away_refusal("start", staging.replace("plat-usw2-staging", production), data, state.now()) == refused
     assert brief.away_refusal("start", sandbox.replace("plat-usw2-sandbox", "plat-usw2-prod"), data, state.now()) == refused
     assert brief.away_refusal("start", f"{sandbox} --env plat-usw2-prod", data, state.now()) == refused
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["owner"]["heard"] = state.stamp(state.now() - timedelta(minutes=5))
     assert landing_guard.deny_reason(bash(RESUME, session_id="sprite")) is None
 
@@ -282,7 +293,7 @@ def test_a_job_on_a_production_cluster_waits_for_his_next_word_once_he_last_wrot
     gate = "tools/ci bk api -X PUT /pipelines/release/builds/{}/jobs/01a1d8aa/unblock"
     held = (start.format("plat-usw2-prod"), start.format("tnt-usw2-1frg9c7").replace("--cluster ", "--cluster="), gate.format("15699"), "tools/ci bk rerun release 15699")
     passed = (start.format("plat-usw2-staging"), gate.format("15700"), "tools/ci bk cancel release 15699", "tools/ci cluster-job run")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["owner"]["heard"] = state.stamp(state.now() - timedelta(minutes=20))
     refused = brief.away_job_refusal("plat-usw2-prod", state.load(demo), state.now())
     assert refused and refused.startswith("refused: he last wrote or tapped 20 minutes ago, and a Job on plat-usw2-prod, a production cluster, writes a team's data")
@@ -292,7 +303,7 @@ def test_a_job_on_a_production_cluster_waits_for_his_next_word_once_he_last_wrot
     monkeypatch.delenv(state.REMOTE_LANE_ENV)
     monkeypatch.delenv(state.OWN_JOB_ENV)
     assert landing_guard.deny_reason(bash(held[0])) == refused
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["owner"]["heard"] = state.stamp(state.now() - timedelta(minutes=5))
     assert [landing_guard.deny_reason(bash(command)) for command in held] == [None] * len(held)
 
@@ -349,7 +360,7 @@ def test_a_tapped_monorepo_pr_landed_around_the_queue_is_refused_naming_stack_en
 def test_a_tapped_monorepo_pr_enqueued_or_an_incident_fix_merged_passes(drive_pr: str, no_calls: None) -> None:
     approve(drive_pr)
     assert landing_guard.deny_reason(bash(".agents/skills/submit-pr/scripts/stack-enqueue 42")) is None
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["prs"][drive_pr]["exempt"] = "incident fix"
     assert landing_guard.deny_reason(bash("gh pr merge 42 -R Forge-AI/monorepo --squash")) is None
 
@@ -422,7 +433,7 @@ def stored_stack(drive_pr: str, run: Run) -> list[str]:
     for url in SIBLINGS:
         run("pr", "add", url, "--job", "j1", *LEAD)
     keys = [state.pr_key(SIBLINGS[0]), drive_pr, state.pr_key(SIBLINGS[1])]
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         for key in keys:
             data["prs"][key] |= {"stack": keys, "native": keys}
     for key in keys:
@@ -434,7 +445,7 @@ def test_enqueueing_a_pr_of_a_stored_stack_needs_every_pr_his_card_drew_and_thos
     home_repo: None,
     stored_stack: list[str], no_calls: None
 ) -> None:
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         for key in stored_stack[:2]:
             data["prs"][key]["stack"] = data["prs"][key]["tap"]["card"] = stored_stack[:2]
         data["prs"][stored_stack[2]] |= {"stack": stored_stack[2:], "hold_label": True, "tap": None}
@@ -449,13 +460,13 @@ def test_enqueueing_a_pr_of_a_stored_stack_needs_every_pr_his_card_drew_and_thos
 def test_enqueueing_every_open_pr_of_a_stored_stack_passes(stored_stack: list[str], no_calls: None) -> None:
     assert landing_guard.deny_reason(bash("stack-enqueue 41 42 43")) is None
     assert landing_guard.deny_reason(bash("stack-enqueue 41 42 43 2>&1 | tail -20")) is None
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["prs"][stored_stack[0]]["state"] = "merged"
     assert landing_guard.deny_reason(bash("stack-enqueue 42 43")) is None
 
 
 def test_enqueueing_one_sibling_pr_of_his_order_card_alone_passes_since_stack_enqueue_lands_each_on_its_own(stored_stack: list[str], no_calls: None) -> None:
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         for key in stored_stack:
             data["prs"][key]["native"] = []
     assert landing_guard.deny_reason(bash("stack-enqueue 41")) is None
@@ -541,7 +552,7 @@ def test_his_words_at_his_message_on_his_open_question_posted_with_cci_post_are_
     reply = "https://forge.slack.com/archives/D123/p1794379260654321?thread_ts=1794379200.123456"
     run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
     run("job", "add", "builder", "--order", "o1", "--goal", "build it")
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["jobs"]["j1"]["questions"] = [state.new_question(None, "Which ring?", state.stamp(), card=card) | {"waits": "demo:j1-7"}]
     answer = "cci post --kind answer --lane root --to communicator@demo --re 7 --attr job=j1"
     assert f'his words at {his} on his open question "Which ring?"' in landing_guard.deny_reason(bash(f"{answer} --url '{his}' 'the lazy copy'", agent_id="a1"))
@@ -581,7 +592,7 @@ def test_a_drive_sessions_cci_post_in_bash_is_refused_for_the_cci_tools_while_it
     assert landing_guard.deny_reason(bash(report, transcript_path=str(session))) == landing_guard.CLI_POST
     unkept_ask = "cci post --kind ask --to communicator@demo 'ASK Close these sessions?'"
     assert landing_guard.deny_reason(bash(unkept_ask)) == settled.HAND_ASK
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["subcoordinators"]["SandSQL"] = {"session": "sandsql-1", "terminal": None, "cwd": "/work", "started": state.stamp(), "from": 0}
     for lane_ask in ("--to sandsql@demo 'Is the migration live on staging?'", "--to communicator@demo 'Is he present right now?'"):
         assert landing_guard.deny_reason(bash(f"cci post --kind ask --lane root {lane_ask}")) is None, lane_ask
@@ -614,7 +625,7 @@ def test_the_communicators_own_cci_post_in_bash_is_refused_for_the_record_tool_w
 def test_a_report_posted_with_cci_post_in_bash_gets_the_checks_the_cci_post_tool_runs(run: Run, demo: str, no_calls: None) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why does the search worker OOM?", "--kind", "answer", "--parts", "cause", "fix")
     run("job", "add", "reader", "--order", "o1", "--part", "cause", "--goal", "find the cause")
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["jobs"]["j1"]["state"] = "done"
     post = "cci post --kind report --to posts@demo --attr job=j1 {attr} 'POST the search worker OOMs on entries past 1024 tokens'"
     assert landing_guard.deny_reason(bash(post.format(attr="--attr progress=true"))) is None

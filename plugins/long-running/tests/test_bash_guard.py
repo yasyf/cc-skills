@@ -9,8 +9,18 @@ from pathlib import Path
 
 import bash_guard
 import pytest
-from conftest import HOME, SESSION, commit_files, git_in
-from drive import agents, github, install, land, orca, providers, reports, settled, state
+from conftest import HOME, SESSION, commit_files, edit, git_in
+from drive import (
+    agents,
+    github,
+    install,
+    land,
+    orca,
+    providers,
+    reports,
+    settled,
+    state,
+)
 from drive.orca import OrcaError
 
 Run = Callable[..., tuple[int, str]]
@@ -158,7 +168,7 @@ def test_a_builder_opens_its_pr_the_repositorys_way(demo: str) -> None:
 def test_a_builder_opens_its_pr_while_his_open_cards_hold_its_job(demo: str, run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Landing", "ship the watch")
     assert run("job", "add", "builder", "--order", "o1", "--goal", "ship it")[1] == "j1"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["agent"] = "a-1"
     monkeypatch.setattr(land, "open_cards", lambda data, job_id, pr: ["demo:j2-1-a"])
     builder = {"agent_id": "a-1", "agent_type": "long-running:builder"}
@@ -303,7 +313,7 @@ def test_a_session_is_resumed_only_once_its_process_exits(demo: str, config: Pat
 def test_a_role_whose_terminals_orca_only_hides_is_shown_never_resumed(
     communicator: str, config: Path, monkeypatch: pytest.MonkeyPatch, runs_in: dict[str, list[dict]]
 ) -> None:
-    with state.edit(communicator) as data:
+    with edit(communicator) as data:
         data["roles"]["coordinator"].update(session=RESUMED, cwd="/work")
     runs_in[RESUMED] = [{"handle": "term_c", "orphaned": True}]
     monkeypatch.setattr(orca, "main_checkout", lambda worktree: Path("/repo"))
@@ -326,7 +336,7 @@ def test_a_role_whose_terminals_orca_only_hides_is_shown_never_resumed(
 def test_a_sub_coordinators_session_is_found_like_a_roles_by_its_session_and_terminal(
     communicator: str, config: Path, monkeypatch: pytest.MonkeyPatch, runs_in: dict[str, list[dict]]
 ) -> None:
-    with state.edit(communicator) as data:
+    with edit(communicator) as data:
         top = data["roles"]["coordinator"]
         data["subcoordinators"]["Iris"] = {"session": RESUMED, "cwd": "/work", "started": top["started"], "from": 0}
     runs_in[RESUMED] = [{"handle": "term_i", "orphaned": True}]
@@ -344,7 +354,7 @@ def test_a_terminal_command_ends_with_the_claude_command(demo: str, live_session
 
 def test_no_session_is_moved_while_an_incident_order_is_open(demo: str, run: Run, runs_in: dict[str, list[dict]]) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Incidents", "the API is down")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["incident"] = True
     runs_in[state.load(demo)["roles"]["coordinator"]["session"]] = [{"handle": "term_c", "orphaned": False}]
     send = "orca terminal send --terminal term_c --text /exit --enter"
@@ -355,7 +365,7 @@ def test_no_session_is_moved_while_an_incident_order_is_open(demo: str, run: Run
     typed = f"cci session type {demo}-coordinator /exit"
     assert bash_guard.deny_reason(bash(typed)).startswith("refused: o1 is an open incident order, and ending the coordinator now stops it mid-incident")
     assert bash_guard.deny_reason(bash(f"cci session type {demo}-coordinator /compact")) is None
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["state"] = "done"
     assert bash_guard.deny_reason(bash(send)) is None
     assert bash_guard.deny_reason(bash(typed)) is None
@@ -495,7 +505,7 @@ def test_any_sessions_hook_helper_restart_waits_for_his_install_now_tap_on_the_c
     monkeypatch.setattr(github, "read", lambda what, cmd, max_age="0s", text=True: "v12.121.70\n")
     monkeypatch.setattr(settled, "ccn", lambda argv, text, cwd, failure: json.dumps(answers))
     holding(monkeypatch, tmp_path, "12.121.68")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"] = state.new_job("o1", "builder", "ship", [], state.stamp()) | {"questions": [state.new_question("/asks/j1-helper.md", HELPER_CARD.format("12.121.70"), state.stamp())]}
     restarts = ["capt-hook helper install", "brew upgrade yasyf/tap/captain-hook", "brew reinstall --cask captain-hook", "brew upgrade"]
     for command, step in zip(restarts, ["`capt-hook helper install`", "`brew upgrade` of captain-hook", "`brew reinstall` of captain-hook", "`brew upgrade` of captain-hook"], strict=True):

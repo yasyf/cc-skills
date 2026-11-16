@@ -1,4 +1,4 @@
-from conftest import REAL_ANSWER
+from conftest import REAL_ANSWER, edit
 from drive import answer, state
 
 ROWS = "- job: staging test of memory running; its last line: c7 fails, build https://buildkite.com/forge/release/builds/17166\n  - PR https://github.com/Forge-AI/monorepo/pull/57072: open, checks pass"
@@ -54,7 +54,7 @@ def test_drive_ids_and_drive_words_post_with_a_warning():
 
 
 def test_his_thread_question_with_no_card_drawn_yet_reads_so_in_the_rows(demo, monkeypatch):
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"] = state.new_order("ship the run page", "terminal", ["D1", "1794774184.502879"], {}, state.stamp()) | {"jobs": ["j1"]}
         data["jobs"]["j1"] = state.new_job("o1", "builder", "ship the run page", [], state.stamp()) | {"state": "waiting", "questions": [state.new_question(None, "Ring or knock?", state.stamp())]}
     asked = []

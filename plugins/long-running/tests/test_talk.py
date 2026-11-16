@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
-from conftest import HELD_RELEASES, STANDING_FREEZE, Answers, Checked, Jev, Thread
+from conftest import HELD_RELEASES, STANDING_FREEZE, Answers, Checked, Jev, Thread, edit
 from drive import (
     agents,
     brief,
@@ -56,7 +56,7 @@ def posts(communicator: str, monkeypatch: pytest.MonkeyPatch) -> list[tuple[str,
         return reply | {"card_permalink": POSTED} if argv[0] == "dm-status" and not {"--", "--card", "--file"} & set(argv) else reply
 
     monkeypatch.setattr(slack, "cc_slack", cc_slack)
-    with state.edit(communicator) as data:
+    with edit(communicator) as data:
         data["prs"]["yasyf/cc-skills#7"] = state.new_pr(PR_URL, "j1", "o1") | {"title": "New: \U0001f680 the run page shows its history"}
     return sent
 
@@ -82,7 +82,7 @@ def test_one_post_links_each_reference_the_way_slack_and_the_dashboard_each_show
 
 def test_an_answer_on_a_project_order_goes_in_his_dm_messages_thread_and_keeps_the_messages_it_answers(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(slack, "operator_channels", lambda: [{"id": "C777", "name": "him-drive-demo-iris"}])
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["slack"]["channels"] = {"Iris": {"id": "C777", "name": "him-drive-demo-iris"}}
         data["orders"]["o1"] = state.new_order("ship the run page", "D123", None, {}, state.stamp()) | {"project": "Iris"}
     talk.posted(demo, {"text": "The fix is up.", "asked": json.dumps(["1794200000.000300"])}, "o1")
@@ -96,7 +96,7 @@ def test_an_answer_on_a_project_order_goes_in_his_dm_messages_thread_and_keeps_t
 
 def test_a_card_of_no_project_asks_at_the_root_of_the_drives_own_channel_while_a_status_line_of_none_stays_in_his_dm(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(slack, "operator_channels", lambda: [{"id": "C777", "name": "him-drive-demo-iris"}, {"id": "C888", "name": "him-drive-demo-tooling"}])
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["slack"]["channels"] = {"Iris": {"id": "C777", "name": "him-drive-demo-iris"}, "Drive tooling": {"id": "C888", "name": "him-drive-demo-tooling"}}
         data["orders"]["o1"] = state.new_order("design the store", "D123", None, {}, state.stamp()) | {"jobs": ["j1"]}
         data["jobs"]["j1"] = state.new_job("o1", "builder", "design the store", [], state.stamp())
@@ -110,7 +110,7 @@ def test_once_the_drive_has_its_own_channel_a_post_of_a_project_with_none_makes_
     made = {"him-drive-demo-iris": {"id": "C777", "name": "him-drive-demo-iris"}}
     sent = slack.cc_slack
     monkeypatch.setattr(slack, "cc_slack", lambda *argv, **_: made[argv[1]] if argv[0] == "operator-channel" else sent(*argv))
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["slack"]["channels"] = {"": {"id": "C666", "name": "him-drive-demo"}}
         data["orders"]["o1"] = state.new_order("ship the run page", "D123", None, {}, state.stamp()) | {"project": "Iris"}
         data["orders"]["o2"] = state.new_order("fix the outage", "D123", None, {}, state.stamp()) | {"project": "Iris", "incident": True}
@@ -125,7 +125,7 @@ def test_a_priority_orders_post_makes_its_bound_seats_own_channel_while_its_proj
     made = {"him-drive-demo-iris": {"id": "C777", "name": "him-drive-demo-iris"}, "him-drive-demo-prio-fix-the-lock": {"id": "C790", "name": "him-drive-demo-prio-fix-the-lock"}}
     sent = slack.cc_slack
     monkeypatch.setattr(slack, "cc_slack", lambda *argv, **_: made[argv[1]] if argv[0] == "operator-channel" else sent(*argv))
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["slack"]["channels"] = {"": {"id": "C666", "name": "him-drive-demo"}}
         data["orders"]["o1"] = state.new_order("ship the run page", "D123", None, {}, state.stamp()) | {"project": "Iris"}
         data["orders"]["o2"] = state.new_order("fix the lock", "D123", None, {}, state.stamp()) | {"project": "Iris", "priority": state.priority_seat("o2")}
@@ -137,7 +137,7 @@ def test_a_priority_orders_post_makes_its_bound_seats_own_channel_while_its_proj
 
 
 def test_an_order_filed_under_a_priority_orders_project_and_workstream_posts_in_that_seats_channel(demo: str, posts: list[tuple[str, ...]]) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["slack"]["channels"] = {"": {"id": "C666", "name": "him-drive-demo"}, "Platform": {"id": "C700", "name": "him-drive-demo-platform"}, state.priority_seat("o1"): {"id": "C790", "name": "him-drive-demo-prio-releases"}}
         data["orders"]["o1"] = state.new_order("cut the release", "D123", None, {}, state.stamp()) | {"project": "Platform", "workstream": "Releases", "priority": state.priority_seat("o1")}
         data["orders"]["o2"] = state.new_order("release everything but SandSQL", "D123", None, {}, state.stamp()) | {"project": "Platform", "workstream": "Releases"}
@@ -149,7 +149,7 @@ def test_an_order_filed_under_a_priority_orders_project_and_workstream_posts_in_
 
 
 def test_the_drives_own_channel_posts_one_line_per_project_channel_linking_it_and_its_queue(demo: str, unposted_waits: Callable[..., dict[str, str]]) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["slack"]["channels"] = {"": {"id": "C666", "name": "him-drive-demo"}, "Iris": {"id": "C777", "name": "him-drive-demo-iris"}}
     board = dashboard.link(demo)
     assert unposted_waits(demo, state.load(demo), view.NO_CARDS, state.now())["C666"] == f"*<{board}#/|demo>* projects:\n<#C777> · <{board}#/queue/all?project=Iris|nothing waiting>"
@@ -157,7 +157,7 @@ def test_the_drives_own_channel_posts_one_line_per_project_channel_linking_it_an
 
 def test_drive_channels_moves_each_open_card_of_his_dm_to_its_projects_channel_one_of_no_project_to_the_drives_and_follows_it_there(run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     order_id, job_id = "o1", "j1"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"][order_id] = state.new_order("ship the run page", "D123", None, {}, state.stamp()) | {"project": "Iris", "jobs": [job_id]}
         data["jobs"][job_id] = state.new_job(order_id, "builder", "ship the run page", [], state.stamp()) | {"waits": [CARD_URL]}
         data["prs"]["yasyf/cc-skills#7"] = state.new_pr(PR_URL, job_id, order_id)
@@ -187,7 +187,7 @@ def test_drive_channels_moves_each_open_card_of_his_dm_to_its_projects_channel_o
 def test_replaying_o2068_a_post_in_an_orders_thread_recorded_on_no_order_is_still_its_last_line(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
     reply = "https://acme.slack.com/archives/D123/p1794300000000900?thread_ts=1794200000.000100"
     monkeypatch.setattr(slack, "cc_slack", lambda *argv: posts.append(argv) or {"permalink": reply, "thread_ts": "1794200000.000100"})
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"] = state.new_order("ship the run page", "D123", ("D123", "1794200000.000100"), {}, state.stamp())
         data["orders"]["o2"] = state.new_order("fix the lock", "D123", ("D123", "1794200000.000200"), {}, state.stamp())
     talk.say(demo, {"text": "On it.", "thread_ts": "1794200000.000100"})
@@ -248,7 +248,7 @@ def test_a_reference_to_nothing_the_drive_holds_refuses_the_post_and_sends_nothi
         talk.say(demo, {"text": "see {card:demo:j9-1}"})
     with pytest.raises(DriveError, match=r"\{pr:8\}: the drive tracks no PR numbered 8"):
         talk.say(demo, {"text": "see {pr:8}"})
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"]["Forge-AI/monorepo#7"] = state.new_pr("https://github.com/Forge-AI/monorepo/pull/7", "j1", "o1")
     with pytest.raises(DriveError, match=r"\{pr:7\}: 7 is the number of yasyf/cc-skills#7, Forge-AI/monorepo#7; name one as owner/repo#7"):
         talk.say(demo, {"text": "{pr:7}"})
@@ -275,7 +275,7 @@ def test_a_reference_or_link_inside_a_raw_links_words_refuses_the_post_naming_th
 
 def test_a_card_he_answered_or_the_drive_withdrew_still_links_by_its_waits_id(demo: str, posts: list[tuple[str, ...]]) -> None:
     settled = "https://acme.slack.com/archives/D123/p1794300000000500"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"] = state.new_job("o1", "builder", "design the store", [], state.stamp())
         data["jobs"]["j1"]["questions"].append(state.new_question(None, "Keep the old store?", state.stamp(), card=settled) | {"waits": "demo:j1-6"})
     talk.say(demo, {"text": "I withdrew {card:demo:j1-6}: the redesign settles it."})
@@ -368,7 +368,7 @@ def test_his_ruling_draws_as_his_words_and_when_he_said_them_linked_to_their_ack
 
 def test_a_jobs_start_and_a_records_time_are_filled_from_the_drives_stamps(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
     today = state.now().replace(microsecond=0)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1860"] = state.new_job("o1", "builder", "fix the replication sync", [], state.stamp(today.replace(hour=4, minute=50, second=21)))
     went_out = today.replace(hour=4, minute=47, second=9).astimezone(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
     monkeypatch.setattr(reads, "run", lambda argv, checkout: json.dumps({"at": went_out, "text": "POST Yes to both", "refs": {}}))
@@ -386,7 +386,7 @@ def test_a_jobs_start_and_a_records_time_are_filled_from_the_drives_stamps(demo:
 
 def test_a_card_asked_again_with_new_words_moves_its_question_to_the_new_card_and_each_wait_on_it_to_its_waits_id(demo: str, posts: list[tuple[str, ...]]) -> None:
     other = "https://acme.slack.com/archives/D123/p1794300000000400"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"] = state.new_job("o1", "builder", "design the store", [], state.stamp()) | {"waits": [CARD_URL, other]}
         data["jobs"]["j1"]["questions"].append(state.new_question(None, QUESTION, state.stamp(), card=CARD_URL) | {"waits": WAITS})
         data["jobs"]["j2"] = state.new_job("o1", "builder", "ship the store", [], state.stamp()) | {"waits": [CARD_URL]}
@@ -400,7 +400,7 @@ def test_a_card_asked_again_with_new_words_moves_its_question_to_the_new_card_an
 
 
 def test_a_question_card_returns_and_records_its_own_permalink(demo: str, posts: list[tuple[str, ...]]) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"] = state.new_job("o1", "builder", "design the store", [], state.stamp())
         data["jobs"]["j1"]["questions"].append(state.new_question(None, "Keep the old store?", state.stamp()) | {"waits": "demo:j1-8"})
     assert talk.say(demo, {"card": {"title": "Keep the old store?", "waits": "demo:j1-8"}, "thread_ts": "1794200000.000100"}) == f"POSTED {POSTED} CARD {POSTED}"
@@ -409,7 +409,7 @@ def test_a_question_card_returns_and_records_its_own_permalink(demo: str, posts:
 
 
 def test_a_card_no_question_keeps_moves_each_wait_on_it_to_its_waits_id_when_asked_again_with_new_words(demo: str, posts: list[tuple[str, ...]]) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j2"] = state.new_job("o1", "builder", "ship the store", [], state.stamp()) | {"waits": [CARD_URL]}
     talk.say(demo, {"card": {"title": QUESTION, "waits": WAITS}})
     assert state.load(demo)["jobs"]["j2"]["waits"] == [WAITS]
@@ -524,10 +524,10 @@ def test_a_say_an_old_mcp_server_hands_no_ticket_takes_the_sessions_ticket_the_h
 def test_a_report_the_drive_only_took_to_post_counts_as_unposted_and_one_with_a_permalink_as_posted(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(agents, "answered", lambda seq: {"attrs": {}, "thread": None})
     monkeypatch.setattr(talk, "report_line", lambda name, seq: "POSTED https://acme.slack.com/archives/C1/p1")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["carried"]["700"] = agents.DRIVE_CLAIM
     assert talk.report_post(demo, "700") == "report 700 posted by the drive: POSTED https://acme.slack.com/archives/C1/p1"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["carried"]["700"] = "https://acme.slack.com/archives/C1/p2"
     assert talk.report_post(demo, "700") == "report 700 already posted at https://acme.slack.com/archives/C1/p2: nothing posted again"
 
@@ -536,7 +536,7 @@ def test_a_post_report_the_drive_took_and_never_posted_is_flagged_to_meta_once_a
     sent: list[list[dict]] = []
     monkeypatch.setattr(tools, "sent", lambda name, lane, records: sent.append(records) or ["1"])
     took = state.now() - agents.UNPOSTED_AFTER - timedelta(minutes=1)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["carried"] |= {"700": agents.DRIVE_CLAIM, "701": "https://acme.slack.com/archives/C1/p1"}
         data["posts"]["claimed"] = {"700": state.stamp(took), "701": state.stamp(took)}
     agents.unposted(demo, state.now())
@@ -548,7 +548,7 @@ def test_a_post_report_the_drive_took_and_never_posted_is_flagged_to_meta_once_a
 
 def test_say_posts_the_words_its_hook_judged_and_checks_none_of_them_again(demo: str, posts: list[tuple[str, ...]], checked: Checked) -> None:
     checked.findings = ["1:5 drive-term 'fence': say what happens to the reader's work instead"]
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["stand_ins"]["backup"] = "S3 replica"
     text = "The fence held, the backup copy is current, and the runs failed because the pool was full."
     assert talk.say(demo, {"text": text, "dry_run": True}) == f"DRY his DM root, 0 pictures: {text}"
@@ -609,7 +609,7 @@ def test_a_code_or_diagram_fence_in_the_text_goes_to_slack_as_its_picture_while_
 
 
 def building(demo: str) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"] = state.new_job("o1", "builder", "show a run's history", list(data["orders"]["o1"]["parts"]), state.stamp())
         data["orders"]["o1"]["jobs"].append("j1")
 
@@ -634,7 +634,7 @@ def test_the_drives_own_draw_of_his_card_goes_in_its_orders_thread_with_no_line_
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: the watch draws the PR card")
     building(demo)
     tooling = "https://github.com/yasyf/cc-skills/pull/8"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"]["yasyf/cc-skills#8"] = state.new_pr(tooling, "j1", "o2") | {"title": "Fix: \U0001f41b the watch draws the PR card"}
     view.refresh_cards(demo)
     rows = [{"title": "the run page shows its history"}, {"title": "the watch draws the PR card"}]
@@ -684,7 +684,7 @@ def test_a_pr_card_goes_under_its_first_line_in_his_dm_and_each_other_open_order
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Run page", "why is the page slow?", "--thread", "1794400000.000100", "--owner", "coordinator")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Run page", "one more check", "--from", "slack:C9TEAM/1794500000.000100", "--owner", "coordinator")
     building(demo)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         for order_id in ("o2", "o3", "o4"):
             state.carry(data, "j1", order_id, list(data["orders"][order_id]["parts"]))
         data["orders"]["o3"]["state"] = "done"
@@ -712,7 +712,7 @@ def test_a_stack_cards_thread_is_a_thread_of_each_order_its_prs_carry_out_not_on
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Run page", "the list fix", "--owner", "coordinator")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Run page", "an unrelated page", "--thread", "1794450000.000100", "--owner", "coordinator")
     building(demo)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         state.carry(data, "j1", "o2", list(data["orders"]["o2"]["parts"]))
     stack = "1794493484.938019"
     sent = slack.cc_slack
@@ -729,7 +729,7 @@ def test_a_pr_cards_line_that_fails_in_a_later_thread_says_the_card_went_out_so_
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Run page", "show a run's history", "--thread", "1794200000.000100", "--owner", "coordinator")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Run page", "There's no approval button", "--thread", "1794300000.000100", "--owner", "coordinator")
     building(demo)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         state.carry(data, "j1", "o2", list(data["orders"]["o2"]["parts"]))
 
     def slack_post(*argv: str) -> dict:
@@ -765,7 +765,7 @@ def test_705235_a_post_from_a_session_not_the_communicator_goes_nowhere_with_or_
 ) -> None:
     thread = "1794261099.160079"
     run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "SandSQL", "why app actions fail", "--thread", thread, "--owner", "coordinator")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["roles"]["communicator"]["session"] = "communicator-session"
     report(monkeypatch, {"order": "o1", "stall": "true", "thread": thread}, lane="watch")
     line = {"text": "The copy still stalls on the lock.", "thread_ts": thread}
@@ -806,7 +806,7 @@ def test_a_post_in_its_orders_thread_is_recorded_on_that_order_though_the_record
     thread = "1794200000.000100"
     run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "SandSQL", "why app actions fail", "--kind", "answer", "--thread", thread, "--parts", "fix")
     run("start", "demo", "--role", "communicator")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
     answer = slack_thread.post(state.now(), from_claude=True)
@@ -824,7 +824,7 @@ def test_a_post_on_an_order_goes_out_in_any_thread_and_a_thread_the_order_holds_
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL error log count", "--from", "slack:D123/1794300000.000100", "--thread", "1794300000.000100", "--joins", "o1")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why the copy stalls", "--thread", "1794400000.000100")
     run("start", "demo", "--role", "communicator")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
 
@@ -855,7 +855,7 @@ def report(monkeypatch: pytest.MonkeyPatch, attrs: dict[str, str], lane: str = "
 
 
 def answering_his(name: str, order_id: str, message: str | None = None) -> None:
-    with state.edit(name) as data:
+    with edit(name) as data:
         channel, thread = data["orders"][order_id]["thread"]
         his = message or thread
         data["orders"][order_id]["from"] = f"slack:{channel}/{his}"
@@ -869,7 +869,7 @@ def test_a_reply_goes_on_the_order_of_the_record_of_his_words_it_carries_deliver
     run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "Releases", "ship the SandSQL fix", "--thread", thread, "--parts", "leave it frozen")
     run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "Releases", "make staging fleets large", "--thread", thread)
     run("start", "demo", "--role", "communicator")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["roles"]["communicator"]["session"] = "communicator-session"
         data["roles"]["coordinator"]["session"] = "elsewhere"
         data["orders"]["o2"]["created"] = state.stamp(state.now() + timedelta(minutes=1))
@@ -895,7 +895,7 @@ def test_a_post_delivers_the_part_its_report_names_and_a_progress_report_naming_
     thread = "1794200000.000100"
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why it fails, and the options", "--kind", "answer", "--thread", thread, "--parts", "cause", "options as a card")
     run("start", "demo", "--role", "communicator")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
         data["jobs"]["j1"] = state.new_job("o1", "codex", "find the cause", ["cause"], state.stamp()) | {"state": "done", "said": "DONE the cause"}
@@ -921,7 +921,7 @@ def test_a_report_naming_two_parts_of_its_order_in_its_one_part_attr_delivers_bo
     thread = "1794200000.000100"
     run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "Releases", f"1) {SSQL}, and 2) {FOOTERS}?", "--kind", "answer", "--thread", thread, "--parts", SSQL, FOOTERS)
     run("start", "demo", "--role", "communicator")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
     answer = slack_thread.post(state.now(), from_claude=True)
@@ -945,7 +945,7 @@ def test_a_report_naming_an_incidents_fix_and_cause_delivers_the_cause_its_stopp
     thread = "1794200000.000100"
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Incidents", "QUEUE_FULL refusals", "--thread", thread, "--incident", "--parts", "first check", "fix", "cause")
     run("start", "demo", "--role", "communicator")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
         data["jobs"]["j3"].update(state="stopped", said="HANDOFF the shared pod's load filled the write queues")
@@ -1000,7 +1000,7 @@ def test_a_post_on_an_incident_records_its_line_and_keeps_no_time_its_words_prom
     thread = "1794200000.000100"
     run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Alerts", "Iris chat turns fail on sand 0.162.3983", "--thread", thread, "--incident", "--parts", "fix", "first check")
     run("start", "demo", "--role", "communicator")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
     at = datetime(2026, 11, 11, 21, 29, 43, 954739).astimezone()
@@ -1017,7 +1017,7 @@ def test_a_say_of_a_record_retried_after_cc_slack_posted_and_failed_hands_cc_sla
     thread = "1794200000.000100"
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why the copy stalls", "--thread", thread)
     run("start", "demo", "--role", "communicator")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "https://acme.slack.com/", "questions": [], "pr_cards": [], "closed": []})
@@ -1050,7 +1050,7 @@ def test_a_records_post_keys_on_its_words_so_a_second_line_on_one_record_goes_ou
     thread = "1794200000.000100"
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why the copy stalls", "--thread", thread)
     run("start", "demo", "--role", "communicator")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
     report(monkeypatch, {"order": "o1", "thread": thread}, lane="communicator", kind="owner")
@@ -1068,7 +1068,7 @@ def test_a_report_delivers_on_an_order_only_from_the_lane_of_its_holder_and_a_re
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Questions", "which page shows a run's history?", "--thread", thread, "--owner", "communicator")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Run page", "show a run's history", "--thread", thread, "--owner", "coordinator")
     run("start", "demo", "--role", "communicator")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
     sent: list[tuple[str, ...]] = []
@@ -1101,7 +1101,7 @@ def test_a_report_naming_no_order_goes_on_the_newest_open_order_in_its_thread_as
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Run page", "show a run's history", "--thread", thread, "--owner", "coordinator")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "fix the post tool", "--thread", thread, "--owner", "meta")
     communicating(run, demo)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o2"]["state"] = "done"
     answer = slack_thread.post(state.now(), from_claude=True)
     monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": answer, "thread_ts": thread})
@@ -1172,7 +1172,7 @@ def test_a_second_report_closing_one_order_posts_nothing_whoever_wrote_it_and_a_
 
 
 def own_pr(name: str) -> None:
-    with state.edit(name) as data:
+    with edit(name) as data:
         data["orders"]["o1"] = state.new_order("show the run page's history", "terminal", None, {}, ASKED)
         data["jobs"]["j1"] = state.new_job("o1", "builder", "show the run page's history", [], ASKED)
 
@@ -1227,7 +1227,7 @@ def test_a_correction_of_a_report_already_posted_names_the_post_it_went_out_in_t
     with pytest.raises(DriveError, match=f"nothing posted: record 669980 corrects report 669950, which went out in {re.escape(POSTED)}: reword that post with say\\(edit={re.escape(POSTED)}"):
         talk.say(demo, {"text": "Each request reads 16 MiB.", "record": "669980"})
     assert len(posts) == 1
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["carried"]["669980"] = agents.DRIVE_CLAIM
         data["posts"]["claimed"] = {"669980": state.stamp(state.now() - agents.UNPOSTED_AFTER - timedelta(minutes=1))}
     assert talk.say(demo, {"edit": POSTED, "text": "Each request reads 16 MiB.", "record": "669980"}).startswith(f"EDITED {POSTED}")
@@ -1242,7 +1242,7 @@ def test_a_post_goes_out_in_exactly_the_words_it_was_given_while_built_work_wait
 ) -> None:
     view.refresh_cards(demo)
     thread = "1794200000.000100"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"] = state.new_order("lock it", "terminal", ("D123", thread), {"lock it": state.new_part()}, ASKED) | {"state": "working", "jobs": ["j1"]}
         data["jobs"]["j1"] = state.new_job("o1", "builder", "lock it", ["lock it"], ASKED) | {"state": "built", "branch": "lane/lock", "waits": [WAITS]}
     talk.say(demo, {"text": "Shipped.", "thread_ts": thread})
@@ -1280,7 +1280,7 @@ def alert_order(run: Callable[..., tuple[int, str]], slack_thread: Thread) -> No
 
 def communicating(run: Callable[..., tuple[int, str]], name: str) -> None:
     run("start", name, "--role", "communicator")
-    with state.edit(name) as data:
+    with edit(name) as data:
         data["roles"]["coordinator"]["session"] = "elsewhere"
 
 
@@ -1390,7 +1390,7 @@ def test_a_post_with_no_thread_naming_a_person_goes_out_through_cc_slack_send_in
     ],
 )
 def test_a_question_naming_a_job_that_cannot_wait_on_the_reply_posts_nothing(demo: str, posts: list[tuple[str, ...]], post: dict, why: str) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"] = state.new_job("o1", "reader", "ask Dana about the migration", [], state.stamp())
         data["jobs"]["j2"] = state.new_job("o1", "reader", "ask Dana about the migration", [], state.stamp()) | {"state": "done"}
     with pytest.raises(DriveError, match=f"^nothing posted: {re.escape(why)}"):
@@ -1399,7 +1399,7 @@ def test_a_question_naming_a_job_that_cannot_wait_on_the_reply_posts_nothing(dem
 
 
 def test_a_question_to_a_teammate_for_a_job_keeps_that_job_waiting_on_their_reply(demo: str, posts: list[tuple[str, ...]]) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"] = state.new_job("o1", "reader", "ask Dana about the migration", [], state.stamp())
     question = {"text": "Can we run the migration tonight?", "channel_id": "U0REPORTER", "job": "j1"}
     assert talk.say(demo, question | TICKET).startswith(f"POSTED {POSTED}; j1 waits on the reply to it")
@@ -1416,7 +1416,7 @@ def test_a_report_closing_its_order_in_another_orders_thread_his_message_started
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "how is the dashboard looking", "--from", f"slack:D123/{his}", "--thread", his)
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the zoomed-out view", "--thread", "1794150000.000100")
     run("start", "demo", "--role", "communicator")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
     slack_thread.messages.append({"ts": his, "thread_ts": his, "from_user": True, "text": "how is the dashboard looking"})
@@ -1436,7 +1436,7 @@ def test_a_report_about_its_order_goes_out_through_say_in_a_thread_his_message_s
     run("order", "add", "--title", "Short title", "--project", "SandSQL", "--workstream", "Alerts", "--from", f"slack:C0822AHFY3G/{alert}", "unknown column case_v2.audit_status", "--thread", alert)
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the run page", "--thread", "1794150000.000100")
     run("start", "demo", "--role", "communicator")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
         data["orders"]["o1"]["thread"] = ["C0822AHFY3G", alert]
@@ -1456,7 +1456,7 @@ def test_a_report_say_posts_at_the_root_of_another_channel_joins_its_thread_as_m
     own, claim = "1794100000.000100", "1794687785.402399"
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "test the batch writer on staging", "--thread", own)
     run("start", "demo", "--role", "communicator")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
     until = ended(30)
@@ -1488,7 +1488,7 @@ def test_a_line_at_his_dm_root_on_an_order_whose_own_thread_holds_no_line_to_him
     alert, root = "1794100000.000100", "1794200100.000500"
     run("order", "add", "--title", "Short title", "--project", "SandSQL", "--workstream", "Alerts", "--from", f"slack:C0822AHFY3G/{alert}", "unknown column case_v2.audit_status", "--thread", alert)
     run("start", "demo", "--role", "communicator")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
         data["orders"]["o1"]["thread"] = ["C0822AHFY3G", alert]
@@ -1507,7 +1507,7 @@ def test_a_claim_at_a_channels_root_keeps_its_end_on_its_order_and_a_line_in_its
     until, later = ended(30), ended(90)
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "test the batch writer on staging")
     run("start", "demo", "--role", "communicator")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
     claim = f"Claiming staging until {render.clock(state.parse_time(until))} to test the batch writer, as the repository's rule for claiming staging asks. Does anyone object?"
@@ -1540,7 +1540,7 @@ def test_a_claim_at_a_channels_root_naming_no_end_or_a_past_one_posts_nothing_an
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "test the release on staging")
     run("start", "demo", "--role", "communicator")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
     sent: list[tuple[str, list[dict]]] = []
@@ -1586,7 +1586,7 @@ def test_an_incident_added_from_the_terminal_takes_its_first_line_at_his_dm_root
     root = "1794200000.000100"
     run("order", "add", "--title", "Short title", "--project", "SandSQL", "--workstream", "Alerts", "memory recall returns nothing")
     run("start", "demo", "--role", "communicator")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
         data["orders"]["o1"]["incident"] = True
@@ -1610,14 +1610,14 @@ def test_his_later_words_in_a_thread_go_to_the_order_that_came_into_it_last(demo
     thread = "1794200000.000100"
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the 50 dashboard improvements")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "how many incidents are open", "--thread", thread)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         created = state.parse_time(data["orders"]["o2"]["created"])
         del data["orders"]["o1"]["threads"]
         data["orders"]["o1"]["asked_in"] = [["D123", thread]]
         data["orders"]["o1"]["last_line"] = state.stamp(created + timedelta(minutes=3))
     assert state.load(demo)["orders"]["o1"]["threads"] == [["D123", thread, state.stamp(created + timedelta(minutes=3)), "posted"]]
     assert state.thread_order(state.load(demo), thread) == "o1"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o2"]["created"] = state.stamp(created + timedelta(minutes=5))
     assert state.thread_order(state.load(demo), thread) == "o2"
     assert state.thread_order(state.load(demo), "1794100000.000100") is None
@@ -1629,7 +1629,7 @@ def test_a_pr_card_drawn_at_his_dm_root_is_a_thread_of_the_order_its_pr_serves_s
     question, card = "1794520890.022349", "1794526059.841239"
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "give the sprite what it needs", "--owner", "coordinator")
     building(demo)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["questions"].append(state.new_question(None, QUESTION, state.stamp()) | {"waits": WAITS})
     cli.follow_card(demo, WAITS, set(), f"https://acme.slack.com/archives/D123/p{question.replace('.', '')}")
     sent = slack.cc_slack
@@ -1652,7 +1652,7 @@ def test_say_keeps_a_post_in_a_thread_as_the_line_that_thread_holds_about_each_c
     thread = "1794200000.000100"
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL mint endpoint failing")
     building(demo)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["questions"].append(state.new_question(None, QUESTION, state.stamp(), card=CARD_URL) | {"waits": WAITS})
     talk.posted(demo, {"text": f"{{card:{WAITS}|Your card on the lock}} blocks the fix; it builds on one lock per chat meanwhile.", "thread_ts": thread})
     line = view.told_line(state.load(demo), thread, WAITS)
@@ -1667,7 +1667,7 @@ def test_the_watchs_paused_reply_under_his_question_card_goes_in_the_cards_threa
     question = "1794579637.319519"
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "one communicator for every drive", "--owner", "coordinator")
     building(demo)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["questions"].append(state.new_question(None, QUESTION, state.stamp()) | {"waits": WAITS})
     cli.follow_card(demo, WAITS, set(), f"https://acme.slack.com/archives/{his_dm}/p{question.replace('.', '')}")
     data = state.load(demo)
@@ -1691,7 +1691,7 @@ def test_while_the_drive_keeps_channels_an_orders_line_naming_no_place_starts_it
     his, root = "1794200000.000100", "1794200100.000200"
     run("order", "add", "--title", "Short title", "--project", "SandSQL", "--workstream", "Alerts", "memory recall returns nothing", "--thread", his)
     run("start", "demo", "--role", "communicator")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
         data["slack"]["channels"] = {"": {"id": "C100", "name": "him-drive-demo"}, "SandSQL": {"id": "C200", "name": "him-drive-demo-sandsql"}}
@@ -1716,7 +1716,7 @@ def test_while_the_drive_keeps_channels_an_orders_line_naming_no_place_starts_it
 
 def test_a_post_naming_a_place_goes_there_and_one_naming_none_goes_in_his_thread_when_it_answers_him_else_to_its_own_channel(demo: str) -> None:
     his = "1794200000.000100"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["slack"]["channels"] = {"": {"id": "C100", "name": "him-drive-demo"}}
     data = state.load(demo)
     assert talk.homed(demo, data, {"text": "x", "thread_ts": his, "asked": [his]}, [], None, ("D123", his)) == ("D123", his)
@@ -1726,7 +1726,7 @@ def test_a_post_naming_a_place_goes_there_and_one_naming_none_goes_in_his_thread
     assert talk.homed(demo, data, {"text": "x", "asked": reply}, [], None, ("D123", None)) == ("D123", "1794200000.000200")
     assert talk.homed(demo, data, {"text": "x"}, [], None, ("D123", None)) == ("C100", None)
     assert talk.homed(demo, data, {"edit": "https://acme.slack.com/archives/D123/p1794200000000100"}, [], None, ("D123", his)) == ("D123", his)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["slack"]["channels"] = {}
     assert talk.homed(demo, state.load(demo), {"text": "x"}, [], None, ("D123", None)) == ("D123", None)
 

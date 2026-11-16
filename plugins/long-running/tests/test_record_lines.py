@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 import record_lines
-from conftest import CAP_RULING, SHORT_ASK, Answers, Jev
+from conftest import CAP_RULING, SHORT_ASK, Answers, Jev, edit
 from drive import agents, limits, reads, refs, reports, settled, slack, state, view
 
 SESSION = "session-under-test"
@@ -71,7 +71,7 @@ def test_a_long_record_that_attaches_a_file_keeps_its_whole_text_atop_its_body_a
 
 
 def test_a_report_closing_drive_tooling_a_session_opened_is_refused_since_its_close_posts_him_no_line_while_one_closing_his_order_is_not(demo: str) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         for order_id, words in (("o1", "Drive tooling: the watch reads taps"), ("o2", "bring the release card up to date")):
             data["orders"][order_id] = state.new_order(words, "cci:696660" if order_id == "o1" else "terminal", None, {words: state.new_part()}, state.stamp())
     closing = {"kind": "report", "to": ["communicator@demo"], "text": "POST the watch reads taps again"}
@@ -92,7 +92,7 @@ def test_an_ask_record_carrying_his_cards_ask_block_is_refused_by_its_shape_sinc
     assert refusal(record_lines.decision(post(kind="ask", path=str(block), attrs={"job": "j1"}))) == settled.HAND_ASK
     assert refusal(record_lines.decision(post(records=[{"kind": "decision", "text": "j12 merged"}, {"kind": "ask", "text": f"ASK {IDLE}"}]))) == settled.HAND_ASK
     assert record_lines.decision(post(session="another-session", kind="ask", text=f"ASK {IDLE}")) is None
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["subcoordinators"]["SandSQL"] = {"session": "sandsql-1", "terminal": None, "cwd": "/work", "started": state.stamp(), "from": 0}
     for to, text in (("sandsql@demo", "Is the migration live on staging?"), ("communicator@demo", "Is he present right now?")):
         assert record_lines.decision(post(kind="ask", to=[to], text=text)) is None, to
@@ -103,7 +103,7 @@ def test_his_answer_at_his_message_on_his_open_question_goes_only_through_the_re
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
     run("job", "add", "builder", "--order", "o1", "--goal", "build it")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["questions"] = [state.new_question(str(state.drive_dir(demo) / "asks" / "j1-7.md"), LAYOUT, state.stamp(), card=CARD) | {"waits": "demo:j1-7"}]
     answer = {"kind": "answer", "text": "one snapshot file per run", "attrs": {"job": "j1", "waits": "demo:j1-7"}}
     reason = refusal(record_lines.decision(post(**answer, url=HIS)))
@@ -121,7 +121,7 @@ def test_a_ready_record_naming_a_pr_is_refused_since_drive_pr_add_and_the_watch_
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "fix the update button")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"]["Forge-AI/monorepo#4242"] = state.new_pr(TAPPED, "j1", "o1") | {
             "head": "4a4d1f0aa1",
             "tap": {"label": "Approve", "at": "2026-11-10T18:40:00-08:00", "head": "abc", "source": "slack", "picks": {}, "card": None},
@@ -321,7 +321,7 @@ def test_a_report_about_an_order_names_any_slack_thread_and_reads_none_of_them_w
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix", "--kind", "answer", "--parts", "ship the fix", "say it shipped")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why the card asked for Okta MFA")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["thread"] = ["D123", THREAD]
         data["orders"]["o2"]["thread"] = ["D123", OTHER]
 
@@ -372,7 +372,7 @@ def test_a_post_report_telling_him_the_drive_failed_goes_out_warning_the_session
     run: Callable[..., tuple[int, str]], demo: str, turn: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["thread"] = ["D123", THREAD]
     failed = "POST j1 merged; its card was refused since nobody checked that PR against your words"
     warned = record_lines.decision(coordinator(turn, kind="report", text=failed, to=POSTS, attrs={"close": "o1", "thread": THREAD}))
@@ -393,7 +393,7 @@ def test_718857_a_post_reports_cause_line_citing_its_own_lanes_record_or_one_cci
     run: Callable[..., tuple[int, str]], demo: str, turn: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["thread"] = ["D123", THREAD]
     kept = {
         "718719": {"kind": "handoff", "lane": "root", "text": "go: the tester saw no writer, so the handoff code is already on dev", "refs": {}},
@@ -426,11 +426,11 @@ def test_a_post_report_names_what_its_post_finishes_and_the_last_part_of_an_orde
     for named in ({"job": "j1", "close": "o1"}, {"job": "j1", "part": "cause"}, {"job": "j1", "progress": "true"}, {"close": "o1"}):
         assert record_lines.decision(coordinator(turn, **merged, attrs=named)) is None
     assert record_lines.decision(coordinator(turn, kind="report", text="FYI the search worker's fix merged", to=POSTS, attrs={"job": "j1"})) is None
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["parts"]["cause"]["posted"] = CARD
     assert 'delivers "fix", the last part of o1' in refusal(record_lines.decision(coordinator(turn, **merged, attrs={"job": "j1", "part": "fix"})))
     assert record_lines.decision(coordinator(turn, **merged, attrs={"job": "j1", "part": "fix", "close": "o1"})) is None
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["state"] = "done"
     assert "the open order it is about" not in warned(record_lines.decision(coordinator(turn, **merged, attrs={"job": "j1"})))
 
@@ -440,7 +440,7 @@ def test_a_post_report_naming_one_part_goes_out_while_a_finished_job_holds_anoth
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why does the search worker OOM?", "--kind", "answer", "--parts", "first check", "rollback", "cause")
     run("job", "add", "reader", "--order", "o1", "--part", "cause", "--goal", "find the cause")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["state"] = "done"
     post = {"kind": "report", "text": "POST the search worker's first check is back", "to": POSTS}
     for named in (PROGRESS, {"part": "o1:first check"}, {"part": "o1:rollback"}):
@@ -452,7 +452,7 @@ def test_a_report_on_an_open_incident_names_its_first_check_but_never_its_fix_si
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "Journal", "the journal will not open on two Macs", "--parts", "fix", "first check")
     run("job", "add", "reader", "--order", "o1", "--part", "fix", "--goal", "find what fixes it")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["incident"] = True
         data["jobs"]["j1"]["state"] = "done"
     mechanism = {"kind": "report", "text": "POST mechanism found: the failing Macs run an older sand, and no release has reached them yet", "to": POSTS}
@@ -461,7 +461,7 @@ def test_a_report_on_an_open_incident_names_its_first_check_but_never_its_fix_si
     reason = refusal(record_lines.decision(coordinator(turn, **mechanism, attrs={"order": "o1", "part": "o1:fix", **PROGRESS})))
     assert state.UNPOSTED_WORK.format(order="o1", part="fix") in reason and 'drop "o1:fix" from the part attr' in reason and "`--attr close=o1`" in reason
     assert record_lines.decision(coordinator(turn, **mechanism, attrs={"order": "o1", "part": "o1:fix", "close": "o1"})) is None
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["recovered"] = state.stamp()
     assert record_lines.decision(coordinator(turn, **mechanism, attrs={"order": "o1", **PROGRESS})) is None
     assert state.UNPOSTED_WORK.format(order="o1", part="fix") in refusal(record_lines.decision(coordinator(turn, **mechanism, attrs={"order": "o1", "part": "o1:fix", **PROGRESS})))
@@ -519,7 +519,7 @@ def test_a_report_on_an_open_incident_goes_however_many_its_thread_already_had_t
     called(turn, "first", "mcp__plugin_cc-inbox_cci__post", {"kind": "report", "text": "POST the fix job is changing the journal's open call", "to": POSTS, "attrs": {"thread": THREAD, "order": "o1", **PROGRESS}})
     second = {"kind": "report", "text": "POST the first check found the newest build fails too", "to": POSTS, "attrs": {"thread": THREAD, "order": "o1", **PROGRESS}}
     assert record_lines.decision(coordinator(turn, **second)) is None
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["incident"] = False
     assert "already sent one for thread" in warned(record_lines.decision(coordinator(turn, **second)))
 
@@ -535,7 +535,7 @@ def test_a_report_marked_incident_goes_only_on_an_open_incident_order_since_ever
     assert "`--attr customer_outage=true`" in reason
     assert record_lines.decision(coordinator(turn, **outage, attrs={"order": "o1", **PROGRESS})) is None
     assert record_lines.decision(coordinator(turn, **outage, attrs={"order": "o1", "customer_outage": "true", **PROGRESS})) is None
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["incident"] = True
     assert record_lines.decision(coordinator(turn, **outage, attrs={"order": "o1", "incident": "true", **PROGRESS})) is None
 
@@ -645,7 +645,7 @@ def test_a_report_naming_a_jobs_start_is_refused_with_that_jobs_created_stamp(
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "SandSQL", "--workstream", "Replication", "fix the replication sync")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix the sync")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["created"] = state.stamp(state.now().replace(hour=4, minute=50, second=21, microsecond=0))
     reason = refusal(record_lines.decision(coordinator(turn, kind="report", text="POST j1 started at 4:55 AM on the fix part", to=POSTS, attrs=PROGRESS)))
     assert "j1 was created at 4:50:21 AM, which {started:j1} says." in reason
@@ -668,7 +668,7 @@ def test_the_communicators_record_for_a_coordinator_goes_to_the_lane_it_names_an
     run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
     run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "Alerts", "fix the alert")
     run("job", "add", "builder", "--order", "o1", "--goal", "build it")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["thread"], data["orders"]["o2"]["thread"] = ["D123", THREAD], ["D123", OTHER]
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
     run("start", demo, "--role", "coordinator", "--project", "Iris")
@@ -743,7 +743,7 @@ def bound_to_iris(run: Callable[..., tuple[int, str]], demo: str, monkeypatch: p
     run("start", demo, "--role", "coordinator", "--project", "Iris")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
     run("start", demo, "--role", "communicator")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["thread"] = ["D123", THREAD]
         data["jobs"]["j1"]["questions"] = [state.new_question(str(state.drive_dir(demo) / "asks" / "j1-7.md"), "Which ring?", state.stamp(), card=CARD)]
         state.join_thread(data["orders"]["o1"], ("D123", CARD_THREAD), state.stamp(), "question")
@@ -754,7 +754,7 @@ def test_the_communicators_record_naming_lanes_of_two_drives_keeps_them_and_one_
 ) -> None:
     bound_to_iris(run, demo, monkeypatch)
     run("start", "newer", "--role", "communicator")
-    with state.edit("newer") as data:
+    with edit("newer") as data:
         data["roles"]["communicator"]["started"] = "2099-01-01T00:00:00-08:00"
     assert state.session_drives("talker") == ["newer", demo]
     answer = {"kind": "answer", "text": "Ring", "to": ["root@demo", "root@newer"], "re": ["7"], "attrs": {"job": "j1", "maps": "none"}}
@@ -818,7 +818,7 @@ def test_his_words_in_the_thread_of_a_card_an_orders_job_drew_go_to_the_session_
 def test_his_words_at_his_message_on_his_open_question_go_only_through_the_record_tool_that_ends_it(run: Callable[..., tuple[int, str]], demo: str) -> None:
     run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
     run("job", "add", "builder", "--order", "o1", "--goal", "build it")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["questions"] = [state.new_question(str(state.drive_dir(demo) / "asks" / "j1-7.md"), LAYOUT, state.stamp(), card=CARD) | {"waits": "demo:j1-7"}]
     answer = refusal(record_lines.decision(post(kind="answer", text="the lazy copy", url=HIS, re=["7"], attrs={"job": "j1"})))
     assert "his open question" in answer and "send it with the drive's `record` tool" in answer

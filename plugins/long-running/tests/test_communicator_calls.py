@@ -8,6 +8,7 @@ from pathlib import Path
 
 import communicator_calls
 import pytest
+from conftest import edit
 from drive import agents, render, state, superseded, tools, watch
 
 Run = Callable[..., tuple[int, str]]
@@ -37,7 +38,7 @@ def builder(run: Run, demo: str) -> Callable[..., None]:
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
 
     def holds(**fields: object) -> None:
-        with state.edit(demo) as data:
+        with edit(demo) as data:
             data["jobs"]["j1"].update(fields)
 
     return holds
@@ -91,7 +92,7 @@ def answered(builder: Callable[..., None], demo: str, words: str, at: datetime, 
     held = {"seq": "9", "words": f'His answer on card demo:j1-7 ({CARD}), verbatim: "{words}"', "at": state.stamp(at), "said": None, "request": "req-held", "sender": state.HIM}
     builder(agent="a-7", where="local", session=os.environ["CLAUDE_CODE_SESSION_ID"], undelivered=[held], **fields)
     closed = state.new_close("answered", words, CARD, seq="9", at=state.stamp(at))
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["owner"] = None
         data["jobs"]["j1"]["questions"].append(state.new_question(None, "May it soak on staging?", state.stamp(at), card=CARD, closed=closed) | {"waits": "demo:j1-7"})
     return held
@@ -117,7 +118,7 @@ def test_the_coordinator_sends_no_pr_event_to_a_builder_that_returned_and_starts
     assert communicator_calls.note(call("SendMessage", transcript(tmp_path), to="a-7", message="He picked Approve")) is None
     builder(state="done")
     assert "`drive pr add <url> --job <new>` for each PR it takes over" in communicator_calls.note(call("SendMessage", transcript(tmp_path), to="a-7", message="CI went red, fix it"))
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["incident"] = True
     assert communicator_calls.note(call("SendMessage", transcript(tmp_path), to="a-7", message="CI went red, fix it")) is None
 
@@ -129,7 +130,7 @@ def test_each_step_a_watch_line_names_to_reach_a_builder_on_this_mac_is_one_the_
     words = "A standing yes: the drive soaks any dangerous branch on staging alone"
     url = "https://github.com/Forge-AI/monorepo/pull/7"
     answered(builder, demo, words, state.now() - timedelta(minutes=11), state=returned, prs=[url])
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][state.pr_key(url)] = state.new_pr(url, "j1", "o1")
     posted: list[dict] = []
     monkeypatch.setattr(tools, "sent", lambda name, lane, posts: posted.extend(posts) or ["9"])
@@ -159,7 +160,7 @@ def test_each_step_a_watch_line_names_to_reach_a_builder_on_this_mac_is_one_the_
         assert run(*resume) == (0, f'j1: owed, send it now: SendMessage a-7 "{superseded.POINTER.format(9)}"'), line
         assert communicator_calls.note(call("SendMessage", transcript(tmp_path), to="a-7", message=superseded.POINTER.format(9))) is None, line
     assert [line.endswith("drive job resume j1 delivers it now [o1 j1]") for line in answers] == ([True] if returned != "done" else [])
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         superseded.hear(data, "j1", words, state.now())
         assert data["jobs"]["j1"]["undelivered"] == []
 
@@ -220,7 +221,7 @@ def test_a_question_about_another_job_or_another_resumes_words_is_not_about_the_
         assert communicator_calls.note(call("SendMessage", transcript(tmp_path), to="a-7", message=own)) is not None, own
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "build the rest")
     run("job", "add", "builder", "--order", "o2", "--goal", "build the rest")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         for job_id in ("j1", "j2"):
             data["jobs"][job_id].update(where="remote", dispatch=f"ctx_{job_id}", agent=None, state="running")
     both = 'drive job resume j1 "Rebase it on dev"; drive job resume j2 "You stopped without a result line"'
@@ -231,7 +232,7 @@ def test_a_question_about_another_job_or_another_resumes_words_is_not_about_the_
 
 def test_his_words_quoted_about_another_session_stopping_are_no_claim_about_the_job(demo: str, builder: Callable[..., None], tmp_path: Path) -> None:
     builder(where="remote", dispatch="ctx_434f19eaec28", agent=None, state="running")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j296"] = dict(data["jobs"]["j1"])
     sent = (
         "Read cci record 725088 whole (meta@durable-agents, 7:53 PM) and fold it into your Researched: block: the stuck mechanism is Claude Code's"

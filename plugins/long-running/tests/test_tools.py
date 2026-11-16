@@ -8,8 +8,38 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
-from drive import agents, card, cli, limits, mcp, providers, reads, render, settled, slack, state, superseded, tools, view, watch
-from conftest import provide, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, RESEARCH, STANDING_FREEZE, Answers, Cci, Heard, Jev, Thread, Withdrawals
+from conftest import (
+    LEAD,
+    LOCK_STALL,
+    LOCK_STALL_AGAIN,
+    RESEARCH,
+    STANDING_FREEZE,
+    Answers,
+    Cci,
+    Heard,
+    Jev,
+    Thread,
+    Withdrawals,
+    edit,
+    provide,
+)
+from drive import (
+    agents,
+    card,
+    cli,
+    limits,
+    mcp,
+    providers,
+    reads,
+    render,
+    settled,
+    slack,
+    state,
+    superseded,
+    tools,
+    view,
+    watch,
+)
 from drive.state import DriveError
 
 THREAD = "1794200000.000100"
@@ -77,7 +107,7 @@ def test_a_backlog_item_takes_a_builder_only_once_promoted(meta: str, jev: Jev) 
 
 def test_the_daily_drain_promotes_the_most_filed_backlog_items_and_drops_those_no_repeat_reached_in_three_days(meta: str) -> None:
     now = state.now()
-    with state.edit(meta) as data:
+    with edit(meta) as data:
         data["tooling_backlog"] = True
         for number, (filings, days_ago) in enumerate([(1, 0), (4, 0), (2, 1), (3, 0), (5, 4)], start=1):
             order = state.new_order(f"{state.TOOLING} defect {number}", "terminal", None, {"defect": state.new_part()}, state.stamp(now - timedelta(days=days_ago, minutes=number)))
@@ -98,7 +128,7 @@ def test_the_watch_closes_a_session_filed_repeat_once_the_order_it_joined_closes
     watcher = watch.Watcher(meta, offset=state.events_end(meta))
     watch.close_joined_repeats(watcher, state.now())
     assert state.load(meta)["orders"]["o2"]["state"] == "open"
-    with state.edit(meta) as data:
+    with edit(meta) as data:
         data["orders"]["o1"].update(state="done", proof="repro/j2.sh exits 0")
     watch.close_joined_repeats(watcher, state.now())
     repeat = state.load(meta)["orders"]["o2"]
@@ -120,7 +150,7 @@ def test_a_job_call_whose_inline_tooling_order_repeats_one_no_unfinished_job_car
 ) -> None:
     filed = {"title": "Install lock stall", "project": "The drive", "workstream": "Drive tooling", "kind": "build"}
     tools.run("job", meta, {"ops": [{"add": {"kind": "reader", "order": filed | {"words": LOCK_STALL}, "goal": "research: the install lock"}}]})
-    with state.edit(meta) as data:
+    with edit(meta) as data:
         for job in data["jobs"].values():
             job["state"] = "done"
     jev.picks("o1")
@@ -231,7 +261,7 @@ def test_a_pr_call_saves_the_drive_once_runs_each_read_its_check_ran_once_and_pr
     prs = [f"https://github.com/Forge-AI/monorepo/pull/{number}" for number in (7, 8)]
     for pr in prs:
         run("pr", "add", pr, "--job", "j1", *LEAD)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         for pr in data["prs"].values():
             pr["updated"] = "2026-01-01T00:00:00+00:00"
     ran: list[list[str]] = []
@@ -442,7 +472,7 @@ def test_a_sprite_lanes_verb_acting_on_another_job_or_drive_however_it_is_spelle
     monkeypatch.setenv(state.OWN_JOB_ENV, "j7")
     monkeypatch.setenv(state.DRIVE_ENV, demo)
     grants(monkeypatch, lambda *args: pytest.fail("a refused break-glass started a grant"))
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         for number in (42, 43):
             data["prs"][f"Forge-AI/monorepo#{number}"] = state.new_pr(f"https://github.com/Forge-AI/monorepo/pull/{number}", "j8", "o1")
     capsys.readouterr()
@@ -803,7 +833,7 @@ def test_a_seats_communicator_holds_its_channel_alone_and_its_records_and_its_su
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-talk")
     assert cli.main(["start", demo, "--role", "communicator", "--project", "Iris"]) == 2
     assert capsys.readouterr().err.startswith("drive: --project Iris: the drive keeps no channel for it")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["slack"]["channels"] = {"": {"id": "C666", "name": "him-drive-demo"}, "Iris": {"id": "C777", "name": "him-drive-demo-iris"}}
     run("start", demo, "--role", "communicator", "--project", "Iris")
     data = state.load(demo)
@@ -842,7 +872,7 @@ def test_a_record_to_an_unfinished_jobs_id_goes_out_and_is_held_on_that_job_with
     assert [[record["kind"] for record in records] for records in posted] == [["handoff"]]
     [held] = state.load(demo)["jobs"]["j1"]["undelivered"]
     assert (held["words"], held["sender"], held["seq"]) == ("handoff record 46 from root: the router retries on port 8080", "coordinator", "46")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["state"] = "done"
     with pytest.raises(DriveError, match="to j1: no session of drive demo reads that lane"):
         tools.run("record", demo, {"records": [handoff | {"text": "and on 8081"}]})
@@ -1126,7 +1156,7 @@ def test_his_words_carrying_on_an_order_of_his_work_are_its_parts_the_watch_name
     watching = watch.Watcher(demo, offset=state.events_end(demo))
     later = state.now() + timedelta(minutes=6)
     assert watch.orphan_lines(watching, later) == []
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"].update(state="done", said="DONE j1 live: repro/j1.sh exits 0 on no plugin of this Mac")
         state.deliver_proven(data, "j1", "j1 live: repro/j1.sh exits 0 on no plugin of this Mac")
     unstaffed = [f'ORPHAN o1 "{words["text"]}": no job' for words in (iterate, options)]
@@ -1198,7 +1228,7 @@ def test_a_report_he_shares_into_an_open_order_as_records_686882_and_686891_did_
         "attrs": shared["attrs"] | {"title": "Run page screenshots"},
     }
     assert tools.run("record", demo, {"records": [second]}).splitlines()[0] == "1 order add: o3"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o2"]["proof"] = "https://github.com/acme/app/pull/1 live on the run page"
     data = state.load(demo)
     orders = data["orders"]
@@ -1227,7 +1257,7 @@ def test_the_communicators_owner_or_answer_record_naming_no_lane_goes_to_the_ses
     run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "Alerts", "fix the alert")
     run("job", "add", "builder", "--order", "o1", "--goal", "build it")
     other = "1794200000.000200"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["thread"], data["orders"]["o2"]["thread"] = ["D123", THREAD], ["D123", other]
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
     run("start", demo, "--role", "coordinator", "--project", "Iris")
@@ -1350,7 +1380,7 @@ def test_the_meta_sessions_handoff_naming_no_lane_goes_to_the_session_holding_th
     run("start", demo, "--role", "coordinator", "--project", "Iris")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "tooler")
     run("start", demo, "--role", "meta")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o3"]["owner"] = "communicator"
     records = [{"kind": "handoff", "text": "start its builder", "attrs": {"order": order}} for order in ("o1", "o2", "o3", "o4")]
     named = {"kind": "handoff", "text": "start its builder", "to": "root", "attrs": {"order": "o1"}}
@@ -1390,7 +1420,7 @@ def open_cards(monkeypatch: pytest.MonkeyPatch, *waits: str, prs: tuple[str, ...
     urls = [CARD if index == 0 else f"{CARD[:-2]}{index:02d}" for index in range(len(waits))]
     titles = ["Which ring?" if index == 0 else f"Which ring for door {index + 1}?" for index in range(len(waits))]
     if waits:
-        with state.edit("demo") as data:
+        with edit("demo") as data:
             for wait, url, title in zip(waits, urls, titles, strict=True):
                 job_id = wait.partition(":")[2].partition("-")[0]
                 data["jobs"][job_id]["questions"].append(state.new_question(None, title, state.stamp(), card=url) | {"waits": wait})
@@ -1460,7 +1490,7 @@ def test_his_question_under_a_card_one_proposing_a_way_included_posts_nothing_an
     run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page", "--parts", "the run", "the page")
     run("job", "add", "builder", "--order", "o1", "--part", "the run", "--goal", "build it")
     run("job", "add", "builder", "--order", "o1", "--part", "the page", "--goal", "build the page")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j2"]["waits"] = ["demo:j1-7"]
     posted: list[list[dict]] = []
     monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: posted.append(json.loads(kwargs["input"])) or subprocess.CompletedProcess([], 0, '{"seq": 51}\n', ""))
@@ -1594,7 +1624,7 @@ def test_his_answer_on_one_card_answers_another_jobs_card_asking_it_in_the_same_
         run("job", "add", "builder", "--order", "o1", "--part", part, "--goal", f"build {part}")
     monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess([], 0, '{"seq": 53}\n', ""))
     answered = open_cards(monkeypatch, "demo:j1-7", "demo:j2-8")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j2"]["questions"][0]["title"] = "which ring"
         data["jobs"]["j3"]["waits"] = ["demo:j2-8"]
     twin = f"{CARD[:-2]}01"
@@ -1639,7 +1669,7 @@ def test_his_words_under_a_card_of_another_drive_holding_no_communicator_are_kep
         run("order", "add", "--title", "Other title", "--project", "Iris", "--workstream", "Run list", "ship the run list", "--drive", "other")
         run("job", "add", "builder", "--order", "o2", "--goal", "build the list", "--drive", "other")
     cards = (("j1", "other:j1-7", CARD, "Which ring?"), ("j2", "other:j2-8", f"{CARD[:-2]}01", "Which list?"))
-    with state.edit("other") as data:
+    with edit("other") as data:
         for job_id, wait, url, title in cards:
             data["jobs"][job_id]["questions"].append(state.new_question(None, title, state.stamp(), card=url) | {"waits": wait})
     found = {
@@ -1691,7 +1721,7 @@ def his_words_at(seconds: int) -> str:
 
 def tap_on_card(demo: str) -> None:
     """His tap at TAP on the card of j1's question, which j1, made before the card, asked."""
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["created"] = state.stamp(datetime.fromtimestamp(1794200000).astimezone())
     card.question_answered({"waits": "demo:j1-7", "label": "Ring", "url": CARD, "action_ts": TAP})
 
@@ -1705,14 +1735,14 @@ def test_his_words_under_a_card_within_ten_minutes_after_his_tap_on_it_replace_t
     run("job", "add", "builder", "--order", "o2", "--goal", "build the side door")
     monkeypatch.setattr(subprocess, "run", Cci().run)
     answered = open_cards(monkeypatch, "demo:j1-7")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j2"]["created"] = state.stamp(datetime.fromtimestamp(1794200000).astimezone())
         data["jobs"]["j2"]["questions"].append(state.new_question(None, "Which ring", state.stamp()) | {"waits": "demo:j2-8"})
     superseding: list[tuple[str, str]] = []
     monkeypatch.setattr(settled, "supersede", lambda pick, answer_id, cwd: superseding.append((pick, answer_id)))
     tap_on_card(demo)
     assert {job_id: [kept["seq"] for kept in state.load(demo)["jobs"][job_id]["undelivered"]] for job_id in ("j1", "j2")} == {"j1": ["51"], "j2": ["51"]}
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["state"] = "done"
     words = his_words_at(5)
     assert tools.run("record", demo, {"records": [{"kind": "answer", "text": "Knock, the bell is broken", "url": words, "waits": "demo:j1-7"}]}).splitlines() == [
@@ -1755,7 +1785,7 @@ def test_his_tap_on_a_card_within_ten_minutes_after_his_answer_under_it_replaces
     run("job", "add", "builder", "--order", "o1", "--goal", "build it")
     monkeypatch.setattr(subprocess, "run", Cci().run)
     open_cards(monkeypatch, "demo:j1-7")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["created"] = state.stamp(datetime.fromtimestamp(1794200000).astimezone())
     words = his_words_at(-44)
     said = {"kind": "answer", "text": "Knock, the bell is broken", "url": words, "waits": "demo:j1-7"}
@@ -1825,7 +1855,7 @@ def test_drive_answer_lists_and_ends_the_question_his_tap_closed_once_his_words_
     found = view.live_cards(demo)
     assert ("demo:j1-7" in superseded.asking(state.load(demo), found, words), "demo:j1-7" in superseded.asking(state.load(demo), found)) == (True, False)
     answer_id = "a1c0ffee" + "0" * 32
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["state"] = "done"
         kept = superseded.record(data, answer_id, "Knock, the bell is broken", words, superseded.asking(data, found, words), {}, state.stamp(), False)
         ended = superseded.answer_cards(data, answer_id, kept)
@@ -1843,7 +1873,7 @@ def test_an_answer_his_recorded_rules_give_by_the_waits_id_of_a_question_whose_c
     run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Durable agents", "one card per subject")
     run("job", "add", "builder", "--order", "o1", "--goal", "build it")
     asked = str(state.drive_dir(demo) / "asks" / "j1-5c1d.md")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["questions"] = [state.new_question(asked, "Which card keeps the subject?", state.stamp()) | {"waits": "demo:j1-672331"}]
     posted: list[list[dict]] = []
 
@@ -1881,7 +1911,7 @@ def test_his_answer_settling_a_finished_readers_question_is_held_on_the_builder_
     run("job", "add", "reader", "--order", "o1", "--goal", "research: the card")
     state.keep_report(demo, "j1", "DONE researched the store copy", RESEARCH)
     first, second = (str(state.drive_dir(demo) / "asks" / f"j1-{key}.md") for key in ("5c1d", "9e2f"))
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"].update(state="done", questions=[state.new_question(first, "Which card keeps the subject?", state.stamp()) | {"waits": "demo:j1-673100"}])
         data["jobs"]["j1"]["undelivered"] = [{"seq": "673013", "words": "one card", "at": state.stamp(), "said": None}]
         data["jobs"]["j3"] = state.new_job("o1", "builder", "build the bulk write", [], state.stamp()) | {"state": "waiting", "waits": ["demo:j9-672900"]}
@@ -1898,7 +1928,7 @@ def test_his_answer_settling_a_finished_readers_question_is_held_on_the_builder_
     written = (state.drive_dir(demo) / "jobs" / "j2.brief.md").read_text()
     assert f"Decisions that bind:\n- {ANSWER['title']} (73060f0, 2026-11-12T11:33:00Z)\n" in written and "\nResearched: j1\n" in written and "\nServes: his order\n" in written
     watching = watch.Watcher(demo, offset=state.events_end(demo))
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["questions"].append(state.new_question(second, "Which card keeps the thread?", state.stamp()) | {"waits": "demo:j1-673190"})
     shown["seq"] = "673200"
     tools.run("record", demo, {"records": [{"kind": "answer", "text": "the thread's own card", "url": HIS, "waits": "demo:j1-673190"}]})
@@ -1980,7 +2010,7 @@ def test_his_rulings_are_kept_as_drive_answers_listing_each_card_part_and_pr_the
     sibling = f"{CARD[:-2]}01"
     titles = {"demo:j1-684776": "Which socket formats does sandsql-proc own?", "demo:j1-684682": "Should Electron start sand iris serve through sandsql-proc?"}
     drawn = list(zip(titles.items(), (CARD, sibling), strict=True))
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["agent"] = "agent-1"
         state.start(data["jobs"]["j1"])
         for (waits, title), url in drawn:
@@ -2017,7 +2047,7 @@ def test_his_rulings_are_kept_as_drive_answers_listing_each_card_part_and_pr_the
         for ruling in ("8427b3c", "cabb099")
     ]
     dropped = ["demo:j1-684682", f"o1:{ELECTRON}", f"o1:{MONTY}", "Forge-AI/monorepo#54102"]
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["agent"] = "agent-1"
     send_message(demo, "j1", f"His rulings, verbatim:\n\n{RULED}\n\n{DROPPED}")
     code, out = run("answer", "8427b3c", "--dropped", *dropped, "--stands", *(f"o1:{part}" for part in SANDSQL_PARTS), "Forge-AI/monorepo#54101")
@@ -2044,7 +2074,7 @@ def test_his_rulings_are_kept_as_drive_answers_listing_each_card_part_and_pr_the
 def owners_cards(demo: str, monkeypatch: pytest.MonkeyPatch) -> dict:
     sibling = f"{CARD[:-2]}01"
     drawn = {"demo:j1-684776": CARD, "demo:j1-684682": sibling}
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["agent"] = "agent-1"
         state.start(data["jobs"]["j1"])
         data["jobs"]["j1"]["questions"] += [state.new_question(None, waits, state.stamp(), card=url) | {"waits": waits} for waits, url in drawn.items()]
@@ -2066,7 +2096,7 @@ def test_keeping_a_ruling_reads_his_words_and_holds_the_lock_as_often_however_ma
     run("order", "add", "--title", "SandSQL supervisor", "--project", "Iris", "--workstream", "Durable agents", "move every helper under sandsql-proc", "--parts", *SANDSQL_PARTS)
     run("job", "add", "builder", "--order", "o1", "--goal", "build it", *(flag for part in SANDSQL_PARTS for flag in ("--part", part)))
     found = owners_cards(demo, monkeypatch)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j2"] = state.new_job("o1", "builder", "build it", list(SANDSQL_PARTS), state.stamp()) | {"agent": "agent-2", "state": "waiting"}
         data["orders"]["o1"]["jobs"].append("j2")
     given = state.drive_dir(demo) / "jobs" / "j2-1.md"
@@ -2079,7 +2109,7 @@ def test_keeping_a_ruling_reads_his_words_and_holds_the_lock_as_often_however_ma
     monkeypatch.setattr(state, "writing", lambda name: held.append(name) or real_writing(name))
 
     def keep(owed: int, ruling: str, words: str, waits: str, under: str) -> tuple[int, int]:
-        with state.edit(demo) as data:
+        with edit(demo) as data:
             data["answers"] |= {f"{owed}owed{n}": {"words": f"his answer {n}", "link": "terminal", "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {"j2": None}} for n in range(owed)}
         given.write_text(f"His words, verbatim:\n\n{words}\n" + "and the rest of the brief\n" * 10000)
         ahead = (datetime.now() + timedelta(hours=1)).timestamp()
@@ -2129,7 +2159,7 @@ def test_drive_answer_refuses_to_drop_a_merged_pr_or_supersede_a_part_and_droppi
     run("order", "add", "--title", "SandSQL supervisor", "--project", "Iris", "--workstream", "Durable agents", "move every helper under sandsql-proc", "--parts", *SANDSQL_PARTS)
     run("job", "add", "builder", "--order", "o1", "--goal", "build it", *(flag for part in SANDSQL_PARTS for flag in ("--part", part)))
     run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/54101", "--job", "j1", *LEAD, *(flag for part in SANDSQL_PARTS for flag in ("--part", part)))
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"]["Forge-AI/monorepo#54101"]["state"] = "merged"
     view.refresh_cards(demo)
     assert run("answer", "8427b3c", "--words", RULED, "--link", UNDER_CARD)[0] == 0
@@ -2155,7 +2185,7 @@ def test_drive_answer_marks_each_part_it_lists_after_their_builder_returned_done
     keys = [f"o1:{part}" for part in parts]
     run("order", "add", "--title", "SandSQL supervisor", "--project", "Iris", "--workstream", "Durable agents", "move every helper under sandsql-proc", "--parts", *parts)
     run("job", "add", "builder", "--order", "o1", "--goal", "build it", *(flag for part in parts for flag in ("--part", part)))
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["answers"]["a1"] = {"words": DROPPED, "link": UNDER_CARD, "at": state.stamp(), "said": state.stamp(), "cards": dict.fromkeys(keys), "jobs": {}}
         data["jobs"]["j1"]["state"] = "done"
     view.refresh_cards(demo)

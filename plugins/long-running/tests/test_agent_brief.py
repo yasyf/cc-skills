@@ -7,7 +7,7 @@ from pathlib import Path
 
 import agent_brief
 import pytest
-from conftest import REAL_MACHINE, RESEARCH, HomeRepo, kept_brief, provide
+from conftest import REAL_MACHINE, RESEARCH, HomeRepo, edit, kept_brief, provide
 from drive import agents, brief, cli, orca, place, state, view, watch
 from drive.render import when
 
@@ -141,7 +141,7 @@ def test_a_ninth_builder_here_starts_on_a_sprite_at_once_and_only_one_whose_brie
     run("job", "add", "builder", "--order", "o1", "--part", "docs", "--goal", "tidy the docs")
     run("job", "add", "builder", "--order", "o2", "--goal", "fix the card")
     run("job", "add", "builder", "--order", "o3", "--part", "on a Sprite", "--goal", "fix the watch on a Sprite", "--remote")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         asked = state.new_question(None, "Which store?", state.stamp(), card="https://acme.slack.com/archives/D123/p1794200000000100")
         data["jobs"]["j13"] = state.new_job("o1", "builder", "cut over agent_hosts", [], state.stamp()) | {"state": "waiting", "questions": [asked]}
         data["orders"]["o1"]["jobs"].append("j13")
@@ -185,7 +185,7 @@ def test_a_ninth_builder_here_starts_on_a_sprite_at_once_and_only_one_whose_brie
         "refused: builders already wait their turn for a slot on this Mac ahead of it, earliest due first (j1, j10, j11), so this one waits:"
     )
     assert state.load(demo)["jobs"]["j13"]["waits"] == []
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"].update(waits=[], slot=state.stamp())
     assert agent_brief.deny_reason(briefed("long-running:builder", f"{sprite}order o3, job j1")) is None
     assert agent_brief.deny_reason(briefed("long-running:builder", f"{mac}order o1, job j10")).startswith("refused: j10 waits its turn for a builder slot on this Mac, 1 of 2 in line.")
@@ -214,7 +214,7 @@ def test_a_priority_orders_builder_starts_here_at_once_past_a_full_cap_the_line_
     run("job", "add", "builder", "--order", "o1", "--part", "docs", "--goal", "tidy the docs")
     run("order", "add", "--title", "Short title", "--project", "Releases", "--workstream", "Hotfix", "ship his fix alone first", "--parts", "the hotfix", "the cut")
     run("job", "add", "builder", "--order", "o2", "--part", "the hotfix", "--goal", "build the hotfix")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         for job_id in ("j9", "j10"):
             place.queue(data["jobs"][job_id], state.now())
     data = state.load(demo)
@@ -242,7 +242,7 @@ def test_a_builder_whose_wait_still_holds_starts_with_a_note_naming_the_wait(dem
     assert agent_brief.deny_reason(briefed("long-running:builder", f"{brief}j2")) is None
     assert agent_brief.note(briefed("long-running:builder", f"{brief}j2")) == "j2 still waits on j1; it starts now on your call, ahead of the watch, which starts it once the last wait ends."
     assert agent_brief.note(briefed("long-running:builder", f"{brief}j1")) is None
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["state"] = "done"
     assert agent_brief.note(briefed("long-running:builder", f"{brief}j2")) is None
 
@@ -252,7 +252,7 @@ def test_a_builder_added_to_build_nothing_such_as_an_agentinbox_live_proof_start
     for number in range(1, 9):
         run("job", "add", "builder", "--order", "o1", "--part", f"part {number}", "--goal", f"build part {number}", "--agent", f"a{number}")
     run("job", "add", "builder", "--order", "o1", "--part", "docs", "--goal", "tidy the docs")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         place.queue(data["jobs"]["j9"], state.now())
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "fix the AgentInbox", "--thread", "1.3")
     assert run("job", "add", "builder", "--order", "o2", "--goal", "prove the AgentInbox fix live: a Datadog APM read", "--builds-nothing") == (0, "j10")
@@ -352,7 +352,7 @@ def test_a_usage_limit_stop_is_kept_on_the_job_whose_lane_runs_in_the_sessions_w
     run("order", "add", "--title", "Short title", "--project", "Releases", "--workstream", "Hotfix", "ship his fix")
     run("job", "add", "builder", "--order", "o1", "--goal", "build the hotfix")
     lane = str(tmp_path / "lane")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["worktree"] = lane
     stop = state.parse_time("2026-11-15T17:33:31-08:00")
     hit = state.usage_limit_hit("You've hit your weekly limit · resets Nov 17 at 11pm (America/Los_Angeles)", stop)
@@ -407,7 +407,7 @@ def test_a_loaded_mac_starts_no_builder_here_and_gives_no_slot_but_a_priority_or
     run("order", "add", "--title", "Short title", "--project", "Releases", "--workstream", "Hotfix", "ship his fix", "--parts", "the hotfix", "the cut")
     run("job", "add", "builder", "--order", "o1", "--part", "the hotfix", "--goal", "build the hotfix")
     run("job", "add", "builder", "--order", "o1", "--part", "the cut", "--goal", "cut it")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         place.queue(data["jobs"]["j2"], state.now())
     loaded = "this Mac's 1-minute load is 160, over its 32 cores"
     monkeypatch.setattr(place, "strained", lambda: loaded)
@@ -425,7 +425,7 @@ def test_a_message_wakes_a_builder_marked_builds_nothing_whose_turn_ended_on_a_l
     run("order", "add", "--title", "Short title", "--project", "Releases", "--workstream", "Hotfix", "ship his fix", "--parts", "the hotfix", "the soak")
     run("job", "add", "builder", "--order", "o1", "--part", "the hotfix", "--goal", "build the hotfix")
     assert run("job", "add", "builder", "--order", "o1", "--part", "the soak", "--goal", "soak the hotfix with tools/ci staging-smoke", "--builds-nothing")[0] == 0
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         for job_id in ("j1", "j2"):
             data["jobs"][job_id].update(where="local", agent=f"a-{job_id}")
     loaded = "this Mac's 1-minute load is 160, over its 32 cores"
@@ -445,7 +445,7 @@ def test_a_builder_that_builds_nothing_starts_here_at_once_past_the_load_gate_th
     run("job", "add", "builder", "--order", "o1", "--part", "the fix", "--goal", "build the fix", "--repo", "Forge-AI/monorepo")
     run("job", "add", "builder", "--order", "o1", "--part", "the soak", "--goal", "run the staging cases in the 20-minute window", "--repo", "Forge-AI/monorepo", "--builds-nothing")
     run("job", "add", "builder", "--order", "o1", "--part", staging, "--goal", "test #42 on staging", "--repo", "Forge-AI/monorepo")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         place.queue(data["jobs"]["j1"], state.now())
         place.queue(data["jobs"]["j3"], state.now())
     loaded = "this Mac's 1-minute load is 59, over its 32 cores times 1.5"
@@ -470,7 +470,7 @@ def test_the_local_cap_counts_the_lanes_here_of_every_drive_and_the_owners_caps_
     run("order", "add", "--title", "Short title", "--project", "Releases", "--workstream", "Hotfix", "ship his fix", "--parts", "the hotfix", "the cut")
     run("job", "add", "builder", "--order", "o1", "--part", "the hotfix", "--goal", "build the hotfix")
     assert run("job", "add", "reader", "--order", "o1", "--part", "the cut", "--goal", "research: the cut")[0] == 0
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"].update(where="local", launching=state.stamp())
     place.counted_again()
     data = state.load(demo)
@@ -519,7 +519,7 @@ def test_drive_job_start_starts_a_briefed_reader_as_its_own_session_bound_as_the
     kept = state.drive_dir(demo) / "jobs" / "j1.brief.md"
     kept.parent.mkdir(parents=True, exist_ok=True)
     kept.write_text("Order (his words): restores copy one store\nGoal: research the copy\nDrive: demo, order o1, job j1\n")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["brief"] = str(kept)
     launches: list[tuple[str, str, dict]] = []
     monkeypatch.setattr(agents, "start_job", lambda name, job_id, agent, call, held, cwd: launches.append((job_id, agent, call)) or "bg-session")
@@ -537,11 +537,11 @@ def test_drive_job_start_starts_a_briefed_reader_as_its_own_session_bound_as_the
     monkeypatch.setenv(state.JOB_ENV, f"demo/j1/{agent}/{os.environ['CLAUDE_CODE_SESSION_ID']}")
     bound = agents.seen({"session_id": "bg-session", "transcript_path": "/bg-session.jsonl", "agent_type": "long-running:reader"})
     assert (bound["session_id"], bound["agent_id"], bound["agent_transcript_path"]) == (os.environ["CLAUDE_CODE_SESSION_ID"], agent, "/bg-session.jsonl")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"].update(agent=agent, where="local", session=os.environ["CLAUDE_CODE_SESSION_ID"], state="running")
     assert state.agent_address(state.load(demo)["jobs"]["j1"]) == "peer:bg-session"
     assert watch.carrier("j1", state.load(demo)["jobs"]["j1"], state.load(demo), None) == ["job", "resume", "j1"]
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["session"] = "earlier-session"
     data = state.load(demo)
     assert (watch.session_of(data["jobs"]["j1"], data)["session"], watch.agent_death(data["jobs"]["j1"], data)) == (data["roles"]["coordinator"]["session"], None)

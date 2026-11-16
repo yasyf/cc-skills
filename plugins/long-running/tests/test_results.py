@@ -12,7 +12,7 @@ import no_file_tools
 import one_line_result
 import pytest
 import quiet_turn
-from conftest import LEAD, RESEARCH, CodexAsk, codex_reply, provide, started
+from conftest import LEAD, RESEARCH, CodexAsk, codex_reply, edit, provide, started
 from drive import brief, cli, codex, providers, render, slack, state, watch
 
 Run = Callable[..., tuple[int, str]]
@@ -147,7 +147,7 @@ def launched(demo: str, run: Run, tmp_path: Path) -> Path:
 
 
 def watched(demo: str, job_id: str = "j1") -> dict:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         if isinstance(gap := REAL_CODEX_GAP(job_id, data["jobs"][job_id]), watch.Answered):
             gap.take(demo, data, job_id)
     return state.load(demo)["jobs"][job_id]
@@ -174,7 +174,7 @@ def test_a_codex_jobs_launch_carries_each_text_it_holds_and_each_answer_it_has_n
 ) -> None:
     codex_job(run)
     ring, knock, lazy = 'His answer on card demo:j1-7, verbatim: "Ring"', 'His answer on card demo:j1-8, verbatim: "Knock"', "the lazy copy, no sweeper"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["undelivered"] = [
             {"seq": "9", "words": ring, "at": state.stamp(), "said": None, "request": "req-ring"},
             {"seq": "10", "words": knock, "at": state.stamp(), "said": None, "request": "req-knock"},
@@ -214,7 +214,7 @@ def test_a_standing_parts_pass_that_ended_is_never_started_again_by_hand_and_its
 ) -> None:
     codex_job(run)
     goal = "review the fix, round after round"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         (part,) = data["jobs"]["j1"]["parts"]
         data["orders"]["o1"]["parts"][part]["standing"] = goal
         data["jobs"]["j1"].update(state=ended, said=said)
@@ -235,7 +235,7 @@ def test_a_codex_jobs_launch_files_a_coordinators_text_under_from_the_coordinato
 ) -> None:
     codex_job(run)
     ring, logs = 'His answer on card demo:j1-7, verbatim: "Ring"', "the red run's CI logs are lost; read its rerun's instead"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["undelivered"] = [
             {"seq": None, "words": logs, "sender": "coordinator", "at": state.stamp(), "said": None, "request": "req-logs"},
             {"seq": "9", "words": ring, "at": state.stamp(), "said": None, "request": "req-ring"},
@@ -250,7 +250,7 @@ def test_a_codex_reply_waiting_on_lost_logs_that_names_only_merged_prs_runs_code
 ) -> None:
     codex_job(run)
     keys = [f"Forge-AI/monorepo#{number}" for number in (54607, 54665)]
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         for key in keys:
             data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {"state": "merged", "merged_sha": "abc123"}
     folder = launched(demo, run, tmp_path)
@@ -383,7 +383,7 @@ def test_a_codex_cause_reply_naming_no_fix_runs_codex_again_and_one_naming_it_re
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "SandSQL mint endpoint failing", "--incident", "--parts", "fix", "cause")
     run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "fix the handover", "--kind", "build")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j2"]["codex_run"] = str(codex_ask.run("completed", codex_reply("DONE", "the handover delays the mint", report)))
         state.start(data["jobs"]["j2"])
     job = watched(demo, "j2")
@@ -450,7 +450,7 @@ def test_a_codex_done_keeps_its_proof_where_its_scratch_folder_holds_it_so_the_p
     proof = scratch / "proof.py"
     proof.write_text("#!/usr/bin/env python3\nfrom pathlib import Path\nprint('PASS', (Path(__file__).resolve().parent / 'census.txt').read_text().strip())\n")
     proof.chmod(0o755)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["codex_run"] = str(codex_ask.run("completed", codex_reply("DONE", "0 gaps", f"CHECK: the census\nREPRO: {proof}")))
         state.start(data["jobs"]["j1"])
     job = watched(demo)
@@ -479,7 +479,7 @@ def test_a_codex_done_on_a_surface_its_brief_names_user_stories_on_is_kept_for_d
     for shot in shots:
         shot.write_bytes(b"\0")
     reply = codex_reply("DONE", "the queue redrawn", "\n".join([f"CHECK: {' '.join(map(str, shots))}", *([f"REPRO: {proof}"] if kept else [])]))
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"] |= {
             "brief_flags": {"native": "the dashboard's queue", "interactions": "press j and the next card opens; hover a card and its title shows"},
             "codex_run": str(codex_ask.run("completed", reply)),

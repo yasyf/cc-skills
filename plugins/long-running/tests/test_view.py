@@ -5,8 +5,22 @@ from datetime import timedelta
 from pathlib import Path
 
 import pytest
-from conftest import SHORT_ASK, HomeBuild
-from drive import card, dashboard, land, limits, page, pages, pr_graph, render, slack, stage, state, view, watch
+from conftest import SHORT_ASK, HomeBuild, edit
+from drive import (
+    card,
+    dashboard,
+    land,
+    limits,
+    page,
+    pages,
+    pr_graph,
+    render,
+    slack,
+    stage,
+    state,
+    view,
+    watch,
+)
 from drive.render import when
 
 T0 = state.parse_time("2026-11-09T10:00:00-08:00")
@@ -526,7 +540,7 @@ CHANNELS = {"": {"id": "C100", "name": "him-drive-demo"}, "Iris": {"id": "C200",
 
 
 def kept_channels(name: str) -> None:
-    with state.edit(name) as data:
+    with edit(name) as data:
         data["slack"]["channels"] = json.loads(json.dumps(CHANNELS))
 
 
@@ -552,7 +566,7 @@ def test_each_channel_gets_its_brief_each_pass_and_its_own_canvas_redrawn_only_w
         return {"canvas_id": canvas_id, "url": f"https://acme.slack.com/docs/T1/{canvas_id}"}
 
     monkeypatch.setattr(slack, "cc_slack", canvas)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"] = order("index the iris tables", [], project="Iris")
     said = watch.run_pass(watch.Watcher(demo, offset=state.events_end(demo)), T0)
     assert [line for line in said if line.startswith("WATCH canvas")] == [
@@ -568,7 +582,7 @@ def test_each_channel_gets_its_brief_each_pass_and_its_own_canvas_redrawn_only_w
     assert {seat: (made["canvas"], made["canvas_digest"]) for seat, made in state.load(demo)["slack"]["channels"].items()} == {"": ("F100", page.digest(own)), "Iris": ("F200", page.digest(iris))}
     watch.run_pass(watch.Watcher(demo, offset=state.events_end(demo)), T0 + timedelta(minutes=1))
     assert len(calls) == 2
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o2"] = order("another iris order", [], project="Iris")
     assert [line for line in watch.run_pass(watch.Watcher(demo, offset=state.events_end(demo)), T0 + timedelta(minutes=2)) if line.startswith("WATCH canvas")] == []
     assert [argv[:7] for argv, _ in calls[2:]] == [
@@ -591,7 +605,7 @@ def test_the_watch_renames_a_priority_channel_named_for_its_id_and_sets_each_cha
         return {"id": argv[3], "name": argv[1]}
 
     monkeypatch.setattr(slack, "cc_slack", operator_channel)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["slack"]["channels"] = {"": {"id": "C100", "name": "him-drive-demo"}, state.priority_seat("o1"): {"id": "C300", "name": "him-drive-demo-priority-o1"}}
         data["orders"]["o1"] = order("hand the writer over", [], project="SandSQL") | {"title": "Blue-green SandSQL handoff, designed from scratch", "priority": state.priority_seat("o1")}
     said = watch.run_pass(watch.Watcher(demo, offset=state.events_end(demo)), T0)
@@ -607,7 +621,7 @@ def test_the_watch_renames_a_priority_channel_named_for_its_id_and_sets_each_cha
 
 
 def test_a_priority_channels_canvas_names_its_order_and_what_each_of_his_terms_means(demo: str) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["slack"]["channels"] = {state.priority_seat("o1"): {"id": "C300", "name": "him-drive-demo-prio-releases"}}
         data["orders"]["o1"] = order("cut the release", [], project="Platform") | {"title": "Whole-platform release", "priority": state.priority_seat("o1"), "terms": {"Release 2": "everything but SandSQL; waits on its staging test"}}
     data = state.load(demo)
@@ -620,7 +634,7 @@ def test_a_canvas_slack_refuses_is_drawn_again_next_pass_and_said_from_its_third
     monkeypatch.setattr(watch.github, "fetch", lambda keys, into=None: ({}, None))
     monkeypatch.setattr(watch.slack, "owed", lambda session: [])
     monkeypatch.setattr(slack, "workspace", lambda: "acme.slack.com")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["slack"]["channels"] = {"": {"id": "C100", "name": "him-drive-demo"}}
 
     def refused(name: str, seat: str, title: str, markdown: str) -> page.Drawn:

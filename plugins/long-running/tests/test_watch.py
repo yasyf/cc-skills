@@ -17,8 +17,68 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from conftest import HOME, EnvsRelease, HomeBuild, HomeRepo, MonorepoPaths, NamedRepo, SlotStaging, provide, DRIVE_TERMINAL, LEAD, REAL_SCRATCH, RESEARCH, SHORT_ASK, Answers, CodexAsk, drawn_card, Draws, Jev, Judge, Receiver, Redraws, Thread, WatchProcess, Withdrawals, codex_reply, commit_files, git_in, said_lines, staged, own_time
-from drive import agents, card, cli, codex, dashboard, github, install, land, launchd, limits, orca, place, providers, reads, receiver, render, served, settled, slack, stage, stall, state, superseded, talk, train, view, watch
+from conftest import (
+    DRIVE_TERMINAL,
+    HOME,
+    LEAD,
+    REAL_SCRATCH,
+    RESEARCH,
+    SHORT_ASK,
+    Answers,
+    CodexAsk,
+    Draws,
+    EnvsRelease,
+    HomeBuild,
+    HomeRepo,
+    Jev,
+    Judge,
+    MonorepoPaths,
+    NamedRepo,
+    Receiver,
+    Redraws,
+    SlotStaging,
+    Thread,
+    WatchProcess,
+    Withdrawals,
+    codex_reply,
+    commit_files,
+    drawn_card,
+    edit,
+    git_in,
+    own_time,
+    provide,
+    said_lines,
+    staged,
+)
+from drive import (
+    agents,
+    card,
+    cli,
+    codex,
+    dashboard,
+    github,
+    install,
+    land,
+    launchd,
+    limits,
+    orca,
+    place,
+    providers,
+    reads,
+    receiver,
+    render,
+    served,
+    settled,
+    slack,
+    stage,
+    stall,
+    state,
+    superseded,
+    talk,
+    train,
+    view,
+    watch,
+)
 
 KEY = "Forge-AI/monorepo#42"
 OTHER = "Forge-AI/monorepo#43"
@@ -325,7 +385,7 @@ def test_the_watch_reads_the_changed_files_of_each_head_no_read_saw_once_and_sta
 ) -> None:
     (tmp_path / ".claude").mkdir()
     (tmp_path / state.REPO_RULES).write_text('[[dangerous]]\nclass = "a builtin"\npaths = ["go/sand/internal/builtin/*"]\n')
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["roles"]["coordinator"]["cwd"] = str(tmp_path)
         data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"head": "ccccccc333"}
     asked: list[list[str]] = []
@@ -338,7 +398,7 @@ def test_the_watch_reads_the_changed_files_of_each_head_no_read_saw_once_and_sta
     assert (asked, data["prs"][KEY]["waits"], data["prs"][OTHER]["waits"], data["prs"][OTHER]["paths_at"]) == ([[KEY, OTHER]], [f"o1:{part}"], [], "ccccccc333")
     assert "changes a builtin: go/sand/internal/builtin/http.go, each a dangerous change" in data["jobs"][tester_id]["goal"]
     assert (watch.dangerous_lines(watcher(demo), T0), asked) == ([], [[KEY, OTHER]])
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][OTHER]["head"] = "ddddddd444"
     changed[OTHER] = ("ddddddd444", ["go/sand/internal/builtin/fetch.go"])
     [line] = watch.dangerous_lines(watcher(demo), T0)
@@ -350,7 +410,7 @@ def test_the_watch_reads_the_reach_once_and_takes_each_pr_an_older_reach_staged_
 ) -> None:
     lifted, kept = state.STAGING_TEST.format(number=42), state.STAGING_TEST.format(number=43)
     approve = state.new_tap("Approve", "aaaaaaa111", "slack", at=state.stamp(T0), card=[KEY])
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         del data["reaches_narrowed"]
         data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"head": "ccccccc333"}
         for key in (KEY, OTHER):
@@ -381,7 +441,7 @@ def test_the_watch_classifies_a_head_through_a_provider_the_loader_executes_from
     loaded = providers.at(clone)
     monkeypatch.setattr(providers, "of", lambda data: loaded)
     monkeypatch.setattr(state, "repo_config", lambda data: {})
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["roles"]["coordinator"]["cwd"] = str(clone)
     changed = {KEY: ("aaaaaaa111", ["go/sand/internal/vm/builtins/browserpkg/extract.go"])}
     monkeypatch.setattr(github, "paths", lambda keys: {key: changed[key] for key in keys if key in changed})
@@ -422,7 +482,7 @@ def test_a_pr_whose_head_changes_a_path_the_repository_providers_dangerous_paths
 
 def test_a_green_approved_pr_only_its_staging_test_holds_from_a_production_release_lands_now_unless_it_is_dangerous(home_repo: None, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     held, kept = state.STAGING_TEST.format(number=42), state.STAGING_TEST.format(number=43)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"head": "ccccccc333"}
         for key in (KEY, OTHER):
             state.reach_staging(data, key, [])
@@ -442,7 +502,7 @@ def test_a_green_approved_pr_only_its_staging_test_holds_from_a_production_relea
 def test_a_prs_moves_are_said_whatever_its_jobs_state_and_wake_no_one_while_the_watch_draws_his_card_on_one_waiting_on_his_tap(
     demo: str, monkeypatch: pytest.MonkeyPatch, job_state: str, wants_tap: bool, draws: Draws
 ) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["wants_tap"] = wants_tap
         data["jobs"]["j1"]["state"] = job_state
     serve(monkeypatch, {KEY: read(headRefOid="bbbbbbb222", checks=GREEN, reviewDecision="APPROVED")})
@@ -478,7 +538,7 @@ def test_replayed_55220_a_conflicting_pr_pushed_one_ahead_of_its_base_waits_on_h
     demo: str, monkeypatch: pytest.MonkeyPatch, woken: list[tuple[str, str]]
 ) -> None:
     conflicting_at = T0 + timedelta(minutes=2)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][REPLAYED_55220] = state.new_pr(state.pr_url(REPLAYED_55220), "j1", "o1") | {
             "head": "5e95abf000",
             "base": STACKED_BASE,
@@ -517,7 +577,7 @@ def test_replayed_54026_every_pr_above_the_lowest_pr_of_its_stack_conflicting_wi
 ) -> None:
     waiting_job(demo)
     asking(monkeypatch, demo, REPLAYED_HOLDING_CARD, taps=[pr_card(*REPLAYED_STACK_55221)])
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         for key in REPLAYED_STACK_55221:
             data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {"wants_tap": True, "checked": CHECKED}
         data["prs"][REPLAYED_54026]["parts"] = ["the inbox wake"]
@@ -563,7 +623,7 @@ def test_a_failed_check_being_rerun_never_reads_as_passed(demo: str, monkeypatch
 
 
 def test_a_builders_pushed_wakes_no_one_until_the_first_read_after_it_finds_the_required_checks_green(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"].update(state="waiting", said=f"PUSHED {state.pr_url(KEY)}")
     reads = {KEY: read(checks=[*RUNNING, {**REQUIRED, "state": "SUCCESS"}])}
     serve(monkeypatch, reads)
@@ -580,7 +640,7 @@ def test_a_builders_pushed_wakes_no_one_until_the_first_read_after_it_finds_the_
 
 
 def test_a_pushed_waits_while_the_check_its_rules_require_has_not_posted_on_its_head_and_settles_once_it_passes(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"].update(state="waiting", said=f"PUSHED {state.pr_url(KEY)}")
     reads = {KEY: read(checks=RUNNING)}
     serve(monkeypatch, reads)
@@ -597,7 +657,7 @@ def test_a_pushed_on_a_repository_whose_rules_require_no_check_settles_at_its_fi
     demo: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]], woken: list[tuple[str, str]]
 ) -> None:
     url = state.pr_url(YASYF)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         del data["prs"][KEY]
         data["prs"][YASYF] = state.new_pr(url, "j1", "o1") | {"head": "aaaaaaa111", "wants_tap": False, "checked": CHECKED}
         data["jobs"]["j1"].update(state="waiting", said=f"PUSHED {url}", prs=[url])
@@ -611,7 +671,7 @@ def test_a_pushed_on_a_repository_whose_rules_require_no_check_settles_at_its_fi
 def test_a_red_required_check_ends_a_pushed_with_its_build_and_its_red_stage_wakes_its_builder_not_the_coordinator(
     demo: str, monkeypatch: pytest.MonkeyPatch, woken: list[tuple[str, str]]
 ) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"].update(state="waiting", said=f"PUSHED {state.pr_url(KEY)}")
     serve(monkeypatch, {KEY: read(checks=[{**REQUIRED, "state": "FAILURE"}])})
     watching = watcher(demo)
@@ -627,7 +687,7 @@ def test_a_ready_waits_on_the_pr_it_names_and_its_job_takes_done_once_that_produ
     demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str], ready_records: list[list[dict]]
 ) -> None:
     serve(monkeypatch, {KEY: read(state="MERGED", mergeCommit="ccc333")})
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         state.take_result(data, "j1", f"READY {state.pr_url(KEY)}")
     assert state.load(demo)["jobs"]["j1"]["waits"] == [KEY]
     watching = watcher(demo)
@@ -649,7 +709,7 @@ def test_a_pr_merged_into_another_open_prs_branch_reads_folded_holding_its_wait_
         monkeypatch.setattr(github, "fetch", lambda keys, into=None: asked.append((keys, into)) or ({KEY: folded | {"base_pr": parent | {"key": OTHER}}}, None))
 
     fetch(read(headRefName="the-base"))
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         state.take_result(data, "j1", f"READY {state.pr_url(KEY)}")
     watching = watcher(demo)
     fold = f"PR {KEY}: merged into the-base (#43), not main [o1 j1]"
@@ -672,7 +732,7 @@ def test_a_job_waiting_on_a_builders_change_is_free_once_that_builder_registers_
     built = "Forge-AI/monorepo#43"
     serve(monkeypatch, {})
     briefed = str(state.drive_dir(demo) / "jobs" / "j3.brief.md")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j2"] = job(goal="build the store")
         data["jobs"]["j3"] = state.new_job("o1", "builder", "build on the store", [], state.stamp(T0)) | {"brief": briefed, "brief_flags": {"plan": "j1's design"}}
     assert cli.main(["job", "set", "j3", "--waits", "j2", "--drive", demo]) == 0
@@ -690,7 +750,7 @@ def test_a_job_waiting_on_a_builders_change_is_free_once_that_builder_registers_
 
 def test_a_job_freed_by_several_earlier_changes_stacks_on_the_one_with_the_most_open_prs_under_it_and_merges_in_each_other(demo: str) -> None:
     bottom, top, apart = "Forge-AI/monorepo#43", "Forge-AI/monorepo#44", "Forge-AI/monorepo#45"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         for key, job_id, branch, under in ((bottom, "j2", "the-store", None), (top, "j3", "the-reads", bottom), (apart, "j4", "the-writes", None)):
             data["prs"][key] = state.new_pr(state.pr_url(key), job_id, "o1") | {"branch": branch, "under": under}
         data["jobs"]["j5"] = job(goal="build on all three", stacks_on=[apart, top, bottom])
@@ -704,11 +764,11 @@ def test_a_wait_on_another_builders_pr_closed_unmerged_moves_to_that_builder_and
 ) -> None:
     closed, rebuilt = "Forge-AI/monorepo#43", "Forge-AI/monorepo#44"
     serve(monkeypatch, {})
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j2"] = job(goal="build the store", state="built", branch="blobstore-refcounts")
         data["jobs"]["j3"] = state.new_job("o1", "builder", "build on the store", [], state.stamp(T0))
     assert cli.main(["pr", "add", state.pr_url(closed), "--job", "j2", "--drive", demo, *LEAD]) == 0
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j2"]["waits"] = [closed]
         data["jobs"]["j3"].update(state="waiting", said=f"waits on {closed}", waits=[closed])
     serve(monkeypatch, {closed: read(state="CLOSED")})
@@ -727,11 +787,11 @@ def test_a_release_wait_on_a_pr_closed_unmerged_frees_the_job_that_opened_it_and
     closed, rebuilt = "Forge-AI/monorepo#43", "Forge-AI/monorepo#44"
     release_wait = f"release:api:{closed}"
     serve(monkeypatch, {})
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j2"] = job(goal="build the store", state="built", branch="blobstore-refcounts")
         data["jobs"]["j3"] = job(goal="build on the store")
     assert cli.main(["pr", "add", state.pr_url(closed), "--job", "j2", "--drive", demo, *LEAD]) == 0
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j2"]["waits"] = [release_wait]
         data["jobs"]["j3"].update(state="waiting", waits=[release_wait])
         data["prs"][KEY]["waits"] = [release_wait]
@@ -751,11 +811,11 @@ def test_a_release_wait_on_a_pr_closed_unmerged_frees_the_job_that_opened_it_and
 def test_a_wait_on_a_staging_testers_pr_closed_unmerged_ends_and_never_moves_onto_the_tester_whose_test_holds_no_such_pr(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     closed = "Forge-AI/monorepo#43"
     serve(monkeypatch, {})
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j2"] = job(goal="run the staging test of Forge-AI/monorepo#44", state="waiting", parts=[state.STAGING_TEST.format(number=44)], builds_nothing=True)
         data["jobs"]["j3"] = job(goal="build on the fix")
     assert cli.main(["pr", "add", state.pr_url(closed), "--job", "j2", "--drive", demo, *LEAD]) == 0
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j3"].update(state="waiting", waits=[closed])
         data["prs"][KEY]["waits"] = [closed]
     serve(monkeypatch, {closed: read(state="CLOSED")})
@@ -798,7 +858,7 @@ def test_github_is_read_for_every_pr_at_a_landing_loops_start_none_before_it_han
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(watch, "run_pass", REAL_RUN_PASS)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"head": "aaaaaaa111", "wants_tap": False}
     calls = serve(monkeypatch, {KEY: read(), OTHER: read()})
     watching = watcher(demo)
@@ -817,7 +877,7 @@ def test_github_is_read_for_every_pr_at_a_landing_loops_start_none_before_it_han
 
 def test_a_landing_loop_reading_github_by_another_query_than_the_one_that_handed_it_its_reads_reads_every_pr_whole(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(watch, "run_pass", REAL_RUN_PASS)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"head": "aaaaaaa111", "wants_tap": False}
     calls = serve(monkeypatch, {KEY: read(), OTHER: read()})
     watching = watcher(demo)
@@ -832,7 +892,7 @@ def test_a_push_to_their_base_reads_only_the_mergeability_of_the_prs_it_names_sa
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(watch, "run_pass", REAL_RUN_PASS)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"head": "aaaaaaa111", "wants_tap": False}
     reads = {KEY: read(), OTHER: read()}
     calls = serve(monkeypatch, reads)
@@ -848,7 +908,7 @@ def test_a_push_to_their_base_reads_only_the_mergeability_of_the_prs_it_names_sa
 
 def test_a_logged_delivery_owes_a_read_of_a_pr_the_drive_holds_closed_and_a_carried_ones_close_but_none_of_a_merged_pr_nor_of_a_carried_ones_check_run(demo: str) -> None:
     merged, carried = "Forge-AI/monorepo#41", "Forge-AI/monorepo#44"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["state"] = "closed"
         data["prs"][merged] = state.new_pr(state.pr_url(merged), "j1", "o1") | {"head": "aaaaaaa111", "state": "merged"}
         data["jobs"]["j2"] = state.new_job("o1", "builder", "port the fixes", [], state.stamp()) | {"state": "stopped", "prs": [state.pr_url(carried)]}
@@ -924,7 +984,7 @@ def test_a_watch_handed_its_owed_reads_asks_github_one_query_a_repository_for_th
 ) -> None:
     numbers = [42, *range(1000, 1000 + tracked - 1)]
     keys = [f"Forge-AI/monorepo#{number}" for number in numbers]
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         for key in [*keys, YASYF]:
             data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {"head": "aaaaaaa111", "base": "dev", "wants_tap": False, "required": {"checks": "none", "failed": {}, "read": state.stamp(T0)}}
     asked = graphql_counted(monkeypatch, dict.fromkeys([*keys, YASYF], "aaaaaaa111"))
@@ -986,7 +1046,7 @@ def test_a_builders_pushed_owes_a_read_of_each_pr_it_names_github_has_not_answer
     calls = serve(monkeypatch, {KEY: read()})
     watching = watcher(demo)
     watch.run_pass(watching, T0)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"].update(state="waiting", said=f"PUSHED {state.pr_url(KEY)}", updated=state.stamp(T0 + timedelta(seconds=2)))
     watch.run_pass(watching, T0 + timedelta(seconds=5))
     watch.run_pass(watching, T0 + timedelta(seconds=10))
@@ -1011,7 +1071,7 @@ def test_a_repository_this_account_does_not_administer_is_asked_once_and_a_hook_
 ) -> None:
     monkeypatch.setattr(watch, "run_pass", REAL_RUN_PASS)
     broken, upstream, shut = "Forge-AI/litestream#3", "stablyai/orca#7", "stablyai/orca#8"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         for key in (broken, upstream, shut):
             data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {"head": "aaaaaaa111", "wants_tap": False}
     calls = serve(monkeypatch, {key: read() for key in (KEY, broken, upstream)} | {shut: read(state="CLOSED")})
@@ -1034,7 +1094,7 @@ def test_a_pr_on_a_repository_no_hook_delivers_from_says_its_checks_passed_withi
 ) -> None:
     monkeypatch.setattr(watch, "run_pass", REAL_RUN_PASS)
     docs = "Forge-AI/design-docs#366"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][docs] = state.new_pr(state.pr_url(docs), "j1", "o1") | {"head": "aaaaaaa111", "wants_tap": False}
     reads = {KEY: read(), docs: read()}
     serve(monkeypatch, reads)
@@ -1138,7 +1198,7 @@ def test_a_good_read_starts_the_failure_count_over(demo: str, monkeypatch: pytes
 
 
 def test_a_refused_query_keeps_the_reads_of_the_others_and_a_finished_pr_is_never_read_again(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"head": "aaaaaaa111", "wants_tap": False}
     calls = []
 
@@ -1293,7 +1353,7 @@ def test_events_tail_from_the_offset_at_start(demo: str, monkeypatch: pytest.Mon
 
 
 def tooling_order(name: str, job_state: str, text: str = "Drive tooling: the watch sends tooling lines to the meta session", owner: str = "meta") -> None:
-    with state.edit(name) as data:
+    with edit(name) as data:
         data["orders"]["o1"].update(text=text, owner=owner)
         data["jobs"]["j1"]["state"] = job_state
 
@@ -1418,7 +1478,7 @@ def test_every_line_naming_a_job_or_an_order_goes_to_the_session_holding_it_with
 
 def test_a_job_unsent_his_answer_holds_his_words_for_its_next_worker_from_any_watch_with_no_line(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     sub_coordinated(demo)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j2"] = job(agent="a-2", where="local", session="session-under-test")
         data["orders"]["o1"]["jobs"].append("j2")
         data["answers"]["a1"] = {"words": "one new tool", "link": f"{CARD}9", "at": state.stamp(T0), "said": state.stamp(T0), "cards": {}, "jobs": {"j1": None, "j2": None}}
@@ -1471,9 +1531,9 @@ def test_partial_event_line_waits_for_its_newline(demo: str, monkeypatch: pytest
 def test_a_claim_whose_end_passed_owes_its_thread_a_closing_line_every_ten_minutes_until_a_drive_post_is_there(demo: str, slack_thread: "Thread") -> None:
     claim, moved = "1794200000.000100", "1794203600.000200"
     link = "https://acme.slack.com/archives/C0STAGING1/p1794200000000100"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o2"] = order(text="test the batch writer on staging", jobs=[])
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["state"] = "done"
         state.claim(data, data["orders"]["o1"], ("C0STAGING1", claim), link, state.stamp(T0), claim)
     watching = watcher(demo)
@@ -1488,7 +1548,7 @@ def test_a_claim_whose_end_passed_owes_its_thread_a_closing_line_every_ten_minut
     assert watch.claim_lines(watching, T0 + timedelta(minutes=9)) == []
     slack_thread.post(T0 + timedelta(minutes=9), from_user=True)
     assert len(watch.claim_lines(watching, T0 + timedelta(minutes=10))) == 1
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         state.claim(data, data["orders"]["o2"], ("C0STAGING1", claim), link, state.stamp(T0 + timedelta(hours=1)), moved)
     assert state.load(demo)["orders"]["o1"]["claims"] == {claim: {"channel": "C0STAGING1", "link": link, "until": state.stamp(T0 + timedelta(hours=1)), "since": moved, "said": None, "replies_read": None}}
     assert watch.claim_lines(watching, T0 + timedelta(minutes=30)) == []
@@ -1513,9 +1573,9 @@ def test_a_claim_5_minutes_old_tells_its_order_once_that_its_work_may_start_or_q
         ],
     }
     monkeypatch.setattr(slack, "thread", lambda *where: list(threads[where[3]]))
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o2"] = order(text="test the batch writer on staging", jobs=[])
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         for order_id, ts in (("o1", quiet), ("o2", replied)):
             state.claim(data, data["orders"][order_id], ("C0STAGING1", ts), link[ts], state.stamp(T0 + timedelta(hours=1)), ts)
     watching = watcher(demo)
@@ -1547,7 +1607,7 @@ def test_a_thread_his_open_order_watches_starts_a_handler_on_each_new_teammate_m
     demo: str, monkeypatch: pytest.MonkeyPatch, slack_thread: Thread
 ) -> None:
     calls = catching_up(monkeypatch, demo)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"].update(state="open", watch=state.new_watch(f"slack:C0TEAM0001/{TEAMMATE_THREAD}", T0))
     slack_thread.messages += [
         teammate(T0 - timedelta(minutes=1), text="answered before the watch began"),
@@ -1568,7 +1628,7 @@ def test_a_thread_his_open_order_watches_starts_a_handler_on_each_new_teammate_m
     assert watch.watched_lines(watching, T0 + timedelta(minutes=2)) == []
     assert len(calls) == 2
     slack_thread.messages.append(teammate(T0 + timedelta(minutes=2, seconds=10), text="and tomorrow?"))
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["state"] = "done"
     assert watch.watched_lines(watching, T0 + timedelta(minutes=3)) == []
     assert (len(calls), len(slack_thread.reads)) == (2, 2)
@@ -1650,7 +1710,7 @@ def release(build_state: str, finished: datetime | None = None, done: int = 1) -
 
 
 def following(demo: str) -> str:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["state"] = "open"
         data["jobs"]["j1"]["state"] = "done"
         [part] = data["orders"]["o1"]["parts"]
@@ -1710,7 +1770,7 @@ def test_a_followed_build_is_read_once_as_first_held_and_one_buildkite_answers_n
 
 
 def test_a_watched_thread_that_cannot_be_read_keeps_its_cursor_and_is_said_from_its_third_failure_in_a_row(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"].update(state="open", watch=state.new_watch(f"slack:C0TEAM0001/{TEAMMATE_THREAD}", T0))
 
     def unreadable(*where: str) -> list[dict]:
@@ -1731,7 +1791,7 @@ def at_top(moment: datetime, **fields: object) -> dict:
 def asked_teammate(demo: str, monkeypatch: pytest.MonkeyPatch, top: list[dict]) -> list[tuple[str, ...]]:
     histories: list[tuple[str, ...]] = []
     monkeypatch.setattr(watch.slack, "cc_slack", lambda *argv: histories.append(argv) or {"messages": list(top)})
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"].update(state="waiting", waits=[f"reply:{ASKED_TEAMMATE}"])
     return histories
 
@@ -1825,7 +1885,7 @@ def test_another_drives_first_record_after_the_one_a_job_waits_after_on_its_topi
         cci_record(722670, text="a later line"),
     ]
     reads_made = cci_store(monkeypatch, records)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"].update(state="waiting", waits=["reply:cci:722599"])
         data["jobs"]["j2"] = job(state="waiting", waits=["reply:cci:722650"])
     watching = watcher(demo)
@@ -1851,7 +1911,7 @@ def test_725715_a_record_on_the_other_drive_whose_lane_names_the_waiting_drive_i
         cci_record(725697, kind="answer", lane=f"meta@{demo}", text="o78 holds staging until 3 PM"),
     ]
     cci_store(monkeypatch, records)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"].update(state="waiting", waits=["reply:cci:725268"])
     watching = watcher(demo)
     assert watch.waits_lines(watching, T0 + timedelta(minutes=1)) == []
@@ -1865,7 +1925,7 @@ def test_the_watch_reads_every_job_waiting_on_another_drives_record_in_one_cci_s
     catching_up(monkeypatch, demo)
     anchors = [cci_record(723000 + 2 * n, topic=f"topic-{n}") for n in range(waiting)]
     reads_made = cci_store(monkeypatch, [*anchors, *(cci_record(anchor["seq"] + 1, topic=anchor["topic"]) for anchor in anchors[::2])])
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         for n, anchor in enumerate(anchors):
             data["jobs"][f"j{100 + n}"] = job(state="waiting", waits=[f"reply:cci:{anchor['seq']}"])
     watch.waits_lines(watcher(demo), T0 + timedelta(minutes=1))
@@ -1881,7 +1941,7 @@ def test_a_record_cci_cannot_read_that_a_job_waits_after_frees_nothing_and_is_sa
         raise reads.ReadError("cci show exited 1: cci: show: no record #722599")
 
     monkeypatch.setattr(reads, "run", unreadable)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"].update(state="waiting", waits=["reply:cci:722599"])
     watching = watcher(demo)
     said = [watch.waits_lines(watching, T0 + timedelta(minutes=minute)) for minute in (1, 2, 3)]
@@ -1891,7 +1951,7 @@ def test_a_record_cci_cannot_read_that_a_job_waits_after_frees_nothing_and_is_sa
 
 
 def test_incident_pr_lines_stage_only_the_named_prs_and_reuse_one_projection_index(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o4"] = order(text="unrelated", jobs=["j4"])
         data["jobs"]["j4"] = job(order="o4")
         data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j4", "o4")
@@ -1926,7 +1986,7 @@ O768_WORDS = "replay the SandSQL folder list on one staging pass box"
 
 def joined_from_another_thread(demo: str) -> None:
     """o1114 and o768 as 720284 found them: o768, an order that is no incident with its own thread in his DM, joined to o1114 by a FIX line naming its PR, each with a job at work."""
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"].update(thread=["D123", O1114_THREAD])
         data["orders"]["o2"] = order(text=O768_WORDS, joins="o1", thread=["D123", O768_THREAD], jobs=["j2"])
         data["jobs"]["j2"] = job(order="o2", kind="reader")
@@ -1957,7 +2017,7 @@ def catching_up(monkeypatch: pytest.MonkeyPatch, demo: str) -> list[tuple[list[s
     """Each command the drive runs and each record it posts with its body, a post answering its seq."""
     from drive import tools
 
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["roles"]["communicator"] = {"session": "communicator-session", "terminal": None, "cwd": "/work", "started": state.stamp(T0)}
     calls: list[tuple[list[str] | dict, str | None]] = []
 
@@ -2115,7 +2175,7 @@ def test_jobs_this_macs_load_holds_back_are_queued_with_a_place_and_a_job_needin
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "four builds")
     run("job", "add", "builder", "--order", "o1", "--goal", "first build")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"].pop(KEY)
         builders = [job_id for job_id, job in data["jobs"].items() if job["kind"] == "builder"]
         for goal in ("second build", "staging test", "sprite build", "queued sprite build"):
@@ -2146,7 +2206,7 @@ def test_the_drives_own_watch_starts_a_projects_briefed_builder_and_a_projects_w
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "one build")
     run("job", "add", "builder", "--order", "o1", "--goal", "first build")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         job_id = next(job_id for job_id, job in data["jobs"].items() if job["kind"] == "builder")
         brief = tmp_path / f"{job_id}.md"
         brief.write_text("Goal: build\n")
@@ -2190,7 +2250,7 @@ def test_a_watch_hands_off_to_a_newer_install_only_once_it_ran_hand_off_every_or
     watching.resume = "release_lanes"
     assert (watch.handing_off(watching, 600.0), watch.handing_off(watching, 1199.0), watch.handing_off(watching, 1200.0)) == (False, False, True)
     watching.resume = None
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["incident"] = True
     assert watch.handing_off(watching, 0.0) is True
 
@@ -2202,7 +2262,7 @@ def test_watch_metadata_reads_do_not_decode_unrelated_collections(demo: str, ope
     monkeypatch.setattr(watch, "HAND_OFF_EVERY", timedelta(minutes=10))
     monkeypatch.setattr(watch, "HAND_OFF_LATEST", timedelta(minutes=20))
 
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["slack"]["digest"] = {"day": T0.astimezone(view.ZONE).date().isoformat()}
         data["orders"]["o1"]["priority"] = "Priority o1"
     watching = watcher(demo)
@@ -2244,7 +2304,7 @@ def test_a_held_resume_naming_no_stage_of_this_install_runs_the_whole_pass(demo:
 def test_a_watch_that_crashes_mid_pass_posts_its_stop_but_not_the_job_line_saying_the_watch_starts_the_prover_itself_and_the_watch_its_launch_agent_starts_again_says_none_again(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"].update(state="waiting", said=f"READY {state.pr_url(KEY)}")
     serve(monkeypatch, {KEY: read(state="MERGED", mergeCommit="ccc333")})
     beat = watch.beat
@@ -2326,7 +2386,7 @@ def test_a_drive_whose_state_root_is_moved_gets_no_watch_process_and_a_watch_sta
 def test_drive_watch_starts_the_watch_from_any_roles_session(
     demo: str, monkeypatch: pytest.MonkeyPatch, watch_process: WatchProcess, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["roles"]["communicator"] = {"session": "talker", "cwd": "/work", "started": state.stamp(T0)}
     assert cli.main(["watch", "--drive", demo]) == 0
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
@@ -2336,7 +2396,7 @@ def test_drive_watch_starts_the_watch_from_any_roles_session(
 
 
 def sub_coordinated(name: str, project: str = "Iris", session: str = "iris-1", cwd: str = "/work") -> None:
-    with state.edit(name) as data:
+    with edit(name) as data:
         data["orders"]["o1"]["project"] = project
         cli.bind_subcoordinator(data, project, {"session": session, "terminal": None, "cwd": cwd, "started": state.stamp(T0)})
 
@@ -2352,7 +2412,7 @@ def moved(orders: str, lane: str, to: str, jobs: str, own: str = "none") -> str:
 def test_a_projects_watch_hears_only_its_orders_jobs_prs_and_orphans_and_the_drives_watch_the_rest(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     sub_coordinated(demo)
     still = state.stamp(T0 - timedelta(minutes=10))
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["state"] = "waiting"
         data["orders"]["o2"] = order(text="fix the alert", jobs=["j2"], project="Platform")
         data["jobs"]["j2"] = job(order="o2", state="waiting", prs=[state.pr_url(OTHER)])
@@ -2378,7 +2438,7 @@ def test_a_projects_watch_hears_only_its_orders_jobs_prs_and_orphans_and_the_dri
 def test_the_drives_watch_keeps_a_projects_lines_until_a_sub_coordinator_is_bound_for_it_and_that_ones_watch_takes_them_from_there(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["project"] = "Iris"
         data["jobs"]["j1"]["state"] = "waiting"
     reads = {KEY: read(checks=RED)}
@@ -2409,22 +2469,22 @@ def test_a_free_line_reaches_the_watch_of_the_session_whose_agent_runs_the_job_a
 ) -> None:
     """His pick "Send them to the agent's starter": FREE 682910 on j2600 reached platform, which could not SendMessage the top's agent, and its hand-off to the top took 8 minutes 21 seconds."""
     serve(monkeypatch, {})
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
         data["jobs"]["j2"] = job(goal="release the service")
         data["jobs"]["j1"].update(state="waiting", waits=["j2"], agent="agent-j1", where="local", session="session-under-test")
     sub_coordinated(demo)
     iris, top = watch.Watcher(demo, offset=state.events_end(demo), project="Iris"), watcher(demo)
     assert (watch.run_pass(iris, T0), watch.run_pass(top, T0)) == ([], [])
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j2"]["state"] = "done"
     freed = T0 + timedelta(seconds=60)
     assert (watch.run_pass(iris, freed), watch.run_pass(top, freed)) == ([], ["FREE j1 o1: j2 answered or done, nothing else holds it"])
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"].update(state="waiting", waits=["j2"], session="gone")
         data["jobs"]["j2"]["state"] = "running"
     assert (watch.run_pass(iris, freed + timedelta(minutes=1)), watch.run_pass(top, freed + timedelta(minutes=1))) == ([], [])
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j2"]["state"] = "done"
     later = freed + timedelta(minutes=2)
     assert (watch.run_pass(iris, later), watch.run_pass(top, later)) == (["FREE j1 o1: j2 answered or done, nothing else holds it"], [])
@@ -2434,7 +2494,7 @@ def test_a_projects_watch_hands_a_stuck_or_lane_line_to_the_session_that_started
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     sub_coordinated(demo, "Platform", "platform-1")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"] |= {"agent": "a4667d5c611bb5233", "session": "session-under-test"}
         data["orders"]["o1"]["jobs"].append("j2")
         data["jobs"]["j2"] = job(agent="a-gone", session="ended-session")
@@ -2452,7 +2512,7 @@ def test_a_save_that_moves_open_orders_hands_each_session_losing_them_one_moved_
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     serve(monkeypatch, {})
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
         data["jobs"]["j2"] = job(goal="release the service")
         data["jobs"]["j1"].update(state="waiting", waits=["j2"], agent="agent-j1", where="local", session="session-under-test")
@@ -2461,10 +2521,10 @@ def test_a_save_that_moves_open_orders_hands_each_session_losing_them_one_moved_
         data["jobs"]["j4"] = job(order="o2", state="done")
     sent = posts(monkeypatch)
     top = watcher(demo)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j2"]["goal"] = "release the service today"
     sub_coordinated(demo)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o2"]["owner"] = None
     assert watch.sent(top, "root", watch.run_pass(top, T0), T0) == []
     assert posted(sent) == [
@@ -2540,7 +2600,7 @@ def test_a_part_no_job_carries_is_an_orphan_said_once_five_minutes_after_its_ord
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     serve(monkeypatch, {})
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         files_order(data)
     watching = watcher(demo)
     assert watch.run_pass(watching, T0) == []
@@ -2548,7 +2608,7 @@ def test_a_part_no_job_carries_is_an_orphan_said_once_five_minutes_after_its_ord
     assert [watch.run_pass(watching, T0 + timedelta(minutes=minutes)) for minutes in (6, 35, 65, 95)] == [[], [], [], []]
     assert render.orphans(state.load(demo), "o2", 80) == [f'  ORPHAN "stack 2", said {render.when(state.stamp(T0 + timedelta(minutes=5)))}: no job']
     joined = T0 + timedelta(minutes=96)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j2"].update(parts=["stack 1", "stack 2"], updated=state.stamp(joined))
     assert render.orphans(state.load(demo), "o2", 80) == []
     assert state.load(demo)["orders"]["o2"]["parts"]["stack 2"]["orphan_said"] == state.stamp(T0 + timedelta(minutes=5))
@@ -2558,18 +2618,18 @@ def test_a_part_no_job_carries_is_an_orphan_said_once_five_minutes_after_its_ord
 
 def test_a_part_of_an_order_he_has_not_scheduled_is_no_orphan_and_heals_the_one_said_until_he_schedules_it(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {})
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         files_order(data)
     watching = watcher(demo)
     assert watch.run_pass(watching, T0) == []
     assert watch.run_pass(watching, T0 + timedelta(minutes=5)) == ['ORPHAN o2 "stack 2": no job']
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o2"]["state"] = "waiting"
     assert [watch.run_pass(watching, T0 + timedelta(minutes=minutes)) for minutes in (6, 40)] == [[], []]
     assert state.load(demo)["orders"]["o2"]["parts"]["stack 2"]["orphan_said"] is None
     assert render.orphans(state.load(demo), "o2", 80) == []
     scheduled = T0 + timedelta(minutes=41)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o2"].update(state="open", updated=state.stamp(scheduled))
     assert watch.run_pass(watching, scheduled + timedelta(minutes=5)) == ['ORPHAN o2 "stack 2": no job']
 
@@ -2587,10 +2647,10 @@ def launches(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
 def test_a_standing_pass_that_failed_on_its_proof_hands_the_next_pass_the_last_lines_that_proof_printed(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     launches(monkeypatch)
     blocked, missing = "BLOCKED j2: /drive/repro/j2.py exits 1: it printed no FAIL line", "FileNotFoundError: [Errno 2] No such file or directory: '/drive/repro/manifest.json'"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         standing_order(data, ["j2"])
         data["jobs"]["j2"] = job(order="o2", kind="codex", goal=BOX_GOAL, parts=["codex test box"])
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j2"].update(state="failed", said=blocked)
     state.keep_report(demo, "j2", blocked, f"{blocked}\nCHECK: {state.proof_path(demo, 'j2')}\n")
     state.proof_path(demo, "j2").parent.mkdir(exist_ok=True)
@@ -2605,12 +2665,12 @@ def test_a_standing_part_its_running_pass_holds_starts_none_and_once_that_pass_e
 ) -> None:
     detached = launches(monkeypatch)
     said = "HANDOFF /drive/scratch/j2/handoff.md: box i-0ee4 under o2-codex-box, round 4 ran, staging untested"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         standing_order(data, ["j2"])
         data["jobs"]["j2"] = job(order="o2", kind="codex", goal=BOX_GOAL, parts=["codex test box"], brief_flags={"where": "this Mac and one EC2 devbox", "handoff": "round 3"})
     watching = watcher(demo)
     assert (staged(watch.standing_lines, watching, T0 + timedelta(hours=1)), detached) == ([], [])
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j2"].update(state="stopped", said=said)
     assert staged(watch.standing_lines, watching, T0 + timedelta(hours=1)) == [
         f'STANDING j3 o2 "codex test box": j2 ended stopped: "{said}"; the watch added j3, a codex job on this Mac on its standing goal,'
@@ -2631,7 +2691,7 @@ def test_a_standing_part_its_running_pass_holds_starts_none_and_once_that_pass_e
 def test_a_standing_pass_added_with_no_brief_is_briefed_and_launched_on_the_next_pass_as_j7852_was_not(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     detached = launches(monkeypatch)
     said = "DONE j2 live: round 4 ran"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         standing_order(data, ["j2", "j3"])
         data["jobs"]["j2"] = job(order="o2", kind="codex", goal=BOX_GOAL, parts=["codex test box"], state="done", said=said, brief_flags={"where": "this Mac and one EC2 devbox"})
         data["jobs"]["j3"] = state.new_job("o2", "codex", BOX_GOAL, ["codex test box"], state.stamp(T0))
@@ -2646,7 +2706,7 @@ def test_a_standing_pass_that_ended_at_once_starts_the_next_only_thirty_minutes_
 ) -> None:
     serve(monkeypatch, {})
     detached = launches(monkeypatch)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         standing_order(data, ["j2"])
         data["jobs"]["j2"] = job(order="o2", kind="codex", goal=BOX_GOAL, parts=["codex test box"], state="done", said="DONE round 1 ran")
     watching = watcher(demo)
@@ -2659,7 +2719,7 @@ def test_a_standing_pass_that_ended_at_once_starts_the_next_only_thirty_minutes_
 
 def test_the_first_pass_of_a_standing_part_no_job_ever_held_starts_at_once_and_says_no_pass_ran_before(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     detached = launches(monkeypatch)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         standing_order(data, [])
     assert staged(watch.standing_lines, watcher(demo), T0) == [
         f'STANDING j2 o2 "codex test box": no pass of it ran before; the watch added j2, a codex job on this Mac on its standing goal,'
@@ -2675,14 +2735,14 @@ def test_a_standing_part_kept_on_a_check_runs_it_detached_every_thirty_minutes_w
     serve(monkeypatch, {})
     detached = launches(monkeypatch)
     command = "python3 -I tools/port_gap.py --post"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         standing_order(data, [])
         data["orders"]["o2"]["parts"]["codex test box"]["check"] = state.new_check(command)
     watching = watcher(demo)
     checking = ["order", "check", "o2", "--part", "codex test box"]
     assert (staged(watch.standing_lines, watching, T0), detached, state.load(demo)["orders"]["o2"]["jobs"]) == ([], [checking], [])
     assert (staged(watch.standing_lines, watching, T0 + timedelta(minutes=40)), detached) == ([], [checking])
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o2"]["parts"]["codex test box"]["check"].update(exit=0, said="port-gap at dev 6596e76b12fa: 0 gap")
     assert (staged(watch.standing_lines, watching, T0 + timedelta(minutes=10)), watch.orphan_lines(watching, T0 + timedelta(minutes=10))) == ([], [])
     data = state.load(demo)
@@ -2690,7 +2750,7 @@ def test_a_standing_part_kept_on_a_check_runs_it_detached_every_thirty_minutes_w
         f'  STANDING "codex test box": standing on "{render.cut(BOX_GOAL, 80)}", checked by `{command}`, last run {render.when(state.stamp(T0))} exited 0: "port-gap at dev 6596e76b12fa: 0 gap"'
     ]
     assert (staged(watch.standing_lines, watching, T0 + state.STANDING_EVERY), detached) == ([], [checking, checking])
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o2"]["parts"]["codex test box"]["check"].update(exit=1, said="git fetch: could not read from remote")
     late = T0 + state.STANDING_EVERY + timedelta(minutes=5)
     assert watch.orphan_lines(watching, late) == [f'ORPHAN o2 "codex test box": its check `{command}` exited 1: git fetch: could not read from remote']
@@ -2701,7 +2761,7 @@ def test_a_standing_parts_next_pass_holds_the_texts_and_owes_the_answers_its_las
 ) -> None:
     launches(monkeypatch)
     held = {"seq": None, "words": "run round 5 against staging-2", "sender": "coordinator", "at": state.stamp(T0), "said": None, "request": "r-1"}
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         standing_order(data, ["j2"])
         data["jobs"]["j2"] = job(order="o2", kind="codex", goal=BOX_GOAL, parts=["codex test box"], state="stopped", said="HANDOFF round 4 ran", undelivered=[held])
         data["answers"]["a1"] = {"words": "keep box i-0ee4 for round 5", "link": f"{CARD}9", "at": state.stamp(T0), "said": state.stamp(T0), "cards": {}, "jobs": {"j1": None, "j2": None}}
@@ -2720,7 +2780,7 @@ def test_a_stranded_jobs_orphans_name_once_the_pr_its_line_names_moved_to_anothe
     parts = ["auto partitioning on the same abstraction", "auto partitioning status"]
     moved = "Forge-AI/monorepo#55175"
     said = f"READY {state.pr_url(moved)} waits on j4's runbook"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         proven(data, updated=earlier)
         data["orders"]["o2"] = order(text=parts[0], jobs=["j2", "j3", "j4"], kind="build", parts={part: state.new_part() for part in parts}, updated=earlier)
         data["jobs"]["j2"] = job(order="o2", state="waiting", said=said, parts=parts, updated=earlier)
@@ -2742,17 +2802,17 @@ def test_each_change_a_design_lists_with_no_job_is_an_orphan_whatever_earlier_ch
         "DESIGN moved-table abstraction\nChange: the moved-table interface\nChange: the reads through it\nChange: the writes through it (waits on change 2)\n"
         "Change: the old tables dropped (waits on change 2 and change 3 live on every cluster)\n"
     )
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o2"] = order(text="redesign the moved tables", jobs=["j2", "j3"], options_only=True)
         data["orders"]["o2"]["parts"] = {"moved-table abstraction": state.new_part()}
         data["jobs"]["j2"] = job(order="o2", kind="design", parts=["moved-table abstraction"], updated=before)
         data["jobs"]["j3"] = job(order="o2", parts=["moved-table abstraction", "the moved-table interface"], updated=before)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         assert state.add_changes(demo, data, "j2", stack) == []
         data["orders"]["o2"]["updated"] = before
     watching = watcher(demo)
     assert watch.run_pass(watching, T0) == []
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o2"]["options_only"] = False
     unbuilt = ("the reads through it", "the writes through it", "the old tables dropped")
     assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == [f'ORPHAN o2 "{change}": no job' for change in unbuilt]
@@ -2761,14 +2821,14 @@ def test_each_change_a_design_lists_with_no_job_is_an_orphan_whatever_earlier_ch
 def test_a_done_design_leaves_its_own_part_with_the_builder_carrying_one_of_its_changes(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {})
     before = state.stamp(T0 - timedelta(minutes=10))
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o2"] = order(text="redesign the moved tables", jobs=["j2", "j3"], updated=before)
         data["orders"]["o2"]["parts"] = {"redesign the moved tables": state.new_part(), "the moved-table interface": state.new_part() | {"design": "j2"}}
         data["jobs"]["j2"] = job(order="o2", kind="design", state="done", said="carried by builder j3", parts=["redesign the moved tables"], updated=before)
         data["jobs"]["j3"] = job(order="o2", parts=["the moved-table interface"], updated=before)
     watching = watcher(demo)
     assert watch.run_pass(watching, T0) == []
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j3"].update(state="stopped")
     assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == [
         'ORPHAN o2 "redesign the moved tables": no builder carries this work, only design j2 done: start one with drive job add builder --order o2'
@@ -2781,7 +2841,7 @@ def test_a_done_design_leaves_its_own_part_with_the_builder_carrying_one_of_its_
 
 
 def test_a_text_held_on_a_lane_is_said_undelivered_ten_minutes_on_and_every_ten_minutes_after(demo: str) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"].update(where="remote", dispatch="ctx_lane1")
         data["jobs"]["j1"]["undelivered"] = [{"seq": "665156", "words": "ship the narrower fix", "at": state.stamp(T0), "said": None, "request": "req-held"}]
     watching = watcher(demo)
@@ -2798,7 +2858,7 @@ def test_a_text_held_on_a_lane_is_said_undelivered_ten_minutes_on_and_every_ten_
 def test_a_text_held_on_a_lane_orca_cannot_reach_while_another_verb_holds_its_lock_names_the_local_launch_that_reaches_it_until_the_lock_frees(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"].update(where="remote", dispatch="ctx_99318cf15be2")
         data["jobs"]["j1"]["undelivered"] = [{"seq": "717002", "words": "ship the narrower fix", "at": state.stamp(T0), "said": None, "request": "req-held"}]
     down = "orca orchestration worker-show: remote_runtime_unavailable: Could not connect to the remote Orca runtime at ws://127.0.0.1:53245"
@@ -2823,20 +2883,20 @@ def test_a_text_held_on_a_lane_orca_cannot_reach_while_another_verb_holds_its_lo
 
 
 def test_a_text_held_on_a_lane_whose_own_card_still_asks_him_is_never_said_undelivered_until_his_answer_ends_it(demo: str) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"].update(where="remote", dispatch="ctx_lane1", state="waiting", waits=["demo:j1-7"])
         data["jobs"]["j1"]["questions"].append(state.new_question(None, "When may it drift?", state.stamp(T0), card=CARD) | {"waits": "demo:j1-7"})
         data["jobs"]["j1"]["undelivered"] = [{"seq": "712192", "words": "Expand on 1 and 2", "at": state.stamp(T0), "said": None, "request": "req-held"}]
     watching = watcher(demo)
     assert watch.undelivered_lines(watching, T0 + timedelta(minutes=10)) == []
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["questions"][0]["closed"] = state.new_close("answered", "drift only in a window you pick", CARD, at=state.stamp(T0))
     assert [line.split(":")[0] for line in watch.undelivered_lines(watching, T0 + timedelta(minutes=20))] == ["ANSWER undelivered j1"]
 
 
 def test_a_text_held_on_an_agent_on_this_mac_names_its_resume_and_none_is_said_on_a_builder_its_launch_carries_it_to(demo: str) -> None:
     held = [{"seq": "699075", "words": "drift only in a window you pick", "at": state.stamp(T0), "said": None, "request": "req-held"}]
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["jobs"] += ["j2", "j3"]
         data["jobs"]["j1"].update(agent="agent-j1", where="local", session="session-under-test", undelivered=held)
         data["jobs"]["j2"] = job(state="waiting", waits=["demo:j1-7"], undelivered=held)
@@ -2851,7 +2911,7 @@ def held_tap(demo: str, tapped: datetime) -> None:
     words = "drift only in a window you pick"
     closed = state.new_close("answered", words, CARD, seq="699075", at=state.stamp(tapped))
     held = {"seq": "699075", "words": f'His answer on card demo:j1-7 ({CARD}), verbatim: "{words}"', "at": state.stamp(tapped), "said": None, "request": "req-held"}
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"].update(agent="agent-j1", where="local", session="session-under-test", undelivered=[held])
         data["jobs"]["j1"]["questions"].append(state.new_question(None, "When may it drift?", state.stamp(tapped), card=CARD, closed=closed) | {"waits": "demo:j1-7"})
 
@@ -2884,7 +2944,7 @@ def test_the_watch_carries_held_texts_to_a_lane_that_returned_and_launches_a_bui
 
     monkeypatch.setattr(state, "detach", detach)
     held = [{"seq": "9", "words": 'His answer on card demo:j1-7, verbatim: "Ring"', "at": state.stamp(T0), "said": None, "request": "req-ring"}]
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["jobs"] += ["j2", "j3", "j4", "j5"]
         data["jobs"]["j1"]["undelivered"] = held
         data["jobs"]["j2"] = job(state="built", where="remote", dispatch="ctx_lane2", undelivered=held)
@@ -2895,7 +2955,7 @@ def test_the_watch_carries_held_texts_to_a_lane_that_returned_and_launches_a_bui
     watch.carry_held(watching, T0)
     watch.carry_held(watching, T0 + timedelta(minutes=5))
     assert detached == [["job", "resume", "j2"], ["job", "launch", "j5"]]
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["state"] = "done"
     watch.carry_held(watching, T0 + timedelta(minutes=11))
     assert detached == [["job", "resume", "j2"], ["job", "launch", "j5"], ["job", "resume", "j2"], ["job", "launch", "j3"], ["job", "launch", "j5"]]
@@ -2912,14 +2972,14 @@ def test_the_watch_starts_no_launch_of_a_codex_job_while_its_codex_ask_run_goes_
 
     monkeypatch.setattr(state, "detach", detach)
     held = [{"seq": "9", "words": 'His answer on card demo:j2-7, verbatim: "Ring"', "at": state.stamp(T0), "said": None, "request": "req-ring"}]
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["jobs"].append("j2")
         data["jobs"]["j2"] = job(kind="codex", codex_run="/drive/scratch/j2/codex", undelivered=held)
     watching = watcher(demo)
     watch.carry_held(watching, T0)
     watch.carry_held(watching, T0 + timedelta(minutes=11))
     assert detached == []
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j2"]["state"] = "waiting"
     watch.carry_held(watching, T0 + timedelta(minutes=12))
     assert detached == [["job", "launch", "j2"]]
@@ -2938,7 +2998,7 @@ def test_a_codex_job_waiting_on_a_process_it_started_on_this_mac_holds_while_it_
     monkeypatch.setattr(state, "detach", detach)
     observer = subprocess.Popen(["sleep", "600"])
     report = f"WAITING the checkpoint pass runs, waits on pid:{observer.pid}\nCHECK: /drive/scratch/j2/checkpoint.log\n"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["jobs"].append("j2")
         data["jobs"]["j2"] = job(kind="codex", codex_run="/drive/scratch/j2/codex", state="waiting", said=state.opening(report), waits=state.pid_waits(report))
     state.keep_report(demo, "j2", state.opening(report), report)
@@ -2973,7 +3033,7 @@ def test_a_free_line_for_a_never_started_job_the_watch_launches_with_his_answers
     written = tmp_path / "j2.brief.md"
     written.write_text("Goal: build the copy\nDrive: demo, order o1, job j2\n")
     observer = subprocess.Popen(["sleep", "600"])
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["jobs"].append("j2")
         data["jobs"]["j2"] = state.new_job("o1", "builder", "build the copy", [], state.stamp(T0)) | {"brief": str(written), "waits": state.pid_waits(f"pid:{observer.pid}")}
         state.hold_text(data["jobs"]["j2"], "ship the narrower fix", state.HIM)
@@ -3005,7 +3065,7 @@ def test_a_job_waiting_on_a_job_that_returned_built_is_freed_on_its_branch_and_h
 
     monkeypatch.setattr(state, "detach", detach)
     monkeypatch.setattr(github, "graphql", graphql)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["jobs"] += ["j2", "j3", "j4"]
         data["jobs"]["j2"] = job(state="built", repo="Forge-AI/monorepo", branch="durable-agents-j2, durable-agents-j2-docs", said="BUILT durable-agents-j2, durable-agents-j2-docs, waits on demo:j2-1")
         data["jobs"]["j3"] = job(state="waiting", said="waits on j2", waits=["j2"])
@@ -3027,7 +3087,7 @@ def test_his_tap_on_a_lane_questions_card_leads_its_orphan_line_until_his_undo_r
     serve(monkeypatch, {})
     monkeypatch.setattr(watch.view, "cards", lambda name: watch.view.NO_CARDS)
     asked = "Which fixture keeps the hold test deterministic?"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
         data["orders"]["o1"]["updated"] = state.stamp(T0 + timedelta(minutes=1))
         data["jobs"]["j1"].update(state="waiting", ask="msg_q1", ask_at=state.stamp(T0), said=asked, report=asked, questions=[state.new_question(None, asked, state.stamp(T0), card=CARD)])
@@ -3052,11 +3112,11 @@ def test_his_tap_on_a_lane_questions_card_leads_its_orphan_line_until_his_undo_r
 
 def test_a_part_staffed_within_five_minutes_of_its_order_moving_is_never_an_orphan(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {})
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         files_order(data)
     watching = watcher(demo)
     assert watch.run_pass(watching, T0) == []
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j2"]["parts"].append("stack 2")
     assert watch.run_pass(watching, T0 + timedelta(seconds=30)) == []
     assert watch.run_pass(watching, T0 + timedelta(minutes=5)) == []
@@ -3071,19 +3131,19 @@ def test_a_part_another_orders_builder_carries_is_delivered_by_the_passing_proof
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, provers: list[str], tmp_path: Path
 ) -> None:
     serve(monkeypatch, {})
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         files_order(data, updated=state.stamp(T0 - timedelta(minutes=10)))
     watching = watcher(demo)
     assert watch.run_pass(watching, T0) == ['ORPHAN o2 "stack 2": no job']
     assert run("job", "set", "j1", "--carries", "o2", "--part", "stack 2")[0] == 0
     assert state.load(demo)["orders"]["o2"]["jobs"] == ["j2", "j1"]
     assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == []
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
         data["jobs"]["j1"]["repro"] = proof_file(tmp_path)
         state.take_result(data, "j1", "DONE carried it")
     assert not state.delivered(state.load(demo), "o2", "stack 2")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][OTHER] = merged_other("j1", "o1")
         data["jobs"]["j1"]["prs"].append(state.pr_url(OTHER))
         state.take_result(data, "j1", f"DONE {state.pr_url(OTHER)} merged")
@@ -3092,18 +3152,18 @@ def test_a_part_another_orders_builder_carries_is_delivered_by_the_passing_proof
     assert (data["jobs"]["j1"]["carries"], data["orders"]["o2"]["jobs"], state.delivered(data, "o2", "stack 2")) == ({"o2": ["stack 2"]}, ["j2", "j1"], False)
     assert watch.run_pass(watching, T0 + watch.HANDOFF) == []
     assert provers == ["j1"]
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         install.finish(demo, data, "j1", f"DONE j1 live: {proof_file(tmp_path)} exits 0 on no plugin of this Mac", [], "", "")
     data = state.load(demo)
     assert [state.delivered(data, order_id, part) for order_id, part in (("o2", "stack 2"), ("o2", "stack 1"), ("o1", "ship the watch"))] == [True, False, True]
 
 
 def test_a_passing_proof_naming_no_pr_delivers_its_own_orders_part_and_the_one_it_carries_for_another_order(demo: str) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         files_order(data)
         data["orders"]["o2"]["jobs"].append("j1")
         data["jobs"]["j1"]["carries"] = {"o2": ["stack 2"]}
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         proven(data)
     data = state.load(demo)
     assert [state.delivered(data, order_id, part) for order_id, part in (("o1", "ship the watch"), ("o2", "stack 2"))] == [True, True]
@@ -3111,11 +3171,11 @@ def test_a_passing_proof_naming_no_pr_delivers_its_own_orders_part_and_the_one_i
 
 def test_a_job_on_the_part_heals_the_orphan_once_its_handover_is_done(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {})
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         files_order(data, updated=state.stamp(T0 - timedelta(minutes=10)))
     watching = watcher(demo)
     assert watch.run_pass(watching, T0) == ['ORPHAN o2 "stack 2": no job']
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j2"]["parts"].append("stack 2")
     assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == []
     assert state.load(demo)["orders"]["o2"]["parts"]["stack 2"]["orphan_said"] == state.stamp(T0)
@@ -3129,7 +3189,7 @@ def test_a_job_drive_job_add_recorded_is_not_started_until_its_worker_records_it
     serve(monkeypatch, {})
     clock = [T0]
     monkeypatch.setattr(state, "now", lambda: clock[0])
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"].update(state="failed", updated=state.stamp(T0 - timedelta(minutes=20)))
         data["orders"]["o1"]["parts"]["ship the watch"]["orphan_said"] = state.stamp(T0 - timedelta(minutes=10))
         data["orders"]["o1"]["jobs"].append("j2")
@@ -3146,7 +3206,7 @@ def test_a_job_drive_job_add_recorded_is_not_started_until_its_worker_records_it
     assert watch.run_pass(watching, T0) == ['ORPHAN o1 "ship the watch": j2 not started 1 minutes after drive job add; the watch starts its agent on its brief /briefs/j2.md, so start no agent for it; drive job resume reaches it']
     clock[0] = T0 + timedelta(minutes=2)
     assert watch.run_pass(watching, T0 + timedelta(minutes=2)) == []
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         state.start(data["jobs"]["j2"])
     started = state.load(demo)["jobs"]["j2"]
     assert (started["state"], started["said"]) == ("running", None)
@@ -3159,7 +3219,7 @@ def test_a_watch_process_a_newer_install_ends_at_its_first_read_still_says_a_nev
     monkeypatch.setattr(state, "now", lambda: T0 + timedelta(minutes=2))
     read: list[str] = []
     monkeypatch.setattr(orca, "speak_as_drive", read.append)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["updated"] = state.stamp(T0 - timedelta(minutes=10))
         data["orders"]["o1"]["parts"]["ship the watch"].update(orphan_said=state.stamp(T0 - timedelta(minutes=5)), orphan_gap="j1 has no agent recorded")
         files_order(data)
@@ -3172,7 +3232,7 @@ def test_a_watch_process_a_newer_install_ends_at_its_first_read_still_says_a_nev
 def test_a_reader_an_older_install_started_on_a_prs_head_holds_no_part_and_is_never_an_answer_owed_him(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {})
     earlier = state.stamp(T0 - timedelta(minutes=10))
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"].update(state="failed", updated=earlier)
         data["orders"]["o1"]["jobs"].append("j2")
         data["jobs"]["j2"] = job(kind="reader", state="done", parts=["ship the watch"], checks={KEY: "aaaaaaa111"}, updated=earlier)
@@ -3184,13 +3244,13 @@ def test_j5802_a_newer_builders_failed_proof_takes_back_the_part_an_older_proof_
 ) -> None:
     serve(monkeypatch, {})
     earlier = state.stamp(T0 - timedelta(minutes=10))
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         proven(data, updated=earlier)
         data["orders"]["o1"]["jobs"].append("j2")
         data["jobs"]["j2"] = job(state="failed", said="BLOCKED repro/j2.sh exits 1", parts=["ship the watch"], updated=earlier)
     watching = watcher(demo)
     assert (state.delivered(state.load(demo), "o1", "ship the watch"), watch.run_pass(watching, T0)) == (False, ['ORPHAN o1 "ship the watch": j2 failed'])
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["jobs"].append("j3")
         data["jobs"]["j3"] = job(parts=["ship the watch"])
     assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == []
@@ -3200,13 +3260,13 @@ def test_j5802_a_newer_builders_failed_proof_takes_back_the_part_an_older_proof_
 def test_a_job_on_the_immediate_fix_carries_the_orders_other_parts_until_it_is_done(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {})
     earlier = state.stamp(T0 - timedelta(minutes=10))
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["parts"][state.IMMEDIATE_FIX] = state.new_part()
         data["orders"]["o1"]["updated"] = earlier
         data["jobs"]["j1"].update(parts=[state.IMMEDIATE_FIX], state="waiting", updated=earlier)
     watching = watcher(demo)
     assert watch.run_pass(watching, T0) == []
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         proven(data)
     assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == ['ORPHAN o1 "ship the watch": no job']
 
@@ -3217,7 +3277,7 @@ def test_a_proven_builder_delivers_its_part_and_a_done_reader_codex_or_design_jo
 ) -> None:
     serve(monkeypatch, {})
     earlier = state.stamp(T0 - timedelta(minutes=10))
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         proven(data, updated=earlier)
         data["orders"]["o2"] = order(text="why do old runs fail?", jobs=["j2"], kind="answer")
         data["jobs"]["j2"] = job(order="o2", kind=kind, state="done", updated=earlier)
@@ -3241,7 +3301,7 @@ def test_work_he_ordered_is_carried_only_by_a_builder_never_by_research_his_card
     serve(monkeypatch, {})
     earlier = state.stamp(T0 - timedelta(minutes=10))
     merge = "get the inbox work merged"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         proven(data, updated=earlier)
         data["orders"]["o2"] = order(text=merge, jobs=["j2"], kind="build", parts={merge: state.new_part()}, updated=earlier)
         data["jobs"]["j2"] = job(order="o2", kind="reader", parts=[merge], updated=earlier)
@@ -3253,15 +3313,15 @@ def test_work_he_ordered_is_carried_only_by_a_builder_never_by_research_his_card
     assert watch.run_pass(watching, T0) == [f'ORPHAN o2 "{merge}": {NO_BUILDER}reader j2 running: {unbuilt.format(waits=" --waits j2")}']
     card = {"question": "Which inbox lands first?", "options": ["First", "Last"], "recommended": "First", "asked": state.stamp(T0), "url": f"{CARD}?thread_ts=1.2", "card": {"title": "Which inbox lands first?", "waits": "demo:j2-7-a"}}
     monkeypatch.setattr(watch.view, "cards", lambda name: {"team_url": "", "questions": [card], "closed": [], "pr_cards": []})
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j2"].update(kind="design", state="done", questions=[state.new_question(None, None, state.stamp(T0), card=CARD, holds=None)])
         data["orders"]["o2"]["parts"][merge]["orphan_said"] = None
     assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == [f'ORPHAN o2 "{merge}": {NO_BUILDER}design j2 done, his card {CARD} open: {unbuilt.format(waits="")}']
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o2"]["jobs"].append("j3")
         data["jobs"]["j3"] = job(order="o2", kind="codex", parts=[merge], updated=earlier)
     assert watch.run_pass(watching, T0 + timedelta(seconds=10)) == []
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j3"].update(state="done", said="DONE merged it")
     assert not state.delivered(state.load(demo), "o2", merge)
 
@@ -3274,7 +3334,7 @@ def test_a_part_of_an_order_of_no_kind_only_research_ever_held_is_his_question_i
     earlier = state.stamp(T0 - timedelta(minutes=10))
     other = "ship the other fix"
     jobs = [f"j{number}" for number in range(2, len(held) + 2 + built)]
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"].update(state="done", updated=earlier)
         parts = {part: state.new_part() | {"posted": REPORTED if posted else None}} | ({other: state.new_part() | {"posted": state.pr_url(KEY)}} if built else {})
         data["orders"]["o2"] = order(text=part, jobs=jobs, kind=kind, parts=parts, updated=earlier)
@@ -3283,7 +3343,7 @@ def test_a_part_of_an_order_of_no_kind_only_research_ever_held_is_his_question_i
             data["jobs"][job_id] = job(order="o2", kind=job_kind, state=job_state, parts=[part], due=due, updated=earlier)
         if built:
             data["jobs"][jobs[-1]] = job(order="o2", state="done", said=PROVEN, parts=[other], updated=earlier)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         state.post_proofs(data)
     drawn = [line for line in watch.run_pass(watcher(demo), T0) if line.startswith("ORPHAN o2 ")]
     assert [line.startswith(f'ORPHAN o2 "{render.cut(part, 80)}": {said}') for line in drawn] == ([True] if said else [])
@@ -3314,7 +3374,7 @@ def test_each_o1_spike_part_its_done_builders_delivered_names_their_undelivered_
     serve(monkeypatch, {})
     earlier = state.stamp(T0 - timedelta(minutes=10))
     held = {part: [("j1", "reader", "done"), *jobs] for part, jobs in O1_SPIKES.items()}
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"].clear()
         data["jobs"].clear()
         for part, jobs in held.items():
@@ -3337,7 +3397,7 @@ def test_a_part_sorted_as_an_answer_is_delivered_by_its_post_and_one_a_builder_w
     monkeypatch.setattr(state, "now", lambda: T0)
     earlier = state.stamp(T0 - timedelta(minutes=10))
     asked, fix = "why do old runs fail?", "fix them"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         proven(data, updated=earlier)
         data["orders"]["o2"] = order(text=asked, jobs=["j2", "j3"], kind="build", parts={asked: state.new_part(), fix: state.new_part()}, updated=earlier)
         data["jobs"]["j2"] = job(order="o2", kind="reader", state="done", parts=[asked], updated=earlier)
@@ -3353,7 +3413,7 @@ def test_a_part_sorted_as_an_answer_is_delivered_by_its_post_and_one_a_builder_w
     assert cli.main(["order", "set", "o2", "--kind", "answer", "--part", asked, "--drive", demo]) == 0
     sorted_order = state.load(demo)["orders"]["o2"]
     assert (sorted_order["kind"], sorted_order["parts"][asked]["answer"], sorted_order["parts"][fix]["answer"]) == ("build", True, False)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o2"]["parts"][asked].update(orphan_said=None, posted=REPORTED)
     assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == []
     assert state.delivered(state.load(demo), "o2", asked)
@@ -3365,7 +3425,7 @@ def test_a_merged_pr_delivers_no_work_part_and_its_orphan_names_the_prover_while
     serve(monkeypatch, {})
     earlier = state.stamp(T0 - timedelta(minutes=10))
     lands, landed = "#43 lands", state.pr_url(OTHER)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         proven(data, updated=earlier)
         data["orders"]["o2"] = order(text=lands, jobs=["j2"], kind="build", parts={lands: state.new_part()}, updated=earlier)
         data["jobs"]["j2"] = job(order="o2", kind="reader", state="done", parts=[lands], updated=earlier)
@@ -3396,7 +3456,7 @@ def test_a_pr_the_drive_does_not_track_carries_the_part_of_the_stopped_builder_n
     calls = serve(monkeypatch, {OTHER: read()})
     earlier = state.stamp(T0 - timedelta(minutes=10))
     port = "port the fixes"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         proven(data, updated=earlier)
         data["orders"]["o2"] = order(text=port, jobs=["j2"], kind="build", parts={port: state.new_part()}, updated=earlier)
         data["jobs"]["j2"] = job(order="o2", goal=port, state="stopped", parts=[port], updated=earlier)
@@ -3413,10 +3473,10 @@ def test_a_pr_the_drive_does_not_track_carries_the_part_of_the_stopped_builder_n
 def test_a_waiting_job_keeping_a_pr_the_drive_does_not_track_waits_on_it_while_github_reads_it_open_and_is_freed_once_it_merges(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(watch, "run_pass", REAL_RUN_PASS)
     serve(monkeypatch, {KEY: read(), OTHER: read()})
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["jobs"].append("j2")
         data["jobs"]["j2"] = job(prs=[state.pr_url(OTHER)])
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         state.take_result(data, "j2", f"WAITING {state.pr_url(OTHER)}, a teammate's open PR that already does this work")
     assert state.load(demo)["jobs"]["j2"]["waits"] == [OTHER]
     watching = watcher(demo)
@@ -3431,12 +3491,12 @@ def test_a_stopped_builder_no_agent_took_holds_its_part_as_work_under_way_only_w
     serve(monkeypatch, {})
     monkeypatch.setattr(state, "now", lambda: T0)
     asked = "is the port already written?"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o2"] = order(text=asked, jobs=["j2"], kind="build", parts={asked: state.new_part()})
         data["jobs"]["j2"] = job(order="o2", state="stopped", prs=[state.pr_url(OTHER)], parts=[asked])
     assert cli.main(["order", "set", "o2", "--kind", "answer", "--part", asked, "--drive", demo]) == 2
     assert f'--part "{asked}": refused, builder j2 works on it, so it is work under way, never an answer' in capsys.readouterr().err
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j2"]["prs"] = []
     assert cli.main(["order", "set", "o2", "--kind", "answer", "--part", asked, "--drive", demo]) == 0
     assert state.load(demo)["orders"]["o2"]["parts"][asked]["answer"]
@@ -3449,17 +3509,17 @@ def test_a_part_whose_codex_job_finished_with_no_open_pr_sorts_as_an_answer_whil
     serve(monkeypatch, {})
     monkeypatch.setattr(state, "now", lambda: T0)
     asked = "why do old runs fail?"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o2"] = order(text=asked, jobs=["j2"], kind="build", parts={asked: state.new_part()})
         data["jobs"]["j2"] = job(order="o2", kind="codex", parts=[asked])
         data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j2", "o2")
     assert cli.main(["order", "set", "o2", "--kind", "answer", "--part", asked, "--drive", demo]) == 2
     assert f'--part "{asked}": refused, codex j2, {OTHER} works on it, so it is work under way, never an answer' in capsys.readouterr().err
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j2"]["state"] = finished
     assert cli.main(["order", "set", "o2", "--kind", "answer", "--part", asked, "--drive", demo]) == 2
     assert f'--part "{asked}": refused, {OTHER} works on it, so it is work under way, never an answer' in capsys.readouterr().err
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         if pr:
             data["prs"][OTHER]["state"] = pr
         else:
@@ -3475,7 +3535,7 @@ def test_sorting_as_an_answer_a_part_the_done_codex_job_that_posted_its_answer_h
     monkeypatch.setattr(state, "now", lambda: T0)
     earlier = state.stamp(T0 - timedelta(minutes=10))
     asked = "why do old runs fail?"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         proven(data, updated=earlier)
         data["orders"]["o2"] = order(text=asked, jobs=["j2"], kind="build", parts={asked: state.new_part()}, updated=earlier)
         data["jobs"]["j2"] = job(order="o2", kind="codex", state="done", said=f"POSTED {REPORTED}", parts=[asked], updated=earlier)
@@ -3495,7 +3555,7 @@ def test_sorting_as_an_answer_a_part_a_done_codex_job_answered_by_its_done_takes
     serve(monkeypatch, {})
     monkeypatch.setattr(state, "now", lambda: T0)
     asked = "why do old runs fail?"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o2"] = order(text=asked, jobs=["j2"], kind="build", parts={asked: state.new_part()})
         data["jobs"]["j2"] = job(order="o2", kind="codex", state="done", said="DONE: old runs fail on a stale cache", parts=[asked])
     assert cli.main(["order", "posted", "o2", REPORTED, "--part", asked, "--drive", demo]) == 2
@@ -3514,7 +3574,7 @@ def test_only_the_session_an_orders_orphan_lines_reach_runs_drive_order_posted_a
 ) -> None:
     sub_coordinated(demo)
     lands, landed = "#43 lands", state.pr_url(OTHER)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o2"] = order(text=lands, jobs=["j2"], kind="build", parts={lands: state.new_part()})
         data["jobs"]["j2"] = job(order="o2", state="failed", prs=[landed], parts=[lands])
         data["prs"][OTHER] = state.new_pr(landed, "j2", "o2") | {"state": "merged"}
@@ -3523,7 +3583,7 @@ def test_only_the_session_an_orders_orphan_lines_reach_runs_drive_order_posted_a
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
     assert cli.main(posted) == 2
     assert "a part a post of the drive already answered is marked from the root@demo session, the one its ORPHAN lines reach" in capsys.readouterr().err
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o2"]["project"] = "Iris"
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "session-under-test")
     assert cli.main(posted) == 2
@@ -3541,7 +3601,7 @@ def test_an_open_incidents_fix_whose_jobs_ended_with_no_pr_has_no_fix_job_and_na
 ) -> None:
     serve(monkeypatch, {})
     earlier = state.stamp(T0 - timedelta(minutes=10))
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         proven(data, updated=earlier)
         data["orders"]["o2"] = order(text="runs never start", incident=True, jobs=["j2"], parts={state.INCIDENT_FIX: state.new_part()}, updated=earlier)
         data["jobs"]["j2"] = job(order="o2", kind="codex", goal="fix: runs never start", state=ended, parts=[state.INCIDENT_FIX], updated=earlier)
@@ -3550,7 +3610,7 @@ def test_an_open_incidents_fix_whose_jobs_ended_with_no_pr_has_no_fix_job_and_na
         f'ORPHAN o2 "fix": no fix job: j2 ended {ended} with no open or merged PR; start the second fix job now, an Opus 5.5 long-running:builder on j2\'s brief:'
         " drive job add builder --order o2 --part fix --goal 'fix: runs never start' (incidents: Clocks)"
     ]
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o2"]["jobs"].append("j3")
         data["jobs"]["j3"] = job(order="o2", goal="fix: runs never start", parts=[state.INCIDENT_FIX])
     assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == []
@@ -3564,7 +3624,7 @@ def test_an_open_incident_with_no_fix_part_whose_jobs_ended_with_no_pr_card_or_p
     serve(monkeypatch, {})
     stopped = "runs stopped for one team at 05:01:42Z"
     earlier = state.stamp(T0 - timedelta(minutes=10))
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         proven(data, updated=earlier)
         data["orders"]["o2"] = order(text=stopped, incident=True, jobs=["j2", "j3", "j4"], parts={stopped: state.new_part()}, updated=earlier)
         for job_id, kind, goal, minutes in (("j2", "builder", "stop the stopped runs", 30), ("j3", "builder", "fix the stopped runs", 20), ("j4", "codex", "cause, read only, at once", 40)):
@@ -3576,7 +3636,7 @@ def test_an_open_incident_with_no_fix_part_whose_jobs_ended_with_no_pr_card_or_p
         f" drive job add builder --order o2 --part '{stopped}' --goal 'fix the stopped runs' (incidents: Clocks)"
     )
     assert watch.run_pass(watching, T0) == [f'ORPHAN o2 "{stopped}": {idle}']
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o2"]["jobs"].append("j5")
         data["jobs"]["j5"] = job(order="o2", kind="reader", goal="read the queue", state="done", parts=[stopped], created=state.stamp(T0 - timedelta(minutes=5)), updated=earlier)
     assert watch.part_gap(watching, state.load(demo), "o2", stopped, T0) == idle
@@ -3585,24 +3645,24 @@ def test_an_open_incident_with_no_fix_part_whose_jobs_ended_with_no_pr_card_or_p
         f" start one with drive job add builder --order o2 --part '{stopped}' --goal '<what it builds>', or add it to a builder with drive job set <builder> --part '{stopped}',"
         f" adding --carries o2 for another order's builder; when it asks only for an answer, drive order set o2 --kind answer --part '{stopped}'"
     )
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j2"]["questions"] = [state.new_question(None, "Which store?", earlier, card=CARD)]
     assert watch.part_gap(watching, state.load(demo), "o2", stopped, T0) == unbuilt
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j2"]["questions"] = []
         data["orders"]["o2"]["parts"]["Status?"] = state.new_part()
         data["orders"]["o2"]["jobs"].append("j6")
         data["jobs"]["j6"] = job(order="o2", kind="reader", goal="where it stands", parts=["Status?"])
     assert watch.part_gap(watching, state.load(demo), "o2", stopped, T0) == unbuilt
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j6"]["state"] = "done"
         data["jobs"]["j3"]["prs"] = [state.pr_url(OTHER)]
         data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j3", "o2")
     assert watch.part_gap(watching, state.load(demo), "o2", stopped, T0) == unbuilt
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][OTHER]["state"] = "closed"
     assert watch.part_gap(watching, state.load(demo), "o2", stopped, T0) == idle
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o2"]["proof"] = "https://buildkite.com/forge/release/builds/15020"
     assert watch.part_gap(watching, state.load(demo), "o2", stopped, T0) == unbuilt
 
@@ -3613,7 +3673,7 @@ def test_a_waiting_job_lives_while_its_question_is_open_and_is_an_orphan_once_it
     card = {"question": "Which store?", "options": ["Team", "Run"], "recommended": "Team", "asked": state.stamp(T0), "url": f"{CARD}?thread_ts=1.2", "card": {"title": "Which store?"}}
     shown = {"team_url": "", "questions": [card], "closed": [], "pr_cards": []}
     monkeypatch.setattr(watch.view, "cards", lambda name: shown)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
         data["jobs"]["j1"].update(
             state="waiting", said="ASK which store?", questions=[state.new_question(None, "Which store?", state.stamp(T0), card=CARD)], updated=state.stamp(T0 - timedelta(minutes=10))
@@ -3623,7 +3683,7 @@ def test_a_waiting_job_lives_while_its_question_is_open_and_is_an_orphan_once_it
     monkeypatch.setattr(watch.view, "cards", lambda name: watch.view.NO_CARDS)
     assert watch.run_pass(watching, T0 + timedelta(seconds=60)) == []
     monkeypatch.setattr(watch.view, "cards", lambda name: shown)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["questions"][0]["closed"] = state.new_close("withdrawn", "his order replaced it", REPORTED, at=state.stamp(T0 - timedelta(minutes=10)))
     assert watch.run_pass(watching, T0 + timedelta(seconds=120)) == [
         f"CARD {CARD}?thread_ts=1.2 closed in place: its question withdrawn",
@@ -3642,7 +3702,7 @@ def test_the_watch_closes_his_card_again_with_his_words_in_place_of_his_tap_they
     other_card = "https://acme.slack.com/archives/D123/p1794200001000100"
     words = "https://acme.slack.com/archives/D123/p1794200016000200?thread_ts=1794200000.000100"
     replaced = state.new_close("answered", "Ring", None, seq="51", tap=tap)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["questions"] = [
             state.new_question(None, "Which ring?", state.stamp(T0), card=CARD, closed=state.new_close("answered", "Knock, the bell is broken", words, answer="a1", replaces=replaced)) | {"waits": "demo:j1-7"}
         ]
@@ -3677,7 +3737,7 @@ def test_a_built_job_whose_ask_drive_job_ask_refused_is_said_to_wait_on_a_card_n
     monkeypatch.setattr(watch.view, "cards", lambda name: watch.view.NO_CARDS)
     refused = "refused: these recorded answers of his may already settle this question. Read each with `ccn answer show <id>`"
     asked = "How many clone processes may a SandSQL server run at once?"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
         data["jobs"]["j1"].update(
             state="built", branch="clone-cap", questions=[state.new_question("/drive/asks/j1-ab.md", asked, state.stamp(T0), refused=refused)], updated=state.stamp(T0 - timedelta(minutes=10))
@@ -3697,7 +3757,7 @@ def test_a_built_job_whose_card_did_not_draw_is_said_to_wait_on_a_card_never_pos
     monkeypatch.setattr(cli, "ask_card", lambda name, job_id, file: {"waits": "demo:j1-7"})
     monkeypatch.setattr(cli, "post_ask", locked)
     asked = "How many clone processes may a SandSQL server run at once?"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
         question = state.new_question("/drive/asks/j1-ab.md", asked, state.stamp(T0)) | {"waits": "demo:j1-7"}
         data["jobs"]["j1"].update(state="built", branch="clone-cap", questions=[question], updated=state.stamp(T0 - timedelta(minutes=10)))
@@ -3718,14 +3778,14 @@ def test_a_builder_built_beside_its_readers_open_card_waits_on_that_card_whateve
     demo: str, monkeypatch: pytest.MonkeyPatch, told: list[dict], builder: str, reader: str, said: str, card: str
 ) -> None:
     monkeypatch.setattr(watch.view, "cards", lambda name: watch.view.NO_CARDS)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"].pop(KEY)
         parts = data["jobs"].pop("j1")["parts"]
         asked = state.new_question(f"/drive/asks/{reader}-ab.md", "Which shape?", state.stamp(T0), holds=None) | {"waits": card, "card": drawn_card(1)}
         data["jobs"][reader] = job(kind="reader", state="done", parts=parts, questions=[asked])
         data["jobs"][builder] = job(parts=parts, researched=[reader])
         data["orders"]["o1"]["jobs"] = [reader, builder]
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         state.take_result(data, builder, said)
         data["jobs"][builder]["updated"] = state.stamp(T0 - timedelta(minutes=10))
     assert state.load(demo)["jobs"][builder]["waits"] == [card]
@@ -3736,14 +3796,14 @@ def test_a_builder_built_beside_its_readers_open_card_waits_on_that_card_whateve
 def test_a_builder_waiting_on_its_readers_card_that_drive_job_card_refused_is_said_to_wait_on_a_card_never_posted(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(watch.view, "cards", lambda name: watch.view.NO_CARDS)
     refused = 'the Show me picture "1 · Before" does not draw: Parse error on line 7'
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"].pop(KEY)
         parts = data["jobs"].pop("j1")["parts"]
         asked = state.new_question("/drive/asks/j2612-ab.md", "Which shape?", state.stamp(T0), refused=refused, holds=None) | {"waits": "durable-agents:j2612-684681"}
         data["jobs"]["j2612"] = job(kind="reader", state="done", parts=parts, questions=[asked])
         data["jobs"]["j2649"] = job(parts=parts, researched=["j2612"])
         data["orders"]["o1"]["jobs"] = ["j2612", "j2649"]
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         state.take_result(data, "j2649", "BUILT j2649-sparse-replace, waits on j2612's card")
         data["jobs"]["j2649"]["updated"] = state.stamp(T0 - timedelta(minutes=10))
     assert watch.run_pass(watcher(demo), T0) == [
@@ -3755,7 +3815,7 @@ def test_a_refused_question_his_recorded_answer_since_settled_no_longer_waits_on
     monkeypatch.setattr(watch.view, "cards", lambda name: watch.view.NO_CARDS)
     refused = "refused: his recorded answer 5630432 already decides this question."
     asked = "Which credential reads Slack as him?"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
         data["jobs"]["j1"].update(
             state="waiting",
@@ -3769,12 +3829,12 @@ def test_a_refused_question_his_recorded_answer_since_settled_no_longer_waits_on
 
 def test_a_waiting_job_lives_while_its_own_clock_is_to_come(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(watch.view, "cards", lambda name: watch.view.NO_CARDS)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
         data["jobs"]["j1"].update(state="waiting", said="WAITING on the release", due=state.stamp(T0 + timedelta(minutes=80)), updated=state.stamp(T0 - timedelta(minutes=10)))
     watching = watcher(demo)
     assert watch.run_pass(watching, T0) == []
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["due"] = None
     assert watch.run_pass(watching, T0 + timedelta(seconds=60)) == [
         'ORPHAN o1 "ship the watch": j1 waits on "WAITING on the release" and no open PR, card or due time can wake it'
@@ -3787,7 +3847,7 @@ def test_a_done_design_job_is_carried_by_its_open_card_and_its_part_needs_a_job_
     serve(monkeypatch, {})
     card = {"question": "Which Mac owns a chat?", "options": ["First", "Last"], "recommended": "First", "asked": state.stamp(T0), "url": f"{CARD}?thread_ts=1.2", "card": {"title": "Which Mac owns a chat?", "waits": "demo:j2-7-a"}}
     monkeypatch.setattr(watch.view, "cards", lambda name: {"team_url": "", "questions": [card], "closed": [], "pr_cards": []})
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o2"] = order(text="options: only the owning machine writes", jobs=["j2"], options_only=True)
         data["jobs"]["j2"] = job(
             order="o2",
@@ -3800,19 +3860,19 @@ def test_a_done_design_job_is_carried_by_its_open_card_and_its_part_needs_a_job_
     watching = watcher(demo)
     assert watch.run_pass(watching, T0) == ["HELD j2: his held words went to root@demo, which holds its order, as record 9 to read"]
     monkeypatch.setattr(watch.view, "cards", lambda name: watch.view.NO_CARDS)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j2"]["questions"][0]["closed"] = state.new_close("answered", "First", None, seq="9", at=state.stamp(T0 - timedelta(minutes=10)))
     assert watch.run_pass(watching, T0 + timedelta(seconds=60)) == [
         'ORPHAN o2 "options: only the owning machine writes": j2\'s card is answered and no job carries his answer'
     ]
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o2"]["jobs"].append("j3")
         data["jobs"]["j3"] = job(order="o2", kind="builder", parts=["options: only the owning machine writes"])
     assert watch.run_pass(watching, T0 + timedelta(seconds=120)) == []
 
 
 def test_a_job_changed_in_the_last_two_minutes_is_still_being_handed_over(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
         data["jobs"]["j1"].update(state="waiting", said="ASK which store?")
     watching = watcher(demo)
@@ -3831,7 +3891,7 @@ def test_a_running_job_whose_agent_is_gone_is_an_orphan_naming_its_open_pr(demo:
 def test_a_running_job_fails_only_once_every_read_for_the_reap_bound_found_no_live_worker(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {})
     monkeypatch.setattr(watch, "local_gap", lambda job_id, job, data, moment: f"{job_id}'s agent ended with an earlier session")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"].update(session="old", agent="a1")
     lost = T0 + timedelta(hours=7)
     assert staged(watch.agent_lines, watcher(demo), lost) == []
@@ -3847,10 +3907,10 @@ def test_a_running_job_fails_only_once_every_read_for_the_reap_bound_found_no_li
 def test_a_live_read_clears_the_loss_a_running_job_was_stamped_with(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {})
     monkeypatch.setattr(watch, "local_gap", lambda job_id, job, data, moment: None)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"].update(session="old", agent="a1")
     assert staged(watch.agent_lines, watcher(demo), T0) == []
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["session"] = "session-under-test"
     assert staged(watch.agent_lines, watcher(demo), T0 + watch.REAP_AFTER) == []
     assert (state.load(demo)["jobs"]["j1"]["state"], state.load(demo)["jobs"]["j1"]["lost_since"]) == ("running", None)
@@ -3989,7 +4049,7 @@ def test_a_relaunched_codex_job_is_judged_by_its_new_run_never_by_the_agent_an_e
     brief = tmp_path / "j1.brief.md"
     brief.write_text(f"Order (his words): ship the watch\nGoal: watch\nResearched: j2\nDrive: {demo}, order o1, job j1\n")
     state.keep_report(demo, "j2", state.opening(RESEARCH), RESEARCH)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
         data["jobs"]["j1"].update(kind="codex", state="waiting", session="session-under-test", agent="a1")
         data["jobs"]["j2"] = job(kind="reader", goal="research: the watch", parts=data["jobs"]["j1"]["parts"], state="done")
@@ -4001,7 +4061,7 @@ def test_a_relaunched_codex_job_is_judged_by_its_new_run_never_by_the_agent_an_e
 
 
 def codex_running(demo: str, folder: Path) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
         data["jobs"]["j1"].update(kind="codex", agent=None, codex_run=str(folder), updated=state.stamp(state.now() - timedelta(minutes=10)))
 
@@ -4035,7 +4095,7 @@ def test_a_codex_job_running_with_no_run_of_its_own_left_to_take_is_taken_as_blo
     monkeypatch.setattr(watch, "codex_gap", REAL_CODEX_GAP)
     folder = codex_ask.run("completed", codex_reply("DONE", "reviewed"))
     codex_running(demo, folder)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["returned"] = state.stamp(datetime.fromtimestamp((folder / "status").stat().st_mtime).astimezone() + timedelta(seconds=1))
     gone = "BLOCKED j1's codex-ask run ended before its last return: drive job launch j1 starts its next"
     assert codex_taken(watcher(demo)) == [f"JOB j1 o1 {gone}"]
@@ -4048,7 +4108,7 @@ def test_a_codex_run_that_died_with_no_reply_after_its_jobs_last_return_is_taken
     folder = codex_ask.run("died", log="Reading prompt from stdin...\nkilled\n")
     (folder / "codex-r-1").unlink()
     codex_running(demo, folder)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["returned"] = state.stamp(state.now() - timedelta(hours=1))
     assert codex_taken(watcher(demo)) == ["JOB j1 o1 BLOCKED codex-ask died: killed"]
     assert state.load(demo)["jobs"]["j1"]["state"] == "failed"
@@ -4094,7 +4154,7 @@ def test_a_codex_job_that_said_nothing_before_its_run_returned_an_ask_is_heard_o
     monkeypatch.setattr(watch, "codex_gap", REAL_CODEX_GAP)
     block = tmp_path / "scratch" / "ask.md"
     codex_running(demo, codex_ask.run("completed", codex_reply("ASK", str(block))))
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["said"] = None
     assert codex_taken(watcher(demo)) == [
         f"JOB j1 o1 its ASK: {block} is not kept: [Errno 2] No such file or directory: '{block}'; keep it with drive job ask j1 {block}"
@@ -4104,7 +4164,7 @@ def test_a_codex_job_that_said_nothing_before_its_run_returned_an_ask_is_heard_o
 
 def incident_codex_running(demo: str, folder: Path, part: str) -> None:
     codex_running(demo, folder)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"].update(incident=True, parts={part: state.new_part()})
         data["jobs"]["j1"].update(goal="fix: runs never start", parts=[part], brief="/briefs/j1.md")
 
@@ -4166,7 +4226,7 @@ def test_a_relay_pass_runs_codex_ask_collect_only_on_the_run_that_ended_however_
     monkeypatch.setattr(codex, "run_of", lambda job_of: collected.append(job_of["codex_run"]) or collect(job_of))
     ended = codex_ask.run("completed", codex_reply("DONE", "reviewed"))
     codex_running(demo, ended)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         for at in range(going):
             data["jobs"][f"j{100 + at}"] = data["jobs"]["j1"] | {"prs": [], "codex_run": str(codex_ask.run("running"))}
             data["orders"]["o1"]["jobs"].append(f"j{100 + at}")
@@ -4191,7 +4251,7 @@ def test_a_local_agents_bash_call_still_running_at_nine_minutes_is_said_nothing(
     asked = state.now()
     call = {"type": "tool_use", "id": "toolu_waiting", "name": "Bash", "input": {"command": "zsh /scratch/j1/wait.sh", "timeout": 570000}}
     write_transcript(tmp_path / "config", [{"type": "assistant", "timestamp": state.stamp(asked), "message": {"stop_reason": "tool_use", "content": [call]}}], timedelta(0))
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"].update(session="session-under-test", agent="a1")
     assert staged(watch.agent_lines, watcher(demo), asked + timedelta(minutes=9)) == []
 
@@ -4226,7 +4286,7 @@ def test_j135_a_local_job_a_worker_started_whose_agent_is_gone_reads_by_its_sess
 
 def test_j135_his_card_a_once_only_pass_ends_on_unstarted_change_builders_frees_each_with_the_passs_reason_once_and_sets_no_state(demo: str) -> None:
     waits = "demo:j2-1794725828071"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["jobs"] += ["j2", "j3", "j4"]
         data["jobs"]["j2"] = job(kind="design", goal="cards: the copy", state="waiting", said="DESIGN the copy", questions=[state.new_question("/asks/j2-a.md", ASKED, state.stamp(T0)) | {"waits": waits}])
         data["jobs"]["j3"] = job(goal="build j2's change: the reads", state="waiting", said=f"waits on {waits}", waits=[waits])
@@ -4255,7 +4315,7 @@ def returned(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: s
     write_transcript(tmp_path / "config", [CALLING, RESULT, ended_on(text.format(kept=kept))], timedelta(minutes=4))
     if report:
         state.keep_report(demo, "j1", state.opening(report), report)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
         data["jobs"]["j1"].update(
             kind=kind,
@@ -4280,7 +4340,7 @@ def test_a_running_local_reader_that_ended_on_a_line_opening_with_no_result_word
 def ended_return(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, text: str) -> Path:
     monkeypatch.setattr(watch, "local_gap", REAL_LOCAL_GAP)
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"].update(kind="builder", session="session-under-test", agent="a1", updated=state.stamp(state.now() - timedelta(minutes=10)))
     write_transcript(tmp_path / "config", [CALLING, RESULT, ended_on(text)], timedelta(minutes=4))
     return tmp_path / "config" / "projects" / "-work" / "session-under-test" / "subagents" / "agent-a1.jsonl"
@@ -4327,7 +4387,7 @@ def talking(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, entries:
     path.write_text("".join(json.dumps(entry) + "\n" for entry in entries))
     stamp = (state.now() - quiet).timestamp()
     os.utime(path, (stamp, stamp))
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["roles"]["communicator"] = {"session": "talker", "cwd": "/work", "started": state.stamp(T0)}
         data["owed_replies"] = {f"{state.now().timestamp():.6f}": {"handed": False, "lined": None}, "1794000000.000001": {"handed": False, "lined": None}} if owed else {"1794000000.000001": {"handed": False, "lined": None}}
 
@@ -4405,7 +4465,7 @@ def test_a_remote_lane_is_judged_by_its_dispatch(shown: dict, gap: str | None) -
 
 
 def waiting_job(name: str) -> None:
-    with state.edit(name) as data:
+    with edit(name) as data:
         data["jobs"]["j1"]["state"] = "waiting"
 
 
@@ -4416,7 +4476,7 @@ def test_a_red_pr_wakes_its_builder_as_it_turns_red_and_every_thirty_minutes_it_
     watching = watcher(demo)
     woke, said = [], []
     for minutes, job_state in ((0, "running"), (29, "running"), (30, "waiting"), (31, "running"), (60, "running")):
-        with state.edit(demo) as data:
+        with edit(demo) as data:
             data["jobs"]["j1"]["state"] = job_state
         said.append([line for line in watch.run_pass(watching, T0 + timedelta(minutes=minutes)) if line.startswith(("PR ", "STAGE "))])
         woke.append(len(woken))
@@ -4447,13 +4507,13 @@ def test_a_green_approved_pr_forge_pr_reviewer_approved_nothing_on_reads_red_onl
     demo: str, required: int, named: str
 ) -> None:
     approve(demo, KEY)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY] |= {"checks": "pass", "review": "none", "reviews_required": required}
     assert stage.of(state.load(demo), KEY, NO_CARDS).name == named
 
 
 def test_an_uncarded_pr_carrying_the_hold_label_reads_uncarded_so_the_watch_draws_his_card_offering_approve(demo: str) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY] |= {"wants_tap": True, "hold_label": True}
     now = stage.of(state.load(demo), KEY, NO_CARDS)
     assert (now.name, now.owner, state.asks_tap(data := state.load(demo), data["prs"][KEY])) == ("uncarded", stage.WATCH, True)
@@ -4464,13 +4524,13 @@ def test_a_builders_line_carries_the_head_github_holds_for_each_open_pr_it_names
     assert stage.heads(state.load(demo), said, "o1", NO_CARDS) == (
         f"; {KEY} is at aaaaaaa on GitHub, grading, owed by Buildkite and forge-pr-reviewer: its checks run at aaaaaaa; GitHub holds none of them at bbbbbbb"
     )
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
     assert stage.heads(state.load(demo), said, "o1", NO_CARDS) == "; GitHub holds none of them at bbbbbbb"
 
 
 def test_drive_status_shows_each_open_prs_stage_now_keeping_its_since_only_while_the_watch_kept_that_stage(demo: str) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["stage"] = {"name": "grading", "owner": "", "why": "", "since": state.stamp(T0), "woke": None}
     data = state.load(demo)
     stage.shown(data, NO_CARDS, [KEY])
@@ -4482,7 +4542,7 @@ def test_drive_status_shows_each_open_prs_stage_now_keeping_its_since_only_while
 
 def test_a_yasyf_stack_lands_its_ready_bottom_pr_alone_since_gh_pr_merge_merges_one_pr_at_a_time(demo: str) -> None:
     above = "yasyf/cc-skills#8"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
         for key, head, base, branch, under in ((YASYF, "aaaaaaa111", "main", "the-watch", None), (above, "bbbbbbb222", "the-watch", "above-the-watch", YASYF)):
             tap = {"label": "Approve", "at": state.stamp(T0), "head": head, "source": "pressed the button", "picks": {}, "card": None}
@@ -4495,7 +4555,7 @@ def test_a_yasyf_stack_lands_its_ready_bottom_pr_alone_since_gh_pr_merge_merges_
 
 def test_a_yasyf_pr_its_builder_registers_below_the_one_its_taken_ready_names_ships_with_it_bottom_first_and_the_ready_reaches_its_holder_as_j4861s_did_not(demo: str) -> None:
     below = "yasyf/cc-skills#8"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
         data["prs"][YASYF] = state.new_pr(state.pr_url(YASYF), "j1", "o1") | {
             "head": "aaaaaaa111", "base": "below-the-watch", "branch": "the-watch", "under": below, "checks": "pass", "wants_tap": False, "checked": CHECKED
@@ -4531,7 +4591,7 @@ def test_a_red_prs_builder_is_woken_again_only_while_its_stage_stays_red(
     reads = {KEY: read(checks=RED)}
     serve(monkeypatch, reads)
     watch.run_pass(watcher(demo), T0)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         change(reads, data)
     counts = []
     for minutes in (15, 45):
@@ -4541,7 +4601,7 @@ def test_a_red_prs_builder_is_woken_again_only_while_its_stage_stays_red(
 
 
 def waits_on(name: str, *waits: str) -> None:
-    with state.edit(name) as data:
+    with edit(name) as data:
         data["prs"][KEY] |= {"wants_tap": True, "waits": list(waits)}
 
 
@@ -4578,7 +4638,7 @@ def test_a_pr_his_open_cards_hold_is_held_by_him_until_he_answers_the_last_and_i
 ) -> None:
     waiting_job(demo)
     asking(monkeypatch, demo, "demo:j1-7-a", "demo:j1-7-b", taps=[pr_card(KEY)])
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["wants_tap"] = True
         data["jobs"]["j1"]["questions"] = [state.new_question(None, f"Pick {waits}?", state.stamp(T0), holds="the windowed open, on #42") | {"waits": waits} for waits in ("demo:j1-7-a", "demo:j1-7-b")]
     serve(monkeypatch, {KEY: read(checks=GREEN, reviewDecision="APPROVED")})
@@ -4587,7 +4647,7 @@ def test_a_pr_his_open_cards_hold_is_held_by_him_until_he_answers_the_last_and_i
     assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == []
     assert (state.load(demo)["prs"][KEY]["stage"]["why"], redraws.drawn) == ("his cards demo:j1-7-a, demo:j1-7-b on its work are open", [state.pr_url(KEY)])
     for answered, (kept, why) in enumerate((("demo:j1-7-b", "his cards demo:j1-7-b on its work are open"), (None, "green, waits on his Approve"))):
-        with state.edit(demo) as data:
+        with edit(demo) as data:
             data["jobs"]["j1"]["questions"][answered]["closed"] = state.new_close("answered", "Yes", None, seq=str(9 + answered))
         asking(monkeypatch, demo, *filter(None, [kept]), taps=[pr_card(KEY)])
         assert watch.run_pass(watching, T0 + timedelta(minutes=31 + answered)) == []
@@ -4596,11 +4656,11 @@ def test_a_pr_his_open_cards_hold_is_held_by_him_until_he_answers_the_last_and_i
 
 
 def test_a_pr_he_approved_that_waits_on_a_running_job_waits_on_it_and_is_freed_when_the_job_ends(demo: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j2"] = job(goal="real run")
     waits_on(demo, "j2")
     waiting_job(demo)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["tap"] = {"label": "Approve", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "slack", "picks": {}, "card": None}
     serve(monkeypatch, {KEY: read(checks=GREEN, reviewDecision="APPROVED")})
     watching = watcher(demo)
@@ -4608,7 +4668,7 @@ def test_a_pr_he_approved_that_waits_on_a_running_job_waits_on_it_and_is_freed_w
     shown = state.load(demo)["prs"][KEY]["stage"]
     assert (shown["name"], shown["owner"], shown["why"], landers) == ("waiting", "j2", "it waits on j2, and the watch frees it once each ends", [])
     assert watch.run_pass(watcher(demo), T0 + timedelta(minutes=90)) == []
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j2"]["state"] = "done"
     assert f"FREE {KEY} j1 o1: j2 answered or done, nothing else holds it" in watch.run_pass(watching, T0 + timedelta(minutes=120))
     assert watch.run_pass(watching, T0 + timedelta(minutes=121)) == []
@@ -4618,19 +4678,19 @@ def test_a_pr_he_approved_that_waits_on_a_staging_test_is_owed_by_him_while_its_
     demo: str, monkeypatch: pytest.MonkeyPatch, woken: list[tuple[str, str]], landers: list[tuple[str, ...]]
 ) -> None:
     part = "staging test of #42 before it lands"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["jobs"].append("j4")
         data["orders"]["o1"]["parts"][part] = state.new_part()
         data["jobs"]["j4"] = job(parts=[part], state="waiting", waits=["demo:j4-1"], questions=[state.new_question(None, "Soak it a day?", state.stamp(T0)) | {"waits": "demo:j4-1"}])
     waits_on(demo, f"o1:{part}")
     waiting_job(demo)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["tap"] = {"label": "Approve", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "slack", "picks": {}, "card": None}
     serve(monkeypatch, {KEY: read(checks=GREEN, reviewDecision="APPROVED")})
     watching = watcher(demo)
     watch.run_pass(watching, T0)
     assert (state.load(demo)["prs"][KEY]["stage"]["name"], state.load(demo)["prs"][KEY]["stage"]["owner"]) == ("blocked", stage.HIM)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j4"] |= {"state": "running", "waits": []}
         data["jobs"]["j4"]["questions"][0]["closed"] = state.new_close("answered", "Yes", None, seq="9")
     watch.run_pass(watching, T0 + timedelta(minutes=1))
@@ -4645,27 +4705,27 @@ def test_a_pr_he_approved_that_waits_on_a_staging_test_is_owed_by_him_while_its_
 def test_a_pr_he_approved_that_waits_on_a_part_of_an_order_lands_only_once_a_proof_delivers_it_never_on_a_done_at_its_merge_or_of_its_own(
     demo: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]
 ) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         files_order(data)
     waits_on(demo, "o2:stack 1")
     waiting_job(demo)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["tap"] = {"label": "Approve", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "slack", "picks": {}, "card": None}
     serve(monkeypatch, {KEY: read(checks=GREEN, reviewDecision="APPROVED")})
     watching = watcher(demo)
     watch.run_pass(watching, T0)
     shown = state.load(demo)["prs"][KEY]["stage"]
     assert (shown["name"], shown["why"], landers) == ("waiting", "it waits on o2:stack 1, and the watch frees it once each ends", [])
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         state.take_result(data, "j2", f"DONE {state.pr_url(OTHER)} merged: {OTHER} at ccc333ddd444")
     assert not [line for line in watch.run_pass(watching, T0 + timedelta(minutes=30)) if line.startswith("FREE ")]
     assert state.load(demo)["prs"][KEY]["waits"] == ["o2:stack 1"]
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][OTHER] = merged_other("j2", "o2")
         data["jobs"]["j2"]["prs"].append(state.pr_url(OTHER))
         state.take_result(data, "j2", f"DONE {state.pr_url(OTHER)} merged, stack 1 ran on every cluster")
     assert not [line for line in watch.run_pass(watching, T0 + timedelta(minutes=45)) if line.startswith("FREE ")]
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         state.deliver_proven(data, "j2", "j2 live: repro/j2.sh exits 0 on no plugin of this Mac")
     assert f"FREE {KEY} j1 o1: o2:stack 1 answered or done, nothing else holds it" in watch.run_pass(watching, T0 + timedelta(minutes=60))
     assert landers == [(KEY,)]
@@ -4675,7 +4735,7 @@ def test_a_part_open_prs_of_two_jobs_outside_one_stack_wait_on_frees_neither_on_
     named_paths: None,
     demo: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]
 ) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         files_order(data)
         data["orders"]["o2"]["jobs"] = ["j2", "j4", "j5"]
         data["orders"]["o2"]["parts"] |= {"staging test of #42 before it lands": state.new_part(), "staging test of #43 before it lands": state.new_part()}
@@ -4687,18 +4747,18 @@ def test_a_part_open_prs_of_two_jobs_outside_one_stack_wait_on_frees_neither_on_
         data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j3", "o1") | {"head": "bbbbbbb222", "wants_tap": True, "waits": ["o2:stack 1"]}
     waits_on(demo, "o2:stack 1")
     waiting_job(demo)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["tap"] = {"label": "Approve", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "slack", "picks": {}, "card": None}
     serve(monkeypatch, {KEY: read(checks=GREEN, reviewDecision="APPROVED"), OTHER: read(checks=GREEN, headRefOid="bbbbbbb222", headRefName="other-fix")})
     watching = watcher(demo)
     watch.run_pass(watching, T0)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         state.take_result(data, "j2", "DONE followed the staging release; freeze may lift")
         data["orders"]["o2"]["state"] = "done"
     assert not [line for line in watch.run_pass(watching, T0 + timedelta(minutes=30)) if line.startswith("FREE ")]
     data = state.load(demo)
     assert ([data["prs"][key]["waits"] for key in (KEY, OTHER)], view.shared(data, "o2:stack 1"), landers) == ([["o2:stack 1"]] * 2, True, [])
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o2"]["state"] = "working"
         data["prs"][KEY]["waits"] = ["o2:staging test of #42 before it lands"]
         data["prs"][OTHER]["waits"] = ["o2:staging test of #43 before it lands"]
@@ -4721,19 +4781,19 @@ def test_a_builders_done_while_its_own_pr_is_open_waits_on_that_pr_its_change_un
     demo: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]
 ) -> None:
     staging, proof = "staging test of #42 before it lands", "https://buildkite.com/forge/release/builds/16121"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         [change] = data["orders"]["o1"]["parts"]
         data["orders"]["o1"]["parts"][staging] = state.new_part()
         data["jobs"]["j1"]["parts"] = [change, staging]
     waits_on(demo, f"o1:{staging}")
     waiting_job(demo)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["tap"] = {"label": "Approve", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "slack", "picks": {}, "card": None}
     serve(monkeypatch, {KEY: read(checks=GREEN, reviewDecision="APPROVED")})
     watching = watcher(demo)
     watch.run_pass(watching, T0)
     done = f"DONE {proof} passed every staging case of #42 at aaaaaaa111"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         state.take_result(data, "j1", done, f"{done}\nCHECK: {proof} https://buildkite.com/forge/release/builds/16062\nCASE a rollback refused: pass {proof}\n")
     data = state.load(demo)
     builder = data["jobs"]["j1"]
@@ -4753,7 +4813,7 @@ def test_a_builders_done_while_its_own_pr_is_open_waits_on_that_pr_its_change_un
 def test_a_done_tester_whose_staging_test_ran_no_full_pass_leaves_its_part_waiting_on_a_rerun_naming_each_case_that_did_not_pass(home_repo: None, demo: str) -> None:
     staging = "staging test of #43 before it lands"
     failed = "DONE #43 failed a case on cut 1"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["parts"][staging] = state.new_part()
         data["orders"]["o1"]["jobs"].append("j2")
         data["jobs"]["j2"] = job(parts=[staging], carries={})
@@ -4767,7 +4827,7 @@ def test_a_done_tester_whose_staging_test_ran_no_full_pass_leaves_its_part_waiti
 def test_a_staging_parts_gap_names_only_its_testers_never_a_job_running_its_release_nor_one_whose_done_only_followed_it_even_held_for_its_own_prs_merge_while_a_tester_ran_its_cases(home_repo: None, demo: str) -> None:
     staging = "staging test of #43 before it lands"
     followed = "DONE APPLIED: radiant-tudor serves sandsql on plat-usw2-staging at 2c18705b7744"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["parts"][staging] = state.new_part()
         data["orders"]["o1"]["jobs"] += ["j2", "j3"]
         data["jobs"]["j2"] = job(parts=[staging], carries={}, brief_flags={"release": "radiant-tudor"}, builds_nothing=True)
@@ -4775,7 +4835,7 @@ def test_a_staging_parts_gap_names_only_its_testers_never_a_job_running_its_rele
         state.take_result(data, "j3", followed, f"{followed}\nCHECK: https://buildkite.com/forge/release/builds/16720\nCASE 1 a write lands: not exercised: this job only followed the release\n")
     unrun = watch.part_gap(watcher(demo), state.load(demo), "o1", staging, state.now() + timedelta(hours=1))
     failed = "DONE #43 failed a case on cut 1"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["jobs"].append("j4")
         data["jobs"]["j4"] = job(parts=[staging], carries={})
         state.take_result(data, "j4", failed, f"{failed}\nCHECK: https://buildkite.com/forge/release/builds/16164\nCASE 1 a write lands: fail: the writer kept the old row\n")
@@ -4794,13 +4854,13 @@ def test_a_freed_codex_job_is_launched_by_the_watch_itself_with_no_free_line_to_
     serve(monkeypatch, {})
     detached = []
     monkeypatch.setattr(state, "detach", lambda name, args, log: detached.append(args) or 0)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
         data["jobs"]["j2"] = job(goal="release the service")
         data["jobs"]["j1"].update(kind="codex", codex_run=ran, state="waiting", said="WAITING j2", waits=["j2"], updated=state.stamp(T0 - timedelta(minutes=10)))
     watching = watcher(demo)
     assert watch.run_pass(watching, T0) == []
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j2"]["state"] = "done"
     assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == []
     assert (watch.run_pass(watching, T0 + timedelta(seconds=60)), detached) == ([], [["job", "launch", "j1"]])
@@ -4811,18 +4871,18 @@ def test_a_job_whose_wait_ends_is_freed_before_any_orphan_and_said_to_be_strande
 ) -> None:
     serve(monkeypatch, {})
     said = "WAITING release: #1 merged abc; rides the next release"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
         data["jobs"]["j2"] = job(goal="release the service")
         data["jobs"]["j1"].update(state="waiting", said=said, waits=["j2"], updated=state.stamp(T0 - timedelta(minutes=10)))
     watching = watcher(demo)
     assert watch.run_pass(watching, T0) == []
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j2"]["state"] = "done"
     assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == []
     assert watch.run_pass(watching, T0 + timedelta(seconds=60)) == ["FREE j1 o1: j2 answered or done, nothing else holds it"]
     assert watch.run_pass(watching, T0 + timedelta(minutes=4)) == []
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["updated"] = state.stamp(T0 + timedelta(minutes=10))
     assert watch.run_pass(watching, T0 + timedelta(minutes=11)) == []
     assert watch.run_pass(watching, T0 + timedelta(minutes=13)) == [
@@ -4842,7 +4902,7 @@ def test_a_job_waiting_on_a_codex_job_holds_through_its_handoff_a_pointer_report
 ) -> None:
     serve(monkeypatch, {})
     handoff = "HANDOFF j3 is unfinished with a stopped implementation pending a scope decision, and no PR or release exists."
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
         data["orders"]["o2"] = order(text="build the page kit", parts={"page kit": state.new_part()}, jobs=["j2", "j3"])
         data["jobs"]["j2"] = job(order="o2", kind="codex", goal="build the page kit", parts=["page kit"], state="stopped", said="handed to j3")
@@ -4850,7 +4910,7 @@ def test_a_job_waiting_on_a_codex_job_holds_through_its_handoff_a_pointer_report
         data["jobs"]["j1"].update(state="waiting", said="waits on j3", waits=["j3"], updated=state.stamp(T0 - timedelta(minutes=10)))
         data["jobs"]["j4"] = job(goal="build on the page kit", state="waiting", said="waits on j2", waits=["j2"])
         data["orders"]["o1"]["jobs"].append("j4")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         codex.take(demo, data, "j3", completed_run(tmp_path / "codex-ask.1", codex_reply("HANDOFF", handoff.removeprefix("HANDOFF "))))
     data = state.load(demo)
     assert (data["jobs"]["j3"]["state"], data["jobs"]["j3"]["said"]) == ("stopped", handoff)
@@ -4862,20 +4922,20 @@ def test_a_job_waiting_on_a_codex_job_holds_through_its_handoff_a_pointer_report
     watching = watcher(demo)
     for minute in (0, 2, 4):
         assert not [line for line in watch.run_pass(watching, T0 + timedelta(minutes=minute)) if line.startswith("FREE ")]
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         state.start(data["jobs"]["j3"])
     assert state.load(demo)["jobs"]["j3"]["state"] == "stopped"
     assert not [line for line in watch.run_pass(watching, T0 + timedelta(minutes=6)) if line.startswith("FREE ")]
     assert [state.load(demo)["jobs"][job_id]["waits"] for job_id in ("j1", "j4")] == [["j3"], ["j2"]]
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j5"] = job(order="o2", kind="codex", goal="build the page kit", parts=["page kit"])
         data["orders"]["o2"]["jobs"].append("j5")
         data["prs"][OTHER] = merged_other("j5", "o2")
         data["jobs"]["j5"]["prs"].append(state.pr_url(OTHER))
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         codex.take(demo, data, "j5", completed_run(tmp_path / "codex-ask.2", codex_reply("DONE", f"built the page kit in {state.pr_url(OTHER)}, merged")))
     assert not [line for line in watch.run_pass(watching, T0 + timedelta(minutes=8)) if line.startswith("FREE ")]
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         state.deliver_proven(data, "j5", "j5 live: repro/j5.sh exits 0 on no plugin of this Mac")
     assert [line for line in watch.run_pass(watching, T0 + timedelta(minutes=10)) if line.startswith("FREE ")] == [
         "FREE j1 o1: j3 answered or done, nothing else holds it",
@@ -4884,7 +4944,7 @@ def test_a_job_waiting_on_a_codex_job_holds_through_its_handoff_a_pointer_report
 
 
 def test_a_full_cap_gives_turns_to_the_workstream_he_moved_last_and_pauses_the_one_he_touched_longest_ago(demo: str) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o2"] = order(text="fix the card", jobs=["j10"]) | {"project": "Iris", "workstream": "Run page", "updated": state.stamp(T0 - timedelta(days=2))}
         data["orders"]["o3"] = order(text="fix the watch", jobs=["j11"]) | {"project": "Iris", "workstream": "Search", "updated": state.stamp(T0)}
         for job_id, order_id in (("j10", "o2"), ("j11", "o3")):
@@ -4898,7 +4958,7 @@ def test_a_builder_waiting_its_turn_for_a_slot_is_no_orphan_and_the_watch_frees_
 ) -> None:
     serve(monkeypatch, {})
     monkeypatch.setattr(watch, "local_gap", lambda job_id, job, data, moment: None if job.get("agent") else REAL_LOCAL_GAP(job_id, job, data, moment))
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"].clear()
         data["jobs"]["j1"].update(prs=[], agent="a1", session="session-under-test")
         for number in range(2, place.LOCAL_BUILDERS + 1):
@@ -4915,7 +4975,7 @@ def test_a_builder_waiting_its_turn_for_a_slot_is_no_orphan_and_the_watch_frees_
     assert watch.run_pass(watching, T0) == []
     assert place.positions(state.load(demo)) == {"j11": "1 of 3 in line", "j10": "2 of 3 in line", "j9": "3 of 3 in line"}
     assert watch.run_pass(watching, T0 + timedelta(minutes=31)) == []
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j2"]["state"] = "done"
     freed = T0 + timedelta(minutes=33)
     assert watch.run_pass(watching, freed) == ["FREE j11 o3: its turn came as a builder slot opened on this Mac, 7 of its 8 held, nothing else holds it"]
@@ -4924,10 +4984,10 @@ def test_a_builder_waiting_its_turn_for_a_slot_is_no_orphan_and_the_watch_frees_
     assert place.turns(data, freed) == ([], place.LOCAL_BUILDERS)
     assert "j12" not in place.local_builders(data, freed)
     assert watch.run_pass(watching, T0 + timedelta(minutes=35)) == []
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j11"].update(state="running", agent="a11")
     assert watch.run_pass(watching, T0 + timedelta(minutes=37)) == []
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j3"]["state"] = "done"
     assert watch.run_pass(watching, T0 + timedelta(minutes=39)) == ["FREE j10 o2: its turn came as a builder slot opened on this Mac, 7 of its 8 held, nothing else holds it"]
     assert place.waiting_builders(state.load(demo)) == ["j9"]
@@ -4941,7 +5001,7 @@ def test_a_staging_test_whose_freeze_gave_way_to_a_staging_release_for_productio
     launched = launches(monkeypatch)
     build = "https://buildkite.com/forge/release/builds/16950"
     soak = "staging:api/plat-usw2-staging@044e8552b694"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"].clear()
         data["jobs"]["j1"].update(state="waiting", said=f"WAITING {soak}", waits=[soak], prs=[])
         data["jobs"]["j2"] = job(state="waiting", said=f"WAITING {soak}", waits=[soak])
@@ -4966,7 +5026,7 @@ def test_a_staging_test_whose_freeze_gave_way_to_a_staging_release_for_productio
     assert (holder["job"], holder["since"], holder["until"], holder["extended"], holder["gave_way_to"]) == ("j1", state.stamp(T0), state.stamp(T0 + state.CLAIM_WAIT + timedelta(minutes=30)), False, build)
     assert [(data["jobs"][job_id]["waits"], data["jobs"][job_id]["gave_way"]) for job_id in ("j1", "j2", "j3")] == [([], ["f8erwzvg6c/bypassed-0190"])] * 2 + [([], [])]
     assert ["job", "launch", "j1"] in launched and ["job", "launch", "j2"] in launched
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         for job_id in ("j1", "j2"):
             data["jobs"][job_id]["undelivered"].clear()
     assert not [line for line in watch.run_pass(watching, T0 + timedelta(minutes=2)) if line.startswith("FREE ")]
@@ -4994,7 +5054,7 @@ def test_a_release_wait_frees_once_every_cluster_of_its_service_serves_its_pr_ne
     serving = [{"target": "api", "env": env, "commit": "9f00d1"} for env in ("plat-usw2-prod", "plat-usw2-staging", "tnt-usw2-0ddq7rb")]
     calls = live_reads(monkeypatch, serving, {"abc123"})
     wait, staged = f"release:api:{KEY}", f"release:api:{KEY}@plat-usw2-staging"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY].update(state="merged", merged_sha="abc123")
         data["jobs"]["j1"].update(state="waiting", said="WAITING release of api", waits=[wait], prs=[], updated=state.stamp(T0 - timedelta(minutes=10)))
         data["jobs"]["j2"] = job(state="waiting", said="WAITING staging of api", waits=[staged], updated=state.stamp(T0 - timedelta(minutes=10)))
@@ -5028,7 +5088,7 @@ def test_a_release_wait_frees_once_every_cluster_running_its_service_production_
     live_reads(monkeypatch, serving, holding)
     computer, api, smoke = (f"release:{service}:{merged}" for service in ("iris-computer", "api", "staging-smoke"))
     nowhere = f"release:api:{merged}@core-usw2-auto"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][merged] = state.new_pr(state.pr_url(merged), "j1", "o1") | {"state": "merged", "merged_sha": "ade22e0af2fd"}
         data["jobs"]["j1"].update(state="waiting", said="WAITING release of iris-computer", waits=[computer, api, smoke, nowhere], updated=state.stamp(T0 - timedelta(minutes=10)))
     watching = watcher(demo)
@@ -5055,7 +5115,7 @@ def test_a_staging_wait_frees_once_release_live_reads_its_env_running_its_target
     serving = [{"target": "sandsql", "env": "plat-usw2-staging", "commit": "6c751b8b1015"}, {"target": "sandsql", "env": "plat-usw2-prod", "commit": "044e8552b694"}]
     live_reads(monkeypatch, serving)
     wait = "staging:sandsql/plat-usw2-staging@044e8552b694"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"].update(state="waiting", said=f"WAITING {wait}", waits=[wait], updated=state.stamp(T0 - timedelta(minutes=10)))
     watching = watcher(demo)
     assert watch.run_pass(watching, T0) == []
@@ -5075,7 +5135,7 @@ def test_a_staging_wait_on_a_merge_commit_frees_once_its_env_serves_a_later_buil
     carried = {"4368afde1574"}
     live_reads(monkeypatch, [{"target": "api", "env": "plat-usw2-staging", "commit": "4f2c41333799"}], carried)
     wait = "staging:api/plat-usw2-staging@8c186ae8e2dd1d8b24346ac4633db9000e822448"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"].update(state="waiting", said=f"WAITING {wait}", waits=[wait], updated=state.stamp(T0 - timedelta(minutes=10)))
     watching = watcher(demo)
     assert watch.run_pass(watching, T0) == []
@@ -5091,7 +5151,7 @@ def test_a_release_wait_on_a_pr_outside_the_monorepo_is_never_read_and_frees_at_
     calls = live_reads(monkeypatch)
     waited = "yasyf/cc-slack#355"
     wait = f"release:cc-slack:{waited}"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][waited] = state.new_pr(state.pr_url(waited), "j1", "o1") | {"state": "merged", "merged_sha": "c355"}
         data["jobs"]["j1"].update(state="waiting", said="WAITING release of cc-slack", waits=[wait], updated=state.stamp(T0 - timedelta(minutes=10)))
     watching = watcher(demo)
@@ -5153,7 +5213,7 @@ def test_a_release_job_follows_the_build_its_launch_triggered_and_it_and_the_coo
     failure = {"step": DEPLOY_STEP, "said": CAUSE, "job": f"{TRIGGERED_BUILD}#01a1"}
     records = {LAUNCH_BUILD: {"name": "auric-aristides", "build": TRIGGERED_BUILD}, TRIGGERED_BUILD: {"name": "auric-aristides", "build": TRIGGERED_BUILD, "failures": [failure]}}
     monkeypatch.setattr(watch.brief, "release_record", lambda release, data: records[release])
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["jobs"].append("j2")
         data["jobs"]["j2"] = state.new_job("o1", "builder", "follow the release", [], state.stamp(T0)) | {"brief_flags": RELEASED, "release_build": LAUNCH_BUILD, "waits": [LAUNCH_BUILD]}
     watching = watcher(demo)
@@ -5184,7 +5244,7 @@ def test_a_release_build_stopped_at_its_approve_step_is_told_once_it_has_stood_t
     buildkite_reads(monkeypatch, {"forge/release/17469": blocked})
     told: list[tuple[str, str]] = []
     monkeypatch.setattr(watch, "release_told", lambda watcher, job_id, read, moment: told.append((job_id, read["state"])))
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j2"] = state.new_job("o1", "builder", "follow the release", [], state.stamp(T0)) | {"brief_flags": RELEASED, "release_build": TRIGGERED_BUILD}
     watching = watcher(demo)
     for minute in (0, 29, 30):
@@ -5198,7 +5258,7 @@ def test_730544_a_release_job_whose_waits_moved_on_from_its_release_build_is_nev
     told: list[tuple[str, str]] = []
     monkeypatch.setattr(watch, "release_told", lambda watcher, job_id, read, moment: told.append((job_id, read["state"])))
     staging = "staging:llm-gateway/plat-usw2-staging@950c935749448e741572047cc4feb173863255ab"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["jobs"] += ["j2", "j3"]
         data["jobs"]["j2"] = state.new_job("o1", "builder", "follow the release", [], state.stamp(T0)) | {"brief_flags": RELEASED, "release_build": LAUNCH_BUILD, "waits": [staging]}
         data["jobs"]["j3"] = state.new_job("o1", "builder", "follow the release", [], state.stamp(T0)) | {"brief_flags": RELEASED, "release_build": TRIGGERED_BUILD, "waits": [TRIGGERED_BUILD, staging]}
@@ -5240,7 +5300,7 @@ def test_a_build_a_job_waits_on_stopped_at_an_approve_step_puts_one_approve_card
     monkeypatch.setattr(watch.slack, "dm", lambda: "D0DM")
     answered: list[tuple] = []
     monkeypatch.setattr(superseded, "answer_card", lambda card, words, link, settled, replaces=None: answered.append((card, words, link, settled, replaces)) or {})
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["jobs"].append("j2")
         data["jobs"]["j2"] = state.new_job("o1", "builder", "follow his release", [], state.stamp(T0)) | {"waits": [TRIGGERED_BUILD]}
     watching = watcher(demo)
@@ -5265,7 +5325,7 @@ def test_a_build_a_job_waits_on_stopped_at_an_approve_step_puts_one_approve_card
 def test_his_approve_on_a_release_card_runs_the_repositorys_approve_command_once_tells_the_job_and_shows_its_failure_in_place_of_his_tap(demo: str, monkeypatch: pytest.MonkeyPatch, approving: None) -> None:
     waits = f"{demo}:j2-1794800000000"
     entry = {"build": TRIGGERED_BUILD, "step": APPROVE_STEP, "release": "auric-aristides", "covers": None, "waits": waits, "url": APPROVE_CARD, "asked": state.stamp(T0), "tap": None, "result": None, "shown": None}
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["jobs"].append("j2")
         data["jobs"]["j2"] = state.new_job("o1", "builder", "follow his release", [], state.stamp(T0)) | {"waits": [TRIGGERED_BUILD], "release_cards": {f"{TRIGGERED_BUILD} {APPROVE_STEP}": entry}}
     ran: list[str] = []
@@ -5293,7 +5353,7 @@ def test_a_buildkite_build_wait_is_read_once_as_first_held_then_only_on_a_delive
     answers = {"forge/release/14769": BUILD_RUNNING, "forge/release/99999999": None}
     calls = buildkite_reads(monkeypatch, answers)
     heard_from_buildkite()
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY].update(state="merged", merged_sha="abc123")
         data["orders"]["o1"]["jobs"] = ["j1", "j2"]
         data["jobs"]["j1"].update(state="waiting", said=f"WAITING {RELEASE_BUILD} stops at its approve step", waits=[RELEASE_BUILD], prs=[], updated=state.stamp(T0 - timedelta(minutes=10)))
@@ -5320,7 +5380,7 @@ def test_a_built_job_is_told_once_under_each_card_it_waits_on_and_freed_once_whe
     other = "https://acme.slack.com/archives/D123/p1794200000000300"
     monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [question("demo:j1-7-a"), question("demo:j1-7-b") | {"url": other}], "closed": [], "pr_cards": []})
     watch.view.refresh_cards(demo)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
         data["jobs"]["j1"] |= {"state": "built", "branch": "lane/built", "waits": ["demo:j1-7-a", "demo:j1-7-b"]}
     watching = watcher(demo)
@@ -5339,7 +5399,7 @@ def test_a_built_job_is_told_once_though_its_sub_coordinator_is_bound_while_the_
     serve(monkeypatch, {})
     monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [question("demo:j1-7-a")], "closed": [], "pr_cards": []})
     watch.view.refresh_cards(demo)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["project"] = "Iris"
         data["prs"][KEY]["state"] = "merged"
         data["jobs"]["j1"] |= {"state": "built", "branch": "lane/built", "waits": ["demo:j1-7-a"]}
@@ -5363,7 +5423,7 @@ def test_a_built_job_is_told_once_though_its_sub_coordinator_is_bound_while_the_
 def test_a_built_job_whose_watch_died_after_claiming_its_card_and_before_posting_is_told_by_the_next_watch(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {})
     asking(monkeypatch, demo, "demo:j1-7-a")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
         data["jobs"]["j1"] |= {"state": "built", "branch": "lane/built", "waits": ["demo:j1-7-a"]}
     posts: list[dict] = []
@@ -5393,12 +5453,12 @@ def test_a_built_jobs_claim_whose_watch_died_and_whose_pid_now_runs_another_proc
 ) -> None:
     serve(monkeypatch, {})
     asking(monkeypatch, demo, "demo:j1-7-a")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
         data["jobs"]["j1"] |= {"state": "built", "branch": "lane/built", "waits": ["demo:j1-7-a"], "waiting_claims": {"demo:j1-7-a": {"pid": os.getpid(), "started": "Mon Nov  9 08:00:00 2026"}}}
     assert watch.run_pass(watcher(demo), T0) == waiting("demo:j1-7-a")
     assert told == [paused()]
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"] |= {"waiting_said": [], "waiting_claims": {"demo:j1-7-a": {"pid": os.getpid(), "started": watch.started(os.getpid())}}}
     assert watch.run_pass(watcher(demo), T0 + timedelta(minutes=1)) == []
     assert told == [paused()]
@@ -5410,7 +5470,7 @@ def test_a_built_job_asking_him_its_own_question_is_freed_only_once_he_answers_i
     own = question("demo:j1-9") | {"url": asked}
     monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [question("demo:j1-7-a"), own], "closed": [], "pr_cards": []})
     watch.view.refresh_cards(demo)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
         data["jobs"]["j1"] |= {"state": "built", "branch": "lane/built", "waits": ["demo:j1-7-a"], "questions": [state.new_question("/asks/j1.md", "Pick?", state.stamp(T0), card=asked)]}
     watching = watcher(demo)
@@ -5421,7 +5481,7 @@ def test_a_built_job_asking_him_its_own_question_is_freed_only_once_he_answers_i
     assert state.load(demo)["jobs"]["j1"]["waits"] == ["demo:j1-7-a"]
     asking(monkeypatch, demo)
     assert watch.run_pass(watching, T0 + timedelta(minutes=2)) == []
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["questions"][0]["closed"] = state.new_close("answered", "Yes", asked, seq="9")
     assert watch.run_pass(watching, T0 + timedelta(minutes=3)) == ["FREE j1 o1: demo:j1-7-a answered or done, nothing else holds it, built on lane/built"]
 
@@ -5429,7 +5489,7 @@ def test_a_built_job_asking_him_its_own_question_is_freed_only_once_he_answers_i
 def test_a_card_holding_a_built_job_is_told_once_in_its_own_thread_and_again_after_a_failed_post(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {})
     asking(monkeypatch, demo, "demo:j1-7-a")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
         data["orders"]["o1"]["thread"] = ["D123", "1794200000.000100"]
         data["jobs"]["j1"] |= {"state": "built", "branch": "lane/built", "waits": ["demo:j1-7-a"]}
@@ -5454,7 +5514,7 @@ def test_a_card_a_built_job_names_by_its_link_and_by_its_waits_id_is_one_wait_an
     serve(monkeypatch, {})
     asking(monkeypatch, demo, "demo:j2-7")
     link = f"{CARD}?thread_ts=1.2"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
         data["orders"]["o1"] |= {"jobs": ["j1", "j2"], "parts": {"ship the watch": state.new_part()}}
         data["jobs"]["j1"] |= {"parts": ["ship the watch"], "researched": ["j2"]}
@@ -5477,11 +5537,11 @@ def test_a_built_job_holding_one_card_under_its_link_and_its_waits_id_is_told_on
     serve(monkeypatch, {})
     asking(monkeypatch, demo, "demo:j1-7-a")
     link = f"{CARD}?thread_ts=1.2"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
         data["jobs"]["j1"] |= {"state": "built", "branch": "lane/built", "waits": [link, "demo:j1-7-a"]}
     assert watch.run_pass(watcher(demo), T0) == waiting("demo:j1-7-a")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["waiting_said"] = [link]
     assert watch.run_pass(watcher(demo), T0 + timedelta(minutes=1)) == []
     assert told == [paused()]
@@ -5512,7 +5572,7 @@ def carded(name: str, *shown: dict, closed: tuple[dict, ...] = ()) -> watch.Watc
 def test_a_wait_added_to_a_pr_he_approved_never_withdraws_or_redraws_his_card_and_a_fresh_tap_draws_its_card_while_it_holds(
     demo: str, withdrawals: Withdrawals, redraws: Redraws
 ) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["tap"] = {"label": "Approve", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "slack", "picks": {}, "card": None}
     watching = carded(demo, drawn_pr_card(demo, KEY))
     assert (watch.redraw_lines(watching, T0), redraws.asked, redraws.drawn) == ([], [], [])
@@ -5539,7 +5599,7 @@ def test_the_redraw_of_his_stale_pr_cards_reads_the_drive_and_his_cards_as_often
 
     def redrawn(count: int) -> list[str]:
         keys = [f"Forge-AI/monorepo#{1000 + number}" for number in range(count)]
-        with state.edit(demo) as data:
+        with edit(demo) as data:
             for key in keys:
                 data["prs"][key] = data["prs"][KEY] | {"url": state.pr_url(key)}
         drawn = len(redraws.drawn)
@@ -5552,10 +5612,10 @@ def test_the_redraw_of_his_stale_pr_cards_reads_the_drive_and_his_cards_as_often
 
 
 def test_his_open_card_drawn_asking_his_tap_on_a_pr_that_no_longer_asks_it_is_redrawn_whole_once_until_his_cards_are_read_again_and_asked_again_while_that_fails(demo: str, redraws: Redraws) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["wants_tap"] = True
     asked = drawn_pr_card(demo, KEY)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["tap"] = {"label": "Approve", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "slack", "picks": {}, "card": None}
     watching = carded(demo, asked)
     redraws.failure = "cc-slack exited 1"
@@ -5570,7 +5630,7 @@ def test_his_answered_pr_card_cc_slack_still_draws_is_redrawn_in_place_but_never
     retired = {field: value for field, value in answered.items() if field != "card"}
     assert (watch.redraw_lines(carded(demo, closed=(retired,)), T0), redraws.drawn) == ([], [])
     assert (watch.redraw_lines(carded(demo, closed=(answered,)), T0), redraws.asked, redraws.drawn) == ([], [], [state.pr_url(KEY)])
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
     assert (watch.redraw_lines(carded(demo, closed=(answered,)), T0), redraws.drawn) == ([], [state.pr_url(KEY)])
 
@@ -5585,7 +5645,7 @@ def test_a_failed_redraw_of_his_stale_pr_card_is_tried_again_on_the_next_pass_an
 
 def test_a_prs_release_wait_whose_release_is_already_out_is_stored_and_freed_on_the_next_read(home_repo: None, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     shipped = "Forge-AI/monorepo#43"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][shipped] = state.new_pr(state.pr_url(shipped), "j1", "o1") | {"state": "merged", "merged_sha": "abc123"}
     serving = [{"target": "dashboard", "env": "plat-usw2-prod", "commit": "abc123"}, {"target": "api", "env": "plat-usw2-prod", "commit": "abc123"}, {"target": "api", "env": "plat-usw2-staging", "commit": "9f00d1"}]
     live_reads(monkeypatch, serving, {"abc123"})
@@ -5601,7 +5661,7 @@ def test_job_held_holds_no_jobs_pr_on_his_open_cards(
     demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     asking(monkeypatch, demo, "demo:j1-7-a")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["questions"] = [state.new_question(None, "Pick demo:j1-7-a?", state.stamp(T0), holds=None) | {"waits": "demo:j1-7-a"}]
         state.take_result(data, "j1", "BUILT lane/built, waits on demo:j1-7-a")
         data["prs"].pop(KEY, None)
@@ -5620,7 +5680,7 @@ def test_a_job_on_an_open_incident_puts_up_its_pr_on_the_recommendation_and_the_
 ) -> None:
     asking(monkeypatch, demo, "demo:j1-7-a")
     url = "https://github.com/Forge-AI/monorepo/pull/43"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["incident"] = True
         state.take_result(data, "j1", "BUILT lane/built, waits on demo:j1-7-a")
     assert cli.main(["pr", "add", url, "--job", "j1", "--drive", demo, *LEAD]) == 0
@@ -5633,14 +5693,14 @@ def test_a_job_on_an_open_incident_is_held_from_landing_only_by_a_card_asking_hi
     demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     asking(monkeypatch, demo, "demo:j1-7-a")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["incident"] = True
         state.take_result(data, "j1", "BUILT lane/built, waits on demo:j1-7-a")
         data["prs"].pop(KEY, None)
         data["jobs"]["j1"]["prs"] = []
         data["jobs"]["j1"]["questions"] = [state.new_question(None, "Pick demo:j1-7-a?", state.stamp(T0), holds=None) | {"waits": "demo:j1-7-a"}]
     assert land.open_cards(state.load(demo), "j1", None) == []
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["questions"][0]["unsettled"] = "9992100: this card asks whether the incident overrides his wait"
     assert land.open_cards(state.load(demo), "j1", None) == ["demo:j1-7-a"]
 
@@ -5649,7 +5709,7 @@ def test_job_set_moves_a_builder_off_a_card_his_words_replaced_onto_a_reader_tha
     demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     asking(monkeypatch, demo, "demo:j1-7-a")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j2"] = state.new_job("o1", "builder", "build his pick on the card", [], state.stamp(T0)) | {"waits": ["demo:j1-7-a"]}
         data["jobs"]["j3"] = job(kind="reader", goal="research: the audit his later words asked for", agent="a1")
         data["jobs"]["j4"] = job(kind="design", goal="asked him", state="waiting", questions=[state.new_question(None, "Pick?", state.stamp(T0)) | {"waits": "demo:j1-7-a"}])
@@ -5671,7 +5731,7 @@ def test_job_set_moves_a_builder_off_a_card_his_words_replaced_onto_a_reader_tha
 def test_a_pr_whose_head_moved_to_a_change_nobody_judged_gets_its_card_and_its_check_against_his_words_at_that_head_whatever_its_jobs_state(
     demo: str, monkeypatch: pytest.MonkeyPatch, checkers: list[str], draws: Draws
 ) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY] |= {"wants_tap": True, "checked": CHECKED | {"lines": {"api/run.ts": "a change judged before"}}}
     serve(monkeypatch, {KEY: read(headRefOid="bbbbbbb222", checks=GREEN, reviewDecision="APPROVED")})
     watching = watcher(demo)
@@ -5679,7 +5739,7 @@ def test_a_pr_whose_head_moved_to_a_change_nobody_judged_gets_its_card_and_its_c
     assert (draws.keys, checkers) == ([[KEY]], [KEY])
     assert not [line for line in watch.run_pass(watching, T0 + timedelta(minutes=30)) if line.startswith(("PR ", "STAGE "))]
     assert (state.load(demo)["prs"][KEY]["checked"]["read"], state.load(demo)["prs"][KEY]["stage"]["name"]) == ("bbbbbbb222", "card")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["checked"] = CHECKED | {"head": "bbbbbbb222"}
         data["jobs"]["j1"]["carries"]["o2"] = ["no staff flag"]
     assert not state.checked(state.load(demo), state.load(demo)["prs"][KEY])
@@ -5688,7 +5748,7 @@ def test_a_pr_whose_head_moved_to_a_change_nobody_judged_gets_its_card_and_its_c
 def test_a_pr_whose_card_draw_fails_stays_uncarded_and_is_drawn_again_each_read_said_to_the_meta_session_from_the_third_failure(
     demo: str, monkeypatch: pytest.MonkeyPatch, draws: Draws
 ) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["wants_tap"] = True
     serve(monkeypatch, {KEY: read(checks=GREEN, reviewDecision="APPROVED")})
     sent = posts(monkeypatch)
@@ -5712,7 +5772,7 @@ def test_a_pr_whose_card_draw_fails_stays_uncarded_and_is_drawn_again_each_read_
 def test_a_pr_whose_card_draw_goes_out_with_no_open_card_at_its_head_is_a_failed_draw_drawn_again_each_read_said_to_the_meta_session_from_the_third(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["wants_tap"] = True
     serve(monkeypatch, {KEY: read(checks=GREEN, reviewDecision="APPROVED")})
     sent = posts(monkeypatch)
@@ -5736,7 +5796,7 @@ def test_an_unchecked_pr_starts_one_check_against_his_words_whatever_its_jobs_st
 ) -> None:
     serve(monkeypatch, {})
     monkeypatch.setattr(state, "now", lambda: T0 + timedelta(minutes=1))
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"].update(state=job_state, said=said, returned=state.stamp(T0))
         data["prs"][KEY] |= {"wants_tap": True, "checked": None}
     watching = watcher(demo)
@@ -5749,7 +5809,7 @@ def test_an_unchecked_pr_starts_one_check_against_his_words_whatever_its_jobs_st
     assert key == KEY and refused.endswith(" [o1 j1]")
     assert refused.startswith(f'PR {KEY}: NOT READY: {KEY} go against his words, judged from each PR\'s title and diff: o1 "ship the watch": watch.py stops the watch.')
     assert (watch.run_pass(watching, T0 + timedelta(minutes=4)), checkers) == ([], [KEY])
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"] |= {"said": f"READY {state.pr_url(KEY)}", "returned": state.stamp(T0 + timedelta(minutes=5))}
     assert (watch.run_pass(watching, T0 + timedelta(minutes=5)), checkers) == ([], [KEY])
     judge.against = []
@@ -5765,7 +5825,7 @@ def test_a_not_ready_on_a_pr_he_approved_is_drawn_on_his_card_and_wakes_no_build
 ) -> None:
     serve(monkeypatch, {})
     monkeypatch.setattr(state, "now", lambda: T0 + timedelta(minutes=1))
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"].update(state="waiting", said=f"PUSHED {state.pr_url(KEY)}", returned=state.stamp(T0))
         data["prs"][KEY] |= {"wants_tap": True, "checked": None, "tap": state.new_tap("Approve", "aaaaaaa111", "pressed the button", "1.2")}
     watching = watcher(demo)
@@ -5778,7 +5838,7 @@ def test_a_not_ready_on_a_pr_he_approved_is_drawn_on_his_card_and_wakes_no_build
 
 def test_a_not_ready_on_a_stack_wakes_each_job_it_faults_once_a_head_under_his_hold_and_none_while_his_approve_is_on_any_pr_of_the_stack(demo: str, woken: list[tuple[str, str]]) -> None:
     refused = f"{served.NOT_READY}: {OTHER}, {THIRD} go against his words"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["jobs"] = ["j1", "j2"]
         data["jobs"]["j2"] = job(prs=[state.pr_url(OTHER), state.pr_url(THIRD)])
         for key, job_id, branch, base, under in [(KEY, "j1", "root", "main", None), (OTHER, "j2", "middle", "root", KEY), (THIRD, "j2", "top", "middle", OTHER)]:
@@ -5790,7 +5850,7 @@ def test_a_not_ready_on_a_stack_wakes_each_job_it_faults_once_a_head_under_his_h
     watching = watcher(demo)
     watch.objections(watching)
     assert (woken, [state.load(demo)["prs"][key]["objected"] for key in (KEY, OTHER, THIRD)]) == ([], [None] * 3)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["tap"] = state.new_tap("Hold", "aaaaaaa111", "pressed the button", "1.2")
     watch.objections(watching)
     watch.objections(watching)
@@ -5803,7 +5863,7 @@ def test_a_green_pr_waiting_on_his_tap_gets_its_card_at_once_while_its_check_run
     reads = {KEY: read(checks=GREEN, reviewDecision="APPROVED")}
     serve(monkeypatch, reads)
     monkeypatch.setattr(state, "now", lambda: T0)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"].update(state="waiting", said=f"READY {state.pr_url(KEY)}", returned=state.stamp(T0))
         data["prs"][KEY] |= {"wants_tap": True, "checked": None}
     watching = watcher(demo)
@@ -5830,7 +5890,7 @@ def test_a_not_ready_keeps_its_head_however_often_its_builder_returns_and_is_jud
     reads = {KEY: read(checks=GREEN, reviewDecision="APPROVED")}
     serve(monkeypatch, reads)
     monkeypatch.setattr(state, "now", lambda: T0)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"].update(state="waiting", said=f"PUSHED {state.pr_url(KEY)}", returned=state.stamp(T0))
         data["prs"][KEY] |= {"wants_tap": True, "checked": None}
     watching = watcher(demo)
@@ -5838,13 +5898,13 @@ def test_a_not_ready_keeps_its_head_however_often_its_builder_returns_and_is_jud
     judge.against = [{"order": "o1", "words": "ship the watch", "file": "watch.py", "change": "watch.py stops the watch"}]
     assert cli.main(["pr", "check", state.pr_url(KEY), "--drive", demo]) == 0
     watch.run_pass(watching, T0 + timedelta(minutes=1))
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"] |= {"said": f"READY {state.pr_url(KEY)}", "returned": state.stamp(T0 + timedelta(minutes=2))}
     monkeypatch.setattr(state, "now", lambda: T0 + timedelta(minutes=2))
     watch.run_pass(watching, T0 + timedelta(minutes=2))
     refused = [text for _, text in woken if f"PR {KEY}: NOT READY: " in text]
     assert (checkers, len(refused), "watch.py stops the watch" in refused[0]) == ([KEY], 1, True)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["brief_flags"] = {"ruling": ["fd06b56"]}
     watching.checking.add(KEY)
     watch.run_pass(watching, T0 + timedelta(minutes=3))
@@ -5865,7 +5925,7 @@ def test_a_check_names_every_pr_its_job_and_the_job_it_was_handed_from_carry_wit
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     merged, closed = "yasyf/cc-skills#4484", "yasyf/cc-skills#4490"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["prs"] += [state.pr_url(merged), state.pr_url(closed), state.pr_url(OTHER)]
         data["jobs"]["j2"] = job(prs=[state.pr_url(KEY)])
         data["prs"][KEY] |= {"job": "j2", "wants_tap": True, "checked": None}
@@ -5888,7 +5948,7 @@ def test_a_check_whose_judge_failed_is_said_nowhere_and_tried_again_on_the_next_
 ) -> None:
     serve(monkeypatch, {})
     monkeypatch.setattr(state, "now", lambda: T0)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"].update(state="waiting", said=f"READY {state.pr_url(KEY)}")
         data["prs"][KEY] |= {"wants_tap": True, "checked": None}
 
@@ -5908,7 +5968,7 @@ def test_a_ports_change_after_his_approve_lands_at_its_first_green_head_and_star
     demo: str, monkeypatch: pytest.MonkeyPatch, checkers: list[str], landers: list[tuple[str, ...]]
 ) -> None:
     state.keep_report(demo, "j1", f"READY {state.pr_url(KEY)}", f"READY {state.pr_url(KEY)}\nSERVES: port of #50974\n")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"].update(state="waiting", said=f"READY {state.pr_url(KEY)}")
         data["prs"][KEY] |= {"wants_tap": True, "checked": None, "port_of": 50974, "tap": {"label": "Approve", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "slack", "picks": {}, "card": None}}
     serve(monkeypatch, {KEY: read(headRefOid="bbbbbbb222", checks=GREEN, reviewDecision="APPROVED")})
@@ -5922,7 +5982,7 @@ def test_a_pr_waiting_on_his_tap_draws_his_card_from_the_watch_on_its_first_read
     from drive import tools
 
     waiting_job(demo)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["wants_tap"] = True
     serve(monkeypatch, {KEY: read(checks=GREEN, reviewDecision="APPROVED")})
     sent: list[tuple[str, list[dict]]] = []
@@ -5940,7 +6000,7 @@ def test_a_pr_held_on_a_teammates_review_draws_his_card_only_once_their_newest_r
     demo: str, monkeypatch: pytest.MonkeyPatch, draws: Draws, woken: list[tuple[str, str]]
 ) -> None:
     waiting_job(demo)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY] |= {"wants_tap": True, "waits": ["review:Octocat"]}
     reads = {KEY: read(checks=GREEN, reviewDecision="APPROVED", reviews={"octocat": {"login": "octocat", "head": "0ld0000", "state": "APPROVED"}})}
     serve(monkeypatch, reads)
@@ -5960,7 +6020,7 @@ STACKED = (KEY, OTHER, THIRD)
 
 def three_stacked(demo: str, monkeypatch: pytest.MonkeyPatch, native: bool = True) -> dict[str, dict]:
     waiting_job(demo)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o2"] = order(text="split the stack", jobs=["j2"])
         data["jobs"]["j2"] = job(order="o2", prs=[state.pr_url(OTHER), state.pr_url(THIRD)], state="waiting")
         data["prs"][KEY]["wants_tap"] = True
@@ -5983,13 +6043,13 @@ def test_the_prs_of_one_native_stack_waiting_on_his_tap_draw_one_card_and_one_re
     demo: str, monkeypatch: pytest.MonkeyPatch, draws: Draws
 ) -> None:
     three_stacked(demo, monkeypatch)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         state.rework(data["prs"][THIRD], "o2", "Split the stack by its native GitHub stack", "https://acme.slack.com/archives/D123/p1794300000000600")
     watching = watcher(demo)
     watch.run_pass(watching, T0)
     watch.run_pass(watching, T0 + timedelta(minutes=10))
     assert draws.keys == [[KEY, OTHER]]
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][THIRD]["rework"] = None
     watch.run_pass(watching, T0 + timedelta(minutes=20))
     watch.run_pass(watching, T0 + timedelta(minutes=30))
@@ -6001,7 +6061,7 @@ def test_replayed_56774_his_words_reworking_the_middle_pr_of_a_three_pr_stack_dr
     demo: str, monkeypatch: pytest.MonkeyPatch, draws: Draws, native: bool
 ) -> None:
     three_stacked(demo, monkeypatch, native)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         state.rework(data["prs"][OTHER], "o2", "Refuse past 256 MiB", "https://acme.slack.com/archives/D123/p1794300000000600")
     watching = watcher(demo)
     lines = [*watch.run_pass(watching, T0), *watch.run_pass(watching, T0 + timedelta(minutes=10)), *watch.run_pass(watching, T0 + timedelta(minutes=40))]
@@ -6048,7 +6108,7 @@ def test_a_held_stack_waiting_on_the_cutover_he_has_not_scheduled_draws_no_card_
     demo: str, monkeypatch: pytest.MonkeyPatch, draws: Draws
 ) -> None:
     reads = three_stacked(demo, monkeypatch)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o3"] = order(text="cut over to the new tree", title="The cutover", state="waiting", jobs=[])
         for job_id in ("j1", "j2"):
             data["jobs"][job_id]["waits"] = ["o3"]
@@ -6060,7 +6120,7 @@ def test_a_held_stack_waiting_on_the_cutover_he_has_not_scheduled_draws_no_card_
         watch.run_pass(watching, T0 + timedelta(minutes=minutes))
     data = state.load(demo)
     assert (draws.keys, [data["prs"][key]["stage"]["name"] for key in STACKED]) == ([], ["unscheduled"] * 3)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o3"]["state"] = "open"
     watch.run_pass(watching, T0 + timedelta(minutes=130))
     assert draws.keys == [list(STACKED)]
@@ -6080,7 +6140,7 @@ def test_a_restack_moving_a_head_under_his_card_draws_no_other_card(demo: str, m
 
 def test_a_live_bugs_stack_waiting_on_his_card_is_drawn_once_and_never_asked_again(demo: str, monkeypatch: pytest.MonkeyPatch, draws: Draws) -> None:
     three_stacked(demo, monkeypatch)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         for order_id in ("o1", "o2"):
             data["orders"][order_id]["reporters"] = [state.reporter(REPORTED)]
     watching = watcher(demo)
@@ -6098,7 +6158,7 @@ def test_the_one_post_in_each_place_saying_what_waits_on_him_goes_up_once_a_card
     monkeypatch.setattr(talk, "posted", lambda name, post: posts.append(post) or {"permalink": post.get("edit") or f"https://acme.slack.com/archives/{post.get('channel_id', 'D123')}/p1794400200000100"})
     pins: list[str] = []
     monkeypatch.setattr(slack, "pin", pins.append)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["slack"]["channels"] = {"Iris": {"id": "C777", "name": "him-drive-demo-iris"}, "SandSQL": {"id": "C888", "name": "him-drive-demo-sandsql"}}
         data["orders"]["o2"] = order(project="Iris", jobs=["j2"])
         data["orders"]["o3"] = order(jobs=["j3"], reporters=[state.reporter(REPORTED)])
@@ -6144,7 +6204,7 @@ def test_his_question_cards_asked_over_a_day_ago_go_out_once_a_day_in_one_digest
 
 def test_a_waiting_post_kept_unpinned_is_pinned_on_the_next_pass_with_no_new_post_and_a_refused_pin_goes_again(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     dm_post = "https://acme.slack.com/archives/D123/p1794400200000100"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["slack"]["waiting"]["D123"] = {"message": dm_post, "words": talk.NO_CARDS}
     posts: list[dict] = []
     monkeypatch.setattr(talk, "posted", lambda name, post: posts.append(post) or {"permalink": dm_post})
@@ -6170,7 +6230,7 @@ def test_a_waiting_post_kept_unpinned_is_pinned_on_the_next_pass_with_no_new_pos
 
 def test_a_pr_on_another_open_prs_branch_draws_one_card_with_it_before_either_is_checked(demo: str, monkeypatch: pytest.MonkeyPatch, draws: Draws) -> None:
     waiting_job(demo)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o2"] = order(text="a cloud agent signs in as its own principal", jobs=["j2"])
         data["jobs"]["j2"] = job(order="o2", prs=[state.pr_url(OTHER)], state="waiting")
         data["prs"][KEY] |= {"wants_tap": True, "checked": None}
@@ -6188,7 +6248,7 @@ def test_a_pr_on_another_open_prs_branch_draws_one_card_with_it_before_either_is
 
 def test_sibling_prs_of_one_order_in_no_stack_draw_one_card_and_a_pr_of_another_order_its_own(demo: str, monkeypatch: pytest.MonkeyPatch, draws: Draws) -> None:
     waiting_job(demo)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o2"] = order(text="a cloud agent signs in as its own principal", jobs=["j2"])
         data["jobs"]["j1"]["prs"].append(state.pr_url(OTHER))
         data["jobs"]["j2"] = job(order="o2", prs=[state.pr_url(THIRD)], state="waiting")
@@ -6205,7 +6265,7 @@ def test_a_pr_reworked_to_his_words_loses_the_card_left_up_wakes_its_builder_and
     demo: str, monkeypatch: pytest.MonkeyPatch, withdrawals: Withdrawals, draws: Draws, woken: list[tuple[str, str]]
 ) -> None:
     waiting_job(demo)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["wants_tap"] = True
         state.rework(data["prs"][KEY], "o2", "Topology goes in the meta table", "https://acme.slack.com/archives/D123/p1794300000000600")
     shown = [pr_card(KEY)]
@@ -6219,7 +6279,7 @@ def test_a_pr_reworked_to_his_words_loses_the_card_left_up_wakes_its_builder_and
     assert (withdrawals.asked, pr["stage"]["name"], [key for key, _ in woken], draws.keys) == ([(state.pr_url(KEY), reason)], "rework", [KEY], [])
     watch.run_pass(watcher(demo), T0 + timedelta(minutes=5))
     assert (len(withdrawals.asked), len(woken), draws.keys) == (1, 1, [])
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         state.take_result(data, "j1", f"READY {state.pr_url(KEY)}", f"READY {state.pr_url(KEY)}\nCHANGE: it reads the meta table")
     watch.run_pass(watcher(demo), T0 + timedelta(minutes=10))
     assert (state.load(demo)["prs"][KEY]["rework"], draws.keys) == (None, [[KEY]])
@@ -6229,7 +6289,7 @@ def test_a_pr_waiting_on_an_order_he_has_not_scheduled_loses_the_card_left_up_wa
     demo: str, monkeypatch: pytest.MonkeyPatch, withdrawals: Withdrawals, draws: Draws, woken: list[tuple[str, str]]
 ) -> None:
     waiting_job(demo)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o2"] = order(text="cut over to the new tree", title="The cutover", state="waiting", jobs=[])
         data["prs"][KEY] |= {"wants_tap": True, "waits": ["o2"]}
     shown = [pr_card(KEY)]
@@ -6245,7 +6305,7 @@ def test_a_pr_waiting_on_an_order_he_has_not_scheduled_loses_the_card_left_up_wa
     assert not [line for line in said if line.startswith("STAGE ")]
     watch.run_pass(watcher(demo), T0 + timedelta(hours=2))
     assert (len(withdrawals.asked), woken, draws.keys) == (1, [], [])
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o2"]["state"] = "open"
     watch.run_pass(watcher(demo), T0 + timedelta(hours=2, minutes=1))
     assert draws.keys == [[KEY]]
@@ -6264,7 +6324,7 @@ def test_an_exempt_pr_whose_landers_try_ended_unlanded_wakes_the_session_holding
 ) -> None:
     waiting_job(demo)
     tried = {"head": "aaaaaaa111", "pid": 1, "at": state.stamp(T0), "outcome": "not landed: stack-enqueue --watch exited 1: checks failed", "below": []}
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY] |= {"wants_tap": wants_tap, "exempt": "incident fix", "lander": tried}
     serve(monkeypatch, {KEY: read(checks=GREEN, reviewDecision="APPROVED")})
     watching = watcher(demo)
@@ -6288,7 +6348,7 @@ def test_replayed_design_docs_363_a_lander_try_that_merged_the_pr_reads_merged_o
     behind = f"not landed: gh pr merge --rebase --match-head-commit {old} refused it: X Pull request {docs} is not mergeable: the head branch is not up to date with the base branch."
     merged = "merged at 967f1e30740f; it changes no plugin installed on this Mac"
     waiting_job(demo)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["prs"].append(state.pr_url(docs))
         data["prs"][docs] = state.new_pr(state.pr_url(docs), "j1", "o1") | {
             "head": old,
@@ -6325,7 +6385,7 @@ def test_a_merge_github_reads_open_after_gh_pr_merge_said_it_merged_is_not_lande
 ) -> None:
     docs, credited = "Forge-AI/design-docs#5", "merged at 6813a504aa12; long-running@skills 1.0.4 installed"
     tap = state.new_tap("Approve", "ddddddd444", "pressed the button", at=state.stamp(T0))
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][docs] = state.new_pr(state.pr_url(docs), "j1", "o1") | {"head": "ddddddd444", "base": "main", "default": "main", "tap": tap, "conflict": True}
         data["prs"][docs]["lander"] = {"head": "ddddddd444", "base": "main", "pid": 1, "at": state.stamp(T0), "outcome": credited, "below": []}
     before = stage.of(state.load(demo), docs, NO_CARDS)
@@ -6343,7 +6403,7 @@ def test_a_merge_github_reads_open_after_gh_pr_merge_said_it_merged_is_not_lande
 
 def test_a_lander_outside_forge_ai_monorepo_lands_one_pr_and_credits_no_other_with_its_merge(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     docs, other = "Forge-AI/design-docs#5", "Forge-AI/design-docs#6"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         for key in (docs, other):
             data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {"head": "ddddddd444", "tap": state.new_tap("Approve", "ddddddd444", "pressed the button", at=state.stamp(T0))}
     monkeypatch.setattr(land.subprocess, "run", lambda argv, **kwargs: pytest.fail(f"ran {argv}"))
@@ -6363,7 +6423,7 @@ def test_a_try_its_files_put_outside_its_exempt_class_stops_standing_once_his_ca
     demo: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]], exempt: str, path: str, refused: str, remedy: list[str]
 ) -> None:
     waiting_job(demo)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY] |= {"exempt": exempt, "wants_tap": False, "checks": "pass", "review": "approved"}
     diff = f"diff --git a/{path} b/{path}\n--- a/{path}\n+++ b/{path}\n@@ -1 +1 @@\n-a\n+b\n"
     monkeypatch.setattr(land.served, "change", lambda key: {"title": "Fix: pin the release image digest", "body": "", "head": "aaaaaaa111", "diff": diff.encode()})
@@ -6377,7 +6437,7 @@ def test_a_try_its_files_put_outside_its_exempt_class_stops_standing_once_his_ca
     for moment in (T0, T0 + timedelta(minutes=30)):
         assert not [line for line in watch.run_pass(watching, moment) if line.startswith("STAGE")]
         assert (now := stage.of(state.load(demo), KEY, watching.cards)).name == "card" and now.owner == stage.HIM
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         pr = data["prs"][KEY]
         pr["tap"] = state.new_tap("Approve", pr["head"], "pressed the button", at=state.stamp(state.parse_time(pr["lander"]["at"]) + timedelta(minutes=1)))
     assert stage.of(state.load(demo), KEY, NO_CARDS).name == "ready"
@@ -6398,7 +6458,7 @@ def test_a_ci_only_pr_changing_go_ci_the_infra_ci_pipeline_definitions_and_the_t
         "tools/ci",
         "tools/ci-ts",
     ]
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["exempt"] = "ci-only"
     diff = "".join(f"diff --git a/{path} b/{path}\n--- a/{path}\n+++ b/{path}\n@@ -1 +1 @@\n-a\n+b\n" for path in paths)
     monkeypatch.setattr(land.served, "change", lambda key: {"title": "Fix: build CI images from one contract", "body": "", "head": "aaaaaaa111", "diff": diff.encode()})
@@ -6410,11 +6470,11 @@ def test_a_pr_waiting_on_another_prs_merge_is_freed_when_it_merges_while_that_pr
     other = "Forge-AI/monorepo#43"
     assert cli.main(["pr", "set", KEY, "--waits", other, "--drive", demo]) == 2
     assert f"--waits {other}: the drive tracks no PR {other}; drive pr add {state.pr_url(other)} --job <j> tracks it first" in capsys.readouterr().err
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j2"] = job(goal="fix the shm lock and prove it live")
         data["prs"][other] = state.new_pr(state.pr_url(other), "j2", "o1")
     assert cli.main(["pr", "set", KEY, "--waits", other, "--drive", demo]) == 0
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["exempt"] = "incident fix"
     waiting_job(demo)
     reads = {KEY: read(checks=GREEN, reviewDecision="APPROVED"), other: read()}
@@ -6447,7 +6507,7 @@ def test_a_pr_that_wants_no_tap_is_never_said_to_have_no_card_and_only_its_moves
 
 
 def hold(name: str) -> None:
-    with state.edit(name) as data:
+    with edit(name) as data:
         data["prs"][KEY] |= {"wants_tap": True, "tap": {"label": "Hold", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "pressed the button"}}
 
 
@@ -6455,7 +6515,7 @@ def hold(name: str) -> None:
 def test_a_watch_pass_reads_github_twenty_five_open_prs_a_call_however_many_it_watches(
     demo: str, monkeypatch: pytest.MonkeyPatch, count: int, queries: list[int]
 ) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         for number in range(1, count):
             key = f"Forge-AI/monorepo#{1000 + number}"
             data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {"head": f"head{number}"}
@@ -6487,7 +6547,7 @@ def test_a_red_pr_his_hold_or_the_hold_label_holds_reads_red_and_wakes_its_build
     demo: str, monkeypatch: pytest.MonkeyPatch, woken: list[tuple[str, str]], landers: list[tuple[str, ...]], tap: dict | None, labels: list[str], field: str, says: str
 ) -> None:
     waiting_job(demo)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY] |= {"wants_tap": True, "tap": tap}
     serve(monkeypatch, {KEY: read(checks=RED, labels=labels)})
     monkeypatch.setattr(watch.view, "cards", lambda drive: NO_CARDS | {"pr_cards": [pr_card(KEY)]})
@@ -6508,7 +6568,7 @@ def test_a_red_pr_his_card_holds_wakes_its_builder_at_once_and_every_thirty_minu
     asking(monkeypatch, demo, HOLDING_CARD, taps=[pr_card(KEY)])
     holding_job(demo, HOLDING_CARD)
     holding_asks(demo, "pause and resume, which #42 carries")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["wants_tap"] = True
     serve(monkeypatch, {KEY: read(checks=RED)})
     watching = watcher(demo)
@@ -6532,7 +6592,7 @@ def test_replayed_55175_a_red_pr_whose_builder_waits_on_a_fix_that_waits_on_his_
     red_pr, fix, fix_card = "Forge-AI/monorepo#55175", "Forge-AI/monorepo#55582", "https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794549855666519"
     titles = {red_pr: "New: the change dev left red", fix: "Fix: the flaky test dev broke"}
     heads = {red_pr: "75e6d42aaa", fix: "55582aaaaa"}
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"] |= {"o688": order(jobs=["j2661"]), "o689": order(jobs=["j2662"])}
         data["jobs"] |= {"j2661": job(order="o688", prs=[state.pr_url(red_pr)]), "j2662": job(order="o689", prs=[state.pr_url(fix)], state="waiting")}
         for key, job_id in ((red_pr, "j2661"), (fix, "j2662")):
@@ -6559,7 +6619,7 @@ def test_replayed_55175_a_red_pr_whose_builder_waits_on_a_fix_that_waits_on_his_
         woken.clear()
 
     at(0)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         state.take_result(data, "j2661", f"WAITING #55175 waits on {state.pr_url(fix)} to merge")
     at(16)
     fix_link = view.pr_link(state.load(demo)["prs"][fix])
@@ -6599,7 +6659,7 @@ def test_replayed_j1180_a_red_pr_whose_builder_waits_on_other_prs_and_releases_w
 ) -> None:
     own, other, shipped = ("Forge-AI/monorepo#54225", "Forge-AI/monorepo#54428"), "Forge-AI/monorepo#53810", "Forge-AI/monorepo#54237"
     release, failing = f"release:api:{shipped}", [{"name": "buildkite/test", "conclusion": "FAILURE"}]
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"] |= {"o448": order(jobs=["j1180"]), "o40": order(jobs=["j586"])}
         data["jobs"] |= {"j1180": job(order="o448", prs=[state.pr_url(key) for key in own]), "j586": job(order="o40", prs=[state.pr_url(other)])}
         for key, job_id, head in ((own[0], "j1180", "89c2464aaa"), (own[1], "j1180", "54428aaaaa"), (other, "j586", "53810aaaaa"), (shipped, "j1180", "54237aaaaa")):
@@ -6620,18 +6680,18 @@ def test_replayed_j1180_a_red_pr_whose_builder_waits_on_other_prs_and_releases_w
         woken.clear()
 
     at(0)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         state.take_result(data, "j1180", waiting)
     for minutes in (30, 60, 90):
         at(minutes)
     reads[own[0]] = read(headRefOid="ce6d321aaa", checks=failing)
     at(91)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         state.take_result(data, "j1180", waiting)
     for minutes in (92, 122, 152):
         at(minutes)
     kept = state.load(demo)["prs"][own[0]]["stage"]
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         end(reads, data, other, release)
     at(153)
     assert passes == [(0, list(own)), (30, []), (60, []), (90, []), (91, [own[0]]), (92, []), (122, []), (152, []), (153, list(own))]
@@ -6644,7 +6704,7 @@ def test_a_red_prs_builder_whose_waiting_names_only_its_own_prs_is_woken_every_t
     serve(monkeypatch, {KEY: read(checks=RED)})
     watching = watcher(demo)
     watch.run_pass(watching, T0)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         state.take_result(data, "j1", f"WAITING readers-first on {KEY}")
     watch.run_pass(watching, T0 + timedelta(minutes=30))
     assert (state.load(demo)["prs"][KEY]["stage"]["name"], len(woken)) == ("red", 2)
@@ -6656,7 +6716,7 @@ def test_replayed_55591_a_red_pr_waiting_on_the_open_pr_its_builder_named_as_the
     red_pr, fix = "Forge-AI/monorepo#55591", "Forge-AI/monorepo#55687"
     card_link, waits = "https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794600000000001", "demo:j6448-1794600000000"
     asked = state.new_question(None, "May the oncall fix land under your release hold?", state.stamp(T0), card=card_link, holds=state.pr_url(fix)) | {"waits": waits}
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o573"] = order(jobs=["j6428", "j6448"])
         data["jobs"] |= {"j6428": job(order="o573", prs=[state.pr_url(red_pr), state.pr_url(fix)]), "j6448": job(order="o573", state="waiting", said=asked["title"], questions=[asked])}
         for key, head in ((red_pr, "2806e35aaa"), (fix, "c6bad1caaa")):
@@ -6677,14 +6737,14 @@ def test_replayed_55591_a_red_pr_waiting_on_the_open_pr_its_builder_named_as_the
         woken.clear()
 
     at(0)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         state.take_result(data, "j6428", waiting)
     at(30)
     behind_why = state.load(demo)["prs"][red_pr]["stage"]["why"]
     for minutes in (60, 90, 120, 150):
         at(minutes)
     at(151, head="31a7e01aaa")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         state.take_result(data, "j6428", waiting)
     at(152, head="31a7e01aaa")
     reads[fix] = read(state="MERGED", mergeCommit="ddd555", headRefOid="c6bad1caaa", checks=GREEN, reviewDecision="APPROVED")
@@ -6709,7 +6769,7 @@ def test_replayed_55571_a_red_pr_whose_builder_waits_on_its_own_open_question_wa
     red_pr, card_link, waits = "Forge-AI/monorepo#55571", "https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794577515737969", "demo:j2268-1794577515737"
     url = state.pr_url(red_pr)
     asked = state.new_question(None, "What writes a workflow run that has no agent?", state.stamp(T0), card=card_link, holds=url) | {"waits": waits}
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["jobs"].append("j2268")
         data["jobs"]["j2268"] = job(prs=[url], state="waiting", said=asked["title"], questions=[asked])
         data["prs"][red_pr] = state.new_pr(url, "j2268", "o1") | {"head": "a2d5a98aaa", "wants_tap": True, "checked": CHECKED | {"head": "a2d5a98aaa"}}
@@ -6728,7 +6788,7 @@ def test_replayed_55571_a_red_pr_whose_builder_waits_on_its_own_open_question_wa
         woken.clear()
 
     at(0)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         state.take_result(data, "j2268", waiting)
     at(2)
     blocked_why = state.load(demo)["prs"][red_pr]["stage"]["why"]
@@ -6738,10 +6798,10 @@ def test_replayed_55571_a_red_pr_whose_builder_waits_on_its_own_open_question_wa
     at(42, headRefOid="f222db8aaa", mergeable="UNKNOWN")
     at(44, headRefOid="f222db8aaa")
     at(46, headRefOid="f222db8aaa", checks=RED)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         state.take_result(data, "j2268", waiting)
     at(48, headRefOid="f222db8aaa", checks=RED)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j2268"]["questions"][-1]["closed"] = state.new_close("answered", "option 1", None, seq="9")
     at(50, headRefOid="f222db8aaa", checks=RED)
     assert blocked_why == f"it conflicts with its base dev, and its builder waits on his answer on [his question card]({card_link})"
@@ -6766,7 +6826,7 @@ def test_replayed_56316_a_pr_reworked_to_his_words_whose_builder_waits_on_its_op
     reworked, card_link, waits = "Forge-AI/monorepo#56316", "https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794675864869599", "demo:j4783-1794675861699"
     url = state.pr_url(reworked)
     asked = state.new_question("/drive/asks/j4783-pool.md", "How does the staging test get a pool only a platform admin can create?", state.stamp(T0), card=card_link) | {"waits": waits}
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["jobs"].append("j4783")
         data["jobs"]["j4783"] = job(prs=[url], said=asked["title"], questions=[asked])
         data["prs"][reworked] = state.new_pr(url, "j4783", "o1") | {"head": "aaaaaaa111", "wants_tap": True, "checked": CHECKED}
@@ -6784,7 +6844,7 @@ def test_replayed_56316_a_pr_reworked_to_his_words_whose_builder_waits_on_its_op
         woken.clear()
 
     def report() -> None:
-        with state.edit(demo) as data:
+        with edit(demo) as data:
             state.take_result(data, "j4783", line)
 
     at(0)
@@ -6793,12 +6853,12 @@ def test_replayed_56316_a_pr_reworked_to_his_words_whose_builder_waits_on_its_op
     blocked_why = state.load(demo)["prs"][reworked]["stage"]["why"]
     at(32)
     at(62)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         state.rework(data["prs"][reworked], "o2", "Run the staging test from its pipeline", "https://acme.slack.com/archives/D123/p1794300000000600")
     at(64)
     report()
     at(66)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j4783"]["questions"][-1]["closed"] = state.new_close("answered", "option 1", None, seq="9")
     at(68)
     at(70)
@@ -6816,7 +6876,7 @@ def test_replayed_56316_a_pr_reworked_to_his_words_whose_builder_waits_on_its_op
 
 
 def test_j4802_an_approved_pr_waiting_on_a_job_whose_open_question_no_wait_names_reads_blocked_on_his_answer_on_that_card(demo: str) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o2"] = order(jobs=["j2"])
         data["jobs"]["j2"] = job(order="o2", state="waiting", waits=[OTHER], questions=[state.new_question(None, "Which store?", state.stamp(T0), card=CARD) | {"waits": "demo:j2-1"}])
         data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j2", "o2")
@@ -6837,7 +6897,7 @@ def test_a_waiting_line_saying_another_jobs_pr_waits_on_his_card_binds_that_card
     demo: str, subject: str, holds: str, owner: str, named: str
 ) -> None:
     waits = "demo:j2-1794700000000"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o2"] = order(jobs=["j2"])
         data["jobs"]["j2"] = job(order="o2", state="waiting", prs=[state.pr_url(OTHER)], questions=[state.new_question(None, "Which store?", state.stamp(T0), card=CARD, holds=holds) | {"waits": waits}])
         data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j2", "o2") | {"head": "bbbbbbb222"}
@@ -6851,7 +6911,7 @@ def test_a_waiting_line_saying_another_jobs_pr_waits_on_his_card_binds_that_card
 
 def test_a_said_line_set_by_hand_that_drops_his_card_moves_the_jobs_red_pr_off_him_at_once(demo: str) -> None:
     waits = "demo:j2-1794700000000"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o2"] = order(jobs=["j2"])
         data["jobs"]["j2"] = job(order="o2", state="waiting", prs=[state.pr_url(OTHER)], questions=[state.new_question(None, "Which store?", state.stamp(T0), card=CARD, holds="") | {"waits": waits}])
         data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j2", "o2") | {"head": "bbbbbbb222"}
@@ -6865,7 +6925,7 @@ def test_a_said_line_set_by_hand_that_drops_his_card_moves_the_jobs_red_pr_off_h
 
 def test_his_pr_card_is_redrawn_whole_once_when_its_stage_owner_moves_off_him(demo: str, redraws: Redraws) -> None:
     waits = "demo:j2-1794700000000"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o2"] = order(jobs=["j2"])
         data["jobs"]["j2"] = job(order="o2", state="waiting", prs=[state.pr_url(OTHER)], questions=[state.new_question(None, "Which store?", state.stamp(T0), card=CARD, holds="") | {"waits": waits}])
         data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j2", "o2") | {"head": "bbbbbbb222"}
@@ -6882,7 +6942,7 @@ def test_his_pr_card_is_redrawn_whole_once_when_its_stage_owner_moves_off_him(de
 
 def test_a_pr_waits_only_on_its_own_staging_test_never_on_one_another_pr_of_its_job_waits_on_as_56813_did(demo: str) -> None:
     part = state.STAGING_TEST.format(number=42)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["parts"][part] = state.new_part()
         data["orders"]["o1"]["jobs"].append("j2")
         data["jobs"]["j2"] = job(goal="run it twice on staging", parts=[part], builds_nothing=True)
@@ -6896,7 +6956,7 @@ def test_a_pr_waits_only_on_its_own_staging_test_never_on_one_another_pr_of_its_
 @pytest.mark.parametrize("freed", [{"state": "merged"}, {"state": "closed"}, {"waits": [YASYF]}], ids=["it merged", "it closed", "it waits on the yasyf PR"])
 def test_a_reported_yasyf_pr_waits_on_each_open_forge_ai_pr_of_its_job_and_lands_once_that_pr_merges_closes_or_waits_on_it_as_5530_shipped_hours_before_56740(demo: str, freed: dict) -> None:
     cards = NO_CARDS | {"pr_cards": [pr_card(KEY)]}
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY] |= {"wants_tap": True, "checks": "pass"}
         data["prs"][YASYF] = state.new_pr(state.pr_url(YASYF), "j1", "o1") | {"head": "aaaaaaa111", "base": "main", "checks": "pass", "wants_tap": False, "checked": CHECKED}
         data["jobs"]["j1"]["prs"].append(state.pr_url(YASYF))
@@ -6904,7 +6964,7 @@ def test_a_reported_yasyf_pr_waits_on_each_open_forge_ai_pr_of_its_job_and_lands
     data = state.load(demo)
     held = stage.Stage("blocked", stage.HIM, f"it waits on {view.pr_link(data['prs'][KEY])}, which waits on his Approve on {view.link('his card', CARD)}")
     assert (stage.of(data, YASYF, cards), land.units(data, [YASYF], cards)) == (held, [])
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY] |= freed
     data = state.load(demo)
     ready = stage.Stage("ready", stage.LANDER, "its builder reported it and every check at aaaaaaa finished, so the lander merges it with --admin unless one fails on its own change")
@@ -6922,7 +6982,7 @@ def test_a_reported_yasyf_pr_waits_on_each_open_forge_ai_pr_of_its_job_and_lands
 def test_replayed_56550_an_approved_pr_waiting_only_on_its_staging_tester_reads_waiting_on_that_run_never_blocked_on_his_approve_of_the_tester_s_other_pr(
     demo: str, waits: list[str], said: str, owner: str
 ) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o2"] = order(jobs=["j4542"])
         data["jobs"]["j4542"] = job(order="o2", state="waiting", goal="soak #42 and #43 on staging", builds_nothing=True, waits=waits, said=said)
         data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"head": "aaaaaaa111", "checks": "pass", "review": "approved", "waits": ["j4542"]}
@@ -6937,7 +6997,7 @@ def test_replayed_56550_an_approved_pr_waiting_only_on_its_staging_tester_reads_
 def test_replayed_720960_a_pr_waiting_on_its_staging_test_is_owed_by_that_tester_never_by_where_the_testers_own_stale_wait_leads(demo: str, looped: bool) -> None:
     tested, shared, stale = "Forge-AI/monorepo#53471", ["Forge-AI/monorepo#56326", "Forge-AI/monorepo#56329"], "Forge-AI/monorepo#53304"
     part = {key: state.STAGING_TEST.format(number=key.split("#")[1]) for key in [tested, stale, *shared]}
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1513"] = order(jobs=["j4830", "j4831", "j4832"], parts={part[tested]: state.new_part(), **({part[stale]: state.new_part()} if looped else {})})
         data["orders"]["o143"] = order(jobs=["j4486", "j4487", *(["j6720"] if looped else [])], parts={part[key]: state.new_part() for key in shared})
         if looped:
@@ -6966,7 +7026,7 @@ def test_replayed_720960_a_pr_waiting_on_its_staging_test_is_owed_by_that_tester
 @pytest.mark.parametrize("older", [False, True], ids=["replaced now", "replaced under an older install"])
 def test_replayed_722384_a_pr_waiting_on_its_staging_test_is_owed_by_the_live_tester_that_replaced_a_failed_one_never_the_stopped_one(demo: str, older: bool) -> None:
     part = state.STAGING_TEST.format(number=KEY.split("#")[1])
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o2"] = order(jobs=["j5559", "j6760"], parts={part: state.new_part()})
         data["jobs"]["j5559"] = job(order="o2", goal="test #42 on staging", parts=[part], state="stopped" if older else "failed", said="replaced by j6760" if older else "BLOCKED the soak never served")
         data["jobs"]["j6760"] = job(order="o2", goal="test #42 on staging again", parts=[part])
@@ -6976,7 +7036,7 @@ def test_replayed_722384_a_pr_waiting_on_its_staging_test_is_owed_by_the_live_te
         if older:
             del data["stopped_handed_off"]
     if not older:
-        with state.edit(demo) as data:
+        with edit(demo) as data:
             state.end_replaced(data, ["o2"], state.stamp(T0))
     approve(demo, KEY)
     data = state.load(demo)
@@ -6995,7 +7055,7 @@ def test_replayed_56278_an_approved_pr_whose_waits_end_at_his_open_cards_reads_b
         "demo:j4413-1794644613322": "https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794644613322001",
     }
     tried = {"head": "aaaaaaa111", "pid": 1, "at": state.stamp(T0 + timedelta(minutes=3)), "outcome": "not landed: Forge-AI/monorepo#56232 sits below it with neither his Approve nor an exempt class", "below": ["Forge-AI/monorepo#56232"]}
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o2"] = order(jobs=["j4413"])
         data["jobs"]["j1"]["prs"].append(state.pr_url(pr))
         data["jobs"]["j4413"] = job(order="o2", state="waiting", waits=[pr, release, *(links if named else [])], questions=[state.new_question(None, f"Pick {waits}?", state.stamp(T0), card=link) | {"waits": waits} for waits, link in links.items()])
@@ -7019,7 +7079,7 @@ def test_replayed_56278_an_approved_pr_whose_waits_end_at_his_open_cards_reads_b
     assert card.picks(state.load(demo), kept, view.live_cards(demo)) == {}
     found = view.live_cards(demo)
     assert stall.chain(state.load(demo), found, False, pr, set()) is None
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j4413"]["state"] = "running"
         assert stage.of(data, pr, found) == stage.Stage("waiting", "j4413", "it waits on j4413, and the watch frees it once each ends")
         data["jobs"]["j4413"]["state"] = "waiting"
@@ -7048,7 +7108,7 @@ def test_replayed_56278_an_unlanded_pr_whose_own_job_waits_on_his_open_cards_rea
         "demo:j4413-1794651715431": "https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794651717356579",
     }
     tried = {"head": "aaaaaaa111", "pid": 1, "at": state.stamp(T0 + timedelta(minutes=3)), "outcome": "not landed: Forge-AI/monorepo#56232 sits below it with neither his Approve nor an exempt class", "below": ["Forge-AI/monorepo#56232"]}
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o2"] = order(jobs=["j4413"])
         data["jobs"]["j4413"] = job(
             order="o2",
@@ -7076,7 +7136,7 @@ def test_replayed_56278_an_unlanded_pr_whose_own_job_waits_on_his_open_cards_rea
     assert pr not in state.load(demo)["stalls"]
     assert state.load(demo)["prs"][pr]["stage"]["why"] == "its builder j4413 waits on " + ", ".join(f"his answer on {view.link('his question card', link)}" for link in links.values())
     assert stall.chain(state.load(demo), view.live_cards(demo), False, pr, set()) is None
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         for asked in data["jobs"]["j4413"]["questions"]:
             asked["closed"] = state.new_close("answered", "Yes", None, seq="9")
     at(96)
@@ -7096,7 +7156,7 @@ def test_replayed_56278_an_unlanded_pr_whose_own_job_waits_on_his_open_cards_rea
 
 def test_a_test_a_yasyf_merges_own_run_broke_on_main_wakes_its_builder_until_main_passes_it(demo: str, monkeypatch: pytest.MonkeyPatch, woken: list[tuple[str, str]]) -> None:
     merged, run, test = "yasyf/cc-skills#5", "https://github.com/yasyf/cc-skills/actions/runs/9", "plugins/long-running/tests/test_watch.py::test_a"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o3"] = order(jobs=["j3"])
         data["jobs"]["j3"] = job(order="o3", prs=[state.pr_url(merged)], state="done")
         data["prs"][merged] = state.new_pr(state.pr_url(merged), "j3", "o3") | {"state": "merged", "head": "bbbbbbb222", "merged_sha": "ccc333ddd444", "checks": "fail"}
@@ -7176,7 +7236,7 @@ def test_a_test_main_fails_has_one_fixer_the_first_job_to_claim_it_and_every_oth
     repo, run, test, at = "yasyf/cc-skills", "https://github.com/yasyf/cc-skills/actions/runs/9", "plugins/long-running/tests/test_watch.py::test_replayed_5076_a", state.stamp(T0)
     fix, rival, merged = "yasyf/cc-skills#5715", "yasyf/cc-skills#5716", "yasyf/cc-skills#5684"
     failing = {test: {"run": run, "workflow": 1}}
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o3"] = order(jobs=["j3", "j4", "j5"])
         for job_id in ("j3", "j4", "j5"):
             data["jobs"][job_id] = job(order="o3", state="done")
@@ -7202,7 +7262,7 @@ def test_a_test_main_fails_has_one_fixer_the_first_job_to_claim_it_and_every_oth
     assert woken == []
     assert state.load(demo)["prs"][merged]["graded"] is True
     assert state.load(demo)["mains"][repo][test]["owner"] == fix
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j3"]["state"] = "stopped"
         assert state.claim_mains(data, repo, "j4", failing, rival, at) == ""
     assert state.load(demo)["mains"][repo][test] == {"run": run, "workflow": 1, "since": at, "owner": rival, "job": "j4", "woke": at, "waking": None}
@@ -7319,7 +7379,7 @@ def test_a_standing_pass_ending_its_round_wakes_no_coordinator_since_the_watch_a
     demo: str, monkeypatch: pytest.MonkeyPatch, standing: bool, job_state: str, said: str, clause: str, kind: str | None
 ) -> None:
     sent = posts(monkeypatch)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         standing_order(data, ["j2"])
         if not standing:
             data["orders"]["o2"]["parts"]["codex test box"]["standing"] = None
@@ -7333,7 +7393,7 @@ def test_a_standing_pass_ending_its_round_wakes_no_coordinator_since_the_watch_a
 def test_a_prs_red_wakes_no_coordinator_since_its_stage_wakes_its_builder_and_its_merge_wakes_it_until_its_job_is_done(
     demo: str, monkeypatch: pytest.MonkeyPatch, job_state: str, merged_kind: str | None
 ) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["state"] = job_state
     sent = posts(monkeypatch)
     merged = f"PR {KEY}: merged [o1 j1]"
@@ -7347,7 +7407,7 @@ def test_a_prs_red_wakes_no_coordinator_since_its_stage_wakes_its_builder_and_it
 def test_a_monorepo_pr_going_green_and_approved_wakes_no_one_since_the_lander_queues_its_exempt_landing_and_the_watch_draws_his_card(
     demo: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]], draws: Draws, wants_tap: bool, exempt: str | None
 ) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY] |= {"wants_tap": wants_tap, "exempt": exempt, "review": "approved"}
         data["jobs"]["j1"]["state"] = "waiting"
     serve(monkeypatch, {KEY: read(checks=GREEN, reviewDecision="APPROVED")})
@@ -7362,13 +7422,13 @@ NO_CARDS = {"team_url": "", "questions": [], "closed": [], "pr_cards": []}
 
 
 def approve(name: str, *keys: str) -> None:
-    with state.edit(name) as data:
+    with edit(name) as data:
         for key in keys:
             data["prs"][key] |= {"wants_tap": True, "tap": state.new_tap("Approve", "aaaaaaa111", "pressed the button", at=state.stamp(T0), card=data["prs"][key].get("stack") or [key])}
 
 
 def stacked(name: str, native: list[str] | None = None, cards: list[list[str]] | None = None) -> None:
-    with state.edit(name) as data:
+    with edit(name) as data:
         data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"head": "bbbbbbb222", "base": "main", "checked": CHECKED | {"head": "bbbbbbb222"}}
         for card in cards or [[KEY, OTHER]]:
             for key in card:
@@ -7389,7 +7449,7 @@ def test_his_approve_starts_one_lander_once_its_pr_is_green_and_conflict_free_an
         watch.run_pass(watching, T0 + timedelta(minutes=minute))
         started.append(len(landers))
     assert started == [0, 0, 1, 1]
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["lander"]["outcome"] = "not landed: stack-enqueue --watch exited 1: checks failed"
     watch.run_pass(watching, T0 + timedelta(minutes=5))
     assert len(landers) == 1
@@ -7420,7 +7480,7 @@ def test_a_lander_queues_the_prs_his_card_drew_whole_with_those_below_them_never
     approve(demo, *approved)
     cards = NO_CARDS
     if card:
-        with state.edit(demo) as data:
+        with edit(demo) as data:
             data["jobs"]["j1"]["questions"] = [state.new_question(None, "Which store?", state.stamp(T0), holds="the store, on #42 and #43") | {"waits": card}]
         cards = NO_CARDS | {"questions": [question(card)]}
     assert land.start(demo, [KEY, OTHER], cards) == ([unit] if unit else [])
@@ -7460,7 +7520,7 @@ def test_an_open_question_holds_a_stack_from_landing_while_its_holds_line_names_
     stacked(demo)
     approve(demo, KEY, OTHER)
     waits = f"demo:{asker}-1-a"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["jobs"].extend(["j2", "j3", "j4", "j5"])
         data["orders"]["o1"]["parts"]["the dashboard"] = state.new_part()
         data["jobs"]["j2"] = job(kind="design", parts=["the dashboard"], carries={}, state="done")
@@ -7474,14 +7534,14 @@ def test_an_open_question_holds_a_stack_from_landing_while_its_holds_line_names_
     drive = state.load(demo)
     assert land.open_cards(drive, "j1", drive["prs"][KEY]) == ([waits] if held else [])
     assert land.start(demo, [KEY, OTHER], cards) == ([] if held else [(KEY, OTHER)])
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"][asker]["questions"][-1]["closed"] = state.new_close("answered", "Team", None, seq="9")
     assert land.start(demo, [KEY, OTHER], cards) == ([(KEY, OTHER)] if held else [])
 
 
 def test_a_question_kept_before_holds_lines_holds_its_own_jobs_unbuilt_work_and_none_of_its_prs_so_its_approved_pr_lands_while_his_card_is_open(demo: str, landers: list[tuple[str, ...]]) -> None:
     approve(demo, KEY)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY] |= {"checks": "pass", "review": "approved"}
         data["jobs"]["j1"] |= {"waits": [KEY], "questions": [{"file": None, "title": "Which OpenAI endpoint?", "asked": state.stamp(T0), "unsettled": None, "waits": "demo:j1-1-a", "card": None}]}
     cards = NO_CARDS | {"questions": [question("demo:j1-1-a")]}
@@ -7492,7 +7552,7 @@ def test_a_question_kept_before_holds_lines_holds_its_own_jobs_unbuilt_work_and_
 
 
 def test_a_built_line_waits_on_the_cards_holding_its_work_by_the_landers_rule_never_one_whose_holds_line_reads_none_or_a_reader_it_was_not_built_on(demo: str) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["jobs"].extend(["j2", "j3"])
         data["jobs"]["j2"] = job(kind="reader", parts=["ship the watch"], carries={}, state="done")
         data["jobs"]["j2"]["questions"] = [
@@ -7512,7 +7572,7 @@ def test_a_design_card_whose_holds_line_names_one_of_its_changes_holds_that_chan
     demo: str, landers: list[tuple[str, ...]]
 ) -> None:
     approve(demo, KEY)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY] |= {"checks": "pass", "review": "approved"}
         data["orders"]["o1"]["jobs"].extend(["j2", "j3"])
         data["orders"]["o1"]["parts"] |= {"the watch store": state.new_part() | {"design": "j2"}, "the watch page": state.new_part() | {"design": "j2"}}
@@ -7524,7 +7584,7 @@ def test_a_design_card_whose_holds_line_names_one_of_its_changes_holds_that_chan
     assert (state.design_builder(drive, "j2"), state.design_builders(drive, "j2")) == ("j3", ["j3", "j1"])
     assert (land.open_cards(drive, "j1", drive["prs"][KEY]), land.open_cards(drive, "j3", None)) == (["demo:j2-1-a"], [])
     assert land.start(demo, [KEY], NO_CARDS | {"questions": [question("demo:j2-1-a")]}) == []
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["prs"] = []
     assert land.open_cards(state.load(demo), "j1", None) == ["demo:j2-1-a"]
 
@@ -7534,7 +7594,7 @@ def test_a_builder_whose_built_line_names_its_own_card_leaves_its_approved_green
     demo: str, landers: list[tuple[str, ...]], holds: str | None, held: bool
 ) -> None:
     approve(demo, KEY)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY] |= {"checks": "pass", "review": "approved"}
         data["jobs"]["j1"]["questions"] = [state.new_question(None, "Should a long chat open on its turns since the last compaction?", state.stamp(T0), holds=holds) | {"waits": "demo:j1-1-a"}]
         state.take_result(data, "j1", "BUILT j1-windowed-open, waits on demo:j1-1-a")
@@ -7549,7 +7609,7 @@ def test_replayed_56082_a_builders_own_card_its_built_line_waits_on_holds_only_t
     demo: str, landers: list[tuple[str, ...]]
 ) -> None:
     approve(demo, KEY)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY] |= {"checks": "pass", "review": "approved", "branch": "j1-datadog-cannot-block"}
         data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"branch": "j1-datadog-cannot-block-remote-config"}
         data["jobs"]["j1"]["prs"].append(state.pr_url(OTHER))
@@ -7567,7 +7627,7 @@ def test_replayed_cc_slack_422_a_test_only_fix_of_a_job_whose_own_card_names_onl
     demo: str,
 ) -> None:
     fix = "yasyf/cc-slack#422"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][fix] = state.new_pr(state.pr_url(fix), "j1", "o1") | {"checks": "pass", "branch": "j4362-reply-test"}
         data["jobs"]["j1"]["prs"].append(state.pr_url(fix))
         data["jobs"]["j1"]["questions"] = [state.new_question(None, "Which reply path?", state.stamp(T0), holds="ship the watch") | {"waits": "demo:j1-1-a"}]
@@ -7597,7 +7657,7 @@ def test_replayed_5076_a_pr_whose_design_line_cites_an_open_card_another_orders_
     demo: str, landers: list[tuple[str, ...]], design: str, holds: str, answered: bool, held: bool
 ) -> None:
     url = state.pr_url(REPLAYED_5076)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["text"] = "Drive tooling: a release wait ends once every env runs the merge"
         data["orders"]["o2"] = order(text=RELEASE_WAIT_PART, jobs=["j2"])
         data["jobs"]["j2"] = job(order="o2", kind="reader", parts=[RELEASE_WAIT_PART], carries={}, state="done")
@@ -7619,7 +7679,7 @@ def test_replayed_56251_a_drive_tooling_card_a_design_line_cites_holds_only_a_dr
 ) -> None:
     part = "Drive tooling: every PR of a stack draws on one card"
     approve(demo, KEY)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["text"] = text
         data["orders"]["o2"] = order(text=part, jobs=["j2"])
         data["jobs"]["j2"] = job(order="o2", kind="reader", parts=[part], carries={}, state="done")
@@ -7633,14 +7693,14 @@ def test_replayed_56251_a_drive_tooling_card_a_design_line_cites_holds_only_a_dr
 
 def test_a_flake_fix_goes_up_and_lands_while_his_card_holds_its_jobs_design_work(demo: str, landers: list[tuple[str, ...]]) -> None:
     approve(demo, KEY)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY] |= {"checks": "pass", "review": "approved", "exempt": state.FLAKE_FIX}
         data["jobs"]["j1"]["questions"] = [state.new_question(None, "Which store?", state.stamp(T0), holds="ship the watch, on #42") | {"waits": "demo:j1-1-a"}]
     cards = NO_CARDS | {"questions": [question("demo:j1-1-a")]}
     drive = state.load(demo)
     assert (land.open_cards(drive, "j1", drive["prs"][KEY]), land.open_cards(drive, "j1", drive["prs"][KEY] | {"exempt": None})) == ([], ["demo:j1-1-a"])
     assert land.start(demo, [KEY], cards) == [(KEY,)]
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["prs"] = []
     unshipped = state.load(demo)
     assert land.open_cards(unshipped, "j1", None) == ["demo:j1-1-a"]
@@ -7653,7 +7713,7 @@ def test_a_drive_saved_before_research_links_keeps_each_jobs_researched_readers_
     unheld.write_text("ASK Which store?\nFindings:\nRoot cause: none: a pick\n")
     none.write_text("ASK Which limiter?\nFindings:\nHolds: none: no option alters what j1 builds\n")
     named.write_text("ASK Which queue?\nFindings:\nHolds: ship the watch\n")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"] |= {"brief": str(brief), "researched": []}
         data["jobs"]["j1"]["questions"] = [state.new_question(str(file), title, state.stamp(T0), holds=holds) for file, title, holds in ((unheld, "Which store?", ""), (none, "Which limiter?", ""), (named, "Which queue?", "ship the watch"))]
         data.pop("research_linked")
@@ -7663,7 +7723,7 @@ def test_a_drive_saved_before_research_links_keeps_each_jobs_researched_readers_
 
 def test_an_order_an_older_install_kept_with_no_kind_loads_as_a_build_whose_parts_only_research_held_are_answers_and_whose_builder_keeps_its_readers_research(demo: str) -> None:
     state.keep_report(demo, "j2", state.opening(RESEARCH), RESEARCH)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o2"] = order(text="why does the watch stall, then fix it", jobs=["j2", "j3", "j4"], parts={part: state.new_part() for part in ("why", "fix", "proof")})
         data["jobs"]["j2"] = job(order="o2", kind="reader", goal="research: the stall", parts=["why", "fix"], state="done")
         data["jobs"]["j3"] = job(order="o2", goal="fix the stall", parts=["fix"], state="waiting")
@@ -7685,7 +7745,7 @@ HELD_WHY = f"his cards {HOLDING_CARD} on its work are open"
 
 
 def holding_job(name: str, *waits: str) -> None:
-    with state.edit(name) as data:
+    with edit(name) as data:
         data["prs"][KEY] |= {"checks": "pass", "review": "approved", "checked": CHECKED | {"orders": ["o1", "o2"]}}
         data["orders"]["o2"] = order(text=BUSY_WAIT, jobs=["j2"], parts={BUSY_WAIT: state.new_part()})
         data["jobs"]["j2"] = job(order="o2", goal="change #42", parts=[BUSY_WAIT], carries={}, prs=[], waits=list(waits))
@@ -7693,12 +7753,12 @@ def holding_job(name: str, *waits: str) -> None:
 
 
 def holding_asks(name: str, holds: str | None) -> None:
-    with state.edit(name) as data:
+    with edit(name) as data:
         data["jobs"]["j2"]["questions"].append(state.new_question(None, "Do pause and resume stay in #42?", state.stamp(T0), holds=holds) | {"waits": HOLDING_CARD})
 
 
 def holding_answered(name: str) -> None:
-    with state.edit(name) as data:
+    with edit(name) as data:
         data["jobs"]["j2"]["questions"][-1]["closed"] = state.new_close("answered", "Keep them", None, seq="9")
 
 
@@ -7735,18 +7795,18 @@ def test_a_card_naming_a_pr_on_the_job_it_moved_off_holds_it_no_more_and_no_card
     approve(demo, KEY)
     holding_job(demo)
     card = "demo:j1-5-a"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["questions"].append(state.new_question(None, "Does #42 land before #43?", state.stamp(T0), holds="#42") | {"waits": card})
     asking(monkeypatch, demo, card)
     cards = view.live_cards(demo)
     moved = state.load(demo)
     assert (state.pr_jobs(moved, moved["prs"][KEY]), land.pr_cards(moved, moved["prs"][KEY])) == (["j2", "j1"], [])
     assert land.start(demo, [KEY], cards) == [(KEY,)]
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         state.take_pr(data, "j1", KEY)
     back = state.load(demo)
     assert land.pr_cards(back, back["prs"][KEY]) == [card]
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["exempt"] = state.MAIN_FIX
     fixed = state.load(demo)
     assert land.pr_cards(fixed, fixed["prs"][KEY]) == []
@@ -7760,7 +7820,7 @@ def test_the_watch_stops_a_lander_when_a_card_opens_on_the_work_of_a_job_holding
     holding_job(demo)
     asking(monkeypatch, demo)
     lander = subprocess.Popen(["sleep", "600"], start_new_session=True)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         land.mark(data, (KEY,))
         data["prs"][KEY]["lander"] |= {"child": state.born(lander.pid), "state": "adopted"}
     watching = watcher(demo)
@@ -7794,7 +7854,7 @@ def test_a_lander_the_watch_stops_dequeues_each_pr_it_queued_and_removes_its_wor
 
 
 def queued(name: str) -> None:
-    with state.edit(name) as data:
+    with edit(name) as data:
         data["prs"][KEY] |= {"checks": "pass", "review": "approved", "lander": {"head": "aaaaaaa111", "pid": 1, "at": state.stamp(T0), "outcome": land.QUEUED, "below": []}}
 
 
@@ -7805,7 +7865,7 @@ def test_his_hold_on_a_pr_trunk_queued_after_its_lander_ended_reads_held_and_the
     watching.cards = NO_CARDS
     watch.landed(watching, T0)
     assert (stage.alone(state.load(demo), KEY, NO_CARDS).name, landers) == ("landing", [])
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["tap"] = state.new_tap("Hold", "aaaaaaa111", "slack")
     assert stage.alone(state.load(demo), KEY, NO_CARDS).name == "held"
     watch.landed(watching, T0)
@@ -7818,7 +7878,7 @@ def test_a_staging_test_started_on_a_pr_trunk_queued_after_its_lander_ended_read
     approve(demo, KEY)
     queued(demo)
     part = state.STAGING_TEST.format(number=42)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o2"] = state.new_order("test #42 on staging", "terminal", None, {part: state.new_part()}, state.stamp()) | {"jobs": ["j2"]}
         data["jobs"]["j2"] = state.new_job("o2", "builder", "soak #42 on staging", [part], state.stamp()) | {"builds_nothing": True}
     watching = watcher(demo)
@@ -7840,18 +7900,18 @@ def test_a_dangerous_pr_trunk_queued_before_he_went_quiet_leaves_the_queue_while
     monkeypatch.setattr(land, "unqueue", lambda name, keys, why: whys.append(why) or os.getpid())
     watching = watcher(demo)
     watching.cards = NO_CARDS
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["owner"]["heard"] = state.stamp(state.now() - timedelta(minutes=5))
     watch.landed(watching, T0)
     assert whys == []
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["owner"]["heard"] = state.stamp(state.now() - timedelta(minutes=20))
     watch.landed(watching, T0)
     watch.landed(watching, T0)
     assert len(whys) == 1 and whys[0].startswith(f"{land.AWAY}: he last wrote or tapped 20 minutes ago, and it changes go/sand/sandsql/write.go")
     land.dequeue(demo, [KEY], whys[0])
     assert stage.of(state.load(demo), KEY, NO_CARDS) == stage.Stage("waiting", stage.HIM, f"green and cleared, and its lander's try at aaaaaaa ended {whys[0]}; stack-enqueue --dequeue said #42 DEQUEUED aaaaaaa")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["owner"]["heard"] = state.stamp(state.now())
     assert land.start(demo, [KEY], NO_CARDS) == [(KEY,)]
 
@@ -7909,12 +7969,12 @@ def test_a_pr_above_waiting_on_an_open_pr_holds_the_bottom_of_its_own_card_and_n
 ) -> None:
     stacked(demo, cards=cards)
     approve(demo, KEY, OTHER)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][THIRD] = state.new_pr(state.pr_url(THIRD), "j1", "o1")
         data["jobs"]["j1"]["waits"] = [KEY, OTHER, THIRD]
         data["prs"][OTHER]["waits"] = [THIRD]
     assert land.start(demo, [KEY, OTHER], NO_CARDS) == first
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][THIRD]["state"] = "merged"
         if first:
             data["prs"][KEY]["state"] = "merged"
@@ -7929,7 +7989,7 @@ def test_a_red_pr_above_holds_the_green_approved_bottom_of_its_own_card_and_neve
 ) -> None:
     stacked(demo, cards=cards)
     approve(demo, KEY, OTHER)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][OTHER]["checks"] = "fail"
     now = stage.of(state.load(demo), KEY, NO_CARDS)
     assert (now.name, now.why.startswith(why)) == (name, True)
@@ -7956,7 +8016,7 @@ def test_his_approve_in_words_of_the_bottom_of_a_card_lands_it_while_a_red_pr_ab
     stacked(demo)
     approve(demo, OTHER)
     assert run("pr", "set", state.pr_url(KEY), "--tapped", "Approve", "--tap-source", "https://acme.slack.com/archives/D123/p1794783600000100")[0] == 0
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][OTHER]["checks"] = "fail"
     data = state.load(demo)
     assert (data["prs"][KEY]["tap"]["card"], stage.of(data, KEY, NO_CARDS).name) == ([KEY], "ready")
@@ -7974,7 +8034,7 @@ def test_his_approve_of_49869_and_53227_lands_them_while_55258_stacked_later_on_
         renewal: ("on-bottom-1", "bottom", bottom, [bottom, renewal]),
         reparent: ("on-bottom-2", "bottom", bottom, [reparent]),
     }
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         for key, (branch, base, under, card) in shape.items():
             data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {
                 "head": "aaaaaaa111",
@@ -7993,14 +8053,14 @@ def test_his_approve_of_49869_and_53227_lands_them_while_55258_stacked_later_on_
     assert data["prs"][reparent]["tap"] is None
     assert [stage.of(data, key, cards).name for key in shape] == ["ready", "ready", "grading"]
     assert land.units(data, list(shape), cards) == [(bottom, renewal)]
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][reparent]["checks"] = "pass"
         data["prs"][renewal]["checks"] = "fail"
     approve(demo, reparent)
     behind = stage.of(state.load(demo), reparent, cards)
     assert (behind.name, behind.why.startswith(f"{renewal} on his card with {bottom}, red: ")) == ("behind", True)
     assert land.start(demo, list(shape), cards) == []
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][renewal]["checks"] = "pass"
     assert land.start(demo, list(shape), cards) == [(bottom, renewal, reparent)]
     assert landers == [(bottom, renewal, reparent)]
@@ -8008,7 +8068,7 @@ def test_his_approve_of_49869_and_53227_lands_them_while_55258_stacked_later_on_
 
 def test_a_tap_stage_adopt_copied_onto_an_open_pr_is_dropped_and_one_he_gave_is_kept(demo: str) -> None:
     approve(demo, KEY)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"tap": data["prs"][KEY]["tap"] | {"via": KEY}}
     data = state.load(demo)
     assert (data["prs"][KEY]["tap"]["label"], data["prs"][OTHER]["tap"]) == ("Approve", None)
@@ -8034,7 +8094,7 @@ def test_his_approve_on_a_branch_of_a_stack_tree_beside_an_unapproved_one_queues
 ) -> None:
     fourth, fifth = "Forge-AI/monorepo#45", "Forge-AI/monorepo#46"
     shape = {KEY: ("root", "main", None), OTHER: ("middle", "root", KEY), THIRD: ("top", "middle", OTHER), fourth: ("left", "root", KEY), fifth: ("right", "root", KEY)}
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         for key, (branch, base, under) in shape.items():
             data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {"head": "aaaaaaa111", "branch": branch, "base": base, "under": under, "checks": "pass", "review": "approved"}
     approve(demo, KEY, THIRD, fourth, fifth)
@@ -8046,7 +8106,7 @@ def test_his_approve_on_a_branch_of_a_stack_tree_beside_an_unapproved_one_queues
     assert stage.of(state.load(demo), fourth, NO_CARDS).name == "ready"
     assert land.run(demo, [fourth], dry_run=True).startswith(f"would queue {fourth} through stack-enqueue --watch from main at {head[:12]}")
     assert land.start(demo, list(shape), NO_CARDS) == [(KEY, fourth)]
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
         data["prs"][fourth]["lander"]["outcome"] = land.QUEUED
     assert land.start(demo, list(shape), NO_CARDS) == [(fifth,)]
@@ -8057,7 +8117,7 @@ def test_a_native_stack_on_another_tracked_prs_branch_joins_its_landing_stack_an
     named_paths: None,
     demo: str, landers: list[tuple[str, ...]]
 ) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         for key, head in ((OTHER, "bbbbbbb222"), (THIRD, "ccccccc333")):
             data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {"head": head, "checked": CHECKED | {"head": head}}
         for key, native, branch, base, under in ((KEY, [KEY], "chat-organize", "main", None), (OTHER, [OTHER, THIRD], "chat-pins", "chat-organize", KEY), (THIRD, [OTHER, THIRD], "chat-pins-2", "chat-pins", OTHER)):
@@ -8110,7 +8170,7 @@ def on_main(tmp_path: Path, name: str, script: str) -> str:
     head = commit_files(origin, "stack-enqueue", {str(ENQUEUE): script})
     if not clone.exists():
         git_in(tmp_path, "clone", "-q", str(origin), str(clone))
-        with state.edit(name) as data:
+        with edit(name) as data:
             data["roles"]["coordinator"]["cwd"] = str(clone)
     return head
 
@@ -8124,7 +8184,7 @@ def test_a_lander_lands_no_approved_pr_whose_paths_at_its_head_reach_a_component
     demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     approve(demo, KEY)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY] |= {"checks": "pass", "review": "approved"}
     enqueue_exiting(tmp_path, demo, 0)
     asked = []
@@ -8145,7 +8205,7 @@ def test_a_lander_holds_an_approved_pr_reaching_only_platy_on_his_exception_with
     demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     approve(demo, KEY)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY] |= {"checks": "pass", "review": "approved"}
         data["orders"]["o1"]["parts"]["the watch"] = state.new_part()
     enqueue_exiting(tmp_path, demo, 0)
@@ -8155,13 +8215,13 @@ def test_a_lander_holds_an_approved_pr_reaching_only_platy_on_his_exception_with
     data = state.load(demo)
     assert (data["prs"][KEY]["exception"], state.part_testers(data, "o1", part), part in data["orders"]["o1"]["parts"]) == ({"components": ["platy"], "granted": None}, [], False)
     assert view.staging(data, KEY) == "Not on staging: staging has no copy of platy, so it lands on your exception once you read the production dry run's plan of each"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["exception"]["granted"] = f"{CARD}9"
     assert land.run(demo, [KEY]) == land.QUEUED
 
 
 def dropped_by_answer(demo: str, part: str) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["answers"]["a1"] = {"words": "merge it, then test it", "link": f"{CARD}9", "at": state.stamp(T0), "said": state.stamp(T0), "cards": {}, "jobs": {}}
         superseded.drop(data, "a1", "o1", part)
 
@@ -8171,7 +8231,7 @@ def test_drive_order_set_refuses_to_drop_an_open_prs_staging_test_and_only_his_a
     demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     approve(demo, KEY)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY] |= {"checks": "pass", "review": "approved"}
         data["orders"]["o1"]["parts"]["the watch"] = state.new_part()
     enqueue_exiting(tmp_path, demo, 0)
@@ -8184,7 +8244,7 @@ def test_drive_order_set_refuses_to_drop_an_open_prs_staging_test_and_only_his_a
     assert land.run(demo, [KEY]) == f"{land.WAITED}: its staging test o1:{part} has not passed"
     dropped_by_answer(demo, part)
     assert land.run(demo, [KEY]) == land.QUEUED
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["head"] = "ccccccc333"
         state.staging_testers(data, "j1", "PUSHED https://github.com/Forge-AI/monorepo/pull/42\nSTAGING: none: it changes only the docs\n")
     assert land.run(demo, [KEY]) == land.QUEUED
@@ -8195,18 +8255,18 @@ def test_drive_order_set_refuses_to_drop_an_open_prs_staging_test_and_only_his_a
 
 def test_a_builders_staging_line_naming_cases_puts_its_pr_on_its_staging_test_and_wait_in_the_same_save_even_after_his_answer_freed_it_as_56896_needed(home_repo: None, demo: str) -> None:
     part = state.STAGING_TEST.format(number=42)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["parts"][part] = state.new_part()
         data["prs"][KEY]["waits"] = [f"o1:{part}"]
     dropped_by_answer(demo, part)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         [tester] = state.staging_testers(data, "j1", "PUSHED https://github.com/Forge-AI/monorepo/pull/42\nSTAGING: #42 replay the writer log on a replica and read through it\n")
     data = state.load(demo)
     assert (data["prs"][KEY]["waits"], data["prs"][KEY]["unstaged"], data["jobs"][tester]["parts"], data["jobs"][tester]["goal"]) == ([f"o1:{part}"], None, [part], "replay the writer log on a replica and read through it")
 
 
 def test_a_load_puts_back_on_its_staging_test_each_open_pr_an_older_drop_part_let_merge_first_and_leaves_his_answers_lift(home_repo: None, demo: str) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY] |= {"paths_at": "abc", "unstaged": {"why": "drive order set --drop-part took its staging test off its order", "head": "abc", "merges_first": True}}
         data["prs"]["Forge-AI/monorepo#43"] = data["prs"][KEY] | {"unstaged": {"why": "his answer took its staging test off its order", "head": "abc", "merges_first": True}}
         data["untested_restaged"] = False
@@ -8274,14 +8334,14 @@ def test_a_landing_checks_out_from_this_macs_clone_with_no_blob_filter_so_a_blob
 ) -> None:
     waiting_job(demo)
     approve(demo, KEY)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY] |= {"checks": "pass", "review": "approved"}
     enqueue_exiting(tmp_path, demo, 0)
     origin, blobless, away = tmp_path / "origin", tmp_path / "blobless", tmp_path / "away"
     git_in(origin, "config", "uploadpack.allowFilter", "true")
     git_in(origin, "config", "uploadpack.allowAnySHA1InWant", "true")
     git_in(tmp_path, "clone", "-q", "--filter=blob:none", f"file://{origin}", str(blobless))
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["roles"]["coordinator"]["cwd"] = str(blobless)
     admin = "rust/crates/sandsql-server/src/admin.rs"
     head = commit_files(origin, "admin", {admin: "fn admin() {}\n" * 18186})
@@ -8317,7 +8377,7 @@ def test_a_landing_whose_stack_enqueue_failed_on_its_own_is_said_once_to_the_met
 ) -> None:
     waiting_job(demo)
     approve(demo, KEY)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY] |= {"checks": "pass", "review": "approved"}
     on_main(tmp_path, demo, f"#!/bin/sh\n[ \"$1\" = {mode} ] || exit 0\necho \"stack-enqueue failed: [Errno 2] No such file or directory: 'ccx'\" >&2\nexit 5\n")
     watching = watcher(demo)
@@ -8347,7 +8407,7 @@ def test_replayed_56720_a_landing_whose_stack_enqueue_exited_before_it_printed_a
 ) -> None:
     waiting_job(demo)
     approve(demo, KEY)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY] |= {"checks": "pass", "review": "approved"}
     untrusted = "mise ERROR Config files in ~/.local/state/long-running/demo/landing/$$/mise.toml are not trusted."
     on_main(tmp_path, demo, f'#!/bin/sh\n[ "$1" = {mode} ] || exit 0\necho "{untrusted}" >&2\nexit 1\n')
@@ -8372,7 +8432,7 @@ def test_replayed_55635_a_landing_whose_diff_read_timed_out_reads_ready_naming_t
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]
 ) -> None:
     waiting_job(demo)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY] |= {"exempt": "pure port", "wants_tap": False, "checks": "pass", "review": "approved"}
     enqueue_exiting(tmp_path, demo, 0)
     timeout = f'could not read {KEY}\'s diff from GitHub: gh: Get "https://api.github.com/repos/Forge-AI/monorepo/compare": net/http: TLS handshake timeout'
@@ -8430,7 +8490,7 @@ def test_an_approval_on_an_older_head_reads_approved_on_an_older_head_yet_his_ap
     demo: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]
 ) -> None:
     waiting_job(demo)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["wants_tap"] = True
     monkeypatch.setattr(watch.view, "cards", lambda drive: NO_CARDS)
     serve(monkeypatch, {KEY: read(headRefOid="bbbbbbb222", checks=GREEN, reviewDecision="APPROVED", approvals=["bbbbbbb222", "aaaaaaa111"])})
@@ -8503,7 +8563,7 @@ def test_an_install_that_lands_while_the_lander_checks_a_pr_ends_no_landing_and_
 def test_a_head_grading_an_hour_gets_one_review_ask_from_the_watch_which_records_it_so_its_next_deadline_wakes_its_builder(
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"].update(state="waiting", said=f"PUSHED {state.pr_url(KEY)}")
     serve(monkeypatch, {KEY: read(checks=[*RUNNING, {**REQUIRED, "state": "SUCCESS"}])})
     calls = gh_recording(tmp_path, monkeypatch)
@@ -8556,7 +8616,7 @@ def test_a_lander_queues_nothing_while_a_pr_below_it_in_its_native_stack_lacks_h
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]
 ) -> None:
     stacked(demo)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         for key in (KEY, OTHER):
             data["prs"][key]["stack"] = [key]
     approve(demo, OTHER)
@@ -8571,13 +8631,13 @@ def test_a_lander_queues_nothing_while_a_pr_below_it_in_its_native_stack_lacks_h
     assert land.run(demo, [OTHER]) == held
     assert state.load(demo)["prs"][OTHER]["lander"]["below"] == ["Forge-AI/monorepo#41", KEY]
     assert land.start(demo, [OTHER], NO_CARDS) == []
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"]["Forge-AI/monorepo#41"] = state.new_pr(state.pr_url("Forge-AI/monorepo#41"), "j1", "o1") | {"state": "merged"}
     approve(demo, KEY)
     assert land.start(demo, [OTHER], NO_CARDS) == [(KEY, OTHER)]
     assert landers == [(KEY, OTHER)]
     monkeypatch.setattr(land.github, "below", lambda key: ["Forge-AI/monorepo#41"] if key == OTHER else [])
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"]["Forge-AI/monorepo#41"]["state"] = "open"
     assert land.run(demo, [KEY, OTHER], dry_run=True).startswith("not landed: Forge-AI/monorepo#41 sits below")
     monkeypatch.setattr(land.github, "below", lambda key: [KEY] if key == OTHER else [])
@@ -8591,7 +8651,7 @@ def test_his_approve_lands_a_green_pr_whatever_the_check_against_his_words_says(
     waiting_job(demo)
     approve(demo, KEY)
     enqueue_exiting(tmp_path, demo, 0)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         pr = data["prs"][KEY]
         pr |= {"checks": "pass", "review": "approved", "checked": None}
         if verdict == "objected":
@@ -8617,7 +8677,7 @@ def test_replayed_litestream_a_pure_port_of_a_pr_waiting_on_his_approve_reads_bl
     demo: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]], ends: str
 ) -> None:
     green = {"checks": "pass", "review": "approved", "checked": CHECKED}
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["prs"] += [state.pr_url(ORIGINAL), state.pr_url(ITS_PORT)]
         data["prs"][ORIGINAL] = state.new_pr(state.pr_url(ORIGINAL), "j1", "o1") | green | {"head": "aaaaaaa111", "title": "Fix: retry the WAL upload"}
         data["prs"][ITS_PORT] = state.new_pr(state.pr_url(ITS_PORT), "j1", "o1") | green | {"head": "bbbbbbb222", "title": "Port: retry the WAL upload", "port_of": 30, "exempt": "pure port", "wants_tap": False}
@@ -8633,7 +8693,7 @@ def test_replayed_litestream_a_pure_port_of_a_pr_waiting_on_his_approve_reads_bl
     if ends == "his Approve":
         approve(demo, ORIGINAL)
     else:
-        with state.edit(demo) as data:
+        with edit(demo) as data:
             data["prs"][ORIGINAL]["state"] = "merged"
     data = state.load(demo)
     assert (stage.of(data, ITS_PORT, cards), land.uncleared_below(data, [ABOVE_IT])) == (stage.Stage("ready", stage.LANDER, 'green, its exempt class "pure port" lands it'), [])
@@ -8646,7 +8706,7 @@ def test_a_lander_merges_a_pr_he_approved_in_another_repository_with_gh_pr_merge
 ) -> None:
     docs = "Forge-AI/design-docs#5"
     tap = {"label": "Approve", "at": state.stamp(T0), "head": "ddddddd444", "source": "pressed the button", "picks": {}, "card": None}
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][docs] = state.new_pr(state.pr_url(docs), "j1", "o1") | {"head": "ddddddd444", "tap": tap, "merge_method": "rebase"}
     runs: list[list[str]] = []
     monkeypatch.setattr(land.subprocess, "run", lambda argv, **kwargs: runs.append(argv) or land.subprocess.CompletedProcess(argv, 0, "", ""))
@@ -8662,7 +8722,7 @@ def test_an_exempt_monorepo_pr_is_queued_once_green_with_no_tap_unless_its_files
     home_repo: None,
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]
 ) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY] |= {"exempt": "test-only", "checks": "pass", "review": "approved"}
     assert land.start(demo, [KEY], NO_CARDS) == [(KEY,)]
     enqueue_exiting(tmp_path, demo, 0)
@@ -8680,7 +8740,7 @@ def test_an_exempt_monorepo_pr_is_queued_once_green_with_no_tap_unless_its_files
 def test_his_approve_wakes_no_coordinator_whatever_its_pr_reads_since_the_lander_lands_it_and_its_stage_wakes_whoever_owes_its_next_step(
     demo: str, monkeypatch: pytest.MonkeyPatch, checks: str, conflict: bool
 ) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY] |= {"checks": checks, "conflict": conflict}
     sent = posts(monkeypatch)
     line = f"TAP Approve {KEY} [o1 j1]"
@@ -8691,7 +8751,7 @@ def test_his_approve_wakes_no_coordinator_whatever_its_pr_reads_since_the_lander
 def test_a_pr_trunk_ejects_from_the_merge_queue_is_said_once_and_reads_unlanded_waking_the_session_holding_its_order(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     waiting_job(demo)
     approve(demo, KEY)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY] |= {"head": "aaaaaaa111", "lander": {"head": "aaaaaaa111", "pid": 1, "at": state.stamp(T0), "outcome": land.QUEUED, "below": []}}
     serve(monkeypatch, {KEY: read(labels=[github.EJECTED_LABEL], ejected_at=state.stamp(T0 + timedelta(minutes=1)))})
     watching = watcher(demo)
@@ -8726,7 +8786,7 @@ def test_a_trunk_failed_label_left_from_before_its_landers_try_at_a_pushed_head_
     waiting_job(demo)
     approve(demo, KEY)
     tried = "2026-11-12T21:08:30-08:00"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY] |= {"head": "566abed000", "lander": {"head": "566abed000", "pid": 1, "at": tried, "outcome": land.QUEUED, "below": [], "entry": KEY}}
     serve(monkeypatch, {KEY: read(headRefOid="566abed000", labels=["externally-merged", github.EJECTED_LABEL], ejected_at="2026-11-12T13:48:03Z")})
     assert watch.github_lines(watcher(demo), state.parse_time(tried) + timedelta(minutes=1)) == []
@@ -8739,7 +8799,7 @@ def test_replayed_monorepo_56508_a_pr_trunk_cancelled_after_its_landers_try_queu
 ) -> None:
     approve(demo, KEY)
     queued = state.stamp(T0)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j2"] = job()
         data["prs"][KEY] |= {"checks": "pass", "review": "approved", "waits": ["j2"], "lander": {"head": "aaaaaaa111", "pid": 1, "at": queued, "outcome": land.QUEUED, "below": [], "entry": KEY}}
     assert stage.of(state.load(demo), KEY, NO_CARDS).name == "waiting"
@@ -8748,7 +8808,7 @@ def test_replayed_monorepo_56508_a_pr_trunk_cancelled_after_its_landers_try_queu
     assert watch.github_lines(watcher(demo), T0 + timedelta(hours=2)) == [f"PR {KEY}: {land.DEQUEUED} [o1 j1]"]
     pr = state.load(demo)["prs"][KEY]
     assert (pr["lander"]["outcome"], land.landing(pr), stage.of(state.load(demo), KEY, NO_CARDS).name) == (land.DEQUEUED, False, "waiting")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j2"]["state"] = "done"
     assert stage.of(state.load(demo), KEY, NO_CARDS) == stage.Stage("unlanded", stage.ORDER, f"its lander's try at aaaaaaa, started {queued}, ended {land.DEQUEUED}")
     assert watch.github_lines(watcher(demo), T0 + timedelta(hours=3)) == []
@@ -8761,7 +8821,7 @@ def test_a_pr_its_landers_try_left_queued_for_merge_reads_red_and_wakes_its_buil
     approve(demo, KEY)
     monkeypatch.setattr(watch.view, "cards", lambda drive: NO_CARDS)
     queued = state.stamp(T0)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY] |= {"checks": "pass", "review": "approved", "lander": {"head": "aaaaaaa111", "pid": 1, "at": queued, "outcome": land.QUEUED, "below": [], "entry": KEY}}
     assert stage.of(state.load(demo), KEY, NO_CARDS) == stage.Stage("landing", stage.LANDER, f"queued for merge at aaaaaaa since {queued}")
     ejected_at = state.stamp(T0 + timedelta(minutes=5)) if labels else None
@@ -8779,7 +8839,7 @@ TRUNK_FAILED = {"context": "Trunk Merge Queue (dev)", "state": "FAILURE"}
 
 
 def ejected_on_a_flake(name: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    with state.edit(name) as data:
+    with edit(name) as data:
         data["jobs"]["j1"]["prs"] += [state.pr_url(EJECTED), state.pr_url(FLAKE_FIX)]
         data["prs"][EJECTED] = state.new_pr(state.pr_url(EJECTED), "j1", "o1") | {
             "head": "bb28d680bf",
@@ -8799,7 +8859,7 @@ def ejected_on_a_flake(name: str, monkeypatch: pytest.MonkeyPatch) -> None:
 def test_a_forge_ai_pr_he_approved_changing_sandsql_waits_for_his_next_word_while_he_is_away_and_one_changing_only_its_tests_lands(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     files = {EJECTED: ["go/sand/internal/sandsql/write.go", "go/sand/internal/sandsql/write_test.go"], FLAKE_FIX: ["go/sand/internal/sandsql/write_test.go"]}
     monkeypatch.setattr(github, "files", files.__getitem__)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["owner"]["heard"] = state.stamp(T0)
         data["jobs"]["j1"]["prs"] += [state.pr_url(EJECTED), state.pr_url(FLAKE_FIX)]
         data["prs"][EJECTED] = state.new_pr(state.pr_url(EJECTED), "j1", "o1") | {"head": "bb28d680bf", "checks": "pass", "review": "approved", "tap": state.new_tap("Approve", "bb28d680bf", "pressed the button", at=state.stamp(T0))}
@@ -8813,11 +8873,11 @@ def test_a_forge_ai_pr_he_approved_changing_sandsql_waits_for_his_next_word_whil
     assert land.unattended(state.load(demo), FLAKE_FIX, away) is None
     assert land.unattended(state.load(demo), EJECTED, T0 + timedelta(minutes=10)) is None
     monkeypatch.setattr(state, "now", lambda: away)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][EJECTED]["lander"] = {"head": "bb28d680bf", "base": data["prs"][EJECTED]["base"], "pid": 1, "at": state.stamp(away), "outcome": f"{land.AWAY}: {refused}", "below": [], "entry": EJECTED}
     assert stage.of(state.load(demo), EJECTED, NO_CARDS) == stage.Stage("waiting", stage.HIM, f"green and cleared, and its lander's try at bb28d68 ended {land.AWAY}: {refused}")
     assert stage.of(state.load(demo), FLAKE_FIX, NO_CARDS).name == "ready"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["owner"]["heard"] = state.stamp(away)
     assert stage.of(state.load(demo), EJECTED, NO_CARDS).name == "ready"
 
@@ -8836,7 +8896,7 @@ def test_replayed_717646_an_approved_dangerous_pr_whose_last_wait_ended_on_a_del
 ) -> None:
     monkeypatch.setattr(github, "files", {KEY: ["go/sand/internal/sandsql/write.go"]}.__getitem__)
     enqueue_exiting(tmp_path, demo, 0)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["owner"]["heard"] = state.stamp(T0)
         data["orders"]["o1"]["parts"][part] = state.new_part() | {"posted": posted, "posted_by": "j5420"}
         data["orders"]["o1"]["jobs"].append("j5420")
@@ -8850,7 +8910,7 @@ def test_replayed_717646_an_approved_dangerous_pr_whose_last_wait_ended_on_a_del
     held = f"{land.AWAY}: {land.unattended(data, KEY, away)}"
     assert land.run(demo, [KEY]) == held
     assert stage.of(state.load(demo), KEY, NO_CARDS) == stage.Stage("waiting", stage.HIM, f"green and cleared, and its lander's try at aaaaaaa ended {held}")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["owner"]["heard"] = state.stamp(away)
     assert land.run(demo, [KEY]) == land.QUEUED
 
@@ -8858,7 +8918,7 @@ def test_replayed_717646_an_approved_dangerous_pr_whose_last_wait_ended_on_a_del
 def test_a_pr_he_approved_before_he_went_quiet_whose_builder_staged_it_waits_for_his_next_word_once_its_staging_test_passes_whatever_its_paths(home_repo: None, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(github, "files", {EJECTED: ["infra/rows/router/router.ts"]}.__getitem__)
     part = state.STAGING_TEST.format(number=55582)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["owner"]["heard"] = state.stamp(T0)
         data["orders"]["o1"]["parts"][part] = state.new_part()
         data["jobs"]["j1"]["prs"] += [state.pr_url(EJECTED)]
@@ -8869,7 +8929,7 @@ def test_a_pr_he_approved_before_he_went_quiet_whose_builder_staged_it_waits_for
         f" or lose their data, so it lands only while he is present, his word or tap within 15 minutes, at his next word, by his words {state.PRESENCE_WORDS}"
     )
     assert land.unattended(state.load(demo), EJECTED, T0 + timedelta(minutes=10)) is None
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         del data["orders"]["o1"]["parts"][part]
     assert land.unattended(state.load(demo), EJECTED, T0 + timedelta(minutes=20)) is None
 
@@ -8887,7 +8947,7 @@ def test_replayed_55582_a_pr_trunk_ejected_on_a_flaky_test_outside_its_diff_is_q
     waiting = f"Trunk ejected it from the merge queue at bb28d68 on its flaky test {FLAKY}; the lander requeues that commit once {FLAKE_FIX}, that test's fix, merges"
     assert stage.of(state.load(demo), EJECTED, NO_CARDS) == stage.Stage("waiting", "j1", waiting)
     assert land.start(demo, [EJECTED], NO_CARDS) == []
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][FLAKE_FIX]["state"] = "merged"
     assert stage.of(state.load(demo), EJECTED, NO_CARDS) == stage.Stage("ready", stage.LANDER, "green and approved by him at bb28d68")
     assert land.start(demo, [EJECTED], NO_CARDS) == [(EJECTED,)]
@@ -8912,7 +8972,7 @@ def test_replayed_55582_a_pr_trunk_ejected_on_a_flaky_test_outside_its_diff_is_q
 def test_a_pr_trunk_ejected_on_a_flaky_test_reads_unlanded_again_once_that_tests_fix_closes_unmerged(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     ejected_on_a_flake(demo, monkeypatch)
     assert cli.main(["pr", "set", EJECTED, "--flaky", FLAKY, FLAKE_FIX, "--drive", demo]) == 0
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][FLAKE_FIX]["state"] = "closed"
     closed = f"Trunk ejected it from the merge queue on its flaky test {FLAKY}, and {FLAKE_FIX}, that test's fix, closed unmerged"
     assert stage.of(state.load(demo), EJECTED, NO_CARDS) == stage.Stage("unlanded", stage.ORDER, closed)
@@ -8924,11 +8984,11 @@ def test_replayed_56971_a_pr_trunk_ejected_on_a_test_that_fails_only_as_the_date
 ) -> None:
     ejected_on_a_flake(demo, monkeypatch)
     midnight = "its two renders straddled midnight UTC, and each reads the date"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][EJECTED]["checks"] = "fail"
     assert cli.main(["pr", "set", EJECTED, "--flaky", FLAKY, midnight, "--drive", demo]) == 2
     assert f"--flaky {FLAKY} names its cause and no fix PR, which queues again only a green head Trunk ejected, and its own checks fail at bb28d68" in capsys.readouterr().err
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][EJECTED]["checks"] = "pass"
     assert cli.main(["pr", "set", EJECTED, "--flaky", FLAKY, midnight, "--drive", demo]) == 0
     assert stage.of(state.load(demo), EJECTED, NO_CARDS) == stage.Stage("ready", stage.LANDER, "green and approved by him at bb28d68")
@@ -8962,7 +9022,7 @@ WAITS_ON_ITS_FLAKE_FIX = stage.Stage(
 
 
 def red_on_a_flake(name: str, monkeypatch: pytest.MonkeyPatch, woken: list[tuple[str, str]]) -> dict[str, dict]:
-    with state.edit(name) as data:
+    with edit(name) as data:
         data["jobs"]["j1"]["prs"] += [state.pr_url(RED_AT_ITS_HEAD), state.pr_url(ITS_FLAKE_FIX)]
         for key, head in ((RED_AT_ITS_HEAD, "bc4822d7b4"), (ITS_FLAKE_FIX, "746b968c20")):
             data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {"head": head, "wants_tap": False, "checked": CHECKED | {"head": head}}
@@ -9022,7 +9082,7 @@ def trunk_failed(key: str, reason: str, at: str, failing: str = "") -> dict:
 
 def queued_stack(name: str, monkeypatch: pytest.MonkeyPatch, at: datetime = T0) -> None:
     waiting_job(name)
-    with state.edit(name) as data:
+    with edit(name) as data:
         for key, head in ((BOTTOM, "aaaaaaa111"), (TOP, "bbbbbbb222")):
             lander = {"head": head, "pid": 1, "at": state.stamp(at), "outcome": land.QUEUED, "was": None, "below": [], "entry": TOP}
             data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {
@@ -9053,7 +9113,7 @@ def test_replayed_53227_a_stack_github_refused_once_trunk_tested_it_green_reads_
     assert [(data["prs"][key]["checks"], data["prs"][key]["lander"]["outcome"], stage.of(data, key, NO_CARDS).name) for key in (BOTTOM, TOP)] == [("pass", REFUSED_BY_GITHUB, "ready")] * 2
     assert watch.event_lines(watching) == [f"PR {key}: {REFUSED_BY_GITHUB} [o1 j1]" for key in (BOTTOM, TOP)]
     assert land.start(demo, [BOTTOM, TOP], NO_CARDS) == [(BOTTOM,)]
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][BOTTOM] |= {"state": "merged", "lander": data["prs"][BOTTOM]["lander"] | {"outcome": land.QUEUED}}
     assert land.start(demo, [TOP], NO_CARDS) == [(TOP,)]
     assert landers == [(BOTTOM,), (TOP,)]
@@ -9064,7 +9124,7 @@ def test_a_second_refusal_of_a_pr_landed_alone_at_the_same_head_reads_unlanded_w
 ) -> None:
     alone = T0 + timedelta(hours=1)
     queued_stack(demo, monkeypatch, alone)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][BOTTOM] |= {"state": "merged", "lander": data["prs"][BOTTOM]["lander"] | {"entry": BOTTOM}}
         data["prs"][TOP]["lander"]["was"] = REFUSED_BY_GITHUB
     trunk_queue.extend([trunk_failed(TOP, "GITHUB_API_MERGE_PR_FAILED", "2026-11-09T16:20:00Z"), trunk_failed(TOP, "GITHUB_API_MERGE_PR_FAILED", "2026-11-09T15:20:00Z")])
@@ -9108,7 +9168,7 @@ def test_a_yasyf_lander_merges_with_admin_records_its_merge_commit_and_installs_
     monkeypatch.setattr(
         land.subprocess, "run", lambda argv, **kwargs: runs.append(argv) or land.subprocess.CompletedProcess(argv, 0, "long-running@skills 1.0.4 installed\n", "")
     )
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"][mark] = True if mark == "incident" else state.priority_seat("o1")
         data["prs"]["yasyf/cc-skills#7"] = state.new_pr("https://github.com/yasyf/cc-skills/pull/7", "j1", "o1")
     assert land.merged(demo, "yasyf/cc-skills#7", "squash", ["--admin"]) == "merged at ccc333ddd444; long-running@skills 1.0.4 installed"
@@ -9127,7 +9187,7 @@ def test_a_yasyf_merge_for_any_other_order_boards_the_install_train_and_installs
     monkeypatch.setattr(install, "touched", lambda repo, files: ["long-running@skills"])
     monkeypatch.setattr(land.subprocess, "run", lambda argv, **kwargs: runs.append(argv) or land.subprocess.CompletedProcess(argv, 0, "", ""))
     monkeypatch.setattr(state, "now", lambda: T0)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"]["yasyf/cc-skills#7"] = state.new_pr("https://github.com/yasyf/cc-skills/pull/7", "j1", "o1")
     assert land.merged(demo, "yasyf/cc-skills#7", "squash", ["--admin"]) == f"merged at ccc333ddd444; long-running@skills boarded the install train, which leaves by {T0.strftime('%-I:%M %p')}"
     assert runs == [["gh", "pr", "merge", "7", "-R", "yasyf/cc-skills", "--squash", "--admin"]]
@@ -9148,7 +9208,7 @@ def test_a_yasyf_merge_for_any_other_order_boards_the_install_train_and_installs
     ],
 )
 def test_a_merge_its_proof_proved_wakes_no_one_and_a_failed_proof_wakes_the_holder(demo: str, state_after: str, change: str, wakes: bool) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["state"] = state_after
         data["prs"][KEY]["state"] = "merged"
     assert watch.wakes(f"PR {KEY}: {change} [o1 j1]", state.load(demo), NO_CARDS) is wakes
@@ -9176,7 +9236,7 @@ REFUSED_BEFORE_ITS_MERGE = (
 def test_a_line_on_a_pr_no_longer_open_wakes_the_holder_only_when_it_says_how_the_pr_ended_never_for_a_move_made_while_it_was_open(
     demo: str, row: str, change: str, wakes: bool
 ) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["state"] = "done"
         data["prs"][MERGED_PR] = state.new_pr(state.pr_url(MERGED_PR), "j1", "o1") | {"state": row}
     assert watch.wakes(f"PR {MERGED_PR}: {change} [o1 j1]", state.load(demo), NO_CARDS) is wakes
@@ -9189,10 +9249,10 @@ def test_a_stage_line_asks_a_step_only_while_stage_of_still_names_its_stage_so_o
     line = f"STAGE {stage.line(YASYF, data['prs'][YASYF], stage.of(data, YASYF, NO_CARDS))} [o1 j1]"
     assert line.startswith(f"STAGE {YASYF} unlanded, owed by the session holding its order: its lander's try at aaaaaaa")
     assert watch.wakes(line, data, NO_CARDS)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][YASYF] |= {"head": "bbbbbbb222", "lander": {"head": "bbbbbbb222", "child": state.born(os.getpid()), "state": "adopted", "at": state.stamp(T0), "outcome": None}}
     assert not watch.wakes(line, state.load(demo), NO_CARDS)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][YASYF]["state"] = "merged"
     assert not watch.wakes(line, state.load(demo), NO_CARDS)
     assert watch.wakes("STAGE not landed: #7 waits on a review of head bbbbbbb [o1 j1]", state.load(demo), NO_CARDS)
@@ -9200,7 +9260,7 @@ def test_a_stage_line_asks_a_step_only_while_stage_of_still_names_its_stage_so_o
 
 def test_a_line_held_for_the_meta_session_is_judged_as_it_posts_so_a_pr_that_merged_meanwhile_hands_over_only_how_it_ended(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     tooling_order(demo, "done")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][MERGED_PR] = state.new_pr(state.pr_url(MERGED_PR), "j1", "o1") | {"state": "merged"}
     sent = posts(monkeypatch)
     watching = watcher(demo)
@@ -9216,7 +9276,7 @@ def test_a_ready_on_a_yasyf_pr_whose_builder_owes_its_fix_wakes_that_builder_and
 ) -> None:
     url = state.pr_url(key)
     tooling_order(demo, "waiting")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][key] = state.new_pr(url, "j1", "o1") | {"head": "aaaaaaa111", "wants_tap": False, "checked": CHECKED}
         data["jobs"]["j1"].update(said=f"PUSHED {url}", prs=[url])
     serve(monkeypatch, {key: read(required_checks=[], mergeable=mergeable)})
@@ -9227,7 +9287,7 @@ def test_a_ready_on_a_yasyf_pr_whose_builder_owes_its_fix_wakes_that_builder_and
 
 
 def merged_ready(name: str, key: str, repro: str | None) -> None:
-    with state.edit(name) as data:
+    with edit(name) as data:
         data["prs"][KEY]["state"] = "merged"
         data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {"state": "merged", "merged_sha": "ccc333ddd444eee"}
         data["jobs"]["j1"].update(state="waiting", said=f"READY {state.pr_url(key)}", prs=[state.pr_url(key)], repro=repro, updated=state.stamp(T0 - timedelta(hours=1)))
@@ -9262,7 +9322,7 @@ def test_a_merged_ready_job_keeping_a_proof_file_gets_one_proof_from_the_watch_a
 def test_a_merged_ready_job_waits_for_its_lander_before_its_proof_starts(demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str], tmp_path: Path) -> None:
     serve(monkeypatch, {})
     merged_ready(demo, YASYF, proof_file(tmp_path))
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][YASYF]["lander"] = {"head": "aaaaaaa111", "child": state.born(os.getpid()), "state": "adopted", "at": state.stamp(T0), "outcome": None}
     assert (watch.run_pass(watcher(demo), T0), provers) == ([], [])
 
@@ -9294,7 +9354,7 @@ def test_a_merged_ready_job_beside_a_product_merge_hands_it_and_the_parts_it_car
     live_reads(monkeypatch)
     monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {KEY: {"components": ["api"], "touched": ["api"], "dev": [], "releases": ["api"]}})
     merged_ready(demo, YASYF, proof_file(tmp_path))
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         parts = data["jobs"]["j1"]["parts"]
         data["prs"][KEY] |= {"merged_sha": "fff666aaa777bbb"}
         data["jobs"]["j1"].update(said=f"READY {state.pr_url(YASYF)} {state.pr_url(KEY)}", prs=[state.pr_url(YASYF), state.pr_url(KEY)])
@@ -9317,7 +9377,7 @@ def test_a_merged_ready_jobs_proof_counts_the_prs_its_line_names_so_a_closed_pr_
 ) -> None:
     serve(monkeypatch, {})
     merged_ready(demo, YASYF, proof_file(tmp_path))
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][SUPERSEDED] = state.new_pr(state.pr_url(SUPERSEDED), "j1", "o1") | {"state": "closed"}
         data["jobs"]["j1"].update(said=said, prs=[state.pr_url(YASYF), state.pr_url(SUPERSEDED)])
     lines = watch.run_pass(watcher(demo), T0)
@@ -9338,7 +9398,7 @@ def test_a_merged_ready_tooling_job_keeping_no_proof_file_takes_blocked_at_its_m
     )
     assert (state.load(demo)["jobs"]["j1"]["state"], state.load(demo)["jobs"]["j1"]["said"]) == ("failed", blocked)
     assert watch.run_pass(watching, T0 + timedelta(minutes=3)) == ['ORPHAN o1 "ship the watch": j1 failed']
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["repro"] = proof_file(tmp_path)
     assert [watch.run_pass(watching, T0 + timedelta(minutes=minutes)) for minutes in (31, 62)] == [[], []]
     assert provers == []
@@ -9382,7 +9442,7 @@ def test_a_merged_pr_starts_no_check_at_its_merged_head_whatever_its_last_check_
     serve(monkeypatch, {})
     monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {})
     merged_ready(demo, OTHER, proof_file(tmp_path))
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][OTHER]["checker"] = {"head": "", "pid": 999999999, "at": state.stamp(T0 - timedelta(hours=1)), "outcome": outcome, "orders": None, "answers": None, "against": ""}
     watching = watcher(demo)
     for moment in (T0, T0 + served.RETRY + timedelta(minutes=1)):
@@ -9400,10 +9460,10 @@ def test_a_done_at_its_merge_delivers_no_part_so_the_part_is_owed_until_the_buil
     watch.run_pass(watcher(demo), T0)
     data = state.load(demo)
     assert (data["jobs"]["j1"]["state"], data["jobs"]["j2"]["state"], state.delivered(data, "o1", "ship the watch")) == ("done", "waiting", False)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         state.take_result(data, "j2", f"DONE {state.pr_url(OTHER)} live on the api release")
     assert not state.delivered(state.load(demo), "o1", "ship the watch")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         state.deliver_proven(data, "j2", f"{state.pr_url(OTHER)} live: repro/j2.sh exits 0 on no plugin of this Mac")
     assert state.delivered(state.load(demo), "o1", "ship the watch")
 
@@ -9416,7 +9476,7 @@ def test_an_old_merge_never_proven_live_across_two_parts_gets_one_prover_waiting
     asked = []
     monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: asked.append(keys) or {KEY: {"components": ["api", "web"], "touched": ["api"], "dev": [], "releases": ["api"], "staged": ["api"]}})
     earlier, carried, merged = state.stamp(T0 - timedelta(days=2)), "ship the dashboard", f"{KEY} at ccc333ddd444"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY] |= {"state": "merged", "merged_sha": "ccc333ddd444eee"}
         data["orders"]["o2"] = order(text=carried, jobs=["j1"], parts={carried: state.new_part()}, updated=earlier)
         data["jobs"]["j1"].update(state="done", said=f"DONE {state.pr_url(KEY)} merged: {merged}", carries={"o2": [carried]}, updated=earlier)
@@ -9438,7 +9498,7 @@ def test_a_merged_product_job_over_several_prs_gets_one_prover_said_in_one_line_
     live_reads(monkeypatch)
     monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {KEY: {"components": ["api"], "touched": ["api"], "dev": [], "releases": ["api"], "staged": ["api"]}, OTHER: {"components": ["web"], "touched": ["web"], "dev": [], "releases": ["web"], "staged": ["web"]}})
     merged_ready(demo, OTHER, None)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY] |= {"merged_sha": "aaa111bbb222ccc"}
         data["jobs"]["j1"].update(said=f"READY {state.pr_url(KEY)} {state.pr_url(OTHER)}", prs=[state.pr_url(KEY), state.pr_url(OTHER)])
     lines = watch.run_pass(watcher(demo), T0)
@@ -9457,7 +9517,7 @@ def test_merges_of_two_orders_share_the_one_prover_of_the_next_release_cut_which
     monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {key: {"components": ["api"], "touched": ["api"], "dev": [], "releases": ["api"], "staged": ["api"]} for key in keys})
     merged_ready(demo, OTHER, None)
     carried = "ship the dashboard"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY] = state.new_pr(state.pr_url(KEY), "j9", "o9") | {"state": "merged", "merged_sha": "aaa111bbb222ccc"}
         data["orders"]["o9"] = order(text=carried, jobs=["j9"], parts={carried: state.new_part()})
         data["jobs"]["j9"] = data["jobs"]["j1"] | {"order": "o9", "parts": [carried], "said": f"READY {state.pr_url(KEY)}", "prs": [state.pr_url(KEY)]}
@@ -9467,7 +9527,7 @@ def test_merges_of_two_orders_share_the_one_prover_of_the_next_release_cut_which
     [prover] = [job_id for job_id, job in data["jobs"].items() if job["goal"].startswith("prove ")]
     assert (sorted(install.proves(data, prover)), data["jobs"][prover]["waits"]) == (sorted([KEY, OTHER]), [state.CUT_WAIT])
     assert {data["jobs"][prover]["order"], *data["jobs"][prover]["carries"]} == {"o1", "o9"}
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j20"] = state.new_job("o1", "builder", "cut the release", [], state.stamp(T0)) | {
             "state": "running",
             "agent": "a20",
@@ -9509,7 +9569,7 @@ def test_a_merged_pr_changing_only_tests_gets_a_prover_waiting_on_no_release_tha
     serve(monkeypatch, {})
     (tmp_path / ".claude").mkdir()
     provide(monkeypatch, tmp_path, repo=HomeRepo)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["roles"]["coordinator"]["cwd"] = str(tmp_path)
     monkeypatch.setattr(github, "checkout_repo", lambda cwd: "Forge-AI/monorepo")
     monkeypatch.setattr(orca, "checkout", lambda name, cwd, wait=0: tmp_path)
@@ -9532,7 +9592,7 @@ def test_a_merged_product_job_whose_own_order_is_done_takes_done_at_its_merge_an
     monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {})
     merged_ready(demo, OTHER, None)
     carried = "ship the dashboard"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["state"] = "done"
         data["orders"]["o2"] = order(text=carried, jobs=["j1"], parts={carried: state.new_part()})
         data["jobs"]["j1"]["carries"] = {"o2": [carried]}
@@ -9566,7 +9626,7 @@ def test_a_merge_done_a_merge_handoff_or_a_done_only_citing_a_merged_pr_proves_n
     serve(monkeypatch, {})
     monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {})
     merged_ready(demo, OTHER, None)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["jobs"].append("j9")
         data["jobs"]["j9"] = state.new_job("o1", "builder", "prove it", [], state.stamp()) | {"state": "done"} | named
     lines = watch.run_pass(watcher(demo), T0)
@@ -9607,7 +9667,7 @@ def test_a_merge_whose_pr_its_done_staging_tester_or_release_follower_names_gets
     monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {})
     merged_ready(demo, OTHER, None)
     staging, earlier = f"staging test of #{OTHER.rpartition('#')[2]} before it lands", state.stamp(T0 - timedelta(hours=6))
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["parts"][staging] = state.new_part()
         data["orders"]["o1"]["jobs"] += ["j9", "j10"] if hand else ["j9"]
         data["jobs"]["j9"] = state.new_job("o1", "builder", named["goal"], [staging], earlier) | {"state": "done", "repro": proof_file(tmp_path), "updated": earlier} | named
@@ -9637,7 +9697,7 @@ def test_an_old_merge_whose_prover_failed_or_stopped_gets_no_second_and_its_part
     serve(monkeypatch, {})
     monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {})
     earlier = state.stamp(T0 - timedelta(days=2))
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY] |= {"state": "merged", "merged_sha": "ccc333ddd444eee"}
         data["jobs"]["j1"].update(state="done", said=f"DONE {state.pr_url(KEY)} merged: {KEY} at ccc333ddd444", updated=earlier)
         data["orders"]["o1"]["jobs"].append("j2")
@@ -9668,7 +9728,7 @@ def test_an_old_merge_whose_unstarted_prover_holds_one_of_its_parts_widens_that_
     monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {KEY: {"components": ["api"], "touched": ["api"], "dev": [], "releases": ["api"], "staged": ["api"]}})
     earlier, second = state.stamp(T0 - timedelta(days=2)), "ship the dashboard"
     handoff = f"{KEY} at ccc333ddd444 merged: install it by the INSTALL: line of j1's return, in reports/j1.md, write its PROVE: line as a proof file, keep it with drive job set <your job> --repro <file> and run drive job prove <your job>, which runs that file, and only its exit 0 delivers the part"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY] |= {"state": "merged", "merged_sha": "ccc333ddd444eee"}
         data["orders"]["o1"]["parts"][second] = state.new_part()
         data["jobs"]["j1"].update(state="done", said=f"DONE {state.pr_url(KEY)} merged: {KEY} at ccc333ddd444", parts=["ship the watch", second], updated=earlier)
@@ -9693,7 +9753,7 @@ def test_a_merge_sharing_a_pr_with_an_unstarted_prover_widens_it_to_its_parts_an
     monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {KEY: {"components": ["api", "sandsql"], "touched": ["api", "sandsql"], "dev": [], "releases": ["api", "sandsql"], "staged": ["api", "sandsql"]}, OTHER: {"components": ["web"], "touched": ["web"], "dev": [], "releases": ["web"], "staged": ["web"]}})
     earlier, carried = state.stamp(T0 - timedelta(days=2)), "ship the dashboard"
     first = f"{KEY} at ccc333ddd444 merged: install it by the INSTALL: line of j1's return, in reports/j1.md, write its PROVE: line as a proof file, keep it with drive job set <your job> --repro <file> and run drive job prove <your job>, which runs that file, and only its exit 0 delivers the part"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY] |= {"state": "merged", "merged_sha": "ccc333ddd444eee"}
         data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j3", "o2") | {"state": "merged", "merged_sha": "aaa111bbb222ccc"}
         data["orders"]["o2"] = order(text=carried, jobs=["j3"], parts={carried: state.new_part()}, updated=earlier)
@@ -9728,7 +9788,7 @@ def test_a_second_unstarted_prover_of_a_pr_marked_or_not_folds_into_the_first_wh
     monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {})
     earlier, carried = state.stamp(T0 - timedelta(days=2)), "ship the dashboard"
     first, second = (f"{merged} merged: install it by the INSTALL: line of j1's return" for merged in (KEY, f"{KEY}, {OTHER}"))
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY] |= {"state": "merged", "merged_sha": "ccc333ddd444eee"}
         data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"state": "merged", "merged_sha": "aaa111bbb222ccc"}
         data["orders"]["o2"] = order(text=carried, jobs=["j1", "j3"], parts={carried: state.new_part()}, updated=earlier)
@@ -9760,7 +9820,7 @@ def test_a_prover_is_freed_only_once_a_production_target_that_ships_its_prs_path
     demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     key = "Forge-AI/monorepo#57077"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {"state": "merged", "merged_sha": "aaa111"}
         data["jobs"]["j9"] = state.new_job("o1", "builder", f"prove {key} live", [], state.stamp()) | {"waits": [state.CUT_WAIT]}
     monkeypatch.setattr(orca, "checkout", lambda name, cwd, wait=0: tmp_path)
@@ -9784,7 +9844,7 @@ def test_a_merged_product_job_waiting_on_its_own_release_takes_done_at_its_merge
     monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {OTHER: {"components": ["api", "web"], "touched": ["web"], "dev": [], "releases": ["web"], "staged": ["web"]}})
     merged_ready(demo, OTHER, None)
     wait = f"release:api:{OTHER}"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"].update(said=f"WAITING {wait}", waits=[wait])
     lines = watch.run_pass(watcher(demo), T0)
     data = state.load(demo)
@@ -9798,7 +9858,7 @@ def test_a_merge_whose_pr_an_unmarked_prover_at_work_on_another_order_proves_giv
     monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {})
     merged_ready(demo, OTHER, None)
     carried = "prove the dashboard"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o2"] = order(text=carried, jobs=["j9"], parts={carried: state.new_part()})
         data["jobs"]["j9"] = state.new_job("o2", "builder", f"prove {OTHER} live", [carried], state.stamp()) | {"state": "running", "agent": "a-9"}
     watching = watcher(demo)
@@ -9829,7 +9889,7 @@ def test_a_merged_ready_product_job_on_a_done_order_or_whose_pr_a_job_proved_liv
     serve(monkeypatch, {})
     monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {})
     merged_ready(demo, OTHER, None)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         if proved:
             data["orders"]["o1"]["jobs"].append("j9")
             data["jobs"]["j9"] = state.new_job("o1", "builder", f"prove {OTHER} live", data["jobs"]["j1"]["parts"], state.stamp()) | {"state": "done", "said": f"DONE {OTHER} live on release jubilant-heaney"}
@@ -9845,7 +9905,7 @@ def test_a_merged_ready_product_job_on_a_done_order_or_whose_pr_a_job_proved_liv
 def test_a_pushed_whose_prs_all_merged_settles_nothing_so_no_ready_goes_out_after_the_merge(demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, tooling: bool) -> None:
     serve(monkeypatch, {})
     merged_ready(demo, YASYF if tooling else OTHER, proof_file(tmp_path))
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["said"] = f"PUSHED {state.pr_url(YASYF if tooling else OTHER)}"
     data = state.load(demo)
     assert (watch.settles(watcher(demo), data, "j1"), watch.pushed_lines(watcher(demo), T0)) == (None, [])
@@ -9857,7 +9917,7 @@ def test_a_fix_merged_to_dev_that_no_release_holds_is_never_proven_live_so_its_r
 ) -> None:
     serve(monkeypatch, {})
     merged_ready(demo, fix, None)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][fix]["merged_sha"] = sha
         data["orders"]["o1"]["reporters"] = [state.reporter(REPORTED)]
     watching = watcher(demo)
@@ -9874,7 +9934,7 @@ def test_a_fix_merged_to_dev_that_no_release_holds_is_never_proven_live_so_its_r
 @pytest.mark.parametrize("sha", ["485f9f408150", "6ec574a4f779"])
 def test_an_open_order_a_merge_commit_once_proved_loses_that_proof_and_its_close_while_a_closed_one_or_a_yasyf_commit_keeps_them(demo: str, sha: str) -> None:
     commit, tooling = f"https://github.com/Forge-AI/monorepo/commit/{sha}", "https://github.com/yasyf/cc-skills/commit/ccc333ddd444"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"] |= {"proof": commit, "closed_on": "689162", "reporters": [state.reporter(REPORTED) | {"tell_said": state.stamp(T0)}]}
         data["orders"]["o2"] = order(state="done", proof=commit, closed_on="689100", jobs=[])
         data["orders"]["o3"] = order(proof=tooling, jobs=[])
@@ -9890,7 +9950,7 @@ def test_a_merged_ready_product_job_on_an_open_incidents_fix_takes_done_at_its_m
     serve(monkeypatch, {})
     monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {})
     merged_ready(demo, OTHER, None)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"].update(incident=True, parts={"fix": state.new_part()})
         data["jobs"]["j1"]["parts"] = ["fix"]
     lines = watch.run_pass(watcher(demo), T0)
@@ -9908,7 +9968,7 @@ def test_a_proof_that_ended_with_no_result_is_started_again_by_a_newer_watch_and
     merged_ready(demo, YASYF, proof_file(tmp_path))
     ended = subprocess.Popen(["true"])
     ended.wait()
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["proof"] = {"pid": ended.pid, "at": state.stamp(T0), "said": f"READY {state.pr_url(YASYF)}", "version": version} | ({"result": result} if result else {})
     lines = watch.run_pass(watcher(demo), T0)
     assert provers == started
@@ -9922,7 +9982,7 @@ def test_a_jobs_own_done_taken_before_the_drives_own_done_proofs_since_gets_no_f
     demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str], tmp_path: Path, returned: datetime, started: list[str]
 ) -> None:
     serve(monkeypatch, {})
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         del data["prs"][KEY]
         data["own_done_proofs_since"] = state.stamp(T0)
         data["jobs"]["j1"].update(state="done", said="DONE checked it by hand", prs=[], repro=proof_file(tmp_path), returned=state.stamp(returned), updated=state.stamp(returned))
@@ -9933,7 +9993,7 @@ def test_a_jobs_own_done_taken_before_the_drives_own_done_proofs_since_gets_no_f
 
 def test_a_done_builder_owing_work_whose_said_line_an_older_install_kept_without_its_done_reads_its_newest_return_so_one_opening_done_is_done_before_proofs(demo: str) -> None:
     said, returned = "#53689 live: tools/ci db-read --json waited 1:03 for its build, printed rows, exit 0", T0 - timedelta(hours=1)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["own_done_proofs_since"] = state.stamp(T0)
         data["jobs"]["j1"].update(state="done", said=said, returned=state.stamp(returned), updated=state.stamp(returned))
     state.keep_report(demo, "j1", f"BLOCKED {said}", f"BLOCKED {said}", returned - timedelta(minutes=5))
@@ -9950,7 +10010,7 @@ def test_a_proof_waiting_on_his_next_word_holds_its_job_with_no_orphan_and_runs_
     ended = subprocess.Popen(["true"])
     ended.wait()
     wait = "WAIT S1 no exchange since the install: reply in a DM thread within 60s of a handler's post there, then run this again"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["proof"] = {"pid": ended.pid, "at": state.stamp(T0), "said": f"READY {state.pr_url(YASYF)}", "version": "1.0.1", "waits": wait}
         data["owner"] = {"heard": state.stamp(T0 - timedelta(minutes=5)), "away": state.stamp(T0 + timedelta(minutes=55))}
     watching = watcher(demo)
@@ -9970,7 +10030,7 @@ def test_a_repair_waiting_on_the_proof_it_marked_holds_with_no_free_or_orphan_an
     ended.wait()
     wait = "WAIT he writes a new message in his DM thread"
     said = f"WAITING {install.PROOF_WAITS}: {wait}"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         del data["prs"][KEY]
         data["jobs"]["j1"].update(state="waiting", said=said, prs=[], repro=proof_file(tmp_path), updated=state.stamp(T0 - timedelta(hours=1)))
         data["jobs"]["j1"]["proof"] = {"pid": ended.pid, "at": state.stamp(T0), "said": said, "version": state.VERSION, "waits": wait}
@@ -9984,7 +10044,7 @@ def test_a_repair_waiting_on_the_proof_it_marked_holds_with_no_free_or_orphan_an
 
 
 def tried(name: str, outcome: str) -> None:
-    with state.edit(name) as data:
+    with edit(name) as data:
         data["prs"][KEY]["state"] = "merged"
         lander = {"head": "aaaaaaa111", "pid": os.getpid(), "at": state.stamp(T0), "outcome": outcome}
         data["prs"][YASYF] = state.new_pr(state.pr_url(YASYF), "j1", "o1") | {"head": "aaaaaaa111", "base": "main", "wants_tap": False, "lander": lander}
@@ -10058,7 +10118,7 @@ def test_a_yasyf_merge_github_never_answered_or_ccx_refused_is_the_landers_own_f
     assert outcome == f"{land.OWN_FAILURE} get GitHub's answer on {YASYF} to gh pr merge --squash --admin --match-head-commit aaaaaaa111: {said}; the next watch pass tries it again"
     waiting_job(demo)
     tried(demo, "")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"] |= {"said": f"PUSHED {state.pr_url(YASYF)}", "returned": state.stamp(T0)}
         data["prs"][YASYF]["checks"] = "pass"
     watching = watcher(demo)
@@ -10077,7 +10137,7 @@ def test_a_yasyf_merge_github_never_answered_or_ccx_refused_is_the_landers_own_f
 def test_replayed_433_a_yasyf_try_recorded_before_the_lander_said_github_never_answered_its_merge_reads_ready_and_the_next_pass_lands_it_again(demo: str, landers: list[tuple[str, ...]]) -> None:
     waiting_job(demo)
     tried(demo, 'not landed: gh pr merge --squash --admin --match-head-commit aaaaaaa111 refused it: Post "https://api.github.com/graphql": net/http: TLS handshake timeout')
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"] |= {"said": f"PUSHED {state.pr_url(YASYF)}", "returned": state.stamp(T0)}
         data["prs"][YASYF]["checks"] = "pass"
     assert stage.of(state.load(demo), YASYF, NO_CARDS).name == "ready"
@@ -10100,7 +10160,7 @@ def conflicting(demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, ours
     monkeypatch.setattr(land, "CLONE_URL", f"file://{tmp_path}/{{}}.git")
     monkeypatch.setattr(land, "merged_sync", lambda key, method, flags: f"gh pr merge --squash --admin refused it: {DIRTY}")
     tried(demo, "")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         pr = data["prs"][YASYF]
         pr |= {"head": head, "base": "main", "branch": "change", "title": "Fix: drive a runs fast", "conflict": True, "lander": pr["lander"] | {"head": head, "base": "main"}}
     return origin, main
@@ -10119,15 +10179,15 @@ def test_a_yasyf_merge_github_refuses_on_a_conflict_in_prose_alone_is_rebased_on
     assert git_in(origin, "rev-parse", "change^") == main
     assert git_in(origin, "show", "change:verbs.md") == ROWS.replace("runs a.", "runs a fast.").replace("Then c.", "Then c twice.").rstrip("\n")
     assert git_in(origin, "log", "-1", "--format=%B", "change") == "Fix: drive a runs fast"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][YASYF]["lander"]["outcome"] = outcome
     assert stage.of(state.load(demo), YASYF, NO_CARDS).name == "landing"
     waiting_job(demo)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"] |= {"said": f"PUSHED {state.pr_url(YASYF)}", "returned": state.stamp(T0)}
         data["prs"][YASYF] |= {"head": rebased, "conflict": False}
     assert stage.of(state.load(demo), YASYF, NO_CARDS).name == "grading"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][YASYF]["checks"] = "pass"
     assert stage.of(state.load(demo), YASYF, NO_CARDS).name == "ready"
     assert land.start(demo, [YASYF], NO_CARDS) == [(YASYF,)]
@@ -10190,7 +10250,7 @@ def test_a_stacked_yasyf_pr_gh_pr_merge_refuses_merges_through_githubs_merge_asy
     monkeypatch.setattr(land.time, "sleep", lambda seconds: None)
     monkeypatch.setattr(install, "touched", lambda repo, files: [])
     monkeypatch.setattr(land.subprocess, "run", lambda argv, **kwargs: runs.append(argv) or land.subprocess.CompletedProcess(argv, *next(merges)))
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][stacked_pr] = state.new_pr(state.pr_url(stacked_pr), "j1", "o1") | {"native": [stacked_pr, "yasyf/cc-skills#4720", "yasyf/cc-skills#4730"]}
     assert land.merged(demo, stacked_pr, method, ["--admin"]) == "merged at ccc333ddd444; it changes no plugin installed on this Mac"
     assert runs == [
@@ -10211,7 +10271,7 @@ def test_a_stacked_pr_githubs_merge_async_ends_failed_is_not_landed_with_githubs
 
 
 def pushed(name: str, *keys: str) -> None:
-    with state.edit(name) as data:
+    with edit(name) as data:
         state.take_result(data, "j1", f"PUSHED {' '.join(map(state.pr_url, keys))}")
 
 
@@ -10237,7 +10297,7 @@ def test_a_reported_yasyf_pr_whose_head_moved_past_its_landers_merges_at_the_nex
 def test_a_yasyf_pr_on_the_head_of_a_pr_the_drive_does_not_track_reads_behind_it_waking_no_one_and_lands_once_github_moves_it_onto_main_as_5547_on_5442_did_not(
     demo: str, monkeypatch: pytest.MonkeyPatch, woken: list[tuple[str, str]], landers: list[tuple[str, ...]]
 ) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
         lander = {"head": HEAD_5547, "base": BASE_5547, "pid": os.getpid(), "at": state.stamp(T0), "outcome": f"not landed: it sits on {BASE_5547}, not main"}
         data["prs"][REPLAYED_5547] = state.new_pr(state.pr_url(REPLAYED_5547), "j1", "o1") | {"head": HEAD_5547, "base": BASE_5547, "wants_tap": False, "lander": lander}
@@ -10289,7 +10349,7 @@ def staged_lines(watching: watch.Watcher, key: str, minutes: tuple[int, ...]) ->
 def test_replayed_56856_a_pr_on_j94s_built_branch_reads_behind_j94_owed_by_him_then_by_j94_waking_its_builder_only_for_its_own_red_and_gets_his_card_once_j94s_pr_opens_under_it(
     demo: str, monkeypatch: pytest.MonkeyPatch, woken: list[tuple[str, str]], draws: Draws
 ) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
         data["orders"]["o1"]["jobs"] += ["j94", "j187"]
         asked = [state.new_question(None, f"Pick {waits}?", state.stamp(T0)) | {"waits": waits, "card": link} for waits, link in CARDS_J94.items()]
@@ -10302,7 +10362,7 @@ def test_replayed_56856_a_pr_on_j94s_built_branch_reads_behind_j94_owed_by_him_t
     watching = watcher(demo)
     assert staged_lines(watching, REPLAYED_56856, (0,)) == []
     assert woken == [(REPLAYED_56856, f"{REPLAYED_56856} red since {state.stamp(T0)}, owed by its builder: its checks fail at dc7f158: test [o1 j187]")]
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][REPLAYED_56856]["checked"] = CHECKED | {"head": "e26db8d000"}
     reads[REPLAYED_56856] = read(headRefOid="e26db8d000", checks=GREEN, **stacked)
     said = staged_lines(watching, REPLAYED_56856, (1, 31, 62, 93))
@@ -10311,7 +10371,7 @@ def test_replayed_56856_a_pr_on_j94s_built_branch_reads_behind_j94_owed_by_him_t
     cards = ", ".join(f"his answer on [his question card]({link})" for link in CARDS_J94.values())
     assert ((kept["name"], kept["owner"], kept["why"]), said, len(woken), draws.keys) == (("behind", stage.HIM, f"{ON_J94}waits on {cards} and has opened no PR there yet; it lands with that PR once it opens"), [], 1, [])
     assert (state.tap_refused(data, data["prs"][REPLAYED_56856]), REPLAYED_56856 in stall.chains(data, NO_CARDS, False, T0 + timedelta(minutes=93))) == (NO_PR_ON_J94, False)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         for seq, question in enumerate(data["jobs"]["j94"]["questions"]):
             question["closed"] = state.new_close("answered", "Yes", None, seq=str(9 + seq))
     said = staged_lines(watching, REPLAYED_56856, (94, 125, 150))
@@ -10320,7 +10380,7 @@ def test_replayed_56856_a_pr_on_j94s_built_branch_reads_behind_j94_owed_by_him_t
     assert ((kept["name"], kept["owner"], kept["why"]), said, len(woken), draws.keys) == (("behind", "j94", f"{ON_J94}is built and has opened no PR there yet; it lands with that PR once it opens"), [], 1, [])
     chained = stall.chains(data, NO_CARDS, False, T0 + timedelta(minutes=150))[REPLAYED_56856]
     assert ([link for link, _, _ in chained], state.tap_refused(data, data["prs"][REPLAYED_56856])) == ([REPLAYED_56856, "j94"], NO_PR_ON_J94)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j94"].update(state="waiting", prs=[state.pr_url(OPENED_J94)])
         data["prs"][OPENED_J94] = state.new_pr(state.pr_url(OPENED_J94), "j94", "o1") | {"head": "fc4544b027", "base": "dev", "wants_tap": True, "checked": CHECKED | {"head": "fc4544b027"}}
     reads[OPENED_J94] = read(headRefOid="fc4544b027", baseRefName="dev", headRefName=BUILT_J94, default="dev", checks=GREEN, reviewDecision="APPROVED")
@@ -10338,7 +10398,7 @@ def test_replayed_56856_a_pr_on_j94s_built_branch_reads_behind_j94_owed_by_him_t
 def test_replayed_56907_a_pr_on_a_running_builders_branch_reads_behind_that_builder_wakes_only_its_own_builder_for_its_own_red_and_once_that_builder_is_done_opens_its_branchs_pr_while_that_branch_holds_commits_dev_lacks(
     demo: str, monkeypatch: pytest.MonkeyPatch, woken: list[tuple[str, str]], draws: Draws
 ) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
         data["orders"]["o1"]["jobs"] += ["j6258", "j6317"]
         data["jobs"]["j6258"] = job(branch=RUNNING_J6258)
@@ -10360,7 +10420,7 @@ def test_replayed_56907_a_pr_on_a_running_builders_branch_reads_behind_that_buil
         [],
     )
     assert (REPLAYED_56907 in stall.chains(data, NO_CARDS, False, T0 + timedelta(minutes=93)), state.asks_tap(data, data["prs"][REPLAYED_56907])) == (False, False)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j6258"]["state"] = "done"
     reads[REPLAYED_56907] = read(checks=GREEN, base_ahead=10, **stacked)
     for minute in (94, 95):
@@ -10382,7 +10442,7 @@ def test_replayed_56907_a_pr_on_a_running_builders_branch_reads_behind_that_buil
 def test_a_pr_on_a_release_line_its_repository_names_a_landing_base_wakes_no_builder_and_its_lander_lands_it_there_as_litestream_36_on_its_legacy_line_did_not(
     demo: str, monkeypatch: pytest.MonkeyPatch, woken: list[tuple[str, str]], landers: list[tuple[str, ...]]
 ) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
         data["prs"][REPLAYED_5547] = state.new_pr(state.pr_url(REPLAYED_5547), "j1", "o1") | {"wants_tap": False}
     pushed(demo, REPLAYED_5547)
@@ -10432,7 +10492,7 @@ def merged_4755(reads: dict[str, dict], runs: list[list[str]], argv: list[str]) 
 
 
 def replayed(demo: str, monkeypatch: pytest.MonkeyPatch, checks: dict[str, list[dict]]) -> dict[str, dict]:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
         for key in REPLAYED_4745_4756:
             data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {"wants_tap": False}
@@ -10543,7 +10603,7 @@ def test_a_yasyf_landing_whose_read_ccxs_rate_limit_floor_refuses_ends_unread_sa
     replayed(demo, monkeypatch, {key: [long_running_test("FAILURE"), SOCKET]})
     if not fetched:
         monkeypatch.setattr(github, "fetch", REAL_FETCH)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][key] |= {"head": "1120acd", "checks": "fail", "failed_checks": ["test"]}
     floors = iter([828, 735])
 
@@ -10582,7 +10642,7 @@ def test_an_answer_leaving_a_card_unmarked_says_so_every_ten_minutes_until_it_is
 ) -> None:
     serve(monkeypatch, {})
     asking(monkeypatch, demo, "demo:j1-7-a")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["questions"].append(state.new_question(None, "Pick demo:j1-7-a?", state.stamp(T0), card=question("demo:j1-7-a")["url"]) | {"waits": "demo:j1-7-a"})
         data["answers"]["a1"] = {"words": "one new tool", "link": f"{CARD}9", "at": state.stamp(T0), "said": state.stamp(T0), "cards": {"demo:j1-7-a": None}, "jobs": {}}
     watching = watcher(demo)
@@ -10593,10 +10653,10 @@ def test_an_answer_leaving_a_card_unmarked_says_so_every_ten_minutes_until_it_is
     line = 'ANSWER a1 o1 "one new tool": 1 card with no mark, standing, settled, dropped, superseded or reopened by it; drive answer a1 lists them'
     assert (said(5), said(10), said(15), said(20)) == ([], [line], [], [line])
     assert watch.wakes(line, state.load(demo), NO_CARDS)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["answers"]["a1"]["cards"]["demo:j1-7-a"] = {"mark": "stands"}
     assert said(40) == []
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"].update(agent="a1", where="local", session="session-under-test")
         data["answers"]["a1"]["jobs"]["j1"] = None
     assert said(50) == []
@@ -10633,7 +10693,7 @@ def incident_reads(monkeypatch: pytest.MonkeyPatch, statuses: dict[str, str], li
 
 
 def o852(demo: str) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o852"] = order(
             text="LLM gateway 400s on image edits", incident=True, thread=["D0C4HQWPLCC", "1794522468.515959"], alerts=[O852_MONITOR], jobs=["j2322", "j2344"], parts={"fix": state.new_part()}
         )
@@ -10641,7 +10701,7 @@ def o852(demo: str) -> None:
         data["jobs"]["j2344"] = job(order="o852", parts=["fix"], prs=[state.pr_url(IMAGE_FIX)], state="failed")
         data["prs"][CAP] = state.new_pr(state.pr_url(CAP), "j2322", "o852") | {"state": "merged", "merged_sha": "ac3194dc"}
         data["prs"][IMAGE_FIX] = state.new_pr(state.pr_url(IMAGE_FIX), "j2344", "o852") | {"state": "merged", "merged_sha": "ad20b74e"}
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         state.take_result(data, "j2322", f"DONE {LATCHED.removeprefix('j2322 proved it live: ')}")
 
 
@@ -10655,7 +10715,7 @@ def test_an_incident_with_no_monitor_held_by_its_open_fix_pr_closes_with_no_data
     calls = incident_reads(monkeypatch, {}, live, tmp_path)
     lined: list[str] = []
     monkeypatch.setattr(talk, "report_line", lambda name, seq: lined.append(seq) or f"POSTED {POSTED}; o1 closed on report {seq}")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"].update(incident=True, parts={"fix": state.new_part()}, jobs=["j1", "j2"])
         data["prs"][KEY].update(state="merged", merged_sha="abc123")
         data["jobs"]["j1"].update(parts=["fix"], state="done")
@@ -10664,7 +10724,7 @@ def test_an_incident_with_no_monitor_held_by_its_open_fix_pr_closes_with_no_data
     watching = watcher(demo)
     assert [line for line in watch.run_pass(watching, T0) if line.startswith("RECOVERED")] == []
     served[OTHER] = read(state="CLOSED")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j2"]["state"] = "failed"
         data["prs"][OTHER]["state"] = "closed"
     live["42"] = True
@@ -10694,7 +10754,7 @@ def test_o761s_incident_on_a_surface_he_uses_holds_its_live_line_with_one_prove_
     incident_reads(monkeypatch, {}, {"42": True}, tmp_path)
     surface, recording = "the Iris chat on a Mac", "/tmp/proofs/o761-chat-answers.mov"
     fixed = f"{state.pr_url(KEY)} live in production"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"].update(incident=True, parts={"fix": state.new_part()}, proof=fixed)
         data["prs"][KEY].update(state="merged", merged_sha="abc123")
         data["jobs"]["j1"].update(parts=["fix"], state="done", brief_flags={"native": surface})
@@ -10708,10 +10768,10 @@ def test_o761s_incident_on_a_surface_he_uses_holds_its_live_line_with_one_prove_
     ]
     data = state.load(demo)
     assert (watch.wakes(lines[0], data, NO_CARDS), ready_records, data["orders"]["o1"]["recovered"], state.may_tell(data, data["orders"]["o1"])) == (True, [], None, False)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["jobs"].append("j2")
         data["jobs"]["j2"] = job(parts=["fix"], brief_flags={"native": surface})
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         state.take_result(data, "j2", "DONE the Iris chat answers again", f"DONE the Iris chat answers again\nCHECK: {recording}\n")
     data = state.load(demo)
     assert (data["orders"]["o1"]["proof"], state.may_tell(data, data["orders"]["o1"])) == (f"{fixed}; {recording}", True)
@@ -10733,7 +10793,7 @@ def test_an_incident_opened_while_he_is_away_carrying_a_record_of_real_users_fai
 
     provide(monkeypatch, DRIVE_CHECKOUT, repo=PagingRepo)
     monkeypatch.setattr(watch.orca, "checkout", lambda name, data, wait=0: DRIVE_CHECKOUT)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["owner"]["heard"] = state.stamp(T0)
         data["orders"]["o1"].update(incident=True, title="SandSQL writes down", created=state.stamp(T0 + timedelta(minutes=5)), users=732569)
         data["orders"]["o2"] = order(text="raw_sql reads fail", incident=True, created=state.stamp(T0 - timedelta(minutes=5)), users=732570)
@@ -10756,7 +10816,7 @@ def test_an_incident_whose_drive_checkout_cannot_move_to_the_default_branch_head
         raise state.DriveError("the drive's checkout was not moved to the head of its default branch")
 
     monkeypatch.setattr(watch.orca, "checkout", unmoved)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"].update(incident=True, parts={"fix": state.new_part()})
         data["prs"][KEY].update(state="merged", merged_sha="abc123")
         data["jobs"]["j1"].update(parts=["fix"], state="done")
@@ -10772,7 +10832,7 @@ def test_o852_the_deleted_latch_closed_with_its_fix_not_live_is_back_on_the_stri
     serve(monkeypatch, {})
     o852(demo)
     closed_at = state.stamp(T0 - timedelta(minutes=1))
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o852"].update(fixed=LATCHED, recovered=closed_at, proof=f"{O852_MONITOR} read OK at 5:45pm; {LATCHED}")
         data["orders"]["o1"].update(incident=True, state="done", fixed=LATCHED, recovered=closed_at, proof="read OK")
     incident_reads(monkeypatch, {"341360574": "OK"}, {"55166": True, "55225": False}, tmp_path)
@@ -10790,7 +10850,7 @@ def test_a_close_report_drive_install_kept_posts_from_the_watch_once_cci_takes_i
     from drive import tools
 
     serve(monkeypatch, {})
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["close_report"] = CLOSE_REPORT
     posts: list[list[dict]] = []
 
@@ -10817,7 +10877,7 @@ def test_a_close_report_an_older_install_kept_on_drive_tooling_a_session_opened_
 
     serve(monkeypatch, {})
     his = CLOSE_REPORT | {"id": "install-proved-j2", "topic": "install-proved-o2", "attr": {"close": "o2"}}
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"] |= {"text": "Drive tooling: the port census reads a settled port", "from": "cci:710171", "proof": "/tmp/proof.txt", "close_report": CLOSE_REPORT}
         data["orders"]["o2"] = order(jobs=[], proof="/tmp/proof.txt", close_report=his)
     posts: list[list[dict]] = []
@@ -10837,7 +10897,7 @@ def test_the_watchs_close_report_is_its_orders_one_close_so_the_cci_post_hook_re
     from drive import tools
 
     serve(monkeypatch, {})
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["close_report"] = CLOSE_REPORT
     meta = {
         "session_id": "session-under-test",
@@ -10878,13 +10938,13 @@ def proved(monkeypatch: pytest.MonkeyPatch) -> Proved:
 
     def report_line(name: str, seq: str) -> str:
         kept.said.append((seq, state.watch_posting(state.load(name))))
-        with state.edit(name) as data:
+        with edit(name) as data:
             data["carried"][seq] = LIVE_LINE
         return f"POSTED {LIVE_LINE}{talk.closed(name, 'o1', seq)}"
 
     def closed(name: str, order_id: str, seq: str) -> str:
         kept.closes.append((order_id, seq))
-        with state.edit(name) as data:
+        with edit(name) as data:
             data["orders"][order_id]["state"] = "done"
         return f"; {order_id} closed on report {seq}"
 
@@ -10895,7 +10955,7 @@ def proved(monkeypatch: pytest.MonkeyPatch) -> Proved:
 
 def test_the_watch_posts_a_proved_orders_live_line_through_report_line_from_its_report_and_closes_the_order_with_no_handler(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {})
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["close_report"] = CLOSE_REPORT
     kept = proved(monkeypatch)
     assert staged(watch.close_report_lines, watcher(demo), T0) == []
@@ -10907,7 +10967,7 @@ def test_the_watch_posts_a_proved_orders_live_line_through_report_line_from_its_
 
 def test_a_live_line_whose_order_did_not_close_keeps_its_report_so_the_next_pass_closes_it_posting_nothing_more(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {})
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["close_report"] = CLOSE_REPORT
     kept = proved(monkeypatch)
     monkeypatch.setattr(talk, "closed", lambda name, order_id, seq: f"; {order_id} not closed on report {seq}: drive is locked")
@@ -10920,7 +10980,7 @@ def test_a_live_line_whose_order_did_not_close_keeps_its_report_so_the_next_pass
 
 def test_a_watch_that_ended_after_its_live_line_posted_closes_the_order_on_its_next_pass_posting_nothing_more(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {})
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["close_report"] = CLOSE_REPORT | {"seq": "9"}
         data["carried"]["9"] = LIVE_LINE
     kept = proved(monkeypatch)
@@ -10930,7 +10990,7 @@ def test_a_watch_that_ended_after_its_live_line_posted_closes_the_order_on_its_n
 
 def test_a_proved_order_with_a_reporter_starts_a_report_post_of_its_line_in_their_threads_from_the_watch(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {})
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"] |= {"close_report": CLOSE_REPORT, "reporters": [state.reporter(REPORTED)]}
     kept = proved(monkeypatch)
     detached: list[list[str]] = []
@@ -10942,7 +11002,7 @@ def test_a_proved_order_with_a_reporter_starts_a_report_post_of_its_line_in_thei
 
 def test_a_proved_incident_posts_its_live_line_from_the_watch_with_no_handler(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {})
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"] |= {"close_report": CLOSE_REPORT, "incident": True}
     kept = proved(monkeypatch)
     monkeypatch.setattr(watch.agents, "handle", lambda name, brief, **_: pytest.fail(f"handler started on {brief}"))
@@ -10958,7 +11018,7 @@ def test_the_watch_reads_where_every_open_incidents_merged_fix_prs_run_in_one_re
     serve(monkeypatch, {})
     numbers = [str(1000 + number) for number in range(count)]
     calls = incident_reads(monkeypatch, {}, dict.fromkeys(numbers, True), tmp_path)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         for number in numbers:
             key = f"Forge-AI/monorepo#{number}"
             data["orders"][f"o{number}"] = order(text=f"alert {number}", jobs=[f"j{number}"], incident=True, alerts=[f"https://app.datadoghq.com/monitors/{number}"], parts={"fix": state.new_part()})
@@ -10990,7 +11050,7 @@ def test_his_open_pr_card_is_settled_in_place_once_every_pr_it_carries_merged_or
     demo: str, monkeypatch: pytest.MonkeyPatch, ended: str, said: str
 ) -> None:
     other = "Forge-AI/monorepo#43"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][other] = state.new_pr(state.pr_url(other), "j1", "o1") | {"head": "ddddddd444"}
     monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [], "closed": [], "pr_cards": [pr_card(KEY, other)]})
     settled = []
@@ -11007,7 +11067,7 @@ def test_his_open_pr_card_is_settled_in_place_once_every_pr_it_carries_merged_or
 
 def test_a_merged_pr_settles_its_own_card_only_once_every_other_card_carrying_it_has_no_pr_open(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     other, stack = "Forge-AI/monorepo#43", "https://acme.slack.com/archives/D123/p1794200000000200"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][other] = state.new_pr(state.pr_url(other), "j1", "o1") | {"head": "ddddddd444"}
     shown = [pr_card(KEY), pr_card(KEY, other, url=stack)]
     monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [], "closed": [], "pr_cards": list(shown)})
@@ -11038,7 +11098,7 @@ def test_a_pr_github_closes_and_reopens_settles_his_card_at_the_close_read_and_i
     demo: str, monkeypatch: pytest.MonkeyPatch, redraws: Redraws
 ) -> None:
     url = state.pr_url(KEY)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["wants_tap"] = True
     shown, shut = [pr_card(KEY)], []
     settled = {"waits": "merge:Forge-AI:monorepo:42", "title": "Fix: the watch", "prs": [url], "asked": state.stamp(T0), "url": CARD, "answer": None, "tapped": "", "replaced_by": "", "card": pr_card(KEY)["card"]}
@@ -11068,7 +11128,7 @@ def test_his_card_cc_slack_keeps_closed_in_place_on_a_pr_that_asks_his_tap_again
     demo: str, monkeypatch: pytest.MonkeyPatch, draws: Draws, redraws: Redraws
 ) -> None:
     url = state.pr_url(KEY)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["wants_tap"] = True
     shut = {"waits": "merge:Forge-AI:monorepo:42", "title": "Fix: the watch", "prs": [url], "asked": state.stamp(T0), "url": CARD, "answer": None, "tapped": "This PR no longer waits on your tap.", "replaced_by": "", "card": pr_card(KEY)["card"]}
     shown = {"team_url": "", "questions": [], "closed": [shut], "pr_cards": []}
@@ -11100,7 +11160,7 @@ def test_a_pr_left_uncarded_by_an_older_install_is_redrawn_in_place_once_past_th
     shown = {"team_url": "", "questions": [], "closed": [shut], "pr_cards": []}
     monkeypatch.setattr(watch.view, "cards", lambda drive: shown)
     serve(monkeypatch, {KEY: read(checks=GREEN, reviewDecision="APPROVED")})
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["wants_tap"] = True
         stage.stamp(data["prs"][KEY], stage.of(data, KEY, shown), T0)
     asked: list[str] = []
@@ -11113,7 +11173,7 @@ def test_a_pr_left_uncarded_by_an_older_install_is_redrawn_in_place_once_past_th
 
 
 def test_a_new_head_on_a_pr_reworked_to_his_words_redraws_nothing_until_its_builders_ready(demo: str, monkeypatch: pytest.MonkeyPatch, redraws: Redraws) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["wants_tap"] = True
         state.rework(data["prs"][KEY], "o2", "bind it as @parent", "https://acme.slack.com/archives/D123/p1794300000000600")
     monkeypatch.setattr(watch.view, "cards", lambda drive: watch.view.NO_CARDS)
@@ -11130,7 +11190,7 @@ def test_his_open_card_that_left_a_show_me_picture_off_redraws_in_place_once_git
     demo: str, monkeypatch: pytest.MonkeyPatch, redraws: Redraws
 ) -> None:
     why = 'monorepo PR 42: the Show me picture "The fork snapshot share" does not draw: node "stream": a store node needs "medium", one of memory, disk, bucket, keys, pages, so his card went out without it'
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["undrawn"] = {"why": why, "at": state.stamp(T0)}
     shown = {"team_url": "", "questions": [], "closed": [], "pr_cards": []}
     monkeypatch.setattr(watch.view, "cards", lambda drive: shown)
@@ -11150,7 +11210,7 @@ def test_his_open_card_that_left_a_show_me_picture_off_redraws_in_place_once_git
 
 def test_a_job_clock_is_said_once_when_it_runs_out_while_its_job_still_runs_and_ends_unsaid_for_one_that_returned(demo: str) -> None:
     due = T0 + timedelta(minutes=10)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["due"] = state.stamp(due)
         data["jobs"]["j2"] = job(goal="first check", state="done", due=state.stamp(due))
     watching = watcher(demo)
@@ -11165,7 +11225,7 @@ def test_a_job_clock_is_said_once_when_it_runs_out_while_its_job_still_runs_and_
     assert watch.wakes(line, state.load(demo), NO_CARDS)
     tooling_order(demo, "running")
     assert watch.line_lane(line, state.load(demo)) == "meta"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o2"] = order(text='Drive tooling: adopt the stale lane, "Do this autonomously without asking me anything"')
         data["jobs"]["j1"].update(due=state.stamp(due), carries={"o2": ["adopt"]})
     assert watch.clock_lines(watching, due) == [f'{line}; his words on o2: "Do this autonomously without asking me anything"']
@@ -11173,24 +11233,24 @@ def test_a_job_clock_is_said_once_when_it_runs_out_while_its_job_still_runs_and_
 
 def test_an_answer_order_whose_last_part_a_report_posted_closes_on_the_watchs_pass_once_its_jobs_end(demo: str) -> None:
     posted = state.new_part() | {"posted": "https://acme.slack.com/archives/D123/p1794200300000100"}
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o2"] = order(text="why do old runs fail?", kind="answer", jobs=["j2"], parts={"why do old runs fail?": posted})
         data["jobs"]["j2"] = job(order="o2", kind="reader")
     watching = watcher(demo)
     watch.close_answered(watching, T0)
     assert [state.load(demo)["orders"][order_id]["state"] for order_id in ("o1", "o2")] == ["working", "working"]
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j2"]["state"] = "done"
     watch.close_answered(watching, T0 + timedelta(seconds=5))
     assert [state.load(demo)["orders"][order_id]["state"] for order_id in ("o1", "o2")] == ["working", "done"]
 
 
 def test_an_answer_posted_to_him_whose_asker_has_not_heard_it_is_said_once_ten_minutes_after_his_line(demo: str) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"] |= {"kind": "answer", "reporters": [state.reporter(REPORTED)], "updated": state.stamp(T0 - timedelta(hours=5))}
     watching = watcher(demo)
     assert watch.tell_lines(watching, T0 + timedelta(minutes=40)) == []
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         for part in data["orders"]["o1"]["parts"].values():
             part["posted"] = "https://acme.slack.com/archives/D123/p1794200300000100"
     assert watch.tell_lines(watching, T0 + timedelta(minutes=9)) == []
@@ -11204,7 +11264,7 @@ def test_an_answer_posted_to_him_whose_asker_has_not_heard_it_is_said_once_ten_m
 
 
 def test_a_fix_proven_live_whose_bug_report_has_not_heard_it_is_fixed_is_said_once_ten_minutes_on(demo: str) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"] |= {"reporters": [state.reporter(REPORTED)], "proof": "https://buildkite.com/forge/release/builds/14185"}
     watching = watcher(demo)
     assert watch.tell_lines(watching, T0 + timedelta(minutes=9)) == []
@@ -11224,7 +11284,7 @@ def test_a_fix_proven_live_whose_bug_report_has_not_heard_it_is_fixed_is_said_on
 def test_a_passing_job_proof_on_a_pr_of_the_order_owes_the_one_fix_live_note_though_the_order_keeps_no_proof_and_the_order_carrying_it_owes_none(demo: str) -> None:
     proof = f"{state.pr_url(KEY)} live: /tmp/prove.sh exits 0 on long-running 1.0.1"
     release = "https://acme.slack.com/archives/C0REPORTS01/p1794400160000300?thread_ts=1794400100.000200&cid=C0REPORTS01"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"] |= {"reporters": [state.reporter(REPORTED)], "jobs": ["j1", "j2"]}
         data["orders"]["o2"] = order(text="release the watch", jobs=["j2"], reporters=[state.reporter(release)])
         data["jobs"]["j2"] = job(order="o2", goal="follow its release and prove it live", carries={"o1": []}, state="done", said=f"DONE {proof}")
@@ -11240,7 +11300,7 @@ def test_a_passing_job_proof_on_a_pr_of_the_order_owes_the_one_fix_live_note_tho
 def test_a_fix_proven_live_names_every_reporters_thread_not_yet_told_on_one_tell_and_a_reporter_added_later_on_its_own(demo: str) -> None:
     second, later = "https://acme.slack.com/archives/C0REPORTS02/p1794593225751189", "https://acme.slack.com/archives/C0REPORTS03/p1794600000000100"
     told = state.reporter("https://acme.slack.com/archives/C0REPORTS04/p1794500000000100") | {"told": "https://acme.slack.com/archives/C0REPORTS04/p1794500060000100"}
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"] |= {"reporters": [state.reporter(REPORTED), told, state.reporter(second)], "proof": "https://buildkite.com/forge/release/builds/14185"}
     watching = watcher(demo)
     assert watch.tell_lines(watching, T0 + timedelta(minutes=10)) == [
@@ -11249,7 +11309,7 @@ def test_a_fix_proven_live_names_every_reporters_thread_not_yet_told_on_one_tell
         " --attr close=o1, which the communicator posts the fix-live note in each and records it with drive order told o1 <its permalink>;"
         " done refuses until then"
     ]
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["reporters"].append(state.reporter(later))
     assert watch.tell_lines(watching, T0 + timedelta(minutes=40)) == [
         "TELL o1: its fix is proven live by https://buildkite.com/forge/release/builds/14185 and nothing moved on it for 10 minutes,"
@@ -11261,7 +11321,7 @@ def test_a_fix_proven_live_names_every_reporters_thread_not_yet_told_on_one_tell
 
 def test_a_job_clock_renewed_after_the_watch_read_it_is_kept_and_not_said(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     due, renewed = T0 + timedelta(minutes=10), state.stamp(T0 + timedelta(minutes=30))
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["due"] = state.stamp(due)
     watching, loaded, renewals = watcher(demo), state.load, []
 
@@ -11269,7 +11329,7 @@ def test_a_job_clock_renewed_after_the_watch_read_it_is_kept_and_not_said(demo: 
         data = loaded(name)
         if not renewals:
             renewals.append(name)
-            with state.edit(name) as fresh:
+            with edit(name) as fresh:
                 fresh["jobs"]["j1"]["due"] = renewed
         return data
 
@@ -11281,7 +11341,7 @@ def test_a_job_clock_renewed_after_the_watch_read_it_is_kept_and_not_said(demo: 
 def test_the_watch_drops_a_pr_someone_else_opened_that_no_order_of_his_names_once_his_card_on_it_is_withdrawn(
     demo: str, monkeypatch: pytest.MonkeyPatch, withdrawals: Withdrawals
 ) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"head": "ddddddd444", "stack": [KEY, OTHER]}
         data["prs"][KEY]["stack"] = [KEY, OTHER]
         data["jobs"]["j1"].update(prs=[state.pr_url(KEY), state.pr_url(OTHER)], waits=[f"release:api:{OTHER}"])
@@ -11297,7 +11357,7 @@ def test_the_watch_drops_a_pr_someone_else_opened_that_no_order_of_his_names_onc
 def test_the_watch_keeps_a_pr_someone_else_opened_that_an_order_of_his_it_serves_names(
     demo: str, monkeypatch: pytest.MonkeyPatch, withdrawals: Withdrawals, named: str
 ) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["text"] = f"land {named} once it is green"
         data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"wants_tap": False}
     serve(monkeypatch, {KEY: read(), OTHER: read(headRefOid="ddddddd444", author="rowan")})
@@ -11316,7 +11376,7 @@ def test_a_pr_someone_else_opened_stays_refused_while_his_card_on_it_cannot_be_w
     watching = watcher(demo)
     for minute in range(watch.FAILURES_BEFORE_SAYING):
         watch.run_pass(watching, T0 + timedelta(minutes=minute))
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["tap"] = {"label": "Approve", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "slack", "picks": {}, "card": None}
     assert state.foreign_pr(state.load(demo), KEY) == state.foreign(KEY, "rowan", [])
     with pytest.raises(state.DriveError, match="opened on GitHub by rowan"):
@@ -11355,7 +11415,7 @@ def watchdogs(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, Path]]:
 
 
 def stalling(name: str) -> watch.Watcher:
-    with state.edit(name) as data:
+    with edit(name) as data:
         data["orders"]["o1"]["jobs"] = ["j1", "j2"]
         data["jobs"]["j1"] |= {"state": "waiting", "waits": ["j2"]}
         data["jobs"]["j2"] = job(goal="the release footer", state="waiting", waits=[FOOTER, FOOTER_STACKED], prs=[state.pr_url(FOOTER), state.pr_url(FOOTER_STACKED)])
@@ -11398,7 +11458,7 @@ def test_a_red_pr_behind_a_builder_waiting_on_prs_the_lander_has_not_landed_gets
     for minutes in (69, 97, 98, 99, 150):
         assert watch.stall_lines(watching, T0 + timedelta(minutes=minutes)) == []
     assert (ready_records, len(watchdogs)) == ([], 1)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["stage"] = RED_STAGE | {"why": "it fails readers-first at bbbbbbb"}
     watch.stall_lines(watching, T0 + timedelta(minutes=151))
     data = state.load(demo)
@@ -11413,7 +11473,7 @@ def test_jobs_waiting_on_one_pr_the_lander_has_not_landed_make_one_stall_one_wat
         data["orders"]["o1"]["jobs"].append(job_id)
         data["jobs"][job_id] = job(state="waiting", waits=[OTHER])
 
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
         data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"stage": UNLANDED}
         data["jobs"]["j1"] |= {"state": "waiting", "waits": [OTHER]}
@@ -11431,7 +11491,7 @@ def test_jobs_waiting_on_one_pr_the_lander_has_not_landed_make_one_stall_one_wat
         f"STUCK j1 o1: {OTHER}, which holds j1, j2, j3, unmoved 68 minutes: {unlanded}. WHY: {READERS_FIRST}, and j2 waits on {FOOTER}, which the lander has not merged; NEXT: drive pr land {FOOTER};"
         f" its whole answer, WHO and UNREAD with it, in {out}"
     ]
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         waiting(data, "j4")
     for minutes in (70, 98, 99, 130):
         assert watch.stall_lines(watching, T0 + timedelta(minutes=minutes)) == []
@@ -11461,14 +11521,14 @@ def test_23_staging_waits_of_4_jobs_on_one_env_make_one_stall_one_watchdog_and_o
         "j4": [staged_on("api", "c5dca80ed9be"), staged_on("dashboard", "2c18705b7744")],
     }
     thing, serving = f"staging:{STAGING_ENV}", "the watch's last release live read finds it serving"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["jobs"] = list(waits)
         data["jobs"]["j1"] |= {"state": "waiting", "waits": waits["j1"]}
         data["jobs"] |= {"j2": job(state="waiting", waits=waits["j2"]), "j3": job(), "j4": job(state="waiting", waits=waits["j4"])}
     watching = watcher(demo)
     watching.cards, watching.live = NO_CARDS, STAGING_LIVE
     assert watch.stall_lines(watching, T0) == []
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j3"] |= {"state": "waiting", "waits": waits["j3"]}
     for minutes in (26, 59):
         assert watch.stall_lines(watching, T0 + timedelta(minutes=minutes)) == []
@@ -11493,7 +11553,7 @@ def test_23_staging_waits_of_4_jobs_on_one_env_make_one_stall_one_watchdog_and_o
         assert watch.stall_lines(watching, T0 + timedelta(minutes=minutes)) == []
     assert (ready_records, len(watchdogs), list(state.load(demo)["stalls"])) == ([], 1, [thing])
     lone = staged_on("cloudrunner-next", "5f986a0")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         for job_id in ("j1", "j2", "j4"):
             data["jobs"][job_id] |= {"state": "done", "waits": []}
         data["jobs"]["j3"]["waits"] = [lone]
@@ -11544,7 +11604,7 @@ def test_stall_chains_resolve_shared_waits_once_per_snapshot(demo: str, monkeypa
 @pytest.mark.parametrize("count", [2, 16])
 def test_stall_projection_indexes_questions_and_release_cuts_once_per_pass(demo: str, monkeypatch: pytest.MonkeyPatch, count: int) -> None:
     wait = staged_on("api", "6d44e8728ec1")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"] = {f"j{n}": job(state="waiting", waits=[wait]) for n in range(1, count + 1)}
         data["orders"]["o1"]["jobs"] = list(data["jobs"])
     scans = []
@@ -11574,7 +11634,7 @@ def test_stall_projection_indexes_questions_and_release_cuts_once_per_pass(demo:
 
 
 def test_release_waits_fold_into_one_stall_per_pr_and_env_and_staging_waits_into_one_per_env(demo: str) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["jobs"] = ["j1", "j2"]
         data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1")
         data["jobs"]["j1"] |= {"state": "waiting", "waits": [f"release:api:{OTHER}", f"release:rsw-go:{OTHER}", f"release:api:{OTHER}@{STAGING_ENV}", staged_on("api", "6d44e8728ec1")]}
@@ -11615,7 +11675,7 @@ def test_a_staging_env_another_drives_staging_claim_holds_stands_behind_it_with_
     demo: str, watchdogs: list[tuple[str, Path]], ready_records: list[list[dict]]
 ) -> None:
     thing, ends = f"staging:{STAGING_ENV}", T0 + timedelta(minutes=90)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"] |= {"state": "waiting", "waits": [staged_on("api", "6d44e8728ec1"), staged_on("rsw-go", "6d44e8728ec1")]}
         data["orders"]["o1"]["claims"] = {"1794746488.439069": {"channel": "C0STAGING1", "link": staging_claim("1794746488.439069"), "until": state.stamp(T0 + timedelta(hours=4)), "since": "1794746488.439069", "said": None, "replies_read": state.stamp(T0)}}
     claimed_by("durable", {"o717": {"1794762734.416779": ends}, "o1718": {"1794735942.908509": T0 - timedelta(minutes=50), "1794754129.998849": T0 + timedelta(minutes=45)}})
@@ -11637,7 +11697,7 @@ def test_a_staging_env_another_drives_staging_claim_holds_stands_behind_it_with_
     watchdog_answered(out)
     [stuck] = watch.stall_lines(watching, T0 + timedelta(minutes=158))
     assert stuck.startswith(f"STUCK j1 o1: {thing}, which holds j1, unmoved 68 minutes: {STAGING_ENV} running api at 6d44e8728ec1")
-    with state.edit("durable") as data:
+    with edit("durable") as data:
         data["orders"]["o717"]["claims"]["1794762734.416779"] |= {"until": state.stamp(T0 + timedelta(hours=5)), "since": "1794790000.000001"}
     for minutes in (160, 188, 200, 250):
         assert watch.stall_lines(watching, T0 + timedelta(minutes=minutes)) == []
@@ -11652,7 +11712,7 @@ def test_a_stall_whose_stuck_line_another_live_watch_claimed_says_nothing_and_on
     watchdog_answered(out)
     live = {"pid": 4242, "started": "Mon Nov  9 10:00:00 2026"}
     monkeypatch.setattr(watch, "started", lambda pid: live["started"] if pid == live["pid"] else "now")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["stalls"][KEY] = {
             "print": STALLED_CARD,
             "since": state.stamp(T0),
@@ -11673,7 +11733,7 @@ def test_a_stall_on_an_order_the_meta_session_holds_reaches_it_in_one_hop_and_it
 ) -> None:
     watching = stalling(demo)
     tooling_order(demo, "waiting")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["roles"]["meta"] = {"session": "meta-session", "terminal": None, "cwd": "/meta", "started": state.stamp(T0)}
         data["jobs"]["j1"] |= {"agent": "agent-j1", "where": "local", "session": "meta-session"}
     for minutes in (0, 60):
@@ -11695,7 +11755,7 @@ def test_a_stall_on_an_order_the_meta_session_holds_reaches_it_in_one_hop_and_it
 
 def test_j4802_a_stalls_watchdog_brief_says_its_jobs_remote_lane_ended_so_it_offers_no_wake(demo: str, watchdogs: list[tuple[str, Path]]) -> None:
     watching = stalling(demo)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"] |= {"where": "remote", "dispatch": "ctx_26d8fa72c939", "deaths": [{"dispatch": "ctx_26d8fa72c939", "workspace": "w1", "why": "ended by drive job end", "at": state.stamp(T0)}]}
     for minutes in (0, 60):
         watch.stall_lines(watching, T0 + timedelta(minutes=minutes))
@@ -11719,7 +11779,7 @@ def test_a_sessions_transcript_is_read_from_the_folder_it_first_ran_in_after_its
 def test_at_most_two_watchdog_agents_run_at_once_oldest_stall_first(demo: str, watchdogs: list[tuple[str, Path]]) -> None:
     released = {"j1": OTHER, "j2": "Forge-AI/monorepo#44", "j3": "Forge-AI/monorepo#45"}
     releases = {job_id: f"release:{service}:{released[job_id]}" for job_id, service in (("j1", "api"), ("j2", "web"), ("j3", "sand"))}
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["jobs"] = ["j1", "j2", "j3"]
         data["jobs"] |= {"j2": job(), "j3": job(state="waiting", waits=[releases["j3"]])}
         for key in released.values():
@@ -11727,7 +11787,7 @@ def test_at_most_two_watchdog_agents_run_at_once_oldest_stall_first(demo: str, w
     watching = watcher(demo)
     watching.cards = NO_CARDS
     watch.stall_lines(watching, T0)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         for job_id in ("j1", "j2"):
             data["jobs"][job_id] |= {"state": "waiting", "waits": [releases[job_id]]}
     for minutes in (5, 65, 66):
@@ -11763,7 +11823,7 @@ def test_a_job_on_a_release_his_hold_on_every_release_holds_keeps_no_stall_and_o
     asked = "When should dashboard, sand-next and sand ship?"
     on_it = {"question": asked, "options": ["Now", "Later"], "recommended": "Now", "asked": state.stamp(T0), "url": CARD, "card": {"title": asked, "body": ""}}
     elsewhere = {"question": "Which store should the sand CLI read?", "options": ["Team", "Run"], "recommended": "Team", "asked": state.stamp(T0), "url": f"{CARD[:-3]}200", "card": {"title": "Which store?", "body": "sandsql"}}
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY].update(state="merged", merged_sha="bd434a0f1b2c3d4e")
         data["jobs"]["j1"] |= {"state": "waiting", "waits": [wait]}
         data["stalls"][f"release:{KEY}"] = stood
@@ -11795,7 +11855,7 @@ def test_replayed_705676_and_705742_jobs_waiting_on_one_pr_on_his_approve_keep_n
         "said": state.stamp(T0 - timedelta(minutes=31)),
         "claim": None,
     }
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["orders"]["o1"]["jobs"] = ["j1", "j2", "j3", "j4"]
         data["jobs"]["j1"] |= {"state": "waiting", "waits": [FOOTER]}
         data["stalls"][FOOTER] = stood
@@ -11815,7 +11875,7 @@ def test_a_stalls_watchdog_is_handed_his_recorded_answers_ccn_ranks_nearest_its_
     answer = {"id": "7030890", "asked": "May sand-next ship to Macs past the hold?", "said": "Keep the hold: Macs get none of the fixes until you lift it", "link": CARD}
     ranked: list[list[str]] = []
     monkeypatch.setattr(settled, "matched", lambda texts, data: ranked.append(texts) or [answer])
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY].update(state="merged", merged_sha="bd434a0f1b2c3d4e")
         data["jobs"]["j1"] |= {"state": "waiting", "waits": [wait], "goal": "ship the Mac fixes"}
     watching = watcher(demo)
@@ -11829,7 +11889,7 @@ def test_a_stalls_watchdog_is_handed_his_recorded_answers_ccn_ranks_nearest_its_
 
 def test_a_stalls_watchdog_is_handed_the_watchs_last_buildkite_read_of_each_build_it_waits_on(demo: str, monkeypatch: pytest.MonkeyPatch, watchdogs: list[tuple[str, Path]]) -> None:
     buildkite_reads(monkeypatch, {"forge/release/14769": BUILD_RUNNING})
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"] |= {"state": "waiting", "waits": [RELEASE_BUILD]}
     watching = watcher(demo)
     watching.cards = NO_CARDS
@@ -11880,7 +11940,7 @@ def test_watchdog_agents_count_those_still_searching_and_those_started_within_th
     ids=["unstopped", "his hold on every release", "red under the hold label", "red under his hold", "his card", "a pr he owes", "a green pr he holds", "his question card", "his question card no wait names", "his question card holding the pr", "due ahead", "running job"],
 )
 def test_no_chain_is_aged_past_a_step_of_his_a_time_to_come_or_a_running_job(demo: str, stops: Callable[[dict], None], on_hold: bool, subjects: list[str]) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"] |= {"state": "waiting", "waits": [f"release:sand:{OTHER}"]}
         data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1")
         data["prs"][KEY]["stage"] = RED_STAGE
@@ -11898,7 +11958,7 @@ def test_the_daily_sweep_files_a_drive_tooling_order_per_bar_crossed_and_an_orde
     owed = {"thread_ts": ts, "ts": ts, "text": "is it up?", "permalink": f"https://acme.slack.com/archives/D123/p{ts.replace('.', '')}"}
     fresh = {**owed, "ts": f"{(T0 - timedelta(minutes=5)).timestamp():.6f}"}
     monkeypatch.setattr(slack, "owed", lambda session: [fresh, owed])
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["tap"] = state.new_tap("Approve", "aaaaaaa111", "card", at=state.stamp(T0 - timedelta(hours=25)))
         data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"tap": state.new_tap("Approve", "bbbbbbb222", "card", at=state.stamp(T0 - timedelta(hours=1)))}
     watching = watcher(demo)
@@ -11944,7 +12004,7 @@ def test_the_daily_sweep_ends_his_open_drive_tooling_cards_jev_reads_as_details_
         kept[text].parent.mkdir(exist_ok=True)
         kept[text].write_text(text)
     title = detail.splitlines()[0].removeprefix("ASK ")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["answers"][ruling] = {"words": settled.TOOLING_SAID, "link": message, "at": state.stamp(T0), "said": state.stamp(T0), "cards": {}, "jobs": {}}
         data["jobs"]["j1"]["questions"] = [
             state.new_question(str(kept[SHORT_ASK]), SHORT_ASK.splitlines()[0].removeprefix("ASK "), state.stamp(T0), card=CARD) | {"waits": "demo:j1-1"},
@@ -12002,7 +12062,7 @@ def test_a_sweep_waits_for_a_pass_that_read_his_cards_and_a_failed_owed_read_is_
 
 def test_a_wake_writes_the_marks_the_watch_asked_for_only_once_it_delivered_its_line(demo: str) -> None:
     asked = state.stamp(T0)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["stage"] = {"name": "red", "owner": stage.BUILDER, "why": "", "since": asked, "woke": None, "waking": asked}
         data["prs"][KEY]["objecting"] = {"head": "aaaaaaa111", "at": asked}
         data["mains"]["Forge-AI/monorepo"] = {"test_one": {"owner": KEY, "woke": None, "waking": asked, "run": "", "workflow": "", "since": asked}}
@@ -12016,24 +12076,24 @@ def test_a_wake_writes_the_marks_the_watch_asked_for_only_once_it_delivered_its_
 def test_a_builders_staging_line_after_its_staging_test_passed_writes_no_wait_so_the_watch_says_free_once(named_paths: None, demo: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]) -> None:
     part = "staging test of #42 before it lands"
     proof = "https://buildkite.com/forge/release/builds/16121"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         [change] = data["orders"]["o1"]["parts"]
         data["orders"]["o1"]["parts"][part] = state.new_part()
         data["jobs"]["j1"]["parts"] = [change, part]
     waits_on(demo, f"o1:{part}")
     waiting_job(demo)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["tap"] = {"label": "Approve", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "slack", "picks": {}, "card": None}
     serve(monkeypatch, {KEY: read(checks=GREEN, reviewDecision="APPROVED")})
     watching = watcher(demo)
     watch.run_pass(watching, T0)
     done = f"DONE {proof} passed every staging case of #42 at aaaaaaa111"
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         state.take_result(data, "j1", done, f"{done}\nCHECK: {proof}\nCASE a rollback refused: pass {proof}\n")
     said = [line for line in watch.run_pass(watching, T0 + timedelta(minutes=30)) if line.startswith("FREE ")]
     waits = []
     for n in range(1, 4):
-        with state.edit(demo) as data:
+        with edit(demo) as data:
             state.staging_testers(data, "j1", f"PUSHED {state.pr_url(KEY)}\nSTAGING: #42 a foreign-table read through the query route is refused for another principal\n")
             waits.append(data["prs"][KEY]["waits"])
         said += [line for line in watch.run_pass(watching, T0 + timedelta(minutes=30 + 2 * n)) if line.startswith("FREE ")]
@@ -12041,7 +12101,7 @@ def test_a_builders_staging_line_after_its_staging_test_passed_writes_no_wait_so
 
 
 def test_a_proof_rerun_on_the_same_wait_line_says_nothing_on_its_prs_and_a_changed_one_is_said(demo: str) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j9"] = state.new_job("o1", "builder", "repair the staging-claim rule", [], state.stamp()) | {"state": "waiting", "repro": "/p.sh"}
         data["orders"]["o1"]["jobs"].append("j9")
     first = "WAIT his Approve on Forge-AI/monorepo#57038, the rule edit"
@@ -12058,7 +12118,7 @@ def test_a_stage_wake_built_at_a_head_a_push_moved_the_pr_off_sends_nothing_and_
     posted: list[dict] = []
     monkeypatch.setattr(tools, "sent", lambda name, lane, posts: posted.extend(posts) or ["9"])
     kept = {"name": "red", "owner": "j1", "why": "its required check test failed at bbbbbbb", "since": state.stamp(T0), "woke": None, "waking": state.stamp(T0)}
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"][KEY]["stage"] = dict(kept)
     line = f"{KEY} red, owed by j1: its required check test failed at bbbbbbb [o1 j1]"
     assert run("pr", "wake", state.pr_url(KEY), "--text", line, "--woke", f"stage:{KEY}@bbbbbbb222", "--woke-at", state.stamp(T0)) == (
@@ -12160,7 +12220,7 @@ def test_the_drives_watch_retires_a_priority_seat_no_open_order_holds_and_keeps_
     demo: str, monkeypatch: pytest.MonkeyPatch, seats_end_in_memory: list[tuple[str, str]]
 ) -> None:
     monkeypatch.setattr(launchd, "launchctl", lambda *args: None)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["subcoordinators"]["Priority o1"] = {"session": "seat-session-1", "cwd": "/tmp", "from": 0}
         data["subcoordinators"]["Priority o2"] = {"session": "seat-session-2", "cwd": "/tmp", "from": 0}
         data["launched"]["sub-coordinator Priority o1"] = "term_1"
@@ -12229,7 +12289,7 @@ def test_a_pr_is_checked_on_the_first_pass_then_only_once_a_delivery_names_it_hi
     monkeypatch.setattr(watch, "check_owed", lambda name, key, pr, data, unit, moment: True)
     monkeypatch.setattr(watch, "hears", lambda watcher, data, order: True)
     monkeypatch.setattr(watch, "objections", lambda watcher: None)
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["prs"] = {KEY: state.new_pr(state.pr_url(KEY), "j1", "o1"), "Forge-AI/monorepo#43": state.new_pr(state.pr_url("Forge-AI/monorepo#43"), "j1", "o1")}
     watching = watcher(demo)
     watching.cards = NO_CARDS
@@ -12237,7 +12297,7 @@ def test_a_pr_is_checked_on_the_first_pass_then_only_once_a_delivery_names_it_hi
     watch.checks(watching, T0 + timedelta(minutes=1))
     watching.checking.add(KEY)
     watch.checks(watching, T0 + timedelta(minutes=2))
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["answers"]["a1"] = {}
     watch.checks(watching, T0 + timedelta(minutes=3))
     watch.checks(watching, T0 + timedelta(minutes=3) + watch.CHECK_SWEEP)
@@ -12303,7 +12363,7 @@ def test_a_held_text_his_answer_removes_a_premise_of_is_taken_off_the_jobs_it_to
     stale = {"seq": None, "words": "The staging test of Forge-AI/monorepo#42 also runs: the rollback on sandsql", "at": state.stamp(T0), "said": None, "request": "req-stale", "sender": None}
     kept = {"seq": None, "words": "From the coordinator: PR #7 merged", "at": state.stamp(T0), "said": None, "request": "req-kept", "sender": "coordinator"}
     his = {"seq": None, "words": 'His answer a1, verbatim: "ship everything except ssql"', "at": state.stamp(T0), "said": None, "request": "req-his", "sender": state.WATCH_SENDER}
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j1"]["undelivered"] = [stale, kept, his]
         data["answers"]["a1"] = {"words": "ship everything except ssql", "link": f"{CARD}9", "at": state.stamp(T0), "said": state.stamp(T0), "cards": {}, "jobs": {"j1": {"mark": "sent"}}}
     jev.chosen = ("t1", 0.95)
@@ -12316,7 +12376,7 @@ def test_a_held_text_his_answer_removes_a_premise_of_is_taken_off_the_jobs_it_to
 
 
 def test_a_wait_on_a_stopped_job_reads_as_one_on_the_job_that_took_its_part_and_a_part_none_took_names_the_job_add_that_takes_it_never_a_resume(demo: str) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         part = next(iter(data["orders"]["o1"]["parts"]))
         data["orders"]["o1"]["jobs"] = ["j1", "j2", "j3"]
         data["jobs"]["j1"].update(kind="reader", state="waiting", waits=["j2"], prs=[], parts=[part])
@@ -12336,7 +12396,7 @@ def test_a_wait_on_a_stopped_job_reads_as_one_on_the_job_that_took_its_part_and_
 
 
 def test_each_new_alert_in_a_staging_envs_channel_goes_once_to_each_job_testing_on_it(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         data["jobs"]["j2"] = job()
         data["jobs"]["j3"] = job(state="done")
         data["slots"]["plat-usw2-staging"] = {"holder": {"job": "j1"}, "hold": {"for": "j2"}, "queue": [{"job": "j3"}]}

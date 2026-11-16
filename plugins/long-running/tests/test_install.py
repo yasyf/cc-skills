@@ -15,8 +15,22 @@ from pathlib import Path, PurePosixPath
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
-from conftest import REAL_PLUGIN_COPIES_FIRST, commit_files, git_in, Jev
-from drive import brief, card, cli, dashboard, github, install, orca, reads, receiver, settled, state, view, watch
+from conftest import REAL_PLUGIN_COPIES_FIRST, Jev, commit_files, edit, git_in
+from drive import (
+    brief,
+    card,
+    cli,
+    dashboard,
+    github,
+    install,
+    orca,
+    reads,
+    receiver,
+    settled,
+    state,
+    view,
+    watch,
+)
 
 SHA = "abc123def4567890"
 REPO = "yasyf/cc-skills"
@@ -1131,7 +1145,7 @@ def test_an_install_types_exit_into_a_session_cci_runs_outside_the_drives_checko
     running("demo-communicator", folder="/old/durable-agents")
     tmux_shown["list-panes"] = f"{os.getppid()} demo-communicator\n"
     if incident:
-        with state.edit("demo") as data:
+        with edit("demo") as data:
             data["orders"]["o1"] = state.new_order("the journal fails to open", "him", None, {}, state.stamp()) | {"incident": True}
     git = fake(["unused"], set())
     assert install.main("long-running@skills", None, None, 900, None) == 0
@@ -1265,7 +1279,7 @@ def test_an_install_reloads_each_sub_coordinator_beside_both_roles_stamping_each
     fake: Callable[..., FakeGit], running: Callable[..., None], capsys: pytest.CaptureFixture[str], runs_in: dict[str, list[dict]]
 ) -> None:
     start_drive(runs_in, "demo", communicator="term_comm", coordinator="term_coord")
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["subcoordinators"]["Iris"] = {"session": "demo-iris", "cwd": "/work", "started": state.stamp()}
     runs_in["demo-iris"] = [{"handle": "term_iris", "orphaned": False}]
     running("demo-communicator", "demo-coordinator", "demo-iris")
@@ -1365,7 +1379,7 @@ def test_a_plugin_needing_a_newer_captain_hook_app_installs_nothing_until_his_in
         f'drive install: WAIT holds {key} for his card "{HELPER_CARD}" (Install now (recommended), Installs never need me and Not now), asked with drive job ask:'
         " it needs captain-hook 12.121.70, and Captain Hook.app, which runs every hook, runs 12.121.68; run this again once his tap or `drive answer` records his pick"
     )
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["jobs"]["j1"] = state.new_job("o1", "builder", "ship", [], state.stamp()) | {"questions": [state.new_question("/asks/j1-helper.md", HELPER_CARD, state.stamp())]}
     assert install.main(key, None, None, 900, "demo") == 1
     assert capsys.readouterr().err.startswith(f"drive install: WAIT holds {key} for his card /asks/j1-helper.md: it needs captain-hook 12.121.70")
@@ -1387,7 +1401,7 @@ def test_his_tap_on_the_install_card_approves_the_restart_before_drive_answer_re
     fake: Callable[..., FakeGit], monkeypatch: pytest.MonkeyPatch, closed: dict | None, installs: bool
 ) -> None:
     git = needing_the_app(fake, monkeypatch, [])
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["jobs"]["j1"] = state.new_job("o1", "builder", "ask", [], state.stamp()) | {"questions": [state.new_question("/asks/j1-helper.md", HELPER_CARD, state.stamp(), closed=closed)]}
     assert install.main("long-running@skills", SHA, None, 900, "demo") == (0 if installs else 1)
     assert (RESTART in git.calls, git.helper) == (installs, "12.121.70" if installs else "12.121.68")
@@ -1450,7 +1464,7 @@ def proving(config: Path, tmp_path: Path, git: FakeGit, exits: int) -> Path:
     script.write_text(f'#!/bin/sh\necho "ran on ${{PATH%%:*}}"\nexit {exits}\n')
     script.chmod(0o755)
     state.create(state.new_drive("demo", "coordinator", "demo-coordinator", str(tmp_path)))
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         part = "Drive tooling: prove each install"
         data["orders"]["o1"] = state.new_order(part, f"slack:D123/{HIS_THREAD}", ("D123", HIS_THREAD), {part: state.new_part()}, state.stamp()) | {"jobs": ["j1"]}
         data["jobs"]["j1"] = state.new_job("o1", "builder", "prove", [part], state.stamp()) | {
@@ -1470,7 +1484,7 @@ def proof_events() -> list[tuple[str, str]]:
 
 def repairing(config: Path, tmp_path: Path, git: FakeGit, exits: int, job: dict) -> Path:
     script = proving(config, tmp_path, git, exits)
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         del data["prs"]["yasyf/cc-skills#7"]
         data["jobs"]["j1"].update({"prs": [], "proof": None} | job)
     return script
@@ -1526,7 +1540,7 @@ def test_a_jobs_own_done_citing_prs_other_jobs_opened_proves_only_itself_and_say
     cited = "DONE 1,216 PRs checked at 27c34883bf69: 0 gaps; no readers added. #41015 held by its o2 part and j5676/#56696"
     watched = {"pid": os.getpid(), "at": state.stamp(), "said": cited, "version": state.VERSION}
     script = repairing(config, tmp_path, git, exits, {"state": "done", "said": cited, "proof": watched})
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         for number, job_id in (("41015", "j0"), ("56696", "j5676")):
             data["prs"][f"Forge-AI/monorepo#{number}"] = state.new_pr(f"https://github.com/Forge-AI/monorepo/pull/{number}", job_id, "o1") | {"state": "merged", "merged_sha": "fedcba"}
     data = state.load("demo")
@@ -1554,7 +1568,7 @@ def test_a_jobs_own_done_on_a_part_a_later_job_holds_is_never_proven_since_the_p
     git = fake([BUILD], {BUILD})
     repairing(config, tmp_path, git, 0, {"state": "done", "said": "DONE duckdb-spike-bulk-apply at d9bf4dd ran every case"})
     part = "Drive tooling: prove each install"
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         moved = state.stamp(state.parse_time(data["jobs"]["j1"]["created"]) + timedelta(minutes=1))
         data["jobs"]["j2"] = state.new_job("o1", "builder", "move the branch on", [part], moved) | {"state": later, "said": "DONE duckdb-spike-bulk-apply at f05ceac"}
         data["orders"]["o1"]["jobs"].append("j2")
@@ -1571,7 +1585,7 @@ def test_a_passing_proof_of_a_jobs_own_done_naming_an_open_pr_says_live_only_its
     git = fake([BUILD], {BUILD})
     script = proving(config, tmp_path, git, 0)
     opened = "https://github.com/yasyf/cc-skills/pull/8"
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["prs"]["yasyf/cc-skills#8"] = state.new_pr(opened, "j1", "o1")
         data["jobs"]["j1"].update(state="done", said=f"DONE {URL} {opened} checked by hand", prs=[URL, opened])
     install.prove("demo", "j1", 900)
@@ -1601,7 +1615,7 @@ def test_a_repair_its_own_agent_proves_installs_nothing_takes_done_naming_no_pr_
 
 def handing(config: Path, tmp_path: Path, git: FakeGit, exits: int, job: dict) -> Path:
     script = repairing(config, tmp_path, git, exits, {"goal": "prove Forge-AI/monorepo#9 live", "brief_flags": {"handoff": "Forge-AI/monorepo#9 at fedcba merged: prove it live"}} | job)
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["orders"]["o1"]["jobs"].insert(0, "j0")
         data["jobs"]["j0"] = state.new_job("o1", "builder", "fix", [], state.stamp()) | {"state": "done", "said": f"DONE {PRODUCT} merged", "prs": [PRODUCT]}
         data["prs"]["Forge-AI/monorepo#9"] = state.new_pr(PRODUCT, "j0", "o1") | {"state": "merged", "merged_sha": "fedcba", "title": "Fix: the product change"}
@@ -1650,7 +1664,7 @@ def test_a_cut_provers_order_unit_that_passes_closes_its_order_while_another_ord
     for script in (passing, failing):
         script.chmod(0o755)
     carried = "ship the dashboard"
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["orders"]["o2"] = state.new_order(carried, f"slack:D123/{HIS_THREAD}", ("D123", HIS_THREAD), {carried: state.new_part()}, state.stamp()) | {"jobs": ["j1"]}
         data["jobs"]["j1"].update(carries={"o2": [carried]}, repros={"o1": str(passing), "o2": str(failing)})
     install.prove("demo", "j1", 900)
@@ -1670,7 +1684,7 @@ def test_a_prover_whose_proof_files_are_kept_per_order_alone_proves_with_no_job_
     passing = tmp_path / "o1.sh"
     passing.write_text("#!/bin/sh\necho 'PASS o1 is live'\n")
     passing.chmod(0o755)
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["jobs"]["j1"].pop("repro", None)
         data["jobs"]["j1"]["repros"] = {"o1": str(passing)}
     install.prove("demo", "j1", 900)
@@ -1699,7 +1713,7 @@ def test_a_builder_whose_brief_only_cites_a_merged_pr_as_a_staging_tester_does_p
     watched = {"pid": os.getpid(), "at": state.stamp(), "said": said, "version": state.VERSION}
     handing(config, tmp_path, fake([BUILD], {BUILD}), 0, {"state": "done", "said": said, "proof": watched} | brief)
     carried = "sand exec keeps its env secrets"
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["orders"]["o2"] = state.new_order(carried, "slack", None, {carried: state.new_part()}, state.stamp()) | {"jobs": ["j0"]}
         data["jobs"]["j0"]["said"] = f"DONE {PRODUCT} merged: Forge-AI/monorepo#9 at fedcba"
         data["jobs"]["j0"]["carries"] = {"o2": [carried]}
@@ -1742,7 +1756,7 @@ def test_a_proof_closes_drive_tooling_a_session_opened_done_on_its_proof_with_no
     config: Path, tmp_path: Path, fake: Callable[..., FakeGit], source: str
 ) -> None:
     script = proving(config, tmp_path, fake([BUILD], {BUILD}), 0)
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["orders"]["o1"].update({"from": source, "thread": None})
     kept = state.proof_path("demo", "j1")
     proven = (
@@ -1759,7 +1773,7 @@ def test_a_proof_keeps_the_close_report_of_drive_tooling_a_session_opened_for_a_
     config: Path, tmp_path: Path, fake: Callable[..., FakeGit]
 ) -> None:
     proving(config, tmp_path, fake([BUILD], {BUILD}), 0)
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["orders"]["o1"].update({"from": "cci:696660", "thread": None, "reporters": [state.reporter("slack:C0BUGS1/1794400100.000200")]})
     install.prove("demo", "j1", 900)
     order = state.load("demo")["orders"]["o1"]
@@ -1795,7 +1809,7 @@ def test_a_proof_of_merges_in_two_repositories_whose_installs_hold_them_runs_the
     git = fake([BUILD], {OLD_COMMIT})
     script = proving(config, tmp_path, git, 0)
     slack = "https://github.com/yasyf/cc-slack/pull/3"
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["jobs"]["j1"].update(said=f"READY {URL} {slack}", prs=[URL, slack])
         data["prs"]["yasyf/cc-slack#3"] = state.new_pr(slack, "j1", "o1") | {"state": "merged", "merged_sha": "def456", "title": "Fix: the card"}
     assert install.prove("demo", "j1", 900).startswith(f"j1: {install.PROVEN} on long-running@skills 1.0.2: {script} exits 0")
@@ -1860,7 +1874,7 @@ def test_a_proof_file_gets_its_whole_timeout_however_long_the_install_before_it_
 def test_a_proof_proves_the_prs_its_ready_names_while_the_job_also_holds_a_pr_closed_as_superseded(config: Path, tmp_path: Path, fake: Callable[..., FakeGit]) -> None:
     script = proving(config, tmp_path, fake([BUILD], {BUILD}), 0)
     superseded = "https://github.com/yasyf/cc-skills/pull/8"
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["jobs"]["j1"]["prs"].append(superseded)
         data["prs"]["yasyf/cc-skills#8"] = state.new_pr(superseded, "j1", "o1") | {"state": "closed"}
     assert install.prove("demo", "j1", 900).startswith(f"j1: {install.PROVEN} on long-running@skills 1.0.3: {script} exits 0")
@@ -1884,7 +1898,7 @@ def proving_hooks(config: Path, tmp_path: Path, fake: Callable[..., FakeGit], mo
     git.helper = app
     monkeypatch.setattr(github, "read", lambda what, cmd, max_age="0s", text=True: "v12.121.71\n" if cmd[1] == "release" else "")
     monkeypatch.setattr(settled, "ccn", lambda argv, text, cwd, failure: "[]")
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["jobs"]["j1"].update(said=f"PUSHED {HOOKS_URL}", prs=[HOOKS_URL])
         data["prs"]["yasyf/captain-hook#709"] = state.new_pr(HOOKS_URL, "j1", "o1") | {"state": "merged", "merged_sha": SHA, "title": "Fix: the process guard"}
     return git, script
@@ -1929,7 +1943,7 @@ def test_a_proof_of_a_yasyf_merge_beside_a_product_merge_installs_and_proves_the
     git = fake([BUILD], {BUILD})
     script = proving(config, tmp_path, git, 0)
     product = "https://github.com/Forge-AI/monorepo/pull/9"
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["jobs"]["j1"].update(said=f"READY {URL} {product}", prs=[URL, product])
         data["prs"]["Forge-AI/monorepo#9"] = state.new_pr(product, "j1", "o1") | {"state": "merged", "merged_sha": "fedcba", "title": "Fix: the page"}
     assert install.proof_gap(state.load("demo"), "j1") is None
@@ -1947,7 +1961,7 @@ def test_a_product_merge_on_a_build_order_of_several_parts_with_no_reader_takes_
     proving(config, tmp_path, fake([BUILD], {BUILD}), 0)
     product, page = "https://github.com/Forge-AI/monorepo/pull/9", "the dashboard's run page"
     shipped, carried = "readers call ssql-blobstore", "the blob store answers reads"
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["orders"]["o1"] |= {"kind": "build", "parts": {shipped: state.new_part(), "writers call ssql-blobstore": state.new_part()}}
         data["orders"]["o2"] = state.new_order(carried, "slack", None, {carried: state.new_part()}, state.stamp()) | {"jobs": ["j1"]}
         flags = {"native": page, "interactions": "open a run's page", "done_when": "the PR is green on dev"}
@@ -1981,7 +1995,7 @@ def test_a_product_merge_of_paths_on_go_cis_dev_list_waits_on_no_release_owes_no
 ) -> None:
     proving(config, tmp_path, fake([BUILD], {BUILD}), 0)
     product = "https://github.com/Forge-AI/monorepo/pull/9"
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["jobs"]["j1"].update(said=f"READY {product}", prs=[product], repro=None)
         data["prs"]["Forge-AI/monorepo#9"] = state.new_pr(product, "j1", "o1") | {"state": "merged", "merged_sha": "fedcba9876543210", "title": "Fix: tools/ci fetch_dev"}
         reach = {"Forge-AI/monorepo#9": {"components": ["api", "devbox", "platy"], "touched": ["devbox", "platy"], "dev": ["tools/ci", "go/ci/internal/devbox/box.go"], "releases": ["devbox"]}}
@@ -2001,7 +2015,7 @@ def test_a_second_hand_over_of_the_same_prs_goes_to_their_one_prover_widening_it
 ) -> None:
     proving(config, tmp_path, fake([BUILD], {BUILD}), 0)
     product, carried = "https://github.com/Forge-AI/monorepo/pull/9", "ship the dashboard"
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["jobs"]["j1"].update(said=f"READY {product}", prs=[product], repro=None)
         data["prs"]["Forge-AI/monorepo#9"] = state.new_pr(product, "j1", "o1") | {"state": "merged", "merged_sha": "fedcba9876543210", "title": "Fix: the page"}
         install.merged_done("demo", data, "j1")
@@ -2019,7 +2033,7 @@ def test_a_second_hand_over_of_the_same_prs_goes_to_their_one_prover_widening_it
 def test_the_mac_line_of_a_merged_builders_return_goes_onto_its_unstarted_provers_brief_flags_once(config: Path, tmp_path: Path, fake: Callable[..., FakeGit]) -> None:
     proving(config, tmp_path, fake([BUILD], {BUILD}), 0)
     product, step = "https://github.com/Forge-AI/monorepo/pull/9", "ci db-read of the sessions created two days ago"
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["jobs"]["j1"].update(said=f"READY {product}", prs=[product], repro=None)
         data["prs"]["Forge-AI/monorepo#9"] = state.new_pr(product, "j1", "o1") | {"state": "merged", "merged_sha": "fedcba9876543210", "title": "Fix: the page"}
         install.merged_done("demo", data, "j1")
@@ -2038,7 +2052,7 @@ def test_a_product_merge_whose_paths_reach_no_release_says_its_prover_in_one_lin
     proving(config, tmp_path, fake([BUILD], {BUILD}), 0)
     page = "the dashboard's run details page: the browser view of a step shows its screenshot"
     port, shown = "https://github.com/Forge-AI/monorepo/pull/9", "https://github.com/Forge-AI/monorepo/pull/10"
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         order = data["orders"]["o1"]
         order["jobs"].append("j2")
         data["jobs"]["j2"] = state.new_job("o1", "builder", "show each step", [*order["parts"]], state.stamp()) | {
@@ -2070,7 +2084,7 @@ def test_a_merge_with_no_staging_test_reaching_a_target_staging_runs_gets_a_prov
 ) -> None:
     proving(config, tmp_path, fake([BUILD], {BUILD}), 0)
     tested, untested = "https://github.com/Forge-AI/monorepo/pull/9", "https://github.com/Forge-AI/monorepo/pull/10"
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         order = data["orders"]["o1"]
         order["jobs"].append("j2")
         data["jobs"]["j2"] = state.new_job("o1", "builder", "show each step", [*order["parts"]], state.stamp()) | {"state": "waiting", "said": f"READY {untested}", "prs": [untested], "brief_flags": {"native": "none"}}
@@ -2106,7 +2120,7 @@ def test_a_merge_with_no_staging_test_reaching_a_target_staging_runs_gets_a_prov
 def test_an_incidents_fix_proven_live_keeps_no_close_and_leaves_its_close_to_the_watchs_read(config: Path, tmp_path: Path, fake: Callable[..., FakeGit]) -> None:
     git = fake([BUILD], {BUILD})
     script = proving(config, tmp_path, git, 0)
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["orders"]["o1"].update(incident=True, parts={"fix": state.new_part()})
         data["jobs"]["j1"]["parts"] = ["fix"]
     install.prove("demo", "j1", 900)
@@ -2157,7 +2171,7 @@ def test_a_proof_ending_on_wait_with_no_fail_line_takes_no_result_and_marks_its_
     wait = "WAIT S1 no exchange since the install: reply in a DM thread within 60s of a handler's post there, then run this again"
     script.write_text(f"#!/bin/sh\necho 'ok A1 cc-slack dm-status takes --drive'\necho \"{wait}\"\nexit 2\n")
     marker = {"pid": 4242, "at": state.stamp(), "said": f"PUSHED {URL}", "version": state.VERSION}
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["jobs"]["j1"]["proof"] = marker
     kept = state.proof_path("demo", "j1")
     waits = f"{install.PROOF_WAITS}: {URL}: {script} exits 2 on long-running@skills 1.0.3, its output {kept}: {wait}"
@@ -2206,7 +2220,7 @@ def test_a_proof_of_something_he_sees_takes_done_once_each_user_storys_lines_it_
     press = tmp_path / "press-j.png"
     press.write_bytes(b"\0")
     script.write_text(f"#!/bin/sh\ncat <<'EOF'\n{story_output(press)}EOF\n")
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["jobs"]["j1"]["brief_flags"] = {"native": "the dashboard's queue", "interactions": QUEUE_STORIES}
     install.prove("demo", "j1", 900)
     job = state.load("demo")["jobs"]["j1"]
@@ -2227,7 +2241,7 @@ def test_a_proof_of_something_he_sees_takes_blocked_naming_every_gap_in_each_use
     printed = printed.replace('PASS S2 title: the hover showed "Fix: prove each install"\n', "")
     printed = printed.replace(f"SEEN S2: {POST}\n", "SEEN S2: /gone/hover-a-card.png\n")
     script.write_text(f"#!/bin/sh\ncat <<'EOF'\n{printed}EOF\n")
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["jobs"]["j1"]["brief_flags"] = {"native": "the dashboard's queue", "interactions": QUEUE_STORIES}
     install.prove("demo", "j1", 900)
     job = state.load("demo")["jobs"]["j1"]
@@ -2261,13 +2275,13 @@ def test_a_staging_testers_done_on_a_brief_naming_user_stories_is_kept_for_drive
     press.write_bytes(b"\0")
     cases.write_text("case 1 passed\n")
     script.write_text(f"#!/bin/sh\ncat <<'EOF'\n{story_output(press)}EOF\nexit {exits}\n")
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["orders"]["o1"]["parts"] = {part: state.new_part()}
     monkeypatch.setattr("sys.stdin", io.StringIO(f"DONE every case of #42 passed on staging\nCHECK: {cases}\nCASE 1 j opens the next card: pass\n"))
     assert cli.main(["job", "report", "j1", "-", "--drive", "demo"]) == 0
     data = state.load("demo")
     assert (data["jobs"]["j1"]["state"], install.done_unproven(data, "j1"), state.delivered(data, "o1", part)) == ("done", True, False)
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["jobs"]["j1"]["proof"] = {"child": state.born(os.getpid()), "state": "adopted", "at": state.stamp(), "said": data["jobs"]["j1"]["said"], "version": state.VERSION}
     install.prove("demo", "j1", 900)
     data = state.load("demo")
@@ -2296,7 +2310,7 @@ def test_a_proof_whose_brief_names_a_step_after_the_install_takes_done_only_once
     git = fake([BUILD], {BUILD})
     script = proving(config, tmp_path, git, 0)
     script.write_text(f"#!/bin/sh\ncat <<'EOF'\n{J4506_OUTPUT}EOF\n")
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["jobs"]["j1"]["brief_flags"] = {"after": [REDRAW, "drive job resume j9"]}
     ran: list[tuple[list[str], str]] = []
 
@@ -2327,7 +2341,7 @@ def test_a_proof_whose_after_install_step_runs_past_its_timeout_takes_blocked_an
 ) -> None:
     git = fake([BUILD], {BUILD})
     script = proving(config, tmp_path, git, 0)
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["jobs"]["j1"]["brief_flags"] = {"after": [REDRAW, "drive job resume j9"]}
     ran: list[list[str]] = []
 
@@ -2352,11 +2366,11 @@ def test_a_pr_merged_and_proved_before_the_watch_reads_it_names_its_close_report
     proving(config, tmp_path, fake([BUILD], {BUILD}), 0)
     title = "Fix: an owner record about the drive adds its Drive tooling: order in the same record call"
     on_github["title"] = title
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["prs"].clear()
         data["jobs"]["j1"]["prs"] = []
     cli.add_pr("demo", "yasyf/cc-skills#7", "j1", card.read("yasyf/cc-skills#7"))
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         merged = data["prs"]["yasyf/cc-skills#7"]
         merged.update(state="merged", merged_sha=SHA)
     install.prove("demo", "j1", 900)
@@ -2787,7 +2801,7 @@ def test_a_proof_is_refused_naming_who_proves_it_for_a_job_with_no_proof_file_on
     config: Path, tmp_path: Path, fake: Callable[..., FakeGit], change: dict, refusal: str
 ) -> None:
     proving(config, tmp_path, fake([BUILD], {BUILD}), 0)
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["prs"]["Forge-AI/monorepo#9"] = state.new_pr("https://github.com/Forge-AI/monorepo/pull/9", "j1", "o1") | {"state": "merged", "merged_sha": "fedcba"}
         data["jobs"]["j1"].update(change)
     with pytest.raises(state.DriveError, match=re.escape(refusal)):
@@ -2830,7 +2844,7 @@ def test_a_failing_proof_a_session_runs_keeps_its_output_and_says_it_on_its_prs_
     script = proving(config, tmp_path, fake([BUILD], {BUILD}), 1)
     script.write_text("#!/bin/sh\necho 'FAIL C1: the relay timed out'\nexit 1\n")
     state.keep_report("demo", "j1", f"PUSHED {URL}", f"PUSHED {URL}\nPR: {URL}\n")
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["jobs"]["j1"].update(proof={"pid": 4242, "at": state.stamp(), "said": f"PUSHED {URL}", "version": state.VERSION}, **taken)
     before = state.load("demo")["jobs"]["j1"]
     downs: list[str] = []
@@ -2877,7 +2891,7 @@ def test_a_proof_refused_on_a_job_that_took_blocked_leaves_it_as_it_was(
 ) -> None:
     proving(config, tmp_path, fake([BUILD], {BUILD}), 0)
     state.keep_report("demo", "j1", kept, kept)
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["jobs"]["j1"].update(state=taken, said="BLOCKED no PR opened", **({} if repro else {"repro": None}))
     before = state.load("demo")["jobs"]["j1"]
     with pytest.raises(state.DriveError, match=re.escape(refusal)):
@@ -2997,7 +3011,7 @@ def test_the_watch_moves_onto_a_newer_install_only_when_its_python_differs_or_it
 
 def test_a_drive_tooling_order_whose_every_job_finished_on_prs_merged_in_the_installed_repo_is_a_fix_the_install_closes(tmp_path: Path) -> None:
     state.create(state.new_drive("demo", "coordinator", "demo-coordinator", str(tmp_path)))
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         for order_id, words, job_state, merged in (("o1", "Drive tooling: prove each install", "done", SHA), ("o2", "Drive tooling: read each release", "running", SHA), ("o3", "Drive tooling: keep each proof", "done", None), ("o4", "ship the strip", "done", SHA)):
             job_id, url = f"j{order_id[1]}", f"https://github.com/{REPO}/pull/{order_id[1]}"
             data["orders"][order_id] = state.new_order(words, f"slack:D123/{HIS_THREAD}", ("D123", HIS_THREAD), {words: state.new_part()}, state.stamp()) | {"jobs": [job_id]}

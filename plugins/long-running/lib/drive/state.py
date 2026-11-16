@@ -4853,25 +4853,6 @@ def set_row(data: dict, row: Row, value: object) -> None:
         home[row[1]] = value
 
 
-def outside_rows(base: dict, mine: dict, rows: tuple[Row, ...]) -> list[Row]:
-    """Each row, or field of a row named by its fields alone, mine changed from base that rows does not name."""
-    whole, fields = {row for row in rows if len(row) == 2}, {row[:2]: set() for row in rows if len(row) == 3}
-    for row in rows:
-        if len(row) == 3:
-            fields[row[:2]].add(row[2])
-    outside = []
-    for row in sorted(written_rows(base, mine)):
-        if row in whole:
-            continue
-        if row not in fields:
-            outside.append(row)
-            continue
-        was, now = row_of(base, row), row_of(mine, row)
-        changed = {key for key in {*was, *now} if was.get(key, ABSENT) != now.get(key, ABSENT)} if isinstance(was, dict) and isinstance(now, dict) else {None}
-        outside += [(*row, key) for key in sorted(changed - fields[row], key=str)]
-    return outside
-
-
 def written_rows(base: dict, mine: dict) -> set[Row]:
     """Each row mine holds differently from base: a top-level field under "", else a collection's record by its key."""
     rows = {("", field) for field in {*base, *mine} if field not in COLLECTIONS and base.get(field, ABSENT) != mine.get(field, ABSENT)}
@@ -4912,38 +4893,6 @@ def released(taken: list[tuple[str, str, int]]) -> None:
     taken.clear()
 
 
-@contextmanager
-def edit(name: str, rows: tuple[Row, ...] | None = None) -> Iterator[dict]:
-    """Load the drive, yield it for changes and save them on exit, telling each session the save took open orders from; inside a batch, keep the changes on its copy for its one save. A write naming no rows holds the drive's lock from its load through its save, so its every field reads as the drive stands at its save. A write naming its rows, one that reads and writes only those rows of the drive, each a record or one field of it, holds no lock while it runs, so the process, Orca or model calls it makes hold no other write behind it, and its save writes those records alone in one short transaction, by rows_saved. That save keeps its rows as it changed them while no other write changed them since it loaded, and once one did refuses, raising Refused and keeping nothing, which locks.log names; a write that must never be refused is an update. A write changing a row it did not name raises, keeping nothing. Inside a write's change of the same drive it raises, by unnested, as a nested write does."""
-    unnested(name)
-    if name in BATCHED:
-        data = load(name)
-        yield data
-        BATCHED[name] = marshal.dumps(data)
-        return
-    with editing(name):
-        if rows is None or not database_path(name).exists():
-            with writing(name):
-                data = load(name)
-                before = holding_lanes(data)
-                yield data
-                save(name, data)
-                tell_moved(name, data, before)
-            return
-        data, held = loaded_rows(name, rows)
-        base = marshal.dumps(data)
-        yield data
-        if outside := outside_rows(was := marshal.loads(base), data, rows):
-            raise DriveError(f"refused, nothing kept: a write of {', '.join('.'.join(filter(None, row)) for row in rows)} changed {', '.join('.'.join(filter(None, row)) for row in outside)} too")
-        try:
-            _, post = rows_saved(name, held, was, data, rows)
-        except Raced as raced:
-            with open(drive_dir(name) / "locks.log", "a") as log:
-                log.write(f"{stamp()} pid {os.getpid()} refused: another write changed {'.'.join(raced.args[0])} while it ran: drive {' '.join(sys.argv[1:])[:HOLDER_CHARS]}\n")
-            raise Refused(f"refused, nothing kept: another write changed {'.'.join(raced.args[0])} while this ran, so send it again") from None
-    ran(post, [])
-
-
 def changed_since(name: str, rev: int) -> tuple[int, set[Row] | None]:
     """The drive's newest revision and each row any write committed after rev, a collection's record by its key or a top-level field under "", read from the changed table in one statement; None for the rows once the table no longer reaches back to rev, so a reader that kept rev reads only the rows that moved, and everything when it fell too far behind."""
     with closing(connect(database_path(name))) as db:
@@ -4952,19 +4901,6 @@ def changed_since(name: str, rev: int) -> tuple[int, set[Row] | None]:
         rows = None if first > rev + 1 else {(collection, key) for collection, key in db.execute("SELECT DISTINCT collection, key FROM changed WHERE rev > ?", (rev,))}
         db.execute("COMMIT")
     return newest, rows
-
-
-def loaded_rows(name: str, rows: tuple[Row, ...]) -> tuple[dict, dict[Row, object]]:
-    """The drive as load reads it, with each record the rows name as the database held it for that load, unshaped, ABSENT where it held none, which rows_saved compares the database's with, all read from this process's one copy at the one version and revision that load read, loading again while another thread's load or save moved the copy past them."""
-    path = database_path(name)
-    while True:
-        data = load(name)
-        with READING:
-            copy = WHOLE_READS[(path, path.stat().st_ino)]
-            if (copy.version, copy.rev) != (LOADED_VERSION.get(), LOADED_REV.get()):
-                continue
-            held = {row[:2]: ABSENT if (found := copy.rows.get(row[0], {}).get(row[1])) is None else {} if found[1] is None else marshal.loads(found[1]) for row in rows}
-        return data, held
 
 
 def loaded_raw(name: str) -> tuple[dict, dict[str, dict[str, tuple[int, bytes | None]]] | None]:
@@ -5389,7 +5325,7 @@ def committed(name: str, base: bytes, mine: dict) -> tuple[int | None, list[Call
 
 @contextmanager
 def batch(name: str, dry: bool = False) -> Iterator[list[str]]:
-    """Run a call of several writes on one copy of the drive in memory, each load and edit inside it reading and changing that copy, with no lock held, so a model call, process or network read the call makes holds no writer of the drive behind it; saved once when the call ends and never when it raises, so a refused write leaves the drive as it was. The save holds no lock, merging the call's changes into the drive as it stands then and keeping the records they change, by committed, and that save tells each session the call took open orders from; a field another write changed differently meanwhile refuses the call, keeping nothing and naming each command the call started that does more than read, by WENT. What a write does outside the drive runs after that save, its lines added to the list it yields, each such effect running even when one before it failed, and the failures raised together once all have run, after the lines of the rest. A batch is weaker than a write: its save merges what its writes changed into the drive as it then stands and checks only the rows that merge writes and the drive's bindings, never a row its writes only read, so another write changing such a row meanwhile leaves the batch's save standing; a write that must not commit past a row it read changed runs alone, by write. A batch opened inside one joins it. A dry batch, a dry run's, runs every check its writes make and keeps none: it saves nothing, drops what its writes would do outside the drive, and stops at Rehearsed each command they start that does more than read."""
+    """Run a call of several writes on one copy of the drive in memory, each load and write inside it reading and changing that copy, with no lock held, so a model call, process or network read the call makes holds no writer of the drive behind it; saved once when the call ends and never when it raises, so a refused write leaves the drive as it was. The save holds no lock, merging the call's changes into the drive as it stands then and keeping the records they change, by committed, and that save tells each session the call took open orders from; a field another write changed differently meanwhile refuses the call, keeping nothing and naming each command the call started that does more than read, by WENT. What a write does outside the drive runs after that save, its lines added to the list it yields, each such effect running even when one before it failed, and the failures raised together once all have run, after the lines of the rest. A batch is weaker than a write: its save merges what its writes changed into the drive as it then stands and checks only the rows that merge writes and the drive's bindings, never a row its writes only read, so another write changing such a row meanwhile leaves the batch's save standing; a write that must not commit past a row it read changed runs alone, by write. A batch opened inside one joins it. A dry batch, a dry run's, runs every check its writes make and keeps none: it saves nothing, drops what its writes would do outside the drive, and stops at Rehearsed each command they start that does more than read."""
     if name in BATCHED:
         yield []
         return
@@ -6505,7 +6441,7 @@ def open_orders(data: dict) -> dict[str, dict]:
 
 
 def clocks(data: dict) -> list[dict]:
-    """Each open order he asked a line every so many minutes on, by his words "And give me updates, every 15 mins, concise, on all 3 of these, in this thread, until all done", due that many minutes after its thread's last line, with when that thread last got a line, the session of the role holding it, and the agent of each job of it running, an incident or one with a thread that no recovery, close report, close or proof finished; a promised time and five quiet minutes owe no line, by his words "clearly these reports are useless / not valuable / spammy, so remove them entirely or rethink the whole model". Each edit and batch saves it as one row, which hooks/role_rules.py reads alone with no lock."""
+    """Each open order he asked a line every so many minutes on, by his words "And give me updates, every 15 mins, concise, on all 3 of these, in this thread, until all done", due that many minutes after its thread's last line, with when that thread last got a line, the session of the role holding it, and the agent of each job of it running, an incident or one with a thread that no recovery, close report, close or proof finished; a promised time and five quiet minutes owe no line, by his words "clearly these reports are useless / not valuable / spammy, so remove them entirely or rethink the whole model". Each write and batch saves it as one row, which hooks/role_rules.py reads alone with no lock."""
     from drive import view
 
     waited = {

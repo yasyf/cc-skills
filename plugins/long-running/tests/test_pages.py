@@ -8,7 +8,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-
+from conftest import edit
 from drive import cli, dashboard, page_check, pages, state
 from test_dashboard import FEATURE, QUESTION, RAIL, board, browse, post, serving
 
@@ -102,11 +102,11 @@ def test_a_page_names_its_orders_and_job_in_page_json_and_draws_their_ids_from_i
 def test_a_page_is_live_while_any_order_it_shows_is_open(run: Run, ordered: str, tmp_path: Path) -> None:
     run("order", "add", "--title", "Run page docs", "--project", "Iris", "--workstream", "Run page", "document the run page")
     run("page", "add", "run-lane", "--order", "o1", "--dir", str(folder(tmp_path, PAGE | {"page.json": json.dumps({"title": "t", "goal": "g", "orders": ["o2"]})})))
-    with state.edit(ordered) as data:
+    with edit(ordered) as data:
         data["orders"]["o1"]["state"] = "done"
     [page] = pages.shown(state.load(ordered), pages.listed(ordered))
     assert (page["live"], page["order_title"]) == (True, "Run page")
-    with state.edit(ordered) as data:
+    with edit(ordered) as data:
         data["orders"]["o2"]["state"] = "dropped"
     assert [page["live"] for page in pages.shown(state.load(ordered), pages.listed(ordered))] == [False]
 
@@ -125,7 +125,7 @@ def test_a_page_is_filed_where_its_order_is_filed_now_so_a_refile_moves_it(run: 
 def test_a_page_scoped_by_words_reads_an_untitled_order_by_its_words(run: Run, ordered: str, tmp_path: Path) -> None:
     run("order", "add", "--title", "Bucket", "--project", "Platform", "--workstream", "Storage", "move litestream onto the new bucket")
     run("page", "add", "run-lane", "--order", "o1", "--dir", str(folder(tmp_path, PAGE | {"page.json": json.dumps({"title": "t", "goal": "g", "scope": {"words": ["litestream"]}})})))
-    with state.edit(ordered) as data:
+    with edit(ordered) as data:
         data["orders"]["o1"]["state"] = "done"
         data["orders"]["o1"]["title"] = None
         data["orders"]["o2"]["title"] = None
@@ -561,7 +561,8 @@ def test_page_make_keeps_an_applet_titled_by_its_order_that_a_second_make_widens
 
 
 def test_an_order_marked_priority_gets_its_applet_page(run: Run, ordered: str, monkeypatch: pytest.MonkeyPatch, seat_records: list[str]) -> None:
-    from drive import applet, cli as drive_cli
+    from drive import applet
+    from drive import cli as drive_cli
 
     monkeypatch.setattr(dashboard, "link", lambda name: "http://127.0.0.1:1/")
     monkeypatch.setattr(drive_cli, "seat_started", lambda name, seat: None)

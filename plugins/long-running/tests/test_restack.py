@@ -1,7 +1,7 @@
 from pathlib import Path
 
 import pytest
-from conftest import RESTACK, commit_files, git_in
+from conftest import RESTACK, commit_files, edit, git_in
 from drive import land, restack, state
 
 MERGED, LOWER, UPPER = "yasyf/stacked#1", "yasyf/stacked#2", "yasyf/stacked#3"
@@ -28,7 +28,7 @@ def squash_merged_stack(demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
         monkeypatch.setenv(f"GIT_{who}_NAME", "t")
         monkeypatch.setenv(f"GIT_{who}_EMAIL", "t@example.com")
     monkeypatch.setattr(land, "CLONE_URL", f"file://{tmp_path}/{{}}.git")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         for key, branch, base, head, now in ((MERGED, "merged", "main", merged, "merged"), (LOWER, "lower", "main", lower, "open"), (UPPER, "upper", "lower", top, "open")):
             data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {"head": head, "branch": branch, "base": base, "default": "main", "state": now, "conflict": key == LOWER}
     return origin, main

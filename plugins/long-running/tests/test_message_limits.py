@@ -9,7 +9,17 @@ from pathlib import Path
 
 import message_limits
 import pytest
-from conftest import CAP_RULING, DESCRIPTION, WRITTEN_AT, Answers, Checked, Jev, Thread, explained
+from conftest import (
+    CAP_RULING,
+    DESCRIPTION,
+    WRITTEN_AT,
+    Answers,
+    Checked,
+    Jev,
+    Thread,
+    edit,
+    explained,
+)
 from drive import agents, limits, picture, refs, settled, slack, state, talk, view
 from drive.state import DriveError
 
@@ -434,7 +444,7 @@ def reported(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def holds_pr(order: str) -> None:
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["prs"]["Forge-AI/monorepo#53618"] = state.new_pr("https://github.com/Forge-AI/monorepo/pull/53618", "j1", order)
 
 
@@ -479,13 +489,13 @@ def test_a_bug_reports_thread_its_order_came_in_hears_none_of_its_lines_but_a_re
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "fix the stuck staging deploy", "--reporter", REPORTED)
     run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "keep replying to him there")
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["orders"]["o1"]["thread"] = ["C0REPORTS01", "1794400100.000200"]
     reply = {"channel_id": "C0REPORTS01", "thread_ts": "1794400100.000200", "text": "SandSQL commits each batch in one round trip, so your import lands in about two seconds."}
     assert message_limits.deny_reason(call("slack_reply", transcript, **reply)).startswith(
         "Refused on purpose: the fix for the bug reported in this thread keeps no proof that it is live"
     )
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["orders"]["o2"]["thread"] = ["C0REPORTS01", "1794400100.000200"]
     assert message_limits.deny_reason(call("slack_reply", transcript, **reply)) is None
     assert message_limits.reporter_post(call("slack_reply", transcript, **reply) | {"tool_name": message_limits.SAY}, state.load("demo")) is None
@@ -506,7 +516,7 @@ def test_a_shared_questions_thread_gets_its_answer_only_once_it_is_posted_to_him
         "Refused on purpose: the answer to the question asked in this thread is not posted to him yet, so a note now would come before it."
         " It goes once the answer is posted."
     )
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         for part in data["orders"]["o1"]["parts"].values():
             part["posted"] = "https://acme.slack.com/archives/D123/p1794200300000100"
     assert message_limits.deny_reason(call("slack_reply", transcript, **note)) is None
@@ -546,7 +556,7 @@ def test_blocks_count_as_much_as_the_text(talker: str, transcript: Path) -> None
 
 
 def test_a_say_post_counts_the_words_its_writer_typed_each_reference_once_and_one_naming_nothing_is_refused(talker: str, transcript: Path) -> None:
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["prs"]["yasyf/cc-skills#7"] = state.new_pr("https://github.com/yasyf/cc-skills/pull/7", "j1", "o1") | {"title": "New: \U0001f680 " + said(40)}
     assert say(transcript, text=said(59) + " {pr:7}") is None
     refusal = say(transcript, text=said(60) + " {pr:7}")
@@ -558,7 +568,7 @@ def test_a_say_post_counts_the_words_its_writer_typed_each_reference_once_and_on
 
 
 def test_every_say_check_reads_the_words_its_writer_typed_and_never_a_title_say_draws(talker: str, transcript: Path, checked: Checked) -> None:
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["prs"]["yasyf/cc-skills#7"] = state.new_pr("https://github.com/yasyf/cc-skills/pull/7", "j1", "o1") | {"title": "Fix: the backup copy restores by 9 AM PT"}
         data["stand_ins"]["backup"] = "S3 replica"
     assert say(transcript, text="{pr:7} landed.") is None
@@ -571,7 +581,7 @@ def test_every_say_check_reads_the_words_its_writer_typed_and_never_a_title_say_
 def test_jev_reads_a_refused_say_post_as_slack_gets_it_and_a_reference_nested_in_a_links_words_is_refused_unjudged(
     talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["orders"]["o1"] = state.new_order("show the run page's history", "", None, {}, state.stamp()) | {"jobs": ["j1"]}
         data["jobs"]["j1"] = state.new_job("o1", "builder", "show the run page's history", [], state.stamp())
         data["prs"]["yasyf/cc-skills#7"] = state.new_pr("https://github.com/yasyf/cc-skills/pull/7", "j1", "o1") | {"title": "New: \U0001f680 the run page shows its history"}
@@ -828,7 +838,7 @@ def test_a_post_under_an_orders_pr_card_hands_jev_that_cards_answer_and_the_orde
 ) -> None:
     question, card = "1794520890.022349", "1794526059.841239"
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", 'he asked "give the sprite what it needs"')
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         state.join_thread(data["orders"]["o1"], (DM, question), state.stamp(), "question")
         state.join_thread(data["orders"]["o1"], (DM, card), state.stamp(), "pr")
     threads = {
@@ -850,7 +860,7 @@ def test_a_post_in_his_question_cards_thread_carries_his_ruling_that_each_option
     run: Run, talker: str, transcript: Path, slack_thread: Thread
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "design the run page")
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         state.join_thread(data["orders"]["o1"], (DM, "1794288799.976279"), state.stamp(), "question")
         state.join_thread(data["orders"]["o1"], (DM, "1794288800.000100"), state.stamp(), "pr")
     his(slack_thread, "explain why 1 touches every client")
@@ -1032,7 +1042,7 @@ def test_a_claim_naming_a_drive_pr_hands_jev_the_drives_line_for_it_once_beside_
 ) -> None:
     tool(lane_of(transcript), *REPORT)
     key = "Forge-AI/monorepo#56983"
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["orders"]["o1"] = state.new_order("keep one epoch", "", None, {}, state.stamp()) | {"jobs": ["j1"]}
         data["jobs"]["j1"] = state.new_job("o1", "builder", "keep one epoch", [], state.stamp())
         data["prs"][key] = state.new_pr("https://github.com/Forge-AI/monorepo/pull/56983", "j1", "o1") | {"title": "Fix: the journal keeps one epoch"}
@@ -1057,7 +1067,7 @@ def test_a_handlers_post_in_a_thread_of_his_dm_holding_an_order_hands_jev_his_wo
 ) -> None:
     run("order", "add", "--title", "Copy fix", "--project", "The drive", "--workstream", "Copies", "fix the copy", "--from", f"https://acme.slack.com/archives/{DM}/p1794300000000100")
     run("order", "add", "--title", "Run page", "--project", "The drive", "--workstream", "Runs", "show a run's history", "--from", f"https://acme.slack.com/archives/{DM}/p1794100000000100")
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["orders"]["o1"]["thread"] = [DM, "1.2"]
     asked = "Ok I approved that one, what else is waiting on me for this work"
     slack_thread.messages[:] = [{"ts": "1794300000.000100", "user": "U1", "text": "fix the copy"}, {"ts": "1794300001.000100", "user": "U1", "text": asked}]
@@ -1078,7 +1088,7 @@ def test_a_handlers_post_in_his_thread_hands_each_order_pr_or_card_of_other_work
     run("job", "add", "builder", "--order", "o1", "--goal", "fix the copy")
     run("job", "add", "builder", "--order", "o2", "--goal", "show a run's history")
     monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS)
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["orders"]["o1"]["thread"] = [DM, "1.2"]
         data["prs"]["yasyf/cc-skills#7"] = state.new_pr("https://github.com/yasyf/cc-skills/pull/7", "j1", "o1") | {"title": "Fix: the copy reads plainly"}
         data["prs"]["yasyf/cc-skills#8"] = state.new_pr("https://github.com/yasyf/cc-skills/pull/8", "j2", "o2") | {"title": "Fix: the run page shows its history"}
@@ -1152,7 +1162,7 @@ def test_the_line_his_pr_tap_card_goes_under_hands_jev_the_reads_its_claims_name
     talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     url = "https://github.com/Forge-AI/monorepo/pull/56153"
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["prs"]["Forge-AI/monorepo#56153"] = state.new_pr(url, "j1", "o1")
     quiet = "722806 report watch>communicator POST order o1 has news since the thread's last line\n- Forge-AI/monorepo#56153 open, checks pass, wants tap"
     record = {"seq": "722806", "kind": "report", "lane": "watch", "at": state.stamp(), "text": quiet, "refs": {}, "fields": {"attrs": {}}}
@@ -1296,10 +1306,10 @@ def test_a_placeholder_in_place_of_the_post_is_refused_wherever_it_goes(talker: 
 
 def test_a_pr_card_for_a_pr_he_tapped_is_refused_and_words_naming_it_go_out(talker: str, transcript: Path) -> None:
     url = "https://github.com/Forge-AI/monorepo/pull/4242"
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["prs"]["Forge-AI/monorepo#4242"] = state.new_pr(url, "j1", "o1")
     assert posted(transcript, text="Fix: approve the update button?", tap_prs=[url]) is None
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["prs"]["Forge-AI/monorepo#4242"]["tap"] = {"label": "Approve", "at": "2026-11-10T18:40:00-08:00", "head": "abc", "source": "slack", "picks": {}, "card": None}
     assert "owes no tap on: Forge-AI/monorepo#4242" in posted(transcript, text="Fix: approve the update button?", tap_prs=[url])
     card = {"title": said(10), "body": f"{said(20)}\n*Show me*\n```\nthe programs hold them until <{url}|the update-button fix> lands\n```", "options": [said(5), said(5)], "waits": "demo:j1-7"}
@@ -1310,14 +1320,14 @@ def test_a_post_saying_a_pr_waits_on_his_tap_is_refused_unless_he_has_its_tap_ca
     talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     url, link = "https://github.com/Forge-AI/monorepo/pull/53971", f"https://acme.slack.com/archives/{DM}/p1794300000000400"
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["prs"]["Forge-AI/monorepo#53971"] = state.new_pr(url, "j1", "o1") | {"head": "abc123", "tap": {"label": "Land it", "at": state.stamp(), "head": "abc123", "source": "slack"}}
     card = {"title": said(5), "body": "#53971 waits on your tap.", "options": [said(3), said(3)], "waits": "demo:j1-7"}
     assert "Forge-AI/monorepo#53971: he tapped Land it at" in posted(transcript, card=card)
     text = f"<{url}|The unfurl fix> waits on <{url}|your Approve>."
     assert "Forge-AI/monorepo#53971: he tapped Land it at" in say(transcript, text=text)
     assert posted(transcript, text=f"<{url}|The unfurl fix> needs no tap.") is None
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["prs"]["Forge-AI/monorepo#53971"]["tap"] = None
     assert "Forge-AI/monorepo#53971: no open tap card of his stands at its head" in posted(transcript, text=text)
     tap = {"asked": state.stamp(), "url": link, "prs": [url], "card": {"title": "Fix: land it?", "prs": [{"url": url, "head": "abc123"}]}}
@@ -1325,14 +1335,14 @@ def test_a_post_saying_a_pr_waits_on_his_tap_is_refused_unless_he_has_its_tap_ca
     view.refresh_cards("demo")
     assert f"Forge-AI/monorepo#53971: the words do not link its open tap card {link}" in posted(transcript, text=text)
     assert posted(transcript, text=f"{text} <{link}|Its tap card> is up.") is None
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["prs"]["Forge-AI/monorepo#53971"]["head"] = "def456"
     assert "Forge-AI/monorepo#53971: no open tap card of his stands at its head" in posted(transcript, text=f"{text} <{link}|Its tap card> is up.")
 
 
 def test_a_release_s_approve_step_beside_a_merged_pr_says_nothing_waits_on_his_tap(talker: str) -> None:
     url, release = "https://github.com/Forge-AI/monorepo/pull/4242", "https://ci.example.com/release/builds/7"
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["prs"]["Forge-AI/monorepo#4242"] = state.new_pr(url, "j1", "o1") | {"head": "abc123", "state": "merged"}
     data = state.load("demo")
     for line in (
@@ -1350,7 +1360,7 @@ def test_a_sentence_saying_one_pr_shipped_and_another_waits_on_his_approve_is_ju
 ) -> None:
     shipped, bump = "https://github.com/yasyf/cc-remote/pull/162", "https://github.com/Forge-AI/monorepo/pull/55639"
     link = f"https://acme.slack.com/archives/{DM}/p1794558425491189"
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["prs"]["yasyf/cc-remote#162"] = state.new_pr(shipped, "j1", "o1") | {"head": "9f1c2ab", "state": "merged"}
         data["prs"]["Forge-AI/monorepo#55639"] = state.new_pr(bump, "j2", "o1") | {"head": "4d7e0c3"}
     tap = {"asked": state.stamp(), "url": link, "prs": [shipped, bump], "card": {"title": "New: bump the pin?", "prs": [{"url": shipped, "head": "9f1c2ab"}, {"url": bump, "head": "4d7e0c3"}]}}
@@ -1369,14 +1379,14 @@ def test_a_sentence_saying_one_pr_shipped_and_another_waits_on_his_approve_is_ju
     assert f"Forge-AI/monorepo#55639: the words do not link its open tap card {link}" in uncarded
     assert "yasyf/cc-remote#162" not in uncarded
     assert "yasyf/cc-remote#162: merged" in say(transcript, text=f"<{shipped}|The cc-remote fix> waits on your Approve.")
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["prs"]["Forge-AI/monorepo#55639"]["head"] = "b85e1f0"
     assert f"Forge-AI/monorepo#55639: its tap card {link}, which the words link, no longer stands: it moved past the head the card shows" in say(transcript, text=text)
 
 
 def test_a_bold_lead_naming_a_merged_pr_ends_its_sentence_so_a_release_blocked_behind_its_approve_button_blames_no_pr(talker: str, transcript: Path) -> None:
     url = "https://github.com/Forge-AI/monorepo/pull/56889"
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["prs"]["Forge-AI/monorepo#56889"] = state.new_pr(url, "j1", "o1") | {"head": "4c1d2e9", "state": "merged"}
     text = (
         f"*Staging test of <{url}|the release-status fix>: three production releases left unapproved now read running forever, where the old code read partial.* "
@@ -1393,7 +1403,7 @@ def test_a_tap_card_say_just_drew_lets_the_next_say_link_it_as_what_the_pr_waits
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
     url, link = "https://github.com/yasyf/cc-skills/pull/7", f"https://acme.slack.com/archives/{DM}/p1794300000000500"
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["prs"]["yasyf/cc-skills#7"] = state.new_pr(url, "j1", "o1") | {"head": "f3ed5a7"}
     drawn: list[dict] = []
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": drawn, "closed": []})
@@ -1414,7 +1424,7 @@ def test_a_table_saying_a_pr_waits_on_his_approve_links_its_tap_card_on_a_line_u
     talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     url, link = "https://github.com/Forge-AI/monorepo/pull/56773", f"https://acme.slack.com/archives/{DM}/p1794753825913689"
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["prs"]["Forge-AI/monorepo#56773"] = state.new_pr(url, "j1", "o1") | {"head": "abc123"}
     tap = {"asked": state.stamp(), "url": link, "prs": [url], "card": {"title": "Fix: land it?", "prs": [{"url": url, "head": "abc123"}]}}
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [tap], "closed": []})
@@ -1618,7 +1628,7 @@ def test_a_post_refused_several_ways_hears_every_way_at_once_after_its_thread_re
 
 def test_a_post_drawing_a_tap_card_or_a_card_may_say_it_waits_on_him(talker: str, transcript: Path, checked: Checked) -> None:
     url = "https://github.com/Forge-AI/monorepo/pull/4242"
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["prs"]["Forge-AI/monorepo#4242"] = state.new_pr(url, "j1", "o1")
     checked.findings = ['1:1 waits-without-card "Ready for your tap: the backfill runs as a service account": link the card']
     text = "Ready for your tap: the backfill runs as a service account."
@@ -1743,7 +1753,7 @@ def test_a_post_telling_him_the_drive_failed_is_a_finding_a_line_jev_weighs_unti
     assert refused.startswith("refused: these lines tell him") and refused.endswith(f"The lines: {failed} | {disconnected}")
     assert refused.rule == message_limits.PREVENTION_RULE and "6a6edbf" in refused.rule
     assert refused.findings == [{"rule": message_limits.PREVENTION_RULE, "found": line} for line in (failed, disconnected)]
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["prs"]["yasyf/cc-skills#4460"] = state.new_pr("https://github.com/yasyf/cc-skills/pull/4460", "j1", "o1")
     assert message_limits.checked(call("slack_dm_status", transcript, text=told, tap_prs=["https://github.com/yasyf/cc-skills/pull/4460"]) | {"tool_name": message_limits.SAY})[0] is None
     prevented = f"Its card was refused: nobody checked that PR against your words. {fix} makes the card hook check it."
@@ -1857,7 +1867,7 @@ def test_a_line_answering_his_order_by_a_missing_plan_or_record_is_found_and_a_l
 
 
 def test_a_post_saying_a_coordinator_is_down_is_found_and_one_saying_it_was_restarted_is_not(talker: str, transcript: Path) -> None:
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["roles"]["coordinator"] = {"session": "coordinator-session", "terminal": None, "cwd": "/work", "started": state.stamp()}
     for text in ("The coordinator is down, so no record has moved for an hour.", "The coordinator's process exited, so the records wait."):
         refused = say(transcript, text=text)
@@ -1895,7 +1905,7 @@ def test_say_refuses_a_line_telling_him_a_card_is_coming_until_it_names_that_car
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
     monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS)
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["jobs"]["j1"]["questions"].append(state.new_question(None, "Cut the release?", state.stamp(), card=f"https://acme.slack.com/archives/{DM}/p1794288799976279") | {"waits": "demo:j1-7"})
     coming = "The release card is coming once the cut is green."
     refused = say(transcript, text=coming)
@@ -1921,7 +1931,7 @@ def test_say_refuses_a_line_saying_approve_buttons_or_cards_are_being_given_him_
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
     monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS)
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["jobs"]["j1"]["questions"].append(state.new_question(None, "Land the fix?", state.stamp(), card=f"https://acme.slack.com/archives/{DM}/p1794288799976279") | {"waits": "demo:j1-7"})
     refused = say(transcript, text=promise)
     assert isinstance(refused, agents.Ruled) and refused.startswith(f'refused: "{promise}" tells him a card is coming and names no open card of his')
@@ -1933,7 +1943,7 @@ def test_say_refuses_a_handlers_line_saying_a_job_is_being_started_until_it_name
     talker: str, transcript: Path
 ) -> None:
     part = "milestone reads fail with blob not found"
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["orders"]["o1"] = state.new_order(part, "terminal", (DM, "1.2"), {part: state.new_part()}, state.stamp())
     promises = (
         "A job reading why that blob is missing is being started.",
@@ -1946,11 +1956,11 @@ def test_say_refuses_a_handlers_line_saying_a_job_is_being_started_until_it_name
         assert refused is not None and refused.startswith(f'refused: "{message_limits.PROMISED_START.search(text)[0]}" says a job is being started'), text
         assert " and no handoff asking for one is kept on order o1: name the job that started as {started:<j>}, or first send" in refused
         assert refused.rule == message_limits.PROMISE_RULE
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["orders"]["o1"]["handoffs"].append({"seq": "701640", "text": "start a job reading why that blob is missing", "at": state.stamp(state.now() - timedelta(minutes=2)), "jobs": []})
     for text in promises:
         assert say(transcript, text=text, thread_ts="1.2") is None, text
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["jobs"]["j1"] = state.new_job("o1", "reader", "read why that blob is missing", [part], state.stamp())
         data["orders"]["o1"]["jobs"].append("j1")
     assert ", while the handoff asking for one kept on order o1 is answered by j1, made since: name the job that started as {started:<j>}" in say(transcript, text=promises[0], thread_ts="1.2")
@@ -1963,14 +1973,14 @@ def test_say_holds_a_handoff_owed_while_another_job_of_its_busy_order_restarts_a
     part = "milestone reads fail with blob not found"
     promise = "A builder is being put on the fix."
     asked = state.stamp(state.now() - timedelta(minutes=2))
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["orders"]["o1"] = state.new_order(part, "terminal", (DM, "1.2"), {part: state.new_part()}, state.stamp())
         data["jobs"]["j1"] = state.new_job("o1", "reader", "read why that blob is missing", [part], state.stamp(state.now() - timedelta(minutes=9)))
         data["orders"]["o1"]["jobs"].append("j1")
         data["orders"]["o1"]["handoffs"].append({"seq": "718999", "text": "start a builder on the fix", "at": asked, "jobs": []})
         state.start(data["jobs"]["j1"])
     assert say(transcript, text=promise, thread_ts="1.2") is None
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["orders"]["o1"]["handoffs"] = [{"seq": "718999", "text": "resume j1 on the fix", "at": asked, "jobs": ["j1"]}]
     assert "no handoff asking for one is kept on order o1" in say(transcript, text=promise, thread_ts="1.2")
 
@@ -1980,12 +1990,12 @@ def test_say_reads_an_edit_on_the_order_its_post_went_out_on_and_not_another_ord
     promise = "A job reading why that blob is missing is being started."
     thread = "1794440505.483109"
     post = f"{link('1794766194.173939')}?thread_ts={thread}&cid={DM}"
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         for order_id, part in zip(("o1", "o2"), parts, strict=True):
             data["orders"][order_id] = state.new_order(part, "terminal", (DM, thread), {part: state.new_part()}, state.stamp())
     state.append_event("demo", "said", text="Reading why.", channel=DM, thread=thread, url=post, card=None, order="o2", visuals=[], prs=[], edited=False)
     assert "no handoff asking for one is kept on order o2" in say(transcript, edit=post, text=promise)
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["orders"]["o2"]["handoffs"].append({"seq": "719016", "text": "start a job reading why that blob is missing", "at": state.stamp(state.now() - timedelta(minutes=2)), "jobs": []})
     assert say(transcript, edit=post, text=promise) is None
 
@@ -2011,7 +2021,7 @@ def test_a_typed_clock_time_is_past_only_at_or_before_its_write_on_the_day_writt
 
 
 def test_say_refuses_a_time_typed_for_past_work_and_passes_a_jobs_start_from_its_stamp_and_a_promise(talker: str, transcript: Path) -> None:
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["jobs"]["j1"] = state.new_job("o1", "builder", "fix the replication sync", [], state.stamp())
     refused = say(transcript, text="The fix job started at 4:55 AM.")
     assert refused is not None and refused.startswith('refused: "4:55 AM" is a time typed for work already done')
@@ -2021,7 +2031,7 @@ def test_say_refuses_a_time_typed_for_past_work_and_passes_a_jobs_start_from_its
 
 
 def test_jev_reads_each_stamp_say_fills_beside_the_words_it_drew_and_what_it_stamps(talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["jobs"]["j4750"] = state.new_job("o1", "reader", "name the runs the stop alert counted", [], state.stamp())
     monkeypatch.setattr(refs.reads, "run", lambda argv, checkout: json.dumps({"kind": "report", "text": "j4750 named the runs", "refs": {}, "at": state.stamp()}))
     said = "The stop alert fired a third time; a reader, {started:j4750}, is naming the runs it counted, and its first count went out {at:705577}."
@@ -2054,7 +2064,7 @@ def test_say_passes_a_past_window_typed_in_pacific_on_the_line_linking_the_read_
 def test_say_refuses_a_jobs_start_given_as_when_a_release_started_and_passes_the_builds_own_start_on_the_line_linking_it(
     talker: str, transcript: Path
 ) -> None:
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["jobs"]["j1"] = state.new_job("o1", "builder", "release the sandsql component", [], state.stamp())
     for posted in (
         "*SandSQL is releasing at 9b6130c, on your pick; it started {started:j1}.* api needs no release.",
@@ -2075,7 +2085,7 @@ def test_a_summary_naming_a_drive_pr_is_found_until_it_says_what_the_pr_serves(t
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: the watch reads taps")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Cards", "cards show under the line")
     holds_pr("o1")
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["prs"]["Forge-AI/monorepo#53619"] = state.new_pr("https://github.com/Forge-AI/monorepo/pull/53619", "j1", "o2")
         data["prs"]["Forge-AI/monorepo#53620"] = state.new_pr("https://github.com/Forge-AI/monorepo/pull/53620", "j1", "o2") | {"port_of": 49001}
     taps, cards, port = (
@@ -2093,7 +2103,7 @@ def test_a_summary_naming_a_drive_pr_is_found_until_it_says_what_the_pr_serves(t
 
 
 def test_a_word_he_corrected_is_found_in_the_text_a_links_words_a_caption_or_a_card_and_not_in_a_quote_of_him(talker: str, transcript: Path) -> None:
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["stand_ins"]["backup"] = "S3 replica"
     assert say(transcript, text="The backup copy is current.") == (
         "refused: this post calls a thing by a word he corrected, so write its proper term in that word's place:"
@@ -2110,7 +2120,7 @@ def test_a_pr_card_serving_drive_tooling_under_a_line_leaving_out_that_orders_wo
     tooling = "Drive tooling: a card named in a post shows under the line"
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Cards", "cards show under the line")
     holds_pr("o1")
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["orders"]["o1"]["text"] = tooling
         data["prs"]["Forge-AI/monorepo#53618"]["serves"] = "o1"
     url = "https://github.com/Forge-AI/monorepo/pull/53618"
@@ -3046,7 +3056,7 @@ def test_an_incident_report_keeps_its_alert_links_bare_by_the_incident_its_order
     run: Run, talker: str, transcript: Path, checked: Checked, slack_thread: Thread, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "unblock the users")
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["orders"]["o1"].update(thread=[DM, "1.2"], incident=True)
     monkeypatch.setattr(
         message_limits.cli.reads,
@@ -3074,7 +3084,7 @@ def test_a_107_word_line_judged_a_summary_by_its_handler_hands_jev_its_length_fi
 
 
 def test_his_messages_a_handler_answers_in_his_thread_record_him_heard_never_back_so_he_reads_away_an_hour_after_the_last(talker: str, transcript: Path, slack_thread: Thread) -> None:
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["owner"] = {"heard": "2026-11-12T18:26:35-08:00", "away": "2026-11-12T19:26:35-08:00"}
     merge, status = datetime.fromisoformat("2026-11-12T18:40:27-08:00"), datetime.fromisoformat("2026-11-12T18:47:37-08:00")
     asked = "Anything approved already get merger asap and list the rest for me here"
@@ -3088,7 +3098,7 @@ def test_his_messages_a_handler_answers_in_his_thread_record_him_heard_never_bac
     assert not state.owner_away(data, datetime.fromisoformat("2026-11-12T19:31:01-08:00"))
     assert state.owner_away(data, datetime.fromisoformat("2026-11-12T19:47:37-08:00"))
     later = datetime.fromisoformat("2026-11-12T19:10:00-08:00")
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["owner"]["heard"] = state.stamp(later)
     say(transcript, text="Both are in the merge queue.", thread_ts="1.2", asked="Status?")
     assert state.parse_time(state.load("demo")["owner"]["heard"]) == later
@@ -3120,7 +3130,7 @@ def test_an_edit_of_his_question_card_is_refused_naming_the_redraw(run: Run, tal
     ask = state.drive_dir("demo") / "asks" / "j1-ab.md"
     ask.parent.mkdir(parents=True, exist_ok=True)
     ask.write_text("ASK Which store?\n")
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         question = state.new_question(str(ask), "Which store?", state.stamp(), card=card)
         data["jobs"]["j1"]["questions"].append(question | {"waits": "demo:j1-661229"})
     for edit in (call("slack_edit", transcript, text="Reworded.", url=card), call("slack_edit", transcript, text="Reworded.", channel_id=DM, ts="1794288799.976279")):
@@ -3145,7 +3155,7 @@ def test_a_handler_post_in_his_dm_naming_a_pr_or_error_his_open_question_card_as
         " set nowhere in infra/rows/k8s/datadog-agent.ts\n"
     )
     card = f"https://acme.slack.com/archives/{DM}/p1794288799976279"
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["jobs"]["j1"]["questions"].append(state.new_question(str(ask), "Keep upsert_condition?", state.stamp(), card=card) | {"waits": "demo:j1-7"})
     for text, about in ((f'The batch writer still prints "{error}".', f'"{error}"'), ("https://github.com/acme/app/pull/55 is red again.", "acme/app#55")):
         reason = say(transcript, text=text)
@@ -3168,7 +3178,7 @@ def test_a_drive_tooling_card_naming_his_product_pr_never_claims_a_post_about_th
     ask = state.drive_dir(demo) / "asks" / "j9-7.md"
     ask.parent.mkdir(parents=True, exist_ok=True)
     ask.write_text(f"ASK One card per stack?\nFor {{order:o9}}: your pick decides whether {state.pr_url(tooled)} lands and how {state.pr_url(product)} draws its card.\nFindings:\nRoot cause: none: a pick between two designs of his\n")
-    with state.edit(demo) as data:
+    with edit(demo) as data:
         asked = state.new_question(str(ask), "One card per stack?", state.stamp(), card=f"https://acme.slack.com/archives/{DM}/p1794288799976279") | {"waits": "demo:j9-7"}
         data["orders"]["o9"] = state.new_order(part, "terminal", None, {part: state.new_part()}, state.stamp()) | {"jobs": ["j9"], "owner": "meta"}
         data["jobs"]["j9"] = state.new_job("o9", "design", "cards: one card per stack", [part], state.stamp()) | {"questions": [asked]}
@@ -3186,7 +3196,7 @@ def test_a_say_post_to_a_channels_members_gets_a_readers_checks_in_place_of_a_li
     long = say(transcript, text=said(61), channel_id="C0STAGING1")
     assert "this post is 61 words, and a line to a channel's members is at most 60 words" in long
     assert long.rule == message_limits.MEMBERS_RULE
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["prs"]["yasyf/cc-skills#7"] = state.new_pr("https://github.com/yasyf/cc-skills/pull/7", "j1", "o1") | {"title": "New: \U0001f680 " + said(40)}
     assert say(transcript, text=said(59) + " {pr:7}", channel_id="C0STAGING1") is None
     coded = say(transcript, text="Claiming staging until 3 PM to test the fix in talk.py and record_on(). Does anyone object?", channel_id="C0STAGING1")
@@ -3200,7 +3210,7 @@ def test_a_say_post_to_a_channels_members_gets_a_readers_checks_in_place_of_a_li
     done = "Done, staging is free again. " + said(40)
     assert say(transcript, text=done, channel_id="C0STAGING1", thread_ts="1794288799.000003").startswith("refused: your transcript shows no read of his thread 1794288799.000003")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         state.join_thread(data["orders"]["o1"], ("C0STAGING1", "1794288799.000003"), state.stamp(), "members")
     reads(lane_of(transcript), "1794288799.000003", channel="C0STAGING1")
     assert say(transcript, text=done, channel_id="C0STAGING1", thread_ts="1794288799.000003") is None
@@ -3270,7 +3280,7 @@ def test_a_staging_claim_past_one_plain_line_or_citing_code_is_refused_and_its_o
     ):
         assert say(transcript, text=line, channel_id="C0STAGING1") is None
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "test the handover fix on staging")
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         state.join_thread(data["orders"]["o1"], ("C0STAGING1", "1794692852.753919"), state.stamp(), "members")
     reads(lane_of(transcript), "1794692852.753919", channel="C0STAGING1")
     done = "*Done with staging; it is free again.* The freeze lifted and staging is back on dev's code. The fix passed every check, and nothing failed."
@@ -3289,7 +3299,7 @@ def test_a_say_reply_in_a_thread_an_order_keeps_as_members_skips_the_checks_of_a
     ask.parent.mkdir(parents=True, exist_ok=True)
     ask.write_text(f"ASK Keep upsert_condition?\nFor {{order:o1}}: your pick decides whether {pr} lands.\n")
     claim, alert = "1794692852.753919", "1794642787.010109"
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["jobs"]["j1"]["questions"].append(state.new_question(str(ask), "Keep upsert_condition?", state.stamp(), card=f"https://acme.slack.com/archives/{DM}/p1794288799976279") | {"waits": "demo:j1-7"})
         state.join_thread(data["orders"]["o1"], ("C0STAGING1", claim), state.stamp(), "members")
     checked.findings = ["1:1 jargon 'staging': say it plainly"]
@@ -3313,7 +3323,7 @@ def test_a_post_to_a_teammate_passes_check_post_and_an_apology_or_another_draft_
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "keep answering the thread")
     teammate = {"channel_id": "C0TEAMMATE1", "thread_ts": "1794717967.971669"}
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["orders"]["o1"]["watch"] = state.new_watch("https://acme.slack.com/archives/C0TEAMMATE1/p1794717967971669", datetime.now(UTC))
     reads(lane_of(transcript), teammate["thread_ts"], channel="C0TEAMMATE1")
     sorry = "Sorry, here's the longer version: the importer now commits each batch in one round trip."
@@ -3370,6 +3380,6 @@ def test_a_switch_command_names_a_terminal_a_session_of_the_drive_runs_in(talker
     assert "as the role's line `drive status` prints it" in reason
     assert posted(transcript, text="Open it with `orca terminal switch --terminal term_live`.") is None
     assert posted(transcript, text="Open Iris's coordinator with `orca terminal switch --terminal term_iris`.").startswith("refused: `orca terminal switch --terminal term_iris`")
-    with state.edit("demo") as data:
+    with edit("demo") as data:
         data["subcoordinators"]["Iris"] = {"session": "iris-1", "cwd": "/work"}
     assert posted(transcript, text="Open Iris's coordinator with `orca terminal switch --terminal term_iris`.") is None
