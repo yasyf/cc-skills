@@ -186,6 +186,7 @@ STAGING_PARTS = re.compile(r"staging test of (?P<numbers>#\d+(?:(?:,| with| and)
 STAGING_ENV = "plat-usw2-staging"
 AFTER_MERGE_PASS = "after-merge staging pass"
 PID_WAIT = re.compile(r"pid:(?P<pid>\d+)(?:@(?P<started>\d+))?")
+SLOT_TURN_WAIT = re.compile(r"staging-slot:(?P<job>j\d+)")
 MAC_BOX_WAIT = re.compile(r"mac-box:(?P<box>[\w.-]+?)(?P<handed>@handed)?(?=[\s,;.)]|$)")
 STAGING_GOAL = re.compile(r"\bstaging\b", re.IGNORECASE)
 APPLY_STEP = re.compile(r"apply-(?P<target>.+?)--(?P<env>.+)")
@@ -2529,7 +2530,7 @@ def result_refusal(data: dict, job_id: str, line: str, report: str) -> str | Non
         process = "" if place.on_sprite(job) else f", a process you started on this Mac that still runs as pid:<n>, which wakes {job_id} once it ends"
         return (
             "its WAITING names nothing the watch frees it on: name on its first line, the only line its waits are read from, the release as"
-            " release:<service>:<owner>/<repo>#<n>, or release:<service>:<owner>/<repo>#<n>@<env> for one env as the release provider's live read names it, a staging test's soak commit as staging:<target>/<env>@<commit>, a Mac box the drive's pool hands you as mac-box:<box> or mac-box:any, a Buildkite build by its link, https://buildkite.com/<org>/<pipeline>/builds/<n>,"
+            " release:<service>:<owner>/<repo>#<n>, or release:<service>:<owner>/<repo>#<n>@<env> for one env as the release provider's live read names it, a staging test's soak commit as staging:<target>/<env>@<commit>, a Mac box the drive's pool hands you as mac-box:<box> or mac-box:any, the top coordinator's START of your staging window as staging-slot:<your job>, a Buildkite build by its link, https://buildkite.com/<org>/<pipeline>/builds/<n>,"
             f" an open PR the drive tracks, a part of an order not yet delivered as <order>:<part>{process}, a teammate's reply as reply:<the permalink of the question the drive asked them>, which their first message after it ends, another drive's next record as reply:cci:<the seq of its record you wait after>, which the first record after it on that record's topic in that drive ends, or his open card as `WAITING <what> waits on <its waits id or Slack link>`,"
             f" since a PR that merged or closed, a part delivered, a process that ended and a card he answered free it at once, and a PR waiting on {job_id} or a part it carries, as the PR its staging test tests, waits on {job_id} in turn: name with it the job"
             f" whose work frees {job_id}, as j<n>, which frees it once that job's change merges, or once that job next reports while its change waits on {job_id}"
@@ -2626,6 +2627,7 @@ def named_waits(data: dict, order_id: str, line: str) -> list[str]:
     builds = [found[0] for found in github.BUILD.finditer(line)]
     orders = [found for found in LINE_ORDER.findall(line) if unscheduled(data, found)]
     boxes = [f"mac-box:{found['box']}" for found in MAC_BOX_WAIT.finditer(line) if not found["handed"]]
+    boxes += [found[0] for found in SLOT_TURN_WAIT.finditer(line) if found["job"] in data["jobs"]]
     return list(dict.fromkeys([*releases, *stagings, *builds, *named_prs(data, order_id, RELEASE_WAIT.sub("", line)), *named_parts(data, line), *orders, *pid_waits(line), *boxes, *(found[0] for found in REPLY_WAIT.finditer(line))]))
 
 
@@ -6306,7 +6308,7 @@ def followed_builds(orders: dict[str, dict]) -> set[str]:
 
 def card_wait(data: dict, wait: str) -> bool:
     """Whether a wait names a card of his, by its Slack link or waits id, rather than a job, a job's next report, a PR, tracked or not, an order or a part of one, a release of the drive, a staging test's soak commit, a process on this Mac, a Buildkite build, a teammate's reply to a question the drive asked them, another drive's next record on a topic, a teammate's review of a PR's head, a builder slot on this Mac or a Sprite lane under this Mac's cap."""
-    return wait not in data["jobs"] and wait not in data["prs"] and wait not in data["orders"] and not part_wait(data, wait) and not RELEASE_WAIT.fullmatch(wait) and not STAGING_WAIT.fullmatch(wait) and not PID_WAIT.fullmatch(wait) and not MAC_BOX_WAIT.fullmatch(wait) and not github.BUILD.fullmatch(wait) and not REPLY_WAIT.fullmatch(wait) and not REVIEW_WAIT.fullmatch(wait) and not RETURN_WAIT.fullmatch(wait) and not untracked_wait(data, wait) and wait not in TURN_WAITS
+    return wait not in data["jobs"] and wait not in data["prs"] and wait not in data["orders"] and not part_wait(data, wait) and not RELEASE_WAIT.fullmatch(wait) and not STAGING_WAIT.fullmatch(wait) and not PID_WAIT.fullmatch(wait) and not MAC_BOX_WAIT.fullmatch(wait) and not SLOT_TURN_WAIT.fullmatch(wait) and not github.BUILD.fullmatch(wait) and not REPLY_WAIT.fullmatch(wait) and not REVIEW_WAIT.fullmatch(wait) and not RETURN_WAIT.fullmatch(wait) and not untracked_wait(data, wait) and wait not in TURN_WAITS
 
 
 def job_wait_refusal(data: dict, waits: list[str]) -> str | None:

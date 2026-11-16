@@ -362,6 +362,8 @@ def holds(drive: dict, wait: str, found: dict | None) -> bool:
         return state.pid_runs(wait)
     if boxed := state.MAC_BOX_WAIT.fullmatch(wait):
         return not boxed["handed"]
+    if turn := state.SLOT_TURN_WAIT.fullmatch(wait):
+        return not any(turn["job"] in state.slot_members(slot) for slot in drive["slots"].values())
     if drawn := drawn_on(drive, wait):
         return any(question["closed"] is None for _, question in drawn)
     if staged := state.STAGING_WAIT.fullmatch(wait):

@@ -9172,7 +9172,7 @@ def test_a_merged_product_job_with_no_staging_test_reaching_a_target_staging_run
     ]
     assert (builder["waits"], [call for call in calls if call[:2] == ["release", "live"]], watching.staged) == ([], [["release", "live", "--json"]], {"api"})
     assert (
-        "waiting on staging:api/plat-usw2-staging@ccc333ddd444eee while staging serves no build holding its merge; then install it"
+        "then wait on staging:api/plat-usw2-staging@ccc333ddd444eee while staging serves no build holding its merge; then install it"
         in Path(builder["brief"]).read_text()
     )
 

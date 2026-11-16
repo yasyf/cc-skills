@@ -9495,6 +9495,17 @@ def test_a_change_job_added_on_a_part_another_unfinished_one_carries_folds_into_
     assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["said"], data["jobs"]["j1"]["handed_to"]) == ("stopped", "handed to j3", "j3")
 
 
+def test_a_staging_slot_wait_holds_until_the_job_rides_or_holds_a_staging_cut(run: Run, demo: str) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "prove the merge on staging")
+    run("job", "add", "builder", "--order", "o1", "--goal", "prove Forge-AI/monorepo#42 live", "--builds-nothing")
+    data = state.load(demo)
+    assert state.named_waits(data, "o1", "WAITING staging-slot:j1 for root's START") == ["staging-slot:j1"]
+    assert view.holds(data, "staging-slot:j1", None) is True
+    with state.edit(demo) as data:
+        data["slots"]["plat-usw2-staging"] = {"holder": {"job": "j9", "riders": [{"job": "j1"}]}, "queue": [], "hold": None}
+    assert view.holds(state.load(demo), "staging-slot:j1", None) is False
+
+
 def test_a_job_waiting_on_a_mac_box_is_freed_once_the_pool_hands_it_one(run: Run, demo: str) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "test the app on a Mac")
     run("job", "add", "codex", "--order", "o1", "--goal", "test the app on your own Mac box")
