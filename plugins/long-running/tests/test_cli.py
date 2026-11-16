@@ -206,7 +206,7 @@ def test_a_sub_coordinator_binds_beside_the_top_for_a_project_an_order_is_filed_
         "cci: run cci drive use demo, and no cci subscribe: your cci alias demo-iris owns your subscription.",
     ]
     assert lines[-2:] == ["the watch runs for demo", "sub-coordinator for Iris: session iris-1, in no Orca terminal"]
-    assert watch_process.ensured == ["demo --project Iris"]
+    assert watch_process.ensured == ["demo"]
     assert run("context")[1].splitlines()[:4] == lines[:4]
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-2")
     assert run("start", "demo", "--role", "coordinator", "--project", "Iris")[0] == 0

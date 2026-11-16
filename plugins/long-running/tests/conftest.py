@@ -1053,8 +1053,8 @@ def posted_lanes(monkeypatch: pytest.MonkeyPatch) -> set[str]:
 def watch_process(monkeypatch: pytest.MonkeyPatch) -> WatchProcess:
     process = WatchProcess()
 
-    def ensure(name: str, project: str | None = None) -> str:
-        process.ensured.append(f"{name} --project {project}" if project else name)
+    def ensure(name: str) -> str:
+        process.ensured.append(name)
         return f"the watch runs for {name}"
 
     def spawn(watcher: watch.Watcher, flag: str, lines: int) -> subprocess.Popen:

@@ -3463,52 +3463,51 @@ def test_a_save_that_moves_open_orders_hands_each_session_losing_them_one_moved_
     ]
 
 
-def test_a_projects_watch_runs_as_its_own_process_from_where_the_drives_watch_stands_and_posts_to_its_sub_coordinators_lane(
+def test_the_drives_watch_runs_each_projects_passes_from_where_the_project_stands_and_posts_them_to_its_sub_coordinators_lane(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     sub_coordinated(demo)
-    started = []
-    monkeypatch.setattr(launchd, "kept", lambda label: False)
-    monkeypatch.setattr(launchd, "keep", lambda label, args, log, env, cwd: started.append((label, args, log)))
     state.append_event(demo, "tap", repo="Forge-AI/monorepo", number=42, label="Hold")
     state.save_watch_cursor(demo, state.events_end(demo))
-    drives_cursor = state.watch_cursor(demo)
-    assert REAL_ENSURE(demo, "Iris") == (
-        f"started the watch for Iris under its launch agent com.yasyf.long-running.watch.{demo}.iris, which starts it again within 10 seconds of any exit,"
-        " crash included; it posts its lines to the sub-coordinator for Iris over cci, so arm no Monitor for it"
-    )
-    assert started == [(f"com.yasyf.long-running.watch.{demo}.iris", ["watch", "--loop", "--drive", demo, "--project", "Iris"], state.drive_dir(demo) / "watch-iris.log")]
     assert (state.cursor_path(demo, "Iris").exists(), state.watch_cursor(demo, "Iris")) == (False, state.load(demo)["subcoordinators"]["Iris"]["from"])
     state.append_event(demo, "tap", repo="Forge-AI/monorepo", number=42, label="Hold", lane="iris")
     serve(monkeypatch, {})
     sent = posts(monkeypatch)
-    run_watch(demo, monkeypatch, "Iris")
+    run_watch(demo, monkeypatch)
     assert posted(sent) == [("handoff", f"iris@{demo}", f"TAP Hold {KEY} [o1 j1]")]
-    assert (state.watch_cursor(demo, "Iris"), state.pid_path(demo, "Iris").name, state.pid_path(demo, "Iris").exists()) == (state.events_end(demo), "watchd-iris.pid", False)
-    assert state.watch_cursor(demo) == drives_cursor
+    assert (state.watch_cursor(demo, "Iris"), state.pid_path(demo, "Iris").exists(), state.pid_path(demo).exists()) == (state.events_end(demo), False, False)
 
     def crash(watching: watch.Watcher, moment: datetime, until: Callable[[], object]) -> list[str]:
-        raise OSError("disk full")
+        if watching.project:
+            raise OSError("disk full")
+        return []
 
     monkeypatch.setattr(watch, "passed", crash)
     with pytest.raises(OSError):
-        watch.main(demo, "Iris")
+        watch.main(demo)
     kind, to, text = posted(sent)[-1]
     assert (kind, to) == ("handoff", f"iris@{demo}")
-    log = re.escape(str(state.watch_log_path(demo, "Iris")))
+    log = re.escape(str(state.watch_log_path(demo)))
     assert re.fullmatch(rf"WATCH stopped on long-running {re.escape(state.VERSION)}: OSError at watch\.py:\d+ in watching: disk full; its traceback is in {log}; its launch agent starts it again within 10 seconds", text)
 
 
-def test_drive_watch_project_starts_only_from_its_sub_coordinators_session(
-    demo: str, monkeypatch: pytest.MonkeyPatch, watch_process: WatchProcess, capsys: pytest.CaptureFixture[str]
+def test_a_project_watch_an_older_install_loaded_takes_its_launch_agent_down_and_leaves_its_project_to_the_drives_watch(
+    demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, watch_process: WatchProcess
 ) -> None:
     sub_coordinated(demo)
-    assert cli.main(["watch", "--drive", demo, "--project", "Iris"]) == 2
-    assert "only the sub-coordinator for Iris starts its watch, from its own session (iris-1)" in capsys.readouterr().err
-    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
+    agent = watch.label(demo, "Iris")
+    plist = tmp_path / f"{agent}.plist"
+    plist.write_text("")
+    state.pid_path(demo, "Iris").write_text(f"{os.getpid()}\n")
+    called = []
+    monkeypatch.setattr(launchd, "LAUNCH_AGENTS", tmp_path)
+    monkeypatch.setattr(launchd, "kept", lambda label: label == agent)
+    monkeypatch.setattr(launchd, "launchctl", lambda *args: called.append(args))
+    launched(monkeypatch, demo, "Iris")
+    assert watch.main(demo, "Iris") == 0
+    assert (plist.exists(), state.pid_path(demo, "Iris").exists(), called, watch_process.ensured) == (False, False, [("bootout", launchd.service(agent))], [demo])
     assert cli.main(["watch", "--drive", demo, "--project", "Iris"]) == 0
-    assert cli.main(["watch", "--drive", demo]) == 0
-    assert watch_process.ensured == [f"{demo} --project Iris", demo]
+    assert watch_process.ensured == [demo, demo]
 
 
 REAL_LOCAL_GAP = watch.local_gap
