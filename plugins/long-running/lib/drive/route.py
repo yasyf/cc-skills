@@ -170,10 +170,14 @@ def route(name: str, brief: str, answer: str | None = None, away: bool = False) 
     channel, ts, thread = state.slack_message(link)
     words = agents.his_words(brief)
     began = time.monotonic()
-    with state.edit(name) as data:
+    def claimed(data: dict) -> dict | None:
         if (earlier := data["routed"].get(ts)) and not lost_handler(data, earlier):
-            return earlier | {"again": True}
+            return earlier
         data["routed"][ts] = {"link": link, "thread": thread or ts, "words": cut(words, 500), "at": state.stamp(), "route": None}
+        return None
+
+    if earlier := state.update(name, None, claimed):
+        return earlier | {"again": True}
     from drive import answer as rows_answer
     from drive import watch
 
