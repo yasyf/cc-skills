@@ -270,6 +270,8 @@ def spoken(name: str, post: dict, known: dict, recorded_first: bool = False) -> 
         line += "; " + record_line(order, *reply["recorder"], close or recorded_first)
     if close:
         line += closed(name, order, report["seq"])
+        if warned := owing.close_warning(state.load(name)["orders"][order], order):
+            line += f"; {warned}"
     return line
 
 

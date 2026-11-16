@@ -11437,6 +11437,15 @@ def test_a_step_owed_by_6_30_wakes_the_orders_holder_once_then_the_coordinator_t
         assert (owing.still_open(data["orders"]["o1"]), data["orders"]["o1"]["owed"][0]["closed"]["by"]) == ([], "replaced")
 
 
+def test_closing_an_order_owing_an_open_item_warns_and_the_item_stays_open_in_status(demo: str) -> None:
+    moment = state.parse_time("2026-11-09T05:07:00-08:00")
+    with edit(demo) as data:
+        owing.add(data, "o1", "part", "the docs part", None, {"part_posted": ["o1", "docs"]}, "o1", moment)
+        data["orders"]["o1"]["state"] = "done"
+        assert owing.close_warning(data["orders"]["o1"], "o1").startswith('WARNING o1 closed still owing w1 part "the docs part" no due')
+        assert owing.status_lines(data, moment) == ['o1: w1 part "the docs part" no due']
+
+
 def test_a_job_clock_is_said_once_when_it_runs_out_while_its_job_still_runs_and_ends_unsaid_for_one_that_returned(demo: str) -> None:
     due = T0 + timedelta(minutes=10)
     with edit(demo) as data:

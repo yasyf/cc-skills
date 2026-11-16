@@ -56,6 +56,13 @@ def posted(data: dict, order_id: str, link: str, due: datetime | None, owes: str
     return add(data, order_id, STEP, owes or "its next step", due, {"post_on": order_id}, link, moment)
 
 
+def close_warning(order: dict, order_id: str) -> str | None:
+    """The warning a close of the order carries while it owes an item still open, never a refusal, by his words "no tooling gate in the drive's way": each item stays open, in drive status and drive owed list, until it is delivered, moved or ended."""
+    if not (held := still_open(order)):
+        return None
+    return f"WARNING {order_id} closed still owing {'; '.join(row(item) for item in held)}: each stays open in drive owed list until delivered, or ended with drive owed done <w> --because \"<why>\""
+
+
 def row(item: dict) -> str:
     due = f"due {when(item['due'])}" if item["due"] else "no due"
     missed = f", missed {item['misses']}" if item["misses"] else ""
@@ -83,9 +90,9 @@ def overdue_first(order: dict, moment: datetime) -> list[dict]:
 
 
 def status_lines(data: dict, moment: datetime) -> list[str]:
-    """`drive status`'s owed section: each open order's open items, overdue first, then by due, with no due last."""
+    """`drive status`'s owed section: each order's open items, a closed order's included, overdue first, then by due, with no due last."""
     lines = []
-    for order_id, order in state.open_orders(data).items():
+    for order_id, order in data["orders"].items():
         if shown := overdue_first(order, moment):
             lines.append(f"{order_id}: " + "; ".join(("LATE " if missed(item, moment) else "") + row(item) for item in shown))
     return lines

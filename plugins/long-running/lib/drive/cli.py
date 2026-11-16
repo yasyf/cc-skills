@@ -1101,9 +1101,6 @@ def order_set(args: argparse.Namespace) -> int:
             order["state"] = args.state
         order["alerts"] = list(dict.fromkeys([*order["alerts"], *alerts]))
         stopped = change_parts(name, data, args.id, list(dict.fromkeys(args.add_part)), list(dict.fromkeys(args.drop_part)))
-        if was_open and args.state == "dropped":
-            for item in owing.still_open(order):
-                owing.close(item, "dropped", state.now(), args.note)
         if was_open and args.state in state.CLOSED_ORDER_STATES:
             uncarried, ended = state.close_order_jobs(data, args.id, f"stopped: drive order set {args.id} --state {args.state} closed its order")
             stopped += [f"{job_id} carries {args.id} no more and keeps working on its own order" for job_id in uncarried]
@@ -1197,7 +1194,7 @@ def order_set(args: argparse.Namespace) -> int:
         seated = []
     retired = list(seats_retired(name).values()) if args.state in state.CLOSED_ORDER_STATES or args.priority is False else []
     retired += closed_prs(name, args.id, closing, args.note or f"its order {args.id} was dropped") if closing and not args.dry_run else []
-    return emit(args, render.order_line(data, args.id, order) + "".join(f"\n{line}" for line in [*turned, *unjoined, *parts, *stopped, *restarted, *repeated, *render.builder_lines(name, data, added), *reworked, *seated, *retired]), {"id": args.id, **(state.load(name)["orders"][args.id] if restarted else order)})
+    return emit(args, render.order_line(data, args.id, order) + "".join(f"\n{line}" for line in [*turned, *unjoined, *parts, *stopped, *restarted, *repeated, *render.builder_lines(name, data, added), *reworked, *seated, *retired, *filter(None, [args.state in state.CLOSED_ORDER_STATES and owing.close_warning(order, args.id)])]), {"id": args.id, **(state.load(name)["orders"][args.id] if restarted else order)})
 
 
 SEATS_LOG = "seats.log"
