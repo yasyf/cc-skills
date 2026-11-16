@@ -652,7 +652,7 @@ def run(name: str, keys: list[str], dry_run: bool = False) -> str:
 
             below = uncleared_below(data, keys)
             misfiled = {key: why for key in keys if (why := unexempt(data, key))}
-            untested = {key: unstaged for key, unstaged in cli.staging_reach(name, data, [key for key in keys if data["prs"][key]["wants_tap"]]).items() if not state.staging_tested(data, key)}
+            untested = {key: unstaged for key, unstaged in cli.staging_reach(name, data, [key for key in keys if data["prs"][key]["wants_tap"]]).items() if not state.staging_tested(data, key) and not (unstaged and (data["prs"][key]["exception"] or {}).get("granted"))}
             if (untested or misfiled) and not dry_run:
 
                 def reached(edited: dict) -> None:
@@ -667,7 +667,8 @@ def run(name: str, keys: list[str], dry_run: bool = False) -> str:
                 outcome = f"not landed: {'; '.join(misfiled.values())}"
             elif untested:
                 outcome = f"{WAITED}: " + "; ".join(
-                    f"{key} waits on his exception before it lands, since its paths at its head reach {', '.join(unstaged)}, which staging has no copy of"
+                    f"{key} waits on his exception before it lands, since its paths at its head reach {', '.join(unstaged)}, which staging has no copy of:"
+                    f" its builder's DONE carries the production dry-run plan drive pr plan {key} reads, he reads it on his card, and drive pr set {key} --excepted <his answer> keeps his word"
                     if unstaged
                     else f"{key} waits on its staging test before it lands, since its paths at its head reach a component staging runs"
                     for key, unstaged in untested.items()

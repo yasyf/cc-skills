@@ -222,12 +222,6 @@ DANGEROUS_GOAL = (
     "test {key} on staging before it lands, since its head changes {changes}, each a dangerous change by AGENTS.md as the repository's {rules} lists its paths:"
     " run the cases its builder's `STAGING: #{number}` line names, which reach you as it returns them, beside those its body and these files call for"
 )
-EXCEPTION_GOAL = (
-    "get his exception for {key} to land with no staging test, since staging runs no copy of {components}, by his answer 67caa93"
-    ' "His exception after reading the release dry-run\'s preview of each such stack": ask him with drive job ask once the dry run your Mac: line starts has its preview,'
-    " its Show me the creates, updates, deletes and replaces each stack plans, its Holds line naming {key}; his answer giving it is kept with"
-    ' drive answer --dropped "<your order>:{part}", which lets {key} land on his Approve'
-)
 EXCEPTED = re.compile(r"get his exception for (?P<key>\S+) to land with no staging test, since staging runs no copy of (?P<components>.+?), by his answer 67caa93")
 STAGING_CASES = "a line `STAGING: #N <the cases its staging test runs>` for each, the goal of the tester on this Mac its `staging test of #N before it lands` part gets"
 STAGING_RULE = (
@@ -1296,6 +1290,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         pr.setdefault("paths_at", None)
         pr.setdefault("stored", [])
         pr.setdefault("unstaged", None)
+        pr.setdefault("exception", None)
         if pr["unstaged"]:
             pr["unstaged"].setdefault("merges_first", False)
         pr.setdefault("after_merge", None)
@@ -2534,6 +2529,11 @@ def result_refusal(data: dict, job_id: str, line: str, report: str) -> str | Non
             f" stop the one its WAITING names, {keep}run drive job prove {job_id}, which runs its proof file now and, on its WAIT line, keeps {job_id} waiting"
             f" and runs it again once he is next heard, then end the turn on the first line drive job report {job_id} prints"
         )
+    if job["kind"] == "builder" and re.match(r"DONE\b", line) and (planless := [key for key in job["prs"] if (pr := data["prs"].get(pr_key(key))) and pr["exception"] and not pr["exception"]["granted"]]) and not re.search(r"^PLAN:", report, re.MULTILINE):
+        return (
+            f"{', '.join(map(pr_key, planless))} reach only components staging runs no copy of, so your DONE carries their production dry-run plan in place of a staging test:"
+            f" run drive pr plan <PR> for each, put its output under a `PLAN:` line of your report, then send this report again; he reads it on his exception card"
+        )
     if job["kind"] == "builder" and re.match(r"DONE\b", line) and (owed := owed_work(data, job_id)):
         repro = job.get("repro")
         why = unrunnable(repro) if repro else None
@@ -3086,13 +3086,13 @@ def wait_on_staging(data: dict, key: str) -> tuple[str, str]:
 
 
 def reach_staging(data: dict, key: str, unstaged: list[str]) -> str | None:
-    """Put a PR whose paths reach a component a release deploys, as cli.staging_reach finds, on its staging test, by wait_on_staging, marked reached, so no `STAGING: none` of its builder lifts it, by staging_refusal, since the lander would put it back; when staging runs a copy of none of them, unstaged naming each, its part's tester asks his exception after reading the release dry run's preview of each, by his answer 67caa93, its goal EXCEPTION_GOAL, by stage_pr in the session of the PR's job, since a soak on staging cannot deploy what staging has no copy of; the tester added, or None."""
+    """Put a PR whose paths reach a component a release deploys, as cli.staging_reach finds, on its staging test, by wait_on_staging, marked reached, so no `STAGING: none` of its builder lifts it, by staging_refusal, since the lander would put it back; when staging runs a copy of none of them, unstaged naming each, it takes no staging part, since no staging build can deliver one: it waits on his exception, by his answer 67caa93, kept as the PR's exception, which its builder's DONE carries the production dry-run plan for and drive pr set --excepted gives; the tester added, or None."""
     data["prs"][key]["reached"] = True
     if not unstaged:
         wait_on_staging(data, key)
         return None
-    goal = EXCEPTION_GOAL.format(key=key, components=", ".join(unstaged), part=STAGING_TEST.format(number=key.rpartition("#")[2]))
-    return stage_pr(data, key, goal, data["jobs"][data["prs"][key]["job"]].get("session"))
+    data["prs"][key]["exception"] = data["prs"][key]["exception"] or {"components": unstaged, "granted": None}
+    return None
 
 
 def unreach(data: dict, key: str) -> list[str]:
@@ -6859,6 +6859,7 @@ def new_pr(url: str, job_id: str, order_id: str) -> dict:
         "wants_tap": True,
         "tap": None,
         "exempt": None,
+        "exception": None,
         "fundamental": None,
         "state": "open",
         "title": "",

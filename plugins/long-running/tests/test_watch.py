@@ -7840,7 +7840,7 @@ def test_a_lander_lands_no_approved_pr_whose_paths_at_its_head_reach_a_component
     assert (now.name, now.owner, now.why) == ("red", stage.BUILDER, f"it waits on {part}, which no staging tester runs: return PUSHED with {state.STAGING_CASES}")
 
 
-def test_a_lander_puts_an_approved_pr_reaching_only_platy_on_a_tester_asking_his_exception_after_a_dry_run_from_this_mac_and_lands_it_once_his_answer_drops_the_test(
+def test_a_lander_holds_an_approved_pr_reaching_only_platy_on_his_exception_with_no_staging_part_and_lands_it_once_his_answer_gives_it(
     demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     approve(demo, KEY)
@@ -7850,12 +7850,12 @@ def test_a_lander_puts_an_approved_pr_reaching_only_platy_on_a_tester_asking_his
     enqueue_exiting(tmp_path, demo, 0)
     monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {key: {"components": ["api", "platy"], "touched": ["platy"], "dev": [], "releases": ["platy"], "staged": []} for key in keys})
     part = state.STAGING_TEST.format(number=42)
-    assert land.run(demo, [KEY]) == f"{land.WAITED}: {KEY} waits on his exception before it lands, since its paths at its head reach platy, which staging has no copy of"
+    assert land.run(demo, [KEY]).startswith(f"{land.WAITED}: {KEY} waits on his exception before it lands, since its paths at its head reach platy, which staging has no copy of: its builder's DONE carries")
     data = state.load(demo)
-    [(_, tester)] = state.part_testers(data, "o1", part)
-    assert (state.EXCEPTED.match(tester["goal"])["components"], cli.mac_lines(demo, tester, {"mac": None, "release": None})[0]) == ("platy", cli.EXCEPTION_MAC)
-    assert view.staging(data, KEY) == "Not on staging: staging has no copy of platy, so it lands on your exception once you read the release dry run's preview of each"
-    dropped_by_answer(demo, part)
+    assert (data["prs"][KEY]["exception"], state.part_testers(data, "o1", part), part in data["orders"]["o1"]["parts"]) == ({"components": ["platy"], "granted": None}, [], False)
+    assert view.staging(data, KEY) == "Not on staging: staging has no copy of platy, so it lands on your exception once you read the production dry run's plan of each"
+    with state.edit(demo) as data:
+        data["prs"][KEY]["exception"]["granted"] = f"{CARD}9"
     assert land.run(demo, [KEY]) == land.QUEUED
 
 

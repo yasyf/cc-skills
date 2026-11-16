@@ -445,6 +445,9 @@ def before_merge(drive: dict, key: str, part: str, held: list[str], run: dict | 
     if not held:
         if run:
             return tested(run, "") if run["posted"] else ("Tested on staging: no pass", Pasted(f": {cut(state.unpassed(run), NOW_CHARS)}"))
+        if excepted := drive["prs"][key]["exception"]:
+            components = ", ".join(excepted["components"])
+            return (f"Not on staging: staging has no copy of {components}, so it lands on your exception {excepted['granted']}" if excepted["granted"] else f"Not on staging: staging has no copy of {components}, so it lands on your exception once you read the production dry run's plan of each",)
         if not (lifted := drive["prs"][key]["unstaged"]):
             return ("Not on staging: no staging test is set for it",)
         if lifted["merges_first"]:

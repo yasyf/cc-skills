@@ -5333,6 +5333,10 @@ def pr_set(args: argparse.Namespace) -> int:
         if args.serves:
             serves_line = f"\nserves {args.serves}, his words: {find(data['orders'], args.serves, 'order')['text']}"
         set_pr(pr, args, answered)
+        if args.excepted:
+            if not pr["exception"]:
+                raise DriveError(f"{key}: refused, nothing set: it waits on no exception of his, since staging runs a copy of what it reaches")
+            pr["exception"]["granted"] = find(data["answers"], args.excepted, "answer of his")["link"] or args.excepted
         if args.tapped == "Hold":
             state.end_approvals(data, key, before["tap"])
         pr["waits"] = merged_waits(data, pr, args.waits, args.no_waits, found)
@@ -5758,6 +5762,16 @@ def tap_verdict(data: dict, pr: dict | None) -> tuple[bool, str]:
     if pr.get("fundamental"):
         return False, f"no tap since it changed: {pr['fundamental']}"
     return False, "no tap from him yet"
+
+
+def pr_plan(args: argparse.Namespace) -> int:
+    """Print the plan a production release of the components a PR reaches with no copy on staging would apply, by the release provider's dry_run, the proof its builder's DONE carries in place of a staging test; refused for a PR waiting on no exception."""
+    data = state.load(state.resolve(args.drive))
+    key = state.pr_key(args.url)
+    if not (excepted := find(data["prs"], key, "PR")["exception"]):
+        raise DriveError(f"{key}: refused, it waits on no exception: only a PR reaching components staging runs no copy of carries a production dry-run plan")
+    plan = providers.of(data).release.dry_run(key.rpartition("#")[2], excepted["components"])
+    return emit(args, plan, {"key": key, "components": excepted["components"], "plan": plan})
 
 
 def pr_tapped(args: argparse.Namespace) -> int:
@@ -8084,6 +8098,7 @@ def parser() -> argparse.ArgumentParser:
     verb.set_defaults(run=pr_add)
     verb = pr.add_parser("set", parents=[*both, dry_opt, waits_opt])
     verb.add_argument("url", help=f"the PR, as {PR_FORMS}")
+    verb.add_argument("--excepted", metavar="ANSWER", help="his answer giving his exception to land a PR reaching only components staging runs no copy of, once he read its production dry-run plan from drive pr plan")
     verb.add_argument(
         "--tap", action=argparse.BooleanOptionalAction, help="waits on his tap; --no-tap withdraws his open card for it, needs --why"
     )
@@ -8141,6 +8156,9 @@ def parser() -> argparse.ArgumentParser:
         ),
     )
     verb.set_defaults(run=rehearsed(pr_set))
+    verb = pr.add_parser("plan", parents=both, help="print the production dry-run plan of the components a PR reaches that staging runs no copy of, through the release provider")
+    verb.add_argument("url", help=f"the PR, as {PR_FORMS}")
+    verb.set_defaults(run=pr_plan)
     verb = pr.add_parser("tapped", parents=both)
     verb.add_argument("url", help=f"the PR, as {PR_FORMS}")
     verb.set_defaults(run=pr_tapped)

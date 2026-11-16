@@ -9494,6 +9494,20 @@ def test_a_change_job_added_on_a_part_another_unfinished_one_carries_folds_into_
     assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["said"], data["jobs"]["j1"]["handed_to"]) == ("stopped", "handed to j3", "j3")
 
 
+def test_a_pr_staging_runs_no_copy_of_prints_its_production_dry_run_plan_and_takes_his_exception(run: Run, with_pr: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    assert run("pr", "plan", PR)[0] != 0
+    with state.edit("demo") as data:
+        data["prs"][with_pr]["exception"] = {"components": ["datadog"], "granted": None}
+        data["answers"]["a1"] = {"words": "ship it", "link": "https://acme.slack.com/archives/D1/p9", "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {}}
+    monkeypatch.setattr(providers.ReleaseProvider, "dry_run", lambda self, pr, components: f"plan of {pr}: {', '.join(components)}: 1 to update")
+    assert run("pr", "plan", PR) == (0, "plan of 42: datadog: 1 to update")
+    data = state.load("demo")
+    assert "production dry-run plan" in state.result_refusal(data, "j1", "DONE it shipped", "DONE it shipped\n")
+    assert state.result_refusal(data, "j1", "DONE it shipped", "DONE it shipped\nPLAN:\nplan of 42\n") is None or "production dry-run plan" not in state.result_refusal(data, "j1", "DONE it shipped", "DONE it shipped\nPLAN:\nplan of 42\n")
+    assert run("pr", "set", PR, "--excepted", "a1")[0] == 0
+    assert state.load("demo")["prs"][with_pr]["exception"]["granted"] == "https://acme.slack.com/archives/D1/p9"
+
+
 def test_a_staging_slot_wait_holds_until_the_job_rides_or_holds_a_staging_cut(run: Run, demo: str) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "prove the merge on staging")
     run("job", "add", "builder", "--order", "o1", "--goal", "prove Forge-AI/monorepo#42 live", "--builds-nothing")

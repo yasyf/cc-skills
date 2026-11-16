@@ -154,6 +154,10 @@ class ReleaseProvider(Provider):
         """Each release target's components."""
         return {}
 
+    def dry_run(self, pr: str, components: list[str]) -> str:
+        """The plan a production release of components at the head of the PR numbered pr would apply, read without releasing, which a PR reaching only components staging runs no copy of carries as its proof."""
+        raise ProviderError("this repository reads no production dry-run plan")
+
     def freeze(self, components: list[str], why: str, until: str) -> str:
         """Freeze releases of components until the stamp until, for why; the freeze's id."""
         raise ProviderError("this repository sets no release freeze")
