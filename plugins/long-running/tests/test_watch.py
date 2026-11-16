@@ -12578,7 +12578,7 @@ def test_each_new_alert_in_a_staging_envs_channel_goes_once_to_each_job_testing_
         data["jobs"]["j2"] = job(state="waiting", waits=["j9", "j4"], claim={"worker": "j9", "attempt": 1, "at": state.stamp(T0)})
         data["jobs"]["j3"] = job(state="done")
         data["jobs"]["j5"] = job(waits=[f"staging:api/plat-usw2-staging@{'a' * 40}"])
-        data["slots"]["plat-usw2-staging"] = {"holder": {"job": "j1", "riders": [{"job": "j2"}, {"job": "j3"}], "work": "j9"}}
+        data["slots"]["plat-usw2-staging"] = {"holder": {"job": "j1", "riders": [{"job": "j2"}, {"job": "j3"}], "work": "j9", "released": False}}
         data["slack"]["env_alerts"]["plat-usw2-staging"] = {"channel": "C0ALERTS", "seen": "1800000000.000000"}
     history = [
         {"ts": "1800000200.000000", "user_name": "Sentry", "from_claude": False, "from_user": None, "text": "[api] TypeError: boom\nmore", "permalink": "https://acme.slack.com/archives/C0ALERTS/p1800000200000000"},

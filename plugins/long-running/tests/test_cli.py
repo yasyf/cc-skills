@@ -4922,6 +4922,20 @@ def test_no_new_cut_starts_while_a_cut_or_release_holds_the_env_or_a_release_wai
     assert work.STAGE.why_not(data, moment).startswith(f"waits on {env}, held by the queue's cut of j7394 until ")
 
 
+def test_a_cut_item_returning_anything_but_waiting_gives_back_its_place_so_an_ask_never_holds_staging_on_his_card_as_j349s_did(monkeypatch: pytest.MonkeyPatch) -> None:
+    env = "plat-usw2-staging"
+    monkeypatch.setattr(work, "env", lambda data: env)
+    monkeypatch.setattr(work.StageTest, "line", lambda self, data: ["j353"])
+    head = {"job": "j349", "prs": [], "minutes": 30, "cases": None, "at": "", "paths": None, "stacks": None, "starts": False}
+    data = {"slots": {env: {"holder": state.leased(head, state.now(), [head | {"job": "j352"}]) | {"work": "j350"}}}, "jobs": {"j349": {"state": "waiting"}, "j352": {"state": "waiting"}}}
+    work.STAGE.done(data, "j352", f"WAITING staging:api/{env}@{'a' * 40}")
+    assert state.slot_members(data["slots"][env]) == ["j349", "j352"]
+    work.STAGE.done(data, "j349", "ASK /asks/j349-1.md")
+    assert (state.slot_members(data["slots"][env]), work.STAGE.held(data, "j350")) == (["j352"], f"the queue's {env} cut still holds j352, waiting on what each returned; a fresh worker runs them there once their waits end")
+    work.STAGE.done(data, "j352", "BLOCKED staging serves no build of #57755")
+    assert (data["slots"][env]["holder"], work.STAGE.held(data, "j350"), work.STAGE.why_not(data, state.now())) == (None, None, None)
+
+
 def test_slot_queue_runs_end_to_end_and_lists_a_queued_tester_on_a_free_env(run: Run, demo: str) -> None:
     run("order", "add", "--title", "Soak it", "--project", "The drive", "--workstream", "Drive tooling", "soak it", "--kind", "build", "--parts", "staging test of #42 before it lands")
     run("job", "add", "builder", "--order", "o1", "--part", "staging test of #42 before it lands", "--goal", "soak #42 on staging")
