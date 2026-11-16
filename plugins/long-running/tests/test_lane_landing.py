@@ -55,3 +55,8 @@ def test_a_hold_and_a_red_check_keep_a_pr_and_everything_above_it() -> None:
     [verdict] = landing.verdicts(lane(row(1), row(2, under=1, held="wait for the rework"), row(3, under=2)), None, NOW)
     assert (verdict.keys, verdict.why) == (("Forge-AI/monorepo#1",), "Forge-AI/monorepo#2 waits: he holds it: wait for the rework")
     assert landing.verdicts(lane(row(1, checks="fail")), None, NOW)[0].lands is False
+
+
+def test_a_pr_whose_stack_link_is_unread_never_lands() -> None:
+    unlinked = {field: value for field, value in row(1).items() if field != "under"}
+    assert landing.verdicts(lane(unlinked), None, NOW)[0].lands is False

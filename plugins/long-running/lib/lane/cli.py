@@ -1,35 +1,56 @@
 import argparse
 import json
+import os
+import subprocess
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from lane import landing, stager
+from lane import landing, stager, store
 
 PRESENCE = "presence.json"
 
 
 def heard(drive: str) -> datetime | None:
     path = stager.lanes_dir(drive) / PRESENCE
-    return datetime.fromisoformat(json.loads(path.read_text())["at"]) if path.exists() else None
+    return store.parse(json.loads(path.read_text())["at"]) if path.exists() else None
 
 
-def lanes(drive: str) -> list[dict]:
-    return [json.loads(path.read_text()) for path in sorted(stager.lanes_dir(drive).glob("*.json")) if path.name not in (stager.RANK, stager.ENV_LEASE, PRESENCE)]
+def hold(drive: str, lane_id: str, text: str) -> str:
+    store.update(drive, lane_id, lambda lane: store.note(lane, text))
+    return text
+
+
+def merged(drive: str, lane: dict, keys: list[str], dangerous: bool) -> str:
+    """Queue one landing unit through the repository's merge queue from a fresh worktree at the queue's base: one preflight, `--check`, then, for a unit holding a dangerous PR, his presence read again at that moment, since a preflight can outlast the 15 minutes his word or tap allows, and a lapsed one holds the unit and says so in its lane, never merging; then `--watch`, which queues it."""
+    from drive import github, providers
+    from drive import land as old_land
+
+    worktree = Path(lane["worktree"])
+    script = providers.at(worktree).repo.queue().script
+    repo = github.repo_of(keys[0])
+    numbers = [key.rpartition("#")[2] for key in keys]
+    with old_land.fresh(drive, worktree, repo, github.default_branch(repo)) as (checkout, sha):
+        trusted = os.environ | {old_land.MISE_TRUST: str(checkout)}
+        checked = subprocess.run([str(checkout / script), "--check", *numbers], cwd=checkout, env=trusted, capture_output=True, text=True)
+        if failed := old_land.unfinished(drive, "--check", keys, checked):
+            return hold(drive, lane["id"], failed)
+        if dangerous and not landing.present(heard(drive), store.now()):
+            return hold(drive, lane["id"], f"not landed: {', '.join(keys)} is dangerous and his presence lapsed during the preflight at {sha[:12]}, so it lands at his next word or tap")
+        done = subprocess.run([str(checkout / script), "--watch", *numbers], cwd=checkout, env=trusted, capture_output=True, text=True)
+    if done.returncode == 0:
+        return hold(drive, lane["id"], f"{old_land.QUEUED}: {', '.join(keys)} at base {sha[:12]}")
+    return hold(drive, lane["id"], old_land.unfinished(drive, "--watch", keys, done) or f"not landed: --watch exited {done.returncode}: {old_land.said(done.stdout + done.stderr)}")
 
 
 def land(args: argparse.Namespace) -> None:
-    """Print what his Approve lands now in each lane, and in live mode queue each landing unit through the repository's merge queue from the lane's worktree."""
-    from drive import land as old_land
-    from drive import providers
-
-    moment = datetime.now().astimezone()
-    for lane in lanes(args.drive):
+    """Print what his Approve lands now in each lane, and in live mode queue each landing unit by merged()."""
+    moment = store.now()
+    for lane in store.load_all(args.drive).values():
+        rows = {landing.key(row): row for row in lane["prs"]}
         for verdict in landing.verdicts(lane, heard(args.drive), moment):
             print(f"{lane['id']}: {'LANDS ' + ', '.join(verdict.keys) if verdict.lands else 'HOLDS'}; {verdict.why}")
             if verdict.lands and stager.live(args.drive):
-                worktree = Path(lane["worktree"])
-                script = providers.at(worktree).repo.queue().script
-                print(old_land.enqueued(args.drive, worktree, script, list(verdict.keys), {key: {"review_asked": None} for key in verdict.keys}, {}))
+                print(merged(args.drive, lane, list(verdict.keys), any(landing.dangerous(rows[key]) for key in verdict.keys)))
 
 
 def candidates(args: argparse.Namespace) -> None:

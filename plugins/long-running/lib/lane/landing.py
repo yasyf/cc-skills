@@ -49,6 +49,8 @@ def unready(row: dict) -> str | None:
         return f"checks {row.get('checks') or 'unread'}"
     if not judged(row):
         return "the dangerous reader has not judged its head"
+    if "under" not in row:
+        return "the PR it sits on is unread, so what the queue would land below it is unknown"
     return None
 
 

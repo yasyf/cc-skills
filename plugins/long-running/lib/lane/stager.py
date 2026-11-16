@@ -8,7 +8,7 @@ import os
 from datetime import datetime
 from pathlib import Path
 
-from lane import landing
+from lane import landing, store
 
 LIVE = "live"
 SHADOW = "shadow"
@@ -24,9 +24,7 @@ class ShadowRefusal(SystemExit):
 
 
 def lanes_dir(drive: str) -> Path:
-    from drive import state
-
-    return state.root() / "lanes" / drive
+    return store.drive_dir(drive)
 
 
 def live(drive: str) -> bool:
@@ -52,7 +50,7 @@ def lane_candidates(drive: str) -> list[dict]:
     order = json.loads((folder / RANK).read_text())["order"]
     found = []
     for rank, lane_id in enumerate(order):
-        lane = json.loads((folder / f"{lane_id}.json").read_text())
+        lane = store.load(drive, lane_id)
         for stack in landing.stacks(lane):
             open_rows = [row for row in stack if not row.get("merged")]
             if any(landing.judged(row) and landing.dangerous(row) for row in open_rows) and not landing.proven(open_rows):
