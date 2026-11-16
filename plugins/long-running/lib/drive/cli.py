@@ -4992,7 +4992,7 @@ def work_show(args: argparse.Namespace) -> int:
     data = state.load(state.resolve(args.drive))
     moment = state.now()
     kinds = {name: {"worker": work.live_worker(data, name), "ready": kind.line(data), "why": kind.why_not(data, moment)} for name, kind in work.KIND.items() if work.enabled(data, name)}
-    shown = [f"kinds: {', '.join(kinds) or 'none'}"] + [f"{name}: worker {held['worker'] or 'none'}; ready {', '.join(held['ready']) or 'none'}; {f'no new group: {held['why']}' if held['why'] else 'a new group may start'}" for name, held in kinds.items()]
+    shown = [f"kinds: {', '.join(kinds) or 'none'}"] + [f"{name}: worker {held['worker'] or 'none'}; ready {', '.join(held['ready']) or 'none'}; {held['why'] if held['why'] else 'a new group starts at the watch’s next pass' if not held['worker'] else 'its worker pulls the next group'}" for name, held in kinds.items()]
     return emit(args, "\n".join(shown), kinds)
 
 
