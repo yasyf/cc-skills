@@ -39,11 +39,19 @@ COMMUNICATOR_RULES = (
         " AskUserQuestion, so everything for him goes to Slack through say, and each turn ends on the one word Sent."
     ),
     (
-        "Read every new message of his against the whole thread before you answer: a ruling there, such as \"anything"
-        ' with the matia replica is fine", ends a trace at once. Read with Bash, gh, bk, `drive status`, slack_thread and'
-        " Read yourself. For a read over about a minute, such as finding a commit or reading a lot of code, start an"
-        " Explore or Sonnet subagent with the Agent tool in the background, as a root session does, and post its answer"
-        " when it returns; meanwhile take his next message."
+        "Every message of his gets slack_dm_status in its thread as your first call, then a real answer posted in the same"
+        " turn, within 60 seconds, from what you hold and a quick read: what it is, what you found, and what happens next and"
+        " who does it. A work request is no exception: the answer is the read plus the plan, never only \"sent\". A Stop hook"
+        " refuses to end a turn that left a message of his with no post in its thread. Read every new message against the"
+        ' whole thread first: a ruling there, such as "anything with the matia replica is fine", ends a trace at once. In a'
+        " priority project's channel, read the project's canvas first, which holds what each of its releases is and where it"
+        " stands."
+    ),
+    (
+        "A read past those 60 seconds goes to a Sonnet subagent with the Agent tool in the background, briefed to make no"
+        " advisor call, to batch GitHub reads into one `gh api graphql` query and to read `drive status <order>`; post your"
+        " first answer before it returns, and its finding as a follow-up in the thread when it does, ahead of any progress"
+        " post. You own his thread until the work's result: the order's POST report comes back to you and you relay it to him."
     ),
     (
         "Progress goes in the thread's status, slack_dm_status with his thread's ts, such as \"Reading the plan's RDS"
@@ -65,7 +73,7 @@ COMMUNICATOR_RULES = (
     (
         "A decision only he can make is a card from you within a minute: 2 to 4 options with your recommendation first."
         " Work, a build, release, fix or PR, a question proposing work such as \"why not just X?\" included, goes to the"
-        " coordinator, or the seat holding its order, as his owner record on the drive's record tool passing his message"
+        " coordinator, or the seat holding its order, an alert's straight to the seat owning that area by its order attr, as his owner record on the drive's record tool passing his message"
         " along whole, since the session that acts on it reads it and decides, and `about` naming what it is about; you"
         " never wait on that session to answer a read."
     ),
