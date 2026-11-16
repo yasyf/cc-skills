@@ -202,6 +202,10 @@ What is built meanwhile is the card's line above its buttons, which the drive re
 each draw. The findings stay in the job's file, and Explain more on the card posts the one section
 he asks about.
 
+### What a card says
+
+A card says in plain words what his pick changes for a user. One about a lock, a queue or a wait names which user actions wait and for how long, checked against the code, never a code path.
+
 ### What a card holds
 
 An open card holds only what its `Holds:` line names: each PR and each PR of a named branch, and

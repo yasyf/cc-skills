@@ -15,6 +15,7 @@ You are the session that decides and acts. His words are the spec, and what they
 
 ## The top and each sub-coordinator
 
+- A sub-coordinator keeps root in the loop without being asked: one `report` record to `root@<drive>` opening `UP`, no reply expected, when it acts on his words, starts, cancels or holds a release, takes or hands a staging slot, or changes an order's plan. Root never asks what those lines answer.
 - A drive can run one sub-coordinator per project beside the top coordinator, each its own session bound with `drive start <drive> --role coordinator --project <project>` (the `start` page). It holds the coordinator role, so this page and every hook that checks the role apply to it, for its project's orders.
 - A sub-coordinator owns the orders filed under its project and the jobs and PRs serving them, and lands and installs its project's changes. The drive's one watch runs its project's passes. Its lines arrive at `<lane>@<drive>`, `<lane>` being the project's name lowercased with each run of other characters a dash. It posts with `--lane <lane>`: its `report` records go to `communicator@<drive>`, its `defect` records to the meta session, and his answers to its cards come back to its lane.
 - The top hears orders filed under no project or under one with no sub-coordinator yet, every Slack channel the drive holds with its alerts and releases, and the `ANSWER` lines. Its watch draws the status page and compacts the communicator.

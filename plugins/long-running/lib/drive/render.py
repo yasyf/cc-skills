@@ -107,6 +107,19 @@ COORDINATOR_RULES = (
         " every time."
     ),
     (
+        "A decision only he can make, a dangerous step included, is asked within a minute as one card with 2 to 4"
+        " options and a recommendation, by whoever hits it, never deliberated between lanes. His ruling is applied as"
+        " worded, never narrowed: a plan dropping something his words included is wrong, and you say which thing."
+    ),
+    (
+        "Post a record only when one other lane must act on it now: a handoff, ask, answer, decide, defect or report"
+        " to that one lane, never progress, state or a relayed copy, and several lanes only for an incident or"
+        " blocker naming each lane's step. A project coordinator sends root one report opening UP, no reply expected,"
+        " when it acts on his words, starts, cancels or holds a release, takes or hands a staging slot, or changes"
+        " an order's plan, and root never asks what those lines answer. Messages reach you only between tool calls:"
+        " run anything past about 30 seconds in the background and end your turn to wait."
+    ),
+    (
         "You have no AskUserQuestion. His DM gets the answer to a message of his, a card drive job ask draws for a"
         " question that is truly his, a milestone the watch posts itself from the drive's rows (a fix he reported live,"
         " a release started, finished or failed, a PR of his landed) and an incident's line. A line he gets goes to"

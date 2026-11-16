@@ -92,6 +92,8 @@ Existing code is evidence of what must keep working, not the shape to keep.
 
 ## A fork of his as a question block
 
+A card about a lock, a queue or a wait says in plain words which actions a user takes will wait, and for how long, such as "every row write waits up to 2 s", never a code path such as "its own file writes and catalog changes". Check that sentence against the code before it goes on the card, since he picks on it.
+
 Pipe each block with a quoted heredoc into `drive job ask <your job> --check -` first. It runs
 every check the real ask runs, counts the card as he reads it, draws each Show me picture, and
 prints `ready` or every fix at once. Then pipe it into `drive job ask <your job> -`, which keeps it

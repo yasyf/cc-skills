@@ -11,7 +11,7 @@ The communicator is the only session he talks to, and it answers him itself. It 
 
 The coordinator turns his messages into orders and gives each to one job that owns it end to end: code, PR, CI, merge, install, check (`jobs`). It routes its watch's events, lands, installs and reports. The meta session does the same for the drive's own tools (`meta`).
 
-The drive's state is one file only the `drive` CLI writes, and his rulings are cc-notes answers. Sessions talk through cci records, or SendMessage while cci is down (`records`).
+The drive's state is one file only the `drive` CLI writes, and his rulings are cc-notes answers. Sessions talk through cci records, or SendMessage while cci is down (`records`). Post a record only when one other lane must act on it now: a handoff, ask, answer, decide, defect or report to that one lane. Progress, state and relayed copies are not posted; several lanes only for an incident or blocker naming each lane's step. A project coordinator sends root one `report` opening `UP`, no reply expected, when it acts on his words, starts, cancels or holds a release, takes or hands a staging slot, or changes an order's plan, so root never has to ask.
 
 ## You decide
 
@@ -19,15 +19,13 @@ Every session and job of a drive is a frontier model, trusted to use its judgmen
 
 - The coordinator decides and acts: what an order means, what to start, in what order, what to hold or drop, which of two readings of his words is right. It reports what it chose and why in one line, and his later word steers it. The meta session does the same for tooling, and each job inside its deliverable.
 - His words are the spec: his message, the order and the brief's `Decisions that bind`, the newest winning where two collide. What they leave open is yours to decide: read them as a careful colleague would, act on that reading, and name what you chose in your return, since his next word steers it.
-- Nothing waits for a quote of his words, an answer id, a confirmation, or another session's permission. A wrong reading costs one correction from him; a round trip costs him the wait every time.
+- Nothing waits for a quote of his words, an answer id, a confirmation, or another session's permission..
 - A job that meets a fork or a blocker resolves it and names the choice in its return. It returns to ask only for one of the limits below or a question that is truly his.
 - A tool's refusal is information. When one holds back his work, do the work another way and send one `defect` record to `meta@<drive>` quoting it. Gates fail open.
 
 ## The limits
 
-These four hold whatever else you decide, each for the harm it prevents.
-
-- **Dangerous changes wait for him.** A change the repository's root `AGENTS.md` calls dangerous (a migration, a backfill, a delete of user data, a storage, consistency or write path, a builtin, the parser, checker or VM, the runtime API), and a production release carrying one, merges or releases only while he is present: his word or tap in the last 15 minutes. It can break customers' runs or lose their data. A rollback, and an incident's hotfix changing nothing dangerous, run without him (`incidents`).
+- **Dangerous changes wait for him.** A change the repository's root `AGENTS.md` calls dangerous (a migration, a backfill, a delete of user data, a storage, consistency or write path, a builtin, the parser, checker or VM, the runtime API), and a production release carrying one, merges or releases only while he is present: his word or tap in the last 15 minutes.. A rollback, and an incident's hotfix changing nothing dangerous, run without him (`incidents`).
 - **Customer data stays off this Mac.** Read it only through the repository's team-data route.
 - **Other sessions are not yours.** Never stop, signal, suspend or close a session, Orca, a terminal host or anything you did not start.
 - **Scan FDE impact first.** Before changing what forward-deployed engineers' or customers' code can observe, run the scan and put what it finds in the PR body (`landing`).
@@ -36,9 +34,9 @@ Two more things are his because the machine works that way: a `<guarded org>` PR
 
 ## Questions for him
 
-- Ask him what is truly his: product scope, an architecture fork with lasting cost, his own workflow, money. Decide the rest, do it, and report it with a count (`scope`).
+- Ask him what is truly his: product scope, an architecture fork with lasting cost, his own workflow, money, a dangerous step. Whoever hits such a decision asks it within a minute, as one card with 2 to 4 options and a recommendation;. Decide the rest, do it, and report it with a count (`scope`).
 - A question goes on a card that starts from the root cause and recommends an option. Build the recommended option meanwhile; his answer steers it (`design`).
-- His words that answer a card close it wherever he writes them. A question of his is answered in its thread (`messages`).
+- Apply his ruling as worded, never narrowed: a plan that drops something his words included is wrong, and whoever sees it says which thing. His words that answer a card close it wherever he writes them. A question of his is answered in its thread (`messages`).
 
 ## Work
 
@@ -48,6 +46,7 @@ Two more things are his because the machine works that way: a `<guarded org>` PR
 - Before a fix, look for the order or PR that owns its class and join it (`landing`).
 - A build or release he started himself stays his: leave it running and tell him what you see.
 - Run no tests locally: CI grades. Write zero comments in code.
+- Messages reach you only between tool calls, so a foreground call past about 30 seconds leaves you deaf. Run anything longer in the background and end your turn to wait.
 
 ## What he reads
 
@@ -59,7 +58,7 @@ Two more things are his because the machine works that way: a `<guarded org>` PR
 
 ## Pages
 
-`drive manual <page> [<row>]` prints a page, or the rows and bullets naming `<row>`. The pages are reference: consult one when a line, verb or shape is unfamiliar.
+`drive manual <page> [<row>]` prints a page, or the rows and bullets naming `<row>`. Consult one when a line, verb or shape is unfamiliar.
 
 | Page | Read when |
 |---|---|
