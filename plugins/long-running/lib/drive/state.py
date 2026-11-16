@@ -5329,7 +5329,12 @@ def agent_address(job: dict) -> str:
 
 def own_session(job: dict) -> str | None:
     """The `claude --bg` session `drive job start` started a job's agent as, once that launch named it; None for an agent running beside its starter's session."""
-    return (job.get("bg") or {}).get("session") if (job.get("bg") or {}).get("agent") == job.get("agent") else None
+    return background_session(job) if (job.get("bg") or {}).get("agent") == job.get("agent") else None
+
+
+def background_session(job: dict) -> str | None:
+    """The background session retained by a job, including after its current agent binding is cleared."""
+    return (job.get("bg") or {}).get("session")
 
 
 def tooling(order: dict) -> bool:
