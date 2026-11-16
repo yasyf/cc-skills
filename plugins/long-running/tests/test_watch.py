@@ -8800,6 +8800,37 @@ def test_a_pr_trunk_ejected_on_a_flaky_test_reads_unlanded_again_once_that_tests
     assert stage.of(state.load(demo), EJECTED, NO_CARDS) == stage.Stage("unlanded", stage.ORDER, closed)
 
 
+def test_replayed_56971_a_pr_trunk_ejected_on_a_test_that_fails_only_as_the_date_changes_is_queued_again_at_the_same_commit_at_once_by_its_cause_and_only_once(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], landers: list[tuple[str, ...]]
+) -> None:
+    ejected_on_a_flake(demo, monkeypatch)
+    midnight = "its two renders straddled midnight UTC, and each reads the date"
+    with state.edit(demo) as data:
+        data["prs"][EJECTED]["checks"] = "fail"
+    assert cli.main(["pr", "set", EJECTED, "--flaky", FLAKY, midnight, "--drive", demo]) == 2
+    assert f"--flaky {FLAKY} names its cause and no fix PR, which queues again only a green head Trunk ejected, and its own checks fail at bb28d68" in capsys.readouterr().err
+    with state.edit(demo) as data:
+        data["prs"][EJECTED]["checks"] = "pass"
+    assert cli.main(["pr", "set", EJECTED, "--flaky", FLAKY, midnight, "--drive", demo]) == 0
+    assert stage.of(state.load(demo), EJECTED, NO_CARDS) == stage.Stage("ready", stage.LANDER, "green and approved by him at bb28d68")
+    assert land.start(demo, [EJECTED], NO_CARDS) == [(EJECTED,)]
+    enqueue_exiting(tmp_path, demo, 0)
+    capsys.readouterr()
+    assert land.run(demo, [EJECTED]) == land.QUEUED
+    said = capsys.readouterr().out
+    assert ("trunk said --check --flake 55582" in said, "trunk said --watch --flake 55582" in said) == (True, True)
+    requeued = state.load(demo)["prs"][EJECTED]
+    landing = f"queued for merge at bb28d68 since {requeued['lander']['at']}, requeued on its flaky test {FLAKY} ({midnight})"
+    assert stage.of(state.load(demo), EJECTED, NO_CARDS) == stage.Stage("landing", stage.LANDER, landing)
+    again = state.stamp(state.parse_time(requeued["lander"]["at"]) + timedelta(minutes=5))
+    trunk = read(headRefOid="bb28d680bf", checks=[*GREEN, TRUNK_FAILED], reviewDecision="APPROVED", approvals=["bb28d680bf"], labels=[github.EJECTED_LABEL])
+    serve(monkeypatch, {EJECTED: trunk | {"ejected_at": again}})
+    assert f"PR {EJECTED}: ejected from the merge queue [o1 j1]" in watch.github_lines(watcher(demo), state.parse_time(again))
+    final = f"Trunk ejected it from the merge queue again after the lander requeued bb28d68 on its flaky test {FLAKY} ({midnight})"
+    assert stage.of(state.load(demo), EJECTED, NO_CARDS) == stage.Stage("unlanded", stage.ORDER, final)
+    assert land.start(demo, [EJECTED], NO_CARDS) == []
+
+
 RED_AT_ITS_HEAD = "Forge-AI/litestream#23"
 ITS_FLAKE_FIX = "Forge-AI/litestream#25"
 ITS_FLAKY = "TestDB_AWriterDuringACheckpointOfALargeDatabaseWaitsUnderItsBusyTimeout"
