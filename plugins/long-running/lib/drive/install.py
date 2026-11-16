@@ -1480,11 +1480,14 @@ def hold_reload(drive: str, seat: str) -> None:
 
 
 def due_reloads(drive: str) -> list[str]:
-    """Reload each session of the drive an install marked held once its hour is up, reading only reloads.json until one is due, then Orca as reload_sessions does; a line each."""
+    """Reload each session of the drive an install marked held once its hour is up, reading only reloads.json until one is due, then Orca as reload_sessions does, taking the held mark off each due seat first, so a reload that fails waits for the next install, as one an install started does, rather than being typed again on every watch pass; a line each."""
     path = state.drive_dir(drive) / RELOADS
     held = [seat for seat, stamp in (json.loads(path.read_text()) if path.exists() else {}).items() if stamp.get("held")]
-    if not any(not reload_held(drive, seat) for seat in held):
+    if not (due := [seat for seat in held if not reload_held(drive, seat)]):
         return []
+    with state.locked(drive):
+        sent = json.loads(path.read_text())
+        path.write_text(json.dumps(sent | {seat: {key: value for key, value in sent[seat].items() if key != "held"} for seat in due}))
     return reload_sessions([drive], False)
 
 

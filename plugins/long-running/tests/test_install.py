@@ -966,6 +966,7 @@ def test_an_install_landing_while_a_reload_runs_waits_out_the_hour_then_the_watc
     hour_ago = (state.now() - timedelta(seconds=install.RELOAD_EVERY_SECONDS)).isoformat(timespec="seconds")
     reloads.write_text(json.dumps({"communicator": json.loads(reloads.read_text())["communicator"] | {"at": hour_ago}}))
     assert install.due_reloads("demo") == [f"demo communicator: {handed('demo', 'term_comm')}"]
+    assert install.due_reloads("demo") == []
     assert held(git, capsys) == ["demo communicator: reloaded onto codex@skills 1.0.4 in term_comm"]
     assert sends(git, "term_comm") == [sent("term_comm"), sent("term_comm")]
     assert stamps("demo") == {"communicator": "2026-11-10T10:00:00.000Z"}
