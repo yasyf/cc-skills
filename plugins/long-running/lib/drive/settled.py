@@ -715,13 +715,17 @@ def matched(texts: list[str], data: dict) -> list[dict]:
     return list(found.values())
 
 
+def area_answers(data: dict, order_ids: list[str]) -> dict[str, list[dict]]:
+    cwd = data["roles"]["coordinator"]["cwd"]
+    return {label: listed(label, cwd) for label in state.area_labels(data, order_ids)}
+
+
 def area_rulings(data: dict, order_ids: list[str]) -> list[dict]:
     """His standing answers on the whole project or workstream any of these orders is filed under, by the labels state.area_labels names, each once with where he gave it and the area its label names, so a ruling such as "every billing card" binds every order filed there whatever feature each is on."""
-    cwd = data["roles"]["coordinator"]["cwd"]
     found = {
         answer["id"][:7]: {"id": answer["id"][:7], "asked": answer["title"], "said": his(answer["body"])[:BODY_CHARS], "link": given_at(data, answer), "area": label.removeprefix(state.AREA_LABEL)}
-        for label in state.area_labels(data, order_ids)
-        for answer in listed(label, cwd)
+        for label, answers in area_answers(data, order_ids).items()
+        for answer in answers
     }
     return list(found.values())
 

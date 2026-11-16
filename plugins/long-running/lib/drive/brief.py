@@ -741,12 +741,12 @@ def spec(name: str, data: dict, job: dict) -> list[dict]:
     """His words on the job's feature, newest first, the one list every brief's Decisions that bind and drive job ask's judge read beside the words of the job's own orders: each answer of his binding names, each one `drive answer` kept whose marks or heard jobs name an order of the feature or a job on one, each standing ruling of his on the whole project or workstream an order of the feature is filed under, by settled.area_rulings, his words on each question of its readers and designs he answered with no answer recorded, and each other order of the feature, each whole with when and where he gave it. An answer cc-notes marks superseded keeps its place with the newer answers replacing it under `by`, so no brief or judge reads it as standing; an id a brief's rulings name that cc-notes keeps no answer under refuses the brief, any other is left out."""
     orders = state.job_feature(data, job)
     ruled, cited, heard = binding(name, data, job)
-    areal = [ruling["id"] for ruling in settled.area_rulings(data, orders)]
+    areal = {answer["id"]: answer for answers in settled.area_answers(data, orders).values() for answer in answers}
     cwd = data["roles"]["coordinator"]["cwd"]
     found: dict[str, dict] = {}
     for answer_id in dict.fromkeys([*ruled, *cited, *areal]):
         try:
-            answer = settled.shown(answer_id, cwd)
+            answer = areal[answer_id] if answer_id in areal else settled.shown(answer_id, cwd)
         except state.DriveError:
             if answer_id in ruled:
                 raise
