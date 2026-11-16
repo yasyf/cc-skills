@@ -8,8 +8,8 @@ import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from lane import facts, rank, store, verbs
 from lane import cli as lane_land
+from lane import facts, rank, store, verbs
 from lane import owner as owners
 
 RESTART_WINDOW = timedelta(minutes=30)
@@ -24,18 +24,18 @@ def heartbeat(drive: str, moment: datetime, errors: list[str]) -> None:
 
 
 def fired(drive: str, lane: dict, prs: dict, moment: datetime) -> str | None:
-    """Why a waiting lane's wait fired, or None."""
+    """Why a waiting lane's wait fired, or None: his unanswered ask first, then the outside facts it names, then its time bound."""
     wait = lane["wait"]
     if wait.get("fired"):
         return wait.get("fired_why") or "woken"
-    if facts.unseen(lane):
+    if wait.get("backoff"):
+        return f"its backoff ended at {wait['until']}" if store.parse(wait["until"]) <= moment else None
+    if store.unreplied(lane):
         return "his new words"
-    if lane.get("parked"):
-        return None
-    for event in wait.get("on", []):
-        if event["kind"] != "reply" and facts.holds(drive, lane, event, prs):
-            return f"{event['kind']} {event.get('fact') or event.get('id')}" + (f" on {event['repo']}#{event['number']}" if event["kind"] == "pr" else "")
-    if wait.get("until") and store.parse(wait["until"]) <= moment:
+    for event in wait["on"]:
+        if event["kind"] != "his_reply" and facts.holds(drive, lane, event, prs):
+            return f"{event['kind']} {event.get('ref', '')}".strip()
+    if store.parse(wait["until"]) <= moment:
         return f"its time bound {wait['until']} came"
     return None
 
@@ -64,12 +64,11 @@ def run_pass(drive: str, only: set[str] | None = None, read_outside: bool = True
                 errors.append(str(failed))
         if heard:
             store.transact(drive, lambda lanes: [verbs.take_messages(drive, lanes, lane_id, asks, shape["active"]) for lane_id, asks in heard.items()])
-        keys = {facts.pr_key(event) for lane in chosen.values() if lane["state"] == store.WAITING for event in (lane["wait"] or {}).get("on", []) if event["kind"] == "pr"}
         try:
-            prs = facts.read_prs(keys)
+            prs = facts.read_prs(facts.pr_keys(store.load_all(drive)))
         except store.Refused as failed:
             errors.append(str(failed))
-        order = rank.ranked(drive, store.load_all(drive), moment)
+        order = rank.ranked(drive, facts.viewed(store.load_all(drive), prs), moment)
         if order.get("error"):
             errors.append(f"rank kept its last order: {order['error']}")
     else:
@@ -97,10 +96,9 @@ def run_pass(drive: str, only: set[str] | None = None, read_outside: bool = True
                     lapsed.append(lane_id)
                 else:
                     held += 1
-            elif lane_id in chosen and (why := fired(drive, lane, prs, moment)):
+            elif lane["state"] == store.WAITING and lane_id in chosen and (why := fired(drive, lane, prs, moment)):
                 lane["wait"] = {**lane["wait"], "fired": lane["wait"].get("fired") or store.stamp(moment), "fired_why": why}
-                if not lane.get("parked"):
-                    ready.append(lane_id)
+                ready.append(lane_id)
         ready.sort(key=lambda lane_id: (position.get(lane_id, len(position)), lanes[lane_id]["wait"]["fired"]))
         for lane_id in [*lapsed, *ready[: max(0, shape["slots"] - held - len(lapsed))]]:
             lane = lanes[lane_id]
@@ -109,7 +107,7 @@ def run_pass(drive: str, only: set[str] | None = None, read_outside: bool = True
                 lane["restarts"] = [*lane.get("restarts", []), store.stamp(moment)][-20:]
                 if delay := backoff(lane, moment, shape):
                     lane["state"], lane["owner"] = store.WAITING, None
-                    lane["wait"] = {"on": [{"kind": "reply"}], "until": store.stamp(moment + delay), "why": f"its owner's lease lapsed {len(lane['restarts'])} times in 30 minutes; next start after {delay}", "set": store.stamp(moment)}
+                    lane["wait"] = {"on": [{"kind": "his_reply"}], "until": store.stamp(moment + delay), "why": f"its owner's lease lapsed {len(lane['restarts'])} times in 30 minutes; next start after {delay}", "set": store.stamp(moment), "backoff": True}
                     store.note(lane, lane["wait"]["why"])
                     starts.append({"lane": lane_id, "token": None, "old": old})
                     continue
@@ -120,7 +118,7 @@ def run_pass(drive: str, only: set[str] | None = None, read_outside: bool = True
             starts.append({"lane": lane_id, "token": token, "old": old, "woke": woke})
         return starts
 
-    starts = store.transact(drive, deciding)
+    starts = store.transact(drive, deciding, leaving_unreplied=True)
     for start in starts:
         if start["old"]:
             owners.stop(start["old"])
@@ -131,7 +129,7 @@ def run_pass(drive: str, only: set[str] | None = None, read_outside: bool = True
             got = owners.launch(drive, lane, start["token"], start["woke"])
         except store.Refused as failed:
             errors.append(f"{start['lane']}: {failed}")
-            store.update(drive, start["lane"], lambda lane, token=start["token"], why=str(failed): failed_start(lane, token, why, shape))
+            store.update(drive, start["lane"], lambda lane, token=start["token"], why=str(failed): failed_start(lane, token, why, shape), leaving_unreplied=True)
             continue
         store.update(drive, start["lane"], lambda lane, token=start["token"], got=got: lane.__setitem__("owner", {**lane["owner"], **got}) if (lane.get("owner") or {}).get("token") == token else None)
     if read_outside:
@@ -147,7 +145,7 @@ def failed_start(lane: dict, token: str, why: str, shape: dict) -> None:
     lane["restarts"] = [*lane.get("restarts", []), store.stamp(moment)][-20:]
     delay = backoff(lane, moment, shape) or timedelta(minutes=1)
     lane["state"], lane["owner"] = store.WAITING, None
-    lane["wait"] = {"on": [{"kind": "reply"}], "until": store.stamp(moment + delay), "why": f"owner start failed, next try after {delay}: {why}", "set": store.stamp(moment)}
+    lane["wait"] = {"on": [{"kind": "his_reply"}], "until": store.stamp(moment + delay), "why": f"owner start failed, next try after {delay}: {why}", "set": store.stamp(moment), "backoff": True}
     store.note(lane, lane["wait"]["why"])
 
 
@@ -166,6 +164,8 @@ def check(drive: str) -> tuple[bool, list[str]]:
         good &= not stale
         lines.append(f"supervisor: last pass {store.stamp(at)}{' STALE' if stale else ''}")
     lanes = store.load_all(drive)
+    if len(store.active(lanes)) > shape["active"]:
+        lines.append(f"queue: {len(store.active(lanes))} lanes active, over the cap of {shape['active']}; the lowest ranked is {next((lane_id for lane_id in reversed(rank.last(drive).get('order', [])) if lane_id in store.active(lanes)), '?')}, for him to park")
     running = sum(1 for lane in lanes.values() if lane["state"] == store.RUNNING)
     for lane_id, lane in lanes.items():
         if why := store.invalid(lane):
@@ -175,11 +175,11 @@ def check(drive: str) -> tuple[bool, list[str]]:
             state = owners.lease(owners.located(lane["owner"]), moment, shape["launch_grace_seconds"])
             good &= state != "lapsed"
             lines.append(f"{lane_id}: running, owner {lane['owner'].get('session') or 'starting'}, lease {state}")
-        elif lane.get("parked"):
-            lines.append(f"{lane_id}: parked ({lane['parked']}), wakes on his word")
+        elif lane["state"] == store.PARKED:
+            lines.append(f"{lane_id}: parked ({lane['parked']['words']}), wakes on his word")
         else:
             wait = lane["wait"]
-            events = ", ".join(describe(event) for event in wait.get("on", [])) or "time only"
+            events = ", ".join(describe(event) for event in wait["on"])
             late = store.parse(wait["until"]) < moment - timedelta(seconds=3 * shape["pass_seconds"] + 60)
             queued = late and running >= shape["slots"]
             good &= not late or queued
@@ -188,12 +188,7 @@ def check(drive: str) -> tuple[bool, list[str]]:
 
 
 def describe(event: dict) -> str:
-    match event["kind"]:
-        case "pr":
-            return f"{event['repo']}#{event['number']} {event['fact']}"
-        case "cut":
-            return f"cut {event['id']}"
-    return "his reply"
+    return "his reply" if event["kind"] == "his_reply" else f"{event['kind']} {event['ref']}"
 
 
 def code_stamp() -> float:

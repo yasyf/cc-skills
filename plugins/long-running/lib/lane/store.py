@@ -12,9 +12,10 @@ from pathlib import Path
 
 RUNNING = "running"
 WAITING = "waiting"
-STATES = (RUNNING, WAITING)
-PR_FACTS = ("merged", "closed", "checks_done", "approved", "head_moved")
-EVENT_KINDS = ("pr", "cut", "reply")
+PARKED = "parked"
+STATES = (RUNNING, WAITING, PARKED)
+WAIT_KINDS = ("pr_merged", "check", "staging_result", "his_reply", "release")
+REF_KINDS = ("pr_merged", "check", "staging_result", "release")
 LANE_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,62}$")
 DEFAULTS = {
     "active": 12,
@@ -28,10 +29,10 @@ DEFAULTS = {
     "restarts_before_backoff": 3,
     "checkout": None,
 }
-LOG_KEEP = 200
 PRESENCE = "presence.json"
 LIVE = "live"
-NOT_LANES = ("rank", "config", "supervisor", "staging-env", "presence")
+NOT_LANES = ("rank", "config", "supervisor", "staging-env", "presence", "rulings", "queue")
+RULINGS = "rulings.json"
 
 
 class Refused(Exception):
@@ -106,32 +107,43 @@ def load_all(drive: str) -> dict[str, dict]:
 
 
 def active(lanes: dict[str, dict]) -> list[str]:
-    return [lane_id for lane_id, lane in lanes.items() if not lane.get("parked")]
+    return [lane_id for lane_id, lane in lanes.items() if lane["state"] != PARKED]
+
+
+def unreplied(lane: dict) -> list[dict]:
+    return [ask for ask in lane.get("asks", []) if not ask.get("replied")]
 
 
 def invalid(lane: dict) -> str | None:
-    """Why a lane breaks the invariant, or None: running holds an owner and no wait; waiting holds no owner and a wait with a time bound, or is parked."""
-    if lane.get("state") not in STATES:
-        return f"state {lane.get('state')!r} is neither running nor waiting"
-    if lane["state"] == RUNNING:
-        if lane.get("wait") is not None:
-            return "running with a wait"
-        if not lane.get("owner"):
-            return "running with no owner"
-        return None
-    if lane.get("owner"):
-        return "waiting while it holds an owner"
-    wait = lane.get("wait")
-    if not wait:
-        return "waiting on nothing"
-    for event in wait.get("on", []):
-        if event.get("kind") not in EVENT_KINDS:
-            return f"waits on an unknown event {event}"
-    if lane.get("parked"):
-        return None if any(event["kind"] == "reply" for event in wait.get("on", [])) else "parked without a wake on his word"
-    if not wait.get("until"):
-        return "waiting with no time bound"
-    return None
+    """Why a lane breaks the invariant, or None: running holds an owner and nothing else; waiting holds a wait on at least one outside fact of the closed list and a time bound; parked holds his words; neither of the two holds an owner."""
+    match lane.get("state"):
+        case "running":
+            if not (lane.get("owner") or {}).get("token"):
+                return "running with no owner"
+            if lane.get("wait") is not None or lane.get("parked") is not None:
+                return "running with a wait or parked words"
+            return None
+        case "waiting":
+            wait = lane.get("wait") or {}
+            if lane.get("owner") or lane.get("parked") is not None:
+                return "waiting with an owner or parked words"
+            if not wait.get("on"):
+                return "waiting on no outside fact"
+            if not wait.get("until"):
+                return "waiting with no time bound"
+            for event in wait["on"]:
+                if event.get("kind") not in WAIT_KINDS:
+                    return f"waiting on {event.get('kind')!r}, which is not an outside fact: one of {', '.join(WAIT_KINDS)}"
+                if event["kind"] in REF_KINDS and not event.get("ref"):
+                    return f"waiting on {event['kind']} with no ref"
+            return None
+        case "parked":
+            if lane.get("owner") or lane.get("wait") is not None:
+                return "parked with an owner or a wait"
+            if not (lane.get("parked") or {}).get("words"):
+                return "parked without his words"
+            return None
+    return f"state {lane.get('state')!r} is not running, waiting or parked"
 
 
 def new_lane(lane_id: str, title: str, words: str | None, channel: str | None, thread: str | None, link: str | None, ts: str | None) -> dict:
@@ -144,25 +156,41 @@ def new_lane(lane_id: str, title: str, words: str | None, channel: str | None, t
         "created": moment,
         "updated": moment,
         "state": WAITING,
+        "channel": channel,
+        "thread": thread,
+        "pinned": False,
+        "owner": None,
+        "wait": {"on": [{"kind": "his_reply"}], "until": moment, "why": "opened", "set": moment, "fired": moment, "fired_why": "opened"},
         "parked": None,
-        "channel": {"id": channel, "thread": thread} if channel else None,
-        "asks": [{"at": moment, "words": words, "link": link, "ts": ts, "seen": False}] if words else [],
+        "promise": None,
+        "asks": [{"words": words, "link": link, "at": moment, "ts": ts, "replied": None, "done": None}] if words else [],
+        "rulings": [],
         "prs": [],
         "next": None,
-        "wait": {"on": [{"kind": "reply"}], "until": moment, "why": "opened", "set": moment, "fired": moment, "fired_why": "opened"},
-        "promise": None,
-        "owner": None,
-        "rank": None,
         "incident": None,
-        "pinned": False,
         "worktree": None,
+        "rank": None,
         "restarts": [],
-        "log": [],
     }
 
 
 def note(lane: dict, text: str) -> None:
-    lane["log"] = [*lane.get("log", []), {"at": stamp(), "text": text}][-LOG_KEEP:]
+    """Queue a progress line for the lane's log file, which the write that carries the lane appends; nothing reads the log to decide anything."""
+    lane.setdefault("_log", []).append(f"{stamp()} {text}")
+
+
+def log_path(drive: str, lane_id: str) -> Path:
+    return drive_dir(drive) / f"{lane_id}.log"
+
+
+def log_tail(drive: str, lane_id: str, lines: int) -> list[str]:
+    path = log_path(drive, lane_id)
+    return path.read_text().splitlines()[-lines:] if path.is_file() else []
+
+
+def shared_rulings(drive: str) -> list[dict]:
+    path = drive_dir(drive) / RULINGS
+    return json.loads(path.read_text()) if path.is_file() else []
 
 
 @contextmanager
@@ -174,22 +202,29 @@ def locked(drive: str) -> Iterator[None]:
         yield
 
 
-def transact[T](drive: str, change: Callable[[dict[str, dict]], T]) -> T:
-    """Run change over every lane of the drive under its lock, then write each lane it changed, refusing the whole write when any changed lane breaks the invariant, and log each state move."""
+def transact[T](drive: str, change: Callable[[dict[str, dict]], T], leaving_unreplied: bool = False) -> T:
+    """Run change over every lane of the drive under its lock, then write each lane it changed, refusing the whole write when a changed lane breaks the invariant or leaves running while one of his asks has no reply, which only the supervisor's own failed start or backoff may do (leaving_unreplied); each state move is logged."""
     with locked(drive):
         before = load_all(drive)
         lanes = json.loads(json.dumps(before))
         result = change(lanes)
+        notes = {lane_id: lane.pop("_log", []) for lane_id, lane in lanes.items()}
         changed = {lane_id: lane for lane_id, lane in lanes.items() if before.get(lane_id) != lane}
         for lane_id, lane in changed.items():
             if why := invalid(lane):
                 raise Refused(f"lane {lane_id} would be left {why}")
+            if (before.get(lane_id) or {}).get("state") == RUNNING and lane["state"] != RUNNING and not leaving_unreplied and (open_asks := unreplied(lane)):
+                raise Refused(f"lane {lane_id} cannot stop running while his ask is unanswered: {open_asks[0]['words'][:120]!r}; answer it with `lane say` first")
         for lane_id, lane in changed.items():
             lane["updated"] = stamp()
             write_lane(drive, lane)
             old = before.get(lane_id) or {}
-            if (old.get("state"), bool(old.get("parked"))) != (lane["state"], bool(lane.get("parked"))) or (old.get("owner") or {}).get("token") != (lane.get("owner") or {}).get("token"):
-                event(drive, {"lane": lane_id, "from": old.get("state"), "to": lane["state"], "parked": bool(lane.get("parked")), "owner": (lane.get("owner") or {}).get("token"), "wait": lane.get("wait")})
+            if old.get("state") != lane["state"] or (old.get("owner") or {}).get("token") != (lane.get("owner") or {}).get("token"):
+                event(drive, {"lane": lane_id, "from": old.get("state"), "to": lane["state"], "owner": (lane.get("owner") or {}).get("token"), "wait": lane.get("wait")})
+        for lane_id, lines in notes.items():
+            if lines:
+                with log_path(drive, lane_id).open("a") as out:
+                    out.write("".join(f"{line}\n" for line in lines))
         return result
 
 
@@ -224,13 +259,13 @@ def event(drive: str, row: dict) -> None:
         out.write(json.dumps({"at": stamp(), **row}, ensure_ascii=False) + "\n")
 
 
-def update[T](drive: str, lane_id: str, change: Callable[[dict], T]) -> T:
+def update[T](drive: str, lane_id: str, change: Callable[[dict], T], leaving_unreplied: bool = False) -> T:
     def one(lanes: dict[str, dict]) -> T:
         if lane_id not in lanes:
             raise Refused(f"no lane {lane_id} on drive {drive}")
         return change(lanes[lane_id])
 
-    return transact(drive, one)
+    return transact(drive, one, leaving_unreplied)
 
 
 def fenced(lane: dict, token: str | None) -> None:

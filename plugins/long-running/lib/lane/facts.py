@@ -1,4 +1,4 @@
-"""The outside facts a wait names, each read from its source: pull requests in one batched GraphQL query, a staging cut's result file, and his messages in a lane's channel."""
+"""The outside facts a wait names, each read from its source: pull requests in one batched GraphQL query, a staging cut's or release's result file, and his messages in a lane's channel."""
 
 import json
 import re
@@ -12,8 +12,17 @@ DONE_ROLLUPS = ("SUCCESS", "FAILURE", "ERROR")
 CHANNEL_EVENT = re.compile(r"^(<@\w+> has (joined|left) the channel|set the channel (description|topic|purpose|name)|renamed the channel)")
 
 
-def pr_key(event: dict) -> tuple[str, int]:
-    return event["repo"], int(event["number"])
+def pr_ref(ref: str) -> tuple[str, int]:
+    repo, _, number = ref.partition("#")
+    if "/" not in repo or not number.isdigit():
+        raise store.Refused(f"a PR ref is <owner/repo>#<number>, not {ref!r}")
+    return repo, int(number)
+
+
+def pr_keys(lanes: dict[str, dict]) -> set[tuple[str, int]]:
+    """Every PR a lane holds or a wait names: the set each pass reads in its one GitHub request."""
+    keys = {(row["repo"], row["number"]) for lane in lanes.values() for row in lane.get("prs", [])}
+    return keys | {pr_ref(event["ref"]) for lane in lanes.values() for event in (lane.get("wait") or {}).get("on", []) if event["kind"] in ("pr_merged", "check")}
 
 
 def read_prs(keys: set[tuple[str, int]]) -> dict[tuple[str, int], dict]:
@@ -42,52 +51,59 @@ def read_prs(keys: set[tuple[str, int]]) -> dict[tuple[str, int], dict]:
     return read
 
 
-def pr_holds(event: dict, pull: dict | None) -> bool:
-    if pull is None:
-        return False
-    match event["fact"]:
-        case "merged":
-            return pull["merged"]
-        case "closed":
-            return pull["state"] in ("CLOSED", "MERGED")
-        case "checks_done":
-            return pull["rollup"] in DONE_ROLLUPS or pull["head"] != event.get("head", pull["head"])
-        case "approved":
-            return pull["review"] == "APPROVED"
-        case "head_moved":
-            return pull["head"] != event.get("head")
-    raise store.Refused(f"unknown pull request fact {event['fact']!r}; one of {', '.join(store.PR_FACTS)}")
+def side_path(drive: str, folder: str, name: str) -> Path:
+    return store.drive_dir(drive) / folder / f"{name}.json"
 
 
-def cut_path(drive: str, cut: str) -> Path:
-    return store.drive_dir(drive) / "cuts" / f"{cut}.json"
-
-
-def cut_holds(drive: str, event: dict) -> bool:
-    path = cut_path(drive, event["id"])
+def result_written(drive: str, folder: str, name: str) -> bool:
+    """Whether a staging cut's or a release's result file, written by whoever ran it, holds its result."""
+    path = side_path(drive, folder, name)
     return path.is_file() and "result" in json.loads(path.read_text())
 
 
-def unseen(lane: dict) -> list[dict]:
-    return [ask for ask in lane.get("asks", []) if not ask.get("seen")]
-
-
 def holds(drive: str, lane: dict, event: dict, prs: dict[tuple[str, int], dict]) -> bool:
+    """Whether the outside fact a wait names holds now: a PR merged or closed, its checks finished at its head, a cut's or release's result written, or an ask of his with no reply."""
     match event["kind"]:
-        case "pr":
-            return pr_holds(event, prs.get(pr_key(event)))
-        case "cut":
-            return cut_holds(drive, event)
-        case "reply":
-            return bool(unseen(lane))
-    raise store.Refused(f"unknown event kind {event['kind']!r}")
+        case "pr_merged":
+            pull = prs.get(pr_ref(event["ref"]))
+            return bool(pull) and pull["state"] in ("MERGED", "CLOSED")
+        case "check":
+            pull = prs.get(pr_ref(event["ref"]))
+            return bool(pull) and pull["rollup"] in DONE_ROLLUPS
+        case "staging_result":
+            return result_written(drive, "cuts", event["ref"])
+        case "release":
+            return result_written(drive, "releases", event["ref"])
+        case "his_reply":
+            return bool(store.unreplied(lane))
+    raise store.Refused(f"waiting on {event['kind']!r} is not an outside fact")
 
 
-def baseline(event: dict, prs: dict[tuple[str, int], dict]) -> dict:
-    """The event with the head its pull request has now, which head_moved and checks_done are measured against."""
-    if event["kind"] == "pr" and event["fact"] in ("head_moved", "checks_done") and (pull := prs.get(pr_key(event))):
-        return {**event, "head": pull["head"]}
-    return event
+CHECKS = {"SUCCESS": "pass", "FAILURE": "fail", "ERROR": "fail"}
+
+
+def viewed(lanes: dict[str, dict], prs: dict[tuple[str, int], dict]) -> dict[str, dict]:
+    """Each lane with GitHub's state on its PR rows, held in memory only, never written: head, checks, merged, and under, the open PR whose branch is its base, None on the default branch, absent when its base is a branch no open PR heads, which landing reads as unread."""
+    heads = {(repo, pull["branch"]): f"{repo}#{number}" for (repo, number), pull in prs.items() if pull["state"] == "OPEN"}
+    shown = json.loads(json.dumps(lanes))
+    for lane in shown.values():
+        for row in lane.get("prs", []):
+            if not (pull := prs.get((row["repo"], row["number"]))):
+                continue
+            row["head"] = pull["head"]
+            row["checks"] = CHECKS.get(pull["rollup"] or "", "pending")
+            row["merged"] = pull["merged"]
+            if pull["base"] == pull["default"]:
+                row["under"] = None
+            elif below := heads.get((row["repo"], pull["base"])):
+                row["under"] = below
+    return shown
+
+
+def view(drive: str) -> dict[str, dict]:
+    """Every lane with GitHub's state on its rows, from one GitHub request."""
+    lanes = store.load_all(drive)
+    return viewed(lanes, read_prs(pr_keys(lanes)))
 
 
 @cache
@@ -98,15 +114,14 @@ def owner_user() -> dict:
 
 def his_messages(lane: dict) -> list[dict]:
     """His messages in the lane's channel newer than its newest ask, each as an ask row."""
-    channel = lane.get("channel") or {}
-    if not channel.get("id"):
+    if not lane.get("channel"):
         return []
     who = owner_user()
     after = max((ask["ts"] for ask in lane.get("asks", []) if ask.get("ts")), key=float, default=None)
-    if channel.get("thread"):
-        argv = ["cc-slack", "thread", "--channel", channel["id"], "--thread", channel["thread"], "--json", "--limit", "50", *(["--since-ts", after] if after else [])]
+    if lane.get("thread"):
+        argv = ["cc-slack", "thread", "--channel", lane["channel"], "--thread", lane["thread"], "--json", "--limit", "50", *(["--since-ts", after] if after else [])]
     else:
-        argv = ["cc-slack", "history", "--channel", channel["id"], "--json", "--limit", "20"]
+        argv = ["cc-slack", "history", "--channel", lane["channel"], "--json", "--limit", "20"]
     done = subprocess.run(argv, capture_output=True, text=True, check=False, timeout=60)
     if done.returncode:
         raise store.Refused(f"Slack read of lane {lane['id']} failed: {done.stderr.strip()[:300]}")
@@ -115,6 +130,6 @@ def his_messages(lane: dict) -> list[dict]:
     for message in messages:
         if message.get("user") != who["user_id"] or message.get("from_claude") or CHANNEL_EVENT.match(message.get("text") or "") or (after and float(message["ts"]) <= float(after)):
             continue
-        link = f"{who['team_url']}archives/{channel['id']}/p{message['ts'].replace('.', '')}" + (f"?thread_ts={channel['thread']}&cid={channel['id']}" if channel.get("thread") else "")
-        found.append({"at": store.stamp(), "words": message.get("text") or "", "link": link, "ts": message["ts"], "seen": False})
+        link = f"{who['team_url']}archives/{lane['channel']}/p{message['ts'].replace('.', '')}" + (f"?thread_ts={lane['thread']}&cid={lane['channel']}" if lane.get("thread") else "")
+        found.append({"words": message.get("text") or "", "link": link, "at": store.stamp(), "ts": message["ts"], "replied": None, "done": None})
     return sorted(found, key=lambda ask: float(ask["ts"]))

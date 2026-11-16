@@ -5,8 +5,8 @@ import json
 import os
 import sys
 
+from lane import queue, store, supervisor, verbs
 from lane import say as saying
-from lane import store, supervisor, verbs
 
 STOP_BLOCKS = 3
 
@@ -52,7 +52,7 @@ def stop_hook(drive: str, lane_id: str) -> int:
     blocks = store.update(drive, lane_id, lambda lane: lane["owner"].__setitem__("stop_blocks", lane["owner"].get("stop_blocks", 0) + 1) or lane["owner"]["stop_blocks"])
     if blocks > STOP_BLOCKS:
         return 0
-    print(json.dumps({"decision": "block", "reason": "Your lane is still running. Your turn ends only through `lane end-turn --on <event> --until <bound> --why \"...\"` (or `--until` alone for a time-only wait). Run `lane asks` first if he wrote."}))
+    print(json.dumps({"decision": "block", "reason": "Your lane is still running. Answer any unanswered ask of his with `lane say`, then end your turn only through `lane end-turn --on <event> --until <bound> --why \"...\"`; with nothing else to wait for, `--on his_reply`."}))
     return 0
 
 
@@ -86,6 +86,12 @@ def main(argv: list[str] | None = None) -> int:
     parking = verbs_parser.add_parser("park")
     parking.add_argument("lane")
     parking.add_argument("--words", required=True)
+    parking.add_argument("--link")
+    ruled = verbs_parser.add_parser("ruling", help="his answer, verbatim: on the lane it binds, waking its owner, or with no lane for every lane")
+    ruled.add_argument("lane", nargs="?")
+    ruled.add_argument("--words", required=True)
+    ruled.add_argument("--link")
+    ruled.add_argument("--binds", required=True)
     verbs_parser.add_parser("unpark").add_argument("lane")
     pinning = verbs_parser.add_parser("pin")
     pinning.add_argument("lane")
@@ -103,16 +109,27 @@ def main(argv: list[str] | None = None) -> int:
     said.add_argument("--lane")
     said.add_argument("--next")
     said.add_argument("--by")
+    said.add_argument("--answers", action="append", help="the ts of an ask this line answers; every unanswered ask when left out")
 
     for name in ("log", "next"):
         one = verbs_parser.add_parser(name)
         one.add_argument("text")
         one.add_argument("--lane")
     verbs_parser.add_parser("asks").add_argument("--lane")
+    finished = verbs_parser.add_parser("done", help="mark one of his asks done, by its ts")
+    finished.add_argument("ts")
+    finished.add_argument("--lane")
     adding = verbs_parser.add_parser("pr")
     adding.add_argument("action", choices=["add"])
     adding.add_argument("ref")
+    adding.add_argument("--words")
     adding.add_argument("--lane")
+    granting = verbs_parser.add_parser("queue", help="ask the priority queue for the staging env, a release start or a card to him")
+    granting.add_argument("action", choices=["take", "renew", "release"])
+    granting.add_argument("resource", choices=list(queue.CAPACITY))
+    granting.add_argument("--holder")
+    granting.add_argument("--ttl", type=int, default=30)
+    granting.add_argument("--lane")
     incident = verbs_parser.add_parser("incident")
     incident.add_argument("hurting", choices=["yes", "no"])
     incident.add_argument("--link")
@@ -148,7 +165,10 @@ def run(args: argparse.Namespace) -> int:
             drive, lane_id = where(args)
             print(f"{verbs.message(drive, lane_id, args.words, args.link, args.ts)} new")
         case "park":
-            verbs.park(*where(args), args.words)
+            verbs.park(*where(args), args.words, args.link)
+        case "ruling":
+            drive = args.drive or os.environ.get("LANE_OWNER", "").partition("/")[0]
+            verbs.ruling(drive, args.lane, args.words, args.link, args.binds)
         case "unpark":
             verbs.unpark(*where(args))
         case "pin":
@@ -159,18 +179,29 @@ def run(args: argparse.Namespace) -> int:
             print(f"waiting until {lane['wait']['until']}; end your turn now")
         case "say":
             drive, lane_id = where(args)
-            print(saying.say(drive, lane_id, args.text, args.next, args.by, token()))
+            print(saying.say(drive, lane_id, args.text, args.next, args.by, token(), args.answers))
         case "log":
             verbs.log(*where(args), token(), args.text)
         case "next":
             verbs.set_next(*where(args), token(), args.text)
         case "asks":
-            drive, lane_id = where(args)
-            for ask in verbs.asks(drive, lane_id, token()):
-                print(f"{ask['at']}{'' if ask.get('seen') else ' NEW'}: {ask['words']}" + (f" ({ask['link']})" if ask.get("link") else ""))
+            for ask in store.load(*where(args))["asks"]:
+                print(f"{ask['at']} ts {ask.get('ts')}{'' if ask.get('replied') else ' UNANSWERED'}{' done' if ask.get('done') else ''}: {ask['words']}" + (f" ({ask['link']})" if ask.get("link") else ""))
+        case "done":
+            verbs.done(*where(args), token(), args.ts)
         case "pr":
             drive, lane_id = where(args)
-            verbs.add_pr(drive, lane_id, token(), *pr_ref(args.ref))
+            verbs.add_pr(drive, lane_id, token(), *pr_ref(args.ref), args.words)
+        case "queue":
+            drive, lane_id = where(args)
+            holder = args.holder or f"{lane_id}/{token() or 'operator'}"
+            match args.action:
+                case "take":
+                    print(json.dumps(queue.take(drive, args.resource, holder, lane_id, args.ttl)))
+                case "renew":
+                    print(queue.renew(drive, args.resource, holder, args.ttl))
+                case "release":
+                    queue.release(drive, args.resource, holder)
         case "incident":
             drive, lane_id = where(args)
             verbs.set_incident(drive, lane_id, token(), args.hurting == "yes", args.link)

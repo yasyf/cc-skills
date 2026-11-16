@@ -1,4 +1,4 @@
-"""The priority queue across lanes: a model reads the rank rule against each lane's facts, re-read every supervisor pass and asked again whenever the rule or the facts change."""
+"""The priority queue over every lane and every open ask inside it: a model reads the rank rule against each lane's facts, re-read every supervisor pass and asked again only when the rule or the facts change, which is when an event lands (his message or tap, a merge, a check, a staging result, an incident flag); asks rank under their lane, oldest first."""
 
 import hashlib
 import json
@@ -38,13 +38,15 @@ def facts(lane: dict, moment: datetime) -> dict:
     return {
         "id": lane["id"],
         "title": lane["title"],
-        "parked": bool(lane.get("parked")),
+        "parked": lane["state"] == store.PARKED,
         "pinned": bool(lane.get("pinned")),
         "incident": lane.get("incident"),
         "his_last_words": ago(asks[-1]["at"] if asks else None, moment),
-        "unread_words": sum(1 for ask in asks if not ask.get("seen")),
+        "unanswered_asks": len(store.unreplied(lane)),
+        "open_asks": sum(1 for ask in asks if not ask.get("done")),
         "open_prs": len([pr for pr in lane.get("prs", []) if not pr.get("merged")]),
-        "approved_open": len([pr for pr in lane.get("prs", []) if pr.get("approved_head") and not pr.get("merged")]),
+        "approved_open": len([pr for pr in lane.get("prs", []) if pr.get("approved_head") and pr.get("approved_head") == pr.get("head") and not pr.get("merged")]),
+        "red_prs": len([pr for pr in lane.get("prs", []) if pr.get("checks") == "fail" and not pr.get("merged")]),
         "age": ago(lane["created"], moment),
         "state": lane["state"],
     }
@@ -77,8 +79,9 @@ def ranked(drive: str, lanes: dict[str, dict], moment: datetime) -> dict:
         except (TimeoutError, ValueError, DecideError, DecideKeyMissing, httpx.HTTPError) as failed:
             error = f"{type(failed).__name__}: {failed}"
             key = kept.get("key")
-    order = sorted(lanes, key=lambda lane_id: (bool(lanes[lane_id].get("parked")), -scores.get(lane_id, 0.0), lanes[lane_id]["created"]))
-    result = {"at": store.stamp(moment), "key": key, "order": order, "scores": scores, "error": error}
+    order = sorted(lanes, key=lambda lane_id: (lanes[lane_id]["state"] == store.PARKED, -scores.get(lane_id, 0.0), lanes[lane_id]["created"]))
+    asks = [{"lane": lane_id, "ts": ask.get("ts"), "at": ask["at"], "words": ask["words"][:200], "replied": ask.get("replied")} for lane_id in order for ask in sorted(lanes[lane_id].get("asks", []), key=lambda ask: ask["at"]) if not ask.get("done")]
+    result = {"at": store.stamp(moment), "key": key, "order": order, "scores": scores, "asks": asks, "error": error}
     fresh = path(drive).with_name(".rank.json.tmp")
     fresh.parent.mkdir(parents=True, exist_ok=True)
     fresh.write_text(json.dumps(result, indent=1) + "\n")

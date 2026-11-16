@@ -101,21 +101,22 @@ def located(owner: dict) -> dict:
 
 
 def brief(drive: str, lane: dict, woke: str) -> str:
-    unseen = [ask for ask in lane.get("asks", []) if not ask.get("seen")]
-    asks = "\n".join(f"- {ask['at']}{' (new)' if not ask.get('seen') else ''}: {ask['words']}" + (f" ({ask['link']})" if ask.get("link") else "") for ask in lane.get("asks", [])[-12:])
-    prs = "\n".join(f"- {pr['repo']}#{pr['number']}" + (f" held: {pr['held']}" if pr.get("held") else "") for pr in lane.get("prs", [])) or "- none yet"
-    log = "\n".join(f"- {row['at']}: {row['text']}" for row in lane.get("log", [])[-8:]) or "- nothing yet"
+    unanswered = store.unreplied(lane)
+    asks = "\n".join(f"- {ask['at']} (ts {ask.get('ts') or 'none'}){' UNANSWERED' if not ask.get('replied') else ''}{' done' if ask.get('done') else ''}: {ask['words']}" + (f" ({ask['link']})" if ask.get("link") else "") for ask in lane.get("asks", [])[-12:])
+    rulings = "\n".join(f"- {row['at']} on {row['binds']}: {row['words']}" + (f" ({row['link']})" if row.get("link") else "") for row in [*store.shared_rulings(drive), *lane.get("rulings", [])]) or "- none"
+    prs = "\n".join(f"- {pr['repo']}#{pr['number']}" + (f" {pr['words']}" if pr.get("words") else "") + (f", held: {pr['held']}" if pr.get("held") else "") for pr in lane.get("prs", [])) or "- none yet"
     text = BRIEF.read_text().format(
         id=lane["id"],
         drive=drive,
         title=lane["title"],
         path=store.lane_path(drive, lane["id"]),
         asks=asks or "- none",
-        new=len(unseen),
+        new=len(unanswered),
+        rulings=rulings,
         prs=prs,
         next=lane.get("next") or "not written yet",
         woke=woke,
-        log=log,
+        log="\n".join(f"- {line}" for line in store.log_tail(drive, lane["id"], 8)) or "- nothing yet",
         promise=json.dumps(lane.get("promise")) if lane.get("promise") else "none",
         lane=shlex.quote(str(BIN)),
     )
