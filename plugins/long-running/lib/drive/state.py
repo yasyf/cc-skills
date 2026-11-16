@@ -4912,11 +4912,8 @@ def read_updated[T](name: str, change: Callable[[dict], T]) -> T:
             was = marshal.loads(base)
             written = tuple(sorted(written_rows(was, mine)))
             try:
-                if written:
+                if written or effects:
                     rows_saved(name, {row: row_of(was, row) for row in written}, was, mine, written, since, frozenset(reads), effects)
-                else:
-                    for effect in effects:
-                        effect()
             except Raced as raced:
                 why = f"another write changed {'.'.join(raced.args[0])} each time it ran"
                 released(taken)
