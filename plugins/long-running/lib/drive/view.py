@@ -947,7 +947,7 @@ def lane_reviews(queued: list[dict], known: set[str]) -> list[dict]:
 
 
 def lane_queue(drive: dict, found: dict, moment: datetime, features: list[dict], answering: dict[str, str], lane_taps: list[dict]) -> list[dict]:
-    """His queue on a live lane drive: the PRs waiting on his tap by the lanes' priority queue, those of a lane whose incident hurts users first, then his open question cards as the old queue ranks them, then the rest of the taps in queue order."""
+    """His queue on a live lane drive: the PRs waiting on his tap by the lanes' priority queue, those of a lane whose incident hurts users first, then his open question cards as the old queue ranks them, leaving off each the old drive's jobs asked, whose still-needed decisions went to their lanes' owners at cutover, then the rest of the taps in queue order."""
     from drive import land
 
     waiting = waiting_on_him(drive, found)
@@ -957,6 +957,8 @@ def lane_queue(drive: dict, found: dict, moment: datetime, features: list[dict],
     questions = []
     for card in found["questions"]:
         item = question_item(drive, card, features, waiting, holding)
+        if item["job"]:
+            continue
         home = next((filed.get(order_id) or drive["orders"][order_id] for order_id in item["tasks"] if order_id in drive["orders"]), None)
         item |= {"project": home and home["project"], "workstream": home and home["workstream"]}
         rank, item["rank_why"] = ranking(drive, item, item["tasks"], urgent, moment, answering.get(item.get("thread")))
