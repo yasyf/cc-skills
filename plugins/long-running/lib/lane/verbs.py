@@ -163,6 +163,12 @@ def end_turn(drive: str, lane_id: str, token: str, on: list[dict], until: str, w
 
     if flying := owners.in_flight(lane["owner"]):
         raise store.Refused(f"{flying} background agents or tasks of yours still run, and ending your turn on a wait would stop them: stay running, end your turn without end-turn, and their return wakes you; the Stop hook lets you idle while they run")
+    from lane import queue
+
+    if missing := [resource for resource in queue.asking(drive, lane_id) if {"kind": "queue_grant", "ref": resource} not in on]:
+        raise store.Refused(f"this lane stands in line for {', '.join(missing)}: wait on {' and '.join(f'queue_grant:{resource}' for resource in missing)}, which wakes it the moment its grant is free, so its wait never reads as his reply")
+    if "staging-env" in queue.holding(drive, lane_id) and not any(event["kind"] == "staging_result" for event in on):
+        raise store.Refused("this lane holds the staging env: wait on staging_result:<cut id> of the cut running on it, or give it back with `lane queue release staging-env` first")
     prs = facts.read_prs({facts.pr_ref(event["ref"]) for event in on if event["kind"] in ("pr_merged", "check")})
     if held := [event for event in on if event["kind"] != "his_reply" and facts.holds(drive, lane, event, prs)]:
         raise store.Refused(f"already true, act on it instead of waiting: {held}")

@@ -32,7 +32,7 @@ def world(monkeypatch: pytest.MonkeyPatch) -> dict:
     monkeypatch.setattr(owners, "stop", lambda owner: seen["stopped"].append(owner.get("job")))
     monkeypatch.setattr(owners, "located", lambda owner: owner)
     monkeypatch.setattr(owners, "lease", lambda owner, moment, grace: seen["leases"].get(owner.get("session"), "held"))
-    monkeypatch.setattr(facts, "read_prs", lambda keys: {key: seen["prs"][key] for key in keys if key in seen["prs"]})
+    monkeypatch.setattr(facts, "read_prs", lambda keys, commits=facts.COMMITS_READ: {key: seen["prs"][key] for key in keys if key in seen["prs"]})
     monkeypatch.setattr(facts, "his_messages", lambda lane: seen["messages"].pop(lane["id"], []))
     monkeypatch.setattr(rank, "judge", lambda text, told: dict(seen["scores"]))
     monkeypatch.setattr(supervisor.lane_land, "spawn", lambda drive: None)
@@ -544,7 +544,7 @@ def test_a_freed_grant_wakes_the_next_waiting_lane_in_line(world: dict) -> None:
     supervisor.run_pass(DRIVE)
     assert queue.take(DRIVE, "staging-env", "tester-a", "a", 30)["granted"] is True
     assert queue.take(DRIVE, "staging-env", "tester-b", "b", 30)["granted"] is False
-    ended("b", ["his_reply"], "2h")
+    ended("b", ["queue_grant:staging-env"], "2h")
     queue.release(DRIVE, "staging-env", "tester-a")
     assert store.load(DRIVE, "b")["wait"]["fired_why"].startswith("the queue freed staging-env")
 
@@ -576,3 +576,49 @@ def test_his_page_shows_each_lane_its_wait_his_unanswered_asks_and_untapped_prs(
     assert shown["a"]["unanswered"][0]["words"] == "do a"
     assert shown["b"]["wait"]["on"] == [{"kind": "pr_merged", "ref": "acme/app#9"}]
     assert "do a" in page.drawn(DRIVE) and "waiting on pr_merged acme/app#9" in page.drawn(DRIVE)
+
+
+def test_a_lane_in_line_must_wait_on_its_grant_and_one_holding_staging_on_its_cut(world: dict) -> None:
+    opened("a")
+    opened("b")
+    supervisor.run_pass(DRIVE)
+    queue.take(DRIVE, "staging-env", "tester-a", "a", 30)
+    queue.take(DRIVE, "staging-env", "tester-b", "b", 30)
+    with pytest.raises(store.Refused, match="stands in line for staging-env: wait on queue_grant:staging-env"):
+        ended("b", ["his_reply"], "2h")
+    with pytest.raises(store.Refused, match="holds the staging env: wait on staging_result"):
+        ended("a", ["his_reply"], "2h")
+    ended("a", ["staging_result:cut-1"], "2h")
+    ended("b", ["queue_grant:staging-env", "his_reply"], "2h")
+
+
+def test_a_lane_in_line_wakes_when_its_grant_frees_whatever_its_wait_names(world: dict) -> None:
+    opened("a")
+    opened("b")
+    supervisor.run_pass(DRIVE)
+    queue.take(DRIVE, "staging-env", "tester-a", "a", 30)
+    queue.take(DRIVE, "staging-env", "tester-b", "b", 30)
+    ended("b", ["queue_grant:staging-env"], "2h")
+    store.update(DRIVE, "b", lambda lane: lane["wait"].__setitem__("on", [{"kind": "his_reply"}]))
+    found = queue.kept(DRIVE)
+    found["leases"]["staging-env"] = []
+    queue.written(DRIVE, found)
+    assert supervisor.fired(DRIVE, store.load(DRIVE, "b"), {}, store.now()) == "the queue grants staging-env to it now"
+
+
+def test_his_tap_list_keeps_every_carried_approve_through_our_own_pushes(world: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+    from lane import page, rows
+
+    monkeypatch.setattr(rows, "ours", lambda: "lanes-bot")
+    opened("a", prs=[("acme/app", 7), ("acme/app", 8), ("acme/app", 9)])
+    world["prs"][("acme/app", 7)] = pull(head="h7b") | {"commits": [("h7a", "him"), ("h7b", "lanes-bot")], "commit_count": 2}
+    world["prs"][("acme/app", 8)] = pull(head="h8b") | {"commits": [("h8a", "him"), ("h8b", "teammate")], "commit_count": 2}
+    world["prs"][("acme/app", 9)] = pull(head="h9")
+
+    def approving(lane: dict) -> None:
+        lane["prs"][0]["approved_head"], lane["prs"][1]["approved_head"] = "h7a", "h8a"
+
+    store.update(DRIVE, "a", approving)
+    supervisor.run_pass(DRIVE)
+    shown = {lane["id"]: lane for lane in page.model(DRIVE)["lanes"]}
+    assert [(row["number"], row["moved"]) for row in shown["a"]["tapless"]] == [(8, ["h8b by teammate"]), (9, None)]

@@ -11,11 +11,13 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from lane import cli as lane_land
-from lane import facts, page, rank, store, verbs
+from lane import facts, page, queue, rank, store, verbs
 from lane import owner as owners
 
 RESTART_WINDOW = timedelta(minutes=30)
 READERS = 6
+BOOTOUT_SECONDS = 30
+BOOTSTRAP_TRIES = 10
 
 
 def heartbeat(drive: str, moment: datetime, errors: list[str]) -> None:
@@ -43,6 +45,8 @@ def fired(drive: str, lane: dict, prs: dict, moment: datetime) -> str | None:
     for event in wait["on"]:
         if event["kind"] != "his_reply" and facts.holds(drive, lane, event, prs):
             return f"{event['kind']} {event.get('ref', '')}".strip()
+    if granted := [resource for resource in queue.asking(drive, lane["id"]) if queue.free_for(drive, resource, lane["id"])]:
+        return f"the queue grants {', '.join(granted)} to it now"
     if store.parse(wait["until"]) <= moment:
         return f"its time bound {wait['until']} came"
     return None
@@ -266,7 +270,20 @@ def install(drive: str) -> str:
     log.parent.mkdir(parents=True, exist_ok=True)
     env = {key: os.environ[key] for key in ("PATH", "HOME", "LONG_RUNNING_STATE", "XDG_STATE_HOME", "CLAUDE_CONFIG_DIR") if key in os.environ}
     plist.write_bytes(plistlib.dumps({"Label": label, "ProgramArguments": [str(store.launcher(drive)), "--drive", drive, "supervise"], "KeepAlive": True, "RunAtLoad": True, "ThrottleInterval": 10, "EnvironmentVariables": env, "StandardOutPath": str(log), "StandardErrorPath": str(log), "ProcessType": "Background"}))
+    loaded(label, plist)
+    return str(plist)
+
+
+def loaded(label: str, plist: Path) -> None:
+    """Boot the agent out, wait until launchd has let it go, and bootstrap the plist, retrying on exit 5, launchd's refusal while the old job is still exiting."""
     domain = f"gui/{os.getuid()}"
     subprocess.run(["launchctl", "bootout", f"{domain}/{label}"], capture_output=True, check=False)
-    subprocess.run(["launchctl", "bootstrap", domain, str(plist)], capture_output=True, check=True)
-    return str(plist)
+    deadline = time.monotonic() + BOOTOUT_SECONDS
+    while time.monotonic() < deadline and subprocess.run(["launchctl", "print", f"{domain}/{label}"], capture_output=True, check=False).returncode == 0:
+        time.sleep(0.5)
+    for _ in range(BOOTSTRAP_TRIES):
+        if (tried := subprocess.run(["launchctl", "bootstrap", domain, str(plist)], capture_output=True, text=True, check=False)).returncode != 5:
+            break
+        time.sleep(1)
+    if tried.returncode:
+        raise store.Refused(f"launchctl bootstrap {label} exited {tried.returncode}: {tried.stderr.strip()}")

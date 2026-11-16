@@ -50,6 +50,17 @@ def free_for(drive: str, resource: str, lane_id: str) -> bool:
     return capacity(drive, resource) - len(leases) > first
 
 
+def asking(drive: str, lane_id: str) -> list[str]:
+    """Each resource the lane stands in line for."""
+    return [resource for resource, requests in kept(drive)["requests"].items() if any(asked["lane"] == lane_id for asked in requests.values())]
+
+
+def holding(drive: str, lane_id: str) -> list[str]:
+    """Each resource the lane holds a live grant of."""
+    moment = store.now()
+    return [resource for resource, leases in kept(drive)["leases"].items() if any(lease["lane"] == lane_id and store.parse(lease["until"]) > moment for lease in leases)]
+
+
 def take(drive: str, resource: str, holder: str, lane_id: str, ttl_minutes: int) -> dict:
     """Ask for one of resource for holder, on lane_id's behalf: granted with its bound when a unit is free and no better-ranked lane is asking, or taken from a lane that is no incident when lane_id's incident hurts users and the resource is the staging env; else the holder's place in line."""
     if resource not in CAPACITY:

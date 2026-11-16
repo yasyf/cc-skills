@@ -10,7 +10,8 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from lane import queue, rank, store
+from lane import facts, queue, rank, store
+from lane import rows as lane_rows
 
 VIEW = "view.json"
 LOOPBACK = "127.0.0.1"
@@ -19,10 +20,17 @@ STATE_ORDER = {store.RUNNING: 0, store.WAITING: 1, store.PARKED: 2}
 
 
 def keep_view(drive: str, prs: dict[tuple[str, int], dict], moment: datetime) -> None:
-    """Keep the pass's GitHub read of each lane PR's head, state and checks beside the lanes for the page, never in a lane file."""
+    """Keep the pass's GitHub read of each lane PR's head, state and checks beside the lanes for the page, never in a lane file, with the recent commits and their authors of each open PR whose head moved past his Approve, read again for them alone, so the page judges a moved head by lane-land's rule."""
+    moved = {(row["repo"], row["number"]) for lane in store.load_all(drive).values() for row in lane["prs"] if row.get("approved_head") and (pull := prs.get((row["repo"], row["number"]))) and pull["state"] == "OPEN" and pull["head"] != row["approved_head"]}
+    since = facts.read_prs(moved) if moved else {}
+    kept = {}
+    for (repo, number), pull in prs.items():
+        kept[f"{repo}#{number}"] = {key: pull[key] for key in ("state", "merged", "head", "rollup")}
+        if read := since.get((repo, number)):
+            kept[f"{repo}#{number}"] |= {"commits": read["commits"], "whole": read["commit_count"] <= len(read["commits"])}
     path = store.drive_dir(drive) / VIEW
     fresh = path.with_name(".view.json.tmp")
-    fresh.write_text(json.dumps({"at": store.stamp(moment), "prs": {f"{repo}#{number}": {key: pull[key] for key in ("state", "merged", "head", "rollup")} for (repo, number), pull in prs.items()}}) + "\n")
+    fresh.write_text(json.dumps({"at": store.stamp(moment), "prs": kept}) + "\n")
     fresh.replace(path)
 
 
@@ -32,14 +40,16 @@ def view(drive: str) -> dict:
 
 
 def tapless(lane: dict, seen: dict) -> list[dict]:
-    """The lane's open PRs whose head carries no Approve of his: none yet, or one given at an older head; held ones are left out."""
+    """The lane's open PRs that wait on his tap by lane-land's rule: no Approve of his on the row, or commits since his approved head that our lanes' account did not author, by rows.foreign, so every Approve carried at the rebuild stands through our own pushes; held ones are left out."""
     rows = []
     for row in lane.get("prs", []):
         pull = seen.get(f"{row['repo']}#{row['number']}")
         if row.get("held") or not pull or pull["state"] != "OPEN":
             continue
-        if row.get("approved_head") != pull["head"]:
-            rows.append({**row, "checks": pull["rollup"], "moved": bool(row.get("approved_head"))})
+        if not row.get("approved_head"):
+            rows.append({**row, "checks": pull["rollup"], "moved": None})
+        elif row["approved_head"] != pull["head"] and (moved := lane_rows.foreign(pull.get("commits") or [], row["approved_head"], lane_rows.ours(), pull.get("whole", False))) != []:
+            rows.append({**row, "checks": pull["rollup"], "moved": moved or ["his approved head is not among its recent commits"]})
     return rows
 
 
@@ -89,14 +99,14 @@ def drawn(drive: str) -> str:
     cards = []
     for lane in shown["lanes"]:
         wait = lane["wait"] or {}
-        waits = ", ".join("his reply" if event["kind"] == "his_reply" else f"{event['kind']} {event.get('ref', '')}" for event in wait.get("on", []))
+        waits = ", ".join(f"{event['kind']} {event['ref']}" for event in wait.get("on", []) if event["kind"] != "his_reply") or "no outside fact, only its bound or a message of his,"
         line = {
             store.RUNNING: f"running, owner {lane['owner'] or 'starting'}",
             store.WAITING: f"waiting on {waits} until {wait.get('until')}: {wait.get('why') or ''}",
             store.PARKED: f"parked: {(lane['parked'] or {}).get('words', '')}",
         }[lane["state"]]
         asks = "".join(f"<li><a href='{text(ask.get('link') or '#')}'>{text(ask['words'][:300])}</a> <span class=dim>{text(ask['at'])}</span></li>" for ask in lane["unanswered"])
-        taps = "".join(f"<li>#{row['number']} {text(row.get('words') or '')} <span class=dim>{text(row['repo'])}, checks {text(row['checks'] or 'none')}{', head moved past his Approve' if row['moved'] else ''}</span></li>" for row in lane["tapless"])
+        taps = "".join(f"<li>#{row['number']} {text(row.get('words') or '')} <span class=dim>{text(row['repo'])}, checks {text(row['checks'] or 'none')}{(', commits since his Approve: ' + text('; '.join(row['moved']))) if row['moved'] else ''}</span></li>" for row in lane["tapless"])
         cards.append(
             f"<section class='lane {lane['state']}{' hurt' if lane['id'] in shown['hurting'] else ''}'><h2><span class=rank>{lane['rank'] + 1}</span> {text(lane['title'])} <span class=dim>{text(lane['id'])}</span></h2>"
             f"<p class=state>{text(line)}</p><p><b>Next:</b> {text(lane['next'] or 'not written')}</p>"
@@ -181,12 +191,12 @@ def install(drive: str, port: int) -> str:
     import os
     import plistlib
 
+    from lane import supervisor
+
     label = f"dev.long-running.lane-page.{drive}"
     plist = Path.home() / "Library" / "LaunchAgents" / f"{label}.plist"
     log = store.drive_dir(drive) / "page.log"
     env = {key: os.environ[key] for key in ("PATH", "HOME", "LONG_RUNNING_STATE", "XDG_STATE_HOME", "CLAUDE_CONFIG_DIR") if key in os.environ}
     plist.write_bytes(plistlib.dumps({"Label": label, "ProgramArguments": [str(store.launcher(drive)), "--drive", drive, "page", "--port", str(port)], "KeepAlive": True, "RunAtLoad": True, "ThrottleInterval": 10, "EnvironmentVariables": env, "StandardOutPath": str(log), "StandardErrorPath": str(log), "ProcessType": "Background"}))
-    domain = f"gui/{os.getuid()}"
-    subprocess.run(["launchctl", "bootout", f"{domain}/{label}"], capture_output=True, check=False)
-    subprocess.run(["launchctl", "bootstrap", domain, str(plist)], capture_output=True, check=True)
+    supervisor.loaded(label, plist)
     return str(plist)
