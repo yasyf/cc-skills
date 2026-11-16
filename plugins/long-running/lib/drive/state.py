@@ -6794,12 +6794,17 @@ def slot_claim(data: dict, env: str, job_id: str, minutes: int, prs: list[str], 
     if job_id in slot_members(slot) or any(each["job"] == job_id for each in slot["queue"]):
         raise DriveError(f"{job_id}: refused, it already holds or waits for the {env} slot: drive slot queue {env} names its place")
     asked = {"job": job_id, "prs": prs, "minutes": minutes, "cases": cases, "at": stamp(moment), "paths": paths, "stacks": stacks, "starts": starts}
-    if slot["holder"] is None and held_for(data, slot, job_id, moment):
+    if slot["holder"] is None and held_for(data, slot, job_id, moment) and not rides_cut(data, job_id):
         slot["holder"] = leased(asked, moment, [])
         return f"GO {job_id} holds the {env} slot until {slot['holder']['until']}: {SLOT_GO_STEPS.format(env=env, job=job_id)}{holding(release, data, [job_id])}"
     place = sum(1 for each in slot["queue"] if jumps_queue(data, each["job"])) if jumps_queue(data, job_id) else len(slot["queue"])
     slot["queue"].insert(place, asked)
-    behind = f"behind {slot['holder']['job']}, whose lease ends {slot['holder']['until']}" if slot["holder"] else f"held for {slot['hold']['for']} until {slot['hold']['until']}: {slot['hold']['reason']}"
+    if starter := rides_cut(data, job_id):
+        behind = f"riding the cut {starter} starts, so it takes no GO and gets its RIDE at that cut's START"
+    elif slot["holder"]:
+        behind = f"behind {slot['holder']['job']}, whose lease ends {slot['holder']['until']}"
+    else:
+        behind = f"held for {slot['hold']['for']} until {slot['hold']['until']}: {slot['hold']['reason']}"
     return f"QUEUED {job_id} for the {env} slot, place {place + 1}, {behind}"
 
 
@@ -6844,6 +6849,23 @@ QUEUED_KEYS = ("job", "prs", "minutes", "cases", "at", "paths", "stacks", "start
 WAITER_MINUTES = 30
 
 
+CUT_SIGNAL = re.compile(r"\b(?:START|APPLIED)\b")
+
+
+def rides_cut(data: dict, job_id: str) -> str | None:
+    """Who starts the cut a staging tester's WAITING says it rides, so the slot never gives it a GO of its own: another drive job its waits name beside staging serving a commit, the top coordinator when its line waits on his START or APPLIED, or the commit it waits on staging to serve when that commit heads none of its tested PRs; None for a tester that starts its own cut."""
+    job = data["jobs"][job_id]
+    if CUT_SIGNAL.search(job.get("said") or ""):
+        return "root"
+    if not (staged := [found["commit"] for wait in job["waits"] if (found := STAGING_WAIT.fullmatch(wait))]):
+        return None
+    if named := next((other for wait in job["waits"] if JOB_ID.fullmatch(other := wait.split("@")[0]) and other != job_id and other in data["jobs"]), None):
+        return named
+    heads = [head for key in tested_prs(data, job) if (head := (data.get("prs", {}).get(key) or {}).get("head"))]
+    foreign = next((commit for commit in staged if not any(head.startswith(commit) or commit.startswith(head) for head in heads)), None)
+    return f"commit {foreign}" if heads and foreign else None
+
+
 def staged_waiter(job: dict, env: str) -> bool:
     return job["state"] == "waiting" and any((found := STAGING_WAIT.fullmatch(wait)) and found["env"] == env for wait in job["waits"])
 
@@ -6853,7 +6875,7 @@ def queue_waiters(data: dict, approved_only: bool = False) -> list[str]:
     lines = []
     carried = {named for slot in data["slots"].values() for member in [*slot_members(slot), *(each["job"] for each in slot["queue"] if each["starts"])] for named in JOB_ID.findall(data["jobs"][member]["goal"])}
     for job_id, job in data["jobs"].items():
-        if job["state"] != "waiting" or job_id in carried or starts_cut(job) or not staging_parts(data, job):
+        if job["state"] != "waiting" or job_id in carried or starts_cut(job) or not staging_parts(data, job) or rides_cut(data, job_id):
             continue
         if not (prs := [key for key in tested_prs(data, job) if key in data["prs"] and data["prs"][key]["state"] == "open"]) or approved_only and not any((data["prs"][key]["tap"] or {}).get("label") == "Approve" for key in prs):
             continue
@@ -6885,16 +6907,15 @@ def leased(asked: dict, moment: datetime, riders: list[dict]) -> dict:
 
 
 def held_for(data: dict, slot: dict, job_id: str, moment: datetime) -> bool:
-    """Whether a staging slot's hold, the one drive slot hold wrote, lets this job take the slot now: no hold stands, its end passed, or it names the job or an order the job serves or carries."""
+    """Whether a staging slot's hold, the one drive slot hold wrote, lets this job take the slot now: no hold stands, its end passed, or it names this job, never an order, since another job of the held order may ride a cut and take a GO it must not."""
     hold = slot.get("hold")
-    if not hold or parse_time(hold["until"]) <= moment:
-        return True
-    job = data["jobs"][job_id]
-    return hold["for"] in (job_id, job["order"], *job["carries"])
+    return not hold or parse_time(hold["until"]) <= moment or hold["for"] == job_id
 
 
 def slot_hold(data: dict, env: str, held: str, until: datetime, reason: str, moment: datetime) -> str:
-    """Hold a staging env's slot for a job or an order until a time, by drive slot hold, so the watch gives it to no other job and hands a lease that ends to the job it names, or to a job of the order it names, first in its queue; the line saying so."""
+    """Hold a staging env's slot for one job until a time, by drive slot hold, so the watch gives it to no other job and hands a lease that ends to that job first in its queue; the line saying so, refused for an order."""
+    if not JOB_ID.fullmatch(held):
+        raise DriveError(f"{held}: refused, a slot hold names one job, never an order, so no other job of the order takes a GO")
     if until <= moment:
         raise DriveError(f"refused: --until {stamp(until)} has passed")
     slot = data["slots"].setdefault(env, {"holder": None, "queue": []})
@@ -6968,6 +6989,10 @@ def slot_turns(data: dict, moment: datetime, release: dict | None = None) -> lis
     moved = []
     for env, slot in data["slots"].items():
         held = slot["holder"]
+        if held and cut_started(data, held, env) and (joining := [each for each in slot["queue"] if rides_cut(data, each["job"]) in slot_members(slot)]):
+            slot["queue"] = [each for each in slot["queue"] if each not in joining]
+            held["riders"] += [{key: each[key] for key in QUEUED_KEYS} for each in joining]
+            moved += [(env, each["job"], "go", RIDE_STEPS.format(env=env, until=held["until"], starter=held["job"], prs=", ".join(each["prs"]) or "your PR", job=each["job"]) + "." + holding(release, data, [each["job"]], held["job"])) for each in joining]
         running = held and [job_id for job_id in slot_members(slot) if data["jobs"][job_id]["state"] not in SLOT_LIVE_END and not (job_id == held["job"] and held["released"])]
         if held and running and parse_time(held["until"]) <= moment and not held["extended"]:
             held.update(until=stamp(parse_time(held["until"]) + timedelta(minutes=held["minutes"])), extended=True)
@@ -6981,6 +7006,8 @@ def slot_turns(data: dict, moment: datetime, release: dict | None = None) -> lis
         if (hold := slot.get("hold")) and parse_time(hold["until"]) <= moment:
             slot["hold"] = None
             moved.append((env, hold["for"], "unheld", f"SLOT {env} hold for {hold['for']} ended at {hold['until']}"))
+        riding = [each for each in slot["queue"] if rides_cut(data, each["job"])]
+        slot["queue"] = [each for each in slot["queue"] if each not in riding]
         if slot["holder"] is None and slot.get("hold"):
             slot["queue"].sort(key=lambda each: not held_for(data, slot, each["job"], moment))
         if slot["holder"] is None and slot["queue"] and held_for(data, slot, slot["queue"][0]["job"], moment):
@@ -6993,6 +7020,7 @@ def slot_turns(data: dict, moment: datetime, release: dict | None = None) -> lis
             members = [head["job"], *(rider["job"] for rider in riders)]
             moved.append((env, head["job"], "start", f"SLOT {env} to {head['job']} until {until}: the watch starts its release") if head["starts"] else (env, head["job"], "go", f"GO staging {env} until {until}: {SLOT_GO_STEPS.format(env=env, job=head['job'])}.{carried}{holding(release, data, members)}"))
             moved += [(env, rider["job"], "go", RIDE_STEPS.format(env=env, until=until, starter=head["job"], prs=", ".join(rider["prs"]) or "your PR", job=rider["job"]) + "." + holding(release, data, [rider["job"]], head["job"])) for rider in riders]
+        slot["queue"] += riding
     return moved
 
 
