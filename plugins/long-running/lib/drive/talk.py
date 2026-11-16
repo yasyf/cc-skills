@@ -333,6 +333,9 @@ def report_post(name: str, seq: str) -> str:
     except (DriveError, slack.SlackError) as error:
         if (link := state.load(name)["carried"].get(seq) or "").startswith("https://"):
             return f"report {seq} posted at {link}, then: {error}"
+        if slack.SLACK_LIMITED.search(str(error)):
+            state.write(name, lambda data: data["posts"].setdefault("deferred", []).append(seq), patient=True)
+            return f"report {seq} deferred: Slack still rate-limits its read, so it stays taken and the watch's next pass posts it: {error}"
         writer = agents.shown(seq)["lane"]
         made = {"kind": "defect", "to": [f"meta@{name}"]} if writer == "watch" else {"kind": "refused", "re": [seq], "to": [f"{writer}@{name}"]}
         said = f"report {seq} is not posted, by the drive or the communicator, as the drive's carried posts read: {error}"

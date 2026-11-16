@@ -411,6 +411,7 @@ def handled_post(seq: str) -> bool:
 
 def start_posts(name: str, moment: datetime) -> None:
     """Post each `POST` report handled_post keeps from a process the watch starts, `drive report-post`, by talk.report_post, so his messages never queue behind the communicator posting reports and it hears only of one that process could not post, once, from the drive's mark on, and carry every other as progress, so no report is handed twice and none waits on a post; the watch's own close reports it posts itself, by state.watch_posting, and a report cci took under SETTLE_WINDOW ago waits for the next read, so the watch's save of a close report's seq lands first."""
+    retake_deferred(name)
     data = state.load(name, ("posts",))
     since = seeded(name) if data["posts"]["mark"] is None else data["posts"]["mark"]
     read, newest = posts(name, since)
@@ -451,6 +452,15 @@ def start_posts(name: str, moment: datetime) -> None:
     unposted(name, moment)
     if errors:
         raise state.DriveError("; ".join(errors))
+
+
+def retake_deferred(name: str) -> None:
+    """Start report-post again on each report a Slack rate limit deferred, still taken and unposted, so a limit never drops his post, by his answer 7f753e0 that a reply waits out the limit; the 15-minute chase and its owed item stay the backstop."""
+    deferred = state.write(name, lambda data: data["posts"].pop("deferred", None) or [], patient=True)
+    carried = state.load(name, ("carried",))["carried"]
+    for seq in dict.fromkeys(deferred):
+        if not str(carried.get(seq) or "").startswith("https://"):
+            take_post(name, seq, "taken again after a Slack rate limit")
 
 
 def take_post(name: str, seq: str, how: str) -> None:

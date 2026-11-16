@@ -595,6 +595,25 @@ def test_a_post_report_the_drive_took_and_never_posted_is_taken_again_then_owed_
     assert [item["what"] for item in data["orders"]["o1"]["owed"]] == ["the post of report 700, which report-post tried twice"]
 
 
+def test_a_report_slack_still_rate_limits_stays_taken_and_the_watchs_next_pass_posts_it(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    with edit(demo) as data:
+        data["carried"]["735976"] = agents.DRIVE_CLAIM
+        data["posts"]["claimed"] = {"735976": state.stamp()}
+    monkeypatch.setattr(agents, "answered", lambda seq: {"attrs": {}, "report": {"kind": "report", "lane": "root", "text": "POST x", "seq": seq}, "thread": None})
+    limited = "cc-slack: can't read thread 1794687682.137749 now (ratelimited): Slack limits the read for 10s more"
+    monkeypatch.setattr(talk, "report_line", lambda name, seq: (_ for _ in ()).throw(slack.SlackError(limited)))
+    monkeypatch.setattr(tools, "sent", lambda name, lane, records: pytest.fail(f"sent the report back over a rate limit: {records}"))
+    assert talk.report_post(demo, "735976").startswith("report 735976 deferred: Slack still rate-limits its read")
+    data = state.load(demo)
+    assert (data["carried"]["735976"], list(data["posts"]["claimed"]), data["posts"]["deferred"]) == (agents.DRIVE_CLAIM, ["735976"], ["735976"])
+    taken: list[list[str]] = []
+    monkeypatch.setattr(state, "detach", lambda name, args, log: taken.append(args) or 1)
+    agents.retake_deferred(demo)
+    agents.retake_deferred(demo)
+    assert taken == [["report-post", "735976"]]
+    assert "report 735976 taken again after a Slack rate limit" in (state.drive_dir(demo) / "posts.log").read_text()
+
+
 def test_a_report_post_tries_again_while_cc_slack_times_out_and_the_report_has_no_post(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     tries: list[str] = []
 
