@@ -11,6 +11,11 @@ BLOCKED = "blocked"
 REPEAT = "run it again as it stands and it goes through, with these findings logged"
 
 
+def refusal(findings: list[str]) -> str:
+    """The words a first try hears: every finding, each without its own leading `refused: `, and how a repeat goes through."""
+    return f"refused once: {'; '.join(finding.removeprefix('refused: ') for finding in findings)}. {REPEAT}"
+
+
 def store(name: str | None) -> Path:
     return (state.drive_dir(name) if name else state.root()) / "gates.json"
 
@@ -37,4 +42,4 @@ def gate(name: str | None, action: str, findings: list[str], session: str | None
     if repeat:
         print(f"warning: {action}: {said}; going through, as a repeat of a try this gate refused once", file=sys.stderr)
         return None
-    return f"refused once: {said}. {REPEAT}"
+    return refusal(findings)

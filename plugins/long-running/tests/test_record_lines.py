@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 import record_lines
 from conftest import CAP_RULING, SHORT_ASK, Answers, Jev, edit
-from drive import agents, limits, reads, refs, reports, settled, slack, state, view
+from drive import agents, gate, limits, reads, refs, reports, settled, slack, state, view
 
 SESSION = "session-under-test"
 ALERT = "1794413465.441409"
@@ -732,7 +732,7 @@ def test_a_coordinators_handoff_reaches_the_one_lane_it_names_whichever_session_
         handoff = {"kind": "handoff", "text": "the staging window opens at noon", "to": to, "re": ["699084"], "attrs": {"order": "o1"}}
         assert record_lines.decision(post(**handoff)) is None, to
     fanned = {"kind": "handoff", "text": "the staging window opens at noon", "to": ["platform@demo", "sandsql@demo", "meta@demo", "communicator@demo"], "re": ["699084"], "attrs": {"order": "o1"}}
-    assert refusal(record_lines.decision(post(**fanned))) == reports.FANNED.format(lanes="platform, sandsql, meta, communicator")
+    assert refusal(record_lines.decision(post(**fanned))) == gate.refusal([reports.FANNED.format(lanes="platform, sandsql, meta, communicator")])
 
 
 def bound_to_iris(run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -832,8 +832,8 @@ def test_his_words_at_his_message_on_his_open_question_go_only_through_the_recor
 
 def test_a_state_note_or_evidence_record_and_one_fanned_out_to_several_lanes_are_refused_as_chatter_but_an_incident_naming_each_lanes_step(demo: str) -> None:
     for chatty in ("state", "note", "evidence"):
-        assert refusal(record_lines.decision(post(kind=chatty, text="LAST-READ j7 box j6 is free", to=["meta@demo"]))) == reports.CHATTY.format(kind=chatty)
+        assert refusal(record_lines.decision(post(kind=chatty, text="LAST-READ j7 box j6 is free", to=["meta@demo"]))) == gate.refusal([reports.CHATTY.format(kind=chatty)])
     fanned = refusal(record_lines.decision(post(kind="answer", text="box j6 is free", to=["meta@demo", "communicator@demo"])))
-    assert fanned == reports.FANNED.format(lanes="meta, communicator")
+    assert fanned == gate.refusal([reports.FANNED.format(lanes="meta, communicator")])
     assert "permissionDecision" not in (record_lines.decision(post(kind="incident", text="api is down: meta rolls back, communicator pages", to=["meta@demo", "communicator@demo"], attrs={"about": "his work"})) or {})
     assert refusal(record_lines.decision(post(kind="incident", text="api is down: meta rolls back", to=["meta@demo", "communicator@demo"], attrs={"about": "his work"}))) == fanned

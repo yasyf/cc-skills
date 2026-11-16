@@ -12,6 +12,7 @@ import pytest
 from conftest import HOME, SESSION, commit_files, edit, git_in
 from drive import (
     agents,
+    gate,
     github,
     install,
     land,
@@ -973,9 +974,9 @@ def test_every_drive_session_and_drive_agent_reads_datadog_through_its_mcp_never
 
 def test_a_cci_post_from_a_drive_agent_that_is_chatter_is_refused_as_the_post_hook_refuses_it(demo: str) -> None:
     builder = {"agent_id": "a-1", "agent_type": "long-running:builder"}
-    assert bash_guard.deny_reason(bash("cci post --drive demo --kind state --to root --text 'LAST-READ j7 box j6 is free'", **builder)) == reports.CHATTY.format(kind="state")
+    assert bash_guard.deny_reason(bash("cci post --drive demo --kind state --to root --text 'LAST-READ j7 box j6 is free'", **builder)) == gate.refusal([reports.CHATTY.format(kind="state")])
     fanned = "cci post --drive demo --kind handoff --to root --to meta --text 'box j6 is free'"
-    assert bash_guard.deny_reason(bash(fanned, **builder)) == reports.FANNED.format(lanes="root, meta")
+    assert bash_guard.deny_reason(bash(fanned, **builder)) == gate.refusal([reports.FANNED.format(lanes="root, meta")])
     assert bash_guard.deny_reason(bash("cci post --drive demo --kind handoff --to root --text 'box j6 is free'", **builder)) is None
 
 

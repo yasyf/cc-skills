@@ -177,7 +177,7 @@ def test_a_call_with_a_refused_op_writes_nothing_and_names_every_refused_op_with
     with pytest.raises(DriveError, match="invalid choice: 'finished'"):
         tools.run("order", demo, {"ops": [{"set": {"id": "o1", "state": "finished"}}]})
     for empty in ({"ops": []}, {}):
-        with pytest.raises(DriveError, match="name ops: a list of at least one of add, set, posted"):
+        with pytest.raises(DriveError, match="name ops: a list of at least one of add, set, ask, posted, told, go"):
             tools.run("order", demo, empty)
     with pytest.raises(DriveError, match="the job tool runs add, set, brief, not launch"):
         tools.run("job", demo, {"ops": [{"launch": {"id": "j1"}}]})
