@@ -2295,13 +2295,22 @@ def restarted_lane(remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
     return launched
 
 
+def died_again(run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, sessions: dict[str, str], causes: dict[str, str], workspace: str, cause: str, ages: str) -> list[tuple]:
+    """j1's lane resumed in its own Claude session on the Sprite given after it died there with HIGH_CAUSE, then dead again on dispatch-2 with the cause given, the logs keep_logs copied off that Sprite showing the VM and init ages given; each launch."""
+    cloned(tmp_path, remote)
+    launched = restarted_lane(remote, tmp_path, monkeypatch, sessions, workspace)
+    causes.update({J2504_DISPATCH: HIGH_CAUSE, "dispatch-2": cause})
+    assert run("job", "resume", "j1", "Build #4412 failed: fix the lint")[0] == 0
+    orca.death_logs(remote, "j1", "dispatch-2").write_bytes(sprite_read(SPRITE_BOOT, ages))
+    return launched
+
+
 @pytest.mark.parametrize("workspace", J2504_SPRITES)
-def test_a_lane_whose_sprite_died_resumes_its_own_claude_session_there_with_its_cause_and_a_second_death_since_the_jobs_last_line_starts_no_worker(
+def test_a_lane_whose_sprite_died_resumes_its_own_claude_session_there_with_its_cause_and_a_second_death_since_the_jobs_last_line_moves_the_job_to_a_fresh_worktree_on_this_mac(
     run: Run,
     remote: str,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
     sessions: dict[str, str],
     kept_logs: list[tuple[str, str]],
     causes: dict[str, str],
@@ -2309,7 +2318,7 @@ def test_a_lane_whose_sprite_died_resumes_its_own_claude_session_there_with_its_
 ) -> None:
     cloned(tmp_path, remote)
     launched = restarted_lane(remote, tmp_path, monkeypatch, sessions, workspace)
-    causes.update({J2504_DISPATCH: HIGH_CAUSE, "dispatch-2": REBOOT_CAUSE})
+    causes.update({J2504_DISPATCH: HIGH_CAUSE, "dispatch-2": HIGH_CAUSE})
     monkeypatch.setattr(orca, "save", lambda *args: pytest.fail("a resumed lane's Sprite holds its work, so nothing is saved off it"))
     monkeypatch.setattr(orca, "release", lambda *args: pytest.fail("a resumed lane's Sprite is never destroyed"))
     assert run("job", "resume", "j1", "Build #4412 failed: fix the lint") == (
@@ -2320,18 +2329,61 @@ def test_a_lane_whose_sprite_died_resumes_its_own_claude_session_there_with_its_
     brief = launched[0][1]
     assert f": its worker exited; {HIGH_CAUSE}. This is your own Claude session, resumed on Sprite {workspace} in the checkout you left" in brief
     assert unheld(brief).endswith("which you act on now:\n\nBuild #4412 failed: fix the lint")
-    assert cli.main(["job", "resume", "j1", "carry on"]) == 2
+    orca.death_logs(remote, "j1", "dispatch-2").write_bytes(sprite_read(SPRITE_BOOT, "564.20 4158.12\n    543\n"))
+    acted: list[str] = []
+    monkeypatch.setattr(orca, "save", lambda drive, job_id, job, root: acted.append(f"saved {job['workspace']}") or SAVED)
+    monkeypatch.setattr(orca, "release", lambda drive, job_id, job, root: acted.append(f"destroyed {job['workspace']}") or f"destroyed {job['workspace']}")
+    code, out = run("job", "resume", "j1", "carry on")
     job = state.load(remote)["jobs"]["j1"]
+    first = job["deaths"][0]
+    assert (code, out.startswith("j1: the message went to the job's next worker, relaunched in a fresh worktree on this Mac as dispatch dispatch-3")) == (0, True)
+    assert f"its lane on Sprite {workspace} was dead (its worker exited; {HIGH_CAUSE})" in out
+    assert out.endswith(f"; destroyed {workspace}; it moved to this Mac, since its lane on Sprite {workspace} died too since its last line, at {render.when(first['at'])} (its worker exited; {HIGH_CAUSE})")
+    assert [(name, on, session) for name, _, on, session in launched] == [("j1-2.resume.md", workspace, J2504_SESSION), ("j1-3.md", None, None)]
+    assert "which you act on now:\n\ncarry on" in orca.brief_of(launched[1][1])
+    assert (acted, kept_logs) == ([f"saved {workspace}", f"destroyed {workspace}"], [("j1", J2504_DISPATCH), ("j1", "dispatch-2")])
+    assert (job["route"], job["dispatch"], job["state"], job["undelivered"]) == (state.LOCAL_ROUTE, "dispatch-3", "running", [])
+    assert [(death["dispatch"], death["cause"]) for death in job["deaths"]] == [(J2504_DISPATCH, HIGH_CAUSE), ("dispatch-2", HIGH_CAUSE)]
+
+
+def test_a_second_death_since_the_jobs_last_line_while_eight_builders_hold_this_macs_slots_waits_its_turn_to_move_here_and_never_points_back_to_a_sprite(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, sessions: dict[str, str], causes: dict[str, str]
+) -> None:
+    workspace = J2504_SPRITES[0]
+    launched = died_again(run, remote, tmp_path, monkeypatch, sessions, causes, workspace, HIGH_CAUSE, "564.20 4158.12\n    543\n")
+    monkeypatch.setattr(orca, "save", lambda *args: pytest.fail("a move waiting its turn saves nothing"))
+    eight_builders_here(run)
+    code, out = run("job", "resume", "j1", "PR #12: checks failed")
+    data = state.load(remote)
+    job = data["jobs"]["j1"]
     first, second = job["deaths"]
-    assert capsys.readouterr().err == (
-        f"drive: j1: refused, no worker started: its lane died twice since its last line, on Sprite {workspace} at {render.when(first['at'])} (its worker exited; {HIGH_CAUSE})"
-        f" and on Sprite {workspace} at {render.when(second['at'])} (its worker exited; {REBOOT_CAUSE}); their logs are in {orca.death_logs(remote, 'j1', J2504_DISPATCH)}"
-        f" and {orca.death_logs(remote, 'j1', 'dispatch-2')}. drive job launch j1 --local moves it to a fresh worktree on this Mac, and its next worker gets the text the job holds\n"
+    assert code == 0
+    assert out.startswith(
+        f"j1: no worker started yet: its lane on Sprite {workspace} died (its worker exited; {HIGH_CAUSE}), and its lane on Sprite {workspace} died too since its last line,"
+        f" at {render.when(first['at'])} (its worker exited; {HIGH_CAUSE}), so it starts no worker on a Sprite: 8 builders already run on this Mac"
     )
+    queued = "so j1 waits its turn for a builder slot on this Mac, 1 of 1 in line, and the watch moves it here from its Sprite with drive job launch j1 --local as its turn comes, its handoff carrying the texts the job holds"
+    assert out.endswith(queued)
     assert [name for name, *_ in launched] == ["j1-2.resume.md"]
-    assert kept_logs == [("j1", J2504_DISPATCH), ("j1", "dispatch-2")]
-    assert (job["dispatch"], job["workspace"], job["state"], [held["words"] for held in job["undelivered"]]) == ("dispatch-2", workspace, "running", ["carry on"])
-    assert [(death["dispatch"], death["cause"], death.get("saved")) for death in job["deaths"]] == [(J2504_DISPATCH, HIGH_CAUSE, None), ("dispatch-2", REBOOT_CAUSE, None)]
+    assert (job["dispatch"], job["state"], job["waits"], [held["words"] for held in job["undelivered"]], second["cause"]) == ("dispatch-2", "running", [state.SLOT_WAIT], ["PR #12: checks failed"], HIGH_CAUSE)
+    assert (place.waiting_builders(data), cli.crowded_here(remote, data, "j1", None).endswith(queued)) == (["j1"], True)
+
+
+def test_a_second_death_since_the_jobs_last_line_on_a_sprite_whose_vm_booted_after_its_worker_started_resumes_that_workers_claude_session_there(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, sessions: dict[str, str], causes: dict[str, str]
+) -> None:
+    workspace = J2504_SPRITES[0]
+    launched = died_again(run, remote, tmp_path, monkeypatch, sessions, causes, workspace, REBOOT_CAUSE, "41.30 160.02\n     22\n")
+    with state.edit(remote) as data:
+        data["jobs"]["j1"]["worker_started"] = state.stamp(state.now() - timedelta(minutes=30))
+    assert run("job", "resume", "j1", "carry on") == (
+        0,
+        f"j1: the message went to the job's worker, which resumed its own Claude session {J2504_SESSION} on Sprite {workspace} as dispatch dispatch-3,"
+        f" in the checkout its lane left there dead (its worker exited; {REBOOT_CAUSE})",
+    )
+    assert [(name, on, session) for name, _, on, session in launched] == [("j1-2.resume.md", workspace, J2504_SESSION), ("j1-3.resume.md", workspace, J2504_SESSION)]
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["dispatch"], job["workspace"], [(death["dispatch"], death["cause"]) for death in job["deaths"]]) == ("dispatch-3", workspace, [(J2504_DISPATCH, HIGH_CAUSE), ("dispatch-2", REBOOT_CAUSE)])
 
 
 def test_a_lane_that_dies_after_its_jobs_last_line_resumes_again_with_its_own_cause(
@@ -2669,7 +2721,7 @@ def written_minutes_ago(sprite_homes: dict[str, Path], tmp_path: Path, workspace
 
 @pytest.mark.parametrize("quiet", [None, 45], ids=["unlisted", "unwritten-45-minutes"])
 @pytest.mark.parametrize("lane", [J1409_LANES["j489"], J1409_LANES["j414"], J1409_LANES["j601"], J2504_LANE])
-def test_a_pushed_job_whose_sprite_neither_wakes_nor_answers_ssh_nor_shows_a_transcript_written_in_30_minutes_restarts_on_a_fresh_sprite_from_its_pushed_branch_keeping_its_transcripts_and_that_sprite(
+def test_a_pushed_job_whose_sprite_neither_wakes_nor_answers_ssh_nor_shows_a_transcript_written_in_30_minutes_restarts_on_a_fresh_sprite_from_its_pushed_branch_keeping_its_transcripts_and_that_sprite_and_counts_that_death_against_no_job(
     run: Run,
     remote: str,
     tmp_path: Path,
@@ -2687,9 +2739,12 @@ def test_a_pushed_job_whose_sprite_neither_wakes_nor_answers_ssh_nor_shows_a_tra
     monkeypatch.setattr(orca, "keep_logs", lambda drive, job_id, job, dispatch: (silent, False, False, False))
     for step in ("session_of", "save", "release"):
         monkeypatch.setattr(orca, step, lambda *args, step=step: pytest.fail(f"a Sprite that does not answer ssh is asked nothing more over it, yet {step} ran"))
+    asked: list[list[tuple[str, str]]] = []
+    monkeypatch.setattr(github, "branch_heads", lambda heads: asked.append(heads) or dict.fromkeys(heads, "4d5e6f7081"))
     held = "Next event for builder j2504, from the coordinator. Design job j3161 picked the two redo volumes."
+    earlier = {"dispatch": "ctx_first", "workspace": "sprite-first", "why": "its worker exited", "at": state.stamp(), "cause": HIGH_CAUSE}
     with state.edit(remote) as data:
-        data["jobs"]["j1"]["undelivered"] = [{"seq": None, "words": held, "at": state.stamp(T0), "said": None, "request": "req-held"}]
+        data["jobs"]["j1"].update(undelivered=[{"seq": None, "words": held, "at": state.stamp(T0), "said": None, "request": "req-held"}], deaths=[earlier])
     code, out = run("job", "resume", "j1")
     assert (code, out.startswith("j1: the message went to the job's next worker, relaunched on Sprite workspace-2 as dispatch dispatch-2")) == (0, True)
     files = f"its worker last wrote a transcript there {quiet} minutes ago" if quiet else f"the Sprites file API did not list its transcripts: {UNLISTED}"
@@ -2700,7 +2755,13 @@ def test_a_pushed_job_whose_sprite_neither_wakes_nor_answers_ssh_nor_shows_a_tra
     assert f"You take the job over on a fresh Sprite from its pushed branches; {orca.UNPUSHED}" in brief
     assert "Its branch: durable-agents-j2504/sandsql-two-redo-volumes\n" in brief and unheld(brief).endswith(f"which you act on now:\n\n{held}")
     job = state.load(remote)["jobs"]["j1"]
-    assert (job["dispatch"], job["workspace"], job["undelivered"], [death["workspace"] for death in job["deaths"]]) == ("dispatch-2", "workspace-2", [], [workspace])
+    assert (job["dispatch"], job["workspace"], job["undelivered"], [(death["workspace"], death.get("cause")) for death in job["deaths"]]) == (
+        "dispatch-2",
+        "workspace-2",
+        [],
+        [("sprite-first", HIGH_CAUSE), (workspace, None)],
+    )
+    assert [[branch for _, branch in heads] for heads in asked] == [["durable-agents-j2504/sandsql-two-redo-volumes"]]
 
 
 def test_a_lane_orca_could_not_reach_whose_sprite_answers_no_ssh_while_its_worker_wrote_a_transcript_minutes_ago_restarts_nothing_and_records_no_death(
@@ -4766,15 +4827,16 @@ def test_a_relaunch_that_ended_without_a_next_lane_is_said_at_once(remote: str, 
     [
         (
             {"why": "its worker exited", "cause": HIGH_CAUSE},
-            "reads from them why it died and starts no worker unless they show its Sprite failed on its own, a kernel error line after init with no OOM kill"
-            " and its home volume not full, as its lane on Sprite sprite-first died too since its last line, at {at}"
-            f" (its worker exited; {HIGH_CAUSE})",
+            "reads from them why it died and moves it to a fresh worktree on this Mac, waiting its turn for a builder slot while they are full,"
+            f" as its lane on Sprite sprite-first died too since its last line, at {{at}} (its worker exited; {HIGH_CAUSE}), unless they show its Sprite rebooted"
+            " after its worker started, which resumes its Claude session there, or failed on its own, a kernel error line after init with no OOM kill and its"
+            " home volume not full, or did not answer while GitHub holds the job's branch, which relaunches it on a fresh Sprite",
         ),
         ({"why": f"its worker exited, and {NBD_CAUSE}"}, "resumes its Claude session on its Sprite, or else relaunches it on a fresh Sprite with a handoff"),
     ],
     ids=["a death with a cause before it", "an nbd0 death before it, which kept no cause"],
 )
-def test_a_running_jobs_lane_that_died_again_since_its_last_line_is_said_to_start_no_worker_only_after_a_death_with_a_cause(
+def test_a_running_jobs_lane_that_died_again_since_its_last_line_is_said_to_move_to_this_mac_only_after_a_death_with_a_cause(
     remote: str, monkeypatch: pytest.MonkeyPatch, relaunches: list[str], earlier: dict[str, str], again: str
 ) -> None:
     deliver(monkeypatch)
@@ -4791,19 +4853,15 @@ def test_a_running_jobs_lane_that_died_again_since_its_last_line_is_said_to_star
     assert relaunches == ["j1"]
 
 
-def test_a_lane_whose_resume_refused_a_second_death_since_its_jobs_last_line_is_said_with_both_causes(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    deliver(monkeypatch)
-    monkeypatch.setattr(orca, "worker", lambda dispatch: pytest.fail("a lane already said to have ended is not read again"))
+def test_a_twice_dead_lane_waiting_its_turn_to_move_here_or_moving_in_that_turn_is_no_gap_until_the_move_overran(remote: str) -> None:
     first = {"dispatch": "ctx_first", "workspace": "sprite-first", "why": "its worker exited", "at": state.stamp(T0 - timedelta(minutes=20)), "cause": HIGH_CAUSE}
     relaunch = {"pid": ENDED_READER, "at": state.stamp(T0 - timedelta(minutes=2))}
-    second = {"dispatch": DISPATCH, "workspace": "sprite-old", "why": "its worker exited", "at": state.stamp(T0 - timedelta(minutes=2)), "relaunch": relaunch, "cause": REBOOT_CAUSE}
-    with state.edit(remote) as data:
-        data["jobs"]["j1"].update(workspace="sprite-old", deaths=[first, second], updated=state.stamp(T0 - timedelta(minutes=2)))
-    assert watch.run_pass(watch.Watcher(remote, offset=state.events_end(remote)), T0) == [
-        f'ORPHAN o1 "Short title": j1\'s lane died twice since its last line, so drive job resume starts no worker for it: on Sprite sprite-first at {render.when(first["at"])}'
-        f" (its worker exited; {HIGH_CAUSE}) and on Sprite sprite-old at {render.when(second['at'])} (its worker exited; {REBOOT_CAUSE}); drive job launch j1 --local moves it to a fresh worktree on this Mac"
-    ]
-
+    second = {"dispatch": DISPATCH, "workspace": "sprite-old", "why": "its worker exited", "at": state.stamp(T0 - timedelta(minutes=2)), "relaunch": relaunch, "cause": HIGH_CAUSE}
+    job = state.load(remote)["jobs"]["j1"] | {"workspace": "sprite-old", "deaths": [first, second]}
+    waiting = job | {"waits": [state.SLOT_WAIT]}
+    moving = job | {"slot": state.stamp(T0 - timedelta(minutes=1))}
+    assert (state.died_twice(waiting), watch.ended_gap("j1", waiting, second, T0), watch.ended_gap("j1", moving, second, T0)) == (True, None, None)
+    assert watch.ended_gap("j1", moving, second, T0 + watch.RELAUNCH).startswith("j1's lane ended ")
 
 
 def branches(monkeypatch: pytest.MonkeyPatch, prs: dict[str, dict]) -> list[list[tuple[str, str]]]:

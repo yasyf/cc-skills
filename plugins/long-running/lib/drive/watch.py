@@ -2867,17 +2867,13 @@ def remote_gap(job_id: str, worker: dict, moment: datetime) -> str | None:
 
 
 def ended_gap(job_id: str, job: dict, ended: dict, moment: datetime) -> str | None:
-    """A running job whose lane died or finished and no next lane replaced in the time a relaunch takes: none while the watch's relaunch of it runs, and once that relaunch ended or overran, the line names it and its log; a lane whose death is the job's second since its last line, which no resume starts a worker for, names both deaths with their causes once the resume recorded the second's."""
+    """A running job whose lane died or finished and no next lane replaced in the time a relaunch takes: none while it waits its turn for a builder slot on this Mac, or within the time a relaunch takes since that turn came and started its next worker, or while the watch's relaunch of it runs, and once that relaunch ended or overran, the line names it and its log."""
+    if state.SLOT_WAIT in job["waits"] or (slot := job.get("slot")) and moment - state.parse_time(slot) < RELAUNCH:
+        return None
     gone = moment - state.parse_time(ended["at"])
     relaunch = ended.get("relaunch")
     if relaunch and state.alive(relaunch["pid"]) and moment - state.parse_time(relaunch["at"]) < RELAUNCH:
         return None
-    if ended.get("cause") and (first := state.died_before(job, ended["dispatch"])):
-        return (
-            f"{job_id}'s lane died twice since its last line, so drive job resume starts no worker for it: on Sprite {first['workspace']} at {when(first['at'])}"
-            f" ({state.why_died(first['why'], first['cause'])}) and on Sprite {ended['workspace']} at {when(ended['at'])} ({state.why_died(ended['why'], ended['cause'])});"
-            f" drive job launch {job_id} --local moves it to a fresh worktree {orca.ON_MAC}"
-        )
     if not relaunch:
         return None if gone < RELAUNCH else f"{job_id}'s lane ended {minutes(gone)} minutes ago ({cut(ended['why'], 60)}), was not resumed and its result is not recorded"
     return (
@@ -3404,7 +3400,7 @@ def lane_holds(job: dict, moment: datetime, live: set[str]) -> set[str]:
 
 
 def death_lines(watcher: Watcher, deaths: dict[str, tuple[str, str]], moment: datetime) -> list[str]:
-    """Record each worker's death on its job: a remote lane's, by its dispatch, or a running local job's agent's, by its agent, and say it once for a running job, whose worker is replaced that pass by `drive job resume` as a process of its own, its pid kept on the death so no later pass starts a second: a Sprite lane's is resumed in its own Claude session on its Sprite, or else relaunched, and an agent's is handed to a lane on a Sprite, or on this Mac when its brief declares a step only this Mac runs. A running job busy reads another drive verb acting on has its death neither recorded nor said, so the first pass after that verb ends relaunches it, or reads the next worker that verb started. A waiting job's death asks no step, since his answer reaches it through drive job resume whether or not its lane lives, so it is recorded and not said: its Sprite is freed by the `drive job end` release_lanes runs on every remote job that is not running once its worker's turn is over, as its death makes it, which copies its Sprite's Orca runtime and worker logs to the drive's folder before the Sprite goes, and its lane on this Mac just waits. A job stopped, done or failed since the pass read it has the death recorded and nothing started or said. A running Sprite lane's line names the file in the drive's folder that resume copies those logs to, and, when another lane of the job died with a cause since its last line, that death and its cause, since the resume then starts no worker unless those logs show its Sprite failed on its own."""
+    """Record each worker's death on its job: a remote lane's, by its dispatch, or a running local job's agent's, by its agent, and say it once for a running job, whose worker is replaced that pass by `drive job resume` as a process of its own, its pid kept on the death so no later pass starts a second: a Sprite lane's is resumed in its own Claude session on its Sprite, or else relaunched, and an agent's is handed to a lane on a Sprite, or on this Mac when its brief declares a step only this Mac runs. A running job busy reads another drive verb acting on has its death neither recorded nor said, so the first pass after that verb ends relaunches it, or reads the next worker that verb started. A waiting job's death asks no step, since his answer reaches it through drive job resume whether or not its lane lives, so it is recorded and not said: its Sprite is freed by the `drive job end` release_lanes runs on every remote job that is not running once its worker's turn is over, as its death makes it, which copies its Sprite's Orca runtime and worker logs to the drive's folder before the Sprite goes, and its lane on this Mac just waits. A job stopped, done or failed since the pass read it has the death recorded and nothing started or said. A running Sprite lane's line names the file in the drive's folder that resume copies those logs to, and, when another lane of the job died with a cause since its last line, that death and its cause, since the resume then moves the job to this Mac unless those logs show its Sprite rebooted after its worker started, failed on its own or did not answer while GitHub holds the job's branch."""
     if not deaths:
         return []
     lines = []
@@ -3430,9 +3426,10 @@ def death_lines(watcher: Watcher, deaths: dict[str, tuple[str, str]], moment: da
             again = f"relaunches it {fresh}" if state.on_mac(job) else f"resumes its Claude session on its Sprite, or else relaunches it {fresh}"
             if not state.on_mac(job) and (first := state.died_before(job, worker)):
                 again = (
-                    f"reads from them why it died and starts no worker unless they show its Sprite failed on its own, a kernel error line after init with no OOM kill"
-                    f" and its home volume not full, as its lane on Sprite {first['workspace']} died too since its last line, at {when(first['at'])}"
-                    f" ({state.why_died(first['why'], first['cause'])})"
+                    f"reads from them why it died and moves it to a fresh worktree {orca.ON_MAC}, waiting its turn for a builder slot while they are full,"
+                    f" as its lane on Sprite {first['workspace']} died too since its last line, at {when(first['at'])} ({state.why_died(first['why'], first['cause'])}),"
+                    " unless they show its Sprite rebooted after its worker started, which resumes its Claude session there, or failed on its own, a kernel error line"
+                    " after init with no OOM kill and its home volume not full, or did not answer while GitHub holds the job's branch, which relaunches it on a fresh Sprite"
                 )
             lines.append(
                 f'LANE {job_id} {job["order"]} died {orca.place(job)}: {why}, while it worked on "{cut(job["said"] or job["goal"], 60)}".'

@@ -1215,8 +1215,7 @@ def keep_logs(drive: str, job_id: str, job: dict, dispatch: str) -> tuple[str, b
 
 def cause(said: str) -> tuple[str, bool, bool]:
     """One line on why a lane's Sprite failed, from what keep_logs copied off it, and whether that Sprite faulted, which a kernel line at error level or worse after init or a full home volume says, so no worker runs on it again: each kernel line at error level or worse logged after the kernel started init, since a Sprite's boot logs one before init on every Sprite, counted with the first and the last quoted; memory.high, when its cgroup went over it, with memory.peak; the OOM killer's kills; a full home volume; and how long its VM and its pid 1 had run, which shows whether the VM rebooted or only its processes restarted. That Sprite failed on its own, so its death counts against no job, when its kernel logged an error line after init while the OOM killer killed nothing and its home volume was not full, as when an nbd0 I/O error remounts its root disk read-only, since a job's own load shows as an OOM kill, which the kernel logs at error level too, or a full home volume. A Sprite whose read ended before the kernel's lines gives why that read ended, no fault and no failure of its own."""
-    parts = SECTION.split(said)
-    read = dict(zip(parts[1::2], parts[2::2], strict=True))
+    read = sections(said)
     if KERNEL_ERRORS not in read:
         _, exited, rest = said.rpartition("ssh exited ")
         return f"its Sprite did not answer: {exited + ' '.join(rest.split()) if exited else said.strip().splitlines()[-1]}", False, False
@@ -1241,6 +1240,19 @@ def cause(said: str) -> tuple[str, bool, bool]:
     vm, _, pid1 = read[AGES].split()
     shown.append(f"when read, its VM had been up {int(float(vm) // 60)} minutes, its init process {int(pid1) // 60} minutes")
     return f"its Sprite showed: {'; '.join(shown)}", bool(errors) or full, bool(errors) and not (killed or full)
+
+
+def sections(said: str) -> dict[str, str]:
+    """What keep_logs copied off a Sprite, each command's output by the command its == line names."""
+    parts = SECTION.split(said)
+    return dict(zip(parts[1::2], parts[2::2], strict=True))
+
+
+def rebooted(drive: str, job_id: str, job: dict, dispatch: str) -> bool:
+    """Whether the VM of the Sprite the job's lane died on booted after its worker started, by the age of that VM keep_logs copied to death_logs as it read it, so the Sprite's restart, not the job, ended the worker, and its Claude session resumes there, by his ruling "Resume the same session on its restarted Sprite: a restart costs about three minutes, not the session"; not for a Sprite whose read ended before that age."""
+    kept = death_logs(drive, job_id, dispatch)
+    ages = sections(kept.read_text()).get(AGES)
+    return bool(ages) and kept.stat().st_mtime - float(ages.split()[0]) > state.parse_time(job["worker_started"]).timestamp()
 
 
 def transcripts(drive: str, job_id: str, dispatch: str) -> Path:
