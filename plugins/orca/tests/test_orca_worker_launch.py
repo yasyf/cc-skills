@@ -15,7 +15,8 @@ LANE = "lane-a"
 LANE_ENV = "DISABLE_AUTOUPDATER=1 CLAUDE_CODE_DISABLE_FILE_CHECKPOINTING=1 CHOKIDAR_USEPOLLING=1 CHOKIDAR_INTERVAL=300000 CLAUDE_CODE_DISABLE_MOUSE=1 CLAUDE_CODE_SYNTAX_HIGHLIGHT=false CLAUDE_CODE_DISABLE_AGENT_PROGRESS_SUMMARIES=1 CLAUDE_CODE_ENABLE_AWAY_SUMMARY=false CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY=1 DISABLE_COST_WARNINGS=1 DISABLE_INSTALLATION_CHECKS=1 CLAUDE_CODE_AUTO_CONNECT_IDE=false CLAUDE_CODE_IDE_SKIP_AUTO_INSTALL=1 ENABLE_CLAUDEAI_MCP_SERVERS=false DISABLE_TELEMETRY=1 DISABLE_ERROR_REPORTING=1 CLAUDE_CODE_GB_DISK_CACHE_WHEN_TELEMETRY_OFF=1 CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS=1 CLAUDE_CODE_DISABLE_BUNDLED_SKILLS=1 CLAUDE_CODE_PLUGIN_DIR_WATCH=false CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL=1"
 LANE_SETTINGS = '{"spinnerTipsEnabled":false,"prefersReducedMotion":true,"verbose":false,"showThinkingSummaries":false,"feedbackDrafts":"off","awaySummaryEnabled":false,"promptSuggestionEnabled":false,"tui":"fullscreen","disableDeepLinkRegistration":"disable","statusLine":{"type":"command","command":"exit 0"},"terminalProgressBarEnabled":false,"bashOutputMaxChars":6000,"outputStyle":"default"}'
 LANE_DENIED_TOOLS = "AskUserQuestion,EnterPlanMode,ExitPlanMode,PushNotification,DesignSync"
-SPRITE_SETTINGS = json.dumps({**json.loads(LANE_SETTINGS), "permissions": {"deny": LANE_DENIED_TOOLS.split(",")}}, separators=(",", ":"))
+SPRITE_HOOKS = json.loads((SCRIPT.parents[1] / "lib/lane.json").read_text())["spriteSettings"]
+SPRITE_SETTINGS = json.dumps({**json.loads(LANE_SETTINGS), **SPRITE_HOOKS, "permissions": {"deny": LANE_DENIED_TOOLS.split(",")}}, separators=(",", ":"))
 WORKSPACE = "pool-spare"
 SESSION = "5d576546-4c87-4a78-94b4-945eb9e49c86"
 REPO = "repo-local"

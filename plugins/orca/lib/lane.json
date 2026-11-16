@@ -41,6 +41,51 @@
     "bashOutputMaxChars": 6000,
     "outputStyle": "default"
   },
+  "spriteSettings": {
+    "hooks": {
+      "SessionStart": [
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "curl -fsS -m 5 --unix-socket /.sprite/api.sock -H 'Host: sprite' -H 'Content-Type: application/json' -X PUT http://sprite/v1/tasks/claude-lane -d '{\"expire\":\"1h\"}' >/dev/null"
+            }
+          ]
+        }
+      ],
+      "UserPromptSubmit": [
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "curl -fsS -m 5 --unix-socket /.sprite/api.sock -H 'Host: sprite' -H 'Content-Type: application/json' -X PUT http://sprite/v1/tasks/claude-lane -d '{\"expire\":\"1h\"}' >/dev/null"
+            }
+          ]
+        }
+      ],
+      "PreToolUse": [
+        {
+          "matcher": "*",
+          "hooks": [
+            {
+              "type": "command",
+              "command": "curl -fsS -m 5 --unix-socket /.sprite/api.sock -H 'Host: sprite' -H 'Content-Type: application/json' -X PUT http://sprite/v1/tasks/claude-lane -d '{\"expire\":\"1h\"}' >/dev/null"
+            }
+          ]
+        }
+      ],
+      "Stop": [
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "curl -fsS -m 5 --unix-socket /.sprite/api.sock -H 'Host: sprite' -H 'Content-Type: application/json' -X PUT http://sprite/v1/tasks/claude-lane -d '{\"expire\":\"30m\"}' >/dev/null"
+            }
+          ]
+        }
+      ]
+    }
+  },
   "deniedTools": [
     "AskUserQuestion",
     "EnterPlanMode",
