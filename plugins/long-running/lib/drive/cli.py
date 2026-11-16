@@ -6321,7 +6321,7 @@ def status(args: argparse.Namespace) -> int:
     from drive import view
 
     name = state.resolve(args.drive)
-    if args.ids and not (args.full or args.json or args.prs) and all(reads.DRIVE_RECORD.fullmatch(each) and each.startswith("o") for each in args.ids):
+    if args.ids and not (getattr(args, "full", False) or getattr(args, "json", False) or getattr(args, "prs", False)) and all(reads.DRIVE_RECORD.fullmatch(each) and each.startswith("o") for each in args.ids):
         return emit(args, "\n\n".join(order_summary(name, order_id) for order_id in args.ids), {})
     view.refresh_cards(name)
     data = state.load(name)
