@@ -2932,3 +2932,12 @@ def test_a_tester_waiting_on_a_cut_with_no_slot_place_is_queued_at_its_waiting_t
     [(_, freed, kind, line), (_, given, go, _)] = state.slot_turns(data, moment + timedelta(minutes=60))
     assert (freed, kind, "which never started, so j1 went back to their places in its queue" in line, given) == ("j1", "freed", True, "j4862")
     assert [each["job"] for each in data["slots"]["plat-usw2-staging"]["queue"]] == ["j1", "j2"]
+
+
+def test_while_a_slot_hold_stands_only_a_tester_whose_pr_has_his_approve_is_queued(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(state, "staging_parts", lambda data, job: [("o1", "staging test")])
+    monkeypatch.setattr(state, "tested_prs", lambda data, job: [f"Forge-AI/monorepo#{job['goal']}"])
+    job = lambda number: {"state": "waiting", "order": "o1", "carries": [], "goal": number, "waits": ["staging:api/plat-usw2-staging@abc1234"], "updated": "2026-11-15T06:00:00+00:00"}
+    data = {"slots": {}, "jobs": {"j1": job("1"), "j2": job("2")}, "prs": {"Forge-AI/monorepo#1": {"state": "open", "tap": {"label": "Approve"}}, "Forge-AI/monorepo#2": {"state": "open", "tap": None}}}
+    assert [line.split(" queued ")[1].split(",")[0] for line in state.queue_waiters(data, approved_only=True)] == ["j1"]
+    assert [line.split(" queued ")[1].split(",")[0] for line in state.queue_waiters(data)] == ["j2"]

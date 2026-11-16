@@ -4371,7 +4371,7 @@ def pass_reads(name: str, data: dict, prs: list[str]) -> tuple[list[str] | None,
     return paths, sorted({component for key in prs if key in reach for component in reach[key]["components"]}) if all(key in reach for key in prs) else None
 
 
-WAITERS_QUEUED = False
+READS_PER_PASS = 12
 
 
 def slot_lines(watcher: Watcher, moment: datetime) -> list[str]:
@@ -4379,7 +4379,7 @@ def slot_lines(watcher: Watcher, moment: datetime) -> list[str]:
     if watcher.project or not (slots := state.load(watcher.name)["slots"]):
         return []
     known = state.load(watcher.name)
-    unread = {each["job"]: pass_reads(watcher.name, known, each["prs"]) for slot in slots.values() for each in slot["queue"] if (each["paths"] is None or each["stacks"] is None) and each["prs"]}
+    unread = {each["job"]: pass_reads(watcher.name, known, each["prs"]) for each in [each for slot in slots.values() for each in slot["queue"] if (each["paths"] is None or each["stacks"] is None) and each["prs"]][:READS_PER_PASS]}
     def slot_lines_write(data: dict):
         for slot in data["slots"].values():
             for each in slot["queue"]:
@@ -4387,7 +4387,7 @@ def slot_lines(watcher: Watcher, moment: datetime) -> list[str]:
                     paths, stacks = unread[each["job"]]
                     each["paths"] = each["paths"] if paths is None else paths
                     each["stacks"] = each["stacks"] if stacks is None else stacks
-        waiters = state.queue_waiters(data) if WAITERS_QUEUED else []
+        waiters = state.queue_waiters(data, approved_only=any(slot.get("hold") for slot in data["slots"].values()))
         return waiters, state.slot_turns(data, moment, state.repo_config(data).get("release"))
 
     waiters, moved = state.update(watcher.name, None, slot_lines_write)
