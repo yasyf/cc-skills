@@ -2234,7 +2234,7 @@ def owed_lines(watcher: Watcher, moment: datetime) -> list[str]:
             if not mark["handed"] and not agents.handle(watcher.name, owed_brief(watcher.name, reply, channel, thread))[1]:
                 with state.edit(watcher.name) as saved:
                     saved["owed_replies"][ts]["handed"] = True
-            if owed_for >= OWED_WAIT and not mark["lined"]:
+            if owed_for >= view.OWED_WAIT and not mark["lined"]:
                 seq = owed_report(watcher, data, reply, channel, thread, owed_for)
                 with state.edit(watcher.name) as saved:
                     saved["owed_replies"][ts]["lined"] = seq
