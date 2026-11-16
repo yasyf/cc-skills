@@ -250,6 +250,8 @@ def test_725715_a_post_naming_another_drive_goes_out_on_the_sessions_own_drive_a
     assert record_lines.decision(post(lane="meta@demo", drive="durable-agents", **answered)) == {"updatedInput": {"lane": "root"} | answered}
     batch = record_lines.decision(post(drive="durable-agents", records=[asked | {"to": ["meta"]}, answered]))
     assert batch == {"updatedInput": {"lane": "root", "records": [asked | {"to": ["meta@durable-agents"]}, answered]}}
+    peered = asked | {"to": ["peer:talker", "root"]}
+    assert record_lines.decision(post(drive="durable-agents", **peered))["updatedInput"]["to"] == ["peer:talker", "root@durable-agents"]
     assert record_lines.decision(post(drive=demo, kind="note", text="j12 merged", to=["root"])) is None
 
 

@@ -109,10 +109,10 @@ def readdressed(drives: dict[str, dict], session: str | None, record: dict) -> d
 
 
 def homed(record: dict, foreign: str | None) -> dict:
-    """The record as the session writes it on its own drive when its post names another drive, as cci's refuseForeignDrive has it: each bare lane it is to qualified with that drive, so it reaches that drive's lane, never one of the session's own drive or that drive's lane posing as the writer."""
+    """The record as the session writes it on its own drive when its post names another drive, as cci's refuseForeignDrive has it: each bare lane it is to qualified with that drive, so it reaches that drive's lane, never one of the session's own drive or that drive's lane posing as the writer; a `peer:<session>` address names one session on any drive and stays as written, as cci's check skips it."""
     if not foreign or "to" not in record:
         return record
-    return record | {"to": [entry if "@" in entry else f"{entry}@{foreign}" for entry in listed(record["to"])]}
+    return record | {"to": [entry if entry.startswith("peer:") or "@" in entry else f"{entry}@{foreign}" for entry in listed(record["to"])]}
 
 
 def posting_lane(data: dict, payload: dict, records: list[dict]) -> str:
