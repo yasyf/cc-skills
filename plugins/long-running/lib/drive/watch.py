@@ -4936,7 +4936,7 @@ def adopt_sprites(watcher: Watcher, moment: datetime) -> list[str]:
         for job_id, workspace in found:
             job = data["jobs"][job_id]
             if job.get("workspace") != workspace and not state.death_on(job, workspace):
-                job.setdefault("deaths", []).append({"dispatch": None, "workspace": workspace, "why": ADOPTED, "at": state.stamp(moment)})
+                job.setdefault("deaths", []).append({"dispatch": None, "workspace": workspace, "agent": None, "why": ADOPTED, "at": state.stamp(moment)})
 
     state.write(watcher.name, adopt_sprites_write, budget=state.WATCH_WRITE_SECONDS)
     return []

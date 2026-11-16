@@ -3080,3 +3080,17 @@ def test_the_mac_queue_puts_a_priority_orders_waiting_job_first(state_root: Path
         data["orders"]["o2"] = data["orders"]["o1"] | {"priority": True}
         data["jobs"] |= {job_id: state.new_job(order, "builder", "test on a Mac", [], state.stamp()) | {"state": "waiting", "waits": waits} for job_id, order, waits in (("j1", "o1", ["mac-box:any"]), ("j2", "o2", ["mac-box:any"]), ("j3", "o1", ["staging:api/plat-usw2-staging@abc"]))}
     assert state.mac_queue(state.load("demo")) == ["j2", "j1"]
+
+
+def test_the_reservation_member_of_a_sprite_the_watch_adopted_with_no_dispatch_or_agent_names_its_death_by_workspace_as_j299s_keyerror_did_not() -> None:
+    ended = {"dispatch": "ctx_5da014b26c2c", "workspace": "pool-zrdgqr6gjkon2ryt", "why": "ended by drive job end", "at": "2026-11-15T20:26:22-08:00"}
+    adopted = {"dispatch": None, "workspace": "pool-nkqalkgmmxr2w3yw", "agent": None, "why": "adopted", "at": "2026-11-15T21:33:40-08:00", "reclaim": {"pid": 23327}}
+    mac = {"dispatch": None, "workspace": None, "agent": "a1", "why": "its turn ended", "at": "2026-11-15T22:00:00-08:00"}
+    data = {"jobs": {"j299": {"deaths": [ended, adopted, mac]}}}
+    rows = [state.death_row("j299", death, "reclaim") for death in (ended, adopted, mac)]
+    assert rows == [
+        ("jobs", "j299", "deaths", "dispatch=ctx_5da014b26c2c", "reclaim"),
+        ("jobs", "j299", "deaths", "workspace=pool-nkqalkgmmxr2w3yw", "reclaim"),
+        ("jobs", "j299", "deaths", "agent=a1", "reclaim"),
+    ]
+    assert [state.record_at(data, row) for row in rows] == [ended, adopted, mac]

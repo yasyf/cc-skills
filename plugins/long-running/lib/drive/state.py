@@ -4194,8 +4194,8 @@ def death_on(job: dict, lane: str) -> dict | None:
 
 
 def death_row(job_id: str, death: dict, field: str) -> tuple[str, ...]:
-    """The reservation member of a field of a lane death of the job: the death named by its dispatch, or for an agent's death on this Mac, which has none, by its agent."""
-    key = "dispatch" if death["dispatch"] else "agent"
+    """The reservation member of a field of a lane death of the job: the death named by its dispatch, a Sprite the watch adopted with no dispatch by its workspace, or an agent's death on this Mac, which has neither, by its agent."""
+    key = "dispatch" if death["dispatch"] else "workspace" if death["workspace"] else "agent"
     return ("jobs", job_id, "deaths", item(key, death[key]), field)
 
 
