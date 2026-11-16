@@ -941,7 +941,7 @@ def test_a_brief_whose_runs_as_line_writes_a_teams_data_under_break_glass_starts
     for line, route in refused.items():
         reason = brief.brief_refusal("demo", state.load("demo"), "j1", planned.format(line))
         assert reason.startswith(f'j1\'s Runs as line writes a team\'s data under "{route}", which runs on this Mac'), line
-        assert "`tools/ci cluster-job --cluster <release env> --cronjob <name>" in reason
+        assert limits.CLUSTER_JOB in reason
     passing = [
         "a Job in plat-usw2-prod from the suspended search-wake-repair CronJob via tools/ci cluster-job, never under drive break-glass from this Mac",
         'the search-wake-repair CronJob via tools/ci cluster-job, by his words "repair his stuck ones with machine profile break glass" superseded',
