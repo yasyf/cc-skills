@@ -3185,8 +3185,9 @@ def give_go(data: dict, key: str, order_id: str) -> None:
 
 def incident_goes(data: dict) -> None:
     """Give each open PR serving an open incident-class order that order's go, by give_go, by his ruling that an open incident is his go to merge and hotfix its fix, with no session recording it: its dangerous change still keeps its staging test and his presence."""
-    for key, pr in data["prs"].items():
-        if pr["state"] == "open" and not pr["go"] and (order_id := next((order_id for order_id in served_orders(data, pr) if order_id in data["orders"] and has_go(data["orders"][order_id])), None)):
+    going = {order_id for order_id, order in data["orders"].items() if has_go(order)}
+    for key, pr in data["prs"].items() if going else ():
+        if pr["state"] == "open" and not pr["go"] and (order_id := next((order_id for order_id in served_orders(data, pr) if order_id in going), None)):
             give_go(data, key, order_id)
 
 
