@@ -30,7 +30,7 @@ from drive.render import cut, when
 
 POLL_SECONDS = 5
 RELAY_SECONDS = 2
-RESPOND_SECONDS = 1
+RESPOND_SECONDS = 5
 RELAY_JOIN_SECONDS = 10
 RESPONDER = "--respond"
 READ_EVERY = timedelta(seconds=60)
