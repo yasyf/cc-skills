@@ -366,6 +366,28 @@ def test_the_watch_reads_the_reach_once_and_takes_each_pr_an_older_reach_staged_
     assert (watch.reach_lines(watcher(demo), T0), asked) == ([], [[KEY, OTHER]])
 
 
+def test_the_watch_classifies_a_head_through_a_provider_the_loader_executes_from_its_commit_whose_class_has_no_file_inspect_can_read(
+    demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    clone = tmp_path / "clone"
+    (clone / ".claude" / "long-running").mkdir(parents=True)
+    (clone / ".claude" / "long-running.toml").write_text('[providers]\nmodule = ".claude/long-running/providers.py"\nrepo = "Repo"\n')
+    (clone / ".claude" / "long-running" / "providers.py").write_text(
+        "from drive.providers import RepoProvider\n\n\nclass Repo(RepoProvider):\n    def dangerous_paths(self, paths):\n        return [path for path in paths if '/builtins/' in path]\n"
+    )
+    for argv in (["init", "-q", "-b", "main"], ["add", "-A"], ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "providers"], ["update-ref", "refs/remotes/origin/HEAD", "HEAD"]):
+        subprocess.run(["git", "-C", str(clone), *argv], check=True)
+    loaded = providers.at(clone)
+    monkeypatch.setattr(providers, "of", lambda data: loaded)
+    monkeypatch.setattr(state, "repo_config", lambda data: {})
+    with state.edit(demo) as data:
+        data["roles"]["coordinator"]["cwd"] = str(clone)
+    changed = {KEY: ("aaaaaaa111", ["go/sand/internal/vm/builtins/browserpkg/extract.go"])}
+    monkeypatch.setattr(github, "paths", lambda keys: {key: changed[key] for key in keys if key in changed})
+    [line] = watch.dangerous_lines(watcher(demo), T0)
+    assert line.startswith(f"PR {KEY}: ") and state.load(demo)["prs"][KEY]["paths_by"] == state.classifier(state.load(demo))
+
+
 def test_a_head_read_under_an_older_classifier_is_read_again_once_the_classifier_changes_as_57562s_was_not(home_repo: None, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     changed = {KEY: ("aaaaaaa111", ["go/sand/next/internal/vm/builtins/browserpkg/extract.go"])}
     monkeypatch.setattr(github, "paths", lambda keys: {key: changed[key] for key in keys if key in changed})

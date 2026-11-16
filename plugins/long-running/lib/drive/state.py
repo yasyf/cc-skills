@@ -3,7 +3,6 @@ import fcntl
 import functools
 import gc
 import hashlib
-import inspect
 import itertools
 import json
 import math
@@ -3186,11 +3185,20 @@ def unmarked(data: dict) -> list[str]:
 
 
 def classifier(data: dict) -> str:
-    """The fingerprint of what reads a head's files as dangerous: the [[dangerous]] and skip tables of the repository's .claude/long-running.toml and the source of the module holding its repository provider, whose dangerous_paths names the rest, so an edit to either re-reads every open PR's head, as #57562's did not once its head was read before the provider's classes were."""
+    """The fingerprint of what reads a head's files as dangerous: the [[dangerous]] and skip tables of the repository's .claude/long-running.toml and the source of the module holding its repository provider, read from the commit providers.at loads it from, since a module it executes under a name of its own has no file inspect can read, whose dangerous_paths names the rest, so an edit to either re-reads every open PR's head, as #57562's did not once its head was read before the provider's classes were."""
+    from drive import providers
+
     config = repo_config(data)
     tables = json.dumps([config.get("dangerous", []), config.get("skip", {})], sort_keys=True)
-    source = inspect.getsourcefile(type(provided(data).repo))
-    return hashlib.sha256((tables + (Path(source).read_text() if source else "")).encode()).hexdigest()[:16]
+    found = provided(data)
+    module = found.config.get("providers", {}).get("module")
+    key = (found.sha, module)
+    if key not in CLASSIFIER_SOURCES:
+        CLASSIFIER_SOURCES[key] = providers.blob(Path(next(iter(bound_sessions(data).values()))["cwd"]), found.sha, module) or "" if module else ""
+    return hashlib.sha256((tables + CLASSIFIER_SOURCES[key]).encode()).hexdigest()[:16]
+
+
+CLASSIFIER_SOURCES: dict[tuple[str | None, str | None], str] = {}
 
 
 def mark_dangerous(data: dict, key: str, head: str, paths: list[str]) -> str | None:
