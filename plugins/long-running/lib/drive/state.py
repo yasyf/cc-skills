@@ -1251,6 +1251,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     data.setdefault("carried", {})
     data.setdefault("posts", {"mark": None, "unposted": {}})
     data.setdefault("dropped_waits", {})
+    data.pop("resumable", None)
     data.setdefault("posted", {})
     data["owner"].setdefault("absence", None)
     if isinstance(away := data["owner"]["away"], bool):
