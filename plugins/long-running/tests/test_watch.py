@@ -10483,6 +10483,7 @@ SOCKET = {"name": "Socket Security: Pull Request Alerts", "conclusion": "SUCCESS
 CC_SKILLS_RUNS = "https://github.com/yasyf/cc-skills/actions/runs"
 TESTED_4755 = "3021b51a8b9f346321a534e0e2405c88707cb510"
 MERGED_4755 = "merged at 390c80f416be; it changes no plugin installed on this Mac"
+PAST_4755 = "merged at 390c80f416be past test red at 1120acd, which main failed on the same {} at {}; it changes no plugin installed on this Mac"
 MERGE_4755 = ["gh", "pr", "merge", "4755", "-R", "yasyf/cc-skills", "--squash", "--admin", "--match-head-commit", "1120acd"]
 OWN_RED_4755 = "not landed: its own change fails {} at 1120acd, which the default branch does not fail on the same tests where the PR's run of it merged its head"
 
@@ -10501,8 +10502,8 @@ def long_running_test(conclusion: str | None) -> dict:
 
 def branch_history(commits: list[tuple[str, str | None]]) -> str:
     nodes = [
-        {"checkSuites": {"nodes": [{"workflowRun": {"workflow": {"name": "long-running CI"}}, "checkRuns": {"nodes": [{"name": "test", "conclusion": conclusion, "databaseId": 2}]}}] if ran == "ran" else []}}
-        for ran, conclusion in commits
+        {"oid": f"{index + 1}" * 40, "checkSuites": {"nodes": [{"workflowRun": {"workflow": {"name": "long-running CI"}}, "checkRuns": {"nodes": [{"name": "test", "conclusion": conclusion, "databaseId": 2}]}}] if ran == "ran" else []}}
+        for index, (ran, conclusion) in enumerate(commits)
     ]
     return json.dumps({"data": {"repository": {"object": {"history": {"nodes": nodes}}}}})
 
@@ -10554,7 +10555,10 @@ def test_reported_yasyf_prs_start_no_lander_while_a_check_runs_as_4755_did_and_o
         pytest.param([long_running_test(None), SOCKET], "", [], "", "not landed: its checks still run at 1120acd", 0, id="its-test-still-runs"),
         pytest.param([long_running_test("SUCCESS"), SOCKET], "", [], "", MERGED_4755, 0, id="every-check-passed"),
         pytest.param([long_running_test("FAILURE"), SOCKET], checked_out_4755(pytest_failed("t.py::a")), [[("ran", "SUCCESS")]], "", OWN_RED_4755.format("test"), 0, id="the-default-branch-passed-its-test"),
-        pytest.param([long_running_test("FAILURE"), SOCKET], checked_out_4755(pytest_failed("t.py::a")), [[("ran", "FAILURE")]], pytest_failed("t.py::a", "t.py::b"), MERGED_4755, 0, id="the-default-branch-fails-its-failing-test-too"),
+        pytest.param([long_running_test("FAILURE"), SOCKET], checked_out_4755(pytest_failed("t.py::a")), [[("ran", "FAILURE")]], pytest_failed("t.py::a", "t.py::b"), PAST_4755.format("test", "1111111"), 0, id="the-default-branch-fails-its-failing-test-too"),
+        pytest.param(
+            [long_running_test("FAILURE"), SOCKET], checked_out_4755(pytest_failed("t.py::a", "t.py::b")), [[("ran", "FAILURE")]], pytest_failed("t.py::a", "t.py::b"), PAST_4755.format("2 tests", "1111111"), 0, id="the-default-branch-fails-each-of-its-failing-tests-too"
+        ),
         pytest.param(
             [long_running_test("FAILURE"), SOCKET], checked_out_4755(pytest_failed("t.py::a", "t.py::b")), [[("ran", "FAILURE")]], pytest_failed("t.py::a"), OWN_RED_4755.format("test"), 0, id="the-default-branch-fails-only-one-of-its-tests"
         ),
@@ -10569,8 +10573,8 @@ def test_reported_yasyf_prs_start_no_lander_while_a_check_runs_as_4755_did_and_o
         ),
         pytest.param([long_running_test("FAILURE"), SOCKET], checked_out_4755("2026-11-15T08:53:02.2000000Z ##[error]Process completed with exit code 1.\n"), [], "", OWN_RED_4755.format("test"), 0, id="its-log-names-no-failing-test"),
         pytest.param([long_running_test("FAILURE"), SOCKET], checked_out_4755(pytest_failed("t.py::a")), [[("ran", None)], [("ran", "SUCCESS")]], "", OWN_RED_4755.format("test"), 1, id="it-waits-on-the-default-branchs-test-which-passes"),
-        pytest.param([long_running_test("FAILURE"), SOCKET], checked_out_4755(pytest_failed("t.py::a")), [[("ran", None)], [("ran", "FAILURE")]], pytest_failed("t.py::a"), MERGED_4755, 1, id="it-waits-on-the-default-branchs-test-which-fails-it-too"),
-        pytest.param([long_running_test("FAILURE"), SOCKET], checked_out_4755(pytest_failed("t.py::a")), [[("skip ci", None), ("ran", "FAILURE")]], pytest_failed("t.py::a"), MERGED_4755, 0, id="tested-on-a-skip-ci-commit-whose-parent-fails-its-test-too"),
+        pytest.param([long_running_test("FAILURE"), SOCKET], checked_out_4755(pytest_failed("t.py::a")), [[("ran", None)], [("ran", "FAILURE")]], pytest_failed("t.py::a"), PAST_4755.format("test", "1111111"), 1, id="it-waits-on-the-default-branchs-test-which-fails-it-too"),
+        pytest.param([long_running_test("FAILURE"), SOCKET], checked_out_4755(pytest_failed("t.py::a")), [[("skip ci", None), ("ran", "FAILURE")]], pytest_failed("t.py::a"), PAST_4755.format("test", "2222222"), 0, id="tested-on-a-skip-ci-commit-whose-parent-fails-its-test-too"),
         pytest.param([long_running_test("SUCCESS"), SOCKET | {"conclusion": "FAILURE"}], "", [], "", OWN_RED_4755.format(SOCKET["name"]), 0, id="a-check-no-workflow-ran-fails"),
     ],
 )
@@ -10595,7 +10599,7 @@ def test_a_yasyf_lander_rereads_its_checks_and_merges_with_admin_at_that_head_on
     monkeypatch.setattr(land.time, "sleep", slept.append)
     monkeypatch.setattr(github, "run", gh)
     monkeypatch.setattr(install, "touched", lambda repo, files: [])
-    assert (land.run(demo, ["yasyf/cc-skills#4755"]), runs, len(slept)) == (outcome, [MERGE_4755] if outcome == MERGED_4755 else [], waits)
+    assert (land.run(demo, ["yasyf/cc-skills#4755"]), runs, len(slept)) == (outcome, [MERGE_4755] if outcome.startswith("merged") else [], waits)
 
 
 FLOOR_4755 = "ccx: GitHub rate limit floor: user core has {} of 5000 left, under the floor of 1000, until 1:55AM (2026-11-15T01:55:01-08:00); top callers: drive job prove 223"

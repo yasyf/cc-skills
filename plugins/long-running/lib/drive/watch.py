@@ -220,12 +220,12 @@ def judged(data: dict, reads: dict[str, dict]) -> tuple[dict[str, dict], dict[st
         if read["state"] != "OPEN" or not failing or not state.merges_untapped(key) or (kept.get("head"), kept.get("failed")) == (read["headRefOid"], failing):
             continue
         try:
-            own = land.own_reds(key, read["checks"])
+            judgment = land.own_reds(key, read["checks"])
         except github.GithubError as error:
             misjudged[key] = str(error)
             continue
-        if own is not None:
-            owns[key] = {"head": read["headRefOid"], "failed": failing, "own": own}
+        if judgment is not None:
+            owns[key] = {"head": read["headRefOid"], "failed": failing, "own": judgment[0]}
     return owns, misjudged
 
 

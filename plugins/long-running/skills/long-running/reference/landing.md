@@ -212,7 +212,10 @@ no failing test, such as a lint step, is the PR's own.
    nonzero exit ending on a `WAIT` line with no `FAIL` line takes no result and runs again once he is next heard,
    and on a `DONE` that finishes the order sends the communicator its close report, but closes a drive tooling order a session opened, which has no thread of his, on its proof with no line to him. The lander writes its output to the drive's `landings.log`, ending in one line of the PR's
    key and its outcome, such as `yasyf/cc-skills#7: merged at <sha>; …`. Its outcome reaches the
-   job's holder as `PR … merged at <sha>; <each install's version line or no release: line>` or
+   job's holder as `PR … merged at <sha>; <each install's version line or no release: line>`, its merge
+   naming each failing check it merged past as `main`'s, `merged at <sha> past <check> red at <head>, which
+   main failed on the same <n> tests at <commit>; …`, which the PR's `drive status` line shows beside its
+   `checks fail`, or
    `PR … not landed: gh pr merge --<method> --admin refused it: <its answer>`, such as a conflict git
    cannot merge, and the proof's as `PR … proven live by drive job prove …`,
    `PR … drive job prove failed: …` or `PR … drive job prove waits on his next word: …`. Its stage in `drive status` says why no lander started: a

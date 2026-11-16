@@ -74,26 +74,8 @@ def sample() -> dict:
         }
     }
     drive["prs"] = {
-        "yasyf/cc-skills#9": {
-            "url": "https://github.com/yasyf/cc-skills/pull/9",
-            "job": "j1",
-            "order": "o1",
-            "wants_tap": True,
-            "tap": None,
-            "exempt": None,
-            "fundamental": None,
-            "state": "open",
-            "title": "New: drive",
-            "card_state": None,
-            "head": "abc1234",
-            "checks": "pass",
-            "review": "none",
-            "hold_label": False,
-            "rework": None,
-            "draft": False,
-            "merged_sha": None,
-            "updated": "2026-11-09T08:00:00-08:00",
-        }
+        "yasyf/cc-skills#9": state.new_pr("https://github.com/yasyf/cc-skills/pull/9", "j1", "o1")
+        | {"title": "New: drive", "card_state": None, "head": "abc1234", "checks": "pass", "updated": "2026-11-09T08:00:00-08:00"}
     }
     return drive
 
@@ -261,6 +243,16 @@ def test_a_pr_line_names_the_stage_its_row_keeps_only_while_the_pr_is_open() -> 
     lines = [render.pr_line({"prs": {"yasyf/cc-skills#4998": pr | {"state": now}}}, "yasyf/cc-skills#4998", None) for now in ("open", "merged", "closed")]
     assert ["owed by" in line for line in lines] == [True, False, False]
     assert lines[1].startswith("yasyf/cc-skills#4998 merged, checks pending")
+
+
+def test_a_merged_prs_red_line_names_each_check_its_lander_merged_past_as_the_default_branchs_where_5709_read_only_merged_checks_fail() -> None:
+    outcome = "merged at aa1b2918f68f past test red at 9834316, which main failed on the same 4 tests at 11b003c; long-running@skills 1.0.1238 installed"
+    pr = state.new_pr("https://github.com/yasyf/cc-skills/pull/5709", "j1", "o1") | {"lander": {"outcome": outcome}}
+    lines = {(now, checks): render.pr_line({"prs": {"yasyf/cc-skills#5709": pr | {"state": now, "checks": checks}}}, "yasyf/cc-skills#5709", None) for now in ("open", "merged") for checks in ("fail", "pass")}
+    assert lines["merged", "fail"].startswith(
+        "yasyf/cc-skills#5709 merged, checks fail (the lander merged at aa1b2918f68f past test red at 9834316, which main failed on the same 4 tests at 11b003c), review none"
+    )
+    assert [key for key, line in lines.items() if "the lander" in line] == [("merged", "fail")]
 
 
 def test_a_monorepo_prs_status_line_says_its_staging_test_and_result_as_his_card_does() -> None:

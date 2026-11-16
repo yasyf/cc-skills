@@ -494,7 +494,7 @@ def unmergeable(read: dict) -> str | None:
 
 
 def admin_merged(name: str, key: str) -> str:
-    """Merge a yasyf/* PR with --admin at the head GitHub holds now, once a fresh read finds nothing there that unmergeable() names, every check there finished and none failing on its own change, by own_reds(), and pinned to that head so a push since the read merges nothing; what came of it, raising the GithubError of a read that failed before the merge."""
+    """Merge a yasyf/* PR with --admin at the head GitHub holds now, once a fresh read finds nothing there that unmergeable() names, every check there finished and none failing on its own change, by own_reds(), and pinned to that head so a push since the read merges nothing, its outcome naming each failing check it merged past as the default branch's; what came of it, raising the GithubError of a read that failed before the merge."""
     reads, refused = github.fetch([key])
     if refused:
         raise refused
@@ -504,41 +504,48 @@ def admin_merged(name: str, key: str) -> str:
         return f"not landed: {why}"
     if github.checks(read["checks"], []) == "pending":
         return f"{RUNNING} at {head[:7]}"
-    while (owned := own_reds(key, read["checks"])) is None:
+    while (judged := own_reds(key, read["checks"])) is None:
         time.sleep(BRANCH_SECONDS)
+    owned, mains = judged
     if owned:
         return f"not landed: {own_words(owned, head)}"
-    return merged(name, key, read["merge_method"], ["--admin", "--match-head-commit", head])
+    past = [
+        f"{check} red at {head[:7]}, which {read['default']} failed on the same {f'{main["tests"]} tests' if main['tests'] > 1 else 'test'} at {main['at'][:7]}"
+        for check, main in sorted(mains.items())
+    ]
+    return merged(name, key, read["merge_method"], ["--admin", "--match-head-commit", head], ", and ".join(past))
 
 
-def own_reds(key: str, rollup: list[dict]) -> list[str] | None:
-    """The name of each check the PR's head fails on its own change: each it fails on a test the default branch does not fail too, by inherited(), by his words that tooling fixes merge early only when no check is failing on their own change; None while the default branch's run of one still runs."""
+def own_reds(key: str, rollup: list[dict]) -> tuple[list[str], dict[str, dict]] | None:
+    """The name of each check the PR's head fails on its own change: each it fails on a test the default branch does not fail too, by inherited(), by his words that tooling fixes merge early only when no check is failing on their own change; beside it each other failing check by name, with the default branch's run of it that fails the same tests; None while the default branch's run of one still runs."""
     judged = [(github.check_name(check), inherited(key, check)) for check in github.counted(rollup) if github.outcome(check) in github.FAILED]
     if any(found is None for _, found in judged):
         return None
-    return sorted({name for name, found in judged if not found})
+    return sorted({name for name, found in judged if not found}), {name: found for name, found in judged if found}
 
 
-def inherited(key: str, check: dict) -> bool | None:
-    """Whether the default branch fails every test a check the PR's head fails failed there, as each job's log names them, where the PR's run of it merged that head: at the base its log's checkout merged the head into, or the newest commit below it the check ran on, as on a `[skip ci]` commit no workflow runs on, once that run finished, None while it runs. Never for a check no workflow ran, or whose log names no failing test or no merge, with no failure of the default branch's to compare it to, since a check is one verdict over every test of its job and the default branch failing one of them says nothing of another."""
+def inherited(key: str, check: dict) -> dict | None:
+    """The default branch's run of a check the PR's head fails, when it fails every test the PR's run failed, as each job's log names them, where the PR's run of it merged that head: at the base its log's checkout merged the head into, or the newest commit below it the check ran on, as on a `[skip ci]` commit no workflow runs on, once that run finished, as the commit it ran at and the count of those tests; {} when it does not, None while it runs. Never for a check no workflow ran, or whose log names no failing test or no merge, with no failure of the default branch's to compare it to, since a check is one verdict over every test of its job and the default branch failing one of them says nothing of another."""
     if not (job := github.job_of(check)):
-        return False
+        return {}
     repo = github.repo_of(key)
     log = github.job_log(repo, job)
     if not (failed := github.failed_tests(log)) or not (tested := TESTED.search(log)):
-        return False
+        return {}
     if not (main := branch_checks(repo, tested["base"]).get((check["workflowName"], github.check_name(check)))):
-        return False
+        return {}
     if main["conclusion"] is None:
         return None
-    return main["conclusion"] in github.FAILED and failed <= github.failed_tests(github.job_log(repo, main["databaseId"]))
+    if main["conclusion"] in github.FAILED and failed <= github.failed_tests(github.job_log(repo, main["databaseId"])):
+        return {"at": main["oid"], "tests": len(failed)}
+    return {}
 
 
 def branch_checks(repo: str, base: str) -> dict[tuple[str, str], dict]:
-    """Each check run of a workflow run on the default branch, its name, conclusion, None while it runs, and job id as databaseId, by its workflow and name, at the newest of base and the BRANCH_HISTORY commits below it where it ran and was not cancelled."""
+    """Each check run of a workflow run on the default branch, its name, conclusion, None while it runs, job id as databaseId and the commit it ran at as oid, by its workflow and name, at the newest of base and the BRANCH_HISTORY commits below it where it ran and was not cancelled."""
     owner, name = repo.split("/")
     text = (
-        f"query {{ repository(owner: {json.dumps(owner)}, name: {json.dumps(name)}) {{ object(oid: {json.dumps(base)}) {{ ... on Commit {{ history(first: {BRANCH_HISTORY}) {{ nodes {{ "
+        f"query {{ repository(owner: {json.dumps(owner)}, name: {json.dumps(name)}) {{ object(oid: {json.dumps(base)}) {{ ... on Commit {{ history(first: {BRANCH_HISTORY}) {{ nodes {{ oid "
         "checkSuites(first: 20) { nodes { workflowRun { workflow { name } } checkRuns(first: 20) { nodes { name conclusion databaseId } } } } } } } } } }"
     )
     found: dict[tuple[str, str], dict] = {}
@@ -546,7 +553,7 @@ def branch_checks(repo: str, base: str) -> dict[tuple[str, str], dict]:
         for suite in commit["checkSuites"]["nodes"]:
             for check in suite["checkRuns"]["nodes"] if suite["workflowRun"] else []:
                 if check["conclusion"] != "CANCELLED":
-                    found.setdefault((suite["workflowRun"]["workflow"]["name"], check["name"]), check)
+                    found.setdefault((suite["workflowRun"]["workflow"]["name"], check["name"]), check | {"oid": commit["oid"]})
     return found
 
 
@@ -740,8 +747,8 @@ def ask_review(repo: str, number: str, head: str) -> str | None:
     return None
 
 
-def merged(name: str, key: str, method: str, flags: list[str]) -> str:
-    """Merge a PR by method, squash, rebase or merge, the one github.merge_method reads its repository allowing, with gh pr merge and the flags given, --admin for a yasyf/* one by his rule for his own repositories, and --match-head-commit, which GitHub merges only at that head and, without --admin, only once its repository's rules pass, or through GitHub's merge-async endpoint once gh pr merge is refused for a PR of a native GitHub stack, with gh itself since ccx's GitHub gateway refuses a merge; then read the PR back with github.fetch and record its landing on its row by github.landing, the one rule of whether a PR merged, so the row reads merged before the watch's next read and a merge GitHub does not read merged ends the try not landed, installing nothing, rather than crediting the PR with whatever the default branch's head carries; once merged, install from its own merge commit each plugin of this Mac it changes; what came of it, a refusal not landed but a yasyf/* squash merge GitHub refuses on a conflict, which rebased() takes, and a merge GitHub gave no answer to or a read back that failed, the lander's own failure by unanswered()."""
+def merged(name: str, key: str, method: str, flags: list[str], past: str = "") -> str:
+    """Merge a PR by method, squash, rebase or merge, the one github.merge_method reads its repository allowing, with gh pr merge and the flags given, --admin for a yasyf/* one by his rule for his own repositories, and --match-head-commit, which GitHub merges only at that head and, without --admin, only once its repository's rules pass, or through GitHub's merge-async endpoint once gh pr merge is refused for a PR of a native GitHub stack, with gh itself since ccx's GitHub gateway refuses a merge; then read the PR back with github.fetch and record its landing on its row by github.landing, the one rule of whether a PR merged, so the row reads merged before the watch's next read and a merge GitHub does not read merged ends the try not landed, installing nothing, rather than crediting the PR with whatever the default branch's head carries; once merged, install from its own merge commit each plugin of this Mac it changes; what came of it, its merge naming past the failing checks admin_merged() read as the default branch's, a refusal not landed but a yasyf/* squash merge GitHub refuses on a conflict, which rebased() takes, and a merge GitHub gave no answer to or a read back that failed, the lander's own failure by unanswered()."""
     if (refusal := merged_sync(key, method, flags)) and STACKED in refusal:
         print(f"{key}: {refusal}; merging it through GitHub's {MERGE_ASYNC} instead", flush=True)
         refusal = merged_async(key, method, flags)
@@ -764,9 +771,10 @@ def merged(name: str, key: str, method: str, flags: list[str]) -> str:
     sha = landed["merged_sha"]
     repo = github.repo_of(key)
     plugins = install.touched(repo, files)
+    outcome = f"merged at {sha[:12]}{f' past {past}' if past else ''}"
     if not plugins:
-        return f"merged at {sha[:12]}; it changes no plugin installed on this Mac"
-    lines = [f"merged at {sha[:12]}"]
+        return f"{outcome}; it changes no plugin installed on this Mac"
+    lines = [outcome]
     for plugin in plugins:
         done = subprocess.run([str(DRIVE), "install", plugin, "--sha", sha, "--drive", name], capture_output=True, text=True)
         print(done.stdout + done.stderr, flush=True)
