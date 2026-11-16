@@ -133,6 +133,7 @@ def order(**overrides: object) -> dict:
         "priority": None,
         "title": None,
         "proof": None,
+        "proof_by": None,
         "close_report": None,
         "closed_on": None,
         "note": None,
@@ -7308,6 +7309,61 @@ def test_j4802_an_approved_pr_waiting_on_a_job_whose_open_question_no_wait_names
         data["prs"][KEY] |= {"checks": "pass", "review": "approved", "waits": ["j2"]}
     approve(demo, KEY)
     assert stage.of(state.load(demo), KEY, NO_CARDS) == stage.Stage("blocked", stage.HIM, f"it waits on j2, his answer on {view.link('his question card', CARD)}")
+
+
+@pytest.mark.parametrize(
+    ("subject", "holds", "owner", "named"),
+    [
+        (OTHER, "", "j2", ""),
+        (OTHER, state.pr_url(OTHER), stage.HIM, f", his answer on {view.link('his question card', CARD)}"),
+        (KEY, "", stage.HIM, f"his answer on {view.link('his question card', CARD)}"),
+    ],
+)
+def test_a_waiting_line_saying_another_jobs_pr_waits_on_his_card_binds_that_card_to_that_pr_never_to_the_jobs_own_red_pr(
+    demo: str, subject: str, holds: str, owner: str, named: str
+) -> None:
+    waits = "demo:j2-1794700000000"
+    with state.edit(demo) as data:
+        data["orders"]["o2"] = order(jobs=["j2"])
+        data["jobs"]["j2"] = job(order="o2", state="waiting", prs=[state.pr_url(OTHER)], questions=[state.new_question(None, "Which store?", state.stamp(T0), card=CARD, holds=holds) | {"waits": waits}])
+        data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j2", "o2") | {"head": "bbbbbbb222"}
+        data["prs"][KEY] |= {"checks": "fail", "failed_checks": ["buildkite/test"]}
+        state.take_result(data, "j1", f"WAITING {state.pr_url(subject)} waits on {waits}")
+    data = state.load(demo)
+    waited_on = "" if subject == KEY else view.pr_link(data["prs"][OTHER])
+    assert stage.of(data, KEY, NO_CARDS) == stage.Stage("blocked", owner, f"its checks fail at aaaaaaa: buildkite/test, and its builder waits on {waited_on}{named}")
+    assert (waits in data["jobs"]["j1"]["waits"]) == (subject == KEY)
+
+
+def test_a_said_line_set_by_hand_that_drops_his_card_moves_the_jobs_red_pr_off_him_at_once(demo: str) -> None:
+    waits = "demo:j2-1794700000000"
+    with state.edit(demo) as data:
+        data["orders"]["o2"] = order(jobs=["j2"])
+        data["jobs"]["j2"] = job(order="o2", state="waiting", prs=[state.pr_url(OTHER)], questions=[state.new_question(None, "Which store?", state.stamp(T0), card=CARD, holds="") | {"waits": waits}])
+        data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j2", "o2") | {"head": "bbbbbbb222"}
+        data["prs"][KEY] |= {"checks": "fail", "failed_checks": ["buildkite/test"]}
+        state.take_result(data, "j1", f"WAITING {state.pr_url(KEY)} waits on {waits}")
+    assert stage.of(state.load(demo), KEY, NO_CARDS).owner == stage.HIM
+    assert cli.main(["job", "set", "j1", "--said", f"WAITING {state.pr_url(OTHER)}", "--drive", demo]) == 0
+    data = state.load(demo)
+    assert stage.of(data, KEY, NO_CARDS) == stage.Stage("blocked", "j2", f"its checks fail at aaaaaaa: buildkite/test, and its builder waits on {view.pr_link(data['prs'][OTHER])}")
+
+
+def test_his_pr_card_is_redrawn_whole_once_when_its_stage_owner_moves_off_him(demo: str, redraws: Redraws) -> None:
+    waits = "demo:j2-1794700000000"
+    with state.edit(demo) as data:
+        data["orders"]["o2"] = order(jobs=["j2"])
+        data["jobs"]["j2"] = job(order="o2", state="waiting", prs=[state.pr_url(OTHER)], questions=[state.new_question(None, "Which store?", state.stamp(T0), card=CARD, holds="") | {"waits": waits}])
+        data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j2", "o2") | {"head": "bbbbbbb222"}
+        data["prs"][KEY] |= {"checks": "fail", "failed_checks": ["buildkite/test"], "required": ["buildkite/test"]}
+        state.take_result(data, "j1", f"WAITING {state.pr_url(KEY)} waits on {waits}")
+    watching = carded(demo, pr_card(KEY, url="https://acme.slack.com/archives/D123/p1794200000000200"))
+    watch.stage_lines(watching, T0)
+    assert (state.load(demo)["prs"][KEY]["stage"]["owner"], redraws.asked) == (stage.HIM, [])
+    assert cli.main(["job", "set", "j1", "--said", f"WAITING {state.pr_url(OTHER)}", "--drive", demo]) == 0
+    for minutes in (1, 2):
+        watch.stage_lines(watching, T0 + timedelta(minutes=minutes))
+        assert (state.load(demo)["prs"][KEY]["stage"]["owner"], redraws.asked) == ("j2", [state.pr_url(KEY)])
 
 
 def test_a_pr_waits_only_on_its_own_staging_test_never_on_one_another_pr_of_its_job_waits_on_as_56813_did(demo: str) -> None:

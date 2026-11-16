@@ -551,7 +551,7 @@ When it is answered, replaced or redone:
   "Please just get rid of both everywhere and on new cards". A section its body lacks
   is left off and holds nothing, since a body is fixed beside the landing, never before it. A card
   already posted redraws in place when a PR's head or staging line changes, and whole once a PR it
-  asks his tap on no longer asks it. A stack card whose other
+  asks his tap on no longer asks it or a PR's stage owner changes, so a card reading blocked on him moves off him in the pass that moved its stage. A stack card whose other
   PRs still ask his tap keeps Approve and Hold for them. A head that moved under his card keeps Approve showing, and a head the check against
   his words judges against them keeps Approve and any Approve he gave, since his Approve lands it whatever that check says, by his words "why the fuck would you keep eveyhting broken to make it perfect". Its Show me comes last,
   its pictures inline. A stack card's summary comes from `## The stack` in its bottom PR, under its PRs' leads.

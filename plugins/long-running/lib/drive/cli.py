@@ -1689,7 +1689,7 @@ def refuse_a_shared_at_once_part(parts: list[str]) -> None:
 
 
 def job_set(args: argparse.Namespace) -> int:
-    """Change a job; a state it already holds changes nothing, stopped is the one state set by hand, done only on a design a builder carries, and any other --state is refused with nothing changed, since the job's return sets it; --part, --parts and --carries change the parts it delivers and never its state, so a finished job runs again only once drive job launch or resume starts its lane; a --said opening with a result word is refused unless it sets the state the job keeps, since a said line reading DONE on a running job is a result it never returned; an order it carries reworks only the PRs of the job --rework names, and each other open card of his on the job's PRs is named and left up; an agent --agent binds is refused, nothing changed, while a launch starts the job's next lane, by state.launch_in_flight, the rule agents.free applies to an agent's own steps."""
+    """Change a job; a state it already holds changes nothing, stopped is the one state set by hand, done only on a design a builder carries, and any other --state is refused with nothing changed, since the job's return sets it; --part, --parts and --carries change the parts it delivers and never its state, so a finished job runs again only once drive job launch or resume starts its lane; a --said opening with a result word is refused unless it sets the state the job keeps, since a said line reading DONE on a running job is a result it never returned; a --said keeps on the job what that line answers, by state.keep_waited, as drive job report does, so a WAITING that drops a card no longer leaves the job's PRs blocked on it; an order it carries reworks only the PRs of the job --rework names, and each other open card of his on the job's PRs is named and left up; an agent --agent binds is refused, nothing changed, while a launch starts the job's next lane, by state.launch_in_flight, the rule agents.free applies to an agent's own steps."""
     name = state.resolve(args.drive)
     known = state.load(name)
     found = find(known["jobs"], args.id, "job")
@@ -1735,6 +1735,8 @@ def job_set(args: argparse.Namespace) -> int:
             state.join_card(data, args.id, args.card)
         waits = merged_waits(data, job, [state.job_wait(data, wait, args.id, job) for wait in args.waits], args.no_waits, found)
         job["waits"] = [wait for wait in waits if not (state.builds_nothing(job) and wait == state.SLOT_WAIT)]
+        if args.said:
+            state.keep_waited(data, args.id, args.said)
         if args.carries:
             if args.parts:
                 raise DriveError("--parts replaces the parts of the job's own order; name a carried order's parts with --part")
