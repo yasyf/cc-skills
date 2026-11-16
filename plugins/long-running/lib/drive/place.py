@@ -221,9 +221,9 @@ def counted_again() -> None:
 
 
 def preempts(data: dict, job: dict) -> bool:
-    """Whether a job starts past every cap and gate on this Mac: one serving an open priority order, by state.first_in_line, or an open incident, or carrying an immediate fix part, by his words on a priority order, "they aren't slowed down at any cost by anything"."""
+    """Whether a job starts past every cap, gate and daily budget on this Mac: one marked urgent alone by drive job add or set --priority, one serving an open priority order, by state.first_in_line, or an open incident, or carrying an immediate fix part, by his words on a priority order, "they aren't slowed down at any cost by anything"."""
     orders = [job["order"], *job["carries"]]
-    return state.first_in_line(data, job) or bool(state.open_incidents(data, orders)) or any(state.IMMEDIATE_FIX in state.job_parts(job, order_id) for order_id in orders)
+    return bool(job.get("priority")) or state.first_in_line(data, job) or bool(state.open_incidents(data, orders)) or any(state.IMMEDIATE_FIX in state.job_parts(job, order_id) for order_id in orders)
 
 
 def admission(data: dict, job_id: str | None, where: str, moment: datetime) -> str | None:

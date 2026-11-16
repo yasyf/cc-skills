@@ -3670,17 +3670,17 @@ def budget_lines(watcher: Watcher, moment: datetime) -> list[str]:
     """Read every drive's projects' spend today again, by spend.refresh, and tell him once a day, in one report each watch on this Mac posts at most once for it, of each project that spent its daily budget, whose work waits for the next day unless a priority or incident order serves it."""
     from drive import spend
 
-    tokens = spend.refresh(moment)["tokens"]
-    over = {}
+    usd = spend.refresh(moment)["usd"]
+    over = []
     with spend.ledger(moment) as held:
-        for mine in sorted({bucket.rpartition("/")[2] for bucket in tokens} - set(held["told"])):
-            if why := spend.over_project(mine, moment):
-                over[mine] = why
+        for mine in sorted({bucket.rpartition("/")[2] for bucket in usd} - set(held["told"])):
+            if spend.over_project(mine, moment):
+                over.append(mine)
                 held["told"].append(mine)
     if not over:
         return []
-    reported(watcher, [{"kind": "report", "attr": {}, "topic": f"budget-{mine}-{moment.date().isoformat()}", "text": f"POST one line to him: {why}; its work waits for tomorrow unless a priority or incident order serves it, and caps.json sets the budget", "body": why + "\n"} for mine, why in over.items()])
-    return [f"BUDGET {why}" for why in over.values()]
+    reported(watcher, [{"kind": "report", "attr": {}, "topic": f"budget-{mine}-{moment.date().isoformat()}", "text": f"POST to him, these words alone: {spend.his_line(mine)}", "body": spend.his_line(mine) + "\n"} for mine in over])
+    return [f"BUDGET {spend.his_line(mine)}" for mine in over]
 
 
 def stall_lines(watcher: Watcher, moment: datetime) -> list[str]:

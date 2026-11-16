@@ -45,16 +45,19 @@ Contents:
   waits its turn on `sprite-slot`, and the watch's `FREE` line names it, earliest due first, as a
   lane frees. Work on a priority or open incident order, or an `immediate fix` part, starts past
   both caps and the gate. Queued work waits; it never fails.
-- The same `caps.json` sets each project's daily token budget: `daily_tokens`, the day's total,
-  `40000000000` unless set, of which drive tooling, every order whose words open `Drive tooling:`,
-  may spend `tooling_share`, `0.25`, and `project_tokens`, `10000000000`, what each other project
-  may spend a day unless `projects` names its own, as `{"projects": {"Iris": 8000000000}}`. Spend
-  is each job's transcript tokens dated today, input, output and cache reads and writes, summed
-  over every drive that files work under the project's name; the watch reads it again every five
-  minutes from where its last read ended, and a lane on a Sprite counts once its transcripts are
-  copied here at its end. A project past its budget starts no new lane, relaunch or takeover until
-  the next day, its jobs waiting their turn as at a full cap; work on a priority or open incident
-  order still starts; and the watch tells him once a day which project went over.
+- The same `caps.json` sets each project's daily budget in dollars: `daily_usd`, the day's total,
+  `15000` unless set, of which drive tooling, every order whose words open `Drive tooling:`, may
+  spend `tooling_share`, `0.25`, and `project_usd`, `5000`, what each other project may spend a
+  day unless `projects` names its own, as `{"projects": {"Iris": 4000}}`. Spend prices each
+  message of a job's transcripts dated today at its model's list price: input and output at their
+  own, a cache write at 1.25 times input or 2 times for one kept an hour, a cache read at 5% of
+  input. It sums over every drive that files work under the project's name; the watch reads it
+  again every five minutes from where its last read ended, and a lane on a Sprite counts once its
+  transcripts are copied here at its end. A project past its budget starts no new lane, relaunch
+  or takeover until the next day, its jobs waiting their turn as at a full cap; work on a priority
+  or open incident order, or a job marked `--priority`, still starts; and the watch tells him once
+  a day, in dollars, as "Drive tooling hit today's $3.8k budget; non-urgent tooling waits until
+  tomorrow."
 - At most eight builders hold this Mac's builder slots at once: each builder job here the watch's
   `FREE` line gave its turn for a slot whose agent has not started yet, each job on a Sprite whose
   turn to move here came, for the 30 minutes its launch may take or until its lane here starts, each builder the `agent_brief`
