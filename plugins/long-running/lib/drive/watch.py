@@ -6654,7 +6654,7 @@ def holder(path: Path) -> int | None:
 
 def claim(name: str, project: str | None = None) -> bool:
     path = state.pid_path(name, project)
-    with state.flocked(path.with_name(f"{path.name}.lock")):
+    with state.locked(name):
         if holder(path) not in (None, os.getpid()):
             return False
         path.write_text(f"{os.getpid()}\n")
@@ -6663,7 +6663,7 @@ def claim(name: str, project: str | None = None) -> bool:
 
 def release(name: str, project: str | None = None) -> None:
     path = state.pid_path(name, project)
-    with state.flocked(path.with_name(f"{path.name}.lock")):
+    with state.locked(name):
         if path.exists() and path.read_text().strip() == str(os.getpid()):
             path.unlink()
 
