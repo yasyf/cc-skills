@@ -606,10 +606,13 @@ QUEUE_REASON = (
 )
 
 
-class HomeRepo(providers.RepoProvider):
-    name = "Forge-AI/monorepo"
+class GuardedRepo(providers.RepoProvider):
     guarded_owner = "forge-ai"
     review_ask = "@forge-pr-reviewer review"
+
+
+class HomeRepo(GuardedRepo):
+    name = "Forge-AI/monorepo"
 
     def queue(self) -> providers.Queue:
         commands = ((("ci", "trunk", "submit"), frozenset({"priority"}), ()), (("stack-enqueue",), frozenset(), ("check", "status", "dequeue")))
@@ -634,7 +637,7 @@ class HomeBuild(providers.BuildProvider):
         return f"`tools/ci bk log '{job_url}'`"
 
 
-HOME: dict[str, type[providers.Provider]] = {"repo": HomeRepo, "staging": HomeStaging, "mac_box": HomeMacBox, "build": HomeBuild}
+HOME: dict[str, type[providers.Provider]] = {"repo": GuardedRepo, "staging": HomeStaging, "mac_box": HomeMacBox, "build": HomeBuild}
 
 
 class SelectRelease(providers.ReleaseProvider):
