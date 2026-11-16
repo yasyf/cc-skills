@@ -5179,6 +5179,7 @@ def job_prove(args: argparse.Namespace) -> int:
 def job_end(args: argparse.Namespace) -> int:
     """Free the Orca lane a job's row records by its dispatch and workspace, whatever its where names, so a job an agent on this Mac holds beside a lane a launch recorded frees that lane too: its worker stopped and, for a job done, failed or stopped, its Sprite destroyed once what it holds on no remote is saved to GitHub, while a job that will run again keeps its Sprite, marked by orca.keep_sprite so it pauses once idle and its next lane resumes the same Claude session there, past the newest KEPT_SPRITE_CAP kept the oldest destroyed by evict_kept; or its terminal and clean worktree on this Mac; refused, ending nothing, for a row that records no lane. The job keeps the state its line set, with its waits, PRs and carried parts, so a waiting job's next event starts its next lane and nothing waiting on it is freed. A lane whose death the watch recorded first has its Sprite's Orca runtime and worker logs copied to the drive's folder by orca.keep_logs, and every lane's Sprite has each Claude Code transcript it holds copied whole there by orca.keep_transcripts before anything can destroy it, kept on the lane's death. A job still at work first has what its Sprite holds that its next lane would not get saved to GitHub, by lane_saved, and each text queued for its worker that its Dispatch mailbox shows unread held for that lane, by hold_unread, since the end drops that mailbox with the Sprite, and its line, as that lane's handoff will, names each branch GitHub then holds under saved/<its lane>/, by one read, or, when GitHub holds none, what that save found; refused, ending nothing, when that Sprite or mailbox cannot be read or the save fails, and for a running job, whose lane has returned no line, so its next event, never its end, comes next. The end holds the job's own lock, as a launch, resume or PR wake does, so it never destroys a Sprite a relaunch is starting the job's next lane on and refuses a job that relaunch set running. The end is recorded on the lane's dispatch before anything is saved, stopped or destroyed, so the watch reads none of it as the lane dying, and an end of a lane another end already ended changes nothing."""
     name = state.resolve(args.drive)
+    state.adopt_reserved(name, ("jobs", args.id, "end"), args.reserved)
     with state.job_locked(name, args.id, orca.LAUNCH_SECONDS):
         line, ended = end_lane(name, args.id)
     return emit(args, line, ended)
@@ -8524,6 +8525,7 @@ def parser() -> argparse.ArgumentParser:
         ),
     )
     verb.add_argument("id")
+    verb.add_argument("--reserved", metavar="TOKEN", help="the token of the end the watch reserved on the job for this run, adopted before anything else; the run ends doing nothing once that reservation is gone, cancelled or another run's")
     verb.set_defaults(run=job_end)
     verb = job.add_parser(
         "reclaim",

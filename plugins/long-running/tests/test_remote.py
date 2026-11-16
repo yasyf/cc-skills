@@ -5093,7 +5093,10 @@ def test_the_watch_ends_a_waiting_jobs_own_lane_and_releases_each_sprite_an_earl
     watch.release_lanes(watching, T0)
     assert (released, ended_lanes) == ([(["job", "reclaim", "j1", "sprite-old"], "watch.log")], ["j1"])
     job = state.load(remote)["jobs"]["j1"]
-    assert (job["end"], job["deaths"][0]["reclaim"]) == ({"pid": os.getpid(), "at": state.stamp(T0)}, {"pid": os.getpid(), "at": state.stamp(T0)})
+    assert ({field: job["end"][field] for field in ("starter", "child", "state", "at")}, job["deaths"][0]["reclaim"]) == (
+        {"starter": state.born(os.getpid()), "child": state.born(os.getpid()), "state": "reserved", "at": state.stamp(T0)},
+        {"pid": os.getpid(), "at": state.stamp(T0)},
+    )
 
 
 def test_the_watch_keeps_a_sprite_lane_waiting_on_its_own_question_and_ends_it_once_its_returned_line_settles(
@@ -5606,7 +5609,7 @@ def test_the_watch_frees_each_finished_lane_once_a_sprite_by_destroy_and_a_quiet
     monkeypatch.setattr(orca, "CC_REMOTE_WORKSPACES", workspaces)
     monkeypatch.setattr(state, "scratch", lambda: False)
     ends: list[str] = []
-    monkeypatch.setattr(watch, "end_lane", lambda name, job_id: ends.append(job_id) or os.getpid())
+    monkeypatch.setattr(watch, "end_lane", lambda name, job_id, token: ends.append(job_id) or os.getpid())
     started: list[list[str]] = []
     monkeypatch.setattr(state, "detach", lambda name, args, log: started.append(args) or os.getpid())
     watch.release_lanes(watch.Watcher(remote, offset=state.events_end(remote)), T0)

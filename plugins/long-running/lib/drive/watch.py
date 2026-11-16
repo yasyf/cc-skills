@@ -4839,13 +4839,13 @@ def release_lanes(watcher: Watcher, moment: datetime) -> list[str]:
     log = state.watch_log_path(watcher.name, watcher.project).name
     claim = {"pid": os.getpid(), "at": state.stamp(moment)}
 
-    def claim_lanes(data: dict) -> tuple[dict[str, object], dict[tuple[str, str], object]]:
+    def claim_lanes(data: dict) -> tuple[dict[str, state.Reservation], dict[tuple[str, str], object]]:
         ends, reclaims = {}, {}
         for job_id in ending:
             job = data["jobs"][job_id]
-            if not in_flight(job.get("end"), moment):
-                ends[job_id] = job.get("end")
-                job["end"] = dict(claim)
+            if not in_flight(job.get("end"), moment) and (held := state.reserve(data, (("jobs", job_id, "end"),))):
+                job["end"] |= {"at": claim["at"]}
+                ends[job_id] = held
         for job_id, lane in reclaiming:
             job = data["jobs"][job_id]
             if in_flight((state.death_on(job, lane) or {}).get("reclaim"), moment):
@@ -4857,32 +4857,33 @@ def release_lanes(watcher: Watcher, moment: datetime) -> list[str]:
         return ends, reclaims
 
     ends, reclaims = state.write(watcher.name, claim_lanes)
-    spawned: dict[tuple[str, str | None], int] = {}
-
-    def put(holder: dict, field: str, before: object, key: tuple[str, str | None]) -> None:
-        if holder.get(field) != claim:
-            return
-        if key in spawned:
-            holder[field] = claim | {"pid": spawned[key]}
-        elif before is None:
-            holder.pop(field)
-        else:
-            holder[field] = before
+    unlaunched = dict(ends)
+    spawned: dict[tuple[str, str], int] = {}
 
     def own(data: dict) -> None:
-        for job_id, before in ends.items():
-            put(data["jobs"][job_id], "end", before, (job_id, None))
         for (job_id, lane), before in reclaims.items():
-            put(state.death_on(data["jobs"][job_id], lane), "reclaim", before, (job_id, lane))
+            death = state.death_on(data["jobs"][job_id], lane)
+            if death.get("reclaim") != claim:
+                continue
+            if (job_id, lane) in spawned:
+                death["reclaim"] = claim | {"pid": spawned[job_id, lane]}
+            elif before is None:
+                death.pop("reclaim")
+            else:
+                death["reclaim"] = before
 
     try:
-        for job_id in ends:
-            spawned[job_id, None] = end_lane(watcher.name, job_id)
+        for job_id, held in ends.items():
+            pid = end_lane(watcher.name, job_id, held.token)
+            del unlaunched[job_id]
+            state.settle(watcher.name, held, pid)
         for job_id, lane in reclaims:
             spawned[job_id, lane] = state.detach(watcher.name, ["job", "reclaim", job_id, lane], log)
     finally:
-        if ends or reclaims:
-            state.write(watcher.name, own)
+        for held in unlaunched.values():
+            state.cancel(watcher.name, held)
+        if reclaims:
+            state.write(watcher.name, own, patient=True)
     return lines
 
 
@@ -4975,10 +4976,12 @@ def pool_claims(drive: str) -> dict[str, tuple[str, str, datetime]]:
 
 
 def in_flight(started: dict | None, moment: datetime) -> bool:
-    """Whether a drive verb the watch started to free a lane, by the pid and time kept on its job, still runs or started within RECLAIM, so the watch asks for that lane again only once that process is gone and RECLAIM_SECONDS, past which orca.reclaimer kills a reclaimer, have passed since it started; a process alive past the time a relaunch takes is another that took its pid."""
+    """Whether a drive verb the watch started to free a lane, by the reservation or the pid and time kept on its job, still runs or started within RECLAIM, so the watch asks for that lane again only once that process is gone and RECLAIM_SECONDS, past which orca.reclaimer kills a reclaimer, have passed since it started; a process alive past the time a relaunch takes is another that took its pid; a reservation its starter cancelled, or whose starter died before a child adopted it, ran nothing, so the watch asks again at once."""
     if not started:
         return False
     age = moment - state.parse_time(started["at"])
+    if "state" in started:
+        return state.holder(started) is not None and age < RELAUNCH or started["state"] == "adopted" and age < RECLAIM
     return age < RECLAIM or state.alive(started["pid"]) and age < RELAUNCH
 
 
@@ -5245,9 +5248,9 @@ def carrier(job_id: str, job: dict, data: dict, cards: dict | None) -> list[str]
     return ["job", "resume", job_id] if remote else ["job", "launch", job_id, *(["--local"] if local else [])]
 
 
-def end_lane(name: str, job_id: str) -> int:
-    """Run `drive job end` as its own process on a job that is not running whose worker's turn is over and whose lane on a Sprite no end ended, by unended, so that idle Sprite, its forward and its Orca environment go once its transcripts are kept and what it holds is saved, and a waiting job's next event starts its next lane on a fresh one; its output appended to the drive's relaunches log; its pid."""
-    return state.detach(name, ["job", "end", job_id], RELAUNCHES_LOG)
+def end_lane(name: str, job_id: str, token: str) -> int:
+    """Run `drive job end` as its own process on a job that is not running whose worker's turn is over and whose lane on a Sprite no end ended, by unended, so that idle Sprite, its forward and its Orca environment go once its transcripts are kept and what it holds is saved, and a waiting job's next event starts its next lane on a fresh one; its output appended to the drive's relaunches log, with --reserved naming the token of the end the watch reserved on the job, which it adopts before anything else; its pid."""
+    return state.detach(name, ["job", "end", job_id, "--reserved", token], RELAUNCHES_LOG)
 
 
 def can_wake(watcher: Watcher, job_id: str, job: dict, data: dict, moment: datetime) -> bool:
