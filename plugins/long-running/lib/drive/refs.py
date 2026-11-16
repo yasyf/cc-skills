@@ -16,6 +16,7 @@ LINK_WORDS = str.maketrans({"<": "", ">": "", "|": "/", "[": "(", "]": ")"})
 THIS_CARD = "this card"
 TAP_ASK = re.compile(r"\b(?:tap|approve|approval)\b", re.IGNORECASE)
 JOB_START = "(job start)"
+DOUBLED_TIME = re.compile(r"\b(?:1[0-2]|0?[1-9]):[0-5]\d\s?[AP]\.?M\.?\s*(?:\((\{(?:started|at):[^{}]+\})\)|(\{(?:started|at):[^{}]+\}))", re.IGNORECASE)
 CAUSE = re.compile(
     r"\b(?:because|caus(?:ed|es|ing)|due to|culprit)\b"
     r"|\bcause(?:\s+(?:is|was)|:)\s+(?!(?:yes|still|being|unknown|unclear|pending|tbd|not yet|under (?:way|investigation|review))\b|an?\s+(?:read|reader|lane|agent)\s+(?:is|has)\b)",
@@ -332,7 +333,12 @@ def slack(text: str, found: dict[str, dict], thread: str | None) -> str:
             return linked(ref, ref["card"], "<{url}|{words}>")
         return linked(ref, ref["url"], "<{url}|{words}>")
 
-    return REF.sub(shown, text)
+    return REF.sub(shown, undoubled(text))
+
+
+def undoubled(text: str) -> str:
+    """The text with a clock time typed right before a {started:} or {at:} dropped, so the time say draws is the post's one time, never "3:23 AM (3:20 AM (job start))"."""
+    return DOUBLED_TIME.sub(lambda match: match[1] or match[2], text)
 
 
 def typed(text: str, found: dict[str, dict], thread: str | None) -> str:
