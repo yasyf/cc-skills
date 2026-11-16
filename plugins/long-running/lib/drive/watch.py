@@ -31,7 +31,7 @@ from drive.install import PROOF_FAILED, add_prover, config_dir, handed_on, open_
 from drive.render import cut, when
 
 POLL_SECONDS = 5
-ACTION_TEXTS = ("STAGE ", state.STAGING_CASE.partition("{key}")[0])
+ACTION_TEXTS = (state.STAGING_CASE.partition("{key}")[0],)
 RELAY_SECONDS = 2
 PROJECT_RELAY_IDLE = 10
 POSTS_IDLE = 30
@@ -3427,7 +3427,7 @@ def undelivered_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def held_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Send on the texts jobs hold, by who should act on them now: his words on a job that returned BUILT or DONE or waits only on his own open cards go once to the session holding its order to read, by cli.deliver_to_order, never waking its agent; on any other job whose agent is a subagent on this Mac, his words and texts needing action now, a staging line, reach it at once by cli.deliver_held with the owed SendMessage line to the session that started it, while other texts wait for the job's own next wake. Says each owed line and each post that failed."""
+    """Send on the texts jobs hold, by who should act on them now: his words on a job that returned BUILT or DONE or waits only on his own open cards go once to the session holding its order to read, by cli.deliver_to_order, never waking its agent; on any other job whose agent is a subagent on this Mac, his words and texts needing action now, a staging case it adds, reach it at once, never a STAGE line, which restates a wait a queued tester already holds by cli.deliver_held with the owed SendMessage line to the session that started it, while other texts wait for the job's own next wake. Says each owed line and each post that failed."""
     from drive import cli
 
     data = state.load(watcher.name)
