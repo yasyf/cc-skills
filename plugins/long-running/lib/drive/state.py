@@ -5329,13 +5329,15 @@ def batch(name: str, dry: bool = False) -> Iterator[list[str]]:
 
 
 def ran(effects: list[Callable[[], list[str]]], lines: list[str]) -> None:
-    """Run each effect a committed write or batch left, in the order it left them, adding the lines each prints to lines, every one running even when one before it failed, since the drive keeps the commit whatever they do, so none runs the change again or says nothing was kept; the failures raised together once all ran, after the lines of the rest."""
+    """Run each effect a committed write or batch left, in the order it left them, adding the lines each prints to lines, every one running even when one before it raised, an OSError of a file write as much as a DriveError, since the drive keeps the commit whatever they do, so none runs the change again or says nothing was kept; the failures raised together as one DriveError once all ran, after the lines of the rest, each one not a DriveError named as an effect of a write the drive kept. An interrupt, no Exception, ends the run at once."""
     failed: list[str] = []
     for effect in effects:
         try:
             lines += effect()
         except DriveError as error:
             failed.append(str(error))
+        except Exception as error:
+            failed.append(f"kept, but what it did after failed: {type(error).__name__}: {error}")
     if failed:
         raise DriveError("\n".join([*lines, *failed]))
 
