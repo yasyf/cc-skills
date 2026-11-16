@@ -7,6 +7,16 @@ from datetime import datetime
 from drive import agents, artifacts, limits, refs, settled, slack, state
 
 CALL_FIELDS = ("records", "lane", "drive", "id")
+CHATTY_KINDS = ("state", "note", "evidence")
+FANNED_KINDS = ("incident", "blocker")
+CHATTY = (
+    "refused: a {kind} record is progress the dashboard shows, and no session acts on it, by his words \"make everything less chatty"
+    " … the durable fix\"; post only what one other lane must act on now, as a handoff, ask, answer or decide to that lane, or nothing"
+)
+FANNED = (
+    "refused: one record goes to the one lane that acts on it, not {lanes}, by his words \"make everything less chatty\"; only an incident"
+    " or blocker whose words name each lane's step goes to several. Pick the lane that acts, or post one record per lane that has its own step"
+)
 OPENING = re.compile(r"(?:POST|FYI)\b")
 UNOPENED = "refused: a report's text opens `POST`, for a handler to post, or `FYI`, kept as context; add the one it is"
 UNFINISHED = (
@@ -111,6 +121,17 @@ def listed(value: object) -> list[str]:
 
 def addressed(record: dict, lane: str) -> bool:
     return any(entry.split("@", 1)[0] == lane for entry in listed(record.get("to")))
+
+
+def chatter(record: dict) -> str | None:
+    """Why a drive session's record is chatter, by his words "make everything less chatty … the durable fix": a state, note or evidence line, which the dashboard shows and no session acts on, or one to several lanes but an incident or blocker whose words name each lane's step; None for a record one lane acts on."""
+    lanes = list(dict.fromkeys(entry.split("@", 1)[0] for entry in listed(record.get("to")) if not entry.startswith("peer:")))
+    if kind(record) in CHATTY_KINDS:
+        return CHATTY.format(kind=kind(record))
+    words = f"{record.get('text') or ''}\n{record.get('body') or ''}"
+    if len(lanes) > 1 and not (kind(record) in FANNED_KINDS and all(re.search(rf"\b{re.escape(lane)}\b", words) for lane in lanes)):
+        return FANNED.format(lanes=", ".join(lanes))
+    return None
 
 
 def relayed_time(record: dict, drive: dict) -> str | None:

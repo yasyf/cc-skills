@@ -8,7 +8,7 @@ import shlex
 import subprocess
 import sys
 
-from drive import brief, cli, limits, reads, render, settled, state, superseded, talk, view
+from drive import brief, cli, limits, reads, render, reports, settled, state, superseded, talk, view
 from drive.state import DriveError
 
 UNTYPED = {"help", "drive", "json", "dry_run"}
@@ -608,6 +608,8 @@ def record(name: str, records: list[dict], dry_run: bool) -> str:
             posts.append(post(item, data, other, session))
         except DriveError as error:
             raise DriveError(f"{index}: {error}") from None
+        if refused := reports.chatter(posts[-1]):
+            raise DriveError(f"{index}: {refused}")
     for index, made in enumerate(posts, start=1):
         if made["kind"] != "answer" and not state.his_words(role, made["kind"]) and (refused := brief.claim_refusal(f"{made['text']}\n{made.get('body') or ''}", name, data)):
             raise DriveError(f"{index}: refused, nothing posted: {refused}")

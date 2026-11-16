@@ -2103,12 +2103,12 @@ def test_a_watch_that_crashes_mid_pass_has_posted_the_lines_its_earlier_stages_m
     with pytest.raises(state.DriveError):
         watch.main(demo)
     assert ([text.split(":")[0] for _, _, text in posted(sent)], state.held_path(demo).read_text()) == (
-        [f"PR {KEY}", f"JOB j2 o1 added, proves {KEY}, waits on no release", "WATCH stopped on long-running " + state.VERSION],
+        [f"JOB j2 o1 added, proves {KEY}, waits on no release", "WATCH stopped on long-running " + state.VERSION],
         "",
     )
     monkeypatch.setattr(watch, "passed", lambda watching, moment, until: [])
     run_watch(demo, monkeypatch)
-    assert len(sent) == 3
+    assert len(sent) == 2
 
 
 def test_ensure_loads_a_launch_agent_that_starts_the_watch_again_after_any_exit_with_no_session_or_secret_unless_one_is_loaded(
@@ -5955,7 +5955,7 @@ def test_a_job_waiting_on_an_order_he_has_not_scheduled_holds_its_pr_from_his_ca
 
 
 @pytest.mark.parametrize("wants_tap", [False, True])
-def test_an_exempt_pr_whose_landers_try_ended_unlanded_wakes_the_session_holding_its_order_at_once_and_every_thirty_minutes(
+def test_an_exempt_pr_whose_landers_try_ended_unlanded_wakes_the_session_holding_its_order_once_and_never_again_in_that_stage(
     demo: str, monkeypatch: pytest.MonkeyPatch, wants_tap: bool, landers: list[tuple[str, ...]]
 ) -> None:
     waiting_job(demo)
@@ -5971,7 +5971,7 @@ def test_an_exempt_pr_whose_landers_try_ended_unlanded_wakes_the_session_holding
     assert line in watch.run_pass(watching, T0)
     assert watch.wakes(line, state.load(demo), NO_CARDS)
     assert line not in watch.run_pass(watching, T0 + timedelta(minutes=29))
-    assert line in watch.run_pass(watching, T0 + timedelta(minutes=30))
+    assert line not in watch.run_pass(watching, T0 + timedelta(minutes=30))
     assert "checks pass, review approved, no tap needed, exempt: incident fix; unlanded since " in render.pr_line(state.load(demo), KEY, None)
     assert landers == []
 

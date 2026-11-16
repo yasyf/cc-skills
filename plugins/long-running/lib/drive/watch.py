@@ -67,6 +67,7 @@ FAILED_LINE = re.compile(r"WATCH .+ failed \d+ times in a row: ")
 QUIET_LINES = ("CARD ", "WAITING-ON-HIM ", "STANDING ", "WATCH compacted", "WATCH status page")
 SAID_FILE = "said.json"
 SAID_FOR = timedelta(hours=24)
+EVERY_TIME = ("DOWN ",)
 TAP_EVENT = re.compile(rf"TAP (?P<label>\S+) (?P<key>\S+)(?P<stalled> {NOT_LANDED})?")
 LANE = "watch"
 READS_LOG = "reads.log"
@@ -5507,7 +5508,7 @@ def handed(watcher: Watcher, lines: list[str], moment: datetime) -> list[str]:
     data = state.load(watcher.name)
     kept, routed = [], {}
     for line in lines:
-        if line.startswith(LANDER) or FAILED_LINE.match(line):
+        if line.startswith(LANDER):
             if line not in [*watcher.unsent.get("meta", []), *(meta := routed.setdefault("meta", []))]:
                 meta.append(line)
         elif (lane := line_lane(line, data)) not in (None, watcher.lane):
@@ -5522,7 +5523,7 @@ def handed(watcher: Watcher, lines: list[str], moment: datetime) -> list[str]:
 
 
 def sent(watcher: Watcher, lane: str, lines: list[str], moment: datetime) -> list[str]:
-    """Post the lines owed the lane over cci as one record, by posted_record, a handoff when any of them asks a step now, by wakes, or the lane is the communicator's or the meta session's, else evidence, which reaches the lane with others at most every five minutes, the lander's own failures and the watch's failed reads apart as one defect, which the meta session starts a fix from, so a pass that says many gaps reaches the lane as one record however many it says; but drop each line that needs_step, judging it as it posts, finds asks no step now, each one quiet() reads its row saying Nothing for, each one said to the lane already within SAID_FOR, by unsaid, and each one owed the communicator or the meta session that is a READY whose fix its builder owes, by fixing(), by his words "make everything less chatty", so a line held across a newer install's takeover or a failed post never hands work that ended meanwhile: each credential cci refuses is withheld from it, and a record that fails goes again when the next pass starts, sent with no lines, each line made meanwhile waiting behind it, so a pass tries a failing lane once and its third failure in a row is said. The lines stay among the watcher's unsent until their record posts, so a newer install that takes the watch over meanwhile gets them."""
+    """Post the lines owed the lane over cci as one record, by posted_record, a handoff when any of them asks a step now, by wakes, or the lane is the communicator's or the meta session's, else evidence, which reaches the lane with others at most every five minutes, the lander's own failures apart as one defect, which the meta session starts a fix from, so a pass that says many gaps reaches the lane as one record however many it says; but drop each line that needs_step, judging it as it posts, finds asks no step now, each one quiet() reads its row saying Nothing for, each one said to the lane already within SAID_FOR, by unsaid, and each one owed the communicator or the meta session that is a READY whose fix its builder owes, by fixing(), by his words "make everything less chatty", so a line held across a newer install's takeover or a failed post never hands work that ended meanwhile: each credential cci refuses is withheld from it, and a record that fails goes again when the next pass starts, sent with no lines, each line made meanwhile waiting behind it, so a pass tries a failing lane once and its third failure in a row is said. The lines stay among the watcher's unsent until their record posts, so a newer install that takes the watch over meanwhile gets them."""
     if lines and watcher.unsent.get(lane):
         watcher.unsent[lane] += lines
         return []
@@ -5531,7 +5532,7 @@ def sent(watcher: Watcher, lane: str, lines: list[str], moment: datetime) -> lis
         return []
     data = state.load(watcher.name)
     posting = unsaid(watcher.name, lane, [line for line in owed if needs_step(line, data, watcher.cards) and not quiet(line) and (lane not in state.HOLDERS or not fixing(line, data, watcher.cards))], moment)
-    defects = [line for line in posting if line.startswith(LANDER) or FAILED_LINE.match(line)]
+    defects = [line for line in posting if line.startswith(LANDER)]
     rest = [line for line in posting if line not in defects]
     kind = "handoff" if lane in state.HOLDERS or any(wakes(line, data, watcher.cards) for line in rest) else "evidence"
     refusal, unsent = None, []
@@ -5557,6 +5558,8 @@ def quiet(line: str) -> bool:
 
 
 def said_key(lane: str, line: str) -> str:
+    """The key a line is said under: a failed read's the same for every lane, so the one outage every project's watch reads reaches one lane alone."""
+    lane = "" if FAILED_LINE.match(line) else lane
     return hashlib.sha1(f"{lane}\n{ELAPSED.sub('', line)}".encode()).hexdigest()[:16]
 
 
@@ -5566,9 +5569,9 @@ def said_lines(name: str) -> dict[str, str]:
 
 
 def unsaid(name: str, lane: str, lines: list[str], moment: datetime) -> list[str]:
-    """The lines not said to the lane within SAID_FOR, each read with its elapsed and clock times taken out, so a line a pass makes again unchanged, by any watch, reaches its lane once."""
+    """The lines not said to the lane within SAID_FOR, each read with its elapsed and clock times taken out, so a line a pass makes again unchanged, by any watch, reaches its lane once, but a DOWN line, each a new exit of a session's process."""
     said = said_lines(name)
-    return [line for line in dict.fromkeys(lines) if not (at := said.get(said_key(lane, line))) or moment - state.parse_time(at) >= SAID_FOR]
+    return [line for line in dict.fromkeys(lines) if line.startswith(EVERY_TIME) or not (at := said.get(said_key(lane, line))) or moment - state.parse_time(at) >= SAID_FOR]
 
 
 def keep_said(name: str, lane: str, lines: list[str], moment: datetime) -> None:

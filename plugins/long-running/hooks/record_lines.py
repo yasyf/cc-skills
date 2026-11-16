@@ -6,7 +6,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
 from drive import agents, limits, settled, state, superseded
-from drive.reports import CALL_FIELDS, addressed, attrs, hand_ask, kind, listed, posted, relayed_time, report_refusals, stray_parts, unprevented
+from drive.reports import CALL_FIELDS, addressed, attrs, chatter, hand_ask, kind, listed, posted, relayed_time, report_refusals, stray_parts, unprevented
 
 SILENT_LANES = {"long-running:reader", "long-running:designer"}
 TO_OWNER = (
@@ -68,6 +68,7 @@ def refusals(payload: dict, names: list[str], drives: dict[str, dict], records: 
     drive = drives[names[0]]
     for index, record in enumerate(records):
         yield misaddressed(payload, record)
+        yield chatter(record)
         yield state.unread(drives, listed(record.get("to")), payload["tool_input"].get("drive") or names[0])
         yield stray_parts(kind(record), attrs(record))
         yield limits.misnamed(kind(record), attrs(record))
