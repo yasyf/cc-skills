@@ -754,6 +754,24 @@ def change_parts(name: str, data: dict, order_id: str, added: list[str], dropped
     return [superseded.stopped_line(f"{job_id} stopped, left with no part: end its agent, or its lane with drive job end {job_id}", held) for job_id, held in stopped.items()]
 
 
+def repeated_lines(data: dict, order_id: str, parts: list[str]) -> list[str]:
+    """A line for each undelivered part of another open order and each open drive PR that Jev reads as already making the change a new part of the order names, by settled.same_changes, ending on the drive status that prints it, so a part added beside work already under way shows that work before a job starts on it; a line saying Jev gave no reading, since the add stands either way."""
+    lines = []
+    for part in parts:
+        try:
+            found = settled.same_changes(data, order_id, part)
+        except settled.Unheard as failure:
+            lines.append(f'Jev gave no reading of whether open work already makes {order_id} "{part}" ({failure}): drive status <its words> finds the parts and PR titles holding them')
+            continue
+        for key in found:
+            if pr := data["prs"].get(key):
+                lines.append(f'{order_id} "{part}" repeats {key} "{pr["title"]}", open on {pr["order"]}, as Jev reads it: drive status {key}')
+                continue
+            other_id, _, other_part = key.partition(":")
+            lines.append(f"{order_id} \"{part}\" repeats {other_id}'s open part {render.part_line(data, other_id, other_part)}, as Jev reads it: drive status {other_id}")
+    return lines
+
+
 def pick_job_parts(name: str, data: dict, order_id: str, named: list[str]) -> list[str]:
     """The parts a job takes on the order, each `port of #N` it names added to the order by change_parts when missing, so each old-tree port is a change of its own: its builder starts beside the builders of other ports, and its part is delivered, or flagged once its builder stops, on its own."""
     change_parts(name, data, order_id, [part for part in dict.fromkeys(named) if state.PORT_PART.fullmatch(part) and part not in data["orders"][order_id]["parts"]], [])
@@ -775,7 +793,7 @@ def refuse_unquotable_parts(flag: str, parts: list[str]) -> None:
 
 
 def order_set(args: argparse.Namespace) -> int:
-    """Change an order, reworking only the PRs --rework names and naming each open PR card of his in a thread it moves into or is sorted again in, which it leaves up; --add-part refuses a name a part cannot hold, by state.unquotable_part, and --add-part and --drop-part change only the parts they name, by change_parts; closing one that owes him a promised line reads its thread and refuses until the line is there or he withdrew the time, closing one done refuses while the bug report it fixes has not heard it is fixed, and --no-options-only, his pick, adds the builder of each change a design on it listed that no builder is on, as drive job report does once a design returns; --incident turns an open order into an incident by turned_incident and names each open question card of his its words point at, by state.asked_lines; --kind answer --part takes each part off each done builder, codex or design job holding it, whose hold would keep it work he ordered, and delivers it by the post one's POSTED line names when that answer reaches him only by a post, saying so by answered_line; --standing keeps each --part standing on its goal, or takes it out with an empty one, by standing_parts, which --part needs no --kind for; a change to its parts, kind, standing parts, options-only mark or incident mark from a session of the drive that does not hold the order is refused before anything is written, by state.held_elsewhere, the check every job verb makes, but for the communicator and its handlers, which file his words onto any order's parts and kind and are refused only the incident mark. --unjoin takes it off the order it joined, by state.unjoin, filed under its own project and workstream by filing, from any session, since it changes no part. --priority puts its work first at each admission point, by state.first_in_line, from any session."""
+    """Change an order, reworking only the PRs --rework names and naming each open PR card of his in a thread it moves into or is sorted again in, which it leaves up; --add-part refuses a name a part cannot hold, by state.unquotable_part, and --add-part and --drop-part change only the parts they name, by change_parts, and --add-part prints each open part of another order and open PR Jev reads as already making a new part's change, by repeated_lines; closing one that owes him a promised line reads its thread and refuses until the line is there or he withdrew the time, closing one done refuses while the bug report it fixes has not heard it is fixed, and --no-options-only, his pick, adds the builder of each change a design on it listed that no builder is on, as drive job report does once a design returns; --incident turns an open order into an incident by turned_incident and names each open question card of his its words point at, by state.asked_lines; --kind answer --part takes each part off each done builder, codex or design job holding it, whose hold would keep it work he ordered, and delivers it by the post one's POSTED line names when that answer reaches him only by a post, saying so by answered_line; --standing keeps each --part standing on its goal, or takes it out with an empty one, by standing_parts, which --part needs no --kind for; a change to its parts, kind, standing parts, options-only mark or incident mark from a session of the drive that does not hold the order is refused before anything is written, by state.held_elsewhere, the check every job verb makes, but for the communicator and its handlers, which file his words onto any order's parts and kind and are refused only the incident mark. --unjoin takes it off the order it joined, by state.unjoin, filed under its own project and workstream by filing, from any session, since it changes no part. --priority puts its work first at each admission point, by state.first_in_line, from any session."""
     name = state.resolve(args.drive)
     withdrawn = his_words(args.withdrawn, "withdraw a promised line") if args.withdrawn else None
     unreported = his_words(args.no_reporter, "take the reporters off an order") if args.no_reporter else None
@@ -940,7 +958,8 @@ def order_set(args: argparse.Namespace) -> int:
     answered_lines = {part: answered_line(data, args.id, part, job_ids) for part, job_ids in taken.items()}
     parts = [answered_lines.get(part) or f"{args.id} {render.part_line(data, args.id, part)}" for part in dict.fromkeys([*sorted_parts, *standing, *([followed[0]] if followed else [])])]
     turned += state.asked_lines(data, order["text"]) if turning else []
-    return emit(args, render.order_line(data, args.id, order) + promised + "".join(f"\n{line}" for line in [*turned, *unjoined, *parts, *stopped, *render.builder_lines(name, data, added), *reworked]), {"id": args.id, **order})
+    repeated = repeated_lines(data, args.id, list(dict.fromkeys(args.add_part)))
+    return emit(args, render.order_line(data, args.id, order) + promised + "".join(f"\n{line}" for line in [*turned, *unjoined, *parts, *stopped, *repeated, *render.builder_lines(name, data, added), *reworked]), {"id": args.id, **order})
 
 
 def unjoined_lines(order_id: str, head: str, carriers: list[str], told: list[str]) -> list[str]:
@@ -1417,6 +1436,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         order = find(data["orders"], args.order, "order")
         parts = pick_job_parts(name, data, args.order, args.part)
         refuse_a_shared_at_once_part(parts)
+        new_parts = [part for part in parts if not state.part_jobs(data, args.order, part)]
         session = os.environ.get("CLAUDE_CODE_SESSION_ID")
         fresh = state.new_job(args.order, args.kind, args.goal, parts, created)
         waits = view.stored_waits(data, [state.change_wait(data, wait, None, fresh) for wait in args.waits], found)
@@ -1472,7 +1492,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
     also = list(dict.fromkeys(order_id for orders in history.values() for order_id in orders))
     names = [f"{job_id} names {', '.join(named)}" + (f", also on {', '.join(also)}" if also else "") + ": drive status <id>"] if named else []
     names += state.asked_lines(data, args.goal)
-    return job_id, job | {"builder": builder_id, "history": history}, [*took, *replaced, *started, *waiting, *names]
+    return job_id, job | {"builder": builder_id, "history": history}, [*took, *replaced, *started, *waiting, *names, *repeated_lines(data, args.order, new_parts)]
 
 
 def started_release(name: str, job_id: str, command: str) -> list[str]:
@@ -5186,11 +5206,16 @@ def run_show(checkout: Path) -> str:
 
 
 def only(data: dict, ids: list[str]) -> dict:
-    """The drive narrowed, never saved, to the orders the ids name, directly or through one of their jobs or PRs, with their jobs and each PR those orders own or their jobs carry, as render.job_pr_lines draws it; data stays whole, since who carries a part is read across every job and order."""
-    keys = set(ids)
+    """The drive narrowed, never saved, to the orders the ids name, directly or through one of their jobs or PRs, and each open order whose title, words, part names or PR titles hold every other word given, in any case, with their jobs and each PR those orders own or their jobs carry, as render.job_pr_lines draws it; data stays whole, since who carries a part is read across every job and order."""
+    keys = {each for each in ids if reads.DRIVE_RECORD.fullmatch(each) or state.PR_WORD.fullmatch(each)}
     if unknown := keys - set(data["orders"]) - set(data["jobs"]) - set(data["prs"]):
         raise DriveError(f"no order, job or PR {', '.join(sorted(unknown))}; name {ID_FORMS}")
     named = {key if key in data["orders"] else (data["jobs"].get(key) or data["prs"][key])["order"] for key in keys}
+    if words := [each.casefold() for each in ids if each not in keys]:
+        found = {order_id for order_id, order in state.open_orders(data).items() if all(word in searched(data, order_id, order) for word in words)}
+        if not found:
+            raise DriveError(f"no open order's title, words, part names or PR titles hold {', '.join(map(json.dumps, words))}; name {ID_FORMS}, or other words")
+        named |= found
     orders = {key: order for key, order in data["orders"].items() if key in named}
     listed = {job_id for order in orders.values() for job_id in order["jobs"]}
     jobs = {key: job for key, job in data["jobs"].items() if key in listed or job["order"] in named}
@@ -5200,6 +5225,10 @@ def only(data: dict, ids: list[str]) -> dict:
         "jobs": jobs,
         "prs": {key: pr for key, pr in data["prs"].items() if pr["order"] in named or pr["job"] in jobs or key in carried},
     }
+
+
+def searched(data: dict, order_id: str, order: dict) -> str:
+    return " ".join([order["title"] or "", order["text"], *order["parts"], *(pr["title"] for pr in data["prs"].values() if pr["order"] == order_id)]).casefold()
 
 
 def status(args: argparse.Namespace) -> int:
@@ -6754,7 +6783,9 @@ def parser() -> argparse.ArgumentParser:
     verb.set_defaults(run=term)
 
     verb = verbs.add_parser("status", parents=both, help="where each order, job and PR stands")
-    verb.add_argument("ids", nargs="*", help=f"what to read, each {ID_FORMS}; default: every open order a line each, a coordinator's only its own")
+    verb.add_argument(
+        "ids", nargs="*", help=f"what to read, each {ID_FORMS}, or other words, read as each open order whose title, words, part names or PR titles hold every one in any case; default: every open order a line each, a coordinator's only its own"
+    )
     verb.add_argument("--prs", action="store_true", help="only a table of each open PR he approved or that waits on him: its stage, what holds it, who owes its next step and since when")
     verb.set_defaults(run=status)
     verb = verbs.add_parser("manual", help="print one page of the long-running skill")

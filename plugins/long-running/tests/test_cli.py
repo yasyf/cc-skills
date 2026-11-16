@@ -8953,6 +8953,58 @@ def test_status_reads_only_the_orders_its_ids_name(run: Run, with_pr: str) -> No
     assert run("status", "j9")[0] != 0
 
 
+OWN_COUNT = "The tenant smoke's desktop task check counts only its own run's task"
+WRITES_ITS_TEAM = "Desktop smoke task entry passes while another release's smoke writes its team"
+SMOKE_FIX = "Fix: the desktop smoke's task check counts only its own run's task and says what it saw"
+
+
+def beside_open_smoke_work(run: Run, with_pr: str, *parts: str) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the tenant smoke", "--parts", OWN_COUNT)
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "the release smoke", *parts)
+    with state.edit("demo") as data:
+        data["prs"][with_pr]["title"] = SMOKE_FIX
+
+
+def test_a_part_added_beside_an_open_part_and_pr_jev_reads_as_the_same_change_names_both_and_is_added_anyway(run: Run, with_pr: str, jev: Jev) -> None:
+    beside_open_smoke_work(run, with_pr)
+    jev.same = {"task check counts only its own run's task"}
+    code, out = run("order", "set", "o3", "--add-part", WRITES_ITS_TEAM)
+    assert code == 0
+    assert WRITES_ITS_TEAM in state.load("demo")["orders"]["o3"]["parts"]
+    assert f"o3 \"{WRITES_ITS_TEAM}\" repeats o2's open part \"{OWN_COUNT}\"" in out
+    assert f'o3 "{WRITES_ITS_TEAM}" repeats {with_pr} "{SMOKE_FIX}", open on o1, as Jev reads it: drive status {with_pr}' in out
+    assert [sorted(asked["questions"]) for asked in jev.same_asked] == [["same.c1", "same.c2"]]
+
+
+def test_a_job_on_a_part_no_job_carried_names_the_open_work_jev_reads_as_its_change_and_one_on_a_carried_part_asks_nothing(run: Run, with_pr: str, jev: Jev) -> None:
+    beside_open_smoke_work(run, with_pr, "--parts", WRITES_ITS_TEAM)
+    jev.same = {"task check counts only its own run's task"}
+    code, out = run("job", "add", "reader", "--order", "o3", "--goal", "research: the release smoke")
+    assert code == 0
+    assert f"o3 \"{WRITES_ITS_TEAM}\" repeats o2's open part \"{OWN_COUNT}\"" in out
+    code, out = run("job", "add", "reader", "--order", "o3", "--goal", "research: the release smoke again")
+    assert (code, "repeats" in out, len(jev.same_asked)) == (0, False, 1)
+
+
+def test_a_part_added_while_jev_gives_no_reading_is_added_and_says_so(run: Run, with_pr: str, jev: Jev) -> None:
+    beside_open_smoke_work(run, with_pr)
+    jev.answer = None
+    code, out = run("order", "set", "o3", "--add-part", WRITES_ITS_TEAM)
+    assert code == 0
+    assert WRITES_ITS_TEAM in state.load("demo")["orders"]["o3"]["parts"]
+    assert f'Jev gave no reading of whether open work already makes o3 "{WRITES_ITS_TEAM}"' in out
+
+
+def test_status_words_find_each_open_order_whose_part_names_or_pr_titles_hold_them_all_in_any_case(run: Run, with_pr: str, capsys: pytest.CaptureFixture[str]) -> None:
+    beside_open_smoke_work(run, with_pr)
+    code, out = run("status", "TENANT", "desktop")
+    assert (code, out.splitlines()[0], "- o2 " in out, "- o1 " in out) == (0, "demo: 1 open of 1 orders", True, False)
+    code, out = run("status", "says", "saw")
+    assert (code, out.splitlines()[0], "- o1 " in out, "- o2 " in out) == (0, "demo: 1 open of 1 orders", True, False)
+    assert cli.main(["status", "tenant", "nowhere"]) == 2
+    assert 'no open order\'s title, words, part names or PR titles hold "tenant", "nowhere"' in capsys.readouterr().err
+
+
 def test_status_of_an_order_a_design_of_an_unnamed_order_carries_reads_that_design_and_its_builder_on_the_whole_drive(run: Run, demo: str) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "auto-partition big tables")
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why is the database so big", "--parts", "partitioning design choices")
