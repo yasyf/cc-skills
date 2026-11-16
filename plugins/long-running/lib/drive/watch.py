@@ -4,6 +4,7 @@ import functools
 import hashlib
 import itertools
 import json
+import marshal
 import mmap
 import os
 import re
@@ -28,6 +29,7 @@ POLL_SECONDS = 5
 RELAY_SECONDS = 2
 RESPOND_SECONDS = 1
 READ_EVERY = timedelta(seconds=60)
+SETTLED_READ_EVERY = timedelta(minutes=10)
 FAILURES_BEFORE_SAYING = 3
 FAILURE_EVERY = timedelta(minutes=10)
 DUE_EVERY = timedelta(minutes=10)
@@ -128,6 +130,7 @@ class Watcher:
     merging: set[str] = field(default_factory=set)
     stale: set[str] = field(default_factory=set)
     unhookable: set[str] = field(default_factory=set)
+    polled: dict[str, datetime] = field(default_factory=dict)
     agent_gaps: dict[str, str | None] = field(default_factory=dict)
     made: list[str] = field(default_factory=list)
     resume: str | None = None
@@ -192,6 +195,11 @@ def failed(watcher: Watcher, source: str, what: str, error: Exception, moment: d
 
 def ids(pr: dict) -> str:
     return f"[{pr['order']} {pr['job']}]"
+
+
+def polled_settled(watcher: Watcher, pr: dict, key: str, moment: datetime) -> bool:
+    """Whether the watch read this green, approved PR of a repository GitHub tells the receiver nothing of within SETTLED_READ_EVERY, so its poll waits for that, since nothing on such a PR moves but by a push, review or merge."""
+    return pr["checks"] == "pass" and pr["review"] == "approved" and key in watcher.polled and moment - watcher.polled[key] < SETTLED_READ_EVERY
 
 
 def pr_changes(pr: dict, read: dict, entry: dict) -> list[str]:
@@ -262,18 +270,18 @@ def reran(data: dict, reads: dict[str, dict]) -> list[str]:
 
 
 def github_lines(watcher: Watcher, moment: datetime, polled: bool = False) -> list[str]:
-    """Read from GitHub each heard unmerged PR the watch owes a read, and say what changed on each. It reads whole every one at a watch's start that no watch before it handed its owed reads to from the same GitHub query, by state.take_held_reads, so a field a new install reads fills on every row, then each a delivery named, each open one on a repository the receiver holds no hook for on each READ_EVERY pass, polled, ahead of that pass's stage_lines, since no delivery ever says it changed, each never asked for, each any waiting builder's PUSHED names unread since its take, whichever watch hears that builder, each folded into another open PR's branch, beside the PR it folded into, every pass until that PR lands or closes, and again each whose read GitHub refused, a read of an open PR whose GitHub Actions run failed only at its checkout rerunning that run and reading it queued, by reran(), a read of an open yasyf/* PR failing a check carrying the watch's verdict on whether its own change fails it, by judged(), and refused when GitHub would not give that verdict. Of each open PR a push to its base named, and each whose mergeability GitHub had not worked out yet, since no delivery says when it has, it reads only the state, head and mergeability, by github.mergeability, saying a conflict that read starts, and reads whole in the same call each that read finds moved or ended. A PR GitHub answered nothing for stays stale, as its stage does, until a read answers for it. In the same call it reads each PR the drive does not track that carries a stopped builder's parts or that a live job keeps or waits on, by state.carrier_keys, once until GitHub answers for it and again each time a delivery names it, keeping only GitHub's state of it on the watcher for job_gap and out_because, and saying nothing of it. What it still owes is kept on the watcher only once the reads are saved, so a pass that ends before then hands the next watch the reads it owed. Once they are saved it redraws in place, by redraw_lines, his card on each PR it read that the read left drawn stale, so a read that turns a PR green takes "CI passes" off his card in the same pass, never at the next pass's redraw_lines minutes later."""
+    """Read from GitHub each heard unmerged PR the watch owes a read, and say what changed on each. It reads whole every one at a watch's start that no watch before it handed its owed reads to from the same GitHub query, by state.take_held_reads, so a field a new install reads fills on every row, then each a delivery named, each open one on a repository GitHub tells the receiver nothing of, by receiver.silent, on each READ_EVERY pass, polled, a green, approved one only each SETTLED_READ_EVERY, ahead of that pass's stage_lines, since no delivery ever says it changed, each never asked for, each any waiting builder's PUSHED names unread since its take, whichever watch hears that builder, each folded into another open PR's branch, beside the PR it folded into, every pass until that PR lands or closes, and again each whose read GitHub refused, a read of an open PR whose GitHub Actions run failed only at its checkout rerunning that run and reading it queued, by reran(), a read of an open yasyf/* PR failing a check carrying the watch's verdict on whether its own change fails it, by judged(), and refused when GitHub would not give that verdict. Of each open PR a push to its base named, and each whose mergeability GitHub had not worked out yet, since no delivery says when it has, it reads only the state, head and mergeability, by github.mergeability, saying a conflict that read starts, and reads whole in the same call each that read finds moved or ended. A PR GitHub answered nothing for stays stale, as its stage does, until a read answers for it. In the same call it reads each PR the drive does not track that carries a stopped builder's parts or that a live job keeps or waits on, by state.carrier_keys, once until GitHub answers for it and again each time a delivery names it, keeping only GitHub's state of it on the watcher for job_gap and out_because, and saying nothing of it. A read saves its PR's row only when it moved, stamping updated, or when a waiting builder's PUSHED names it unread, stamping its required read, so a read that finds nothing new writes nothing. What it still owes is kept on the watcher only once the reads are saved, so a pass that ends before then hands the next watch the reads it owed. Once they are saved it redraws in place, by redraw_lines, his card on each PR it read that the read left drawn stale, so a read that turns a PR green takes "CI passes" off his card in the same pass, never at the next pass's redraw_lines minutes later."""
     data = state.load(watcher.name)
     pushed = {key for job_id, job in data["jobs"].items() if awaits_checks(job) for key in state.unread_since_take(data, job_id)}
     heard = [key for key in state.unmerged_pr_keys(data) if hears(watcher, data, data["prs"][key]["order"])]
-    hookless = set(receiver.unhooked({github.repo_of(key) for key in heard})) if polled and not state.scratch() else set()
+    hookless = set(receiver.silent({github.repo_of(key) for key in heard})) if polled and not state.scratch() else set()
     owed = [
         key
         for key in heard
         if watcher.owed is None
         or key in watcher.owed
         or key in pushed
-        or github.repo_of(key) in hookless and data["prs"][key]["state"] == "open"
+        or github.repo_of(key) in hookless and data["prs"][key]["state"] == "open" and not polled_settled(watcher, data["prs"][key], key, moment)
         or data["prs"][key]["state"] == github.FOLDED
         or (data["prs"][key]["required"] is None and key not in watcher.stale)
     ]
@@ -306,17 +314,23 @@ def github_lines(watcher: Watcher, moment: datetime, polled: bool = False) -> li
         with state.edit(watcher.name) as data:
             for key, read in reads.items():
                 pr = data["prs"][key]
+                was = marshal.loads(marshal.dumps(pr))
                 unlanded = pr["state"] in github.UNLANDED
                 changes = pr_changes(pr, read, reads.get((pr["lander"] or {}).get("entry"), read))
+                watcher.polled[key] = moment
                 if key in owns:
                     pr["own_reds"] = owns[key]
-                pr["required"]["read"] = state.stamp(moment)
+                if was["required"]:
+                    pr["required"]["read"] = was["required"]["read"]
+                if moved := pr != was:
+                    pr["updated"] = state.stamp(moment)
+                if moved or key in pushed:
+                    pr["required"]["read"] = state.stamp(moment)
                 if why := state.foreign_pr(data, key):
                     foreign[key] = (pr["url"], pr["author"], f"{why} {ids(pr)}")
                     continue
                 if edited_since_undrawn(pr, read, watcher.cards):
                     redraws.append(pr["url"])
-                pr["updated"] = state.stamp(moment)
                 if unlanded or pr["state"] == "open":
                     lines.extend(f"PR {key}: {change} {ids(pr)}" for change in changes)
             for key, read in merged.items():
