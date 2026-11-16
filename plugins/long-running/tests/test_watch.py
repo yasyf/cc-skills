@@ -13075,3 +13075,8 @@ def test_a_waiting_or_pushed_return_reaches_the_coordinator_as_evidence_waking_n
     assert watch.wakes("JOB j2 o1 PUSHED https://github.com/Forge-AI/monorepo/pull/9", data, None) is False
     assert watch.wakes("JOB j2 o1 PUSHED https://github.com/Forge-AI/monorepo/pull/9; its ASK was not kept", data, None) is True
     assert watch.wakes("JOB j3 o1 READY https://github.com/Forge-AI/monorepo/pull/9", data, None) is True
+def test_only_an_incident_a_top_priority_order_or_one_he_asked_a_cadence_of_is_owed_lines_on_news() -> None:
+    from conftest import REAL_ASKED_LINES
+
+    base = {"incident": False, "priority": None, "every": 0}
+    assert [REAL_ASKED_LINES(base | change) for change in ({}, {"incident": True}, {"priority": "top"}, {"every": 15})] == [False, True, True, True]
