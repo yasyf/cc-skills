@@ -418,7 +418,7 @@ class Prove(Kind):
 
 
 class Build(Kind):
-    """Builds: a builder no agent or lane of its own took, holding no PR yet, neither a staging tester, a prover nor a production cut's starter, its first build or one that returned WAITING and whose waits ended, run in groups on one stack, its repo and branch, or its order where it names no branch yet, so one worker pushes each branch; once it returns, its PR's events go to its own next worker as before."""
+    """Builds: a builder no agent or lane of its own took, holding no PR yet or holding a text for its PR, such as the STAGE line of an event on it that drive pr wake holds there, which its next worker takes at its PR's branch, neither a staging tester, a prover nor a production cut's starter, its first build or one that returned WAITING and whose waits ended, run in groups on one stack, its repo and branch, or its order where it names no branch yet, so one worker pushes each branch; once it returns, its PR's events go to its own next worker as before."""
 
     name = BUILD
     group = 3
@@ -440,8 +440,13 @@ class Build(Kind):
             and not state.staging_parts(data, job)
             and not state.PROVER_GOAL.fullmatch(job["goal"])
             and not state.starts_cut(job)
-            and not job["prs"]
+            and (not job["prs"] or bool(job["undelivered"]))
         )
+
+    def blocking(self, data: dict, job_id: str) -> list[str]:
+        """The waits holding a build item's start but its waits on its own PRs, which a text it holds, such as the STAGE line drive pr wake holds on it, outranks."""
+        own = {state.pr_key(url) for url in data["jobs"][job_id]["prs"]}
+        return [wait for wait in super().blocking(data, job_id) if wait not in own]
 
     def stack(self, data: dict, job: dict) -> tuple:
         """The stack an item builds on: its repo and branch, or its order while it names no branch."""

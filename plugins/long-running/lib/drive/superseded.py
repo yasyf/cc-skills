@@ -524,7 +524,7 @@ def delivery(data: dict, job_id: str, job: dict, text: str, what: str = "his wor
     if job.get("agent") or job.get("dispatch"):
         return state.job_lane(data, job), f"drive job resume {job_id} with {what} verbatim"
     if state.adopted_pr_job(data, job):
-        return state.job_lane(data, job), f"drive job launch {job_id} --handoff \"<{', '.join(job['prs'])}, its head and {what} verbatim>\", starting the first builder of its adopted PR"
+        return state.job_lane(data, job), f"drive pr wake {job['prs'][0]} --job {job_id} --text \"<{what} verbatim>\", which holds it on {job_id}, a build item of the work queue whose next build worker carries it to its PR's branch"
     return state.job_lane(data, job), f"drive job launch {job_id} on its FREE line, which carries each answer of his it has not heard to its first worker"
 
 

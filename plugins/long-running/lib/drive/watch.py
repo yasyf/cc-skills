@@ -5223,9 +5223,11 @@ def spawn_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
     if watcher.project:
         return []
-    for job_id in work.unbriefed(state.load(watcher.name), moment, UNSTARTED_FOR):
+    data = state.load(watcher.name)
+    for job_id in work.unbriefed(data, moment, UNSTARTED_FOR):
+        prs = data["jobs"][job_id]["prs"]
         try:
-            cli.write_brief(watcher.name, job_id, {})
+            cli.write_brief(watcher.name, job_id, {"handoff": f"An event on {', '.join(prs)} needs action: its line is below, and you build it on that PR's branch"} if prs else {})
         except cli.VERB_ERRORS as error:
             state.write(watcher.name, lambda data, job_id=job_id, error=error: data["jobs"][job_id].update(brief_error=cut(str(error), 300)), budget=state.WATCH_WRITE_SECONDS)
     data = state.load(watcher.name)

@@ -4813,7 +4813,7 @@ def test_a_pr_wake_for_a_builder_the_top_coordinator_started_that_returned_on_a_
     assert state.held_elsewhere(data, "o1", top) is not None
 
 
-def test_a_pr_wake_for_an_adopted_prs_job_launches_its_first_builder_with_the_line_as_its_handoff_and_no_hand_step(
+def test_a_pr_wake_for_an_adopted_prs_job_holds_its_line_once_making_it_a_build_item_the_queue_starts_at_its_pr_with_no_launch_or_hand_step(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship the watch")
@@ -4828,14 +4828,15 @@ def test_a_pr_wake_for_an_adopted_prs_job_launches_its_first_builder_with_the_li
     monkeypatch.setattr(state, "detach", lambda name, argv, log: detached.append((argv, log)) or 0)
     monkeypatch.setattr(tools, "sent", lambda *args: pytest.fail(f"an adopted PR's wake hands no session a step: {args}"))
     line = f"PR {key}: red: it conflicts with main"
-    assert run("pr", "wake", url, "--text", line) == (0, f"{key}: ran drive job launch j1 with this line as its handoff, its output in the drive's relaunches.log")
-    handoff = f"{url} at abc1234def: {line}"
-    assert detached == [(["job", "launch", "j1", "--handoff", handoff], "relaunches.log")]
+    held = f"{key}: held on j1, which is a build item of the work queue, whose next build worker takes it at its PR's branch, so no wake goes out: its worker reads it when its turn starts it"
+    assert run("pr", "wake", url, "--text", line) == (0, held)
+    assert run("pr", "wake", url, "--text", line) == (0, held.replace("held on", "not sent again to"))
     data = state.load(demo)
-    assert view.start_refusal(data, "j1", True) is None
+    assert (detached, [text["words"] for text in data["jobs"]["j1"]["undelivered"]], work.item_of(data, data["jobs"]["j1"]) is work.KIND[work.BUILD], work.KIND[work.BUILD].blocking(data, "j1")) == ([], [f"STAGE {line}"], True, [])
     assert superseded.delivery(data, "j1", data["jobs"]["j1"], line, "this line")[1] == (
-        f'drive job launch j1 --handoff "<{url}, its head and this line verbatim>", starting the first builder of its adopted PR'
+        f"drive pr wake {url} --job j1 --text \"<this line verbatim>\", which holds it on j1, a build item of the work queue whose next build worker carries it to its PR's branch"
     )
+    handoff = f"{url} at abc1234def: {line}"
     assert run("job", "brief", "j1", "--handoff", handoff)[0] == 0
 
 

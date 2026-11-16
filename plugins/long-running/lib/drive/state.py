@@ -2570,12 +2570,8 @@ def untaken(job: dict) -> bool:
     return job["state"] in ("running", "waiting") and not (job["agent"] or job.get("dispatch") or job["prs"])
 
 
-WORKED = ("bg", "worker_started", "codex_run", "returned")
 
 
-def never_worked(job: dict) -> bool:
-    """Whether no worker ever took a live job: untaken, and no session, background start, worker, codex-ask run or return of it was ever recorded, so drive job add may fold into it; a job between runs, holding a Mac box or a lane, has worked."""
-    return untaken(job) and not any(job.get(field) for field in WORKED)
 
 
 def unstarted(job: dict) -> bool:
@@ -3708,37 +3704,6 @@ def works_branch(job: dict, branch: str | None, repo: str | None) -> bool:
     return bool(branch and job["branch"] and {*branch.split(", ")} & {*job["branch"].split(", ")} and not (repo and job["repo"] and repo.casefold() != job["repo"].casefold()))
 
 
-def hand_over(data: dict, held: tuple[str, dict, str], job_id: str, order_id: str, parts: list[str], moment: str, branch: str | None = None, repo: str | None = None) -> str:
-    """Give the job drive job add adds on these parts of an order, or on this branch of the repo, or whose BUILT line names that branch, what the change job change_job found, returned or taken by no worker, carries of them, a part or branch having one change job: those parts, each PR it opened serving one, and each part such a PR serves, since one PR builds one change, a PR serving the parts its row names or else every part of its job, and every part and PR it carries once it works that branch, by works_branch, since a branch has one pusher. The old job stops, handed to the new one, which its handed_to names, with the texts it holds and the waits on it, by hand_off, only when that leaves it no part; else it keeps its other parts and PRs and its state, so a staging tester also carrying another part keeps its staging test; the line saying which."""
-    old_id, old, shared = held
-    lists = [(old["order"], old["parts"]), *old["carries"].items()]
-    carried = {(held_order, part) for held_order, kept in lists for part in kept}
-    served = {url: {(pr["order"], part) for part in pr["parts"]} if (pr := data["prs"].get(pr_key(url))) and pr["parts"] else carried for url in old["prs"]}
-    moved = carried if works_branch(old, branch, repo) else {(order_id, part) for part in parts} & carried
-    while grown := {pair for pairs in served.values() if pairs & moved for pair in pairs} & carried - moved:
-        moved |= grown
-    whole = moved == carried
-    taken = old["prs"] if whole else [url for url, pairs in served.items() if pairs & moved]
-    for held_order, kept in lists:
-        if handed := [part for part in kept if (held_order, part) in moved]:
-            deliver(data, job_id, held_order, handed)
-    for url in taken:
-        if (key := pr_key(url)) in data["prs"]:
-            take_pr(data, job_id, key)
-        elif url not in data["jobs"][job_id]["prs"]:
-            data["jobs"][job_id]["prs"].append(url)
-    named = ", ".join(map(pr_key, taken)) or "no PR"
-    if whole:
-        how = "no worker took it" if untaken(old) else "returned"
-        hand_off(data, {old_id: job_id})
-        old.update(state="stopped", said=f"handed to {job_id}", updated=moment)
-        return f"{job_id} replaces {old_id}, which carried {shared} and {how}, a part or branch having one change job: it takes {old_id}'s parts and {named}, and {old_id} stopped, handed to {job_id}"
-    left = ", ".join(json.dumps(part, ensure_ascii=False) for held_order, kept in lists for part in kept if (held_order, part) not in moved)
-    given = ", ".join(json.dumps(part, ensure_ascii=False) for held_order, kept in lists for part in kept if (held_order, part) in moved)
-    old["parts"] = [part for part in old["parts"] if (old["order"], part) not in moved]
-    old["carries"] = {held_order: kept for held_order, part_list in old["carries"].items() if (kept := [part for part in part_list if (held_order, part) not in moved])}
-    old.update(prs=[url for url in old["prs"] if url not in taken], updated=moment)
-    return f"{job_id} takes {given} and {named} from {old_id}, which returned, a part having one change job; {old_id} keeps {left} and stays {old['state']}"
 
 
 def done_at_merge(job: dict) -> bool:

@@ -1961,24 +1961,11 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
             raise DriveError(f"refused, no job added: {refused}")
         order["owner"] = order["owner"] or state.session_role(data, session)
         took = []
-        folds = held and state.never_worked(held[1])
-        sibling = held and not folds and state.untaken(held[1])
-        if folds:
-            job_id, job, shared = held
-            job.update({field: value for field, value in given.items() if value is not None}, updated=created)
-            job["waits"] = list(dict.fromkeys([*job["waits"], *waits]))
-            if cycle := state.cycle_refusal(data, job_id, job["waits"]):
-                raise DriveError(f"refused, no job added: {job_id}, which this add folds into: {cycle}")
-            state.deliver(data, job_id, args.order, parts)
-            took.append(f"{job_id} carried {shared} and no worker took it, so this add folded into it, a part or branch having one change job: its goal is this add's and its waits gained this add's")
-        else:
-            job_id = state.next_id(data["jobs"], "j")
-            job = data["jobs"][job_id] = fresh | given | {"where": given["where"] or "local", "waits": waits}
-            order["jobs"].append(job_id)
-        if sibling:
-            took.append(f"{held[0]} carries {held[2]} and has worked, between runs or at work, so this add left it as it is and added {job_id} beside it on the same parts")
-        elif held and not folds:
-            took.append(state.hand_over(data, held, job_id, args.order, parts, created, args.branch, args.repo))
+        job_id = state.next_id(data["jobs"], "j")
+        job = data["jobs"][job_id] = fresh | given | {"where": given["where"] or "local", "waits": [*waits, *([held[0]] if held else [])]}
+        order["jobs"].append(job_id)
+        if held:
+            took.append(f"{held[0]} carries {held[2]}, a part or branch having one change job, so {job_id} waits on it and the work queue starts {job_id} once {held[0]} finishes")
         slotted = ""
         if args.release:
             job["brief_flags"] = (job.get("brief_flags") or {}) | {"release": args.release}
@@ -2259,13 +2246,13 @@ def refuse_a_mark_off_a_builder(kind: str, builds_nothing: bool | None) -> None:
 def one_change_job(
     data: dict, order_id: str, kind: str, parts: list[str], held: tuple[str, dict, str], waits: list[str], adds: bool = True, branch: str | None = None, repo: str | None = None, job_id: str | None = None
 ) -> str | None:
-    """Why a builder or codex job may not take parts or a branch another unfinished one carries, a part or branch having one change job: while that job runs it takes the event itself; parts or a branch two such jobs carry name no one job; and drive job set gives no job a part or branch such a job carries, which drive job add hands that job, folding into it while no worker took it and taking those parts, or that branch's whole work, from it once it returned, by state.hand_over, as a BUILT line on that branch takes it."""
+    """Why a builder or codex job may not take parts or a branch another unfinished one carries, a part or branch having one change job: while that job runs it takes the event itself; parts or a branch two such jobs carry name no one job; and drive job set gives no job a part or branch such a job carries: a job drive job add adds there, or one whose BUILT line names that branch, waits on that job, which the work queue starts once it finishes."""
     held_id, other, shared = held
     carries = f"{held_id} {other['kind']} {other['state']} carries {shared} already"
     if other["state"] == "running" and not state.untaken(other):
         return f'{carries}, so a second {kind} would race it on one change: send it the event with drive job resume {held_id} "<the event>", or stop it with drive job set {held_id} --state stopped before adding the job that replaces it'
     if not adds:
-        return f"{carries}, and a part or branch has one change job: drive job add {kind} --order {order_id} on that part or branch takes its place, or stop it first with drive job set {held_id} --state stopped"
+        return f"{carries}, and a part or branch has one change job: drive job add {kind} --order {order_id} on that part or branch adds one that waits on it, or stop it first with drive job set {held_id} --state stopped"
     second = state.change_job(data, order_id, parts, [*waits, held_id], job_id, branch, repo)
     return f"{carries}, and {second[0]} {second[1]['kind']} {second[1]['state']} carries {second[2]}: a part or branch has one change job, so name the parts or branch of one of them" if second else None
 
@@ -3815,7 +3802,10 @@ def take_report(name: str, job_id: str, whole: str, read_prs: bool = True, tell:
     def reported(data: dict):
         data["jobs"][job_id]["cut_misses"] = misses
         held = built and state.change_job(data, job["order"], [], data["jobs"][job_id]["waits"], job_id, built["branch"], job["repo"], proving=state.builds_nothing(job))
-        replaced = [state.hand_over(data, held, job_id, job["order"], [], state.stamp(), built["branch"], job["repo"])] if held else []
+        replaced = []
+        if held:
+            data["jobs"][job_id]["waits"] = list(dict.fromkeys([*data["jobs"][job_id]["waits"], held[0]]))
+            replaced = [f"{job_id} built on {built['branch']}, which {held[0]} carries, a branch having one change job, so {job_id} waits on {held[0]} and the work queue starts it again once {held[0]} finishes"]
         state.take_result(data, job_id, line, whole)
         state.cite_designs(data, job_id, line, whole)
         added = state.add_changes(name, data, job_id, whole, removing)
@@ -5726,7 +5716,7 @@ def wake_pr(args: argparse.Namespace) -> int:
         job_id = None
     pr = data["prs"][key]
     job = data["jobs"][target]
-    if job_id and (turn := slot_turn(data, job_id)):
+    if job_id and ((turn := slot_turn(data, job_id)) or state.adopted_pr_job(data, job) and (turn := "is a build item of the work queue, whose next build worker takes it at its PR's branch")):
         def turned(held: dict) -> bool:
             heads = held["jobs"][job_id].setdefault("stage_heads", {})
             if heads.get(key) == held["prs"][key]["head"]:
@@ -5737,9 +5727,6 @@ def wake_pr(args: argparse.Namespace) -> int:
 
         kept = state.write(name, turned)
         return emit(args, f"{key}: {'held on' if kept else 'not sent again to'} {job_id}, which {turn}, so no wake goes out: its worker reads it when its turn starts it", {"key": key, "job": job_id, "how": "held" if kept else None})
-    if job_id and state.adopted_pr_job(data, job):
-        state.detach(name, ["job", "launch", job_id, "--handoff", f"{pr['url']} at {pr['head']}: {text}"], watch.RELAUNCHES_LOG)
-        return emit(args, f"{key}: ran drive job launch {job_id} with this line as its handoff, its output in the drive's {watch.RELAUNCHES_LOG}", {"key": key, "job": job_id, "how": "launch"})
     if job_id:
         queued = superseded.in_line(data, job_id, job)
         fresh = superseded.fresh_builder(data, job_id, job, text, "this line")

@@ -598,17 +598,18 @@ with no card or question first:
   [landing.md](landing.md#after-merge). A release he started himself stays running as he left it:
   tell him what you see unless his words hand it to you.
 
-**Answers resume. PR events start fresh.** His answer to a job's `ASK` goes back by `SendMessage`
+**Answers resume. PR events go back to the item.** His answer to a job's `ASK` goes back by `SendMessage`
 to its agent, or `drive job resume <j> -` with it on stdin for a remote lane or an agent another
 session started. There it prints a handoff brief's `Read your brief first:` line, and the agent you
-start on it takes the job as yours. A PR event after a builder returned gets a fresh builder, since
-a resumed one re-reads all it ever did on every event. The `communicator_calls` hook refuses
+start on it takes the job as yours. A PR event on a build item's PR goes back to that item:
+`drive pr wake` holds the event's `STAGE` line on it once per head, and the work queue's next build
+worker takes it on its PR's branch, never a resumed builder that would re-read all it ever did. The `communicator_calls` hook refuses
 `SendMessage` to a builder that returned `BUILT` or `DONE` outside an incident, unless it carries
-an answer of his the job holds. Run `drive job add builder` for the same order and parts. It takes
-each PR the old job opened that serves them and stops it `handed to <new>`, or takes a failed job's
-open PRs and stops it `replaced by <new>`. Then write its brief with the `Handoff:` line. A built
-job's `FREE` line is a PR event too: the `Handoff:` names the built branch, and the drive writes
-his answer to each card it waited on into the brief. An incident's job is resumed for every event,
+an answer of his the job holds. A `drive job add builder` on a part or branch an unfinished
+builder or codex job carries waits on that job, and the queue starts it once that job finishes; a
+failed job a later one carries stops `replaced by <new>`. A built
+item whose cards are answered goes back to the queue the same way: its brief names the built
+branch, and the drive writes his answer to each card it waited on into it before a worker pulls it. An incident's job is resumed for every event,
 by [incidents.md](incidents.md), because minutes matter more there than tokens.
 
 **Session settings.** The roots compact at 400,000 tokens, the communicator at 300,000, and every

@@ -5553,20 +5553,20 @@ def test_a_build_orders_designer_and_builder_are_added_waiting_on_its_reader_sti
     added = run("job", "add", "design", "--order", "o1", "--part", "design options", "--goal", "cards", "--waits", "j1")
     assert added == (0, "j3\nj3 waits on j1: start no agent for it until the watch's FREE line says its last wait ended")
     assert run("job", "add", "builder", "--order", "o1", "--part", "control freak", "--goal", "build it", "--waits", "j1")[1].splitlines()[:2] == [
-        "j2",
-        'j2 carried "control freak" and no worker took it, so this add folded into it, a part or branch having one change job: its goal is this add\'s and its waits gained this add\'s',
+        "j4",
+        'j2 carries "control freak", a part or branch having one change job, so j4 waits on it and the work queue starts j4 once j2 finishes',
     ]
     jobs = state.load("demo")["jobs"]
-    assert [(jobs[job_id]["state"], jobs[job_id]["waits"], jobs[job_id]["agent"]) for job_id in ("j2", "j3")] == [("waiting", ["j1"], None)] * 2
-    assert (jobs["j2"]["goal"], "j4" in jobs) == ("build it", False)
+    assert [(jobs[job_id]["state"], jobs[job_id]["waits"], jobs[job_id]["agent"]) for job_id in ("j3", "j4")] == [("waiting", ["j1"], None), ("waiting", ["j1", "j2"], None)]
+    assert jobs["j4"]["goal"] == "build it"
     assert cli.main(["job", "add", "builder", "--part", "control freak", "--waits", "j1", "--agent", "a", "--order", "o1", "--goal", "x"]) == 2
     assert "--waits records a job whose agent starts on the watch's FREE line" in capsys.readouterr().err
-    assert run("job", "add", "reader", "--order", "o1", "--part", "answer", "--goal", "audit it", "--waits", "j1")[1].splitlines()[0] == "j4"
+    assert run("job", "add", "reader", "--order", "o1", "--part", "answer", "--goal", "audit it", "--waits", "j1")[1].splitlines()[0] == "j5"
     keep(monkeypatch, capsys, "j1", RESEARCH)
     assert cli.main(["job", "add", "builder", "--order", "o1", "--part", "control freak", "--goal", "x", "--waits", "j1"]) == 2
     assert "--waits j1: j1 is done, so nothing of it is left to wait on" in capsys.readouterr().err
-    assert run("job", "add", "builder", "--order", "o1", "--part", "control freak", "--goal", "x", "--waits", "j4")[1].splitlines()[0] == "j2"
-    assert "j4" in state.load("demo")["jobs"]["j2"]["waits"]
+    assert cli.main(["job", "add", "builder", "--order", "o1", "--part", "control freak", "--goal", "x", "--waits", "j5"]) == 2
+    assert 'and j4 builder waiting carries "control freak": a part or branch has one change job' in capsys.readouterr().err
 
 
 def test_a_readers_builder_builds_its_parts_and_each_later_readers_done_rebriefs_it_on_the_newest_research_until_an_agent_takes_it(
@@ -9848,7 +9848,7 @@ def test_an_order_lists_its_parts_and_each_job_names_the_ones_it_delivers(run: R
     assert [question["card"] for question in data["jobs"]["j1"]["questions"]] == ["https://acme.slack.com/archives/D1/p1"]
 
 
-def test_a_change_job_added_on_a_part_another_unfinished_one_carries_folds_into_it_is_refused_while_it_runs_and_replaces_it_once_it_returned(
+def test_a_change_job_added_on_a_part_another_unfinished_one_carries_waits_on_it_and_is_refused_while_it_runs(
     home_repo: None,
     run: Run, demo: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -9857,28 +9857,27 @@ def test_a_change_job_added_on_a_part_another_unfinished_one_carries_folds_into_
     run("job", "add", "builder", "--order", "o1", "--goal", "spike 1", "--part", "spike 1")
     assert run("job", "add", "codex", "--order", "o1", "--goal", "spikes 1-2: restore cost", "--part", "spike 1", "--part", "spike 2") == (
         0,
-        'j1\nj1 carried "spike 1" and no worker took it, so this add folded into it, a part or branch having one change job: its goal is this add\'s and its waits gained this add\'s',
-    )
-    job = state.load("demo")["jobs"]["j1"]
-    assert (job["kind"], job["goal"], job["parts"]) == ("codex", "spikes 1-2: restore cost", ["spike 1", "spike 2"])
-    run("job", "add", "builder", "--order", "o1", "--goal", "spike 3", "--part", "spike 3")
-    assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "spikes", "--part", "spike 3", "--part", "spike 2"]) == 2
-    assert 'j1 codex waiting carries "spike 2" already, and j2 builder waiting carries "spike 3": a part or branch has one change job' in capsys.readouterr().err
-    run("job", "set", "j1", "--agent", "a1")
-    assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "spike 2 again", "--part", "spike 2"]) == 2
-    assert 'refused, no job added: j1 codex running carries "spike 2" already, so a second builder would race it on one change: send it the event with drive job resume j1' in capsys.readouterr().err
-    assert cli.main(["job", "set", "j2", "--part", "spike 1"]) == 2
-    assert 'j2: refused, nothing changed: j1 codex running carries "spike 1" already, so a second builder would race it' in capsys.readouterr().err
-    with edit("demo") as data:
-        data["prs"][key] = state.new_pr(url, "j1", "o1")
-        data["jobs"]["j1"].update(state="waiting", prs=[url])
-    assert run("job", "add", "builder", "--order", "o1", "--goal", "spike 2 again", "--part", "spike 2") == (
-        0,
-        f'j3\nj3 replaces j1, which carried "spike 2" and returned, a part or branch having one change job: it takes j1\'s parts and {key}, and j1 stopped, handed to j3',
+        'j2\nj1 carries "spike 1", a part or branch having one change job, so j2 waits on it and the work queue starts j2 once j1 finishes',
     )
     data = state.load("demo")
-    assert (data["jobs"]["j3"]["parts"], data["jobs"]["j3"]["prs"], data["prs"][key]["job"]) == (["spike 2", "spike 1"], [url], "j3")
-    assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["said"], data["jobs"]["j1"]["handed_to"]) == ("stopped", "handed to j3", "j3")
+    assert (data["jobs"]["j1"]["goal"], data["jobs"]["j2"]["kind"], data["jobs"]["j2"]["parts"], data["jobs"]["j2"]["waits"]) == ("spike 1", "codex", ["spike 1", "spike 2"], ["j1"])
+    run("job", "add", "builder", "--order", "o1", "--goal", "spike 3", "--part", "spike 3")
+    assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "spikes", "--part", "spike 3", "--part", "spike 2"]) == 2
+    assert 'j2 codex waiting carries "spike 2" already, and j3 builder waiting carries "spike 3": a part or branch has one change job' in capsys.readouterr().err
+    run("job", "set", "j2", "--agent", "a1")
+    assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "spike 2 again", "--part", "spike 2"]) == 2
+    assert 'refused, no job added: j2 codex running carries "spike 2" already, so a second builder would race it on one change: send it the event with drive job resume j2' in capsys.readouterr().err
+    assert cli.main(["job", "set", "j3", "--part", "spike 1"]) == 2
+    assert 'j3: refused, nothing changed: j1 builder waiting carries "spike 1" already, and a part or branch has one change job: drive job add builder --order o1 on that part or branch adds one that waits on it' in capsys.readouterr().err
+    with edit("demo") as data:
+        data["prs"][key] = state.new_pr(url, "j2", "o1")
+        data["jobs"]["j2"].update(state="waiting", prs=[url])
+    assert run("job", "add", "builder", "--order", "o1", "--goal", "spike 2 again", "--part", "spike 2") == (
+        0,
+        'j4\nj2 carries "spike 2", a part or branch having one change job, so j4 waits on it and the work queue starts j4 once j2 finishes',
+    )
+    data = state.load("demo")
+    assert (data["jobs"]["j4"]["parts"], data["jobs"]["j4"]["waits"], data["prs"][key]["job"], data["jobs"]["j2"]["state"]) == (["spike 2"], ["j2"], "j2", "waiting")
 
 
 def test_a_pr_staging_runs_no_copy_of_prints_its_production_dry_run_plan_and_takes_his_exception(run: Run, with_pr: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -9952,17 +9951,17 @@ def test_a_job_waiting_on_a_mac_box_is_freed_once_the_pool_hands_it_one(run: Run
     assert run("mac-box", "handed", "j1", "j1-prod")[0] != 0
 
 
-def test_a_change_job_added_on_a_part_a_job_between_runs_carries_is_a_new_job_beside_it_never_folded_into_it(run: Run, demo: str) -> None:
+def test_a_change_job_added_on_a_part_a_job_between_runs_carries_is_a_new_job_waiting_on_it(run: Run, demo: str) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "test the app on a Mac", "--parts", "mac test pass")
     run("job", "add", "codex", "--order", "o1", "--goal", "test the app on your own Mac box", "--part", "mac test pass")
     with edit("demo") as data:
         data["jobs"]["j1"].update(state="waiting", said="WAITING mac-box j1-prod is up", session="s1", worker_started=state.stamp(), codex_run={"pid": 1})
     code, out = run("job", "add", "builder", "--order", "o1", "--goal", "build the production sign-in", "--part", "mac test pass")
     assert (code, out.splitlines()[0]) == (0, "j2")
-    assert 'j1 carries "mac test pass" and has worked, between runs or at work, so this add left it as it is and added j2 beside it on the same parts' in out
+    assert 'j1 carries "mac test pass", a part or branch having one change job, so j2 waits on it and the work queue starts j2 once j1 finishes' in out
     data = state.load("demo")
     assert (data["jobs"]["j1"]["kind"], data["jobs"]["j1"]["goal"], data["jobs"]["j1"]["state"]) == ("codex", "test the app on your own Mac box", "waiting")
-    assert (data["jobs"]["j2"]["kind"], data["jobs"]["j2"]["parts"]) == ("builder", ["mac test pass"])
+    assert (data["jobs"]["j2"]["kind"], data["jobs"]["j2"]["parts"], data["jobs"]["j2"]["waits"]) == ("builder", ["mac test pass"], ["j1"])
 
 
 def test_a_change_job_added_on_one_part_of_a_returned_job_takes_that_part_and_its_pr_and_stops_the_job_only_once_it_is_left_no_part(run: Run, demo: str) -> None:
@@ -9987,7 +9986,7 @@ def test_a_change_job_added_on_one_part_of_a_returned_job_takes_that_part_and_it
     assert state.load("demo")["jobs"]["j1"]["state"] == "stopped"
 
 
-def test_a_change_job_on_a_branch_another_unfinished_one_works_in_its_repo_on_any_order_folds_into_it_is_refused_while_it_runs_and_replaces_it_once_it_returned(
+def test_a_change_job_on_a_branch_another_unfinished_one_works_in_its_repo_on_any_order_waits_on_it_and_is_refused_while_it_runs(
     home_repo: None,
     run: Run, demo: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -9997,32 +9996,27 @@ def test_a_change_job_on_a_branch_another_unfinished_one_works_in_its_repo_on_an
     run("job", "add", "builder", "--order", "o1", "--goal", "spike 1", "--part", "spike 1", "--repo", "acme/app", "--branch", "one-pusher")
     assert run("job", "add", "builder", "--order", "o2", "--goal", "next 1", "--part", "next 1", "--repo", "ACME/app", "--branch", "one-pusher") == (
         0,
-        "j1\nj1 carried branch one-pusher and no worker took it, so this add folded into it, a part or branch having one change job: its goal is this add's and its waits gained this add's",
+        "j2\nj1 carries branch one-pusher, a part or branch having one change job, so j2 waits on it and the work queue starts j2 once j1 finishes",
     )
-    assert state.load("demo")["jobs"]["j1"]["carries"] == {"o2": ["next 1"]}
-    assert run("job", "add", "builder", "--order", "o2", "--goal", "next 2", "--part", "next 2", "--repo", "acme/other", "--branch", "one-pusher")[1].splitlines()[0] == "j2"
+    assert state.load("demo")["jobs"]["j2"]["waits"] == ["j1"]
+    assert run("job", "add", "builder", "--order", "o2", "--goal", "next 2", "--part", "next 2", "--repo", "acme/other", "--branch", "one-pusher")[1].splitlines() == ["j3"]
     run("job", "set", "j1", "--agent", "a1")
     assert cli.main(["job", "add", "builder", "--order", "o2", "--goal", "next 3", "--part", "next 3", "--branch", "one-pusher"]) == 2
     assert "refused, no job added: j1 builder running carries branch one-pusher already, so a second builder would race it on one change" in capsys.readouterr().err
     run("job", "add", "builder", "--order", "o1", "--goal", "spike 2", "--part", "spike 2")
-    assert cli.main(["job", "set", "j3", "--branch", "one-pusher"]) == 2
-    assert "j3: refused, nothing changed: j1 builder running carries branch one-pusher already, so a second builder would race it" in capsys.readouterr().err
+    assert cli.main(["job", "set", "j4", "--branch", "one-pusher"]) == 2
+    assert "j4: refused, nothing changed: j1 builder running carries branch one-pusher already, so a second builder would race it" in capsys.readouterr().err
     with edit("demo") as data:
         data["prs"][key] = state.new_pr(url, "j1", "o1")
         data["jobs"]["j1"].update(state="waiting", prs=[url])
-    assert cli.main(["job", "set", "j3", "--branch", "one-pusher"]) == 2
-    assert "j3: refused, nothing changed: j1 builder waiting carries branch one-pusher already, and a part or branch has one change job" in capsys.readouterr().err
-    assert state.load("demo")["jobs"]["j3"]["branch"] is None
-    assert run("job", "add", "builder", "--order", "o1", "--goal", "spike 3", "--part", "spike 3", "--repo", "acme/app", "--branch", "one-pusher") == (
-        0,
-        f"j4\nj4 replaces j1, which carried branch one-pusher and returned, a part or branch having one change job: it takes j1's parts and {key}, and j1 stopped, handed to j4",
-    )
-    data = state.load("demo")
-    assert (data["jobs"]["j4"]["parts"], data["jobs"]["j4"]["carries"], data["prs"][key]["job"]) == (["spike 3", "spike 1"], {"o2": ["next 1"]}, "j4")
-    assert (data["jobs"]["j1"]["state"], data["jobs"]["j2"]["state"]) == ("stopped", "waiting")
+    assert cli.main(["job", "set", "j4", "--branch", "one-pusher"]) == 2
+    assert "j4: refused, nothing changed: j1 builder waiting carries branch one-pusher already, and a part or branch has one change job" in capsys.readouterr().err
+    assert state.load("demo")["jobs"]["j4"]["branch"] is None
+    assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "spike 3", "--part", "spike 3", "--repo", "acme/app", "--branch", "one-pusher"]) == 2
+    assert "and j2 builder waiting carries branch one-pusher: a part or branch has one change job" in capsys.readouterr().err
 
 
-def test_a_built_line_on_a_branch_another_unfinished_change_job_works_is_refused_while_it_runs_and_replaces_it_once_it_returned(
+def test_a_built_line_on_a_branch_another_unfinished_change_job_works_is_refused_while_it_runs_and_waits_on_it_once_it_returned(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     url, key = "https://github.com/acme/app/pull/56", "acme/app#56"
@@ -10040,10 +10034,9 @@ def test_a_built_line_on_a_branch_another_unfinished_change_job_works_is_refused
     monkeypatch.setattr("sys.stdin", io.StringIO(built))
     code, out = run("job", "report", "j1", "-")
     assert code == 0
-    assert f"j1 replaces j2, which carried branch one-pusher and returned, a part or branch having one change job: it takes j2's parts and {key}, and j2 stopped, handed to j1" in out.splitlines()
+    assert "j1 built on one-pusher, which j2 carries, a branch having one change job, so j1 waits on j2 and the work queue starts it again once j2 finishes" in out.splitlines()
     data = state.load("demo")
-    assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["branch"], data["jobs"]["j1"]["carries"], data["prs"][key]["job"]) == ("built", "one-pusher", {"o2": ["Other title"]}, "j1")
-    assert (data["jobs"]["j2"]["state"], data["jobs"]["j2"]["said"]) == ("stopped", "handed to j1")
+    assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["branch"], "j2" in data["jobs"]["j1"]["waits"], data["prs"][key]["job"], data["jobs"]["j2"]["state"]) == ("built", "one-pusher", True, "j2", "waiting")
 
 
 def test_the_immediate_fix_a_sub_coordinators_builder_runs_takes_no_second_change_job_and_no_step_of_the_top_coordinator(

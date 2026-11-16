@@ -177,7 +177,7 @@ His rulings already live in cc-notes answers.
   owed, such as a review finding not yet answered, a step after its merge like a fill, or a plan a
   ruling of his touches, gets a builder with a handoff in the same turn, since no event comes for
   work nobody is doing.
-- Otherwise the watch's wake starts its builder when an event needs action: failed checks,
+- Otherwise the watch's wake holds the event on it as a build item, which the work queue's next build worker takes, when an event needs action: failed checks,
   requested changes, a conflict, a new head, or his tap. It runs
   `drive job launch <j> --handoff "<the PR> at <its head>: <the line>"`.
 - Ask an implementation session that is mid-change to push and stop on the cci `post` tool:
