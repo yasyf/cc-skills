@@ -943,6 +943,17 @@ def head_failures(repo: str, head: str) -> dict[str, dict]:
     return {test: {"run": run["html_url"], "workflow": run["workflow_id"]} for run in newest.values() if run["conclusion"] == "failure" for test in run_failures(repo, run["id"])}
 
 
+def base_failures(repo: str, workflow: int, merged: str) -> list[str] | None:
+    """The tests failed by the newest completed run not cancelled of a workflow on repo's default branch at the commit a merge landed on, the merge commit's first parent, so a failure main already had at the PR's base is never the PR's: none when it passed, and None when no run there finished."""
+    base = github.read(f"{repo}'s parent of {merged[:12]}", ["gh", "api", f"repos/{repo}/commits/{merged}", "--jq", ".parents[0].sha"]).strip()
+    jq = '[.workflow_runs[] | select(.conclusion != "cancelled") | {id, conclusion}] | first | tojson'
+    query = f"branch={github.default_branch(repo)}&status=completed&head_sha={base}&per_page=100"
+    run = json.loads(github.read(f"{repo}'s runs of workflow {workflow} at {base[:12]}", ["gh", "api", f"repos/{repo}/actions/workflows/{workflow}/runs?{query}", "--jq", jq]))
+    if run is None:
+        return None
+    return [] if run["conclusion"].upper() in github.PASSED else run_failures(repo, run["id"])
+
+
 def main_failures(repo: str, workflow: int, created: str) -> list[str] | None:
     """The tests failed by the newest completed run not cancelled of a workflow on repo's default branch among those created in a GitHub date range, such as <2026-11-13T13:05:55Z: none when it passed, and None when no such run finished or its failure names no test, as a timeout's does, so it says nothing of any test. The filter ends in tojson because gh's --jq prints a null result as an empty line, never as null."""
     jq = '[.workflow_runs[] | select(.conclusion != "cancelled") | {id, conclusion}] | first | tojson'

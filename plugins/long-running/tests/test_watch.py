@@ -6923,6 +6923,7 @@ def test_a_test_a_yasyf_merges_own_run_broke_on_main_wakes_its_builder_until_mai
     monkeypatch.setattr(install, "head_failures", lambda repo, head: {test: {"run": run, "workflow": 1}})
     monkeypatch.setattr(install, "merged_at", lambda repo, sha: since)
     monkeypatch.setattr(install, "main_failures", lambda repo, workflow, created: [] if created == f"<{since}" else main["after"])
+    monkeypatch.setattr(install, "base_failures", lambda repo, workflow, merged: [])
     serve(monkeypatch, {})
     watching, passes = watcher(demo), []
     for minutes, mark, after in ((0, "m1", None), (10, "m1", None), (30, "m1", None), (31, "m2", [])):
@@ -6940,9 +6941,20 @@ def test_a_merge_owns_only_the_tests_its_own_run_failed_that_main_passed_before_
     monkeypatch.setattr(install, "head_failures", lambda repo, head: {test: {"run": run, "workflow": 1} for test in ("t.py::old", "t.py::fixed", "t.py::new")})
     monkeypatch.setattr(install, "merged_at", lambda repo, sha: "2026-11-09T14:50:00Z")
     monkeypatch.setattr(install, "main_failures", lambda repo, workflow, created: ["t.py::old"] if created.startswith("<") else ["t.py::old", "t.py::new"])
+    monkeypatch.setattr(install, "base_failures", lambda repo, workflow, merged: [])
     pr = state.new_pr(state.pr_url("yasyf/cc-skills#5"), "j3", "o3") | {"state": "merged", "head": "bbbbbbb222", "merged_sha": "ccc333ddd444"}
     assert watch.broken("yasyf/cc-skills", pr | {"checks": "fail"}) == {"t.py::new": {"run": run, "workflow": 1, "since": "2026-11-09T14:50:00Z"}}
     assert watch.broken("yasyf/cc-skills", pr | {"checks": "pass"}) == {}
+
+
+def test_a_merge_over_a_red_main_owns_no_test_mains_run_at_its_base_already_failed_as_6056_was_blamed_for_36cf915ecs_reds(monkeypatch: pytest.MonkeyPatch) -> None:
+    run = "https://github.com/yasyf/cc-skills/actions/runs/43861127742"
+    monkeypatch.setattr(install, "head_failures", lambda repo, head: {test: {"run": run, "workflow": 1} for test in ("t.py::red_at_base", "t.py::new")})
+    monkeypatch.setattr(install, "merged_at", lambda repo, sha: "2026-11-16T11:40:00Z")
+    monkeypatch.setattr(install, "main_failures", lambda repo, workflow, created: [] if created.startswith("<") else ["t.py::red_at_base", "t.py::new"])
+    monkeypatch.setattr(install, "base_failures", lambda repo, workflow, merged: ["t.py::red_at_base"])
+    pr = state.new_pr(state.pr_url("yasyf/cc-skills#6056"), "j6739", "o1") | {"state": "merged", "head": "c8248da507", "merged_sha": "8e1f00aa", "checks": "fail"}
+    assert list(watch.broken("yasyf/cc-skills", pr)) == ["t.py::new"]
 
 
 def test_a_merge_owns_no_test_while_mains_last_run_before_it_names_none_as_6041_was_handed_the_166_main_failed_already(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -6950,6 +6962,7 @@ def test_a_merge_owns_no_test_while_mains_last_run_before_it_names_none_as_6041_
     monkeypatch.setattr(install, "head_failures", lambda repo, head: {test: {"run": run, "workflow": 1} for test in ("t.py::old", "t.py::new")})
     monkeypatch.setattr(install, "merged_at", lambda repo, sha: "2026-11-16T09:19:59Z")
     monkeypatch.setattr(install, "main_failures", lambda repo, workflow, created: None if created.startswith("<") else ["t.py::old", "t.py::new"])
+    monkeypatch.setattr(install, "base_failures", lambda repo, workflow, merged: [])
     pr = state.new_pr(state.pr_url("yasyf/cc-skills#6041"), "j334", "o36") | {"state": "merged", "head": "55b16b5a9f47", "merged_sha": "323748450b82", "checks": "fail"}
     assert watch.broken("yasyf/cc-skills", pr) == {}
 
@@ -6977,6 +6990,7 @@ def test_a_test_main_fails_has_one_fixer_the_first_job_to_claim_it_and_every_oth
     monkeypatch.setattr(install, "head_failures", lambda repo, head: failing)
     monkeypatch.setattr(install, "merged_at", lambda repo, sha: "2026-11-09T14:50:00Z")
     monkeypatch.setattr(install, "main_failures", lambda repo, workflow, created: [] if created.startswith("<") else [test])
+    monkeypatch.setattr(install, "base_failures", lambda repo, workflow, merged: [])
     watching = watcher(demo)
     for minutes in (0, 31, 62):
         watch.main_lines(watching, T0 + timedelta(minutes=minutes))

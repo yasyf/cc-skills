@@ -587,7 +587,7 @@ def main_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def broken(repo: str, pr: dict) -> dict[str, dict]:
-    """The tests a merged PR broke on main: each its own run failed at its head that main's last finished run before the merge passed and no finished main run since has passed, with that run's link, its workflow and when the merge landed; none once its run passed, and none of a workflow whose last run before the merge says nothing of any test, by install.main_failures, since main may have failed them already."""
+    """The tests a merged PR broke on main: each its own run failed at its head that main's run at the PR's base, the commit it merged onto, did not already fail, by install.base_failures, so a merge over a red main is never named for main's own reds, and that main's last finished run before the merge passed and no finished main run since has passed, with that run's link, its workflow and when the merge landed; none once its run passed, and none of a workflow whose last run before the merge says nothing of any test, by install.main_failures, since main may have failed them already."""
     if pr["checks"] != "fail":
         return {}
     failures = install.head_failures(repo, pr["head"])
@@ -597,7 +597,8 @@ def broken(repo: str, pr: dict) -> dict[str, dict]:
         if (before := install.main_failures(repo, workflow, f"<{since}")) is None:
             continue
         after = install.main_failures(repo, workflow, f">={since}")
-        found |= {test: failure | {"since": since} for test, failure in failures.items() if failure["workflow"] == workflow and test not in before and (after is None or test in after)}
+        based = install.base_failures(repo, workflow, pr["merged_sha"]) or []
+        found |= {test: failure | {"since": since} for test, failure in failures.items() if failure["workflow"] == workflow and test not in before and test not in based and (after is None or test in after)}
     return found
 
 
