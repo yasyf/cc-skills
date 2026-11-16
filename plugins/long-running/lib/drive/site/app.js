@@ -460,16 +460,22 @@ function filterOf(id) {
   return QUEUE_FILTERS.some(([filter]) => filter === id) ? id : 'all';
 }
 
-function shownQueue(filter, project = route().query.get('project'), stream = route().query.get('stream'), priority = route().query.get('priority')) {
+function shownQueue(filter, project = route().query.get('project'), stream = route().query.get('stream'), priority = route().query.get('priority'), from = queueFrom()) {
   const [, , keep] = QUEUE_FILTERS.find(([id]) => id === filter);
   const members = priority === null ? null : new Set(lensOf(priority)?.members ?? []);
-  const inScope = (item) => (project === null || sameChannel(fileKey(item.project)) === sameChannel(project)) && (stream === null || fileKey(item.workstream) === stream) && (members === null || item.tasks.some((id) => members.has(id)));
+  const cards = from ? pageCards(from) : null;
+  const inScope = (item) => (project === null || sameChannel(fileKey(item.project)) === sameChannel(project)) && (stream === null || fileKey(item.workstream) === stream) && (members === null || item.tasks.some((id) => members.has(id))) && (cards === null || cards.has(answerKey(item)));
   const shown = model.queue.filter((item) => keep(item) && inScope(item) && !(answers.has(answerKey(item)) && !answers.get(answerKey(item)).error));
   return filter === 'question' ? byNeeds(shown) : shown;
 }
 
-function scopeQuery(project = route().query.get('project'), stream = route().query.get('stream'), priority = project === null && stream === null ? route().query.get('priority') : null) {
-  const query = new URLSearchParams([...(project === null ? [] : [['project', project]]), ...(stream === null ? [] : [['stream', stream]]), ...(priority === null ? [] : [['priority', priority]])]);
+function queueFrom() {
+  const slug = route().query.get('page');
+  return slug === null ? null : model.pages.find((page) => page.slug === slug) ?? null;
+}
+
+function scopeQuery(project = route().query.get('project'), stream = route().query.get('stream'), priority = project === null && stream === null ? route().query.get('priority') : null, page = route().query.get('page')) {
+  const query = new URLSearchParams([...(project === null ? [] : [['project', project]]), ...(stream === null ? [] : [['stream', stream]]), ...(priority === null ? [] : [['priority', priority]]), ...(page === null ? [] : [['page', page]])]);
   return query.size ? `?${query}` : '';
 }
 
@@ -503,10 +509,10 @@ function current(list) {
   return at;
 }
 
-function queueHref(filter, item) {
-  if (!item?.answer) return `#/queue/${filter}${scopeQuery()}`;
+function queueHref(filter, item, query = scopeQuery()) {
+  if (!item?.answer) return `#/queue/${filter}${query}`;
   const rows = item.card?.prs ?? [];
-  return `#/queue/${filter}/${cardTs(item.answer)}${rows.length > 1 ? `/${prKey(rows[chosenRow(item)].url).split('#')[1]}` : ''}${scopeQuery()}`;
+  return `#/queue/${filter}/${cardTs(item.answer)}${rows.length > 1 ? `/${prKey(rows[chosenRow(item)].url).split('#')[1]}` : ''}${query}`;
 }
 
 function chosenRow(item) {
@@ -892,10 +898,13 @@ function queueScreen(id) {
   const rest = shownQueue('all').length;
   const done = `<div class="focus-card done"><span class="bigcheck" aria-hidden="true">✓</span><h2>${filter === 'all' ? 'Nothing waits on you.' : NONE_LEFT[filter]}</h2>${filter !== 'all' && rest ? `<p><a href="#/queue/all">${rest} other ${rest === 1 ? 'thing waits' : 'things wait'} in All ›</a></p>` : ''}</div>`;
   const shown = item ? { question: decisionCard, tap: prCard }[item.kind](opened(item), at, list.length) : done;
+  const from = queueFrom();
+  const whole = `#/queue/${filter}${item?.answer ? `/${cardTs(item.answer)}` : ''}${scopeQuery(undefined, undefined, undefined, null)}`;
   return `<div class="page-head">
       <div><div class="eyebrow">Your attention</div><h1 class="h1">Priority queue <span class="total-chip">${list.length}</span></h1></div>
       <div class="queue-tools">${queueScope(filter)}<nav class="subtabs" aria-label="Show">${filters}</nav></div>
     </div>
+    ${from ? `<p class="queue-from" role="status"><span>Showing ${esc(counted(list.length, 'card'))} from <a href="#/pages/${encodeURIComponent(from.slug)}">${esc(from.layout?.composed?.headline ?? from.title)}</a></span><a class="chip-x" href="${esc(whole)}">Show all ›</a></p>` : ''}
     <p class="queue-order">${filter === 'question' ? 'Grouped by why each decision needs you, riskiest first; inside a group, ' : ''}${filter === 'question' ? 'most' : 'Most'} urgent first: fixes for live incidents, then finished work waiting on your answer, then what frees the most work, then the oldest. What the drive is answering you on sits last.</p>
     ${unread}
     ${list.length === 1 ? `<div class="queue-current">${priorityChips(item)}</div>` : ''}
@@ -1297,10 +1306,22 @@ function pageSlice(page) {
     features: all.filter((entry) => orders.has(entry.id)),
     edges: detailed?.edges ?? [],
     prs: model.review.filter((entry) => every || orders.has(entry.feature) || prs.has(entry.key)).map((entry) => actable(entry, entry.answer ?? `tap:${entry.key}`, entry.card?.options ?? ['Approve', 'Hold'])),
-    questions: model.queue.filter((item) => item.kind === 'question' && (every || item.tasks.some((id) => orders.has(id)))).map((item) => ({ ...actable(item, item.answer, item.card.options), href: queueHref('all', item) })),
+    questions: model.queue.filter((item) => item.kind === 'question' && (every || item.tasks.some((id) => orders.has(id)))).map((item) => ({ ...actable(item, item.answer, item.card.options), href: queueHref('all', item, scopeQuery(null, null, null, page.slug)) })),
     story: slice(every ? '/api/story' : `/api/story?${new URLSearchParams({ ids: [...orders].join(',') })}`)?.moments ?? [],
     asked: sent.get(`page:${page.slug}`) ?? null,
   };
+}
+
+const pageCardsSeen = new Map();
+
+function pageCards(page) {
+  const seen = pageCardsSeen.get(page.slug);
+  if (seen?.model === model) return seen.keys;
+  const shown = pageSlice(page);
+  const composed = page.layout?.composed ?? defaultLayout(page, shown);
+  const keys = new Set(composed.blocks.filter((block) => block.kind === 'waits').flatMap((block) => [...(block.questions ?? []), ...blockPRs(shown, block.prs ?? []).filter((entry) => entry.group === 'you').map((entry) => entry.answer)]));
+  pageCardsSeen.set(page.slug, { model, keys });
+  return keys;
 }
 
 function feedPages() {
