@@ -243,7 +243,7 @@ def test_a_priority_order_gets_a_coordinator_session_of_its_own_that_hears_it_al
     code, out = run("order", "set", "o1", "--priority")
     data = state.load("demo")
     assert (code, data["orders"]["o1"]["priority"], data["orders"]["o2"]["priority"]) == (0, "Priority o1", None)
-    assert out.endswith("\nstarted the sub-coordinator for Priority o1, which holds this order alone, in Orca terminal term_priority-o11; its project's coordinator hears it until it binds")
+    assert out.splitlines()[1:3] == ["started the sub-coordinator for Priority o1, which holds this order alone, in Orca terminal term_priority-o11; its project's coordinator hears it until it binds", "the communicator for Priority o1 did not start: the drive keeps no channel; drive channels makes them"]
     assert (session_launches.started, data["launched"]["sub-coordinator Priority o1"]) == ([("demo", "coordinator", "Priority o1", data["roles"]["coordinator"]["cwd"])], "term_priority-o11")
     assert [state.order_lane(data, data["orders"][order_id]) for order_id in ("o1", "o2")] == ["sandsql", "sandsql"]
     assert "an earlier drive order set --priority opened" in run("order", "set", "o1", "--priority")[1]
@@ -254,7 +254,7 @@ def test_a_priority_order_gets_a_coordinator_session_of_its_own_that_hears_it_al
     assert [state.order_lane(data, data["orders"][order_id]) for order_id in ("o1", "o2")] == ["priority-o1", "sandsql"]
     assert [state.hears(data, data["orders"]["o1"], project) for project in ("Priority o1", "SandSQL", None)] == [True, False, False]
     assert state.holding_role(data, data["orders"]["o1"]) == ("the sub-coordinator for Priority o1", data["subcoordinators"]["Priority o1"])
-    assert run("order", "set", "o1", "--priority")[1].endswith("the sub-coordinator for Priority o1 is bound, session priority-1, and hears the order")
+    assert "the sub-coordinator for Priority o1 is bound, session priority-1, and hears the order" in run("order", "set", "o1", "--priority")[1].splitlines()
     assert len(session_launches.started) == 1
     assert run("order", "set", "o1", "--no-priority")[0] == 0
     data = state.load("demo")
@@ -269,12 +269,12 @@ def test_a_priority_mark_an_earlier_install_saved_reads_as_its_orders_own_seat_a
     assert [order["priority"] for order in state.load(demo)["orders"].values()] == ["Priority o1", None, None]
 
 
-def test_start_refuses_a_project_to_the_communicator_and_one_no_order_is_filed_under(
+def test_start_refuses_a_communicator_a_project_the_drive_keeps_no_channel_for_and_a_project_no_order_is_filed_under(
     run: Run, demo: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
     assert cli.main(["start", "demo", "--role", "communicator", "--project", "Iris"]) == 2
-    assert capsys.readouterr().err.strip() == "drive: --project binds a sub-coordinator, which holds the coordinator role; the communicator holds no project"
+    assert capsys.readouterr().err.strip() == "drive: --project Iris: the drive keeps no channel for it, so its communicator would hold none; the channels it keeps: none"
     assert cli.main(["start", "demo", "--role", "coordinator", "--project", "Platform"]) == 2
     assert capsys.readouterr().err.strip() == "drive: --project Platform: no order is filed under it; the projects in use: Iris"
     data = state.load("demo")
@@ -8056,7 +8056,8 @@ def test_a_main_fix_is_refused_while_no_workflow_fails_on_the_default_branch_and
     assert (pr["exempt"], pr["wants_tap"], state.exempted(pr), stage.carded(pr)) == ("main fix", True, None, True)
     claimed = state.load("demo")["mains"]["Forge-AI/monorepo"][test]
     assert (claimed["job"], claimed["owner"]) == ("j1", "Forge-AI/monorepo#42")
-    run("job", "add", "builder", "--order", "o1", "--goal", "fix main first")
+    run("order", "add", "--title", "fix main", "--project", "The drive", "--workstream", "Drive tooling", "fix main")
+    run("job", "add", "builder", "--order", "o2", "--goal", "fix main first")
     with state.edit("demo") as data:
         data["mains"]["Forge-AI/monorepo"][test].update(job="j2", owner=None)
         data["jobs"]["j2"]["state"] = "waiting"
@@ -9246,7 +9247,6 @@ def test_status_prints_each_order_its_ids_name_whole_and_closed_ones_too(run: Ru
         "demo: 0 open of 1 orders",
         f"- o1 done: {' '.join(words.split())}",
         f"  parts: \"{state.load('demo')['orders']['o1']['parts'].popitem()[0]}\": delivered",
-        "  - j0 reader done: research: the order",
         f"  - j1 builder done: {' '.join(('one restore code path ' * 8).split())}",
         f"    said: {' '.join(said.split())}",
     ]
@@ -10704,7 +10704,7 @@ def test_the_skill_body_stays_a_short_map_of_pages_drive_manual_prints(run: Run)
     assert named == {path.stem for path in cli.PAGES.glob("*.md")}
     assert len(skill) < 8_000
     code, out = run("manual", "jobs")
-    assert (code, out) == (0, (cli.PAGES / "jobs.md").read_text().strip())
+    assert (code, out) == (0, cli.hand_over_filled((cli.PAGES / "jobs.md").read_text(), None).strip())
 
 
 def leaf_parsers(parser: argparse.ArgumentParser, words: tuple[str, ...] = ()) -> Iterator[tuple[str, argparse.ArgumentParser]]:
@@ -10800,7 +10800,7 @@ def test_every_drive_command_the_skill_names_parses_with_the_cli() -> None:
         "drive order add X --from migrated: X --due X --project X --workstream X",
     ):
         assert refusal(guess, leaves)
-    for mention in ("drive order add X --from slack: X / X --due X --project X --workstream X --title X", "drive order add --due", "drive job add --order X"):
+    for mention in ("drive order add X --from slack: X / X --project X --workstream X --title X", "drive job set --due", "drive job add --order X"):
         assert refusal(mention, leaves) is None
 
 
@@ -10833,7 +10833,7 @@ def test_drive_manual_appends_what_the_repositorys_page_tables_add_to_that_page(
     code, out = run("manual", "incidents")
     assert (code, out) == (0, (page + "\n## In this repository\n\n- The emergency env here is acme-auto.\n\n- Its CI tool is ./ci.").strip())
     assert run("manual", "incidents", "emergency env here") == (0, "- The emergency env here is acme-auto.")
-    assert run("manual", "jobs") == (0, (cli.PAGES / "jobs.md").read_text().strip())
+    assert run("manual", "jobs") == (0, cli.hand_over_filled((cli.PAGES / "jobs.md").read_text(), None).strip())
 
 
 def test_page_parts_prints_each_part_carrying_the_words_once() -> None:
@@ -11234,7 +11234,7 @@ def test_his_words_in_an_answer_holding_more_than_his_are_his_messages_at_the_li
         {"ts": "1794300000.000610", "text": REUSE, "from_user": True},
     ]
     found = view.NO_CARDS | {"closed": [{"waits": "demo:j2-7", "url": DESIGN_CARD, "answer": {"label": "Tree"}}]}
-    kept, unsaid = settled.his_at(body, links, found, {"jobs": {}, "roles": {}, "subcoordinators": {}})
+    kept, unsaid = settled.his_at(body, links, found, {"jobs": {}, "roles": {}, "subcoordinators": {}, "communicators": {}})
     if refusal is None:
         assert (kept, unsaid) == (words, None)
     else:
@@ -12277,7 +12277,7 @@ def test_a_staging_release_start_names_one_rehearsal_env_alone() -> None:
 
 
 def test_dropping_an_order_closes_its_open_prs_with_the_reason_and_is_refused_while_one_is_queued_to_land(
-    run: Run, demo: str, on_github: dict, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    run: Run, demo: str, on_github: dict, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     dangerous_repo(tmp_path, on_github, ["api/migrations/1700_add_runs.sql"])
     run("order", "add", "--title", "land it", "--project", "The drive", "--workstream", "Drive tooling", "land it")
@@ -12289,8 +12289,8 @@ def test_dropping_an_order_closes_its_open_prs_with_the_reason_and_is_refused_wh
     monkeypatch.setattr(github, "close", lambda url, comment=None: closed.append((url, comment)))
     with state.edit("demo") as data:
         data["prs"][key]["stage"] = {"name": "landing", "owner": "the lander", "since": state.stamp()}
-    code, out = run("order", "set", "o1", "--state", "dropped", "--note", "backlog cut")
-    assert (code, f"o1: refused, nothing changed: {key} is queued to land" in out, closed) == (2, True, [])
+    code = cli.main(["order", "set", "o1", "--state", "dropped", "--note", "backlog cut"])
+    assert (code, f"o1: refused, nothing changed: {key} is queued to land" in capsys.readouterr().err, closed) == (2, True, [])
     with state.edit("demo") as data:
         data["prs"][key]["stage"] = None
     code, out = run("order", "set", "o1", "--state", "dropped", "--note", "backlog cut")
@@ -12316,7 +12316,7 @@ def test_a_new_waiting_replaces_a_jobs_staging_waits_and_a_withdrawn_cut_frees_a
 
 def test_a_slot_go_names_every_job_of_its_cut_as_a_freeze_holder_only_where_the_repository_names_the_holder_flag() -> None:
     moment = datetime(2026, 11, 16, 1, 0, tzinfo=UTC)
-    data = {"name": "demo", "slots": {}, "orders": {"o1": {"incident": False, "priority": None, "state": "open"}}, "jobs": {job_id: {"state": "waiting", "order": "o1", "carries": []} for job_id in ("j0", "j1", "j2")}}
+    data = {"name": "demo", "slots": {}, "orders": {"o1": {"incident": False, "priority": None, "state": "open"}}, "jobs": {job_id: {"state": "waiting", "order": "o1", "carries": [], "goal": "stage the cut"} for job_id in ("j0", "j1", "j2")}}
     release = {"holder": "--holder {holder}", "join": "tools/ci release freeze join {freeze} --holder {holder}"}
     assert state.slot_claim(data, "plat-usw2-staging", "j0", 20, [], None, moment, release=release).endswith("Run your freeze and every staging command of this cut with `--holder demo/j0`.")
     for job_id, path, stack in (("j1", "a", "api"), ("j2", "b", "rsw-cp")):
@@ -12339,7 +12339,7 @@ def test_a_status_of_one_job_prints_that_jobs_row_and_its_prs_not_its_whole_orde
 
 def test_the_jobs_page_names_the_hand_over_the_repository_settings_give(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(state, "resolve", lambda name=None: "d")
-    monkeypatch.setattr(state, "load", lambda name: {"name": "d", "roles": {"coordinator": {"cwd": "/clone"}}, "subcoordinators": {}})
+    monkeypatch.setattr(state, "load", lambda name: {"name": "d", "roles": {"coordinator": {"cwd": "/clone"}}, "subcoordinators": {}, "communicators": {}})
     monkeypatch.setattr(state, "repo_config", lambda data: {"mac_box": {"hand_over": "tools/ci mac-box up {box} --holder {holder} --from {from}"}})
     assert cli.hand_over_filled("run <mac box hand over> first", None) == "run `tools/ci mac-box up <box> --holder <drive>/<new job> --from <drive>/<old job>` first"
     monkeypatch.setattr(state, "repo_config", lambda data: {})

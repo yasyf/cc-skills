@@ -2973,9 +2973,9 @@ def test_a_communicators_bash_cci_post_naming_a_lane_other_than_the_session_hear
     run("start", demo, "--role", "coordinator", "--project", "Iris")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
     run("start", demo, "--role", "communicator")
-    talker = {"session_id": "talker"}
+    agent = {"session_id": "talker", "agent_id": "a1"}
     held = "cci post --kind refused --lane communicator --to root@demo --resolves 8 --attr job=j1 'the report names no card'"
-    assert landing_guard.deny_reason(bash(held) | talker) == (
+    assert landing_guard.deny_reason(bash(held) | agent) == (
         "This refused record goes to iris@demo: a defect, and the communicator's owner record about the drive, to the meta"
         " session, the communicator's answer, handoff or refused record naming a job a coordinator session's agent runs on"
         " this Mac to that session, its answer, handoff or refused record naming no job to the coordinator that wrote the"
@@ -2983,17 +2983,18 @@ def test_a_communicators_bash_cci_post_naming_a_lane_other_than_the_session_hear
         " serves; post it again with `--to iris@demo`, or on the cci `post` tool, whose hook addresses it"
     )
     refused = "zsh -c \"cci post --kind=refused --lane communicator --to=root@demo,owner --attr job=j1 'cc-slack refused the card'\""
-    assert "`--to iris@demo --to owner`" in landing_guard.deny_reason(bash(refused) | talker)
+    assert "`--to iris@demo --to owner`" in landing_guard.deny_reason(bash(refused) | agent)
     sent = (
         "cci post --kind refused --lane communicator --to iris@demo --resolves 8 --attr job=j1 'the report names no card'",
         "cci post --kind report --lane communicator --attr close=o1 'FYI j1 merged'",
     )
-    assert [landing_guard.deny_reason(bash(command) | talker) for command in sent] == [None, None]
-    unparted = landing_guard.deny_reason(bash("cci post --kind owner --lane communicator --to root@demo --attr 'about=his work' 'a new order'") | talker)
+    assert [landing_guard.deny_reason(bash(command) | agent) for command in sent] == [None, None]
+    unparted = landing_guard.deny_reason(bash("cci post --kind owner --lane communicator --to root@demo --attr 'about=his work' 'a new order'") | agent)
     assert unparted.startswith("refused, nothing posted: his words go out on the drive's `record` tool, kind owner")
-    unsaid = landing_guard.deny_reason(bash("cci post --kind owner --lane communicator --to root@demo 'a new order'") | talker)
+    unsaid = landing_guard.deny_reason(bash("cci post --kind owner --lane communicator --to root@demo 'a new order'") | agent)
     assert unsaid.startswith('refused, nothing posted: an owner record names what his words are about, about "drive" for drive tooling')
     for to in ("meta@demo", "root@demo"):
-        unordered = landing_guard.deny_reason(bash(f"cci post --kind owner --lane communicator --to {to} --attr about=drive 'the dashboard drops my cards'") | talker)
+        unordered = landing_guard.deny_reason(bash(f"cci post --kind owner --lane communicator --to {to} --attr about=drive 'the dashboard drops my cards'") | agent)
         assert unordered.startswith("refused, nothing posted: his words about the drive go out on the drive's `record` tool")
+    assert landing_guard.deny_reason(bash(held) | {"session_id": "talker"}) == f"Refused on purpose: {render.RECORDING}"
     assert landing_guard.deny_reason(bash(held) | {"session_id": "iris-1"}) is None

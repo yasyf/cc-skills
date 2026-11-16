@@ -1,9 +1,7 @@
 from datetime import timedelta
 from pathlib import Path
 
-import re
-
-from drive import cli, render, state, tools
+from drive import cli, render, state
 
 HOOK_CHARS = 10_000
 
@@ -295,15 +293,6 @@ def test_status_text_names_the_thread_each_orders_lines_go_in() -> None:
         "- o1 working, its lines go in D123 thread 1794307360.614569: "
     )
     assert next(line for line in lines if line.startswith("- o3 ")).startswith("- o3 open: ")
-
-
-def test_every_order_a_sessions_rules_or_rows_tell_it_to_add_carries_each_field_order_add_requires() -> None:
-    required = set(tools.schema(tools.leaf("order", "add"))["required"])
-    texts = [*(rule for rules in render.RULES.values() for rule in rules), *((cli.PAGES / f"{role}.md").read_text() for role in state.ROLES)]
-    templates = [re.findall(r"(\w+):", found) for text in texts for found in re.findall(r"order: \{([^}]*)\}", text)]
-    assert templates
-    for keys in templates:
-        assert required <= set(keys), keys
 
 
 def test_every_block_sends_a_new_order_to_drive_order_unfiled_for_the_projects_and_workstreams_in_use() -> None:

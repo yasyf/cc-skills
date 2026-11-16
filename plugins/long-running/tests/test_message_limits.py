@@ -2888,7 +2888,7 @@ def test_a_post_check_post_cannot_check_goes_out_unchecked_with_a_warning(talker
         raise slack.SlackError("the cc-slack@cc-slack plugin is not installed")
 
     monkeypatch.setattr(slack, "check_post", broken)
-    reason = posted(transcript, text="Fixed.", thread_ts="1.2")
+    reason = message_limits.checked(call("slack_dm_status", transcript, text="Fixed.", thread_ts="1.2"))[0]
     assert reason == "message_limits: this post goes out as written, unchecked: `cc-slack check-post` could not check its words: the cc-slack@cc-slack plugin is not installed."
     assert isinstance(reason, message_limits.Warned)
 

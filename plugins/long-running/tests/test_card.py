@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 from conftest import Cci, Chrome, Images, Jev, Judge, Redraws, card_node, card_reads, changed_reads
-from drive import card, cli, github, land, limits, picture, render, settled, stage, stall, state, superseded, view, watch
+from drive import agents, card, cli, github, land, limits, picture, render, settled, stage, stall, state, superseded, view, watch
 from drive.github import GithubError
 
 URL = "https://github.com/Forge-AI/monorepo/pull/42"
@@ -968,11 +968,13 @@ def test_his_words_in_a_cards_other_box_that_only_ask_about_it_end_nothing_and_r
     view.refresh_cards(drive)
     cci = Cci()
     monkeypatch.setattr(subprocess, "run", cci.run)
+    handed: list[str] = []
+    monkeypatch.setattr(agents, "handle", lambda name, brief: handed.append(brief) or ("communicator", True))
     asked, picked = "Expand on 1 and 2, what would each cost?", "Ring, unless it is late"
     jev.asks.add(asked)
     tap = {"waits": f"{drive}:j3-661440", "label": asked, "url": NEWER_CARD, "other": True, "action_ts": "1794200001.000100", "source": "slack"}
     reply = ask({"answer": tap})
-    assert (reply["ok"], reply["asks"], "2a27048" in reply["why"]) == (False, True, True)
+    assert (reply["ok"], reply["asks"], "2a27048" in reply["why"], [brief.splitlines()[0] for brief in handed]) == (False, True, True, [f"Message (his words): {asked}"])
     heard, jev.answer = jev.answer, None
     with pytest.raises(state.DriveError, match=r"Opus did not read whether his words pick or direct \(no jev decision within 20s\)"):
         card.question_answered(tap | {"label": picked, "action_ts": "1794200002.000100"})

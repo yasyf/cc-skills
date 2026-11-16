@@ -778,7 +778,7 @@ def test_a_sub_coordinator_posts_from_its_lane_his_answer_to_its_card_or_an_owne
 
 
 def test_a_seats_communicator_holds_its_channel_alone_and_its_records_and_its_sub_coordinators_reach_each_other(
-    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
@@ -786,8 +786,8 @@ def test_a_seats_communicator_holds_its_channel_alone_and_its_records_and_its_su
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
     run("start", demo, "--role", "communicator")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-talk")
-    with pytest.raises(DriveError, match="--project Iris: the drive keeps no channel for it"):
-        run("start", demo, "--role", "communicator", "--project", "Iris")
+    assert cli.main(["start", demo, "--role", "communicator", "--project", "Iris"]) == 2
+    assert capsys.readouterr().err.startswith("drive: --project Iris: the drive keeps no channel for it")
     with state.edit(demo) as data:
         data["slack"]["channels"] = {"": {"id": "C666", "name": "him-drive-demo"}, "Iris": {"id": "C777", "name": "him-drive-demo-iris"}}
     run("start", demo, "--role", "communicator", "--project", "Iris")

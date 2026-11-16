@@ -143,7 +143,7 @@ def session_starts(text: str) -> list[str]:
 
 def test_each_session_start_the_pages_quote_leaves_its_env_and_one_settings_to_drive_manual() -> None:
     starts = [line for page in PAGES for line in session_starts(page.read_text())]
-    assert len(starts) == 4
+    assert len(starts) == 5
     holed = re.compile(rf'--command "{re.escape(agents.SESSION_ENV)} (?:drive advised --drive <drive> --lane \S+ )?claude ')
     assert [line for line in starts if not holed.search(line) or line.count("--settings") != 1 or f"--settings {agents.SESSION_SETTINGS_HOLE} " not in line] == []
 
@@ -165,14 +165,16 @@ def test_drive_manual_fills_each_session_start_with_every_lane_variable_and_one_
         session = shlex.split(script[script.index("--command") + 1])
         claude = next(at for at, word in enumerate(session) if at and "=" not in word)
         seat = agents.SEAT.search(line)[1]
-        expected = agents.session_settings({agents.COMPACT_ENV: agents.COMMUNICATOR_WINDOW if seat == "communicator" else agents.ROOT_WINDOW})
-        expected = expected if seat in agents.TOP_SEATS else agents.leaf(expected)
+        speaks = seat == "communicator" or seat.endswith("-communicator")
+        top = seat in agents.TOP_SEATS or speaks
+        expected = agents.session_settings({agents.COMPACT_ENV: agents.COMMUNICATOR_WINDOW if speaks else agents.ROOT_WINDOW})
+        expected = expected if top else agents.leaf(expected)
         assert session[0] == "env"
         assert dict(word.split("=", 1) for word in session[1:claude]) == expected["env"]
         assert session.count("--settings") == 1
         settings = json.loads(session[session.index("--settings") + 1])
         assert settings == expected
-        assert ("--add-dir" in session) == (seat not in agents.TOP_SEATS)
+        assert ("--add-dir" in session) == (not top)
         assert (settings["env"]["DISABLE_AUTOUPDATER"], settings["spinnerTipsEnabled"], settings["bashOutputMaxChars"]) == ("1", False, 6000)
         assert settings["permissions"]["deny"] == lane["deniedTools"]
         assert "-p" not in session and "--print" not in session
