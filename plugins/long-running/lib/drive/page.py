@@ -1,13 +1,15 @@
+import hashlib
 import re
 from collections import Counter
 from collections.abc import Callable
 from typing import NamedTuple
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 
 from drive import slack, state
 from drive.render import cut, when
 
 ROWS = 8
+CANVAS_ORDERS = 40
 STATE_MARKS = {"blocked": "🔴", "running": "🔵", "built": "🟣", "waiting": "⏳", "not started": "⚪", "merged": "🟢", "live": "✅"}
 STATE_TITLES = {
     "blocked": "Blocked",
@@ -37,7 +39,7 @@ class PageError(Exception):
 
 class Drawn(NamedTuple):
     url: str
-    new_tab: bool
+    new: bool
 
 
 class Table(NamedTuple):
@@ -155,7 +157,7 @@ def table_lines(table: Table) -> list[str]:
 
 
 def render(model: dict, dashboard: str, shown: int | None = ROWS) -> str:
-    """The Slack status page of a drive's model, which `drive view` prints too: its `layout` of at most `shown` rows a table drawn as native markdown tables under an Updated line linking the dashboard."""
+    """The status page of a drive's model, which `drive view` prints: its `layout` of at most `shown` rows a table drawn as native markdown tables under an Updated line linking the dashboard."""
     lines = [f"Updated {when(model['at'])} · [open the dashboard]({dashboard})"]
     if model.get("cards", "live") != "live":
         lines += ["", f"Your Slack questions are not listed here: cc-slack {cut(model['cards'], CELL_CHARS)}"]
@@ -164,20 +166,72 @@ def render(model: dict, dashboard: str, shown: int | None = ROWS) -> str:
     return "\n".join(lines) + "\n"
 
 
-def draw(name: str, markdown: str) -> Drawn:
-    """Draw the page on the drive's canvas, creating it as a tab in his DM the first time, and again when the stored canvas is gone or Slack calls it full; returns the page's URL and whether it moved to a new tab."""
-    canvas = state.load(name)["slack"].get("page")
-    argv = ["canvas", "--title", f"{name}: where it stands"]
-    if canvas:
-        argv += ["--canvas", canvas]
+def channel_link(made: dict) -> str:
+    return f"[#{made['name']}](https://{slack.workspace()}/archives/{made['id']})"
+
+
+def channel_line(made: dict, count: int, queued: int, queue: str) -> str:
+    return f"- {channel_link(made)} · {count} open · {queued} waiting on you · [dashboard]({queue})"
+
+
+def order_line(entry: dict, dashboard: str) -> str:
+    cards = "".join(f" · ❓ {link(card['title'], card['url'], NAME_CHARS)}" for card in entry["cards"])
+    title = link(entry["id"] + ": " + entry["title"], f"{dashboard}#/feature/{entry['id']}")
+    return f"- {STATE_MARKS[entry['state']]} {title} · {entry['state']}{cards}"
+
+
+def waiting_line(item: dict) -> str:
+    return f"- {'👆' if item['kind'] == 'tap' else '❓'} {link(item['title'], item['url'])}"
+
+
+def seat_query(dashboard: str, seat: str) -> str:
+    return f"{dashboard}#/queue/all?{urlencode({'project': seat})}"
+
+
+def canvases(name: str, data: dict, model: dict, dashboard: str) -> dict[str, tuple[str, str]]:
+    """The title and words of each channel's own canvas, by its seat in the drive's slack row, each a bird's-eye view linking into the dashboard: a seat's channel its open orders, one line each with its state and the cards it waits on, then what waits on him there; the drive's own channel one line per other channel, linking it and its queue on the dashboard with how many orders are open and how many cards wait on him there, then the orders and cards filed in no channel of their own. No time is drawn, so the words change only when what they show does."""
+    from drive import talk
+
+    held = data["slack"]["channels"]
+    seats = {made["id"]: seat for seat, made in held.items()}
+    orders = {channel: [] for channel in seats}
+    waiting = {channel: [] for channel in seats}
+    for group in model["status"]:
+        for entry in group["features"] if group["state"] in OPEN_STATES else []:
+            orders.setdefault(slack.project_channel(data, state.coordinator_seat(data, data["orders"][entry["id"]])), []).append(entry)
+    for item in model["queue"]:
+        waiting.setdefault(talk.queue_channel(data, item), []).append(item)
+    drawn = {}
+    for channel, seat in seats.items():
+        lines = [f"# {seat or name}: where it stands", "", f"[Open the dashboard]({seat_query(dashboard, seat) if seat else dashboard})"]
+        if not seat:
+            lines += ["", "## Channels", *(channel_line(made, len(orders[made["id"]]), len(waiting[made["id"]]), seat_query(dashboard, other)) for other, made in held.items() if other)]
+        lines += ["", f"## Waiting on you ({len(waiting[channel])})", *(map(waiting_line, waiting[channel][:ROWS]) if waiting[channel] else ["Nothing waits on you here."])]
+        if len(waiting[channel]) > ROWS:
+            lines.append(f"*{len(waiting[channel]) - ROWS} more on the [dashboard]({seat_query(dashboard, seat) if seat else f'{dashboard}#/queue/all'})*")
+        lines += ["", f"## Open orders ({len(orders[channel])})", *([order_line(entry, dashboard) for entry in orders[channel][:CANVAS_ORDERS]] or ["No open orders here."])]
+        if len(orders[channel]) > CANVAS_ORDERS:
+            lines.append(f"*{len(orders[channel]) - CANVAS_ORDERS} more on the [dashboard]({dashboard}#/now)*")
+        drawn[seat] = (f"{seat or name}: where it stands", "\n".join(lines) + "\n")
+    return drawn
+
+
+def draw(name: str, seat: str, title: str, markdown: str) -> Drawn:
+    """Draw a channel's own canvas, the seat's in the drive's slack row, through `cc-slack canvas --channel`, which creates it the first time and redraws it after, and keep its id and the digest of its words on that channel's entry; returns its URL and whether it is new."""
+    made = state.load(name)["slack"]["channels"][seat]
+    argv = ["canvas", "--channel", made["id"], "--title", title, *(("--canvas", made["canvas"]) if made.get("canvas") else ())]
     try:
         drawn = slack.cc_slack(*argv, timeout=60, stdin=markdown)
     except slack.SlackError as error:
         refused = REFUSAL.search(str(error))
         raise PageError(f"Slack refused the redraw ({refused[1]})" if refused else str(error)) from None
-    if drawn["canvas_id"] != canvas:
-        def draw_write(data: dict):
-            data["slack"]["page"] = drawn["canvas_id"]
 
-        state.update(name, None, draw_write)
-    return Drawn(drawn["url"], bool(canvas) and drawn["canvas_id"] != canvas)
+    def draw_write(data: dict):
+        data["slack"]["channels"][seat] |= {"canvas": drawn["canvas_id"], "canvas_digest": digest(markdown)}
+
+    state.update(name, None, draw_write)
+    return Drawn(drawn["url"], drawn["canvas_id"] != made.get("canvas"))
+
+
+def digest(markdown: str) -> str:
+    return hashlib.sha256(markdown.encode()).hexdigest()

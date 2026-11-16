@@ -159,7 +159,7 @@ def test_start_creates_the_drive_and_prints_the_roles_context(run: Run, tmp_path
             "rules": render.rules_digest(data, "communicator"),
         }
     }
-    assert data["slack"] == {"page": None, "watch": [], "swept": None, "waiting": {}, "digest": None, "channels": {}}
+    assert data["slack"] == {"watch": [], "swept": None, "waiting": {}, "digest": None, "channels": {}}
 
 
 def test_a_coordinators_start_starts_the_watch_and_says_so(run: Run, watch_process: WatchProcess, monkeypatch: pytest.MonkeyPatch) -> None:

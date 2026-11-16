@@ -172,7 +172,6 @@ class Watcher:
     drained_at: datetime | None = None
     failures: dict[str, int] = field(default_factory=dict)
     failure_said: dict[str, datetime] = field(default_factory=dict)
-    page_shape: str | None = None
     cards: dict | None = None
     owed: set[str] | None = None
     merging: set[str] = field(default_factory=set)
@@ -2508,35 +2507,25 @@ def waiting_post_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def page_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Redraw the drive's Slack status page when what it shows changed since the last drawing, its "Updated" line aside; say once, kept in the drive across watch restarts, when Slack starts refusing so the page he sees is stale, once when it takes a redraw again, and with the link whenever the page moved to a new tab."""
+    """Redraw the own canvas of each channel the drive keeps, in the words page.canvases gives it, whenever they changed since its last drawing, by the digest kept on that channel's entry across watch restarts, and say the link of each canvas drawn the first time; a drive keeping no channel draws none. A draw that fails goes again on the next pass and is said from its third failure in a row."""
     if watcher.project:
         return []
-    markdown = page.render(view.read(watcher.name, moment), dashboard.link(watcher.name))
-    shape = markdown.split("\n", 1)[1]
-    if shape == watcher.page_shape:
+    data = state.load(watcher.name)
+    if not data["slack"]["channels"]:
         return []
-    stale = state.load(watcher.name, ("slack",))["slack"].get("page_stale")
-    try:
-        drawn = page.draw(watcher.name, markdown)
-    except page.PageError as error:
-        if stale:
-            return []
-        def page_lines_write2(data: dict):
-            data["slack"]["page_stale"] = state.stamp(moment)
-
-        state.update(watcher.name, None, page_lines_write2)
-        return [f"WATCH status page stale since {when(state.stamp(moment))}: {error}"]
-    watcher.page_shape = shape
-    if stale:
-        def page_lines_write(data: dict):
-            data["slack"].pop("page_stale")
-
-        state.update(watcher.name, None, page_lines_write)
-    if drawn.new_tab:
-        return [f"WATCH status page redrawn on a new tab: {drawn.url}"]
-    if stale:
-        return [f"WATCH status page redrawn: Slack takes its redraws again, after refusing them since {when(stale)}"]
-    return []
+    lines = []
+    for seat, (title, markdown) in page.canvases(watcher.name, data, view.read(watcher.name, moment), dashboard.link(watcher.name)).items():
+        if data["slack"]["channels"][seat].get("canvas_digest") == page.digest(markdown):
+            continue
+        try:
+            drawn = page.draw(watcher.name, seat, title, markdown)
+        except page.PageError as error:
+            lines += failed(watcher, f"canvas {seat}", f"draw of the canvas of {data['slack']['channels'][seat]['name']}", error, moment)
+            continue
+        watcher.failures.pop(f"canvas {seat}", None)
+        if drawn.new:
+            lines.append(f"WATCH canvas of #{data['slack']['channels'][seat]['name']} drawn: {drawn.url}")
+    return lines
 
 
 def event_line(event: dict, data: dict) -> str:

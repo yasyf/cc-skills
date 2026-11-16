@@ -334,11 +334,13 @@ is merged and installed, listing each rule now in the skill.
 Fixed: the agent picks up again right after you answer its question, on today's build.
 ```
 
-**The status page.** The watch redraws the drive's canvas, a tab in his DM with the app, within a
-minute of any change, and `drive view` prints the same page. A strip counts what waits on him and
-each state. Tables follow for his questions, his PR taps, every
-project's count by state, each open state's features, and finished work. When a line says where
-things stand, link the page instead of restating it.
+**The channel canvases.** Each channel the drive keeps has its own canvas, the channel's tab, which
+the watch redraws within a minute of a change to its words. The drive's own channel's canvas has
+one line per project or priority channel, linking that channel and its dashboard queue with its
+counts of open orders and waiting cards. A project or priority channel's canvas lists what waits on
+him there, then its open orders, one line each, each linking its dashboard page. No canvas goes in
+his DM. `drive view` prints the whole status page. When a line says where things stand, link the
+channel's canvas or the dashboard instead of restating it.
 
 **The Waiting on you post.** The watch keeps one pinned post at the root of his DM and of each
 operator channel, edited in place when what waits there changes, so it pings him once. It counts

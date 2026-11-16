@@ -272,9 +272,9 @@ def waiting_posts(name: str, data: dict, found: dict, moment: datetime) -> dict[
     """The words of the one post in his DM and in each channel of the drive that says what waits on him there, which the watch edits in place of asking any card again: a count of the open cards the status page queues whose project posts there, linking that queue on the dashboard, then the first five, which Slack draws under the post, those carrying out an order whose bug hurts someone now first, else in the queue's order; NO_CARDS where none waits. The drive's own channel's post opens with one line per project channel, linking it and that project's queue on the dashboard with how many cards wait there, by his words "the drive channel carries one line per project", so it reads as the drive's index."""
     queued = [item for item in view.build(data, found, moment)["queue"] if "card" in item]
     held = data["slack"]["channels"]
-    here: dict[str, list[dict]] = {channel: [] for channel in sorted({slack.dm(), *(made["id"] for made in held.values())})}
+    here: dict[str, list[dict]] = {channel: [] for channel in sorted({made["id"] for made in held.values()} or {slack.dm()})}
     for item in sorted(queued, key=lambda item: not any(state.hurts_now(data, data["orders"][order_id]) for order_id in item["tasks"] if order_id in data["orders"])):
-        here[slack.project_channel(data, project(data, {}, [], next((order_id for order_id in item["tasks"] if order_id in data["orders"]), None)) or item["project"])].append(item)
+        here.setdefault(queue_channel(data, item), []).append(item)
     board = dashboard.link(name)
     projects = {made["id"]: project for project, made in held.items() if project}
     words = {
@@ -293,6 +293,11 @@ def waiting_posts(name: str, data: dict, found: dict, moment: datetime) -> dict[
         own = words[held[""]["id"]]
         words[held[""]["id"]] = "\n".join([*index, *([] if own == NO_CARDS else ["", own])])
     return words
+
+
+def queue_channel(data: dict, item: dict) -> str:
+    """The channel a card the status page queues waits on him in: that of the seat of the first order it carries out, by project, else of its own project, by slack.project_channel."""
+    return slack.project_channel(data, project(data, {}, [], next((order_id for order_id in item["tasks"] if order_id in data["orders"]), None)) or item["project"])
 
 
 def card_counts(queued: list[dict]) -> str:

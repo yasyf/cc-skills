@@ -847,7 +847,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str) -> dict:
         "roles": {role: {"session": session, "cwd": cwd, "started": stamp()}},
         "subcoordinators": {},
         "communicators": {},
-        "slack": {"page": None, "watch": [], "swept": None, "waiting": {}, "digest": None, "channels": {}},
+        "slack": {"watch": [], "swept": None, "waiting": {}, "digest": None, "channels": {}},
         "owner": {"heard": None, "away": None, "absence": None},
         "orders": {},
         "jobs": {},
