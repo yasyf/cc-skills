@@ -5259,32 +5259,35 @@ def stage_lines(watcher: Watcher, moment: datetime) -> list[str]:
     """Keep each heard unmerged PR's stage, as stage.of names it from the approval, checks and head GitHub last answered for it, redraw whole from drive card his card standing on each open one whose stage owner changed, so the stage his card says, such as blocked on him, never outlives the line that set it, and act once on each open one that entered a stage or passed its deadline, leaving a PR never read, or whose last read failed, as it stands until a read answers for it: draw his card on each PR that entered uncarded or passed its deadline there, one card for the PRs of one card unit as drive card draws them, once no PR of the unit entered uncarded for stage.STACK_QUIET or one of them passed its deadline, by quiet_draws, unless a card of his already stands on one of them, or redraw in place the card cc-slack keeps closed on one, so it offers Approve again and no second card shares its waits id, or, once a card of the unit leaves off a PR of its stack, native or chained by base branch, by view.apart, draw one card for the unit and those PRs, which cc-slack draws in place over the newest card carrying some of them and marks each other one replaced by, wake the builder answering for a PR rework or red owe, ask forge-pr-reviewer once for a review of a head grading an hour and then wake its builder, wake past its deadline the job a waiting or blocked PR names as owing it and the builder of one its author lands, wake the session holding its order on one unlanded and on any other past its deadline but uncarded. A draw or redraw in place that fails, or leaves a PR that asks his tap with no card of his offering Approve at its head, as one cc-slack answers by linking a card he already answered does or a redraw cc-slack leaves the card closed under, clears the PR's stage, so the next read enters uncarded again and draws, and is said to the meta session from its third failure in a row."""
     if watcher.cards is None:
         return []
-    with state.edit(watcher.name) as data, state.indexed(data):
-        stacks = land.landing_stacks(data)
-        units = {key: state.card_unit(key, stacks.get(key, ()), pr) for key, pr in data["prs"].items()}
-        acts = []
-        moved = []
-        for key in state.unmerged_pr_keys(data):
-            pr = data["prs"][key]
-            if key in watcher.stale or pr["required"] is None or not hears(watcher, data, pr["order"]):
-                continue
-            now = stage.of(data, key, watcher.cards)
-            if stage.entered(pr["stage"], now):
-                if pr["stage"] and pr["stage"]["owner"] != now.owner and pr["state"] == "open" and now.name != "uncarded":
-                    moved.append(key)
-                stage.stamp(pr, now, moment)
-                if pr["state"] == "open":
-                    acts.append((key, now, True, stage.line(key, pr, now) + f" {ids(pr)}"))
-            elif stage.overdue(pr, now, moment):
-                stage.kept(pr, now)
-                pr["stage"]["waking"] = state.stamp(moment)
-                acts.append((key, now, False, stage.line(key, pr, now) + f" {ids(pr)}"))
-            elif now.name == "uncarded" and pr["state"] == "open" and pr["stage"].get("quiet"):
-                stage.kept(pr, now)
-                acts.append((key, now, None, stage.line(key, pr, now) + f" {ids(pr)}"))
-            else:
-                stage.kept(pr, now)
-        uncarded, lines = quiet_draws(data, watcher.cards, units, acts, moment)
+
+    def staged(data: dict) -> tuple[dict, list, list, dict, list[str]]:
+        with state.indexed(data):
+            stacks = land.landing_stacks(data)
+            units = {key: state.card_unit(key, stacks.get(key, ()), pr) for key, pr in data["prs"].items()}
+            acts = []
+            moved = []
+            for key in staged_keys(watcher, data):
+                pr = data["prs"][key]
+                now = stage.of(data, key, watcher.cards)
+                if stage.entered(pr["stage"], now):
+                    if pr["stage"] and pr["stage"]["owner"] != now.owner and pr["state"] == "open" and now.name != "uncarded":
+                        moved.append(key)
+                    stage.stamp(pr, now, moment)
+                    if pr["state"] == "open":
+                        acts.append((key, now, True, stage.line(key, pr, now) + f" {ids(pr)}"))
+                elif stage.overdue(pr, now, moment):
+                    stage.kept(pr, now)
+                    pr["stage"]["waking"] = state.stamp(moment)
+                    acts.append((key, now, False, stage.line(key, pr, now) + f" {ids(pr)}"))
+                elif now.name == "uncarded" and pr["state"] == "open" and pr["stage"].get("quiet"):
+                    stage.kept(pr, now)
+                    acts.append((key, now, None, stage.line(key, pr, now) + f" {ids(pr)}"))
+                else:
+                    stage.kept(pr, now)
+            uncarded, lines = quiet_draws(data, watcher.cards, units, acts, moment)
+        return data, acts, moved, uncarded, lines
+
+    data, acts, moved, uncarded, lines = state.update(watcher.name, tuple(("prs", key, "stage") for key in staged_keys(watcher, state.load(watcher.name))), staged)
     for key, now, entered, line in acts:
         if now.name != "uncarded":
             lines += acted(watcher, key, now, entered, line, moment)
@@ -5324,6 +5327,11 @@ def stage_lines(watcher: Watcher, moment: datetime) -> list[str]:
         watcher.failures.pop("card draw", None)
     return lines
 
+
+
+def staged_keys(watcher: Watcher, data: dict) -> list[str]:
+    """The unmerged PRs whose stage stage_lines keeps on this pass: each the watch hears that GitHub answered for, whose last read did not fail."""
+    return [key for key in state.unmerged_pr_keys(data) if key not in watcher.stale and data["prs"][key]["required"] is not None and hears(watcher, data, data["prs"][key]["order"])]
 
 
 def quiet_draws(data: dict, cards: dict, units: dict, acts: list[tuple[str, stage.Stage, bool | None, str]], moment: datetime) -> tuple[dict, list[str]]:
