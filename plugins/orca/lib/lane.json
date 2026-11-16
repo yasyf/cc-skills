@@ -147,5 +147,23 @@
     "mcp__plugin_datadog_mcp__edit_datadog_notebook",
     "mcp__plugin_datadog_mcp__delete_datadog_notebook",
     "mcp__plugin_datadog_mcp__recover_datadog_notebook"
-  ]
+  ],
+  "spriteMcpServers": {
+    "plugin:datadog:mcp": {
+      "type": "http",
+      "url": "https://mcp.datadoghq.com/v1/mcp?referrer_ide=claude-code-plugin",
+      "headers": {
+        "DD_API_KEY": "${DD_API_KEY:-}",
+        "DD_APPLICATION_KEY": "${DD_APPLICATION_KEY:-}",
+        "X-Datadog-MCP-Toolsets": "core,dbm"
+      }
+    },
+    "plugin:cc-slack:cc-slack": {
+      "command": "sh",
+      "args": [
+        "-c",
+        "for _ in $(seq 100); do [ -e /home/sprite/.local/state/cc-slack/sprite-login ] && break; sleep 1; done; exec /home/sprite/.local/bin/cc-slack channel"
+      ]
+    }
+  }
 }

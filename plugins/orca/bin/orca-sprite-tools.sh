@@ -40,11 +40,13 @@ warn() {
 secret() {
   aws ssm get-parameter --profile core-auto --region us-west-2 --name "$1" --with-decryption --query Parameter.Value --output text
 }
+slack_floor=0.20.184
 slack_release() {
   local tag listed asset digest
   tag=$(curl -fsSLI --retry 3 -o /dev/null -w '%{url_effective}' https://github.com/yasyf/cc-slack/releases/latest) || return 1
   tag=${tag##*/}
   [[ $tag =~ ^v[0-9]+(\.[0-9]+)+$ ]] || return 1
+  [ "$(printf '%s\n' "$slack_floor" "${tag#v}" | sort -V | head -n 1)" = "$slack_floor" ] || return 1
   asset=cc-slack_${tag#v}_linux_amd64.tar.gz
   listed=$(curl -fsSL --retry 3 "https://github.com/yasyf/cc-slack/releases/download/$tag/checksums.txt") || return 1
   digest=$(awk -v asset="$asset" '$2 == asset { print $1 }' <<<"$listed")
@@ -54,7 +56,7 @@ slack_release() {
 slacked=(- - - -)
 slack_token=
 if ! release=$(slack_release); then
-  warn "GitHub named no checksummed linux_amd64 asset on cc-slack's latest release"
+  warn "cc-slack's latest release is older than $slack_floor, whose --version runs no incumbent probe, or GitHub named no checksummed linux_amd64 asset for it"
 elif ! email=$(git config --global user.email); then
   warn "this Mac's git config holds no user.email for cc-slack login"
 elif ! slack_token=$(secret /ci/slack-agent/bot-token); then
@@ -76,15 +78,13 @@ done
 
 printf -v args ' %q' "$root" "$((${#placed[@]} / 2))" ${placed[@]+"${placed[@]}"} "${slacked[@]}" "${words[@]}"
 status=0
-printf 'slack_token=%q\n' "$slack_token" |
-  ssh -F "$config" -o BatchMode=yes -o ConnectTimeout=30 "$host" 'umask 077 && mkdir -p /dev/shm/sprite-lane && cat >/dev/shm/sprite-lane/secrets' || status=$?
-[ "$status" -ne 0 ] || ssh -F "$config" -o BatchMode=yes -o ConnectTimeout=30 "$host" "bash -s --$args" <<'SPRITE' || status=$?
+{
+  printf 'slack_token=%q\n' "$slack_token"
+  cat <<'SPRITE'
 set -eu
 dest=$HOME/.local/bin
 staged=$(mktemp -d)
-secrets=/dev/shm/sprite-lane/secrets
-trap 'rm -rf "$staged" "$secrets"' EXIT
-. "$secrets"
+trap 'rm -rf "$staged"' EXIT
 mkdir -p "$dest"
 root=$1 placed=$2
 shift 2
@@ -203,5 +203,6 @@ if [ -n "$sccache" ]; then
   echo "sccache $sccache"
 fi
 SPRITE
+} | ssh -F "$config" -o BatchMode=yes -o ConnectTimeout=30 "$host" "bash -s --$args" || status=$?
 [ "$status" -eq 0 ] || [ "$status" -eq 255 ] || exit "$unfit"
 exit "$status"

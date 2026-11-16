@@ -18,6 +18,12 @@ LANE_DENIED_TOOLS = "AskUserQuestion,EnterPlanMode,ExitPlanMode,PushNotification
 SPRITE_HOOKS = json.loads((SCRIPT.parents[1] / "lib/lane.json").read_text())["spriteSettings"]
 SPRITE_ENV = [f"{name}={value}" for name, value in json.loads((SCRIPT.parents[1] / "lib/lane.json").read_text())["spriteEnv"].items()]
 SPRITE_DENIED_TOOLS = json.loads((SCRIPT.parents[1] / "lib/lane.json").read_text())["spriteDeniedTools"]
+SPRITE_MCP = json.dumps({"mcpServers": json.loads((SCRIPT.parents[1] / "lib/lane.json").read_text())["spriteMcpServers"]}, separators=(",", ":"))
+SLACK = "0.20.188"
+SLACK_RELEASE = f"https://github.com/yasyf/cc-slack/releases/download/v{SLACK}"
+SLACK_ASSET = f"cc-slack_{SLACK}_linux_amd64.tar.gz"
+SLACK_SHA = "e" * 64
+EMAIL = "lane@example.com"
 SPRITE_SETTINGS = json.dumps({**json.loads(LANE_SETTINGS), **SPRITE_HOOKS, "permissions": {"deny": LANE_DENIED_TOOLS.split(",") + SPRITE_DENIED_TOOLS}}, separators=(",", ":"))
 WORKSPACE = "pool-spare"
 SESSION = "5d576546-4c87-4a78-94b4-945eb9e49c86"
@@ -42,7 +48,7 @@ SHOWN = {"out": {"ok": True, "result": {"repo": {"id": REPO, "path": MAIN}}}}
 DROPPED = {"rc": 1, "out": {"ok": False, "error": {"code": "runtime_timeout", "message": "Timed out waiting for the Orca runtime to respond."}}}
 WIDEN = f"git -C {LOCAL_WORKTREE} sparse-checkout add <dir>"
 SPARSE = f"{LOCAL_WORKTREE} is sparse: widen with {WIDEN}"
-TOOLS = ("orca", "cc-remote", "git", "gh", "ccx", "cc-notes", "curl", "ssh")
+TOOLS = ("orca", "cc-remote", "git", "gh", "ccx", "cc-notes", "curl", "ssh", "aws")
 PIN = "9.8.7"
 
 VERSION = ["cc-remote", "version"]
@@ -230,7 +236,9 @@ class Launch:
         self.reply("cc-remote orca stop", {"out": json.dumps({"lane": LANE, "workspace": WORKSPACE})})
         for bin, *_, version in RELEASES:
             self.reply(bin, {"out": version})
-        self.reply("curl", *(listed(bin, sha) for bin, _, _, sha, *_ in RELEASES))
+        self.reply("curl", *(listed(bin, sha) for bin, _, _, sha, *_ in RELEASES), {"out": f"https://github.com/yasyf/cc-slack/releases/tag/v{SLACK}"}, {"out": f"{SLACK_SHA}  {SLACK_ASSET}\n"})
+        self.reply("git config", {"out": f"{EMAIL}\n"})
+        self.reply("aws ssm get-parameter", {"out": "xoxb-bot\n"})
         self.reply("ssh", *(() if copied is None else (copied,)), INSTALLED)
         self.reply("orca orchestration worker-start", started or {"out": RECEIPT})
 
@@ -269,12 +277,20 @@ class Launch:
         opening = [continued, "--existing"] if continued else [lane, "--warm"]
         lane_env = [*(word for pair in LANE_ENV.split() for word in ("--env", pair)), "--settings", settings] if kind == "claude" else []
         lane_env += [word for pair in SPRITE_ENV for word in ("--env", pair)]
-        return ["cc-remote", "orca", "prepare", *opening, "--provider", "sprites", "--profile", "agents", "--agent", kind, "--model", model, "--effort", effort, "--brief-file", str(self.brief), *lane_env, *extra]
+        cut = extra.index("--env") if "--env" in extra else len(extra)
+        servers = ["--mcp-config", SPRITE_MCP] if kind == "claude" else []
+        return ["cc-remote", "orca", "prepare", *opening, "--provider", "sprites", "--profile", "agents", "--agent", kind, "--model", model, "--effort", effort, "--brief-file", str(self.brief), *lane_env, *extra[:cut], *servers, *extra[cut:]]
 
     def tools(self, placed: str = "0") -> list[list[str]]:
         read = [call for bin, repo, tag, _, _, sums, _ in RELEASES for call in ([bin, "--version"], ["curl", "-fsSL", "--retry", "3", download(repo, tag, sums)])]
+        read += [
+            ["curl", "-fsSLI", "--retry", "3", "-o", "/dev/null", "-w", "%{url_effective}", "https://github.com/yasyf/cc-slack/releases/latest"],
+            ["curl", "-fsSL", "--retry", "3", f"{SLACK_RELEASE}/checksums.txt"],
+            ["git", "config", "--global", "user.email"],
+            ["aws", "ssm", "get-parameter", "--profile", "core-auto", "--region", "us-west-2", "--name", "/ci/slack-agent/bot-token", "--with-decryption", "--query", "Parameter.Value", "--output", "text"],
+        ]
         words = " ".join(f"{bin} {tag} {download(repo, tag, f'{bin}_linux_amd64')} {sha} {alias or "''"}" for bin, repo, tag, sha, alias, *_ in RELEASES)
-        return [*read, ["ssh", "-F", PREPARED["forward"]["config"], "-o", "BatchMode=yes", "-o", "ConnectTimeout=30", WORKSPACE, f"bash -s -- {ROOT} {placed} {words}"]]
+        return [*read, ["ssh", "-F", PREPARED["forward"]["config"], "-o", "BatchMode=yes", "-o", "ConnectTimeout=30", WORKSPACE, f"bash -s -- {ROOT} {placed} {SLACK} {SLACK_RELEASE}/{SLACK_ASSET} {SLACK_SHA} {EMAIL} {words}"]]
 
     def copy(self) -> list[str]:
         return ["ssh", "-F", PREPARED["forward"]["config"], "-o", "BatchMode=yes", "-o", "ConnectTimeout=30", WORKSPACE, f"cat >{PREPARED['brief']['path']}"]

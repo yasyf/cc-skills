@@ -355,7 +355,11 @@ if [ "$route" = sprite ]; then
     prepare+=(--resume "$session")
   fi
   [ -z "$tier" ] || prepare+=(--service-tier "$tier")
-  [ -z "${WORKER_MCP_CONFIG:-}" ] || prepare+=(--mcp-config "$WORKER_MCP_CONFIG")
+  if [ "$kind" = claude ]; then
+    prepare+=(--mcp-config "$(jq -c --argjson extra "${WORKER_MCP_CONFIG:-{\}}" '{mcpServers: (.spriteMcpServers + ($extra.mcpServers // {}))}' "$lane_spec")")
+  elif [ -n "${WORKER_MCP_CONFIG:-}" ]; then
+    prepare+=(--mcp-config "$WORKER_MCP_CONFIG")
+  fi
   [ ${#worker_env[@]} -eq 0 ] || for pair in "${worker_env[@]}"; do prepare+=(--env "$pair"); done
   status=0
   if [ -z "$reused" ] && [ -n "$continued" ]; then

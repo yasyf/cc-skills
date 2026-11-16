@@ -101,19 +101,27 @@ sent whole over the same ssh session, and checks a login shell runs it from
 there: the long-running plugin's drive launcher passes
 `drive=<its lib/sprite/drive>`, so a Sprite lane types the same `drive` verbs a
 Mac lane does. It also gives the lane Slack reads. It installs cc-slack's
-newest `linux_amd64` release, checked against its SHA-256, and runs its
-`supervise` as the Sprite service `cc-slack` through cc-remote's
-`supervise.py`, needing `cc-remote-payload`. It then logs cc-slack in
-`--post-only` on the shared bot token and touches
+newest `linux_amd64` release, at least 0.20.184, checked against its SHA-256.
+An older `--version` re-ran itself without end on a host with no daemon, and
+that took a Sprite down. It runs cc-slack's `supervise` as the Sprite service
+`cc-slack` through cc-remote's `supervise.py`, needing `cc-remote-payload`.
+It then logs cc-slack in `--post-only` on the shared bot token and touches
 `~/.local/state/cc-slack/sprite-login`. This Mac reads the token from SSM on
-`core-auto` and sends it on a separate ssh session's stdin to a tmpfs file,
-`/dev/shm/sprite-lane/secrets`, which the step deletes when it exits, so the
-token reaches no command line. A failure in this part only warns, and the lane
-reads Slack through this Mac's relay. The worker's `claude` starts at prepare,
-before this step, so the long-running launcher's `plugin:cc-slack:cc-slack`
-server waits for that marker. lane.json's `spriteEnv` raises `MCP_TIMEOUT` past
-that wait. Its `spriteDeniedTools` joins the prepare `--settings` deny list, so
-cc-slack's and the Datadog MCP's write tools are refused from the first turn.
+`core-auto` and sends it as the first line of the script the ssh session's
+`bash -s` reads, so it reaches no command line or file. A failure in this part
+only warns, and the lane reads Slack through this Mac's relay.
+
+Every Claude worker on a Sprite starts with lane.json's `spriteMcpServers`,
+merged with any `WORKER_MCP_CONFIG` servers into prepare's `--mcp-config`:
+- `plugin:datadog:mcp`, whose headers fill from the ai-oncall `DD_API_KEY` and
+  `DD_APPLICATION_KEY` that the monorepo's cc-remote `orca.keys.env` exports
+  before `claude` starts, with the `core,dbm` toolsets.
+- `plugin:cc-slack:cc-slack`. `claude` starts at prepare, before this step, so
+  this server waits up to 100 s for the login marker, under the `MCP_TIMEOUT`
+  that `spriteEnv` raises past that wait.
+
+`spriteDeniedTools` joins the prepare `--settings` deny list, so cc-slack's and
+the Datadog MCP's write tools are refused from the first turn.
 When a step on this Mac fails, such as a release read, the
 launcher starts no worker, leaves the prepared one idle, and prints the reason
 from the attempt's `tools.err`. Launching the same brief again reuses that

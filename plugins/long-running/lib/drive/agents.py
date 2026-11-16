@@ -72,9 +72,6 @@ WATCHDOG_USD = "2"
 HIS_WORDS = "Message (his words)"
 SCRATCH = re.compile(r"Scratch:\s*(\S+)")
 DATADOG_PLUGIN = "datadog@claude-plugins-official"
-SPRITE_CC_SLACK = "/home/sprite/.local/bin/cc-slack"
-SPRITE_CC_SLACK_LOGIN = "/home/sprite/.local/state/cc-slack/sprite-login"
-SPRITE_LOGIN_WAIT = 100
 SESSION_SETTINGS = {
     "bashOutputMaxChars": 6000,
     "outputStyle": "default",
@@ -726,12 +723,6 @@ def datadog_servers() -> dict:
     manifest = json.loads((root / ".claude-plugin" / "plugin.json").read_text())
     servers = json.loads((root / manifest["mcpServers"]).read_text())["mcpServers"]
     return {"mcpServers": {f"plugin:{manifest['name']}:{key}": server for key, server in servers.items()}}
-
-
-def sprite_servers() -> dict:
-    """The `--mcp-config` a builder on a Sprite starts with: datadog_servers' Datadog server, whose headers fill from the ai-oncall keys cc-remote's `orca.keys.env` exports before the Sprite's `claude` starts, and cc-slack's channel server under the name the cc-slack plugin's server has on this Mac, so a Sprite lane reads Datadog and Slack through the same `mcp__plugin_datadog_mcp__*` and `mcp__plugin_cc-slack_cc-slack__*` tools with no relay through this Mac, by his Nov 16 words "fuckng give it cc-slack then and ddog". Its `claude` starts at prepare, before orca-sprite-tools.sh installs cc-slack and logs it in, so the server's command waits up to SPRITE_LOGIN_WAIT seconds for that login's marker, under the MCP_TIMEOUT the orca plugin's spriteEnv raises past it."""
-    wait = f"for _ in $(seq {SPRITE_LOGIN_WAIT}); do [ -e {SPRITE_CC_SLACK_LOGIN} ] && break; sleep 1; done; exec {SPRITE_CC_SLACK} channel"
-    return {"mcpServers": datadog_servers()["mcpServers"] | {"plugin:cc-slack:cc-slack": {"command": "sh", "args": ["-c", wait]}}}
 
 
 def env_words(settings: dict) -> list[str]:

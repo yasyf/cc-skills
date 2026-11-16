@@ -91,7 +91,6 @@ NO_RUNTIME = "Could not read Orca runtime metadata. Start the Orca app first."
 NOT_RUNNING = {"runtime": {"state": "not_running"}}
 READY = {"runtime": {"state": "ready"}}
 UNSTAGED = "STAGING: none: it changes no path AGENTS.md calls dangerous"
-INSTALLED_DATADOG_SERVERS = agents.datadog_servers
 J2914_BUILT = "BUILT sprite-volume-leaves-image-agents-and-mise, waits on c096bde8"
 J2914_REPORT = f"{J2914_BUILT}\nNATIVE: none: he never sees it\nUNPROVEN: the screenshot half\n"
 J2914_WORKER = "ctx_1f4d4c929c48"
@@ -261,12 +260,6 @@ def orca_mail(monkeypatch: pytest.MonkeyPatch, mail: list[dict]) -> list[int | N
     marks = []
     monkeypatch.setattr(orca, "mail", lambda after: marks.append(after) or [message for message in mail if after is None or message["sequence"] > after])
     return marks
-
-
-@pytest.fixture(autouse=True)
-def no_datadog_install(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A Sprite launch names the installed Datadog plugin's servers in its MCP config, and no test machine installs that plugin."""
-    monkeypatch.setattr(agents, "datadog_servers", lambda: {"mcpServers": {}})
 
 
 @pytest.fixture(autouse=True)
@@ -8357,7 +8350,6 @@ def test_the_watch_files_a_lane_recorded_on_this_mac_on_the_sprite_its_worker_sh
 def test_a_local_launch_runs_the_launcher_in_the_checkouts_orca_repo_with_the_datadog_servers_and_cci_parent_session_j738_7_lacked_and_reads_no_prepared_server(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(agents, "datadog_servers", INSTALLED_DATADOG_SERVERS)
     brief = tmp_path / "j1.md"
     brief.write_text("brief")
     datadog = tmp_path / "datadog"
@@ -8411,8 +8403,7 @@ def test_a_sprite_launch_gives_the_sprite_the_drive_that_asks_each_verb_of_this_
         orca.launch("demo", "demo-j1", brief, tmp_path, RUN, None, None, None)
     assert ran["env"]["WORKER_TOOLS"] == f"drive={orca.PLUGIN / 'lib' / 'sprite' / 'drive'}"
     assert json.loads(ran["env"]["CLAUDE_LANE_SETTINGS"]) == agents.sprite_lane(tmp_path)
-    assert json.loads(ran["env"]["WORKER_MCP_CONFIG"]) == agents.sprite_servers()
-    assert agents.SPRITE_CC_SLACK_LOGIN in agents.sprite_servers()["mcpServers"]["plugin:cc-slack:cc-slack"]["args"][1]
+    assert "WORKER_MCP_CONFIG" not in ran["env"]
     assert (orca.PLUGIN / "lib" / "sprite" / "drive").stat().st_mode & 0o111
     assert "WORKER_LOCAL" not in ran["env"]
 
