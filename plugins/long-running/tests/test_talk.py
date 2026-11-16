@@ -1902,9 +1902,10 @@ def test_the_watchs_paused_reply_under_his_question_card_goes_in_the_cards_threa
     assert posts == [("dm-status", "--agent", "claude", "--drive", demo, "--as-holder", "--thread", question, "--", watch.PAUSED)]
 
 
-def test_a_pr_waiting_on_his_tap_links_its_card_so_slack_draws_its_approve() -> None:
+def test_a_line_asking_his_tap_on_a_carded_pr_links_its_card_and_a_line_only_naming_it_links_the_pr() -> None:
     pr = {"url": "https://github.com/yasyf/cc-skills/pull/7", "head": "abc1234", "title": "Fix: the run page shows its history"}
     card = {"url": "https://acme.slack.com/archives/D1/p1794300000000200", "prs": [pr["url"]], "card": {"prs": [{"url": pr["url"], "head": "abc1234"}]}}
     prs = {"yasyf/cc-skills#7": pr}
-    assert (refs.pr(prs, "7", "", [card])["url"], refs.pr(prs, "7", "", [card])["board"]) == (card["url"], pr["url"])
-    assert refs.pr(prs, "7", "", [card | {"card": {"prs": [{"url": pr["url"], "head": "old0000"}]}}])["url"] == pr["url"]
+    found = {"{pr:7}": refs.pr(prs, "7", "", [card])}
+    assert refs.slack("Tap Approve on {pr:7}\nAlso merged: {pr:7}", found, None) == f"Tap Approve on <{card['url']}|the run page shows its history>\nAlso merged: <{pr['url']}|the run page shows its history>"
+    assert refs.pr(prs, "7", "", [card | {"card": {"prs": [{"url": pr["url"], "head": "old0000"}]}}])["card"] is None

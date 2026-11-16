@@ -13,6 +13,7 @@ INNER = re.compile(r"<[^<>]*>?")
 CODE = re.compile(r"`[^`\n]+`")
 LINK_WORDS = str.maketrans({"<": "", ">": "", "|": "/", "[": "(", "]": ")"})
 THIS_CARD = "this card"
+TAP_ASK = re.compile(r"\b(?:tap|approve|approval)\b", re.IGNORECASE)
 JOB_START = "(job start)"
 CAUSE = re.compile(
     r"\b(?:because|caus(?:ed|es|ing)|due to|culprit)\b"
@@ -213,7 +214,7 @@ def card(cards: dict, data: dict, waits: str) -> dict:
 
 
 def pr(prs: dict, ref: str, label: str, pr_cards: list[dict]) -> dict:
-    """A PR the drive holds, named by what it does, linked in Slack to his open card at its head when it has one, so every line naming a PR that waits on his tap carries its card and its Approve, which cc-slack draws once in a thread, or any other PR named by its owner/repo#number or URL, which has no title of its own here, under the words the post gives it."""
+    """A PR the drive holds, named by what it does, beside his open card at its head when it has one, which a line asking his tap links in its place, or any other PR named by its owner/repo#number or URL, which has no title of its own here, under the words the post gives it."""
     try:
         key = state.tracked_pr(prs, ref, untracked=True)
     except DriveError as error:
@@ -221,7 +222,7 @@ def pr(prs: dict, ref: str, label: str, pr_cards: list[dict]) -> dict:
     if key in prs:
         found = prs[key]
         shown = view.head_card(found, pr_cards)
-        return {"kind": "pr", "title": view.pr_title(found) if found["title"] else key, "url": shown["url"] if shown else found["url"], "board": found["url"]}
+        return {"kind": "pr", "title": view.pr_title(found) if found["title"] else key, "url": found["url"], "board": found["url"], "card": shown["url"] if shown else None}
     if label:
         url = state.pr_url(key)
         return {"kind": "pr", "title": "", "url": url, "board": url}
@@ -311,12 +312,14 @@ def opening(text: str) -> str:
 
 
 def slack(text: str, found: dict[str, dict], thread: str | None) -> str:
-    """The text as Slack shows it in this thread of his DM, None for its root: each reference a link under the words that name it, which Slack draws a card under, or a record that links nothing as its words; a card named in its own thread reads as the words after its | or as "this card", with no link, since a link there draws the card again under the post. His words: "why are you showing me a card in the thread of the same post that this is a thread of"."""
+    """The text as Slack shows it in this thread of his DM, None for its root: each reference a link under the words that name it, which Slack draws a card under, or a record that links nothing as its words; a card named in its own thread reads as the words after its | or as "this card", with no link, since a link there draws the card again under the post; a PR waiting on his tap, on a line asking his tap or Approve, links his card on it, so the line carries the button it asks him to press and a line only naming the PR draws no card. His words: "why are you showing me a card in the thread of the same post that this is a thread of"."""
 
     def shown(match: re.Match[str]) -> str:
         ref = found[match[0]]
         if ref["kind"] == "card" and thread and view.message_key(ref["url"]) == thread.replace(".", ""):
             return (match[3] or THIS_CARD).strip().translate(LINK_WORDS)
+        if ref["kind"] == "pr" and ref.get("card") and TAP_ASK.search(line_of(match)):
+            return linked(ref, ref["card"], "<{url}|{words}>")
         return linked(ref, ref["url"], "<{url}|{words}>")
 
     return REF.sub(shown, text)
@@ -335,3 +338,10 @@ def board(text: str, found: dict[str, dict]) -> str:
 def linked(ref: dict, url: str | None, form: str) -> str:
     words = ref["title"].translate(LINK_WORDS)
     return form.format(url=url, words=words) if url else words
+
+
+def line_of(match: re.Match[str]) -> str:
+    """The line of the text a reference sits on."""
+    start = match.string.rfind("\n", 0, match.start()) + 1
+    end = match.string.find("\n", match.end())
+    return match.string[start : end if end >= 0 else len(match.string)]
