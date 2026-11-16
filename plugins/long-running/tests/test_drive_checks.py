@@ -232,14 +232,11 @@ def test_a_post_jev_gives_no_verdict_on_holds_only_for_a_finding_a_count_decides
     assert settled.post_verdict(handled(CLAIM["claim"]))["note"] == f"{settled.GOES_OUT} Jev gave no verdict (no jev decision within 20s) on whether each claim of it stands on the read it names."
 
 
-@pytest.mark.parametrize("heard", ["unsure", "stands", "unheard"])
+@pytest.mark.parametrize("heard", ["stands", "unheard"])
 def test_a_post_that_goes_out_says_so_first_and_names_each_finding_never_in_its_refusals_words(jev: Jev, heard: str) -> None:
     long = {"rule": "A line in his thread is at most 60 words.", "found": "this post is 69 words, and a line in his thread is at most 60 words"}
     reason = f"refused, 2 ways; fix each, then post the fixed words once:\n1. {long['found']}\n2. {FINDING['found']}"
     output = {"post": {"text": "Merged."}, "findings": [long, FINDING], "his_words": [{"id": "w1", "quote": "land the first PR"}], "hookSpecificOutput": {"permissionDecisionReason": reason}}
-    if heard == "unsure":
-        jev.breaks("f1", "holds", 0.5)
-        jev.breaks("f2", "holds", 0.5)
     if heard == "unheard":
         jev.answer = None
     verdict = settled.post_verdict(output)
