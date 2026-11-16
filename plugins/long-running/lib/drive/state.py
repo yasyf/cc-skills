@@ -200,6 +200,8 @@ HIS_WORD = re.compile(r"\b(?:his-word|his (?:next )?word)\b", re.IGNORECASE)
 MAC_BOX_WAIT = re.compile(r"mac-box:(?P<box>[\w.-]+?)(?P<handed>@handed)?(?=[\s,;.)]|$)")
 STAGING_GOAL = re.compile(r"\bstaging\b", re.IGNORECASE)
 APPLY_STEP = re.compile(r"apply-(?P<target>.+?)--(?P<env>.+)")
+PLAN_STEP = re.compile(r"plan-(?P<target>.+?)--(?P<env>.+)")
+RELEASE_CANCELLED = "release:cancelled"
 MAC_BOX = "a Mac box signed in to staging"
 CASE_LINE = re.compile(r"^CASE[ \t]+(?P<case>.+?):(?:[ \t]+|$)(?P<rest>.*?)[ \t]*$", re.MULTILINE)
 PASSED_CASE = re.compile(r"pass(?:ed)?\b", re.IGNORECASE)
@@ -4038,7 +4040,7 @@ def part_soak(data: dict, waits: list[str], part: str) -> str | None:
 
 
 def unstaged(data: dict, job_id: str, line: str, report: str) -> str | None:
-    """Why a staging test's DONE may not free the PRs held for it, naming the fix: a builder or codex job whose goal names staging or that holds a `staging test of #N before it lands` part, whose DONE, taken as take_result takes it and read as its proof proven, which a DONE drive job prove proves before it delivers needs, ends every wait an open PR holds on the job or a part it holds, never one following a release it started, by starts_cut, frees that PR only when a CI build the CHECK: lines heading the PR's own run of cases name, by part_run, or every CHECK: line for a PR it tests no staging part of, passed, at a commit carrying the PR's head, an apply step on an env the release provider places on staging or the Mac box provider's signed-in step of its prove build, which signs in to staging a Mac box holding that provider's builds built at that commit, the one staging test of a change only a Mac runs, which no staging deploy carries, read with one build provider read of each build and, in the coordinator's checkout, by github.uncarried, the lines each freed PR changes in each file since its fork from its base branch, which a shared cut squashing or replaying it on an older line carries too, a file no build ships aside, or, for a PR reaching only code its caller runs from a checkout, the code on the repository's dev list its caller runs from a checkout, which no release deploys, by cli.release_reach's releases, the GitHub commit link of a commit carrying its head, the head that checkout ran, by the same read, since a soak that tested what staging already ran, or a cut built without the PRs, proves none of them; None for any other result."""
+    """Why a staging test's DONE may not free the PRs held for it, naming the fix: a builder or codex job whose goal names staging or that holds a `staging test of #N before it lands` part, whose DONE, taken as take_result takes it and read as its proof proven, which a DONE drive job prove proves before it delivers needs, ends every wait an open PR holds on the job or a part it holds, never one following a release it started, by starts_cut, frees that PR only when a CI build the CHECK: lines heading the PR's own run of cases name, by part_run, or every CHECK: line for a PR it tests no staging part of, passed, at a commit carrying the PR's head, an apply step on an env the release provider places on staging, a plan step on such an env in a release whose `release:cancelled` metadata reads nothing to deploy, since staging already runs what that commit plans, by his pick bb9cf91 that a change planning like dev passes untested, or the Mac box provider's signed-in step of its prove build, which signs in to staging a Mac box holding that provider's builds built at that commit, the one staging test of a change only a Mac runs, which no staging deploy carries, read with one build provider read of each build and, in the coordinator's checkout, by github.uncarried, the lines each freed PR changes in each file since its fork from its base branch, which a shared cut squashing or replaying it on an older line carries too, a file no build ships aside, or, for a PR reaching only code its caller runs from a checkout, the code on the repository's dev list its caller runs from a checkout, which no release deploys, by cli.release_reach's releases, the GitHub commit link of a commit carrying its head, the head that checkout ran, by the same read, since a soak that tested what staging already ran, or a cut built without the PRs, proves none of them; None for any other result."""
     from drive import brief, cli, settled, view
 
     job = data["jobs"][job_id]
@@ -4065,10 +4067,14 @@ def unstaged(data: dict, job_id: str, line: str, report: str) -> str | None:
             ran_build = provided(data).build.match(build)
             read = github.build(ran_build["pipeline"], ran_build["number"])
             passed = {ran.get("step_key") or "" for ran in read.get("jobs", []) if ran.get("state") == "passed"}
-            if envs := sorted({step["env"] for key in passed if (step := APPLY_STEP.fullmatch(key)) and settled.stage(step["env"], clone) == settled.STAGING}) + [MAC_BOX] * (signed_in in passed):
+            matched = json.loads((read.get("meta_data") or {}).get(RELEASE_CANCELLED) or "{}").get("nothing", False)
+            steps = (APPLY_STEP, PLAN_STEP) if matched else (APPLY_STEP,)
+            if envs := sorted({step["env"] for key in passed for pattern in steps if (step := pattern.fullmatch(key)) and settled.stage(step["env"], clone) == settled.STAGING}) + [MAC_BOX] * (signed_in in passed):
                 deployed[build] = (read["commit"], envs)
             else:
-                said.append(f"{build} deployed nothing to staging, passing no apply step on an env the release provider places on staging and no {signed_in} step of a Mac box proof")
+                said.append(
+                    f"{build} deployed nothing to staging, passing no apply step on an env the release provider places on staging, no plan step there in a release that ended as nothing to deploy, and no {signed_in} step of a Mac box proof"
+                )
         for key in freed:
             if not data["prs"][key]["head"] or not data["prs"][key]["base"]:
                 lacking[key] = [f"{key} holds no head or base GitHub read for it, so no build can be checked for its changes; read them with drive pr add {data['prs'][key]['url']} --job {data['prs'][key]['job']}, then send this report again"]

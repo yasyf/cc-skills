@@ -2270,6 +2270,7 @@ def test_a_staging_tests_done_frees_the_prs_held_on_it_only_by_a_check_build_tha
     data["prs"] = {key: state.new_pr(f"https://github.com/{MONOREPO}/pull/{key.rsplit('#', 1)[1]}", "j1", "o1") | {"head": head, "base": "dev", "waits": ["j2"]} for key, head in zip(keys, (bottom, tip))}
     apply = {"state": "passed", "step_key": "apply-sandsql--plat-usw2-staging"}
     boxed = [{"state": "passed", "step_key": step} for step in ("mac-box-iris", "mac-box-sand", "mac-box-approve")]
+    planned = {"state": "passed", "step_key": "plan-sandsql--plat-usw2-staging"}
     builds = {
         "16203": {"commit": soak, "jobs": [{"state": "passed", "step_key": "soak-staging"}]},
         "16085": {"commit": half, "jobs": [apply]},
@@ -2278,6 +2279,9 @@ def test_a_staging_tests_done_frees_the_prs_held_on_it_only_by_a_check_build_tha
         "16300": {"commit": half, "jobs": boxed},
         "16301": {"commit": cut, "jobs": [*boxed[:2], {"state": "failed", "step_key": "mac-box-approve"}]},
         "16302": {"commit": cut, "jobs": boxed},
+        "17356": {"commit": cut, "jobs": [planned], "meta_data": {state.RELEASE_CANCELLED: json.dumps({"reason": "Nothing to deploy: sandsql on plat-usw2-staging already matches it.", "nothing": True})}},
+        "17357": {"commit": cut, "jobs": [planned], "meta_data": {state.RELEASE_CANCELLED: json.dumps({"by": "U1", "reason": "cancelled by hand"})}},
+        "17358": {"commit": cut, "jobs": [{"state": "passed", "step_key": "plan-sandsql--plat-usw2-prod"}], "meta_data": {state.RELEASE_CANCELLED: json.dumps({"nothing": True})}},
     }
     monkeypatch.setattr(github, "build", lambda pipeline, number: builds[number])
 
@@ -2293,14 +2297,19 @@ def test_a_staging_tests_done_frees_the_prs_held_on_it_only_by_a_check_build_tha
     assert f"Forge-AI/monorepo#4202's changes to reach.rs are missing from {half[:12]}, which https://buildkite.com/forge/release/builds/16085 deployed to plat-usw2-staging" in halved
     assert "16090 deployed nothing to staging" in prod
     assert f"Forge-AI/monorepo#4202's changes to reach.rs are missing from {half[:12]}, which https://buildkite.com/forge/release/builds/16300 deployed to a Mac box signed in to staging" in box_halved
-    assert "16301 deployed nothing to staging, passing no apply step on an env the release provider places on staging and no mac-box-approve step of a Mac box proof" in unsigned
+    assert (
+        "16301 deployed nothing to staging, passing no apply step on an env the release provider places on staging,"
+        " no plan step there in a release that ended as nothing to deploy, and no mac-box-approve step of a Mac box proof"
+    ) in unsigned
+    assert "17357 deployed nothing to staging" in done("j2", "17357")
+    assert "17358 deployed nothing to staging" in done("j2", "17358")
     assert none.endswith(
         "they name no Buildkite build. Name on a CHECK: line the release build that deployed a commit carrying each one's head to staging,"
         " or the Mac box prove build that put it on a Mac box signed in to staging, or, for a PR reaching only code its caller runs from a checkout, the GitHub commit link of the head its checkout ran,"
         " heading the CASE lines of that PR's run and naming the PR when the DONE tests several in turn, or return WAITING on what still holds them,"
         " such as staging:<target>/<env>@<commit> while staging does not run it yet"
     )
-    assert [done("j2", "16086"), done("j2", "16203", "16086"), done("j2", "16302"), done("j1", "16203")] == [None, None, None, None]
+    assert [done("j2", "16086"), done("j2", "16203", "16086"), done("j2", "16302"), done("j2", "17356"), done("j1", "16203")] == [None, None, None, None, None]
     data["prs"][keys[1]] |= {"head": "", "base": None}
     unread = done("j2", "16086")
     assert unread.startswith("j2's DONE frees Forge-AI/monorepo#4202 from waiting on its staging test")
