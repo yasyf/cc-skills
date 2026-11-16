@@ -303,6 +303,41 @@ class LivePollRebuildsThePage(unittest.TestCase):
             server.server_close()
             chrome.close()
 
+    def test_the_page_opens_on_each_customers_impact_with_a_total_or_says_nothing_was_measured(self):
+        chrome = B.Chrome(self.chrome_path)
+        server, base = B.serve(self.root)
+        try:
+            self.publish(record(timeline=TIMELINE[:1]))
+            session = self.open_page(chrome, base)
+            time.sleep(1.5)
+            measured = record(timeline=TIMELINE[:1], impact={"teams": [
+                {"codename": "Polar", "text": "Polar had 227 failed runs.", "runs": 227,
+                 "from": "2026-09-18T19:32:00Z", "to": "2026-09-18T19:50:00Z"},
+                {"codename": "Ursa", "text": "Ursa had 81 failed runs.", "runs": 81}]})
+            measured["meta"]["status"] = "draft"
+            measured["live"].pop("source")
+            self.publish(measured)
+            B.evaluate(chrome, session, "(window.irLiveTick(),1)")
+            time.sleep(1.5)
+            table = json.loads(B.evaluate(chrome, session, """JSON.stringify([...document.querySelectorAll(
+              '#impactTableHost tr')].map(r => [...r.children].map(c => c.textContent.trim())))"""))
+            self.assertEqual([row[0] for row in table], ["Customer", "Polar", "Ursa", "Total"])
+            self.assertEqual([row[2] for row in table[1:]], ["227", "81", "308"])
+            self.assertEqual(table[2][3], "not measured")
+            unmeasured = record(timeline=TIMELINE[:1], impact={"teams": [{"codename": "Polar", "text": "Polar was hurt."}]})
+            unmeasured["meta"]["status"] = "draft"
+            unmeasured["live"].pop("source")
+            self.publish(unmeasured)
+            B.evaluate(chrome, session, "(window.irLiveTick(),1)")
+            time.sleep(1.5)
+            line = B.evaluate(chrome, session, "document.querySelector('#impactTableHost').textContent")
+            self.assertEqual(line, "No impact numbers were measured for this incident; it reached Polar.")
+        finally:
+            self.publish(record())
+            server.shutdown()
+            server.server_close()
+            chrome.close()
+
     def test_the_models_chapters_regroup_the_live_view_as_entries_land(self):
         chrome = B.Chrome(self.chrome_path)
         server, base = B.serve(self.root)

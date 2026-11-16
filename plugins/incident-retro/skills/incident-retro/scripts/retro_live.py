@@ -313,6 +313,18 @@ def windows_of(state: dict, retro, now: datetime.datetime) -> list:
     return [{"id": "W1", "h": "the incident window", "kind": "outage", "start": start, "end": end, "teams": teams}]
 
 
+def impact_rows(state: dict) -> list:
+    rows = []
+    for team in state.get("teams") or []:
+        if not (isinstance(team, dict) and team.get("codename")):
+            continue
+        name, runs = team["codename"], team.get("runs")
+        text = f"{name} had {runs} failed runs." if isinstance(runs, int) else f"{name} was hurt; nothing measured its failed runs."
+        rows.append({"codename": name, "text": text,
+                     **{key: team[key] for key in ("from", "to", "runs", "sessions", "refs") if team.get(key) is not None}})
+    return rows
+
+
 def causes_of(state: dict, retro, before: dict, now: datetime.datetime) -> list:
     out = []
     for issue, diagnosis in sorted((state.get("diagnoses") or {}).items()):
@@ -417,6 +429,7 @@ def rebuild(state: dict, messages: list, R: dict, retro, now: datetime.datetime,
     before_causes = {c["id"]: c for c in retro.entries(R, "causes") if c.get("id")}
     before_actions = {a["id"]: a for a in retro.entries(R, "actions") if a.get("id")}
     R["windows"] = windows_of(state, retro, now)
+    R["impact"] = {**(R.get("impact") or {}), "teams": impact_rows(state)}
     R["timeline"] = timeline_of(state, messages, retro, R["timestamps"].get("onset"))
     R["causes"] = causes_of(state, retro, before_causes, now)
     R["actions"] = actions_of(state, retro, before_actions, {c["id"] for c in R["causes"]}, now)

@@ -595,6 +595,13 @@ a.lv-card:hover{border-color:var(--accent);text-decoration:none}
 .gl-sev{display:inline-block;margin-left:var(--s-3);vertical-align:middle;font-size:var(--t-sm);font-weight:600;border:1px solid var(--hero-line);border-radius:var(--r-pill);padding:0 var(--s-3)}
 .gl-fix{font-size:var(--t-lg);line-height:1.55;margin:0;max-width:72ch}
 .gl-fix .lchips{margin-top:var(--s-2)}
+.it{margin:0 0 var(--s-6)}
+.it table{width:100%;border-collapse:collapse;font-size:var(--t-md)}
+.it th{text-align:left;font-weight:600;font-size:var(--t-sm);color:var(--ink2);border-bottom:1px solid var(--line);padding:var(--s-2) var(--s-3)}
+.it td{border-bottom:1px solid var(--line);padding:var(--s-2) var(--s-3);vertical-align:top}
+.it td.n,.it th.n{text-align:right}
+.it tr.tot td{font-weight:600;border-bottom:0}
+.it .none{color:var(--ink2);margin:0}
 body.glance #tilesHost,body.glance.onewin #windowsHost{display:none}
 @media (max-width:640px){.gl{padding:var(--s-5);gap:var(--s-5)}.gl-grid{grid-template-columns:1fr;gap:var(--s-5)}}
 .xs-steps{display:flex;gap:var(--s-4);overflow-x:auto;scroll-snap-type:x proximity;scrollbar-width:none;border-bottom:1px solid var(--hero-line);margin-bottom:var(--s-6)}
@@ -941,6 +948,8 @@ svg.ir-svg .ev-l{font-size:9.5px;fill:var(--ink2)}
 </div>
 
 <div class="gl" id="glanceHost" hidden></div>
+
+<div class="it" id="impactTableHost" aria-label="Impact by customer"></div>
 
 <div class="xs" id="execHost" hidden></div>
 
@@ -1802,6 +1811,31 @@ function renderGlance(){
  host.innerHTML=`<div><span class="gl-k">What happened</span><p class="gl-what">${inline(unslack(what))}</p></div>`+
   `<div class="gl-grid"><div>${glanceWho()}</div><div>${glanceHow()}</div></div><div>${glanceFix()}</div>`;
  termify(host);
+}
+function impactSpan(from,to){
+ if(tsOf(from)==null)return "";
+ if(tsOf(to)==null)return `since ${fmtLocal(from)} ${tzName()}`;
+ return `${fmtLocal(from)}–${dayKey(from)===dayKey(to)?fmtTime(to):fmtLocal(to)} ${tzName()}`;
+}
+function renderImpactTable(){
+ const host=$("#impactTableHost");
+ const rows=(IMPACT.teams||[]).filter(t=>t&&typeof t==="object"&&t.codename);
+ const counted=k=>rows.some(t=>Number.isInteger(t[k]));
+ if(!counted("runs")&&!counted("sessions")){
+  const named=rows.map(t=>t.codename);
+  host.innerHTML=`<p class="none">No impact numbers were measured for this incident${named.length?`; it reached ${esc(named.join(", "))}`:""}.</p>`;
+  return;
+ }
+ const on=tsAt("onset"),end=tsAt("allClear")||tsAt("resolved");
+ const num=v=>Number.isInteger(v)?v.toLocaleString("en-US"):"not measured";
+ const source=t=>(Array.isArray(t.refs)?t.refs:[]).filter(u=>safeUrl(u)).map(u=>hostChipHtml(u)).join(" ");
+ const cells=t=>`<td>${esc(impactSpan(t.from||on,t.to||end))}</td><td class="n num">${esc(num(t.runs))}</td><td class="n num">${esc(num(t.sessions))}</td>`;
+ const sum=k=>counted(k)?rows.reduce((n,t)=>n+(Number.isInteger(t[k])?t[k]:0),0):null;
+ const froms=rows.map(t=>t.from||on).filter(x=>tsOf(x)!=null).sort((a,b)=>tsOf(a)-tsOf(b));
+ const tos=rows.map(t=>t.to||end).filter(x=>tsOf(x)!=null).sort((a,b)=>tsOf(a)-tsOf(b));
+ const total=rows.length>1?`<tr class="tot"><td>Total</td>${cells({from:froms[0],to:tos[tos.length-1],runs:sum("runs"),sessions:sum("sessions")})}<td></td></tr>`:"";
+ host.innerHTML=`<table><thead><tr><th>Customer</th><th>When</th><th class="n">Runs failed</th><th class="n">Sessions hit</th><th>Source</th></tr></thead><tbody>`+
+  rows.map(t=>`<tr><td>${esc(t.codename)}</td>${cells(t)}<td>${source(t)}</td></tr>`).join("")+total+`</tbody></table>`;
 }
 function renderIncidents(){
  const host=$("#incidentsHost");
@@ -3364,6 +3398,7 @@ function renderAll({evidence=true}={}){
  indexCiteable();
  renderDoctop();
  renderGlance();
+ renderImpactTable();
  renderOverview();
  setupTimeline();
  setupCauses();

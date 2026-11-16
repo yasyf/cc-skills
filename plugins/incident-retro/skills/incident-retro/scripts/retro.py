@@ -1183,6 +1183,19 @@ def check_impact(rep, R, known: set):
             for i, t in enumerate(teams):
                 if not (isinstance(t, dict) and isinstance(t.get("codename"), str) and t["codename"].strip()):
                     rep.err(f"impact.teams[{i}] must carry the team name in codename")
+                    continue
+                for key in ("runs", "sessions"):
+                    if t.get(key) is not None and not (isinstance(t[key], int) and not isinstance(t[key], bool) and t[key] >= 0):
+                        rep.err(f"impact.teams[{i}].{key} must be a count of zero or more, or null when nothing measured it")
+                for key in ("from", "to"):
+                    if t.get(key) is not None:
+                        try:
+                            parse_ts(t[key])
+                        except ValueError as e:
+                            rep.err(f"impact.teams[{i}].{key} {t[key]!r} {e}")
+                refs = t.get("refs")
+                if refs is not None and not (isinstance(refs, list) and all(isinstance(r, str) and r.startswith("https://") for r in refs)):
+                    rep.err(f"impact.teams[{i}].refs must be a list of https links to where each number came from")
     metrics = impact.get("metrics")
     if metrics is None:
         return
