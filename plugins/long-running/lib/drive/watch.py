@@ -1780,14 +1780,14 @@ def beside_passes(name: str, project: str | None, lines: int, flag: str, passing
     children.reap_inherited()
     passer = Watcher(name, offset=state.watch_cursor(name, project), project=project)
     with os.fdopen(lines, "w", buffering=1) as written:
-        while not ended:
+        while not over(ended):
             if upgraded():
                 with term_held():
                     install.reopen(["watch", flag, str(lines), "--drive", name, *(["--project", project] if project else [])])
             if every_project():
                 joined(passer, state.now(), held_beside(name), lambda project: Watcher(name, offset=state.watch_cursor(name, project), project=project))
             for one in [passer, *passer.others.values()]:
-                if ended:
+                if over(ended):
                     break
                 for line in passing(one, state.now()):
                     written.write(f"{relayed(one, LINE_BREAKS.sub(' ', line))}\n")
@@ -1813,6 +1813,11 @@ def term_held() -> Iterator[None]:
         signal.pthread_sigmask(signal.SIG_UNBLOCK, {signal.SIGTERM})
 
 
+def over(ended: list[int]) -> bool:
+    """Whether a process beside the watch is done: the watch sent it SIGTERM, or the watch is gone and launchd took this process as its own, as when the watch was killed, so no orphan runs the drive's passes beside the next watch's."""
+    return bool(ended) or os.getppid() == 1
+
+
 def unwatched(project: str | None) -> bool:
     """Whether this process beside a watch was started for one project's own watch, which an older install ran: it ends at once, so that watch ends too and the drive's watch takes its project."""
     return project is not None and not every_project()
@@ -1835,7 +1840,7 @@ def landing_loop(name: str, project: str | None, lines: int) -> int:
     try:
         with os.fdopen(lines, "w", buffering=1) as untracked:
             for _ in rests(state.events_path(name), receiver.deliveries_path()):
-                if ended:
+                if over(ended):
                     break
                 if upgraded():
                     with term_held():
@@ -1845,7 +1850,7 @@ def landing_loop(name: str, project: str | None, lines: int) -> int:
                 if every_project():
                     joined(landing, state.now(), held_beside(name), functools.partial(landing_watcher, name))
                 for one in [landing, *landing.others.values()]:
-                    if ended:
+                    if over(ended):
                         break
                     if one.untracked != told.get(one.project):
                         told[one.project] = dict(one.untracked)
