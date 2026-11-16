@@ -2848,7 +2848,7 @@ def wakes(data: dict, job_id: str, moment: datetime, line: str = "", read: dict[
 
     job = data["jobs"][job_id]
     named = [*result_waits(data, job_id, line), *stage.waited(data, job_id, line)["waits"]] if line else []
-    waits = unlooped(data, job_id, [*job["waits"], *named, *untracked_prs(data, job)])
+    waits = unlooped(data, job_id, [*(wait for wait in job["waits"] if wait != (job.get("claim") or {}).get("worker")), *named, *untracked_prs(data, job)])
     return timed(data, job, moment) or bool(view.open_cards(job)) or any(view.holds(data, wait, None) and (read or {}).get(wait, "open") in github.UNLANDED for wait in waits)
 
 
