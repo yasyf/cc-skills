@@ -335,20 +335,21 @@ def pictured(language: str, source: str) -> bool:
 
 
 def illustrative(language: str, source: str) -> bool:
-    """Whether a fence is worth a picture on his card, by his pick 29865ea, "drop the ones where the code is not illustrative or is just one line or something": every diagram is, a fence of one line never is, and code is when Jev reads its picture as illustrating what the card's words cannot say as well, at settled.YES or more, never a value flipped, an argument dropped or a name changed, a reading in the band between settled.NO and settled.YES drawing it as Slack's code block, said on stderr. Jev's verdict on each source under the model and question asked is kept under the state root, so every draw of a card shows the same pictures; when Jev gives none the fence draws, said on stderr."""
+    """Whether a fence is worth a picture on his card, by his pick 29865ea, "drop the ones where the code is not illustrative or is just one line or something": every diagram is, a fence of one line never is, and code is when Jev reads its picture as illustrating what the card's words cannot say as well, at settled.YES or more, never a value flipped, an argument dropped or a name changed, Jev reading only its language and its lines that hold words, and a fence past settled.REQUEST_CHARS // 2 characters of them is, unasked, since a change that size is no one-line flip, a reading in the band between settled.NO and settled.YES drawing it as Slack's code block, said on stderr. Jev's verdict on each source under the model and question asked is kept under the state root, so every draw of a card shows the same pictures; when Jev gives none the fence draws, said on stderr."""
     if language.lower() in DIAGRAMS:
         return True
-    if len([line for line in source.splitlines() if line.strip()]) < 2:
+    if len(lines := [line for line in source.splitlines() if line.strip()]) < 2:
         return False
     from drive import settled, state
 
+    if len(code := "\n".join(lines)) > settled.REQUEST_CHARS // 2:
+        return True
     key = hashlib.sha256(f"{settled.MODEL}\n{settled.ILLUSTRATES.ask}\n{language.lower()}\n{source}".encode()).hexdigest()[:16]
     kept = state.root() / JUDGED / f"{key}.json"
     if kept.is_file():
         return json.loads(kept.read_text())["illustrative"]
     try:
-        told, _, _ = settled.fill({"language": language, "code": {}}, {"illustrates": settled.ILLUSTRATES}, settled.lined("code", source))
-        sure = settled.jev(told, {"illustrates": settled.ILLUSTRATES})["illustrates"]
+        sure = settled.jev({"language": language, "code": code}, {"illustrates": settled.ILLUSTRATES})["illustrates"]
     except settled.Unheard as failure:
         print(f"drive card: Jev did not say whether a ```{language} fence illustrates anything, so it draws as a picture: {failure}", file=sys.stderr)
         return True

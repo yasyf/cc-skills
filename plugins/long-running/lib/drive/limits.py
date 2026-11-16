@@ -957,7 +957,7 @@ def replaced(text: str) -> tuple[str, ...]:
     return tuple(dict.fromkeys(ref.strip() for line in REPLACES.findall(text) for ref in line.split(",") if ref.strip()))
 
 def unread(asked: Question, findings: list[str]) -> str | None:
-    """Why a question goes to him without a picture of each option: by his ruling 0d2b7df, Jev reads its options as differing in how a screen looks, at settled.YES or more, so he picks by seeing each, and an option has no picture line captioned with its number, `![N · …](path)`; by his ruling aac1ff4, Jev reads them as choosing between architectures, at settled.YES or more, so he compares each option's components, and an option has no ```arch fence captioned with its number, `N · …`, on the line above it. In the same request Jev reads each code name `code_terms` finds anywhere on his card, its question, summary, options, their descriptions and its Show me outside its fences, and each run id, word the drive coined or one-letter name for work the findings `cc-slack check-post` gave over it name, one Noul a name, and each one it reads at settled.YES or more as never said in plain words on the card is printed on stderr; one more Noul, settled.COINED, reads the whole card cold with those names and each word `coined_terms` finds, since a name the drive coined, such as a Forbids line, reads as said when Jev reads it alone, and a card it reads at settled.YES or more as using one as if he knew it is printed with them, each refusing nothing, by his pick 320b7a7. The options, then the Show me, then each name fill the request whole; a reading in the band between settled.NO and settled.YES is said on stderr as unsure, and a name the request has no room for, or Jev giving no reading, lets the question up unread."""
+    """Why a question goes to him without a picture of each option: by his ruling 0d2b7df, Jev reads its options as differing in how a screen looks, at settled.YES or more, so he picks by seeing each, and an option has no picture line captioned with its number, `![N · …](path)`; by his ruling aac1ff4, Jev reads them as choosing between architectures, at settled.YES or more, so he compares each option's components, and an option has no ```arch fence captioned with its number, `N · …`, on the line above it. In the same request Jev reads each code name `code_terms` finds anywhere on his card, its question, summary, options, their descriptions and its Show me outside its fences, and each run id, word the drive coined or one-letter name for work the findings `cc-slack check-post` gave over it name, one Noul a name, and each one it reads at settled.YES or more as never said in plain words on the card is printed on stderr; one more Noul, settled.COINED, reads the whole card cold with those names and each word `coined_terms` finds, since a name the drive coined, such as a Forbids line, reads as said when Jev reads it alone, and a card it reads at settled.YES or more as using one as if he knew it is printed with them, each refusing nothing, by his pick 320b7a7. Two requests carry them: the looks and architectures Nouls get only the options and their descriptions, which is all they read, and the names and COINED get the card's question, summary, options and the lines of its Show me outside its fences, where a clause saying what a name is would stand, beside the names and coined words; a reading in the band between settled.NO and settled.YES is said on stderr as unsure, and Jev giving no reading lets the question up unread."""
     from drive import settled
 
     shot = {int(number[1]) for line in captions(asked.show_me) if (found := PICTURE.fullmatch(line)) and (number := OPTION_CAPTION.match(found[1]))}
@@ -969,13 +969,16 @@ def unread(asked: Question, findings: list[str]) -> str | None:
     coined = [word for word in coined_terms(text) if word not in named]
     if not unshown and not unarched and not named and not coined:
         return None
-    options = (({"options": {f"o{number}": {"option": option, "description": asked.hints.get(option, "")}}}, {}) for number, option in enumerate(asked.options, 1))
-    names = (({"names": {f"n{number}": name}}, {f"{PLAIN}{number}": settled.asking(settled.UNEXPLAINED, name=f"n{number}")}) for number, name in enumerate(named, 1))
-    words = (({"coined": {f"c{number}": word}}, {}) for number, word in enumerate(coined, 1))
-    asks = ({"looks": settled.LOOKS} if unshown else {}) | ({ARCHED: settled.ARCHITECTURES} if unarched else {}) | ({WHOLE: settled.COINED} if named or coined else {})
-    seen, questions, _ = settled.fill({"question": asked.title, "summary": "\n".join(asked.summary), "options": {}}, asks, [*options, ({"show_me": "\n".join(asked.show_me)}, {}), *names, *words])
+    options = {f"o{number}": {"option": option, "description": asked.hints.get(option, "")} for number, option in enumerate(asked.options, 1)}
+    looks = ({"looks": settled.LOOKS} if unshown else {}) | ({ARCHED: settled.ARCHITECTURES} if unarched else {})
+    card = (
+        {"question": asked.title, "summary": "\n".join(asked.summary), "options": options, "show_me": "\n".join(captions(asked.show_me))}
+        | ({"names": {f"n{number}": name for number, name in enumerate(named, 1)}} if named else {})
+        | ({"coined": {f"c{number}": word for number, word in enumerate(coined, 1)}} if coined else {})
+    )
+    plain = {f"{PLAIN}{number}": settled.asking(settled.UNEXPLAINED, name=f"n{number}") for number in range(1, len(named) + 1)} | ({WHOLE: settled.COINED} if named or coined else {})
     try:
-        read = settled.jev(seen, questions)
+        read = settled.jev_all([({"options": options}, looks), (card, plain)])
     except settled.Unheard as failure:
         print(f"drive job ask: Jev did not say whether this question needs a screenshot or an architecture diagram of each option or plain words beside the code it names, so it goes up unchecked: {failure}", file=sys.stderr)
         return None

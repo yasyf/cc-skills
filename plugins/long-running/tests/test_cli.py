@@ -2055,8 +2055,8 @@ def test_job_ask_refuses_a_look_choice_until_each_option_carries_its_screenshot(
     assert "the ASK's options differ in how a screen looks, so he picks by seeing each, and options 1, 2, 3 carry no screenshot" in refused
     assert "his ruling 0d2b7df" in refused
     [looked] = jev.looked
-    assert (looked["question"], looked["options"]["o1"]["option"]) == (
-        "Where should pinned chats draw in the Iris sidebar?",
+    assert (list(looked), looked["options"]["o1"]["option"]) == (
+        ["options"],
         "A new Pinned group above Chats and Agents: pinned chats and agents draw there in the order you drag",
     )
     shots = pinned_chats_shots(tmp_path)
@@ -2188,7 +2188,7 @@ def test_unread_prints_a_card_jev_reads_cold_as_using_a_name_it_never_says_in_pl
     findings = ["2:1 drive-term 'the drive': say what happens to the reader's work instead", "1:52 commit-sha 'cf78807': link the commit"]
     assert limits.unread(limits.question(FORBIDS_ASK, kept=True), findings) is None
     assert jev.terms == ["release-order", "SandSQL", "lib/drive/cli.py", "the drive"]
-    assert list(jev.looked[-1]["coined"].values()) == ["Forbids", "Jev"]
+    assert list(jev.cards[-1]["coined"].values()) == ["Forbids", "Jev"]
     printed = capsys.readouterr().err
     assert printed.startswith(
         "drive job ask: kept, but Jev, reading his card cold, finds it naming a thing it never says in plain words,"
@@ -2248,7 +2248,7 @@ def test_job_ask_keeps_a_choice_he_reads_about_with_no_screenshot(run: Run, aski
     block.write_text(SHORT_ASK)
     jev.looks = 0.02
     assert run("job", "ask", asking, str(block))[0] == 0
-    assert [looked["question"] for looked in jev.looked] == ["How should a finished run's files be laid out so its page opens without guessing?"]
+    assert [list(looked) for looked in jev.looked] == [["options"]]
 
 
 def test_job_ask_refuses_findings_before_the_question(
@@ -8905,7 +8905,7 @@ def test_pr_add_refuses_a_shown_section_jev_reads_as_putting_off_its_step_naming
         " and the refusal is a defect you name, never a step left for later"
     )
     [read] = [asked for asked in jev.asked if "puts_off.s3" in asked["questions"]]
-    assert [section["heading"] for section in read["state"]["sections"].values()] == ["summary", "what you'll hate most", "fde impact"]
+    assert (list(read["state"]), read["state"]["section"]["heading"]) == (["section"], "fde impact")
     assert state.load("demo")["prs"] == {}
     jev.ruled.clear()
     on_github["body"] = CARD_BODY + "\n## FDE impact\n`drive fde-scan` found no Forge-FDE repository calling `promote` or `hand_over`.\n"

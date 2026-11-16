@@ -1329,6 +1329,7 @@ class Jev:
     architectures: float = 0.05
     whole: float = 0.05
     looked: list[dict] = field(default_factory=list)
+    cards: list[dict] = field(default_factory=list)
     again: set[str] = field(default_factory=set)
     named: set[str] = field(default_factory=set)
     paged: float = 0.05
@@ -1359,7 +1360,7 @@ class Jev:
         if (ruled := self.ruled.get(question)) and ruled[0] == about:
             return ruled[1]
         if key == "illustrates":
-            return 0.05 if code_lines("\n".join(state["code"].values())) in {code_lines(code) for code in self.plain} else 0.95
+            return 0.05 if state["code"] in {code_lines(code) for code in self.plain} else 0.95
         if key == "looks":
             return self.looks
         if key == limits.ARCHED:
@@ -1405,9 +1406,10 @@ def jev(monkeypatch: pytest.MonkeyPatch) -> Jev:
             judged.read_for_pages.append(state["order"])
             return {key: judged.paged for key in questions}
         if "illustrates" in questions:
-            judged.illustrated.append("\n".join(state["code"].values()))
+            judged.illustrated.append(state["code"])
         elif "looks" in questions or limits.ARCHED in questions or limits.WHOLE in questions or any(key.startswith(limits.PLAIN) for key in questions):
             judged.looked += [state] if "looks" in questions else []
+            judged.cards += [state] if limits.WHOLE in questions else []
             judged.terms += list(state.get("names", {}).values())
         elif "answers_nothing" in questions:
             judged.weighed.append(state["his_words"])

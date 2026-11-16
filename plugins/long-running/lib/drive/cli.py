@@ -5253,13 +5253,12 @@ def unkinded_title(key: str, read: dict, port_of: int | None) -> str | None:
 
 
 def put_off_steps(key: str, read: dict) -> list[str]:
-    """Why each section of a PR's body his card draws fails to report the step it holds: Jev reads it, at settled.YES or more, as saying that step, such as the FDE impact scan its branch's own tools/ci refused, runs later, each naming the route around it, FDE_SCAN_ROUTE for the FDE impact, since a refused tool is routed around in the turn it refuses; every section read at once, and a reading in the band between settled.NO and settled.YES, or none, lets it in, said on stderr."""
+    """Why each section of a PR's body his card draws fails to report the step it holds: Jev reads it alone, its heading and text in one request of its own, at settled.YES or more, as saying that step, such as the FDE impact scan its branch's own tools/ci refused, runs later, each naming the route around it, FDE_SCAN_ROUTE for the FDE impact, since a refused tool is routed around in the turn it refuses; every section read at once, and a reading in the band between settled.NO and settled.YES, or none, lets it in, said on stderr."""
     from drive import card
 
     shown = [(heading, text) for heading, text in card.sections(card.body_of(read)).items() if heading in card.SHOWN_HEADINGS and text.strip()]
-    asked = (({"sections": {f"s{index}": {"heading": heading, "text": text}}}, {f"puts_off.s{index}": settled.asking(settled.PUTS_OFF, slot=f"s{index}")}) for index, (heading, text) in enumerate(shown, 1))
     try:
-        found = settled.jev_all(settled.batched({}, {}, asked))
+        found = settled.jev_all([({"section": {"heading": heading, "text": text}}, {f"puts_off.s{index}": settled.PUTS_OFF}) for index, (heading, text) in enumerate(shown, 1)])
     except settled.Unheard as failure:
         print(f"drive pr add: Jev did not read {key}'s body for a step it puts off, so it goes on unread: {failure}", file=sys.stderr)
         return []

@@ -247,7 +247,7 @@ RESTARTS = Noul(
     no="They pick, refine or correct a step of the design as it stands, or only quote such words, as a self-retro on them does.",
 )
 REMOVES = Noul(
-    "Do `rulings.{ruling}.said`, his ruling on the whole project or workstream the work is filed under, remove the work `parts.{part}`"
+    "Do `ruling.said`, his answer to `ruling.asked` and his ruling on the whole project or workstream the work is filed under, remove the work `parts.{part}`"
     " names, as work a design he named replaces, work he stopped or work he ruled out, so starting it goes against what he said?",
     yes="Starting that work goes against his ruling, so no job starts on it.",
     no="The work stands beside his ruling, or his ruling only shapes how it is done.",
@@ -363,7 +363,7 @@ LEAVES = Noul(
     no="Each piece it names is built, ruled out or never asked for by his words, is left to this same job's next event, or is only a proof, check, review, merge, install or release still to run, or an idea beyond the plan.",
 )
 PUTS_OFF = Noul(
-    "Does `sections.{slot}.text`, the section of a PR body his card draws under `sections.{slot}.heading`, say that a step it reports, one its writer runs before the PR opens, such as the FDE impact scan, has not run and that its result comes later, once a build, tool, fix or someone else gets to it?",
+    "Does `section.text`, the section of a PR body his card draws under `section.heading`, say that a step it reports, one its writer runs before the PR opens, such as the FDE impact scan, has not run and that its result comes later, once a build, tool, fix or someone else gets to it?",
     yes='Such as "its report lands here once the first build of this head renders its contract" or "the scan runs once the tool is fixed".',
     no="It reports the step's result, says why the step does not apply, or names only what runs after the PR opens, such as CI, CI's screenshots, review, a merge, install, release or proof, or a piece of the plan a follow-up builds, which Against the plan lists.",
 )
@@ -822,14 +822,10 @@ def area_rulings(data: dict, order_ids: list[str]) -> list[dict]:
 
 
 def removed(parts: list[str], rulings: list[dict]) -> dict[str, dict]:
-    """Each of these parts Jev reads at YES as work one of these rulings of his on its whole area removes, beside the first such ruling, each part read beside each ruling in as many requests as batched needs; none when Jev gives no reading, said on stderr, so no work waits on Jev."""
-    items = (
-        ({"parts": {f"p{number}": part}, "rulings": {ruling["id"]: {"asked": ruling["asked"], "said": ruling["said"], "area": ruling["area"]}}}, {f"removes.p{number}.{ruling['id']}": asking(REMOVES, part=f"p{number}", ruling=ruling["id"])})
-        for number, part in enumerate(parts, 1)
-        for ruling in rulings
-    )
+    """Each of these parts Jev reads at YES as work one of these rulings of his on its whole area removes, beside the first such ruling, one request a ruling holding only its `asked` and `said` beside the names of the parts; none when Jev gives no reading, said on stderr, so no work waits on Jev."""
+    named = {f"p{number}": part for number, part in enumerate(parts, 1)}
     try:
-        read = jev_all(batched({}, {}, items))
+        read = jev_all([({"ruling": {"asked": ruling["asked"], "said": ruling["said"]}, "parts": named}, {f"removes.{slot}.{ruling['id']}": asking(REMOVES, part=slot) for slot in named}) for ruling in rulings])
     except Unheard as failure:
         print(f"drive: Jev gave no reading of whether his rulings on their whole area remove {', '.join(parts)}, so work on them starts: {failure}", file=sys.stderr)
         return {}
@@ -884,9 +880,12 @@ def line_read(lined: Sequence[tuple[str, list[dict]]], read: dict[str, float]) -
 
 
 def overruled(lines: list[str], data: dict) -> list[tuple[str, dict]]:
-    """Each of these lines Jev reads, by `line_read` in as many requests as batched needs, at YES or more, against the recorded answers of his `line_answers` finds for it floored, as saying no ruling of his covers, putting up for change or asking him again an item that answer, given before it, orders or keeps, beside that answer, but a line naming by id a later answer of his that lifts that one, by `lifted_in`; Unheard when Jev gives no reading. A line whose words after its first colon, or whole words when it has none, are only none, as a bare `open: none` or a `none` list item, names no item to go against, so it reaches neither ccn nor Jev, which would otherwise read it against whatever answer its key word ranks first."""
+    """Each of these lines Jev reads, by `line_read` in one request a line holding only `against`, that line and the LINE_CANDIDATES answers found for it, at YES or more, against the recorded answers of his `line_answers` finds for it floored, as saying no ruling of his covers, putting up for change or asking him again an item that answer, given before it, orders or keeps, beside that answer, but a line naming by id a later answer of his that lifts that one, by `lifted_in`; Unheard when Jev gives no reading. A line whose words after its first colon, or whole words when it has none, are only none, as a bare `open: none` or a `none` list item, names no item to go against, so it reaches neither ccn nor Jev, which would otherwise read it against whatever answer its key word ranks first."""
     lined = line_answers([line for line in lines if not none_only(line.partition(":")[2] or line)], data, floored=True)
-    return [(line, answer) for line, answer, sure in line_read(lined, jev_all(batched({}, {}, line_items(lined)))) if reading(sure) and not lifted_in(line, answer, data)]
+    grouped: dict[str, list[tuple[dict, dict[str, Noul]]]] = {}
+    for item in line_items(lined):
+        grouped.setdefault(next(iter(item[0]["lines"])), []).append(item)
+    return [(line, answer) for line, answer, sure in line_read(lined, jev_all([together(items) for items in grouped.values()])) if reading(sure) and not lifted_in(line, answer, data)]
 
 
 def lifted_in(line: str, answer: dict, data: dict) -> bool:
@@ -1607,11 +1606,6 @@ def jev_all(requests: list[tuple[dict, dict[str, Noul]]]) -> dict[str, float]:
 def joined(state: dict, part: dict) -> dict:
     """The state with an item's state merged in at every depth, so an item adding one field of a nested object, such as one input field of a call, keeps the fields earlier items added."""
     return state | {key: joined(state[key], value) if isinstance(value, dict) and isinstance(state.get(key), dict) else value for key, value in part.items()}
-
-
-def lined(key: str, text: str) -> Iterator[tuple[dict, dict[str, Noul]]]:
-    """Each line of the text that holds words as an item of `fill` under the key, by its line number, so a long text goes to Jev by whole lines."""
-    return (({key: {str(number): line}}, {}) for number, line in enumerate(text.splitlines(), 1) if line.strip())
 
 
 def size(state: dict, questions: dict[str, Noul]) -> int:
