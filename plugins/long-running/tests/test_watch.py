@@ -3982,6 +3982,23 @@ def test_a_job_drive_job_add_recorded_is_not_started_until_its_worker_records_it
     assert (started["state"], started["said"]) == ("running", None)
 
 
+def test_a_watch_process_a_newer_install_ends_at_its_first_read_still_says_a_never_started_jobs_orphan_and_heals_no_gap_its_lanes_were_not_read_for(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    serve(monkeypatch, {})
+    monkeypatch.setattr(state, "now", lambda: T0 + timedelta(minutes=2))
+    read: list[str] = []
+    monkeypatch.setattr(orca, "speak_as_drive", read.append)
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["updated"] = state.stamp(T0 - timedelta(minutes=10))
+        data["orders"]["o1"]["parts"]["ship the watch"].update(orphan_said=state.stamp(T0 - timedelta(minutes=5)), orphan_gap="j1 has no agent recorded")
+        files_order(data)
+        data["jobs"]["j2"] = state.new_job("o2", "builder", "files", ["stack 1"], state.stamp(T0)) | {"brief": "/briefs/j2.md"}
+    said = [line for lines in watch.passed(watcher(demo), T0 + timedelta(minutes=2), until=lambda: True) for line in lines]
+    assert (said, read) == (['ORPHAN o2 "stack 1": j2 not started 2 minutes after drive job add; Read your brief first: /briefs/j2.md'], [demo])
+    assert state.load(demo)["orders"]["o1"]["parts"]["ship the watch"]["orphan_said"] == state.stamp(T0 - timedelta(minutes=5))
+
+
 def test_a_reader_an_older_install_started_on_a_prs_head_holds_no_part_and_is_never_an_answer_owed_him(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {})
     earlier = state.stamp(T0 - timedelta(minutes=10))
