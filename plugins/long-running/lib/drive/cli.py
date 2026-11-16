@@ -6902,9 +6902,10 @@ def mac_boxes_down(args: argparse.Namespace) -> int:
     codes = []
     for job_id in args.jobs:
         try:
-            codes.append(boxes.down(job_id, f"{name}/{job_id}", state.saved_row(name, "jobs", job_id)["state"] in ("done", "failed")))
+            codes.append(code := boxes.down(job_id, f"{name}/{job_id}", state.saved_row(name, "jobs", job_id)["state"] in ("done", "failed")))
+            print(f"{state.stamp()} {job_id}: mac-boxes-down gave {name}/{job_id}'s box back, exit {code}", flush=True)
         except providers.ProviderError as error:
-            print(f"{job_id}: {error}", file=sys.stderr)
+            print(f"{state.stamp()} {job_id}: {error}", file=sys.stderr)
             codes.append(1)
     return max(codes)
 

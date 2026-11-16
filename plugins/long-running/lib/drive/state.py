@@ -4853,8 +4853,9 @@ def mac_queue(data: dict) -> list[str]:
 
 
 def box_wanted(data: dict, job_id: str) -> bool:
-    """Whether a job not running keeps its Mac box: a staging cut it heads, rides or runs as the work queue's worker still holds its env, so the box stays for the cut's next item."""
-    return any(job_id in [*slot_members(slot), (slot["holder"] or {}).get("work")] for slot in data["slots"].values())
+    """Whether a job not running keeps its Mac box: a staging cut it heads, rides or runs as the work queue's worker still holds its env, so the box stays for the cut's next item, or it is mid-test, waiting on staging serving a commit, as j8192 waited on platform's step B and lost its box and 15 minutes when its save gave it back (736766)."""
+    job = data["jobs"][job_id]
+    return any(job_id in [*slot_members(slot), (slot["holder"] or {}).get("work")] for slot in data["slots"].values()) or any(STAGING_WAIT.fullmatch(wait) for wait in job["waits"])
 
 
 def placed(before: dict[str, tuple[int, str | None]], order: list[str]) -> dict[str, int]:

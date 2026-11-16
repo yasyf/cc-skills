@@ -3168,11 +3168,13 @@ def test_a_pr_whose_staging_tester_is_a_queue_item_or_waits_on_a_cut_is_owed_and
     assert state.staging_owed(data, "Forge-AI/monorepo#43") is False
 
 
-def test_a_job_not_running_keeps_its_mac_box_only_while_a_staging_cut_it_heads_rides_or_works_holds_its_env() -> None:
+def test_a_job_not_running_keeps_its_mac_box_while_a_staging_cut_it_heads_rides_or_works_holds_its_env_or_it_waits_mid_test_on_staging_as_j8192_did() -> None:
     moment = datetime(2026, 11, 16, 12, 0, tzinfo=UTC)
     data = train_drive("j1", "j2", "j3", "j9")
     data["slots"]["plat-usw2-staging"] = {"holder": state.leased({"job": "j1", "prs": [], "minutes": 30, "cases": None, "at": "", "paths": [], "stacks": [], "starts": False}, moment, [{"job": "j2", "minutes": 30}]) | {"work": "j9"}}
     assert [job_id for job_id in ("j1", "j2", "j3", "j9") if state.box_wanted(data, job_id)] == ["j1", "j2", "j9"]
+    data["jobs"]["j3"]["waits"] = ["staging:api/plat-usw2-staging@" + "a" * 40]
+    assert state.box_wanted(data, "j3") is True
 
 
 def test_a_pr_a_bot_or_github_app_opened_is_no_teammates_and_the_drive_may_take_it() -> None:
