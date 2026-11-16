@@ -5692,6 +5692,14 @@ def test_a_restarted_watch_asks_for_a_left_sprite_again_only_once_the_reclaim_an
     assert ended_lanes == []
 
 
+def test_mac_box_sweep_reads_no_drive_state_before_its_next_sweep(monkeypatch: pytest.MonkeyPatch) -> None:
+    watching = watch.Watcher("boxes", offset=0, boxes_at=T0)
+    monkeypatch.setattr(state, "load", lambda *args, **kwargs: pytest.fail("a deferred box sweep loaded drive state"))
+    for step in range(20):
+        assert watch.finished_boxes(watching, T0 + step * watch.BOX_SWEEP / 20) == []
+    assert watching.boxes_at == T0
+
+
 def test_the_watch_takes_down_each_live_mac_box_its_jobs_hold_unless_they_run_or_an_unfinished_job_names_it(run: Run, remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
     run("order", "set", "o1", "--add-part", "still at work")
     run("job", "add", "builder", "--order", "o1", "--part", "still at work", "--goal", "still at work", "--remote")
