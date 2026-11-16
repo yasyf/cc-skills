@@ -116,15 +116,12 @@ CI_BINARIES = frozenset({"ci", "ci.dev"})
 RELEASE_STARTS = ("start", "hotfix")
 PRESENT_CUTS = ("start", "hotfix", "resume", "approve", "api")
 HOLD_PASSES = ("approve", "api")
-REHEARSAL_CLUSTERS = frozenset({state.STAGING_ENV, "plat-usw2-sandbox"})
-RELEASE_VALUED = frozenset({"groups", "targets", "hotfix", "landed", "exclude", "only", "without", "env", "from", "order", "stack", "commit"})
-RELEASE_ASIDE = frozenset({"json"})
 
 
-def leased_env(words: list[str]) -> str | None:
+def leased_env(words: list[str], data: dict) -> str | None:
     """The one staging env a `ci release start` reaches, by one `--env` naming a rehearsal env, whose staging slot the start must hold; None for a start reaching any other env or several."""
     envs = [word.partition("=")[2] for word in words if word.startswith("--env=")] + [after for before, after in itertools.pairwise(words) if before == "--env"]
-    return envs[0] if len(envs) == 1 and envs[0] in REHEARSAL_CLUSTERS else None
+    return envs[0] if len(envs) == 1 and envs[0] in providers.of(data).release.rehearsal_envs else None
 
 
 def gives_way(words: list[str]) -> bool:
@@ -147,14 +144,14 @@ RELEASE_READING = (
     " naming in --reading what it read. Opus's objection to that reading prints as a warning, and a dangerous release still waits for his presence"
 )
 RELEASE_APPROVAL = (
-    "A release reaching any place but plat-usw2-staging and plat-usw2-sandbox starts only on words of his ordering it, whatever card or thread"
+    "A release reaching any place but the release provider's rehearsal envs starts only on words of his ordering it, whatever card or thread"
     " they answer, or on an incident's order, the answer labelled incident, whose words approve the incident's own cut. Name in `--order` the"
     " answer `drive answer` recorded for those words. "
     + RELEASE_READING
     + f". One on those two places alone starts with no --order and no card, by his words {REHEARSAL_SAID}"
 )
 RELEASE_HELD = (
-    'refused: he holds every release reaching past plat-usw2-staging and plat-usw2-sandbox, by his words "{said}" ({where}), and only he grants an'
+    'refused: he holds every release reaching past the rehearsal envs of the release provider, by his words "{said}" ({where}), and only he grants an'
     " exception, one release at a time, so `{release}` runs only on an answer of his recorded since that approves it: {why}. Ask him with `drive job ask`"
     " whether to release it, record his answer with `drive answer`, and name it in the release's `--order`, which a job's resume,"
     " approve, rerun or rollback reads from its brief's `Release:` line; a release on those two places alone runs with none. "
@@ -190,8 +187,6 @@ UNNOTED = (
     " --label release-order` and `--label release` list before you offer or start one"
 )
 RELEASE_CLAIM = re.compile(r"\b(?:releases?|cut)\b[^.;\n]{0,60}?\bcan (?:start|go|run|ship)\b|\breleases? (?:start|go) (?:as usual|again)\b", re.IGNORECASE)
-PULL_WORDS = re.compile(r"(?:#?\d+,?)+")
-NAMES = re.compile(r"[,\s]+")
 def brief_file(prompt: str) -> tuple[Path, str] | None:
     """The brief file an agent's prompt reads in, and its text: the first file a path on any of its lines names whose Drive line names the prompt's own job, or any job when the prompt names none, wherever it is kept, such as the one a `Read your brief first:` or `Brief:` line names or the Orca task brief a Sprite lane's first message names."""
     own = BRIEF_JOB.search(prompt)
@@ -219,25 +214,9 @@ def fields(text: str) -> list[tuple[str, str]]:
     return [(found[1], text[found.end() : end]) for found, end in zip(starts, ends, strict=True)]
 
 
-def release_flags(words: list[str]) -> dict[str, tuple[str, ...]] | None:
-    """What a `ci release start` or `hotfix` ships and from where, as `ci release` parses its words, a hotfix's pull requests as its --hotfix and bare targets as --targets; None for any other command."""
-    if Path(words[0]).name not in CI_BINARIES or words[1:2] != ["release"] or words[2:3] not in (["start"], ["hotfix"]):
-        return None
-    flags: dict[str, list[str]] = {}
-    rest = iter(words[3:])
-    for word in rest:
-        name, given, value = word.removeprefix("--").partition("=")
-        if not word.startswith("--"):
-            name, value = "hotfix" if words[2] == "hotfix" and PULL_WORDS.fullmatch(word) else "targets", word
-        elif not given:
-            value = next(rest, "") if name in RELEASE_VALUED else "true"
-        flags.setdefault("targets" if name == "groups" else name, []).extend(filter(None, NAMES.split(value.replace("#", ""))))
-    return {name: tuple(sorted(values)) for name, values in flags.items() if name not in RELEASE_ASIDE}
-
-
-def tested_release(release: str) -> str:
-    """The production release a `ci release start --for-production` tests, the staging release go/ci starts on every staging env through every staging freeze, a teammate's included: the same start without --for-production and its --env, so it runs on production."""
-    [words] = [words for words in simple_commands(release) if release_flags(words) is not None]
+def tested_release(release: str, data: dict) -> str:
+    """The production release a `ci release start --for-production` tests, the staging release the release tool starts on every staging env through every staging freeze, a teammate's included: the same start without --for-production and its --env, so it runs on production."""
+    [words] = [words for words in simple_commands(release) if providers.of(data).release.start(words) is not None]
     kept, rest = [], iter(words)
     for word in rest:
         flag, given, _ = word.partition("=")
@@ -248,46 +227,46 @@ def tested_release(release: str) -> str:
     return shlex.join(kept)
 
 
-def started(command: str) -> list[dict[str, tuple[str, ...]]]:
+def started(command: str, data: dict) -> list[dict[str, tuple[str, ...]]]:
     """The flags of each `ci release start` or `hotfix` a command runs."""
-    return [flags for words in simple_commands(command) if (flags := release_flags(words)) is not None]
+    return [flags for words in simple_commands(command) if (flags := providers.of(data).release.start(words)) is not None]
 
 
-def card_releases(text: str) -> list[str]:
+def card_releases(text: str, data: dict) -> list[str]:
     """Each release a card's words name in backticks, one `ci release start` or `hotfix` each, the shorthand `release start …` its options write read as the ci binary's."""
     named = []
     for quoted in limits.BACKTICKED.findall(text):
         command = quoted.strip("`")
         command = f"ci {command}" if command.startswith("release ") else command
         try:
-            if len(started(command)) == 1:
+            if len(started(command, data)) == 1:
                 named.append(command)
         except ValueError:
             continue
     return named
 
 
-def release_refusal(command: str, reading: str | None = None) -> str | None:
+def release_refusal(command: str, data: dict, reading: str | None = None) -> str | None:
     """Why `drive job add --release` may not start a command: it is not one `ci release start` or `hotfix` alone, naming in --order the answer of his it starts on unless it is a rehearsal() or the top coordinator gave its reading, or it deploys `--local`, which runs in the shell that starts it and starts no build its job could follow."""
     commands = simple_commands(command)
-    if len(commands) != 1 or (flags := release_flags(commands[0])) is None:
+    if len(commands) != 1 or (flags := providers.of(data).release.start(commands[0])) is None:
         return f"--release `{command}` is not one `tools/ci release start` or `tools/ci release hotfix` alone: name the one release to start, with its flags as it runs"
     if "local" in flags:
         return f"--release `{command}` deploys `--local`, whose plan and apply run in the shell that starts it and start no build its job could follow, so no job starts it: a `--manual` or regular start names the build its job follows"
-    if not flags.get("order") and not reading and not rehearsal(command):
+    if not flags.get("order") and not reading and not rehearsal(command, data):
         return f"--release names no --order. {RELEASE_APPROVAL}"
     return None
 
 
-def rehearsal(release: str) -> bool:
-    """Whether a command starts releases only on REHEARSAL_CLUSTERS, each `ci release start` or `hotfix` it runs naming places, as settled.shipped() reads them, every one of them staging or sandbox, and none marked --for-production, which go/ci starts on every staging env through every staging freeze, a teammate's included, so only his exception for the production release it tests starts it, by settled.unordered(): such a release needs no word of his, by his words REHEARSAL_SAID (716e70d) on sandbox and 33de0fc and 23eefb9 on staging, so no release gate reads an answer of his for it and `drive job ask` keeps a card on it decided."""
-    reads = [settled.shipped(flags) for flags in started(release)]
-    return bool(reads) and all(settled.FOR_PRODUCTION not in read and (places := set(read.get("env", ())) - set(read.get("without", ()))) and places <= REHEARSAL_CLUSTERS for read in reads)
+def rehearsal(release: str, data: dict) -> bool:
+    """Whether a command starts releases only on the release provider's rehearsal envs, each `ci release start` or `hotfix` it runs naming places, as the release provider's start() reads them, every one of them staging or sandbox, and none marked --for-production, which the release tool starts on every staging env through every staging freeze, a teammate's included, so only his exception for the production release it tests starts it, by settled.unordered(): such a release needs no word of his, by his words REHEARSAL_SAID (716e70d) on sandbox and 33de0fc and 23eefb9 on staging, so no release gate reads an answer of his for it and `drive job ask` keeps a card on it decided."""
+    reads = started(release, data)
+    return bool(reads) and all(settled.FOR_PRODUCTION not in read and (places := set(read.get("env", ())) - set(read.get("without", ()))) and places <= providers.of(data).release.rehearsal_envs for read in reads)
 
 
 def approval_refusal(command: str, data: dict, reading: str | None = None) -> str | None:
     """Why the one release a command starts may not start on the answer of his its --order names: none for a rehearsal(); while he holds every release, hold_refusal() refuses it; else unapproved() objects to it. Given the top coordinator's reading, none outside his hold: the release starts on that reading, whatever Opus read, and the objection is printed on stderr."""
-    if rehearsal(command):
+    if rehearsal(command, data):
         return None
     cwd = data["roles"]["coordinator"]["cwd"]
     if hold := settled.hold(cwd):
@@ -302,7 +281,7 @@ def approval_refusal(command: str, data: dict, reading: str | None = None) -> st
 
 def unapproved(command: str, data: dict, cwd: str) -> str | None:
     """Why the answer of his a release's --order names does not approve it: it names none, cc-notes reads none, Opus is unsure or gave no answer, or it is no incident's order and `settled.unordered` reads it as ordering another release; None when it approves it."""
-    [flags] = started(command)
+    [flags] = started(command, data)
     if not (orders := flags.get("order")):
         return "it names no `--order`"
     answer_id = orders[-1]
@@ -353,7 +332,7 @@ def recorded_job(record: dict, data: dict) -> dict | None:
 
 def scope_refusal(release: str, record: dict, data: dict, said: str) -> str | None:
     """Why a production release of the whole platform may go on no further, by the targets it carries as release_record() reads them, never the flags it started with: it leaves out a target, by settled.unexcused, that said, the goal and brief of the job that started it, neither records as `<target> fails: <the failing test>` nor as `<target> left out by his <id>: "<his words>"` quoting the answer of his its --order names, his ruling on this release; none for a rehearsal() or a release his words name target by target, by his words settled.SCOPE_WORDS."""
-    if rehearsal(release):
+    if rehearsal(release, data):
         return None
     cwd = data["roles"]["coordinator"]["cwd"]
     rulings = []
@@ -373,7 +352,7 @@ def uncarried(command: str, data: dict) -> str | None:
     """The note a release start prints when its commit lacks a pull request his card names, never a refusal, since his answer can waive one: the card his `--order` answer answers, by settled.answered_card, names a merged PR of the drive's checkout's repository, in a link of its words or by link or #N on its `Holds:` line, that its `--landed` does not name, and its `--from` or `--commit` lacks that PR's merge commit, as contained() reads it once each commit the checkout lacks is fetched by its sha, or it names no commit, so the release tool picks one; refused naming the newest of those merge commits to pass as `--from`, and naming the read when GitHub or git could not read one. A hotfix or rollback, a rehearsal() naming no `--order`, a PR the card names that has not merged, and an answer no kept card holds pass."""
     from drive import github
 
-    [flags] = map(settled.shipped, started(command))
+    [flags] = started(command, data)
     cwd = data["roles"]["coordinator"]["cwd"]
     if {"hotfix", "rollback"} & flags.keys() or "order" not in flags or not (asked := settled.answered_card(data, settled.shown(flags["order"][-1], cwd))):
         return None
@@ -402,7 +381,7 @@ def uncarried(command: str, data: dict) -> str | None:
                 return None
             why = f"at `{commit}` it {'; '.join(said for held, said in found if not held)}"
         else:
-            why = "this start names no `--from` or `--commit`, so go/ci picks the commit it ships, which may lack one"
+            why = "this start names no `--from` or `--commit`, so the release tool picks the commit it ships, which may lack one"
     except github.GithubError as error:
         return f"whether this release's commit holds each merged pull request the card his `--order` answer answers names could not be read: {error}"
     return UNCARRIED.format(order=flags["order"][-1], asked=cut(asked.title, 200), named=", ".join(merges), why=why, newest=newest)
@@ -412,7 +391,7 @@ def away_refusal(verb: str, release: str, data: dict, moment: datetime) -> str |
     """Why a production release may not start, resume or pass its approve hold now, by a release verb or a `ci bk api` write to its build such as unblocking that hold: he is not present, by state.absence, and it is dangerous by the root AGENTS.md's rule, as every approve hold is, since it holds a migration, delete or replace, and every cut but harmless() ones, since what a cut of the default branch carries is not read here; a release naming only places off production, by settled.off_production(), such as a staging or sandbox step, a rollback, a rerun or any other verb runs."""
     if verb not in PRESENT_CUTS or not (away := state.absence(data, moment)):
         return None
-    if (releases := started(release)) and all(settled.off_production(settled.shipped(flags), data["roles"]["coordinator"]["cwd"]) for flags in releases):
+    if (releases := started(release, data)) and all(settled.off_production(flags, data["roles"]["coordinator"]["cwd"]) for flags in releases):
         return None
     if verb not in HOLD_PASSES and harmless(release, data):
         return None
@@ -428,7 +407,7 @@ def harmless(release: str, data: dict) -> bool:
     """Whether a release may run while he is not present: one `ci release start` or `hotfix` of pull requests, which carries no other change, none of which land.danger reads dangerous, on any order, since his rule holds only what is dangerous."""
     from drive import land
 
-    named = started(release)
+    named = started(release, data)
     if len(named) != 1 or not (pulls := named[0].get("hotfix")):
         return False
     return not any(land.danger(data, f"{state.home(data)}#{number}") for number in pulls)
@@ -451,8 +430,8 @@ def claimed_job_refusal(job: dict, data: dict, moment: datetime) -> str | None:
 
 
 def job_hold_refusal(job: dict, data: dict, hold: dict, moment: datetime, top: bool = False) -> str | None:
-    """Why a Job may not start on a production cluster, any but REHEARSAL_CLUSTERS, under his hold on every release, as hold_refusal() refuses a release: no answer of his recorded after the hold, read by settled.job_unordered(), orders that CronJob on that cluster at this moment, or his answers could not be read, or Opus is unsure or gave no reading and the top coordinator's session, top, put no reading of its own in the Job's reason."""
-    if job["cluster"] in REHEARSAL_CLUSTERS:
+    """Why a Job may not start on a production cluster, any but the release provider's rehearsal envs, under his hold on every release, as hold_refusal() refuses a release: no answer of his recorded after the hold, read by settled.job_unordered(), orders that CronJob on that cluster at this moment, or his answers could not be read, or Opus is unsure or gave no reading and the top coordinator's session, top, put no reading of its own in the Job's reason."""
+    if job["cluster"] in providers.of(data).release.rehearsal_envs:
         return None
     try:
         if not (why := settled.job_unordered(job, hold, data, moment)):
@@ -467,8 +446,8 @@ def job_hold_refusal(job: dict, data: dict, hold: dict, moment: datetime, top: b
 
 
 def away_job_refusal(cluster: str, data: dict, moment: datetime) -> str | None:
-    """Why a Job may not start now from a suspended CronJob on this cluster, by `tools/ci cluster-job`, a `ci bk api` write creating the forge/release build it starts or writing to it, such as unblocking its gate, or a rerun of that build: he is not present, by state.absence, and the cluster is a production one, any but REHEARSAL_CLUSTERS, where every such Job is a pass, backfill, repair or delete of a team's data that the root AGENTS.md calls dangerous, an incident's repair included."""
-    if cluster in REHEARSAL_CLUSTERS or not (away := state.absence(data, moment)):
+    """Why a Job may not start now from a suspended CronJob on this cluster, by `tools/ci cluster-job`, a `ci bk api` write creating the forge/release build it starts or writing to it, such as unblocking its gate, or a rerun of that build: he is not present, by state.absence, and the cluster is a production one, any but the release provider's rehearsal envs, where every such Job is a pass, backfill, repair or delete of a team's data that the root AGENTS.md calls dangerous, an incident's repair included."""
+    if cluster in providers.of(data).release.rehearsal_envs or not (away := state.absence(data, moment)):
         return None
     return (
         f"refused: {away}, and a Job on {cluster}, a production cluster, writes a team's data, so it starts only while he is present, an incident's repair included,"
@@ -477,11 +456,11 @@ def away_job_refusal(cluster: str, data: dict, moment: datetime) -> str | None:
 
 
 def hold_refusal(release: str, data: dict, hold: dict, reading: str | None = None) -> str | None:
-    """Why a release may not run under his hold on every release reaching past REHEARSAL_CLUSTERS: it is no rehearsal() and not a `ci release start` or `hotfix` naming one --order, his exception for that one release, recorded after the hold that `settled.unordered` reads as ordering it, never a tap on a PR card, nor one whose Opus read is unsure or failed given the top coordinator's reading; an incident's order passes on no label, the hold included. A release a job keeps a pass for since the hold, by kept_pass(), runs on it unread, so its resume, approve, rerun and rollback never read his words again."""
-    if rehearsal(release) or kept_pass(release, data, hold):
+    """Why a release may not run under his hold on every release reaching past the release provider's rehearsal envs: it is no rehearsal() and not a `ci release start` or `hotfix` naming one --order, his exception for that one release, recorded after the hold that `settled.unordered` reads as ordering it, never a tap on a PR card, nor one whose Opus read is unsure or failed given the top coordinator's reading; an incident's order passes on no label, the hold included. A release a job keeps a pass for since the hold, by kept_pass(), runs on it unread, so its resume, approve, rerun and rollback never read his words again."""
+    if rehearsal(release, data) or kept_pass(release, data, hold):
         return None
     cwd = data["roles"]["coordinator"]["cwd"]
-    named = started(release)
+    named = started(release, data)
     orders = named[0].get("order") if len(named) == 1 else None
     try:
         if not orders:
@@ -532,7 +511,7 @@ def release_notes(releases: list[str], data: dict) -> list[str]:
     if not notes:
         return []
     try:
-        facts = note_facts(set(releases), {note["id"]: note["title"] for note in notes}, data["roles"]["coordinator"]["cwd"])
+        facts = note_facts(set(releases), {note["id"]: note["title"] for note in notes}, data)
     except github.GithubError as error:
         facts = dict.fromkeys(itertools.product(releases, [note["id"] for note in notes]), f" (git read no commit it cuts: {error})")
     starts = {f"s{number}": release for number, release in enumerate(releases, 1)}
@@ -577,14 +556,15 @@ def kept_notes(data: dict) -> list[dict]:
     return list(found.values())
 
 
-def note_facts(releases: set[str], titles: dict[str, str], cwd: str) -> dict[tuple[str, str], str]:
+def note_facts(releases: set[str], titles: dict[str, str], data: dict) -> dict[tuple[str, str], str]:
     """What git says, by release and note id, of each PR and commit a note's title names, for each note in the release's range: a note naming none; for a hotfix, a note naming a PR it hotfixes or that PR's merge commit; for a start, a note naming a PR or commit the commit it cuts holds, or one git or GitHub cannot place, at its --from or --commit, else its repository's default branch head, which one fetch brings into the drive's checkout, a PR at the merge commit `github.landing` reads for it in one `github.fetch`. GithubError when the checkout's repository or default branch head could not be read."""
     from drive import github
 
+    cwd = data["roles"]["coordinator"]["cwd"]
     refs = {note_id: NOTE_REFS.findall(title) for note_id, title in titles.items()}
     if not any(refs.values()):
         return dict.fromkeys(itertools.product(releases, titles), "")
-    flagged = {release: settled.shipped(started(release)[0]) for release in releases}
+    flagged = {release: started(release, data)[0] for release in releases}
     repo = github.checkout_repo(cwd)
     branch = github.default_branch(repo)
     head = github.fetched(cwd, branch)
@@ -635,9 +615,9 @@ def freezes(name: str, data: dict) -> list[dict]:
 
 
 def standing(name: str, data: dict) -> list[tuple[str | None, str]]:
-    """Each release freeze the release ledger holds standing now and his hold on every release reaching past REHEARSAL_CLUSTERS, by id with its line, read at each use and never kept, so no brief or wait states a freeze that lifted or misses one set since, and no post says a release may start past one; a ledger or a hold that could not be read, as cc-notes reads none in a coordinator folder no git repository holds, stands under no id, which no words name."""
+    """Each release freeze the release ledger holds standing now and his hold on every release reaching past the release provider's rehearsal envs, by id with its line, read at each use and never kept, so no brief or wait states a freeze that lifted or misses one set since, and no post says a release may start past one; a ledger or a hold that could not be read, as cc-notes reads none in a coordinator folder no git repository holds, stands under no id, which no words name."""
     try:
-        held = [(hold["id"][:7], f'his hold {hold["id"][:7]} on every release reaching past plat-usw2-staging and plat-usw2-sandbox stands: "{hold_words(hold)}"')] if (hold := settled.hold(data["roles"]["coordinator"]["cwd"])) else []
+        held = [(hold["id"][:7], f'his hold {hold["id"][:7]} on every release reaching past the rehearsal envs of the release provider stands: "{hold_words(hold)}"')] if (hold := settled.hold(data["roles"]["coordinator"]["cwd"])) else []
     except state.DriveError as error:
         held = [(None, f"his hold on every release could not be read ({error}), so read `ccn answer list --label {settled.RELEASE_HOLD}` before saying a release may start")]
     try:

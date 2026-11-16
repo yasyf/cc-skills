@@ -527,9 +527,9 @@ def cut_reason(words: list[str], shell: Shell) -> str | None:
         return None
     if verb == "start" and job and (held_in := names or list(filter(None, [os.environ.get(state.DRIVE_ENV)]))) and leased_start(words, state.load(held_in[0]), shell):
         return None
-    for name in names if not brief.leased_env(words) else []:
+    for name in names:
         data = state.load(name)
-        if project := state.session_project(data, shell.session):
+        if not brief.leased_env(words, data) and (project := state.session_project(data, shell.session)):
             top = data["roles"].get("coordinator", {}).get("session") or "not started"
             return (
                 f"ci {' '.join(words[1:3])}: the sub-coordinator for {project} starts, approves and rolls back no production cut;"
@@ -557,7 +557,7 @@ def cut_reason(words: list[str], shell: Shell) -> str | None:
 
 def leased_start(words: list[str], data: dict, shell: Shell) -> bool:
     """Whether a job's `ci release start` reaches one staging env alone, by one `--env`, and the job holds that env's staging slot now, by drive slot claim, so a tester starts its own cut in its lease, by his ruling that a test starts once the staging freeze names it as a holder, while every production start stays the top coordinator's."""
-    if not (env := brief.leased_env(words)):
+    if not (env := brief.leased_env(words, data)):
         return False
     started = os.environ.get(state.JOB_ENV)
     job_id = started.split("/")[1] if started else state.agent_job(data, shell.caller.get("agent_id"))

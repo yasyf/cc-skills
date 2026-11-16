@@ -168,11 +168,11 @@ DECIDES = (
 )
 REHEARSED = "{option}: decided without you, since a release on staging or sandbox alone needs no word of yours"
 REHEARSED_LINE = (
-    '{file} keeps {job}\'s question decided on its recommended option, "{option}", with no card: every release it names runs on plat-usw2-staging'
-    " or plat-usw2-sandbox alone, which his ruling {ruling} leaves to the drive, so the top coordinator starts it with `drive job add --release` and no --order"
+    '{file} keeps {job}\'s question decided on its recommended option, "{option}", with no card: every release it names runs on the rehearsal envs'
+    " of the release provider alone, which his ruling {ruling} leaves to the drive, so the top coordinator starts it with `drive job add --release` and no --order"
 )
 REHEARSES = (
-    "drive job ask: every release this card's recommended option names runs on plat-usw2-staging or plat-usw2-sandbox alone, which his ruling {ruling}"
+    "drive job ask: every release this card's recommended option names runs on the release provider's rehearsal envs alone, which his ruling {ruling}"
     ' leaves to the drive, so asking it keeps it decided on that option, "{option}", with no card'
 )
 RULED = {
@@ -1003,18 +1003,18 @@ def cadence(words: str) -> int:
 
 
 def unordered(answer: dict, release: str, data: dict) -> str | None:
-    """Why his answer does not order this release, one `ci release start` or `hotfix`; None when it does, the one reading the release gates and `drive job ask` share, by ordered_by(). A staging release marked --for-production, which go/ci starts on every staging env through every staging freeze, a teammate's included, is ordered only by an answer ordering the production release it tests, by tests(), never by his words to test on staging or his standing yes to soak there."""
+    """Why his answer does not order this release, one `ci release start` or `hotfix`; None when it does, the one reading the release gates and `drive job ask` share, by ordered_by(). A staging release marked --for-production, which the release tool starts on every staging env through every staging freeze, a teammate's included, is ordered only by an answer ordering the production release it tests, by tests(), never by his words to test on staging or his standing yes to soak there."""
     from drive import brief
 
-    [flags] = map(shipped, brief.started(release))
+    [flags] = brief.started(release, data)
     if FOR_PRODUCTION not in flags:
         return ordered_by(answer, release, flags, placed, data)
-    tested = brief.tested_release(release)
+    tested = brief.tested_release(release, data)
     return (why := ordered_by(answer, tested, flags, tests, data)) and TESTED.format(release=tested, why=why)
 
 
 def ordered_by(answer: dict, release: str, flags: dict, matches: Callable[[dict, dict, str, str], str | None], data: dict) -> str | None:
-    """Why his answer does not order a release, its flags as shipped() reads them and the start Opus reads; None when it does. When the card his answer answers is kept, found by answered_card(), and his leading option number or tap picks an option whose words name a release in backticks, code decides: his answer orders the release when matches, placed() or tests(), reads it shipping what one of those ships, its `--only` left out by narrowed() where the card says those components ship alone, placed() every flag the same but its places, `--from` and `--order`, on no place beyond that option's but those his words past the number name, by env id or by a name the release provider gives that place's team. A picked option naming no release in backticks orders, in code too, a release its words name whole, as named() reads it. An answer no kept card holds, to a question listing releases as numbered items, his own or one the drive recorded the same message of his under, by message_questions(), orders in code a release one item it picks orders, by listed_order(). Any other answer Opus reads in one request, his words and the drive's notes on them beside that card, his answers recorded before it in its thread, by threaded(), each whole, and the places the release runs on with their stages and the components its `--only` ships alone, by runs_on(), one Noul whether his words have that release run and one whether it ships more than they order: it orders the release at YES on the first and under NO on the second; Unsure when either reads in the band between, and Unheard when Opus gave no answer."""
+    """Why his answer does not order a release, its flags as the release provider's start() reads them and the start Opus reads; None when it does. When the card his answer answers is kept, found by answered_card(), and his leading option number or tap picks an option whose words name a release in backticks, code decides: his answer orders the release when matches, placed() or tests(), reads it shipping what one of those ships, its `--only` left out by narrowed() where the card says those components ship alone, placed() every flag the same but its places, `--from` and `--order`, on no place beyond that option's but those his words past the number name, by env id or by a name the release provider gives that place's team. A picked option naming no release in backticks orders, in code too, a release its words name whole, as named() reads it. An answer no kept card holds, to a question listing releases as numbered items, his own or one the drive recorded the same message of his under, by message_questions(), orders in code a release one item it picks orders, by listed_order(). Any other answer Opus reads in one request, his words and the drive's notes on them beside that card, his answers recorded before it in its thread, by threaded(), each whole, and the places the release runs on with their stages and the components its `--only` ships alone, by runs_on(), one Noul whether his words have that release run and one whether it ships more than they order: it orders the release at YES on the first and under NO on the second; Unsure when either reads in the band between, and Unheard when Opus gave no answer."""
     from drive import brief
 
     said = his(answer["body"])
@@ -1024,19 +1024,19 @@ def ordered_by(answer: dict, release: str, flags: dict, matches: Callable[[dict,
         number, rest = pick
         option = asked.options[number - 1]
         words = f"{option}\n{asked.hints.get(option, '')}"
-        if commands := brief.card_releases(words):
+        if commands := brief.card_releases(words, data):
             carded = "\n".join([*asked.summary, words])
-            whys = [matches(narrowed(flags, ordered, carded), ordered, rest, cwd) for ordered in (shipped(brief.started(command)[0]) for command in commands)]
+            whys = [matches(narrowed(flags, ordered, carded), ordered, rest, cwd) for ordered in (brief.started(command, data)[0] for command in commands)]
             if None in whys:
                 return None
             return f"it picks option {number} of the card it answers, {', '.join(f'`{command}`' for command in commands)}, {whys[0]}"
         if named(flags, words, rest, cwd):
             return None
-    if not asked and any(listed_order(said, question, flags, matches, cwd) for question in message_questions(answer, said, data)):
+    if not asked and any(listed_order(said, question, flags, matches, data) for question in message_questions(answer, said, data)):
         return None
     card = {"card": card_text(asked)} if asked else {}
     notes = {"notes": answer["body"].partition(NOTES)[2].strip()[:BODY_CHARS]} if said and NOTES in answer["body"] else {}
-    context = {"action": f"start this release on {runs_on(shipped(brief.started(release)[0]), cwd)}: `{release}`", "answer": {"asked": answer["title"], "said": said} | notes} | card
+    context = {"action": f"start this release on {runs_on(brief.started(release, data)[0], cwd)}: `{release}`", "answer": {"asked": answer["title"], "said": said} | notes} | card
     read = opus(*together([(context, {f"orders.{answer['id'][:7]}": ORDERS, "more": SHIPS_MORE}), *(({"earlier": {earlier["id"][:7]: earlier_words(earlier)}}, {}) for earlier in threaded(answer, data))]))
     orders, more = reading(read[f"orders.{answer['id'][:7]}"]), reading(read["more"])
     if orders and more is False:
@@ -1046,17 +1046,18 @@ def ordered_by(answer: dict, release: str, flags: dict, matches: Callable[[dict,
     raise Unsure(f"Opus is unsure whether his answer {answer['id'][:7]} approves this release")
 
 
-def listed_order(said: str, question: str, flags: dict, matches: Callable[[dict, dict, str, str], str | None], cwd: str) -> bool:
+def listed_order(said: str, question: str, flags: dict, matches: Callable[[dict, dict, str, str], str | None], data: dict) -> bool:
     """Whether his words, answering a question that lists releases as numbered items, `1) … 2) …`, order this release in code: they lead with all, alone or with the number of items, as "All 3 of these are approved" does, and hold no word UNAPPROVED reads as turning one down or holding it; and one item orders it, an item naming releases in backticks as a card option does, by matches() with narrowed(), and any other item by spoken()."""
     from drive import brief
 
+    cwd = data["roles"]["coordinator"]["cwd"]
     items = numbered(question)
     every = EVERY.match(said)
     if not items or not every or (every[1] and int(every[1]) != len(items)) or UNAPPROVED.search(f" {plain(said)} "):
         return False
     for item in items:
-        if commands := brief.card_releases(item):
-            if any(matches(narrowed(flags, ordered, item), ordered, "", cwd) is None for ordered in (shipped(brief.started(command)[0]) for command in commands)):
+        if commands := brief.card_releases(item, data):
+            if any(matches(narrowed(flags, ordered, item), ordered, "", cwd) is None for ordered in (brief.started(command, data)[0] for command in commands)):
                 return True
         elif spoken(flags, item, cwd):
             return True
@@ -1081,7 +1082,7 @@ def numbered(question: str) -> list[str]:
 
 
 def spoken(release: dict, words: str, cwd: str) -> bool:
-    """Whether words naming a release in prose, with no command, name this release, as shipped() reads it: a start of targets the release targets file names, with no flags but targets, places, `--from`, `--order`, `--emergency`, `--only`, `--exclude` and `--for-production`, shipping one component or more by shipped_parts(); words leaving one target or component out, as "all but SandSQL" does, name it when it ships none of that one's components, and any other words when each target it names is one of their words, as "SandSQL's HA release" names `sandsql`."""
+    """Whether words naming a release in prose, with no command, name this release, as the release provider's start() reads it: a start of targets the release targets file names, with no flags but targets, places, `--from`, `--order`, `--emergency`, `--only`, `--exclude` and `--for-production`, shipping one component or more by shipped_parts(); words leaving one target or component out, as "all but SandSQL" does, name it when it ships none of that one's components, and any other words when each target it names is one of their words, as "SandSQL's HA release" names `sandsql`."""
     if set(release) - SPOKEN_FLAGS or not release.get("targets") or not (ships := shipped_parts(release, cwd)):
         return False
     said = f" {plain(words)} "
@@ -1095,7 +1096,7 @@ def spoken(release: dict, words: str, cwd: str) -> bool:
 
 
 def shipped_parts(release: dict, cwd: str) -> set[str]:
-    """The components a release ships, as go/ci reads its flags: those of each target it names, by target_parts(), less each `--exclude` names and each component `--without` names whole, and only those `--only` names when it names any; none when it names a target the targets file does not."""
+    """The components a release ships, as the release tool reads its flags: those of each target it names, by target_parts(), less each `--exclude` names and each component `--without` names whole, and only those `--only` names when it names any; none when it names a target the targets file does not."""
     parts = target_parts(cwd)
     if any(target not in parts for target in release["targets"]):
         return set()
@@ -1221,7 +1222,7 @@ def picked_option(asked: limits.Question, said: str) -> tuple[int, str] | None:
 
 
 def narrowed(release: dict, option: dict, words: str) -> dict:
-    """A release as the card option's release it narrows: its `--only` left out when the option's release names none and the card's summary, option or description says each component that `--only` names ships alone, as "The hotfix ships the api alone" or "it ships only the api" does, and "changes only the api" or a clause holding a negation, as "it does not ship the api alone", does not, since go/ci then ships those components of what the option's release ships and nothing past them; else the release as it is."""
+    """A release as the card option's release it narrows: its `--only` left out when the option's release names none and the card's summary, option or description says each component that `--only` names ships alone, as "The hotfix ships the api alone" or "it ships only the api" does, and "changes only the api" or a clause holding a negation, as "it does not ship the api alone", does not, since the release tool then ships those components of what the option's release ships and nothing past them; else the release as it is."""
     if "only" in option or "only" not in release:
         return release
     said = [f" {plain(clause)} " for clause in limits.CLAUSE_END.split(words) if not limits.NEGATION.search(clause)]
@@ -1231,7 +1232,7 @@ def narrowed(release: dict, option: dict, words: str) -> dict:
 
 
 def placed(release: dict, option: dict, rest: str, cwd: str) -> str | None:
-    """Why a release does not ship what a card option's release ships, each read by shipped(), on the option's places and those his words past its number name; None when it does."""
+    """Why a release does not ship what a card option's release ships, each read by the release provider's start(), on the option's places and those his words past its number name; None when it does."""
     if {name: values for name, values in release.items() if name not in UNCHANGED} != {name: values for name, values in option.items() if name not in UNCHANGED}:
         return "and this release ships another change"
     if (added := beyond(release, option)) is None:
@@ -1243,7 +1244,7 @@ def placed(release: dict, option: dict, rest: str, cwd: str) -> str | None:
 
 
 def tests(release: dict, option: dict, rest: str, cwd: str) -> str | None:
-    """Why a staging release marked --for-production does not test the production release a card option's release ships, each read by shipped(); None when it does: the option's release runs on a production place, by off_production(), and placed() reads the staging release shipping its change wherever it runs, every flag the same but --for-production and the places, its --env and each place its --without names that the release provider knows, which it takes from the option."""
+    """Why a staging release marked --for-production does not test the production release a card option's release ships, each read by the release provider's start(); None when it does: the option's release runs on a production place, by off_production(), and placed() reads the staging release shipping its change wherever it runs, every flag the same but --for-production and the places, its --env and each place its --without names that the release provider knows, which it takes from the option."""
     if off_production(option, cwd):
         return UNTESTED
     left = sorted({*(name for name in release.get("without", ()) if not known(name, cwd)), *(name for name in option.get("without", ()) if known(name, cwd))})
@@ -1252,7 +1253,7 @@ def tests(release: dict, option: dict, rest: str, cwd: str) -> str | None:
 
 
 def named(release: dict, words: str, rest: str, cwd: str) -> bool:
-    """Whether a card option's words, naming no release in backticks, name this release whole, as shipped() reads it: it carries only targets, places, `--from`, `--order` and `--emergency`, at least one target and one place it runs on, each target a word of the option's and each place one of the option's or of his words past its number, by env id or its team's name."""
+    """Whether a card option's words, naming no release in backticks, name this release whole, as the release provider's start() reads it: it carries only targets, places, `--from`, `--order` and `--emergency`, at least one target and one place it runs on, each target a word of the option's and each place one of the option's or of his words past its number, by env id or its team's name."""
     places = set(release.get("env", ())) - set(release.get("without", ()))
     if set(release) - PROSE_FLAGS or not release.get("targets") or not places:
         return False
@@ -1263,7 +1264,7 @@ def named(release: dict, words: str, rest: str, cwd: str) -> bool:
 
 
 def beyond(release: dict, option: dict) -> set[str] | None:
-    """The places a release runs on that a card option's does not, each by its env id as shipped() reads it; None when the release runs on every place but those it leaves out and the option names its own."""
+    """The places a release runs on that a card option's does not, each by its env id as the release provider's start() reads it; None when the release runs on every place but those it leaves out and the option names its own."""
     if not release.get("env"):
         return None if option.get("env") else set(option.get("without", ())) - set(release.get("without", ()))
     runs = set(release["env"]) - set(release.get("without", ()))
@@ -1291,23 +1292,13 @@ def prod(place: str, cwd: str) -> bool:
     return providers.at(Path(cwd)).release.place(place).prod
 
 
-def shipped(release: dict) -> dict[str, tuple[str, ...]]:
-    """A release's flags as the gate reads what it ships and where: each `--stack <project>/<env>`, as go/ci's ParseStack splits it, names its project among the targets and its env among the `--env` places, and `--commit`, the commit a `--manual` deploy ships, reads as `--from`; a release naming no place runs on production."""
-    stacks = [stack.partition("/") for stack in release.get("stack", ())]
-    read = {name: values for name, values in release.items() if name not in ("stack", "commit")}
-    for name, values in (("targets", [project for project, _, _ in stacks]), ("env", [env for _, _, env in stacks]), ("from", release.get("commit", ()))):
-        if values:
-            read[name] = tuple(sorted({*read.get(name, ()), *values}))
-    return read
-
-
 def off_production(release: dict, cwd: str) -> bool:
-    """Whether a release, as shipped() reads it, runs on no production place, by the release provider: it names places and the provider gives each a stage and counts none production."""
+    """Whether a release, as the release provider's start() reads it, runs on no production place, by the release provider: it names places and the provider gives each a stage and counts none production."""
     return bool(places := release.get("env")) and all(stage(place, cwd) and not prod(place, cwd) for place in places)
 
 
 def runs_on(release: dict, cwd: str) -> str:
-    """Where a release, as shipped() reads it, runs, as the release tool says it: each place it names beside the stage the release provider gives it, else production, every environment except staging, each place its --without leaves out, and the components its --only ships alone, so Opus's read of whether it ships more than his words order sees them."""
+    """Where a release, as the release provider's start() reads it, runs, as the release tool says it: each place it names beside the stage the release provider gives it, else production, every environment except staging, each place its --without leaves out, and the components its --only ships alone, so Opus's read of whether it ships more than his words order sees them."""
     places = ", ".join(f"{place} (stage {found})" if (found := stage(place, cwd)) else place for place in release.get("env", ())) or PRODUCTION
     where = f"{places}, leaving out {', '.join(release['without'])}" if release.get("without") else places
     return f"{where}, shipping only {', '.join(release['only'])}" if release.get("only") else where

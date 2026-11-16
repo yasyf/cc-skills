@@ -666,6 +666,9 @@ class HomeBuild(providers.BuildProvider):
 
 
 CI_BINARIES = frozenset({"ci", "ci.dev"})
+RELEASE_VALUED = frozenset({"groups", "targets", "hotfix", "landed", "exclude", "only", "without", "env", "from", "order", "stack", "commit"})
+PULL_WORDS = re.compile(r"(?:#?\d+,?)+")
+RELEASE_NAMES = re.compile(r"[,\s]+")
 RELEASE_BUILDS = re.compile(r"(?:^|/)pipelines/release/builds(?:/([^/\s?]+))?(?:[/?]|$)")
 RETRY_PATH = re.compile(r"(?:^|/)(?:organizations/(?P<org>[\w-]+)/)?pipelines/(?P<pipeline>[\w.-]+)/builds/(?P<number>\d+)/(?:jobs/(?P<job>[\w-]+)/retry|rebuild)/?$")
 
@@ -684,7 +687,29 @@ def operands(words: list[str], valued: frozenset[str]) -> tuple[list[str], dict[
 
 
 class HomeRelease(providers.ReleaseProvider):
-    """The monorepo's release writes as its provider reads them: `ci release`, `ci bk rerun|cancel release`, `ci bk api` writes to release builds and `ci cluster-job`, its reads through github.build."""
+    """The monorepo's release starts and writes as its provider reads them: `ci release start` and `hotfix` words, `ci release`, `ci bk rerun|cancel release`, `ci bk api` writes to release builds and `ci cluster-job`, its reads through github.build, and its rehearsal envs."""
+
+    rehearsal_envs = frozenset({"plat-usw2-staging", "plat-usw2-sandbox"})
+
+    def start(self, words: list[str]) -> dict[str, tuple[str, ...]] | None:
+        if Path(words[0]).name not in CI_BINARIES or words[1:2] != ["release"] or words[2:3] not in (["start"], ["hotfix"]):
+            return None
+        flags: dict[str, list[str]] = {}
+        rest = iter(words[3:])
+        for word in rest:
+            name, given, value = word.removeprefix("--").partition("=")
+            if not word.startswith("--"):
+                name, value = "hotfix" if words[2] == "hotfix" and PULL_WORDS.fullmatch(word) else "targets", word
+            elif not given:
+                value = next(rest, "") if name in RELEASE_VALUED else "true"
+            flags.setdefault("targets" if name == "groups" else name, []).extend(filter(None, RELEASE_NAMES.split(value.replace("#", ""))))
+        release = {name: tuple(sorted(values)) for name, values in flags.items() if name != "json"}
+        stacks = [stack.partition("/") for stack in release.get("stack", ())]
+        read = {name: values for name, values in release.items() if name not in ("stack", "commit")}
+        for name, values in (("targets", [project for project, _, _ in stacks]), ("env", [env for _, _, env in stacks]), ("from", release.get("commit", ()))):
+            if values:
+                read[name] = tuple(sorted({*read.get(name, ()), *values}))
+        return read
 
     def mutation(self, words: list[str]) -> dict | None:
         if Path(words[0]).name not in CI_BINARIES:
@@ -739,7 +764,7 @@ def home_repo(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {})
 
 
-class SelectRelease(providers.ReleaseProvider):
+class SelectRelease(HomeRelease):
     def components(self, pr: str, paths: list[str], head: str | None) -> dict:
         request = {"body": "", "paths": paths} | ({"head": head} if head else {})
         return self.json("tools/ci release select --pr {pr}", stdin=json.dumps(request), pr=pr)
@@ -782,7 +807,7 @@ class MonorepoRepo(MonorepoPaths, HomeRepo):
     """The monorepo's path reads under its name."""
 
 
-class EnvsRelease(providers.ReleaseProvider):
+class EnvsRelease(HomeRelease):
     """The monorepo's release reads run through reads.run in the checkout, so a test's argv intercepts answer them, and its places read from the checkout's infra/envs files."""
 
     def live(self) -> list[dict]:
