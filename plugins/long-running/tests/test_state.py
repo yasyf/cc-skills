@@ -3094,3 +3094,23 @@ def test_the_reservation_member_of_a_sprite_the_watch_adopted_with_no_dispatch_o
         ("jobs", "j299", "deaths", "agent=a1", "reclaim"),
     ]
     assert [state.record_at(data, row) for row in rows] == [ended, adopted, mac]
+
+
+def test_a_reporters_fix_live_note_is_owed_only_once_the_part_carrying_the_reported_bug_reads_delivered_by_its_own_proof_never_on_another_jobs_as_o2s_was(
+    state_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    make("demo")
+    data = state.load("demo")
+    link = "https://poetic-technology.slack.com/archives/C0CELUMJ6MU/p1794541608044529"
+    reported, ported = f"<{link}> Iris cannot see screenshots via journal in chat", "port of #54725: prefill a plain value"
+    created = "2026-11-12T10:00:00-08:00"
+    data["orders"] = {"o1": state.new_order("cut over to the new tree", "slack:D123/1794600000.000100", ("D123", "1794600000.000100"), {reported: state.new_part(), ported: state.new_part()}, created) | {"kind": "build", "jobs": ["j1", "j2"]}}
+    data["orders"]["o1"]["reporters"] = [{"link": link, "channel": "C0CELUMJ6MU", "thread": "1794541608.044529", "told": None}]
+    data["jobs"] = {"j1": state.new_job("o1", "builder", "fix the screenshots", [reported], created), "j2": state.new_job("o1", "builder", "port #54725", [ported], created)}
+    monkeypatch.setattr(state, "fix_proof", lambda data, order: "https://github.com/Forge-AI/monorepo/pull/56406 live: /repro/j5422.py exits 0")
+    data["jobs"]["j2"].update(state="done", said="DONE j2 live: /repro/j2.py exits 0")
+    data["orders"]["o1"]["parts"][ported].update(posted="j2 live: /repro/j2.py exits 0", posted_by="j2")
+    other = state.may_tell(data, data["orders"]["o1"])
+    data["jobs"]["j1"].update(state="done", said="DONE j1 live: /repro/j1.py exits 0")
+    data["orders"]["o1"]["parts"][reported].update(posted="j1 live: /repro/j1.py exits 0", posted_by="j1")
+    assert (other, state.reported_parts(data["orders"]["o1"], data["orders"]["o1"]["reporters"][0]), state.may_tell(data, data["orders"]["o1"])) == (False, [reported], True)

@@ -4083,10 +4083,16 @@ def merge_proven(order: dict) -> bool:
 
 
 def may_tell(data: dict, order: dict) -> bool:
-    """Whether the threads whose records an order keeps may hear from it now: an answer order's once every part of its answer is posted, any other's once its fix is proven live, by fix_proof."""
+    """Whether the threads whose records an order keeps may hear from it now: an answer order's once every part of its answer is posted, any other's once its fix is proven live, by fix_proof, and each part carrying a reported bug reads delivered by its own proof, by delivered, never by another job's proof nor a standing pass's, which delivers no part."""
     if order["kind"] == "answer":
         return all(held["posted"] for held in order["parts"].values())
-    return bool(fix_proof(data, order))
+    order_id = next(found for found, held in data["orders"].items() if held is order)
+    return bool(fix_proof(data, order)) and all(delivered(data, order_id, part) for reporter in order["reporters"] for part in reported_parts(order, reporter))
+
+
+def reported_parts(order: dict, reporter: dict) -> list[str]:
+    """The parts carrying the bug a reporter's thread reported: each part naming its link, else the order's first part, the one his message added."""
+    return [part for part in order["parts"] if reporter["link"] in part] or list(order["parts"])[:1]
 
 
 def fix_proof(data: dict, order: dict) -> str | None:
