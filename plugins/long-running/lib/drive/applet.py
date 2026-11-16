@@ -212,7 +212,7 @@ class Composer:
 
     def __init__(self, name: str) -> None:
         self.name = name
-        self.folder = state.drive_dir(name) / "applets"
+        self.folder = pages.kept_dir(name, "applets")
         self.lock = threading.Lock()
         self.queued: set[str] = set()
         self.composing: queue.Queue[tuple[str, str, Callable[[], dict]]] = queue.Queue()
@@ -273,7 +273,7 @@ def newest(folder: Path) -> dict:
 
 
 def seen_path(name: str, slug: str) -> Path:
-    return state.drive_dir(name) / "applets" / f"{slug}.seen"
+    return pages.kept_dir(name, "applets") / f"{slug}.seen"
 
 
 def unannounced(name: str, moment: datetime) -> list[tuple[dict, str, dict]]:
@@ -282,7 +282,7 @@ def unannounced(name: str, moment: datetime) -> list[tuple[dict, str, dict]]:
     for page in pages.listed(name):
         if page.get("kind") != KIND:
             continue
-        folder = state.drive_dir(name) / "applets" / page["slug"]
+        folder = pages.kept_dir(name, "applets") / page["slug"]
         laid = sorted(folder.glob("*.json"), key=lambda each: each.stat().st_mtime) if folder.is_dir() else []
         if not laid or "basis" not in (layout := json.loads(laid[-1].read_text())):
             continue

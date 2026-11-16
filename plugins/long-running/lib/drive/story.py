@@ -5,7 +5,7 @@ import threading
 import time
 from collections.abc import Callable
 
-from drive import card, diff, picture, served, state
+from drive import card, diff, pages, picture, served, state
 from drive.render import cut
 from drive.state import DriveError
 
@@ -203,7 +203,7 @@ class Writer:
 
     def __init__(self, name: str) -> None:
         self.name = name
-        self.folder = state.drive_dir(name) / "stories"
+        self.folder = pages.kept_dir(name, "stories")
         self.lock = threading.Lock()
         self.kept: dict[str, dict] = {}
         self.queued: set[str] = set()

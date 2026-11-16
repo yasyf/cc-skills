@@ -22,8 +22,15 @@ KINDS = {
 WHOLE_DRIVE = "drive"
 
 
+def kept_dir(name: str, folder: str) -> Path:
+    """Where the drive keeps his pages, stories or applets: beside its lanes on a live lane drive, so they outlive the old drive's state when it is archived, else in that state."""
+    from lane import store as lane_store
+
+    return (lane_store.drive_dir(name) if lane_store.live(name) else state.drive_dir(name)) / folder
+
+
 def pages_dir(name: str) -> Path:
-    return state.drive_dir(name) / "pages"
+    return kept_dir(name, "pages")
 
 
 def add(name: str, slug: str, order_id: str, folder: Path) -> dict:
