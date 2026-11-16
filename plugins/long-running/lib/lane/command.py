@@ -72,7 +72,7 @@ def main(argv: list[str] | None = None) -> int:
     opening.add_argument("--parks")
     opening.add_argument("--park-words")
     opening.add_argument("--pr", action="append", default=[])
-    opening.add_argument("--worktree")
+    opening.add_argument("--worktree", required=True)
     opening.add_argument("--next")
     opening.add_argument("--incident-link")
     opening.add_argument("--hurting-users", action="store_true")
@@ -93,6 +93,9 @@ def main(argv: list[str] | None = None) -> int:
     ruled.add_argument("--link")
     ruled.add_argument("--binds", required=True)
     verbs_parser.add_parser("unpark").add_argument("lane")
+    placing = verbs_parser.add_parser("worktree", help="set the checkout a lane's owner starts in")
+    placing.add_argument("lane")
+    placing.add_argument("path")
     pinning = verbs_parser.add_parser("pin")
     pinning.add_argument("lane")
     pinning.add_argument("--off", action="store_true")
@@ -169,6 +172,8 @@ def run(args: argparse.Namespace) -> int:
         case "ruling":
             drive = args.drive or os.environ.get("LANE_OWNER", "").partition("/")[0]
             verbs.ruling(drive, args.lane, args.words, args.link, args.binds)
+        case "worktree":
+            verbs.set_worktree(*where(args), args.path)
         case "unpark":
             verbs.unpark(*where(args))
         case "pin":

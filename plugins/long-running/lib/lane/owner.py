@@ -151,11 +151,9 @@ def launched(out: str) -> tuple[str, str]:
 
 
 def cwd(drive: str, lane: dict) -> Path:
-    if lane.get("worktree"):
-        return Path(lane["worktree"])
-    folder = store.drive_dir(drive) / "work" / lane["id"]
-    folder.mkdir(parents=True, exist_ok=True)
-    return folder
+    if not lane.get("worktree"):
+        raise store.Refused(f"lane {lane['id']} has no worktree for its owner to start in; set one with `lane worktree`")
+    return Path(lane["worktree"])
 
 
 def launch(drive: str, lane: dict, token: str, woke: str) -> dict:

@@ -47,7 +47,7 @@ def token_of(lane_id: str) -> str:
 
 
 def opened(lane_id: str, **extra) -> dict:
-    return verbs.open_lane(DRIVE, lane_id, lane_id.title(), words=f"do {lane_id}", ts=extra.pop("ts", "100.0"), **extra)
+    return verbs.open_lane(DRIVE, lane_id, lane_id.title(), words=f"do {lane_id}", ts=extra.pop("ts", "100.0"), worktree="/checkout", **extra)
 
 
 def answered(lane_id: str) -> None:

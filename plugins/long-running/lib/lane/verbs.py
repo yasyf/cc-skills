@@ -16,6 +16,8 @@ def woken(lane: dict, why: str) -> None:
 def open_lane(drive: str, lane_id: str, title: str, words: str | None = None, channel: str | None = None, thread: str | None = None, link: str | None = None, ts: str | None = None, parks: str | None = None, park_words: str | None = None, prs: list[tuple[str, int]] = (), worktree: str | None = None, next_step: str | None = None, incident: dict | None = None) -> dict:
     """Open a lane, woken at once so the same call starts its owner; at the cap it must name the lane it parks, with his words."""
     cap = store.config(drive)["active"]
+    if not worktree:
+        raise store.Refused("a lane needs its worktree, a checkout of a repository Claude trusts, where its owner starts: --worktree")
 
     def opening(lanes: dict[str, dict]) -> dict:
         if lane_id in lanes:
@@ -243,4 +245,13 @@ def set_incident(drive: str, lane_id: str, token: str | None, hurting: bool, lin
 
 def pin(drive: str, lane_id: str, pinned: bool) -> None:
     store.update(drive, lane_id, lambda lane: lane.__setitem__("pinned", pinned))
+    store.kick(drive)
+
+
+def set_worktree(drive: str, lane_id: str, path: str) -> None:
+    def setting(lane: dict) -> None:
+        lane["worktree"] = path
+        store.note(lane, f"worktree: {path}")
+
+    store.update(drive, lane_id, setting)
     store.kick(drive)
