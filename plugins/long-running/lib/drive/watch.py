@@ -170,6 +170,9 @@ BUILD_FIELDS = (
 BUILD_ENDS = ("PASSED", "FAILED", "CANCELED", "BLOCKED", "SKIPPED", "NOT_RUN")
 FOLLOW_ENDS = tuple(end for end in BUILD_ENDS if end != "BLOCKED")
 RELEASE_BLOCKED_AFTER = timedelta(minutes=30)
+NO_BLOCKS = {"blocks": {"edges": []}}
+RELEASE_COVERS = {"migrations": "Migrations", "replaces": "Replaces", "deletes": "Deletes"}
+RELEASE_MEANWHILE = "The release waits at this approve step until you tap; nothing it holds back applies meanwhile."
 ABOUT = re.compile(r"\[(?P<order>o\d+) (?P<job>j\d+)\]$|^[A-Z]+ (?:\S+ )?(?:j\d+ )?(?P<named>o\d+)\b")
 MOVED_LINE = re.compile(r"MOVED (?:o\d+, )*o\d+ from (?P<lane>\S+) to ")
 
@@ -825,9 +828,10 @@ def exited_text(name: str, job_id: str, exited: list[str]) -> str:
 
 
 def build_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Read from Buildkite, for waits_lines, status_lines and release_end_lines, each build a wait the watch follows names, a part of an order it hears follows or a job it hears keeps as the release it started and still waits on, by awaits_release: once as it is first held, then again only once a delivery of Buildkite's to the receiver's /buildkite route names it, or on every pass while Buildkite never delivered to the receiver, by receiver.buildkite_silent. One read_builds call reads them all, run in the drive's checkout as orca.checkout moves it to its default branch's head, and each answer is kept on the watcher as builds while the build is held, None for a build Buildkite answers none for; a read that fails is said as a failed read is and owed again next pass."""
+    """Read from Buildkite, for waits_lines, status_lines, release_end_lines and release_card_lines, each build a wait the watch follows names, a part of an order it hears follows, a job it hears keeps as the release it started and still waits on, by awaits_release, or one of his release approve cards still asks about: once as it is first held, then again only once a delivery of Buildkite's to the receiver's /buildkite route names it, or on every pass while Buildkite never delivered to the receiver, by receiver.buildkite_silent. One read_builds call reads them all, run in the drive's checkout as orca.checkout moves it to its default branch's head, and each answer is kept on the watcher as builds while the build is held, None for a build Buildkite answers none for; a read that fails is said as a failed read is and owed again next pass."""
     data = state.load(watcher.name)
     releases = {job["release_build"] for job in data["jobs"].values() if awaits_release(job) and heard_job(watcher, data, job)}
+    releases |= {entry["build"] for job in data["jobs"].values() if heard_job(watcher, data, job) for entry in job["release_cards"].values() if entry["result"] is None}
     held = sorted({wait for wait in followed(watcher, data) if github.BUILD.fullmatch(wait)} | state.followed_builds(heard_orders(watcher, data)) | releases)
     watcher.builds = {link: read for link, read in watcher.builds.items() if link in held}
     watcher.builds_heard &= set(held)
@@ -893,7 +897,7 @@ def release_heard(job: dict, read: dict, moment: datetime) -> dict:
 def release_told(watcher: Watcher, job_id: str, read: dict, moment: datetime) -> None:
     """Post one handoff record telling how a job's release build reads to the job, held on it by state.hold_addressed for its worker as any held text, and to the coordinator sessions acting on it and holding its order, keyed by the build and its state so a repost returns the stored record, and keep its seq as the job's release_heard told. The repository's release tool, by brief.release_record, names the release and the build it runs as: a build other than the one the job keeps, such as the release build a launch build triggered and passed on, becomes the job's release build, and its wait on the old one a wait on it, in place of the post, which the next pass reads; a status command the repository names that reads nothing is a failed read, never a post, so a launch build is never told as the release."""
     data = state.load(watcher.name)
-    job, link = data["jobs"][job_id], data["jobs"][job_id]["release_build"]
+    link = data["jobs"][job_id]["release_build"]
     if (record := brief.release_record(link, data)) is None and state.repo_config(data).get("release", {}).get("status"):
         raise reads.ReadError(f"the repository's [release] status command read nothing of {link}")
     record = record or {}
@@ -906,15 +910,151 @@ def release_told(watcher: Watcher, job_id: str, read: dict, moment: datetime) ->
         print(f"{state.stamp(moment)} {job_id}'s release build {link} reads {read['state']} and started {moved}, which {job_id} follows now", flush=True)
         return
     text, body = release_words(data, job_id, link, read, record, moment)
-    to = list(dict.fromkeys([job_id, state.job_lane(data, job), state.holding_lane(data, data["orders"][job["order"]])]))
-    argv = ["cci", "post", "--drive", watcher.name, "--lane", LANE, "--kind", "handoff", *(arg for lane in to for arg in ("--to", f"{lane}@{watcher.name}")), "--topic", f"release-{job_id}"]
-    argv += ["--id", f"release-{link}-{read['state']}", "--json", "--path", "-", "--text", reads.withheld(text)]
-    seq = str(json.loads(reads.run(argv, Path(data["roles"]["coordinator"]["cwd"]), reads.posting(), stdin=reads.withheld(body)))["seq"])
-    def release_told_write(kept: dict):
+    def release_told_write(kept: dict, seq: str):
         kept["jobs"][job_id]["release_heard"]["told"] = seq
-        state.hold_addressed(kept, {"kind": "handoff", "text": text, "body": body, "to": [f"{lane}@{watcher.name}" for lane in to]}, LANE, seq, None)
 
-    state.update(watcher.name, None, release_told_write)
+    release_post(watcher.name, data, job_id, text, body, f"release-{link}-{read['state']}", release_told_write)
+
+
+def release_post(name: str, data: dict, job_id: str, text: str, body: str, record_id: str, kept: Callable[[dict, str], None] = lambda data, seq: None) -> str:
+    """Post one handoff record about a job's release to the job, held on it by state.hold_addressed for its worker as any held text, and to the coordinator sessions acting on it and holding its order, under the record id so a repost returns the stored record, keeping in the same write whatever kept writes with its seq; the seq."""
+    job = data["jobs"][job_id]
+    to = list(dict.fromkeys([job_id, state.job_lane(data, job), state.holding_lane(data, data["orders"][job["order"]])]))
+    argv = ["cci", "post", "--drive", name, "--lane", LANE, "--kind", "handoff", *(arg for lane in to for arg in ("--to", f"{lane}@{name}")), "--topic", f"release-{job_id}"]
+    argv += ["--id", record_id, "--json", "--path", "-", "--text", reads.withheld(text)]
+    seq = str(json.loads(reads.run(argv, Path(data["roles"]["coordinator"]["cwd"]), reads.posting(), stdin=reads.withheld(body)))["seq"])
+    def release_post_write(saved: dict):
+        kept(saved, seq)
+        state.hold_addressed(saved, {"kind": "handoff", "text": text, "body": body, "to": [f"{lane}@{name}" for lane in to]}, LANE, seq, None)
+
+    state.update(name, None, release_post_write)
+    return seq
+
+
+def release_card_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Put each approve step of a release build a job the watch hears holds to him as one card he taps, by his words "in the future if it's blocked on needing an approve for me it should have posted a card for me to tap": the first Buildkite read that finds a build a job holds, by release_approve_builds, blocked at an approve step keeps one card for that build and step, by release_card_kept, once across every job, while the repository's [release] table names an `approve` command for his Approve to run. Each card kept is then drawn, closed or withdrawn by release_card_settled; a read, post or close that fails is said as a failed read is and tried again next pass."""
+    data = state.load(watcher.name)
+    lines = []
+    if state.repo_config(data).get("release", {}).get("approve"):
+        carded = {key for job in data["jobs"].values() for key in job["release_cards"]}
+        for job_id, job in data["jobs"].items():
+            if job["state"] in state.FINISHED_JOB_STATES or not heard_job(watcher, data, job):
+                continue
+            for link in release_approve_builds(job):
+                for step in blocked_steps(watcher.builds.get(link) or NO_BLOCKS):
+                    if f"{link} {step}" in carded:
+                        continue
+                    try:
+                        release_card_kept(watcher.name, job_id, link, step, moment)
+                    except (reads.ReadError, subprocess.TimeoutExpired, json.JSONDecodeError) as error:
+                        lines += failed(watcher, f"release card {link}", f"read of release {link} for his approve card", error, moment)
+                        continue
+                    carded.add(f"{link} {step}")
+    data = state.load(watcher.name)
+    for job_id, job in data["jobs"].items():
+        if not heard_job(watcher, data, job):
+            continue
+        for key in [key for key, entry in job["release_cards"].items() if entry["shown"] is None]:
+            source = f"release card {key}"
+            try:
+                lines += release_card_settled(watcher, job_id, key)
+            except (slack.SlackError, state.DriveError) as error:
+                lines += failed(watcher, source, f"his approve card on {key}", error, moment)
+                continue
+            watcher.failures.pop(source, None)
+    return lines
+
+
+def release_approve_builds(job: dict) -> list[str]:
+    """Each Buildkite build a job holds that can stop at an approve step for him: the release build it keeps while it still waits on it, by awaits_release, and each build its waits name."""
+    return list(dict.fromkeys([*([job["release_build"]] if awaits_release(job) else []), *(wait for wait in job["waits"] if github.BUILD.fullmatch(wait))]))
+
+
+def release_card_kept(name: str, job_id: str, link: str, step: str, moment: datetime) -> None:
+    """Keep on the job one approve card for the build's approve step under a waits id minted for it, before anything posts, so a retry draws the same card: the release the repository's [release] status command names, by brief.release_record, and the migrations, replaces and deletes that record lists, which his card shows as what Approve covers. A build the status command reads as no release, or as a launch build passing on to another, which the job follows once release_told moves it, keeps none."""
+    data = state.load(name)
+    record = brief.release_record(link, data)
+    if state.repo_config(data)["release"].get("status") and (record is None or record.get("build") not in (None, link)):
+        return
+    record = record or {}
+    covers = {kind: record[kind] for kind in RELEASE_COVERS if kind in record} or None
+    entry = {"build": link, "step": step, "release": record.get("name") or link, "covers": covers, "waits": state.new_waits(name, job_id), "url": None, "asked": state.stamp(moment), "tap": None, "result": None, "shown": None}
+    def release_card_kept_write(data: dict):
+        data["jobs"][job_id]["release_cards"][f"{link} {step}"] = entry
+
+    state.update(name, None, release_card_kept_write)
+
+
+def release_card_settled(watcher: Watcher, job_id: str, key: str) -> list[str]:
+    """Move his approve card on one build's approve step one step on: post it while the build stands there and none is posted, at the root of the channel of its job's order's seat, a priority's or a project's, else the drive's own channel, by release_card_channel; withdraw it, its words saying how the build reads, once a read finds the build past that step with no tap, and keep that as its result; show on it the result his tap gave, approved, held or failed with the release tool's line, in place of his tap, once card.release_answered keeps one. A build Buildkite answers none for counts as past its step."""
+    from drive import superseded, talk
+
+    data = state.load(watcher.name)
+    job, entry = data["jobs"][job_id], data["jobs"][job_id]["release_cards"][key]
+    if entry["tap"]:
+        if entry["result"] is None:
+            return []
+        superseded.answer_card(entry["url"], entry["result"], entry["build"], settled=True, replaces=entry["tap"]["action_ts"])
+        def release_card_shown_write(data: dict):
+            data["jobs"][job_id]["release_cards"][key]["shown"] = entry["result"]
+
+        state.update(watcher.name, None, release_card_shown_write)
+        return [f"CARD {entry['url']} closed in place: {entry['result']}"]
+    if entry["build"] not in watcher.builds:
+        return []
+    read = watcher.builds[entry["build"]]
+    if read and entry["step"] in blocked_steps(read):
+        if entry["url"]:
+            return []
+        channel = release_card_channel(watcher.name, data, job)
+        post = {"card": release_card(data, entry), "request_key": f"{entry['waits'].rpartition('-')[2]}-{watcher.name}.release.{job_id}"}
+        url = talk.posted(watcher.name, post | ({"channel_id": channel} if channel != slack.dm() else {}))["permalink"]
+        def release_card_posted_write(data: dict):
+            data["jobs"][job_id]["release_cards"][key]["url"] = url
+
+        state.update(watcher.name, None, release_card_posted_write)
+        return [f"CARD {url} asks his Approve on release {entry['release']} {entry['build']} at its approve step \"{entry['step']}\""]
+    result = f"Withdrawn: the build moved past \"{entry['step']}\" with no tap here, and reads {read['state'].lower() if read else 'as no build'}"
+    if entry["url"]:
+        superseded.answer_card(entry["url"], result, entry["build"], settled=False)
+    def release_card_withdrawn_write(data: dict):
+        data["jobs"][job_id]["release_cards"][key].update(result=result, shown=result)
+
+    state.update(watcher.name, None, release_card_withdrawn_write)
+    return [f"CARD {entry['url']} withdrawn: {result}"] if entry["url"] else []
+
+
+def release_card_channel(name: str, data: dict, job: dict) -> str:
+    """The channel his approve card goes in at its root: the channel of the seat of the job's order, a priority's or a project's, by state.channel_seat_of, made on demand, else the drive's own, else his DM."""
+    from drive import talk
+
+    seat = state.channel_seat_of(data, data["orders"][job["order"]])
+    return talk.channel_for(name, data, seat) if seat else slack.project_channel(data, None)
+
+
+def release_card(data: dict, entry: dict) -> dict:
+    """His approve card on a build's approve step: what Approve applies, each migration, replace and delete the repository's [release] status command lists, or that it lists none of them, the [release] show command, and the commands Approve and Hold run, the repository's [release] `approve` and `hold` with the release filled; Hold with no `hold` command records his hold and tells the job."""
+    from drive.card import TAP_LABELS
+
+    config = state.repo_config(data)["release"]
+    filled = {verb: config[verb].replace("{release}", shlex.quote(entry["release"])) for verb in ("approve", "hold", "show") if config.get(verb)}
+    if entry["covers"] is None:
+        covers = ["The release tool lists no migrations, replaces or deletes for it."]
+    else:
+        covers = ["*What Approve applies:*", *(f"- {label}: {', '.join(entry['covers'].get(kind) or []) or 'none'}" for kind, label in RELEASE_COVERS.items())]
+    body = "\n".join([f"[Release {entry['release']}]({entry['build']}) stopped at its approve step \"{entry['step']}\".", "", *covers, *([f"`{filled['show']}` shows the whole release."] if "show" in filled else [])])
+    hold = f"Runs `{filled['hold']}`." if "hold" in filled else "Leaves the build at its approve step and tells its job and coordinator you held it."
+    return {
+        "title": f"Approve release {entry['release']}?",
+        "body": body,
+        "options": list(TAP_LABELS),
+        "recommended": TAP_LABELS[0],
+        "hints": {TAP_LABELS[0]: f"Runs `{filled['approve']}` as you, and the build goes on past its approve step.", TAP_LABELS[1]: hold},
+        "refs": [{"label": f"release {entry['release']}", "url": entry["build"]}],
+        "waits": entry["waits"],
+        "drive": data["name"],
+        "meanwhile": RELEASE_MEANWHILE,
+    }
 
 
 def release_words(data: dict, job_id: str, link: str, read: dict, record: dict, moment: datetime) -> tuple[str, str]:
@@ -950,7 +1090,11 @@ def build_said(link: str, read: dict | None) -> str | None:
 
 
 def approve_steps(read: dict) -> list[str]:
-    return [f'"{edge["node"]["label"]}"' for edge in read["blocks"]["edges"]]
+    return [f'"{label}"' for label in blocked_steps(read)]
+
+
+def blocked_steps(read: dict) -> list[str]:
+    return [edge["node"]["label"] for edge in read["blocks"]["edges"]]
 
 
 def unpassed_steps(read: dict) -> list[str]:
@@ -5502,6 +5646,7 @@ def stages(watcher: Watcher, moment: datetime, until: Callable[[], object] = lam
                     serving_lines,
                     build_lines,
                     release_end_lines,
+                    release_card_lines,
                     status_lines,
                     waits_lines,
                     start_jobs,

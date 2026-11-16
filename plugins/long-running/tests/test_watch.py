@@ -4913,6 +4913,71 @@ def test_730544_a_release_job_whose_waits_moved_on_from_its_release_build_is_nev
     assert (told, calls, state.load(demo)["jobs"]["j2"]["release_heard"]) == ([("j3", "PASSED")], [["forge/release/17469"]], None)
 
 
+APPROVE_CARD = "https://poetic-technology.slack.com/archives/C0PRIO/p1794800000000100"
+APPROVING = {"release": {"status": "ci release status {release} --json", "show": "ci release status {release}", "approve": "ci release approve {release}"}}
+
+
+def test_a_build_a_job_waits_on_stopped_at_an_approve_step_puts_one_approve_card_up_in_its_orders_channel_at_the_first_read_and_withdraws_it_once_the_build_moves_on_untapped(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    answers = {"forge/release/17469": {**BUILD_RUNNING, "state": "BLOCKED", "blocks": {"edges": [{"node": {"label": APPROVE_STEP}}]}}}
+    buildkite_reads(monkeypatch, answers)
+    record = {"name": "auric-aristides", "build": TRIGGERED_BUILD, "migrations": ["0531 adds the runs index"], "replaces": [], "deletes": ["the old blobs bucket"]}
+    monkeypatch.setattr(watch.brief, "release_record", lambda release, data: record)
+    monkeypatch.setattr(state, "repo_config", lambda data: APPROVING)
+    posts: list[dict] = []
+    monkeypatch.setattr(talk, "posted", lambda name, post, order=None, receipt=None: posts.append(post) or {"permalink": APPROVE_CARD})
+    monkeypatch.setattr(watch, "release_card_channel", lambda name, data, job: "C0PRIO")
+    monkeypatch.setattr(watch.slack, "dm", lambda: "D0DM")
+    answered: list[tuple] = []
+    monkeypatch.setattr(superseded, "answer_card", lambda card, words, link, settled, replaces=None: answered.append((card, words, link, settled, replaces)) or {})
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["jobs"].append("j2")
+        data["jobs"]["j2"] = state.new_job("o1", "builder", "follow his release", [], state.stamp(T0)) | {"waits": [TRIGGERED_BUILD]}
+    watching = watcher(demo)
+    said = []
+    for minute in (0, 1):
+        watch.build_lines(watching, T0 + timedelta(minutes=minute))
+        said.append(watch.release_card_lines(watching, T0 + timedelta(minutes=minute)))
+    assert said == [[f'CARD {APPROVE_CARD} asks his Approve on release auric-aristides {TRIGGERED_BUILD} at its approve step "{APPROVE_STEP}"'], []]
+    [post] = posts
+    drawn = post["card"]
+    assert (post["channel_id"], drawn["options"], drawn["recommended"], drawn["waits"].startswith(f"{demo}:j2-")) == ("C0PRIO", ["Approve", "Hold"], "Approve", True)
+    assert ["- Migrations: 0531 adds the runs index", "- Replaces: none", "- Deletes: the old blobs bucket", "`ci release status auric-aristides` shows the whole release."] == drawn["body"].splitlines()[-4:]
+    assert "`ci release approve auric-aristides`" in drawn["hints"]["Approve"]
+    answers["forge/release/17469"] = BUILD_RUNNING
+    for minute in (2, 3):
+        watch.build_lines(watching, T0 + timedelta(minutes=minute))
+        watch.release_card_lines(watching, T0 + timedelta(minutes=minute))
+    assert answered == [(APPROVE_CARD, f'Withdrawn: the build moved past "{APPROVE_STEP}" with no tap here, and reads running', TRIGGERED_BUILD, False, None)]
+    assert len(posts) == 1
+
+
+def test_his_approve_on_a_release_card_runs_the_repositorys_approve_command_once_tells_the_job_and_shows_its_failure_in_place_of_his_tap(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(state, "repo_config", lambda data: APPROVING)
+    waits = f"{demo}:j2-1794800000000"
+    entry = {"build": TRIGGERED_BUILD, "step": APPROVE_STEP, "release": "auric-aristides", "covers": None, "waits": waits, "url": APPROVE_CARD, "asked": state.stamp(T0), "tap": None, "result": None, "shown": None}
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["jobs"].append("j2")
+        data["jobs"]["j2"] = state.new_job("o1", "builder", "follow his release", [], state.stamp(T0)) | {"waits": [TRIGGERED_BUILD], "release_cards": {f"{TRIGGERED_BUILD} {APPROVE_STEP}": entry}}
+    ran: list[str] = []
+    monkeypatch.setattr(card.subprocess, "run", lambda command, **kwargs: ran.append(command) or subprocess.CompletedProcess(command, 1, "", "approve: listed authors still owe acks: ada\n"))
+    told: list[tuple[str, str]] = []
+    monkeypatch.setattr(watch, "release_post", lambda name, data, job_id, text, body, record_id, kept=None: told.append((job_id, record_id)) or "731900")
+    tap = {"waits": waits, "label": "Approve", "url": APPROVE_CARD, "action_ts": "1794800100.000100", "source": "slack"}
+    failure = "Approve failed: approve: listed authors still owe acks: ada"
+    assert card.question_answered(tap) == {"ok": True, "seq": "731900"}
+    assert card.question_answered(tap) == {"ok": True, "result": failure}
+    assert card.question_answered(tap | {"undone": True})["ok"] is False
+    assert (ran, told) == (["ci release approve auric-aristides"], [("j2", f"release-tap-{waits}")])
+    answered: list[tuple] = []
+    monkeypatch.setattr(superseded, "answer_card", lambda card, words, link, settled, replaces=None: answered.append((card, words, link, settled, replaces)) or {})
+    watching = watcher(demo)
+    assert watch.release_card_lines(watching, T0) == [f"CARD {APPROVE_CARD} closed in place: {failure}"]
+    assert watch.release_card_lines(watching, T0) == []
+    assert answered == [(APPROVE_CARD, failure, TRIGGERED_BUILD, True, "1794800100.000100")]
+
+
 def test_a_buildkite_build_wait_is_read_once_as_first_held_then_only_on_a_delivery_naming_it_holding_while_it_runs_and_freeing_at_its_approve_step(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:

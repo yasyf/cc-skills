@@ -1,6 +1,8 @@
 import json
 import os
 import re
+import shlex
+import subprocess
 import sys
 import unicodedata
 import uuid
@@ -23,6 +25,9 @@ RECORDS = "card-records"
 RECORD_LOG = "cards.log"
 REVIEW_DECISIONS = {"approved": "APPROVED", "stale": "REVIEW_REQUIRED", "changes": "CHANGES_REQUESTED", "none": ""}
 TAP_LABELS = ("Approve", "Hold")
+RELEASE_TAP_SECONDS = 90
+RELEASE_UNDONE = "his {tap} on a release approve card stands: the release tool already took it, so an Undo takes nothing back; tell him to say what the release should do now"
+RELEASE_WORDS = "his words on a release approve card approve and hold nothing; only his Approve or Hold tap runs the release tool, so answer his words in the card's thread"
 UNDONE = "Undone: {label}. Never given; the card waits for his answer."
 UNREOPENED = (
     "his Undo on {card} reopens nothing: no question drawn on that card ended answered on his tap there or his words at or"
@@ -915,6 +920,8 @@ def question_answered(ask: dict) -> dict:
     name, _, _ = ask["waits"].partition(":")
     if name not in state.names():
         return {"ok": False, "why": f"{ask['waits']} is no drive's question card, so his tap on it stays with the session it reached"}
+    if released := release_answered(name, ask):
+        return released
     hear_tap(name)
     tried = state.drive_dir(name) / UNRECORDED_TAPS / f"{ask['waits']}:{ask.get('action_ts')}{':undone' if ask.get('undone') else ''}"
     try:
@@ -927,6 +934,53 @@ def question_answered(ask: dict) -> dict:
         raise
     tried.unlink(missing_ok=True)
     return answer
+
+
+def release_answered(name: str, ask: dict) -> dict | None:
+    """Take his tap on an approve card the watch drew for a release build's approve step, by watch.release_card_lines, the card a job keeps under the tap's waits id; None for any other card. His Approve runs the repository's [release] `approve` command with the release filled, and his Hold its `hold` command, or records the hold when it names none, each as him in the drive's checkout; his tap is kept before the command runs and the result after, so cc-slack's run again of the same tap, or a later tap, runs nothing twice, and one record tells the job and the coordinator what his tap did. The watch shows the result on the card in place of his tap. An Undo takes back nothing the release tool already did, and his words in the card's Other box approve nothing: both answer `ok` false, so cc-slack hands them to the session it reached."""
+    from drive import watch
+
+    data = state.load(name)
+    if not (found := next(((job_id, key) for job_id, job in data["jobs"].items() for key, entry in job["release_cards"].items() if entry["waits"] == ask["waits"]), None)):
+        return None
+    hear_tap(name)
+    job_id, key = found
+    entry = data["jobs"][job_id]["release_cards"][key]
+    if ask.get("undone"):
+        return {"ok": False, "why": RELEASE_UNDONE.format(tap=(entry["tap"] or {}).get("label") or ask["label"])}
+    if ask.get("other") or ask["label"] not in TAP_LABELS:
+        return {"ok": False, "why": RELEASE_WORDS}
+    if entry["tap"]:
+        return {"ok": True, "result": entry["result"]}
+    tap = {"label": ask["label"], "action_ts": ask.get("action_ts"), "at": state.tap_time(f"tap:{ask['waits']}:{ask.get('action_ts')}") or state.stamp()}
+    def release_tap_write(data: dict):
+        data["jobs"][job_id]["release_cards"][key]["tap"] = tap
+
+    state.update(name, None, release_tap_write)
+    result = release_tapped(data, entry, ask["label"])
+    def release_result_write(data: dict):
+        data["jobs"][job_id]["release_cards"][key]["result"] = result
+
+    state.update(name, None, release_result_write)
+    text = f"RELEASE {job_id} {data['jobs'][job_id]['order']}: he tapped {ask['label']} on his approve card for release {entry['release']} {entry['build']} at \"{entry['step']}\": {result}"
+    seq = watch.release_post(name, state.load(name), job_id, text, entry["url"] or entry["build"], f"release-tap-{ask['waits']}")
+    return {"ok": True, "seq": seq}
+
+
+def release_tapped(data: dict, entry: dict, label: str) -> str:
+    """What his tap on a release approve card did: Approved or Held once the repository's [release] command for it exits 0, Held when it names no `hold` command, else the tap failed with the command's last line of output, or its time running out."""
+    config = state.repo_config(data)["release"]
+    if not (command := config["approve"] if label == TAP_LABELS[0] else config.get("hold")):
+        return "Held"
+    filled = command.replace("{release}", shlex.quote(entry["release"]))
+    try:
+        done = subprocess.run(filled, check=False, shell=True, cwd=data["roles"]["coordinator"]["cwd"], capture_output=True, text=True, timeout=RELEASE_TAP_SECONDS)
+    except subprocess.TimeoutExpired:
+        return f"{label} failed: `{filled}` ran past {RELEASE_TAP_SECONDS} s"
+    if done.returncode == 0:
+        return "Approved" if label == TAP_LABELS[0] else "Held"
+    said = next((line.strip() for line in reversed(f"{done.stdout}\n{done.stderr}".splitlines()) if line.strip()), f"exit {done.returncode}")
+    return f"{label} failed: {said}"
 
 
 def unrecorded(name: str, ask: dict, tap: str, failure: Exception) -> None:

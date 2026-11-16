@@ -4127,6 +4127,7 @@ def new_job(order_id: str, kind: str, goal: str, parts: list[str], created: str)
         "release_build": None,
         "release_heard": None,
         "release_pass": None,
+        "release_cards": {},
         "waits": [],
         "stacks_on": [],
         "shipped": [],
