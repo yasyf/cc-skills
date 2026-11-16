@@ -17,7 +17,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from conftest import DRY_RUN, DashboardBoxes, EnvsRelease, HomeRepo, MonorepoRepo, SlotStaging, provide, DRIVE_TERMINAL, LEAD, REAL_SCRATCH, RESEARCH, SHORT_ASK, Answers, CodexAsk, drawn_card, Draws, Jev, Judge, Receiver, Redraws, Thread, WatchProcess, Withdrawals, codex_reply, commit_files, git_in, said_lines, staged
+from conftest import DRY_RUN, EnvsRelease, HomeRepo, MonorepoPaths, SlotStaging, provide, DRIVE_TERMINAL, LEAD, REAL_SCRATCH, RESEARCH, SHORT_ASK, Answers, CodexAsk, drawn_card, Draws, Jev, Judge, Receiver, Redraws, Thread, WatchProcess, Withdrawals, codex_reply, commit_files, git_in, said_lines, staged
 from drive import agents, card, cli, codex, dashboard, github, install, land, launchd, limits, orca, place, providers, reads, receiver, render, served, settled, slack, stage, stall, state, superseded, talk, train, view, watch
 
 KEY = "Forge-AI/monorepo#42"
@@ -249,7 +249,7 @@ def monorepo_providers(monkeypatch: pytest.MonkeyPatch) -> None:
 
     def built(clone: Path) -> providers.Providers:
         return providers.Providers(
-            None, {}, repo=MonorepoRepo(clone, clone, {}), release=LiveRelease(clone, clone, {}), staging=SlotStaging(clone, clone, {}), mac_box=DashboardBoxes(clone, clone, {})
+            None, {}, repo=MonorepoPaths(clone, clone, {}), release=LiveRelease(clone, clone, {}), staging=SlotStaging(clone, clone, {})
         )
 
     monkeypatch.setattr(providers, "of", lambda data: built(Path(data["roles"]["coordinator"]["cwd"])))

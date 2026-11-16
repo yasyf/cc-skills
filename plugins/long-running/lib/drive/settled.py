@@ -1246,7 +1246,7 @@ def tests(release: dict, option: dict, rest: str, cwd: str) -> str | None:
     """Why a staging release marked --for-production does not test the production release a card option's release ships, each read by shipped(); None when it does: the option's release runs on a production place, by off_production(), and placed() reads the staging release shipping its change wherever it runs, every flag the same but --for-production and the places, its --env and each place its --without names that the release provider knows, which it takes from the option."""
     if off_production(option, cwd):
         return UNTESTED
-    left = sorted({*(name for name in release.get("without", ()) if stage(name, cwd) is None), *(name for name in option.get("without", ()) if stage(name, cwd) is not None)})
+    left = sorted({*(name for name in release.get("without", ()) if not known(name, cwd)), *(name for name in option.get("without", ()) if known(name, cwd))})
     change = {name: values for name, values in release.items() if name not in (FOR_PRODUCTION, "env", "without")}
     return placed(change | {name: values for name, values in (("env", option.get("env")), ("without", tuple(left))) if values}, option, rest, cwd)
 
@@ -1273,6 +1273,12 @@ def beyond(release: dict, option: dict) -> set[str] | None:
 def team_names(place: str, cwd: str) -> list[str]:
     """The names of a place's team, as the release provider of the repository cloned at the drive's checkout reads them; none for a place it does not know."""
     return list(providers.at(Path(cwd)).release.place(place).teams)
+
+
+def known(place: str, cwd: str) -> bool:
+    """Whether the release provider of the repository cloned at the drive's checkout knows a place, giving it a stage or a team."""
+    found = providers.at(Path(cwd)).release.place(place)
+    return found.stage is not None or bool(found.teams)
 
 
 def stage(place: str, cwd: str) -> str | None:
