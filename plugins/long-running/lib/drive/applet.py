@@ -106,7 +106,8 @@ Blocks, in the order that tells this goal's story:
 
 Rules:
 - headline: the goal in plain words, at most 90 characters. summary: who this page is for and what it helps him do, one sentence.
-- changed_for_him: compare the glance with <before>. One line naming what changed for him when what he must do or know is different, a new decision, a PR now waiting on him, the goal blocked or done; empty when only wording or counts moved. For a new page, one line on why it exists.
+- When <before> holds a glance and the one thing he must do next is the same, repeat its `next` word for word and keep its `tone`, however the counts moved.
+- changed_for_him: compare the glance with <before>. One line naming what changed for him when his next step is a different thing to do, or the goal turned blocked, unblocked or done; empty when only wording or counts moved, such as one more PR joining the many already waiting on his approval. For a new page, one line on why it exists.
 - When the slice holds decisions or PRs waiting on him, the first block is a waits block holding them. A code review approving a PR is not his approval: say "code review approved" for one, and "needs your approval" for what waits on him.
 - prs, questions and orders hold only keys the slice gives, exactly; a block's other fields not used by its kind stay empty ("", [] or false).
 - Use the slice's facts only, never add one it does not hold.
@@ -257,12 +258,12 @@ def newest(folder: Path) -> dict:
     return json.loads(laid[-1].read_text()) if laid else {}
 
 
-def announced_path(name: str, slug: str) -> Path:
-    return state.drive_dir(name) / "applets" / slug / "announced.txt"
+def seen_path(name: str, slug: str) -> Path:
+    return state.drive_dir(name) / "applets" / f"{slug}.seen"
 
 
 def unannounced(name: str) -> list[tuple[dict, str, dict]]:
-    """Each applet page whose newest layout he has not been sent: a page composed under COMPOSE_VERSION's guidance for the first time, or one whose compose names what changed for him since it was last sent, by changed_for_him; never one recomposed with nothing changed for him, so a page reaches him once per material change. Each with the name of its newest layout and the layout."""
+    """Each applet page whose newest layout he has not been sent: a page composed under COMPOSE_VERSION's guidance that was never sent, or one whose glance asks a different next step of him, or turned to another tone, than the glance last sent, and whose compose names what changed for him, by changed_for_him; never one recomposed with the same next step, so a page reaches him once per material change. Each with the name of its newest layout and the layout."""
     due = []
     for page in pages.listed(name):
         if page.get("kind") != KIND:
@@ -271,12 +272,13 @@ def unannounced(name: str) -> list[tuple[dict, str, dict]]:
         laid = sorted(folder.glob("*.json"), key=lambda each: each.stat().st_mtime) if folder.is_dir() else []
         if not laid or "glance" not in (layout := json.loads(laid[-1].read_text())):
             continue
-        told = announced_path(name, page["slug"])
-        sent = told.read_text().strip() if told.is_file() else ""
-        if laid[-1].name != sent and (not sent or layout["changed_for_him"]):
+        seen = seen_path(name, page["slug"])
+        sent = json.loads(seen.read_text()) if seen.is_file() else None
+        if sent is None or laid[-1].name != sent["laid"] and layout["changed_for_him"] and (layout["glance"]["next"], layout["glance"]["tone"]) != (sent["next"], sent["tone"]):
             due.append((page, laid[-1].name, layout))
     return due
 
 
-def announce(name: str, slug: str, laid: str) -> None:
-    announced_path(name, slug).write_text(laid + "\n")
+def announce(name: str, slug: str, laid: str, glance: dict) -> None:
+    """Keep the layout and glance he was last sent of a page, which unannounced weighs the next compose against."""
+    seen_path(name, slug).write_text(json.dumps({"laid": laid, "next": glance["next"], "tone": glance["tone"]}) + "\n")
