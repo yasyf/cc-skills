@@ -43,8 +43,8 @@ Contents:
   "when something gets marked as priority it gets its own dedicated coordinator spun uo for it".
   A builder added with `drive job add builder --order <o> --goal "<goal>" --builds-nothing`, one whose whole work holds no
   checkout or compiler, such as a read, or one whose goal reads `prove <PRs> live`, a merged PR's
-  live proof, marked or not, holds no slot at all, and `drive job prove` proves the PRs its goal names when no
-  `Handoff:` line names any: it starts
+  live proof, marked or not, holds no slot at all, and `drive job prove` proves live only the PRs a `prove <PRs> live`
+  goal names, never one a staging tester's brief cites: it starts
   here at once past the cap and the line, and no later builder counts it. `drive job set <j> --builds-nothing`
   marks a builder already added the same way, a waiting one included, so a message wakes it past a full
   cap and one waiting its turn leaves the line.

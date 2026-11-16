@@ -1533,8 +1533,8 @@ def handing(config: Path, tmp_path: Path, git: FakeGit, exits: int, job: dict) -
     "brief",
     [
         {},
-        {"goal": "prove Forge-AI/monorepo#9 live on the run page", "brief_flags": {}, "builds_nothing": True},
-        {"goal": "prove Forge-AI/monorepo#9 live on the run page", "brief_flags": {}, "builds_nothing": True, "waits": ["staging:api/plat-usw2-staging@0123456789abcdef"]},
+        {"brief_flags": {}, "builds_nothing": True},
+        {"brief_flags": {}, "builds_nothing": True, "waits": ["staging:api/plat-usw2-staging@0123456789abcdef"]},
     ],
 )
 def test_a_prover_of_a_merge_outside_yasyf_its_own_agent_proves_installs_nothing_takes_done_naming_the_pr_and_its_release_and_keeps_the_orders_proof(
@@ -1558,16 +1558,39 @@ def test_a_prover_of_a_merge_outside_yasyf_its_own_agent_proves_installs_nothing
     assert proof_events() == [("Forge-AI/monorepo#9", proven)]
 
 
-def test_only_a_builder_building_nothing_is_briefed_by_its_goal_to_prove_the_prs_it_names_and_proves_them_once_each_merged(
-    config: Path, tmp_path: Path, fake: Callable[..., FakeGit]
-) -> None:
-    handing(config, tmp_path, fake([BUILD], {BUILD}), 0, {"state": "running", "said": None, "goal": "fix the flake Forge-AI/monorepo#9 left", "brief_flags": {}})
+def test_only_a_goal_reading_prove_prs_live_proves_those_prs_once_each_merged(config: Path, tmp_path: Path, fake: Callable[..., FakeGit]) -> None:
+    handing(config, tmp_path, fake([BUILD], {BUILD}), 0, {"state": "running", "said": None, "brief_flags": {}, "builds_nothing": True})
     data = state.load("demo")
-    assert (install.briefed_prs(data, "j1"), install.repair(data, "j1")) == ([], True)
-    data["jobs"]["j1"]["builds_nothing"] = True
-    assert (install.briefed_prs(data, "j1"), install.handed_prs(data, "j1"), install.repair(data, "j1")) == (["Forge-AI/monorepo#9"], ["Forge-AI/monorepo#9"], False)
+    assert (install.handed_prs(data, "j1"), install.repair(data, "j1")) == (["Forge-AI/monorepo#9"], False)
     data["prs"]["Forge-AI/monorepo#9"]["merged_sha"] = None
     assert (install.handed_prs(data, "j1"), install.provable(data, "j1")) == ([], False)
+
+
+@pytest.mark.parametrize(
+    "brief",
+    [
+        {"goal": "the one staging case Forge-AI/monorepo#9 never ran, before its production hotfix", "brief_flags": {"handoff": "The production hotfix of Forge-AI/monorepo#9 waits on your verdict"}},
+        {"goal": "fix the flake Forge-AI/monorepo#9 left", "brief_flags": {}, "builds_nothing": True},
+        {"goal": "prove Forge-AI/monorepo#9 live on plat-usw2-staging", "brief_flags": {}, "builds_nothing": True},
+    ],
+)
+def test_a_builder_whose_brief_only_cites_a_merged_pr_as_a_staging_tester_does_proves_itself_never_that_pr_live_nor_a_part_of_another_order_its_merge_carries(
+    config: Path, tmp_path: Path, fake: Callable[..., FakeGit], brief: dict
+) -> None:
+    said = "DONE the staging case of Forge-AI/monorepo#9 passed on plat-usw2-staging"
+    watched = {"pid": os.getpid(), "at": state.stamp(), "said": said, "version": state.VERSION}
+    handing(config, tmp_path, fake([BUILD], {BUILD}), 0, {"state": "done", "said": said, "proof": watched} | brief)
+    carried = "sand exec keeps its env secrets"
+    with state.edit("demo") as data:
+        data["orders"]["o2"] = state.new_order(carried, "slack", None, {carried: state.new_part()}, state.stamp()) | {"jobs": ["j1"]}
+        data["jobs"]["j0"]["said"] = f"DONE {PRODUCT} merged: Forge-AI/monorepo#9 at fedcba"
+        data["jobs"]["j1"]["carries"] = {"o2": [carried]}
+        data["prs"]["Forge-AI/monorepo#9"]["checker"] = carrying("", {"o2": [carried]})
+    data = state.load("demo")
+    assert (install.proved_prs(data, "j1"), install.repair(data, "j1"), install.prover_of(data, "Forge-AI/monorepo#9")) == ([], True, None)
+    install.prove("demo", "j1", 900)
+    data = state.load("demo")
+    assert (data["jobs"]["j1"]["said"].startswith("DONE j1 live: "), state.delivered(data, "o2", carried), [key for key, _ in proof_events()]) == (True, False, ["j1"])
 
 
 def test_a_provers_proof_waiting_on_his_next_word_sets_it_waiting_and_the_watch_proves_it_again(config: Path, tmp_path: Path, fake: Callable[..., FakeGit]) -> None:
@@ -2630,11 +2653,7 @@ def test_a_proof_file_reading_a_card_back_word_for_word_names_the_post_its_slack
         ({"said": "PUSHED https://github.com/Forge-AI/monorepo/pull/9", "prs": ["https://github.com/Forge-AI/monorepo/pull/9"]}, "Forge-AI/monorepo#9 merged outside yasyf/*, where a merge goes live only in its repository's release"),
         ({"said": "WAITING on the release"}, "j1 waits on no READY or PUSHED whose PRs all merged and owes no proof of a DONE of its own, so there is nothing to prove"),
         (
-            {"said": "WAITING on the release", "prs": [], "waits": ["release:sandsql:Forge-AI/monorepo#9"], "brief_flags": {"handoff": "Forge-AI/monorepo#9 at fedcba merged: prove it live"}},
-            "j1 waits on no READY or PUSHED whose PRs all merged and owes no proof of a DONE of its own, so there is nothing to prove: it is no repair",
-        ),
-        (
-            {"said": "WAITING on the release", "prs": [], "waits": ["release:sandsql:Forge-AI/monorepo#9"], "goal": "prove Forge-AI/monorepo#9 live on the run page", "builds_nothing": True},
+            {"said": "WAITING on the release", "prs": [], "waits": ["release:sandsql:Forge-AI/monorepo#9"], "goal": "prove Forge-AI/monorepo#9 live", "builds_nothing": True},
             "j1 waits on no READY or PUSHED whose PRs all merged and owes no proof of a DONE of its own, so there is nothing to prove: it is no repair",
         ),
     ],
