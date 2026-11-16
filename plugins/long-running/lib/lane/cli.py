@@ -107,6 +107,10 @@ def spawn(drive: str) -> None:
         subprocess.Popen([str(Path(__file__).resolve().parents[2] / "bin" / "lane-land"), "--drive", drive, "land"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
 
 
+def stage(args: argparse.Namespace) -> None:
+    print(stager.start(args.drive) or "no stager started: no lane waits, the stager already holds staging-env, the queue said wait, or the drive is in shadow")
+
+
 def want(args: argparse.Namespace) -> None:
     print(stager.want(args.drive, args.lane))
 
@@ -142,6 +146,8 @@ def main() -> int:
     verb = verbs.add_parser("land", help="what his Approve lands now, queued only once live")
     verb.add_argument("--dry-run", action="store_true", help="run the merge queue's --check for each landing unit and queue nothing")
     verb.set_defaults(run=land)
+    verb = verbs.add_parser("stage", help="start the drive's stager now when a lane waits on a staging test and the env is free")
+    verb.set_defaults(run=stage)
     verb = verbs.add_parser("want", help="ask the stager for a staging test of the lane's pending stack; prints the cut id to wait on as staging_result:<id>")
     verb.add_argument("--lane", required=True)
     verb.set_defaults(run=want)

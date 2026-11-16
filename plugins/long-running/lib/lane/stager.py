@@ -204,7 +204,7 @@ def start(drive: str) -> str | None:
     if not grant["granted"]:
         return None
     prompt = f"You are the drive's stager for drive {drive}. Read {PAGE} and follow it, running its verbs as {PAGE.parents[1] / 'bin' / 'lane-land'} --drive {drive}: you already hold staging-env as holder {STAGER}. Serve every lane waiting in {lanes_dir(drive) / WANTS}, starting with {first}."
-    done = subprocess.run(["claude", "--bg", "--model", "opus", "--effort", "high", "--permission-mode", "bypassPermissions", "-n", f"stager {drive}", prompt], stdin=subprocess.DEVNULL, capture_output=True, text=True, check=False, timeout=120)
+    done = subprocess.run(["claude", "--bg", "--model", "opus", "--effort", "high", "--permission-mode", "bypassPermissions", "-n", f"stager {drive}", prompt], cwd=store.config(drive)["checkout"], stdin=subprocess.DEVNULL, capture_output=True, text=True, check=False, timeout=120)
     if done.returncode:
         queue.release(drive, STAGING_ENV, STAGER)
         raise store.Refused(f"stager start: claude --bg exited {done.returncode}: {(done.stderr or done.stdout).strip()[:300]}")
