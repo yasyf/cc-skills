@@ -506,15 +506,18 @@ def release_lines(watcher: Watcher, moment: datetime) -> list[str]:
     except github.GithubError as error:
         return read_failed(watcher, "release holds", error, moment)
     watcher.failures.pop("release holds", None)
-    lines = []
-    with state.edit(watcher.name) as data:
+
+    def release_lines_write(data: dict) -> list[str]:
+        lines = []
         for key, (_, paths) in read.items():
             if not data["prs"][key]["reached"] or not (orders := state.release_held(data, key)) or land.dangerous(paths) or state.dangerous(data, paths):
                 continue
             stopped = state.land_for_release(data, key, orders)
             ended = f", and {', '.join(stopped)} stopped" if stopped else ""
             lines.append(f"PR {key}: {state.RELEASE_LANDS.format(key=key, order=', '.join(orders))}{ended} {ids(data['prs'][key])}")
-    return lines
+        return lines
+
+    return state.update(watcher.name, None, release_lines_write)
 
 
 def main_lines(watcher: Watcher, moment: datetime) -> list[str]:
