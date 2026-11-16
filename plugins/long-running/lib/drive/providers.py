@@ -166,6 +166,18 @@ class ReleaseProvider(Provider):
         """The command that lifts the freeze with id freeze."""
         return ""
 
+    def mutation(self, words: list[str]) -> dict | None:
+        """What the shell words write to the repository's releases, read from the words alone: `{"kind": "release", "verb": <verb or None>}` for a run of the release tool's own verb; `{"kind": "write", "verb": <verb>, "build": <the build it names, as written, or None>, "job": <the cluster Job its inline body starts, or None>}` for a rerun, cancel or API write to a build of the release pipeline, its verb `rerun`, `cancel` or `api`; `{"kind": "job", "job": <the Job, or None>}` for a start of a Job from a suspended CronJob; a Job as `{"cluster", "cronJob", "reason"}`; None for any other command."""
+        return None
+
+    def cut(self, build: str) -> bool:
+        """Whether the release pipeline's build numbered build is a release cut, read now; a ProviderError or the CI read's own error when it cannot be read."""
+        return False
+
+    def build_job(self, build: str) -> dict | None:
+        """The cluster Job the release pipeline's build numbered build starts, as mutation() gives one, read now; None when it starts none; a ProviderError or the CI read's own error when it cannot be read."""
+        return None
+
 
 class StagingProvider(Provider):
     """Where the repository stages a change before it lands, and the steps a staging pass takes there."""
@@ -246,6 +258,10 @@ class BuildProvider(Provider):
         """Where a failed CI job's own output is read, for the guard refusing a rerun past it."""
         return ""
 
+    def retried(self, words: list[str]) -> dict | None:
+        """The build or job a run of the repository's own CI tool reruns, as `{"step": <the words naming the rerun>, "pipeline": <org/slug>, "build": <number or None>, "job": <job id or None>, "branch": <branch or None>}`, a branch meaning its pipeline's newest build there to finish; None for a command of its tool that reruns nothing, and for any other command."""
+        return None
+
 
 class AccessProvider(Provider):
     """How a drive takes elevated access to one of the repository's stacks."""
@@ -253,7 +269,8 @@ class AccessProvider(Provider):
     stack_example: str = ""
 
     @contextmanager
-    def grant(self, stack: str, why: str, started: Any) -> Iterator[Any]:
+    def grant(self, stack: str, reason: str, asker: str, started: Any) -> Iterator[Any]:
+        """The grant of elevated access to the stack, started in the asker's name for the reason, its link handed to started the moment it exists, and passed as the drive's reads.Grant the command under it runs with, its credentials gone when the block ends and the drive's stop signals recorded rather than acted on from their writing to their deletion."""
         raise ProviderError("this repository grants no elevated access")
         yield
 
