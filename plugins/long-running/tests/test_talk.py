@@ -409,8 +409,6 @@ def test_his_ruling_draws_as_his_words_and_when_he_said_them_linked_to_their_ack
     talk.say(demo, {"text": "Fixed under {answer:f03a0aa}."})
     when = render.when(state.parse_time(ruling["created_at"]).astimezone().isoformat())
     assert posts[0][-1] == f'Fixed under <{ack}|his {when} ruling "you need to fix the hookw henver it wrongly refuses…">.'
-    commit = "1:30 commit-sha '1a2b3c4': link the commit"
-    assert refs.answer_ids(["1:12 commit-sha 'f03a0aa': link the commit", commit], state.load(demo)) == [commit]
 
 
 def test_a_jobs_start_and_a_records_time_are_filled_from_the_drives_stamps(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:

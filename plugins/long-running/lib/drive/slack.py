@@ -301,9 +301,3 @@ def posted(link: str, text: str) -> dict:
     return {"ts": ts, "text": text, "from_claude": True} | ({"thread_ts": parent} if parent else {})
 
 
-def message_at(ts: str, *where: str) -> dict:
-    """The message at ts in the thread where names."""
-    found = next((message for message in thread(*where, "--limit", str(WHOLE_THREAD)) if message["ts"] == ts), None)
-    if found is None:
-        raise SlackError(f"no message {ts} in the thread at {' '.join(where)}")
-    return found

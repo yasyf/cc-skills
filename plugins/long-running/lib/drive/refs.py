@@ -9,7 +9,6 @@ from drive.limits import REF
 from drive.state import DriveError
 
 ACK = re.compile(r"\bAck: (https://\S+)")
-RAW_ANSWER = re.compile(r"^\d+:\d+ commit-sha '([0-9a-f]{7,40})'")
 OPEN_LINK = re.compile(r"<((?:https?://|mailto:)[^<>|\s]*)\|[^<>]*\Z")
 INNER = re.compile(r"<[^<>]*>?")
 CODE = re.compile(r"`[^`\n]+`")
@@ -27,8 +26,6 @@ STATE = re.compile(
     r"|\b(?:is|are|was|were|went|now|already)\s+live\b",
     re.IGNORECASE,
 )
-UNVERIFIED = re.compile(r"\bunverified\b", re.IGNORECASE)
-UNSTATED = re.compile(r"\b(?:once|when|after|until|unless|if|whether|not|never|yet|will|would|to be)\b|n['\u2019]t\b", re.IGNORECASE)
 FAILURE = re.compile(
     r"\b(?:refused|failed to|missed|disconnected|dropped (?:its|the|their) connection|forgot(?:ten)?|lost track|fell through|went unchecked|slipped"
     r"|(?:nobody|no one) (?:\w+ed|ran|saw|read|took|got|drew|caught|knew)"
@@ -44,12 +41,6 @@ ORDER_ID = re.compile(r"\bo\d+\b")
 PR_NUMBER = re.compile(r"(\d+)\Z")
 QUOTED = re.compile(r'"[^"\n]*"|\u201c[^\u201d\n]*\u201d')
 CLAUSE_END = re.compile(r"[,;:.!?](?=\s|$)")
-ABSENT_RECORD = re.compile(
-    r"\b(?:no|nothing in (?:the|his|your|any)|not in (?:the|his|your|any)|never in (?:the|his|your|any))\s+(?:[\w-]+\s+){0,3}?"
-    r"(?:plans?|rulings?|recorded answers?|answers? of his|cc-notes|records? of (?:his|him|you|your))\b"
-    r"|\b(?:plan|records?|rulings?)\s+(?:does|do|did)(?:\s*not|n['’]t)\s+(?:say|name|mention|ask|cover|settle)",
-    re.IGNORECASE,
-)
 RECORD_WORDS = 10
 SELF_CITED = (
     "refused: a line naming a cause cites the read that measured it, a job's evidence, mechanism, handoff or report, and these cite a"
@@ -154,24 +145,6 @@ def self_cited(text: str, found: dict[str, dict], lane: str | None) -> list[str]
     return [line for line in causes(text) if any(found[match[0]]["writer"] == lane for match in REF.finditer(line) if match[1] == "record")]
 
 
-def unread_states(text: str) -> list[str]:
-    """Each line of the text, outside a fence, a quote and a quoted line, that tells him a state of work as true now with no {record:…} on it: fixed, covering his case, merged, landed, queued, shipped, deployed, resolved, rolled out or back, or live, never in a reference's own words, a line saying it is unverified, a question, or a clause hedging it before the word as future, conditional or negated."""
-    return [
-        line.strip()
-        for line in picture.FENCE.sub("", text).splitlines()
-        if not line.lstrip().startswith(">") and "{record:" not in line and not UNVERIFIED.search(line) and stated(QUOTED.sub("", REF.sub("", line)))
-    ]
-
-
-def stated(line: str) -> bool:
-    for found in STATE.finditer(line):
-        clause = max((end.end() for end in CLAUSE_END.finditer(line, 0, found.start())), default=0)
-        closing = CLAUSE_END.search(line, found.end())
-        if not UNSTATED.search(line, clause, found.start()) and not (closing and closing[0] == "?"):
-            return True
-    return False
-
-
 def unprevented(text: str, found: dict[str, dict], subject: set[str]) -> list[str]:
     """Each line of the text, outside a fence and a quoted line, whose writer's own words name a failure, refusal or gap of the drive's own, a card, check, hook, lane or session role of it, or a line of the drive late or overdue, or that cites the defect record the drive filed for one, when the text outside its fences names no order or PR carrying the tool change that prevents it, never counting subject, the orders and PRs the text reports on, which say what was late, not what keeps it from being late again; found holds each reference the text makes, as resolved reads it."""
     told = picture.FENCE.sub("", text)
@@ -212,15 +185,6 @@ def prevented(text: str) -> bool:
     """Whether a line of the text, outside a fence and a quoted line, names a cause or a failure of the drive's own in its writer's own words while a line outside its fences and quotes carries the order or PR preventing it, the post his ruling on failures asks for."""
     told = [line for line in picture.FENCE.sub("", text).splitlines() if not line.lstrip().startswith(">")]
     return any(named(line) for line in told) and any(CAUSE.search(plain := own_words(line)) or drive_failure(plain) for line in told)
-
-
-def record_excuses(text: str) -> list[str]:
-    """Each line of the text, outside a fence, a quote and a quoted line, that answers him by a plan, record or answer of his that is missing."""
-    return [
-        line.strip()
-        for line in picture.FENCE.sub("", text).splitlines()
-        if not line.lstrip().startswith(">") and ABSENT_RECORD.search(QUOTED.sub("", line))
-    ]
 
 
 def drawn_cards(name: str) -> dict:
@@ -321,11 +285,6 @@ def answer(data: dict, answer_id: str) -> dict:
     said = render.when(state.parse_time(found["created_at"]).astimezone().isoformat())
     url = ack[1] if (ack := ACK.search(found["body"])) else None
     return {"kind": "answer", "title": f'his {said} ruling "{opening(settled.his(found["body"]).partition("\n")[0])}"', "url": url, "board": url}
-
-
-def answer_ids(findings: list[str], data: dict) -> list[str]:
-    """The findings but each commit-sha one on the id of a recorded answer of his, which `ccn answer show` reads and is no commit."""
-    return [finding for finding in findings if not ((raw := RAW_ANSWER.match(finding)) and answered(raw[1], data))]
 
 
 def answered(answer_id: str, data: dict) -> bool:

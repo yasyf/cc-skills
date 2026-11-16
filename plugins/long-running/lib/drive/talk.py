@@ -1286,18 +1286,6 @@ def ticketed(post: dict) -> list[str]:
     return [each for field, flag in TICKET_FLAGS.items() if post.get(field) for each in (flag, post[field])]
 
 
-def unquoted_tooling(data: dict, stack: list[str], text: str) -> str | None:
-    """Why a PR card may not go out: a PR on it serves a drive tooling order whose own words the line above the card leaves out."""
-    for key in stack:
-        order = data["orders"].get(state.order_served(data["prs"][key]))
-        if order and order["text"].startswith(state.TOOLING) and order["text"] not in text:
-            return limits.Refusal(
-                f'{key} serves a drive tooling order, so the line above its card quotes that order: put "{order["text"]}" in text',
-                f'{key} serves a drive tooling order, and the line above its card leaves out its words "{order["text"]}"',
-            )
-    return None
-
-
 def kind(visual: dict) -> str:
     return f"code:{visual.get('language') or ''}" if visual["kind"] == "code" else visual["kind"]
 

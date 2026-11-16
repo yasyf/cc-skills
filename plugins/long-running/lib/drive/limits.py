@@ -11,16 +11,15 @@ from itertools import groupby, pairwise, permutations
 from pathlib import Path
 from typing import Self
 
-from drive import picture, slack
+from drive import picture
 from drive.render import clock, cut, when
 from drive.pr_graph import PrGraph
-from drive.state import DAY, PR_KEY, PR_URL, TOOLING, DriveError, ask_hash, exempted, in_reporter_thread, kept_hash, named_prs, nearest, now, pr_key, pr_url, reworked_under, root, same_question
+from drive.state import DAY, PR_URL, TOOLING, DriveError, ask_hash, exempted, in_reporter_thread, kept_hash, nearest, now, pr_key, pr_url, reworked_under, root, same_question
 
 LINE_WORDS = 60
 SUMMARY_WORDS = 120
 QUESTION_WORDS = 150
 OPTION_WORDS = 25
-REWORDING_WORDS = 10
 SUMMARY_LINES = 3
 OPTION_COUNT = range(2, 5)
 HEADLINE_CHARS = 90
@@ -34,7 +33,6 @@ BUILT_PAUSED = "Being built on a branch while you decide, paused on your pick."
 BUILT_LANDING = "Being built while you decide, and it lands on the recommended option; another pick is a follow-up."
 NOTHING_BUILT = "Nothing is built until you pick."
 READING = 'the coordinator\'s reading of his Nov 9 9:33 PM words "your messages need to be way shorter rewrite this for a human"'
-LINE_REST = "Say what changed for him and what happens next, in plain words; everything else stays on disk until he asks for it."
 FROM_ASK = (
     " A question card is posted exactly as `drive job card <its ask file> --waits {waits}` prints it, never put together by hand:"
     " fix its words in the ASK block and keep it again with `drive job ask`."
@@ -189,24 +187,6 @@ PAGE_LINK = re.compile(r"https?://[^\s<>|]+")
 LINK_END = ".,;:!?)"
 SIGNED_IN = re.compile(r"https://(?:[\w-]+\.)*(?:slack|github)\.com/")
 PAGE_CHARS = 1500
-WORKED_QUOTE = (
-    "dontg be lazy flash this out wayu more and od that for everyhtrfing in the future … shoujld not be so high lelkver. this"
-    " would also satidyt the rtequriement you care curently violating by not having a show-me bc then shw show-0me cvould be code snipeptrs"
-)
-WORKED_WORDS = {
-    "id": "ruling:77b577b",
-    "asked": "his ruling that a card works each option it offers out to what it will look like, in its Show me, never only its files and cost",
-    "said": WORKED_QUOTE,
-    "rule": (
-        "Each option a card offers as a design to build, a fix included, is worked out on the card to what it will look like"
-        " once built: its Show me carries an example of that option itself, such as its real calls, the rows or bytes it"
-        " writes, its flow, or the reply or screen a caller gets, as code, a ```compare panel named for it, a markdown table,"
-        " or a diagram or picture captioned with its number. An option told only by its description, the files it touches,"
-        " the callers it reaches and its cost breaks this, as does one left out of an example that shows the others, by his"
-        ' words on such a card: "you need to flesh out what that will look like not just wave your hands, likewise for 2 and'
-        ' 3". A card asking only whether or when to release, land, run or hold something offers no design and breaks nothing here.'
-    ),
-}
 OPTION_NAMED = "its words, whole or up to the colon that ends its first part"
 ROOT_CAUSE_SHAPE = (
     "`Root cause: <the structure that lets the defect happen, by its proper terms, with the number that measures it>` with"
@@ -588,28 +568,6 @@ class Refusal(str):
 
     def __add__(self, more: str) -> "Refusal":
         return Refusal(str(self) + more, self.found)
-
-
-def post_refusal(post: dict, edited: int = 0) -> str | None:
-    """Why a post to his DM is over the length a routine line, summary or card gets, or None when it fits: each row of a table is a line of its own, and the words around the tables keep the post's limit; an edit may reword the post it edits, edited words long, at its own length and a few words more."""
-    if card := post.get("card"):
-        return card_refusal(card, post.get("text") or "")
-    if long := next((row for table in tables((post.get("text") or "").splitlines()) for row in table if words(" ".join(row)) > LINE_WORDS), None):
-        found = f'the table row "{" | ".join(long)}" is {words(" ".join(long))} words, and each row of a table is a line in his thread, at most {LINE_WORDS} words'
-        return Refusal(f"refused: {found} ({READING}). {LINE_REST}", found)
-    features = len(FEATURE.findall(post.get("text") or ""))
-    limit, shape = (SUMMARY_WORDS, f"a summary of {features} features") if features >= 2 else (LINE_WORDS, "a line in his thread")
-    return word_refusal(post, limit, shape, edited, READING, LINE_REST)
-
-
-def word_refusal(post: dict, limit: int, shape: str, edited: int, reading: str, rest: str) -> Refusal | None:
-    """Why a post runs past the words its shape gets, or None when it fits, an edit rewording a post at that post's own length and a few words more, naming whose reading of his words the limit is and what the post keeps."""
-    count = post_words(post)
-    if count <= max(limit, edited + REWORDING_WORDS if edited else 0):
-        return None
-    edit = f", or {REWORDING_WORDS} past the {edited} words of the post it edits" if edited else ""
-    found = f"this post is {count} words, and {shape} is at most {limit} words{edit}"
-    return Refusal(f"refused: {found} ({reading}). {rest}", found)
 
 
 def card_body(summary: list[str], show_me: list[str], cause: str = "", interim: str = "") -> str:
@@ -1672,15 +1630,6 @@ def unlinked(linked: list[str], plain: list[str], kinds: tuple[str, ...], mentio
     return list(dict.fromkeys(problems))
 
 
-def table_link_refusal(text: str) -> Refusal | None:
-    """Why a post links a Slack message, such as his card, from a table cell, where Slack draws no card under the link and opens nothing from it."""
-    found = [link[0] for table in tables(text.splitlines()) for row in table for link in LINK.finditer("|".join(row)) if slack.PERMALINK.match(link["target"])]
-    if not found:
-        return None
-    problem = f"{', '.join(found)} {'link Slack messages' if len(found) > 1 else 'links a Slack message'} from a table cell, where Slack draws no card and the link opens nothing"
-    return Refusal(f"refused: {problem}: link each on a line under the table, where Slack draws it ({TABLE_LINK_RULING})", problem)
-
-
 def masked(line: str) -> str:
     """The line with each code fence, link, URL, quote and code name blanked to as many marks, so no phrase runs across one and every other word keeps its place: a code name is a file path or identifier such as limits.py, state.thread_order, event::on or MAX_CARDS, whose words, as limits.py names no limit, are never his reader's words."""
     for pattern in (FENCED, MARKDOWN_LINK, TOKEN, URL, QUOTED, CODE_NAME):
@@ -1789,29 +1738,6 @@ def tap_owed_not(prs: dict[str, dict], key: str, graph: PrGraph) -> str:
     return ", ".join(reason for reason in reasons if reason)
 
 
-def tap_refusal(text: str, prs: dict[str, dict]) -> str | None:
-    """Why a PR card asking him to tap each PR it names by what it is, names one the drive records as owing no tap."""
-    folded = {key.casefold(): (key, pr) for key, pr in prs.items()}
-    named = dict.fromkeys(f"{owner}/{name}#{number}".casefold() for owner, name, number in [*PR_URL.findall(text), *PR_KEY.findall(text)])
-    graph = PrGraph.read(prs)
-    found = [f"{key}: {why}" for each in named if each in folded for key, _ in [folded[each]] if (why := tap_owed_not(prs, key, graph))]
-    if not found:
-        return None
-    owed = f"this asks him to tap, approve or hold a PR the drive owes no tap on: {'; '.join(found)}"
-    return Refusal(
-        f"refused: {owed}. A tap is asked for only when owed: read drive status <pr> before a card or line names a tap, and say what happened to it instead.",
-        owed,
-    )
-
-
-def kind_refusal(text: str, said: str, data: dict) -> str | None:
-    """Why a summary, a post of two or more `*feature*` lines, names a PR the drive holds and never says what it serves, the first thing he asks of a PR: a port of #N, an order of his, as `{order:o<n>}` in a `say` post, or Drive tooling. `text` is the post as its checks read it, each reference linked under the words its writer typed, and `said` the words written."""
-    if len(FEATURE.findall(text)) < 2 or KIND_NAMED.search(said) or not (named := named_prs(data, "", text)):
-        return None
-    kinds = "; ".join(f"{key} is {kind_words(data, data['prs'][key])}" for key in named)
-    return f"refused: this summary names a PR and never says what it serves, the first thing he asks of a PR; say it where each is named: {kinds}"
-
-
 def his_words(order: dict) -> str:
     """The words of an order that are his: the whole text of one added from his own Slack message, which keeps his message and the words he added to it verbatim, else only its quoted spans, since a "Drive tooling:" order, a reporter's bug and an order added from the terminal or a record are the drive's words quoting his."""
     if from_his_message(order):
@@ -1822,54 +1748,6 @@ def his_words(order: dict) -> str:
 def from_his_message(order: dict) -> bool:
     """Whether an order's text is his own Slack message: added from it, with no reporter but those whose thread he gave it in, and not a "Drive tooling:" order the drive wrote."""
     return order["from"].startswith("slack:") and (not order["reporters"] or in_reporter_thread(order)) and not order["text"].startswith(TOOLING)
-
-
-def kind_words(data: dict, pr: dict) -> str:
-    """The words that say what a drive PR serves: port of #N, Drive tooling, or the order of his it carries out as `{order:o<n>}`, which `say` links under his words."""
-    if pr.get("port_of"):
-        return f"port of #{pr['port_of']}"
-    order = data["orders"].get(pr["order"])
-    if order and order["text"].startswith(TOOLING):
-        return f'"{TOOLING}" and what it unblocks'
-    return f"his order {{order:{pr['order']}}}"
-
-
-def link_refusal(post: dict, kinds: tuple[str, ...]) -> str | None:
-    """Why a handler's post to his DM names a PR or card of the kinds the drive holds without its link: a line's `text`, or a card's summary, Show me captions and option descriptions, carry each link where the thing is named, to a target Slack opens, and its title and options, drawn as plain text, name only what the body links. A drive's question card is never read again, since `drive job ask` read its words when it kept them."""
-    if (card := post.get("card")) and asked_card(card):
-        return None
-    if card:
-        summary, *example = SHOWN.split(card.get("body") or "", maxsplit=1)
-        problems = unlinked(
-            [summary, *captions(example[0].splitlines() if example else []), *(card.get("hints") or {}).values(), post.get("text") or ""],
-            [card.get("title") or "", *(card.get("options") or [])],
-            kinds,
-        )
-    else:
-        problems = unlinked([post.get("text") or ""], [], kinds, (POST_NAMED, POST_KIND))
-    if not problems:
-        return None
-    return Refusal("refused: " + "; ".join(problems) + "." + (from_ask(card) if card else ""), "; ".join(problems))
-
-
-def stand_in_refusal(post: dict, stand_ins: dict[str, str]) -> str | None:
-    """Why a post calls a thing by a word he corrected, which `drive term` keeps beside the proper term his words or the code use, in its text, a visual's caption, a link's words or a card; a quote, a `>` quote line, code and a link's address stay as written, and the proper term holds no stand-in, so "replica" never refuses "S3 replica"."""
-    card = post.get("card") or {}
-    captions = [visual.get("caption") or "" for visual in post.get("visuals") or []]
-    text = LABELLED.sub(r" \1 ", "\n".join([post.get("text") or "", *captions, card.get("title") or "", card.get("body") or "", *(card.get("options") or [])]))
-    for pattern in (FENCED, QUOTED, QUOTED_LINE, URL):
-        text = pattern.sub(" ", text)
-    found = [
-        f'"{match[0]}" becomes "{term}"'
-        for stand_in, term in stand_ins.items()
-        if (match := phrase(stand_in).search(phrase(term).sub(" ", text)))
-    ]
-    if not found:
-        return None
-    return Refusal(
-        f"this post calls a thing by a word he corrected, so write its proper term in that word's place: {'; '.join(found)} ({PROPER_TERMS_RULING})",
-        f"this post calls a thing by a word he corrected: {'; '.join(found)}",
-    )
 
 
 def third_person(found: dict[str, str]) -> list[str]:
