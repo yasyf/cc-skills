@@ -17,7 +17,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from conftest import HomeBuild, HomeRepo, provide, DRIVE_TERMINAL, LEAD, REAL_SCRATCH, RESEARCH, SHORT_ASK, Answers, CodexAsk, drawn_card, Draws, Jev, Judge, Receiver, Redraws, Thread, WatchProcess, Withdrawals, codex_reply, commit_files, git_in, said_lines, staged
+from conftest import HomeBuild, HomeRepo, provide, DRIVE_TERMINAL, LEAD, REAL_SCRATCH, RESEARCH, SHORT_ASK, Answers, CodexAsk, drawn_card, Draws, Jev, Judge, Receiver, Redraws, Thread, WatchProcess, Withdrawals, codex_reply, commit_files, git_in, said_lines, staged, own_time
 from drive import agents, card, cli, codex, dashboard, github, install, land, launchd, limits, orca, place, providers, reads, receiver, render, served, settled, slack, stage, stall, state, superseded, talk, train, view, watch
 
 KEY = "Forge-AI/monorepo#42"
@@ -10162,7 +10162,7 @@ def test_a_yasyf_lander_rereads_its_checks_and_merges_with_admin_at_that_head_on
     runs: list[list[str]] = []
     slept: list[float] = []
     monkeypatch.setattr(land.subprocess, "run", lambda argv, **kwargs: merged_4755(reads, runs, argv))
-    monkeypatch.setattr(land.time, "sleep", slept.append)
+    own_time(monkeypatch, land, sleep=slept.append)
     monkeypatch.setattr(github, "run", gh)
     monkeypatch.setattr(github, "files", lambda key: ["plugins/long-running/hooks/message_limits.py"])
     monkeypatch.setattr(install, "touched", lambda repo, files: [])

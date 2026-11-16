@@ -18,7 +18,7 @@ from pathlib import Path
 import drive
 import pytest
 import spawnllm
-from conftest import HomeBuild, HomeRepo, SelectRelease, provide, ACME_CUT, CARD_BODY, card_reads, CUT_LINK, CUT_PICK, CUT_TAP, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SAND_NEXT_NOTE, SANDSQL_NOTE, SETTLED_LINE_ANSWERS, SETTLED_LISTED, SETTLED_MATCHED, SETTLED_NOTE, SETTLED_RECORDED, SHORT_ASK, REAL_SESSION_TERMINALS, WRITTEN_AT, answered_cut, cloned, drawn_card, git_in, kept_research, started, Answers, explained, Checked, Chrome, Draws, Drawing, Heard, Images, Jev, Judge, Redraws, SessionLaunches, Thread, WatchProcess, Withdrawals
+from conftest import HomeBuild, HomeRepo, SelectRelease, provide, ACME_CUT, CARD_BODY, card_reads, CUT_LINK, CUT_PICK, CUT_TAP, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SAND_NEXT_NOTE, SANDSQL_NOTE, SETTLED_LINE_ANSWERS, SETTLED_LISTED, SETTLED_MATCHED, SETTLED_NOTE, SETTLED_RECORDED, SHORT_ASK, REAL_SESSION_TERMINALS, WRITTEN_AT, answered_cut, cloned, drawn_card, git_in, kept_research, started, Answers, explained, Checked, Chrome, Draws, Drawing, Heard, Images, Jev, Judge, Redraws, SessionLaunches, Thread, WatchProcess, Withdrawals, own_time
 from drive import (
     agents,
     brief,
@@ -4996,8 +4996,7 @@ def test_a_github_proof_link_refused_under_ccxs_rate_limit_floor_waits_for_the_r
         return answer
 
     monkeypatch.setattr(github, "run", answered)
-    monkeypatch.setattr(github.time, "time", lambda: datetime(2026, 11, 13, 18, 50, 51, tzinfo=UTC).timestamp())
-    monkeypatch.setattr(github.time, "sleep", slept.append)
+    own_time(monkeypatch, github, time=lambda: datetime(2026, 11, 13, 18, 50, 51, tzinfo=UTC).timestamp(), sleep=slept.append)
     assert READ_LINK(PR) is None
     assert READ_LINK("https://github.com/yasyf/cc-skills/pull/404") == "could not read https://github.com/yasyf/cc-skills/pull/404 from GitHub: HTTP 404"
     assert slept == [121, 121, 121]
