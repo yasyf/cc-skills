@@ -2198,7 +2198,7 @@ def drop_ask(name: str, job_id: str, file: Path) -> tuple[str | None, bool]:
 
 
 def answered_drop(name: str, job_id: str, file: Path, answer_id: str) -> list[str]:
-    """End the job's own open question on his card kept in this file on his recorded answer that already settles it, by `ended_on`, its card closing in place on his words and the link where he gave them: the way out for a card whose recommended option his answer already chose, which no redraw may ask again. On his ruling state.TOOLING_DETAILS_RULING it ends a question of a drive tooling order, the meta session or its job having read it as asking him only a detail, decided on the recommended option the file keeps, by settled.ruled_close as `keep_decided` keeps one no card was drawn for, its card showing settled.TOOLING_DETAILS's decided words and a link to his ruling's message; refused there on any other order, since his ruling reaches drive tooling alone, and for a card kept unsettled, which asks him to lift words of his. Refused for a question on no card, which --drop alone throws away, one that ended, and an answer holding no words of his. What was done, a line each, then who builds on it, by `builds_on`."""
+    """End the job's own open question on his card kept in this file on his recorded answer that already settles it, by `ended_on`, its card closing in place on his words and the link where he gave them: the way out for a card whose recommended option his answer already chose, which no redraw may ask again. On his ruling state.TOOLING_DETAILS_RULING it ends a question of a drive tooling order, the meta session or its job having read it as asking him only a detail, decided on the recommended option the file keeps, by settled.ruled_close as `keep_decided` keeps one no card was drawn for, its card showing settled.TOOLING_DETAILS's decided words and a link to his ruling's message; refused there on any other order, since his ruling reaches drive tooling alone, and for a card kept unsettled, which asks him to lift words of his. On his words state.UNWAITED_RULING that the drive not wait on him it ends the question decided by the drive on its recommended option, as settled.UNWAITED words it, recorded first as an answer of its own by `decision`, which the close names, refused for a card kept unsettled. Either ruling is refused on an order limited to options, whose card stays his. Refused for a question on no card, which --drop alone throws away, one that ended, and an answer holding no words of his. What was done, a line each, then who builds on it, by `builds_on`."""
     data = state.load(name)
     job = find(data["jobs"], job_id, "job")
     question = state.kept_in(job, file)
@@ -2211,6 +2211,19 @@ def answered_drop(name: str, job_id: str, file: Path, answer_id: str) -> list[st
     if not (words := settled.his(answer["body"])):
         raise DriveError(f"refused, nothing ended: cc-notes keeps no words of his under {answer_id}, so it settles no card; name the recorded answer whose words settle it")
     title = render.cut(question["title"] or "", 80)
+    if answer["id"][:7] in (state.TOOLING_DETAILS_RULING, state.UNWAITED_RULING) and data["orders"][job["order"]]["options_only"]:
+        raise DriveError(
+            f"refused, nothing ended: {job_id}'s order {job['order']} is limited to options, so its card stays his until he picks; no ruling of his decides it"
+        )
+    if answer["id"][:7] == state.UNWAITED_RULING:
+        if question["unsettled"]:
+            raise DriveError(f'refused, nothing ended: his card asks him to lift "{render.cut(question["unsettled"], 200)}", which only his answer decides, so the drive decides nothing under his words {state.UNWAITED_RULING}')
+        option = limits.question_problems(limits.ask_block(file.read_text()), kept=True)[0].recommended
+        words = settled.UNWAITED.format(option=option)
+        decided = decision(name, job_id, question, words)
+        said = f'{job_id}\'s question "{title}" ended decided by the drive on its recommended option, "{render.cut(option, 200)}", under his words {state.UNWAITED_RULING}, as its answer {decided}'
+        ended = ended_on(name, state.new_close("answered", words, None, answer=decided), question["waits"], question["card"], f'"{render.cut(words, 300)}"')
+        return [said, *ended, f"drive answer {decided} --dropped {job['order']}:<part> takes off each part its pick rules out", builds_on(state.load(name), job_id)]
     if answer["id"][:7] != state.TOOLING_DETAILS_RULING:
         said = f'{job_id}\'s question "{title}" ended answered by his answer {answer["id"][:7]}, "{render.cut(words, settled.QUOTED_CHARS)}"'
         ended = ended_on(name, state.new_close("answered", words, settled.given_at(data, answer), answer=answer["id"]), question["waits"], question["card"])
@@ -2226,6 +2239,29 @@ def answered_drop(name: str, job_id: str, file: Path, answer_id: str) -> list[st
     closed = settled.ruled_close(option, settled.given_at(data, answer), state.TOOLING_DETAILS_RULING)
     said = f'{job_id}\'s question "{title}" ended decided on its recommended option, "{render.cut(option, 200)}", under his ruling {state.TOOLING_DETAILS_RULING} on tooling details'
     return [said, *ended_on(name, closed, question["waits"], question["card"], f'"{render.cut(closed["words"], 300)}" linked to {closed["link"] or "itself"}'), builds_on(state.load(name), job_id)]
+
+
+def decision(name: str, job_id: str, question: dict, words: str) -> str:
+    """Record the drive's decision on the job's question, drawn on his card, as an answer of its own in cc-notes, labelled settled.DECISION_LABEL and under:<his ruling state.UNWAITED_RULING>, and in the drive at its card as `drive answer` records his, listing what it could change, its card marked settled, so `drive answer <its id> --dropped` takes off what its pick rules out and his answer to the same question supersedes it; refused while cc-notes holds another standing answer to that question, which it would supersede. Its id."""
+    from drive import superseded, view
+
+    data = state.load(name)
+    cwd = data["roles"]["coordinator"]["cwd"]
+    found = view.live_cards(name)
+    if found is None:
+        raise DriveError("refused, nothing ended: his cards could not be read, so nothing can say what the drive's decision leaves asking him; the watch rereads them every minute, run this again then")
+    asked = settled.titled(question["title"])
+    if other := next((answer["id"] for answer in settled.listed(f"drive:{name}", cwd) if state.same_question(answer["title"], asked) and settled.plain(settled.his(answer["body"])) != settled.plain(words)), None):
+        raise DriveError(f'refused, nothing ended: cc-notes holds answer {other[:7]} to "{render.cut(asked, 120)}", which a decision of the drive would supersede: drive job ask {job_id} --drop {question["file"]} --answer {other[:7]} ends it on that answer')
+    decided = settled.recorded(name, question["title"], words, [settled.DECISION_LABEL, f"under:{state.UNWAITED_RULING}"], question["card"], cwd)
+
+    def decision_write(data: dict):
+        kept = superseded.record(data, decided, words, question["card"], superseded.asking(data, found, question["card"]), {}, state.stamp(), False)
+        kept["cards"][question["waits"]] = {"mark": "settled", "job": job_id, "card": question["card"]}
+        return data
+
+    state.update(name, None, decision_write)
+    return decided
 
 
 def ask_checked(name: str, job_id: str, text: str, unsettled: str | None, redraws: str | None) -> str:
@@ -7441,7 +7477,9 @@ def parser() -> argparse.ArgumentParser:
             f" link where he gave them with no buttons; with {state.TOOLING_DETAILS_RULING}, his ruling on tooling details, end a"
             " question of a Drive tooling order asking him only a detail decided on its recommended option, its card showing that"
             " option decided without him and a link to his ruling's message, refused on any other order and for a card kept"
-            " unsettled; either way it prints who builds on it; refused for a question on no card and an id cc-notes keeps no words of his under"
+            f" unsettled; with {state.UNWAITED_RULING}, his words that the drive not wait on him, end it decided by the drive on its recommended option,"
+            " recorded as an answer of its own whose id `drive answer <id> --dropped` takes; neither ruling decides a card on an order limited to options;"
+            " either way it prints who builds on it; refused for a question on no card and an id cc-notes keeps no words of his under"
         ),
     )
     verb.set_defaults(run=job_ask)

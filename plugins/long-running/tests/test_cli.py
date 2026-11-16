@@ -5001,6 +5001,38 @@ def test_job_ask_drop_answer_on_his_tooling_ruling_ends_a_drawn_tooling_card_dec
     assert state.load("demo")["jobs"]["j1"]["questions"][-1]["closed"] is None
 
 
+def test_job_ask_drop_answer_on_his_unwaited_words_records_the_drives_decision_as_an_answer_of_its_own_that_drive_answer_dropped_takes_and_refuses_an_options_only_order(
+    run: Run, asking: str, recorded: Answers, noted: list[tuple[str, str, str]], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    recorded.shown["11e3586"] = {"id": "11e358629f6fbfa73016db3665bb8f48b2110219", "title": "On.", "body": settled.UNWAITED_SAID, "tags": ["from:owner", "scope:durable"]}
+    title = SHORT_ASK.splitlines()[0].removeprefix("ASK ")
+    kept = state.drive_dir("demo") / "asks" / f"j1-{state.ask_hash(SHORT_ASK)}.md"
+    kept.parent.mkdir(exist_ok=True)
+    kept.write_text(SHORT_ASK)
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["questions"] = [state.new_question(str(kept), title, state.stamp(), card=DESIGN_CARD) | {"waits": "demo:j1-7"}]
+        data["orders"]["o1"]["options_only"] = True
+    calls: list[tuple[str, ...]] = []
+    monkeypatch.setattr(slack, "cc_slack", lambda *argv: calls.append(argv) or {"answered": True})
+    assert cli.main(["job", "ask", asking, "--drop", str(kept), "--answer", "11e3586"]) == 2
+    assert "j1's order o1 is limited to options, so its card stays his until he picks" in capsys.readouterr().err
+    assert (noted, calls, state.load("demo")["jobs"]["j1"]["questions"][-1]["closed"]) == ([], [], None)
+    with state.edit("demo") as data:
+        data["orders"]["o1"]["options_only"] = False
+    option = "One snapshot file per finished run, written when it ends, old runs backfilled: opens in 3 requests"
+    words = settled.UNWAITED.format(option=option)
+    decided = f"1c0ffee{'0' * 33}"
+    code, out = run("job", "ask", asking, "--drop", str(kept), "--answer", "11e3586")
+    assert code == 0
+    assert out.splitlines()[0] == f'j1\'s question "{render.cut(title, 80)}" ended decided by the drive on its recommended option, "{option}", under his words 11e3586, as its answer {decided}'
+    assert f"drive answer {decided} --dropped o1:<part> takes off each part its pick rules out" in out
+    assert noted == [("demo", title, words)]
+    data = state.load("demo")
+    closed = data["jobs"]["j1"]["questions"][-1]["closed"]
+    assert (closed["how"], closed["words"], closed["answer"]) == ("answered", words, decided)
+    assert (data["answers"][decided]["words"], data["answers"][decided]["link"], data["answers"][decided]["cards"]["demo:j1-7"]["mark"]) == (words, DESIGN_CARD, "settled")
+
+
 def test_a_card_whose_summary_cites_320b7a7_draws_already_answered_with_his_words_and_the_link_drive_answer_kept_and_his_tap_closes_it_on_them(
     run: Run, asking: str, recorded: Answers, jev: Jev, monkeypatch: pytest.MonkeyPatch
 ) -> None:
