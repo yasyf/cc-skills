@@ -248,7 +248,7 @@ def run(args: argparse.Namespace) -> int:
             verbs.add_pr(drive, lane_id, token(), *pr_ref(args.ref), args.words)
         case "queue":
             drive, lane_id = where(args)
-            holder = args.holder or f"{lane_id}/{token() or 'operator'}"
+            holder = args.holder or lane_id
             match args.action:
                 case "take":
                     print(json.dumps(queue.take(drive, args.resource, holder, lane_id, args.ttl)))

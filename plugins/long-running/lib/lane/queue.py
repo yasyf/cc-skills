@@ -50,6 +50,11 @@ def free_for(drive: str, resource: str, lane_id: str) -> bool:
     return capacity(drive, resource) - len(leases) > first
 
 
+def held_by(name: str, holder: str) -> bool:
+    """Whether a lease or request under name is holder's: the same name, or one an earlier owner of the lane holder names took as `<lane>/<token>`."""
+    return name == holder or name.startswith(f"{holder}/")
+
+
 def asking(drive: str, lane_id: str) -> list[str]:
     """Each resource the lane stands in line for."""
     return [resource for resource, requests in kept(drive)["requests"].items() if any(asked["lane"] == lane_id for asked in requests.values())]
@@ -71,7 +76,8 @@ def take(drive: str, resource: str, holder: str, lane_id: str, ttl_minutes: int)
         queue = kept(drive)
         leases = [lease for lease in queue["leases"].get(resource, []) if store.parse(lease["until"]) > moment and lease["holder"] != holder]
         requests = queue["requests"].setdefault(resource, {})
-        requests.setdefault(holder, {"lane": lane_id, "at": store.stamp(moment)})
+        earlier = [requests.pop(name) for name in [name for name, asked in requests.items() if asked["lane"] == lane_id and name != holder]]
+        requests.setdefault(holder, min(earlier, key=lambda asked: asked["at"], default={"lane": lane_id, "at": store.stamp(moment)}))
         line = sorted(requests, key=lambda name: (order.get(requests[name]["lane"], len(order)), requests[name]["at"]))
         free = capacity(drive, resource) - len(leases)
         granted = holder in line[: max(0, free)]
@@ -98,7 +104,7 @@ def renew(drive: str, resource: str, holder: str, ttl_minutes: int) -> str:
         queue = kept(drive)
         if revoked := queue["revoked"].get(holder):
             raise store.Refused(f"{resource} was taken from {holder}: {revoked['why']}")
-        lease = next((lease for lease in queue["leases"].get(resource, []) if lease["holder"] == holder and store.parse(lease["until"]) > moment), None)
+        lease = next((lease for lease in queue["leases"].get(resource, []) if held_by(lease["holder"], holder) and store.parse(lease["until"]) > moment), None)
         if lease is None:
             raise store.Refused(f"{holder} holds no live grant of {resource}")
         lease["until"] = store.stamp(moment + timedelta(minutes=ttl_minutes))
@@ -111,9 +117,10 @@ def release(drive: str, resource: str, holder: str) -> None:
     order = {lane: index for index, lane in enumerate(rank.last(drive).get("order", []))}
     with store.locked(drive):
         queue = kept(drive)
-        queue["leases"][resource] = [lease for lease in queue["leases"].get(resource, []) if lease["holder"] != holder]
+        queue["leases"][resource] = [lease for lease in queue["leases"].get(resource, []) if not held_by(lease["holder"], holder)]
         requests = queue["requests"].get(resource, {})
-        requests.pop(holder, None)
+        for name in [name for name in requests if held_by(name, holder)]:
+            requests.pop(name)
         queue["revoked"].pop(holder, None)
         written(drive, queue)
         line = sorted(requests.values(), key=lambda asked: (order.get(asked["lane"], len(order)), asked["at"]))

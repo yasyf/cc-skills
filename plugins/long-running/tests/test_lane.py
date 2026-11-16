@@ -622,3 +622,16 @@ def test_his_tap_list_keeps_every_carried_approve_through_our_own_pushes(world: 
     supervisor.run_pass(DRIVE)
     shown = {lane["id"]: lane for lane in page.model(DRIVE)["lanes"]}
     assert [(row["number"], row["moved"]) for row in shown["a"]["tapless"]] == [(8, ["h8b by teammate"]), (9, None)]
+
+
+def test_a_lane_whose_owner_restarted_keeps_its_place_in_line_and_its_grant(world: dict) -> None:
+    opened("a")
+    opened("b")
+    supervisor.run_pass(DRIVE)
+    queue.take(DRIVE, "staging-env", "a/old-token", "a", 30)
+    queue.take(DRIVE, "staging-env", "b/old-token", "b", 30)
+    queue.take(DRIVE, "staging-env", "b", "b", 30)
+    assert list(queue.kept(DRIVE)["requests"]["staging-env"]) == ["b"]
+    assert queue.renew(DRIVE, "staging-env", "a", 30)
+    queue.release(DRIVE, "staging-env", "a")
+    assert queue.take(DRIVE, "staging-env", "b", "b", 30)["granted"] is True

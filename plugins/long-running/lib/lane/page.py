@@ -22,13 +22,19 @@ STATE_ORDER = {store.RUNNING: 0, store.WAITING: 1, store.PARKED: 2}
 def keep_view(drive: str, prs: dict[tuple[str, int], dict], moment: datetime) -> None:
     """Keep the pass's GitHub read of each lane PR's head, state and checks beside the lanes for the page, never in a lane file, with the recent commits and their authors of each open PR whose head moved past his Approve, read again for them alone, so the page judges a moved head by lane-land's rule."""
     moved = {(row["repo"], row["number"]) for lane in store.load_all(drive).values() for row in lane["prs"] if row.get("approved_head") and (pull := prs.get((row["repo"], row["number"]))) and pull["state"] == "OPEN" and pull["head"] != row["approved_head"]}
-    since = facts.read_prs(moved) if moved else {}
+    path = store.drive_dir(drive) / VIEW
+    before = view(drive)["prs"]
+    try:
+        since = facts.read_prs(moved) if moved else {}
+    except store.Refused:
+        since = {}
     kept = {}
     for (repo, number), pull in prs.items():
         kept[f"{repo}#{number}"] = {key: pull[key] for key in ("state", "merged", "head", "rollup")}
         if read := since.get((repo, number)):
             kept[f"{repo}#{number}"] |= {"commits": read["commits"], "whole": read["commit_count"] <= len(read["commits"])}
-    path = store.drive_dir(drive) / VIEW
+        elif (repo, number) in moved and "commits" in (last := before.get(f"{repo}#{number}", {})):
+            kept[f"{repo}#{number}"] |= {"commits": last["commits"], "whole": last["whole"]}
     fresh = path.with_name(".view.json.tmp")
     fresh.write_text(json.dumps({"at": store.stamp(moment), "prs": kept}) + "\n")
     fresh.replace(path)
