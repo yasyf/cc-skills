@@ -992,7 +992,7 @@ def test_a_watch_that_stops_ends_its_relay_process_before_it_returns(demo: str, 
     posts(monkeypatch)
     run_watch(demo, monkeypatch)
     assert [child.returncode for child in watch_process.relays] == [-signal.SIGTERM, -signal.SIGTERM, -signal.SIGTERM]
-    assert [thread.name for thread in threading.enumerate() if thread.name.endswith("(relayed)")] == []
+    assert [thread.name for thread in threading.enumerate() if thread.name.endswith("(relayed_lines)")] == []
 
 
 def test_the_watch_hands_on_each_line_its_relay_process_writes_keeps_the_untracked_prs_its_landing_loop_writes_and_starts_again_one_that_ended_unasked(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
