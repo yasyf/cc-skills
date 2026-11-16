@@ -699,7 +699,7 @@ def start_handler(name: str, handler: str, prompt: str) -> None:
     checkout = orca.checkout(name, held["cwd"])
     settings = session_settings(env) | trimmed(checkout)
     thread = (data["handlers"][handler]["holds"] or {}).get("thread")
-    earlier = resumable(data, thread)
+    earlier = resumable(state.load(name), thread)
     argv = ["claude", "--bg", "--agent", HANDLER, "--permission-mode", "bypassPermissions", "--settings", json.dumps(settings), *(["--resume", earlier] if earlier else []), "-n", f"{name} handler {handler}", prompt]
     session = launched(reads.run(argv, checkout, {key: value for key, value in os.environ.items() if key != "CLAUDE_LONG_RUNNING_LANE"} | settings["env"]))
     with state.edit(name) as data:
