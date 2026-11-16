@@ -4735,7 +4735,7 @@ def edit(name: str, rows: tuple[Row, ...] | None = None) -> Iterator[dict]:
         BATCHED[name] = marshal.dumps(data)
         return
     with editing(name):
-        if rows is None or WAITS_OUT_LOCK.get() or not database_path(name).exists():
+        if rows is None or not database_path(name).exists():
             with writing(name):
                 data = load(name)
                 before = holding_lanes(data)
