@@ -61,6 +61,21 @@ def test_a_job_call_past_the_days_cap_of_readers_on_unasked_tooling_orders_adds_
     assert tools.run("job", meta, {"ops": [{"add": {"kind": "reader", "order": "o2", "goal": "research: the install stall"}}]}).startswith("1 job add: j3")
 
 
+def test_the_watch_closes_a_session_filed_repeat_once_the_order_it_joined_closes(meta: str, jev: Jev) -> None:
+    filed = {"title": "Install lock stall", "project": "The drive", "workstream": "Drive tooling"}
+    tools.run("job", meta, {"ops": [{"add": {"kind": "reader", "order": filed | {"words": LOCK_STALL}, "goal": "research: the install lock"}}]})
+    jev.picks("o1")
+    tools.run("job", meta, {"ops": [{"add": {"kind": "reader", "order": filed | {"words": LOCK_STALL_AGAIN}, "goal": "research: the install stall"}}]})
+    watcher = watch.Watcher(meta, offset=state.events_end(meta))
+    watch.close_joined_repeats(watcher, state.now())
+    assert state.load(meta)["orders"]["o2"]["state"] == "open"
+    with state.edit(meta) as data:
+        data["orders"]["o1"].update(state="done", proof="repro/j2.sh exits 0")
+    watch.close_joined_repeats(watcher, state.now())
+    repeat = state.load(meta)["orders"]["o2"]
+    assert (repeat["state"], repeat["proof"], repeat["note"]) == ("done", "repro/j2.sh exits 0", "closed with o1, the order it repeats")
+
+
 def test_a_job_call_whose_inline_order_add_first_prints_jevs_join_note_adds_its_job_on_the_order_that_add_made(meta: str, jev: Jev) -> None:
     filed = {"title": "Install lock stall", "project": "The drive", "workstream": "Drive tooling"}
     tools.run("job", meta, {"ops": [{"add": {"kind": "reader", "order": filed | {"words": LOCK_STALL}, "goal": "research: the install lock"}}]})

@@ -5269,6 +5269,18 @@ def unasked_tooling(order: dict) -> bool:
     return order["text"].startswith(TOOLING) and not order["thread"] and not order["reporters"]
 
 
+def repeats_of_closed(data: dict) -> list[str]:
+    """Each open drive tooling order a session opened that joined an order now closed and holds no unfinished job of its own."""
+    return [
+        order_id
+        for order_id, order in open_orders(data).items()
+        if order["joins"]
+        and unasked_tooling(order)
+        and data["orders"][order["joins"]]["state"] in CLOSED_ORDER_STATES
+        and not any(data["jobs"][job_id]["order"] == order_id and data["jobs"][job_id]["state"] not in FINISHED_JOB_STATES for job_id in order["jobs"])
+    ]
+
+
 def unasked_reader_refusal(data: dict, order_id: str, kind: str, moment: str) -> str | None:
     """Why no reader starts on a drive tooling order a session opened once UNASKED_READERS_A_DAY readers started on such orders this day, by his words of Nov 15 "drive-tooling orders costing so much means we have a lot of cruft and waste to cut down there": the order stays open with no job, so a repeat of it joins it, until a later day, or `drive order set <o> --priority` when it holds back work he waits on; None for any other add."""
     order = data["orders"][order_id]
