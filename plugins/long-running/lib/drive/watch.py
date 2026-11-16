@@ -2677,6 +2677,8 @@ def quiet_report(watcher: Watcher, data: dict, groups: dict[str, list[str]], sin
         )
         asked = (
             f"post where it stands now in its thread{opening}: what moved since its last line, what each job at work is doing, and the clock time of his next line, as \"Next line by <time>\", which that post promises him."
+            if any(data["orders"][head]["every"] > 0 for head in heads)
+            else f"post where it stands now in its thread{opening}: what moved since its last line and what each job at work is doing, promising no time for his next line, since he asked no line here every so many minutes."
         )
     elif incidents:
         asked = f"post where {'the' if one else 'each'} incident stands now in its thread: what moved since its last line, what each job at work is doing, a card of his on it with each job building its recommended option meanwhile, or that nothing is built before his pick, and what ships next."
