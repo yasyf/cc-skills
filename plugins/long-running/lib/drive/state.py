@@ -7104,6 +7104,35 @@ def slot_hold(data: dict, env: str, held: str, until: datetime, reason: str, mom
     return f"{env} held for {held} until {stamp(until)}: {reason}"
 
 
+def mid_case(data: dict, slot: dict, env: str) -> list[str]:
+    """The testers mid-case on what an env's staging serves, so its lease outlives them: each running job that holds no place in the env's queue and whose waits or last return name staging on that env, as a tester the top coordinator told to run on a cut by hand does, which the slot's ledger never named."""
+    queued = {each["job"] for each in slot["queue"]}
+    return [
+        job_id
+        for job_id, job in data["jobs"].items()
+        if job["state"] == "running" and job_id not in queued and any((found := STAGING_WAIT.fullmatch(token)) and found["env"] == env for token in [*job["waits"], *(job["said"] or "").split()])
+    ]
+
+
+def slot_take(data: dict, env: str, job_id: str) -> str:
+    """Take a staging slot back from a job it went to by mistake, the job holding or riding its cut, without handing it on: the job goes back to the head of the env's queue and, while a slot hold stands, the watch gives the slot to no one but the job the hold names; refused for a job neither holding nor riding it."""
+    slot = data["slots"].get(env) or {"holder": None, "queue": []}
+    held = slot["holder"]
+    if job_id not in slot_members(slot):
+        raise DriveError(f"{job_id}: refused, it neither holds nor rides the {env} slot: drive slot queue {env} names who does")
+    entry = held if held["job"] == job_id else next(rider for rider in held["riders"] if rider["job"] == job_id)
+    if entry is held:
+        slot["holder"] = None
+        slot["queue"][:0] = [{key: member[key] for key in QUEUED_KEYS} for member in [held, *held["riders"]]]
+    else:
+        held["riders"].remove(entry)
+        slot["queue"].insert(0, {key: entry[key] for key in QUEUED_KEYS})
+    return f"{env} taken back from {job_id}, first in its queue again{'' if slot.get('hold') else ', and with no hold standing the watch hands the slot on at its next pass'}"
+
+
+SLOT_TAKEN = "NO-START: the {env} staging slot went to you by mistake and is taken back: start no cut and no staging command on {env}, stop any you started, and return WAITING on what you wait for; you are first in its queue, and the watch resumes you with GO when it is yours"
+
+
 def slot_members(slot: dict) -> list[str]:
     """The jobs a staging slot's cut holds: its starter and each pass packed into it."""
     held = slot["holder"]
@@ -7165,7 +7194,7 @@ def holding(release: Any, data: dict, members: list[str], starter: str | None = 
 
 
 def slot_turns(data: dict, moment: datetime, release: Any = None) -> list[tuple[str, str, str, str]]:
-    """End each staging slot's lease once every pass of its cut is done, stopped or gave the slot back, a pass that failed or returned BLOCKED keeping the lease while the cut's coordinator holds its next step, hold it at its full length from now while a pass of its cut waits on the staging release for production its freeze gave way to, by watch.gave_way, so no queued test takes staging while that release runs and the test reruns in its own lease once it ends, extend once by its minutes a lease whose end passed while a pass still runs, by his ruling that an overrunning lease extends once, and end it at its second end, then give each free slot to the first job in its queue that still runs or waits, dropping finished ones, packed with the later passes whose files never overlap, by packed, under one lease: the head starts the cut and each packed pass rides it; each (env, job, kind, line) of a slot that changed, kind freed, extended, go, its line the GO its job is resumed with, or start, for a start whose release the watch now starts."""
+    """End each staging slot's lease once every pass of its cut is done, stopped or gave the slot back and no tester runs cases on what its env serves, by mid_case, a release job's lease lasting to its end unless it is handed or released, never to its build's pass, since the watch once handed cut a3 on while two testers ran on it, a pass that failed or returned BLOCKED keeping the lease while the cut's coordinator holds its next step, hold it at its full length from now while a pass of its cut waits on the staging release for production its freeze gave way to, by watch.gave_way, so no queued test takes staging while that release runs and the test reruns in its own lease once it ends, extend once by its minutes a lease whose end passed while a pass still runs, by his ruling that an overrunning lease extends once, and end it at its second end, then give each free slot to the first job in its queue that still runs or waits, dropping finished ones, packed with the later passes whose files never overlap, by packed, under one lease: the head starts the cut and each packed pass rides it; each (env, job, kind, line) of a slot that changed, kind freed, extended, go, its line the GO its job is resumed with, or start, for a start whose release the watch now starts."""
     moved = []
     for env, slot in data["slots"].items():
         held = slot["holder"]
@@ -7173,13 +7202,14 @@ def slot_turns(data: dict, moment: datetime, release: Any = None) -> list[tuple[
             slot["queue"] = [each for each in slot["queue"] if each not in joining]
             held["riders"] += [{key: each[key] for key in QUEUED_KEYS} for each in joining]
             moved += [(env, each["job"], "go", RIDE_STEPS.format(env=env, until=held["until"], starter=held["job"], prs=", ".join(each["prs"]) or "your PR", job=each["job"]) + "." + holding(release, data, [each["job"]], held["job"])) for each in joining]
-        running = held and [job_id for job_id in slot_members(slot) if data["jobs"][job_id]["state"] not in SLOT_LIVE_END and not (job_id == held["job"] and held["released"])]
+        running = held and list(dict.fromkeys([*(job_id for job_id in slot_members(slot) if data["jobs"][job_id]["state"] not in SLOT_LIVE_END and not (job_id == held["job"] and held["released"])), *mid_case(data, slot, env)]))
+        kept = held and held["starts"] and not held["released"] and not held["extended"] and moment < parse_time(held["until"])
         if held and running and held["gave_way_to"] in {wait for job_id in running for wait in data["jobs"][job_id]["waits"]}:
             held.update(until=stamp(moment + CLAIM_WAIT + timedelta(minutes=held["minutes"])), extended=False)
         elif held and running and parse_time(held["until"]) <= moment and not held["extended"]:
             held.update(until=stamp(parse_time(held["until"]) + timedelta(minutes=held["minutes"])), extended=True)
             moved.append((env, held["job"], "extended", f"SLOT {env} lease of {held['job']}'s cut ran past its end, extended once to {held['until']}"))
-        elif held and (not running or parse_time(held["until"]) <= moment):
+        elif held and (not running and not kept or parse_time(held["until"]) <= moment):
             slot["holder"] = None
             unstarted = [] if not running or cut_started(data, held, env) else [{key: member[key] for key in QUEUED_KEYS} for member in [held, *held["riders"]] if member["job"] in running]
             slot["queue"] += unstarted

@@ -2888,6 +2888,28 @@ def test_a_free_staging_slot_packs_up_to_six_passes_whose_files_never_overlap_in
     assert [line for _, _, kind, line in state.slot_turns(data, moment + timedelta(minutes=41)) if kind == "freed"] == ["SLOT plat-usw2-staging freed by j1's cut"]
 
 
+def test_a_release_jobs_lease_outlives_its_passed_build_and_testers_mid_case_and_a_wrong_go_is_taken_back_without_passing_on_as_on_cut_a3() -> None:
+    moment = datetime(2026, 11, 16, 4, 50, tzinfo=UTC)
+    data = {"slots": {}, "orders": {"o1": {"incident": False, "priority": None, "state": "open"}}, "jobs": {job_id: {"state": "waiting", "order": "o1", "carries": [], "goal": "", "waits": [], "said": None} for job_id in ("j7906", "j7599", "j4708")}}
+    env = "plat-usw2-staging"
+    state.slot_claim(data, env, "j7906", 64, [], None, moment, starts=True)
+    state.slot_claim(data, env, "j7599", 45, [], None, moment)
+    data["jobs"]["j7906"]["state"] = "done"
+    data["jobs"]["j4708"].update(state="running", waits=[f"staging:api/{env}@b2c430dc047d"])
+    assert state.slot_turns(data, moment + timedelta(minutes=8)) == []
+    assert data["slots"][env]["holder"]["job"] == "j7906"
+    until = state.parse_time(data["slots"][env]["holder"]["until"])
+    assert [kind for _, _, kind, _ in state.slot_turns(data, until)] == ["extended"]
+    data["jobs"]["j4708"]["state"] = "done"
+    assert [(job_id, kind) for _, job_id, kind, _ in state.slot_turns(data, until + timedelta(minutes=1))] == [("j7906", "freed"), ("j7599", "go")]
+    state.slot_hold(data, env, "j7906", until + timedelta(hours=1), "a3's testers still run", until + timedelta(minutes=2))
+    assert state.slot_take(data, env, "j7599").startswith(f"{env} taken back from j7599, first in its queue again")
+    assert (data["slots"][env]["holder"], [each["job"] for each in data["slots"][env]["queue"]]) == (None, ["j7599"])
+    assert state.slot_turns(data, until + timedelta(minutes=3)) == []
+    with pytest.raises(state.DriveError, match="neither holds nor rides"):
+        state.slot_take(data, env, "j7599")
+
+
 def test_passes_restarting_one_stack_take_turns_and_a_top_coordinators_start_holds_a_cut_of_its_own() -> None:
     moment = datetime(2026, 11, 16, 1, 0, tzinfo=UTC)
     data = {"slots": {}, "orders": {"o1": {"incident": False, "priority": None, "state": "open"}}, "jobs": {job_id: {"state": "waiting", "order": "o1", "carries": [], "goal": "", "waits": []} for job_id in ("j0", "j1", "j2", "j3", "j4")}}
