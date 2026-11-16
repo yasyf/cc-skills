@@ -324,12 +324,12 @@ class Board:
         self.stories = story.Writer(name)
 
     def stamp(self) -> tuple[int, ...]:
-        """What the board is built from, as it stands: the database's data_version on this board's own connection, which changes with each commit another connection makes, the time drive.json, his stored cards, the pages and the stories written for his cards last changed, and how many events of the board's history the events log holds, each new one read here, so an event the board never shows rebuilds nothing."""
+        """What the board is built from, as it stands: the database's data_version on this board's own connection, which changes with each commit another connection makes, the time drive.json, his stored cards, the messages of his stored as owed an answer, the pages and the stories written for his cards last changed, and how many events of the board's history the events log holds, each new one read here, so an event the board never shows rebuilds nothing."""
         if self.database is None and state.database_path(self.name).exists():
             self.database = state.connect(state.database_path(self.name))
         committed = self.database.execute("PRAGMA data_version").fetchone()[0] if self.database else 0
         self.read_history()
-        paths = (state.state_path(self.name), state.cards_path(self.name), pages.pages_dir(self.name), self.stories.folder)
+        paths = (state.state_path(self.name), state.cards_path(self.name), state.owed_path(self.name), pages.pages_dir(self.name), self.stories.folder)
         return (committed, *(path.stat().st_mtime_ns if path.exists() else 0 for path in paths), len(self.events), self.records)
 
     def read_history(self) -> None:
@@ -356,8 +356,10 @@ class Board:
         folder = pages.pages_dir(self.name)
         if (listed_at := folder.stat().st_mtime_ns if folder.exists() else 0) != self.pages[0]:
             self.pages = (listed_at, pages.listed(self.name))
+        owed, read = view.stored_owed(self.name)
+        moment = state.now()
         with state.indexed(drive):
-            model = view.board(drive, found, source, self.events, state.now(), self.reports, heard) | {
+            model = view.board(drive, found, source, self.events, moment, self.reports, heard) | {
                 "code": CODE,
                 "site": site_stamp(),
                 "pid": os.getpid(),
@@ -365,6 +367,7 @@ class Board:
                 "repo": repo,
                 "pages": pages.shown(drive, self.pages[1]),
             }
+            model["sweep"] = view.sweep(drive, model, self.events, owed, read, moment)
         self.stories.tell(model)
         built = time.thread_time()
         self.show(model)

@@ -33,6 +33,8 @@ reported, each with `id`, `title`, `created` and `stage`, one of BUG_STAGES) and
 `created` and `jobs`.
 Each feature also has the `project` and `workstream` the coordinator filed its order under, each null until filed.
 
+The dashboard adds `sweep`, the Now screen's row per project of the daily Slack sweep's bars, with `owed`, `live` or why the
+messages of his cc-slack owes could not be read.
 `summary` is the board each open page is sent on every change, sized by what is open now and never by the drive's age;
 each screen reads the rest of what it draws on its own: `history_page` for History, `story` for Now's live story.
 """
@@ -68,6 +70,12 @@ TITLE_CHARS = 100
 NOW_CHARS = 180
 NO_CARDS = {"questions": [], "pr_cards": [], "closed": [], "team_url": ""}
 UNREAD = "not read yet: the drive's watch reads them every minute"
+SWEEP_EVERY = timedelta(days=1)
+ANSWER_WAIT = timedelta(minutes=2)
+OWED_WAIT = timedelta(minutes=10)
+CARD_WAIT = timedelta(hours=48)
+APPROVED_WAIT = timedelta(hours=24)
+SWEEP_BARS = ("answers", "owed", "reasks", "cards", "approved")
 SWEARS = re.compile(r"\b(?:fuck\w*|shit\w*|bullshit\w*|damn\w*|goddamn\w*|wtf|crap\w*|hell)\b", re.IGNORECASE)
 HISTORY_EVENTS = ("tap", "refused", "said", "answered", "undone")
 BOARD_EVENTS = (*HISTORY_EVENTS, "asked")
@@ -99,13 +107,34 @@ def refresh_cards(name: str) -> None:
         found = {"source": "live", **cards(name)}
     except slack.SlackError as error:
         found = {"source": f"unavailable: {error}", **NO_CARDS}
-    path = state.cards_path(name)
+    store(state.cards_path(name), found)
+
+
+def refresh_owed(name: str, session: str) -> None:
+    """Store the messages of his cc-slack owes an answer now while the given session holds his DM, by slack.owed, rewriting the drive's owed file only when they changed."""
+    try:
+        found = {"source": "live", "replies": slack.owed(session)}
+    except slack.SlackError as error:
+        found = {"source": f"unavailable: {error}", "replies": []}
+    store(state.owed_path(name), found)
+
+
+def store(path: Path, found: dict) -> None:
     text = json.dumps(found, sort_keys=True, separators=(",", ":")) + "\n"
     if path.exists() and path.read_text() == text:
         return
-    tmp = path.with_name(f"cards.json.{os.getpid()}.tmp")
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
     tmp.write_text(text)
     os.replace(tmp, path)
+
+
+def stored_owed(name: str) -> tuple[list[dict], str]:
+    """The messages of his cc-slack owes an answer as the drive last stored them, and `live` or why they are missing."""
+    path = state.owed_path(name)
+    if not path.exists():
+        return [], UNREAD
+    found = json.loads(path.read_text())
+    return found["replies"], found["source"]
 
 
 def stored_cards(name: str) -> tuple[dict, str]:
@@ -1246,6 +1275,84 @@ def board(drive: dict, found: dict, source: str, events: Iterable[dict], moment:
         "edges": edges(drive),
         "channel": slack.dm(),
     }
+
+
+def sweep(drive: dict, model: dict, events: list[dict], owed: list[dict], read: str, moment: datetime) -> dict:
+    """The Now screen's row per project of the daily Slack sweep's bars, rows crossing a bar first, and `owed`, `live` or why the messages of his cc-slack owes could not be read: the waits slack_waits finds in the events of the last SWEEP_EVERY and in those messages, and `cards`, each card in his queue open past CARD_WAIT, each under its project as `status` spells it; each bar's cell holds how many waits it has, whether they cross it, by `crossing`, and the link of the slowest answer, with `p90`, the answers' 90th percentile in seconds, or of the oldest other wait, with `since`, when it began."""
+    recent = list(itertools.takewhile(lambda event: moment - state.parse_time(event["at"]) <= SWEEP_EVERY, reversed(events)))[::-1]
+    waits = slack_waits(drive, recent, owed, moment)
+    waits["cards"] = sorted(
+        ({"link": item["url"], "at": item["since"], "project": item["project"]} for item in model["queue"] if item["kind"] != "late" and item["since"] and moment - state.parse_time(item["since"]) > CARD_WAIT),
+        key=lambda wait: state.parse_time(wait["at"]),
+    )
+    spelled = {entry["project"].casefold(): entry["project"] for group in model["status"] for entry in group["features"] if entry["project"]}
+    rows: dict[str | None, dict[str, list[dict]]] = {}
+    for bar in SWEEP_BARS:
+        for wait in waits[bar]:
+            rows.setdefault(wait["project"] and spelled.get(wait["project"].casefold(), wait["project"]), {name: [] for name in SWEEP_BARS})[bar].append(wait)
+    shown = [{"project": project, "bars": {bar: bar_cell(bar, found) for bar, found in bars.items()}} for project, bars in rows.items()]
+    shown.sort(key=lambda row: (not any(cell["crossed"] for cell in row["bars"].values()), row["project"] is None, (row["project"] or "").casefold()))
+    return {"rows": shown, "owed": read}
+
+
+def bar_cell(bar: str, waits: list[dict]) -> dict:
+    if not waits:
+        return {"count": 0, "crossed": False, "link": None, "p90": None, "since": None}
+    cell = {"count": len(waits), "crossed": crossing(bar, waits)}
+    if bar == "answers":
+        return cell | {"link": slowest(waits)["link"], "p90": p90(waits).total_seconds(), "since": None}
+    return cell | {"link": waits[0]["link"], "p90": None, "since": waits[0]["at"]}
+
+
+def slack_waits(drive: dict, said: Iterable[dict], owed: list[dict], moment: datetime) -> dict[str, list[dict]]:
+    """What the daily Slack sweep measures of the back-and-forth with him in these events and the messages of his cc-slack owes, by bar, each wait with its `link`, `at`, when it began, and the `project` it is filed under, by `filed_project`, oldest first: `answers`, each message of his a post answered, with its `wait` from his message to the first post answering it; `owed`, each message of his still owed an answer past OWED_WAIT; `reasks`, each re-ask posted at a channel's root rather than in its card's thread; `approved`, each PR still open past APPROVED_WAIT after his Approve. `crossing` says whether they cross their bar."""
+    from drive import talk
+
+    channels = {channel: project for project in state.projects(drive) if (channel := slack.project_channel(drive["name"], project)) != slack.dm()}
+    answers, reasks = {}, []
+    for event in said:
+        if event["kind"] != "said" or event["edited"]:
+            continue
+        reask = event["text"].startswith(talk.ASKING_AGAIN) and (message := state.slack_message(event["url"])) and message[1] == message[2]
+        if not (reask or event.get("answers")):
+            continue
+        project = filed_project(drive, channels, [event["order"], *(order_id for key in event["prs"] if key in drive["prs"] for order_id in state.served_orders(drive, drive["prs"][key]))], event["channel"])
+        for ts in event.get("answers", []):
+            asked = slack.sent_at({"ts": ts})
+            answers.setdefault(ts, {"link": event["url"], "at": asked.isoformat(), "project": project, "wait": state.parse_time(event["at"]) - asked})
+        if reask:
+            reasks.append({"link": event["url"], "at": event["at"], "project": project})
+    late = [(reply, state.slack_message(reply["permalink"])) for reply in owed if moment - slack.sent_at(reply) > OWED_WAIT]
+    waits = {
+        "answers": list(answers.values()),
+        "owed": [{"link": reply["permalink"], "at": slack.sent_at(reply).isoformat(), "project": filed_project(drive, channels, [state.message_order(drive, channel, thread, ts)], channel)} for reply, (channel, ts, thread) in late],
+        "reasks": reasks,
+        "approved": [
+            {"link": pr["url"], "at": tap["at"], "project": filed_project(drive, channels, state.served_orders(drive, pr), None)}
+            for pr in drive["prs"].values()
+            if pr["state"] == "open" and (tap := pr["tap"]) and tap["label"] == "Approve" and moment - state.parse_time(tap["at"]) > APPROVED_WAIT
+        ],
+    }
+    return {bar: sorted(found, key=lambda wait: state.parse_time(wait["at"])) for bar, found in waits.items()}
+
+
+def filed_project(drive: dict, channels: dict[str, str], orders: list[str | None], channel: str | None) -> str | None:
+    """The project a wait of the sweep is filed under: that of the first of its orders filed under one, else that of the operator channel it is in."""
+    return next((drive["orders"][order_id]["project"] for order_id in orders if order_id in drive["orders"] and drive["orders"][order_id]["project"]), None) or channels.get(channel)
+
+
+def p90(answers: list[dict]) -> timedelta:
+    """The 90th percentile of the answers' waits, by nearest rank."""
+    return sorted(answer["wait"] for answer in answers)[(9 * len(answers) - 1) // 10]
+
+
+def slowest(answers: list[dict]) -> dict:
+    return max(answers, key=lambda answer: (answer["wait"], answer["link"]))
+
+
+def crossing(bar: str, waits: list[dict]) -> bool:
+    """Whether the waits cross their bar of the sweep: `answers` once their 90th percentile passes ANSWER_WAIT, any other bar by any wait."""
+    return bool(waits) and (bar != "answers" or p90(waits) > ANSWER_WAIT)
 
 
 def edges(drive: dict) -> list[dict]:

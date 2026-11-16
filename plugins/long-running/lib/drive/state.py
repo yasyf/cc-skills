@@ -488,6 +488,10 @@ def cards_path(name: str) -> Path:
     return drive_dir(name) / "cards.json"
 
 
+def owed_path(name: str) -> Path:
+    return drive_dir(name) / "owed.json"
+
+
 def replies_path(name: str, job_id: str) -> Path:
     return drive_dir(name) / "jobs" / f"{job_id}.replies.jsonl"
 

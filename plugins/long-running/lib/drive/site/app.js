@@ -32,6 +32,13 @@ const PAGE_FILTERS = [
 ];
 const NONE = '~';
 const UNFILED = 'Unfiled';
+const SWEEP_BARS = [
+  ['answers', 'Answers', 'p90 over 2 min · last day', 'Answers slower than 2 minutes'],
+  ['owed', 'Owed', 'over 10 min · now', 'Message unanswered past 10 minutes'],
+  ['reasks', 'Re-asks', 'at the root · last day', "Card asked again at a channel's top level"],
+  ['cards', 'Cards', 'over 48 h · now', 'Card open past 48 hours'],
+  ['approved', 'Approved', 'open over 24 h · now', 'Approved pull request open past 24 hours'],
+];
 const RANK = ['blocked', 'built', 'running', 'waiting', 'not started', 'merged', 'live'];
 const SATELLITES = 10;
 const RING_LIMIT = 8;
@@ -858,8 +865,33 @@ function nowScreen() {
   const side = task ? '' : `<aside class="now-side" aria-label="What is happening here">${scopeWork(scope, project ?? null, stream ?? null)}${story(scope, 'Latest movement')}</aside>`;
   return `<div class="now-head"><div><div class="eyebrow">Now · ${keys.length ? 'In focus' : 'Across the drive'}</div><h1 class="h1 zoom-title">${esc(keys.length ? fileName(keys.at(-1)) : 'What needs you')}</h1></div><div class="now-actions">${project !== undefined ? `<a class="map-btn" href="${zoomHref('now', ...keys.slice(0, -1))}">← Back</a>` : ''}<a class="map-btn primary" href="#/queue/all${scopeQuery(project ?? null, stream ?? null)}">Open queue →</a></div></div>
     <div class="now-metrics">${metrics.map(([label, count, tone, href]) => `<${href ? 'a' : 'div'} class="metric t-${tone}"${href ? ` href="${esc(href)}"` : ''}><span>${label}</span><b>${count}</b>${href ? '<span class="metric-arrow" aria-hidden="true">›</span>' : ''}</${href ? 'a' : 'div'}>`).join('')}</div>
+    ${slackBars(project)}
     ${prStatus(scope)}
     ${nowCanvas(tree, project, stream, task, side)}`;
+}
+
+function slackBars(project) {
+  const { rows, owed } = model.sweep;
+  const shown = rows.filter((row) => project === undefined || fileKey(row.project) === project);
+  if (!shown.length) return '';
+  const unread = owed !== 'live';
+  const crossed = shown.reduce((sum, row) => sum + SWEEP_BARS.filter(([key]) => row.bars[key].crossed).length, 0);
+  const summary = [crossed ? `${counted(crossed, 'bar')} crossed` : unread ? 'Other bars clear' : 'All clear: no bar crossed', unread && 'Owed unread'].filter(Boolean).join(' · ');
+  return `<section class="slack-bars" aria-labelledby="slack-bars-title">
+    <div class="sb-head"><h2 class="eyebrow" id="slack-bars-title">Drive follow-through</h2><span id="slack-bars-summary">${esc(summary)}</span></div>
+    <div class="sb-scroll" role="region" aria-label="Follow-through by project" tabindex="0"><table aria-describedby="slack-bars-summary">
+      <thead><tr><th scope="col">Project</th>${SWEEP_BARS.map(([, label, hint, title]) => `<th scope="col" title="${esc(title)}">${label}<small>${esc(hint)}</small></th>`).join('')}</tr></thead>
+      <tbody>${shown.map((row) => `<tr><th scope="row"><span>${esc(fileName(fileKey(row.project)))}</span></th>${SWEEP_BARS.map(([key]) => `<td>${sweepCell(key, row.bars[key], unread && key === 'owed' ? owed : '')}</td>`).join('')}</tr>`).join('')}</tbody>
+    </table></div>
+  </section>`;
+}
+
+function sweepCell(key, cell, unread) {
+  if (unread) return `<span class="sb-cell is-unknown"><b>Unread: ${esc(unread)}</b></span>`;
+  if (!cell.count) return `<span class="sb-cell is-empty"><b>${key === 'answers' ? 'No answers' : 'None'}</b></span>`;
+  const value = key === 'answers' ? `${(cell.p90 / 60).toFixed(1)} min` : key === 'reasks' ? counted(cell.count, 're-ask') : String(cell.count);
+  const note = key === 'answers' ? counted(cell.count, 'answer') : key === 'reasks' ? '' : `oldest ${ago(cell.since)}`;
+  return `<a class="sb-cell${cell.crossed ? ' is-crossed' : ''}" href="${esc(cell.link)}" target="_blank" rel="noopener" title="${key === 'answers' ? 'Open the slowest answer' : 'Open the oldest'}"><b>${esc(value)}</b>${note ? `<small>· ${esc(note)}</small>` : ''}</a>`;
 }
 
 function prStatus(scope) {

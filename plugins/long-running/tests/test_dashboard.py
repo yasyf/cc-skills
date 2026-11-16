@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Self
 
 import pytest
-from drive import cli, dashboard, launchd, limits, picture, state, view
+from drive import cli, dashboard, launchd, limits, picture, slack, state, view
 from conftest import Chrome
 from test_view import drive_of, found, job, order, pr
 
@@ -97,6 +97,20 @@ def test_rebuild_exposes_phase_cpu_costs_without_changing_model(demo: str, monke
             assert json.load(response) == board.timings
     finally:
         server.shutdown()
+
+
+def test_rebuild_says_why_his_owed_messages_went_unread(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    def unread(session: str) -> list[dict]:
+        raise slack.SlackError("cc-slack dm-owed exited 1")
+
+    monkeypatch.setattr(dashboard, "home_repo", lambda checkout: None)
+    monkeypatch.setattr(slack, "owed", unread)
+    board = dashboard.Board(demo, [])
+    board.rebuild()
+    assert board.model["sweep"]["owed"] == dashboard.view.UNREAD
+    dashboard.view.refresh_owed(demo, "s1")
+    board.rebuild()
+    assert board.model["sweep"]["owed"] == "unavailable: cc-slack dm-owed exited 1"
 
 
 def serving(board: dashboard.Board, net: dashboard.Tailnet = NET) -> tuple[ThreadingHTTPServer, int]:
@@ -828,7 +842,7 @@ def board(**changed: object) -> dict:
     counts = {"queue": 0, "blocked": 0, "running": 1, "built": 0, "waiting": 0, "merged": 0, "live": 0, "not started": 0}
     return {
         "drive": "demo", "at": "2026-11-11T00:00:00-08:00", "counts": counts, "queue": [], "status": [{"state": "running", "features": [FEATURE]}], "cards": "live",
-        "review": [], "work": lanes, "history": moments, "incidents": [], "bug_reports": [], "edges": [], "repo": "", "links": [], "channel": "D1", "pages": [],
+        "review": [], "work": lanes, "history": moments, "incidents": [], "bug_reports": [], "edges": [], "repo": "", "links": [], "channel": "D1", "pages": [], "sweep": {"rows": [], "owed": "live"},
     } | changed | {"queue": [item | {"priority": {"rank": rank, "incident": False, "overdue": False, "weight": item.get("holds", 0) + len(item.get("blocks", []))} | {key: value for key, value in item.get("priority", {}).items() if key != "rank"}} for rank, item in enumerate(changed.get("queue", []), 1)]}
 
 
@@ -3011,7 +3025,7 @@ def aged(n: int) -> dict:
         events.append({"kind": "said", "at": "2026-11-09T04:00:00-08:00", "text": f"old order {number} is live", "url": said, "order": f"o{number}", "visuals": []})
         events.append({"kind": "tap", "at": "2026-11-09T04:30:00-08:00", "repo": "yasyf/cc-skills", "number": number, "label": "Approve"})
     shown = view.board(drive_of(orders, jobs, prs), found([asked]), "live", events, state.parse_time("2026-11-11T10:00:00-08:00"), set(), {})
-    return shown | {"code": "", "pid": 1, "links": [], "repo": "", "pages": []}
+    return shown | {"code": "", "pid": 1, "links": [], "repo": "", "pages": [], "sweep": {"rows": [], "owed": "live"}}
 
 
 def test_each_screen_reads_the_same_requests_of_the_same_size_however_old_the_drive(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, state_root: Path) -> None:
