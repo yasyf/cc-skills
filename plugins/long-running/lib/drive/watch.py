@@ -161,7 +161,6 @@ UNSTAFFED_FOR = timedelta(minutes=5)
 UNSTARTED_FOR = timedelta(minutes=1)
 READ_WAIT = timedelta(minutes=30)
 RELAUNCH = timedelta(seconds=orca.LAUNCH_SECONDS)
-REWAKE = timedelta(seconds=orca.QUIET_SECONDS)
 RECLAIM = timedelta(seconds=orca.RECLAIM_SECONDS)
 TAIL_BYTES = 65536
 COMPACT_PAST_TOKENS = 120_000
@@ -4228,18 +4227,10 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
                     continue
                 if running and orca.UNREACHABLE in str(error) and busy(watcher, job_id, moment):
                     continue
-                said = read_failed(watcher, source, error, moment)
-                woke = job.get("woken") or {}
-                if running and orca.UNREACHABLE in str(error) and (woke.get("dispatch") != job["dispatch"] or moment - state.parse_time(woke["at"]) >= REWAKE):
-                    wake(watcher, job_id, moment)
-                    watcher.failure_said[source] = moment
-                    said = [] if woke.get("dispatch") != job["dispatch"] else [
-                        f'LANE {job_id} {job["order"]} unreachable {orca.place(job)}: {error}, while it worked on "{cut(job["said"] or job["goal"], 60)}". The watch ran'
-                        f" drive job resume {job_id}, which wakes that Sprite and, when its worker no longer works, restarts the lane there, else on a fresh Sprite once that Sprite"
-                        f" answers no ssh and no transcript there was written in {orca.QUIET_SECONDS // 60} minutes; it runs again every {orca.QUIET_SECONDS // 60} minutes while Orca"
-                        f" cannot reach the lane, its output in the drive's {RELAUNCHES_LOG}"
-                    ]
-                lines += said
+                if running and orca.UNREACHABLE in str(error):
+                    deaths[job_id] = (job["dispatch"], f"{orca.UNREACHED_DEATH}: {error}")
+                    continue
+                lines += read_failed(watcher, source, error, moment)
                 continue
             watcher.failures.pop(source, None)
             lane = orca.placement(worker) if state.on_mac(job) else {}
@@ -5021,6 +5012,8 @@ def death_lines(watcher: Watcher, deaths: dict[str, tuple[str, str]], moment: da
             if job[state.worker_key(job)] != worker or not relaunchable(state.lane_death(job), moment) or busy(watcher, job_id, moment):
                 continue
             state.lane_died(job, worker, why, moment)
+            if why.startswith(orca.UNREACHED_DEATH) and not state.lane_death(job).get("lane_end"):
+                state.lane_death(job)["lane_end"] = orca.LaneEnd(why, None, None, unfit=True)._asdict()
             claims[job_id] = state.lane_death(job).get("relaunch")
             tries = (claims[job_id] or {}).get("tries", 0) + 1
             state.lane_death(job)["relaunch"] = {"pid": os.getpid(), "at": at, "tries": tries}
@@ -5077,15 +5070,6 @@ def start_verb(watcher: Watcher, job_id: str, args: list[str], moment: datetime)
 def relaunch(watcher: Watcher, job_id: str, moment: datetime) -> int:
     """Run `drive job resume` by start_verb on a running job whose lane died."""
     return start_verb(watcher, job_id, ["job", "resume", job_id, state.CARRY_ON], moment)
-
-
-def wake(watcher: Watcher, job_id: str, moment: datetime) -> int:
-    """Run `drive job resume` with UNREACHED by start_verb on a running job whose lane Orca could not reach, at the first read that fails and again each REWAKE while Orca still cannot, its dispatch and the moment kept on its row's woken, so a watch an install restarted keeps that pace rather than counting reads again: its lane_end wakes that lane's Sprite, then sends the text to a worker that takes messages again, restarts the lane on that Sprite with the text in its handoff when its worker finished, or on a fresh one once that Sprite answers no ssh and no transcript there was written in orca.QUIET_SECONDS, and else restarts nothing, for the next wake to read again."""
-    def wake_write(data: dict):
-        data["jobs"][job_id]["woken"] = {"dispatch": data["jobs"][job_id]["dispatch"], "at": state.stamp(moment)}
-
-    state.write(watcher.name, wake_write)
-    return start_verb(watcher, job_id, ["job", "resume", job_id, state.UNREACHED], moment)
 
 
 def send_held(watcher: Watcher, job_id: str, moment: datetime) -> int:

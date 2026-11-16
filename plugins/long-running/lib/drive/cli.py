@@ -32,6 +32,7 @@ OWED = "owed, send it now:"
 SLACK_PERMALINK = re.compile(r"https://[^\s/]+\.slack\.com/archives/[^\s)>|]+")
 KEPT_AS = re.compile(r"\bkept as (o\d+)\b")
 NBD_READS = "nbd-reads.json"
+EXEC_MISSES = "exec-misses.json"
 CHECK_UNBOUND = frozenset({state.DRIVE_ENV, "CLAUDE_CODE_SESSION_ID", "CCI_AGENT_ID"})
 RELEASE_WORD = re.compile(r"\breleas", re.IGNORECASE)
 INCIDENT_EXEMPTION = "incident fix"
@@ -7116,6 +7117,13 @@ def disks_check(args: argparse.Namespace) -> int:
         reads = {job_id: got for job_id, got in pool.map(read, lanes) if got}
     seen_path.write_text(json.dumps({lanes[job_id]["workspace"]: stats for job_id, (_, stats) in reads.items()}))
     wedged = {job_id: why for job_id, (errors, stats) in reads.items() if (why := disk_wedge(errors, stats, seen.get(lanes[job_id]["workspace"]) or {}))}
+    missed_path = state.drive_dir(name) / EXEC_MISSES
+    earlier = json.loads(missed_path.read_text()) if missed_path.exists() else {}
+    with ThreadPoolExecutor(8) as pool:
+        answered = dict(zip(lanes, pool.map(lambda job_id: orca.exec_answers(name, lanes[job_id]["workspace"]), lanes)))
+    missed = {lanes[job_id]["workspace"]: earlier.get(lanes[job_id]["workspace"], 0) + 1 for job_id, answers in answered.items() if not answers}
+    missed_path.write_text(json.dumps(missed))
+    silent = [job_id for job_id in lanes if job_id not in wedged and missed.get(lanes[job_id]["workspace"], 0) >= 2]
     lines = []
     for job_id, why in wedged.items():
         workspace = lanes[job_id]["workspace"]
@@ -7132,7 +7140,16 @@ def disks_check(args: argparse.Namespace) -> int:
             end = orca.LaneEnd(f"its Sprite {workspace}'s disk wedged ({why}), and the disk check checkpoint-restored it", job.get("branch"), None)
             orca.died(name, job_id, job["dispatch"], end, restored=state.stamp(), snapshot=snapshot)
         lines.append(f"{job_id}: Sprite {workspace}'s disk wedged ({why}); checkpoint-restored, so its next lane resumes its Claude session there")
-    return emit(args, "\n".join(lines) or f"no disk of the {len(reads)} Sprites read of {len(lanes)} is wedged", {"read": len(reads), "lanes": len(lanes), "wedged": wedged})
+    for job_id in silent:
+        workspace = lanes[job_id]["workspace"]
+        with state.job_locked(name, job_id, orca.LAUNCH_SECONDS):
+            job = state.load(name)["jobs"][job_id]
+            if job.get("workspace") != workspace or state.lane_death(job, "dispatch"):
+                continue
+            why = f"its Sprite {workspace} answered no command in {orca.EXEC_PROBE_SECONDS} s at {missed[workspace]} disk checks in a row"
+            orca.died(name, job_id, job["dispatch"], orca.LaneEnd(why, job.get("branch"), None, unfit=True))
+        lines.append(f"{job_id}: {why}, so its lane is recorded dead and the watch relaunches it on a fresh Sprite")
+    return emit(args, "\n".join(lines) or f"no disk of the {len(reads)} Sprites read of {len(lanes)} is wedged", {"read": len(reads), "lanes": len(lanes), "wedged": wedged, "silent": silent})
 
 
 def disk_wedge(errors: int, stats: dict[str, list[str]], seen: dict[str, list[str]]) -> str | None:

@@ -4922,7 +4922,7 @@ def test_the_watch_sends_a_jobs_held_texts_once_orca_reads_its_lane_alive_and_ne
         data["jobs"]["j1"]["woken"] = {"dispatch": DISPATCH, "at": state.stamp(T0 - timedelta(minutes=5))}
 
     def down(dispatch: str) -> dict:
-        raise orca.OrcaError("orca orchestration worker-show: remote_runtime_unavailable: the host did not answer")
+        raise orca.OrcaError("orca orchestration worker-show: timed out after 30 s")
 
     monkeypatch.setattr(orca, "worker", down)
     watching = watch.Watcher(remote, offset=state.events_end(remote))
@@ -4936,7 +4936,7 @@ def test_the_watch_sends_a_jobs_held_texts_once_orca_reads_its_lane_alive_and_ne
         held.close()
 
 
-def test_the_watch_has_drive_job_resume_wake_a_running_lane_orca_could_not_reach_at_its_first_failed_read_saying_nothing_and_again_each_30_minutes_saying_so_whatever_watch_reads_it(
+def test_the_watch_records_a_running_lane_orca_could_not_reach_dead_at_its_first_failed_read_says_so_once_and_relaunches_it_fresh_as_j7933s_was_not(
     remote: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     deliver(monkeypatch)
@@ -4946,52 +4946,12 @@ def test_the_watch_has_drive_job_resume_wake_a_running_lane_orca_could_not_reach
     monkeypatch.setattr(orca, "worker", refused("remote_runtime_unavailable", f"Could not connect to the remote Orca runtime at ws://127.0.0.1:{port}"))
     resumes = []
     monkeypatch.setattr(state, "detach", lambda name, args, log: (resumes.append(args) if args[:2] == ["job", "resume"] else None) or os.getpid())
-    said = (
-        f"LANE j1 o1 unreachable on Sprite {workspace}: orca orchestration worker-show: remote_runtime_unavailable: Could not connect to the remote Orca runtime"
-        f' at ws://127.0.0.1:{port}, while it worked on "building the tallies". The watch ran drive job resume j1, which wakes that Sprite and, when its worker no longer'
-        " works, restarts the lane there, else on a fresh Sprite once that Sprite answers no ssh and no transcript there was written in 30 minutes; it runs again every"
-        f" 30 minutes while Orca cannot reach the lane, its output in the drive's {watch.RELAUNCHES_LOG}"
-    )
-
-    def lane_lines(watching: watch.Watcher, at: timedelta) -> list[str]:
-        return [line for line in watch.run_pass(watching, T0 + at) if line.startswith("LANE j1 ") or "lane of j1" in line]
-
-    first = watch.Watcher(remote, offset=state.events_end(remote))
-    assert [lane_lines(first, timedelta(seconds=s)) for s in (0, 5, 10, 15)] == [[], [], [], []]
-    restarted = watch.Watcher(remote, offset=state.events_end(remote))
-    assert (lane_lines(restarted, timedelta(minutes=20)), lane_lines(restarted, timedelta(minutes=30))) == ([], [said])
-    with state.edit(remote) as data:
-        data["jobs"]["j1"]["dispatch"] = "ctx_relaunched1"
-    assert lane_lines(restarted, timedelta(minutes=31)) == []
-    assert resumes == [["job", "resume", "j1", state.UNREACHED]] * 3
-    assert state.load(remote)["jobs"]["j1"]["woken"] == {"dispatch": "ctx_relaunched1", "at": state.stamp(T0 + timedelta(minutes=31))}
-
-
-def test_a_watch_restarted_while_the_wake_its_last_process_started_holds_the_jobs_lock_starts_no_second_wake_and_says_nothing_of_that_lane(
-    remote: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    deliver(monkeypatch)
-    workspace, dispatch, port = J1409_LANES["j242"]
-    with state.edit(remote) as data:
-        data["jobs"]["j1"].update(dispatch=dispatch, workspace=workspace, state="running", said="building the tallies")
-    monkeypatch.setattr(orca, "worker", refused("remote_runtime_unavailable", f"Could not connect to the remote Orca runtime at ws://127.0.0.1:{port}"))
-    resumes, locks = [], []
-
-    def detach(name: str, args: list[str], log: str) -> int:
-        if args[:2] == ["job", "resume"]:
-            resumes.append(args)
-            locks.append(held := open(state.job_lock_path(name, args[2]), "a"))
-            fcntl.flock(held, fcntl.LOCK_EX)
-        return os.getpid()
-
-    monkeypatch.setattr(state, "detach", detach)
-    first = watch.Watcher(remote, offset=state.events_end(remote))
-    assert [line.split(" ")[0] for s in (0, 5, 10) for line in watch.run_pass(first, T0 + timedelta(seconds=s))] == []
-    restarted = watch.Watcher(remote, offset=state.events_end(remote))
-    said = [line for s in (200, 205, 210, 215) for line in watch.run_pass(restarted, T0 + timedelta(seconds=s))]
-    assert (resumes, said, restarted.failures.get("lane of j1")) == ([["job", "resume", "j1", state.UNREACHED]], [], None)
-    for held in locks:
-        held.close()
+    watching = watch.Watcher(remote, offset=state.events_end(remote))
+    said = [line for s in (0, 5) for line in watch.run_pass(watching, T0 + timedelta(seconds=s)) if line.startswith("LANE j1 ")]
+    assert [line.startswith(f"LANE j1 o1 died on Sprite {workspace}: {orca.UNREACHED_DEATH}: orca orchestration worker-show: remote_runtime_unavailable") for line in said] == [True]
+    assert resumes == [["job", "resume", "j1", state.CARRY_ON]]
+    death = state.lane_death(state.load(remote)["jobs"]["j1"], "dispatch")
+    assert (death["lane_end"]["unfit"], death["lane_end"]["why"].startswith(orca.UNREACHED_DEATH)) == (True, True)
 
 
 def test_the_watch_starts_one_verb_on_a_job_a_pass_and_none_while_another_drive_verb_holds_its_lock(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -5599,6 +5559,7 @@ def test_a_disk_check_restores_a_sprite_whose_ext4_counted_errors_or_whose_reque
     disks = {"pool-one": (0, {"nbd0": idle, "loop0": stuck}), "pool-two": (0, {"nbd0": idle, "loop0": idle})}
     monkeypatch.setattr(orca, "disk_read", lambda root, workspace: disks[workspace])
     revived = []
+    monkeypatch.setattr(orca, "exec_answers", lambda drive, workspace: True)
     monkeypatch.setattr(orca, "memory_snapshot", lambda drive, workspace: f"top RSS on {workspace}" if workspace == "pool-one" else None)
     monkeypatch.setattr(orca, "revive", lambda root, workspace: revived.append(workspace) or f"revived {workspace}")
     assert run("disks-check") == (0, "no disk of the 2 Sprites read of 2 is wedged")
@@ -8920,3 +8881,25 @@ def test_a_stage_line_for_a_tester_holding_a_slot_queue_place_is_held_once_per_h
         data["prs"][key]["head"] = "bbbbbbb222"
     assert run("pr", "wake", url, "--text", "PR #7 waits on its staging run at its new head") == (0, f"{key}: held on j1, which {turn}")
     assert [held["words"] for held in state.load(remote)["jobs"]["j1"]["undelivered"]] == ["STAGE PR #7 waits on its staging run", "STAGE PR #7 waits on its staging run at its new head"]
+
+
+def test_a_disk_check_records_dead_a_lane_whose_sprite_answers_no_command_at_two_checks_in_a_row_so_its_relaunch_starts_fresh(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cloned(tmp_path, remote)
+    carrying(run, remote)
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(state="running", workspace="pool-one")
+    workspaces = tmp_path / "cc-remote-workspaces"
+    workspaces.mkdir()
+    (workspaces / "pool-one.json").write_text("{}")
+    monkeypatch.setattr(orca, "CC_REMOTE_WORKSPACES", workspaces)
+    idle = "1 0 8 0 1 0 8 0 0 9 9 0 0 0 0 0 0".split()
+    monkeypatch.setattr(orca, "disk_read", lambda root, workspace: (0, {"nbd0": idle, "loop0": idle}))
+    monkeypatch.setattr(orca, "exec_answers", lambda drive, workspace: False)
+    assert run("disks-check") == (0, "no disk of the 1 Sprites read of 1 is wedged")
+    assert run("disks-check") == (
+        0,
+        f"j1: its Sprite pool-one answered no command in {orca.EXEC_PROBE_SECONDS} s at 2 disk checks in a row, so its lane is recorded dead and the watch relaunches it on a fresh Sprite",
+    )
+    assert state.lane_death(state.load(remote)["jobs"]["j1"], "dispatch")["lane_end"]["unfit"] is True

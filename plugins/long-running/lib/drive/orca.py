@@ -47,6 +47,8 @@ DRAIN_LIMIT = 50000
 FENCED = "consumer_fenced"
 RUN_NOT_FOUND = "run_not_found"
 UNREACHABLE = "remote_runtime_unavailable"
+UNREACHED_DEATH = "Orca could not reach its Sprite"
+EXEC_PROBE_SECONDS = 60
 UNLIVE = "its worker's liveness is"
 GONE = {
     "dispatch_not_found": "Orca no longer holds its worker",
@@ -863,6 +865,14 @@ def memory_snapshot(drive: str, workspace: str) -> str | None:
     except (OSError, subprocess.TimeoutExpired):
         return None
     return done.stdout.decode(errors="replace") or None
+
+
+def exec_answers(drive: str, workspace: str) -> bool:
+    """Whether a command run on the Sprite at workspace answers within EXEC_PROBE_SECONDS, by on_sprite, over ssh and then cc-remote step."""
+    try:
+        return on_sprite(drive, workspace, "true", b"", EXEC_PROBE_SECONDS).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
 
 
 def revive(root: Path, workspace: str) -> str:
