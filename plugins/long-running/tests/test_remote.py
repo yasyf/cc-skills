@@ -8936,6 +8936,7 @@ def test_a_stage_line_for_a_tester_the_work_queue_holds_is_held_once_per_head_an
         data["jobs"]["j1"].update(prs=[url], dispatch=None, where="local", state="waiting")
         data["prs"][key] = state.new_pr(url, "j1", "o1") | {"head": "aaaaaaa111"}
     monkeypatch.setattr(work, "queued", lambda data, job: job is data["jobs"]["j1"])
+    monkeypatch.setattr(work, "item_of", lambda data, job: work.KIND[work.STAGE_TEST])
     turn = "waits in the work queue for its stage-test cut, so no wake goes out: its worker reads it when its turn starts it"
     assert run("pr", "wake", url, "--text", "PR #7 waits on its staging run") == (0, f"{key}: held on j1, which {turn}")
     assert run("pr", "wake", url, "--text", "PR #7 waits on its staging run") == (0, f"{key}: not sent again to j1, which {turn}")

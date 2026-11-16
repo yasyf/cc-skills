@@ -5705,11 +5705,12 @@ def wake_pr(args: argparse.Namespace) -> int:
         job_id = None
     pr = data["prs"][key]
     job = data["jobs"][target]
-    stage_turn = "waits in the work queue for its stage-test cut"
+    build_turn = "is a build item of the work queue, whose next build worker takes it at its PR's branch"
     if job_id and (
-        work.KIND[work.STAGE_TEST].queued(data, data["jobs"][job_id]) and (turn := stage_turn)
-        or state.adopted_pr_job(data, job) and (turn := "is a build item of the work queue, whose next build worker takes it at its PR's branch")
-        or work.queued(data, data["jobs"][job_id]) and (turn := stage_turn)
+        work.queued(data, data["jobs"][job_id])
+        and (turn := build_turn if work.item_of(data, data["jobs"][job_id]) is work.KIND[work.BUILD] else "waits in the work queue for its stage-test cut")
+        or state.adopted_pr_job(data, job)
+        and (turn := build_turn)
     ):
         def turned(held: dict) -> bool:
             heads = held["jobs"][job_id].setdefault("stage_heads", {})
