@@ -16,14 +16,13 @@ class RestackError(Exception):
 
 
 def restack(name: str, keys: list[str], seen: dict[str, tuple]) -> list[dict]:
-    """Restack each stack of the open PRs keys names, with no model session, once a merge or rewrite below one of them left its branch carrying commits its base no longer holds: a squash merge of the PR under it, which leaves the copies of that PR's commits, and of every PR squash-merged before it, on each branch above, or a builder's restack of its own branch alone, which leaves every branch above on the head it replaced. Each branch keeps its own commits, the leading run from its head whose subjects neither its parent's branch nor its trunk's squash merges carry, replayed with git replay onto its parent's new head, or its trunk's for a PR based on it, bottom up, and is pushed with a lease on the head the drive read, all of one repository's moved branches in one atomic push, so a builder's push since moves none. A branch whose replay conflicts, or whose change's added and removed lines differ from its PR's before, stays where it is with every branch above it, so its stage reads its conflict for its builder, the one step left for a model. A stack whose heads and merges seen holds is read no further; what each try did, kept in the drive's restacks.log."""
+    """Restack each stack of the open PRs keys names, with no model session, once a merge or rewrite below one of them left its branch carrying commits its base no longer holds: a squash merge of the PR under it, which leaves the copies of that PR's commits, and of every PR squash-merged before it, on each branch above, or a builder's restack of its own branch alone, which leaves every branch above on the head it replaced. Each branch keeps its own commits, the leading run from its head whose subjects neither its parent's branch nor its trunk's squash merges carry, replayed with git replay onto its parent's new head, or its trunk's for a PR based on it, bottom up, and is pushed with a lease on the head the drive read, all of one repository's moved branches in one atomic push, so a builder's push since moves none. A branch whose replay conflicts, or whose change's added and removed lines differ from its PR's before, stays where it is with every branch above it, so its stage reads its conflict for its builder, the one step left for a model. A stack whose heads, bases and conflicts seen holds is read no further, since a merge below it moves its bottom PR's base and GitHub's read of its conflict; what each try did, kept in the drive's restacks.log."""
     data = state.load(name)
     tries = []
     for repo in sorted({github.repo_of(key) for key in keys}):
         rows = {key: data["prs"][key] for key in keys if github.repo_of(key) == repo and data["prs"][key]["default"] and data["prs"][key]["head"]}
-        merged = sum(1 for key, pr in data["prs"].items() if github.repo_of(key) == repo and pr["state"] == "merged")
         for root, members in stacks(rows):
-            signature = (merged, *((key, rows[key]["head"]) for key in members))
+            signature = tuple((key, rows[key]["head"], rows[key]["base"], rows[key]["conflict"]) for key in members)
             if seen.get(root) == signature:
                 continue
             seen[root] = signature
