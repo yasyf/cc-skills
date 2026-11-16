@@ -65,7 +65,7 @@ def counted(watcher, stage, moment):
     except Exception as error:
         if not expected(error):
             where = traceback.extract_tb(error.__traceback__)[-1]
-            crashes.append(f"{watcher.name}: stage {stage.func.__name__} raised {type(error).__name__}: {error} at {Path(where.filename).name}:{where.lineno}")
+            crashes.append(f"{watcher.name}: stage {stage.func.__name__} raised {type(error).__name__}: {error} at {Path(where.filename).name}:{where.lineno}\n" + "".join(traceback.format_tb(error.__traceback__, limit=-8)))
         return []
 
 

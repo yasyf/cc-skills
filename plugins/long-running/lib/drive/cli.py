@@ -7067,6 +7067,10 @@ def receive(args: argparse.Namespace) -> int:
     return receiver.main(args.listening)
 
 
+def try_install(args: argparse.Namespace) -> int:
+    return 0 if install.try_install(Path(args.plugin)) else 1
+
+
 def watch_events(args: argparse.Namespace) -> int:
     """Run the watch with --loop, its responder with --respond, its relay with --relay or its landing loop with --land; else load its launch agent unless one is loaded. The drive's one watch runs each project's passes, and a drive whose state root LONG_RUNNING_STATE or XDG_STATE_HOME moves gets no process."""
     if args.respond is not None:
@@ -8874,6 +8878,11 @@ def parser() -> argparse.ArgumentParser:
         help="serve on this inherited listening socket, asking GitHub nothing: an older install's receiver hands its socket to the newest this way",
     )
     verb.set_defaults(run=receive)
+    verb = verbs.add_parser(
+        "try-install", help="run one relay and one watch pass of the install at plugin on a copy of each drive, keeping its verdict for the watch: the process a watch starts once per new install before it moves onto it"
+    )
+    verb.add_argument("plugin", help="the folder of the long-running install to try")
+    verb.set_defaults(run=try_install)
     cards = verbs.add_parser("cards", help="list, redraw or withdraw his open question cards").add_subparsers(dest="action", required=True)
     verb = cards.add_parser(
         "list",
