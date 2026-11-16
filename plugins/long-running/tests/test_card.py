@@ -1522,7 +1522,7 @@ def test_a_stack_card_reads_github_once_per_25_prs_and_draws_under_no_drive_lock
     assert (len(drawn["card"]["prs"]), len(stacked), taken) == (count, -(-count // github.PRS_PER_QUERY), [])
     [(verb, receipt)] = receipts
     card.record_kept("demo", Path(receipt))
-    assert (verb, taken, Path(receipt).exists()) == ("card-record", ["demo"], False)
+    assert (verb, taken, Path(receipt).exists()) == ("card-record", [], False)
     assert all(state.load("demo")["prs"][key]["stack"] == keys for key in keys)
     ask(asks(*numbers))
     assert len(receipts) == 1
