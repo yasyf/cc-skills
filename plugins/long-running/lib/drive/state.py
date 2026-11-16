@@ -4359,9 +4359,9 @@ def down_mac_boxes(name: str, data: dict, finished: list[str]) -> None:
 
 
 def box_wanted(data: dict, box: str) -> bool:
-    """Whether another job running now names the Mac box anywhere on its row, its handoff and the texts it was given or holds included, as a job taking its turn on that box does, so that box stays up for it; a waiting job holds no box and takes one when it resumes."""
+    """Whether another unfinished job names the Mac box anywhere on its row, its handoff and the texts it was given or holds included, as a job lent the box does while its case runs there, waiting or not, so that box stays up for it."""
     pattern = re.compile(rf"\b{re.escape(box)}\b")
-    return any(pattern.search(json.dumps(job)) for job_id, job in data["jobs"].items() if job_id != box and job["state"] == "running")
+    return any(pattern.search(json.dumps(job)) for job_id, job in data["jobs"].items() if job_id != box and job["state"] not in FINISHED_JOB_STATES)
 
 
 def placed(before: dict[str, tuple[int, str | None]], order: list[str]) -> dict[str, int]:
