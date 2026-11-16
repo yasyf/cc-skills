@@ -1261,9 +1261,9 @@ def test_a_second_report_closing_one_order_posts_nothing_whoever_wrote_it_and_a_
     assert talk.say(demo, {"text": "The fix is live.", "thread_ts": thread, "record": "684712"}).startswith(f"POSTED {answer}")
     report(monkeypatch, {"close": "o1"}, lane="meta")
     refused = "refused, report 684712 already closes o1, so this second close of it posts nothing: send no close of o1"
-    with pytest.raises(DriveError, match=re.escape(f"nothing posted: {refused}")):
-        talk.say(demo, {"text": "The fix is live.", "thread_ts": thread, "record": "684713"})
-    assert len(sent) == 1
+    assert "WARNING report 684712 already closes o1; the post went out without its close of o1" in talk.say(demo, {"text": "The fix is live.", "thread_ts": thread, "record": "684713"})
+    assert "WARNING" not in talk.say(demo, {"text": "The fix is live again.", "thread_ts": thread, "record": "684714"})
+    assert len(sent) == 3
     capsys.readouterr()
     assert cli.main(["order", "set", "o1", "--state", "done", "--record", "684713"]) == 2
     assert capsys.readouterr().err.strip() == f"drive: o1: {refused}"
@@ -1280,9 +1280,8 @@ def test_a_second_report_closing_one_order_posts_nothing_whoever_wrote_it_and_a_
     report(monkeypatch, {"close": "o2"}, lane="meta")
     assert talk.say(demo, {"text": "The fix is live.", "thread_ts": thread, "record": "686070"}).startswith(f"POSTED {answer}")
     report(monkeypatch, {"close": "o2"}, lane="watch")
-    with pytest.raises(DriveError, match="refused, report 686070 already closes o2"):
-        talk.say(demo, {"text": "The fix is live.", "thread_ts": thread, "record": "686065"})
-    assert len(sent) == 2
+    assert "WARNING report 686070 already closes o2" in talk.say(demo, {"text": "The fix is live.", "thread_ts": thread, "record": "686065"})
+    assert len(sent) == 5
 
 
 def own_pr(name: str) -> None:

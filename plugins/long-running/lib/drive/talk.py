@@ -206,7 +206,7 @@ def report_post(name: str, seq: str) -> str:
 
 
 def spoken(name: str, post: dict, known: dict, recorded_first: bool = False) -> str:
-    """Post one message as say does, once its caller may: known is the drive as say's caller read it; recorded_first waits for the post's record on its order, as a close does, for a caller that closes the order next."""
+    """Post one message as say does, once its caller may: known is the drive as say's caller read it; recorded_first waits for the post's record on its order, as a close does, for a caller that closes the order next; a close of an order another report already closes is dropped and the post goes out, warning once per order, since a gate blocks at most once."""
     report = cli.report_attrs(post["record"]) if post.get("record") else {}
     post = placed(known, post, report)
     order = cli.post_order(known, post, report)
@@ -214,6 +214,11 @@ def spoken(name: str, post: dict, known: dict, recorded_first: bool = False) -> 
         post = {key: value for key, value in post.items() if key != "record"}
         report = {"close": order, "writer": "communicator", "written": state.stamp()}
     seq = report.get("seq")
+    closed_again = None
+    if order and (again := state.second_close(known, order, report)):
+        report = report | {"close": ", ".join(named for named in state.closed_orders(report) if named != order)}
+        close = False
+        closed_again = None if order in known["posts"].get("closed_again", []) else (order, again.removeprefix("refused, ").replace(", so this second close of it posts nothing: send no close of", "; the post went out without its close of"))
     if refused := carried_refusal(known, seq, report, post.get("edit")) or (order and cli.report_refusal(known, order, report)) or (close and cli.unfiled_refusal(known, order)):
         raise DriveError(f"nothing posted: {refused}")
     if refused := unclaimed(known, post, report):
@@ -237,6 +242,9 @@ def spoken(name: str, post: dict, known: dict, recorded_first: bool = False) -> 
         raise
     link = reply["permalink"]
     line = f"{'EDITED' if post.get('edit') else 'POSTED'} {link}"
+    if closed_again:
+        state.write(name, lambda data: data["posts"].setdefault("closed_again", []).append(closed_again[0]), patient=True)
+        line += f" WARNING {closed_again[1]}"
     if dropped := reply.get("dropped"):
         line += f"; dropped {', '.join(dropped)}, already shown in this thread or its root"
     if card := reply.get("card_permalink"):

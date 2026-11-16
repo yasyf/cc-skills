@@ -1107,7 +1107,7 @@ CRAFT_GUIDE = (
     "words are its own URL, where words saying what it opens belong, other than an alert's own Sentry or Datadog link alone"
     ' on its line; tell him something waits or sits somewhere else, such as his card in another thread, without linking it '
     'or showing what it asks right here; ask him to act on a card, such as picking an option on it or tapping it, without '
-    'linking that card so it draws with the post; ask him to type a word a card can carry, such as reply merge, rather than '
+    'linking that card so it draws with the post; present a proof that ran a repro or script as the real event, such as a live page or alert, rather than saying which it was; ask him to type a word a card can carry, such as reply merge, rather than '
     'giving him the card; ask him to approve or merge PRs without naming each PR by number, so the '
     'tool links its card; link a release to its build page where its own release post belongs; name'
     " the drive's own machinery or process, such as a job, seat, reader, builder, lane, design job, codex job, fde-scan, an"
@@ -1125,6 +1125,7 @@ CRAFT = {
     "craft.links": settled.Noul("Does `post.text` show a raw URL, or a link whose words are its own URL, where words saying what it opens belong, other than an alert's own Sentry or Datadog link alone on its line?"),
     "craft.elsewhere": settled.Noul('Does `post.text` tell him something waits or sits somewhere else, such as his card in another thread, without linking it or showing what it asks right here?'),
     "craft.card": settled.Noul('Does `post.text` ask him to act on a card, such as picking an option on it or tapping it, without linking that card so it draws with the post?'),
+    "craft.repro": settled.Noul("Does `post.text` present a proof that ran a repro or script as the real event, such as a live page or alert, rather than saying which it was?"),
     "craft.word": settled.Noul("Does `post.text` ask him to type a word a card could carry, such as reply merge or go, rather than giving him the card?"),
     "craft.prs": settled.Noul("Does `post.text` ask him to approve or merge PRs without naming each PR by its number?"),
     "craft.release": settled.Noul('Does `post.text` link a release to its build page where its own release post belongs?'),
@@ -1141,6 +1142,7 @@ CRAFT_FIXES = {
     "craft.links": 'link each thing on words saying what it opens',
     "craft.elsewhere": 'show what the card or thread it names asks right here, or link it on its words',
     "craft.card": 'link the card he acts on, so it draws right under the post',
+    "craft.repro": "a proof that ran a repro is not the real event; say which it was",
     "craft.word": "never ask him to type a word a card can carry; give the card",
     "craft.prs": "name each PR by number, so the tool links its card",
     "craft.release": "link the release's own release post, never its build",
