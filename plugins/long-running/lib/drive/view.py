@@ -875,6 +875,7 @@ def lane_tap_item(tap: dict, found: dict, tracked: dict | None) -> dict:
         "kind": "tap",
         "key": tap["key"],
         "head": tap["head"],
+        "stack_heads": {member["key"]: member["head"] for member in tap["stack"]},
         "lane": tap["lane"],
         "tasks": [tap["lane"]],
         "title": tap["title"],
@@ -946,6 +947,7 @@ def lane_queue(drive: dict, found: dict, moment: datetime, features: list[dict],
     for item in (lane_tap_item(tap, found, drive["prs"].get(tap["key"])) for tap in lane_taps):
         if (same := carded.get(item["url"])) is not None:
             same["prs"] += [pr for pr in item["prs"] if pr["url"] not in {kept["url"] for kept in same["prs"]}]
+            same["stack_heads"] |= item["stack_heads"]
         else:
             carded[item["url"]] = item
     taps = list(carded.values())

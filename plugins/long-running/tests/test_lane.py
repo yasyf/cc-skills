@@ -693,3 +693,15 @@ def test_his_page_shows_only_stacks_ready_for_his_tap_and_counts_the_rest_by_why
     stacks, rest = shown["a"]["ready"]
     assert ([(row["number"], row["above"]) for row in stacks], rest) == ([(1, ["acme/app#2"])], {"behind a parent": 1, "red": 1, "no review": 1})
     assert "3 more not ready" in page.drawn(DRIVE)
+
+
+def test_his_stack_card_tap_lands_on_each_member_and_is_his_presence(world: dict) -> None:
+    from drive import card
+
+    opened("a", prs=[("acme/app", 7), ("acme/app", 8)])
+    (store.drive_dir(DRIVE) / store.LIVE).touch()
+    card.answered({"repo": "acme/app", "number": 7, "label": "Approve", "heads": {"acme/app#7": "h7", "acme/app#8": "h8"}, "source": "pressed the button", "action_ts": "1794870000.000100", "waits": ""})
+    assert [row["approved_head"] for row in store.load(DRIVE, "a")["prs"]] == ["h7", "h8"]
+    assert json.loads((store.drive_dir(DRIVE) / store.PRESENCE).read_text())["ts"] == "1794870000.000100"
+    verbs.tapped(DRIVE, "acme/app", 7, "Hold", "h7", "recorded by hand")
+    assert json.loads((store.drive_dir(DRIVE) / store.PRESENCE).read_text())["ts"] == "1794870000.000100"

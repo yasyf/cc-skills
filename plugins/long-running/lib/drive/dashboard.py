@@ -314,6 +314,7 @@ class Board:
         self.offset = 0
         self.answers: dict[str, list[str]] = {}
         self.heads: dict[str, str] = {}
+        self.stacks: dict[str, dict[str, str]] = {}
         self.pictures: set[str] = set()
         self.threads: set[str] = set()
         self.reports: set[str] = set()
@@ -426,6 +427,7 @@ class Board:
             self.model = model
             self.answers = {item["answer"]: item["card"]["options"] for item in asked}
             self.heads = {entry["key"]: entry["head"] for entry in model["review"]} | {item["key"]: item["head"] for item in model["queue"] if item.get("lane")}
+            self.stacks = {item["key"]: item["stack_heads"] for item in model["queue"] if item.get("lane")}
             self.pictures = pictures
             self.threads = {item["thread"] for item in [*model["queue"], *model["review"]] if item.get("thread")}
             self.repo = model["repo"]
@@ -704,7 +706,7 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
                 return
             repo, number = key.split("#")
             try:
-                card.answered({"repo": repo, "number": int(number), "label": label, "heads": {key: head}, "source": "dashboard", "action_ts": None, "waits": ""})
+                card.answered({"repo": repo, "number": int(number), "label": label, "heads": board.stacks.get(key) or {key: head}, "source": "dashboard", "action_ts": None, "waits": ""})
             except DriveError as error:
                 self.answered(502, {"error": str(error)})
                 return

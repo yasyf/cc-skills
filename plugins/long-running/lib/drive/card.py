@@ -3,6 +3,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 import unicodedata
 import uuid
 from functools import lru_cache
@@ -995,17 +996,20 @@ def answered(ask: dict) -> dict:
 
 
 def lane_tapped(ask: dict) -> bool:
-    """Write his tap on each live lane drive carrying the PR, through lane's own verb, which wakes its lane and leaves the landing to lane-land; false when no live lane drive carries it, so the old drive takes it."""
+    """Write his tap on each PR it covers, the tapped one and each member of its stack card by its heads, on each live lane drive carrying it, through lane's own verb, which wakes its lane, keeps his presence and leaves the landing to lane-land; false when no live lane drive carries any of them, so the old drive takes it."""
     from lane import verbs as lanes
 
-    number = int(ask["number"])
-    drives = lanes.live_drives_holding(ask["repo"], number)
-    for drive in drives:
-        head = ask["heads"].get(f"{ask['repo']}#{number}") or next(iter(ask["heads"].values()), None)
-        if not head:
-            raise state.DriveError(f"his {ask['label']} on {ask['repo']}#{number} names no head")
-        lanes.tapped(drive, ask["repo"], number, ask["label"], head, ask["source"])
-    return bool(drives)
+    tapped = f"{ask['repo']}#{int(ask['number'])}"
+    members = ask["heads"] if tapped in ask["heads"] else {tapped: next(iter(ask["heads"].values()), None), **ask["heads"]}
+    landed = False
+    for member, head in members.items():
+        repo, _, number = member.rpartition("#")
+        for drive in lanes.live_drives_holding(repo, int(number)):
+            if not head:
+                raise state.DriveError(f"his {ask['label']} on {member} names no head")
+            lanes.tapped(drive, repo, int(number), ask["label"], head, ask["source"], ask["action_ts"] or f"{time.time():.6f}")
+            landed = True
+    return landed
 
 
 def question_answered(ask: dict) -> dict:

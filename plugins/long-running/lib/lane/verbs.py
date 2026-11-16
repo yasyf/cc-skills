@@ -24,8 +24,8 @@ def live_drives_holding(repo: str, number: int) -> list[str]:
     return [folder.name for folder in sorted(found.iterdir()) if (folder / store.LIVE).exists() and any((row["repo"], row["number"]) == (repo, number) for lane in store.load_all(folder.name).values() for row in lane["prs"])]
 
 
-def tapped(drive: str, repo: str, number: int, label: str, head: str, source: str) -> list[str]:
-    """His Approve or Hold on a lane PR at a head, written on each row carrying it: an Approve sets its approved_head and lifts his Hold, so lane-land lands it on its next pass, and a Hold names when and where he gave it; a waiting lane carrying it wakes. The lanes it was written on."""
+def tapped(drive: str, repo: str, number: int, label: str, head: str, source: str, ts: str | None = None) -> list[str]:
+    """His Approve or Hold on a lane PR at a head, written on each row carrying it: an Approve sets its approved_head and lifts his Hold, so lane-land lands it on its next pass, and a Hold names when and where he gave it; a waiting lane carrying it wakes. A tap given with its ts, his Slack action's or the moment his dashboard sent it, is his presence too, so a dangerous PR he approves lands within his 15 minutes; one recorded by hand passes none and moves no presence. The lanes it was written on."""
     if label not in TAP_LABELS:
         raise store.Refused(f"his tap is Approve or Hold, not {label!r}")
     carrying = [lane_id for lane_id, lane in store.load_all(drive).items() if any((row["repo"], row["number"]) == (repo, number) for row in lane["prs"])]
@@ -46,6 +46,8 @@ def tapped(drive: str, repo: str, number: int, label: str, head: str, source: st
 
     for lane_id in carrying:
         store.update(drive, lane_id, tapping)
+    if ts:
+        store.heard(drive, [{"ts": ts, "link": source if source.startswith("https://") else None}])
     store.kick(drive)
     return carrying
 

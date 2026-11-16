@@ -25,7 +25,7 @@ def taps(drive: str) -> list[dict] | None:
                 "checks": CHECKS.get(row["checks"] or "", "pending"),
                 "title": row.get("words") or seen[key].get("title") or key,
                 "moved": row["moved"],
-                "stack": [{"key": member, "url": url(member), "title": seen[member].get("title") or member, "checks": CHECKS.get(seen[member]["rollup"] or "", "pending")} for member in [key, *row["above"]]],
+                "stack": [{"key": member, "url": url(member), "head": seen[member]["head"], "title": seen[member].get("title") or member, "checks": CHECKS.get(seen[member]["rollup"] or "", "pending")} for member in [key, *row["above"]]],
                 "lane": lane_id,
                 "lane_title": lanes[lane_id]["title"],
                 "position": position,
