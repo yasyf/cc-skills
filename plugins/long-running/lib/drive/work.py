@@ -13,7 +13,7 @@ TOLD = ("ASK", "BLOCKED", "DONE")
 WORKER = "worker"
 WORKER_ITEMS = 18
 READS_PER_PASS = 12
-CUT_SHAPE = {"cut_items": 6, "cut_minutes": 30, "train_minutes": 60, "cut_steps": ""}
+CUT_SHAPE = {"cut_items": 6, "cut_minutes": 30, "train_minutes": 60, "promotion_minutes": 30, "ci_minutes": 20, "start_moves": 10, "cut_steps": ""}
 CUT_STEPS = "start one cut on {env} of the items' PR heads through the release provider, then run the items' cases once staging serves it"
 STALL_AFTER = timedelta(minutes=10)
 DONE_WHEN = "drive work pull --worker {worker} prints NONE or HOLD and every item it gave you is reported; return DONE ran <each item you reported>"
@@ -35,6 +35,67 @@ def env(data: dict) -> str | None:
 def cut_shape(data: dict) -> dict:
     """How big a staging cut the queue's packer forms and how it runs: at most cut_items tests planned at cut_minutes, a release's lease of train_minutes, and the repository's own cut_steps after the plugin's, from the repository's [work] table in its .claude/long-running.toml, these defaults for a key it leaves out, so the drive holds shared staging for one short cut at a time."""
     return CUT_SHAPE | (providers.of(data).config.get("work") or {})
+
+
+def free_at(data: dict, moment: datetime) -> datetime:
+    """When the next cut can take the env: the end of the lease holding it, then each release the train holds for it at train_minutes, then promotion_minutes when its promotion skipped its last tick, all from the toml's [work]; mechanics on rows the drive holds, no read."""
+    shape, slot = cut_shape(data), STAGE.slot(data)
+    free = max(moment, state.parse_time(slot["holder"]["until"])) if slot["holder"] else moment
+    free += timedelta(minutes=shape["train_minutes"]) * len(state.train_waiting(data, env(data)))
+    return free + (timedelta(minutes=shape["promotion_minutes"]) if slot.get("promotion_due") else timedelta())
+
+
+def ready_at(data: dict, job_id: str, moment: datetime) -> datetime | None:
+    """When a queued stage-test item should be ready to pull: now when it is, ci_minutes on when all that holds it is its own PRs' checks still running, None when it waits on anything else, which no row times."""
+    if STAGE.ready(data, job_id):
+        return moment
+    waits = STAGE.blocking(data, job_id)
+    if waits and all(wait in data["prs"] and data["prs"][wait]["checks"] == "pending" for wait in waits):
+        return moment + timedelta(minutes=cut_shape(data)["ci_minutes"])
+    return None
+
+
+def planned(data: dict, moment: datetime) -> dict[str, tuple[datetime, datetime]]:
+    """When each stage-test item's cut starts and ends: the cut on the env now keeps its lease; the rest are packed in queue order into cuts of cut_items each lasting cut_minutes from free_at, an item about to be ready, by ready_at, joining the first cut that starts after it is, never holding back a cut whose head is ready, so a cut fills with what will be ready by its start; an item no row times gets none."""
+    shape, slot = cut_shape(data), STAGE.slot(data)
+    plan = {member: (state.parse_time(slot["holder"]["since"]), state.parse_time(slot["holder"]["until"])) for member in state.slot_members(slot)} if STAGE.ours(data) else {}
+    queued = sorted((job_id for job_id, job in data["jobs"].items() if job_id not in plan and STAGE.queued(data, job)), key=lambda job_id: rank(data, job_id))
+    ready = {job_id: at for job_id in queued if (at := ready_at(data, job_id, moment))}
+    start, length = free_at(data, moment), timedelta(minutes=shape["cut_minutes"])
+    while ready:
+        if not (here := [job_id for job_id in queued if job_id in ready and ready[job_id] <= start]):
+            start = min(ready.values())
+            continue
+        first, riders = state.packed([STAGE.entry(data, job_id, moment) for job_id in here], shape["cut_items"])
+        for job_id in [first["job"], *(rider["job"] for rider in riders)]:
+            plan[job_id] = (start, start + length)
+            ready.pop(job_id)
+        start += length
+    return plan
+
+
+def scheduled(data: dict, moment: datetime) -> None:
+    """Keep each queued stage-test item's planned start and end on its row, and owe its ask's thread the start once, and again only when it moves by start_moves or more, by his question whether batching got lost: one step on the item's order, due BLOCKED_DUE on, telling the start and end; an item no row times keeps none."""
+    from drive import owing
+
+    plan, moves = planned(data, moment), timedelta(minutes=cut_shape(data)["start_moves"])
+    for job_id, job in data["jobs"].items():
+        if not STAGE.queued(data, job):
+            continue
+        if job_id not in plan:
+            job.update(starts_at=None, ends_at=None)
+            continue
+        starts, ends = plan[job_id]
+        job.update(starts_at=state.stamp(starts), ends_at=state.stamp(ends))
+        if job.get("start_said") and abs(state.parse_time(job["start_said"]) - starts) < moves or state.class_rank(data, job) == state.CLASSES.index("process"):
+            continue
+        job["start_said"] = state.stamp(starts)
+        order = data["orders"][job["order"]]
+        what = f"tell his thread the staging test of {', '.join(state.tested_prs(data, job))} starts about {when(job['starts_at'])} and should end by {when(job['ends_at'])}"
+        if held := owing.open_on(order, owing.STEP, {"start": job_id}):
+            held["what"] = what
+        else:
+            owing.add(data, job["order"], owing.STEP, what, moment + owing.BLOCKED_DUE, {"start": job_id}, f"{job_id}'s staging start", moment, job_id)
 
 
 def enabled(data: dict, kind: str) -> bool:
@@ -236,13 +297,13 @@ class StageTest(Kind):
         slot = self.slot(data)
         if held := slot["holder"]:
             holder = f"the queue's cut of {held['job']}" if held.get("work") else f"release {held['job']}"
-            return f"waits on {env(data)}, held by {holder} until {when(held['until'])}; the queue takes it next unless a release waits"
+            return f"waits on {env(data)}, held by {holder} until {when(held['until'])}; the next cut starts about {when(state.stamp(free_at(data, moment)))}"
         if not self.line(data):
             return f"no {self.name} item is ready"
         if train := state.train_waiting(data, env(data)):
-            return f"waits on {env(data)}: release {train[0]} goes first, the train between cuts; the queue takes it once that release ends"
+            return f"waits on {env(data)}: release {train[0]} goes first, the train between cuts; the next cut starts about {when(state.stamp(free_at(data, moment)))}"
         if slot.get("promotion_due"):
-            return f"waits on {env(data)}: its promotion skipped its last tick while staging was held, so the train goes first; the queue takes it once a tick promotes"
+            return f"waits on {env(data)}: its promotion skipped its last tick while staging was held, so the train goes first; the next cut starts about {when(state.stamp(free_at(data, moment)))}"
         return None
 
     def entry(self, data: dict, job_id: str, moment: datetime) -> dict:
@@ -259,7 +320,9 @@ class StageTest(Kind):
         return group, f"GO staging {env(data)} until {self.slot(data)['holder']['until']} for {', '.join(group)}, one cut carrying {prs}: {CUT_STEPS.format(env=env(data))}{f'; {steps}' if (steps := cut_shape(data)['cut_steps']) else ''}"
 
     def row(self, data: dict, job_id: str) -> str:
-        return f"{super().row(data, job_id)}; needs staging:{env(data)}; tests {', '.join(state.tested_prs(data, data['jobs'][job_id]))}"
+        job = data["jobs"][job_id]
+        timed = f"; starts about {when(job['starts_at'])}, ends by {when(job['ends_at'])}" if job.get("starts_at") else ""
+        return f"{super().row(data, job_id)}; needs staging:{env(data)}; tests {', '.join(state.tested_prs(data, job))}{timed}"
 
     def done(self, data: dict, job_id: str, line: str) -> None:
         """Give an item's place in the queue's cut back once its line is DONE."""

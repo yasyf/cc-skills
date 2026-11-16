@@ -5275,7 +5275,9 @@ def work_lines(watcher: Watcher, moment: datetime) -> list[str]:
         for job_id, (paths, stacks) in read.items():
             if paths is not None and stacks is not None:
                 data["jobs"][job_id]["work_reads"] = {"paths": paths, "stacks": stacks}
-        return work.spawned(data, moment)
+        spawned = work.spawned(data, moment)
+        work.scheduled(data, moment)
+        return spawned
 
     lines, workers = state.write(watcher.name, work_lines_write, budget=state.WATCH_WRITE_SECONDS)
     for worker_id in workers:

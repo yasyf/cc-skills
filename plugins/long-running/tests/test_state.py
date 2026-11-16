@@ -3196,3 +3196,27 @@ def test_his_staging_words_lift_a_test_only_within_15_minutes_of_his_message_by_
     assert state.stale_staging_word(link, said + timedelta(minutes=14)) is None
     assert "are 16 minutes old" in (state.stale_staging_word(link, said + timedelta(minutes=16)) or "")
     assert "no Slack message link" in (state.stale_staging_word("his words in the thread", said) or "")
+
+
+def test_the_queue_plans_each_items_cut_start_and_end_from_the_lease_end_packing_an_item_about_to_be_ready_into_the_first_cut_after_it_and_times_none_it_cannot(monkeypatch: pytest.MonkeyPatch) -> None:
+    moment = datetime(2026, 11, 16, 12, 0, tzinfo=UTC)
+    env = "plat-usw2-staging"
+    data = train_drive("m1", "q1", "q2", "q3", "q4", "q5", "w9")
+    data["slots"][env] = {"holder": state.leased({"job": "m1", "prs": [], "minutes": 20, "cases": None, "at": state.stamp(moment), "paths": None, "stacks": None, "starts": False}, moment - state.CLAIM_WAIT, []) | {"work": "w9"}}
+    ready = {"q1": moment, "q2": moment, "q3": moment, "q4": moment + timedelta(minutes=25), "q5": None}
+    monkeypatch.setattr(work, "env", lambda data: env)
+    monkeypatch.setattr(work, "cut_shape", lambda data: work.CUT_SHAPE | {"cut_items": 2})
+    monkeypatch.setattr(work, "ready_at", lambda data, job_id, moment: ready[job_id])
+    monkeypatch.setattr(work, "rank", lambda data, job_id: job_id)
+    monkeypatch.setattr(work.STAGE, "queued", lambda data, job: job in [data["jobs"][job_id] for job_id in ready])
+    monkeypatch.setattr(work.STAGE, "entry", lambda data, job_id, moment: {"job": job_id, "paths": [job_id], "stacks": [job_id]})
+    plan = work.planned(data, moment)
+    free = moment + timedelta(minutes=20)
+    assert work.free_at(data, moment) == free
+    assert plan == {
+        "m1": (moment - state.CLAIM_WAIT, free),
+        "q1": (free, free + timedelta(minutes=30)),
+        "q2": (free, free + timedelta(minutes=30)),
+        "q3": (free + timedelta(minutes=30), free + timedelta(minutes=60)),
+        "q4": (free + timedelta(minutes=30), free + timedelta(minutes=60)),
+    }

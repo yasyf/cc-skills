@@ -5281,11 +5281,15 @@ def slot_queue(args: argparse.Namespace) -> int:
     for env, slot in shown.items():
         held = slot["holder"]
         riding = "".join(", " + rider["job"] for rider in held["riders"]) if held else ""
-        said = (f"the work queue's cut of {held['job']}{riding}, run by {held['work']}" if held.get("work") else f"release {held['job']}") + f" until {held['until']}" if held else "free"
+        said = (f"the work queue's cut of {held['job']}{riding}, run by {held['work']}" if held.get("work") else f"release {held['job']}") + f" from {render.when(held['since'])} until {render.when(held['until'])}" if held else "free"
         lines.append(f"{env}: {said}")
         lines += [f"  train {place}. {job_id}, its release starts when {env} frees, before any new cut" for place, job_id in enumerate(state.train_waiting(data, env), 1)]
         lines += queue_items(data, env)
     return emit(args, "\n".join(lines) or "no staging env is held", {"slots": shown})
+
+
+def timed(job: dict) -> str:
+    return f", starts about {render.when(job['starts_at'])}, ends by {render.when(job['ends_at'])}" if job.get("starts_at") else ", no start time until what it waits on ends"
 
 
 def queue_items(data: dict, env: str) -> list[str]:
@@ -5294,7 +5298,7 @@ def queue_items(data: dict, env: str) -> list[str]:
     if env != work.env(data):
         return []
     items = sorted((job_id for job_id, job in data["jobs"].items() if kind.queued(data, job)), key=lambda job_id: work.rank(data, job_id))
-    return [f"  q{place}. {job_id} in the queue, {'ready to pull' if kind.ready(data, job_id) else 'waiting on ' + (', '.join(kind.blocking(data, job_id)) or data['jobs'][job_id]['state'])}" for place, job_id in enumerate(items, 1)]
+    return [f"  q{place}. {job_id} in the queue, {'ready to pull' if kind.ready(data, job_id) else 'waiting on ' + (', '.join(kind.blocking(data, job_id)) or data['jobs'][job_id]['state'])}{timed(data['jobs'][job_id])}" for place, job_id in enumerate(items, 1)]
 
 
 def job_held(args: argparse.Namespace) -> int:
