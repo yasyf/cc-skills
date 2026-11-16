@@ -17,6 +17,7 @@ VOICE_URL = "http://127.0.0.1:7378/voice"
 ENQUEUE_SECONDS = 2
 ROLE_PAGE = Path(__file__).resolve().parents[2] / "skills" / "long-running" / "reference" / "voice.md"
 PR_REF = re.compile(r"\{pr:(?:([\w.-]+/[\w.-]+)#)?#?(\d+)(?:\|([^{}]*))?\}")
+THREAD_OF = re.compile(r"[?&]thread_ts=(\d+\.\d+)")
 SEGMENTS = re.compile(r"(<[^<>]*>)")
 BARE_PR_LINK = re.compile(r"<https://github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)\|#\2>")
 BARE_NUMBER = re.compile(r"(?<![\w&/#])#(\d{3,})\b")
@@ -45,8 +46,9 @@ def send(drive: str, lane: dict, text: str) -> str:
     """lane.say's SENDER: queue one post in the lane's channel and thread with the role page beside it, and return QUEUED and its id."""
     body = {
         "lane": lane["id"],
+        "drive": drive,
         "channel_id": lane["channel"],
-        "thread_ts": lane.get("thread") or "",
+        "thread_ts": lane.get("thread") or asked_thread(lane),
         "text": linked(text, lane.get("prs") or []),
         "rules": str(ROLE_PAGE),
         "asked": "",
@@ -54,6 +56,14 @@ def send(drive: str, lane: dict, text: str) -> str:
     request = urllib.request.Request(VOICE_URL, json.dumps(body).encode(), {"Content-Type": "application/json", "X-Claude-Pid": str(os.getppid())})
     with urllib.request.urlopen(request, timeout=ENQUEUE_SECONDS) as answer:
         return f"QUEUED {json.load(answer)['id']}"
+
+
+def asked_thread(lane: dict) -> str:
+    """The thread a post of a lane with no thread of its own goes in: that of his newest ask, the thread his message sat in or the one under it, so the lane answers him where he asked, never at the channel's root; the root when he has asked nothing."""
+    if not (asks := [ask for ask in lane.get("asks") or [] if ask.get("ts") and f"/archives/{lane['channel']}/" in (ask.get("link") or "")]):
+        return ""
+    newest = max(asks, key=lambda ask: float(ask["ts"]))
+    return (found[1] if (found := THREAD_OF.search(newest.get("link") or "")) else None) or newest["ts"]
 
 
 def linked(text: str, prs: list[dict]) -> str:

@@ -20,6 +20,7 @@ def test_the_sender_queues_in_the_lane_channel_and_thread_and_returns_at_once(mo
             voice.VOICE_URL,
             {
                 "lane": "run-page",
+                "drive": "demo",
                 "channel_id": "C0RUNPAGE",
                 "thread_ts": "1794863488.099589",
                 "text": "Right, v3 doesn't need the conversion.",
@@ -85,3 +86,16 @@ def test_his_message_reaches_its_lane_by_thread_and_every_lane_in_the_channel_wh
     assert voice.heard("D0DM", None, 'tapped "Approve"', "https://x/p1", "9.5") == "no lane holds D0DM; his presence is kept"
     assert present == [("demo", [{"ts": "9.5", "link": "https://x/p1"}])]
     assert heard == [("run-page", "9.9"), ("v3-b", "9.8"), ("v3-a", "9.7"), ("v3-b", "9.7"), ("v3-a", "9.6"), ("v3-b", "9.6")]
+
+
+@pytest.mark.parametrize(
+    ("asks", "thread"),
+    [
+        ([], ""),
+        ([{"ts": "1794870764.063919", "link": "https://x.slack.com/archives/C1/p1794870764063919"}], "1794870764.063919"),
+        ([{"ts": "1794870764.063919", "link": "https://x.slack.com/archives/D9/p1794870764063919"}], ""),
+        ([{"ts": "1.1", "link": "l"}, {"ts": "1794871000.000100", "link": "https://x.slack.com/archives/C1/p1794871000000100?thread_ts=1794851267.832189&cid=C1"}], "1794851267.832189"),
+    ],
+)
+def test_a_lane_with_no_thread_answers_in_the_thread_of_his_newest_ask(asks: list[dict], thread: str) -> None:
+    assert voice.asked_thread({"channel": "C1", "asks": asks}) == thread
