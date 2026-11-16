@@ -10,7 +10,6 @@ import sys
 import tempfile
 import threading
 import unittest
-from collections.abc import Iterator
 from dataclasses import replace
 from importlib.machinery import SourceFileLoader
 from pathlib import Path
@@ -89,8 +88,8 @@ class FakeOrca(orca_gc.Orca):
         self.paired: dict[str, orca_gc.Checkout | str] = {}
         self.gone: set[str] = set()
 
-    def environments(self) -> set[str]:
-        return {orca_gc.Worker.of(r).environment for r in self.rows} - self.gone
+    def environments(self) -> dict[str, str]:
+        return {environment: SPRITE.workspace if environment == SPRITE.environment else environment for r in self.rows if (environment := orca_gc.Worker.of(r).environment) not in self.gone}
 
     def workers(self, run: str) -> list:
         return [orca_gc.Worker.of(r) for r in self.rows]
@@ -180,8 +179,8 @@ class FakeCcRemote(orca_gc.CcRemote):
         self.refusal = refusal
         self.destroyed: list[str] = []
 
-    def recorded(self) -> Iterator[tuple[dict, orca_gc.Sprite]]:
-        return (({"worktreeId": worktree, "terminal": terminal}, sprite) for (worktree, terminal), sprite in self.hosted.items())
+    def task(self, workspace: str) -> tuple[dict, orca_gc.Sprite] | None:
+        return next((({"worktreeId": worktree, "terminal": terminal}, sprite) for (worktree, terminal), sprite in self.hosted.items() if sprite.workspace == workspace), None)
 
     def checkout(self, sprite: orca_gc.Sprite) -> orca_gc.Checkout | str:
         return self.checkouts.get(sprite.workspace, checkout(sprite.root))
@@ -194,6 +193,14 @@ class FakeCcRemote(orca_gc.CcRemote):
         return self.refusal
 
 
+class StateCcRemote(FakeCcRemote):
+    task = orca_gc.CcRemote.task
+
+    def __init__(self, state: Path):
+        super().__init__()
+        self.state = state
+
+
 def sprite_row(dispatch: str, status: str = "completed") -> dict:
     return {
         "dispatchId": dispatch,
@@ -201,7 +208,7 @@ def sprite_row(dispatch: str, status: str = "completed") -> dict:
         "terminalState": "retained",
         "agentTerminalHandle": "term_sprite",
         "resource": None,
-        "projection": {"workspace": {"id": SPRITE_WT}},
+        "projection": {"host": {"kind": "remote", "id": SPRITE.environment}, "workspace": {"id": SPRITE_WT}},
     }
 
 
@@ -927,12 +934,12 @@ class GoneEnvironmentTest(unittest.TestCase):
 
 
 class ReplayOrca(orca_gc.Orca):
-    def __init__(self, rows: list[dict], stopped: dict, environments: list[str]):
+    def __init__(self, rows: list[dict], stopped: dict, environments: dict[str, str]):
         self.replies = {
             ("orchestration", "worker-stop"): stopped,
             ("orchestration", "worker-abandon"): {"ok": True, "result": {"state": "succeeded", "alreadySettled": True, "stale": True, "processAction": "none"}},
             ("orchestration", "worker-list"): {"ok": True, "result": {"workers": rows, "page": {"nextCursor": None}}},
-            ("environment", "list"): {"ok": True, "result": {"environments": [{"id": environment} for environment in environments]}},
+            ("environment", "list"): {"ok": True, "result": {"environments": [{"id": environment, "name": name} for environment, name in environments.items()]}},
         }
         self.argv: list[tuple[str, ...]] = []
 
@@ -960,7 +967,7 @@ class DriveJobEndReplayTest(unittest.TestCase):
         environment = "abf89aaa-11e3-4c94-8799-74060414425e"
         for code in (orca_gc.FENCED, orca_gc.RUNTIME_DOWN):
             with self.subTest(worker_stop=code):
-                orca = ReplayOrca([lane_row("ctx_002cc4a9b8f2", environment, "repo_rujtq7::/home/sprite/monorepo")], {"ok": False, "error": {"code": code}}, ["6a2bfa8d"])
+                orca = ReplayOrca([lane_row("ctx_002cc4a9b8f2", environment, "repo_rujtq7::/home/sprite/monorepo")], {"ok": False, "error": {"code": code}}, {"6a2bfa8d": "pool-other"})
                 tally, out = run_gc(orca, FakeGit({}), done=frozenset({"ctx_002cc4a9b8f2"}))
                 self.assertEqual(orca.argv, [("orchestration", "worker-stop"), ("orchestration", "worker-abandon"), ("orchestration", "worker-list"), ("environment", "list")])
                 self.assertEqual(tally["gone"], 1)
@@ -970,9 +977,9 @@ class DriveJobEndReplayTest(unittest.TestCase):
         environment, workspace = "7c6dc03e-8cd9-401b-ade6-a7bdd971f416", "repo_wlzp6j::/home/sprite/monorepo"
         sprite = orca_gc.Sprite("pool-wlzp6jtjnwsujvxo", "pool-wlzp6jtjnwsujvxo", "/s/ssh/pool-wlzp6jtjnwsujvxo.ssh", "/home/sprite/monorepo", environment)
         cc_remote = FakeCcRemote({(workspace, "term_ctx_j1391"): sprite})
-        orca = ReplayOrca([lane_row("ctx_j1391", environment, workspace)], {"ok": True, "result": {"state": "succeeded", "alreadySettled": True, "processAction": "none"}}, [])
+        orca = ReplayOrca([lane_row("ctx_j1391", environment, workspace)], {"ok": True, "result": {"state": "succeeded", "alreadySettled": True, "processAction": "none"}}, {environment: sprite.workspace})
         tally, out = run_gc(orca, FakeGit({}), done=frozenset({"ctx_j1391"}), cc_remote=cc_remote)
-        self.assertEqual((orca.argv, cc_remote.destroyed), ([("orchestration", "worker-stop"), ("orchestration", "worker-list")], ["pool-wlzp6jtjnwsujvxo"]))
+        self.assertEqual((orca.argv, cc_remote.destroyed), ([("orchestration", "worker-stop"), ("orchestration", "worker-list"), ("environment", "list")], ["pool-wlzp6jtjnwsujvxo"]))
         self.assertEqual(out, "stopped ctx_j1391 succeeded\ndestroyed pool-wlzp6jtjnwsujvxo dispatch ctx_j1391\n")
 
 
@@ -999,14 +1006,13 @@ class SpriteTest(unittest.TestCase):
         self.assertNotIn("destroyed", tally)
 
     def test_an_earlier_dispatch_on_a_live_sprite_never_reaches_worktree_rm_on_its_checkout(self):
-        remote_row = {**sprite_row("ctx_s"), "projection": {"host": {"kind": "remote", "id": SPRITE.environment}, "workspace": {"id": SPRITE_WT}}}
-        orca, cc_remote = FakeOrca([remote_row]), FakeCcRemote({(SPRITE_WT, "term_other"): SPRITE})
+        orca, cc_remote = FakeOrca([sprite_row("ctx_s")]), FakeCcRemote({(SPRITE_WT, "term_other"): SPRITE})
         orca.paired[SPRITE.root] = checkout(SPRITE.root, environment=SPRITE.environment)
         tally, out = run_gc(orca, FakeGit({}), cc_remote=cc_remote)
         self.assertEqual((orca.calls, cc_remote.destroyed), ([("close", "term_sprite", SPRITE.environment)], []))
         self.assertNotIn(SPRITE.root, out)
 
-    def test_a_sprite_task_saved_before_its_worker_terminal_is_skipped_by_a_pass_yet_found_by_its_workspace(self):
+    def test_a_sprite_task_saved_before_its_worker_terminal_is_found_by_its_workspace(self):
         saved = {"schemaVersion": 1, "provider": "sprites", "workspace": "pool-new", "projectRoot": SPRITE.root, "environmentId": "env_new", "forward": {"host": "pool-new", "config": "/s/ssh/pool-new.ssh"}, "worktreeId": None, "terminal": None}
         attached = {**saved, "workspace": "pool-abc", "environmentId": "env_abc", "forward": {"host": "pool-abc", "config": "/s/ssh/pool-abc.ssh"}, "worktreeId": SPRITE_WT, "terminal": "term_sprite"}
         with tempfile.TemporaryDirectory() as state:
@@ -1016,10 +1022,9 @@ class SpriteTest(unittest.TestCase):
                     path.parent.mkdir(exist_ok=True)
                     path.write_text(json.dumps(task))
             cc_remote = orca_gc.CcRemote(Path(state))
-            self.assertEqual(cc_remote.sprites(), self.hosted)
             self.assertEqual((cc_remote.sprite("pool-new"), cc_remote.sprite("pool-abc"), cc_remote.sprite("pool-gone")), (orca_gc.Sprite("pool-new", "pool-new", "/s/ssh/pool-new.ssh", SPRITE.root, "env_new"), SPRITE, None))
 
-    def test_a_sprite_still_being_created_or_a_record_deleted_mid_scan_is_no_lane_to_reclaim(self):
+    def test_a_sprite_still_being_created_or_a_record_deleted_as_it_is_read_is_no_lane_to_reclaim(self):
         creating = {"schemaVersion": 1, "provider": "sprites", "workspace": "pool-creating", "projectRoot": SPRITE.root, "forward": {"host": "pool-creating", "config": "/s/ssh/pool-creating.ssh"}, "worktreeId": SPRITE_WT, "terminal": "term_creating"}
         attached = {**creating, "workspace": "pool-abc", "environmentId": "env_abc", "forward": {"host": "pool-abc", "config": "/s/ssh/pool-abc.ssh"}, "terminal": "term_sprite"}
         with tempfile.TemporaryDirectory() as state:
@@ -1030,8 +1035,8 @@ class SpriteTest(unittest.TestCase):
                     path.write_text(json.dumps(task))
             (Path(state) / "orca" / "pool-deleted.json").symlink_to(Path(state) / "deleted.json")
             cc_remote = orca_gc.CcRemote(Path(state))
-            self.assertEqual(cc_remote.sprites(), self.hosted)
-            self.assertIsNone(cc_remote.sprite("pool-creating"))
+            self.assertEqual(cc_remote.task("pool-abc"), (attached, SPRITE))
+            self.assertEqual((cc_remote.sprite("pool-creating"), cc_remote.sprite("pool-deleted")), (None, None))
 
     def test_uncommitted_work_keeps_the_sprite(self):
         cc_remote = FakeCcRemote(self.hosted, {"pool-abc": checkout(SPRITE.root, dirty=True)})
@@ -1106,7 +1111,7 @@ class SpriteTest(unittest.TestCase):
         self.assertEqual((cc_remote.destroyed, orca.calls), ([], []))
         self.assertIn("would destroy pool-abc dispatch ctx_s", out)
 
-    def test_task_records_tie_a_recorded_sprite_workspace_to_its_orca_worktree_and_terminal(self):
+    def test_a_task_record_names_a_sprite_only_for_a_sprites_provider_and_a_workspace_still_recorded(self):
         with tempfile.TemporaryDirectory() as root:
             state = Path(root)
             (state / "orca").mkdir()
@@ -1124,8 +1129,35 @@ class SpriteTest(unittest.TestCase):
             task("namespace", provider="namespace")
             (state / "workspaces" / "namespace.json").write_text("{}")
             (state / "orca" / "live.json.lock").write_text("")
-            sprites = orca_gc.CcRemote(state).sprites()
-        self.assertEqual(sprites, {("repo_live::/home/sprite/repo", "term_live"): orca_gc.Sprite("live", "live", "/s/ssh/live.ssh", "/home/sprite/repo", "env_live")})
+            cc_remote = orca_gc.CcRemote(state)
+            found = {name: cc_remote.sprite(name) for name in ("live", "destroyed", "namespace", "unrecorded")}
+        self.assertEqual(found, {"live": orca_gc.Sprite("live", "live", "/s/ssh/live.ssh", "/home/sprite/repo", "env_live"), "destroyed": None, "namespace": None, "unrecorded": None})
+
+    def test_a_pass_reads_only_the_task_record_of_each_finished_sprite_worker_however_many_cc_remote_keeps(self):
+        one = ({"destroyed": 1}, [SPRITE.workspace], [f"orca/{SPRITE.workspace}.json"])
+        self.assertEqual((self.pass_beside(0), self.pass_beside(100)), (one, one))
+
+    def pass_beside(self, others: int) -> tuple[dict, list[str], list[str]]:
+        read_text = Path.read_text
+        with tempfile.TemporaryDirectory() as root:
+            state = Path(root)
+            (state / "orca").mkdir()
+            (state / "workspaces").mkdir()
+            for name, environment, worktree, terminal in [(SPRITE.workspace, SPRITE.environment, SPRITE_WT, "term_sprite"), *((f"pool-{n}", f"env_{n}", f"repo_{n}::{SPRITE.root}", f"term_{n}") for n in range(others))]:
+                record = {"schemaVersion": 1, "provider": "sprites", "workspace": name, "projectRoot": SPRITE.root, "environmentId": environment, "worktreeId": worktree, "terminal": terminal, "forward": {"host": name, "config": f"/s/ssh/{name}.ssh"}}
+                (state / "orca" / f"{name}.json").write_text(json.dumps(record))
+                (state / "workspaces" / f"{name}.json").write_text("{}")
+            cc_remote = StateCcRemote(state)
+            reads: list[str] = []
+
+            def counted(path: Path, *args, **kwargs) -> str:
+                if path.is_relative_to(state):
+                    reads.append(str(path.relative_to(state)))
+                return read_text(path, *args, **kwargs)
+
+            with mock.patch.object(Path, "read_text", counted):
+                tally, _ = run_gc(FakeOrca([sprite_row("ctx_s")]), FakeGit({}), cc_remote=cc_remote)
+        return tally, cc_remote.destroyed, reads
 
 
 def git_in(cwd: Path, *args: str) -> str:
@@ -1465,8 +1497,8 @@ class LocalSprite(orca_gc.CcRemote):
         self.local = replace(SPRITE, root=str(root))
         self.destroyed: list[str] = []
 
-    def recorded(self) -> Iterator[tuple[dict, orca_gc.Sprite]]:
-        yield {"worktreeId": SPRITE_WT, "terminal": "term_sprite"}, self.local
+    def task(self, workspace: str) -> tuple[dict, orca_gc.Sprite] | None:
+        return ({"worktreeId": SPRITE_WT, "terminal": "term_sprite"}, self.local) if workspace == self.local.workspace else None
 
     def ssh(self, sprite: orca_gc.Sprite, script: str, given: str | None = None) -> subprocess.CompletedProcess[str]:
         return subprocess.run(["sh", "-c", script], input=given, capture_output=True, text=True)
