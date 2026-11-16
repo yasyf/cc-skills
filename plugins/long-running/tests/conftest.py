@@ -77,6 +77,7 @@ REAL_SESSION_OF = orca.session_of
 REAL_SESSION_TERMINALS = orca.session_terminals
 REAL_SPRITES = orca.sprites
 REAL_MARK_READ = orca.mark_read
+REAL_UNREAD_RUNS = orca.unread_runs
 SILENT_SPRITE = "ssh exited 255: Connection timed out during banner exchange"
 REAL_KEEP_TRANSCRIPTS = orca.keep_transcripts
 REAL_SPRITE_API = orca.sprite_api
@@ -402,6 +403,20 @@ RESTACK = restack.restack
 
 
 @pytest.fixture(autouse=True)
+def seats_end_in_memory(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
+    """No test ends a real cci alias, Claude session or tmux session when the watch retires a priority seat; each end is kept for a test to read."""
+    ended: list[tuple[str, str]] = []
+    monkeypatch.setattr(watch, "seat_ended", lambda alias, session: ended.append((alias, session)))
+    return ended
+
+
+@pytest.fixture(autouse=True)
+def live_read_at_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every test's release live read runs in its own call, never in the watch process's shared background copy."""
+    monkeypatch.setattr(watch, "LIVE_SHARED", False)
+
+
+@pytest.fixture(autouse=True)
 def hands_off_at_once(monkeypatch: pytest.MonkeyPatch) -> None:
     """Every watch ends for a newer install at its first pass boundary, never waiting out HAND_OFF_EVERY, outside the test of that wait."""
     monkeypatch.setattr(watch, "HAND_OFF_EVERY", timedelta(0))
@@ -466,6 +481,7 @@ def marked_read(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     """Each Run whose lane mail the watch marked read, in turn; a test of the mark itself calls REAL_MARK_READ."""
     marked: list[str] = []
     monkeypatch.setattr(orca, "mark_read", lambda drive, run: marked.append(run))
+    monkeypatch.setattr(orca, "unread_runs", list)
     return marked
 
 
@@ -627,20 +643,6 @@ def trunk_queue(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
 
 
 @pytest.fixture(autouse=True)
-def posts_to_communicator(monkeypatch: pytest.MonkeyPatch) -> list[str]:
-    """The seq of each `POST` report to the communicator cci holds, each read from the drive's mark on, the drive's read starting at 0, each taken long before any batch window closes and naming no thread."""
-    kept: list[str] = []
-
-    def read(name: str, since: int) -> tuple[list[tuple[str, datetime, str | None]], int]:
-        seqs = [seq for seq in dict.fromkeys(kept) if int(seq) > since]
-        return [(seq, datetime(2026, 1, 1, tzinfo=UTC), None) for seq in seqs], max(map(int, seqs), default=since)
-
-    monkeypatch.setattr(agents, "posts", read)
-    monkeypatch.setattr(agents, "seeded", lambda name: 0)
-    return kept
-
-
-@pytest.fixture(autouse=True)
 def ended_sessions(monkeypatch: pytest.MonkeyPatch) -> set[str]:
     ended: set[str] = set()
     monkeypatch.setattr(agents, "gone", lambda entry: entry["session"] in ended)
@@ -705,18 +707,15 @@ def unopened_links(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
 
 
 REAL_ANSWER = answer.answer
-REAL_ASKED_LINES = watch.asked_lines
 
 
 @pytest.fixture(autouse=True)
 def unanswered(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The drive's own answer of his message escalates, the watch reads each owed message as claimed, no report is the drive's own to write, and every order's thread is owed lines on news, unless a test says otherwise, so no test calls a model, adds eyes in Slack or detaches an answer."""
+    """The drive's own answer of his message escalates and the watch reads each owed message as claimed, unless a test says otherwise, so no test calls a model, adds eyes in Slack or detaches an answer."""
     monkeypatch.setattr(answer, "answer", lambda name, link, words, dry_run=False: {"answered": None, "why": "escalated in tests"})
     monkeypatch.setattr(answer, "claim_path", lambda name, ts: Path(__file__))
-    monkeypatch.setattr(answer, "scripted", lambda record: False)
     monkeypatch.setattr(route, "owed_ts", lambda data: set())
     monkeypatch.setattr(route, "on_it", lambda name, link, words, thread: {"on_it": "escalated in tests"})
-    monkeypatch.setattr(watch, "asked_lines", lambda order: True)
 
 
 @pytest.fixture(autouse=True)
@@ -1092,6 +1091,14 @@ class SessionLaunches:
 
 
 @pytest.fixture(autouse=True)
+def channels_opened(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """No drive start makes a Slack channel: each drive it would make its own channel for is listed."""
+    opened: list[str] = []
+    monkeypatch.setattr(cli, "channel_opened", lambda name, data: opened.append(name) or "")
+    return opened
+
+
+@pytest.fixture(autouse=True)
 def session_launches(monkeypatch: pytest.MonkeyPatch) -> SessionLaunches:
     launches = SessionLaunches()
 
@@ -1410,7 +1417,7 @@ def code_lines(code: str) -> str:
 def jev(monkeypatch: pytest.MonkeyPatch) -> Jev:
     judged = Jev()
 
-    def answered(state: dict, questions: dict[str, settled.Noul | settled.Pick], seconds: float = settled.DECIDE_SECONDS) -> dict[str, float | str]:
+    def answered(state: dict, questions: dict[str, settled.Noul | settled.Pick], seconds: float = settled.DECIDE_SECONDS, caller: str | None = None) -> dict[str, float | str]:
         if settled.ASKS_PAGE in questions.values():
             judged.read_for_pages.append(state["order"])
             return {key: judged.paged for key in questions}

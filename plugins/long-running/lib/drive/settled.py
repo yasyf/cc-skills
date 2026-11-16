@@ -570,10 +570,12 @@ def note_cards(name: str) -> None:
         if (closed := question["closed"]) and closed["how"] == "answered" and closed["words"] and not (closed["answer"] or closed["ruling"] or closed["noted"]) and (question["card"] or question["waits"] or closed["seq"])
         and closed["words"] != "\n".join(dict.fromkeys(answer["words"] for answer in question["recorded"]))
     ]
-    with state.edit(name) as data:
+    def note_cards_write(data: dict):
         for job_id, question, answer_id in noted:
             state.question_in(data["jobs"][job_id], question)["closed"]["noted"] = answer_id
         data[state.CARDS_NOTED] = True
+
+    state.update(name, None, note_cards_write)
 
 
 def supersede(pick: str, answer_id: str, cwd: str) -> None:
@@ -1515,13 +1517,13 @@ def jev_key() -> str:
     return api_key(Provider("jev", MODEL), timeout=DECIDE_SECONDS)
 
 
-def jev(state: dict, questions: dict[str, Noul | Pick], seconds: float = DECIDE_SECONDS) -> dict[str, float | str]:
+def jev(state: dict, questions: dict[str, Noul | Pick], seconds: float = DECIDE_SECONDS, caller: str | None = None) -> dict[str, float | str]:
     """Jev's probability of yes for each Noul about the state, and the option it picks for each Pick, by question id, in one request to MODEL on the keep-alive client every question of the process shares, the key's read and the answer both within the seconds given, as TypeSafe's docs say to ask: named-field state, one judgment a question, the decision in code; Unheard when none came, Jev declining any of them included, since a failed call is never a no. spawnllm is imported on the first question, so a hook or verb that asks none never loads it."""
     import httpx
     from spawnllm import Binary, BinaryAnswer, DecideError, DecideKeyMissing, Label, LabelAnswer, Provider, decide_sync
 
     deadline = time.monotonic() + seconds
-    sized(state, questions)
+    sized(state, questions, caller or sys._getframe(1).f_code.co_name)
     try:
         token = jev_key()
         decision = decide_sync(state, {key: Label(*question) if isinstance(question, Pick) else Binary(*question) for key, question in questions.items()}, provider=Provider("jev", MODEL), timeout=deadline - time.monotonic(), api_key=token)
@@ -1535,9 +1537,8 @@ def jev(state: dict, questions: dict[str, Noul | Pick], seconds: float = DECIDE_
 JEV_SIZES = "jev-sizes.jsonl"
 
 
-def sized(request: dict, questions: dict[str, Noul | Pick]) -> None:
+def sized(request: dict, questions: dict[str, Noul | Pick], caller: str) -> None:
     """Keep the size of one Jev request, in characters, beside the call site it serves and its question keys, so each call's input can be read as p50 and max against its contract."""
-    caller = sys._getframe(2).f_code.co_name
     with (state.root() / JEV_SIZES).open("a") as out:
         out.write(json.dumps({"at": state.stamp(), "caller": caller, "chars": size(request, questions), "keys": sorted(questions)[:6]}) + "\n")
 
@@ -1573,24 +1574,13 @@ def asking(noul: Noul, **slots: object) -> Noul:
     return noul._replace(ask=noul.ask.format(**slots))
 
 
-def fill(state: dict, questions: dict[str, Noul | Pick], items: Iterable[tuple[dict, dict[str, Noul]]], chars: int = REQUEST_CHARS) -> tuple[dict, dict[str, Noul | Pick], list[tuple[dict, dict[str, Noul]]]]:
-    """The request holding the state and questions given, then each item's state and questions, whole, in turn, while the request stays within the characters given, REQUEST_CHARS unless less, by his words "jev should be getting like 10k chars at most for any call": an item with no room is left out whole, never cut, and a later smaller one still goes in; beside it, the items left out."""
-    left: list[tuple[dict, dict[str, Noul]]] = []
-    for part, asked in items:
-        merged = joined(state, part)
-        if size(merged, questions | asked) > chars:
-            left.append((part, asked))
-            continue
-        state, questions = merged, questions | asked
-    return state, questions, left
-
-
 def jev_all(requests: list[tuple[dict, dict[str, Noul]]]) -> dict[str, float]:
     """Jev's reads of every request asking anything, at once, merged by question id; Unheard when any one gives none."""
     if not (asking := [request for request in requests if request[1]]):
         return {}
     with ThreadPoolExecutor(len(asking)) as pool:
-        return {key: sure for read in pool.map(lambda request: jev(*request), asking) for key, sure in read.items()}
+        caller = sys._getframe(1).f_code.co_name
+        return {key: sure for read in pool.map(lambda request: jev(*request, caller=caller), asking) for key, sure in read.items()}
 
 
 def joined(state: dict, part: dict) -> dict:
@@ -1628,11 +1618,6 @@ FACT = Noul(
     "Does `post.sentences.{index}` state a fact about code, a number or a state of work, which stands only on a read, beyond what `claims` say, such as an only, every or never no claim says?",
     no="It tells the handler's own act, when its next line is due, his words quoted back, the title a PR or card link draws, or a time `post.stamps` lists; or each fact in it is one `claims` say, such as a lead line summing up the claims under it.",
 )
-CARD = Noul(
-    "He asked `card.asked` under the card for `card.title`, and `post.written` answers him. Does answering him take what `card.title` names, its mechanism or a coined name for it, while `post.written` leaves a term of it with no clause saying what it is and why the change needs it?",
-    yes="His question turns on what the card's change does, and the post leaves a term of the title, such as a mark, queue, lease or gate it names, unexplained.",
-    no="The post says in a clause what each term of the title is and why the change needs it, his question does not turn on what the change does, such as when it ships or whether it merged, or the title holds only words anyone reads.",
-)
 SCOPE = Noul(
     "`post.written` goes in a thread of his DM about one piece of his work. Does it tell him of the whole drive's work, such as how many question cards, Approve cards or taps are open across his DM, his whole queue, or other projects' work?",
     yes="It counts, lists or ranks what waits on him across the drive, his DM or the dashboard's queue, such as 143 question cards open in his DM or the queue's first four cards.",
@@ -1663,27 +1648,31 @@ def weighed(request: dict) -> dict:
 
 
 def refusal_verdict(rule: str, call: dict, findings: list[dict], seconds: float = REFUSAL_SECONDS) -> dict:
-    """Whether a drive check's refusal stands, by one Noul over the rule it names and the call, the call's input filled whole field by field: it holds at YES or more and in the band between NO and YES, since a call the rule may stop waits, and passes under NO, as a match its rule never meant; when Jev cannot finish within the seconds given, REFUSAL_SECONDS at most, the call goes ahead with a warning saying so and naming each of the check's findings, never the refusal's words, which would tell the session the call never ran."""
-    fields = (({"call": {"input": {key: value}}}, {}) for key, value in call["input"].items())
-    told, _, _ = fill({"rule": rule, "call": {"tool": call["tool"], "input": {}}}, {"protects": PROTECTS}, fields)
+    """Whether a drive check's refusal stands, by one Noul per finding over the rule it names, the call's tool and what the check found in it, each request a few hundred characters by design and never the call's whole input: it holds at YES or more and in the band between NO and YES, since a call the rule may stop waits, and passes under NO, as a match its rule never meant; when Jev cannot finish within the seconds given, REFUSAL_SECONDS at most, the call goes ahead with a warning saying so and naming each of the check's findings, never the refusal's words, which would tell the session the call never ran."""
+    found = [finding["found"] for finding in findings] or [rule]
+    asks = [({"rule": rule, "call": {"tool": call["tool"], "found": cut(each, QUOTED_CHARS)}}, {f"f{number}.protects": PROTECTS}) for number, each in enumerate(found, 1)]
     try:
-        protects = reading(jev(told, {"protects": PROTECTS}, seconds)["protects"])
+        with ThreadPoolExecutor(len(asks)) as pool:
+            reads = {key: sure for read in pool.map(lambda request: jev(*request, seconds, caller="refusal_verdict"), asks) for key, sure in read.items()}
     except Unheard as failure:
         return {"verdict": "warn", "note": f"This call goes ahead: Jev gave no verdict ({failure}) on whether it is what the refusal's rule protects against, so what the check found only warns:{warned(findings)}"}
-    if protects is None:
+    protects = [reading(sure) for sure in reads.values()]
+    if True in protects:
+        return {"verdict": "hold", "note": ""}
+    if None in protects:
         return {"verdict": "hold", "note": "Jev is unsure whether this call is what its rule protects against, so the refusal stands."}
-    return {"verdict": "hold" if protects else "pass", "note": ""}
+    return {"verdict": "pass", "note": ""}
 
 
 def post_verdict(output: dict, seconds: float = DECIDE_SECONDS) -> dict:
-    """Whether a post the drive's checks hand with his words goes out, by the requests `requests` packs, asked of Jev at once, every item Jev cannot weigh the post without whole in one of them, a read too long for one request by whole lines across several: it holds only for a claim whose read matched none of the handler's calls, which needs no Jev, since a read the handler never made backs nothing; every other post goes out as written, beside a warning naming what Jev reads as wrong in it, to reword in place: a claim whose read, or each part of it, and the drive's line for each PR it names are all under BACKS, a claim saying only, every, no or never of a set whose read reads one member rather than what decides every member at YES, a sentence no claim holds whole that states a fact beyond the claims at YES, a post answering his question under a card while leaving a term of the card's first line it turns on unexplained at YES, a post in a thread of his DM holding orders that tells him of the whole drive's work at YES, and a finding Jev reads neither as a match its rule never meant, under NO, nor as lifted by his words, at YES, or that had no room among them; any Noul in the band between is named as unsure, as is an order, PR or card `cli.thread_strays` finds outside that thread's work. A warning says first that the post went out, never in a refusal's words. When Jev cannot finish, the post goes out with the checks' findings as warnings, by `unheard_post`."""
+    """Whether a post the drive's checks hand with his words goes out, by the requests `requests` packs, asked of Jev at once, every item Jev cannot weigh the post without whole in one of them, a read too long for one request by whole lines across several: it holds only for a claim whose read matched none of the handler's calls, which needs no Jev, since a read the handler never made backs nothing; every other post goes out as written, beside a warning naming what Jev reads as wrong in it, to reword in place: a claim whose read, or each part of it, and the drive's line for each PR it names are all under BACKS, a claim saying only, every, no or never of a set whose read reads one member rather than what decides every member at YES, a sentence no claim holds whole that states a fact beyond the claims at YES, a post in a thread of his DM holding orders that tells him of the whole drive's work at YES, and a finding Jev reads neither as a match its rule never meant, under NO, nor as lifted by his words, at YES, or that had no room among them; any Noul in the band between is named as unsure, as is an order, PR or card `cli.thread_strays` finds outside that thread's work. A warning says first that the post went out, never in a refusal's words. When Jev cannot finish, the post goes out with the checks' findings as warnings, by `unheard_post`."""
     reason = refusal_reason(output)
     reads = {item["id"]: item for item in output.get("reads") or []}
     claims = output["post"].get("claims") or []
     asks = requests(output)
     try:
         with ThreadPoolExecutor(len(asks) or 1) as pool:
-            read = {key: sure for answer in pool.map(lambda request: jev(*request, seconds), asks) for key, sure in answer.items()}
+            read = {key: sure for answer in pool.map(lambda request: jev(*request, seconds, caller="post_verdict"), asks) for key, sure in answer.items()}
     except Unheard as failure:
         return unheard_post(output, str(failure))
     if held := unmatched_claims(output):
@@ -1710,11 +1699,6 @@ def post_verdict(output: dict, seconds: float = DECIDE_SECONDS) -> dict:
             found.append(f'"{sentence}" states a fact no claim holds whole')
         elif fact is None:
             unsure.append(f'sentence "{sentence}"')
-    if card := output.get("thread_card"):
-        if (unexplained := reading(read["card"])) is True:
-            found.append(f'it leaves a term of the card "{card["title"]}", which his question turns on, unexplained')
-        elif unexplained is None:
-            unsure.append(f'the terms of the card "{card["title"]}" his question is under')
     if (scope := output.get("thread_scope")) and reading(read.get("wider")) is not True:
         if scope["strays"]:
             unsure.append(f"whether {', '.join(scope['strays'])}, which the thread's work as the drive draws it does not hold, belongs in this thread")
@@ -1764,7 +1748,6 @@ def asked(output: dict) -> tuple[dict, list[tuple[str, tuple[dict, dict[str, Nou
             (f'sentence "{sentence}"', ({"post": {"sentences": {str(index): sentence}} | stamps, "claims": {f"c{number}": {"claim": claim["claim"]} for number, claim in enumerate(post.get("claims") or [], 1)}}, {f"s{index}.fact": asking(FACT, index=index)}))
             for index, sentence in uncovered(output)
         ),
-        *((f'the card "{card["title"]}" his question is under', (base | {"card": {"asked": card["asked"], "title": card["title"]}}, {"card": CARD})) for card in [output.get("thread_card")] if card),
         *([("his words in the thread it goes in", scoped)] if scoped and size(*scoped) <= REQUEST_CHARS else []),
     ]
     rest = [
@@ -1788,7 +1771,7 @@ def requests(output: dict) -> list[tuple[dict, dict[str, Noul]]]:
                 break
         else:
             packed.append(item)
-    return [request for request in [*packed, fill(base, {}, rest)[:2]] if request[1]]
+    return [*packed, *((joined(base, part), asked) for part, asked in rest if asked)]
 
 
 def refusal_reason(output: dict) -> str:

@@ -13,8 +13,7 @@ Contents:
 
 - **Owner.** A job is the coordinator's, with two exceptions. A drive tooling order's reader,
   designer and builder are the meta session's, started under its own "Drive tooling:" order by
-  [meta.md](meta.md). The reader of his read-only question is the communicator's:
-  `drive handler --answer` adds the `answer` order and its reader job, the handler its agent. A
+  [meta.md](meta.md). The reader of his read-only question is the communicator's. A
   coordinator order whose builder serves drive tooling moves to the meta session when
   `drive job brief <j> --serves "drive tooling"` writes that brief. From then on the meta session
   starts its agents and posts its reports, and the watch sends it the order's lines. The coordinator
@@ -28,16 +27,15 @@ Contents:
   job.
 - **Caps.** `caps.json` under the drive's state root is read at each start, so a change holds at
   once. Its defaults are `{"local": 12, "sprite": 30, "handlers": 8, "load_per_core": 1,
-  "free_memory": 15}`. At most `local` Claude lanes of any role work here at once, `handlers`
-  handler sessions in a pool of their own, and `sprite` lanes on Sprites. No new local lane starts
+  "free_memory": 15}`. At most `local` Claude lanes of any role work here at once and `sprite` lanes on Sprites;
+  `handlers` capped handler sessions, and none starts now. No new local lane starts
   while the 1-minute load average is over the core count times `load_per_core`, or less than
   `free_memory` percent of memory is free. What happens at a full cap:
   - A builder waits on `builder-slot`, or starts on a Sprite when its brief declares no step only
     this Mac runs.
   - A reader or designer the `agent_brief` hook refuses starts on a Sprite.
-  - A report's or digest's handler waits its turn. A handler on a message of his starts at once
-    past every cap and gate, and its `claude --bg` retries at 5, 15 and 30 seconds when Claude
-    Code's background service does not answer.
+  - No handler session starts: the watch hands a report or an unanswered message of his to the
+    communicator as one `ANSWER THIS:` note, which meets no cap.
   - A stall's watchdog waits for a later pass.
   - A first Sprite lane past the `sprite` cap waits on `sprite-slot`. The watch's `FREE` line
     names it, earliest due first, as a lane frees.
@@ -65,8 +63,7 @@ Contents:
     at once (`where` remote) and prints why, with its `drive job launch <j> <brief>`.
   - A builder whose brief declares a step only this Mac runs, on its `Mac:` or `Release:` line,
     waits on `builder-slot` instead. `drive status` shows its place.
-  - Each watch pass gives each open slot to the waiting builder due first: the earliest time
-    promised him on an order it serves, then the oldest added. Its `FREE` line goes once to the
+  - Each watch pass gives each open slot to the waiting builder added first. Its `FREE` line goes once to the
     session holding its order.
   - A builder on an open incident's order, on an order `drive order set <o> --priority` marked, or
     on an `immediate fix` part starts here at once past the cap and the line, and holds a slot once
@@ -186,8 +183,6 @@ How an agent is recorded on a job:
   reached it after its return, such as a `SendMessage`, marks the job running again.
 - An agent of another type is not recorded, even when its prompt names a job: a
   `long-running:handler` that runs `drive job launch <j>`, an `orca:orca-doctor`, an Explore agent.
-  A handler holds a job only when `drive handler --answer` adds a reader job with the handler as
-  its `agent`.
 - No agent is recorded over a remote job's dispatch, or while a `drive job launch` or
   `drive job resume` holds the job's lock to start a Sprite lane. `drive job set <j> --agent`
   refuses it then. `drive job set <j> --agent <the dispatch the job records>` puts a remote job an
@@ -346,11 +341,11 @@ exit status.
   and another drive. It refuses `break-glass`, since that command would run on this Mac as your
   user. The lane returns `BLOCKED` naming the step and its command, and the step moves to a lane on
   this Mac.
-- A `job report <its job> -`, a `pr add` and a `job set` are answered before they run, as kept. One
-  that then refuses changes nothing and wakes the lane by `drive job resume` with what it printed.
-- Any other verb still running 225 s after the lane asked is answered as still running, and its
-  output follows by `drive job resume`. With no answer, the lane's `drive` says so on stderr every
-  30 s and exits 1 at 240 s.
+- The reader answers a relayed verb by running it, and the lane's `drive` prints what it printed.
+  A `job report <its job> -` is answered once the return is kept: `drive job check <j>` then reads
+  it with Jev, Opus and GitHub in a process of its own and wakes the lane by `drive job resume`
+  on a refusal. With no answer, the lane's `drive` says so on stderr every 30 s and exits 1 at
+  240 s, a worst-case cap.
 
 **Reports.** A lane keeps its report with `drive job report <j> -` and an `ASK` block with
 `drive job ask <j> <file>`, then ends its turn through Orca mail: a `worker_done` carrying the
@@ -404,8 +399,8 @@ with a blocking question.
   prompt typed into its terminal, once per stop, four times at most
   (`LANE … stopped on this Mac`).
 - A job whose agent or lane a model's safeguards stopped is set `stopped` at once, with nothing
-  resumed. Claude Code's notice asks that it go to him and that nobody do the agent's work, so a
-  POST report passes it to him (`LANE … stopped by its model's safeguards`), its parts make no
+  resumed. Claude Code's notice asks that it go to him and that nobody do the agent's work, so the
+  watch posts it to him itself (`LANE … stopped by its model's safeguards`), its parts make no
   `ORPHAN`, and a job taking its work is added by `drive job add` on its parts on his word.
 - While a job stays `running`, a lane that finished, ended with no next lane within 30 minutes, or
   whose relaunch started none makes its parts `ORPHAN`s. So does work he ordered that only a
@@ -432,8 +427,10 @@ in about five seconds, and a relaunch moves to the background at 20 seconds and 
 - **Faulted Sprite.** A Sprite that refused a worker's tools, or whose kernel logged an error after
   init (such as an nbd0 I/O error) or whose home volume filled, is not reused. A resume reads one
   cause line from the dead lane's logs into the death record and the next brief. A Sprite that
-  failed on its own counts against no job. A second death with a cause since the job's last line
-  moves the job to a fresh worktree here, as a `Mac:` line does.
+  failed on its own counts against no job. After a second death with a cause since the job's last
+  line, the session resumes on that Sprite only when the logs show its VM booted after its worker
+  started. Otherwise the job relaunches on a fresh Sprite at once and waits for no slot on this
+  Mac. Only a builder whose brief has a `Mac:` line moves here.
 - **Agent here that cannot take `SendMessage`.** One that ended with its session, or whose last
   response was an API error or a refusal, hands its job to a Sprite lane, or to this Mac with
   `drive job launch <j> --local` or a declared Mac step.
@@ -517,8 +514,8 @@ teammate, so a brief does not ask for either.
 
 ## What a job returns
 
-A job's result goes to another agent, so it is the inputs to a write-up. The handler that writes to
-him writes the prose.
+A job's result goes to another agent, so it is the inputs to a write-up. The communicator, which
+writes to him, writes the prose.
 
 - The job pipes its whole return on stdin into `drive job report <j> -`. Claude Code refuses a
   subagent's Write of a report file, so this is its one report.

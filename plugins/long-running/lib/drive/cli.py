@@ -25,6 +25,7 @@ from drive.state import DriveError
 DRIVE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 ROLE_NAMES = {"coordinator": "top coordinator", "communicator": "communicator", "meta": "meta session"}
 FREEZE_FOR = timedelta(hours=12)
+JUDGED_LATER = "The drive kept the report you sent with drive job report {job} -, then its check refused it: {refused}. Fix what it names and send drive job report {job} - again; your newest report is the one that stands."
 KEPT_SPRITE_CAP = 60
 NBD_READS = "nbd-reads.json"
 CHECK_UNBOUND = frozenset({state.DRIVE_ENV, "CLAUDE_CODE_SESSION_ID", "CCI_AGENT_ID"})
@@ -41,7 +42,7 @@ FILING = ("project", "workstream", "title")
 TITLE_CHARS = 60
 RECORD_NOTE = re.compile(r"\brecord \w+")
 PAIR_MARK = re.compile(r"[/›>]")
-TOOLING_FILING = ("The drive", "Drive tooling")
+TOOLING_FILING = slack.TOOLING_FILING
 JOB_ID = re.compile(r"j\d+")
 SLACK_USER = re.compile(r"[UW][A-Z0-9]{2,}")
 SLACK_TS = re.compile(r"\d+\.\d+")
@@ -162,10 +163,6 @@ def emit(args: argparse.Namespace, line: str, payload: object) -> int:
     return 0
 
 
-def due_stamp(text: str) -> str:
-    return state.stamp(state.parse_due(text))
-
-
 def start(args: argparse.Namespace) -> int:
     if not DRIVE_NAME.fullmatch(args.name):
         raise DriveError(f"drive names are letters, digits, dot, dash and underscore: {args.name}")
@@ -196,27 +193,52 @@ def start(args: argparse.Namespace) -> int:
     held = fresh["roles"][args.role]
     registered = "" if state.scratch() else f"{agents.register(args.name, args.role, args.project, held['cwd'], held['session'])}\n"
     seen = orca_places({args.role: held}, run_show)[args.role]
-    meta = "" if "meta" in data["roles"] else meta_started(args.name, held["cwd"], data["launched"].get("meta"))
+    opened = channel_opened(args.name, data)
+    siblings = "".join(sibling_started(args.name, role, held["cwd"], data["launched"].get(role)) for role in SIBLINGS if role not in data["roles"])
     watched = f"{watch.ensure(args.name)}\n" if args.role == "coordinator" else ""
     seat = f"sub-coordinator for {args.project}" if args.project else args.role
     elsewhere = "" if Path.cwd() == kept.resolve() else f"this session runs in {Path.cwd()} until it next exits, when cci resumes it in the drive's checkout {kept}\n"
-    text = f"{render.context(data, args.role, args.project)}\n\n{registered}{meta}{watched}{elsewhere}{seat}: session {held['session']}, {seen}"
+    text = f"{render.context(data, args.role, args.project)}\n\n{registered}{opened}{siblings}{watched}{elsewhere}{seat}: session {held['session']}, {seen}"
     return emit(args, text, {**data, "orca": {seat: seen}})
 
 
-def meta_started(name: str, worktree: str, earlier: str | None) -> str:
-    """Start the meta session in an Orca terminal of its own while none is bound, by his words "have the skill always start a meta root as a sibling to coordinator and communicator"; the line saying so, or nothing for a drive whose state root LONG_RUNNING_STATE or XDG_STATE_HOME moves."""
-    if state.scratch():
+def channel_opened(name: str, data: dict) -> str:
+    """Make the drive's own private channel by open_channel while it keeps none, so every drive talks to him in its channel from its first start, by his pick of the card whose option reads "drive start creates the private channel drive-<name>, invites him, keeps its id on the drive and opens that drive's own communicator"; the line saying it was not made, or nothing, as for a drive whose state root LONG_RUNNING_STATE or XDG_STATE_HOME moves."""
+    if state.scratch() or "" in data["slack"]["channels"]:
         return ""
     try:
-        handle = orca.start_session(name, "meta", None, worktree, earlier)
+        open_channel(name, None)
+    except slack.SlackError as error:
+        return f"the drive's own channel was not made: {error}; drive channels makes it\n"
+    return ""
+
+
+SIBLINGS = {"meta": ("the meta session", "which holds drive tooling"), "communicator": ("the communicator", "which holds the drive's Slack channels")}
+
+
+def sibling_started(name: str, role: str, worktree: str, earlier: str | None) -> str:
+    """Start the meta session or the communicator in an Orca terminal of its own while none is bound, by his words "have the skill always start a meta root as a sibling to coordinator and communicator", so no drive runs without the communicator holding its channels; the line saying so, or nothing for a drive whose state root LONG_RUNNING_STATE or XDG_STATE_HOME moves."""
+    if state.scratch():
+        return ""
+    who, holds = SIBLINGS[role]
+    try:
+        handle = orca.start_session(name, role, None, worktree, earlier)
     except orca.OrcaError as error:
-        return f"the meta session, which holds drive tooling, did not start: {error}; drive manual start prints its commands\n"
+        return f"{who}, {holds}, did not start: {error}; drive manual start prints its commands\n"
     if handle is None:
-        return f"the meta session starts in Orca terminal {earlier}, which an earlier drive start opened\n"
-    with state.edit(name) as data:
-        data["launched"]["meta"] = handle
-    return f"started the meta session, which holds drive tooling, in Orca terminal {handle}\n"
+        return f"{who} starts in Orca terminal {earlier}, which an earlier drive start opened\n"
+    def sibling_started_write(data: dict):
+        data["launched"][role] = handle
+
+    state.update(name, None, sibling_started_write)
+    return f"started {who}, {holds}, in Orca terminal {handle}\n"
+
+
+def seats_retired(name: str) -> dict[str, str]:
+    """Retire each priority seat no open order holds, by watch.seats_retired, in the step of drive order set that closes or unmarks its order."""
+    from drive import watch
+
+    return watch.seats_retired(name)
 
 
 def seat_started(name: str, seat: str) -> str:
@@ -233,8 +255,10 @@ def seat_started(name: str, seat: str) -> str:
         return f"the sub-coordinator for {seat} did not start: {error}; drive manual start prints its commands"
     if handle is None:
         return f"the sub-coordinator for {seat} starts in Orca terminal {data['launched'][key]}, which an earlier drive order set --priority opened"
-    with state.edit(name) as data:
+    def seat_started_write(data: dict):
         data["launched"][key] = handle
+
+    state.update(name, None, seat_started_write)
     return f"started the sub-coordinator for {seat}, which holds this order alone, in Orca terminal {handle}; its project's coordinator hears it until it binds"
 
 
@@ -366,11 +390,13 @@ def fresh_pr_cards(name: str) -> list[dict]:
 
 def rework_prs(name: str, reworks: list[dict], by: str) -> list[str]:
     """Mark the open drive PRs reworked to his words, each kept with the link where he said them, and withdraw in the same call, once the drive is saved, each open card of his carrying one, his words its reason linked to them, by his words "So why isn't this card withdrawn then? And why do I have to keep asking that?": no card asks his tap on one until its builder's READY says how his words are met, while his Approve stands; the watch wakes its builder with his words, and withdraws again a card whose withdrawal failed."""
-    with state.edit(name) as data:
+    def reworked(data: dict):
         kept = {each["key"]: each for each in reworks if each["key"] in data["prs"] and data["prs"][each["key"]]["state"] == "open"}
         for key, each in kept.items():
             state.rework(data["prs"][key], by, each["words"], each["link"])
         keys = list(kept)
+        return keys
+    keys = state.update(name, None, reworked)
     lines = [f"{key} reworked to {by}: its card stays down until its builder's READY says how his words are met" for key in keys]
     return lines + state.after_save(name, lambda: [said for key in keys for said in withdrawn_card(name, key)])
 
@@ -470,9 +496,6 @@ def added_order(args: argparse.Namespace, unfiled: bool = False) -> tuple[str, d
         if paged:
             order["parts"][state.PAGE] = state.new_part()
             state.sort_as_build(order, [state.PAGE], order["kind"] == "answer")
-        if args.due:
-            need_thread(order_id, order)
-            state.new_promise(order, state.promise_thread(order), due_stamp(args.due), created)
         if paced and paced != order_id:
             data["orders"][paced]["every"] = minutes
         started = [state.incident_job(data, name, order_id, part, created) for part in (order["parts"] if args.incident and not joined else [])]
@@ -584,7 +607,7 @@ def incident_stop(args: argparse.Namespace) -> int:
     """Give an open incident its stop when no build can roll the break back: a job with apply authority whose PR, the incident's immediate fix, turns the failing automatic path off and lands at once as an incident fix, until the root fix replaces it."""
     name = state.resolve(args.drive)
     created = state.stamp()
-    with state.edit(name) as data:
+    def incident_stop_write(data: dict):
         order = find(data["orders"], args.id, "order")
         if not state.open_incidents(data, [args.id]):
             raise DriveError(f"{args.id}: refused, it is no open incident order")
@@ -595,6 +618,9 @@ def incident_stop(args: argparse.Namespace) -> int:
         order["parts"][state.INCIDENT_STOP] = state.new_part()
         started = state.incident_job(data, name, args.id, state.INCIDENT_STOP, created)
         order["updated"] = created
+        return started
+
+    started = state.update(name, None, incident_stop_write)
     return emit(args, f"{started}\n{state.INCIDENT_BRIEF}", {"id": args.id, "job": started.split()[0]})
 
 
@@ -613,10 +639,12 @@ def incident_freeze(args: argparse.Namespace) -> int:
         freeze = state.unrehearsed(name, lambda: json.loads(reads.run(argv, checkout_dir))["freeze"]["id"], "<freeze>")
     except reads.ReadError as error:
         raise DriveError(f"{args.id}: no freeze set: {error}") from None
-    with state.edit(name) as data:
+    def incident_freeze_write(data: dict):
         order = data["orders"][args.id]
         order["note"] = "; ".join(filter(None, [order["note"], f"freeze {freeze}"]))
         order["updated"] = state.stamp()
+
+    state.update(name, None, incident_freeze_write)
     return emit(
         args,
         f"{args.id}: {', '.join(args.components)} frozen until {render.when(until)} as {freeze}; the job that merges the root fix lifts it"
@@ -777,11 +805,6 @@ def titled(title: str) -> str:
     return title.strip()
 
 
-def need_thread(order_id: str, order: dict) -> None:
-    if not order["thread"]:
-        raise DriveError(f"{order_id}: refused, no time stored: a promised time needs the thread its line goes in; pass --thread <its permalink>")
-
-
 def find(records: dict, key: str, label: str) -> dict:
     if key not in records:
         raise DriveError(f"no {label} {key}")
@@ -904,13 +927,11 @@ def refuse_unquotable_parts(flag: str, parts: list[str]) -> None:
 
 
 def order_set(args: argparse.Namespace) -> int:
-    """Change an order, reworking only the PRs --rework names and naming each open PR card of his in a thread it moves into or is sorted again in, which it leaves up; --add-part refuses a name a part cannot hold, by state.unquotable_part, and --add-part and --drop-part change only the parts they name, by change_parts, and --add-part prints each open part of another order and open PR Jev reads as already making a new part's change, by repeated_lines; closing one that owes him a promised line reads each thread it owes one in and notes on stderr each line not there, closing one done refuses while the bug report it fixes has not heard it is fixed, and --no-options-only, his pick, adds the builder of each change a design on it listed that no builder is on, as drive job report does once a design returns; --incident turns an open order into an incident by turned_incident and names each open question card of his its words point at, by state.asked_lines; --kind answer --part takes each part off each done builder, codex or design job holding it, whose hold would keep it work he ordered, and delivers it by the post one's POSTED line names when that answer reaches him only by a post, saying so by answered_line; --standing keeps each --part standing on its goal, or takes it out with an empty one, by standing_parts, which --part needs no --kind for; a change to its parts, kind, standing parts, options-only mark or incident mark from a session of the drive that does not hold the order is refused before anything is written, by state.held_elsewhere, the check every job verb makes, but for the communicator and its handlers, which file his words onto any order's parts and kind and are refused only the incident mark. --unjoin takes it off the order it joined, by state.unjoin, filed under its own project and workstream by filing, from any session, since it changes no part. --priority puts its work first at each admission point, by state.first_in_line, and gives it a coordinator session of its own, by seat_started, from any session."""
+    """Change an order, reworking only the PRs --rework names and naming each open PR card of his in a thread it moves into or is sorted again in, which it leaves up; --add-part refuses a name a part cannot hold, by state.unquotable_part, and --add-part and --drop-part change only the parts they name, by change_parts, and --add-part prints each open part of another order and open PR Jev reads as already making a new part's change, by repeated_lines; closing one done refuses while the bug report it fixes has not heard it is fixed, and --no-options-only, his pick, adds the builder of each change a design on it listed that no builder is on, as drive job report does once a design returns; --incident turns an open order into an incident by turned_incident and names each open question card of his its words point at, by state.asked_lines; --kind answer --part takes each part off each done builder, codex or design job holding it, whose hold would keep it work he ordered, and delivers it by the post one's POSTED line names when that answer reaches him only by a post, saying so by answered_line; --standing keeps each --part standing on its goal, or takes it out with an empty one, by standing_parts, which --part needs no --kind for; a change to its parts, kind, standing parts, options-only mark or incident mark from a session of the drive that does not hold the order is refused before anything is written, by state.held_elsewhere, the check every job verb makes, but for the communicator and its handlers, which file his words onto any order's parts and kind and are refused only the incident mark. --unjoin takes it off the order it joined, by state.unjoin, filed under its own project and workstream by filing, from any session, since it changes no part. --priority puts its work first at each admission point, by state.first_in_line, and gives it a coordinator session of its own, by seat_started, from any session; a close, a drop or --no-priority retires each priority seat no open order holds any longer in the same step, by seats_retired."""
     name = state.resolve(args.drive)
-    withdrawn = his_words(args.withdrawn, "withdraw a promised line") if args.withdrawn else None
     unreported = his_words(args.no_reporter, "take the reporters off an order") if args.no_reporter else None
     reworks = heard_reworks(name, args.rework)
     data = state.load(name)
-    closing = args.state in state.CLOSED_ORDER_STATES and not withdrawn
     order = find(data["orders"], args.id, "order")
     session = os.environ.get("CLAUDE_CODE_SESSION_ID")
     communicating = state.session_role(data, session) == "communicator"
@@ -959,25 +980,24 @@ def order_set(args: argparse.Namespace) -> int:
         )
     message = his_message(args.source) if args.source else state.slack_message(order["from"])
     thread = check_thread(data, args.thread, message) if args.thread else None
+    if args.state in state.CLOSED_ORDER_STATES and order["state"] not in state.CLOSED_ORDER_STATES and (untested := state.dangerous_staged(data, args.id)):
+        raise DriveError(
+            f"{args.id}: refused, {', '.join(untested)} {'waits' if len(untested) == 1 else 'wait'} on {args.id}'s staging test, staged because {'its head changes' if len(untested) == 1 else 'their heads change'} a dangerous class of file,"
+            f" and closing {args.id} frees that wait, so {'it' if len(untested) == 1 else 'they'} would land untested: let the test pass, or move the wait onto another order's part with drive pr set <url> --waits"
+        )
     report = need_record_close(data, args.id, args.record, args.state == "dropped" and bool(args.note)) if args.state in state.CLOSED_ORDER_STATES else {}
-    reads = {tuple(held["thread"]): slack.thread_posts(held) for held in state.owing(order) if held["thread"]} if closing else {}
     changes = {
         "text": args.words,
         "from": args.source and slack_key(args.source, message),
         "note": args.note,
         "proof": args.proof,
         "thread": thread and list(thread),
-        "withdrawn": withdrawn,
         "options_only": args.options_only,
         "once": args.once,
         "every": args.every,
         "watch": watched,
     }
     moment = state.now()
-    due = state.parse_due(args.due, moment) if args.due else None
-    if due and due <= moment:
-        raise DriveError(f"{args.id}: refused, no time stored: {render.when(state.stamp(due))} is already past; promise a time to come")
-    promised = ""
     with state.edit(name) as data:
         order = data["orders"][args.id]
         before = apart_from_filing(order)
@@ -988,32 +1008,6 @@ def order_set(args: argparse.Namespace) -> int:
             order["proof_by"] = None
         designs = [job_id for job_id in order["jobs"] if data["jobs"][job_id]["kind"] == "design" and data["jobs"][job_id]["order"] == args.id] if limited and not order["options_only"] else []
         added = [builder for job_id in designs for builder in state.add_changes(name, data, job_id, next(iter(state.returns(name, job_id)), {"body": ""})["body"])]
-        if withdrawn:
-            order["promises"] = []
-        if due and not (where := state.promise_thread(order)):
-            state.remind(order, None, state.stamp(due), moment)
-            promised = (
-                f"\nstored {render.when(state.stamp(due))} as the drive's own time: {args.id} has no thread, so no line to him"
-                " keeps it, and the watch says DUE once then; a time promised to him needs --thread <its permalink>"
-            )
-        elif due:
-            held = state.due_at(owed_there) if (owed_there := state.promised_in(order, where)) and not owed_there["kept"] else None
-            state.promise(order, where, state.stamp(due), moment)
-            promised = "\n" + promise_said(render.when(state.stamp(due)), held, where)
-        for held in state.owing(order) if closing else []:
-            if not (read := reads.get(tuple(held["thread"] or ()))):
-                continue
-            if report:
-                state.keep_closing(held, read[0], state.parse_time(report["written"]))
-            else:
-                state.keep(held, read[0], announced=False)
-            if not held["kept"]:
-                why = f" ({read[1]})" if read[1] else ""
-                print(
-                    f"drive order set: {args.id} closes with the line promised for {render.when(state.due_at(held))} in {held['thread'][0]} thread {held['thread'][1]}"
-                    f" unposted: no drive post is in that thread since {render.when(held['promised'], seconds=True)}{why}",
-                    file=sys.stderr,
-                )
         if args.state in state.CLOSED_ORDER_STATES:
             order["closed_on"] = report.get("seq")
         elif args.state and order["state"] in state.CLOSED_ORDER_STATES:
@@ -1086,7 +1080,8 @@ def order_set(args: argparse.Namespace) -> int:
     turned += state.asked_lines(data, order["text"]) if turning else []
     repeated = repeated_lines(data, args.id, list(dict.fromkeys(args.add_part)))
     seated = [said] if args.priority and (said := seat_started(name, order["priority"])) else []
-    return emit(args, render.order_line(data, args.id, order) + promised + "".join(f"\n{line}" for line in [*turned, *unjoined, *parts, *stopped, *restarted, *repeated, *render.builder_lines(name, data, added), *reworked, *seated]), {"id": args.id, **(state.load(name)["orders"][args.id] if restarted else order)})
+    retired = list(seats_retired(name).values()) if args.state in state.CLOSED_ORDER_STATES or args.priority is False else []
+    return emit(args, render.order_line(data, args.id, order) + "".join(f"\n{line}" for line in [*turned, *unjoined, *parts, *stopped, *restarted, *repeated, *render.builder_lines(name, data, added), *reworked, *seated, *retired]), {"id": args.id, **(state.load(name)["orders"][args.id] if restarted else order)})
 
 
 def unjoined_lines(order_id: str, head: str, carriers: list[str], told: list[str]) -> list[str]:
@@ -1219,8 +1214,10 @@ def order_pilot(args: argparse.Namespace) -> int:
         raise DriveError(f"{args.project!r} names no project an order is filed under; drive order unfiled lists the ones in use")
     since = state.now().replace(microsecond=0) + timedelta(seconds=1)
     pilot = {"project": args.project, "since": state.stamp(since), "until": state.stamp(since + timedelta(days=args.days))} if args.project else None
-    with state.edit(name) as data:
+    def order_pilot_write(data: dict):
         data["reader_pilot"] = pilot
+
+    state.update(name, None, order_pilot_write)
     line = f"reader pilot on {args.project} from {pilot['since']} until {pilot['until']}" if pilot else "reader pilot off: every build order's lanes start on a reader's research"
     return emit(args, line, {"reader_pilot": pilot})
 
@@ -1228,9 +1225,12 @@ def order_pilot(args: argparse.Namespace) -> int:
 def order_backlog(args: argparse.Namespace) -> int:
     """Turn the drive tooling backlog, his option A of Nov 15, on or off: on, a Drive tooling order a session files waits on it with no job, a repeat Jev reads as the same defect tallies on it rather than filing again, and it is built by one builder with no reader once promoted, by state.on_backlog; prints what it holds."""
     name = state.resolve(args.drive)
-    with state.edit(name) as data:
+    def order_backlog_write(data: dict):
         data["tooling_backlog"] = args.switch == "on"
         held = [order_id for order_id in data["orders"] if state.on_backlog(data, order_id)]
+        return held
+
+    held = state.update(name, None, order_backlog_write)
     line = f"drive tooling backlog on, holding {len(held)} items" if args.switch == "on" else "drive tooling backlog off: a Drive tooling order a session files starts on its reader's research"
     return emit(args, line, {"tooling_backlog": args.switch == "on", "held": held})
 
@@ -1251,20 +1251,11 @@ def order_check(args: argparse.Namespace) -> int:
         code, output = -1, f"{expired.stdout or ''}{expired.stderr or ''}\ntimed out after {timeout // 60} minutes"
     print(output, end="" if output.endswith("\n") else "\n")
     said = next((line.strip() for line in reversed(output.splitlines()) if line.strip()), "printed nothing")
-    with state.edit(name) as data:
+    def order_check_write(data: dict):
         data["orders"][args.id]["parts"][part]["check"].update(exit=code, said=render.cut(said, 300))
+
+    state.update(name, None, order_check_write)
     return emit(args, f'{args.id} "{part}": its check exited {code}: {said}', {"id": args.id, "part": part, "exit": code, "said": said})
-
-
-def promise_said(due: str, held: str | None, where: tuple[str, str]) -> str:
-    """What --due did with the time: stored to start at the drive post that tells him it, or stored behind a line already owed, which keeps firing until a post lands."""
-    post = f"the next drive post in {where[0]} thread {where[1]}"
-    if held is None:
-        return f"stored {due}: it waits on {post}, which tells him the time; from that post he is owed a line by {due}"
-    return (
-        f"stored {due} behind the line already owed for {render.when(held)}: the watch keeps starting a handler on that line until {post} lands,"
-        f" which tells him {due} and makes it the time owed"
-    )
 
 
 def need_record_close(data: dict, order_id: str, seq: str | None, dropped_with_note: bool) -> dict:
@@ -1288,7 +1279,7 @@ def need_record_close(data: dict, order_id: str, seq: str | None, dropped_with_n
 
 
 def report_attrs(seq: str) -> dict:
-    """The attrs of a record, read from cci: a report's close, part, job and catch_up, with its seq, its kind, the lane that wrote it as its writer, when as written, and for a correction the record it corrects."""
+    """The attrs of a record, read from cci: a report's close, part and job, with its seq, its kind, the lane that wrote it as its writer, when as written, and for a correction the record it corrects."""
     try:
         record = json.loads(reads.run(["cci", "show", seq, "--json"], Path.cwd()))
     except reads.ReadError as error:
@@ -1316,8 +1307,10 @@ def order_posted(args: argparse.Namespace) -> int:
             )
         return emit(args, *record_post(name, args.id, args.link, report))
     [undone] = pick_parts(args.id, order, [args.part] if args.part else [])
-    with state.edit(name) as data:
+    def order_posted_write(data: dict):
         data["orders"][args.id]["parts"][undone].update(posted=None, posted_by=None)
+
+    state.update(name, None, order_posted_write)
     return emit(args, f'{args.id} "{undone}": not delivered', {"id": args.id, "part": undone, "posted": None})
 
 
@@ -1333,8 +1326,10 @@ def answered_by(name: str, order_id: str, part: str, link: str) -> tuple[str, di
     if state.work(data, order_id, part):
         raise DriveError(f'--part "{part}": refused, ' + state.UNPOSTED_WORK.format(order=order_id, part=part))
     drive_post_at(link, data, order_id)
-    with state.edit(name) as data:
+    def answered_by_write(data: dict):
         data["orders"][order_id]["parts"][part]["posted"] = link
+
+    state.update(name, None, answered_by_write)
     return f'{order_id} "{part}": posted {link}, the post that answered it', {"id": order_id, "parts": [part], "posted": link}
 
 
@@ -1364,8 +1359,10 @@ def order_told(args: argparse.Namespace) -> int:
     if told := kept["told"]:
         heard = "the thread its question was asked in heard the answer" if asked else "the thread its bug was reported in heard it is fixed"
         raise DriveError(f"{args.id}: refused, {heard} once, in {told}{f', kept by {keeper}' if keeper else ''}, and hears it only once")
-    with state.edit(name) as data:
+    def order_told_write(data: dict):
         state.kept_record(data, data["orders"][args.id]["reporters"][place])[1]["told"] = args.link
+
+    state.update(name, None, order_told_write)
     where = f"told in the group DM of {args.group_dm}, him and the bot" if args.group_dm else "told in the reporter's thread"
     return emit(args, f"{args.id}: {where}, {args.link}", {"id": args.id, "told": args.link, "group_dm": args.group_dm})
 
@@ -1444,8 +1441,8 @@ def report_refusal(data: dict, order_id: str, report: dict) -> str | None:
 
 
 def post_order(data: dict, session: str | None, post: dict, report: dict) -> str | None:
-    """The one order a say post is recorded on, which say decides and no caller names: a post carrying a record goes on the order that record is about, the report it relays or the record of his words it answers; a handler's close goes on the order the record it holds names, else the order his message it holds started, never another order that only shares the thread, which is not that message's to close; any other post with no record goes on the open answer order whose message its asked names, which it answers; an edit, a card, a PR card, his catch-up, an answer in a teammate's watched thread and a post with neither go on none."""
-    if post.get("edit") or post.get("card") or post.get("tap_prs") or report.get("catch_up") or report.get("watch"):
+    """The one order a say post is recorded on, which say decides and no caller names: a post carrying a record goes on the order that record is about, the report it relays or the record of his words it answers; a handler's close goes on the order the record it holds names, else the order his message it holds started, never another order that only shares the thread, which is not that message's to close; any other post with no record goes on the open answer order whose message its asked names, which it answers; an edit, a card, a PR card, an answer in a teammate's watched thread and a post with neither go on none."""
+    if post.get("edit") or post.get("card") or post.get("tap_prs") or report.get("watch"):
         return None
     if post.get("record"):
         return state.report_order(data, report)
@@ -1472,19 +1469,24 @@ def claim_close(name: str, report: dict) -> list[str]:
     """Claim each order the report closes for it under the drive's lock, just before say posts it, so of two reports closing one order at once only the first posts and second_close refuses the other; the orders claimed, which a post that fails gives back, never one the watch's post of this report already marked."""
     if not state.closed_orders(report):
         return []
-    with state.edit(name) as data:
+    def claim_close_write(data: dict):
         closes = [order_id for order_id in state.closed_orders(report) if order_id in data["orders"] and data["orders"][order_id]["closed_on"] != report["seq"]]
         if refused := next(filter(None, (state.second_close(data, order_id, report) for order_id in closes)), None):
             raise DriveError(f"nothing posted: {refused}")
         for order_id in closes:
             data["orders"][order_id]["closed_on"] = report["seq"]
+        return closes
+
+    closes = state.update(name, None, claim_close_write)
     return closes
 
 
 def unclaim_close(name: str, closes: list[str]) -> None:
-    with state.edit(name) as data:
+    def unclaim_close_write(data: dict):
         for order_id in closes:
             data["orders"][order_id]["closed_on"] = None
+
+    state.update(name, None, unclaim_close_write)
 
 
 def reported_parts(data: dict, order_id: str, order: dict, report: dict, items: list[tuple[str | None, str]]) -> list[str]:
@@ -1518,7 +1520,7 @@ def record_post(name: str, order_id: str, link: str, report: dict, sent: str | N
 
 
 def record_on(name: str, order_id: str, link: str, report: dict, items: list[tuple[str | None, str]], sent: str | None = None, named: str | None = None) -> tuple[str, dict]:
-    """Record the drive's post on one order: the promised time it keeps, the time its words promise his next line by but on an incident, whose next line the watch owes five quiet minutes after its last once it has news, the order's last line, each only for a line to him, the parts its report's items deliver there, the end its report's until attr names for a post at another channel's root or a line in its thread, from which the watch owes that thread its closing line, and its thread among the order's, with when it joined, when the order holds it not yet, as members for a thread whose readers are another channel's members, such as the one under a staging claim say posted at that channel's root, or as the order's own thread when it has none and the post started that thread at his DM root, so its every later line replies under its first."""
+    """Record the drive's post on one order: the order's last line, only for a line to him, the parts its report's items deliver there, the end its report's until attr names for a post at another channel's root or a line in its thread, from which the watch owes that thread its closing line, and its thread among the order's, with when it joined, when the order holds it not yet, as members for a thread whose readers are another channel's members, such as the one under a staging claim say posted at that channel's root, or as the order's own thread when it has none and the post started that thread at his DM root, so its every later line replies under its first."""
     data = state.load(name)
     order = find(data["orders"], order_id, "order")
     if refused := report_refusal(data, order_id, report):
@@ -1528,12 +1530,10 @@ def record_on(name: str, order_id: str, link: str, report: dict, items: list[tup
     at = slack.sent_at(posted)
     line = state.stamp(at)
     closing = order_id in state.closed_orders(report)
-    promised = promised_due(posted.get("text") or "", at) if ours and not order["incident"] else None
     where = (state.CARD_LINK.search(link)[1], posted.get("thread_ts") or posted["ts"])
     until = None if ours else report.get("until")
 
-    def keep(data: dict) -> tuple[dict, bool, str]:
-        kept = ""
+    def keep(data: dict) -> tuple[dict, bool]:
         order = data["orders"][order_id]
         rooted = gained == (slack.dm(), posted["ts"]) and not order["thread"]
         if rooted:
@@ -1543,26 +1543,18 @@ def record_on(name: str, order_id: str, link: str, report: dict, items: list[tup
         if until:
             state.claim(data, order, where, link, until, posted["ts"])
         if ours:
-            if (owed_here := next((held for held in state.owing(order) if held["thread"] == list(where)), None)) and closing:
-                state.keep_closing(owed_here, [at], state.parse_time(report["written"]))
-                kept = "" if not owed_here["kept"] else f", its close keeps the line promised for {render.when(owed_here['due'])}"
-            elif owed_here:
-                state.keep(owed_here, [at])
-            if promised:
-                state.remind(order, where, state.stamp(promised), at)
-                kept += f", its words promise him the next line by {render.when(state.stamp(promised))}, now owed"
             order["last_line"] = max(order["last_line"] or line, line, key=state.parse_time)
         for part in delivered:
             order["parts"][part]["posted"] = link
-        return order, rooted, kept
+        return order, rooted
 
-    order, rooted, kept = state.update(name, None if until else (("orders", order_id),), keep)
+    order, rooted = state.update(name, None if until else (("orders", order_id),), keep)
     quoted = ", ".join(f'"{part}"' for part in delivered)
     said = f"{quoted}: posted" if delivered else f"{'closing' if closing else 'progress'} line, no part delivered:"
-    away = "" if ours else f", {'in a thread of another channel its members read' if posted.get('thread_ts') else 'at the root of another channel'}, so it is no line to him and keeps no promised time"
+    away = "" if ours else f", {'in a thread of another channel its members read' if posted.get('thread_ts') else 'at the root of another channel'}, so it is no line to him"
     joined = f", in thread {gained[1]}, now {'its own thread' if rooted else 'one of its threads'}" if gained else ""
     ends = f", and its thread owes its closing line from {render.when(until)}" if until else ""
-    return f"{order_id} {said} {link}{away}{joined}{ends}{kept}", {"id": order_id, "parts": delivered, "posted": link, "due": (here := state.promised_in(order, where)) and here["due"]}
+    return f"{order_id} {said} {link}{away}{joined}{ends}", {"id": order_id, "parts": delivered, "posted": link}
 
 
 def promised_due(text: str, at: datetime) -> datetime | None:
@@ -1604,7 +1596,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
     if args.release and not unreleased:
         for line in brief.release_notes([args.release], state.load(name)):
             print(f"drive job add: {line}", file=sys.stderr)
-    running = args.release and not unreleased and (release_running(name, args.release) or slot_refusal(name, args.release))
+    running = args.release and not unreleased and release_running(name, args.release)
     unworded = brief.unworded_return(args.kind, {"--goal": args.goal})
     before = state.load(name)
     named = args.part or (list(filed) if len(filed := find(before["orders"], args.order, "order")["parts"]) == 1 else [])
@@ -1664,7 +1656,7 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
             job["brief_flags"] = (job.get("brief_flags") or {}) | {"release": args.release}
             job["release_pass"] = {"release": args.release, "at": created, "reading": args.reading}
             if env := brief.leased_env(shlex.split(args.release)):
-                state.slot_claim(data, env, job_id, CUT_LEASE_MINUTES, [], None, state.parse_time(created))
+                slotted = state.slot_claim(data, env, job_id, CUT_LEASE_MINUTES, [], None, state.parse_time(created), starts=True)
         if args.agent:
             job["session"] = session
             state.start(job)
@@ -1683,7 +1675,8 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
         waiting.append(
             f"{job_id} starts on a Sprite at once, since {crowd}: drive job launch {job_id} <brief>; one whose brief declares a step only this Mac runs, on {place.MAC_LINES}, waits its turn for a slot here once its agent starts"
         )
-    started = state.after_save(name, lambda: started_release(name, job_id, args.release)) if args.release else []
+    queued = args.release and brief.leased_env(shlex.split(args.release)) and slotted.startswith("QUEUED")
+    started = [f"{job_id} {slotted}: the watch starts `{args.release}` by drive job release {job_id} once the slot is its, so start nothing for it"] if queued else state.after_save(name, lambda: started_release(name, job_id, args.release)) if args.release else []
     also = list(dict.fromkeys(order_id for orders in history.values() for order_id in orders))
     names = [f"{job_id} names {', '.join(named)}" + (f", also on {', '.join(also)}" if also else "") + ": drive status <id>"] if named else []
     names += state.asked_lines(data, args.goal)
@@ -1691,13 +1684,6 @@ def added_job(args: argparse.Namespace) -> tuple[str, dict, list[str]]:
 
 
 CUT_LEASE_MINUTES = 60
-
-
-def slot_refusal(name: str, command: str) -> str | None:
-    """Why a staging-only release may not start now: another job holds that env's staging slot, by drive slot claim or its own staging start, so every staging start, the top coordinator's included, holds the slot, which the job added for this start then takes, its lease ending with the job or CUT_LEASE_MINUTES on, extended once."""
-    if not (env := brief.leased_env(shlex.split(command))) or not (held := (state.load(name)["slots"].get(env) or {}).get("holder")):
-        return None
-    return f"{held['job']} holds the {env} staging slot until {held['until']}: start this cut once drive slot queue {env} reads it free, or drive slot release {env} --job {held['job']} gives it back"
 
 
 def started_release(name: str, job_id: str, command: str) -> list[str]:
@@ -1732,15 +1718,22 @@ def job_release(args: argparse.Namespace) -> int:
         release.terminate()
     if not (build := answer.get("build", {}).get("url")):
         why = f"its release did not start: {answer.get('refused') or render.cut(''.join(said).strip(), 600) or f'exit {release.returncode}'}"
-        with state.edit(name) as data:
+        def job_release_write3(data: dict):
             state.drop_waits(data, args.id, dict.fromkeys(state.pid_waits(f"pid:{os.getpid()}"), f"{why}; drive job set {args.id} --state stopped ends it"))
+
+        state.update(name, None, job_release_write3)
         raise DriveError(f"{args.id}: {why}")
-    with state.edit(name) as data:
+    def job_release_write(data: dict):
         data["jobs"][args.id]["release_build"] = build
-    with state.edit(name) as data:
+
+    state.update(name, None, job_release_write)
+    def job_release_write2(data: dict):
         job = data["jobs"][args.id]
         state.end_carried_designs(data, job["order"], job["created"])
         replaced = state.end_replaced(data, [job["order"]], job["created"])
+        return replaced
+
+    replaced = state.update(name, None, job_release_write2)
     line, _ = write_brief(name, args.id, {})
     print("\n".join([*replaced, f"{args.id} started `{command}` as {build} and left it running: its agent follows it with `{answer['follow']}` and reads its approve hold", line]))
     return 0
@@ -1893,7 +1886,7 @@ def job_set(args: argparse.Namespace) -> int:
     reworks = heard_reworks(name, args.rework, args.id)
     shown = args.card and shown_card(name, args.card)
     lane = args.agent and args.agent.startswith(state.DISPATCH_PREFIX) and orca.receipt(args.agent)
-    with state.edit(name) as data:
+    def changed(data: dict):
         job = find(data["jobs"], args.id, "job")
         job.update({field: value for field, value in changes.items() if value is not None})
         if args.branch:
@@ -1954,6 +1947,8 @@ def job_set(args: argparse.Namespace) -> int:
         job["updated"] = state.stamp()
         state.end_carried_designs(data, job["order"], job["created"])
         replaced = state.end_replaced(data, [job["order"], *args.carries], job["updated"])
+        return data, job, replaced
+    data, job, replaced = state.update(name, None, changed)
     owned = {pr["url"] for pr in data["prs"].values() if pr["job"] == args.id}
     cards = [card for card in fresh_pr_cards(name) if owned & set(card["prs"])] if args.carries else []
     reworked = [
@@ -2098,7 +2093,7 @@ def follow_card(name: str, waits: str, asked: set[str], url: str) -> None:
     from drive import view
 
     moved = asked - {view.message_key(url)}
-    with state.edit(name) as data:
+    def follow_card_write(data: dict):
         for job_id, job in data["jobs"].items():
             for question in job["questions"]:
                 if question["waits"] == waits:
@@ -2106,6 +2101,8 @@ def follow_card(name: str, waits: str, asked: set[str], url: str) -> None:
                     state.join_card(data, job_id, url)
         for job in data["jobs"].values():
             job["waits"] = list(dict.fromkeys(waits if view.message_key(wait) in moved else wait for wait in job["waits"]))
+
+    state.update(name, None, follow_card_write)
 
 
 def job_ask(args: argparse.Namespace) -> int:
@@ -2428,7 +2425,7 @@ def reads_as_detail(name: str, data: dict, job: dict, file: Path) -> bool:
 
 
 def keep_ask(name: str, job_id: str, text: str, unsettled: str | None, redraws: str | None = None) -> tuple[Path, limits.Question | None, dict, str]:
-    """Keep the job's ASK block, or the ASK a DESIGN return puts to him, once it is in the shape he reads and the words his card draws type no clock time for work already done, in one file for its card's life, the file of the job's own question it takes the place of written over, the one whose card it takes first, so the path the first ask printed keeps its words, else a new file named for the hash of its words after the job, the question keeping that hash, which `kept_ask` reads to tell a file edited by hand, in place of the job's open question asking the same, or of each question `superseded.redrawn` finds holding the card `redraws` names by its waits id, the job's own or another job's on one of its orders, open or withdrawn, the job's own leaving the job and another job's staying on it folded into this one, set the job waiting on it, unless it is a builder, which keeps running to build the question's recommended option and return BUILT, and draw his card on it in the same call, as drive pr add draws a PR card, under the waits id of the question it takes the place of, the one `redraws` names first, else one minted for it: every ask of one question draws under its one waits id, which cc-slack redraws where it sits, new words included, the question taking the card of the one it takes the place of, so a redraw that fails leaves it on that card, which his answer there closes and --drop refuses, and a first draw that fails leaves it undrawn for the watch's next read, which draws it; a job waiting on an order he has not scheduled, by state.unscheduled_job, keeps it undrawn until he schedules it, by his answer state.UNSCHEDULED_RULING, and the watch draws it then. The question keeps the words of its `Holds:` line, with the parts each PR of state.held_prs they name serves appended, and each change state.change_builders wrote onto the words of the question whose card it takes beside the builder building it, by state.kept_builders, a PR the drive tracks on the job's orders or one waiting on the job or a part it carries, as the PR its staging test tests, which hold from landing each PR they name by link, #N or whole branch name and, among the PRs of jobs working a change they name, only those its design's builder, a job briefed on its research or a job they name by id carries, refused for a builder or codex lane when they name no such PR and no branch in backticks, and for a reader when they name no part of the job's orders; asked again with no --unsettled, as a reader's DESIGN report re-asks it, it keeps the --unsettled an agent gave its kept question with that title, never Opus's mark, which this ask's own read decides. One he already answered, the same words asked on a card he tapped or wrote on or under, or under a record keeping his words, is kept settled by that answer before any check of its shape or its card, by `keep_settled`, draws no card and leaves the job as it was, so it goes straight to building on his words, and the session holding its order hears so in one record; no answer he gave another question settles it. One he has not answered Opus reads, in one request, against his words on each order its job works, its own and each it carries, the words of his the drive quotes in each and each message of his in its thread, without the lines he quoted, and the recorded answers of his ccn ranks nearest to the block, with his rulings beside them, and each option his words rule out, each amount or choice they name with no tap and each ruling the card breaks is printed to the agent and refuses nothing, by his pick 320b7a7, his ruling on root causes read once against the card's recommended option, the recorded answers its job's brief binds or its block cites read beside them, with the lines of its findings naming one; the recorded answer or ruling of his Opus picks for its recommended option at settled.YES or more, the cited answer the card says that option goes against first, else the first Opus picks as sure for any other option it offers, keeps the card unsettled as `<id>: Opus reads the recommended option as breaking it`, or `<id>: Opus reads option "<that option>" as breaking it`, when no --unsettled names words of his and it is no cited answer the release gate, `brief.approval_refusal`, reads as ordering a release that option names in backticks, nor one recorded before a cited answer that orders that release or decides the card, since his newest words stand, which the question keeps for its card's Already answered tap, asking him to lift that one, so it holds its PR on an incident too, as --unsettled naming words of his does. One whose job's order or a carried one holds words Opus reads at settled.YES or more as telling it to ask him nothing on that work is refused with no card, by `settled.UNASKED`, unless Opus reads the card as asking a step his rules keep for him, a landing, a production release or a post as him. On a drive tooling order, or from a builder or codex lane of a design his words ordered from scratch, one Opus then reads as asking him only a detail, kept unsettled by nothing, ordering no release by an answer of his and asked on no card of his already, is kept decided on its recommended option under the ruling settled.leaving names, his ruling state.TOOLING_DETAILS_RULING or state.FRESH_DETAILS_RULING, by `keep_decided`, draws no card and leaves the job as it was, so it builds that option and opens its PR; so is one on any order his standing approval covers, by settled.approved_by, its thread told in one POST progress line. On any order, one whose recommended option names in backticks only releases on plat-usw2-staging or plat-usw2-sandbox alone, by brief.rehearsal(), and that no --unsettled, --redraws, `Replaces:` line or drawn card of its question holds, is kept decided on that option by his ruling state.REHEARSAL_RULING before Opus reads it against his words, by `keep_decided`, and draws no card. One whose summary cites a recorded answer of his that Opus reads as deciding its question or making it moot, or with a recorded answer the release gate reads as ordering a release its recommended option names in backticks, draws its card with an Already answered option, his words under it, so his tap closes it on those words, and only those answers. A block whose summary links no PR the drive tracks open on the job is refused, so his card never says no PR while one is up. One the card `question_card` draws refuses stays kept as the job's pending question with its refusal and draws no card, so the watch says the job waits on a card never posted until it asks again or drops it. Each question of the job `asked_before` names is replaced, the one its file keeps included, so a file keeps one question and a question once kept settled on another answer of his draws its card when asked again. A block whose `Replaces:` line names open questions, comma-separated, each by the file it is kept in or its card's waits id, as a question built on them asking every choice does, takes the first one's card and waits id and leaves each open, folded into this one, so drawing its card redraws that card, `post_ask` shows each other named card asked again with a link to it, and his answer to this one ends them all; a question folded so, asked again, stays folded and draws no card. A job whose card another job's question took, by `took`, folds an ask of it into that question and draws no card, asked in that question's words or its own. Asked in other words, Opus reads it in that same call against each open card `repeating` finds, and each card Opus reads it as asking again is printed to the agent by settled.REPEATED, which shares no card: only an agent's `Replaces:` line or --redraws shares one, since a card Opus read as asked again once drew one hotfix's question in place of another's and his tap there closed both; asked again in its own words it is read against none. The question keeps the lines threads hold about the one it takes the place of, by `talk.keep_line`, and `post_ask` sends a thread `card_places` puts the card's line in a line only by `card_line`. What drive job ask prints: the file, then where his card stands."""
+    """Keep the job's ASK block, or the ASK a DESIGN return puts to him, once it is in the shape he reads and the words his card draws type no clock time for work already done, in one file for its card's life, the file of the job's own question it takes the place of written over, the one whose card it takes first, so the path the first ask printed keeps its words, else a new file named for the hash of its words after the job, the question keeping that hash, which `kept_ask` reads to tell a file edited by hand, in place of the job's open question asking the same, or of each question `superseded.redrawn` finds holding the card `redraws` names by its waits id, the job's own or another job's on one of its orders, open or withdrawn, the job's own leaving the job and another job's staying on it folded into this one, set the job waiting on it, unless it is a builder, which keeps running to build the question's recommended option and return BUILT, and draw his card on it in the same call, as drive pr add draws a PR card, under the waits id of the question it takes the place of, the one `redraws` names first, else one minted for it: every ask of one question draws under its one waits id, which cc-slack redraws where it sits, new words included, the question taking the card of the one it takes the place of, so a redraw that fails leaves it on that card, which his answer there closes and --drop refuses, and a first draw that fails leaves it undrawn for the watch's next read, which draws it; a job waiting on an order he has not scheduled, by state.unscheduled_job, keeps it undrawn until he schedules it, by his answer state.UNSCHEDULED_RULING, and the watch draws it then. The question keeps the words of its `Holds:` line, with the parts each PR of state.held_prs they name serves appended, and each change state.change_builders wrote onto the words of the question whose card it takes beside the builder building it, by state.kept_builders, a PR the drive tracks on the job's orders or one waiting on the job or a part it carries, as the PR its staging test tests, which hold from landing each PR they name by link, #N or whole branch name and, among the PRs of jobs working a change they name, only those its design's builder, a job briefed on its research or a job they name by id carries, refused for a builder or codex lane when they name no such PR and no branch in backticks, and for a reader when they name no part of the job's orders; asked again with no --unsettled, as a reader's DESIGN report re-asks it, it keeps the --unsettled an agent gave its kept question with that title, never Opus's mark, which this ask's own read decides. One he already answered, the same words asked on a card he tapped or wrote on or under, or under a record keeping his words, is kept settled by that answer before any check of its shape or its card, by `keep_settled`, draws no card and leaves the job as it was, so it goes straight to building on his words, and the session holding its order hears so in one record; no answer he gave another question settles it. One he has not answered Opus reads, in one request, against his words on each order its job works, its own and each it carries, the words of his the drive quotes in each and each message of his in its thread, without the lines he quoted, and the recorded answers of his ccn ranks nearest to the block, with his rulings beside them, and each option his words rule out, each amount or choice they name with no tap and each ruling the card breaks is printed to the agent and refuses nothing, by his pick 320b7a7, his ruling on root causes read once against the card's recommended option, the recorded answers its job's brief binds or its block cites read beside them, with the lines of its findings naming one; the recorded answer or ruling of his Opus picks for its recommended option at settled.YES or more, the cited answer the card says that option goes against first, else the first Opus picks as sure for any other option it offers, keeps the card unsettled as `<id>: Opus reads the recommended option as breaking it`, or `<id>: Opus reads option "<that option>" as breaking it`, when no --unsettled names words of his and it is no cited answer the release gate, `brief.approval_refusal`, reads as ordering a release that option names in backticks, nor one recorded before a cited answer that orders that release or decides the card, since his newest words stand, which the question keeps for its card's Already answered tap, asking him to lift that one, so it holds its PR on an incident too, as --unsettled naming words of his does. One whose job's order or a carried one holds words Opus reads at settled.YES or more as telling it to ask him nothing on that work is refused with no card, by `settled.UNASKED`, unless Opus reads the card as asking a step his rules keep for him, a landing, a production release or a post as him. On a drive tooling order, or from a builder or codex lane of a design his words ordered from scratch, one Opus then reads as asking him only a detail, kept unsettled by nothing, ordering no release by an answer of his and asked on no card of his already, is kept decided on its recommended option under the ruling settled.leaving names, his ruling state.TOOLING_DETAILS_RULING or state.FRESH_DETAILS_RULING, by `keep_decided`, draws no card and leaves the job as it was, so it builds that option and opens its PR; so is one on any order his standing approval covers, by settled.approved_by. On any order, one whose recommended option names in backticks only releases on plat-usw2-staging or plat-usw2-sandbox alone, by brief.rehearsal(), and that no --unsettled, --redraws, `Replaces:` line or drawn card of its question holds, is kept decided on that option by his ruling state.REHEARSAL_RULING before Opus reads it against his words, by `keep_decided`, and draws no card. One whose summary cites a recorded answer of his that Opus reads as deciding its question or making it moot, or with a recorded answer the release gate reads as ordering a release its recommended option names in backticks, draws its card with an Already answered option, his words under it, so his tap closes it on those words, and only those answers. A block whose summary links no PR the drive tracks open on the job is refused, so his card never says no PR while one is up. One the card `question_card` draws refuses stays kept as the job's pending question with its refusal and draws no card, so the watch says the job waits on a card never posted until it asks again or drops it. Each question of the job `asked_before` names is replaced, the one its file keeps included, so a file keeps one question and a question once kept settled on another answer of his draws its card when asked again. A block whose `Replaces:` line names open questions, comma-separated, each by the file it is kept in or its card's waits id, as a question built on them asking every choice does, takes the first one's card and waits id and leaves each open, folded into this one, so drawing its card redraws that card, `post_ask` shows each other named card asked again with a link to it, and his answer to this one ends them all; a question folded so, asked again, stays folded and draws no card. A job whose card another job's question took, by `took`, folds an ask of it into that question and draws no card, asked in that question's words or its own. Asked in other words, Opus reads it in that same call against each open card `repeating` finds, and each card Opus reads it as asking again is printed to the agent by settled.REPEATED, which shares no card: only an agent's `Replaces:` line or --redraws shares one, since a card Opus read as asked again once drew one hotfix's question in place of another's and his tap there closed both; asked again in its own words it is read against none. The question keeps the lines threads hold about the one it takes the place of, by `talk.keep_line`, and `post_ask` sends a thread `card_places` puts the card's line in a line only by `card_line`. What drive job ask prints: the file, then where his card stands."""
     text = f"{limits.ask_block(text).strip()}\n"
     data = state.load(name)
     job = data["jobs"][job_id]
@@ -2508,13 +2505,12 @@ def keep_settled(name: str, job_id: str, text: str, kept: Path, title: str, unse
 
 
 def keep_decided(name: str, job_id: str, text: str, kept: Path, asked: limits.Question, by: str) -> tuple[Path, limits.Question, dict, str]:
-    """Keep a job's ASK block decided on its recommended option by the ruling or standing approval of his `checked_ask` names, as `keep_settled` keeps one his answer settles: no card draws and the job goes on building. A ruling is the one settled.leaving names, state.TOOLING_DETAILS_RULING or state.FRESH_DETAILS_RULING, for a card Opus reads as asking him only what it leaves to the job, or state.REHEARSAL_RULING for a card on any order whose recommended option names only releases on staging or sandbox alone, and tells no thread; under his standing approval the order's thread gets one POST progress line naming the decision, by `approved_post`. The file, the question asked, its question kept, and the line saying the job decided it."""
+    """Keep a job's ASK block decided on its recommended option by the ruling or standing approval of his `checked_ask` names, as `keep_settled` keeps one his answer settles: no card draws and the job goes on building. A ruling is the one settled.leaving names, state.TOOLING_DETAILS_RULING or state.FRESH_DETAILS_RULING, for a card Opus reads as asking him only what it leaves to the job, or state.REHEARSAL_RULING for a card on any order whose recommended option names only releases on staging or sandbox alone, and tells no thread, his standing approval's included. The file, the question asked, its question kept, and the line saying the job decided it."""
     data = state.load(name)
     option = render.cut(asked.recommended, 200)
     if by not in settled.RULED:
         question, job = keep_closed(name, job_id, text, kept, asked.title, None, settled.approved(asked.recommended, by, data["answers"][by]["link"]))
-        told = state.after_save(name, lambda: approved_post(name, job["order"], by, f'decided "{render.cut(asked.title, 120)}" on its recommended option, "{option}", with no card', kept.stem))
-        return kept, asked, question, "\n".join([settled.APPROVED_LINE.format(file=kept, job=job_id, option=option, answer=by[:7]), *told])
+        return kept, asked, question, settled.APPROVED_LINE.format(file=kept, job=job_id, option=option, answer=by[:7])
     closed = settled.ruled_close(asked.recommended, settled.given_at(data, settled.shown(by, data["roles"]["coordinator"]["cwd"])), by)
     question, _ = keep_closed(name, job_id, text, kept, asked.title, None, closed)
     return kept, asked, question, settled.RULED[by][1].format(file=kept, job=job_id, option=option, ruling=by)
@@ -2528,7 +2524,7 @@ def keep_closed(name: str, job_id: str, text: str, kept: Path, title: str, unset
     kept.parent.mkdir(exist_ok=True)
     kept.write_text(text)
     generic = superseded.generic(state.load(name))
-    with state.edit(name) as data:
+    def questioned(data: dict):
         job = data["jobs"][job_id]
         twins = [question for other, question in asking(data, title) if other == job_id]
         named = {id(target): (asker, target) for asker, target in (replacing(data, job_id, asked, ref) for ref in refs)}
@@ -2541,6 +2537,8 @@ def keep_closed(name: str, job_id: str, text: str, kept: Path, title: str, unset
         for asker, target in named.values():
             if not any(target is twin for twin in twins):
                 superseded.end(data, asker, target, question["closed"])
+        return question, job
+    question, job = state.update(name, None, questioned)
     return question, job
 
 
@@ -2560,9 +2558,12 @@ def asked_before(job: dict, title: str, file: Path, generic: set[str]) -> list[d
 
 def ask_card(name: str, job_id: str, file: Path) -> dict:
     """The card the job's question kept in the file draws, by `question_card`, under its waits id, one minted for a question holding none; a card it refuses is kept as the question's refusal by `refuse_draw`, once, and never on a question that ended or is on his card, so no card draws for it and the watch says the job waits on a card never posted until it asks again or drops it."""
-    with state.edit(name) as data:
+    def ask_card_write(data: dict):
         question = state.kept_in(data["jobs"][job_id], file)
         question["waits"] = question["waits"] or state.new_waits(name, job_id)
+        return question
+
+    question = state.update(name, None, ask_card_write)
     try:
         return question_card(name, file, question["waits"])
     except DriveError as error:
@@ -2594,29 +2595,15 @@ def building(data: dict, job_id: str, *cards: str) -> list[str]:
     ]
 
 
-def card_line(data: dict, job_id: str, card: dict, link: str) -> dict:
-    """The report record a thread `card_places` puts the card's line in gets from `post_ask`: what it blocks for an incident and each job `building` its recommended option, else that nothing is built before his pick, and the line that thread already holds about the card, by `talk.keep_line`, for the handler to say what changed. Its cci id names the card's waits id and the hash of the two facts the line states that the drive's records hold, the open incidents the card blocks and whether a job builds its recommended option, so cci keeps a card asked again with neither changed as the record it already holds, which wakes no handler, however its words, its PRs or the jobs handing it on moved, by his pick "Owe a line only on news"."""
-    from drive import view
-
-    incidents, where, _ = card_places(data, data["jobs"][job_id])
-    held = building(data, job_id, card["waits"], link)
-    builds = f"{', '.join(held)} {'builds' if len(held) == 1 else 'build'} its recommended option meanwhile, {card['recommended']}" if held else "nothing is built before his pick"
-    blocks = f", on incident {', '.join(incidents)}: {builds}" if incidents else ""
-    told = view.told_line(data, where[1], card["waits"], link)
-    since = f"; since its line {told['link']}" if told else ""
-    report = {"kind": "report", "text": f'POST his card {link} asks him "{card["title"]}" for {job_id}{blocks}{since}', "to": [f"communicator@{data['name']}"], "attr": {"job": job_id, "waits": card["waits"], "thread": where[1]}}
-    return report | {"id": f"card-line:{card['waits']}:{state.ask_hash(json.dumps([incidents, bool(incidents and held)]))}"}
-
-
 def post_ask(name: str, job_id: str, file: Path, card: dict) -> str:
-    """Post his card on the job's question kept in the file through `talk.posted`, which records it on each question asked under its waits id, in his DM where `card_places` puts it, and a thread taking the card's line gets it through the report record `card_line` makes, which the communicator posts, since only its `say` carries the ticket cc-slack spends on a write outside his DM and keeps the line on the card's question. Each other open question of the job asking the same on another card ends superseded by this one, its card shown asked again with no buttons and a link to this one, and each wait on it moves to this one's waits id, so nothing waits on him under it; each question folded into this one on another card, as a `Replaces:` line folds it, shows that card the same way and takes this card and waits id, each wait on that card moving with it. What was done, for drive job ask to print."""
-    from drive import talk, tools, view
+    """Post his card on the job's question kept in the file through `talk.posted`, which records it on each question asked under its waits id, in his DM where `card_places` puts it, while a thread outside his DM takes no line of it; the card keeps the line on the card's question. Each other open question of the job asking the same on another card ends superseded by this one, its card shown asked again with no buttons and a link to this one, and each wait on it moves to this one's waits id, so nothing waits on him under it; each question folded into this one on another card, as a `Replaces:` line folds it, shows that card the same way and takes this card and waits id, each wait on that card moving with it. What was done, for drive job ask to print."""
+    from drive import talk, view
 
     data = state.load(name)
     job = data["jobs"][job_id]
     _, where, lined = card_places(data, job)
     link = talk.posted(name, {"card": card} | ({"thread_ts": where[1]} if where and not lined else {}))["permalink"]
-    with state.edit(name) as data:
+    def post_ask_write(data: dict):
         live = state.kept_in(data["jobs"][job_id], file)
         doubled = [
             other
@@ -2627,15 +2614,10 @@ def post_ask(name: str, job_id: str, file: Path, card: dict) -> str:
         for other in doubled:
             other["closed"] = asked_again(link, live["waits"])
         ended = [(job_id, other) for other in doubled] + fold_onto(data, live)
-    said = [f"his card {link} asks it under {card['waits']}", *superseded.follow(name, ended)]
-    if not lined:
-        return "; ".join(said)
-    try:
-        tools.sent(name, state.job_lane(data, job), [card_line(data, job_id, card, link)])
-        said.append(f"its line in thread {where[1]} of channel {where[0]} goes out from the communicator once for each change to what the card blocks or whether a job builds its recommended option")
-    except DriveError as error:
-        said.append(f"its line in thread {where[1]} of channel {where[0]} did not go out, so post it there with say: {error}")
-    return "; ".join(said)
+        return ended
+
+    ended = state.update(name, None, post_ask_write)
+    return "; ".join([f"his card {link} asks it under {card['waits']}", *superseded.follow(name, ended)])
 
 
 def fold_onto(data: dict, live: dict) -> list[tuple[str, dict]]:
@@ -2865,10 +2847,12 @@ def question_card(name: str, path: Path, waits: str) -> dict:
         hints={option: refs.slack(hint, found, None) for option, hint in asked.hints.items()},
     ).card(name, waits, meanwhile(data, job_id, holds or "", question and question["unsettled"]) if job else "")
     if job_id in data["jobs"]:
-        with state.edit(name) as data:
+        def question_card_write(data: dict):
             keep_waits(data, job_id, path, waits)
             if question := state.kept_in(data["jobs"][job_id], path):
                 question["recorded"] = recorded
+
+        state.update(name, None, question_card_write)
     return card
 
 
@@ -3175,7 +3159,7 @@ def job_report(args: argparse.Namespace) -> int:
         whole = sys.stdin.read()
         if not whole.strip():
             raise DriveError(f"stdin held no report for {args.id}; pipe its whole return in: printf '%s\\n' '<line>' ... | drive job report {args.id} -")
-        return emit(args, *take_report(name, args.id, whole))
+        return emit(args, *take_report(name, args.id, whole, judged=not args.sprite_lane))
     text = state.report_text(name, args.id, args.all)
     if not text and job["said"] in (None, state.NOT_STARTED):
         raise DriveError(f"{args.id} kept no report and has returned nothing yet")
@@ -3184,8 +3168,23 @@ def job_report(args: argparse.Namespace) -> int:
     return emit(args, text.rstrip("\n"), {"id": args.id, "report": text})
 
 
-def take_report(name: str, job_id: str, whole: str) -> tuple[str, dict]:
-    """Take a job's whole return as drive job report <j> - takes it, the one place a return is kept or refused, for that verb and for the watch's take of a local agent's last message; what it prints and its JSON."""
+def job_check(args: argparse.Namespace) -> int:
+    """Read a Sprite lane's newest kept return with the checks Jev and Opus read, by brief.judged_refusal, and a READY's PRs read on GitHub, by unready, which drive job report left out to answer the lane at once; a refusal wakes the lane by drive job resume with it, to fix and report again."""
+    name = state.resolve(args.drive)
+    data = state.load(name)
+    whole = state.returns(name, args.id)[0]["body"]
+    job = data["jobs"][args.id]
+    line = whole.strip().splitlines()[0].strip()
+    ready = job["kind"] == "builder" and re.match(r"READY\b", line)
+    if not (refused := brief.judged_refusal(name, data, args.id, whole) or ready and unready(data, job, line)):
+        return emit(args, f"{args.id}: its report stands", {"id": args.id, "refused": None})
+    told = JUDGED_LATER.format(job=args.id, refused=refused)
+    state.detach(name, ["job", "resume", args.id, told], watch.READS_LOG)
+    return emit(args, f"{args.id}: {refused}", {"id": args.id, "refused": refused})
+
+
+def take_report(name: str, job_id: str, whole: str, judged: bool = True) -> tuple[str, dict]:
+    """Take a job's whole return as drive job report <j> - takes it, the one place a return is kept or refused, for that verb and for the watch's take of a local agent's last message; what it prints and its JSON. With judged False, as a Sprite lane's report is taken, the checks Jev and Opus read run after it is kept, in a `drive job check` of their own, by brief.judged_refusal, so the lane's answer waits on none of them."""
     data = state.load(name)
     job = data["jobs"][job_id]
     line = whole.strip().splitlines()[0].strip()
@@ -3198,9 +3197,9 @@ def take_report(name: str, job_id: str, whole: str) -> tuple[str, dict]:
         job["repro"] = str(repro)
     built = state.BUILT_LINE.match(line) if job["kind"] in state.CHANGE_KINDS else None
     if refused := (
-        brief.report_refusal(name, data, job_id, whole)
+        brief.report_refusal(name, data, job_id, whole, judged)
         or state.result_refusal(data, job_id, line, whole)
-        or brief.overruled_refusal(data, job, whole)
+        or judged and brief.overruled_refusal(data, job, whole)
         or (built and (held := state.change_job(data, job["order"], [], job["waits"], job_id, built["branch"], job["repo"], proving=state.builds_nothing(job))) and one_change_job(data, job["order"], job["kind"], [], held, job["waits"], branch=built["branch"], repo=job["repo"], job_id=job_id))
     ):
         raise DriveError(f"{job_id}: refused, nothing kept: {refused}")
@@ -3208,14 +3207,15 @@ def take_report(name: str, job_id: str, whole: str) -> tuple[str, dict]:
     if job["kind"] == "builder" and state.REPORTED_LINE.match(line) and any(not served.named(cited) for cited in served.deciding(whole)):
         raise DriveError(f"{job_id}: refused, nothing kept: {served.NAMELESS}")
     if repro:
-        with state.edit(name) as data:
+        def repro_kept(data: dict):
             data["jobs"][job_id]["repro"] = keep_repro(name, job_id, job["kind"], str(repro))
+        state.update(name, None, repro_kept)
     try:
         registered = register_named(name, job_id, line)
     except DriveError as error:
         raise DriveError(f"{job_id}: refused, nothing kept: drive pr add refuses a PR its first line names: {error}") from None
     data = state.load(name)
-    if job["kind"] == "builder" and re.match(r"READY\b", line) and (held := unready(data, job, line)):
+    if judged and job["kind"] == "builder" and re.match(r"READY\b", line) and (held := unready(data, job, line)):
         raise DriveError(f"{job_id}: refused, nothing kept: {held}")
     asked = said = None
     if job["kind"] == "reader" and line.startswith("DESIGN"):
@@ -3256,6 +3256,8 @@ def take_report(name: str, job_id: str, whole: str) -> tuple[str, dict]:
     shown = f"{where}\n{said}" if said else where
     unstarted = [f"no builder added: {why}" for why in removing.values()]
     shown = "\n".join([shown, *replaced, *registered, *fixes, *withdrawn, *briefed, *started, *unstarted])
+    if not judged:
+        state.detach(name, ["job", "check", job_id], watch.READS_LOG)
     return shown, {"id": job_id, "report": kept, "ask": asked and str(asked), "fixes": fixes, "builders": added, "removed": removing}
 
 
@@ -3653,16 +3655,24 @@ def job_start(args: argparse.Namespace) -> int:
                 return emit(args, f"{args.id} starts on a Sprite, by drive job launch {args.id}: {refused}", {"id": args.id, "how": "launch"})
             raise DriveError(f"{args.id}: refused, not started: {refused}")
         agent, cwd = uuid.uuid4().hex[:17], orca.checkout(name, held["cwd"])
-        with state.edit(name) as data:
+        def job_start_write(data: dict):
             data["jobs"][args.id]["bg"] = {"agent": agent, "session": None, "started": state.stamp(), "cwd": str(cwd), "pointed": [], "pool": False}
+            return data
+
+        data = state.update(name, None, job_start_write)
         try:
             session = agents.start_job(name, args.id, agent, call, held, cwd)
         except (reads.ReadError, state.DriveError) as error:
-            with state.edit(name) as data:
+            def job_start_write3(data: dict):
                 data["jobs"][args.id]["bg"] = None
+                return data
+
+            data = state.update(name, None, job_start_write3)
             raise DriveError(f"{args.id}: refused, not started: claude --bg started no agent: {error}") from None
-        with state.edit(name) as data:
+        def job_start_write2(data: dict):
             data["jobs"][args.id]["bg"]["session"] = session
+
+        state.update(name, None, job_start_write2)
     return emit(args, f"{args.id} started as agent {agent}, its own claude --bg session {session}: start no agent for it", {"id": args.id, "agent": agent, "session": session})
 
 
@@ -3860,8 +3870,10 @@ def own_post(name: str, job_id: str, session: str, seq: str) -> str:
     pointer = superseded.POINTER.format(seq)
     bg = state.load(name)["jobs"][job_id]["bg"]
     if not agents.gone(bg):
-        with state.edit(name) as data:
+        def own_post_write(data: dict):
             data["jobs"][job_id]["bg"]["pointed"].append(pointer)
+
+        state.update(name, None, own_post_write)
         return f"{job_id}: posted to its own session {session}'s cci address as handoff record {seq}, which its next step reads"
     try:
         agents.resume_job(name, job_id, bg, pointer)
@@ -3879,8 +3891,9 @@ def returned(job: dict) -> str | None:
 
 def hold(name: str, job_id: str, text: str, sender: str | None) -> None:
     """Keep the text on the job's undelivered list with who sent it by state.hold_text before any Orca call, so an outage delays it and never drops it."""
-    with state.edit(name) as data:
+    def held(data: dict):
         state.hold_text(data["jobs"][job_id], text, sender)
+    state.update(name, None, held)
 
 
 def hold_unread(name: str, job_id: str, lane: dict) -> list[str]:
@@ -3995,8 +4008,10 @@ def unsent(args: argparse.Namespace, name: str, job: dict, held: list[dict], err
         f" the watch says when each goes, and that one has not by a time its words name once that time passes"
     )
     if held:
-        with state.edit(name) as data:
+        def unsent_write(data: dict):
             state.told(data["jobs"][args.id], [kept["words"] for kept in held])
+
+        state.update(name, None, unsent_write)
     unkept = note and "the watch's note to carry the job on reached no one and is not kept, since it was written for this wake or restart alone"
     line = f"{args.id}: {'held, not sent yet' if held else 'not sent'}: {error}; " + "; ".join(filter(None, [keeps, unkept]))
     return emit(args, line, {"id": args.id, "how": "held" if held else "unsent", "held": [kept["request"] for kept in held]})
@@ -4045,7 +4060,7 @@ def launched(name: str, job_id: str, brief_file: str | None, local: bool, text: 
     with place.admitting():
         if crowd := admission_refusal(name, data, job_id, local, step, bool(taker or died)):
             raise DriveError(f"{job_id}: not launched yet: {crowd}")
-        with state.edit(name) as data:
+        def launched_write(data: dict):
             job = data["jobs"][job_id]
             unstopped(job_id, job)
             job.update(route=state.LOCAL_ROUTE if local else None, launching=state.stamp(), researched=brief.research_links(data, job, written))
@@ -4053,6 +4068,9 @@ def launched(name: str, job_id: str, brief_file: str | None, local: bool, text: 
                 job.update(where="remote", waits=[wait for wait in view.holding(data, job["waits"], None) if wait not in state.TURN_WAITS], sprite_turn=None)
             elif text:
                 state.hold_text(job, text, state.held_sender(data))
+            return job
+
+        job = state.update(name, None, launched_write)
         place.counted_again()
     kept.parent.mkdir(exist_ok=True)
     try:
@@ -4073,8 +4091,11 @@ def admission_refusal(name: str, data: dict, job_id: str, local: bool, step: str
         return f"{why}, so it starts on a Sprite: drive job launch {job_id}, with no --local"
     if not (why := place.admission(data, job_id, "sprite", state.now())):
         return None
-    with state.edit(name) as data:
+    def admission_refusal_write(data: dict):
         place.queue_sprite(data["jobs"][job_id], state.now())
+        return data
+
+    data = state.update(name, None, admission_refusal_write)
     if job_id not in (line := place.sprite_line(data)):
         return f"{why}, so {job_id} waits on sprite-slot until its project's budget resets tomorrow, and the watch launches it then"
     return f"{why}, so {job_id} waits its turn for a Sprite lane, {line.index(job_id) + 1} of {len(line)} in line, and the watch launches it as one frees"
@@ -4099,15 +4120,18 @@ def crowded_here(name: str, data: dict, job_id: str, step: str | None, text: str
     job = data["jobs"][job_id]
     if job["kind"] != "builder" or not (why := place.crowded(data, job_id, state.now())):
         return None
-    if not (step or state.died_twice(job)):
+    if not step:
         return f"{why}, so it starts on a Sprite at once: drive job launch {job_id}, with no --local"
     moving = place.on_sprite(job) or bool(job.get("agent"))
     if not (moving or place.queueable(data, job_id)):
         return f"{why}, so this one waits: launch it here once a slot opens with no builder waiting its turn"
-    with state.edit(name) as data:
+    def crowded_here_write(data: dict):
         if text:
             state.hold_text(data["jobs"][job_id], text, state.held_sender(data))
         place.queue(data["jobs"][job_id], state.now())
+        return data
+
+    data = state.update(name, None, crowded_here_write)
     move = "moves it here from its Sprite" if place.on_sprite(job) else f"hands it from its agent {job['agent']} to a lane here"
     turn = f"the watch {move} with drive job launch {job_id} --local as its turn comes, its handoff carrying the texts the job holds" if moving else "the watch's FREE line names it as a slot opens"
     return f"{why}, so {job_id} waits its turn for a builder slot on this Mac, {place.positions(data)[job_id]}, and {turn}"
@@ -4165,7 +4189,8 @@ def started_here(name: str, job_id: str, kept: Path, text: str, cwd: Path) -> di
 
 
 def here_fields(receipt: dict) -> dict:
-    return {"where": "local", "route": None, "bg": receipt["bg"]} if receipt.get("bg") else {}
+    """The job row fields a lane started on this Mac as its own `claude --bg` session sets: its bg entry and that entry's agent as the job's, its launch over, so state.own_session names the session from the start and drive job resume reaches it by `claude --bg --resume` whether or not a hook of it ever binds the job."""
+    return {"where": "local", "route": None, "bg": receipt["bg"], "agent": receipt["bg"]["agent"], "launching": None} if receipt.get("bg") else {}
 
 
 def as_worker(started: dict) -> str:
@@ -4258,8 +4283,10 @@ def hand_over(args: argparse.Namespace, name: str, data: dict, session: str) -> 
     briefed = answers_since(data, args.id, rebriefed(name, args.id))
     carried = [given["words"] for given in state.unreturned(job, "\n\n".join(filter(None, [briefed, args.text])))]
     kept.write_text(orca.agent_handoff(briefed, job, state.report_text(name, args.id, every=False), args.text, None, carried, stage.holds_now(data, args.id)))
-    with state.edit(name) as data:
+    def hand_over_write(data: dict):
         data["jobs"][args.id].update(handoff=str(kept), updated=state.stamp())
+
+    state.update(name, None, hand_over_write)
     line = (
         f"Read your brief first: {kept}\n{args.id} ran as agent {job['agent']} of session {job['session']}, which ended with that session:"
         f" start a fresh {job['kind']} agent here on the line above as its whole prompt, and the drive records {args.id} as this session's"
@@ -4299,7 +4326,7 @@ def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEn
         stale = f"its Sprite {job['workspace']} was made from {was}, and the one the default branch holds now has SHA-256 {now[:12]}"
         return restart(args, name, dispatch, orca.LaneEnd(f"{end.why}, and {stale}", end.branch, None, unfit=True), text)
     death = state.lane_death(job, "dispatch") or {}
-    left = death.get("unsaved") if answered else f"no save was tried, since {read}"
+    left = death.get("unsaved")
     if (death.get("restored") or end.ended and death.get("ended", {}).get("kept")) and not here and "unresumed" not in death and orca.holds_sprite(job) and (session := orca.session_of(args.id, job["workspace"], dispatch)):
         yield_to_launch(name, args.id)
         try:
@@ -4323,14 +4350,6 @@ def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEn
                 return resume_session(args, name, dispatch, end, message, text, session, root, cause)
             except orca.Unstarted as error:
                 end = orca.died(name, args.id, dispatch, end._replace(why=f"{end.why}, and its Claude session {session} did not resume there: {error}", unfit=isinstance(error, orca.Unfit) or end.unreached), unresumed=str(error))
-    if first:
-        before = f"its lane on Sprite {first['workspace']} died too since its last line, at {render.when(first['at'])} ({state.why_died(first['why'], first['cause'])})"
-        with state.edit(name) as data:
-            state.lane_died(data["jobs"][args.id], dispatch, end.why, state.now(), cause)
-        here, unreached = True, False
-        if crowd := crowded_here(name, data, args.id, declared, text):
-            line = f"{args.id}: no worker started yet: its lane on Sprite {job['workspace']} died ({state.why_died(end.why, cause)}), and {before}, so it starts no worker on a Sprite: {crowd}"
-            return emit(args, line, {"id": args.id, "how": "held"})
     yield_to_launch(name, args.id)
     transcript = None if state.on_mac(job) or end.ended else orca.keep_transcripts(name, args.id, job, dispatch, root)
     stopped = orca.reclaim(job["run"], dispatch, root) if here and end.live else None
@@ -4353,12 +4372,15 @@ def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEn
     holder = None if route != state.LOCAL_ROUTE else orca.pr_holder(data, job, str(root))
     own = str(holder.path) if holder else orca.worktree_path(end.worktree) if same else job["workspace"] if finished or continued else None
     yield_to_launch(name, args.id)
-    with state.edit(name) as data:
+    def restart_write(data: dict):
         job = data["jobs"][args.id]
         state.lane_died(job, dispatch, end.why, state.now(), cause)
         if transcript:
             job["deaths"][-1]["transcript"] = str(transcript)
         data["jobs"][args.id] = job | {"route": route}
+        return data, job
+
+    data, job = state.update(name, None, restart_write)
     ended = job["deaths"][-1]
     kept = launch_brief(name, args.id, job)
     attempt = kept.stem
@@ -4417,8 +4439,6 @@ def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEn
             line += f"; {released}"
         if declared:
             line += f"; it moved to this Mac, since its brief declares {declared}, a step only this Mac runs"
-        if first:
-            line += f"; it moved to this Mac, since {before}"
     how = f"started {orca.ON_MAC}" if same else "relaunched"
     return emit(args, "\n".join(filter(None, [stopped, line])), {"id": args.id, "how": how, "ended": ended, "branches": branches, "handoff": str(kept), **started})
 
@@ -4427,9 +4447,12 @@ def resume_session(args: argparse.Namespace, name: str, dispatch: str, end: orca
     """Resume the Claude session of the job's lane that died on its Sprite, or that finished its turn there before a message Orca sends no finished worker came, on that Sprite in the checkout it left, on a Run this terminal makes, so the worker keeps its whole conversation and nothing is saved, moved or destroyed; its death keeps the cause line read off its Sprite, and its brief and line say why it died with that cause and carry the message, when one came. A resume an earlier restart of the same death started and never recorded is recorded from its kept receipt. Unstarted when no worker started."""
     from drive import stage
 
-    with state.edit(name) as data:
+    def resume_session_write(data: dict):
         job = data["jobs"][args.id]
         state.lane_died(job, dispatch, end.why, state.now(), cause)
+        return data, job
+
+    data, job = state.update(name, None, resume_session_write)
     ended = job["deaths"][-1]
     attempt = f"{args.id}-{len(job['deaths']) + 1}"
     kept = state.drive_dir(name) / "jobs" / f"{attempt}.resume.md"
@@ -4462,17 +4485,42 @@ def job_replies(args: argparse.Namespace) -> int:
 def slot_claim(args: argparse.Namespace) -> int:
     """Claim a staging env's slot for a job: it holds the slot now when none does, its lease ending its minutes past the staging-claim rule's wait, else it queues last, first in first out, and the watch hands it the slot with a GO once the holder gives it back, finishes or outlives its lease, by state.slot_turns."""
     name = state.resolve(args.drive)
-    with state.edit(name) as data:
+    prs = [state.pr_key(pr) for pr in args.pr]
+    paths, stacks = watch.pass_reads(name, state.load(name), prs)
+    def slot_claim_write(data: dict):
         find(data["jobs"], args.job, "job")
-        line = state.slot_claim(data, args.env, args.job, args.minutes, [state.pr_key(pr) for pr in args.pr], args.cases, state.now())
+        line = state.slot_claim(data, args.env, args.job, args.minutes, prs, args.cases, state.now(), paths, stacks, release=state.repo_config(data).get("release"))
+        return line
+
+    line = state.update(name, None, slot_claim_write)
     return emit(args, line, {"env": args.env, "job": args.job, "line": line})
+
+
+def slot_hand(args: argparse.Namespace) -> int:
+    """Hand a staging env's slot to a job in its queue now, the cut holding it going back to the head of the queue, from the holder's own session or the top coordinator's, and start the job's turn as the watch's hand-on does: its release for a start of the top coordinator's, else a GO by drive job resume."""
+    name = state.resolve(args.drive)
+    data = state.load(name)
+    held = (data["slots"].get(args.env) or {}).get("holder")
+    own = (os.environ.get(state.JOB_ENV) or "").split("/")[1:2]
+    if own and held and own[0] not in state.slot_members(data["slots"][args.env]) or not own and not state.top_coordinator(data, os.environ.get("CLAUDE_CODE_SESSION_ID")):
+        raise DriveError(f"refused: only the job holding the {args.env} slot or the top coordinator hands it on")
+    with state.edit(name) as data:
+        entry, line = state.slot_hand(data, args.env, args.to, state.now())
+        until = data["slots"][args.env]["holder"]["until"]
+        steps = state.SLOT_GO_STEPS.format(env=args.env, job=args.to) + state.holding(state.repo_config(data).get("release"), data, [args.to])
+    command = ["job", "release", args.to] if entry["starts"] else ["job", "resume", args.to, f"GO staging {args.env} until {until}: {steps}"]
+    state.detach(name, command, watch.RELAUNCHES_LOG)
+    return emit(args, f"{line}; drive {' '.join(command[:3])} runs now", {"env": args.env, "job": args.to, "line": line})
 
 
 def slot_release(args: argparse.Namespace) -> int:
     """Give a staging env's slot back, or leave its queue, so the watch's next pass hands it to the job first in line."""
     name = state.resolve(args.drive)
-    with state.edit(name) as data:
+    def slot_release_write(data: dict):
         line = state.slot_release(data, args.env, args.job)
+        return line
+
+    line = state.update(name, None, slot_release_write)
     return emit(args, line, {"env": args.env, "job": args.job, "line": line})
 
 
@@ -4483,7 +4531,7 @@ def slot_queue(args: argparse.Namespace) -> int:
     lines = []
     for env, slot in shown.items():
         held = slot["holder"]
-        lines.append(f"{env}: {held['job'] + ' until ' + held['until'] if held else 'free'}")
+        lines.append(f"{env}: {held['job'] + ' until ' + held['until'] + ''.join(', ' + rider['job'] + ' riding its cut' for rider in held['riders']) if held else 'free'}")
         lines += [f"  {place}. {each['job']} for {each['minutes']} minutes, queued {each['at']}" for place, each in enumerate(slot["queue"], 1)]
     return emit(args, "\n".join(lines) or "no staging slot is held or queued", {"slots": shown})
 
@@ -4634,8 +4682,10 @@ def evict_kept(name: str, job_id: str, root: Path) -> list[str]:
                 if not (state.lane_death(job, "dispatch") or {}).get("ended", {}).get("kept"):
                     continue
                 lines.append(release_sprite(name, other, job, root) or f"{other}'s kept Sprite {job['workspace']} was already gone")
-                with state.edit(name) as data:
+                def evict_kept_write(data: dict):
                     state.lane_death(data["jobs"][other], "dispatch")["ended"]["kept"] = False
+
+                state.update(name, None, evict_kept_write)
         except DriveError:
             continue
     return lines
@@ -4643,7 +4693,7 @@ def evict_kept(name: str, job_id: str, root: Path) -> list[str]:
 
 def end_kept(name: str, job_id: str, result: dict) -> dict:
     """Keep on the job what its lane's end came to once it saved, reclaimed and released: the branches saved and its kept transcript, its open question kept for the next worker's handoff to answer, the job left unstamped, since the end of a lane at rest changes nothing it does and so says none of its parts again, or, when the save failed, the end mark taken back, so the lane reads as it did."""
-    with state.edit(name) as data:
+    def end_kept_write(data: dict):
         ended = data["jobs"][job_id]
         death = state.lane_death(ended, "dispatch")
         if result["failed"]:
@@ -4658,6 +4708,9 @@ def end_kept(name: str, job_id: str, result: dict) -> dict:
                 death["transcript"] = result["transcript"]
             if result.get("kept"):
                 death["ended"]["kept"] = True
+        return ended
+
+    ended = state.update(name, None, end_kept_write)
     return ended
 
 
@@ -4678,16 +4731,21 @@ def job_reclaim(args: argparse.Namespace) -> int:
             released = orca.release(name, args.id, {**job, "workspace": args.lane}, root)
         except orca.OrcaError as error:
             orca.keep_sprite(args.lane)
-            with state.edit(name) as data:
+            def job_reclaim_write2(data: dict):
                 state.death_on(data["jobs"][args.id], args.lane)["kept"] = state.stamp()
+                return data
+
+            data = state.update(name, None, job_reclaim_write2)
             raise Kept(
                 f"{args.id}: refused, Sprite {args.lane} is kept, and the watch asks to save and destroy it again in an hour: {error}. Destroying it unread may lose what it holds on no remote,"
                 f" so only his pick does that; drive job reclaim {args.id} {args.lane} asks again, saving it first"
             ) from None
         return emit(args, released, {"id": args.id, "lane": args.lane, "released": released})
     reclaimed = orca.reclaim(job["run"], args.lane, root)
-    with state.edit(name) as data:
+    def job_reclaim_write(data: dict):
         state.death_on(data["jobs"][args.id], args.lane)["freed"] = state.stamp()
+
+    state.update(name, None, job_reclaim_write)
     return emit(args, reclaimed, {"id": args.id, "lane": args.lane, "reclaimed": reclaimed})
 
 
@@ -4801,7 +4859,7 @@ def wake_pr(args: argparse.Namespace) -> int:
 
 
 def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = None, exempt: str | None = None, no_tap: bool = False, lead: dict | None = None, parts: list[str] | None = None, waits: list[str] = ()) -> tuple[dict, list[str]]:
-    """Register a PR on its job from its GitHub read, refused as `drive pr add` refuses, keeping the title and branch it read, so a PR merged and proved before the watch's next read is named by it and a card naming its branch holds it at once, and the parts of its job's orders it names as delivering, so its first check judges it on those, and, for an open one whose head changes a dangerous class of file, its staging test with a tester, by state.mark_dangerous, before his card draws; the PR as registered, which ends each wait on its job's change, and the tester added. `drive pr add` runs it, and `drive job report` for each PR a builder's READY or PUSHED names that no `drive pr add` registered, so every PR a result names lands as one its builder added does, and for each GitHub PR the drive does not track that the FIX line of a report tracing a live bug's cause links. Someone else's PR his words on its order do not name is refused before any check that would have its title or body edited. The lead lines given are kept over those kept before, and each teammate's review it waits on, as review:<login>, beside its other waits, so his card draws only once each lands on its head. A PR is refused once, nothing written, naming every one of these it has, so one relayed call or dry run names them all: a title his card cannot name the kind of, a Show me picture that does not draw, and, on a PR his card asks his tap on, a lead that does not tell him why it is made, what it does and what it changes downstream, by limits.lead_problems; a FIX line's PR, given no lead, is someone else's and kept as it reads. A PR registered for the first time with no class or port named keeps the class its listed files put it in, by path_class, so a CI fix of his draws no card from any of these callers. A PR first registered open where his card would ask his tap takes his Approve from his standing approval covering it, by settled.approved_by, so no card draws, and its order's thread gets one POST progress line naming it, by `approved_post`. An open PR waiting on his tap whose paths reach a component staging runs is kept waiting on its staging test, by staging_reach, so his first card on it names that wait, and a failed read of that reach refuses the add, nothing kept."""
+    """Register a PR on its job from its GitHub read, refused as `drive pr add` refuses, keeping the title and branch it read, so a PR merged and proved before the watch's next read is named by it and a card naming its branch holds it at once, and the parts of its job's orders it names as delivering, so its first check judges it on those, and, for an open one whose head changes a dangerous class of file, its staging test with a tester, by state.mark_dangerous, before his card draws; the PR as registered, which ends each wait on its job's change, and the tester added. `drive pr add` runs it, and `drive job report` for each PR a builder's READY or PUSHED names that no `drive pr add` registered, so every PR a result names lands as one its builder added does, and for each GitHub PR the drive does not track that the FIX line of a report tracing a live bug's cause links. Someone else's PR his words on its order do not name is refused before any check that would have its title or body edited. The lead lines given are kept over those kept before, and each teammate's review it waits on, as review:<login>, beside its other waits, so his card draws only once each lands on its head. A PR is refused once, nothing written, naming every one of these it has, so one relayed call or dry run names them all: a title his card cannot name the kind of, a Show me picture that does not draw, and, on a PR his card asks his tap on, a lead that does not tell him why it is made, what it does and what it changes downstream, by limits.lead_problems; a FIX line's PR, given no lead, is someone else's and kept as it reads. A PR registered for the first time with no class or port named keeps the class its listed files put it in, by path_class, so a CI fix of his draws no card from any of these callers. A PR first registered open where his card would ask his tap takes his Approve from his standing approval covering it, by settled.approved_by, so no card draws. An open PR waiting on his tap whose paths reach a component staging runs is kept waiting on its staging test, by staging_reach, so his first card on it names that wait, and a failed read of that reach refuses the add, nothing kept."""
     from drive import stage
 
     url = state.pr_url(key)
@@ -4878,8 +4936,6 @@ def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = N
             testers.append(state.reach_staging(data, key, staged[key]))
         if approval:
             pr["tap"] = state.new_tap("Approve", read["headRefOid"], data["answers"][approval]["link"], card=[key], approval=approval)
-    if approval:
-        state.after_save(name, lambda: approved_post(name, pr["order"], approval, f"took his Approve on {{pr:{key}}} with no card", key))
     note_third_person(key, read)
     return pr, [tester for tester in testers if tester]
 
@@ -5133,25 +5189,27 @@ def unreached(name: str, data: dict, waits: list[str]) -> None:
 
 
 def release_reach(name: str, data: dict, keys: list[str]) -> dict[str, dict]:
-    """go/ci's own map of what each PR among keys reaches, `tools/ci release select --pr` run in the drive's checkout at the head of its default branch on the paths the PR changes, and on its head when they change rust/Cargo.lock, so go/ci reads a lockfile line as reaching only the crates that link its package: its answer's components, every one go/ci releases, touched, those the paths reach, dev, the paths on go/ci's dev list, which a checkout of dev runs, releases, those the paths reach through reads off that list, and staged, those of the releases with an env its infra/envs file marks `stage: staging`; a PR changing only tests or CI config, which no release ships though go/ci's map counts a test file's package, reaches none and reads tested. Nothing for a PR outside the repository of a coordinator checkout holding tools/ci."""
+    """The repository's own map of what each PR among keys reaches, the command the [release] table of its .claude/long-running.toml names as `components`, its `{pr}` the PR's number, run in the drive's checkout at the head of its default branch with the paths the PR changes on its stdin, and its head when they change rust/Cargo.lock, so the repository reads a lockfile line as reaching only the crates that link it; none for a repository naming no such command, or for a PR of another repository. Its reads run eight at a time."""
     clone = data["roles"]["coordinator"]["cwd"]
-    if not (keys and (Path(clone) / GO_CI).is_file()):
+    if not (keys and (command := state.repo_config(data).get("release", {}).get("components"))):
         return {}
     repo = github.checkout_repo(clone).casefold()
     if not (ours := list(dict.fromkeys(key for key in keys if github.repo_of(key).casefold() == repo))):
         return {}
     checkout = orca.checkout(name, clone)
-    reach = {}
-    for key in ours:
-        paths = github.files(key)
-        if paths and all(served.TESTS.search(path) or CI_CONFIG.match(path) for path in paths):
-            reach[key] = {"components": [], "touched": [], "dev": [], "releases": [], "staged": [], "tested": True}
-            continue
-        request = {"body": "", "paths": paths}
-        if CARGO_LOCK in paths:
-            request["head"] = github.paths([key])[key][0]
-        reach[key] = json.loads(github.run([str(checkout / GO_CI), "release", "select", "--pr"], cwd=str(checkout), stdin=json.dumps(request)))
-    return reach
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        return dict(zip(ours, pool.map(lambda key: pr_reach(key, checkout, command), ours), strict=True))
+
+
+def pr_reach(key: str, checkout: Path, command: str) -> dict:
+    """What one PR reaches, by release_reach."""
+    paths = github.files(key)
+    if paths and all(served.TESTS.search(path) or CI_CONFIG.match(path) for path in paths):
+        return {"components": [], "touched": [], "dev": [], "releases": [], "staged": [], "tested": True}
+    request = {"body": "", "paths": paths}
+    if CARGO_LOCK in paths:
+        request["head"] = github.paths([key])[key][0]
+    return json.loads(github.run(shlex.split(command.format(pr=key.split("#")[1])), cwd=str(checkout), stdin=json.dumps(request)))
 
 
 def staging_mac_box(name: str, data: dict, job: dict) -> str:
@@ -5535,16 +5593,22 @@ def answer(args: argparse.Namespace) -> int:
         with state.edit(name) as data:
             superseded.record(data, args.id, args.words, args.link[0], asked, bound, state.stamp(), drive)
     elif drive:
-        with state.edit(name) as data:
+        def answer_write3(data: dict):
             superseded.tooling_only(data, data["answers"][args.id], superseded.listed(data, data["answers"][args.id], asked))
+            return data
+
+        data = state.update(name, None, answer_write3)
     if cited and args.title and settled.titled(args.title) != cited["title"]:
         done.append(f'his answer {args.id} now answers "{render.cut(settled.retitled(cited, args.title, cwd), 200)}" in cc-notes, where it answered "{render.cut(cited["title"], 200)}"')
     if cited:
         settled.labelled(cited, args.label, cwd)
     if not marking:
         done += replaced(name, args.id, asked, cwd)
-        with state.edit(name) as data:
+        def answer_write2(data: dict):
             ended = superseded.answer_cards(data, args.id, data["answers"][args.id])
+            return data, ended
+
+        data, ended = state.update(name, None, answer_write2)
         done += superseded.follow(name, ended) + superseded.supersede_taps(name, ended)
         kept = data["answers"][args.id]
         areal = state.area_orders(data, [*(cited["tags"] if cited else []), *args.label])
@@ -5629,8 +5693,11 @@ def answer(args: argparse.Namespace) -> int:
         for mark, key, job_id in [*(("superseded", *pair) for pair in args.superseded), *(("reopened", *pair) for pair in args.reopened)]:
             card = asked[key]["card"]
             if mark == "reopened":
-                with state.edit(name) as data:
+                def answer_write4(data: dict):
                     data["answers"][args.id]["cards"][key] = {"mark": mark, "job": job_id, "card": card}
+                    return data
+
+                data = state.update(name, None, answer_write4)
                 done += [*rework_prs(name, [{"key": key, "words": kept["words"], "link": kept["link"]}], args.id), f"{key} reopened by his answer {args.id}: {job_id} reworks it to his words, so brief {job_id} with them"]
                 continue
             if card and card not in cleared or asked[key]["kind"] == "question" and not card:
@@ -5646,10 +5713,13 @@ def answer(args: argparse.Namespace) -> int:
     finally:
         if args.approves or args.settled or args.dropped or args.superseded or args.reopened:
             view.refresh_cards(name)
-    with state.edit(name) as data:
+    def answer_write(data: dict):
         kept = data["answers"][args.id]
         if args.others_stand:
             kept["cards"].update({key: {"mark": "stands"} for key in superseded.unmarked(kept, asked)})
+        return data, kept
+
+    data, kept = state.update(name, None, answer_write)
     data = watch.hear_sent(name, set(superseded.unheard(data, kept)))
     kept = data["answers"][args.id]
     if (left := superseded.unmarked(kept, asked)) or superseded.unheard(data, kept):
@@ -5699,9 +5769,12 @@ def ended_on(name: str, closed: dict, key: str, card: str | None, shown: str = "
     """End as this close says, answered, withdrawn or superseded by his answer or decided under his ruling, each open question drawn on the card a mark names, or kept under its waits id with no card drawn yet, which then never draws, and its card follows, showing the close's words with no buttons, said as `shown`; a card no question of the drive is drawn on, one asked outside any job, is closed in place. What its card shows, a line each."""
     from drive import superseded, view
 
-    with state.edit(name) as data:
+    def ended_on_write(data: dict):
         drawn = view.drawn_on(data, key, *filter(None, [card]))
         ended = [each for job_id, question in drawn if question["closed"] is None for each in superseded.end(data, job_id, question, closed)]
+        return drawn, ended
+
+    drawn, ended = state.update(name, None, ended_on_write)
     if drawn:
         return superseded.follow(name, ended, shown)
     superseded.settle(card, closed, settled=closed["how"] == "answered")
@@ -5713,11 +5786,13 @@ def settle_card(name: str, answer_id: str, kept: dict, key: str, entry: dict, fi
     job_id, card = entry["job"], entry["card"]
     if not file:
         ended_on(name, state.new_close("answered", kept["words"], kept["link"], answer=answer_id), key, card)
-    with state.edit(name) as data:
+    def settle_card_write(data: dict):
         job = data["jobs"][job_id]
         data["answers"][answer_id]["cards"][key] = {"mark": "redrawn" if file else "settled", "job": job_id, "card": card, **({"ask": str(file)} if file else {})}
         if job["state"] not in state.FINISHED_JOB_STATES:
             data["answers"][answer_id]["jobs"].setdefault(job_id, None)
+
+    state.update(name, None, settle_card_write)
     if file:
         return f"{key}: its card {card} is redrawn in place to {file}, asking only what his answer {answer_id} leaves open, as drive job ask {job_id} --redraws {key} drew it"
     shown = f"its card {card} now shows his answer {answer_id} with no buttons" if card else f"no card draws for it, his answer {answer_id} ending its question"
@@ -5725,7 +5800,7 @@ def settle_card(name: str, answer_id: str, kept: dict, key: str, entry: dict, fi
 
 
 def approve(name: str, answer_id: str, asked: dict[str, dict], named: list[str]) -> list[str]:
-    """Go ahead on what his approval covers, as `drive answer --approves` kept it: end each open question his card draws on a covered order or key on its recommended option, as --settled shows his answer on it, but one kept unsettled, which asks him to lift words of his; then take his Approve, from the answer's link, on each open PR it covers that his card would ask his tap on, as `drive pr set --tapped Approve --tap-source` keeps his, but one the check against his words objects to at its head, by his "given my constraints". Each covered key the answer lists unmarked is marked settled or standing, and each step goes to its order's thread as one POST progress line, by `approved_post`. What was done, a line each."""
+    """Go ahead on what his approval covers, as `drive answer --approves` kept it: end each open question his card draws on a covered order or key on its recommended option, as --settled shows his answer on it, but one kept unsettled, which asks him to lift words of his; then take his Approve, from the answer's link, on each open PR it covers that his card would ask his tap on, as `drive pr set --tapped Approve --tap-source` keeps his, but one the check against his words objects to at its head, by his "given my constraints". Each covered key the answer lists unmarked is marked settled or standing, and each step shows on the drive's dashboard and records alone. What was done, a line each."""
     from drive import view
 
     data = state.load(name)
@@ -5748,10 +5823,8 @@ def approve(name: str, answer_id: str, asked: dict[str, dict], named: list[str])
                 data["answers"][answer_id]["cards"].setdefault(key, {"mark": "settled", "job": job_id, "card": question["card"]})
             if data["jobs"][job_id]["state"] not in state.FINISHED_JOB_STATES:
                 data["answers"][answer_id]["jobs"].setdefault(job_id, None)
-        step = f'decided "{render.cut(question["title"] or "", 120)}" on its recommended option, "{render.cut(option, 200)}", with no card asking him'
         shown = f"its card {question['card']} now shows it" if question["card"] else "no card draws for it"
         done.append(f'{key}: decided on "{render.cut(option, 200)}" under his approval {answer_id[:7]}, {shown}; {builds_on(state.load(name), job_id)}')
-        done += state.after_save(name, lambda order_id=order_id, step=step, topic=key: approved_post(name, order_id, answer_id, step, topic))
     with state.edit(name) as data:
         tapped = [key for key, pr in data["prs"].items() if state.approval_covers(approves, key, pr["order"]) and state.asks_tap(data, pr) and not state.against(pr)]
         for key in tapped:
@@ -5761,29 +5834,7 @@ def approve(name: str, answer_id: str, asked: dict[str, dict], named: list[str])
             data["answers"][answer_id]["cards"][key] = {"mark": "stands"}
     for key in tapped:
         done.append(f"{key}: his Approve taken from his approval {answer_id[:7]} at {kept['link']}, so no card asks his tap")
-        done += state.after_save(name, lambda key=key: approved_post(name, data["prs"][key]["order"], answer_id, f"took his Approve on {{pr:{key}}} with no card", key))
     return done
-
-
-def approved_post(name: str, order_id: str, answer_id: str, step: str, topic: str) -> list[str]:
-    """Send the communicator one POST progress line for the order's thread naming a step the drive took with no card under his standing approval, by his words 2164dcb "jsut get going with it and give me FYIs", the record's id naming the approval and the step's PR or card so a step told again keeps the record cci holds; none for drive tooling a session opened, whose order posts nothing. What was sent, a line."""
-    from drive import tools
-
-    data = state.load(name)
-    order = data["orders"][order_id]
-    if state.unasked_tooling(order):
-        return []
-    record = {
-        "kind": "report",
-        "to": [f"communicator@{name}"],
-        "topic": f"approved-{order_id}",
-        "id": f"approved:{answer_id[:7]}:{topic}",
-        "attr": {"order": order_id, "progress": "true", **state.thread_attr(order)},
-        "text": f"POST under his approval {{answer:{answer_id[:7]}}}, the drive {step}: say so in one line",
-        "body": f"His order {order_id}: {order['text']}\n",
-    }
-    tools.sent(name, state.heard_lane(data, order_id), [record])
-    return [f"sent the communicator a POST for {order_id}'s thread: the drive {step}"]
 
 
 def builds_on(data: dict, job_id: str) -> str:
@@ -5840,9 +5891,13 @@ def reopened_mark(text: str) -> tuple[str, str]:
 def heard(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     if args.last:
-        if not args.why or args.away or args.repeats or args.part:
-            raise DriveError("--last takes back what the drive heard after his last word or tap: it needs --why <whose taps or words they were>, and no --away, --repeats or --part")
+        if not args.why or args.now or args.away or args.repeats or args.part:
+            raise DriveError("--last takes back what the drive heard after his last word or tap: it needs --why <whose taps or words they were>, and no --now, --away, --repeats or --part")
         return emit(args, "unheard", watch.unhear(name, args.last, args.why))
+    if not (args.now or args.away or args.repeats or args.part):
+        owner = state.load(name)["owner"]
+        reading = render.owner_reading(owner)
+        return emit(args, f"He is {reading}" if reading else "never heard: the drive has heard no word or tap of his", owner)
     if args.repeats or args.part:
         refuse_an_unheld_repeat(name, state.load(name), args.repeats, args.part)
     return emit(args, "away" if args.away else "heard", watch.hear(name, state.now(), args.away))
@@ -5858,8 +5913,10 @@ def page_owner(args: argparse.Namespace) -> int:
     except reads.ReadError as error:
         raise DriveError(f"refused, nobody paged: {error}") from None
     if args.order:
-        with state.edit(name) as data:
+        def page_owner_write(data: dict):
             data["orders"][args.order]["paged"] = state.stamp()
+
+        state.update(name, None, page_owner_write)
     return emit(args, paged, {"paged": paged, "order": args.order})
 
 
@@ -5876,8 +5933,7 @@ def handler(args: argparse.Namespace) -> int:
             return emit(args, routed_line(found) if "handler" not in found else f"{'handed to' if found['handed'] or found.get('again') else 'started'} {found['handler']}", found)
         watch.hear(name, state.now(), args.away)
     briefs = briefing(name, args.brief, args.answer) is not None
-    owed = bool((named := agents.RECORD.search(args.brief)) and agents.posting(name, agents.shown(named[1])))
-    handler_id, handed = agents.handle(name, args.brief, detached=True, answer=args.answer, briefs=briefs, owed=owed)
+    handler_id, handed = agents.handle(name, args.brief, detached=True, answer=args.answer, briefs=briefs)
     if handed:
         return emit(args, f"handed to {handler_id}", {"handler": handler_id, "handed": True})
     return emit(args, f"started {handler_id}", {"handler": handler_id})
@@ -5916,8 +5972,13 @@ def handler_start(args: argparse.Namespace) -> int:
 
 def mac_boxes_down(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
-    checkout = orca.checkout(name, state.load(name)["roles"]["coordinator"]["cwd"])
-    return max(subprocess.run([str(checkout / GO_CI), "mac-box", "down", "--holder", f"{name}/{job_id}"], cwd=checkout, stdin=subprocess.DEVNULL, check=False).returncode for job_id in args.jobs)
+    data = state.load(name)
+    checkout = orca.checkout(name, data["roles"]["coordinator"]["cwd"])
+    command = state.mac_box_command(data, "down")
+    return max(
+        subprocess.run(command.replace("{box}", shlex.quote(job_id)).replace("{holder}", shlex.quote(f"{name}/{job_id}")), shell=True, cwd=checkout, stdin=subprocess.DEVNULL, check=False).returncode
+        for job_id in args.jobs
+    )
 
 
 def fde_scan(args: argparse.Namespace) -> int:
@@ -6040,8 +6101,10 @@ def wait(args: argparse.Namespace) -> int:
 
 def term(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
-    with state.edit(name) as data:
+    def term_write(data: dict):
         data["stand_ins"][args.stand_in] = args.term
+
+    state.update(name, None, term_write)
     line = f'say\'s hook finds "{args.stand_in}" from now on, naming "{args.term}", for Jev to judge against his words'
     return emit(args, line, {"stand_in": args.stand_in, "term": args.term})
 
@@ -6141,10 +6204,6 @@ def status(args: argparse.Namespace) -> int:
         return emit(args, render.his_prs(rows), {"prs": rows})
     for job_id, in_line in place.positions(data).items():
         data["jobs"][job_id]["in_line"] = in_line
-    amended = agents.amendments(name, data["held"])
-    for seq, mark in data["held"].items():
-        mark["corrections"] = amended["correction"].get(seq, [])
-        mark["withdrawn"] = amended["withdraw"].get(seq, [])
     for project, held in data["subcoordinators"].items():
         held["watch"] = watch.holder(state.pid_path(name, project))
     seen = {}
@@ -6171,11 +6230,14 @@ def with_build(place: str, held: dict) -> str:
 
 def open_channel(name: str, project: str | None) -> dict:
     """Make, as him with cc-slack's user token, the drive's own private channel for no project, or a project's under it, named by slack.channel_name, which cc-slack reads as it reads his DM, one he already has kept; keep its id and name in the drive's slack row, and hand the communicator its Hold with line again at its next tool call, so it holds the channel with no restart."""
+    project = slack.channel_project(project)
     made = slack.cc_slack("operator-channel", slack.channel_name(name, project))
-    with state.edit(name) as fresh:
+    def open_channel_write(fresh: dict):
         fresh["slack"]["channels"][project or ""] = {"id": made["id"], "name": made["name"]}
         if held := fresh["roles"].get("communicator"):
             held.pop("rules", None)
+
+    state.update(name, None, open_channel_write)
     slack.whoami.cache_clear()
     return made
 
@@ -6328,8 +6390,6 @@ def watch_events(args: argparse.Namespace) -> int:
         return watch.relay(state.resolve(args.drive), args.project, args.relay)
     if args.land is not None:
         return watch.landing_loop(state.resolve(args.drive), args.project, args.land)
-    if args.hear is not None:
-        return watch.hearer(state.resolve(args.drive), args.hear)
     if args.loop:
         return watch.main(args.drive, args.project)
     print(watch.ensure(state.resolve(args.drive)))
@@ -6510,9 +6570,12 @@ def move(args: argparse.Namespace) -> int:
     his_words(args.his_word, "move a session")
     was = find(known["roles"], args.role, "role")["cwd"]
     kept = was if state.scratch() else str(orca.checkout(name, was))
-    with state.edit(name) as data:
+    def move_write(data: dict):
         held = find(data["roles"], args.role, "role")
         held.update(move_word=args.his_word, cwd=kept)
+        return held
+
+    held = state.update(name, None, move_write)
     registered = "" if state.scratch() else f"; {agents.register(name, args.role, None, held['cwd'], held['session'])}"
     lanes = {role: lane for lane, role in state.LANE_ROLES.items()}
     mover = lanes[next(role for role in state.ROLES if role != args.role)]
@@ -6688,7 +6751,7 @@ def parser() -> argparse.ArgumentParser:
     root.add_argument("--root", action=Root, nargs=0, help="print the folder of the long-running install this drive runs, the newest installed, whose hooks/ and lib/ a proof file imports")
     verbs = root.add_subparsers(dest="verb", required=True)
 
-    verb = verbs.add_parser("start", parents=[json_opt], help="create the drive or bind one of its two roles to this session")
+    verb = verbs.add_parser("start", parents=[json_opt], help="create the drive or bind one of its roles to this session, make the drive's own channel while it keeps none, and start its meta session and communicator in Orca while none is bound")
     verb.add_argument("name")
     verb.add_argument(
         "--role", required=True, choices=state.ROLES, help="communicator talks to him; coordinator runs his orders and jobs; meta holds drive tooling: its fixes, skill rewrites and installs"
@@ -6719,7 +6782,6 @@ def parser() -> argparse.ArgumentParser:
         ),
     )
     verb.add_argument("--rework", action="append", default=[], type=rework_mark, metavar="PR=LINK", help=REWORK_HELP)
-    verb.add_argument("--due", help="the time his ack promised a line by; from then the watch starts the handler that posts that line, until a line is in the thread")
     verb.add_argument("--parts", nargs="+", type=str.strip, metavar="PART", help="each deliverable his words name; default: one, the whole order")
     verb.add_argument(
         "--incident",
@@ -6802,10 +6864,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument(
         "--state",
         choices=state.ORDER_STATES,
-        help="done or dropped notes on stderr a promised line not posted; done refuses while the bug report it fixes has not heard it is fixed",
-    )
-    verb.add_argument(
-        "--due", help="when he hears next, owed from the next line in the order's thread; on an order with no thread, the drive's own time, said once"
+        help="done refuses while the bug report it fixes has not heard it is fixed",
     )
     verb.add_argument("--note", help="where the order stands, in a few words")
     verb.add_argument("--proof", help="the check that proves it done: its link, its saved file or its pasted output, never a one-line claim of what it showed")
@@ -6813,9 +6872,6 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--thread", help=f"{THREAD_HELP}, naming each open PR card of his rooted there as order add --thread does")
     verb.add_argument("--rework", action="append", default=[], type=rework_mark, metavar="PR=LINK", help=REWORK_HELP)
     verb.add_argument("--lined", action="store_true", help="a line just went in its thread")
-    verb.add_argument(
-        "--withdrawn", metavar="LINK", help="his Slack message calling off the promised time; the order then owes no line for it"
-    )
     verb.add_argument(
         "--add-part",
         action="append",
@@ -7048,6 +7104,10 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("env", help="the staging env")
     verb.add_argument("--job", required=True, help="the job giving it back")
     verb.set_defaults(run=slot_release)
+    verb = slot.add_parser("hand", parents=both, help="hand a staging env's slot to a job in its queue now, from its holder or the top coordinator")
+    verb.add_argument("env", help="the staging env")
+    verb.add_argument("--to", required=True, help="the queued job taking the slot")
+    verb.set_defaults(run=slot_hand)
     verb = slot.add_parser("queue", parents=both, help="each staging slot's holder, its lease's end and the jobs waiting, in order")
     verb.add_argument("env", nargs="?", help="the staging env; default every one")
     verb.set_defaults(run=slot_queue)
@@ -7445,6 +7505,9 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("id")
     verb.add_argument("--session", help="the session that added the job, which go/ci records as the release's starter")
     verb.set_defaults(run=job_release)
+    verb = job.add_parser("check", parents=both, help="what drive job report starts after it keeps a Sprite lane's return: read it with the checks Jev and Opus read and wake the lane with a refusal")
+    verb.add_argument("id")
+    verb.set_defaults(run=job_check)
     verb = job.add_parser(
         "replies", parents=both, help="every result and question a remote lane sent, and every return drive job report kept, oldest first, with when each came"
     )
@@ -7826,8 +7889,9 @@ def parser() -> argparse.ArgumentParser:
     verb = verbs.add_parser(
         "heard",
         parents=both,
-        help="he wrote: record it, owing each report held while he was away to its thread's line and his catch-up at his DM root, which the watch's relay posts; prints heard, away, or unheard for --last, and nothing to act on",
+        help="with no flag, print when he was last heard and write nothing; --now, --away or --repeats records that he wrote, printing heard or away, and --last unheard",
     )
+    verb.add_argument("--now", action="store_true", help="he wrote just now: record him heard at this moment")
     verb.add_argument("--away", action="store_true", help="he said he is going to sleep or away")
     verb.add_argument(
         "--repeats",
@@ -7909,7 +7973,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("id", help="the handler's id, as drive handler printed it")
     verb.set_defaults(run=handler_start)
     verb = verbs.add_parser(
-        "mac-boxes-down", parents=both, help="take down the Mac boxes each job holds with tools/ci mac-box down --holder <drive>/<job> in the drive's checkout; a save that finishes a job runs it detached"
+        "mac-boxes-down", parents=both, help="take down the Mac box each job holds with the [mac_box] down command of the drive checkout's .claude/long-running.toml, {box} the job's id and {holder} <drive>/<job>; a save that finishes a job runs it detached, and the watch hourly for each finished job a live box is named after"
     )
     verb.add_argument("jobs", nargs="+", help="the jobs whose Mac boxes come down")
     verb.set_defaults(run=mac_boxes_down)
@@ -7971,7 +8035,6 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--loop", action="store_true", help="run the watch in the foreground: the process its launch agent runs")
     verb.add_argument("--respond", type=int, metavar="FD", help="run the watch's responder in the foreground, writing its lines to the inherited file descriptor FD: the process each watch starts beside its passes and ends, which starts a reader on each lane question the moment it is asked")
     verb.add_argument("--relay", type=int, metavar="FD", help="run the watch's relay in the foreground, writing its lines to the inherited file descriptor FD: the process each watch starts beside its passes and ends")
-    verb.add_argument("--hear", type=int, metavar="FD", help="run the watch's hearer in the foreground, writing a line for each message it could not keep or route to the inherited file descriptor FD: the process each watch starts beside its passes and ends, which takes the communicator's Slack messages by cc-slack watch --only-delivery, keeps each verbatim in heard.jsonl and routes his at once")
     verb.add_argument("--land", type=int, metavar="FD", help="run the watch's landing loop in the foreground, writing the PRs the drive does not track it read to the inherited file descriptor FD: the process each watch starts beside its passes and ends, which reads GitHub, stages, wakes and lands every 60 seconds whatever a pass of the watch holds")
     verb.add_argument(
         "--project",
@@ -8222,6 +8285,7 @@ def main(argv: list[str] | None = None) -> int:
                     return 2
                 if args.verb == "status" and not args.ids:
                     args.ids = [own]
+            args.sprite_lane = bool(lane)
             if "TMUX" in os.environ and (attached := orca.own_terminal()):
                 os.environ["ORCA_TERMINAL_HANDLE"] = attached
             with state.naming(vars(args)):

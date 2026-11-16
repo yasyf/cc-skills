@@ -4,7 +4,6 @@ from datetime import datetime, timedelta
 from drive import land, stage, state, view
 
 STILL_FOR = timedelta(minutes=60)
-TOLD_AFTER = timedelta(minutes=30)
 SEARCH_FOR = timedelta(minutes=10)
 AT_ONCE = 2
 STARTS_AN_HOUR = 6
@@ -115,7 +114,7 @@ def aged(kept: dict | None, printed: str, joins: bool, moment: datetime) -> dict
     """The stall record of a thing that reads printed now: kept while it reads as it did, or, for one waits join, while each wait it read still reads so, its print then naming the waits that joined, else a fresh one from this moment, so a push, a new stage, his answer or a wait ending on it is progress and a new stall, while a job starting or ending its wait on it is neither, nor a wait joining a staging env or release that already stands."""
     if kept and (kept["print"] == printed or joins and set(kept["print"].split("; ")) <= set(printed.split("; "))):
         return kept | {"print": printed}
-    return {"print": printed, "since": state.stamp(moment), "agent": None, "found": None, "said": None, "told": None, "claim": None}
+    return {"print": printed, "since": state.stamp(moment), "agent": None, "found": None, "said": None, "claim": None}
 
 
 def stalled(data: dict, kept: dict[str, dict], found: dict[str, dict], moment: datetime) -> list[str]:
@@ -134,17 +133,13 @@ def waiting(found: dict) -> list[str]:
     return [subject for subject in found["subjects"] if subject not in found["members"]]
 
 
-def step(held: dict, moment: datetime, away: bool) -> str | None:
-    """The step a stall owes now: its watchdog agent, its STUCK line once that agent answered or SEARCH_FOR passed, then, once that line stood TOLD_AFTER while he is here, a fresh agent, since the first one read the stall as it stood when the line went out, and his report once that one answered or SEARCH_FOR passed; None while it owes none."""
+def step(held: dict, moment: datetime) -> str | None:
+    """The step a stall owes now: its watchdog agent, then its STUCK line once that agent answered or SEARCH_FOR passed; None while it owes none."""
     if not held["agent"]:
         return "agent"
-    if not held["said"]:
-        return None if searching(held, moment) else "said"
-    if held["told"] or away or moment - state.parse_time(held["said"]) < TOLD_AFTER:
+    if held["said"]:
         return None
-    if state.parse_time(held["agent"]["at"]) <= state.parse_time(held["said"]):
-        return "agent"
-    return None if searching(held, moment) else "told"
+    return None if searching(held, moment) else "said"
 
 
 def searching(held: dict, moment: datetime) -> bool:
@@ -161,9 +156,9 @@ def owner(data: dict, subject: str) -> tuple[str, str]:
 
 
 def starts(stalls: dict[str, dict], moment: datetime) -> tuple[int, int]:
-    """How many watchdog agents run now, each started under SEARCH_FOR ago on a stall whose STUCK line or report has not taken its answer yet, and how many started in the last hour, over every stall of the drive, a cause read from the drive's rows, which starts none, counting as neither."""
+    """How many watchdog agents run now, each started under SEARCH_FOR ago on a stall whose STUCK line has not taken its answer yet, and how many started in the last hour, over every stall of the drive."""
     held = [kept for kept in stalls.values() if kept["agent"] and kept["agent"]["pid"]]
-    running = sum(1 for kept in held if moment - state.parse_time(kept["agent"]["at"]) < SEARCH_FOR and not ((taken := kept["told"] or kept["said"]) and state.parse_time(taken) >= state.parse_time(kept["agent"]["at"])))
+    running = sum(1 for kept in held if moment - state.parse_time(kept["agent"]["at"]) < SEARCH_FOR and not (kept["said"] and state.parse_time(kept["said"]) >= state.parse_time(kept["agent"]["at"])))
     return running, sum(1 for kept in held if moment - state.parse_time(kept["agent"]["at"]) < timedelta(hours=1))
 
 

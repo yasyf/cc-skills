@@ -85,6 +85,8 @@ def test_a_save_hands_a_finished_jobs_mac_boxes_to_a_process_of_its_own_that_tak
     (checkout / "tools").mkdir(parents=True)
     (checkout / "tools" / "ci").write_text(f'#!/bin/sh\necho "$(pwd -P) $*" >> {tmp_path / "downs"}\n')
     (checkout / "tools" / "ci").chmod(0o755)
+    (checkout / ".claude").mkdir()
+    (checkout / ".claude" / "long-running.toml").write_text('[mac_box]\ndown = "tools/ci mac-box down --holder {holder} {box}"\n')
     state.create(state.new_drive("demo", "coordinator", None, str(checkout)))
     detached: list[tuple[str, list[str], str]] = []
     monkeypatch.setattr(state, "detach", lambda name, args, log: detached.append((name, args, log)) or 0)
@@ -92,7 +94,7 @@ def test_a_save_hands_a_finished_jobs_mac_boxes_to_a_process_of_its_own_that_tak
     REAL_DOWN_MAC_BOXES("demo", state.new_drive("demo", "coordinator", None, str(tmp_path / "elsewhere")), ["j3"])
     assert detached == [("demo", ["mac-boxes-down", "j1", "j2"], state.MAC_BOXES_LOG)]
     assert run("mac-boxes-down", "j1", "j2", "--drive", "demo")[0] == 0
-    assert (tmp_path / "downs").read_text().splitlines() == [f"{checkout.resolve()} mac-box down --holder demo/j1", f"{checkout.resolve()} mac-box down --holder demo/j2"]
+    assert (tmp_path / "downs").read_text().splitlines() == [f"{checkout.resolve()} mac-box down --holder demo/j1 j1", f"{checkout.resolve()} mac-box down --holder demo/j2 j2"]
 
 
 def test_edit_saves_atomically_and_leaves_no_temp(state_root: Path) -> None:
@@ -1536,53 +1538,6 @@ def test_pr_url_round_trips() -> None:
     assert state.pr_url("yasyf/cc-skills#9") == "https://github.com/yasyf/cc-skills/pull/9"
 
 
-THREAD = ("D123", "1794200000.000100")
-
-
-def test_a_moved_time_is_kept_only_by_lines_after_it_was_set() -> None:
-    at = lambda minutes: REFERENCE + timedelta(minutes=minutes)
-    order = {"promises": [], "incident": False}
-    state.remind(order, THREAD, state.stamp(at(0)), at(-60))
-    state.promise(order, THREAD, state.stamp(at(120)), at(30))
-    [held] = order["promises"]
-    state.keep(held, [at(-10), at(10)])
-    assert (held["due"], held["promised"], held["kept"]) == (state.stamp(at(120)), state.stamp(at(30)), None)
-    state.keep(held, [at(-10), at(10), at(40)])
-    assert (held["promised"], held["kept"]) == (at(40).isoformat(), None)
-    state.keep(held, [at(-10), at(10), at(40), at(50)])
-    assert held["kept"] == at(50).isoformat()
-
-
-def test_a_time_promised_in_one_thread_is_owed_there_alone_whatever_another_threads_post_keeps() -> None:
-    at = lambda minutes: REFERENCE + timedelta(minutes=minutes)
-    card = ("D123", "1794200600.000200")
-    order = {"promises": [], "incident": False}
-    state.remind(order, THREAD, state.stamp(at(10)), at(0))
-    state.remind(order, card, state.stamp(at(8)), at(4))
-    state.keep(state.promised_in(order, card), [at(6)])
-    assert ([held["thread"] for held in state.owing(order)], state.owed_at(order)) == ([list(THREAD)], state.stamp(at(10)))
-
-
-def test_the_line_of_a_report_closing_the_order_keeps_the_time_it_told_him_and_a_line_before_the_report_does_not() -> None:
-    at = lambda minutes: REFERENCE + timedelta(minutes=minutes)
-    order = {"promises": [], "incident": False}
-    state.promise(order, THREAD, state.stamp(at(28)), at(0))
-    [held] = order["promises"]
-    state.keep(held, [at(16)])
-    state.keep(held, [at(16)], announced=False)
-    assert (held["due"], held["promised"], state.owed(order)) == (state.stamp(at(28)), at(16).isoformat(), True)
-    state.keep_closing(held, [at(16)], at(17))
-    assert state.owed(order)
-    state.keep_closing(held, [at(16)], at(15))
-    assert (held["kept"], held["next_due"], state.owed(order)) == (at(16).isoformat(), None, False)
-
-
-def test_an_incident_owes_no_promised_time_since_the_watch_owes_its_line_five_quiet_minutes_after_its_last() -> None:
-    order = {"promises": [], "incident": False}
-    state.remind(order, THREAD, state.stamp(REFERENCE), REFERENCE - timedelta(minutes=5))
-    assert (state.owed(order), state.owed(order | {"incident": True})) == (True, False)
-
-
 MONOREPO = "Forge-AI/monorepo"
 
 
@@ -2400,17 +2355,15 @@ def test_each_seq_an_older_install_saved_with_the_hash_cci_prints_loads_as_its_d
     question = state.new_question(None, "Which ring?", state.stamp(), closed=state.new_close("answered", "Ring", None, seq="#697591"))
     undelivered = {"seq": "#697592", "words": "Ring", "at": state.stamp(), "said": None, "request": "req-ring"}
     data["jobs"] = {"j1": state.new_job("o1", "builder", "fix it", ["fix it"], state.stamp()) | {"questions": [question], "undelivered": [undelivered]}}
-    data["catch_up"] = state.new_catch_up(state.stamp()) | {"record": "#697595"}
     state.create(data)
     loaded = state.load("demo")
     order, job = loaded["orders"]["o1"], loaded["jobs"]["j1"]
-    assert (order["closed_on"], order["quiet"]["record"], order["watch"]["record"], job["questions"][0]["closed"]["seq"], job["undelivered"][0]["seq"], loaded["catch_up"]["record"]) == (
+    assert (order["closed_on"], order["quiet"]["record"], order["watch"]["record"], job["questions"][0]["closed"]["seq"], job["undelivered"][0]["seq"]) == (
         "697590",
         "697593",
         "697594",
         "697591",
         "697592",
-        "697595",
     )
 
 
@@ -2819,3 +2772,63 @@ def test_a_pr_a_bot_or_github_app_opened_is_no_teammates_and_the_drive_may_take_
     assert state.foreign("Forge-AI/monorepo#56030", github.author_login({"__typename": "Bot", "login": "poetic-vulcan"}), []) is None
     assert state.foreign("Forge-AI/monorepo#56030", "renovate[bot]", []) is None
     assert state.foreign("Forge-AI/monorepo#56030", github.author_login({"__typename": "User", "login": "rowan"}), [])
+
+
+def test_a_free_staging_slot_packs_up_to_six_passes_whose_files_never_overlap_into_one_cut_under_one_lease() -> None:
+    moment = datetime(2026, 11, 16, 1, 0, tzinfo=UTC)
+    names = [f"j{number}" for number in range(1, 10)]
+    data = {"slots": {}, "orders": {"o1": {"incident": False, "priority": None, "state": "open"}}, "jobs": {job_id: {"state": "waiting", "order": "o1", "carries": []} for job_id in ["j0", *names]}}
+    state.slot_claim(data, "plat-usw2-staging", "j0", 20, [], None, moment)
+    files = {"j1": ["a"], "j2": ["a", "b"], "j3": ["c"], "j4": None, "j5": ["d"], "j6": ["e"], "j7": ["f"], "j8": ["g"], "j9": ["h"]}
+    for job_id in names:
+        state.slot_claim(data, "plat-usw2-staging", job_id, 15 if job_id != "j3" else 40, [f"Forge-AI/monorepo#{job_id[1:]}"], None, moment, files[job_id], [f"stack-{job_id}"])
+    data["jobs"]["j0"]["state"] = "done"
+    moved = state.slot_turns(data, moment + timedelta(minutes=30))
+    held = data["slots"]["plat-usw2-staging"]["holder"]
+    assert (held["job"], [rider["job"] for rider in held["riders"]], held["minutes"]) == ("j1", ["j3", "j5", "j6", "j7", "j8"], 40)
+    assert [each["job"] for each in data["slots"]["plat-usw2-staging"]["queue"]] == ["j2", "j4", "j9"]
+    goes = {job_id: line for _, job_id, kind, line in moved if kind == "go"}
+    assert ("Your cut carries Forge-AI/monorepo#3" in goes["j1"], goes["j3"].startswith("RIDE cut j1 on plat-usw2-staging until")) == (True, True)
+    for job_id in ("j1", "j3", "j5", "j6", "j7"):
+        data["jobs"][job_id]["state"] = "done"
+    assert state.slot_turns(data, moment + timedelta(minutes=40)) == []
+    assert state.slot_release(data, "plat-usw2-staging", "j8") == "j8 left the plat-usw2-staging slot's cut"
+    assert [line for _, _, kind, line in state.slot_turns(data, moment + timedelta(minutes=41)) if kind == "freed"] == ["SLOT plat-usw2-staging freed by j1's cut"]
+
+
+def test_passes_restarting_one_stack_take_turns_and_a_top_coordinators_start_holds_a_cut_of_its_own() -> None:
+    moment = datetime(2026, 11, 16, 1, 0, tzinfo=UTC)
+    data = {"slots": {}, "orders": {"o1": {"incident": False, "priority": None, "state": "open"}}, "jobs": {job_id: {"state": "waiting", "order": "o1", "carries": []} for job_id in ("j0", "j1", "j2", "j3", "j4")}}
+    state.slot_claim(data, "plat-usw2-staging", "j0", 20, [], None, moment)
+    state.slot_claim(data, "plat-usw2-staging", "j1", 15, ["Forge-AI/monorepo#1"], None, moment, ["a"], ["api"])
+    state.slot_claim(data, "plat-usw2-staging", "j2", 15, ["Forge-AI/monorepo#2"], None, moment, ["b"], ["api"])
+    assert state.slot_claim(data, "plat-usw2-staging", "j3", 60, [], None, moment, starts=True).startswith("QUEUED j3")
+    state.slot_claim(data, "plat-usw2-staging", "j4", 15, ["Forge-AI/monorepo#4"], None, moment, ["c"], ["rsw-cp"])
+    data["jobs"]["j0"]["state"] = "done"
+    state.slot_turns(data, moment + timedelta(minutes=30))
+    held = data["slots"]["plat-usw2-staging"]["holder"]
+    assert (held["job"], [rider["job"] for rider in held["riders"]]) == ("j1", ["j4"])
+    for job_id in ("j1", "j4"):
+        data["jobs"][job_id]["state"] = "done"
+    state.slot_turns(data, moment + timedelta(minutes=40))
+    data["jobs"]["j2"]["state"] = "done"
+    moved = state.slot_turns(data, moment + timedelta(minutes=50))
+    assert [(job_id, kind) for _, job_id, kind, _ in moved] == [("j2", "freed"), ("j3", "start")]
+    assert data["slots"]["plat-usw2-staging"]["holder"]["riders"] == []
+
+
+def test_a_priority_job_heads_the_slot_queue_a_failed_pass_keeps_the_lease_and_a_hand_seats_a_queued_job_now() -> None:
+    moment = datetime(2026, 11, 16, 1, 0, tzinfo=UTC)
+    data = {"slots": {}, "orders": {"o1": {"incident": False, "priority": None, "state": "open"}}, "jobs": {job_id: {"state": "waiting", "order": "o1", "carries": [], "priority": None} for job_id in ("j0", "j1", "j2", "j3")}}
+    state.slot_claim(data, "plat-usw2-staging", "j0", 20, [], None, moment)
+    state.slot_claim(data, "plat-usw2-staging", "j1", 20, [], None, moment)
+    state.slot_claim(data, "plat-usw2-staging", "j2", 20, [], None, moment)
+    data["jobs"]["j2"]["priority"] = True
+    data["jobs"]["j0"]["state"] = "failed"
+    assert state.slot_turns(data, moment + timedelta(minutes=5)) == []
+    assert [each["job"] for each in data["slots"]["plat-usw2-staging"]["queue"]] == ["j2", "j1"]
+    state.slot_claim(data, "plat-usw2-staging", "j3", 30, [], None, moment, starts=True)
+    entry, line = state.slot_hand(data, "plat-usw2-staging", "j3", moment + timedelta(minutes=6))
+    assert (entry["starts"], line.startswith("j3 holds the plat-usw2-staging slot until"), [each["job"] for each in data["slots"]["plat-usw2-staging"]["queue"]]) == (True, True, ["j0", "j2", "j1"])
+    with pytest.raises(state.DriveError, match="waits in no plat-usw2-staging slot queue"):
+        state.slot_hand(data, "plat-usw2-staging", "j9", moment)

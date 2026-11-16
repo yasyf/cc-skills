@@ -145,8 +145,8 @@ revision and the pictures' branch, since both stay readable.
   `drive pr add` and `drive pr set` refuse `--no-tap` on a `<guarded org>` PR.
 - His standing approval is the mark `drive answer <id> --approves <order or key>...` keeps on his
   answer. A PR first registered on an order it names, or one Opus reads as inside its words and
-  Notes, takes his Approve from that answer's link: no card draws, and the order's thread gets one
-  progress line naming `{answer:<id>}`. A check against his words that objects takes that Approve
+  Notes, takes his Approve from that answer's link: no card draws, and the dashboard shows the
+  Approve as progress under `{answer:<id>}`, with no line to him. A check against his words that objects takes that Approve
   back and his card asks him. His Hold on a covered PR, the close of its orders, or a newer answer
   superseding it ends it.
 - Return `PUSHED <url>` once, when the head you mean to ship is pushed and registered, with CI and
@@ -614,7 +614,11 @@ session's confirmation or a card first. A change no words of his cover rides the
   brief, and `drive job ask` refuses a card naming such a start. The repository names its release tool in the `[release]` table of
   `.claude/long-running.toml`: `targets` (a command printing the JSON list of targets), `status`
   (a command with `{release}` printing a JSON object of `name`, `build`, `order`, `commit` and the
-  targets it `carries`) and `whole` (the start's word for every target).
+  targets it `carries`), `whole` (the start's word for every target), `components` (a command with
+  `{pr}` that reads a PR's changed paths on its stdin and prints the JSON of the components it
+  reaches, which staging slots pack passes by), and `holder` and `join` (the flag naming a job,
+  `{holder}` as `<drive>/<job>`, as a freeze's holder, and the command adding one to the freeze
+  `{freeze}`, which a staging slot's `GO` and `RIDE` lines name for every job of a packed cut).
 - **A green, approved PR does not hold a cut.** When only its staging test holds such a PR on an
   order a production cut serves, the watch's `release_lines` takes the test off and the lander
   queues it within minutes. The cut waits on that landing, carries the component, and its staging
@@ -662,15 +666,17 @@ session's confirmation or a card first. A change no words of his cover rides the
   `drive job held --release`. The hold reaches a drive session, its agents, a Sprite lane, a codex
   job (through the hook `drive job launch` keeps in `~/.codex/hooks.json`) and the watchdog, and a
   wrapper such as `drive break-glass`, `timeout` or `xargs` changes nothing.
-- **Freezes.** `<ci> release freezes` reads each freeze standing now. A job's brief and a
-  handler's prompt carry them and his hold on a `Release freezes:` line, and `drive status` adds
+- **Freezes.** `<ci> release freezes` reads each freeze standing now. A job's brief carries them and his hold on a `Release freezes:` line, and `drive status` adds
   the line when a shown job or PR waits on a release. `say` and `record` refuse words saying a
   release may start that leave out a standing freeze or hold.
 - **One cut at a time.** One cut carries every project's changes, so the top coordinator starts,
   approves and rolls back production cuts. A sub-coordinator lands and installs its project's
   changes. Its job returns `WAITING release` naming the merged changes the cut must carry, and
   the sub-coordinator sends the top a `release` record at `root@<drive>` naming them. The top
-  reads it and starts the cut on its own reading. The `landing_guard` hook refuses
+  reads it and starts the cut on the record as given, without asking the sub-coordinator again.
+  `drive job add --release` reads his answer itself, and its refusal goes back to the
+  sub-coordinator as the record's answer. The release's own job follows the cut to its approve
+  step and approves it there, with no round trip to the top. The `landing_guard` hook refuses
   `ci release start`, `resume`, `approve` and `rollback` and a cut's rerun or unblock from a
   sub-coordinator's session and its agents; `--plan`, `--dry-run`, `--help`, `status` and `watch`
   run. A job with a `Release:` line is the top's on any order.

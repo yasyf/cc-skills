@@ -53,82 +53,28 @@ def transcript(tmp_path: Path, *commands: str) -> Path:
     return path
 
 
-def test_the_communicator_runs_only_its_own_calls_and_starts_a_handler_for_the_rest(
+def test_the_communicator_runs_every_call_a_root_session_does_but_a_cci_write(
     communicator: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    output = json.loads(hook_output(monkeypatch, capsys, call(SLACK + "slack_thread", channel_id="D123", thread_ts="1.2")))
-    reason = output["hookSpecificOutput"]["permissionDecisionReason"]
-    assert output["hookSpecificOutput"]["permissionDecision"] == "deny"
-    assert reason.startswith(f"Refused on purpose: the communicator does not run {SLACK}slack_thread itself")
-    assert "Start a handler with the drive's handler tool" in reason
-    assert output["judged"] is False
-    assert communicator_calls.deny_reason(call("Bash", command="cc-transcript show /x/agent-a1.jsonl")).startswith(
-        "Refused on purpose: the communicator does not run Bash itself"
-    )
-    assert communicator_calls.deny_reason(call("Skill", skill="cc-slack:slack")) is not None
-    assert communicator_calls.deny_reason(call("mcp__plugin_long-running_drive__handler", brief="Record: 9 Drive: demo")) is None
     for own in (
-        call("mcp__plugin_long-running_drive__say", thread_ts="1.2", text="On it: the fix ships next."),
-        call(SLACK + "slack_react", channel_id="D123", ts="1.2", name="+1"),
-        call("mcp__plugin_long-running_drive__heard", ts="1.2"),
-        call("ToolSearch", query="select:SendMessage"),
-        call("SendMessage", to="a-7", message="Approve"),
-        call("Skill", skill="long-running:long-running"),
-        call("Bash", command="drive heard --ts 1.2"),
-        call("Bash", command="cci drive use demo"),
-        call("Bash", command="/Users/me/.claude/plugins/cache/cc-slack/cc-slack/0.9.1/bin/cc-slack thread --url https://acme.slack.com/archives/D123/p1"),
-        call("Bash", command='"/Users/me/.claude/plugins/cache/cc-slack/cc-slack/0.9.1/bin/cc-slack" history --channel D123 --limit 5'),
-        call("Bash", command='"${CLAUDE_PLUGIN_ROOT}/bin/cc-slack" channel-ack --session "$CLAUDE_CODE_SESSION_ID"'),
-        call("Bash", command="'/Users/me/.local/bin/drive' heard --ts 1.2"),
-        call("Bash", command="/opt/homebrew/bin/cci drive use demo"),
-        call("Bash", command="drive job report j1 - <<'EOF'\nPUSHED it's up\nEOF"),
+        call(SLACK + "slack_thread", channel_id="D123", thread_ts="1.2"),
+        call(SLACK + "slack_dm_status", channel_id="D123", thread_ts="1.2", text="Reading the plan"),
+        call("Bash", command="cc-transcript show /x/agent-a1.jsonl"),
+        call("Agent", subagent_type="Explore", prompt="find the commit", run_in_background=True),
+        call("Read", file_path="/x/plan.json"),
+        call("mcp__plugin_cc-inbox_cci__read", seq="706660"),
+        call("mcp__plugin_long-running_drive__record", records=[{"kind": "answer", "re": "706660", "text": "on it"}]),
     ):
         assert communicator_calls.deny_reason(own) is None, own
-    assert agents.ruled(communicator_calls.deny_reason(call(SLACK + "slack_pickup", channel_id="D123", ts="1.2"))) == {"judged": False}
-    assert communicator_calls.deny_reason(call(SLACK + "slack_pickup", channel_id="D123", ts="1.2")) == (
-        "Refused on purpose: cc-slack puts the eyes and Slack's working line on his message itself the moment it lands, so the"
-        " communicator never calls slack_pickup. Go on with the ack."
-    )
-    for post in ("slack_reply", "slack_dm_status", "slack_send", "slack_edit"):
-        output = json.loads(hook_output(monkeypatch, capsys, call(SLACK + post, channel_id="D123", thread_ts="1.2", text="On it: the fix ships next.")))
-        assert output["hookSpecificOutput"]["permissionDecisionReason"].startswith(f"Refused on purpose: {SLACK}{post} holds the post until")
-        assert "say(thread_ts=<his thread>, text=<the ack>)" in output["hookSpecificOutput"]["permissionDecisionReason"]
-        assert output["judged"] is False
-    assert communicator_calls.deny_reason({**call(SLACK + "slack_thread"), "agent_id": "a-1"}) is None
-    assert hook_output(monkeypatch, capsys, {**call(SLACK + "slack_thread"), "session_id": "someone-else"}) == ""
-
-
-def test_his_order_for_a_subagent_of_the_communicator_is_a_handler_and_its_agent_call_is_refused_for_its_real_reasons(
-    communicator: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    output = json.loads(hook_output(monkeypatch, capsys, call("Agent", subagent_type="general-purpose", prompt="fix every card", run_in_background=True)))
-    reason = output["hookSpecificOutput"]["permissionDecisionReason"]
-    assert (output["hookSpecificOutput"]["permissionDecision"], output["judged"]) == ("deny", False)
-    assert reason.startswith("Refused on purpose: the communicator starts no agent with the Agent tool. His order for a subagent of the communicator")
-    assert "is a handler: start it with the drive's handler tool, its brief his words verbatim in its lines, Record:, Message (his words):" in reason
-    assert "and no owner record" in reason
-    assert '"drive handler starts each as a claude --bg session that ends by posting one cci line' in reason and "2,232 characters" in reason
-    assert "holds his next message" not in reason
-    assert communicator_calls.deny_reason({**call("Agent", subagent_type="general-purpose", prompt="x"), "agent_id": "a-1"}) is None
-
-
-def test_the_communicator_sends_every_record_on_the_drives_record_tool_and_makes_no_other_cci_call_but_cci_drive_use(
-    communicator: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
     refused = f"Refused on purpose: {render.RECORDING}"
     for cci in (
         call("mcp__plugin_cc-inbox_cci__post", kind="answer", re="706660", to="meta", text="started a handler for it"),
-        call("mcp__plugin_cc-inbox_cci__read", seq="706660"),
         call("Bash", command="cci post --kind answer --re 706660 --to meta@demo 'started a handler for it'"),
-        call("Bash", command="cci read 706660"),
-        call("Bash", command="cci subscribe --reader communicator --cursor communicator"),
-        call("Bash", command="/opt/homebrew/bin/cci read 706660"),
         call("Bash", command="'/opt/homebrew/bin/cci' post --kind answer --re 706660 --to meta@demo 'started a handler for it'"),
     ):
         output = json.loads(hook_output(monkeypatch, capsys, cci))
         assert (output["hookSpecificOutput"]["permissionDecisionReason"], output["judged"]) == (refused, False), cci
-    assert communicator_calls.deny_reason(call("mcp__plugin_long-running_drive__record", records=[{"kind": "answer", "re": "706660", "text": "on it"}])) is None
-    assert communicator_calls.deny_reason({**call("mcp__plugin_cc-inbox_cci__read", seq="706660"), "agent_id": "a-1"}) is None
+    assert hook_output(monkeypatch, capsys, {**call(SLACK + "slack_thread"), "session_id": "someone-else"}) == ""
 
 
 def answered(builder: Callable[..., None], demo: str, words: str, at: datetime, **fields: object) -> dict:

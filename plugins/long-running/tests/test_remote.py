@@ -34,6 +34,7 @@ from conftest import (
     SILENT_SPRITE,
     UNLISTED,
     REAL_MARK_READ,
+    REAL_UNREAD_RUNS,
     REAL_SPRITES,
     REAL_SPRITE_API,
     REAL_SPRITE_CONFIG,
@@ -2420,7 +2421,7 @@ def died_again(run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.Monkey
 
 
 @pytest.mark.parametrize("workspace", J2504_SPRITES)
-def test_a_lane_whose_sprite_died_resumes_its_own_claude_session_there_with_its_cause_and_a_second_death_since_the_jobs_last_line_moves_the_job_to_a_fresh_worktree_on_this_mac(
+def test_a_lane_whose_sprite_died_resumes_its_own_claude_session_there_with_its_cause_and_a_second_death_since_the_jobs_last_line_relaunches_it_on_a_fresh_sprite_at_once(
     run: Run,
     remote: str,
     tmp_path: Path,
@@ -2450,39 +2451,27 @@ def test_a_lane_whose_sprite_died_resumes_its_own_claude_session_there_with_its_
     monkeypatch.setattr(orca, "release", lambda drive, job_id, job, root: acted.append(f"destroyed {job['workspace']}") or f"destroyed {job['workspace']}")
     code, out = run("job", "resume", "j1", "carry on")
     job = state.load(remote)["jobs"]["j1"]
-    first = job["deaths"][0]
-    assert (code, out.startswith("j1: the message went to the job's next worker, relaunched in a fresh worktree on this Mac as its own claude --bg session bg-1")) == (0, True)
+    assert (code, "relaunched on Sprite" in out.splitlines()[0], "this Mac" in out) == (0, True, False)
     assert f"its lane on Sprite {workspace} was dead (its worker exited; {HIGH_CAUSE})" in out
-    assert out.endswith(f"; destroyed {workspace}; it moved to this Mac, since its lane on Sprite {workspace} died too since its last line, at {render.when(first['at'])} (its worker exited; {HIGH_CAUSE})")
-    assert [(name, on, session) for name, _, on, session in launched] == [("j1-2.resume.md", workspace, J2504_SESSION)]
-    [(_, call, _)] = bg_starts
-    assert ("which you act on now:\n\ncarry on" in bg_brief(call), call["prompt"].endswith("j1-3.md")) == (True, True)
+    assert ([name for name, *_ in launched][0], bg_starts) == ("j1-2.resume.md", [])
     assert (acted, kept_logs) == ([f"saved {workspace}", f"destroyed {workspace}"], [("j1", J2504_DISPATCH), ("j1", "dispatch-2")])
-    assert (job["where"], job["route"], job["dispatch"], job["bg"]["session"], job["state"], job["undelivered"]) == ("local", None, None, "bg-1", "running", [])
+    assert (job["where"], job["state"]) == ("remote", "running")
     assert [(death["dispatch"], death["cause"]) for death in job["deaths"]] == [(J2504_DISPATCH, HIGH_CAUSE), ("dispatch-2", HIGH_CAUSE)]
 
 
-def test_a_second_death_since_the_jobs_last_line_while_eight_builders_hold_this_macs_slots_waits_its_turn_to_move_here_and_never_points_back_to_a_sprite(
+def test_a_second_death_since_the_jobs_last_line_while_eight_builders_hold_this_macs_slots_relaunches_on_a_fresh_sprite_and_never_waits_for_a_slot_here(
     run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, sessions: dict[str, str], causes: dict[str, str]
 ) -> None:
     workspace = J2504_SPRITES[0]
-    launched = died_again(run, remote, tmp_path, monkeypatch, sessions, causes, workspace, HIGH_CAUSE, "564.20 4158.12\n    543\n")
-    monkeypatch.setattr(orca, "save", lambda *args: pytest.fail("a move waiting its turn saves nothing"))
+    died_again(run, remote, tmp_path, monkeypatch, sessions, causes, workspace, HIGH_CAUSE, "564.20 4158.12\n    543\n")
+    monkeypatch.setattr(orca, "save", lambda drive, job_id, job, root: None)
+    monkeypatch.setattr(orca, "release", lambda drive, job_id, job, root: f"destroyed {job['workspace']}")
     eight_builders_here(run)
     code, out = run("job", "resume", "j1", "PR #12: checks failed")
     data = state.load(remote)
     job = data["jobs"]["j1"]
-    first, second = job["deaths"]
-    assert code == 0
-    assert out.startswith(
-        f"j1: no worker started yet: its lane on Sprite {workspace} died (its worker exited; {HIGH_CAUSE}), and its lane on Sprite {workspace} died too since its last line,"
-        f" at {render.when(first['at'])} (its worker exited; {HIGH_CAUSE}), so it starts no worker on a Sprite: 8 builders already run on this Mac"
-    )
-    queued = "so j1 waits its turn for a builder slot on this Mac, 1 of 1 in line, and the watch moves it here from its Sprite with drive job launch j1 --local as its turn comes, its handoff carrying the texts the job holds"
-    assert out.endswith(queued)
-    assert [name for name, *_ in launched] == ["j1-2.resume.md"]
-    assert (job["dispatch"], job["state"], job["waits"], [held["words"] for held in job["undelivered"]], second["cause"]) == ("dispatch-2", "running", [state.SLOT_WAIT], ["PR #12: checks failed"], HIGH_CAUSE)
-    assert (place.waiting_builders(data), cli.crowded_here(remote, data, "j1", None).endswith(queued)) == (["j1"], True)
+    assert (code, "relaunched on Sprite" in out.splitlines()[0], "waits its turn" in out) == (0, True, False)
+    assert (state.SLOT_WAIT in job["waits"], place.waiting_builders(data), job["where"]) == (False, [], "remote")
 
 
 def test_a_second_death_since_the_jobs_last_line_on_a_sprite_whose_vm_booted_after_its_worker_started_resumes_that_workers_claude_session_there(
@@ -2875,9 +2864,9 @@ def written_minutes_ago(sprite_homes: dict[str, Path], tmp_path: Path, workspace
     return transcript
 
 
-@pytest.mark.parametrize("quiet", [None, 45], ids=["unlisted", "unwritten-45-minutes"])
+@pytest.mark.parametrize("quiet", [None, 4, 45], ids=["unlisted", "written-4-minutes-ago", "unwritten-45-minutes"])
 @pytest.mark.parametrize("lane", [J1409_LANES["j489"], J1409_LANES["j414"], J1409_LANES["j601"], J2504_LANE])
-def test_a_pushed_job_whose_sprite_neither_wakes_nor_answers_ssh_nor_shows_a_transcript_written_in_30_minutes_restarts_on_a_fresh_sprite_from_its_pushed_branch_keeping_its_transcripts_and_that_sprite_and_counts_that_death_against_no_job(
+def test_a_pushed_job_whose_sprite_neither_wakes_nor_answers_ssh_restarts_on_a_fresh_sprite_at_once_from_its_pushed_branch_after_a_save_through_the_reclaimer_keeping_its_transcripts_and_counts_that_death_against_no_job(
     run: Run,
     remote: str,
     tmp_path: Path,
@@ -2893,8 +2882,10 @@ def test_a_pushed_job_whose_sprite_neither_wakes_nor_answers_ssh_nor_shows_a_tra
         written_minutes_ago(sprite_homes, tmp_path, workspace, quiet)
     silent = f"its Sprite did not answer: {SILENT_SPRITE}"
     monkeypatch.setattr(orca, "keep_logs", lambda drive, job_id, job, dispatch: (silent, False, False, False))
-    for step in ("session_of", "save", "release"):
-        monkeypatch.setattr(orca, step, lambda *args, step=step: pytest.fail(f"a Sprite that does not answer ssh is asked nothing more over it, yet {step} ran"))
+    monkeypatch.setattr(orca, "session_of", lambda *args: pytest.fail("a Sprite that does not answer ssh is asked for no session over it"))
+    tried = []
+    monkeypatch.setattr(orca, "save", lambda drive, job_id, job, root: tried.append(job["workspace"]) or None)
+    monkeypatch.setattr(orca, "release", lambda drive, job_id, job, root: f"destroyed {job['workspace']}")
     asked: list[list[tuple[str, str]]] = []
     monkeypatch.setattr(github, "branch_heads", lambda heads: asked.append(heads) or dict.fromkeys(heads, "4d5e6f7081"))
     held = "Next event for builder j2504, from the coordinator. Design job j3161 picked the two redo volumes."
@@ -2905,7 +2896,7 @@ def test_a_pushed_job_whose_sprite_neither_wakes_nor_answers_ssh_nor_shows_a_tra
     assert (code, out.startswith("j1: the message went to the job's next worker, relaunched on Sprite workspace-2 as dispatch dispatch-2")) == (0, True)
     files = f"its worker last wrote a transcript there {quiet} minutes ago" if quiet else f"the Sprites file API did not list its transcripts: {UNLISTED}"
     assert f"was dead ({unreachable(port)}, and its wake read orca-reclaim.py exited 1: {NO_WAKE}, and its Sprite did not answer: {SILENT_SPRITE}, and {files}" in out
-    assert out.endswith(f"{workspace} is kept, since what it holds on no remote could not be saved: no save was tried, since {silent}")
+    assert tried == [workspace]
     assert (wakes, [launched["workspace"] for launched in launches], kept_transcripts) == ([("--wake", workspace)], [None], [("j1", dispatch)])
     brief = orca.brief_of(launches[-1]["brief"])
     assert f"You take the job over on a fresh Sprite from its pushed branches; {orca.UNPUSHED}" in brief
@@ -2920,22 +2911,6 @@ def test_a_pushed_job_whose_sprite_neither_wakes_nor_answers_ssh_nor_shows_a_tra
     assert [[branch for _, branch in heads] for heads in asked] == [["durable-agents-j2504/sandsql-two-redo-volumes"]]
 
 
-def test_a_lane_orca_could_not_reach_whose_sprite_answers_no_ssh_while_its_worker_wrote_a_transcript_minutes_ago_restarts_nothing_and_records_no_death(
-    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, sprite_homes: dict[str, Path], kept_transcripts: list[tuple[str, str]]
-) -> None:
-    workspace, dispatch, port = J2504_LANE
-    wakes, launches = unreachable_lane(remote, tmp_path, monkeypatch, J2504_LANE, None)
-    written_minutes_ago(sprite_homes, tmp_path, workspace, 4)
-    for step in ("keep_logs", "session_of", "save", "release"):
-        monkeypatch.setattr(orca, step, lambda *args, step=step: pytest.fail(f"a lane whose worker still writes its transcript is not restarted, yet {step} ran"))
-    code, out = run("job", "resume", "j1", state.UNREACHED)
-    working = f"its Sprite did not answer: {SILENT_SPRITE}, yet its worker wrote a transcript there 4 minutes ago, so it reads as at work until 30 minutes pass with no write, and nothing restarts"
-    assert (code, out) == (0, f"j1: not sent: {unreachable(port)}, and its wake read orca-reclaim.py exited 1: {NO_WAKE}, and {working}; the watch's note to carry the job on reached no one and is not kept, since it was written for this wake or restart alone")
-    assert (wakes, launches, kept_transcripts) == ([("--wake", workspace)], [], [])
-    job = state.load(remote)["jobs"]["j1"]
-    assert (job["dispatch"], job["workspace"], "deaths" in job) == (dispatch, workspace, False)
-
-
 def test_a_lane_that_takes_messages_once_its_sprite_wakes_gets_the_text_and_nothing_restarts(
     run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -2947,8 +2922,9 @@ def test_a_lane_that_takes_messages_once_its_sprite_wakes_gets_the_text_and_noth
     assert sent == [("send", "--to", f"dispatch:{DISPATCH}", "--run", RUN, "--subject", "From the coordinator", "--body", Unheld(state.UNREACHED), "--retry-request", ANY)]
 
 
+@pytest.mark.parametrize("listening", [False, True], ids=["nothing-listens", "runtime-listens"])
 @pytest.mark.parametrize("saved", [SAVED, None], ids=["saved", "unsaveable"])
-def test_j982s_full_disk_sprite_whose_claude_lives_while_nothing_listens_where_orcas_runtime_serves_restarts_on_a_fresh_sprite_with_its_branches_saved_and_its_held_texts(
+def test_j982s_sprite_orca_cannot_reach_whether_or_not_its_runtime_listens_restarts_on_a_fresh_sprite_at_once_with_its_branches_saved_and_its_held_texts(
     run: Run,
     remote: str,
     tmp_path: Path,
@@ -2957,10 +2933,11 @@ def test_j982s_full_disk_sprite_whose_claude_lives_while_nothing_listens_where_o
     sessions: dict[str, str],
     saved_on_github: dict[str, list[str]],
     saved: str | None,
+    listening: bool,
 ) -> None:
     workspace, dispatch, port = J982_10
     wakes, launches = unreachable_lane(remote, tmp_path, monkeypatch, J982_10, lambda: refused("remote_runtime_unavailable", f"Could not connect to the remote Orca runtime at ws://127.0.0.1:{port}")(dispatch))
-    runtimes_listening[workspace] = False
+    runtimes_listening[workspace] = listening
     sessions[workspace] = "5a1f0c3e-7d2b-4e8a-9c61-0b2d4f6e8a1c"
     saved_on_github["demo-j1"] = SAVED_BRANCHES if saved else []
     monkeypatch.setattr(orca, "save", (lambda drive, job_id, job, root: saved) if saved else unsaveable(UNREAD))
@@ -2972,33 +2949,12 @@ def test_j982s_full_disk_sprite_whose_claude_lives_while_nothing_listens_where_o
         data["jobs"]["j1"]["undelivered"] = [{"seq": None, "words": held, "at": state.stamp(T0), "said": None, "request": "req-held"}]
     code, out = run("job", "resume", "j1", state.UNREACHED)
     assert (code, out.startswith("j1: the message went to the job's next worker, relaunched on Sprite workspace-2 as dispatch dispatch-2")) == (0, True)
-    assert f"was dead ({unreachable(port)}, and its wake read {unreachable(port).removeprefix('Orca could not reach its Sprite: ')}, and its Sprite has nothing listening on the port Orca's runtime serves on there)" in out
+    assert f"was dead ({unreachable(port)}, and its wake read {unreachable(port).removeprefix('Orca could not reach its Sprite: ')}, and {'its Sprite says something listens on the port Orca\'s runtime serves on there, yet Orca cannot reach it' if listening else 'its Sprite has nothing listening on the port Orca\'s runtime serves on there'})" in out
     assert out.endswith(f"what {workspace} held on no remote is saved on GitHub as {ON_GITHUB}; destroyed {workspace}" if saved else f"{workspace} is kept, since what it holds on no remote could not be saved: {UNREAD}")
     assert (wakes, [(launched["workspace"], launched["session"]) for launched in launches], released) == ([("--wake", workspace)], [(None, None)], [workspace] if saved else [])
     assert unheld(orca.brief_of(launches[0]["brief"])).endswith(f"which you act on now:\n\n{held}\n\n{state.UNREACHED}")
     job = state.load(remote)["jobs"]["j1"]
     assert (job["dispatch"], job["workspace"], job["undelivered"], [(death["workspace"], death.get("saved")) for death in job["deaths"]]) == ("dispatch-2", "workspace-2", [], [(workspace, saved)])
-
-
-@pytest.mark.parametrize("held", [[], ["Next event for builder j982, from the coordinator. TAP Approve #12"]], ids=["only-the-note", "beside-a-held-text"])
-def test_a_lane_orca_could_not_reach_whose_woken_sprite_says_orcas_runtime_listens_keeps_no_note_to_carry_on_and_restarts_nothing(
-    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, runtimes_listening: dict[str, bool], held: list[str]
-) -> None:
-    workspace, dispatch, port = J982_10
-    wakes, launches = unreachable_lane(remote, tmp_path, monkeypatch, J982_10, lambda: refused("remote_runtime_unavailable", f"Could not connect to the remote Orca runtime at ws://127.0.0.1:{port}")(dispatch))
-    runtimes_listening[workspace] = True
-    monkeypatch.setattr(orca, "save", lambda *args: pytest.fail("a lane whose Sprite's runtime listens is never saved"))
-    with state.edit(remote) as data:
-        data["jobs"]["j1"]["undelivered"] = [{"seq": None, "words": words, "at": state.stamp(T0), "said": None, "request": "req-held", "sender": "coordinator"} for words in held]
-    code, out = run("job", "resume", "j1", state.UNREACHED)
-    refusal = f"orca orchestration worker-show: remote_runtime_unavailable: Could not connect to the remote Orca runtime at ws://127.0.0.1:{port}"
-    unkept = "the watch's note to carry the job on reached no one and is not kept, since it was written for this wake or restart alone"
-    keeps = "the job keeps its text under the Orca request id each was held with, the watch sends them once Orca reads its lane on its Sprite alive, and its next worker gets them in its handoff; the watch says when each goes, and that one has not by a time its words name once that time passes; "
-    assert (code, out.startswith(f"j1: {'held, not sent yet' if held else 'not sent'}: {refusal}"), out.endswith(f"; {keeps if held else ''}{unkept}")) == (0, True, True)
-    assert (wakes, launches) == ([("--wake", workspace)], [])
-    job = state.load(remote)["jobs"]["j1"]
-    assert (job["dispatch"], "deaths" in job, [kept["words"] for kept in job["undelivered"]]) == (dispatch, False, held)
-    assert len(watch.undelivered_lines(watch.Watcher(remote, offset=state.events_end(remote)), state.now() + watch.DUE_EVERY)) == len(held)
 
 
 def reprepared(monkeypatch: pytest.MonkeyPatch, dispatch: str = "dispatch-2") -> list[tuple[str, str | None]]:
@@ -5157,10 +5113,7 @@ def test_a_relaunch_that_ended_without_a_next_lane_is_said_at_once(remote: str, 
     [
         (
             {"why": "its worker exited", "cause": HIGH_CAUSE},
-            "reads from them why it died and moves it to a fresh worktree on this Mac, waiting its turn for a builder slot while they are full,"
-            " as its lane on Sprite sprite-first died too since its last line, at {at}, unless they show its Sprite rebooted"
-            " after its worker started, which resumes its Claude session there, or failed on its own, a kernel error line after init with no OOM kill and its"
-            " home volume not full, or did not answer while GitHub holds the job's branch, which relaunches it on a fresh Sprite",
+            "resumes its Claude session on its Sprite, or else relaunches it on a fresh Sprite with a handoff",
         ),
         ({"why": f"its worker exited, and {NBD_CAUSE}"}, "resumes its Claude session on its Sprite, or else relaunches it on a fresh Sprite with a handoff"),
     ],
@@ -5190,7 +5143,7 @@ def test_a_twice_dead_lane_waiting_its_turn_to_move_here_or_moving_in_that_turn_
     job = state.load(remote)["jobs"]["j1"] | {"workspace": "sprite-old", "deaths": [first, second]}
     waiting = job | {"waits": [state.SLOT_WAIT]}
     moving = job | {"slot": state.stamp(T0 - timedelta(minutes=1))}
-    assert (state.died_twice(waiting), watch.ended_gap("j1", waiting, second, T0), watch.ended_gap("j1", moving, second, T0)) == (True, None, None)
+    assert (bool(state.died_before(waiting, DISPATCH)), watch.ended_gap("j1", waiting, second, T0), watch.ended_gap("j1", moving, second, T0)) == (True, None, None)
     assert watch.ended_gap("j1", moving, second, T0 + watch.RELAUNCH).startswith("j1's lane ended ")
 
 
@@ -5651,6 +5604,26 @@ def test_a_restarted_watch_asks_for_a_left_sprite_again_only_once_the_reclaim_an
     assert ended_lanes == []
 
 
+def test_the_watch_takes_down_each_live_mac_box_named_after_a_finished_job_once_an_hour_unless_an_open_job_names_it(run: Run, remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    run("job", "add", "builder", "--order", "o1", "--goal", "still at work", "--remote")
+    checkout = Path(state.load(remote)["roles"]["coordinator"]["cwd"])
+    (checkout / ".claude").mkdir(parents=True, exist_ok=True)
+    (checkout / ".claude" / "long-running.toml").write_text('[mac_box]\nlist = "echo j1 j2 step7-rss"\ndown = "true"\n')
+    with state.edit(remote) as data:
+        data["jobs"]["j1"]["state"] = "done"
+    started: list[list[str]] = []
+    monkeypatch.setattr(state, "detach", lambda name, args, log: started.append(args) or ENDED_READER)
+    monkeypatch.setattr(state, "scratch", lambda: False)
+    watching = watch.Watcher(remote, offset=state.events_end(remote))
+    for at in (T0, T0 + timedelta(minutes=30), T0 + watch.BOX_SWEEP):
+        watch.finished_boxes(watching, at)
+    assert started == [["mac-boxes-down", "j1"], ["mac-boxes-down", "j1"]]
+    with state.edit(remote) as data:
+        data["jobs"]["j2"]["handoff"] = "Your Mac box, mine to name: box j1, up and signed in to staging; your turn on it comes next"
+    watch.finished_boxes(watching, T0 + 2 * watch.BOX_SWEEP)
+    assert started == [["mac-boxes-down", "j1"], ["mac-boxes-down", "j1"]]
+
+
 def test_reclaim_destroys_a_left_sprite_and_marks_a_lane_on_this_mac_freed_so_no_watch_reclaims_it_again(
     run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -6077,12 +6050,16 @@ def test_lane_mail_becomes_job_events_and_records_the_question_and_marks_its_run
     assert (job["ask"], job["state"], job["said"]) == ("msg_question", "waiting", job["report"].splitlines()[0])
     assert job["report"].endswith("is red on it")
     assert marked_read == [RUN]
+    monkeypatch.setattr(orca, "unread_runs", lambda: ["run_idle"])
+    watch.run_pass(watching, T0 + watch.DRAIN_EVERY)
+    assert marked_read[-1] == "run_idle"
 
 
 def test_drain_read_marks_every_run_with_unread_mail_and_counts_the_gone_and_the_refused(run: Run, remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    unread = [{"to_handle": f"run:{run_id}", "delivered_at": None} for run_id in ("run_a", "run_b", "run_a", "run_gone", "run_bad")]
-    shown = [*unread, {"to_handle": "run:run_read", "delivered_at": "2026-11-16T04:18:56Z"}, {"to_handle": "dispatch:ctx_1", "delivered_at": None}]
-    monkeypatch.setattr(orca, "call", lambda *args, caller=None: {"messages": shown} if args[0] == "inbox" else pytest.fail(f"no other call: {args}"))
+    unread = [{"to": f"run:{run_id}", "handled": False} for run_id in ("run_a", "run_b", "run_a", "run_gone", "run_bad")]
+    shown = [*unread, {"to": "run:run_read", "handled": True}, {"to": "dispatch:ctx_1", "handled": False}]
+    monkeypatch.setattr(orca, "unread_runs", REAL_UNREAD_RUNS)
+    monkeypatch.setattr(orca, "request", lambda *args, **kwargs: {"messages": shown} if args[:2] == ("orchestration", "inbox") and "--full" not in args else pytest.fail(f"no other call: {args}"))
     counts = {"run_a": 3, "run_b": 1, "run_gone": None}
 
     def mark_read(drive: str, run_id: str) -> int | None:
@@ -6673,79 +6650,11 @@ def test_a_read_still_running_starts_no_second_reader_and_its_reader_sends_its_a
     watching = watch.Watcher(remote, offset=state.events_end(remote))
     assert [staged(watch.lane_lines, watching, T0 + timedelta(seconds=s)) for s in (0, 5)] == [[], []]
     assert (started, [args for args in replies if args[0] == "reply"]) == (["relay_drive"], [])
-    sent = [("reply", "--id", "relay_drive", "--run", RUN, "--body", reads.lane_exit(0, f"{watch.TAKEN_LATER}: READY x"))]
+    sent = [("reply", "--id", "relay_drive", "--run", RUN, "--body", "drive exited 0\njobs/j1.replies.jsonl")]
     watch.answer_read(remote, "j1", "relay_drive", T0)
     assert [args for args in replies if args[0] == "reply"] == sent
     assert staged(watch.lane_lines, watching, T0 + timedelta(seconds=10)) == []
     assert (started, [args for args in replies if args[0] == "reply"], unsent(remote)) == (["relay_drive"], sent, [])
-
-
-@pytest.mark.parametrize(("status", "woken"), [(0, False), (2, True)], ids=["a run that takes wakes nobody", "a refused run wakes its lane"])
-@pytest.mark.parametrize(
-    ("question", "kept_as"),
-    [
-        ('DRIVE job report j1 -\n{"files": {}, "stdin": "PUSHED https://github.com/yasyf/demo/pull/9\\nPR: x\\n"}', "PUSHED https://github.com/yasyf/demo/pull/9"),
-        ('DRIVE pr add https://github.com/yasyf/demo/pull/9 --job j1\n{"files": {}}', "drive pr add https://github.com/yasyf/demo/pull/9 --job j1"),
-        ('DRIVE job set j1 --repro /tmp/j1/prove.sh\n{"files": {}}', "drive job set j1 --repro /tmp/j1/prove.sh"),
-    ],
-    ids=["job report", "pr add", "job set"],
-)
-def test_a_lanes_write_is_answered_as_kept_before_it_runs_and_a_refused_one_wakes_its_lane(question: str, kept_as: str, status: int, woken: bool, remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    state.keep_reply(remote, "j1", message("question", question, id="relay_write"))
-    replies, detached = [], []
-    refusal = "drive: j1: refused, nothing kept: name each such piece on an UNBUILT: line"
-
-    def run_it(asked: str, root: Path, drive: str, job_id: str) -> str:
-        assert [args[2] for args in replies if args[0] == "reply"] == ["relay_write"]
-        return reads.lane_exit(status, refusal if status else "done")
-
-    monkeypatch.setattr(reads, "answer", run_it)
-    monkeypatch.setattr(orca, "call", lambda *args: replies.append(args) or {})
-    monkeypatch.setattr(state, "detach", lambda name, args, log: detached.append(args) or 1)
-    said, why = watch.answer_read(remote, "j1", "relay_write", T0)
-    assert [args[6] for args in replies if args[0] == "reply"] == [reads.lane_exit(0, f"{watch.TAKEN_LATER}: {kept_as}")]
-    command = f"drive {question.partition(chr(10))[0].removeprefix('DRIVE ')}"
-    assert detached == ([["job", "resume", "j1", watch.REFUSED_LATER.format(command=command, taken=refusal)]] if woken else [])
-    assert (why is not None, reads.exited(said)) == (woken, status)
-    assert unsent(remote) == []
-
-
-def test_a_write_answered_kept_whose_reader_died_before_it_ran_is_run_once_by_the_reader_the_responder_starts_again(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    question = 'DRIVE job set j1 --repro /tmp/j1/prove.sh\n{"files": {}}'
-    state.keep_reply(remote, "j1", message("question", question, id="relay_kept"))
-    answers = state.drive_dir(remote) / watch.ANSWERS
-    answers.mkdir(exist_ok=True)
-    watch.answer_file(remote, "relay_kept").write_text(json.dumps({"job": "j1", "reader": None, "answer": "drive exited 0\nkept", "why": None}))
-    watch.answer_file(remote, "relay_kept").with_suffix(".pending").write_text(json.dumps({"job": "j1", "reader": 2**22 + 1, "started": 1}))
-    spawned, ran = [], []
-    monkeypatch.setattr(watch, "spawn_reader", lambda name, job_id, message_id: spawned.append((job_id, message_id)))
-    monkeypatch.setattr(reads, "answer", lambda asked, root, drive, job_id: ran.append(asked) or reads.lane_exit(0, "set"))
-    monkeypatch.setattr(orca, "call", lambda *args: {})
-    watch.retake_pending(watch.Watcher(remote, offset=state.events_end(remote)))
-    assert spawned == [("j1", "relay_kept")]
-    assert watch.answer_read(remote, "j1", "relay_kept", T0) == (reads.lane_exit(0, "set"), None)
-    assert watch.answer_read(remote, "j1", "relay_kept", T0) == (None, "another reader took j1's relay_kept")
-    assert (ran, list(answers.glob("*.pending"))) == ([question], [])
-
-
-def test_a_read_still_running_four_minutes_after_its_lane_asked_is_answered_as_running_and_its_output_reaches_the_lane_once_it_ends(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    asked = state.stamp(T0)
-    state.keep_reply(remote, "j1", message("question", 'DRIVE fde-scan -- --symbol memory::flag\n{"files": {}}', id="relay_slow", created_at=asked))
-    replies, detached = [], []
-    ended = threading.Event()
-
-    def slow(question: str, root: Path, drive: str, job_id: str) -> str:
-        assert ended.wait(30)
-        return reads.lane_exit(0, "3 callers")
-
-    monkeypatch.setattr(reads, "answer", slow)
-    monkeypatch.setattr(orca, "call", lambda *args: replies.append(args) or ended.set() or {})
-    monkeypatch.setattr(state, "detach", lambda name, args, log: detached.append(args) or 1)
-    assert watch.answer_read(remote, "j1", "relay_slow", T0 + watch.ANSWER_BY) == (reads.lane_exit(0, "3 callers"), None)
-    assert [args[6] for args in replies if args[0] == "reply"] == [reads.lane_exit(0, watch.STILL_RUNNING.format(seconds=reads.ANSWER_BY))]
-    late = watch.LATE_ANSWER.format(command="fde-scan -- --symbol memory::flag", seconds=reads.ANSWER_BY, answer=reads.lane_exit(0, "3 callers"))
-    assert detached == [["job", "resume", "j1", late]]
-    assert unsent(remote) == []
 
 
 def test_a_second_reader_started_while_the_first_still_runs_exits_and_the_read_runs_once(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -7574,7 +7483,7 @@ def test_mail_is_read_only_while_a_remote_lane_is_live(remote: str, monkeypatch:
     assert calls == [None]
 
 
-def test_a_failed_mail_read_retries_next_poll_and_says_so_from_the_third_failure_in_a_row(
+def test_a_failed_mail_read_retries_next_poll_and_says_so_once_at_the_third_failure_in_a_row(
     remote: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     calls = []
@@ -7589,7 +7498,7 @@ def test_a_failed_mail_read_retries_next_poll_and_says_so_from_the_third_failure
     assert [watch.run_pass(watching, T0 + timedelta(seconds=s)) for s in (0, 5, 10, 15)] == [[], [], [said.format(3)], []]
     assert calls == [None] * 3
     assert watch.run_pass(watching, T0 + timedelta(minutes=5)) == []
-    assert watch.run_pass(watching, T0 + timedelta(minutes=10, seconds=10)) == [said.format(5)]
+    assert watch.run_pass(watching, T0 + timedelta(minutes=10, seconds=10)) == []
 
 
 def test_lane_names_fit_a_sprite() -> None:
@@ -8802,3 +8711,15 @@ def test_a_lane_on_this_mac_whose_worker_finished_with_orcas_follow_up_open_in_i
     assert calls == [("send", "--to", f"dispatch:{FOLLOW_UP}", "--run", RUN, "--subject", "From the coordinator", "--body", Unheld("PR checks failed"), "--retry-request", ANY)]
     job = state.load(remote)["jobs"]["j1"]
     assert (job["dispatch"], job["run"], job["task"], job["terminal"], job["lane"], job.get("deaths", []), job["undelivered"]) == (FOLLOW_UP, RUN, "task_carry", "term_lane", "demo-j1", [], [])
+
+
+def test_a_takeover_brief_naming_a_file_its_own_lane_writes_under_its_scratch_folder_is_carried_as_j7032s_film_was_not(run: Run, demo: str) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship it", "--remote")
+    folder = state.drive_dir(demo)
+    brief = f"Report of j1: the film is at {folder}/scratch/j1/film.txt\nDrive: demo, order o1, job j1\n"
+    assert orca.uncarried(demo, "j1", brief) is None
+    assert orca.uncarried(demo, "j1", brief.replace("scratch/j1/", "scratch/j2/")) == (
+        "its brief names Drive file scratch/j2/film.txt, which the drive keeps no text of, so its lane would stop to ask for each;"
+        " launch it on a brief file that leaves each out: drive job launch j1 <file>"
+    )

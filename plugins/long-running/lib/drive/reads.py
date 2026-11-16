@@ -35,7 +35,6 @@ CREDENTIALS = [
 DRIVE_BIN = Path(__file__).resolve().parents[2] / "bin" / "drive"
 DRIVE_SECONDS = 540
 LANE_GIVES_UP = 240
-ANSWER_BY = 225
 DRIVE_EXIT = "drive exited"
 SPRITE_LANE = "LONG_RUNNING_SPRITE_LANE"
 LANE_VERBS = (
@@ -57,7 +56,6 @@ LANE_VERBS = (
 LANE_WRITES = (("job", "ask"), ("job", "set"), ("pr", "add"), ("pr", "set"))
 LANE_FLAGS = {("job", "set"): "repro", ("pr", "set"): "flaky"}
 LANE_CARDS = (("job", "ask"), ("job", "report"))
-RUN_AFTER_REPLY = (("pr", "add"), ("job", "set"))
 NO_SPRITE_GRANT = 'his pick "No Sprite lane runs break-glass: a step needing a grant moves to a lane on this Mac"'
 JOB_WORD = re.compile(r"j\d+")
 DRIVE_RECORD = re.compile(r"[oj]\d+")
@@ -312,28 +310,6 @@ def subverbs(parser: argparse.ArgumentParser) -> dict[str, argparse.ArgumentPars
 
 def lane_exit(status: int, printed: str) -> str:
     return f"{DRIVE_EXIT} {status}\n{printed}"
-
-
-def exited(answer: str) -> int:
-    """The status a lane's drive answer opens with, by lane_exit."""
-    return int(answer.partition("\n")[0].removeprefix(DRIVE_EXIT))
-
-
-def run_after_reply(question: str) -> str | None:
-    """What a lane's write the reader answers as kept before it runs says it keeps: the report's first line for a `DRIVE job report <job> -` with stdin, and the command for a `DRIVE pr add` or `DRIVE job set`, so the lane waits on no lock, judge or GitHub read the write holds; None for any other question, a `job report` reading the kept report included."""
-    line, _, rest = question.partition("\n")
-    if not (asked := DRIVE.fullmatch(line)):
-        return None
-    try:
-        argv = shlex.split(asked[1])
-        sent = json.loads(rest) if rest.strip() else {}
-    except ValueError:
-        return None
-    if tuple(argv[:2]) in RUN_AFTER_REPLY:
-        return f"drive {shlex.join(argv)}"
-    if argv[:2] != ["job", "report"] or "-" not in argv[2:] or not (stdin := sent.get("stdin", "").strip()):
-        return None
-    return stdin.splitlines()[0].strip()
 
 
 def read_records(command: str, checkout: Path, drive: str) -> str:

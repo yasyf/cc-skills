@@ -52,7 +52,7 @@ def test_a_one_line_record_and_another_sessions_record_are_left_alone(demo: str)
 
 def test_each_record_of_a_batch_is_cut_and_his_stay_whole(demo: str) -> None:
     asked = f"{LAYOUT}\nproof: https://github.com/yasyf/cc-skills/pull/4093"
-    records = [{"kind": "note", "text": asked}, {"kind": "answer", "text": LONG}]
+    records = [{"kind": "decision", "text": asked}, {"kind": "answer", "text": LONG}]
     shortened, whole = record_lines.decision(post(records=records))["updatedInput"]["records"]
     assert shortened["text"] == LAYOUT and shortened["body"] == asked
     assert whole == records[1]
@@ -90,7 +90,7 @@ def test_an_ask_record_carrying_his_cards_ask_block_is_refused_by_its_shape_sinc
         refused = refusal(record_lines.decision(post(kind="ask", text=text, attrs=attrs)))
         assert (refused, agents.ruled(refused)) == (settled.HAND_ASK, {"judged": False}), attrs
     assert refusal(record_lines.decision(post(kind="ask", path=str(block), attrs={"job": "j1"}))) == settled.HAND_ASK
-    assert refusal(record_lines.decision(post(records=[{"kind": "note", "text": "j12 merged"}, {"kind": "ask", "text": f"ASK {IDLE}"}]))) == settled.HAND_ASK
+    assert refusal(record_lines.decision(post(records=[{"kind": "decision", "text": "j12 merged"}, {"kind": "ask", "text": f"ASK {IDLE}"}]))) == settled.HAND_ASK
     assert record_lines.decision(post(session="another-session", kind="ask", text=f"ASK {IDLE}")) is None
     with state.edit(demo) as data:
         data["subcoordinators"]["SandSQL"] = {"session": "sandsql-1", "terminal": None, "cwd": "/work", "started": state.stamp(), "from": 0}
@@ -216,7 +216,7 @@ def test_a_reader_or_designer_posting_to_him_is_refused_and_its_defect_goes_out_
         assert "drive job report <j>" in reason and "meta@<drive>" in reason
     assert record_lines.decision(by("long-running:reader", kind="defect", text="drive job report fails", to=META)) is None
     assert record_lines.decision(by("long-running:reader", kind="defect", text="drive job report fails", to=TO))["updatedInput"]["to"] == META
-    assert record_lines.decision(by("long-running:handler", kind="note", text="j12 found the leak", to=["owner@demo"])) is None
+    assert record_lines.decision(by("long-running:handler", kind="decision", text="j12 found the leak", to=["owner@demo"])) is None
 
 
 def test_a_handler_returns_a_defect_line_instead_of_posting_one(communicator: str) -> None:
@@ -238,14 +238,14 @@ def test_a_post_goes_out_as_its_sessions_lane_and_an_agents_post_to_that_lane_al
     defect = {"kind": "defect", "text": "drive job report fails", "to": META}
     for typed in ("root", "reader"):
         assert record_lines.decision(by("long-running:reader", session="iris-1", lane=typed, **defect))["updatedInput"] == {"lane": "iris"} | defect
-    batch = by("long-running:reader", session="iris-1", records=[defect, {"kind": "note", "text": "j12 merged", "to": META}])
+    batch = by("long-running:reader", session="iris-1", records=[defect, {"kind": "decision", "text": "j12 merged", "to": META}])
     assert record_lines.decision(batch)["updatedInput"]["lane"] == "iris"
     assert record_lines.decision(post("iris-1", "iris", **defect)) is None
     fyi = {"kind": "report", "text": "FYI j12 merged", "to": ["root@demo"]}
     assert record_lines.decision(by("long-running:builder", **fyi))["updatedInput"] == {"lane": "builder"} | fyi
     relayed = by("long-running:handler", session="talker", lane="communicator", kind="report", text="POST j12 merged", to=TO, attrs=PROGRESS)
     assert record_lines.decision(relayed)["updatedInput"]["lane"] == "handler"
-    assert record_lines.decision(by("long-running:handler", session="talker", kind="note", text="j12 merged", to=["root@demo"]))["updatedInput"]["lane"] == "communicator"
+    assert record_lines.decision(by("long-running:handler", session="talker", kind="decision", text="j12 merged", to=["root@demo"]))["updatedInput"]["lane"] == "communicator"
 
 
 def test_725715_a_post_naming_another_drive_goes_out_on_the_sessions_own_drive_and_lane_to_that_drives_lanes_as_cci_refuses_a_foreign_drive(demo: str) -> None:
@@ -257,7 +257,7 @@ def test_725715_a_post_naming_another_drive_goes_out_on_the_sessions_own_drive_a
     assert batch == {"updatedInput": {"lane": "root", "records": [asked | {"to": ["meta@durable-agents"]}, answered]}}
     peered = asked | {"to": ["peer:talker", "root"]}
     assert record_lines.decision(post(drive="durable-agents", **peered))["updatedInput"]["to"] == ["peer:talker", "root@durable-agents"]
-    assert record_lines.decision(post(drive=demo, kind="note", text="j12 merged", to=["root"])) is None
+    assert record_lines.decision(post(drive=demo, kind="decision", text="j12 merged", to=["root"])) is None
 
 
 def test_a_report_attaching_a_file_with_no_text_is_checked_by_the_files_first_line(demo: str, tmp_path: Path) -> None:
@@ -272,7 +272,7 @@ def test_a_report_attaching_a_file_with_no_text_is_checked_by_the_files_first_li
 
 
 def test_a_record_goes_out_without_a_max_words_attr_on_any_kind(demo: str) -> None:
-    for record in ({"kind": "report", "text": "FYI j702 merged", "to": TO}, {"kind": "note", "text": "the watch reads taps"}):
+    for record in ({"kind": "report", "text": "FYI j702 merged", "to": TO}, {"kind": "decision", "text": "the watch reads taps"}):
         assert record_lines.decision(post(**record, attrs={"max_words": "200"})) == {"updatedInput": {"lane": "root"} | record | {"attrs": {}}}
         assert record_lines.decision(post(**record)) is None
 
@@ -293,24 +293,12 @@ def test_a_reports_url_names_what_it_measured_never_his_message_its_thread_names
     assert record_lines.decision(post(kind="owner", text="why is it read-only?", url=his, attrs={"about": "his work"})) is None
 
 
-def test_a_catch_up_goes_at_his_dm_root_without_its_thread(demo: str, turn: Path) -> None:
-    for attrs in ({"thread": THREAD, "catch_up": "true"}, {"thread": THREAD, "progress": "true"}):
-        made = record_lines.decision(coordinator(turn, kind="report", text="POST *Catch-up since 9 PM*", to=TO, attrs=attrs))
-        assert made["updatedInput"]["attrs"] == {key: value for key, value in attrs.items() if key != "thread"}
-    assert record_lines.decision(coordinator(turn, kind="report", text="POST *Catch-up since 9 PM*", to=TO, attrs={"catch_up": "true"})) is None
-
-
 def test_a_report_attr_a_separator_or_one_letter_from_one_the_drive_reads_is_refused_naming_it(demo: str, turn: Path) -> None:
-    catch_up = "POST his catch-up: the import fix merged and the upload page is live"
-    for key in ("catchup", "catch-up", "catchUp"):
-        reason = refusal(record_lines.decision(coordinator(turn, kind="report", text=catch_up, to=TO, attrs={key: "1:46 AM-3:10 AM"})))
-        assert f"no `{key}` attr" in reason and "`--attr catch_up=true`" in reason
     for key, attr in (("closes", "close"), ("Part", "part"), ("jobs", "job"), ("thred", "thread"), ("wait", "waits"), ("incidents", "incident")):
         assert f"no `{key}` attr on a report" in (reason := refusal(record_lines.decision(post(kind="report", text="POST j702 merged", to=TO, attrs={key: "x"}))))
         assert f"`--attr {attr}=" in reason
-    assert record_lines.decision(coordinator(turn, kind="report", text=catch_up, to=TO, attrs={"catch_up": "true"})) is None
     assert record_lines.decision(post(kind="report", text="POST j702 merged", to=TO, attrs={"order": "o1", "incident": "i3", "close": "o1"})) is None
-    assert record_lines.decision(post(kind="note", text=IDLE, attrs={"catchup": "true"})) is None
+    assert record_lines.decision(post(kind="decision", text=IDLE, attrs={"catchup": "true"})) is None
 
 
 def test_a_report_carrying_a_part_in_an_attr_but_part_is_refused_naming_the_one_part_attr_that_carries_both_in_a_batch_too(
@@ -435,7 +423,7 @@ def test_a_post_report_names_what_its_post_finishes_and_the_last_part_of_an_orde
     assert "here o1, the open order it is about" in reason and 'one of "cause", "fix"' in reason and "`--attr progress=true`" in reason
     reason = refusal(record_lines.decision(coordinator(turn, **merged)))
     assert "`--attr close=<o,…>` naming each order it finishes, `--attr part=<o>:<part>` naming the part it delivers, or" in reason
-    for named in ({"job": "j1", "close": "o1"}, {"job": "j1", "part": "cause"}, {"job": "j1", "progress": "true"}, {"catch_up": "true"}, {"close": "o1"}):
+    for named in ({"job": "j1", "close": "o1"}, {"job": "j1", "part": "cause"}, {"job": "j1", "progress": "true"}, {"close": "o1"}):
         assert record_lines.decision(coordinator(turn, **merged, attrs=named)) is None
     assert record_lines.decision(coordinator(turn, kind="report", text="FYI the search worker's fix merged", to=TO, attrs={"job": "j1"})) is None
     with state.edit(demo) as data:
@@ -517,7 +505,7 @@ def test_a_report_withdrawn_this_turn_leaves_its_threads_report_to_the_one_corre
     withdrawn: dict[str, list[str]] = {}
     monkeypatch.setattr(agents, "amendments", lambda name, seqs: {"correction": {}, "withdraw": {seq: withdrawn[seq] for seq in seqs if seq in withdrawn}})
     first = {"kind": "report", "text": "POST j1 merged", "to": TO, "attrs": {"thread": THREAD, **PROGRESS}}
-    called(turn, "first", "mcp__plugin_cc-inbox_cci__post", {"records": [{"kind": "note", "text": "j1 is green", "to": TO}, first]}, stored="712995 712996")
+    called(turn, "first", "mcp__plugin_cc-inbox_cci__post", {"records": [{"kind": "decision", "text": "j1 is green", "to": TO}, first]}, stored="712995 712996")
     correcting = coordinator(turn, kind="report", text="POST j2 merged", to=TO, attrs={"thread": THREAD, **PROGRESS})
     assert "already sent one for thread" in warned(record_lines.decision(correcting))
     withdrawn["712995"] = ["712997"]
@@ -729,7 +717,7 @@ def test_the_communicators_record_answering_a_coordinators_record_reaches_its_wr
     assert [record["to"] for record in made] == [root, root, ["iris@demo"], ["iris@demo"], ["iris@demo"]]
 
 
-def test_a_coordinators_handoff_reaches_every_lane_it_names_whichever_session_holds_the_order_it_serves(
+def test_a_coordinators_handoff_reaches_the_one_lane_it_names_whichever_session_holds_the_order_it_serves_and_one_to_several_is_refused(
     run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "SandSQL", "--workstream", "Journal", "ship the journal")
@@ -737,9 +725,11 @@ def test_a_coordinators_handoff_reaches_every_lane_it_names_whichever_session_ho
     for project in ("SandSQL", "Platform"):
         monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", f"{project.lower()}-1")
         run("start", demo, "--role", "coordinator", "--project", project)
-    for to in (["platform@demo"], ["platform@demo", "sandsql@demo", "meta@demo", "communicator@demo"]):
+    for to in (["platform@demo"], ["sandsql@demo"]):
         handoff = {"kind": "handoff", "text": "the staging window opens at noon", "to": to, "re": ["699084"], "attrs": {"order": "o1"}}
         assert record_lines.decision(post(**handoff)) is None, to
+    fanned = {"kind": "handoff", "text": "the staging window opens at noon", "to": ["platform@demo", "sandsql@demo", "meta@demo", "communicator@demo"], "re": ["699084"], "attrs": {"order": "o1"}}
+    assert refusal(record_lines.decision(post(**fanned))) == reports.FANNED.format(lanes="platform, sandsql, meta, communicator")
 
 
 def bound_to_iris(run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -830,3 +820,12 @@ def test_his_words_at_his_message_on_his_open_question_go_only_through_the_recor
     assert "the drive's `record` tool" in refusal(record_lines.decision(post(kind="owner", text="drop the sweeper", url=HIS, attrs={"thread_card": "demo:j1-7"})))
     assert record_lines.decision(post(kind="owner", text="a new order", attrs={"about": "his work"})) is None
     assert record_lines.decision(post(kind="answer", text="undone: Ring", re=["7"], attrs={"job": "j1", "undone": "Ring"})) is None
+
+
+def test_a_state_note_or_evidence_record_and_one_fanned_out_to_several_lanes_are_refused_as_chatter_but_an_incident_naming_each_lanes_step(demo: str) -> None:
+    for chatty in ("state", "note", "evidence"):
+        assert refusal(record_lines.decision(post(kind=chatty, text="LAST-READ j7 box j6 is free", to=["meta@demo"]))) == reports.CHATTY.format(kind=chatty)
+    fanned = refusal(record_lines.decision(post(kind="answer", text="box j6 is free", to=["meta@demo", "communicator@demo"])))
+    assert fanned == reports.FANNED.format(lanes="meta, communicator")
+    assert "permissionDecision" not in (record_lines.decision(post(kind="incident", text="api is down: meta rolls back, communicator pages", to=["meta@demo", "communicator@demo"], attrs={"about": "his work"})) or {})
+    assert refusal(record_lines.decision(post(kind="incident", text="api is down: meta rolls back", to=["meta@demo", "communicator@demo"], attrs={"about": "his work"}))) == fanned

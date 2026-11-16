@@ -1361,13 +1361,12 @@ def test_answer_on_an_unknown_pr_fails(drive: str) -> None:
         {"answer": {"waits": "demo:j3-661440", "label": "Ring", "url": "https://acme.slack.com/archives/D123/p1794200000000100", "action_ts": "", "source": "slack"}},
     ],
 )
-def test_his_tap_on_any_card_records_him_heard_and_brings_the_catch_up_he_was_held_for_reading_nothing_from_github(
+def test_his_tap_on_any_card_records_him_heard_reading_nothing_from_github(
     drive: str, monkeypatch: pytest.MonkeyPatch, tap: dict
 ) -> None:
     heard, tapped = "2026-11-11T12:36:02-08:00", state.parse_time("2026-11-11T13:57:22-08:00")
     with state.edit(drive) as data:
         data["owner"] = {"heard": heard, "away": "2026-11-11T13:36:02-08:00"}
-        data["held"]["665753"] = {"order": None, "at": "2026-11-11T13:40:00-08:00", "told": "665754"}
     monkeypatch.setattr(state, "now", lambda: tapped)
     monkeypatch.setattr(card, "run", lambda *args, **kwargs: pytest.fail("a tap read GitHub"))
     monkeypatch.setattr(github, "run", lambda *args, **kwargs: pytest.fail("a tap read GitHub"))
@@ -1375,7 +1374,6 @@ def test_his_tap_on_any_card_records_him_heard_and_brings_the_catch_up_he_was_he
     ask(tap)
     absence = {"since": heard, "from": "2026-11-11T13:36:02-08:00", "until": state.stamp(tapped)}
     assert state.load(drive)["owner"] == {"heard": state.stamp(tapped), "away": state.stamp(tapped + state.AWAY_AFTER), "absence": absence}
-    assert state.load(drive)["catch_up"] == state.new_catch_up(heard)
 
 
 STACK_BODY = "## The stack\nthe orders table moves to a new one without a pause\n\nReaders read both tables, every row is copied across, then the old table goes.\n\n"

@@ -420,11 +420,13 @@ def entered(kept: dict | None, now: Stage) -> bool:
 
 
 def overdue(pr: dict, now: Stage, moment: datetime) -> bool:
-    """Whether the stage's deadline passed since it began or its owner was last woken: every stage but behind, whose PR below names its owner, reviewing, which a teammate outside the drive moves, and any he owes, since nothing asks him again."""
+    """Whether the stage's deadline passed since it began or its owner was last woken: every stage but behind, whose PR below names its owner, reviewing, which a teammate outside the drive moves, and any he owes, since nothing asks him again, nor one whose STAGE line the watch said already, which it says once per stage."""
     every = EVERY.get(now.name)
     if every is None or now.owner == HIM:
         return False
     kept = pr["stage"]
+    if kept.get("said"):
+        return False
     return moment - state.parse_time(kept["woke"] or kept["since"]) >= every and not waking(kept.get("waking"), moment)
 
 
@@ -438,7 +440,7 @@ def kept(pr: dict, now: Stage) -> None:
 
 
 def shown(data: dict, cards: dict | None, keys: list[str]) -> None:
-    """Put on each open PR of the drive the keys name, as loaded, never saved, the stage stage.of names now from the watch's last GitHub read, its since kept while the watch kept that stage, so drive status, drive pr set and every view.build surface, the dashboard, the status page and his catch-up, show what a decision made now reads."""
+    """Put on each open PR of the drive the keys name, as loaded, never saved, the stage stage.of names now from the watch's last GitHub read, its since kept while the watch kept that stage, so drive status, drive pr set and every view.build surface, the dashboard and the status page, show what a decision made now reads."""
     under = land.unders(data)
     stacks = land.landing_stacks(data, under)
     for key in keys:
@@ -475,7 +477,7 @@ def waking(since: str | None, moment: datetime) -> bool:
 
 def mark_woken(name: str, marks: list[str], at: str) -> None:
     """Write, once a drive pr wake delivered its line, each mark the watch asked for it, dated at, the moment of the pass that asked: `stage:<PR>`, the PR's stage woken then; `objected:<PR>@<head>`, its check's objection told at that head; `main:<repo>@<test>`, the owner of a test its merge broke on main woken then."""
-    with state.edit(name) as data:
+    def mark_woken_write(data: dict):
         for mark in marks:
             kind, _, what = mark.partition(":")
             if kind == "stage" and (kept := data["prs"][what]["stage"]):
@@ -487,3 +489,5 @@ def mark_woken(name: str, marks: list[str], at: str) -> None:
                 repo, _, test = what.partition("@")
                 if kept := data["mains"].get(repo, {}).get(test):
                     kept.update(woke=at, waking=None)
+
+    state.update(name, None, mark_woken_write)

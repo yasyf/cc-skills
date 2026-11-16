@@ -1,13 +1,13 @@
 ---
 name: long-running
-description: Use when work will outlive one context window, spans several PRs or repos, waits on CI or merges, or the owner says "drive", "long-running" or names a drive. Runs a drive: a communicator acks his Slack messages, a coordinator's jobs ship each order, and a meta session's jobs fix its tools.
+description: Use when work will outlive one context window, spans several PRs or repos, waits on CI or merges, or the owner says "drive", "long-running" or names a drive. Runs a drive: a communicator answers his Slack messages, a coordinator's jobs ship each order, and a meta session's jobs fix its tools.
 ---
 
 # Long-running drives
 
 A drive is three Claude Code sessions, the communicator, coordinator and meta session, and their jobs. The top coordinator and the designer run Fable 5.2 (`claude-fable-5-2`); every other session runs Opus 5.5 (`claude-opus-5-5`) advised by Fable (`start`), and every other agent Opus, Sonnet only for a one-fact lookup.
 
-The communicator is the only session he talks to. It acks his message in one sentence within seconds, then `drive handler` starts `long-running:handler` as its own session, so his next message never waits. The handler reads, answers him with `say` and ends on one line (`communicator`). He reads only Slack, and no session has AskUserQuestion.
+The communicator is the only session he talks to, and it answers him itself. It reads his message against the whole thread, shows progress in the thread's status, posts the answer with `say`, and gives a long read to a background Explore or Sonnet subagent so his next message never waits. No handler session starts: a `POST` report, and the watch's `ANSWER THIS:` note on a record to post or a message of his unanswered for 10 minutes, are the communicator's to post (`communicator`). He reads only Slack, and no session has AskUserQuestion.
 
 The coordinator turns his messages into orders and gives each to one job that owns it end to end: code, PR, CI, merge, install, check (`jobs`). It routes its watch's events, lands, installs and reports. The meta session does the same for the drive's own tools (`meta`).
 
@@ -43,7 +43,7 @@ Two more things are his because the machine works that way: a `<guarded org>` PR
 ## Work
 
 - An order is an answer, one job's research, or a build. A finding in the spirit of his order is fixed and reported; a new product direction is a card (`scope`).
-- A job returns facts, numbers, links and what is unproven. Handlers write what he reads.
+- A job returns facts, numbers, links and what is unproven. The communicator writes what he reads.
 - A bug hurting someone now gets its immediate fix or a prudent rollback at once; the fix of its cause follows (`incidents`).
 - Before a fix, look for the order or PR that owns its class and join it (`landing`).
 - A build or release he started himself stays his: leave it running and tell him what you see.
@@ -51,10 +51,10 @@ Two more things are his because the machine works that way: a `<guarded org>` PR
 
 ## What he reads
 
-- Answer him directly, once, as soon as the answer is known. No placeholder post stands in for an answer; when work will take long, the first post says so once.
+- Answer him directly, once, as soon as the answer is known. No placeholder post stands in for an answer; progress on a long read shows in his thread's status.
 - Tell him a state you checked this turn, or say it is unverified. Done is proven where he sees it: the live post, the installed command's output, a recording of the click.
 - Use each thing's proper term, glossed once, with its link. Leave out drive ids he cannot open: job, order and waits ids, record seqs (`messages`).
-- Events and job results reach him in the watch's line on news, not a post each.
+- His DM gets the answer to a message of his, a card he must answer, a milestone he acts on or wants to know, and an incident's line. Everything else is progress on the dashboard and in the records (`messages`).
 - His correction of how the drive works is a ruling: record it with `drive answer`, apply it to live work, and the meta session rewrites the skill that turn (`meta`).
 
 ## Pages

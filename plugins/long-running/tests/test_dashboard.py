@@ -822,7 +822,7 @@ def test_a_review_opens_only_from_the_page_itself_for_an_open_pr_of_this_drive_a
 SITE = Path(dashboard.__file__).parent / "site"
 RESULT = re.compile(r'<html[^>]*\bdata-result="([^"]*)"')
 FEATURE = {
-    "id": "o1", "title": "ship the fix", "state": "running", "now": "", "project": "Platform", "workstream": "SandSQL", "due": None, "late": False,
+    "id": "o1", "title": "ship the fix", "state": "running", "now": "", "project": "Platform", "workstream": "SandSQL",
     "proof": None, "updated": "2026-11-11T00:00:00-08:00", "url": None, "prs": [], "built": [], "cards": [], "text": "ship the fix", "note": "",
     "created": "2026-11-10T20:00:00-08:00", "jobs": [], "parts": [], "where": None, "holdup": None, "heard": [],
 }
@@ -839,7 +839,7 @@ TOLD = {
 }
 RAIL = {"failed": [], "conflict": False, "draft": False, "branch": "lane", "base": "main", "stack": [], "landing": None, "approve_waits": None, "parts": [], "job": None, "job_said": "", "job_at": None}
 QUESTION = {
-    "priority": {"rank": 1, "incident": False, "overdue": False, "weight": 0}, "kind": "question", "tasks": [], "answer": "https://x.slack.com/archives/D1/p1794382453859209", "title": "Raise the limit?", "since": None, "holds": 0, "blocks": [], "thread": None,
+    "priority": {"rank": 1, "incident": False, "weight": 0}, "kind": "question", "tasks": [], "answer": "https://x.slack.com/archives/D1/p1794382453859209", "title": "Raise the limit?", "since": None, "holds": 0, "blocks": [], "thread": None,
     "card": {"title": "Raise the limit?", "body": "", "options": ["Raise it", "Shard it"], "recommended": "Raise it"},
     "told": {"story": TOLD},
 }
@@ -858,7 +858,7 @@ def board(**changed: object) -> dict:
     return {
         "drive": "demo", "at": "2026-11-11T00:00:00-08:00", "counts": counts, "queue": [], "status": [{"state": "running", "features": [FEATURE]}], "cards": "live",
         "review": [], "work": lanes, "history": moments, "incidents": [], "bug_reports": [], "edges": [], "repo": "", "links": [], "channel": "D1", "pages": [], "sweep": {"rows": [], "owed": "live"},
-    } | changed | {"queue": [item | {"priority": {"rank": rank, "incident": False, "overdue": False, "weight": item.get("holds", 0) + len(item.get("blocks", []))} | {key: value for key, value in item.get("priority", {}).items() if key != "rank"}} for rank, item in enumerate(changed.get("queue", []), 1)]}
+    } | changed | {"queue": [item | {"priority": {"rank": rank, "incident": False, "weight": item.get("holds", 0) + len(item.get("blocks", []))} | {key: value for key, value in item.get("priority", {}).items() if key != "rank"}} for rank, item in enumerate(changed.get("queue", []), 1)]}
 
 
 def fresh(minutes: int) -> str:
@@ -1660,7 +1660,7 @@ READ = {
 }
 STACK = {
     "kind": "tap", "tasks": [], "title": "Fix: the lock stack", "url": f"{DEMO}/40", "answer": "https://x.slack.com/archives/D1/p1794382453859300", "thread": None, "since": None,
-    "detail": "", "due": None, "links": [],
+    "detail": "", "links": [],
     "card": {
         "title": "Fix: approve the lock stack?", "options": ["Approve", "Hold"], "recommended": "Approve",
         "prs": [
@@ -3054,7 +3054,7 @@ def test_each_screen_reads_the_same_requests_of_the_same_size_however_old_the_dr
 def test_filtering_keeps_global_ranks_and_visible_reasons_without_shortening_the_question(tmp_path: Path, size: str) -> None:
     title = "Should we reserve capacity for writes so one team's reads cannot stop everyone else?"
     items = [
-        QUESTION | {"answer": f"https://x.slack.com/archives/D1/p1794382453859{n:03}", "project": project, "workstream": "Reads", "title": title, "priority": {"incident": n == 1, "overdue": n == 3, "weight": n}}
+        QUESTION | {"answer": f"https://x.slack.com/archives/D1/p1794382453859{n:03}", "project": project, "workstream": "Reads", "title": title, "priority": {"incident": n == 1, "weight": n}}
         for n, project in enumerate(["Iris", "Platform", "Iris", "Platform"])
     ]
     seen = browse(tmp_path, """
@@ -3076,7 +3076,7 @@ done({ read, draft: document.activeElement.value, asking: box === document.activ
     assert seen == {
         "read": [
             {"rank": "2", "reasons": "#2IncidentUnblocks 1", "title": title, "clipped": False, "links": 1, "buttons": 0, "tooltip": False},
-            {"rank": "4", "reasons": "#4Past dueUnblocks 3", "title": title, "clipped": False, "links": 1, "buttons": 0, "tooltip": False},
+            {"rank": "4", "reasons": "#4Unblocks 3", "title": title, "clipped": False, "links": 1, "buttons": 0, "tooltip": False},
         ],
         "draft": "How does this affect writes?", "asking": True, "opened": True, "selected": True, "scoped": True, "overflow": False,
     }

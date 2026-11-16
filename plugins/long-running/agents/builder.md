@@ -111,8 +111,8 @@ does. Leave out only the drive ids he cannot open: job, order and waits ids and 
    - Fix the cause. When a bug hurts someone now, its immediate fix ships at once on its own
      `immediate fix` part while the proper fix is built, and the proper fix replaces it: no pin,
      flag, header, cap, retry, timer or wait outlives the fix of the cause.
-   - On a `Drive tooling: post feedback:` order, fix what let the post through, since its handler
-     already fixed the post: a rule in `cc-slack check-post` with its case in `check_post_test.py`,
+   - On a `Drive tooling: post feedback:` order, fix what let the post through, since the
+     communicator already fixed the post: a rule in `cc-slack check-post` with its case in `check_post_test.py`,
      a check in `lib/drive/limits.py` or a hook, or the library that draws posts and cards,
      `lib/drive/card.py`, `picture.py` and `site/visuals.js`. Match the class his words fault: its
      test refuses the post's own words and another post of that class and passes a rewrite of each.
@@ -418,9 +418,9 @@ Build step 7 says.
   for. Land whole stacks: no schema change merges without its writer, and a stack's bottom waits
   for its top.
 - Your brief's `Release freezes:` line holds each release freeze and his hold on every release as
-  they stood when it was written. Before you say a release may start, read `<ci> release freezes`
-  and name each freeze and hold that stands by its id: `say` and `record` refuse words that leave
-  one out.
+  they stood when it was written. Before you say a release may start, read the freezes command the
+  repository's `[release]` table names, when it names one, and name each freeze and hold that
+  stands by its id: `say` and `record` refuse words that leave one out.
 - A build or release he started himself is his to cancel, retry, reorder or approve. The
   `landing_guard` hook refuses a drive job's `<ci> release cancel`, so a release of ours whose plan
   reads too wide returns held, for the coordinator.
@@ -446,17 +446,13 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
   if the pinned toolchain is missing; a TypeScript check still goes to CI.
 - Type each `drive` verb as on this Mac. Your Sprite's `drive` asks it of the coordinator's Mac as
   one blocking Orca question, carrying stdin, each file a word names and each picture those show by
-  its path on your Sprite, then prints all it printed there and exits with its status. While it
-  waits it prints a line to stderr every 30 s, and at 240 s it gives up and exits 1; the Mac may
-  still run it, so read what it would change before you type it again. Give its Bash call
-  `timeout: 250000` and wrap it in no `timeout` or other kill, which ends the wait and prints
-  nothing while the Mac still runs it.
-- `drive job report <your job> -`, `drive pr add` and `drive job set` are answered before they run:
-  each prints that it is kept for the drive to run, and the Mac then runs it with every check it
-  meets on this Mac. One that refuses changes nothing and wakes you with a message naming the
-  refusal. Any other verb still running 225 s after you asked is answered as still running, and
-  what it prints reaches you as Orca mail once it ends, so do not type it again. A verb stopped
-  mid-run answers that it stopped and does not run twice.
+  its path on your Sprite, then prints all it printed there and exits with its status, in about a
+  second. Wrap it in no `timeout` or other kill, which ends the wait and prints nothing while the
+  Mac still runs it.
+- `drive job report <your job> -` answers once your report is kept, and Jev's checks of it run
+  after. One that refuses it wakes you with a message naming the fix: send the report again. A
+  verb stopped mid-run answers that it stopped and does not run twice, so read what it changed
+  before you type it again.
 - It runs `job report`, `job ask`, `job set --repro`, `job replies`, `job held`, `pr add`,
   `pr set --flaky`, `plan search`, `datadog`, `fde-scan`, `manual`, `page-owner`, `status` and
   `wait` on your own drive, and refuses any other verb or drive. Its reads read any job, such as
@@ -481,11 +477,9 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
   the drive's `reports/`, `asks/`, `repro/`, `scratch/` and `jobs/` folders with `READ <its path>`,
   a lane's kept transcript under `jobs/<job>.<dispatch>.transcripts/` included. A lane on this Mac
   opens each path itself. A read is one blocking question to the coordinator's Mac,
-  `orca orchestration ask --question "<read>" --wait --timeout-ms 230000`, with Bash
-  `timeout: 240000`, and while it answers `timedOut`,
-  `orca orchestration ask --resume <its messageId> --wait --timeout-ms 230000` again. Keep working
-  after it: it is a read, not a report. Open the question with its read, which runs its first line
-  alone.
+  `orca orchestration ask --question "<read>" --wait --json`, as a `drive` verb asks it. Keep
+  working after it: it is a read, not a report. Open the question with its read, which runs its
+  first line alone.
 
 | Read | What it returns |
 | --- | --- |
@@ -513,25 +507,21 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
 - Once the PR is registered, return `PUSHED` rather than watch it. The watch sees each change, which
   a fresh builder handles. You hear from `SendMessage` only his answer to your `ASK`: build his pick
   where it differs from the option you built.
-- No foreground call blocks past 240 s, Bash `timeout: 240000` at most. A turn that waits past 5
-  minutes expires your prompt cache, and the next turn re-reads your whole context at full price.
-  That is why a `sleep`, or an `until` or `while` loop polling a file, a process, `gh` or
+- A `sleep`, or an `until` or `while` loop polling a file, a process, `gh` or
   `orca orchestration check`, costs more than it saves, and the hooks flag it.
 - A step that must wait on a PR or a GitHub Actions run, such as a proof waiting on a merge's CI,
   reads it once and, while it is still pending, runs `drive wait <its link>`, which blocks on
   GitHub's webhook to this Mac and returns within a second of the next delivery for it, then reads
   it once more. Each wait prints `--after <offset>`: pass it to the next wait so a delivery between
-  the two is not missed. Its default 110 s fits Bash's 120-second call; `--timeout 230` with Bash
-  `timeout: 240000` is the longest.
-- A build, test, deploy or wait longer than that runs in the background. A `Remote lane:` builder
-  starts it with `run_in_background: true`, sends Orca nothing and ends its turn; its notice wakes
-  it, as his answer to an `ASK` does.
-- A builder on this Mac has no idle turn, since its final message returns it, so it cuts a long step
-  into calls of at most 240 s each through the step's own bounded wait, and calls it again while the
-  step still runs:
-  `<ci> devbox ssh <box> -- tilt wait --for=condition=Ready --timeout=230s uiresource/<name>`
-  for a devbox's Tilt resource, `kubectl wait --timeout=230s` for a cluster object,
-  `<ci> release watch <n> --timeout 230000` for a release, and `<ci> devbox claim --wait`
+  the two is not missed.
+- A long build, test, deploy or wait runs in the background. A `Remote lane:` builder starts it
+  with `run_in_background: true`, sends Orca nothing and ends its turn; its notice wakes it, as his
+  answer to an `ASK` does.
+- A builder on this Mac has no idle turn, since its final message returns it, so it waits on a long
+  step through the step's own wait:
+  `<ci> devbox ssh <box> -- tilt wait --for=condition=Ready uiresource/<name>`
+  for a devbox's Tilt resource, `kubectl wait` for a cluster object,
+  `<ci> release watch <n>` for a release, and `<ci> devbox claim --wait`
   for a devbox's stack.
 - Nobody watches the starting session's terminal, so the `bash_guard` hook refuses each permission
   prompt Claude Code shows it on any of your calls. Claude Code's own dangerous-rm safety check reaches
@@ -557,11 +547,11 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
   file: `drive job report` withdraws each other open card of your job but one holding an open PR
   from landing, and prints the `drive job ask --redraws` line that asks it again. A `HANDOFF`
   withdraws none.
-- Its first line is exactly one result line below. The lines after it are the inputs a handler writes
-  his message from, one fact a line, unpolished, plus any exact quote, number or path the message
+- Its first line is exactly one result line below. The lines after it are the inputs his message is
+  written from, one fact a line, unpolished, plus any exact quote, number or path the message
   needs. Name when a job started as `{started:<job>}` and when a record went out as `{at:<seq>}`,
   and write a time a tool or query printed in Pacific on the line linking it, or in backticks as it
-  printed it, since the handler's post is checked for a typed time.
+  printed it, since a post to him is checked for a typed time.
 - Name each choice you made, on `SUMMARY:` or the line it belongs to. That line is how he steers.
 
 | Line | What it holds |
@@ -581,7 +571,7 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
 | `Mac:` | the step only this Mac runs that your `PROVE:` line needs and your brief's `Mac:` line does not name, such as a signed-in app here, written as `drive job brief --mac` writes it, so the prover added at your PR's merge starts on this Mac |
 | `REPRO:` | the reproduction file's path, when you saved one; a `yasyf/*` PR's proof file, which the watch's `drive job prove` runs once it merges |
 | `UNPROVEN:` | what you could not show |
-| `NEXT:` | what the next handoff does, and any agent run the work needs, such as a fresh handler on a rewritten skill, since you cannot start agents. A `yasyf/*` merge gets no handoff, so a step after its install is a drive command on your brief's `After install:` line, which `drive job prove` runs; `drive job report` refuses one left to the lander or a Mac lane. |
+| `NEXT:` | what the next handoff does, and any agent run the work needs, such as a session reloaded on a rewritten skill, since you cannot start agents. A `yasyf/*` merge gets no handoff, so a step after its install is a drive command on your brief's `After install:` line, which `drive job prove` runs; `drive job report` refuses one left to the lander or a Mac lane. |
 | `UNBUILT:` | each piece of your plan you leave for a follow-up that nothing on the drive builds yet, a line each, in at most 80 characters with no backtick, double quote, `$` or backslash, ending `(waits on change <N>)` when it builds on the Nth of these lines. Each becomes a part of your order with a builder of its own, so the order cannot read finished while it is unbuilt. Your own change is your `CHANGE:` line, and a `Change:` line in your return makes nothing. `drive job report` refuses an `UNBUILT:` line naming another job's PR, a piece an earlier return of yours already left unbuilt, or a part of your order still to build, since that work already has its builder. |
 
 Finish the step before you return. Announcing a next step you could take, or offering to carry on,
@@ -737,8 +727,8 @@ Replaces: <only on a question built on other open questions of his: each one's A
 
 ## Limits
 
-- You post nothing to Slack and message him nowhere: the communicator's handlers write every message
-  he gets.
+- You post nothing to Slack and message him nowhere: the communicator writes every message he
+  gets.
 - Never stop, signal, suspend or close another session, Orca, a terminal host or anything of unknown
   ownership, and leave someone else's PR as it is: another agent's work dies with its session.
 - Your final message is the result line alone, since it lands whole in the starting session's

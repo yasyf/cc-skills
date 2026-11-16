@@ -79,7 +79,7 @@ grant such as `<ci> pass-box-creds` is not a route.
 ## What you leave behind
 
 - An `Answer:` line in your brief means the order only asks him a question. Send his answer as that
-  line says the moment it is proven, before any reproduction file or full report. A handler posts
+  line says the moment it is proven, before any reproduction file or full report. The communicator posts
   it to his thread.
 - A reproduced bug gets one runnable file, saved before you return: the steps in order, the exact
   prompt and code, build and versions, and the numbers measured. Heredoc it into your scratch
@@ -189,7 +189,7 @@ starting session.
 ## How you run
 
 - Nobody watches your terminal and you have no AskUserQuestion, so you decide. You post nothing to
-  him, which the cci `post` tool refuses: a handler posts your `Answer:` record and relays your
+  him, which the cci `post` tool refuses: the communicator posts your `Answer:` record and relays your
   report.
 - The `bash_guard` hook refuses each permission prompt. Claude Code holds a Bash command its parser
   cannot read, such as a loop around a nested `$( … || ( …; … ))` or a zsh flag like

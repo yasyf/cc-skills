@@ -20,15 +20,13 @@ def at(minutes: int) -> str:
     return state.stamp(T0 + timedelta(minutes=minutes))
 
 
-def order(text: str, jobs: list[str], due: str | None = None, **overrides: object) -> dict:
+def order(text: str, jobs: list[str], **overrides: object) -> dict:
     base = {
         "text": text,
         "from": "terminal",
         "thread": ["D123", "1794200000.000100"],
         "threads": [],
         "state": "working",
-        "promises": [{"thread": ["D123", "1794200000.000100"], "due": due, "promised": None, "kept": None, "due_said": None, "next_due": None, "next_set": None}] if due else [],
-        "withdrawn": None,
         "jobs": jobs,
         "incident": False,
         "every": 0,
@@ -46,7 +44,6 @@ def order(text: str, jobs: list[str], due: str | None = None, **overrides: objec
         "project": None,
         "workstream": None,
         "title": None,
-        "kind": "build",
         "options_only": False,
         "priority": None,
         "parts": {text: state.new_part()},
@@ -207,16 +204,10 @@ def test_the_projection_index_preserves_the_complete_board() -> None:
         assert view.board(data, asked, "live", [], T0, set(), {}) == expected
 
 
-def test_queue_ranks_late_promises_then_what_lands_most_then_the_oldest_wait() -> None:
+def test_queue_ranks_what_lands_most_then_the_oldest_wait() -> None:
     data = drive_of(
-        {
-            "o1": order("ship the page", ["j1"], project="Drive", workstream="Dashboard"),
-            "o2": order("promised earlier", ["j2"], due=at(-90)),
-            "o3": order("promised later", ["j3"], due=at(-10)),
-            "o4": order("not due yet", ["j4"], due=at(30)),
-            "o5": order("done late", ["j5"], state="done", due=at(-90)),
-        },
-        {f"j{n}": job(f"o{n}", "waiting") for n in range(1, 6)},
+        {"o1": order("ship the page", ["j1"], project="Drive", workstream="Dashboard")},
+        {"j1": job("o1", "waiting")},
         [
             pr(1, "o1", wants_tap=True),
             pr(2, "o1", wants_tap=True, checks="fail"),
@@ -232,31 +223,25 @@ def test_queue_ranks_late_promises_then_what_lands_most_then_the_oldest_wait() -
     card = {"prs": ["https://github.com/yasyf/cc-skills/pull/3"], "asked": at(-50), "url": f"{TEAM}archives/D123/p3", "card": drawn}
     queue = view.build(data, found([question("Release now?", -20)], [card, pr_card(7, -7)]), T0)["queue"]
     assert [(item["kind"], item["title"]) for item in queue] == [
-        ("late", "promised earlier"),
-        ("late", "promised later"),
         ("tap", "change 3"),
         ("tap", "change 7"),
         ("question", "Release now?"),
     ]
-    assert [item["priority"]["rank"] for item in queue] == list(range(1, 6))
-    assert [item["priority"]["overdue"] for item in queue] == [True, True, False, False, False]
-    assert [item["priority"]["weight"] for item in queue] == [0, 0, 2, 2, 0]
-    assert all(not item["priority"]["incident"] for item in queue)
-    assert queue[4]["detail"] == "Recommended: Yes"
-    assert (queue[4]["card"]["body"], queue[4]["answer"]) == ("Why it matters", f"{TEAM}archives/D123/p-20")
-    assert queue[2]["url"] == card["url"]
-    assert (queue[2]["card"], queue[2]["answer"]) == (drawn, card["url"])
-    assert queue[2]["links"] == [{"label": "Pull request", "url": "https://github.com/yasyf/cc-skills/pull/3"}]
-    assert queue[3]["detail"] == "green, approved; changed since your tap: now deletes the old page; card, owed by him: green, waits on his Approve"
-    assert queue[0]["url"] == f"{TEAM}archives/D123/p1794200000000100"
+    assert [item["priority"]["rank"] for item in queue] == list(range(1, 4))
+    assert [item["priority"]["weight"] for item in queue] == [2, 2, 0]
+    assert all(not item["priority"]["incident"] and "overdue" not in item["priority"] for item in queue)
+    assert queue[2]["detail"] == "Recommended: Yes"
+    assert (queue[2]["card"]["body"], queue[2]["answer"]) == ("Why it matters", f"{TEAM}archives/D123/p-20")
+    assert queue[0]["url"] == card["url"]
+    assert (queue[0]["card"], queue[0]["answer"]) == (drawn, card["url"])
+    assert queue[0]["links"] == [{"label": "Pull request", "url": "https://github.com/yasyf/cc-skills/pull/3"}]
+    assert queue[1]["detail"] == "green, approved; changed since your tap: now deletes the old page; card, owed by him: green, waits on his Approve"
     assert [item["rank_why"] for item in queue] == [
-        f"past due since {when(at(-90))}",
-        f"past due since {when(at(-10))}",
         f"lands 1 PR; waiting since {when(at(-50))}",
         f"lands 1 PR; waiting since {when(at(-7))}",
         f"waiting since {when(at(-20))}",
     ]
-    assert [(item["tasks"], item["project"], item["workstream"]) for item in queue[1:3]] == [(["o3"], None, None), (["o1"], "Drive", "Dashboard")]
+    assert [(item["tasks"], item["project"], item["workstream"]) for item in queue[:1]] == [(["o1"], "Drive", "Dashboard")]
 
 
 @pytest.mark.parametrize(
@@ -286,7 +271,7 @@ def test_each_feature_lands_in_one_state(order_state: str, jobs: dict, prs: dict
 def test_status_drops_dropped_orders_and_old_done_ones_and_says_the_latest_line_without_ids() -> None:
     data = drive_of(
         {
-            "o1": order("<https://x.test|the page> lands today\nmore words", ["j1", "j2"], due=at(-5)),
+            "o1": order("<https://x.test|the page> lands today\nmore words", ["j1", "j2"]),
             "o2": order("old news", [], state="done", updated=state.stamp(T0 - timedelta(days=2))),
             "o3": order("never mind", [], state="dropped"),
             "o4": order("shipped", [], state="done", proof="installed 1.0.12; the page shows the drive"),
@@ -298,9 +283,8 @@ def test_status_drops_dropped_orders_and_old_done_ones_and_says_the_latest_line_
     features = {entry["title"]: entry for group in model["status"] for entry in group["features"]}
     assert set(features) == {"the page lands today", "shipped"}
     assert features["the page lands today"]["now"] == "CI runs. Lands next."
-    assert features["the page lands today"]["late"] is True
     assert features["shipped"]["now"] == "installed 1.0.12; the page shows the drive"
-    assert model["counts"] == {"queue": 1, "blocked": 0, "running": 1, "built": 0, "waiting": 0, "merged": 0, "live": 1, "not started": 0}
+    assert model["counts"] == {"queue": 0, "blocked": 0, "running": 1, "built": 0, "waiting": 0, "merged": 0, "live": 1, "not started": 0}
 
 
 def test_a_built_job_shows_its_branch_and_the_cards_it_waits_on_in_status_and_on_the_page() -> None:
@@ -489,7 +473,7 @@ def test_a_feature_names_its_first_four_open_prs_and_counts_the_rest() -> None:
     )
 
 
-def big_drive(orders: int, jobs: int, questions: int, taps: int, late: int) -> tuple[dict, dict]:
+def big_drive(orders: int, jobs: int, questions: int, taps: int) -> tuple[dict, dict]:
     states = ("working", "waiting", "done", "open")
     job_states = ("running", "waiting", "done", "failed")
     words = "Clean up the stale worktree records that keep the release lane far too slow to use every morning"
@@ -498,7 +482,6 @@ def big_drive(orders: int, jobs: int, questions: int, taps: int, late: int) -> t
             f"{n}: {words}",
             [f"j{n}", f"j{n + orders}"],
             state=states[n % 4],
-            due=at(-30) if n < late else None,
             note="Waiting on CI for the second PR, then the install on this Mac and a live check of the page " * 2,
             updated=at(-n),
         )
@@ -517,17 +500,16 @@ def big_drive(orders: int, jobs: int, questions: int, taps: int, late: int) -> t
 
 
 def test_a_big_drive_draws_every_section_at_most_eight_rows_and_counts_the_rest_on_the_dashboard() -> None:
-    data, cards = big_drive(orders=500, jobs=1000, questions=400, taps=30, late=15)
+    data, cards = big_drive(orders=500, jobs=1000, questions=400, taps=30)
     model = view.build(data, cards, T0)
     tables = page.layout(model, DASHBOARD)
     markdown = page.render(model, DASHBOARD)
     counts, kinds = model["counts"], Counter(item["kind"] for item in model["queue"])
-    assert kinds == Counter(question=400, tap=30, late=11)
+    assert kinds == Counter(question=400, tap=30)
     assert [table.heading for table in tables] == [
         "",
         "❓ Your questions (400)",
         "👆 PRs waiting on your tap (30)",
-        "⏰ Promised times that passed (11)",
         "📊 Every project at a glance",
         *(f"{page.STATE_MARKS[name]} {page.STATE_TITLES[name]} ({counts[name]})" for name in page.OPEN_STATES if counts[name]),
         f"✅ Finished ({counts['merged'] + counts['live']})",
@@ -879,8 +861,8 @@ def test_a_card_he_asked_about_on_the_dashboard_sinks_below_the_rest_until_the_d
     assert ranked([asked, answered]) == ranked([asked, answered | {"edited": True}, answered]) == waited
     assert ranked([asked, answered | {"edited": True}]) == sunk
     assert [item["priority"] for item in view.board(drive_of({}, {}, []), found([held, newer]), "live", [asked], moment, set(), {})["queue"]] == [
-        {"rank": 1, "answering": False, "incident": False, "overdue": False, "weight": 0},
-        {"rank": 2, "answering": True, "incident": False, "overdue": False, "weight": 0},
+        {"rank": 1, "answering": False, "incident": False, "weight": 0},
+        {"rank": 2, "answering": True, "incident": False, "weight": 0},
     ]
 
 

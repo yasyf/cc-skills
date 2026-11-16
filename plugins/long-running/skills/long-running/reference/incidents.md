@@ -29,7 +29,7 @@ on incidents nobody asked for. One exception: a customer team's production runs 
 drive did not cause, such as after a teammate's release. It is no incident and pages nobody, but he
 hears it at once in his DM, away too: one `report` to `communicator@<drive>` names the team, what
 fails since when and the alert's link. It and every later report on that outage carry
-`--attr customer_outage=true`, which the away hold lets through. Working on it is his call.
+`--attr customer_outage=true`. Working on it is his call.
 
 When his words ask for options or a diagnosis on something that is down, give him a reader's
 diagnosis and option cards for the proper fix, which waits for his pick because he asked to choose.
@@ -223,17 +223,16 @@ check's verdict, or from the order when none ran.
 | First check: the live build's commit, and the default branch's newest build tried on a test machine | 10 minutes | A second job on the first check |
 | Rollback started on the proven target, or the evidence that no build can serve | 10 minutes | A second job on the rollback |
 | Every later step, until live | at most 10 minutes out | A second job on that step |
-| His next line, until users are unblocked | 5 minutes after the incident's last line, while a job of it works or once something it names moved | The watch's report, and a handler posting what moved and where it stands |
 
-- His next line's clock is the watch's, so no line promises a time and an incident takes no due:
-  `drive incident open` takes no `--due`, and no `DUE o<n>` comes for it.
-  - Five quiet minutes after the newest drive post on the open incidents in one thread, the
-    watch's `quiet_lines` sends the communicator one `report` carrying `quiet=true`, and a handler
-    posts where each stands, while he is away too. It sends one only on news: a job of them at
-    work, or an order, job or PR of them moved. An incident whose every job waits gets no line.
-  - It stops once an order of the incident keeps proof that users are unblocked: a builder's
-    `DONE` on its `stop` or `rollback` part, or `drive order set <o> --proof <that run>` by hand.
-    A `DONE` on the `fix` part keeps none, since a merged fix is not yet running where users are.
+- His next line comes the moment a step of the incident happens, not on a clock: the session
+  holding the incident sends the report and the communicator posts it in the incident's thread.
+  No line goes out for quiet minutes, and an incident keeps no promised time:
+  `drive incident open` takes no `--due`.
+- Users are unblocked once an order of the incident keeps proof of it: a builder's `DONE` on its
+  `stop` or `rollback` part, kept until that builder's next return is not `DONE`, or
+  `drive order set <o> --proof <that run>` by hand. A `DONE` on the `fix` part keeps
+  none, since a merged fix is not yet running where users are. The watch closes the incident once
+  every merged fix PR of it runs in production.
 - A job's clock is its own, set with `drive job set <j> --due <time>`. The watch says `DUE j<n>`
   once if the job still runs then. Read its transcript, since a stuck job sends no message.
 - A second job is an Opus 5.5 `long-running:builder` on the same brief, started beside the first
@@ -336,8 +335,8 @@ The steps, in order:
 2. **The fix is a release:** releasing the default branch fixes it, as the test machine showed.
 3. **Rollback started:** the build it rolls back to, and that it lacks the failing change.
 4. **Users unblocked:** whose runs succeed again, on a real machine, and the freeze on the
-   service's other releases. The order keeps that run as its proof, which ends the five-minute
-   line by [Clocks](#clocks). On an order with a reporter the handler then posts the fix-live note
+   service's other releases. The order keeps that run as its proof, by [Clocks](#clocks).
+   On an order with a reporter the communicator then posts the fix-live note
    in each thread the bug was reported in, by [messages.md](messages.md).
 5. **Root fix PR open:** its title, linked, and the record's verdict it fixes.
 6. **Merged.**
@@ -347,8 +346,8 @@ The steps, in order:
    one a job brief's `Native` line names, is live once its proof comes from that surface: a
    recording of it or the live post.
 
-Step 8's `report` carries `--attr close=<o>`, and its handler closes the order once the line is in
-the thread, which takes it off the dashboard's top strip.
+Step 8's `report` carries `--attr close=<o>`, and the communicator closes the order once the line is
+in the thread, which takes it off the dashboard's top strip.
 
 The watch sends step 8 itself once the incident's fix is live, read fresh each pass:
 

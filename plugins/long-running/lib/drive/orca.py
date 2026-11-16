@@ -310,10 +310,12 @@ def kept_terminal(drive: str, key: str, title: str) -> str:
         if error.code != STALE_TERMINAL:
             raise
     opened = request("terminal", "create", "--worktree", f"path:{loaded['roles']['coordinator']['cwd']}", "--title", f"{drive}-{title}")["terminal"]["handle"]
-    with state.edit(drive) as data:
+    def keep(data: dict) -> str:
         if data[key] == kept:
             data[key] = opened
         return data[key]
+
+    return state.update(drive, None, keep)
 
 
 def reload_command(terminal: str, text: str, request_id: str | None = None) -> str:
@@ -574,9 +576,9 @@ def file_text(file: Path) -> str:
 
 
 def uncarried(drive: str, job_id: str, brief: str) -> str | None:
-    """Why no lane starts on this brief: it names a drive file the drive keeps none of, which its lane would stop to ask for, never the job's own report or proof output, which the drive writes once the job returns or its proof runs."""
+    """Why no lane starts on this brief: it names a drive file the drive keeps none of, which its lane would stop to ask for, never the job's own report or proof output, which the drive writes once the job returns or its proof runs, nor any file under its own scratch/<job>/, which its lane writes."""
     own = {f"Report of {job_id}", f"Drive file {state.proof_path(drive, job_id).relative_to(state.drive_dir(drive))}"}
-    missing = [heading for heading, text in drive_files(drive, brief).items() if text is None and heading not in own]
+    missing = [heading for heading, text in drive_files(drive, brief).items() if text is None and heading not in own and not heading.startswith(f"Drive file scratch/{job_id}/")]
     if not missing:
         return None
     return (
@@ -939,8 +941,8 @@ def marked(run: str, caller: str | None = None) -> int:
 
 
 def unread_runs() -> list[str]:
-    """Each Run whose mail Orca still shows unread among the newest DRAIN_LIMIT messages of its whole mailbox, read without binding or consuming as mail reads it."""
-    return sorted({message["to_handle"].removeprefix("run:") for message in call("inbox", "--limit", str(DRAIN_LIMIT))["messages"] if message["to_handle"].startswith("run:") and message.get("delivered_at") is None})
+    """Each Run whose mail Orca still shows unread among the newest DRAIN_LIMIT messages of its whole mailbox, read in Orca's concise view, which carries each row's recipient and read flag without its whole body, so a read of the whole mailbox stays within CALL_SECONDS, without binding or consuming as mail reads it."""
+    return sorted({message["to"].removeprefix("run:") for message in request("orchestration", "inbox", "--limit", str(DRAIN_LIMIT))["messages"] if message["to"].startswith("run:") and not message["handled"]})
 
 
 def mailbox(job: dict, dispatch: str) -> list[dict]:
@@ -1121,7 +1123,7 @@ def woken(drive: str, job_id: str, job: dict, unreached: str) -> LaneEnd | None:
         state.said(job_id, f"its wake read {error}; it asks Sprite {workspace} over ssh what listens on the port Orca's runtime serves on there, for at most {CALL_SECONDS} s")
         match runtime_listening(workspace):
             case True:
-                raise
+                return died(drive, job_id, job["dispatch"], LaneEnd(f"{unreached}, and its Sprite says something listens on the port Orca's runtime serves on there, yet Orca cannot reach it", None, None, unfit=True))
             case False:
                 return died(drive, job_id, job["dispatch"], LaneEnd(f"{unreached}, and its Sprite has nothing listening on the port Orca's runtime serves on there", None, None, unfit=True))
             case silent:
@@ -1131,8 +1133,6 @@ def woken(drive: str, job_id: str, job: dict, unreached: str) -> LaneEnd | None:
         if isinstance(written, str):
             return died(drive, job_id, job["dispatch"], LaneEnd(f"{unreached}, and {written}", None, None, unfit=True))
         minutes = int((state.now() - written).total_seconds() // 60)
-        if minutes < QUIET_SECONDS // 60:
-            raise OrcaError(f"{unreached}, yet its worker wrote a transcript there {minutes} minutes ago, so it reads as at work until {QUIET_SECONDS // 60} minutes pass with no write, and nothing restarts", error.code) from None
         return died(drive, job_id, job["dispatch"], LaneEnd(f"{unreached}, and its worker last wrote a transcript there {minutes} minutes ago", None, None, unfit=True))
     if end is None or end.worktree:
         return end
@@ -1147,11 +1147,12 @@ def died(drive: str, job_id: str, dispatch: str, end: LaneEnd, **outcome: str | 
 
 def death_kept(drive: str, job_id: str, dispatch: str, why: str, kept: dict) -> None:
     """Keep on the death of the job's lane by its dispatch, recorded by state.lane_died for why if none is, what a step of its restart came to, unless a lane since replaced it."""
-    with state.edit(drive) as data:
+    def died(data: dict):
         job = data["jobs"][job_id]
         if job.get("dispatch") == dispatch:
             state.lane_died(job, dispatch, why, state.now())
             state.lane_death(job, "dispatch").update(kept)
+    state.update(drive, None, died)
 
 
 def followed(drive: str, job_id: str, job: dict, shown: dict) -> dict:
@@ -1168,9 +1169,11 @@ def followed(drive: str, job_id: str, job: dict, shown: dict) -> dict:
         if not reached:
             continue
         lane = {"dispatch": task["dispatchId"], **run_of(opened)}
-        with state.edit(drive) as data:
+        def followed_write(data: dict):
             if data["jobs"][job_id].get("dispatch") == job["dispatch"]:
                 data["jobs"][job_id].update(lane)
+
+        state.update(drive, None, followed_write)
         job.update(lane)
         return opened
     return shown

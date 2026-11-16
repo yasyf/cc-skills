@@ -3,7 +3,7 @@ from pathlib import Path
 
 import re
 
-from drive import cli, mcp, render, state, tools
+from drive import cli, render, state, tools
 
 HOOK_CHARS = 10_000
 
@@ -11,7 +11,6 @@ HOOK_CHARS = 10_000
 def order(
     text: str,
     order_state: str = "working",
-    due: str | None = None,
     jobs: list[str] | None = None,
     created: str = "2026-11-09T08:00:00-08:00",
 ) -> dict:
@@ -20,8 +19,6 @@ def order(
         "from": "terminal",
         "thread": None,
         "state": order_state,
-        "promises": [{"thread": None, "due": due, "promised": None, "kept": None, "due_said": None, "next_due": None, "next_set": None}] if due else [],
-        "withdrawn": None,
         "jobs": jobs or [],
         "parts": {},
         "proof": None,
@@ -42,9 +39,7 @@ def order(
 def sample() -> dict:
     drive = state.new_drive("demo", "coordinator", "s1", "/work")
     drive["orders"] = {
-        "o1": order(
-            "Ship the drive rewrite and install it", due=state.stamp(state.now() + timedelta(hours=1)), jobs=["j1"]
-        ),
+        "o1": order("Ship the drive rewrite and install it", jobs=["j1"]),
         "o2": order("Already shipped", order_state="done"),
         "o3": order("Answer whether the cache is warm " + "x" * 200, order_state="open"),
     }
@@ -99,7 +94,7 @@ def test_communicator_context_gives_rules_and_tools_but_no_order_list() -> None:
     assert "o1" not in text
     for rule in render.COMMUNICATOR_RULES:
         assert rule in text
-    for row in ("+1 react", "away: true", 'answer: "<a few words naming it>"', "Explain more", "merge:", "MISSING <path>", "defect record", "post feedback", "Sent."):
+    for row in ("+1 react", "slack_dm_status", "Explore or Sonnet subagent", "2 to 4 options", "merge:", "defect record", "Sent."):
         assert row in text
     assert render.FIRST_CALL["coordinator"] not in text
     assert text.endswith(render.FIRST_CALL["communicator"])
@@ -152,24 +147,12 @@ def test_each_page_naming_drive_tooling_carries_its_one_definition() -> None:
     assert [page.name for page in pages if state.DRIVE_TOOLING not in page.read_text()] == []
 
 
-def test_say_the_handler_and_the_meta_rules_each_read_the_one_away_rule() -> None:
-    rule = f"{state.AWAY_HOLD}."
-    surfaces = {
-        "say": mcp.SAY["description"],
-        "meta": " ".join(render.META_RULES),
-        "handler.md": (cli.PAGES.parents[2] / "agents" / "handler.md").read_text(),
-        "messages.md": (cli.PAGES / "messages.md").read_text(),
-    }
-    assert [surface for surface, text in surfaces.items() if rule not in " ".join(text.split())] == []
-
-
 def live_sized() -> dict:
     drive = sample()
-    passed = state.stamp(state.now() - timedelta(minutes=30))
     for n in range(785):
         order_id, job_id, still_open = f"o{n + 10}", f"j{n + 10}", n < 388
         filing = {"project": f"Project {n % 74 % 15}", "workstream": f"Workstream {n % 74}"}
-        drive["orders"][order_id] = order(f"order {n} " + "x" * 200, "open" if still_open else "done", passed if still_open else None, [job_id]) | filing
+        drive["orders"][order_id] = order(f"order {n} " + "x" * 200, "open" if still_open else "done", jobs=[job_id]) | filing
         drive["jobs"][job_id] = drive["jobs"]["j1"] | {"order": order_id, "goal": f"goal {n} " + "y" * 200, "prs": []}
     drive["name"] = "durable-agents"
     drive["slack"]["watch"] = [f"C0B75AL{n:04d}" for n in range(8)]
@@ -278,23 +261,6 @@ def test_status_data_keeps_only_open_work() -> None:
     assert "jobs" not in data and "prs" not in data
 
 
-def test_status_lists_each_report_held_for_his_return() -> None:
-    drive = sample()
-    at = state.stamp(state.now())
-    drive["held"] = {
-        "700": {"order": "o1", "at": at, "corrections": ["704", "706"], "withdrawn": []},
-        "702": {"order": None, "at": at, "corrections": [], "withdrawn": ["708"]},
-    }
-    lines = render.status_text(drive, {}).splitlines()
-    start = lines.index("Held for his return, since he was away; once he is back the watch's line in its order's thread, or his catch-up for one with no thread, carries each its writer did not withdraw:")
-    assert lines[start + 1 : start + 3] == [
-        f"- report 700 (o1), held {render.when(at)}, corrected by records 704, 706",
-        f"- report 702 (no order), held {render.when(at)}, withdrawn by record 708, so no post carries it and no order closes on it",
-    ]
-    assert render.status_data(drive, {})["held"] == drive["held"]
-    assert not any(line.startswith("Held for his return") for line in render.status_text(sample(), {}).splitlines())
-
-
 def test_status_prints_the_moment_he_reads_away_from_the_one_every_hold_reads() -> None:
     drive = sample()
     heard = state.now() - timedelta(minutes=10)
@@ -325,9 +291,8 @@ def test_status_text_names_the_thread_each_orders_lines_go_in() -> None:
     drive = sample()
     drive["orders"]["o1"]["thread"] = ["D123", "1794307360.614569"]
     lines = render.status_text(drive, {}).splitlines()
-    due = render.when(drive["orders"]["o1"]["promises"][0]["due"])
     assert next(line for line in lines if line.startswith("- o1 ")).startswith(
-        f"- o1 working due {due}, its lines go in D123 thread 1794307360.614569: "
+        "- o1 working, its lines go in D123 thread 1794307360.614569: "
     )
     assert next(line for line in lines if line.startswith("- o3 ")).startswith("- o3 open: ")
 

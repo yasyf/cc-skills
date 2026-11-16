@@ -20,7 +20,7 @@ import role_rules
 import scratch_folder
 import session_start
 from conftest import ACME_CUT, ANSWERED_CUT, CUT_LINK, CUT_PICK, CUT_TAP, LEAD, RESEARCH, SANDSQL_NOTE, SHORT_ASK, WRITTEN_AT, answered_cut, cloned, drawn_card, kept_brief, unheld, Answers, Jev, WatchProcess
-from drive import agents, brief, cli, github, land, limits, orca, place, render, settled, slack, state, tools, watch
+from drive import agents, brief, cli, github, land, limits, orca, place, render, settled, slack, state, watch
 
 Run = Callable[..., tuple[int, str]]
 PR = "https://github.com/Forge-AI/monorepo/pull/42"
@@ -173,12 +173,12 @@ def test_a_communicator_holds_each_channel_drive_channels_made_from_its_next_cal
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
     run("start", "demo", "--role", "communicator")
     assert rules_at_next_call(monkeypatch, capsys, {"session_id": "talker"}) is None
-    made = {"him-drive-demo": {"id": "G0DRIVE", "name": "him-drive-demo"}, "him-drive-demo-drive": {"id": "G0TOOLS", "name": "him-drive-demo-drive"}}
+    made = {"him-drive-demo": {"id": "G0DRIVE", "name": "him-drive-demo"}, "him-drive-demo-drive-tooling": {"id": "G0TOOLS", "name": "him-drive-demo-drive-tooling"}}
     monkeypatch.setattr(slack, "cc_slack", lambda verb, channel: made[channel])
     monkeypatch.setattr(slack, "operator_channels", lambda: list(made.values()))
     run("channels")
     context = rules_at_next_call(monkeypatch, capsys, {"session_id": "talker"})
-    assert context.splitlines()[1] == "Hold with slack_watch: his DM D123, #him-drive-demo G0DRIVE, #him-drive-demo-drive G0TOOLS"
+    assert context.splitlines()[1] == "Hold with slack_watch: his DM D123, #him-drive-demo G0DRIVE, #him-drive-demo-drive-tooling G0TOOLS"
     assert rules_at_next_call(monkeypatch, capsys, {"session_id": "talker"}) is None
     run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
@@ -215,7 +215,7 @@ def test_a_seat_bound_before_its_rules_were_kept_gets_them_once_and_a_drawn_bloc
 
 
 def waited_on(orders: range, lined: timedelta) -> None:
-    """Open an order in a thread of his DM for each number, each with a running job whose agent is a-<number>, each thread's last line to him lined ago."""
+    """Open an order in a thread of his DM for each number that he asked a line every five minutes on, each with a running job whose agent is a-<number>, each thread's last line to him lined ago."""
     moment = state.now()
     with state.edit("demo") as data:
         for number in orders:
@@ -223,9 +223,11 @@ def waited_on(orders: range, lined: timedelta) -> None:
             data["orders"][order_id] = state.new_order(f"fix {number}", "slack", ("D123", f"1794000000.{number:06d}"), {}, state.stamp(moment - timedelta(hours=1))) | {
                 "title": f"Fix {number}",
                 "last_line": state.stamp(moment - lined),
+                "every": 5,
                 "jobs": [job_id],
             }
             data["jobs"][job_id] = state.new_job(order_id, "builder", "fix it", [], state.stamp(moment)) | {"state": "running", "agent": f"a-{number}"}
+    state.redrawn("demo")
 
 
 def overdue_at_call(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], payload: dict) -> list[str]:
@@ -248,7 +250,7 @@ def test_a_call_shows_the_five_orders_its_session_waits_longest_on_from_one_read
         assert lines == [
             render.OVERDUE_HEADING,
             *(
-                f"- o{number} Fix {number}: 20 min since its thread's last line to him, due {render.when(state.stamp(state.parse_time(lined[f'o{number}']) + state.QUIET_THREAD))}, 15 min past due"
+                f"- o{number} Fix {number}: 20 min since its thread's last line to him, due {render.when(state.stamp(state.parse_time(lined[f'o{number}']) + timedelta(minutes=5)))}, 15 min past due"
                 for number in range(1, min(orders.stop, 6))
             ),
             *([f"- and {orders.stop - 6} more"] if orders.stop > 6 else []),
@@ -269,7 +271,8 @@ def test_a_sessions_call_shows_its_orders_most_overdue_first_a_thread_lined_with
     waited_on(range(3, 4), timedelta(minutes=30))
     with state.edit("demo") as data:
         data["jobs"]["j3"]["state"] = "done"
-        state.promise(data["orders"]["o3"], state.promise_thread(data["orders"]["o3"]), state.stamp(state.now() - timedelta(minutes=10)), state.now() - timedelta(minutes=40))
+        data["orders"]["o3"]["every"] = 20
+    state.redrawn("demo")
     lines = overdue_at_call(monkeypatch, capsys, {"session_id": coordinator})
     assert [line.split(":")[0] for line in lines[1:]] == ["- o3 Fix 3", "- o1 Fix 1", "- o2 Fix 2"]
     assert (lines[1].endswith(", 10 min past due"), lines[2].endswith(", 3 min past due"), lines[3].endswith(", not past due")) == (True, True, True)
@@ -283,9 +286,11 @@ def test_a_sessions_call_shows_its_orders_most_overdue_first_a_thread_lined_with
     assert overdue_at_call(monkeypatch, capsys, {"session_id": coordinator})[3].endswith(", 1 min past due")
     with state.edit("demo") as data:
         data["jobs"]["j1"]["lost_since"] = state.stamp(later)
-    assert [line.split(":")[0] for line in overdue_at_call(monkeypatch, capsys, {"session_id": coordinator})[1:]] == ["- o3 Fix 3", "- o2 Fix 2"]
+    state.redrawn("demo")
+    assert overdue_at_call(monkeypatch, capsys, {"session_id": coordinator, "agent_id": "a-1", "agent_type": "long-running:builder"}) == []
     with state.edit("demo") as data:
         data["owner"]["away"] = state.stamp(later - timedelta(minutes=1))
+    state.redrawn("demo")
     assert overdue_at_call(monkeypatch, capsys, {"session_id": coordinator})[1].endswith("; he is away, so its line is owed at his return")
     monkeypatch.setattr(state, "now", lambda: later + timedelta(minutes=45))
     assert overdue_at_call(monkeypatch, capsys, {"session_id": coordinator}) == []
@@ -367,7 +372,7 @@ def test_a_drive_role_opens_no_file_and_its_agents_and_other_sessions_do(
     assert "a lesson is a cc-notes note (`ccn note add`)" in reason
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
     run("start", "demo", "--role", "communicator")
-    assert no_file_tools.deny_reason(file_call("Edit", "talker")).startswith("refused: the communicator opens no file with Edit")
+    assert no_file_tools.deny_reason(file_call("Edit", "talker")) is None
     assert no_file_tools.deny_reason(file_call("Read", "talker", agent_id="a-1")) is None
     assert hook_output(no_file_tools, monkeypatch, capsys, json.dumps(file_call("Write", "someone-else"))) == ""
 
@@ -382,7 +387,7 @@ def test_a_drive_role_reading_slack_itself_hears_what_it_costs_and_its_agents_an
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
     run("start", "demo", "--role", "communicator")
     history = "mcp__plugin_cc-slack_cc-slack__slack_history"
-    assert no_slack_reads.note(file_call(history, "talker")).startswith("the communicator reads Slack itself")
+    assert no_slack_reads.note(file_call(history, "talker")) is None
     assert no_slack_reads.note(file_call(thread, "talker", agent_id="a-1")) is None
     assert hook_output(no_slack_reads, monkeypatch, capsys, json.dumps(file_call(history, "someone-else"))) == ""
 
@@ -2978,13 +2983,13 @@ def test_bash_posts_no_ask_carrying_his_cards_ask_block_since_drive_job_ask_post
 
 def test_a_bash_report_naming_an_attr_a_separator_or_one_letter_from_one_the_drive_reads_is_refused_naming_it(demo: str, no_calls: list[list[str]]) -> None:
     session = os.environ["CLAUDE_CODE_SESSION_ID"]
-    catch_up = "cci post --drive demo --kind report --lane root --to communicator@demo --attr 'catchup=1:46 AM-3:10 AM' 'POST his catch-up'"
-    reason = landing_guard.deny_reason(asked_from_bash(catch_up, session))
-    assert "no `catchup` attr on a report" in reason and "`--attr catch_up=true`" in reason
+    progressed = "cci post --drive demo --kind report --lane root --to communicator@demo --attr progres=true 'POST j1 merged'"
+    reason = landing_guard.deny_reason(asked_from_bash(progressed, session))
+    assert "no `progres` attr on a report" in reason and "`--attr progress=true`" in reason
     closes = "zsh -c \"cci post --kind=REPORT --lane root --attr closes=o1 'FYI j1 merged'\""
     assert "`--attr close=" in landing_guard.deny_reason(asked_from_bash(closes, session))
-    assert landing_guard.deny_reason(asked_from_bash("cci post --kind report --lane root --attr catch_up=true 'POST his catch-up'", session)) is None
-    assert landing_guard.deny_reason(asked_from_bash(catch_up, "another-session")) is None
+    assert landing_guard.deny_reason(asked_from_bash("cci post --kind report --lane root --attr progress=true 'POST j1 merged'", session)) is None
+    assert landing_guard.deny_reason(asked_from_bash(progressed, "another-session")) is None
 
 
 def test_a_bash_post_report_typing_when_past_work_happened_is_refused_and_a_record_between_sessions_typing_it_passes(

@@ -353,7 +353,6 @@ JOB_ID = re.compile(r"\bj\d+\b")
 CLOCK_TIME = re.compile(r"\b(1[0-2]|0?[1-9])(?::([0-5]\d))?(?::[0-5]\d)?\s?([AP])\.?M\b", re.IGNORECASE)
 DAY_BEFORE = re.compile(rf"\b({DAY})(?:,|\s+at)?\s+\Z", re.IGNORECASE)
 DAY_AFTER = re.compile(rf"(?:\s+(?:Pacific|PT|P[SD]T))?,?\s+(?:on\s+)?({DAY})", re.IGNORECASE)
-CATCH_UP_SINCE = re.compile(r"\bcatch-up since\b[^\n*]*", re.IGNORECASE)
 STAMP_RULING = 'his Nov 3 ruling 20c4c24, "the agent should never be passing in a time"'
 RELEASE_START = (
     re.compile(
@@ -526,7 +525,7 @@ FACT_WORDS = {
 RECORD_CHARS = 120
 THIRD_PERSON = re.compile(r"\b(?:he|him|his|himself)\b|(?<!\w[ \t])\b(?:He|Him|His|Himself)\b")
 WHOLE_KINDS = {"owner", "answer", "incident"}
-REPORT_ATTRS = {"catch_up": "true", "close": "<o,…>", "part": "<o>:<part>", "progress": "true", "job": "<j>", "thread": "<ts>", "waits": "<drive>:<j>-<n>", "incident": "true", "customer_outage": "true", "until": "<RFC 3339 time>"}
+REPORT_ATTRS = {"close": "<o,…>", "part": "<o>:<part>", "progress": "true", "milestone": "true", "job": "<j>", "thread": "<ts>", "waits": "<drive>:<j>-<n>", "incident": "true", "customer_outage": "true", "until": "<RFC 3339 time>"}
 UNSPELLED = re.compile(r"[^a-z0-9]")
 MISNAMED = "refused: the drive reads no `{key}` attr on a report, so nothing acts on it; it reads `{attr}`, so post it again with `--attr {attr}={value}` in its place"
 
@@ -1754,8 +1753,8 @@ def masked(line: str) -> str:
 
 
 def typed_time(text: str, data: dict) -> str | None:
-    """Why a write types a clock time for work already done, which the drive's stamps give, naming the stamp of the write and of each job it names, or gives a release, build or deploy a start its build or tool never printed: a time in code, a quote, a link, a line linking the tool or read that measured it or a catch-up's title, which the drive writes from its stamp, stays as written, and one after the write, on the day written beside it, as "Nov 9" or "tomorrow", else on the day nearest the write, is a time to come."""
-    plain = CATCH_UP_SINCE.sub(lambda found: MASK * len(found[0]), QUOTED_LINE.sub(lambda found: MASK * len(found[0]), masked(SOURCED_LINE.sub(lambda found: MASK * len(found[0]), text))))
+    """Why a write types a clock time for work already done, which the drive's stamps give, naming the stamp of the write and of each job it names, or gives a release, build or deploy a start its build or tool never printed: a time in code, a quote, a link or a line linking the tool or read that measured it stays as written, and one after the write, on the day written beside it, as "Nov 9" or "tomorrow", else on the day nearest the write, is a time to come."""
+    plain = QUOTED_LINE.sub(lambda found: MASK * len(found[0]), masked(SOURCED_LINE.sub(lambda found: MASK * len(found[0]), text)))
     at = now()
     typed = list(dict.fromkeys(found[0] for found in CLOCK_TIME.finditer(plain) if typed_moment(plain, found, at) <= at))
     if not typed:

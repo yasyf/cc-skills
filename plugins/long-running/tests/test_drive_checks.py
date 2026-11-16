@@ -22,15 +22,15 @@ def handled(text: str, reads: list[dict] | None = None, claims: list[dict] | Non
 def test_weighed_gives_jev_at_most_the_seconds_the_hook_has_left_and_a_refusal_the_refusal_seconds_at_most(monkeypatch: pytest.MonkeyPatch) -> None:
     seen: list[tuple[list[str], float]] = []
 
-    def heard(told: dict, questions: dict[str, settled.Noul], seconds: float = settled.DECIDE_SECONDS) -> dict[str, float]:
+    def heard(told: dict, questions: dict[str, settled.Noul], seconds: float = settled.DECIDE_SECONDS, caller: str | None = None) -> dict[str, float]:
         seen.append((list(questions), seconds))
         return {key: 0.05 for key in questions}
 
     monkeypatch.setattr(settled, "jev", heard)
-    refusal = {"refusal": {"rule": RULE, "call": CALL}}
+    refusal = {"refusal": {"rule": RULE, "call": CALL, "output": {"findings": [FINDING]}}}
     post = {"post": {"post": {"text": "Merged."}, "findings": [FINDING]}}
     verdicts = [settled.weighed(refusal | {"seconds": 1.5}), settled.weighed(refusal), settled.weighed(post | {"seconds": 7.0}), settled.weighed(post)]
-    assert seen == [(["protects"], 1.5), (["protects"], settled.REFUSAL_SECONDS), (["f1.holds"], 7.0), (["f1.holds"], settled.DECIDE_SECONDS)]
+    assert seen == [(["f1.protects"], 1.5), (["f1.protects"], settled.REFUSAL_SECONDS), (["f1.holds"], 7.0), (["f1.holds"], settled.DECIDE_SECONDS)]
     assert verdicts == [{"verdict": "pass", "note": ""}] * 4
 
 
@@ -42,11 +42,11 @@ def test_weighed_gives_jev_at_most_the_seconds_the_hook_has_left_and_a_refusal_t
         (0.1, {"verdict": "pass", "note": ""}),
     ],
 )
-def test_a_refusal_stands_at_yes_and_in_the_band_and_lets_the_call_through_under_no_by_one_noul_over_its_rule_and_whole_call(jev: Jev, sure: float, verdict: dict) -> None:
-    jev.breaks("protects", "", sure)
+def test_a_refusal_stands_at_yes_and_in_the_band_and_lets_the_call_through_under_no_by_one_noul_per_finding_over_its_rule(jev: Jev, sure: float, verdict: dict) -> None:
+    jev.breaks("f1", "protects", sure)
     assert settled.refusal_verdict(RULE, CALL, [FINDING]) == verdict
     [request] = jev.asked
-    assert request == {"state": {"rule": RULE, "call": CALL}, "questions": {"protects": settled.PROTECTS}}
+    assert request == {"state": {"rule": RULE, "call": {"tool": "Bash", "found": FINDING["found"]}}, "questions": {"f1.protects": settled.PROTECTS}}
 
 
 def test_a_refusal_jev_gives_no_verdict_on_only_warns_saying_the_call_goes_ahead_and_naming_what_its_check_found(jev: Jev) -> None:
@@ -133,21 +133,6 @@ def test_a_claim_saying_only_every_no_or_never_of_a_set_is_asked_whether_its_rea
     }
     settled.post_verdict(handled(CLAIM["claim"]))
     assert list(jev.asked[-1]["questions"]) == ["c1.backed"]
-
-
-def test_an_answer_under_a_card_is_asked_whether_it_leaves_a_term_of_the_cards_first_line_unexplained_and_warns_at_yes(jev: Jev) -> None:
-    card = {"title": "Mac chats' rows in the API catch up from a saved mark", "asked": "Why does the API need to know any of this?"}
-    output = handled(CLAIM["claim"]) | {"thread_card": card}
-    jev.picks("backed", 0.9)
-    assert settled.post_verdict(output) == PASSES
-    assert (jev.asked[-1]["state"]["card"], jev.asked[-1]["questions"]["card"]) == (card, settled.CARD)
-    jev.breaks("card", "", 0.9)
-    assert settled.post_verdict(output) == {
-        "verdict": "warn",
-        "note": f'{settled.GOES_OUT} Jev finds it leaves a term of the card "{card["title"]}", which his question turns on, unexplained: reword the post in place.',
-    }
-    settled.post_verdict(handled(CLAIM["claim"]))
-    assert "card" not in jev.asked[-1]["questions"]
 
 
 def test_a_post_in_a_thread_of_his_dm_holding_orders_warns_when_jev_reads_it_telling_of_the_whole_drives_work_unless_his_words_there_name_more(jev: Jev) -> None:
@@ -258,7 +243,7 @@ def test_a_post_jev_gives_no_verdict_on_goes_out_naming_what_the_checks_found_an
         "verdict": "warn",
         "note": f"{settled.GOES_OUT} Jev gave no verdict (no jev decision within 20s), so what the checks found only warns:\n1. {FINDING['found']}",
     }
-    unmatched = handled(CLAIM["claim"], [READ | {"quote": 'none: no call of the handler\'s own holds "cloudrunner/inbox.go"'}]) | {"thread_card": {"title": "Mac chats", "asked": "Why?"}}
+    unmatched = handled(CLAIM["claim"], [READ | {"quote": 'none: no call of the handler\'s own holds "cloudrunner/inbox.go"'}])
     assert settled.post_verdict(unmatched)["note"].startswith('Jev held back this post: claim "The cloud\'s inbox reader queries Postgres straight." names the read "read:1", which matches none of your calls')
     assert settled.post_verdict(handled(CLAIM["claim"]))["note"] == f"{settled.GOES_OUT} Jev gave no verdict (no jev decision within 20s) on whether each claim of it stands on the read it names."
 
@@ -287,13 +272,6 @@ def test_a_read_and_a_card_too_long_for_one_request_together_reach_jev_whole_in_
     assert settled.post_verdict(output) == PASSES
     [request] = jev.asked
     assert request["state"]["reads"]["read:1"]["result"] == lines(250)
-    card = {"title": "Mac chats' rows in the API catch up from a saved mark", "asked": "Why does the API need to know any of this?"}
-    filled = handled(CLAIM["claim"], [READ | {"quote": f"{CALL_READ}\n{lines(330)}"}]) | {"thread_card": card}
-    assert settled.unfit(filled)[1] == []
-    jev.asked.clear()
-    assert settled.post_verdict(filled) == PASSES
-    assert sorted(list(request["questions"]) for request in jev.asked) == [["c1.backed"], ["card"]]
-    assert all(settled.size(request["state"], request["questions"]) <= settled.REQUEST_CHARS for request in jev.asked)
 
 
 def test_a_claim_naming_a_drive_pr_stands_on_the_drives_line_for_it_when_its_own_read_says_less_and_keeps_the_read_it_names(jev: Jev) -> None:

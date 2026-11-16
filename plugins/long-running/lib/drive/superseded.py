@@ -401,8 +401,10 @@ def supersede_taps(name: str, ended: list[tuple[str, dict]]) -> list[str]:
         try:
             if (by := closed["answer"] or closed["noted"]) is None:
                 by = settled.recorded(name, question["title"], closed["words"], [], closed["link"], cwd, settled.lifting([question]))
-                with state.edit(name) as data:
+                def supersede_taps_write(data: dict):
                     state.question_in(data["jobs"][job_id], question)["closed"]["noted"] = by
+
+                state.update(name, None, supersede_taps_write)
             settled.supersede(tapped["noted"], by, cwd)
         except DriveError as error:
             done.append(f"his tap {tapped['words']!r} on {question['waits'] or question['card']} still stands in cc-notes as {tapped['noted'][:7]}: {error}")
@@ -823,10 +825,9 @@ def drop(data: dict, answer_id: str, order_id: str, part: str) -> list[str]:
 
 
 def drop_order(data: dict, answer_id: str, order_id: str) -> list[str]:
-    """Drop an order his answer removes whole, as drive order set <o> --state dropped --withdrawn <his link> does, stopping each live job whose order it is, by state.stop_job, which drops each text it held, and taking it off each live job carrying it, which keeps waiting to hear his words; what was done, a line each."""
-    kept = data["answers"][answer_id]
+    """Drop an order his answer removes whole, stopping each live job whose order it is, by state.stop_job, which drops each text it held, and taking it off each live job carrying it, which keeps waiting to hear his words; what was done, a line each."""
     order = data["orders"][order_id]
-    order.update(state="dropped", withdrawn=kept["link"], updated=state.stamp())
+    order.update(state="dropped", updated=state.stamp())
     uncarried, stopped = state.close_order_jobs(data, order_id, f"his answer {answer_id} dropped its order {order_id}")
     for job_id in uncarried:
         owe(data, answer_id, job_id)

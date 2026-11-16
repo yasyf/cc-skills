@@ -358,19 +358,6 @@ def thread_messages(payload: dict, dm: str) -> list[dict]:
     return []
 
 
-def thread_card(payload: dict) -> dict | None:
-    """The card or post of the bot's that his DM thread the post goes to is under, by its first line, its headline or question, beside each message of his the post answers, as `asked_words` reads them, so a question of his a communicator's ack already followed still counts; none for a post at his DM root, outside his DM, under a message of his, or answering no message of his."""
-    try:
-        dm = slack.dm()
-        messages = thread_messages(payload, dm)
-        linked = linked_words(payload["tool_input"].get("asked"), dm)
-    except slack.SlackError:
-        return None
-    if not messages or not messages[0].get("from_bot") or not (asked := asked_words(payload["tool_input"], messages, linked)):
-        return None
-    return {"title": messages[0]["text"].partition("\n")[0], "asked": "\n".join(dict.fromkeys(word.strip() for word in asked))}
-
-
 def work_thread(payload: dict) -> tuple[dict, list[str]] | None:
     """The drive and the open orders of the thread of his DM a say post with words goes in; none at his DM root, outside his DM or in a thread holding no open order."""
     tool_input = payload["tool_input"]
@@ -660,8 +647,6 @@ def found_in(payload: dict, drive: dict, said: str, found: dict[str, dict]) -> s
     if not posts_to(payload, drive, dm):
         return every([(payload["tool_name"] == SAY and unread(payload, dm)) or teammate_findings(payload)])
     report, order_id = said_order(payload, drive)
-    if refusal := held_while_away(payload, drive, report, order_id):
-        return refusal
     if misplaced := talk.misplaced(drive, tool_input):
         return agents.Unjudged(misplaced)
     if stale := unread(payload, dm):
@@ -888,19 +873,6 @@ def edited_order(name: str, link: str) -> str | None:
     """The order the post at link went out on, as the said event say kept when it made that post names it."""
     key = view.message_key(link)
     return next((event["order"] for event, _ in state.read_events(name) if event["kind"] == "said" and not event.get("edited") and view.message_key(event["url"]) == key), None)
-
-
-def held_while_away(payload: dict, drive: dict, report: dict, order_id: str | None) -> str | None:
-    """Why a line in his DM waits while he is away, by talk.away, the rule say reads too: a report's line say holds by talk.held_away, marked held or owed at his return, refused before Jev reads or sizes it, since say posts nothing of it whatever Jev reads; a handler's line carrying no report that talk.away reads as waiting is refused the same way; a line outside his DM, such as an update in a staging claim's thread, speaks to that channel's members and goes out."""
-    tool_input = payload["tool_input"]
-    if edited(payload):
-        return None
-    if held := talk.held_away(drive["name"], drive, tool_input, report, order_id):
-        return agents.Unjudged(f"Refused on purpose: {held}")
-    if not payload.get("agent_id") or not (gone := talk.away(drive, tool_input, report, order_id, state.now())):
-        return None
-    away = f"Refused on purpose: {gone}. Post nothing: this news waits for his return, when the drive owes its thread a line."
-    return agents.Unjudged(away)
 
 
 def long_ack(payload: dict) -> str | None:
@@ -1134,7 +1106,7 @@ def called(item: str, read: str, source: str, calls: dict[str, str], given: dict
 
 
 def unroomed(post: int, parts: list[tuple[str, int]]) -> str:
-    """Why Jev weighs none of a handler's post: Jev weighs each read whole beside the claims naming it, one too long for a request in parts by whole lines, each sentence no claim holds whole and the card his question is under, each in a request of at most settled.REQUEST_CHARS beside the post's own words, and these parts take more alone, named with what the request holding each takes, largest first, so the post goes out as settled.unheard_post lets it and the handler knows which read to narrow next time."""
+    """Why Jev weighs none of a handler's post: Jev weighs each read whole beside the claims naming it, one too long for a request in parts by whole lines, each sentence no claim holds whole, each in a request of at most settled.REQUEST_CHARS beside the post's own words, and these parts take more alone, named with what the request holding each takes, largest first, so the post goes out as settled.unheard_post lets it and the handler knows which read to narrow next time."""
     sizes = "; ".join(f"{named}, {chars:,}" for named, chars in parts)
     return (
         f"no Jev request of {settled.REQUEST_CHARS:,} characters holds these parts whole beside the post's {post:,} characters, largest first: {sizes};"
@@ -1142,8 +1114,23 @@ def unroomed(post: int, parts: list[tuple[str, int]]) -> str:
     )
 
 
+def own_communicator(payload: dict) -> bool:
+    """Whether the post is the communicator's own, typed in its turn, not a handler's, a subagent's or the watch's run of these checks under its session."""
+    return not payload.get("agent_id") and not os.environ.get(state.HANDLER_ENV) and not str(payload.get("tool_use_id") or "").startswith("watch-") and his_drive(payload.get("session_id") or "") is not None
+
+
+def mechanical(payload: dict) -> dict:
+    """What the say hook prints for the communicator's own post: only the checks a mark decides, a placeholder text, by his words "it needs to be just as fast and fluid asking me things and making the right judgement calls as you would", so no Jev pass, record or read gate holds his answer."""
+    text = (payload["tool_input"].get("text") or "").strip()
+    if PLACEHOLDER.fullmatch(text):
+        return denial(f"The text {text} is a placeholder, and Slack would send it as written. Pass the post's own words as text.")
+    return {}
+
+
 def hook_output(payload: dict) -> dict:
     """What the say hook prints for a call, empty when it lets the call through unjudged: a deny with the rule it stands for, a warning, and what Jev weighs a post by beside his words, the post the drive's watch makes of a proved order's live line read by the same checks, by talk.hook_refusal; a post too large for Jev's requests goes out as settled.unheard_post lets it, and a check that fails lets the post out unchecked with a warning, since a gate that cannot finish fails open."""
+    if own_communicator(payload):
+        return mechanical(payload)
     try:
         reason, sent = checked(payload)
         reads = [] if isinstance(reason, agents.Unjudged) else read_evidence(payload, sent.get("claims") or [])
@@ -1151,13 +1138,12 @@ def hook_output(payload: dict) -> dict:
         sent = sent | ({"claims": [claim | {"read": ids.get(claim["read"].strip(), claim["read"])} for claim in sent["claims"]]} if sent.get("claims") else {})
         heard = {"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": reason}} if isinstance(reason, Warned) else {}
         reason = "" if heard else reason
-        card = thread_card(payload | {"tool_input": sent}) if reads else None
         work = None if isinstance(reason, agents.Unjudged) else work_thread(payload | {"tool_input": sent})
         judged = {}
         if (reason or reads or work) and not isinstance(reason, agents.Unjudged):
             words = his_words(payload)
             asked = "\n".join(dict.fromkeys(word["quote"].strip() for word in words if word["id"].startswith("slack:")))
-            judged = {"his_words": words, "reads": reads, "post": sent} | ({"thread_card": card} if card else {}) | ({"thread_scope": {"asked": asked, "strays": cli.thread_strays(*work, payload["tool_input"]["text"], asked)}} if work else {})
+            judged = {"his_words": words, "reads": reads, "post": sent} | ({"thread_scope": {"asked": asked, "strays": cli.thread_strays(*work, payload["tool_input"]["text"], asked)}} if work else {})
         if judged and (unfit := settled.unfit(judged))[1]:
             verdict = settled.unheard_post(judged | (denial(reason) | agents.ruled(reason) if reason else {}), unroomed(*unfit))
             prior = (heard.get("hookSpecificOutput") or {}).get("additionalContext")

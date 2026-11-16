@@ -12,7 +12,7 @@ import tempfile
 import time
 import uuid
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from functools import cache, partial
 from pathlib import Path, PurePosixPath
 
@@ -20,7 +20,7 @@ from drive import github, state, train
 
 POLL_SECONDS = 20
 READ_EVERY_SECONDS = 60
-CI_HEARD = "ci-heard.json"
+CI_HEARD = "ci-heard.sqlite3"
 CI_HEARD_SECONDS = 600
 FAILED_TEST = re.compile(r"^\S+ (?:FAILED|ERROR) (?P<test>\S+\.py(?:::[^\r\n]+?)?)(?: - [^\r\n]*)?\r?$", re.MULTILINE)
 GITHUB_REPO = re.compile(r"github\.com[/:]([^/]+/[^/]+?)(?:\.git)?/?$")
@@ -825,8 +825,11 @@ def ci_passed(run: dict) -> bool:
 
 
 def ci_statuses(repo: str, commit: str) -> list[dict]:
-    jq = ".statuses[] | {context, state, target_url}"
-    return [json.loads(line) for line in github.read(f"{repo}'s commit statuses on {commit[:12]}", ["gh", "api", f"repos/{repo}/commits/{commit}/status", "--jq", jq]).splitlines()]
+    """The newest commit status of each context on commit, read through GraphQL, whose own pool every drive job prove pass then spends instead of the owner's REST core one."""
+    owner, name = repo.split("/")
+    query = f'query {{ repository(owner: "{owner}", name: "{name}") {{ object(oid: "{commit}") {{ ... on Commit {{ status {{ contexts {{ context state targetUrl }} }} }} }} }} }}'
+    jq = ".data.repository.object.status.contexts // [] | .[] | {context, state: (.state | ascii_downcase), target_url: .targetUrl}"
+    return [json.loads(line) for line in github.read(f"{repo}'s commit statuses on {commit[:12]}", ["gh", "api", "graphql", "-f", f"query={query}", "--jq", jq]).splitlines()]
 
 
 def pushed(repo: str, sha: str, branch: str) -> Iterator[str]:
@@ -865,18 +868,24 @@ def statuses_judged(repo: str, statuses: list[dict], later: Iterator[str]) -> li
 
 
 def heard_ci(repo: str, sha: str, mark: str | None) -> list[tuple[str, bool]]:
-    """pushed_ci of the merge at sha, kept under the state root beside the receiver's ci mark it was read at and answered from there while that mark has not moved and the answer is under CI_HEARD_SECONDS old, since each drive job prove a lane starts read it afresh, five to eight core calls of the owner's, while no run completed and no status landed on the default branch to change it."""
-    kept = state.root() / CI_HEARD
-    known = json.loads(kept.read_text()) if kept.exists() else {}
+    """Share a merge's CI verdict across processes until its webhook mark changes or expires, polling once per READ_EVERY_SECONDS before the first mark. Reads of the same merge share one in-flight request; unrelated merges retain independent entries and locks."""
+    folder = state.root()
     key = f"{repo}@{sha}"
-    if mark and (was := known.get(key)) and was["mark"] == mark and time.time() - was["at"] < CI_HEARD_SECONDS:
-        return [tuple(line) for line in was["verdict"]]
-    verdict = pushed_ci(repo, sha)
-    known = {k: v for k, v in known.items() if time.time() - v["at"] < CI_HEARD_SECONDS} | {key: {"mark": mark, "at": time.time(), "verdict": verdict}}
-    staged = kept.with_name(f"{kept.name}.{os.getpid()}")
-    staged.write_text(json.dumps(known))
-    os.replace(staged, kept)
-    return verdict
+    lock = folder / "ci-heard-locks" / hashlib.sha256(key.encode()).hexdigest()
+    with state.flocked(lock), closing(state.connect(folder / CI_HEARD)) as db:
+        db.execute("CREATE TABLE IF NOT EXISTS verdicts (key TEXT PRIMARY KEY, mark TEXT, at REAL NOT NULL, verdict TEXT NOT NULL) WITHOUT ROWID")
+        db.execute("CREATE INDEX IF NOT EXISTS verdicts_at ON verdicts (at)")
+        was = db.execute("SELECT mark, at, verdict FROM verdicts WHERE key = ?", (key,)).fetchone()
+        age = CI_HEARD_SECONDS if mark else READ_EVERY_SECONDS
+        if was and was[0] == mark and time.time() - was[1] < age:
+            return [tuple(line) for line in json.loads(was[2])]
+        verdict = pushed_ci(repo, sha)
+        now = time.time()
+        with db:
+            db.execute("BEGIN IMMEDIATE")
+            db.execute("INSERT OR REPLACE INTO verdicts VALUES (?, ?, ?, ?)", (key, mark, now, json.dumps(verdict)))
+            db.execute("DELETE FROM verdicts WHERE at <= ?", (now - CI_HEARD_SECONDS,))
+        return verdict
 
 
 def pushed_ci(repo: str, sha: str) -> list[tuple[str, bool]]:
@@ -1268,7 +1277,7 @@ def prove(name: str, job_id: str, timeout: int, again: bool = False) -> str:
     """Prove live a builder's READY or PUSHED whose PRs all merged, the step the watch starts, on a builder that took BLOCKED, its own proof's among them, the newest READY or PUSHED its history keeps, which take_back puts it back on, so a failed proof runs again on the job that owns it: wait, with no deadline of its own, while the install train holds any of its yasyf/* merges, boarded or carried by an install it started that still runs, as train.await_departure reads the board, so no proof installs a plugin ahead of the train, then install each plugin a yasyf/* merge changes whose installs, binaries, Homebrew copy or Captain Hook.app lack it, its merges outside yasyf/* left to the prover add_prover hands them to, which proves them on their release, wait until the drive's dashboard runs the newest long-running installed, then run the job's proof file with the bin folders of those plugins' newest installs, read right before it runs, first on PATH, as newest_builds builds it, and the drive named, as proof_run does, with no wait for CI, since no install reads a CI run; when it fails while the CI of the push that carried a yasyf/* merge onto its default branch has not passed it, as drive pr ci judges the merge, wait for it to pass with no deadline, as await_ci does, and run the file once more, as it does once ccx's GitHub rate-limit floor lifts for a run its timeout cut off while it waited that floor out, and run it again on the newer installs when it fails while a newer install of any of them landed, each run of the file given the whole timeout from its own start, as proof_run gives it, so neither the installs, the dashboard's handover, a wait on CI nor an earlier run shortens it, keep the last run's output in reports/<j>.proof.txt, take DONE on exit 0 with output, since a proof file printing nothing proves nothing, each Slack post or picture link it names opening, as brief.unopened reads it, so a stand-in permalink proves nothing either, that output proving each user story the job's brief names on his surface, as brief.story_gap reads its lines in code, each gap it finds said on a line closing the output kept, and, once all that holds, each command its brief's After install: line names exiting 0, which after_steps runs, and BLOCKED otherwise, its line naming that file and quoting the run's last line opening FAIL, else saying it printed none, and a nonzero exit ending on a WAIT line with no FAIL line, or an install held for his card, which meet_helper's WAIT says, taking no result, any other install that fails, a merge no release will carry, or a dashboard still on an older install at the deadline taking BLOCKED naming it, but only on a run the watch started, as the proof mark it wrote naming this process's pid shows, a session's failing run, the job's own agent's included, keeping its output and saying it on its PRs' lines while putting back the state, said line and proof mark it found, so its lane keeps its job and its Mac box, and keep the close report on its order for the watch to post when DONE leaves the order nothing to do, but for a drive tooling order a session opened, which closes done on its proof with no line to him, and an open incident, which the watch closes once DONE records its fix live, each said on its merged PRs' lines, an open PR a DONE of a job's own names being live nowhere; on a prover, a builder that opened no PR whose goal reads prove <PRs> live, naming merged PRs, and that waits on nothing but its own after-merge staging waits, as handed_prs reads it, or a repair, one whose said line names none and whose goal proves none, at work or waiting, or stopped or failed as take_back reopens it, its proof marked as this process's from its start, install only what a prover's yasyf/* merges change, run the file on the drive's own long-running when nothing is installed, take its DONE or BLOCKED as finish does, naming the job for its PRs and closing its order under the order's title, and on a WAIT keep the job waiting on a WAITING line quoting it, its proof marked waiting on it, said on the job's own line; refused for a job waiting on no such READY or PUSHED that is no such repair, or one proof_gap names, the job left as it was; nothing after another proof took the job's result first."""
     from drive import brief, dashboard
 
-    with state.edit(name) as data:
+    def prove_write(data: dict):
         job = data["jobs"][job_id]
         found = {field: job.get(field) for field in ("state", "said", "updated", "proof")}
         take_back(name, data, job_id)
@@ -1291,6 +1300,9 @@ def prove(name: str, job_id: str, timeout: int, again: bool = False) -> str:
         urls = " ".join(map(state.pr_url, proved_prs(data, job_id) if own else merges)) or (job_id if own else f"{job_id}'s repair")
         if job["state"] != found["state"]:
             job.update(found)
+        return found, job, merges, urls
+
+    found, job, merges, urls = state.update(name, None, prove_write)
     untapped = {key: sha for key, sha in merges.items() if state.merges_untapped(key)}
     train.await_departure(untapped)
     try:

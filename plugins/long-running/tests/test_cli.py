@@ -159,7 +159,7 @@ def test_start_creates_the_drive_and_prints_the_roles_context(run: Run, tmp_path
             "rules": render.rules_digest(data, "communicator"),
         }
     }
-    assert data["slack"] == {"page": None, "watch": [], "swept": None, "waiting": {}, "digest": None}
+    assert data["slack"] == {"page": None, "watch": [], "swept": None, "waiting": {}, "digest": None, "channels": {}}
 
 
 def test_a_coordinators_start_starts_the_watch_and_says_so(run: Run, watch_process: WatchProcess, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -189,6 +189,19 @@ def test_drive_start_starts_the_meta_session_beside_the_others_once_until_it_bin
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "coordinator-session")
     assert "the meta session starts in" not in run("start", "demo", "--role", "coordinator")[1]
     assert len(session_launches.started) == 2
+
+
+def test_a_coordinators_start_makes_the_drives_channel_and_starts_the_communicator_that_holds_it_once_until_it_binds(
+    run: Run, monkeypatch: pytest.MonkeyPatch, session_launches: SessionLaunches, channels_opened: list[str]
+) -> None:
+    out = run("start", "demo", "--role", "coordinator")[1]
+    assert "\nstarted the communicator, which holds the drive's Slack channels, in Orca terminal term_communicator2\n" in out
+    assert (channels_opened, state.load("demo")["launched"]) == (["demo"], {"meta": "term_meta1", "communicator": "term_communicator2"})
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "communicator-session")
+    run("start", "demo", "--role", "communicator")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "session-under-test")
+    assert "the communicator, which holds" not in run("start", "demo", "--role", "coordinator")[1]
+    assert (channels_opened, [role for _, role, _, _ in session_launches.started]) == (["demo"] * 3, ["meta", "communicator"])
 
 
 def test_a_sub_coordinator_binds_beside_the_top_for_a_project_an_order_is_filed_under_and_a_new_session_replaces_it(
@@ -327,8 +340,8 @@ def test_heard_returns_one_word_whatever_sub_coordinator_his_thread_is_filed_und
     run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Run page", "ship the run page")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
     run("start", "demo", "--role", "coordinator", "--project", "Iris")
-    assert run("heard") == (0, "heard")
-    assert tools.run("heard", "demo", {}) == "heard"
+    assert run("heard", "--now") == (0, "heard")
+    assert tools.run("heard", "demo", {"now": True}) == "heard"
     assert tools.run("heard", "demo", {"away": True}) == "away"
     with pytest.raises(state.DriveError, match="drive heard takes no thread"):
         tools.run("heard", "demo", {"thread": "1794200000.000100"})
@@ -669,17 +682,14 @@ def test_start_rejects_a_name_that_is_not_a_directory_name(run: Run) -> None:
 
 def test_order_add_allocates_ids_and_stores_words_verbatim(run: Run, demo: str) -> None:
     assert run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "first  words", "--from", "slack:D123/1.2", "--thread", "1.2") == (0, "o1")
-    assert run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "second", "--due", "+30m")[0] == 2
-    assert run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "second", "--due", "+30m", "--thread", "1.3") == (0, "o2")
+    assert run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "second", "--thread", "1.3") == (0, "o2")
     orders = state.load("demo")["orders"]
     assert orders["o1"]["text"] == "first  words"
     assert orders["o1"]["from"] == "slack:D123/1.2"
     assert orders["o1"]["thread"] == ["D123", "1.2"]
     assert orders["o2"]["thread"] == ["D123", "1.3"]
     assert orders["o1"]["state"] == "open"
-    assert orders["o1"]["promises"] == []
     assert orders["o2"]["from"] == "terminal"
-    assert state.parse_time(orders["o2"]["promises"][0]["due"]) > state.now()
 
 
 def test_an_orders_thread_is_refused_unless_slack_reads_it_as_a_thread_where_its_lines_go(
@@ -793,7 +803,7 @@ def test_an_order_he_gives_in_a_thread_a_teammate_started_takes_that_thread_as_i
     report, reply = "1794345064.592209", "1794522700.000100"
     slack_thread.messages += [{"ts": report, "text": "staging deploys hang at the migrate step"}, {"ts": reply, "thread_ts": report, "from_user": True}]
     filed = ["order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling"]
-    assert run(*filed, "fix this", "--from", f"slack:C0BUGS1/{report}/{reply}", "--due", "+2h") == (0, "o1")
+    assert run(*filed, "fix this", "--from", f"slack:C0BUGS1/{report}/{reply}") == (0, "o1")
     assert state.thread_order(state.load("demo"), report) == "o1"
     assert run(*filed, "reply to him there", "--from", f"slack:C0BUGS1/{report}/{reply}", "--thread", report) == (0, "o2")
     assert run(*filed, "what is left there", "--from", f"slack:C0BUGS1/{report}/{reply}", "--kind", "answer") == (0, "o3")
@@ -801,7 +811,7 @@ def test_an_order_he_gives_in_a_thread_a_teammate_started_takes_that_thread_as_i
     orders = data["orders"]
     assert orders["o1"]["reporters"] == [state.reporter(f"slack:C0BUGS1/{report}")]
     assert (orders["o1"]["thread"], state.promise_thread(orders["o1"]), state.thread_attr(orders["o1"])) == (["C0BUGS1", report], None, {})
-    assert orders["o1"]["promises"][0]["due"] and limits.his_words(orders["o1"]) == "fix this"
+    assert limits.his_words(orders["o1"]) == "fix this"
     assert [(orders[order_id]["reporters"], state.own_thread(orders[order_id]), state.promise_thread(orders[order_id])) for order_id in ("o2", "o3")] == [([], ("C0BUGS1", report), None)] * 2
     slack_thread.messages[0] |= {"from_bot": True}
     assert run(*filed, "unpause the release", "--from", f"slack:C0BUGS1/{report}/{reply}") == (0, "o4")
@@ -829,25 +839,6 @@ def test_an_order_from_his_message_sharing_a_teammates_report_keeps_that_teammat
     assert run(*filed, "fix it, he says it hangs", "--reporter", follow_up) == (0, "o4")
     orders = state.load("demo")["orders"]
     assert [[held["link"] for held in orders[order_id]["reporters"]] for order_id in ("o1", "o2", "o3", "o4")] == [[report], [report], [], [follow_up]]
-
-
-def test_order_set_due_on_an_order_with_no_thread_stores_the_drives_own_time_which_the_next_replaces_and_a_close_never_reads(
-    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "wait on the release")
-    code, out = run("order", "set", "o1", "--due", "+30m")
-    first = state.load("demo")["orders"]["o1"]["promises"][0]["due"]
-    said = (
-        f"stored {render.when(first)} as the drive's own time: o1 has no thread, so no line to him keeps it, and the watch"
-        " says DUE once then; a time promised to him needs --thread <its permalink>"
-    )
-    assert (code, out.splitlines()[-1]) == (0, said)
-    assert run("order", "set", "o1", "--due", "+60m")[0] == 0
-    order = state.load("demo")["orders"]["o1"]
-    [held] = order["promises"]
-    assert (state.parse_time(held["due"]) > state.parse_time(first), state.owed_at(order), held["kept"]) == (True, held["due"], None)
-    monkeypatch.setattr(slack, "thread_posts", lambda held: pytest.fail("closing an order with no thread reads none"))
-    assert run("order", "set", "o1", "--state", "dropped")[0] == 0
 
 
 def test_job_set_waits_on_the_release_of_a_pr_the_drive_tracks(run: Run, demo: str, capsys: pytest.CaptureFixture[str]) -> None:
@@ -926,6 +917,7 @@ def test_a_release_wait_on_a_service_the_prs_paths_never_reach_is_kept_with_a_no
     (clone / "tools" / "ci").write_text("")
     request, answer = tmp_path / "request.json", tmp_path / "answer.json"
     (checkout / "tools" / "ci").write_text(FAKE_SELECT.format(request=request, answer=answer))
+    monkeypatch.setattr(state, "repo_config", lambda data: {"release": {"components": "tools/ci release select --pr"}})
     (checkout / "tools" / "ci").chmod(0o755)
     answer.write_text(json.dumps({"components": ["executor", "cloudrunner-next", "sand-next", "k8s"], "touched": ["cloudrunner-next", "sand-next"], "dev": [], "releases": ["cloudrunner-next", "sand-next"], "staged": ["cloudrunner-next", "sand-next"]}))
     monkeypatch.setattr(github, "checkout_repo", lambda cwd: "Forge-AI/monorepo" if cwd == str(clone) else pytest.fail(cwd))
@@ -958,6 +950,7 @@ def test_the_release_reach_sends_go_ci_a_prs_head_when_its_paths_change_the_carg
     (clone / "tools" / "ci").write_text("")
     request, answer = tmp_path / "request.json", tmp_path / "answer.json"
     (checkout / "tools" / "ci").write_text(FAKE_SELECT.format(request=request, answer=answer))
+    monkeypatch.setattr(state, "repo_config", lambda data: {"release": {"components": "tools/ci release select --pr"}})
     (checkout / "tools" / "ci").chmod(0o755)
     answer.write_text(json.dumps({"components": ["dashboard", "sandsql"], "touched": ["sandsql"], "dev": [], "releases": ["sandsql"]}))
     changed = ["rust/Cargo.lock", "rust/crates/server/Cargo.toml"]
@@ -970,28 +963,6 @@ def test_the_release_reach_sends_go_ci_a_prs_head_when_its_paths_change_the_carg
         ["sandsql"],
         {"body": "", "paths": changed, "head": "0123456789abcdef0123456789abcdef01234567"},
     )
-
-def test_order_set_due_says_it_stored_the_time_and_what_it_waits_on_or_why_it_stored_none(
-    run: Run, demo: str, capsys: pytest.CaptureFixture[str]
-) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "send the numbers")
-    past = "2026-01-01T09:00:00-08:00"
-    assert cli.main(["order", "set", "o1", "--due", past, "--thread", "1.2"]) == 2
-    assert f"o1: refused, no time stored: {render.when(past)} is already past" in capsys.readouterr().err
-    assert state.load("demo")["orders"]["o1"]["promises"] == []
-    first = run("order", "set", "o1", "--due", "+30m", "--thread", "1.2")[1].splitlines()[-1]
-    due = render.when(state.load("demo")["orders"]["o1"]["promises"][0]["due"])
-    assert first == (
-        f"stored {due}: it waits on the next drive post in D123 thread 1.2, which tells him the time; from that post he is owed a line by {due}"
-    )
-    later = run("order", "set", "o1", "--due", "+2h")[1].splitlines()
-    [held] = state.load("demo")["orders"]["o1"]["promises"]
-    assert render.when(held["due"]) in later[0]
-    assert later[-1] == (
-        f"stored {render.when(held['next_due'])} behind the line already owed for {due}: the watch keeps starting a handler on that line until the next"
-        f" drive post in D123 thread 1.2 lands, which tells him {render.when(held['next_due'])} and makes it the time owed"
-    )
-
 
 def test_an_incident_order_records_a_job_on_each_part_and_names_every_open_incident_with_its_record(run: Run, demo: str) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL fork copies fail on plat", "--incident", "--parts", "fix", "first check")
@@ -3237,32 +3208,6 @@ def test_job_ask_on_an_open_incident_whose_thread_is_in_his_dm_draws_his_card_in
     assert sent == []
 
 
-@pytest.mark.parametrize(
-    ("holds", "builds"),
-    [
-        ("Holds: none: no option changes code any job builds", "nothing is built before his pick"),
-        ("Holds: fix", "j3 builds its recommended option meanwhile, One snapshot file per finished run, written when it ends, old runs backfilled: opens in 3 requests"),
-    ],
-)
-def test_job_ask_by_a_finished_reader_on_an_open_incident_names_in_its_line_only_the_builders_the_drives_records_hold_on_his_card(
-    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, slack_calls: list[tuple[str, ...]], holds: str, builds: str
-) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL fork copies fail on plat", "--incident", "--thread", "1794200000.000100", "--parts", "fix", "first check")
-    run("job", "add", "builder", "--order", "o1", "--part", "fix", "--goal", "copy forks from the snapshot")
-    run("job", "add", "reader", "--order", "o1", "--part", "fix", "--goal", "research: the fork copy path")
-    with state.edit("demo") as data:
-        data["orders"]["o1"]["thread"] = ["C0ALERT1", "1794200000.000100"]
-        data["jobs"]["j3"]["researched"] = ["j4"]
-        data["jobs"]["j4"]["state"] = "done"
-    sent: list[tuple[str, list[dict]]] = []
-    monkeypatch.setattr(tools, "sent", lambda name, lane, posts: sent.append((lane, posts)) or ["672400"])
-    block = tmp_path / "ask.md"
-    block.write_text(SHORT_ASK.replace("Holds: none: no option changes code any job builds", holds) + "Interim fix: the fork copies checked first, by j2\n")
-    assert run("job", "ask", "j4", str(block))[0] == 0
-    [(_, [report])] = sent
-    assert report["text"] == f'POST his card {slack_card(1)} asks him "{SHORT_ASK.splitlines()[0].removeprefix("ASK ")}" for j4, on incident o1: {builds}'
-
-
 @pytest.mark.parametrize(("kept", "card_thread"), [([], None), ([["D123", "1794200050.000200", "2026-11-13T10:00:00-08:00", "question"]], "1794200050.000200")])
 def test_job_ask_on_an_order_whose_own_thread_is_outside_his_dm_draws_his_card_in_its_thread_of_his_dm_else_at_his_dm_root_and_sends_no_line_to_that_channel(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, slack_calls: list[tuple[str, ...]], kept: list[list[str]], card_thread: str | None
@@ -3278,46 +3223,6 @@ def test_job_ask_on_an_order_whose_own_thread_is_outside_his_dm_draws_his_card_i
     assert run("job", "ask", "j1", str(block))[1].split("\n", 1)[1] == f"his card {slack_card(1)} asks it under demo:j1-7"
     assert [argv[argv.index("--thread") + 1] if "--thread" in argv else None for argv in slack_calls if argv[0] == "dm-status"] == [card_thread]
     assert sent == []
-
-
-def test_job_ask_sends_his_cards_line_outside_his_dm_again_only_once_what_it_blocks_or_whether_a_job_builds_it_changed(
-    run: Run, asking: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    thread = "1794200000.000100"
-    with state.edit("demo") as data:
-        data["orders"]["o1"].update(thread=["C0ALERT1", thread], incident=True)
-    monkeypatch.setattr(cli, "post_ask", POST_ASK)
-    monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": slack_card(1)} if argv[0] == "dm-status" else {})
-    kept: dict[str, dict] = {}
-    monkeypatch.setattr(tools, "sent", lambda name, lane, posts: [kept.setdefault(post["id"], post) and "672400" for post in posts])
-    block = tmp_path / "ask.md"
-    retitled = SHORT_ASK.replace("ASK How should", "ASK Where should")
-    line = f"https://acme.slack.com/archives/C0ALERT1/p1794200100000200?thread_ts={thread}"
-
-    def ask(text: str, *redraws: str) -> None:
-        block.write_text(text + "Interim fix: the fork copies checked first, by j2\n")
-        assert run("job", "ask", asking, str(block), *redraws)[0] == 0
-
-    ask(SHORT_ASK)
-    talk.keep_line("demo", thread, line, f"<{slack_card(1)}|Your card on the run layout> blocks incident o1's fix; it builds on one snapshot file per finished run meanwhile.")
-    with state.edit("demo") as data:
-        data["prs"]["acme/app#42"] = state.new_pr("https://github.com/acme/app/pull/42", asking, "o1") | {"state": "merged", "title": "Fix: one snapshot file per finished run"}
-    ask(SHORT_ASK.replace("Meanwhile nothing is built on either layout.", "Meanwhile the reader adds one more finding."))
-    ask(retitled, "--redraws", "demo:j1-7")
-    [first] = kept.values()
-    drive = state.load("demo")
-    card = {"waits": "demo:j1-7", "title": "Where should", "recommended": "One snapshot file per finished run"}
-    assert [cli.card_line(drive | {"jobs": drive["jobs"] | {asking: drive["jobs"][asking] | {"state": ended}}}, asking, card, slack_card(1))["id"] == first["id"] for ended in ("done", "stopped")] == [True, False]
-    run("order", "add", "--title", "Fork copies", "--project", "The drive", "--workstream", "Drive tooling", "the fork copies leak")
-    with state.edit("demo") as data:
-        data["orders"]["o2"]["incident"] = True
-        data["jobs"][asking]["carries"]["o2"] = ["Fork copies"]
-    ask(retitled, "--redraws", "demo:j1-7")
-    builds = "j1 builds its recommended option meanwhile, One snapshot file per finished run, written when it ends, old runs backfilled: opens in 3 requests"
-    assert [report["text"] for report in kept.values()] == [
-        f'POST his card {slack_card(1)} asks him "{SHORT_ASK.splitlines()[0].removeprefix("ASK ")}" for j1, on incident o1: {builds}',
-        f'POST his card {slack_card(1)} asks him "{retitled.splitlines()[0].removeprefix("ASK ")}" for j1, on incident o1, o2: {builds}; since its line {line}',
-    ]
 
 
 def test_job_ask_reads_terms_more_than_ten_of_the_drives_questions_use_as_naming_no_one_subject(run: Run, asking: str, tmp_path: Path) -> None:
@@ -4691,7 +4596,6 @@ def test_his_answer_supersedes_each_answer_of_the_drives_still_standing_under_th
     assert calls[0][2:4] == ["add", "--title=Bell or knocker?"]
 
 
-
 def test_his_answer_to_a_card_asking_him_to_lift_an_answer_supersedes_it_in_cc_notes_only_when_jev_reads_his_answer_replacing_it(
     monkeypatch: pytest.MonkeyPatch, recorded: Answers, jev: Jev, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -5394,7 +5298,6 @@ def test_a_github_proof_link_refused_under_ccxs_rate_limit_floor_waits_for_the_r
     assert READ_LINK("https://github.com/yasyf/cc-skills/pull/404") == "could not read https://github.com/yasyf/cc-skills/pull/404 from GitHub: HTTP 404"
     assert slept == [121, 121, 121]
     assert f"waiting 121 s for ccx's GitHub rate-limit floor to lift before reading {PR} again: could not read {PR} from GitHub: {floor}" in capsys.readouterr().err
-
 
 
 def test_github_proof_pages_reuse_success_by_api_across_uncached_readers_until_expiry(
@@ -6593,6 +6496,30 @@ def test_a_builders_done_leaving_a_piece_of_its_design_to_a_follow_up_is_refused
     assert (code, "\nResearched: j3\n" in written, '\nPlan: j3\'s design, change "the moved-table index": drive job report j3; j4 left it unbuilt: drive job report j4\n' in written) == (0, True, True)
 
 
+def test_a_sprite_lanes_done_is_kept_before_jev_reads_it_and_the_check_after_wakes_its_lane_with_the_refusal(
+    run: Run, meta: str, jev: Jev, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build", "--parts", "copy one store")
+    run("job", "add", "reader", "--order", "o1", "--part", "copy one store", "--goal", "research: the copy")
+    keep(monkeypatch, capsys, "j1", RESEARCH)
+    run("job", "add", "design", "--order", "o1", "--part", "copy one store", "--goal", "cards: the copy")
+    owned = DESIGNED_IN_CHANGES.replace('none: ccx code search "store copy" and rg store_copy found nothing', "supervisor/copies.rs:40 store_copy_at, extended by change 1")
+    assert keep(monkeypatch, capsys, "j3", owned) == (0, "")
+    done = "DONE the moved-table interface is live\nCHECK: https://github.com/yasyf/cc-skills/actions/runs/12\n"
+    left = "UNPROVEN: the moved-table index (design change 4) is left out of this PR for a follow-up"
+    jev.picks("leaves")
+    kept_proof(tmp_path, "j4")
+    detached: list[list[str]] = []
+    monkeypatch.setattr(state, "detach", lambda name, args, log: detached.append(args) or 1)
+    asked_before = len(jev.asked)
+    cli.take_report("demo", "j4", f"{done}{left}\n", judged=False)
+    assert (len(jev.asked), detached[-1], state.load("demo")["jobs"]["j4"]["said"]) == (asked_before, ["job", "check", "j4"], done.splitlines()[0])
+    checked = len(detached)
+    assert run("job", "check", "j4")[0] == 0
+    [resume] = detached[checked:]
+    assert resume[:3] == ["job", "resume", "j4"] and f'as Jev reads "{left}"' in resume[3]
+
+
 def test_a_follow_up_piece_a_builder_names_on_an_unbuilt_line_of_an_undesigned_order_is_read_by_its_parts_reader_so_its_builder_starts_on_that_research(
     run: Run, meta: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -7558,7 +7485,6 @@ def test_a_pr_whose_job_carries_one_part_of_its_order_passes_on_that_part_while_
     said, changes = judge.asked[-1]
     assert (list(changes), f"this change delivers: {sessions}\n" in said) == (["Forge-AI/monorepo#42"], True)
     assert state.load(demo)["prs"]["Forge-AI/monorepo#42"]["checker"]["outcome"].startswith(f"{served.CHECKED} against the words of o1 at ")
-
 
 
 def test_a_pr_set_to_serve_an_order_its_job_carries_is_judged_against_that_order_alone_and_its_builders_pushed_is_kept(
@@ -8984,7 +8910,6 @@ def test_pr_add_refuses_a_show_me_image_his_card_cannot_download_and_adds_it_onc
     assert images.fetched == [attached]
 
 
-
 def test_pr_add_on_a_sprite_lanes_job_copies_each_show_me_picture_off_its_sprite_into_its_scratch_once_and_refuses_one_the_sprite_does_not_send(
     run: Run, demo: str, on_github: dict, images: Images, state_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -10199,44 +10124,17 @@ def test_setting_parts_keeps_what_a_kept_part_recorded(
     assert parts == {"why": state.new_part() | {"posted": answer}, "what": state.new_part()}
 
 
-def test_a_line_promising_a_time_after_by_in_any_words_owes_it_in_its_own_thread_and_a_post_in_another_thread_keeps_none_of_it(
-    run: Run, demo: str, slack_thread: "Thread"
-) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "count the cards", "--thread", "1794200000.000100")
-    run("start", "demo", "--role", "communicator")
-    with state.edit("demo") as data:
-        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
-        data["roles"]["coordinator"]["session"] = "elsewhere"
-    card = "1794200600.000200"
-    moment = state.now()
-    due = (moment + timedelta(hours=1)).replace(second=0, microsecond=0)
-
-    def in_card(at: datetime, **fields: object) -> str:
-        return slack_thread.post(at, from_claude=True, thread_ts=card, **fields).replace("thread_ts=1794200000.000100", f"thread_ts={card}")
-
-    assert run("order", "posted", "o1", in_card(moment, text=f"Its count of cards comes by {due:%-I:%M %p}."))[0] == 0
-    assert run("order", "posted", "o1", slack_thread.post(moment + timedelta(minutes=1), from_claude=True))[0] == 0
-    [held] = state.load("demo")["orders"]["o1"]["promises"]
-    assert (held["thread"], state.parse_time(held["due"]), held["kept"]) == (["D123", card], due, None)
-    assert run("order", "posted", "o1", in_card(moment + timedelta(minutes=2)))[0] == 0
-    assert not state.owed(state.load("demo")["orders"]["o1"])
-
-
-def test_a_post_naming_no_part_of_an_order_of_several_is_a_progress_line_that_keeps_its_promised_time(
+def test_a_post_naming_no_part_of_an_order_of_several_is_a_progress_line(
     run: Run, demo: str, slack_thread: "Thread", capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "stop the harm, roll back, find the cause", "--kind", "answer", "--thread", "1794200000.000100", "--due", "+10m", "--parts", "stop the harm", "rollback", "cause")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "stop the harm, roll back, find the cause", "--kind", "answer", "--thread", "1794200000.000100", "--parts", "stop the harm", "rollback", "cause")
     run("start", "demo", "--role", "communicator")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
-    run("order", "set", "o1", "--due", "+40m")
-    [promised] = state.load("demo")["orders"]["o1"]["promises"]
-    assert promised["due"] != promised["next_due"]
     line = slack_thread.post(state.now() + timedelta(seconds=1), from_claude=True)
     assert run("order", "posted", "o1", line) == (0, f"o1 progress line, no part delivered: {line}")
     order = state.load("demo")["orders"]["o1"]
-    assert [(held["due"], held["kept"]) for held in order["promises"]] == [(promised["next_due"], None)]
     assert order["last_line"] == state.stamp(slack.sent_at(slack_thread.messages[-1]))
     assert [part["posted"] for part in order["parts"].values()] == [None, None, None]
     report_records(monkeypatch, {"661300": {"part": "rollback"}, "661301": {"part": "fix"}})
@@ -10284,7 +10182,7 @@ def test_an_answer_counts_as_posted_in_the_thread_of_one_of_the_orders_cards(
 def test_a_line_in_the_thread_of_the_card_of_a_pr_on_the_order_is_in_the_orders_thread(
     run: Run, demo: str, slack_thread: "Thread", monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship web search", "--kind", "answer", "--thread", "1794100000.000100", "--due", "+30m")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship web search", "--kind", "answer", "--thread", "1794100000.000100")
     run("job", "add", "builder", "--order", "o1", "--goal", "web search")
     run("pr", "add", PR, "--job", "j1", *LEAD)
     run("start", "demo", "--role", "communicator")
@@ -10321,18 +10219,18 @@ def test_a_bare_link_to_a_line_under_the_card_of_a_pr_on_the_order_reads_the_car
     assert ("--channel", "D123", "--thread", card["ts"], "--limit", "1000") in slack_thread.reads
 
 
-def test_a_part_delivered_at_the_root_of_another_channel_is_recorded_where_it_was_made_and_keeps_no_promised_time(
+def test_a_part_delivered_at_the_root_of_another_channel_is_recorded_where_it_was_made(
     run: Run, demo: str, slack_thread: "Thread", monkeypatch: pytest.MonkeyPatch
 ) -> None:
     parts = ["answer why it fails silently", "tell the two stopped people now"]
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "tell the stopped people", "--kind", "answer", "--thread", "1794100000.000100", "--due", "+30m", "--parts", *parts)
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "tell the stopped people", "--kind", "answer", "--thread", "1794100000.000100", "--parts", *parts)
     run("start", "demo", "--role", "communicator")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
     told = slack_thread.post(state.now(), from_claude=True, thread_ts=None).split("?")[0].replace("/D123/", "/C0SHARE01/")
     before = state.load("demo")["orders"]["o1"]
-    away = "at the root of another channel, so it is no line to him and keeps no promised time"
+    away = "at the root of another channel, so it is no line to him"
     assert run("order", "posted", "o1", told) == (0, f"o1 progress line, no part delivered: {told}, {away}")
     report_records(monkeypatch, {"661300": {"part": parts[1]}})
     assert run("order", "posted", "o1", told, "--record", "661300") == (0, f'o1 "{parts[1]}": posted {told}, {away}')
@@ -10371,12 +10269,12 @@ def test_a_line_on_an_incident_in_the_thread_of_another_alert_joins_that_thread_
     assert run("order", "posted", "o2", line) == (0, f"o2 progress line, no part delivered: {line}")
 
 
-def test_a_line_in_the_thread_of_the_incident_an_alert_joined_is_its_last_line_and_keeps_no_promised_time_since_the_watch_owes_an_incident_its_lines(
+def test_a_line_in_the_thread_of_the_incident_an_alert_joined_is_its_last_line(
     run: Run, demo: str, slack_thread: "Thread"
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL errors on plat", "--thread", "1794200000.000100", "--incident", "--parts", "fix", "first check")
     alert = "SandSQL replica lanes unproven on staging"
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", alert, "--from", "slack:C0ALERTS1/1794300000.000100", "--thread", "1794300000.000100", "--joins", "o1", "--due", "+30m")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", alert, "--from", "slack:C0ALERTS1/1794300000.000100", "--thread", "1794300000.000100", "--joins", "o1")
     run("start", "demo", "--role", "communicator")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
@@ -10384,7 +10282,7 @@ def test_a_line_in_the_thread_of_the_incident_an_alert_joined_is_its_last_line_a
     line = slack_thread.post(state.now() + timedelta(seconds=1), from_claude=True)
     assert run("order", "posted", "o2", line) == (0, f"o2 progress line, no part delivered: {line}")
     alert_order = state.load("demo")["orders"]["o2"]
-    assert (alert_order["promises"][0]["kept"], state.owed(alert_order), alert_order["last_line"]) == (None, False, state.stamp(slack.sent_at(slack_thread.messages[-1])))
+    assert alert_order["last_line"] == state.stamp(slack.sent_at(slack_thread.messages[-1]))
 
 
 def test_an_alert_saved_before_joins_was_kept_loads_joined_to_the_incident_its_owner_job_carries_it_for(run: Run, demo: str) -> None:
@@ -10426,59 +10324,6 @@ def test_his_ask_in_his_dm_follows_a_build_and_no_post_delivers_its_part_until_t
     held["follow"]["ended"] = state.stamp()
     assert cli.reported_parts(data, "o1", data["orders"]["o1"], {"part": "o1:keep me updated on the staging release"}, items) == ["keep me updated on the staging release"]
     assert build not in state.followed_builds(data["orders"])
-
-
-def test_only_his_own_message_withdraws_a_promised_line(run: Run, demo: str, slack_thread: "Thread") -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "send the numbers", "--thread", "1794200000.000100", "--due", "+30m")
-    ours = slack_thread.post(state.now() - timedelta(minutes=60), from_claude=True)
-    his = slack_thread.post(state.now() - timedelta(minutes=59), from_user=True)
-    assert run("order", "set", "o1", "--state", "dropped", "--withdrawn", ours)[0] == 2
-    assert run("order", "set", "o1", "--state", "dropped", "--withdrawn", his)[0] == 0
-    order = state.load("demo")["orders"]["o1"]
-    assert (order["state"], order["withdrawn"], order["promises"]) == ("dropped", his, [])
-
-
-def test_the_line_a_closing_report_posts_keeps_the_time_owed_even_when_it_was_the_line_that_told_him_that_time(
-    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, slack_thread: "Thread", capsys: pytest.CaptureFixture[str]
-) -> None:
-    moment = state.now()
-    fix = "ship the background-thread fix"
-    reports = {
-        "22": ({"close": "o1"}, moment + timedelta(minutes=2)),
-        "23": ({"close": "o2", "part": "Short title"}, moment + timedelta(seconds=30)),
-    }
-    monkeypatch.setattr(
-        cli.reads,
-        "run",
-        lambda argv, checkout: json.dumps({"seq": argv[2], "kind": "report", "lane": "root", "at": reports[argv[2]][1].isoformat(), "fields": {"attrs": reports[argv[2]][0]}}),
-    )
-    for text in ("unfreeze and release", fix):
-        run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", text, "--thread", "1794200000.000100")
-    run("start", "demo", "--role", "communicator")
-    with state.edit("demo") as data:
-        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
-        data["roles"]["coordinator"]["session"] = "elsewhere"
-    run("order", "set", "o1", "--due", "+28m")
-    run("order", "set", "o2", "--due", "+28m")
-    done = slack_thread.post(moment + timedelta(minutes=1), from_claude=True)
-    run("order", "posted", "o1", done)
-    [told] = state.load("demo")["orders"]["o1"]["promises"]
-    assert (told["promised"], told["kept"]) == (slack.sent_at(slack_thread.messages[-1]).isoformat(), None)
-    capsys.readouterr()
-    assert cli.main(["order", "set", "o1", "--state", "done", "--record", "22"]) == 0
-    assert (
-        f"drive order set: o1 closes with the line promised for {render.when(told['due'])} in D123 thread 1794200000.000100 unposted:"
-        f" no drive post is in that thread since {render.when(told['promised'], seconds=True)}"
-    ) in capsys.readouterr().err
-    closed = state.load("demo")["orders"]["o1"]
-    assert (closed["state"], closed["promises"][0]["kept"], closed["promises"][0]["due"]) == ("done", None, told["due"])
-    due = state.load("demo")["orders"]["o2"]["promises"][0]["due"]
-    assert run("order", "posted", "o2", done, "--record", "23") == (
-        0,
-        f"o2 closing line, no part delivered: {done}, its close keeps the line promised for {render.when(due)}",
-    )
-    kept = state.load("demo")["orders"]["o2"]
-    assert (kept["promises"][0]["kept"], kept["promises"][0]["next_due"], state.owed(kept)) == (told["promised"], None, False)
 
 
 def test_a_handler_closes_only_an_order_its_report_record_closes(
@@ -11171,13 +11016,25 @@ def test_status_names_the_open_incidents_and_tells_no_running_job_of_a_restarted
 def test_heard_prints_one_word_with_orders_in_use(run: Run, demo: str) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "fix the watch")
     run("order", "add", "--title", "Short title", "--project", "Billing", "--workstream", "Invoices", "why is the invoice late?")
-    assert run("heard") == (0, "heard")
+    assert run("heard", "--now") == (0, "heard")
     assert run("heard", "--away") == (0, "away")
-    assert "in_use" not in json.loads(run("heard", "--json")[1])
+    assert "in_use" not in json.loads(run("heard", "--now", "--json")[1])
+
+
+def test_bare_heard_only_reads_when_he_was_last_heard_and_never_marks_him_heard(run: Run, demo: str) -> None:
+    with state.edit(demo) as data:
+        data["owner"] = {"heard": None, "away": None, "absence": None}
+    assert run("heard") == (0, "never heard: the drive has heard no word or tap of his")
+    assert state.load(demo)["owner"] == {"heard": None, "away": None, "absence": None}
+    run("heard", "--now")
+    owner = state.load(demo)["owner"]
+    assert run("heard")[1] == tools.run("heard", "demo", {}) == f"He is {render.owner_reading(owner)}"
+    assert json.loads(run("heard", "--json")[1]) == owner
+    assert state.load(demo)["owner"] == owner
 
 
 def test_heard_last_takes_back_a_tap_that_was_not_his_so_he_reads_away_an_hour_after_his_last_word(run: Run, demo: str) -> None:
-    assert run("heard") == (0, "heard")
+    assert run("heard", "--now") == (0, "heard")
     taken = state.load(demo)["owner"]["heard"]
     last = state.stamp(state.parse_time(taken) - timedelta(minutes=75))
     assert cli.main(["heard", "--last", last]) == 2
@@ -11195,13 +11052,13 @@ def test_heard_reads_nothing_from_github_so_a_refusal_there_never_leaves_him_unh
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "fix the watch")
     monkeypatch.setattr(github, "run", lambda *args, **kwargs: pytest.fail("drive heard read GitHub"))
     monkeypatch.setattr(card, "run", lambda *args, **kwargs: pytest.fail("drive heard read GitHub"))
-    assert run("heard") == (0, "heard")
+    assert run("heard", "--now") == (0, "heard")
     assert state.load(demo)["owner"]["heard"] is not None
 
 
 def test_heard_refuses_his_words_repeating_a_part_no_live_job_carries(run: Run, demo: str, capsys: pytest.CaptureFixture[str]) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "ship the unfurl fix and its check", "--parts", "fix", "check")
-    assert run("heard")[0] == 0
+    assert run("heard", "--now")[0] == 0
     owner = state.load("demo")["owner"]
     assert cli.main(["heard", "--repeats", "o1", "--part", "fix"]) == 2
     refusal = capsys.readouterr().err
@@ -11377,9 +11234,6 @@ def refusal(command: str, leaves: dict[str, argparse.ArgumentParser]) -> str | N
         return None
     if missing := sorted(action.option_strings[0] for action in parser._actions if action.required and action.option_strings and not set(action.option_strings) & set(rest)):
         return f"`{command}` leaves out {missing}, which drive {verb} requires"
-    source = rest[rest.index("--from") + 1] if "--from" in rest[:-1] else ""
-    if verb == "order add" and "--due" in rest and "--thread" not in rest and source != "X" and not source.startswith("slack:"):
-        return f"`{command}` gives --due with no --thread, and drive order add refuses a promised time with no thread its line goes in"
     return None
 
 
@@ -11619,7 +11473,7 @@ def test_his_answer_on_a_card_asking_him_to_lift_a_pick_lists_each_open_order_th
         ],
     )
     data = state.load("demo")
-    assert (data["orders"]["o2"]["state"], data["orders"]["o2"]["withdrawn"], data["jobs"]["j3"]["state"], superseding) == ("dropped", PICK, "stopped", [("9992100", "a1")])
+    assert (data["orders"]["o2"]["state"], data["jobs"]["j3"]["state"], superseding) == ("dropped", "stopped", [("9992100", "a1")])
 
 
 def test_his_answer_supersedes_in_cc_notes_each_older_standing_answer_on_its_feature_jev_reads_it_replacing(
@@ -13079,11 +12933,50 @@ def test_a_parse_never_hands_a_verb_the_list_its_parser_keeps_as_a_default() -> 
     assert (again.waits, again.part, cli.parser() is cli.parser()) == ([], [], True)
 
 
-def test_a_staging_only_release_start_is_refused_while_another_job_holds_that_envs_slot(demo: str) -> None:
+def test_a_staging_release_start_names_one_rehearsal_env_alone() -> None:
     start = "tools/ci release start api rsw-cp --from b --emergency --env plat-usw2-staging --order 23eefb9"
-    assert (brief.leased_env(start.split()), brief.leased_env("tools/ci release start api --order 23eefb9".split())) == ("plat-usw2-staging", None)
-    assert cli.slot_refusal(demo, start) is None
-    with state.edit(demo) as data:
-        data["slots"]["plat-usw2-staging"] = {"holder": {"job": "j7394", "until": "2026-11-16T01:00:00-08:00"}, "queue": []}
-    assert cli.slot_refusal(demo, start).startswith("j7394 holds the plat-usw2-staging staging slot until 2026-11-16T01:00:00-08:00")
-    assert cli.slot_refusal(demo, start.replace("plat-usw2-staging", "core-usw2-prod")) is None
+    assert (brief.leased_env(start.split()), brief.leased_env("tools/ci release start api --order 23eefb9".split()), brief.leased_env(f"{start} --env core-usw2-prod".split())) == ("plat-usw2-staging", None, None)
+
+
+def test_dropping_an_order_whose_staging_test_holds_a_dangerous_pr_is_refused_naming_the_pr(
+    run: Run, demo: str, on_github: dict, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dangerous_repo(tmp_path, on_github, ["api/migrations/1700_add_runs.sql"])
+    run("order", "add", "--title", "land it", "--project", "The drive", "--workstream", "Drive tooling", "land it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "land")
+    key = "Forge-AI/monorepo#42"
+    reaching(monkeypatch, key)
+    run("pr", "add", PR, "--job", "j1", *LEAD)
+    assert state.dangerous_staged(state.load("demo"), "o1") == [key]
+    code, out = run("order", "set", "o1", "--state", "dropped", "--note", "backlog cut")
+    assert (code, f"o1: refused, {key} waits on o1's staging test, staged because its head changes a dangerous class of file" in out) == (2, True)
+    assert state.load("demo")["orders"]["o1"]["state"] not in state.CLOSED_ORDER_STATES
+
+
+def test_a_new_waiting_replaces_a_jobs_staging_waits_and_a_withdrawn_cut_frees_a_wait_on_its_commit(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "land it", "--project", "The drive", "--workstream", "Drive tooling", "land it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "land")
+    old, new = "staging:cloudrunner-next/plat-usw2-staging@0b7811b4a3a0", "staging:cloudrunner-next/plat-usw2-staging@f668ee496614"
+    assert keep(monkeypatch, capsys, "j1", f"WAITING {old}\n")[0] == 0
+    assert keep(monkeypatch, capsys, "j1", f"WAITING {new}\n")[0] == 0
+    assert state.load("demo")["jobs"]["j1"]["waits"] == [new]
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["brief_flags"] = (data["jobs"]["j1"].get("brief_flags") or {}) | {"release": "tools/ci release start cloudrunner-next --from f668ee4966145471 --emergency --env plat-usw2-staging --order 23eefb9"}
+        data["jobs"]["j1"]["state"] = "stopped"
+    assert (view.holds(state.load("demo"), new, None), view.holds(state.load("demo"), old, None)) == (False, True)
+
+
+def test_a_slot_go_names_every_job_of_its_cut_as_a_freeze_holder_only_where_the_repository_names_the_holder_flag() -> None:
+    moment = datetime(2026, 11, 16, 1, 0, tzinfo=UTC)
+    data = {"name": "demo", "slots": {}, "orders": {"o1": {"incident": False, "priority": None, "state": "open"}}, "jobs": {job_id: {"state": "waiting", "order": "o1", "carries": []} for job_id in ("j0", "j1", "j2")}}
+    release = {"holder": "--holder {holder}", "join": "tools/ci release freeze join {freeze} --holder {holder}"}
+    assert state.slot_claim(data, "plat-usw2-staging", "j0", 20, [], None, moment, release=release).endswith("Run your freeze and every staging command of this cut with `--holder demo/j0`.")
+    for job_id, path, stack in (("j1", "a", "api"), ("j2", "b", "rsw-cp")):
+        state.slot_claim(data, "plat-usw2-staging", job_id, 15, [f"Forge-AI/monorepo#{job_id[1:]}"], None, moment, [path], [stack])
+    data["jobs"]["j0"]["state"] = "done"
+    goes = {job_id: line for _, job_id, kind, line in state.slot_turns(data, moment + timedelta(minutes=30), release) if kind == "go"}
+    assert goes["j1"].endswith("with `--holder demo/j1 --holder demo/j2`.")
+    assert goes["j2"].endswith("Join j1's freeze with `tools/ci release freeze join <its freeze id> --holder demo/j2` unless it names you, and run each staging command with `--holder demo/j2`.")
+    assert "--holder" not in state.slot_claim({"name": "demo", "slots": {}, "jobs": {"j9": {"state": "waiting", "order": "o1", "carries": []}}, "orders": data["orders"]}, "plat-usw2-staging", "j9", 20, [], None, moment)

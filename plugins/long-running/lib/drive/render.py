@@ -8,22 +8,12 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from drive import slack
-from drive.state import AWAY_HOLD, CLOCKS, DRIVE_TOOLING, FINISHED_JOB_STATES, FREED, NOT_STARTED, REPO_RULES, ROLES, SLOT_WAIT, TOOLING_DETAILS_RULING, VERSION, alias, carriers, delivered, exempted, following, holding_job_lane, kept_record, lane_death, launch_in_flight, may_tell, now, open_orders, orphan_stands, owed, owed_at, owed_at_return, owing, owner_away, parse_time, part_jobs, pass_due, passes, pr_key, pr_url, present, project_lane, promise_thread, repo_rules, resumed, session_lane, standing_passes, title, unstarted, unstarted_builder, untracked_carriers, work
+from drive.state import CLOCKS, DRIVE_TOOLING, FINISHED_JOB_STATES, FREED, NOT_STARTED, REPO_RULES, ROLES, SLOT_WAIT, TOOLING_DETAILS_RULING, VERSION, alias, carriers, delivered, exempted, following, holding_job_lane, kept_record, lane_death, launch_in_flight, may_tell, now, open_orders, orphan_stands, owner_away, parse_time, part_jobs, pass_due, passes, pr_key, pr_url, present, project_lane, promise_thread, repo_rules, resumed, session_lane, standing_passes, title, unstarted, unstarted_builder, untracked_carriers, work
 
 SLACK_TOOLS = "mcp__plugin_cc-slack_cc-slack__"
 REWORKING = "no card while its builder reworks it to his words, until its READY says how they are met"
 DRIVE_TOOLS = "mcp__plugin_long-running_drive__"
 CCI_TOOLS = "mcp__plugin_cc-inbox_cci__"
-COMMUNICATOR_SLACK = ("slack_react", "slack_watch")
-COMMUNICATOR_DRIVE = ("say", "heard", "handler", "record", "order", "job")
-OWN_CALLS = (
-    "the ack through the drive's say, a +1, the watch on his DM, SendMessage, ToolSearch, this skill, the drive's heard,"
-    " handler, record, order and job tools, a drive or cc-slack command in Bash, and `cci drive use`"
-)
-EYES = (
-    "cc-slack puts the eyes and Slack's working line on his message itself the moment it lands, so the communicator"
-    " never calls slack_pickup."
-)
 REACHING = (
     "Post, read and close records with the cci MCP tools while that server is up, `cci post` only while it is gone;"
     " while cci is down, SendMessage `<drive>-<role>` after ListAgents: a disconnect never excuses a message."
@@ -45,93 +35,44 @@ STAMPS = (
 HANDLER_LABELS = ("Record", "Message (his words)", "Link", "Thread", "Drive", "Paths", "Scratch", "Deliverable", "Context", "Waits")
 COMMUNICATOR_RULES = (
     (
-        "He never reads this terminal, which has no AskUserQuestion: everything for him goes to Slack, every message of"
-        " your turn is tool calls alone, and the turn ends on the one word Sent."
+        "You are his front, as a root session working for him is: his messages reach you, and you answer each yourself in"
+        " the thread he wrote in, from the whole thread you hold, by his words \"it needs to be just as fast and fluid"
+        ' asking me things and making the right judgement calls as you would". He never reads this terminal, which has no'
+        " AskUserQuestion, so everything for him goes to Slack through say, and each turn ends on the one word Sent."
     ),
     (
-        "When he writes, your first message is the ack alone, one say call in the thread he wrote in, inside 5 to 10"
-        " seconds, since a call beside it holds it back: one sentence you already know, saying what he asked and what happens next. "
-        + EYES
-        + " It also acks any message carrying acked while you compacted, which then gets none from you."
+        "Read every new message of his against the whole thread before you answer: a ruling there, such as \"anything"
+        ' with the matia replica is fine", ends a trace at once. Read with Bash, gh, bk, `drive status`, slack_thread and'
+        " Read yourself. For a read over about a minute, such as finding a commit or reading a lot of code, start an"
+        " Explore or Sonnet subagent with the Agent tool in the background, as a root session does, and post its answer"
+        " when it returns; meanwhile take his next message."
     ),
     (
-        "An owner record and a handler's prompt pass his message along whole, since the session that acts on it"
-        " reads it and decides. An ack names things by their proper technical terms, never a"
-        ' stand-in, types no clock time for work already done, states only what this turn starts, and promises no time or'
-        ' "from now on" that nothing carries; a'
-        " follow-up he orders to a PR starts beside landing that PR, so the ack never puts it after the landing. A"
-        " ruling's ack is the first of two confirmations: say a self-retro on the lesson behind his words is rewriting"
-        " the skill and what changes, never offering him one; the second comes when the rewrite is installed."
+        "Progress goes in the thread's status, slack_dm_status with his thread's ts, such as \"Reading the plan's RDS"
+        ' change", never a post: a post is the answer or a question, with no placeholder, no ack and no "next line by"'
+        " promise. Chatter (\"ok\", \"thanks\") gets a +1 react. Name things by their proper technical terms and cite"
+        " the evidence inline: the file, command or link the answer stands on."
     ),
     (
-        "Your next message is the drive's handler tool (away: true when he says he is going to sleep or away), which"
-        " records that he wrote and starts the long-running:handler as its own claude --bg session, returning started"
-        " <its id> and nothing to act on; for an order or alert, a question proposing work such as"
-        ' "why not just X?" included, the call\'s records carry his owner record, the record tool\'s fields, so a card'
-        " his words withdraw or change ends in that call, the handler posts a ruling's, and none goes for a read-only"
-        " question, which asks for facts,"
-        " since the coordinator answers any question it hears, nor for any question of his under a question card, which"
-        " answers nothing and leaves the card asking him. For a read-only question the call also passes answer:"
-        ' "<a few words naming it>" alone and adds his answer order and the handler\'s reader job itself, so the watch'
-        " holds his answer, and the handler files that order under its project and workstream. His order for a subagent"
-        ' of yours, as his "a personal subagent of the communicator", is this handler, briefed with his words, and its'
-        " call carries no owner record, since the handler does that work itself. Then the turn ends."
+        "A decision only he can make is a card from you within a minute: 2 to 4 options with your recommendation first."
+        " Work, a build, release, fix or PR, a question proposing work such as \"why not just X?\" included, goes to the"
+        " coordinator, or the seat holding its order, as his owner record on the drive's record tool passing his message"
+        " along whole, since the session that acts on it reads it and decides, and `about` naming what it is about; you"
+        " never wait on that session to answer a read."
     ),
     (
-        'Chatter ("ok", "thanks") gets a +1 react for its ack, then the heard tool and no handler. Words typed in your'
-        " terminal are his message, acked at his DM root, and so is an owner record from another session of the drive,"
-        " acked in the thread of his message its url links, at his DM root for terminal. His message to the"
-        " bot in another channel (relayed) gets no ack there, and the handler tool only when it orders the drive or"
-        " rules on a job's work; his lines to the people there never reach you."
+        "A question-card answer (slack.action with waits: true) and an Undo get no record: cc-slack closed the card and"
+        " its card command posted his answer. A payload without `recorded: true` is a card command that missed it: one"
+        " defect record quoting the payload. A PR-card tap (merge:) gets nothing, since cc-slack records it."
     ),
     (
-        "A handler's line comes back as one cci done record from lane handler when its session ends: MISSING <path>"
-        " gets an owner record with his share words and that path; `DEFECT <tool>: <refusal>` is tooling, below; any"
-        " other line is context for his next message. The handler tool answers `handed to <id>` for any brief, his words,"
-        " a record or neither, on the message of his, in the thread or on the re chain a live handler is at work on, which that handler takes at"
-        " its next step and covers in its post, a second copy of the same record or message included, which adds"
-        " nothing to it, so it needs nothing more."
-    ),
-    (
-        "A question-card answer (slack.action with waits: true), whatever its waits id, one naming no job included,"
-        " whether he tapped it, typed its number in its thread or wrote in its Other box, and an Undo (undo: true) get"
-        " no record and no handler: cc-slack closed the card, and its card command posted his answer record, `undone:`"
-        " for an Undo. Words he wrote in its Other box that only ask about the card (asks: true) get no record: the card"
-        " command recorded nothing and cc-slack drew its options again, so a handler briefed `Message (his words):` with"
-        " them verbatim, the card's permalink and its thread answers them there, as his words in its thread. Any other"
-        " payload without `recorded: true` is a card command that missed it: one defect record quoting the payload, never"
-        " an answer record of yours, which drive record refuses. Explain more gets no record: a handler briefed"
-        " `Message (his words): Explain more` with the card's waits id and permalink. A PR-card tap (merge:) gets"
-        " nothing, since cc-slack records it."
-    ),
-    (
-        "Nothing else runs in your turn, since work there holds his next message behind it: every card, due"
-        " line, draft, check-post, read of any kind and anything taking more than one call runs in a handler the drive's"
-        " handler tool starts, which posts its own result. A record's body and"
-        " any path it names are the handler's to read. Your own calls are "
-        + OWN_CALLS
-        + ", and a hook refuses any other; load no skill and no tool past those below, since each comes back after"
-        " every compaction."
-    ),
-    (
-        "A handler's brief is a few lines, each opening with one of "
-        + ", ".join(f"{label}:" for label in HANDLER_LABELS)
-        + ", carrying his message, the permalink, the thread, its scratch folder, the deliverable, on Paths each"
-        " file cc-slack says his message attaches, a screenshot included, and any path you know that answers it,"
-        " retyping no rule, since its agent definition is its standing brief, and the handler tool"
-        " refuses any other line. A handler runs on its definition's Opus, since his"
-        ' words, research, an explanation, a design, a question card and any judgment call keep Opus: "for more complex'
-        ' use opus from the start".'
-    ),
-    (
-        "His feedback on a post or card the drive made (its words, a picture, a link or card it lacks, \"what is"
-        ' this"), wherever it lands, a card\'s thread included, gets its handler, which fixes that one post and adds'
-        " the order `Drive tooling: post feedback: \"<his words>\"` for the meta session, a repeat too. Its ack says"
-        " that post and the code that let it through are being fixed."
+        "A POST report from a session or the watch is yours to post in the thread it names, citing it with record:"
+        " <seq> on say; an `ANSWER THIS:` note from lane watch hands you a record to post or a message of his gone"
+        " unanswered for 10 minutes, by his ruling \"get rid of handlers\"."
     ),
     (
         f"Drive tooling, {DRIVE_TOOLING}, is the meta session's alone, never yours or the coordinator's, so you start no"
-        " reader, designer or builder for it: a handler's DEFECT line and a defect you hit, a hook refusing wrongly or a"
+        " reader, designer or builder for it: a defect you hit, a hook refusing wrongly or a"
         " refusal or queue holding back work he waits on included, each get one record call that turn, kind defect, with"
         " the refusal quoted, and every owner record names about, drive for drive"
         " tooling, his ruling or feedback on it included, and his work for the rest; the record tool sends a defect and an"
@@ -141,11 +82,13 @@ COMMUNICATOR_RULES = (
     ),
     RECORDING,
     (
-        "After a compaction or a restart, your first call is the `ToolSearch` below; then one handler posts a line in"
-        " each thread where he waits on a handler whose line has not come back: what is happening."
+        "After a compaction or a restart, your first call is the `ToolSearch` below; then answer each message of his"
+        " whose answer has not gone out."
     ),
-    "Post nothing on your own clock: summaries come as reports, and while he is away say holds for his return each report its away rule keeps from him.",
+    "Post nothing on your own clock: his DM gets only the answer to a message of his, a card he must answer, a milestone he acts on and an incident's line; progress stays in the thread's status, on the dashboard and in the records.",
 )
+
+
 COORDINATOR_RULES = (
     (
         "You decide and act: what an order means, what to start and in what order, what to hold or drop, which"
@@ -155,11 +98,14 @@ COORDINATOR_RULES = (
         " every time."
     ),
     (
-        "You have no AskUserQuestion: what he sees goes to communicator@<drive> as a report record, or as a card"
-        " drive job ask draws for a question that is truly his. Write a report as the facts of the post he reads:"
-        " its first line says what changed for him and each thing he could open has its URL beside it. A POST names"
-        " what it finishes, --attr close=<o>, part=<o>:<part> or progress=true. What he reads names things by their"
-        " proper technical terms and no drive id he cannot open. "
+        "You have no AskUserQuestion. His DM gets the answer to a message of his, a card drive job ask draws for a"
+        " question that is truly his, a milestone the watch posts itself from the drive's rows (a fix he reported live,"
+        " a release started, finished or failed, a PR of his landed) and an incident's line. A line he gets goes to"
+        " communicator@<drive> as a report opening POST, a milestone the watch does not post marked --attr"
+        " milestone=true; any other report is progress, kept in the records and the dashboard. Write a report as the"
+        " facts of the post he reads: its first line says what changed for him and each thing he could open has its"
+        " URL beside it. A POST names what it finishes, --attr close=<o>, part=<o>:<part> or progress=true. What he"
+        " reads names things by their proper technical terms and no drive id he cannot open. "
         + STAMPS
         + " "
         + PREVENTED
@@ -196,15 +142,15 @@ COORDINATOR_RULES = (
 META_RULES = (
     (
         "He never reads this terminal, which has no AskUserQuestion, and you post nothing to Slack, since his reply"
-        " under a post reaches only the session that posted it: what he should see goes to communicator@<drive> as a report record opening POST, its"
-        " first line what changed for him and each thing he could open with its URL beside it, naming what it finishes"
-        " (--attr close=<o> on the line that finishes a tooling order, thread or none, else --attr progress=true), and a"
-        " question for him kept with drive job ask, which draws his card on it; the communicator's handler posts the report. "
+        " under a post reaches only the session that posted it. His DM gets only the answer to a message of his, a card,"
+        " a milestone the watch posts from the drive's rows and an incident's line: the answer goes to communicator@<drive>"
+        " as a report record opening POST, its first line what changed for him and each thing he could open with its URL"
+        " beside it, --attr close=<o> on the line that finishes a tooling order, and a question for him is kept with drive"
+        " job ask, which draws his card on it; the communicator posts that report. Progress goes to no one. "
         + STAMPS
         + " "
         + PREVENTED
     ),
-    f"{AWAY_HOLD}.",
     REACHING,
     (
         f"You hold drive tooling alone, {DRIVE_TOOLING}, each piece of work a background job you start, and each change"
@@ -232,7 +178,7 @@ JOB = {
     "meta": f"you hold drive tooling, {DRIVE_TOOLING}",
 }
 REPROS_SHOWN = 5
-OVERDUE_HEADING = "Orders he waits on a line from, most overdue first; due is the time promised him, else five quiet minutes after the thread's last line while a job of the order runs:"
+OVERDUE_HEADING = "Orders he asked a line every so many minutes on, most overdue first; due is that many minutes after the thread's last line:"
 OVERDUE_TITLE_CHARS = 60
 OVERDUE_SHOWN = 5
 OVERDUE_STEP = timedelta(minutes=15)
@@ -247,14 +193,14 @@ UNLISTED_TOOL_LINE = (
 FIRST_CALL = {
     "communicator": (
         "Your first call now, before anything else, loads the tools your turn needs: ToolSearch"
-        " select:mcp__plugin_long-running_drive__say,mcp__plugin_cc-slack_cc-slack__slack_react,"
-        "mcp__plugin_long-running_drive__heard,mcp__plugin_long-running_drive__handler,mcp__plugin_long-running_drive__record,"
-        "mcp__plugin_long-running_drive__job,"
-        "mcp__plugin_long-running_drive__order"
+        " select:mcp__plugin_long-running_drive__say,mcp__plugin_cc-slack_cc-slack__slack_dm_status,"
+        "mcp__plugin_cc-slack_cc-slack__slack_thread,mcp__plugin_cc-slack_cc-slack__slack_react,"
+        "mcp__plugin_long-running_drive__record,mcp__plugin_long-running_drive__status,"
+        "mcp__plugin_long-running_drive__order,mcp__plugin_long-running_drive__job"
     ),
     "coordinator": (
         "The watch runs as its own process and posts the lines each stage of its pass makes for you over cci as one"
-        " record, a handoff when any line asks you to act now, else evidence that arrives with others at most every five minutes; a record of"
+        " record, a handoff when any line asks you to act now, else evidence that arrives with others at most every five minutes, and only lines that ask a step, each said once: a line your manual says Nothing for never reaches you; a record of"
         " several lines counts them by kind and carries each in its body, read whole; arm no Monitor for it, and run"
         " no drive watch for a WATCH stopped line, since its launch agent starts it again. A compaction keeps"
         " every tool you loaded before it, even one the deferred-tools list names, so call Monitor, SendMessage, TaskStop and"
@@ -269,7 +215,7 @@ FIRST_CALL = {
     ),
 }
 READS = {
-    "communicator": "Everything else is on disk, read by a handler on demand, never by you: drive status <id>, drive view.",
+    "communicator": "Everything else is on disk, read on demand: drive status <id>, drive view, drive job report <j>, and his thread with slack_thread.",
     "coordinator": (
         "Everything else is on disk, read on demand by id: drive status <order, job or PR>..., never a script over drive.json;"
         " drive job report <j>, drive view, cci digest, and the skill's pages, drive manual <page>. A Bash result over"
@@ -283,8 +229,8 @@ READS = {
 }
 KEEP = {
     "communicator": (
-        "Each handler still out: one line, `<his thread ts> <agent id> <his ask in at most 12 words>`.",
-        "Each message of his acked with no handler started yet: `<his thread ts> <permalink> <his words verbatim>`.",
+        "Each subagent of yours still out: one line, `<his thread ts> <agent id> <his ask in at most 12 words>`.",
+        "Each message of his not answered yet: `<his thread ts> <permalink> <his words verbatim>`.",
     ),
     "coordinator": (
         (
@@ -340,7 +286,7 @@ def overdue(drive: dict, moment: datetime) -> tuple[list[list], list[str]]:
     for entry in sorted(held, key=lambda entry: (-late[entry["order"]], parse_time(entry["due"])))[:OVERDUE_SHOWN]:
         quiet = int((moment - parse_time(entry["since"])).total_seconds() // 60)
         if away and not entry["incident"]:
-            standing, step = "; he is away, so its line is owed at his return", None
+            standing, step = "; he is away, so no nudge goes out until he is back", None
         else:
             standing = f", {int(late[entry['order']].total_seconds() // 60)} min past due" if late[entry["order"]] else ", not past due"
             step = 1 + late[entry["order"]] // OVERDUE_STEP if late[entry["order"]] else 0
@@ -359,7 +305,7 @@ def when(iso: str, seconds: bool = False) -> str:
 
 
 def owner_reading(owner: dict) -> str | None:
-    """Where he reads, from the moment the owner row's away holds, which every hold on a line to him and every catch-up takes: away from the moment he said so, else from an hour after he was last heard; none for a drive that never heard him."""
+    """Where he reads, from the moment the owner row's away holds: away from the moment he said so, else from an hour after he was last heard; none for a drive that never heard him."""
     if not (away := owner["away"]):
         return None
     heard = when(owner["heard"])
@@ -368,14 +314,6 @@ def owner_reading(owner: dict) -> str | None:
     if now() >= parse_time(away):
         return f"away since {when(away)}: last heard {heard}, an hour with no word or tap"
     return f"here until {when(away)}: last heard {heard}, and an hour with no word or tap reads him away"
-
-
-def corrected_by(seqs: list[str]) -> str:
-    return f", corrected by record{'s' if len(seqs) > 1 else ''} {', '.join(seqs)}" if seqs else ""
-
-
-def withdrawn_by(seqs: list[str]) -> str:
-    return f", withdrawn by record{'s' if len(seqs) > 1 else ''} {', '.join(seqs)}, so no post carries it and no order closes on it" if seqs else ""
 
 
 def start_now(prompt: str) -> str:
@@ -416,9 +354,8 @@ def prs_by_job(drive: dict) -> dict[str, list[str]]:
 
 
 def order_line(drive: dict, order_id: str, order: dict, limit: int = 120, thread: tuple[str, str] | None = None) -> str:
-    due = f" due {when(owed_at(order))}{', waiting on his return' if any(owed_at_return(drive, held, now()) for held in owing(order)) else ''}" if owed(order) else ""
     where = f", its lines go in {thread[0]} thread {thread[1]}" if thread else ""
-    return f"{order_id} {order['state']}{' incident' if order['incident'] else ''}{due}{where}{reporter_said(drive, order)}: {cut(order['text'], limit)}"
+    return f"{order_id} {order['state']}{' incident' if order['incident'] else ''}{where}{reporter_said(drive, order)}: {cut(order['text'], limit)}"
 
 
 def reporter_said(drive: dict, order: dict) -> str:
@@ -688,13 +625,18 @@ def context(drive: dict, role: str, project: str | None = None) -> str:
 
 def rules(drive: dict, role: str) -> list[str]:
     """The role's rules as its block draws them, numbered under their heading, with the filing line that closes them, then the rules of the repository the drive works in."""
-    repo = repo_rules(drive)
     return [
         f"{title(role).capitalize()} rules:",
         *(f"{number}. {rule}" for number, rule in enumerate(RULES[role], 1)),
         FILED,
-        *([REPO_RULES_HEADING, *(f"- {rule}" for rule in repo)] if repo else []),
+        *repo_block(drive),
     ]
+
+
+def repo_block(drive: dict) -> list[str]:
+    """The rules of the repository the drive works in under their heading, as every role session, every job brief, each handler's prompt and each watchdog's brief carry them; none when it sets none."""
+    repo = repo_rules(drive)
+    return [REPO_RULES_HEADING, *(f"- {rule}" for rule in repo)] if repo else []
 
 
 def rules_digest(drive: dict, role: str) -> str:
@@ -741,8 +683,6 @@ def status_data(drive: dict, seen: dict[str, str], named: bool = False, runs: Ca
         "orca": seen,
         "slack": {"channel": slack.dm(), "watch": drive["slack"].get("watch", [])},
         "owner": drive["owner"],
-        "held": drive["held"],
-        "catch_up": drive["catch_up"],
     }
     if not named:
         return data | {"orders": {order_id: order_line(drive, order_id, order, 80, promise_thread(order)) for order_id, order in open_orders(drive).items() if runs is None or runs(order)}}
@@ -769,15 +709,6 @@ def status_text(drive: dict, seen: dict[str, str], shown: dict | None = None, ru
     orders = {order_id: order for order_id, order in open_orders(drive).items() if runs is None or runs(order)}
     if incidents := [incident_line(order_id, order) for order_id, order in orders.items() if order["incident"]]:
         lines.extend(["Open incident orders; an alert on the same failing service joins one with drive order add --joins <o>:", *incidents])
-    if held := {seq: mark for seq, mark in drive["held"].items() if runs is None or mark["order"] in orders}:
-        lines.append("Held for his return, since he was away; once he is back the watch's line in its order's thread, or his catch-up for one with no thread, carries each its writer did not withdraw:")
-        lines.extend(
-            f"- report {seq} ({mark['order'] or 'no order'}), held {when(mark['at'])}{corrected_by(mark['corrections'])}{withdrawn_by(mark['withdrawn'])}"
-            for seq, mark in held.items()
-        )
-    if owed := drive["catch_up"]:
-        started = f", its handler {owed['handler']} last started when he was heard at {when(owed['tried'])}" if owed["handler"] else ""
-        lines.append(f"His catch-up is owed since {when(owed['since'])}: the watch posts it at his DM root through a handler once he is heard while here{started}")
     lines.append(
         f"Open orders{'' if runs is None else ' you run'}: {len(orders)}, a line each and one under it for each standing part and each part an ORPHAN named until it heals or a job on it moves;"
         " drive status <id> prints one whole, with its jobs, PRs and questions:"

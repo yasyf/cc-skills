@@ -41,7 +41,7 @@ communicator.
    his answer with that id in the text, and the coordinator, which asked it, resumes the job that
    waits on it.
 6. It worked when `drive status` names both sessions, and his next message gets the communicator's
-   ack inside 5 to 10 seconds while the coordinator receives its `owner` record.
+   answer while the coordinator receives its `owner` record.
 
 ## Add a meta session
 
@@ -149,9 +149,9 @@ His rulings already live in cc-notes answers.
 3. Carry each order whose deliverable is not live yet, unless he dropped or replaced it. Use his
    words where the old row holds them, since they brief the next job; a paraphrase marked as one
    is fine:
-   `drive order add "<his words>" --from migrated:<old row> --project <name> --workstream <name> --title "<a few words>" --thread <ts> --due <the time he was promised>`,
-   reusing a pair `drive order unfiled` lists as in use where one fits. Leave `--due` and `--thread`
-   (his DM thread's ts) off when he was promised no time. An open incident without a `fix-live`
+   `drive order add "<his words>" --from migrated:<old row> --project <name> --workstream <name> --title "<a few words>" --thread <ts>`,
+   reusing a pair `drive order unfiled` lists as in use where one fits. Leave `--thread`
+   (his DM thread's ts) off when the order has no thread. An open incident without a `fix-live`
    record is an order too, run by [incidents.md](incidents.md).
 4. Carry each open drive PR as a job with no agent, under the order it serves, else under the
    migration order. Run `drive job add builder --order <o> --goal "<PR title>" --repo <owner/name>

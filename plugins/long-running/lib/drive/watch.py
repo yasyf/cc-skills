@@ -17,7 +17,7 @@ import sys
 import threading
 import time
 from collections.abc import Callable, Iterator
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -30,9 +30,10 @@ from drive.render import cut, when
 
 POLL_SECONDS = 5
 RELAY_SECONDS = 2
-RESPOND_SECONDS = 1
+PROJECT_RELAY_IDLE = 10
+RESPOND_SECONDS = 5
 RELAY_JOIN_SECONDS = 10
-RESPONDER = "--respond"
+RELAY = "--relay"
 READ_EVERY = timedelta(seconds=60)
 SETTLED_READ_EVERY = timedelta(minutes=10)
 PASS_FOR = timedelta(minutes=5)
@@ -43,7 +44,6 @@ BEAT_SECONDS = 15
 BEAT_FILE = "watchd.beat"
 EVERY_PROJECT_ENV = "LONG_RUNNING_WATCH_EVERY_PROJECT"
 EVERY_PROJECT = "1"
-ONE_PROJECT = "one"
 FAILURES_BEFORE_SAYING = 3
 FAILURE_EVERY = timedelta(minutes=10)
 DUE_EVERY = timedelta(minutes=10)
@@ -63,6 +63,11 @@ STAGE_LINE = re.compile(r"STAGE (?P<key>\S+) (?P<name>\w+)\b")
 ENDED = ("merged", "closed", PROOF_FAILED)
 NOT_LANDED = "not landed"
 LANDER = "LANDER "
+FAILED_LINE = re.compile(r"WATCH .+ failed \d+ times in a row: ")
+QUIET_LINES = ("CARD ", "WAITING-ON-HIM ", "STANDING ", "WATCH compacted", "WATCH status page")
+SAID_FILE = "said.json"
+SAID_FOR = timedelta(hours=24)
+EVERY_TIME = ("DOWN ",)
 TAP_EVENT = re.compile(rf"TAP (?P<label>\S+) (?P<key>\S+)(?P<stalled> {NOT_LANDED})?")
 LANE = "watch"
 READS_LOG = "reads.log"
@@ -71,9 +76,10 @@ NEWEST_MAIL = "newest lane mail"
 BAR_PROMOTED = "his Slack back-and-forth with the drive crossed a bar"
 LANE_MAIL = "lane mail"
 MARK_READ = "marking lane mail read"
+DRAIN_EVERY = timedelta(hours=1)
+UNANSWERED = "receiver check"
 ANSWERS = "answers"
 LANE_WAIT = timedelta(seconds=reads.LANE_GIVES_UP)
-ANSWER_BY = timedelta(seconds=reads.ANSWER_BY)
 RELAUNCHES_LOG = "relaunches.log"
 STANDING_CHECKS_LOG = "standing-checks.log"
 TRANSCRIPTS_LOG = "transcripts.log"
@@ -95,10 +101,6 @@ CUT_OFF = (
     f"its read stopped before it finished, so what it did and printed are unknown, its output in the drive's {READS_LOG}, and no read"
     " runs twice: read what a drive command changed, then ask again if it must run again"
 )
-TAKEN_LATER = "kept for the drive to run now; a refusal comes back to you as a message naming its fix, so carry on, or end your turn as after any report"
-REFUSED_LATER = "The drive refused `{command}`, answered as kept before it ran, and it changed nothing: {taken}. Fix what it names and run it again."
-STILL_RUNNING = "still running on the coordinator's Mac {seconds} s after you asked, so this answer stops your wait before your prompt cache lapses; what it prints comes back to you as Orca mail once it ends, so do not run it again: carry on, or wait for it with one `orca orchestration check --wait --timeout-ms 230000` run in the background and end your turn, never a sleep or a loop polling a file or Orca"
-LATE_ANSWER = "The answer to `{command}`, which ran past {seconds} s on the coordinator's Mac after you asked:\n{answer}"
 LIVE_JOB_STATES = ("running", "waiting")
 SAFEGUARDED = "stopped by its model's safeguards"
 QUIET_LANE = timedelta(minutes=5)
@@ -108,9 +110,12 @@ RECLAIMED = "reclaimed by the watch's drive job reclaim once its job was quiet"
 ADOPTED = "its Sprite stayed up for this job's lane though no row or death of the job named it, so the watch adopted it for drive job reclaim"
 ADOPT_AFTER = timedelta(hours=1)
 SPRITE_LIST = "sprite list"
+BOX_LIST = "the Mac box list"
+BOX_SWEEP = timedelta(hours=1)
+BOX_LIST_SECONDS = 120
 LINE_BREAKS = re.compile(r"[\r\n]+")
 HANDOFF = timedelta(minutes=2)
-OWED_HAND = timedelta(minutes=2)
+OWED_HAND = timedelta(minutes=10)
 REPLY_READ = 100
 SETTLING = ""
 PR_LINE = re.compile(r"\s*(?:READY|PUSHED|PR:)")
@@ -143,6 +148,7 @@ BUILD_FIELDS = (
 )
 BUILD_ENDS = ("PASSED", "FAILED", "CANCELED", "BLOCKED", "SKIPPED", "NOT_RUN")
 FOLLOW_ENDS = tuple(end for end in BUILD_ENDS if end != "BLOCKED")
+RELEASE_BLOCKED_AFTER = timedelta(minutes=30)
 ABOUT = re.compile(r"\[(?P<order>o\d+) (?P<job>j\d+)\]$|^[A-Z]+ (?:\S+ )?(?:j\d+ )?(?P<named>o\d+)\b")
 MOVED_LINE = re.compile(r"MOVED (?:o\d+, )*o\d+ from (?P<lane>\S+) to ")
 
@@ -154,6 +160,8 @@ class Watcher:
     project: str | None = None
     delivered: int = 0
     read_at: datetime | None = None
+    boxes_at: datetime | None = None
+    drained_at: datetime | None = None
     failures: dict[str, int] = field(default_factory=dict)
     failure_said: dict[str, datetime] = field(default_factory=dict)
     page_shape: str | None = None
@@ -189,6 +197,9 @@ class Watcher:
     restacked: dict[str, tuple] = field(default_factory=dict)
     others: dict[str, Self] = field(default_factory=dict)
     joined_at: datetime | None = None
+    passed_version: int | None = None
+    passed_at: float = 0.0
+    receiver_took: set[str] | None = None
 
     @property
     def lane(self) -> str:
@@ -218,7 +229,7 @@ def read_failed(watcher: Watcher, source: str, error: Exception, moment: datetim
 
 def failed(watcher: Watcher, source: str, what: str, error: Exception, moment: datetime) -> list[str]:
     failures = watcher.failures[source] = watcher.failures.get(source, 0) + 1
-    if failures < FAILURES_BEFORE_SAYING:
+    if failures != FAILURES_BEFORE_SAYING:
         return []
     said = watcher.failure_said.get(source)
     if said and moment - said < FAILURE_EVERY:
@@ -304,11 +315,12 @@ def reran(data: dict, reads: dict[str, dict]) -> list[str]:
 
 
 def github_lines(watcher: Watcher, moment: datetime, polled: bool = False) -> list[str]:
-    """Read from GitHub each heard unmerged PR the watch owes a read, and say what changed on each. It reads whole every one at a watch's start that no watch before it handed its owed reads to from the same GitHub query, by state.take_held_reads, so a field a new install reads fills on every row, then each a delivery named, each open one on a repository GitHub tells the receiver nothing of, by receiver.silent, on each READ_EVERY pass, polled, a green, approved one only each SETTLED_READ_EVERY, ahead of that pass's stage_lines, since no delivery ever says it changed, each never asked for, each any waiting builder's PUSHED names unread since its take, whichever watch hears that builder, each folded into another open PR's branch, beside the PR it folded into, every pass until that PR lands or closes, and again each whose read GitHub refused, a read of an open PR whose GitHub Actions run failed only at its checkout rerunning that run and reading it queued, by reran(), a read of an open yasyf/* PR failing a check carrying the watch's verdict on whether its own change fails it, by judged(), and refused when GitHub would not give that verdict. Of each open PR a push to its base named, and each whose mergeability GitHub had not worked out yet, since no delivery says when it has, it reads only the state, head and mergeability, by github.mergeability, saying a conflict that read starts, and reads whole in the same call each that read finds moved or ended. A PR GitHub answered nothing for stays stale, as its stage does, until a read answers for it. In the same call it reads each PR the drive does not track that carries a stopped builder's parts or that a live job keeps or waits on, by state.carrier_keys, once until GitHub answers for it and again each time a delivery names it, keeping only GitHub's state of it on the watcher for job_gap and out_because, and saying nothing of it. A read saves its PR's row only when it moved, stamping updated, or when a waiting builder's PUSHED names it unread, stamping its required read, so a read that finds nothing new writes nothing. What it still owes is kept on the watcher only once the reads are saved, so a pass that ends before then hands the next watch the reads it owed. Once they are saved it redraws in place, by redraw_lines, his card on each PR it read that the read left drawn stale, so a read that turns a PR green takes "CI passes" off his card in the same pass, never at the next pass's redraw_lines minutes later."""
+    """Read from GitHub each heard unmerged PR the watch owes a read, and say what changed on each. It reads whole every one at a watch's start that no watch before it handed its owed reads to from the same GitHub query, by state.take_held_reads, so a field a new install reads fills on every row, then each a delivery named, each open one on a repository GitHub tells the receiver nothing of, by receiver.silent, and every open one while the receiver's last check found it neither taking deliveries nor answering, on each READ_EVERY pass, polled, a green, approved one only each SETTLED_READ_EVERY, ahead of that pass's stage_lines, since no delivery ever says it changed, each never asked for, each any waiting builder's PUSHED names unread since its take, whichever watch hears that builder, each folded into another open PR's branch, beside the PR it folded into, every pass until that PR lands or closes, and again each whose read GitHub refused, a read of an open PR whose GitHub Actions run failed only at its checkout rerunning that run and reading it queued, by reran(), a read of an open yasyf/* PR failing a check carrying the watch's verdict on whether its own change fails it, by judged(), and refused when GitHub would not give that verdict. Of each open PR a push to its base named, and each whose mergeability GitHub had not worked out yet, since no delivery says when it has, it reads only the state, head and mergeability, by github.mergeability, saying a conflict that read starts, and reads whole in the same call each that read finds moved or ended. A PR GitHub answered nothing for stays stale, as its stage does, until a read answers for it. In the same call it reads each PR the drive does not track that carries a stopped builder's parts or that a live job keeps or waits on, by state.carrier_keys, once until GitHub answers for it and again each time a delivery names it, keeping only GitHub's state of it on the watcher for job_gap and out_because, and saying nothing of it. A read saves its PR's row only when it moved, stamping updated, or when a waiting builder's PUSHED names it unread, stamping its required read, so a read that finds nothing new writes nothing. What it still owes is kept on the watcher only once the reads are saved, so a pass that ends before then hands the next watch the reads it owed. Once they are saved it redraws in place, by redraw_lines, his card on each PR it read that the read left drawn stale, so a read that turns a PR green takes "CI passes" off his card in the same pass, never at the next pass's redraw_lines minutes later."""
     data = state.load(watcher.name)
     pushed = {key for job_id, job in data["jobs"].items() if awaits_checks(job) for key in state.unread_since_take(data, job_id)}
     heard = [key for key in state.unmerged_pr_keys(data) if hears(watcher, data, data["prs"][key]["order"])]
-    hookless = set(receiver.silent({github.repo_of(key) for key in heard})) if polled and not state.scratch() else set()
+    repos = {github.repo_of(key) for key in heard}
+    hookless = (repos if UNANSWERED in watcher.failures else set(receiver.silent(repos))) if polled and not state.scratch() else set()
     owed = [
         key
         for key in heard
@@ -401,8 +413,11 @@ def dangerous_lines(watcher: Watcher, moment: datetime) -> list[str]:
     except github.GithubError as error:
         return read_failed(watcher, "changed files", error, moment)
     watcher.failures.pop("changed files", None)
-    with state.edit(watcher.name) as data:
+    def dangerous_lines_write(data: dict):
         added = {key: tester for key, (head, paths) in read.items() if key in data["prs"] and (tester := state.mark_dangerous(data, key, head, paths))}
+        return added, data
+
+    added, data = state.update(watcher.name, None, dangerous_lines_write)
     return [f"PR {key}: {line} {ids(data['prs'][key])}" for key, tester in added.items() for line in render.builder_lines(watcher.name, data, [tester])]
 
 
@@ -419,9 +434,12 @@ def reach_lines(watcher: Watcher, moment: datetime) -> list[str]:
     except (state.DriveError, github.GithubError) as error:
         return read_failed(watcher, "release reach", error, moment)
     watcher.failures.pop("release reach", None)
-    with state.edit(watcher.name) as data:
+    def reach_lines_write(data: dict):
         lifted = {key: state.unreach(data, key) for key in keys if key in reach and not reach[key]["releases"] and data["prs"][key]["reached"]}
         data["reaches_narrowed"] = True
+        return data, lifted
+
+    data, lifted = state.update(watcher.name, None, reach_lines_write)
     lines = []
     for key, stopped in lifted.items():
         ended = f", and {', '.join(stopped)} stopped" if stopped else ""
@@ -602,9 +620,11 @@ def dropped_lines(watcher: Watcher, foreign: dict[str, tuple[str, str, str]], mo
         gone.append(key)
         lines += [f"DROPPED {key}: {why}", *(f"CARD {link} withdrawn: {key} is dropped" for link in withdrawn)]
     if gone:
-        with state.edit(watcher.name) as data:
+        def dropped_lines_write(data: dict):
             for key in gone:
                 state.drop_pr(data, key)
+
+        state.update(watcher.name, None, dropped_lines_write)
     return lines
 
 
@@ -744,12 +764,14 @@ def exited_text(name: str, job_id: str, exited: list[str]) -> str:
 
 
 def build_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Read from Buildkite, for waits_lines and status_lines, each build a wait the watch follows names or a part of an order it hears follows: once as it is first held, then again only once a delivery of Buildkite's to the receiver's /buildkite route names it. One read_builds call reads them all, run in the drive's checkout as orca.checkout moves it to its default branch's head, and each answer is kept on the watcher as builds while the build is held, None for a build Buildkite answers none for; a read that fails is said as a failed read is and owed again next pass."""
+    """Read from Buildkite, for waits_lines, status_lines and release_end_lines, each build a wait the watch follows names, a part of an order it hears follows or a job it hears keeps as the release it started, by state.follows_release: once as it is first held, then again only once a delivery of Buildkite's to the receiver's /buildkite route names it, or on every pass while Buildkite never delivered to the receiver, by receiver.buildkite_silent. One read_builds call reads them all, run in the drive's checkout as orca.checkout moves it to its default branch's head, and each answer is kept on the watcher as builds while the build is held, None for a build Buildkite answers none for; a read that fails is said as a failed read is and owed again next pass."""
     data = state.load(watcher.name)
-    held = sorted({wait for wait in followed(watcher, data) if github.BUILD.fullmatch(wait)} | state.followed_builds(heard_orders(watcher, data)))
+    releases = {job["release_build"] for job in data["jobs"].values() if state.follows_release(job) and heard_job(watcher, data, job)}
+    held = sorted({wait for wait in followed(watcher, data) if github.BUILD.fullmatch(wait)} | state.followed_builds(heard_orders(watcher, data)) | releases)
     watcher.builds = {link: read for link, read in watcher.builds.items() if link in held}
     watcher.builds_heard &= set(held)
-    if not (due := [link for link in held if link not in watcher.builds or link in watcher.builds_heard]):
+    silent = receiver.buildkite_silent()
+    if not (due := [link for link in held if silent or link not in watcher.builds or link in watcher.builds_heard]):
         return []
     try:
         read = read_builds(orca.checkout(watcher.name, data["roles"]["coordinator"]["cwd"], wait=0), due)
@@ -767,6 +789,84 @@ def read_builds(checkout: Path, links: list[str]) -> dict[str, dict | None]:
     query = "{ " + " ".join(f"b{at}: build(slug: {json.dumps(slug)}) {{ {BUILD_FIELDS} }}" for at, slug in enumerate(slugs)) + " }"
     read = json.loads(reads.run([str(checkout / "tools" / "ci"), "bk", "graphql", query], checkout))
     return {link: read[f"b{at}"] for at, link in enumerate(links)}
+
+
+def release_end_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Tell each job the watch hears that follows the release it started, by state.follows_release, and the coordinator sessions acting on it and holding its order, by state.job_lane and state.holding_lane, in one cci record the moment the watch's newest Buildkite read of its release build, which build_lines makes, finds it ended, or stopped at an approve step RELEASE_BLOCKED_AFTER, by release_told, so no session polls its release and none goes unheard. The state each read finds is kept on the job as its release_heard with the time the watch first read it and the seq of the record that told it, so each build's outcome is told once whichever watch or install reads it again; a tell that fails is said as a failed read is and tried again next pass."""
+    data = state.load(watcher.name)
+    lines = []
+    for job_id, job in data["jobs"].items():
+        if not (state.follows_release(job) and heard_job(watcher, data, job) and (read := watcher.builds.get(job["release_build"]))):
+            continue
+        heard = release_heard(job, read, moment)
+        if heard != job["release_heard"]:
+            def release_end_lines_write(kept: dict):
+                kept["jobs"][job_id]["release_heard"] = heard
+
+            state.update(watcher.name, None, release_end_lines_write)
+        if heard["told"] or not (read["state"] in FOLLOW_ENDS or read["state"] == "BLOCKED" and moment - state.parse_time(heard["since"]) >= RELEASE_BLOCKED_AFTER):
+            continue
+        source = f"release {job['release_build']}"
+        try:
+            release_told(watcher, job_id, read, moment)
+        except (reads.ReadError, subprocess.TimeoutExpired, json.JSONDecodeError) as error:
+            lines += failed(watcher, source, f"tell {job_id} its release {job['release_build']} reads {read['state']}", error, moment)
+            continue
+        watcher.failures.pop(source, None)
+    return lines
+
+
+def release_heard(job: dict, read: dict, moment: datetime) -> dict:
+    """What the watch keeps of its read of a job's release build: the job's kept release_heard while it names the same build and state, else that build and state, first read now and told by no record."""
+    kept = job["release_heard"]
+    if kept and kept["build"] == job["release_build"] and kept["state"] == read["state"]:
+        return kept
+    return {"build": job["release_build"], "state": read["state"], "since": state.stamp(moment), "told": None}
+
+
+def release_told(watcher: Watcher, job_id: str, read: dict, moment: datetime) -> None:
+    """Post one handoff record telling how a job's release build reads to the job, held on it by state.hold_addressed for its worker as any held text, and to the coordinator sessions acting on it and holding its order, keyed by the build and its state so a repost returns the stored record, and keep its seq as the job's release_heard told. The repository's release tool, by brief.release_record, names the release and the build it runs as: a build other than the one the job keeps, such as the release build a launch build triggered and passed on, becomes the job's release build in place of the post, which the next pass reads."""
+    data = state.load(watcher.name)
+    job, link = data["jobs"][job_id], data["jobs"][job_id]["release_build"]
+    record = brief.release_record(link, data) or {}
+    if (moved := record.get("build")) and moved != link:
+        def release_told_write2(kept: dict):
+            kept["jobs"][job_id].update(release_build=moved, release_heard=None)
+
+        state.update(watcher.name, None, release_told_write2)
+        print(f"{state.stamp(moment)} {job_id}'s release build {link} reads {read['state']} and started {moved}, which {job_id} follows now", flush=True)
+        return
+    text, body = release_words(data, job_id, link, read, record, moment)
+    to = list(dict.fromkeys([job_id, state.job_lane(data, job), state.holding_lane(data, data["orders"][job["order"]])]))
+    argv = ["cci", "post", "--drive", watcher.name, "--lane", LANE, "--kind", "handoff", *(arg for lane in to for arg in ("--to", f"{lane}@{watcher.name}")), "--topic", f"release-{job_id}"]
+    argv += ["--id", f"release-{link}-{read['state']}", "--json", "--path", "-", "--text", reads.withheld(text)]
+    seq = str(json.loads(reads.run(argv, Path(data["roles"]["coordinator"]["cwd"]), reads.posting(), stdin=reads.withheld(body)))["seq"])
+    def release_told_write(kept: dict):
+        kept["jobs"][job_id]["release_heard"]["told"] = seq
+        state.hold_addressed(kept, {"kind": "handoff", "text": text, "body": body, "to": [f"{lane}@{watcher.name}" for lane in to]}, LANE, seq, None)
+
+    state.update(watcher.name, None, release_told_write)
+
+
+def release_words(data: dict, job_id: str, link: str, read: dict, record: dict, moment: datetime) -> tuple[str, str]:
+    """A release record's text and body: the job, its order, the release's name, its build and how it reads, the first failure the repository's release tool names, its step, its own cause line and its job's link, else the first step Buildkite read as not passing, or the approve step it stopped at and for how long, then the repository's [release] show command with the release filled; its body each failure on a line of its own and Buildkite's read."""
+    job = data["jobs"][job_id]
+    failures = record.get("failures") or [{"step": label.strip('"')} for label in unpassed_steps(read)]
+    if read["state"] == "BLOCKED":
+        how = f"stopped {minutes(moment - state.parse_time(job['release_heard']['since']))} min at its approve step {', '.join(approve_steps(read))}"
+    elif read["state"] == "PASSED" or not failures:
+        how = read["state"].lower()
+    else:
+        how = f"{read['state'].lower()} at {failure_said(failures[0])}"
+    release = record.get("name")
+    show = state.repo_config(data).get("release", {}).get("show")
+    text = f"RELEASE {job_id} {job['order']}: release {f'{release} ' if release else ''}{link} {how}" + (f"; `{show.replace('{release}', shlex.quote(release or link))}` shows it" if show else "")
+    body = "\n".join([*(failure_said(failure) for failure in failures if read["state"] != "PASSED"), build_said(link, read) or f"{link} reads {read['state']}"])
+    return text, body
+
+
+def failure_said(failure: dict) -> str:
+    return " ".join(filter(None, [f'"{failure["step"]}"' + (":" if failure.get("said") else ""), failure.get("said"), failure.get("job")]))
 
 
 def build_said(link: str, read: dict | None) -> str | None:
@@ -793,24 +893,20 @@ def status_lines(watcher: Watcher, moment: datetime) -> list[str]:
     lines = []
     for order_id, order in heard_orders(watcher, state.load(watcher.name)).items():
         for part, held in order["parts"].items():
-            if not (follow := held["follow"]) or not follow["record"] and (follow["ended"] or follow["build"] not in watcher.builds):
+            if not (follow := held["follow"]) or follow["ended"] or follow["build"] not in watcher.builds:
                 continue
             source = f"follow {order_id} {follow['build']}"
             try:
-                if seq := follow["record"] or status(watcher, order_id, order, part, follow, moment):
-                    agents.handle(watcher.name, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'follow-{seq}'}")
+                status(watcher, order_id, order, part, follow, moment)
             except (slack.SlackError, reads.ReadError, state.DriveError) as error:
                 lines += failed(watcher, source, f"follow of {follow['build']} for {order_id}", error, moment)
                 continue
             watcher.failures.pop(source, None)
-            if seq:
-                with state.edit(watcher.name) as data:
-                    data["orders"][order_id]["parts"][part]["follow"]["record"] = None
     return lines
 
 
-def status(watcher: Watcher, order_id: str, order: dict, part: str, follow: dict, moment: datetime) -> str | None:
-    """Post the status message of the build a part follows, or rewrite it when its words changed, and once the build ended write the report owing its end line, kept on the follow until a handler has it; that report's seq, None while the build runs."""
+def status(watcher: Watcher, order_id: str, order: dict, part: str, follow: dict, moment: datetime) -> None:
+    """Post the status message of the build a part follows, or rewrite it when its words changed, and once the build ended mark the follow ended and post its end line in the thread of his ask once, by end_line, so a post say refuses is said as a failed read is and never tried again."""
     from drive import talk
 
     if (read := watcher.builds[follow["build"]]) is None:
@@ -820,11 +916,16 @@ def status(watcher: Watcher, order_id: str, order: dict, part: str, follow: dict
     if follow["message"] and words != follow["words"]:
         talk.posted(watcher.name, {"edit": message, "text": words})
     kept = {"message": message, "words": words}
-    if read["state"] in FOLLOW_ENDS:
-        kept |= {"ended": state.stamp(moment), "record": end_report(watcher, order_id, order, part, follow | kept, read)}
-    with state.edit(watcher.name) as data:
+    def status_write(data: dict):
         data["orders"][order_id]["parts"][part]["follow"].update(kept)
-    return kept.get("record")
+
+    state.update(watcher.name, None, status_write)
+    if read["state"] in FOLLOW_ENDS:
+        def status_write2(data: dict):
+            data["orders"][order_id]["parts"][part]["follow"]["ended"] = state.stamp(moment)
+
+        state.update(watcher.name, None, status_write2)
+        end_line(watcher, order_id, order, part, follow | kept, read)
 
 
 def status_words(read: dict, moment: datetime) -> str:
@@ -842,24 +943,32 @@ def status_words(read: dict, moment: datetime) -> str:
     return f"{link}: {'; '.join(running) or read['state'].lower()}; {tally}"
 
 
-def end_report(watcher: Watcher, order_id: str, order: dict, part: str, follow: dict, read: dict) -> str:
-    """Write the report owing him the end line of the build a part of the order follows, for the handler that posts it in the thread of his ask, where the line delivers the part; its seq."""
+def end_line(watcher: Watcher, order_id: str, order: dict, part: str, follow: dict, read: dict) -> str:
+    """Post the end line of the build a part of the order follows in the thread of his ask, where the line delivers the part: its status message's final words, citing the record of the build's end; say's result."""
     facts = [
         f"His order {order_id}: {order['text']}",
         f"His ask, the part the end line delivers: {part}",
         f"The build: {follow['build']}, {read['state']}, at commit {read['commit']}" + (f", its steps that did not pass {', '.join(unpassed)}" if (unpassed := unpassed_steps(read)) else ""),
-        f"Its status message, which the watch kept current: {follow['message']}, now reading: {follow['words']}",
-        f"Read the build's failed steps and the jobs on {order_id}, then post one line in that thread: how the build ended and what his ask wants of its end, such as how confident we are to release the same commit further.",
+        f"Its status message: {follow['message']}, now reading: {follow['words']}",
     ]
     record = {
         "kind": "report",
         "topic": f"follow-{order_id}",
+        "id": f"follow-end-{order_id}-{follow['build']}",
         "attr": {"order": order_id, "part": f"{order_id}:{part}", "thread": follow["thread"]},
-        "text": f"POST the build {order_id} follows ended {read['state']}: post its end line in the thread of his ask",
+        "text": f"the build {order_id} follows ended {read['state']}",
         "body": "\n".join(facts) + "\n",
     }
-    [seq] = reported(watcher, [record])
-    return seq
+    return milestone(watcher, record, follow["words"])
+
+
+def milestone(watcher: Watcher, record: dict, words: str) -> str:
+    """Send the record holding a milestone's facts from the watch's lane, addressed to no session, so it wakes none, then post its words to him through say from the watch itself, by talk.watch_line, citing that record; say's result."""
+    from drive import talk, tools
+
+    [seq] = tools.sent(watcher.name, LANE, [record])
+    post = {"text": f"{words} ({{record:{seq}|its facts}}).", "record": seq} | ({"thread_ts": thread} if (thread := (record.get("attr") or {}).get("thread")) else {})
+    return talk.watch_line(watcher.name, post)
 
 
 def build_line(watcher: Watcher, link: str) -> str:
@@ -902,7 +1011,7 @@ def serving_lines(watcher: Watcher, moment: datetime) -> list[str]:
     try:
         checkout, live = live_rows(watcher, data)
         reach = cli.release_reach(watcher.name, data, fixes) if fixes else {}
-        fix_waits = {key: [f"release:{component}:{key}" for component in reach[key]["releases"]] for key in fixes}
+        fix_waits = {key: [f"release:{component}:{key}" for component in reach[key]["releases"]] for key in fixes if key in reach}
         carries = github.carrier(str(checkout))
         production = {env for env in {row["env"] for row in live} if settled.prod(env, str(checkout))}
         serving = {
@@ -922,12 +1031,40 @@ def serving_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def live_rows(watcher: Watcher, data: dict) -> tuple[Path, list[dict]]:
-    """The drive's checkout, as orca.checkout moves it, and the rows of one `tools/ci release live --json` run there, a commit each cluster of every service serves, keeping them on the watcher as live for staging_line, and as staged the targets state.STAGING_ENV runs for add_prover."""
+    """The drive's checkout, as orca.checkout moves it, and the rows of one `tools/ci release live --json` run there, a commit each cluster of every service serves, keeping them on the watcher as live for staging_line, and as staged the targets state.STAGING_ENV runs for add_prover. The rows are this process's one copy of that read, by live_copy, which every project's watcher shares."""
     checkout = orca.checkout(watcher.name, data["roles"]["coordinator"]["cwd"], wait=0)
-    live = json.loads(reads.run([str(checkout / "tools" / "ci"), "release", "live", "--json"], checkout))
+    live = live_copy(watcher.name, checkout)
     watcher.live = live
     watcher.staged = {row["target"] for row in live if row["env"] == state.STAGING_ENV}
     return checkout, live
+
+
+LIVE_SHARED = True
+LIVE_COPIES: dict[str, tuple[float, list[dict] | reads.ReadError]] = {}
+LIVE_READING: dict[str, threading.Thread] = {}
+
+
+def live_copy(name: str, checkout: Path) -> list[dict]:
+    """The rows of the drive's newest `tools/ci release live --json` read, which takes over a minute: a thread renews them once they are LIVE_EVERY old, so no pass of any project waits on the read, a failed or first read raising as a failed read does; with LIVE_SHARED off, as tests run, each call reads it at once."""
+    if not LIVE_SHARED:
+        return json.loads(reads.run([str(checkout / "tools" / "ci"), "release", "live", "--json"], checkout))
+    at, rows = LIVE_COPIES.get(name, (None, None))
+    if (at is None or monotonic() - at >= LIVE_EVERY.total_seconds()) and not ((reading := LIVE_READING.get(name)) and reading.is_alive()):
+        LIVE_READING[name] = threading.Thread(target=live_renewed, args=(name, checkout), name=f"release-live-{name}", daemon=True)
+        LIVE_READING[name].start()
+    if rows is None:
+        raise reads.ReadError("tools/ci release live: its first read runs in the background, so the watch reads its rows next pass")
+    if isinstance(rows, reads.ReadError):
+        raise rows
+    return rows
+
+
+def live_renewed(name: str, checkout: Path) -> None:
+    try:
+        rows: list[dict] | reads.ReadError = json.loads(reads.run([str(checkout / "tools" / "ci"), "release", "live", "--json"], checkout))
+    except reads.ReadError as error:
+        rows = error
+    LIVE_COPIES[name] = (monotonic(), rows)
 
 
 def incident_fixes(watcher: Watcher, data: dict) -> dict[str, list[str]]:
@@ -974,7 +1111,6 @@ def recovered_lines(watcher: Watcher, moment: datetime) -> list[str]:
             continue
         lines += closed(watcher, head, list(found.values()), fix, moment)
     return lines
-
 
 
 def in_production(watcher: Watcher, wait: str) -> bool:
@@ -1025,14 +1161,16 @@ def owner_page_lines(watcher: Watcher, moment: datetime) -> list[str]:
         except (state.DriveError, reads.ReadError) as error:
             return lines + failed(watcher, "owner page", "page of his Datadog On-Call user", error, moment)
         watcher.failures.pop("owner page", None)
-        with state.edit(watcher.name) as edited:
+        def owner_page_lines_write(edited: dict):
             edited["orders"][key]["paged"] = state.stamp(moment)
+
+        state.update(watcher.name, None, owner_page_lines_write)
         lines.append(f"WATCH paged him for incident {key} while he is away: {paged}")
     return lines
 
 
 def close_report_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Post in one cci batch each close report drive job prove, or the watch's DONE at a merge, keeps on an open order it finished, for the communicator's handler to post in the order's thread, or at his DM root for an order of his with none, and close it; each stays on its order until cci takes it, so a post that fails goes again next read, said from its third failure in a row, and a watch on a newer install posts it as well. One an older install kept on a drive tooling order a session opened, which posts him no line, goes nowhere: that order closes done on the proof it holds, as install.finish now closes one. A report the watch posts itself, by state.watch_posts_itself, stays on its order with its seq once cci takes it, by reported, for proved_lines to post."""
+    """Post in one cci batch each close report drive job prove, or the watch's DONE at a merge, keeps on an open order it finished, for the watch to post in the order's thread, or at his DM root for an order of his with none, and close it, by proved_lines, or, for an order whose reporters get its line in their own threads, for the handler this read starts on it; each stays on its order until cci takes it, so a post that fails goes again next read, said from its third failure in a row, and a watch on a newer install posts it as well. One an older install kept on a drive tooling order a session opened, which posts him no line, goes nowhere: that order closes done on the proof it holds, as install.finish now closes one. A report the watch posts itself, by state.watch_posts_itself, stays on its order with its seq once cci takes it, by reported, for proved_lines to post."""
     data = state.load(watcher.name)
     closing = {order_id: order for order_id, order in heard_orders(watcher, data).items() if order["close_report"]}
     if unasked := [order_id for order_id, order in closing.items() if state.unasked_tooling(order)]:
@@ -1044,11 +1182,19 @@ def close_report_lines(watcher: Watcher, moment: datetime) -> list[str]:
     if not owed:
         return proved_lines(watcher, moment)
     try:
-        reported(watcher, list(owed.values()))
+        seqs = reported(watcher, list(owed.values()))
     except state.DriveError as error:
-        return failed(watcher, "close reports", "close report post to the communicator", error, moment)
+        return failed(watcher, "close reports", "close report post", error, moment)
     watcher.failures.pop("close reports", None)
-    return proved_lines(watcher, moment)
+    lines = []
+    for order_id, seq in zip(owed, seqs, strict=True):
+        if state.watch_posts_itself(closing[order_id]):
+            continue
+        try:
+            agents.handle(watcher.name, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'reporter-{seq}'}")
+        except state.DriveError as error:
+            lines += failed(watcher, f"reporter {order_id}", f"handler on the line {order_id}'s reporters get once its fix is live", error, moment)
+    return lines + proved_lines(watcher, moment)
 
 
 def proved_lines(watcher: Watcher, moment: datetime) -> list[str]:
@@ -1073,8 +1219,10 @@ def proved_lines(watcher: Watcher, moment: datetime) -> list[str]:
             lines += failed(watcher, f"proved close {order_id}", f"close of {order_id} on its live line", state.DriveError(outcome), moment)
             continue
         watcher.failures.pop(f"proved close {order_id}", None)
-        with state.edit(watcher.name) as edited:
+        def proved_lines_write(edited: dict):
             edited["orders"][order_id]["close_report"] = None
+
+        state.update(watcher.name, None, proved_lines_write)
     return lines
 
 
@@ -1084,17 +1232,21 @@ def reported(watcher: Watcher, records: list[dict]) -> list[str]:
 
     seqs = tools.sent(watcher.name, LANE, [record | {"to": [f"communicator@{watcher.name}"]} for record in records])
     if closes := [(record, order_id, seq) for record, seq in zip(records, seqs, strict=True) for order_id in state.closed_orders(record.get("attr") or {})]:
-        with state.edit(watcher.name) as data:
+        def reported_write(data: dict):
             for record, order_id, seq in closes:
                 order = data["orders"][order_id]
                 order["closed_on"] = order["closed_on"] or seq
                 if order["close_report"] and order["close_report"]["id"] == record.get("id"):
                     order["close_report"] = order["close_report"] | {"seq": seq} if state.watch_posts_itself(order) else None
+
+        state.update(watcher.name, None, reported_write)
     return seqs
 
 
 def closed(watcher: Watcher, head: str, links: list[str], fix: str, moment: datetime) -> list[str]:
-    """Close an incident that is over: its live work moves to a plain order and each of its orders keeps the recovery of its monitors, when it has any, and its fix live as its proof, then a POST report, naming each PR of the incident as the watch last read it from GitHub, names each order for the communicator's handler to post in its thread and close; a post that fails goes again next read."""
+    """Close an incident that is over: its live work moves to a plain order and each of its orders keeps the recovery of its monitors, when it has any, and its fix live as its proof, then the record naming each PR of the incident as the watch last read it from GitHub and each order it closes, and the Live line the watch posts in its thread from that record, by talk.watch_line; a record that fails goes again next read."""
+    from drive import talk
+
     read_ok = f"{', '.join(links)} read OK"
     with state.edit(watcher.name) as data:
         group = state.open_incidents(data, state.feature_orders(data, head))
@@ -1113,19 +1265,30 @@ def closed(watcher: Watcher, head: str, links: list[str], fix: str, moment: date
         "kind": "report",
         "topic": f"watch-recovered-{head}",
         "attr": {"close": ",".join(group)} | state.thread_attr(incident),
-        "text": f"POST incident {head} is over: {'its monitors read OK and ' if links else ''}its fix is live; post the Live line in its thread",
+        "text": f"incident {head} is over: {'its monitors read OK and ' if links else ''}its fix is live",
         "body": "\n".join(facts) + "\n",
     }
     try:
-        reported(watcher, [record])
+        [seq] = reported(watcher, [record])
     except state.DriveError as error:
-        return failed(watcher, f"close of {head}", f"close report post of {head} to the communicator", error, moment)
+        return failed(watcher, f"close of {head}", f"close record of {head}", error, moment)
     watcher.failures.pop(f"close of {head}", None)
+    lines, said = [], None
+    live = {"text": f"Live: {incident['title'] or cut(incident['text'], 80)} is over, {'its monitors read OK and ' if links else ''}its fix is live ({{record:{seq}|its facts}}).", "record": seq} | ({"thread_ts": thread} if (thread := record["attr"].get("thread")) else {})
+    try:
+        said = talk.watch_line(watcher.name, live)
+    except (slack.SlackError, state.DriveError) as error:
+        lines = failed(watcher, f"live line {head}", f"Live line of {head}, left to a handler", error, moment)
+        try:
+            agents.handle(watcher.name, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'live-{seq}'}")
+        except state.DriveError as failure:
+            lines += failed(watcher, f"live handler {head}", f"handler on the Live line of {head}", failure, moment)
     with state.edit(watcher.name) as data:
         for order_id in group:
             data["orders"][order_id]["recovered"] = state.stamp(moment)
+    closes = "".join(talk.closed(watcher.name, order_id, seq, said.split()[1], live["text"]) for order_id in group) if said else ""
     moved = f"; its live jobs, open PRs and parts left moved to the plain order {follow}" if follow else ""
-    return [f"RECOVERED {head}: {f'{read_ok} and ' if links else ''}{fix}, so the communicator posts its Live line and closes {', '.join(group)}{moved}"]
+    return [*lines, f"RECOVERED {head}: {f'{read_ok} and ' if links else ''}{fix}, so the watch posted its Live line{closes}{moved}"]
 
 
 def follow_up(data: dict, head: str, group: list[str], created: str) -> str | None:
@@ -1469,22 +1632,11 @@ def first_reply(question: str) -> dict | None:
 
 
 def told(watcher: Watcher, data: dict, job_id: str, question: str, reply: dict) -> str:
-    """Send the communicator a teammate's reply to the question the drive asked them for a job, for the handler it starts to post in the thread of the job's order, and hold the reply's words on the job; what ended its wait."""
+    """Hold a teammate's reply to the question the drive asked them for a job on that job, for its agent to read; what ended its wait."""
     from drive import cli
 
-    job = data["jobs"][job_id]
     who = reply.get("user_name") or reply.get("user")
     words = f'{who} replied {reply["permalink"]} to the question the drive asked them for {job_id} at {question}: "{reply.get("text") or ""}"'
-    record = {
-        "kind": "report",
-        "topic": f"reply-{job_id}",
-        "id": f"reply-{job_id}-{reply['ts']}",
-        "attr": {"order": job["order"], "job": job_id, "progress": "true", **state.thread_attr(data["orders"][job["order"]])},
-        "text": f"POST {who} replied to the question the drive asked them for {job_id}: post their words in the thread of {job['order']}",
-        "body": f"His order {job['order']}: {data['orders'][job['order']]['text']}\n{words}\n",
-    }
-    [seq] = reported(watcher, [record])
-    agents.handle(watcher.name, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'reply-{seq}'}")
     cli.hold(watcher.name, job_id, words, state.WATCH_SENDER)
     return f"{who} replied {reply['permalink']}"
 
@@ -1551,7 +1703,7 @@ def mail_line(name: str, data: dict, job_id: str, message: dict, moment: datetim
 
 
 def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Remote lanes' mail while a lane the watch hears is live, read in one call of Orca's whole mailbox and given by senders to the job whose worker sent it, whatever Run Orca filed it on and whatever that job's state, from every worker of its job and not only the newest, and kept in its job's history, where the mail of a worker a relaunch replaced, and Orca's word on a permission prompt, which Claude Code's timer or the bash_guard hook answers while the lane carries on, only stays: reports and statuses become JOB lines, Orca's notice that its mail did not reach a finished worker ends that worker's turn with no STOPPED and says nothing, each read and `DRIVE` question the relay has not taken gets a reader started here, by start_readers, an open question kept before the watch read it as a read included. A follow-up Orca started to carry a recorded worker's unread mail is that job's mail delivery and never its worker: each turn it ends, settles the texts its job keeps queued by that Dispatch's mailbox, by deliveries and state.take_mail, and a follow-up's failed start posts no STOPPED but holds on the job each text its mailbox still shows unread, runs `drive job resume` on the job, which carries them to its worker or relaunches a finished one with them, and says so on one JOB line. The read starts past the newest sequence the watch's last read reached, and a watch's first read past the newest mark of the jobs it hears, each job keeping the sequence of the newest of its messages taken, judged and moved under the lock, and each Run that mail of a job's came on and Orca still shows unread marked read once the lock is let go, by orca.mark_read, so Orca's retention drops it and a Run whose jobs ended retires, so a pass reads only the mail that came since, never Orca's whole history, and a job's mail no watch has taken waits for whichever watch hears it next. A message its job's history already keeps, read again under the lock, is never taken again, so a watch whose mark another install's save lost replays nothing and a question the relay took meanwhile never runs twice."""
+    """Remote lanes' mail while a lane the watch hears is live, read in one call of Orca's whole mailbox and given by senders to the job whose worker sent it, whatever Run Orca filed it on and whatever that job's state, from every worker of its job and not only the newest, and kept in its job's history, where the mail of a worker a relaunch replaced, and Orca's word on a permission prompt, which Claude Code's timer or the bash_guard hook answers while the lane carries on, only stays: reports and statuses become JOB lines, Orca's notice that its mail did not reach a finished worker ends that worker's turn with no STOPPED and says nothing, each read and `DRIVE` question the relay has not taken gets a reader started here, by start_readers, an open question kept before the watch read it as a read included. A follow-up Orca started to carry a recorded worker's unread mail is that job's mail delivery and never its worker: each turn it ends, settles the texts its job keeps queued by that Dispatch's mailbox, by deliveries and state.take_mail, and a follow-up's failed start posts no STOPPED but holds on the job each text its mailbox still shows unread, runs `drive job resume` on the job, which carries them to its worker or relaunches a finished one with them, and says so on one JOB line. The read starts past the newest sequence the watch's last read reached, and a watch's first read past the newest mark of the jobs it hears, each job keeping the sequence of the newest of its messages taken, judged and moved under the lock, and each Run that mail of a job's came on and Orca still shows unread marked read once the lock is let go, by orca.mark_read, with every Run Orca's whole mailbox shows unread, by orca.unread_runs, on a watch's first pass and each DRAIN_EVERY after, so mail no pass took cannot pile up either, so Orca's retention drops it and a Run whose jobs ended retires, so a pass reads only the mail that came since, never Orca's whole history, and a job's mail no watch has taken waits for whichever watch hears it next. A message its job's history already keeps, read again under the lock, is never taken again, so a watch whose mark another install's save lost replays nothing and a question the relay took meanwhile never runs twice."""
     queue_kept_reads(watcher)
     data = state.load(watcher.name)
     if not live_lanes(watcher, data):
@@ -1611,6 +1763,12 @@ def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
         if carried:
             send_held(watcher, job_id, moment)
         lines.append(f"JOB {job_id} {order_id} {render.unread(held, failed)}{carried}")
+    if watcher.drained_at is None or moment - watcher.drained_at >= DRAIN_EVERY:
+        try:
+            unread |= set(orca.unread_runs())
+            watcher.drained_at = moment
+        except orca.OrcaError as error:
+            lines += read_failed(watcher, MARK_READ, error, moment)
     for run in sorted(unread):
         try:
             orca.mark_read(watcher.name, run)
@@ -1742,8 +1900,8 @@ def sending(message: dict) -> str:
 
 
 @contextlib.contextmanager
-def relaying(watcher: Watcher) -> Iterator[Callable[[str], None]]:
-    """Answer the lanes' reads from the watch's responder, owe him each promised line from a relay, and land, stage and wake from its landing loop, each a process of its own the watch starts, by beside, for as long as the watch runs: the drive's own relay, and one relay for each project the watch takes, by the callable this yields, so a project's promised line waits on no other project's relay pass; each line the responder or a relay writes handed to the watcher it is for as it comes, and each map of the PRs the drive does not track the landing loop writes kept as that watcher's, by relayed_lines, which starts again each that ends before the watch ends it; each ended with SIGTERM and its reader waited for RELAY_JOIN_SECONDS before the watch keeps its unposted lines, so each line the relay made is kept, then SIGKILL and as long again, so a pipe another process still holds open never holds the watch's end, which says the reader it left."""
+def relaying(watcher: Watcher) -> Iterator[None]:
+    """Answer the lanes' reads and owe him each promised line from the watch's relay, and land, stage and wake from its landing loop, each a process of its own the watch starts, by beside, for as long as the watch runs: one relay for the drive and every project the watch takes, which passes a project only once the drive changed or PROJECT_RELAY_IDLE went by, by beside_passes; each line the responder or the relay writes handed to the watcher it is for as it comes, and each map of the PRs the drive does not track the landing loop writes kept as that watcher's, by relayed_lines, which starts again each that ends before the watch ends it; each ended with SIGTERM and its reader waited for RELAY_JOIN_SECONDS before the watch keeps its unposted lines, so each line the relay made is kept, then SIGKILL and as long again, so a pipe another process still holds open never holds the watch's end, which says the reader it left."""
     ending, guard, live = threading.Event(), threading.Lock(), {}
     readers: dict[str, tuple[str, threading.Thread]] = {}
 
@@ -1755,17 +1913,14 @@ def relaying(watcher: Watcher) -> Iterator[Callable[[str], None]]:
             readers[slot] = (what, reader)
         reader.start()
 
-    started("--respond", "the responder", functools.partial(routed, watcher, took=took_relayed))
     started("--relay", "the relay", functools.partial(routed, watcher, took=took_relayed))
     started("--land", "the landing loop", functools.partial(routed, watcher, took=took_untracked))
-    if not watcher.project and "communicator" in state.saved(watcher.name)["roles"]:
-        started("--hear", "the hearer", functools.partial(routed, watcher, took=took_relayed))
     try:
-        yield lambda project: started(f"--relay {project}", f"the relay for {project}", lambda line: took_relayed(watcher.others[project], line))
+        yield
     finally:
         with guard:
             ending.set()
-        for slot, (what, reader) in sorted(readers.items(), key=lambda item: item[0] == RESPONDER):
+        for slot, (what, reader) in sorted(readers.items(), key=lambda item: item[0] == RELAY):
             live[slot].terminate()
             reader.join(RELAY_JOIN_SECONDS)
             if reader.is_alive():
@@ -1775,11 +1930,10 @@ def relaying(watcher: Watcher) -> Iterator[Callable[[str], None]]:
                 watcher.relayed.append(f"WATCH {what}, process {live[slot].pid}, still held its pipe open {2 * RELAY_JOIN_SECONDS} seconds after the watch ended it; the watch ended without its last lines")
 
 
-def beside(watcher: Watcher, slot: str, live: dict[str, subprocess.Popen]) -> int:
-    """Start the process slot names beside the watch, its flag and the project a relay of one runs for, by spawn, kept in live under slot, and return the end of its pipe the watch reads."""
+def beside(watcher: Watcher, flag: str, live: dict[str, subprocess.Popen]) -> int:
+    """Start the process flag names beside the watch, by spawn, kept in live under flag, and return the end of its pipe the watch reads."""
     lines, given = os.pipe()
-    flag, _, project = slot.partition(" ")
-    live[slot] = spawn(watcher, flag, given, project or None)
+    live[flag] = spawn(watcher, flag, given)
     os.close(given)
     return lines
 
@@ -1802,13 +1956,13 @@ def relayed_lines(watcher: Watcher, ending: threading.Event, guard: threading.Lo
             lines = beside(watcher, flag, live)
 
 
-def spawn(watcher: Watcher, flag: str, lines: int, project: str | None = None) -> subprocess.Popen:
-    """Start `drive watch <flag> <fd>`, the responder's `--respond`, a relay's `--relay` or the landing loop's `--land`, as a child of the watch, writing to that end of the watch's pipe, in the watch's process group, so the watch's launch agent ends it with the watch whatever ends the watch. EVERY_PROJECT_ENV in its environment says a watch of this install started it: the responder and landing loop run the passes of every project the watch holds beside the drive's own, by joined, each project's lines led by its lane, by relayed, while a relay runs only the drive's own passes, or with project, only that project's."""
+def spawn(watcher: Watcher, flag: str, lines: int) -> subprocess.Popen:
+    """Start `drive watch <flag> <fd>`, the responder's `--respond`, a relay's `--relay` or the landing loop's `--land`, as a child of the watch, writing to that end of the watch's pipe, in the watch's process group, so the watch's launch agent ends it with the watch whatever ends the watch. EVERY_PROJECT_ENV in its environment says a watch of this install started it: the responder, the relay and the landing loop each run the passes of every project the watch holds beside the drive's own, by joined, each project's lines led by its lane, by relayed."""
     return subprocess.Popen(
-        [str(install.DRIVE), "watch", flag, str(lines), "--drive", watcher.name, *(["--project", project] if project else [])],
+        [str(install.DRIVE), "watch", flag, str(lines), "--drive", watcher.name],
         stdin=subprocess.DEVNULL,
         pass_fds=(lines,),
-        env=os.environ | {EVERY_PROJECT_ENV: ONE_PROJECT if flag == "--relay" else EVERY_PROJECT},
+        env=os.environ | {EVERY_PROJECT_ENV: EVERY_PROJECT},
     )
 
 
@@ -1850,49 +2004,8 @@ def took_untracked(watcher: Watcher, line: str) -> None:
 
 
 def relay(name: str, project: str | None, lines: int) -> int:
-    """Run the watch's relay, the process the watch starts: a relay pass every RELAY_SECONDS beside the watch's passes, by beside_passes, so no GitHub read, landing, Slack redraw or install a pass runs holds the handler on a line owed him by the clock or the handler on a POST report."""
-    return beside_passes(name, project, lines, "--relay", lambda watcher, moment: relay_pass(watcher, moment), RELAY_SECONDS)
-
-
-def hearer(name: str, lines: int) -> int:
-    """Run the watch's hearer, the process the watch starts beside its passes: `cc-slack watch --only-delivery` on the communicator's session, so each message of his reaches this process alone and never wakes the communicator, which cc-slack hands it again the moment this process exits; each is kept verbatim in heard.jsonl before any model runs, then routed at once by a detached `drive route`, and any other person's message in a thread the communicator watches goes to the communicator as one cci note, so nothing he or they send ends unread. A line it writes down its pipe tells the watch a message it could not keep or route."""
-    held = state.saved(name)["roles"]["communicator"]
-    stream = subprocess.Popen(
-        ["cc-slack", "watch", "--session", held["session"], "--cwd", held["cwd"], "--only-delivery", "--whole"],
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        text=True,
-        env={key: value for key, value in os.environ.items() if key != "CLAUDE_CODE_SESSION_ID"},
-    )
-    with os.fdopen(lines, "w") as out:
-        for line in stream.stdout:
-            if line.strip():
-                try:
-                    heard_message(name, json.loads(line))
-                except Exception as error:
-                    print(f"WATCH the hearer could not keep or route {cut(line.strip(), 300)}: {render.raised(error)}", file=out, flush=True)
-    return stream.wait()
-
-
-def heard_message(name: str, event: dict) -> None:
-    """Keep one message cc-slack delivered to the communicator verbatim, then route it: his, in his DM or an operator channel, through `drive route` detached; anyone else's to the communicator as a cci note, which it reads as channel content."""
-    if not event.get("type", "").startswith("slack.message"):
-        return
-    state.keep_heard(name, event)
-    if event.get("kind") == "dm" or event.get("operator"):
-        state.detach(name, ["route", heard_brief(name, event)], "routes-run.log")
-        return
-    reads.run(["cci", "post", "--drive", name, "--lane", "watch", "--kind", "note", "--to", f"communicator@{name}", "--id", f"heard-{event['ts']}", "--text", f"{event.get('user_name') or event.get('user')} in {event.get('channel_id')} thread {event.get('thread_ts')}: {event.get('text') or ''} {event.get('permalink') or ''}"], Path.cwd(), reads.posting())
-
-
-def heard_brief(name: str, event: dict) -> str:
-    """The handler brief of his message as cc-slack delivered it: his words verbatim, its permalink, its thread, and a Context line for the card his words are under or the ack cc-slack posted while the communicator compacted."""
-    context = [
-        *([f"Context: his words are under the question card {event['thread_card']}"] if event.get("thread_card") else []),
-        *([f"Context: cc-slack already acked it in its thread ({event['acked']})"] if event.get("acked") else []),
-    ]
-    scratch = state.drive_dir(name) / "scratch" / f"heard-{event['ts']}"
-    return "\n".join([f"Message (his words): {event.get('text') or ''}", f"Link: {event['permalink']}", f"Thread: {event['channel_id']} {event['thread_ts']}", f"Drive: {name}", f"Scratch: {scratch}", *context])
+    """Run the watch's relay, the process the watch starts: a respond pass of the drive and of each project the watch holds every RESPOND_SECONDS, and a relay pass of the drive every RELAY_SECONDS and of each project once due_again says so, by relayed_passes, beside the watch's passes, by beside_passes, so no GitHub read, landing, Slack redraw or install a pass runs holds the handler on a line owed him by the clock or the handler on a POST report."""
+    return beside_passes(name, project, lines, RELAY, relayed_passes, RESPOND_SECONDS)
 
 
 def responder(name: str, project: str | None, lines: int) -> int:
@@ -1901,7 +2014,7 @@ def responder(name: str, project: str | None, lines: int) -> int:
 
 
 def beside_passes(name: str, project: str | None, lines: int, flag: str, passing: Callable[[Watcher, datetime], list[str]], seconds: float) -> int:
-    """Run one pass after another, seconds apart, each first moving this process onto the newest install, by install.reopen, once watch_upgraded reads that install running other code than this one, so the code installed now runs it however long a pass holds the watch on the install it started on, and an install that changes none of its code moves nothing. Each line a pass makes goes to the watch down the pipe end it inherited, for the watch's next pass to hand on; the SIGTERM the watch sends as it ends ends it once the pass or rest it is in ends, kept as a flag rather than an Event, which a handler setting it can deadlock on. It keeps a Watcher of its own, so a failed Orca read of its own never reruns the pass's 60-second block. Its guard ends it once a pass runs past PASS_FOR and a minute or a rest past STALL_FOR, its stacks in the watch's log, and the watch starts it again, by relayed_lines."""
+    """Run one pass after another, seconds apart, each first moving this process onto the newest install, by install.reopen, once watch_upgraded reads that install running other code than this one, so the code installed now runs it however long a pass holds the watch on the install it started on, and an install that changes none of its code moves nothing. Each line a pass makes goes to the watch down the pipe end it inherited, for the watch's next pass to hand on; the SIGTERM the watch sends as it ends ends it once the pass or rest it is in ends, kept as a flag rather than an Event, which a handler setting it can deadlock on. It keeps a Watcher of its own, so a failed Orca read of its own never reruns the pass's 60-second block. The relay passes a project only when due_again says the drive moved or its idle time ran out, so seven projects cost one process and no load while nothing changed. Its guard ends it once a pass runs past PASS_FOR and a minute or a rest past STALL_FOR, its stacks in the watch's log, and the watch starts it again, by relayed_lines."""
     ended = term_flag()
     if unwatched(project):
         return 0
@@ -1927,6 +2040,22 @@ def beside_passes(name: str, project: str | None, lines: int, flag: str, passing
     finally:
         finished.set()
     return 0
+
+
+def relayed_passes(watcher: Watcher, moment: datetime) -> list[str]:
+    """One tick of the relay for a watcher: its respond pass every RESPOND_SECONDS, so a lane's read gets its reader at once, then its relay pass once due_again owes it one, each handler the relay starts started detached, so no tick waits on a session's start."""
+    lines = respond_pass(watcher, moment)
+    if due_again(watcher):
+        lines += relay_pass(watcher, moment)
+        watcher.passed_version, watcher.passed_at = state.LOADED_VERSION.get(), monotonic()
+    return lines
+
+
+def due_again(watcher: Watcher) -> bool:
+    """Whether the relay owes a watcher its next relay pass: the drive's own RELAY_SECONDS after its last, so a POST report or a line due by the clock waits on no commit, and a project's once another connection committed to the drive since its last pass read it, or PROJECT_RELAY_IDLE after that pass, so its clocks still come due on a quiet drive."""
+    if not watcher.project:
+        return monotonic() - watcher.passed_at >= RELAY_SECONDS
+    return monotonic() - watcher.passed_at >= PROJECT_RELAY_IDLE or not state.unchanged_since(watcher.name, watcher.passed_version)
 
 
 def term_flag() -> list[int]:
@@ -2026,6 +2155,7 @@ def landing_pass(watcher: Watcher, moment: datetime) -> Iterator[list[str]]:
     else:
         later = owed_reads(watcher, moment)
     for stage in later:
+        beat(f"landing {stage.func.__name__}", True)
         yield stage() or []
 
 
@@ -2035,7 +2165,7 @@ def owed_reads(watcher: Watcher, moment: datetime) -> list[functools.partial]:
 
 
 def respond_pass(watcher: Watcher, moment: datetime) -> list[str]:
-    """Start a reader on each new read or `DRIVE` question a live lane asked, then start a reader again on each write its lane was answered kept for whose reader died before its run ended, by retake_pending, send again each answer a reader kept that no reply took, by resend_lines, and nothing else, so no handler start or Slack call stands between a lane's question and its reader. Its first pass, and one after a failed read, first has this process's Orca calls speak as the drive's own terminal; a failed read goes again next pass, said as the watch says its reads."""
+    """Start a reader on each new read or `DRIVE` question a live lane asked, then send again each answer a reader kept that no reply took, by resend_lines, and nothing else, so no handler start or Slack call stands between a lane's question and its reader. Its first pass, and one after a failed read, first has this process's Orca calls speak as the drive's own terminal; a failed read goes again next pass, said as the watch says its reads."""
     lines = []
     try:
         if watcher.read_at is None:
@@ -2046,16 +2176,39 @@ def respond_pass(watcher: Watcher, moment: datetime) -> list[str]:
         lines = read_failed(watcher, NEWEST_MAIL, error, moment)
     else:
         watcher.failures.pop(NEWEST_MAIL, None)
-    retake_pending(watcher)
     return lines + resend_lines(watcher, moment)
 
 
 def relay_pass(watcher: Watcher, moment: datetime) -> list[str]:
-    """Take each ended codex-ask run, by codex_takes, then start the handler on each line promised him by a time this pass's own clock is due to start it at, by due_lines, on each line a thread owes on news, every so many minutes he asked or on top priority, by quiet_lines, on each POST report to the communicator, by post_lines, and, once he is back, on each thread's line carrying the reports held for his return, by held_report_lines, and on his catch-up, by catch_up_lines, so no main pass stands between a line owed him by the clock, his return or either and its handler; the lanes' reads are the responder's, by respond_pass. Its first pass, one after a failed read and one every READ_EVERY first has this process's Orca calls speak as the drive's own terminal and reads his cards as the landing loop last stored them, which due_lines and quiet_lines name in their reports."""
-    if watcher.read_at is None or moment - watcher.read_at >= READ_EVERY:
-        watcher.read_at, watcher.cards = moment, view.live_cards(watcher.name)
+    """Take each ended codex-ask run, by codex_takes, start the disk check once DISKS_EVERY is due, by check_disks, hand on each staging slot whose lease ended or whose turn came, by slot_lines, then start the handler on each POST report that needs one, by post_lines, so none of these clocks waits on a main pass that runs minutes; the lanes' reads are respond_pass's."""
+    clocks_drawn(watcher)
     codex_takes(watcher)
-    return due_lines(watcher, moment) + quiet_lines(watcher, moment) + post_lines(watcher, moment) + held_report_lines(watcher, moment) + catch_up_lines(watcher, moment)
+    return check_disks(watcher, moment) + slot_lines(watcher, moment) + post_lines(watcher, moment)
+
+
+CLOCKS_DRAWN: dict[str, int] = {}
+
+
+def clocks_drawn(watcher: Watcher) -> None:
+    """Draw the drive's clocks row again from the drive's own relay once any write changed the drive since its last draw, by state.redrawn, its one writer, so the overdue block every session's call reads stays current by the rules installed now."""
+    if watcher.project or state.scratch():
+        return
+    if CLOCKS_DRAWN.get(watcher.name) == state.drive_rev(watcher.name):
+        return
+    state.redrawn(watcher.name)
+    CLOCKS_DRAWN[watcher.name] = state.drive_rev(watcher.name)
+
+
+def post_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Start the handler on each `POST` report to communicator@<drive> that answers a message of his, an incident's, a watched thread's or a channel root's, once, by agents.start_posts, and carry every other as progress; a start that fails is said as a failed read is."""
+    if watcher.project:
+        return []
+    try:
+        agents.start_posts(watcher.name, moment)
+    except (slack.SlackError, state.DriveError) as error:
+        return failed(watcher, "POST reports", "start of the POST reports' handlers", error, moment)
+    watcher.failures.pop("POST reports", None)
+    return []
 
 
 def codex_takes(watcher: Watcher) -> None:
@@ -2152,9 +2305,7 @@ def spawn_reader(name: str, job_id: str, message_id: str) -> None:
 
 
 def answer_read(name: str, job_id: str, message_id: str, moment: datetime) -> tuple[str | None, str | None]:
-    """Run a lane's read here and send its answer in one orca.reply, with why it is no answer when it failed, and why none ran; a `drive job report <job> -`, `drive pr add` or `drive job set` is answered as kept before it runs, by run_after_reply, and any other read still running ANSWER_BY after its lane asked is answered as still running and its output carried to the lane once it ends, by answer_late, so no lane waits on one past its prompt cache: no worker waits on it, by still_asked, so no write a lane asked runs after its lane gave up on it, or another reader took it. A reader takes its question by creating its answer file exclusively, holding the answer a reader stopped mid-run leaves and this process's id, then marking it unsent, so no read runs twice, a `drive break-glass` in production included, and none that crashes starts again; it writes its own answer over that file before it sends it, and the relay sends again one Orca refused. An answer past one Orca relay message is written onto the lane's Sprite first and sent as the line naming that file; one the Sprite cannot take is answered with why, as a failed read is."""
-    if answer_file(name, message_id).with_suffix(".pending").exists():
-        return retaken(name, job_id, message_id)
+    """Run a lane's read here and send its answer in one orca.reply, with why it is no answer when it failed, and why none ran: no worker waits on it, by still_asked, so no write a lane asked runs after its lane gave up on it, or another reader took it. A reader takes its question by creating its answer file exclusively, holding the answer a reader stopped mid-run leaves and this process's id, then marking it unsent, so no read runs twice, a `drive break-glass` in production included, and none that crashes starts again; it writes its own answer over that file before it sends it, and the relay sends again one Orca refused. An answer past one Orca relay message is written onto the lane's Sprite first and sent as the line naming that file; one the Sprite cannot take is answered with why, as a failed read is."""
     data = state.load(name)
     job, message = data["jobs"][job_id], kept_question(name, job_id, message_id)
     if not still_asked(job, message, moment):
@@ -2172,17 +2323,10 @@ def answer_read(name: str, job_id: str, message_id: str, moment: datetime) -> tu
         claim.unlink()
     path.with_suffix(".unsent").touch()
     checkout = Path(data["roles"]["coordinator"]["cwd"])
-    if (kept_as := reads.run_after_reply(question)) is not None:
-        return run_after_reply(name, job_id, message_id, question, kept_as, checkout)
-    with ThreadPoolExecutor(1) as pool:
-        running = pool.submit(reads.answer, question, checkout, name, job_id)
-        try:
-            said = running.result(max(0.0, (state.parse_time(message["created_at"]) + ANSWER_BY - moment).total_seconds()))
-        except TimeoutError:
-            keep_answer(name, job_id, message_id, reads.lane_exit(0, STILL_RUNNING.format(seconds=reads.ANSWER_BY)), None)
-            return answer_late(name, job_id, job, message_id, question, running)
-        except reads.ReadError as error:
-            return keep_answer(name, job_id, message_id, f"{question}: {error}", f"{question}: {error}")
+    try:
+        said = reads.answer(question, checkout, name, job_id)
+    except reads.ReadError as error:
+        return keep_answer(name, job_id, message_id, f"{question}: {error}", f"{question}: {error}")
     return keep_answer(name, job_id, message_id, *sprite_answered(job, message_id, question, said))
 
 
@@ -2203,68 +2347,6 @@ def keep_answer(name: str, job_id: str, message_id: str, answer: str, why: str |
     os.replace(written, answer_file(name, message_id))
     send_answer(name, job_id, message_id, kept)
     return answer, why
-
-
-def answer_late(name: str, job_id: str, job: dict, message_id: str, question: str, running: Future) -> tuple[str, str | None]:
-    """Carry to its lane, by `drive job resume`, what a read printed once it ends, after its answer told the lane at ANSWER_BY that it still ran, so no Sprite lane waits on one past its prompt cache's life."""
-    try:
-        said, why = sprite_answered(job, f"{message_id}-late", question, running.result())
-    except reads.ReadError as error:
-        said = why = f"{question}: {error}"
-    state.detach(name, ["job", "resume", job_id, LATE_ANSWER.format(command=question.partition("\n")[0].removeprefix("DRIVE ").removeprefix("READ "), seconds=reads.ANSWER_BY, answer=said)], READS_LOG)
-    return said, why
-
-
-def run_after_reply(name: str, job_id: str, message_id: str, question: str, kept_as: str, checkout: Path) -> tuple[str | None, str | None]:
-    """Answer a lane's `drive job report <job> -`, `drive pr add` or `drive job set` as kept the moment its reader takes it, its pending mark written first, so a reader that dies before the run ends leaves the write for retaken to run, by retake_pending; then run it, by run_kept."""
-    pending = answer_file(name, message_id).with_suffix(".pending")
-    pending.write_text(json.dumps({"job": job_id, "reader": os.getpid(), "started": procs.started(os.getpid())}))
-    keep_answer(name, job_id, message_id, reads.lane_exit(0, f"{TAKEN_LATER}: {kept_as}"), None)
-    return run_kept(name, job_id, question, checkout, pending)
-
-
-def run_kept(name: str, job_id: str, question: str, checkout: Path, pending: Path) -> tuple[str | None, str | None]:
-    """Run a write its lane was answered kept for as drive does, its refusals, Jev's and Opus's reads, GitHub reads and every lock it waits on included, so the lane waits on none of them, then drop its pending mark; one that refuses or fails changes nothing, and its lane is woken with what it printed, by `drive job resume`, to fix and run it again."""
-    ran = reads.answer(question, checkout, name, job_id)
-    why = None if reads.exited(ran) == 0 else REFUSED_LATER.format(command=f"drive {question.partition("\n")[0].removeprefix("DRIVE ")}", taken=ran.partition("\n")[2].strip())
-    if why:
-        state.detach(name, ["job", "resume", job_id, why], READS_LOG)
-    pending.unlink()
-    return ran, why
-
-
-def reader_gone(held: dict) -> bool:
-    """Whether the reader a pending mark names is no longer running: its pid free, or held by a process that started since."""
-    return procs.started(held["reader"]) != held["started"]
-
-
-def retaken(name: str, job_id: str, message_id: str) -> tuple[str | None, str | None]:
-    """Run again a write its lane was answered kept for whose reader died before the run ended, as its pending mark shows, by run_kept: the mark is taken by renaming it aside, so of two readers started on it one runs it, then written back naming this reader."""
-    pending = answer_file(name, message_id).with_suffix(".pending")
-    held = json.loads(pending.read_text())
-    if not reader_gone(held):
-        return None, f"reader {held['reader']} still runs {job_id}'s kept {message_id}"
-    taking = pending.with_name(f"{message_id}.{os.getpid()}.taking")
-    try:
-        os.rename(pending, taking)
-    except FileNotFoundError:
-        return None, f"another reader took {job_id}'s kept {message_id}"
-    taking.write_text(json.dumps(held | {"reader": os.getpid(), "started": procs.started(os.getpid())}))
-    os.rename(taking, pending)
-    data = state.load(name)
-    return run_kept(name, job_id, reads.request(kept_question(name, job_id, message_id)["body"] or ""), Path(data["roles"]["coordinator"]["cwd"]), pending)
-
-
-def retake_pending(watcher: Watcher) -> None:
-    """Start a reader, by spawn_reader, on each write of a job this watch hears that its lane was answered kept for and whose reader died before the run ended, by reader_gone, so no lane is told kept for a write that is then lost."""
-    marks = sorted((state.drive_dir(watcher.name) / ANSWERS).glob("*.pending"))
-    if not marks:
-        return
-    data = state.load(watcher.name)
-    for mark in marks:
-        held = json.loads(mark.read_text())
-        if heard_job(watcher, data, data["jobs"][held["job"]]) and reader_gone(held):
-            spawn_reader(watcher.name, held["job"], mark.stem)
 
 
 def send_answer(name: str, job_id: str, message_id: str, kept: dict) -> orca.OrcaError | None:
@@ -2306,8 +2388,10 @@ def digest_lines(watcher: Watcher, moment: datetime) -> list[str]:
         except (slack.SlackError, state.DriveError) as error:
             return failed(watcher, "digest", "post of the daily digest of his old questions", error, moment)
         watcher.failures.pop("digest", None)
-    with state.edit(watcher.name) as saved:
+    def digest_lines_write(saved: dict):
         saved["slack"]["digest"] = folded
+
+    state.update(watcher.name, None, digest_lines_write)
     return [f"DIGEST {day}: {len(old)} of his question cards asked more than a day ago, linked in {folded['message']}"] if old else []
 
 
@@ -2329,8 +2413,10 @@ def waiting_post_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 continue
             watcher.failures.pop(f"waiting post {channel}", None)
             kept = {"message": reply["permalink"], "words": words, "pinned": bool(kept and kept["pinned"])}
-            with state.edit(watcher.name) as saved:
+            def waiting_post_lines_write2(saved: dict):
                 saved["slack"]["waiting"][channel] = kept
+
+            state.update(watcher.name, None, waiting_post_lines_write2)
         if not kept or kept["pinned"]:
             continue
         try:
@@ -2339,8 +2425,10 @@ def waiting_post_lines(watcher: Watcher, moment: datetime) -> list[str]:
             lines += failed(watcher, f"waiting pin {channel}", f"pin of the post of what waits on him in {channel}", error, moment)
             continue
         watcher.failures.pop(f"waiting pin {channel}", None)
-        with state.edit(watcher.name) as saved:
+        def waiting_post_lines_write(saved: dict):
             saved["slack"]["waiting"][channel]["pinned"] = True
+
+        state.update(watcher.name, None, waiting_post_lines_write)
     return lines
 
 
@@ -2358,13 +2446,17 @@ def page_lines(watcher: Watcher, moment: datetime) -> list[str]:
     except page.PageError as error:
         if stale:
             return []
-        with state.edit(watcher.name) as data:
+        def page_lines_write2(data: dict):
             data["slack"]["page_stale"] = state.stamp(moment)
+
+        state.update(watcher.name, None, page_lines_write2)
         return [f"WATCH status page stale since {when(state.stamp(moment))}: {error}"]
     watcher.page_shape = shape
     if stale:
-        with state.edit(watcher.name) as data:
+        def page_lines_write(data: dict):
             data["slack"].pop("page_stale")
+
+        state.update(watcher.name, None, page_lines_write)
     if drawn.new_tab:
         return [f"WATCH status page redrawn on a new tab: {drawn.url}"]
     if stale:
@@ -2448,127 +2540,6 @@ def take_deliveries(watcher: Watcher) -> list[str] | None:
     return named
 
 
-def overdue(data: dict, order: dict, held: dict, moment: datetime) -> bool:
-    """Whether the watch owes a report on the line an order promised him in one thread by a time: from DUE_AHEAD before it while he reads present, so the line is in that thread by its time, then every ten minutes; none while state.owed_at_return reads it owed at his return, nor ahead of it while he is away; once, at the time, for the drive's own time of an order with no thread; and at once the first pass after he is heard, whatever report went before his absence."""
-    if order["state"] in state.CLOSED_ORDER_STATES or order["incident"] or held["kept"] or state.owed_at_return(data, held, moment):
-        return False
-    away = state.owner_away(data, moment)
-    if state.parse_time(state.due_at(held)) - (DUE_AHEAD if held["thread"] and not away else timedelta()) > moment:
-        return False
-    said, absence = held["due_said"], data["owner"]["absence"]
-    return said is None or not away and (moment - state.parse_time(said) >= DUE_EVERY or bool(absence) and state.parse_time(said) < state.parse_time(absence["until"]))
-
-
-def due_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Owe him each line promised by a time with no drive post since its promise in the thread whose line promised it, read from Slack, a post in any other thread keeping nothing: the relay writes the report owing that line and starts the handler that posts it there, as quiet_lines does, DUE_AHEAD before the time while he reads present, by its own clock however long a pass holds the watch, so the line is in that thread by its time and no session's judgment stands between the time and its line, by his words "fix your toolking so tracking this stuff beciomes deterministic and it cant get lost at the whims of an agent"; again every ten minutes until a post is there, by overdue's clock, none while he is away and the first at once after he is heard, each counting him late once he read present ten minutes past the time. A report reaching a handler keeps its facts as quiet_lines' own reports do, so the thread's next news report waits five minutes from it. A thread that could not be read and a report that could not be written are said as a failed read is and tried again next pass; a report whose handler did not start gets one from post_lines, as each POST report does. An incident promises none, since quiet_lines owes its next line five quiet minutes after its last once it has news. The drive's own time of an order whose lines to him have no thread has no line to read, so it is said once as a DUE line and kept by being said."""
-    data = state.load(watcher.name, ("owner", "orders", "subcoordinators"))
-    threads = {
-        (order_id, tuple(held["thread"] or ())): slack.thread_posts(held) if held["thread"] else None
-        for order_id, order in heard_orders(watcher, data).items()
-        for held in order["promises"]
-        if overdue(data, order, held, moment)
-    }
-    if not threads:
-        return []
-    lines = []
-    owing = []
-    with state.edit(watcher.name) as data:
-        for (order_id, where), read in threads.items():
-            order = data["orders"][order_id]
-            if not (held := state.promised_in(order, where)):
-                continue
-            if read and overdue(data, order, held, moment):
-                state.keep(held, read[0])
-            if read and not read[1]:
-                watcher.failures.pop(f"due read {order_id} {where[1]}", None)
-            if not overdue(data, order, held, moment):
-                continue
-            if read is None:
-                held["due_said"] = held["kept"] = state.stamp(moment)
-                lines.append(f'DUE {order_id} "{cut(order["text"], 80)}" was due {when(state.due_at(held))}: {UNTHREADED}')
-            elif read[1]:
-                lines += failed(watcher, f"due read {order_id} {where[1]}", f"read of {order_id}'s thread {where[1]} for the line promised him by {when(state.due_at(held))}", slack.SlackError(read[1]), moment)
-            else:
-                owing.append((order_id, dict(held)))
-    registered = render.prs_by_job(data)
-    joined = state.joined_orders(data)
-    for order_id, held in owing:
-        source = f"due {order_id} {held['thread'][1]}"
-        order = data["orders"][order_id]
-        group = thread_group(data, joined, order_id)
-        facts = line_facts(data, group, registered, watcher.cards, moment)
-        working = [job_id for job_id, job in state.orders_jobs(data, group).items() if job["state"] == "running"]
-        try:
-            seq = quiet_report(watcher, data, {order_id: group}, quiet_since(data, group), moment, untold(order, facts) if order["quiet"] else list(facts), working, held)
-        except (reads.ReadError, state.DriveError) as error:
-            lines += failed(watcher, source, f"report owing the line {order_id} promised him by {when(state.due_at(held))}", error, moment)
-            continue
-        handler = None
-        try:
-            handler, _ = agents.handle(watcher.name, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'due-{seq}'}")
-            watcher.failures.pop(source, None)
-        except state.DriveError as error:
-            lines += failed(watcher, source, f"handler on report {seq} owing the line {order_id} promised him", error, moment)
-        with state.edit(watcher.name) as data:
-            order = data["orders"][order_id]
-            if said := state.promised_in(order, held["thread"]):
-                said["due_said"] = state.stamp(moment)
-            if order["quiet"]:
-                order["quiet"] |= {"record": seq, "at": state.stamp(moment), "handler": handler, "news": facts}
-    return lines
-
-
-def held_report_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Once he is back, owe each thread of his DM or an incident's that a report held for his return was to go in its line, by his words 162648a "why did all of these get sent in this thread?": one report on the orders and incidents with news in that thread and the orders of its held reports this watch hears, with what moved and each held report its writer did not withdraw, with each correction cci holds re one, for one handler the watch starts there, which re-reads each and posts what still stands, a handler already at work in that thread taking it at its next step; each held report is kept as that report's until a post of it lets it go, by talk.released, each withdrawn let go at once, and its orders keep the facts it carried, as due_lines' reports do. A held report with no order or no thread goes on his catch-up instead, by catch_up_report. A failed write is said as a failed read is and tried again next pass; a report whose handler did not start gets one from post_lines, as each POST report does."""
-    data = state.load(watcher.name, ("owner", "held", "orders", "subcoordinators"))
-    if state.owner_away(data, moment):
-        return []
-    threads: dict[tuple[str, str], list[str]] = {}
-    for seq, mark in data["held"].items():
-        if mark["record"] is None and mark["order"] and hears(watcher, data, mark["order"]) and (where := state.promise_thread(data["orders"][mark["order"]])):
-            threads.setdefault(where, []).append(seq)
-    if not threads:
-        return []
-    data = state.load(watcher.name)
-    try:
-        amended = agents.amendments(watcher.name, [seq for seqs in threads.values() for seq in seqs])
-    except state.DriveError as error:
-        return failed(watcher, "held", "read of the corrections of the reports held for his return", error, moment)
-    registered = render.prs_by_job(data)
-    groups = news_groups(data, heard_orders(watcher, data))
-    lines, written = [], []
-    for where, seqs in threads.items():
-        if not (held := [seq for seq in seqs if seq not in amended["withdraw"]]):
-            continue
-        heads = {head: group for head, group in groups.items() if state.promise_thread(data["orders"][head]) == where}
-        heads |= {order_id: [order_id] for order_id in dict.fromkeys(data["held"][seq]["order"] for seq in held) if not any(order_id in group for group in heads.values())}
-        facts = {head: line_facts(data, group, registered, watcher.cards, moment) for head, group in heads.items()}
-        moved = [key for head in heads for key in (untold(data["orders"][head], facts[head]) if data["orders"][head]["quiet"] else facts[head])]
-        working = [job_id for job_id, job in state.orders_jobs(data, [order_id for group in heads.values() for order_id in group]).items() if job["state"] == "running"]
-        since = max(quiet_since(data, group) for group in heads.values())
-        try:
-            seq = quiet_report(watcher, data, heads, since, moment, list(dict.fromkeys(moved)), working, held=[f"- report {each}{render.corrected_by(amended['correction'].get(each, []))}" for each in held])
-        except (reads.ReadError, state.DriveError) as error:
-            lines += failed(watcher, f"held {where[1]}", f"line owed at his return in the thread of {', '.join(heads)}", error, moment)
-            continue
-        watcher.failures.pop(f"held {where[1]}", None)
-        written.append((seq, held, facts))
-    with state.edit(watcher.name) as data:
-        state.let_go(data, [seq for seqs in threads.values() for seq in seqs if seq in amended["withdraw"]])
-        for seq, held, facts in written:
-            for each in held:
-                data["held"][each]["record"] = seq
-            for head, told in facts.items():
-                if data["orders"][head]["quiet"]:
-                    data["orders"][head]["quiet"] |= {"record": seq, "at": state.stamp(moment), "news": told}
-    for seq, _, facts in written:
-        try:
-            agents.handle(watcher.name, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'held-{seq}'}")
-        except state.DriveError as error:
-            lines += failed(watcher, f"held {seq}", f"handler on report {seq} owing the line at his return in the thread of {', '.join(facts)}", error, moment)
-    return lines
-
-
 def claim_lines(watcher: Watcher, moment: datetime) -> list[str]:
     """Owe the thread of each claim whose end passed, such as a staging claim's in #releases-staging, its closing line: read from Slack, a drive post there after the post that set the end ends the claim, and with none the order's lane gets a DUE line naming the claim, again every ten minutes until one is there, by his words "this thread message saying we're done and what the result is was is good, we should always do that"; a line in that thread naming a new end moves it, which state.claim keeps. A thread that could not be read is said as a failed read is and tried again next pass."""
     data = state.load(watcher.name)
@@ -2641,30 +2612,6 @@ def claim_reply_lines(watcher: Watcher, moment: datetime) -> list[str]:
     return lines
 
 
-def last_line(data: dict, group: list[str]) -> datetime:
-    """When he last had a line on an open order or incident, by the orders of its thread_group: the newest drive post on any of them, else when the first was opened."""
-    lined = [data["orders"][order_id]["last_line"] for order_id in group if data["orders"][order_id]["last_line"]]
-    return max(map(state.parse_time, lined or [data["orders"][group[0]]["created"]]))
-
-
-def quiet_since(data: dict, group: list[str]) -> datetime:
-    """When an open order or incident last had a line, or when the watch's last report on it reached a handler, whichever is newer."""
-    owed = data["orders"][group[0]]["quiet"]
-    return max([last_line(data, group), *([state.parse_time(owed["at"])] if owed and owed["at"] else [])])
-
-
-def line_facts(data: dict, group: list[str], registered: dict[str, list[str]], cards: dict | None, moment: datetime) -> dict[str, list]:
-    """What a line on an open order or incident tells him, by the order, job, PR or handoff it is about: each order of it, each job whose own order it is, never one only carrying it, by heard_job's rule that one watch alone makes every line about a job, with the facts state.job_news names once it is not running, so one wait of several ending is no news while the job still waits, each PR registered on those jobs or named in its orders' words, by its state, checks, Trunk ejection and tap as the watch last read them, so a new commit is news only through its checks or state, and each handoff of the communicator's side state.owed_handoffs names, once five quiet minutes passed since it went out, so the post promising its job takes it in as told no sooner than the watch owes its line, which stays owed whatever the session it went to answered until a job of its order is made, a job it names works or the communicator withdraws it, the records re it taken in once first by quiet_lines, and each card of his on those jobs and PRs open past CARD_WAIT among his cards as cc-slack's store last held them, by waited_cards, told once; never a PR's head, which a push moves while the same checks fail, a stamp or the time of a read, which move with nothing changed, nor the stage stage.of names from those, which relabels a PR with nothing of its own changed, such as red to behind once a PR below it in its stack goes red."""
-    jobs, prs = subjects(data, group, registered)
-    return {
-        **{order_id: [data["orders"][order_id]["state"]] for order_id in group},
-        **{job_id: state.job_news(job["state"], job["waits"], view.open_cards(job), job["said"]) for job_id, job in jobs.items() if job["state"] != "running"},
-        **{key: [pr["state"], pr["checks"], pr["ejected"], pr["tap"] and pr["tap"]["label"]] for key, pr in prs.items()},
-        **{f"{HANDOFF_FACT} {handoff['seq']}": ["owed"] for handoff in quiet_handoffs(data, group, moment)},
-        **{fact: ["waits"] for fact in waited_cards(data, cards, jobs, prs, moment)},
-    }
-
-
 def subjects(data: dict, group: list[str], registered: dict[str, list[str]]) -> tuple[dict[str, dict], dict[str, dict]]:
     """The jobs whose own order is one of these and the PRs registered on them or named in the orders' words, the ones a line on the orders is about."""
     jobs = {job_id: job for job_id, job in state.orders_jobs(data, group).items() if job["order"] in group}
@@ -2689,11 +2636,6 @@ def waited_cards(data: dict, cards: dict | None, jobs: dict[str, dict], prs: dic
     return {f"{WAITED_FACT} {link}": said for link, said in (asked | tapped).items()}
 
 
-def quiet_handoffs(data: dict, group: list[str], moment: datetime) -> list[dict]:
-    """Each handoff state.owed_handoffs names on the orders that went out five quiet minutes or more before moment."""
-    return [handoff for handoff in state.owed_handoffs(data, group) if moment - state.parse_time(handoff["at"]) >= state.QUIET_THREAD]
-
-
 def withdrawn_lines(watcher: Watcher, moment: datetime) -> list[str]:
     """Take each handoff state.owed_handoffs names on the orders the watch hears off its order by state.answer_handoffs once the communicator withdrew it, read in one cci grep from the oldest of them at each of the watch's reads, once a minute, since the cci close tool posts that withdraw past every drive tool and hook and quiet_lines reads the records re a handoff only before its first report, so no later quiet report, news fact or say's job-start check counts a handoff its sender withdrew; a failed read is said as a failed read is and tried again next pass."""
     data = state.load(watcher.name)
@@ -2705,230 +2647,11 @@ def withdrawn_lines(watcher: Watcher, moment: datetime) -> list[str]:
         return failed(watcher, "withdrawn handoffs", "read of the handoffs the communicator withdrew", error, moment)
     watcher.failures.pop("withdrawn handoffs", None)
     if withdrawn:
-        with state.edit(watcher.name) as data:
+        def withdrawn_lines_write(data: dict):
             state.answer_handoffs(data, [(seq, "withdraw", {}) for seq in withdrawn])
+
+        state.update(watcher.name, None, withdrawn_lines_write)
     return []
-
-
-def asked_lines(order: dict) -> bool:
-    """Whether an order's thread is owed lines on news at all: an incident, an order he called top priority, or one he asked a line of every so many minutes, by his words "clearly these reports are useless / not valuable / spammy, so remove them entirely or rethink the whole model"; every other order's news reaches him only through the reports its sessions write and his own questions, which the drive answers from its rows."""
-    return bool(order["incident"] or order["priority"] or order["every"] > 0)
-
-
-def quiet_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Owe him a line in the thread of each open order with news the watch hears, by his pick "A handler posts each step, started by the watch on news", and in each thread of open incidents whose users are not unblocked yet, the watch not having found it over and no order of it keeping a proof, that had none in five minutes and has news, while he is away too, by his pick "Watch-owned clock: no 10-minute silence again, a line every five quiet minutes from a handler reading the jobs; costs one handler session each" and "Proof ends the line: none once users are unblocked; the incident stays open until its root fix is live." and "Owe a line only on news: while a job works or something it names changed; silent while all waits.". News is an order, job or PR of it whose facts moved since the thread's last line or the watch's last report on it, which the watch keeps on each order at the first pass after that line and once each report reaches a handler: a job returning, its first wait beginning or its last ending, never one wait of several ending while it still waits, a PR's state or checks settling, a new commit only through those, Trunk ejecting it or his tap, never its stage relabelled with none of those changed, a card of his opening or closing, and a job of its own, or one building or testing a part it carries for it, at work with a live worker, never a prover only carrying it, whose proof gives each order it carries its close report once, by his words "Status? It's been 10 mins unacceptable to wait that long and to have to prompt you fix your tooling"; an order he asked a line of every so many minutes owes one that long after its thread's last line, news or none, by his words "And give me updates, every 15 mins, concise, on all 3 of these, in this thread, until all done"; an order he called top priority owes its line with no news at all, by his words "And for future when I say something is top priority it’s not acceptable that it's been an hour and there's no motion or updates on it". An order owes its line once five minutes passed since its thread's last line or the watch's last report on it, as an incident does, so a thread lined minutes before waits out that window and its line carries every step in it; never while he is away, since the thread's first line after his return carries it, nor once a report closing it is kept or posted, since that report's post is its line. Each such thread gets one report naming each order and incident in it that owes the line, each only once its facts moved or a job of its own is at work, with its jobs and what moved, worded as an incident's only when every head it names is an incident, written once, and one handler the watch starts on it, which reads the jobs and posts what changed and what each job at work is doing in that thread, so orders sharing a thread get one line, not one each. A handler already at work in that thread takes the report at its next step. A report reaching a handler, started, handed or held by one already at work on it, keeps the facts it carried, so news a handler judged not worth posting starts no second handler and the next report carries only what moved after it; a failed write or start is said as a failed read is and tried again next pass with the same report. It runs on the watch's relay, by its own clock every RELAY_SECONDS, as due_lines does, so no pass of the watch, however long, holds a line owed him by the clock."""
-    data = state.load(watcher.name)
-    away = state.owner_away(data, moment)
-    registered = render.prs_by_job(data)
-    groups = news_groups(data, heard_orders(watcher, data))
-    threads: dict[tuple[str, str] | str, list[str]] = {}
-    for head in groups:
-        threads.setdefault(state.promise_thread(data["orders"][head]) or head, []).append(head)
-    facts = {head: line_facts(data, group, registered, watcher.cards, moment) for head, group in groups.items()}
-    heard = {head: state.stamp(max(last_line(data, groups[other]) for other in heads)) for heads in threads.values() for head in heads}
-    if stale := [head for head in groups if not data["orders"][head]["quiet"] or data["orders"][head]["quiet"]["heard"] != heard[head]]:
-        with state.edit(watcher.name) as data:
-            for head in stale:
-                data["orders"][head]["quiet"] = (data["orders"][head]["quiet"] or {"record": None, "at": None, "handler": None}) | {"heard": heard[head], "news": facts[head]}
-    lines = []
-    for heads in threads.values():
-        if not (heads := [head for head in heads if asked_lines(data["orders"][head]) and (data["orders"][head]["incident"] or not away)]):
-            continue
-        since = max(quiet_since(data, groups[head]) for head in heads)
-        silent = moment - since
-        every = {head for head in heads if 0 < data["orders"][head]["every"] <= silent.total_seconds() // 60}
-        if not (heads := [head for head in heads if silent >= state.QUIET_THREAD or head in every]):
-            continue
-        source = f"quiet {heads[0]}"
-        if fresh := [key.removeprefix(f"{HANDOFF_FACT} ") for head in heads for key in untold(data["orders"][head], facts[head]) if key.startswith(f"{HANDOFF_FACT} ")]:
-            try:
-                answers = [(seq, record["kind"], record["fields"].get("attrs") or {}) for seq in fresh for record in agents.answering(watcher.name, seq)]
-            except state.DriveError as error:
-                lines += failed(watcher, source, f"read of the records re handoffs {', '.join(fresh)}", error, moment)
-                continue
-            if answers:
-                with state.edit(watcher.name) as data:
-                    state.answer_handoffs(data, answers)
-                facts |= {head: line_facts(data, groups[head], registered, watcher.cards, moment) for head in heads}
-        moved = {head: untold(data["orders"][head], facts[head]) for head in heads}
-        working = {head: [job_id for job_id, job in state.orders_jobs(data, groups[head]).items() if state.at_work(job) and (job["order"] in groups[head] or not proves(data, job_id))] for head in heads}
-        if not (heads := [head for head in heads if moved[head] or working[head] or data["orders"][head]["priority"] or head in every]):
-            continue
-        owed = data["orders"][heads[0]]["quiet"]
-        try:
-            seq = (
-                owed["record"]
-                if owed["record"] and not owed["at"]
-                else quiet_report(
-                    watcher,
-                    data,
-                    {head: groups[head] for head in heads},
-                    since,
-                    moment,
-                    list(dict.fromkeys(key for head in heads for key in moved[head])),
-                    list(dict.fromkeys(job_id for head in heads for job_id in working[head])),
-                )
-            )
-            with state.edit(watcher.name) as data:
-                for head in heads:
-                    data["orders"][head]["quiet"] |= {"record": seq, "at": None, "handler": None}
-            handler = quiet_handler(watcher.name, seq)
-        except (reads.ReadError, state.DriveError) as error:
-            lines += failed(watcher, source, f"line owed in the thread of {', '.join(heads)}", error, moment)
-            continue
-        watcher.failures.pop(source, None)
-        with state.edit(watcher.name) as data:
-            for head in heads:
-                data["orders"][head]["quiet"] |= {"record": seq, "at": state.stamp(moment), "handler": handler, "news": facts[head]}
-    return lines
-
-
-def quiet_handler(name: str, seq: str) -> str | None:
-    """Start the handler on a quiet report, but none on one say's rules settle with no post, such as one held for his return while he is away, by talk.unhandled; the handler started, else None."""
-    try:
-        return agents.handle(name, f"Record: {seq} Drive: {name} Scratch: {state.drive_dir(name) / 'scratch' / f'quiet-{seq}'}")[0]
-    except agents.Carried:
-        return None
-
-
-def news_groups(data: dict, orders: dict[str, dict]) -> dict[str, list[str]]:
-    """Each open order and incident owed lines in a thread, by its head, with the orders of its thread_group, while none of them keeps a proof: a head joins no order, or joins one whose lines go in another thread, so each report names only the news of the thread it goes in."""
-    joined = state.joined_orders(data)
-    groups = {}
-    for head, order in orders.items():
-        if not (order["incident"] or order["thread"]) or order["joins"] and in_head_thread(data, order) or order["recovered"] or order["close_report"] or order["closed_on"]:
-            continue
-        group = thread_group(data, joined, head)
-        if not any(data["orders"][order_id]["proof"] for order_id in group):
-            groups[head] = group
-    return groups
-
-
-def thread_group(data: dict, joined: dict[str, list[str]], head: str) -> list[str]:
-    """The order and each order joined to it whose news goes in its thread, by in_head_thread."""
-    return [head, *(order_id for order_id in joined.get(head, []) if in_head_thread(data, data["orders"][order_id]))]
-
-
-def in_head_thread(data: dict, order: dict) -> bool:
-    """Whether an order joined to another tells its news in that order's thread: an incident only when that order is an incident too, so an alert's order keeps its incident's line and an incident joined to an order that is no incident heads its own group, its line in its own thread while he is away too and its jobs at work its news, and an order that is no incident when its own lines go there by state.promise_thread or it keeps no thread of his DM, so one with a thread of its own heads its own group and none opens a thread at his DM root."""
-    head = data["orders"][order["joins"]]
-    return head["incident"] if order["incident"] else state.promise_thread(order) in (None, state.promise_thread(head))
-
-
-def untold(order: dict, facts: dict[str, list]) -> list[str]:
-    return [key for key, fact in facts.items() if order["quiet"]["news"].get(key) != fact]
-
-
-def quiet_report(watcher: Watcher, data: dict, groups: dict[str, list[str]], since: datetime, moment: datetime, moved: list[str], working: list[str], promised: dict | None = None, held: list[str] | None = None) -> str:
-    """Write the report owing him a line in one thread, for the handler that posts it there: on the orders and incidents with news in it, each by the orders of its thread_group, head first and each once, then each job and PR of them once, however many of those orders list or name it, or, given a promise, on the one order owing him the line it promised in that promise's thread by its time, which the report asks for before the time when the time is still to come, calls late once he read present ten minutes past it, never counting the minutes of his absence, and says when he went away of a line that waited for his return, or, given held, carrying the lines of the reports held for his return that were to go in that thread, for the handler to re-read and post what still stands of; each card of his among the moved facts that waited_cards reads open past CARD_WAIT, for the line to say once that it still waits and what it holds; its seq."""
-    heads = list(groups)
-    minutes = int((moment - since).total_seconds() // 60)
-    one = len(heads) == 1
-    incidents = all(data["orders"][head]["incident"] for head in heads)
-    due = promised and state.due_at(promised)
-    ahead = int((state.parse_time(due) - moment).total_seconds() // 60) if due and state.parse_time(due) > moment else None
-    past = int((moment - state.parse_time(due)).total_seconds() // 60) if due else 0
-    present = int(state.present(data, state.parse_time(due), moment).total_seconds() // 60) if due else 0
-    late = timedelta(minutes=present) >= DUE_EVERY
-    absence = data["owner"]["absence"] if present < past else None
-    orders = [order_id for group in groups.values() for order_id in group]
-    jobs = [f"- {render.job_line(data, job_id, job)}" for job_id, job in state.orders_jobs(data, orders).items()]
-    handoffs = quiet_handoffs(data, orders, moment)
-    waited = [said for fact, said in waited_cards(data, watcher.cards, *subjects(data, orders, render.prs_by_job(data)), moment).items() if fact in moved]
-    if due:
-        opening = (
-            f", before {when(due)}"
-            if ahead is not None
-            else ", opening with that line being late"
-            if late
-            else f", opening with its time having waited for his return since he went away at {when(absence['since'])}, never calling it late"
-            if absence
-            else ""
-        )
-        asked = f"post the answer in its thread{opening}, or, while it is not known yet, what is known: what moved since its last line and what each job at work is doing."
-    elif incidents:
-        asked = f"post where {'the' if one else 'each'} incident stands now in its thread: what moved since its last line, what each job at work is doing, a card of his on it with each job building its recommended option meanwhile, or that nothing is built before his pick, and what ships next."
-    else:
-        asked = "post what changed since its last line in its thread: what each job at work is doing, the finding a job returned, each PR that went up or changed stage with his card on it linked, his tap, and who owes the next step, such as the session that re-lands a PR Trunk ejected."
-    facts = [
-        *(f"{'Incident' if data['orders'][head]['incident'] else 'Order'} {', '.join(group)}: {data['orders'][head]['text']}" for head, group in groups.items()),
-        *incident_pr_lines(watcher.name, orders),
-        f"No line to him since {when(state.stamp(since))}, {minutes} minutes.",
-        *(
-            [
-                f"Its line was promised him in {promised['thread'][0]} thread {promised['thread'][1]} by {when(due)}, in {ahead} minutes, so post it there before then."
-                if ahead is not None
-                else f"Its line was promised him in {promised['thread'][0]} thread {promised['thread'][1]} by {when(due)}, {past} minutes ago"
-                + (
-                    f", {present} of them while he read present: he went away at {when(absence['since'])}, read away from {when(absence['from'])} and was heard back at {when(absence['until'])}."
-                    if absence
-                    else "."
-                )
-            ]
-            if due
-            else []
-        ),
-        f"Moved since the thread's last line or the watch's last report on it: {', '.join(moved) or 'nothing'}. At work: {', '.join(working) or 'no job'}.",
-        *(
-            [
-                f"Reports held for his return, which were to go in this thread while he was away: {len(held)}. Read each and each correction with cci read: none reached him, a correction's facts replace those it corrects, and a later step can overtake one; this line carries what still stands of them.",
-                *held,
-            ]
-            if held
-            else []
-        ),
-        f"Read each job below, its kept report with drive job report <j> and the transcript of one still at work, then {asked}",
-        f"Jobs: {len(jobs)}",
-        *jobs,
-        *([f"Cards of his open past 48 hours: {len(waited)}. Say once in its thread that each still waits on him and what it holds, linking each:", *(f"- {said}" for said in waited)] if waited else []),
-        *(
-            [
-                f"Handoffs no job of their order was made after, nor any job each names worked after, and none withdrawn: {len(handoffs)}. Say in its thread what each asked for and what each record re it answered. Withdraw each whose records show its step done, held by a job or owed by nobody, with the cci close tool's how: withdraw; say of each other that no job of its order started since, and send the work it asked for on as work no job holds, so a job is put on it.",
-                *(line for handoff in handoffs for line in handoff_lines(watcher.name, handoff)),
-            ]
-            if handoffs
-            else []
-        ),
-    ]
-    head = heads[0]
-    order = data["orders"][head]
-    kind = "incident" if incidents else "order"
-    named = f"{kind} {head} has" if one else f"{kind}s {', '.join(heads)} have"
-    if due:
-        text = (
-            f"POST order {head} owes him the line it promised by {when(due)}, in {ahead} minutes: post where it stands now in its thread before then"
-            if ahead is not None
-            else f"POST order {head}'s line promised by {when(due)} is {present} minutes late: post where it stands now in its thread, saying it is late"
-            if late
-            else f"POST order {head} owes him the line it promised by {when(due)}, which waited for his return since he went away at {when(absence['since'])}: post where it stands now in its thread, saying so"
-            if absence
-            else f"POST order {head} owes him the line it promised by {when(due)}: post where it stands now in its thread"
-        )
-    elif held:
-        text = f"POST {named} reports held for his return: post in its thread what still stands of them and what changed since"
-    elif incidents or not moved:
-        text = f"POST {named} had no line to him in {minutes} minutes: post where {'it stands' if one else 'each stands'} now in its thread"
-    else:
-        text = f"POST {named} news since the thread's last line: post what changed there"
-    record = {
-        "kind": "report",
-        "topic": f"watch-{'due' if due else 'held' if held else 'quiet'}-{head}",
-        "attr": {"order": head, "progress": "true", "quiet": "true"} | ({"due": due, "thread": promised["thread"][1]} if due else state.thread_attr(order)),
-        "text": text,
-        "body": "\n".join(facts) + "\n",
-    }
-    [seq] = reported(watcher, [record])
-    return seq
-
-
-def handoff_lines(name: str, handoff: dict) -> list[str]:
-    """A handoff as a quiet report names it, with each record cci holds re it."""
-    answers = agents.answering(name, handoff["seq"])
-    return [
-        f"- {HANDOFF_FACT} {handoff['seq']}, sent {when(handoff['at'])}: {handoff['text']}",
-        *(f"  - {answer['seq']} {answer['kind']} from {answer['lane']} re it: {answer['text']}" for answer in answers),
-        *([] if answers else ["  - no record re it"]),
-    ]
 
 
 def watched_lines(watcher: Watcher, moment: datetime) -> list[str]:
@@ -2946,8 +2669,10 @@ def watched_lines(watcher: Watcher, moment: datetime) -> list[str]:
             continue
         watcher.failures.pop(source, None)
         if seq:
-            with state.edit(watcher.name) as data:
+            def watched_lines_write(data: dict):
                 data["orders"][order_id]["watch"]["record"] = None
+
+            state.update(watcher.name, None, watched_lines_write)
     return lines
 
 
@@ -2974,8 +2699,10 @@ def watched_report(watcher: Watcher, order_id: str, order: dict) -> str | None:
             "body": "\n".join(facts) + "\n",
         }
         [seq] = reported(watcher, [record])
-    with state.edit(watcher.name) as data:
+    def watched_report_write(data: dict):
         data["orders"][order_id]["watch"].update(seen=max((message["ts"] for message in messages), key=float), record=seq)
+
+    state.update(watcher.name, None, watched_report_write)
     return seq
 
 
@@ -2985,7 +2712,6 @@ def owed_lines(watcher: Watcher, moment: datetime) -> list[str]:
         return []
     agents.release_quiet(watcher.name)
     agents.reap_orphans(watcher.name)
-    agents.warm(watcher.name)
     data = state.load(watcher.name)
     try:
         replies = slack.owed(agents.beside(data)[1]["session"])
@@ -2993,27 +2719,25 @@ def owed_lines(watcher: Watcher, moment: datetime) -> list[str]:
         return failed(watcher, "owed replies", "read of the replies cc-slack owes him", error, moment)
     watcher.failures.pop("owed replies", None)
     if (marks := {reply["ts"]: data["owed_replies"].get(reply["ts"], {"handed": False, "lined": None}) for reply in replies}) != data["owed_replies"]:
-        with state.edit(watcher.name) as data:
+        def owed_lines_write(data: dict):
             data["owed_replies"] = marks
+            return data
+
+        data = state.update(watcher.name, None, owed_lines_write)
     lines = []
     for reply in replies:
         channel, ts, thread = state.slack_message(reply["permalink"])
         owed_for = moment - slack.sent_at(reply)
         mark = marks[ts]
-        if ts not in data["routed"] and not answer.claim_path(watcher.name, ts).exists():
-            state.detach(watcher.name, ["route", owed_brief(watcher.name, reply, channel, thread)], "routes-run.log")
         if owed_for < OWED_HAND or state.started_order(data, channel, ts) in state.open_orders(data):
             continue
         source = f"owed {ts}"
         try:
             if not mark["handed"] and not agents.handle(watcher.name, owed_brief(watcher.name, reply, channel, thread), detached=True)[1]:
-                with state.edit(watcher.name) as saved:
+                def owed_lines_write2(saved: dict):
                     saved["owed_replies"][ts]["handed"] = True
-            if owed_for >= view.OWED_WAIT and not mark["lined"]:
-                seq = owed_report(watcher, data, reply, channel, thread, owed_for)
-                with state.edit(watcher.name) as saved:
-                    saved["owed_replies"][ts]["lined"] = seq
-                agents.handle(watcher.name, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'owed-{seq}'}", detached=True)
+
+                state.update(watcher.name, None, owed_lines_write2)
         except (reads.ReadError, state.DriveError) as error:
             lines += failed(watcher, source, f"answer of his message {reply['permalink']}, owed {minutes(owed_for)} minutes", error, moment)
             continue
@@ -3027,28 +2751,6 @@ def owed_brief(name: str, reply: dict, channel: str, thread: str) -> str:
         f"Message (his words): {reply['text']}\nLink: {reply['permalink']}\nThread: {channel} {thread}\nDrive: {name}\nScratch: {scratch}\n"
         f"Context: cc-slack has owed him an answer to this message since {when(state.stamp(slack.sent_at(reply)))}, since no post answering it named it as asked"
     )
-
-
-def owed_report(watcher: Watcher, data: dict, reply: dict, channel: str, thread: str, owed_for: timedelta) -> str:
-    """Write the report for the handler in the thread of his message cc-slack has owed an answer ten minutes, to say there what that answer waits on: his words, the order they are about and each job of it; its seq."""
-    order_id = state.message_order(data, channel, thread, reply["ts"])
-    jobs = [f"- {render.job_line(data, job_id, job)}" for job_id, job in state.orders_jobs(data, [order_id] if order_id else []).items()]
-    facts = [
-        f"His message, owed an answer {minutes(owed_for)} minutes: {reply['text']}",
-        f"Link: {reply['permalink']}",
-        f"Thread: {channel} {thread}",
-        *([f"Order {order_id}: {data['orders'][order_id]['text']}", f"Jobs: {len(jobs)}", *jobs] if order_id else ["Order: none"]),
-        "Read the thread and each job, then post one line there saying what the answer waits on, with no asked, so cc-slack still owes it; once the answer is ready, post the answer itself with asked naming his message.",
-    ]
-    record = {
-        "kind": "report",
-        "topic": f"owed-{reply['ts']}",
-        "attr": {"owed": reply["ts"], "progress": "true", "thread": thread} | ({"order": order_id} if order_id else {}),
-        "text": f"POST his message has waited {minutes(owed_for)} minutes for its answer: say in its thread what the answer waits on",
-        "body": "\n".join(facts) + "\n",
-    }
-    [seq] = reported(watcher, [record])
-    return seq
 
 
 def incident_pr_lines(name: str, group: list[str]) -> list[str]:
@@ -3089,21 +2791,25 @@ def close_answered(watcher: Watcher, moment: datetime) -> None:
     data = state.load(watcher.name)
     if not any(state.answered(data, order_id) for order_id in heard_orders(watcher, data)):
         return
-    with state.edit(watcher.name) as data:
+    def close_answered_write(data: dict):
         for order_id in heard_orders(watcher, data):
             if state.answered(data, order_id):
                 data["orders"][order_id].update(state="done", updated=state.stamp(moment))
+
+    state.update(watcher.name, None, close_answered_write)
 
 
 def close_joined_repeats(watcher: Watcher, moment: datetime) -> None:
     """From the drive's own watch, close each open drive tooling order a session opened that Jev joined to an order now closed, with no unfinished job of its own, as that order closed, done with its proof or dropped, so a repeat folded into a fixed defect never stays open after the fix, as 76 did on Nov 15."""
     if watcher.project or not state.repeats_of_closed(state.load(watcher.name)):
         return
-    with state.edit(watcher.name) as data:
+    def close_joined_repeats_write(data: dict):
         for order_id in state.repeats_of_closed(data):
             order = data["orders"][order_id]
             head = data["orders"][order["joins"]]
             order.update(state=head["state"], proof=head["proof"] if head["state"] == "done" else None, note=f"closed with {order['joins']}, the order it repeats", updated=state.stamp(moment))
+
+    state.update(watcher.name, None, close_joined_repeats_write)
 
 
 def tell_lines(watcher: Watcher, moment: datetime) -> list[str]:
@@ -3249,10 +2955,13 @@ def hear_sent(name: str, job_ids: set[str]) -> dict:
         sent[job_id] = [(said, state.parse_time(row["timestamp"])) for row in agents.recent_rows(path, min(given)) if (said := settled.prompt_words(row, agents.MESSAGE_ORIGIN)) is not None]
     if not any(sent.values()):
         return data
-    with state.edit(name) as data:
+    def hear_sent_write(data: dict):
         for job_id, messages in sent.items():
             for said, written in messages:
                 superseded.hear(data, job_id, said, written)
+        return data
+
+    data = state.update(name, None, hear_sent_write)
     return data
 
 
@@ -3449,7 +3158,7 @@ def dashboard_lines(watcher: Watcher) -> list[str]:
 
 
 def receiver_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Keep the receiver taking GitHub's deliveries for every PR the watch hears and every release a job or PR it hears waits on: its launch agent loaded, and a webhook pointing at it on each of their repositories this account administers, each new one owing a read of that repository's PRs, since GitHub delivered nothing of them before it. A repository it does not administer, such as an upstream project, is asked once and never hooked, and github_lines reads its open PRs every READ_EVERY. Each repository is tried whatever another's hook did, and one that cannot be kept, or a receiver not answering on loopback, is said as a failed read is, naming the gh call; a proof's drive leaves it alone."""
+    """Keep the receiver taking GitHub's deliveries for every PR the watch hears and every release a job or PR it hears waits on: its launch agent loaded, and a webhook pointing at it on each of their repositories this account administers, each new one owing a read of that repository's PRs, since GitHub delivered nothing of them before it. A repository it does not administer, such as an upstream project, is asked once and never hooked, and github_lines reads its open PRs every READ_EVERY. Each repository is tried whatever another's hook did, and one that cannot be kept is said as a failed read is, naming the gh call; a receiver not answering on loopback is replaced by receiver_check_lines; a proof's drive leaves it alone."""
     if state.scratch():
         return []
     data = state.load(watcher.name)
@@ -3468,12 +3177,32 @@ def receiver_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 watcher.unhookable.add(repo)
         except (github.GithubError, state.DriveError) as error:
             errors.append(str(error))
-    if not receiver.answering():
-        errors.append(f"nothing answers on its port {receiver.PORT}; its log is {receiver.log_path()}")
+    lines = receiver_check_lines(watcher, moment)
     if errors:
-        return failed(watcher, "receiver", "upkeep of the receiver", state.DriveError("; ".join(errors)), moment)
+        return lines + failed(watcher, "receiver", "upkeep of the receiver", state.DriveError("; ".join(errors)), moment)
     watcher.failures.pop("receiver", None)
-    return []
+    return lines
+
+
+def receiver_check_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Replace the receiver once FAILURES_BEFORE_SAYING passes in a row found it neither taking a delivery since the pass before, by a new last delivery of a hook in receiver.hooks, nor answering on loopback, by `launchctl kickstart -k` from the watch's own process, and say so once: a receiver slow under a burst of deliveries still takes them, so it counts as answering, since a kickstart drops each delivery it accepted. The receiver started in its place asks GitHub what it missed, and github_lines reads every open PR the watch hears each READ_EVERY until a pass finds it taking deliveries or answering. One that still does neither is said as a failed read is from FAILURE_EVERY after its replacement."""
+    took = {hook["last"] for hook in receiver.hooks().values()} - {None}
+    taking = watcher.receiver_took is not None and bool(took - watcher.receiver_took)
+    watcher.receiver_took = took
+    if taking or receiver.answering():
+        watcher.failures.pop(UNANSWERED, None)
+        return []
+    lines = failed(watcher, UNANSWERED, "the receiver's check", state.DriveError(f"it takes no delivery and nothing answers on its port {receiver.PORT}; its log is {receiver.log_path()}"), moment)
+    if watcher.failures[UNANSWERED] != FAILURES_BEFORE_SAYING:
+        return lines
+    watcher.failure_said[UNANSWERED] = moment
+    unanswered = f"the receiver took no delivery and answered nothing on its port {receiver.PORT} {FAILURES_BEFORE_SAYING} passes in a row"
+    service = launchd.service(receiver.LABEL)
+    try:
+        launchd.launchctl("kickstart", "-k", service)
+    except state.DriveError as error:
+        return [f"WATCH {unanswered}, and the watch could not replace it: {error}; its log is {receiver.log_path()}"]
+    return [f"WATCH {unanswered}, so the watch replaced it with `launchctl kickstart -k {service}` and reads every open PR from GitHub each minute until it takes a delivery or answers; its log is {receiver.log_path()}"]
 
 
 def said_last(entry: dict) -> str:
@@ -3755,8 +3484,8 @@ def relaunchable(ended: dict | None, moment: datetime) -> bool:
 
 
 def bg_death(job: dict) -> str | None:
-    """Why a running job's agent drive job start started as its own `claude --bg` session is dead: no running process names its session and Claude Code's background job for it failed, stopped or is gone, so the watch relaunches it as it does a dead Sprite lane; None for any other agent and while it lives or its turn ended on its own."""
-    if not (session := state.own_session(job)) or agents.alive(session, agents.session_records()):
+    """Why a running job's agent drive job start started as its own `claude --bg` session is dead: no running process names its session and Claude Code's background job for it failed, stopped or is gone, so the watch relaunches it as it does a dead Sprite lane, its session the bg entry names while no hook of it has bound the job's agent yet, so one that dies before its first step is relaunched too rather than left to the reap; None for any other agent and while it lives or its turn ended on its own."""
+    if not (session := state.own_session(job) or (None if job.get("agent") else (job.get("bg") or {}).get("session"))) or agents.alive(session, agents.session_records()):
         return None
     found = agents.background_job(session)
     if found and found[1]["state"] not in ("failed", "stopped"):
@@ -3815,7 +3544,7 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
                     if isinstance(gap, Returned):
                         gap.take(watcher.name, job_id)
                     elif (why := bg_death(job)) and relaunchable(state.lane_death(job), moment):
-                        deaths[job_id] = (job["agent"], why)
+                        deaths[job_id] = (job["agent"] or job["bg"]["agent"], why)
                         continue
                     gaps[job_id] = None if isinstance(gap, Returned | Answered | Gone) else gap
                     if gaps[job_id] and job["kind"] == "codex" and not job.get("agent"):
@@ -3972,25 +3701,28 @@ def wake_lines(watcher: Watcher, idle: dict[str, tuple[dict, dict]], moment: dat
             continue
         watcher.failures.pop(source, None)
         if woken:
-            with state.edit(watcher.name) as data:
+            def wake_lines_write(data: dict):
                 data["jobs"][job_id]["turn_open"] = True
+
+            state.update(watcher.name, None, wake_lines_write)
     return lines
 
 
 def safeguard_lines(watcher: Watcher, refusals: dict[str, dict], moment: datetime) -> list[str]:
-    """Pass Claude Code's notice on each stop a model's safeguards made of a running job's agent or lane to him in one POST report each, as the notice asks, then set each job stopped, so nothing resumes, relaunches or restarts it or does its work and only `drive job add` on his word adds the job that takes its work; a post that fails leaves its jobs running, so the next read posts them again, said from its third failure in a row."""
+    """Pass Claude Code's notice on each stop a model's safeguards made of a running job's agent or lane to him in one line each from the watch itself, as the notice asks, first setting each job stopped, so nothing resumes, relaunches or restarts it or does its work and only `drive job add` on his word adds the job that takes its work; a post that fails leaves its jobs running, so the next read posts them again, said from its third failure in a row."""
     if not refusals:
         return []
     data = state.load(watcher.name)
-    try:
-        reported(watcher, [safeguard_report(data, job_id, turn) for job_id, turn in refusals.items()])
-    except state.DriveError as error:
-        return failed(watcher, "safeguards stops", "post to him of a model's safeguards stop", error, moment)
-    watcher.failures.pop("safeguards stops", None)
-    with state.edit(watcher.name) as data:
+    with state.edit(watcher.name) as edited:
         for job_id, turn in refusals.items():
-            data["jobs"][job_id].update(state="stopped", said=f'{SAFEGUARDED}: "{cut(agents.notice(turn), 100)}"; the notice went to him and nothing restarts it', updated=state.stamp(moment))
-    return [
+            edited["jobs"][job_id].update(state="stopped", said=f'{SAFEGUARDED}: "{cut(agents.notice(turn), 100)}"; the notice went to him and nothing restarts it', updated=state.stamp(moment))
+    lines = []
+    for job_id, turn in refusals.items():
+        try:
+            milestone(watcher, safeguard_report(data, job_id, turn), f"A model's safeguards stopped the agent working on {cut(data['jobs'][job_id]['goal'], 80)}, and the drive restarts nothing. Claude Code's notice: {agents.notice(turn)}")
+        except (slack.SlackError, state.DriveError) as error:
+            lines += failed(watcher, f"safeguards stop {job_id}", f"post to him of a model's safeguards stop of {job_id}", error, moment)
+    return lines + [
         f"LANE {job_id} {data['jobs'][job_id]['order']} {SAFEGUARDED}: the watch set it stopped, restarts nothing and sent Claude Code's notice to him, as it asks;"
         f" only on his word does drive job add {data['jobs'][job_id]['kind']} --order {data['jobs'][job_id]['order']} on its parts add the job that takes its work"
         for job_id in refusals
@@ -4006,7 +3738,7 @@ def safeguard_report(data: dict, job_id: str, turn: dict) -> dict:
         "kind": "report",
         "topic": f"watch-safeguards-{job_id}",
         "attr": {"order": job["order"], "job": job_id} | state.thread_attr(order),
-        "text": f"POST {job_id}'s agent was {SAFEGUARDED} and the drive restarts nothing: post Claude Code's notice to him whole, as it asks",
+        "text": f"{job_id}'s agent was {SAFEGUARDED} and the drive restarts nothing",
         "body": "\n".join(facts) + "\n",
     }
 
@@ -4024,8 +3756,15 @@ def budget_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 held["told"].append(mine)
     if not over:
         return []
-    reported(watcher, [{"kind": "report", "attr": {}, "topic": f"budget-{mine}-{moment.date().isoformat()}", "text": f"POST to him, these words alone: {spend.his_line(mine)}", "body": spend.his_line(mine) + "\n"} for mine in over])
-    return [f"BUDGET {spend.his_line(mine)}" for mine in over]
+    lines = []
+    for mine in over:
+        try:
+            milestone(watcher, {"kind": "report", "attr": {}, "topic": f"budget-{mine}-{moment.date().isoformat()}", "text": f"{mine} spent its daily budget", "body": spend.his_line(mine) + "\n"}, spend.his_line(mine))
+        except (slack.SlackError, state.DriveError) as error:
+            lines += failed(watcher, f"budget {mine}", f"line to him that {mine} spent its daily budget", error, moment)
+            continue
+        lines.append(f"BUDGET {spend.his_line(mine)}")
+    return lines
 
 
 def stall_lines(watcher: Watcher, moment: datetime) -> list[str]:
@@ -4072,20 +3811,6 @@ def stall_lines(watcher: Watcher, moment: datetime) -> list[str]:
             done = {"found": watchdog_answer(held), "said": state.stamp(moment)}
             settle(watcher.name, thing, held, done)
             lines.append(stuck_line(known, thing, found[thing], held | done, moment))
-        else:
-            if state.owner_away(state.load(watcher.name), state.now()):
-                settle(watcher.name, thing, held, {})
-                continue
-            try:
-                done = {"found": watchdog_answer(held), "told": state.stamp(moment)}
-                [seq] = reported(watcher, [stall_report(known, thing, found[thing], held | done, watcher.cards, moment)])
-            except (reads.ReadError, state.DriveError) as error:
-                settle(watcher.name, thing, held, {})
-                lines += failed(watcher, f"stall {thing}", f"line to him on {thing}, which stood unmoved", error, moment)
-                continue
-            settle(watcher.name, thing, held, done)
-            watcher.failures.pop(f"stall {thing}", None)
-            agents.handle(watcher.name, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'stall-{seq}'}")
     return lines
 
 
@@ -4098,12 +3823,11 @@ def owed(watcher: Watcher, data: dict, found: dict[str, dict], stalls: dict[str,
     """The step each stall past its deadline owes now, oldest first, of those this watch hears and no live watch claims: its agent while the watchdog caps have room and this Mac admits a local Claude lane, by place.admission, so a stall it holds back waits for a later pass, but at once and past both for a stall whose cause the drive's rows name, by stall.cause, which starts no agent, its STUCK line, or his report, whether he is away read by the clock, never moment, the pass's start."""
     running, begun = stall.starts(stalls, moment)
     room = 0 if place.admission(data, None, "local", moment) else min(stall.AT_ONCE - running, stall.STARTS_AN_HOUR - begun)
-    away = state.owner_away(data, state.now())
     steps = {}
     for thing in stall.stalled(data, stalls, found, moment):
         if claimed(stalls[thing]["claim"]) or not heard_job(watcher, data, data["jobs"][stall.owner(data, found[thing]["subjects"][0])[0]]):
             continue
-        step = stall.step(stalls[thing], moment, away)
+        step = stall.step(stalls[thing], moment)
         if step == "agent" and not stall.cause(data, thing, found[thing]):
             if room <= 0:
                 continue
@@ -4243,35 +3967,6 @@ def stuck_line(data: dict, thing: str, found: dict, held: dict, moment: datetime
     )
 
 
-def stall_report(data: dict, thing: str, found: dict, held: dict, cards: dict, moment: datetime) -> dict:
-    """The report owing him one line on a stall the session holding its order heard 30 minutes ago with nothing moving since, in the thread of his DM its order's lines to him go in, an incident's too, naming each job and PR waiting on it with its order, what the fresh watchdog agent started for it found, and his card on each PR in its chains that waits on his tap as his cards stand now, never as its watchdog agent saw them."""
-    job_id, order_id = stall.owner(data, found["subjects"][0])
-    order = data["orders"][order_id]
-    holder, _ = state.holding_session(data, order)
-    answered = held["found"]
-    stood, said = (minutes(moment - state.parse_time(held[field])) for field in ("since", "said"))
-    waiting = stall.waiting(found)
-    facts = [
-        f"Order {order_id}, job {job_id}: {order['text']}",
-        *([f"Holds: {', '.join(f'{subject} of {stall.owner(data, subject)[1]}' for subject in waiting)}"] if waiting else []),
-        f"Unmoved {stood} minutes: {held['print']}",
-        f"The STUCK line went to {holder} at {when(held['said'])}, {said} minutes ago.",
-        *(f"{label}: {answered[label]}" for label in ("WHY", "WHO", "NEXT", "UNREAD") if label in answered),
-        *(
-            f"His card on {key} now: {view.tap_card(data, pr, cards) or 'none open at its head, so the watch draws or redraws it'}"
-            for key in found["chain"]
-            if (pr := data["prs"].get(key)) and state.asks_tap(data, pr)
-        ),
-    ]
-    return {
-        "kind": "report",
-        "topic": f"watch-stall-{NOT_SLUG.sub('-', thing)}",
-        "attr": {"order": order_id, "job": job_id, "stall": "true"} | ({"thread": where[1]} if (where := state.dm_thread(order)) else {}),
-        "text": f"POST {thing}{which_holds(found)} has not moved in {stood} minutes and {holder} was told {said} minutes ago: post one line on it in its thread",
-        "body": "\n".join(facts) + "\n",
-    }
-
-
 def untracked_prs(watcher: Watcher, data: dict, heads: dict[str, set], moment: datetime) -> tuple[dict[str, dict], list[str]]:
     """For each running job with a gap, the open PRs on its recorded branch or its lane's that the drive does not track once GitHub answered, read from GitHub in one batch; a head with no repo is in the repo of the checkout remote lanes clone."""
     if not heads:
@@ -4316,7 +4011,7 @@ def release_lanes(watcher: Watcher, moment: datetime) -> list[str]:
     """Free what each job it hears is done with still holds, never what a running job holds, starting each drive verb that frees one as a process of its own, by state.detach, and keeping that process's pid and time on the drive, so a restarted watch reads what every earlier watch asked. First, by one rule, a remote job that is not running holds no Sprite once its worker's turn is over: the own lane of each job whose line set it done, failed or stopped, or set it waiting or built and whose worker then ended its turn or died, by unended, so a live lane waiting on its own question or on a read it asked keeps it, is ended by `drive job end`, which keeps its transcripts, saves what its Sprite holds on no remote and destroys it, every due job's in the pass that reads the event ending its turn, so lanes end as fast as they start, kept as the job's end, so no watch ends that lane again while that end is in_flight, and its Sprite left to that end alone while the end it records on the lane is, ahead of every reclaim, so no reclaim and no install delays an end. Then each Sprite cc-remote still records that an earlier or ended lane of any job left, such as the Sprite a relaunch moved off or one an end kept, destroyed with its Orca environment by --destroy once what it holds on no remote is saved to GitHub as saved/<the job's lane>/<branch>, or else kept by that reclaim, said once and never asked for again; and the dispatch of a done, failed or stopped lane on this Mac once its job has been quiet for QUIET_LANE, as lr's gc --done waited after a lane's last word, whose terminal --run --done closes and whose worktree it removes once clean and pushed, the reclaimer skipping whatever its pauses hold, its death recorded first. Each of those goes to `drive job reclaim`, whose orca.reclaimer kills the reclaimer with every process it started past RECLAIM_SECONDS, kept as the reclaim on the death of the lane that left it, and none asked again while its own is in_flight; what each run printed goes to the watch log."""
     if state.scratch():
         return []
-    lines = adopt_sprites(watcher, moment)
+    lines = adopt_sprites(watcher, moment) + finished_boxes(watcher, moment)
     data = state.load(watcher.name)
     heard = {job_id: job for job_id, job in data["jobs"].items() if heard_job(watcher, data, job)}
     ending = [job_id for job_id, job in heard.items() if unended(job, moment)]
@@ -4342,15 +4037,38 @@ def rest_sessions(watcher: Watcher, moment: datetime) -> list[str]:
         return []
     data = state.load(watcher.name)
     records = agents.session_records()
-    resting = [job_id for job_id, job in data["jobs"].items() if heard_job(watcher, data, job) and job["state"] != "running" and (session := state.own_session(job)) and agents.alive(session, records) and agents.gone(job["bg"])]
-    for job_id in resting:
+    resting = [(job_id, session) for job_id, job in data["jobs"].items() if heard_job(watcher, data, job) and job["state"] != "running" and (session := state.background_session(job)) and agents.alive(session, records) and agents.gone(job["bg"])]
+    for job_id, session in resting:
         try:
             with state.job_locked(watcher.name, job_id, 0):
                 job = state.load(watcher.name)["jobs"][job_id]
-                if job["state"] != "running" and (session := state.own_session(job)) and agents.alive(session, agents.session_records()) and agents.gone(job["bg"]):
+                if job["state"] != "running" and state.background_session(job) == session and agents.alive(session, agents.session_records()) and agents.gone(job["bg"]):
                     agents.end_bg(session, Path(job["bg"]["cwd"]), removed=job["state"] in state.FINISHED_JOB_STATES)
         except state.DriveError:
             continue
+    return []
+
+
+def finished_boxes(watcher: Watcher, moment: datetime) -> list[str]:
+    """Take down, by `drive mac-boxes-down` in a process of its own, each live Mac box named after a done, failed or stopped job the watch hears, read by the repository's [mac_box] list command once every BOX_SWEEP, so a box whose save never took it down, or whose down refused, comes down after, except one state.box_wanted keeps; the lines a failed list makes."""
+    data = state.load(watcher.name)
+    if watcher.boxes_at is not None and moment - watcher.boxes_at < BOX_SWEEP or not (command := state.mac_box_command(data, "list")):
+        return []
+    watcher.boxes_at = moment
+    try:
+        done = subprocess.run(command, shell=True, cwd=data["roles"]["coordinator"]["cwd"], capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=BOX_LIST_SECONDS, check=False)
+    except subprocess.TimeoutExpired:
+        return read_failed(watcher, BOX_LIST, orca.OrcaError(f"{command} ran past {BOX_LIST_SECONDS} s"), moment)
+    if done.returncode:
+        return read_failed(watcher, BOX_LIST, orca.OrcaError(f"{command} exited {done.returncode}: {(done.stderr.strip().splitlines() or ['no output'])[-1]}"), moment)
+    watcher.failures.pop(BOX_LIST, None)
+    held = [
+        job_id
+        for job_id in sorted(set(done.stdout.split()))
+        if (job := data["jobs"].get(job_id)) and job["state"] in state.FINISHED_JOB_STATES and heard_job(watcher, data, job) and not state.box_wanted(data, job_id)
+    ]
+    if held:
+        state.detach(watcher.name, ["mac-boxes-down", *held], state.MAC_BOXES_LOG)
     return []
 
 
@@ -4373,11 +4091,13 @@ def adopt_sprites(watcher: Watcher, moment: datetime) -> list[str]:
     }
     if not found:
         return []
-    with state.edit(watcher.name) as data:
+    def adopt_sprites_write(data: dict):
         for job_id, workspace in found:
             job = data["jobs"][job_id]
             if job.get("workspace") != workspace and not state.death_on(job, workspace):
                 job.setdefault("deaths", []).append({"dispatch": None, "workspace": workspace, "why": ADOPTED, "at": state.stamp(moment)})
+
+    state.update(watcher.name, None, adopt_sprites_write)
     return []
 
 
@@ -4444,6 +4164,8 @@ def death_lines(watcher: Watcher, deaths: dict[str, tuple[str, str]], moment: da
             if job["state"] in state.FINISHED_JOB_STATES or job.get("where") == "remote" and job["state"] == "waiting":
                 state.lane_died(job, worker, why, moment)
                 continue
+            if job.get("where") != "remote" and not job.get("agent") and (job.get("bg") or {}).get("agent") == worker:
+                job["agent"] = worker
             if job[state.worker_key(job)] != worker or not relaunchable(state.lane_death(job), moment) or busy(watcher, job_id, moment):
                 continue
             state.lane_died(job, worker, why, moment)
@@ -4459,13 +4181,6 @@ def death_lines(watcher: Watcher, deaths: dict[str, tuple[str, str]], moment: da
             fresh = f'{"in a fresh worktree " + orca.ON_MAC if state.on_mac(job) else "on a fresh Sprite"} with a handoff'
             logs = "" if state.on_mac(job) else f"copies its Sprite's Orca runtime and worker logs to {orca.death_logs(watcher.name, job_id, worker)}, "
             again = f"relaunches it {fresh}" if state.on_mac(job) else f"resumes its Claude session on its Sprite, or else relaunches it {fresh}"
-            if not state.on_mac(job) and (first := state.died_before(job, worker)):
-                again = (
-                    f"reads from them why it died and moves it to a fresh worktree {orca.ON_MAC}, waiting its turn for a builder slot while they are full,"
-                    f" as its lane on Sprite {first['workspace']} died too since its last line, at {when(first['at'])},"
-                    " unless they show its Sprite rebooted after its worker started, which resumes its Claude session there, or failed on its own, a kernel error line"
-                    " after init with no OOM kill and its home volume not full, or did not answer while GitHub holds the job's branch, which relaunches it on a fresh Sprite"
-                )
             lines.append(
                 f'LANE {job_id} {job["order"]} died {orca.place(job)}: {why}, while it worked on "{cut(job["said"] or job["goal"], 60)}".'
                 f" The watch ran drive job resume {job_id}, which {logs}{again}, its output in the drive's {RELAUNCHES_LOG}"
@@ -4491,8 +4206,10 @@ def relaunch(watcher: Watcher, job_id: str, moment: datetime) -> int:
 
 def wake(watcher: Watcher, job_id: str, moment: datetime) -> int:
     """Run `drive job resume` with UNREACHED by start_verb on a running job whose lane Orca could not reach, at the first read that fails and again each REWAKE while Orca still cannot, its dispatch and the moment kept on its row's woken, so a watch an install restarted keeps that pace rather than counting reads again: its lane_end wakes that lane's Sprite, then sends the text to a worker that takes messages again, restarts the lane on that Sprite with the text in its handoff when its worker finished, or on a fresh one once that Sprite answers no ssh and no transcript there was written in orca.QUIET_SECONDS, and else restarts nothing, for the next wake to read again."""
-    with state.edit(watcher.name) as data:
+    def wake_write(data: dict):
         data["jobs"][job_id]["woken"] = {"dispatch": data["jobs"][job_id]["dispatch"], "at": state.stamp(moment)}
+
+    state.update(watcher.name, None, wake_write)
     return start_verb(watcher, job_id, ["job", "resume", job_id, state.UNREACHED], moment)
 
 
@@ -4534,17 +4251,48 @@ def seated_first(watcher: Watcher) -> list[Watcher]:
     return sorted([watcher, *watcher.others.values()], key=lambda one: one.project not in seats)
 
 
+def pass_reads(name: str, data: dict, prs: list[str]) -> tuple[list[str] | None, list[str] | None]:
+    """Every file a staging pass's PRs change, by github.paths, and every component they reach, by cli.release_reach, go/ci's own `tools/ci release select --pr`, which slot_turns packs passes by; None for each that a pass naming no PR, or whose PRs GitHub or go/ci could not read, leaves unread, so it rides no other pass's cut."""
+    from drive import cli
+
+    if not prs:
+        return None, None
+    try:
+        read = github.paths(prs)
+    except github.GithubError:
+        return None, None
+    paths = sorted({path for key in prs if key in read for path in read[key][1]}) if all(key in read for key in prs) else None
+    try:
+        reach = cli.release_reach(name, data, prs)
+    except (github.GithubError, reads.ReadError, state.DriveError, json.JSONDecodeError):
+        return paths, None
+    return paths, sorted({component for key in prs if key in reach for component in reach[key]["components"]}) if all(key in reach for key in prs) else None
+
+
 def slot_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Hand on each staging slot, by state.slot_turns: end a lease whose job finished, extend once a lease that ran past its end and end it at its second, and give a free slot to the first job in its queue with a GO, sent to it by `drive job resume`, so no session sequences staging by hand; packing PRs into one cut stays the top coordinator's, by his picks. Its lines go as evidence and wake nobody; a GO's resume that is refused reaches the session holding the job as its relaunch_refused event."""
-    if watcher.project or not state.load(watcher.name)["slots"]:
+    """Hand on each staging slot, by state.slot_turns: end a lease whose job finished, extend once a lease that ran past its end and end it at its second, and give a free slot to the first job in its queue with a GO, packed with each later pass whose PRs change none of its files, up to six, each of those resumed with its RIDE line, every resume by `drive job resume`, so no session sequences or packs staging by hand; it reads the files of each queued pass whose files it has not read while the slot is held, so a pass is packed the moment the slot frees. Its lines go as evidence and wake nobody; a GO's resume that is refused reaches the session holding the job as its relaunch_refused event."""
+    if watcher.project or not (slots := state.load(watcher.name)["slots"]):
         return []
-    with state.edit(watcher.name) as data:
-        moved = state.slot_turns(data, moment)
+    known = state.load(watcher.name)
+    unread = {each["job"]: pass_reads(watcher.name, known, each["prs"]) for slot in slots.values() for each in slot["queue"] if (each["paths"] is None or each["stacks"] is None) and each["prs"]}
+    def slot_lines_write(data: dict):
+        for slot in data["slots"].values():
+            for each in slot["queue"]:
+                if each["job"] in unread:
+                    paths, stacks = unread[each["job"]]
+                    each["paths"] = each["paths"] if paths is None else paths
+                    each["stacks"] = each["stacks"] if stacks is None else stacks
+        moved = state.slot_turns(data, moment, state.repo_config(data).get("release"))
+        return moved
+
+    moved = state.update(watcher.name, None, slot_lines_write)
     lines = []
     for env, job_id, kind, line in moved:
         if kind == "go":
             start_verb(watcher, job_id, ["job", "resume", job_id, line], moment)
             line = f"SLOT {env} to {job_id}: {line}"
+        elif kind == "start":
+            start_verb(watcher, job_id, ["job", "release", job_id], moment)
         lines.append(line)
     return lines
 
@@ -4880,7 +4628,7 @@ def cut_lines(watcher: Watcher, moment: datetime) -> list[str]:
     data = state.load(watcher.name)
     if not (waiting := cut_waiting(data)):
         return [merged_said(watcher.name, job_id, change) for job_id, change in said]
-    if not (watcher.live or any(state.starts_cut(job) and job["release_build"] and job["state"] not in state.FINISHED_JOB_STATES for job in data["jobs"].values())):
+    if not (watcher.live or any(map(state.follows_release, data["jobs"].values()))):
         return [merged_said(watcher.name, job_id, change) for job_id, change in said]
     try:
         binds = cut_binds(watcher, data, waiting)
@@ -4930,7 +4678,7 @@ def drive_cuts(data: dict, checkout: str) -> dict[str, Callable[[dict[str, str],
     """Each production cut the drive started that still follows its release, its job holding the build it started, by state.starts_cut, mapped to whether it carries a prover's merges: its --from commit holding one, or, for a start naming none, its start coming after one merged."""
     cuts = {}
     for job_id, job in data["jobs"].items():
-        if not (state.starts_cut(job) and job["release_build"] and job["state"] not in state.FINISHED_JOB_STATES):
+        if not state.follows_release(job):
             continue
         starts = brief.started(job["brief_flags"]["release"])
         if not starts or any(not all(settled.prod(env, checkout) for env in flags.get("env", ())) for flags in starts):
@@ -5190,78 +4938,31 @@ def orphan_lines(watcher: Watcher, moment: datetime, said: type | tuple[type, ..
 
 
 def hear(name: str, moment: datetime, away: bool = False) -> dict:
-    """Record him heard at moment, by his words or his tap on a card, the owner row keeping the moment he reads away from, moment itself with away, else an hour later; when he was away, keep that absence on the owner row, from when he went away, the moment he read away from and moment, which state.present reads, and, when a report was held for his return, owe him the catch-up at his DM root, which keeps the time of the first such absence it covers, and give each held report no post carried yet to the next line of its thread, by held_report_lines, or to that catch-up, so the relay posts both within RELAY_SECONDS; no order's news is marked told, since only its own thread's line tells it, by his words c91b1a9 "stop telling me about the whole drive I never asked for that"."""
-    with state.edit(name) as data:
+    """Record him heard at moment, by his words or his tap on a card, the owner row keeping the moment he reads away from, moment itself with away, else an hour later; when he was away, keep that absence on the owner row, from when he went away, the moment he read away from and moment, which state.present reads; no order's news is marked told, since only its own thread's line tells it, by his words c91b1a9 "stop telling me about the whole drive I never asked for that"."""
+    def hear_write(data: dict):
         back = state.owner_away(data, moment)
         owner = data["owner"]
         since = owner["heard"]
         absence = {"since": since, "from": owner["away"], "until": state.stamp(moment)} if back and since else owner["absence"]
         data["owner"] = {"heard": state.stamp(moment), "away": state.stamp(moment if away else moment + state.AWAY_AFTER), "absence": absence}
-        held = list(data["held"]) if back and since else []
-        for seq in held:
-            data["held"][seq]["record"] = None
-        if held:
-            data["catch_up"] = (data["catch_up"] or state.new_catch_up(since)) | {"record": None}
-    return {"away": away, "back": back, "since": since, "catch_up": bool(data["catch_up"]), "held": held}
+        return back, since
+
+    back, since = state.update(name, None, hear_write)
+    return {"away": away, "back": back, "since": since}
 
 
 def unhear(name: str, last: datetime, why: str) -> dict:
     """Take back what the drive heard of him after last, his last word or tap, such as a job's tap kept as his: the owner row reads him heard at last and away an hour after it, its absence kept, and the moment taken back is kept with why in the drive's events; refused when the drive heard nothing of him after last."""
-    with state.edit(name) as data:
+    def unhear_write(data: dict):
         taken = data["owner"]["heard"]
         if not taken or last >= state.parse_time(taken):
             raise state.DriveError(f"refused, nothing changed: the drive last heard him at {taken}, so it heard nothing after {state.stamp(last)} to take back")
         data["owner"] |= {"heard": state.stamp(last), "away": state.stamp(last + state.AWAY_AFTER)}
+        return taken
+
+    taken = state.update(name, None, unhear_write)
     state.append_event(name, "unheard", heard=state.stamp(last), taken=taken, why=why)
     return {"heard": state.stamp(last), "taken": taken}
-
-
-def catch_up_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Post the catch-up the drive owes him at his DM root from the relay, so within RELAY_SECONDS of his return, once for each time he is heard: a report of it the watch writes once, by catch_up_report, for a handler the watch starts, unless the handler started last is still at work on it; a failed write or start is said as a failed read is and tried again next pass."""
-    data = state.load(watcher.name, ("owner", "catch_up", "handlers"))
-    owed, heard = data["catch_up"], data["owner"]["heard"]
-    if watcher.project or owed is None or owed["tried"] == heard or state.owner_away(data, moment):
-        return []
-    if (entry := data["handlers"].get(owed["handler"] or "")) and not agents.gone(entry):
-        with state.edit(watcher.name) as data:
-            data["catch_up"]["tried"] = heard
-        return []
-    try:
-        seq = owed["record"] or catch_up_report(watcher, state.load(watcher.name))
-        handler, _ = agents.handle(watcher.name, f"Record: {seq} Drive: {watcher.name} Scratch: {state.drive_dir(watcher.name) / 'scratch' / f'catch-up-{seq}'}")
-    except (reads.ReadError, state.DriveError) as error:
-        return failed(watcher, "catch-up", "post of his catch-up", error, moment)
-    watcher.failures.pop("catch-up", None)
-    with state.edit(watcher.name) as data:
-        data["catch_up"] |= {"handler": handler, "tried": heard}
-    return []
-
-
-def catch_up_report(watcher: Watcher, data: dict) -> str:
-    """Write the report of his catch-up for the handler that posts it, which say draws the cards waiting on him into, by his ruling 65768cd "Say draws what waits", carrying only each report held for his return that has no order's thread to go in, with each correction cci holds re one, since held_report_lines gives every other its own thread's line; each carried is kept as the catch-up's and each its writer withdrew let go; its seq."""
-    owed = data["catch_up"]
-    unthreaded = [seq for seq, mark in data["held"].items() if mark["record"] is None and not (mark["order"] and state.promise_thread(data["orders"][mark["order"]]))]
-    amended = agents.amendments(watcher.name, unthreaded)
-    held = [seq for seq in unthreaded if seq not in amended["withdraw"]]
-    facts = [
-        f"His catch-up, owed since he was last heard at {when(owed['since'])}, at his DM root. Post it with say on this record: say titles it and closes it with the count of his open cards and each asked since then, so name no card, order or news of your own; with nothing held for it and no card waiting, say posts nothing.",
-        *(
-            [
-                f"Held for it, with no order's thread to go in: {len(held)}. Read each and each correction with cci read: none reached him, and a correction's facts replace those it corrects; post what still stands of them.",
-                *(f"- report {seq} on {data['held'][seq]['order'] or 'no order'}{render.corrected_by(amended['correction'].get(seq, []))}" for seq in held),
-            ]
-            if held
-            else []
-        ),
-    ]
-    text = f"POST his catch-up since {when(owed['since'])}" + (f", carrying {len(held)} reports held for it" if held else ": say draws the cards waiting on him, so post it with no words of your own")
-    [seq] = reported(watcher, [{"kind": "report", "attr": {"catch_up": "true"}, "text": text, "body": "\n".join(facts) + "\n"}])
-    with state.edit(watcher.name) as data:
-        data["catch_up"]["record"] = seq
-        for each in held:
-            data["held"][each]["record"] = seq
-        state.let_go(data, [each for each in unthreaded if each in amended["withdraw"]])
-    return seq
 
 
 def sweep_lines(watcher: Watcher, moment: datetime) -> list[str]:
@@ -5357,7 +5058,7 @@ def passed(watcher: Watcher, moment: datetime, until: Callable[[], object] = lam
 
 
 def stages(watcher: Watcher, moment: datetime, until: Callable[[], object] = lambda: None, lands: bool = False) -> Iterator[list[str]]:
-    """The lines of each stage of one loop of the watch, as it returns: first the lines its relay made since the last pass, so a pass that crashes while it reads every live lane's mail holds back none it already had, and new events, so a return `drive job report` took in another process is said in the pass its event wakes, then each part a job drive job add recorded not started leaves with no one, on every pass, a process's first included, so its ORPHAN comes on time however short a watch process lives, healing a gap that reads None only after the process's first read, since a gap a process reads before its agent_lines reads its lanes can read None and a part whose order a later stage closes is gone by the end's orphan_lines, then the drive's own Orca terminal every Orca call speaks as, his cards as the landing loop last stored them and the messages of his cc-slack owes an answer, or, in a pass run in-process, which lands, the landing stages, the finish of each builder whose READY's PRs all merged, DONE at the merge of a product change or the proof of a yasyf/* one, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, where each merged PR a release wait or an incident fix names runs, each Buildkite build a wait names or a part follows that is newly held or a delivery of Buildkite's named, the status message of each build a part follows, the waits his answers, a job's end, that read or the Buildkite read release or hold again, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, agents, the chains of waits that stood unmoved, the texts jobs hold that no worker taking messages gets, the communicator's compaction, the post in each place saying what waits on him, the status page, a coordinator whose process exited, a dashboard whose server exited, each teammate thread an order watches, each handoff the communicator withdrew and each message of his cc-slack owes an answer every 60 s, then events written since, its own stages' among them, and, in a pass that lands, the GitHub reads they and the rest owe while its last read answered, so a delivery is read in the pass it wakes, and each builder's PUSHED or lane's READY those settle, so one a lane sent this pass is taken in it, then the daily Slack sweep's drive tooling orders, claims whose end passed, job clocks run out, his answers no resume has carried to their jobs, each answer order left nothing owed, fixes proven live whose bug report has not heard, the next pass of each standing part no job holds, and parts nothing carries. Each stage after the orphans is named by its function: the pass starts those at the watcher's resume when one of them bears its name, so the watch after one that ended mid-pass for a newer install runs only the stages that one had not, and ends before the first one it reaches once until answers, keeping that one's name as the resume. A stage that keeps working after its save joins the lines it made by then to the watcher's made lines itself."""
+    """The lines of each stage of one loop of the watch, as it returns: first the lines its relay made since the last pass, so a pass that crashes while it reads every live lane's mail holds back none it already had, and new events, so a return `drive job report` took in another process is said in the pass its event wakes, then each part a job drive job add recorded not started leaves with no one, on every pass, a process's first included, so its ORPHAN comes on time however short a watch process lives, healing a gap that reads None only after the process's first read, since a gap a process reads before its agent_lines reads its lanes can read None and a part whose order a later stage closes is gone by the end's orphan_lines, then the drive's own Orca terminal every Orca call speaks as, his cards as the landing loop last stored them and the messages of his cc-slack owes an answer, or, in a pass run in-process, which lands, the landing stages, the finish of each builder whose READY's PRs all merged, DONE at the merge of a product change or the proof of a yasyf/* one, the check against his words of each PR whose builder's READY owes one, his PR cards whose PRs all ended, where each merged PR a release wait or an incident fix names runs, each Buildkite build a wait names or a part follows that is newly held or a delivery of Buildkite's named, the status message of each build a part follows, the waits his answers, a job's end, that read or the Buildkite read release or hold again, a port's READY the coordinator has not checked in five minutes, his answers that leave cards unmarked, lane mail, agents, the chains of waits that stood unmoved, the texts jobs hold that no worker taking messages gets, the communicator's compaction, the post in each place saying what waits on him, the status page, a coordinator whose process exited, a dashboard whose server exited, each teammate thread an order watches, each handoff the communicator withdrew and each message of his cc-slack owes an answer every 60 s, then events written since, its own stages' among them, and, in a pass that lands, the GitHub reads they and the rest owe while its last read answered, so a delivery is read in the pass it wakes, and each builder's PUSHED or lane's READY those settle, so one a lane sent this pass is taken in it, then the daily Slack sweep's drive tooling orders, claims whose end passed, job clocks run out, his answers no resume has carried to their jobs, each answer order left nothing owed, fixes proven live whose bug report has not heard, the next pass of each standing part no job holds, and parts nothing carries. Each stage after the orphans is named by its function: the pass starts those at the watcher's resume when one of them bears its name, so the watch after one that ended mid-pass for a newer install runs only the stages that one had not, and ends before the first one it reaches once until answers, keeping that one's name as the resume, though a resumed pass always runs the stage it resumes at, so a pass whose first stages run past PASS_FOR never starves the late ones; a pass that resumed or ran past a minute logs reaching its last stage. A stage that keeps working after its save joins the lines it made by then to the watcher's made lines itself."""
     beat("drained", True)
     yield drained(watcher.relayed)
     beat("event_lines", True)
@@ -5388,6 +5089,7 @@ def stages(watcher: Watcher, moment: datetime, until: Callable[[], object] = lam
                     follow_lines,
                     serving_lines,
                     build_lines,
+                    release_end_lines,
                     status_lines,
                     waits_lines,
                     start_jobs,
@@ -5403,11 +5105,9 @@ def stages(watcher: Watcher, moment: datetime, until: Callable[[], object] = lam
                     lane_lines,
                     release_lanes,
                     rest_sessions,
-                    check_disks,
                     agent_lines,
                     stall_lines,
                     budget_lines,
-                    slot_lines,
                     carry_held,
                     compact_lines,
                     waiting_post_lines,
@@ -5424,16 +5124,19 @@ def stages(watcher: Watcher, moment: datetime, until: Callable[[], object] = lam
         functools.partial(train_lines, watcher, moment),
         functools.partial(event_lines, watcher),
         *(owed_reads(watcher, moment) if lands else []),
-        *(functools.partial(stage, watcher, moment) for stage in (sweep_lines, claim_reply_lines, claim_lines, clock_lines, case_lines, undelivered_lines, close_answered, close_joined_repeats, tell_lines, standing_lines, orphan_lines)),
+        *(functools.partial(stage, watcher, moment) for stage in (sweep_lines, claim_reply_lines, claim_lines, clock_lines, case_lines, undelivered_lines, close_answered, close_joined_repeats, tell_lines, standing_lines, retired_seats, orphan_lines)),
     ]
     names = [stage.func.__name__ for stage in later]
     resume, watcher.resume = watcher.resume, None
-    for stage in later[names.index(resume) if resume in names else 0 :]:
-        if until():
+    began = monotonic()
+    for ran, stage in enumerate(later[names.index(resume) if resume in names else 0 :]):
+        if (ran or not resume) and until():
             watcher.resume = stage.func.__name__
             return
         beat(stage.func.__name__, True)
         yield stage() or []
+    if resume or monotonic() - began >= SLOW_STAGE.total_seconds():
+        print(f"{state.stamp()} pass of {watcher.project or 'the drive'} reached its last stage, {names[-1]}, in {monotonic() - began:.0f}s{f', resumed at {resume}' if resume else ''}", flush=True)
 
 
 def superseded_lines(watcher: Watcher, moment: datetime) -> list[str]:
@@ -5466,18 +5169,6 @@ def landing_stages(watcher: Watcher, moment: datetime) -> list[functools.partial
         functools.partial(github_lines, watcher, moment, polled=True),
         *(functools.partial(stage, watcher, moment) for stage in (restack_lines, pushed_lines, main_lines, dangerous_lines, reach_lines, release_lines, carried_lines, checks, stage_lines, unscheduled_questions, draw_questions, landed, receiver_lines, redraw_lines)),
     ]
-
-
-def post_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Start the handler on each `POST` report to communicator@<drive> the drive owes a post, whichever session wrote it, but a close report the watch posts itself, by state.watch_posting, so the communicator starts none, one less than a minute old once a live handler holds its thread or it ages past the minute, by agents.start_posts: the handler posts it in his DM and its line goes to the communicator, or on a drive whose roles hold none, as one started from a terminal holds none, to the coordinator. The relay runs it every RELAY_SECONDS, so a report waits on no pass, however long one reads GitHub or the lanes, nor on a pass an install ends before its last stage. Each report stays owed from its write until a post carries it, by agents.start_posts, so a handler that did not start, never started, died or ended posting nothing leaves it for the next relay pass to start again, until a second handler on it ends with no post and gives it up to its writer, and a stage of the watch starting its own report's handler or the handler tool starting one on a POST report is the handler this read finds holding it; a start that fails is said as a failed read is."""
-    if watcher.project:
-        return []
-    try:
-        agents.start_posts(watcher.name, moment)
-    except state.DriveError as error:
-        return failed(watcher, "POST reports", "start of the POST reports' handlers", error, moment)
-    watcher.failures.pop("POST reports", None)
-    return []
 
 
 def restack_lines(watcher: Watcher, moment: datetime) -> list[str]:
@@ -5609,15 +5300,16 @@ def stage_lines(watcher: Watcher, moment: datetime) -> list[str]:
             if bare := [key for key in dict.fromkeys([*keys, *fresh]) if state.asks_tap(drew, drew["prs"][key]) and not view.tap_card(drew, drew["prs"][key], found)]:
                 raise state.DriveError(f"{went}, which offers him no Approve at the head of {', '.join(bare)}")
         except (slack.SlackError, state.DriveError) as error:
-            with state.edit(watcher.name) as data:
+            def stage_lines_write(data: dict):
                 for key in keys:
                     data["prs"][key]["stage"] = None
+
+            state.update(watcher.name, None, stage_lines_write)
             if said := failed(watcher, "card draw", f"draw of his card on {', '.join(keys)}", error, moment):
                 lines += sent(watcher, "meta", said, moment)
             continue
         watcher.failures.pop("card draw", None)
     return lines
-
 
 
 def staged_keys(watcher: Watcher, data: dict) -> list[str]:
@@ -5666,8 +5358,10 @@ def unscheduled_questions(watcher: Watcher, moment: datetime) -> list[str]:
             said += failed(watcher, "question withdraw", f"withdrawal of {job_id}'s card {card}, waiting on work he has not scheduled", error, moment)
             continue
         watcher.failures.pop("question withdraw", None)
-        with state.edit(watcher.name) as edited:
+        def unscheduled_questions_write(edited: dict):
             state.question_in(edited["jobs"][job_id], question)["card"] = None
+
+        state.update(watcher.name, None, unscheduled_questions_write)
         withdrawn.append(f"CARD {card} withdrawn: {job_id} waits on {', '.join(steps)}, work he has not scheduled, and the card asks him again under {question['waits']} once he schedules it")
     if withdrawn:
         view.refresh_cards(watcher.name)
@@ -5714,8 +5408,11 @@ def acted(watcher: Watcher, key: str, now: stage.Stage, entered: bool, line: str
         except slack.SlackError as error:
             said += failed(watcher, "rework withdraw", f"withdrawal of his card on {key}, {'reworked to his words' if pr['rework'] else 'waiting on work he has not scheduled'}", error, moment)
             if not pr["rework"]:
-                with state.edit(watcher.name) as data:
+                def acted_write2(data: dict):
                     data["prs"][key]["stage"] = None
+                    return data
+
+                data = state.update(watcher.name, None, acted_write2)
     if now.name == "behind":
         return said
     job_id = now.owner if now.owner in data["jobs"] else None
@@ -5728,10 +5425,18 @@ def acted(watcher: Watcher, key: str, now: stage.Stage, entered: bool, line: str
         elif refused := land.ask_review(repo, number, pr["head"]):
             said.append(f"STAGE {refused} {ids(pr)}")
         else:
-            with state.edit(watcher.name) as data:
+            def acted_write3(data: dict):
                 data["prs"][key]["review_asked"] = pr["head"]
+                return data
+
+            data = state.update(watcher.name, None, acted_write3)
     elif now.name == "unlanded" or not entered:
         said.append(f"STAGE {line}")
+        def acted_write(data: dict):
+            if kept := data["prs"][key]["stage"]:
+                kept["said"] = state.stamp(moment)
+
+        state.update(watcher.name, None, acted_write)
     return said
 
 
@@ -5833,7 +5538,7 @@ def handed(watcher: Watcher, lines: list[str], moment: datetime) -> list[str]:
 
 
 def sent(watcher: Watcher, lane: str, lines: list[str], moment: datetime) -> list[str]:
-    """Post the lines owed the lane over cci as one record, by posted_record, a handoff when any of them asks a step now, by wakes, or the lane is the communicator's or the meta session's, else evidence, which reaches the lane with others at most every five minutes, the lander's own failures apart as one defect, which the meta session starts a fix from, so a pass that says many gaps reaches the lane as one record however many it says; but drop each one owed the communicator or the meta session that needs_step, judging it as it posts, finds asks no step now, or that is a READY whose fix its builder owes, by fixing(), so a line held across a newer install's takeover or a failed post never hands work that ended meanwhile: each credential cci refuses is withheld from it, and a record that fails goes again when the next pass starts, sent with no lines, each line made meanwhile waiting behind it, so a pass tries a failing lane once and its third failure in a row is said. The lines stay among the watcher's unsent until their record posts, so a newer install that takes the watch over meanwhile gets them."""
+    """Post the lines owed the lane over cci as one record, by posted_record, a handoff when any of them asks a step now, by wakes, or the lane is the communicator's or the meta session's, else evidence, which reaches the lane with others at most every five minutes, the lander's own failures apart as one defect, which the meta session starts a fix from, so a pass that says many gaps reaches the lane as one record however many it says; but drop each line that needs_step, judging it as it posts, finds asks no step now, each one quiet() reads its row saying Nothing for, each one said to the lane already within SAID_FOR, by unsaid, and each one owed the communicator or the meta session that is a READY whose fix its builder owes, by fixing(), by his words "make everything less chatty", so a line held across a newer install's takeover or a failed post never hands work that ended meanwhile: each credential cci refuses is withheld from it, and a record that fails goes again when the next pass starts, sent with no lines, each line made meanwhile waiting behind it, so a pass tries a failing lane once and its third failure in a row is said. The lines stay among the watcher's unsent until their record posts, so a newer install that takes the watch over meanwhile gets them."""
     if lines and watcher.unsent.get(lane):
         watcher.unsent[lane] += lines
         return []
@@ -5841,7 +5546,7 @@ def sent(watcher: Watcher, lane: str, lines: list[str], moment: datetime) -> lis
     if not owed:
         return []
     data = state.load(watcher.name)
-    posting = [line for line in owed if lane not in state.HOLDERS or needs_step(line, data, watcher.cards) and not fixing(line, data, watcher.cards)]
+    posting = unsaid(watcher.name, lane, [line for line in owed if needs_step(line, data, watcher.cards) and not quiet(line) and (lane not in state.HOLDERS or not fixing(line, data, watcher.cards))], moment)
     defects = [line for line in posting if line.startswith(LANDER)]
     rest = [line for line in posting if line not in defects]
     kind = "handoff" if lane in state.HOLDERS or any(wakes(line, data, watcher.cards) for line in rest) else "evidence"
@@ -5852,6 +5557,7 @@ def sent(watcher: Watcher, lane: str, lines: list[str], moment: datetime) -> lis
         except reads.ReadError as error:
             unsent += said
             refusal = error
+    keep_said(watcher.name, lane, [line for line in posting if line not in unsent], moment)
     watcher.unsent[lane] = unsent
     project = next((project for project in data["subcoordinators"] if state.project_lane(project) == lane), lane)
     what = {"communicator": "handoff post to the communicator", "meta": "handoff post to the meta session", "root": "post to the coordinator"}.get(lane, f"post to the sub-coordinator for {project}")
@@ -5859,6 +5565,39 @@ def sent(watcher: Watcher, lane: str, lines: list[str], moment: datetime) -> lis
         watcher.failures.pop(what, None)
         return []
     return failed(watcher, what, what, refusal, moment)
+
+
+def quiet(line: str) -> bool:
+    """Whether a line is one whose row of the coordinator's manual says Nothing, so no lane hears it: a card settled or withdrawn in place, a built answer paused on his pick, a standing part's next pass, a compaction, a status page redraw, or a receiver the watch replaced."""
+    return line.startswith(QUIET_LINES) or line.startswith("WATCH the receiver") and "could not replace it" not in line
+
+
+def said_key(lane: str, line: str) -> str:
+    """The key a line is said under: a failed read's the same for every lane, so the one outage every project's watch reads reaches one lane alone."""
+    lane = "" if FAILED_LINE.match(line) else lane
+    return hashlib.sha1(f"{lane}\n{ELAPSED.sub('', line)}".encode()).hexdigest()[:16]
+
+
+def said_lines(name: str) -> dict[str, str]:
+    path = state.drive_dir(name) / SAID_FILE
+    return json.loads(path.read_text()) if path.exists() else {}
+
+
+def unsaid(name: str, lane: str, lines: list[str], moment: datetime) -> list[str]:
+    """The lines not said to the lane within SAID_FOR, each read with its elapsed and clock times taken out, so a line a pass makes again unchanged, by any watch, reaches its lane once, but a DOWN line, each a new exit of a session's process."""
+    said = said_lines(name)
+    return [line for line in dict.fromkeys(lines) if line.startswith(EVERY_TIME) or not (at := said.get(said_key(lane, line))) or moment - state.parse_time(at) >= SAID_FOR]
+
+
+def keep_said(name: str, lane: str, lines: list[str], moment: datetime) -> None:
+    """Record the lines posted to the lane, dropping those older than SAID_FOR, written aside and renamed over the file so a reader never reads half of it."""
+    if not lines:
+        return
+    path = state.drive_dir(name) / SAID_FILE
+    said = {key: at for key, at in said_lines(name).items() if moment - state.parse_time(at) < SAID_FOR}
+    taking = path.with_name(f"{SAID_FILE}.{os.getpid()}.{threading.get_ident()}")
+    taking.write_text(json.dumps(said | {said_key(lane, line): state.stamp(moment) for line in lines}))
+    os.replace(taking, path)
 
 
 def posted_record(name: str, lane: str, kind: str, lines: list[str], checkout: Path) -> None:
@@ -5929,6 +5668,45 @@ def ensure(name: str) -> str:
         return f"the watch runs under {agent}, and posts its lines to the coordinator and each project's to its sub-coordinator over cci; arm no Monitor for it"
     launchd.keep(label(name), ["watch", "--loop", "--drive", name], state.watch_log_path(name), {"CLAUDE_LONG_RUNNING_LANE": LANE, state.DRIVE_ENV: name}, state.drive_dir(name))
     return f"started the watch under {agent}; it posts its lines to the coordinator and each project's to its sub-coordinator over cci, so arm no Monitor for it"
+
+
+def retired_seats(watcher: Watcher, moment: datetime) -> list[str]:
+    """Retire, from the drive's own watch, each priority order's seat that no open order holds any longer, its order closed or unmarked, by retire_seat, so a finished seat's session stops resuming into a start that refuses it."""
+    if watcher.project:
+        return []
+    retired = seats_retired(watcher.name)
+    for seat in retired:
+        watcher.others.pop(seat, None)
+    return list(retired.values())
+
+
+def seats_retired(name: str) -> dict[str, str]:
+    """Retire each priority seat no open order holds, by retire_seat, as the watch does each pass and drive order set does in the step that drops, closes or unmarks a priority order; each seat retired and the line saying so."""
+    if state.scratch():
+        return {}
+    data = state.load(name)
+    held = {order["priority"] for order in state.open_orders(data).values() if order["priority"]}
+    return {seat: retire_seat(name, seat) for seat in data["subcoordinators"] if seat.startswith(state.priority_seat("")) and seat not in held}
+
+
+def retire_seat(name: str, seat: str) -> str:
+    """Take a priority seat down: its watch's launch agent and pid file, by retire, its cci alias, by `cci session rm`, which keeps its session alive no more and drops its channel subscription, its session, by seat_ended, and its binding and launched terminal on the drive, so no restart starts it again; the line saying so."""
+    session = state.load(name)["subcoordinators"][seat]["session"]
+    alias = state.alias(name, "coordinator", seat)
+    retire(name, seat)
+    seat_ended(alias, session)
+    def retire_seat_write(data: dict):
+        data["subcoordinators"].pop(seat)
+        data["launched"].pop(f"sub-coordinator {seat}", None)
+
+    state.update(name, None, retire_seat_write)
+    return f"retired the seat {seat}: no open order holds it, so its alias {alias} is removed from cci and nothing starts session {session} again, `claude stop` ends it now when it runs in the background, else it ends at its own exit, and its binding is dropped"
+
+
+def seat_ended(alias: str, session: str) -> None:
+    """End a retired seat's session: its cci alias, so nothing starts it again once Claude Code exits, then the session itself by `claude stop` when it runs in the background; a seat cci runs in tmux ends at its own exit, since no tool of the drive kills a tmux session."""
+    subprocess.run(["cci", "session", "rm", alias], capture_output=True, text=True, check=False)
+    subprocess.run(["claude", "stop", session], capture_output=True, text=True, check=False)
 
 
 def retire(name: str, project: str) -> None:
@@ -6039,8 +5817,10 @@ def watched(name: str, project: str | None) -> Watcher:
 
 
 def handing_off(watcher: Watcher, ran: float) -> bool:
-    """Whether the watch may end for a newer install at this pass boundary: once it ran HAND_OFF_EVERY, so installs landing minutes apart hand it off at most that often, or at once while an incident order is open, whose fix must not wait out the clock."""
+    """Whether the watch may end for a newer install at this pass boundary: only once every project's pass ran to its last stage, so no install leaves a stage it cut short waiting on the next process, and then once it ran HAND_OFF_EVERY, so installs landing minutes apart hand it off at most that often, or at once while an incident order is open, whose fix must not wait out the clock."""
     data = state.load(watcher.name)
+    if any(one.resume for one in [watcher, *watcher.others.values()]):
+        return False
     return ran >= HAND_OFF_EVERY.total_seconds() or bool(state.open_incidents(data, list(data["orders"])))
 
 
@@ -6050,9 +5830,8 @@ def watching(watcher: Watcher) -> None:
     one = watcher
     passes = 0
     began = monotonic()
-    relays: set[str] = set()
     try:
-        with relaying(watcher) as relay_for:
+        with relaying(watcher):
             for _ in rests(state.events_path(watcher.name)):
                 beat("pass")
                 if passes and handing_off(watcher, monotonic() - began) and (newer := upgraded()):
@@ -6060,9 +5839,6 @@ def watching(watcher: Watcher) -> None:
                     break
                 handing = bool(watcher.made)
                 joined(watcher, state.now(), functools.partial(claim, watcher.name), functools.partial(watched, watcher.name))
-                for project in watcher.others.keys() - relays:
-                    relay_for(project)
-                    relays.add(project)
                 for one in seated_first(watcher):
                     read_from, moment = one.offset, state.now()
                     for said in [handed(one, one.made, moment)] if one.made else passed(one, moment, lambda moment=moment: state.now() - moment > PASS_FOR):

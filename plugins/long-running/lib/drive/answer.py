@@ -6,7 +6,7 @@ import time
 from datetime import timedelta
 from pathlib import Path
 
-from drive import reads, render, slack, state, talk
+from drive import render, slack, state, talk
 from drive.render import cut
 
 MODEL = "sonnet"
@@ -157,9 +157,11 @@ def drop_handed(name: str, link: str) -> None:
     from drive import agents
 
     ts = state.slack_message(link)[1]
-    with state.edit(name) as data:
+    def drop_handed_write(data: dict):
         for entry in data["handlers"].values():
             entry["handed"] = [brief for brief in entry["handed"] if not (agents.HIS_WORDS in brief and (found := agents.LINK.search(brief)) and (named := state.slack_message(found[1])) and named[1] == ts)]
+
+    state.update(name, None, drop_handed_write)
 
 
 def claim_path(name: str, ts: str) -> Path:
@@ -215,78 +217,3 @@ def found_answer(name: str, link: str, words: str, channel: str, thread: str, dr
     with log.open("a") as out:
         out.write(json.dumps({"at": state.stamp(), "link": link, "dry_run": dry_run, **{key: value for key, value in found.items() if key != "said"}, "said": cut(said, 600)}) + "\n")
     return found | ({"text": text} if text else {})
-
-
-POST = "POST"
-NOTHING = "NOTHING"
-REPORT_SYSTEM = f"""You write the one line a software drive owes its owner in his Slack thread. You get the drive's rows for that thread, printed by a script, then the report the drive's watch wrote on what moved there.
-
-Reply with exactly one of these three shapes and nothing else:
-
-{POST}
-<the line>
-
-{NOTHING} <a few words on why>
-
-{ESCALATE} <a few words on why>
-
-Post when something he would care about moved: a job finished or found something, a PR went up, merged, went red or green, a test passed or failed, work now waits on him or on something new. Say {NOTHING} when nothing he would act on or want to know moved. Escalate when the line needs a decision, a card or a read the rows do not hold.
-
-The line:
-- at most {WORDS} words, plain language a busy engineer reads in five seconds, leading with what changed;
-- every fact from the rows or the report, never inferred: a state, number or name neither prints is never written;
-- link each PR, build or card you mention, in Slack form <url|plain words>, only urls printed there, the words saying what the link shows;
-- name a test or check by what it tests, never by a code such as c5;
-- no job, order or record ids and no internal words such as handler, record, lane, order, job, handoff or brief;
-- never a promise of a time for the next line."""
-SCRIPTED_LANES = ("watch",)
-
-
-def scripted(record: dict) -> bool:
-    """Whether a report's line is the drive's own to write from its rows: a progress report the watch wrote, such as a quiet, due or owed one, never one answering another person's words in a watched thread or closing an order."""
-    attrs = record["fields"].get("attrs") or {}
-    return record["lane"] in SCRIPTED_LANES and record["kind"] == "report" and attrs.get("progress") == "true" and not attrs.get("watch") and not attrs.get("close") and bool(attrs.get("thread"))
-
-
-def report_of(said: str, rows: str) -> tuple[str | None, str | None, str]:
-    """The line to post, or NOTHING, and why; (None, None, why) when the report goes to a handler."""
-    head, _, rest = said.partition("\n")
-    verb, _, why = head.strip().partition(" ")
-    verb, why = verb.rstrip(":"), why.strip()
-    if verb == NOTHING:
-        return None, NOTHING, why or "nothing he acts on moved"
-    if verb != POST:
-        return None, None, head.removeprefix(ESCALATE).strip() or "the model escalated it"
-    text = rest.strip()
-    if refused := unbacked(text, rows):
-        return None, None, refused
-    return text, POST, "posted from the drive's rows"
-
-
-def post_report(name: str, seq: str) -> dict | None:
-    """Post the line a watch report owes him from the drive's rows for its thread and the report's own facts, with no handler session: one tool-less model call, the line checked as an answer is, and the report carried by that post, or by NOTHING when nothing he acts on moved; None when the report is not the drive's own to write or the model escalates, for a handler to take it, and at once for a report it escalated before, so a handler start the Mac's load drops and the watch retries costs no second call."""
-    from drive import agents
-
-    record = agents.shown(seq)
-    escalated = claim_path(name, f"report-{seq}")
-    if not scripted(record) or escalated.exists():
-        return None
-    thread = record["fields"]["attrs"]["thread"]
-    report = reads.run(["cci", "read", seq], Path.cwd())
-    rows = thread_rows(state.load(name), slack.dm(), thread)
-    said, spent = ask(rows, report, REPORT_SYSTEM, "report")
-    text, verb, why = report_of(said, f"{rows}\n{report}")
-    if not verb and said.startswith(POST):
-        said, spent = ask(rows, again(report, said, why), REPORT_SYSTEM, "report")
-        text, verb, why = report_of(said, f"{rows}\n{report}")
-    found = {"seq": seq, "posted": None, "verb": verb, "why": why, **spent}
-    if text:
-        found["posted"] = talk.posted(name, {"text": text, "thread_ts": thread})["permalink"]
-    if verb:
-        agents.carry(name, [seq], found["posted"] or f"nothing to post, by the drive's rows: {why}")
-    with (state.drive_dir(name) / "answers.log").open("a") as out:
-        out.write(json.dumps({"at": state.stamp(), **{key: value for key, value in found.items() if key != "usage"}, "tokens": sum(value for key, value in (spent.get("usage") or {}).items() if key.endswith("tokens") and isinstance(value, int)), "said": cut(said, 600)}) + "\n")
-    if not verb:
-        escalated.parent.mkdir(parents=True, exist_ok=True)
-        escalated.write_text(json.dumps({"why": why}))
-    return found if verb else None

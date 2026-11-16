@@ -120,7 +120,7 @@ his.
   [Incidents](incidents.md#his-card-on-an-incident).
 - **His order to land a change with a design card still open on it.** When his words settle the
   card, record them with `drive answer` and land. When they do not, name the card in your `report`
-  so the handler redraws it with its buttons in his order's thread.
+  so the communicator redraws it with its buttons in his order's thread.
 
 ## The builder carries the design
 

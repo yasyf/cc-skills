@@ -36,7 +36,6 @@ QUESTION = "Lock each chat's database, or the whole table?"
 ASKED = "2026-11-10T20:59:00-08:00"
 AWAY = "2026-11-10T21:30:00-08:00"
 AMENDMENTS = agents.amendments
-POSTS = agents.posts
 DRAW = talk.draw
 SSQL = "are we doing the ssql release foe it"
 FOOTERS = "why didnt our release footers whatever catch this and bring ssql along with API"
@@ -103,9 +102,9 @@ def test_a_root_post_on_an_order_goes_to_its_projects_operator_channel_and_keeps
 
 
 def test_a_card_of_no_project_asks_at_the_root_of_the_drives_own_channel_while_a_status_line_of_none_stays_in_his_dm(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(slack, "operator_channels", lambda: [{"id": "C777", "name": "him-drive-demo-iris"}, {"id": "C888", "name": "him-drive-demo-drive"}])
+    monkeypatch.setattr(slack, "operator_channels", lambda: [{"id": "C777", "name": "him-drive-demo-iris"}, {"id": "C888", "name": "him-drive-demo-drive-tooling"}])
     with state.edit(demo) as data:
-        data["slack"]["channels"] = {"Iris": {"id": "C777", "name": "him-drive-demo-iris"}, "The drive": {"id": "C888", "name": "him-drive-demo-drive"}}
+        data["slack"]["channels"] = {"Iris": {"id": "C777", "name": "him-drive-demo-iris"}, "Drive tooling": {"id": "C888", "name": "him-drive-demo-drive-tooling"}}
         data["orders"]["o1"] = state.new_order("design the store", "D123", None, {}, state.stamp()) | {"jobs": ["j1"]}
         data["jobs"]["j1"] = state.new_job("o1", "builder", "design the store", [], state.stamp())
         data["jobs"]["j1"]["questions"].append(state.new_question(None, "Keep the old store?", state.stamp()) | {"waits": "demo:j1-8"})
@@ -129,6 +128,21 @@ def test_once_the_drive_has_its_own_channel_a_post_of_a_project_with_none_makes_
     assert state.load(demo)["slack"]["channels"]["Iris"] == made["him-drive-demo-iris"]
 
 
+def test_a_priority_orders_post_makes_its_bound_seats_own_channel_while_its_projects_other_orders_stay_in_the_projects(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
+    made = {"him-drive-demo-iris": {"id": "C777", "name": "him-drive-demo-iris"}, "him-drive-demo-priority-o2": {"id": "C790", "name": "him-drive-demo-priority-o2"}}
+    sent = slack.cc_slack
+    monkeypatch.setattr(slack, "cc_slack", lambda *argv, **_: made[argv[1]] if argv[0] == "operator-channel" else sent(*argv))
+    with state.edit(demo) as data:
+        data["slack"]["channels"] = {"": {"id": "C666", "name": "him-drive-demo"}}
+        data["orders"]["o1"] = state.new_order("ship the run page", "D123", None, {}, state.stamp()) | {"project": "Iris"}
+        data["orders"]["o2"] = state.new_order("fix the lock", "D123", None, {}, state.stamp()) | {"project": "Iris", "priority": state.priority_seat("o2")}
+        data["subcoordinators"][state.priority_seat("o2")] = {"session": "seat-1", "cwd": "/w/demo", "from": 0}
+    talk.posted(demo, {"text": "The page is up."}, "o1")
+    talk.posted(demo, {"text": "The lock is fixed."}, "o2")
+    assert [argv[argv.index("--channel") + 1] for argv in posts] == ["C777", "C790"]
+    assert state.load(demo)["slack"]["channels"][state.priority_seat("o2")] == made["him-drive-demo-priority-o2"]
+
+
 def test_the_drives_own_channel_posts_one_line_per_project_channel_linking_it_and_its_queue(demo: str, unposted_waits: Callable[..., dict[str, str]]) -> None:
     with state.edit(demo) as data:
         data["slack"]["channels"] = {"": {"id": "C666", "name": "him-drive-demo"}, "Iris": {"id": "C777", "name": "him-drive-demo-iris"}}
@@ -142,7 +156,7 @@ def test_drive_channels_moves_each_open_card_of_his_dm_to_its_projects_channel_o
         data["orders"][order_id] = state.new_order("ship the run page", "D123", None, {}, state.stamp()) | {"project": "Iris", "jobs": [job_id]}
         data["jobs"][job_id] = state.new_job(order_id, "builder", "ship the run page", [], state.stamp()) | {"waits": [CARD_URL]}
         data["prs"]["yasyf/cc-skills#7"] = state.new_pr(PR_URL, job_id, order_id)
-    iris, drive, moved = {"id": "C777", "name": "him-drive-demo-iris"}, {"id": "C888", "name": "him-drive-demo-drive"}, "https://acme.slack.com/archives/C777/p1794300000000950"
+    iris, drive, moved = {"id": "C777", "name": "him-drive-demo-iris"}, {"id": "C888", "name": "him-drive-demo-drive-tooling"}, "https://acme.slack.com/archives/C777/p1794300000000950"
     made = {"him-drive-demo": {"id": "C666", "name": "him-drive-demo"}, iris["name"]: iris, drive["name"]: drive}
     unfiled = question_card("https://acme.slack.com/archives/D123/p1794300000000300", "Which drive?", "demo:j99-7")
     pr_card = {"prs": [PR_URL], "asked": ASKED, "url": "https://acme.slack.com/archives/D123/p1794300000000200", "card": {"title": "Merge #7?", "waits": "merge:yasyf/cc-skills#7"}}
@@ -924,93 +938,7 @@ def test_a_post_promising_a_fix_by_2_37_and_the_next_line_by_2_32_owes_the_earli
     assert (found and f"{found:%b %d %H:%M}") == "Nov 12 02:32"
 
 
-def test_a_time_a_post_promises_becomes_its_orders_due_once_slack_has_the_post_and_the_next_post_keeps_it(
-    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread
-) -> None:
-    thread = "1794200000.000100"
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Iris chat turns fail on sand 0.162.3983", "--thread", thread)
-    run("start", "demo", "--role", "communicator")
-    at = datetime(2026, 11, 11, 21, 29, 43, 954739).astimezone()
-    with state.edit(demo) as data:
-        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
-        data["roles"]["coordinator"]["session"] = "elsewhere"
-        order = data["orders"]["o1"]
-        state.new_promise(order, state.promise_thread(order), state.stamp(at.replace(minute=32, second=0, microsecond=0)), state.stamp(at.replace(minute=27, second=0, microsecond=0)))
-    text = "Turns have run without failing since 9:22 PM. Next line by 9:45."
-    line = slack_thread.post(at, from_claude=True, text=text)
-    monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": line, "thread_ts": thread})
-    handling(demo, "o1")
-    report(monkeypatch, {"order": "o1", "thread": thread}, lane="communicator", kind="owner")
-    before = state.load(demo)["orders"]["o1"]
-    assert talk.say(demo, {"text": text, "thread_ts": thread, "record": "698123", "dry_run": True}).endswith("; o1 progress line, no part delivered")
-    assert state.load(demo)["orders"]["o1"] == before
-    due = state.stamp(at.replace(minute=45, second=0, microsecond=0))
-    assert talk.say(demo, {"text": text, "thread_ts": thread, "record": "698123"}) == (
-        f"POSTED {line}; o1 progress line, no part delivered: {line}, its words promise him the next line by {render.when(due)}, now owed"
-    )
-    order = state.load(demo)["orders"]["o1"]
-    [told] = order["promises"]
-    assert (told["due"], told["promised"], told["kept"], state.owed(order)) == (due, slack.sent_at(slack_thread.messages[-1]).isoformat(), None, True)
-    later = slack_thread.post(at + timedelta(minutes=10), from_claude=True, text="The fix is in review. Next line by 10:00.")
-    assert run("order", "posted", "o1", later) == (0, f"o1 progress line, no part delivered: {later}, its words promise him the next line by {render.when(state.stamp(at.replace(hour=22, minute=0, second=0, microsecond=0)))}, now owed")
-    last = slack_thread.post(at + timedelta(minutes=20), from_claude=True, text="The fix merged.")
-    run("order", "posted", "o1", last)
-    order = state.load(demo)["orders"]["o1"]
-    [kept] = order["promises"]
-    assert (kept["kept"], state.owed(order)) == (slack.sent_at(slack_thread.messages[-1]).isoformat(), False)
-
-
-@pytest.mark.parametrize("waits", [False, True])
-def test_an_edit_moving_the_time_a_post_promised_moves_its_orders_due_and_one_dropping_it_owes_none_but_the_time_that_waited(
-    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread, waits: bool
-) -> None:
-    thread = "1794200000.000100"
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Iris chat turns fail on sand 0.162.3983", "--thread", thread)
-    run("start", "demo", "--role", "communicator")
-    with state.edit(demo) as data:
-        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
-        data["roles"]["coordinator"]["session"] = "elsewhere"
-    at = datetime(2026, 11, 11, 21, 29, 43, 954739).astimezone()
-    text = "Turns have run without failing since 9:22 PM. Next line by 9:45."
-    line = slack_thread.post(at, from_claude=True, text=text)
-
-    def cc_slack(*argv: str) -> dict:
-        if argv[0] == "edit":
-            slack_thread.messages[-1]["text"] = argv[argv.index("--text") + 1]
-        return {"permalink": line, "thread_ts": thread}
-
-    monkeypatch.setattr(slack, "cc_slack", cc_slack)
-    handling(demo, "o1")
-    report(monkeypatch, {"order": "o1", "thread": thread}, lane="communicator", kind="owner")
-    talk.say(demo, {"text": text, "thread_ts": thread, "record": "698123"})
-    promised = slack.sent_at(slack_thread.messages[-1]).isoformat()
-    moved = state.stamp(at.replace(hour=22, minute=15, second=0, microsecond=0))
-    reads = len(slack_thread.reads)
-    assert talk.say(demo, {"edit": line, "text": "Turns have run without failing since 9:22 PM. Next line by 10:15."}) == (
-        f"EDITED {line}; its new words promise him o1's next line by {render.when(moved)}, now owed"
-    )
-    assert [where[1] for where in slack_thread.reads[reads:] if where[0] == "--url"] == [line]
-    order = state.load(demo)["orders"]["o1"]
-    [told] = order["promises"]
-    assert (told["due"], told["promised"], state.owed(order)) == (moved, promised, True)
-    waiting = state.stamp(at.replace(hour=23, minute=0, second=0, microsecond=0))
-    set_at = state.stamp(at + timedelta(minutes=5))
-    if waits:
-        with state.edit(demo) as data:
-            state.promise(data["orders"]["o1"], told["thread"], waiting, state.parse_time(set_at))
-    restarted = f", and the drive's own time {render.when(waiting)} is owed from its next line" if waits else ""
-    assert talk.say(demo, {"edit": line, "text": "Turns have run without failing since 9:22 PM."}) == (
-        f"EDITED {line}; its new words promise no time, so o1 no longer owes him a line by {render.when(moved)}{restarted}"
-    )
-    dropped = state.load(demo)["orders"]["o1"]
-    assert ([(held["due"], held["promised"], held["next_due"]) for held in dropped["promises"]], state.owed(dropped)) == ([(waiting, set_at, waiting)] if waits else [], waits)
-    assert (" due " in render.order_line(state.load(demo), "o1", dropped)) == waits
-    reads = len(slack_thread.reads)
-    assert talk.say(demo, {"edit": line, "text": "Turns still run without failing."}) == f"EDITED {line}"
-    assert (state.load(demo)["orders"]["o1"], slack_thread.reads[reads:]) == (dropped, [])
-
-
-def test_a_post_on_an_incident_records_its_line_and_keeps_no_time_its_words_promise_since_the_watch_owes_the_next_five_quiet_minutes_on(
+def test_a_post_on_an_incident_records_its_line_and_keeps_no_time_its_words_promise(
     demo: str, run: Callable[..., tuple[int, str]], slack_thread: Thread
 ) -> None:
     thread = "1794200000.000100"
@@ -1024,7 +952,7 @@ def test_a_post_on_an_incident_records_its_line_and_keeps_no_time_its_words_prom
     code, said = run("order", "posted", "o1", line)
     assert (code, said.startswith(f"o1 progress line, no part delivered: {line}"), "promise" in said) == (0, True, False)
     told = state.load(demo)["orders"]["o1"]
-    assert (told["promises"], told["last_line"]) == ([], state.stamp(slack.sent_at(slack_thread.messages[-1])))
+    assert told["last_line"] == state.stamp(slack.sent_at(slack_thread.messages[-1]))
 
 
 def test_a_say_of_a_record_retried_after_cc_slack_posted_and_failed_hands_cc_slack_the_records_key_again_and_keeps_the_one_post_slack_holds(
@@ -1126,7 +1054,6 @@ def test_a_report_delivers_on_an_order_only_from_the_lane_of_its_holder_and_a_re
     assert len(sent) == 2
 
 
-
 def test_a_report_naming_no_order_goes_on_the_newest_open_order_in_its_thread_as_a_progress_line_whoever_wrote_it_and_one_naming_a_part_only_from_its_holder(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread
 ) -> None:
@@ -1204,88 +1131,10 @@ def test_a_second_report_closing_one_order_posts_nothing_whoever_wrote_it_and_a_
     assert len(sent) == 2
 
 
-def test_a_report_the_away_check_held_posts_nothing_whatever_its_judge_read(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
-    with state.edit(demo) as data:
-        data["held"] = {"684842": {"order": "o1", "at": state.stamp(), "record": None}}
-    report(monkeypatch, {"close": "o1"}, lane="watch")
-    with pytest.raises(DriveError, match="nothing posted: report 684842 is held for his return, when the watch's line in its thread carries it: return NOTHING held for his return"):
-        talk.say(demo, {"text": "The journal fix merged.", "record": "684842"})
-    assert (posts, said(demo)) == ([], [])
-
-def owe(name: str) -> str:
-    with state.edit(name) as data:
-        data["catch_up"] = state.new_catch_up(ASKED)
-    return f"*Catch-up since {render.when(ASKED)}*\n"
-
-
 def own_pr(name: str) -> None:
     with state.edit(name) as data:
         data["orders"]["o1"] = state.new_order("show the run page's history", "terminal", None, {}, ASKED)
         data["jobs"]["j1"] = state.new_job("o1", "builder", "show the run page's history", [], ASKED)
-
-
-def open_cards(name: str, counts: str = "1 question") -> str:
-    return f"\n\n*<{dashboard.link(name)}#/|Your open cards: {counts}>*"
-
-
-def test_a_catch_up_opens_with_its_title_from_the_time_he_was_last_heard_whatever_title_it_came_with_and_posts_once_for_each_one_owed(
-    demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    own_pr(demo)
-    report(monkeypatch, {"catch_up": "true"})
-    owe(demo)
-    talk.say(demo, {"text": "The run page fix is live.", "record": "660299"})
-    titled = owe(demo) + "The run page fix is live."
-    talk.say(demo, {"text": "*Catch-up since 4:00 PM*\nThe run page fix is live.", "record": "660301"})
-    assert [argv[-1] for argv in posts] == [titled + open_cards(demo)] * 2
-    assert [kept["text"] for kept in said(demo)] == [titled + open_cards(demo)] * 2
-    with pytest.raises(DriveError, match="nothing posted: report 660301 is a catch-up, and the drive owes him none, since its last catch-up already posted"):
-        talk.say(demo, {"text": "The run page fix is live.", "record": "660301"})
-    report(monkeypatch, {"orders": "o1"})
-    talk.say(demo, {"text": "The run page fix is live.", "record": "660300"})
-    assert posts[-1][-1] == "The run page fix is live."
-
-
-def test_a_post_lets_go_of_only_the_reports_held_for_his_return_that_its_report_carries(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
-    own_pr(demo)
-    with state.edit(demo) as data:
-        data["held"] = {"700": {"order": "o1", "at": state.stamp(), "record": "660299"}, "702": {"order": "o1", "at": state.stamp(), "record": None}}
-    report(monkeypatch, {"orders": "o1"})
-    assert not talk.say(demo, {"text": "The run page fix is live.", "record": "660300"}).endswith("no longer held: 700")
-    assert list(state.load(demo)["held"]) == ["700", "702"]
-    assert talk.say(demo, {"text": "The run page fix is live.", "record": "660299"}).endswith("; it carries the reports held for it, no longer held: 700")
-    assert (list(state.load(demo)["held"]), state.load(demo)["carried"]["700"]) == (["702"], POSTED)
-
-
-def test_his_catch_up_with_no_words_no_card_waiting_and_nothing_held_for_it_posts_nothing_and_settles(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
-    own_pr(demo)
-    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "https://acme.slack.com/", "questions": [], "pr_cards": [], "closed": []})
-    report(monkeypatch, {"catch_up": "true"})
-    owe(demo)
-    assert talk.say(demo, {"text": "", "record": "660299"}) == "SETTLED report 660299: no card waits on him and nothing is held for his catch-up, so it posts nothing"
-    assert (posts, said(demo), state.load(demo)["catch_up"]) == ([], [], None)
-
-
-def test_say_itself_holds_a_report_for_his_dm_while_he_is_away_from_a_caller_no_hook_checked_and_his_catch_up_carries_it(
-    demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    own_pr(demo)
-    with state.edit(demo) as data:
-        data["owner"] = {"heard": (heard := state.stamp()), "away": heard, "absence": None}
-    report(monkeypatch, {"progress": "true"}, lane="meta")
-    with pytest.raises(DriveError, match=r"nothing posted: he is away since he said so at .+ Report 718234 is marked held: `drive status` lists it until the line carrying it posts once he is back\. Return NOTHING held for his return\."):
-        talk.say(demo, {"text": "The drive took three production break-glass grants on its own while you were away.", "record": "718234"})
-    assert (posts, said(demo), list(state.load(demo)["held"])) == ([], [], ["718234"])
-    talk.say(demo, {"text": f"{state.WAITS_ON_HIM}: the release card.", "record": "718236"})
-    report(monkeypatch, {"customer_outage": "true"}, lane="meta")
-    talk.say(demo, {"text": "Acme's runs fail in the new region.", "record": "718238"})
-    assert [argv[-1] for argv in posts] == [f"{state.WAITS_ON_HIM}: the release card.", "Acme's runs fail in the new region."]
-    report(monkeypatch, {"catch_up": "true"})
-    owe(demo)
-    with state.edit(demo) as data:
-        data["held"]["718234"]["record"] = "718240"
-    assert talk.say(demo, {"text": "The break-glass grants only read.", "record": "718240"}).endswith("; it carries the reports held for it, no longer held: 718234")
-    assert state.load(demo)["held"] == {}
 
 
 def test_amendments_reads_each_correction_and_withdrawal_re_the_reports_in_one_cci_grep_oldest_first(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1305,21 +1154,6 @@ def test_amendments_reads_each_correction_and_withdrawal_re_the_reports_in_one_c
     ]
 
 
-def test_the_watch_reads_each_post_report_and_post_correction_to_the_communicator_from_the_drives_mark_in_one_cci_tail(monkeypatch: pytest.MonkeyPatch) -> None:
-    tail = [
-        {"seq": 700, "kind": "report", "to": ["communicator@demo"], "text": "POST his release card is coming", "at": "2026-11-15T20:00:00Z", "fields": {"attrs": {"thread": "1794300000.000100"}}},
-        {"seq": 701, "kind": "report", "to": ["communicator@demo"], "text": "FYI the cut is green"},
-        {"seq": 702, "kind": "correction", "re": 700, "to": ["communicator@demo"], "text": "POST no release card follows", "at": "2026-11-15T20:00:30Z", "fields": {}},
-        {"seq": 703, "kind": "report", "to": ["communicator@demo"], "text": "FYI the canary is up"},
-    ]
-    calls: list[list[str]] = []
-    monkeypatch.setattr(reads, "run", lambda argv, checkout: calls.append(argv) or "".join(json.dumps(record) + "\n" for record in tail))
-    assert POSTS("demo", 699) == ([("700", datetime(2026, 11, 15, 20, tzinfo=UTC), "1794300000.000100"), ("702", datetime(2026, 11, 15, 20, 0, 30, tzinfo=UTC), None)], 703)
-    assert calls[0] == ["cci", "tail", "--drive", "demo", "--to", "communicator", "--kind", "report", "--kind", "correction", "--since", "#699", "--budget", str(agents.AMENDMENT_BYTES), "--json"]
-    tail.clear()
-    assert POSTS("demo", 703) == ([], 703)
-
-
 def test_a_report_post_names_each_correction_cci_holds_re_it(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch, cci_amendments: dict[str, dict[str, list[str]]]) -> None:
     report(monkeypatch, {"orders": "o1"})
     cci_amendments["correction"]["669950"] = ["669952"]
@@ -1337,31 +1171,6 @@ def test_a_post_citing_its_record_as_cci_prints_it_reads_its_corrections_by_the_
     assert talk.say(demo, {"text": "Each request reads 64 MiB.", "record": "#669950"}) == (
         f"POSTED {POSTED}; cci holds corrections of report 669950, 669952: unless this post carries each, reword it with say(edit={POSTED}, text=…)"
     )
-
-
-def test_a_correction_of_a_held_report_rides_with_it_and_one_after_the_post_carrying_it_names_that_post_to_reword(
-    demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch, cci_amendments: dict[str, dict[str, list[str]]]
-) -> None:
-    own_pr(demo)
-    records = {"669952": {"kind": "correction", "re": 669950}, "669980": {"kind": "correction", "re": 669950}, "669999": {"kind": "report", "attrs": {"catch_up": "true"}}}
-
-    def shown(argv: list[str], checkout: Path) -> str:
-        record = records[argv[2]]
-        return json.dumps({"seq": argv[2], "lane": "root", "at": "2026-11-11T09:08:16.896Z", "fields": {"attrs": record.get("attrs", {})}} | record)
-
-    monkeypatch.setattr(cli.reads, "run", shown)
-    with state.edit(demo) as data:
-        data["held"] = {"669950": {"order": "o1", "at": state.stamp(), "record": "669999"}}
-    with pytest.raises(DriveError, match="nothing posted: record 669952 corrects report 669950, held for his return, when the line carrying it carries this correction with it"):
-        talk.say(demo, {"text": "It reads 16 MiB a request, not 64.", "record": "669952"})
-    owe(demo)
-    cci_amendments["correction"]["669950"] = ["669952", "669980"]
-    assert talk.say(demo, {"text": "Each request reads 16 MiB.", "record": "669999"}).endswith(
-        f"; it carries the reports held for it, no longer held: 669950; cci holds corrections 669952, 669980 of them: unless this post carries each, reword it with say(edit={POSTED}, text=…)"
-    )
-    assert (state.load(demo)["held"], state.load(demo)["carried"]) == ({}, {"669950": POSTED, "669999": POSTED})
-    with pytest.raises(DriveError, match=f"nothing posted: record 669980 corrects report 669950, which went out in {re.escape(POSTED)}: reword that post"):
-        talk.say(demo, {"text": "It reads 12 MiB a request.", "record": "669980"})
 
 
 def test_a_correction_of_a_report_already_posted_names_the_post_it_went_out_in_to_reword(
@@ -1391,72 +1200,9 @@ def test_721809_a_report_one_handler_posted_goes_nowhere_from_a_second_handler_a
     talk.say(demo, {"text": "The journal fix holds staging for 30 minutes.", "record": "721809"})
     with state.edit(demo) as data:
         data["handlers"] = {"f85f14dd": data["handlers"]["f85f14dd"] | {"session": "f85f14dd-session"}, "a2c4e6f8": entry | {"session": os.environ["CLAUDE_CODE_SESSION_ID"]}}
-    with pytest.raises(DriveError, match=f"^nothing posted: report 721809 already went out in {re.escape(POSTED)}, which another handler or a line carrying it at his return posted: return NOTHING already posted at {re.escape(POSTED)}$"):
+    with pytest.raises(DriveError, match=f"^nothing posted: report 721809 already went out in {re.escape(POSTED)}, which another handler posted: return NOTHING already posted at {re.escape(POSTED)}$"):
         talk.say(demo, {"text": "Testing the journal fix on staging for 30 minutes.", "record": "721809"})
     assert len(posts) == 2
-
-
-def test_a_held_report_its_writer_withdrew_goes_out_in_no_post_and_gives_back_the_close_it_claimed_on_an_open_order(
-    demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch, cci_amendments: dict[str, dict[str, list[str]]]
-) -> None:
-    own_pr(demo)
-    with state.edit(demo) as data:
-        data["held"] = {seq: {"order": order_id, "at": state.stamp(), "record": "695999"} for seq, order_id in (("695689", "o946"), ("695810", "o1015"))}
-        for order_id, closed_on, done in (("o946", "695689", "open"), ("o1015", "695810", "open"), ("o771", "695689", "done")):
-            data["orders"][order_id] = state.new_order("show the run page's history", "terminal", None, {}, ASKED) | {"closed_on": closed_on, "state": done}
-    cci_amendments["withdraw"]["695689"] = ["695900"]
-    cci_amendments["correction"]["695689"] = ["695809"]
-    report(monkeypatch, {"catch_up": "true"})
-    owe(demo)
-    assert talk.say(demo, {"text": "The run page shows its history.", "record": "695999"}).endswith(
-        "; it carries the reports held for it, no longer held: 695810; their writers withdrew reports 695689, so no post carries them and no order closes on them:"
-        f" unless this post leaves each out, reword it with say(edit={POSTED}, text=…)"
-    )
-    data = state.load(demo)
-    assert (data["held"], data["carried"]) == ({}, {"695810": POSTED, "695999": POSTED})
-    assert {order_id: data["orders"][order_id]["closed_on"] for order_id in ("o946", "o1015", "o771")} == {"o946": None, "o1015": "695810", "o771": "695689"}
-
-
-def test_his_catch_up_counts_every_open_card_and_draws_only_those_asked_since_he_was_last_heard_five_a_message_none_drawn_twice(
-    demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    questions = [question_card(f"https://acme.slack.com/archives/D123/p179430000000020{n}", f"Question {n}?", f"demo:j{n}-1") | ({"asked": AWAY} if n > 2 else {}) for n in range(1, 9)]
-    tap = {"prs": [PR_URL], "asked": AWAY, "url": "https://acme.slack.com/archives/D123/p1794300000000300", "card": {"title": "New: approve the run page history?", "waits": "merge:yasyf:cc-skills:7", "prs": [{"url": PR_URL, "head": ""}]}}
-    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "https://acme.slack.com/", "questions": questions, "pr_cards": [tap], "closed": []})
-    with state.edit(demo) as data:
-        data["orders"]["o1"] = state.new_order("show the run page's history", "terminal", None, {}, ASKED)
-        data["jobs"]["j1"] = state.new_job("o1", "builder", "show a run's history", [], ASKED)
-        data["prs"]["yasyf/cc-skills#7"].update(checks="pass", stage={"name": "card", "owner": "him", "why": "green, waits on his Approve", "since": AWAY, "woke": None})
-    report(monkeypatch, {"catch_up": "true"})
-    title = owe(demo)
-    text = "*The run page*\nIts fix is live, and {card:demo:j3-1} picks its lock."
-    drawn = [f"<{tap['url']}|{tap['card']['title']}>"] + [f"<{card['url']}|{card['question']}>" for card in questions[3:]]
-    sent = (
-        f"{title}*The run page*\nIts fix is live, and <{questions[2]['url']}|Question 3?> picks its lock."
-        + open_cards(demo, "8 questions, 1 PR card")
-        + ", 6 new since you were last heard:\n"
-        + "\n".join(drawn[:5])
-        + "\n\n"
-        + "\n".join(drawn[5:])
-    )
-    assert talk.say(demo, {"text": text, "record": "660299", "dry_run": True}) == f"DRY his DM root, 0 pictures: {sent}"
-    talk.say(demo, {"text": text, "record": "660299"})
-    assert posts[-1][-1] == sent
-    assert "Question 1?" not in sent and "Question 2?" not in sent
-    shown = said(demo)[-1]["text"]
-    assert ":\n[New: approve the run page history?](#/queue/tap/1794300000.000300)\n" in shown and shown.endswith("\n[Question 8?](#/queue/question/1794300000.000208)")
-
-
-def test_his_catch_up_posts_nothing_while_cc_slack_cannot_list_the_cards_it_closes_with(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
-    def unlisted(name: str) -> dict:
-        raise slack.SlackError("cc-slack exited 1")
-
-    monkeypatch.setattr(view, "cards", unlisted)
-    report(monkeypatch, {"catch_up": "true"})
-    owe(demo)
-    with pytest.raises(DriveError, match="nothing posted: his catch-up counts every open card of his, which cc-slack could not list: cc-slack exited 1"):
-        talk.say(demo, {"text": "The run page fix is live.", "record": "660299"})
-    assert (posts, said(demo)) == ([], [])
 
 
 def test_a_post_goes_out_in_exactly_the_words_it_was_given_while_built_work_waits_on_his_card(
@@ -1469,11 +1215,9 @@ def test_a_post_goes_out_in_exactly_the_words_it_was_given_while_built_work_wait
         data["jobs"]["j1"] = state.new_job("o1", "builder", "lock it", ["lock it"], ASKED) | {"state": "built", "branch": "lane/lock", "waits": [WAITS]}
     talk.say(demo, {"text": "Shipped.", "thread_ts": thread})
     talk.say(demo, {"text": "Catch-up"})
-    report(monkeypatch, {"catch_up": "true"})
-    title = owe(demo)
+    report(monkeypatch, {"orders": "o1"})
     talk.say(demo, {"text": "The fix is live.", "record": "660299"})
-    assert [argv[-1] for argv in posts] == ["Shipped.", "Catch-up", f"{title}The fix is live." + open_cards(demo)]
-    assert state.load(demo)["catch_up"] is None
+    assert [argv[-1] for argv in posts] == ["Shipped.", "Catch-up", "The fix is live."]
 
 
 def test_a_pr_is_linked_under_the_words_the_post_gives_it_whether_the_drive_holds_it_or_not(demo: str, posts: list[tuple[str, ...]]) -> None:
@@ -1683,7 +1427,7 @@ def test_a_report_say_posts_at_the_root_of_another_channel_joins_its_thread_as_m
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     own, claim = "1794100000.000100", "1794687785.402399"
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "test the batch writer on staging", "--thread", own, "--due", "+30m")
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "test the batch writer on staging", "--thread", own)
     run("start", "demo", "--role", "communicator")
     with state.edit(demo) as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
@@ -1692,7 +1436,7 @@ def test_a_report_say_posts_at_the_root_of_another_channel_joins_its_thread_as_m
     report(monkeypatch, {"progress": "true", "order": "o1", "until": until})
     root = f"https://acme.slack.com/archives/C0STAGING1/p{claim.replace('.', '')}"
     reply = f"https://acme.slack.com/archives/C0STAGING1/p1794689000000100?thread_ts={claim}&cid=C0STAGING1"
-    away = "so it is no line to him and keeps no promised time"
+    away = "so it is no line to him"
     monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": root})
     text = f"Claiming staging until {render.clock(state.parse_time(until))} to test the batch writer."
     assert talk.say(demo, {"text": text, "channel_id": "C0STAGING1", "record": "677158"} | TICKET) == (
@@ -1708,7 +1452,7 @@ def test_a_report_say_posts_at_the_root_of_another_channel_joins_its_thread_as_m
         f"POSTED {reply}; o1 progress line, no part delivered: {reply}, in a thread of another channel its members read, {away}"
     )
     after = state.load(demo)["orders"]["o1"]
-    assert [after[field] for field in ("last_line", "promises", "threads")] == [before["orders"]["o1"][field] for field in ("last_line", "promises", "threads")]
+    assert [after[field] for field in ("last_line", "threads")] == [before["orders"]["o1"][field] for field in ("last_line", "threads")]
 
 
 def test_a_line_at_his_dm_root_on_an_order_whose_own_thread_holds_no_line_to_him_is_the_thread_its_next_lines_go_in(
@@ -1747,7 +1491,7 @@ def test_a_claim_at_a_channels_root_keeps_its_end_on_its_order_and_a_line_in_its
     report(monkeypatch, {"progress": "true", "order": "o1", "until": until})
     with pytest.raises(DriveError, match="nothing posted: report 677158's until attr is the end of a post at the root of a channel outside his DM"):
         talk.say(demo, {"text": claim, "record": "677158"})
-    unowed = "so it is no line to him and keeps no promised time"
+    unowed = "so it is no line to him"
     assert talk.say(demo, {"text": claim, "channel_id": "C0STAGING1", "record": "677158"}) == (
         f"POSTED {link}; o1 progress line, no part delivered: {link}, at the root of another channel, {unowed}, in thread {root}, now one of its threads, and its thread owes its closing line from {render.when(until)}"
     )

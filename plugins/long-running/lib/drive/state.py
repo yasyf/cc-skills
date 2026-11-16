@@ -134,16 +134,6 @@ DRIVE_TOOLING = (
     " sessions reach each other and him, and the install of a released tool"
 )
 WAITS_ON_HIM = "WAITING-ON-HIM"
-AWAY_HOLD = (
-    "He is away from the moment the owner row's away holds: when he says he is going to sleep or stepping out, else an hour"
-    " after his last word or tap. While he is away a line to him in his DM goes out only as a card, a PR card, the watch's"
-    " reply under a card holding built work, an edit of a post already out, his catch-up, an answer passing asked, a line"
-    f" carrying {WAITS_ON_HIM}, an incident's line, a line marked customer_outage=true, or a line naming a clock time still to"
-    " come, which a promise of the next line is not. say holds every other report for his return, news that work moved or"
-    " that the drive failed him included; a report owing a line promised by a time is owed at his return instead, and a"
-    ' handler\'s line carrying no report is refused, by his words "Just do less realtime more summary / batching, with a catch'
-    " up post once I'm back\""
-)
 ABOUT_DRIVE = "drive"
 ABOUT_HIS_WORK = "his work"
 ABOUTS = (ABOUT_DRIVE, ABOUT_HIS_WORK)
@@ -260,7 +250,6 @@ DAY_OFFSETS = {"yesterday": -1, "today": 0, "tonight": 0, "tomorrow": 1}
 OFFSET_UNITS = {"m": "minutes", "h": "hours", "d": "days"}
 AWAY_AFTER = timedelta(minutes=60)
 PRESENT_WITHIN = timedelta(minutes=15)
-QUIET_THREAD = timedelta(minutes=5)
 PRESENCE_WORDS = '"merging or rleasing dangerous things should only be done wehn the human is present"'
 TAKEN_BY_PASS = "its staging test passed after your Approve"
 STANDING_EVERY = timedelta(minutes=30)
@@ -294,6 +283,8 @@ WAITS_OUT_LOCK: ContextVar[bool] = ContextVar("waits_out_lock", default=False)
 NAMED: ContextVar[frozenset[str]] = ContextVar("named", default=frozenset())
 LOADED_VERSION: ContextVar[int | None] = ContextVar("loaded_version", default=None)
 LOADED_REV: ContextVar[int | None] = ContextVar("loaded_rev", default=None)
+DEFERRED: ContextVar[list[Callable[[], list[str]]] | None] = ContextVar("deferred", default=None)
+READ_OPEN: ContextVar[tuple[str, set] | None] = ContextVar("read_open", default=None)
 EDITING: ContextVar[str | None] = ContextVar("editing", default=None)
 TAKEN_IDS: ContextVar[list[tuple[str, str, int]] | None] = ContextVar("taken_ids", default=None)
 PTHREADS = ctypes.CDLL(None, use_errno=True)
@@ -865,14 +856,12 @@ def new_drive(name: str, role: str, session: str | None, cwd: str) -> dict:
         "routes": {},
         "slots": {},
         "stand_ins": {},
-        "held": {},
         "owed_replies": {},
         "carried": {},
-        "posts": {"mark": None, "unposted": {}},
+        "posts": {"mark": None},
         "mains": {},
         "dropped_waits": {},
         "posted": {},
-        "catch_up": None,
         "launched": {},
         "closed_from_cards": True,
         "designs_cited": True,
@@ -1095,6 +1084,8 @@ def load(name: str, fields: tuple[str, ...] | None = None) -> dict:
         if not (path := database_path(name)).exists():
             data = shaped(name, stored_json(name))[0]
             return data if fields is None else {field: data[field] for field in fields}
+        if (open_reads := READ_OPEN.get()) is not None and open_reads[0] == name:
+            open_reads[1].update({("", "*"), *((collection, "*") for collection in COLLECTIONS)})
         return whole(path, lambda saved: shaped(name, saved), fields)
     finally:
         if collecting:
@@ -1168,12 +1159,8 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         order["owner"] = "meta" if order["text"].startswith(TOOLING) else order.get("owner")
         if "from_thread" in order or isinstance(order.get("thread", ""), str):
             order["thread"] = saved_thread(data, order)
-        order.setdefault("promises", [])
-        if order.get("due") and not order.get("withdrawn"):
-            where = promise_thread(order | {"threads": order.get("threads", [])})
-            new_promise(order, where, order["due"], order.get("promised") or order["updated"]).update({field: order[field] for field in ("kept", "due_said", "next_due", "next_set") if field in order})
-        order.update({field: None for field in OLDER_INSTALL_PROMISE if field in order})
-        order.setdefault("withdrawn", None)
+        for field in ("promises", "withdrawn", *OLDER_INSTALL_PROMISE):
+            order.pop(field, None)
         order["parts"] = {part.strip(): held for part, held in order["parts"].items()}
         for part in order["parts"].values():
             part.pop("kind", None)
@@ -1325,20 +1312,31 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
     data.setdefault("answers", {})
     data.setdefault("stalls", {})
     data.setdefault("slots", {})
+    for slot in data["slots"].values():
+        for each in slot["queue"]:
+            each.setdefault("paths", None)
+            each.setdefault("stacks", None)
+            each.setdefault("starts", False)
+        if slot["holder"]:
+            slot["holder"].setdefault("paths", None)
+            slot["holder"].setdefault("stacks", None)
+            slot["holder"].setdefault("starts", False)
+            slot["holder"].setdefault("riders", [])
+            slot["holder"].setdefault("released", False)
     data.setdefault("reader_pilot", None)
     data.setdefault("tooling_backlog", False)
     for answer in data["answers"].values():
         answer.setdefault("jobs", {})
         answer.setdefault("approves", None)
     data.setdefault("stand_ins", {})
-    data.setdefault("held", {})
+    data.pop("held", None)
+    data.pop("catch_up", None)
     data.setdefault("owed_replies", {})
     data.setdefault("routed", {})
     data.setdefault("routes", {})
-    for mark in data["held"].values():
-        mark.setdefault("record", None)
     data.setdefault("carried", {})
-    data.setdefault("posts", {"mark": None, "unposted": {}})
+    data.setdefault("posts", {"mark": None})
+    data["posts"].pop("unposted", None)
     data.setdefault("dropped_waits", {})
     data.pop("resumable", None)
     data.setdefault("posted", {})
@@ -1350,13 +1348,6 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         for kept in owned.values():
             kept.setdefault("waking", None)
             kept.setdefault("job", kept["owner"] and data["prs"][kept["owner"]]["job"])
-    if "catch_up" not in data:
-        data["catch_up"] = new_catch_up(min(mark["at"] for mark in data["held"].values())) if data["held"] else None
-    if data["catch_up"]:
-        data["catch_up"]["record"] = bare_seq(data["catch_up"]["record"])
-        if data["catch_up"].pop("orders", None) is not None and data["catch_up"]["record"]:
-            for mark in data["held"].values():
-                mark["record"] = mark["record"] or data["catch_up"]["record"]
     passes = (drive_dir(name) / "pictures" / picture.SOURCED, drive_dir(name) / "asks" / REBUILT_ASKS, drive_dir(name) / APPROVALS_LABELLED)
     keep = all(mark.exists() for mark in passes) and bool(data.get("closed_from_cards")) and bool(data.get("designs_cited")) and bool(data.get("research_linked")) and bool(data.get("answers_keyed")) and bool(data.get("taps_dated")) and bool(data.get("holds_owed")) and bool(data.get("near_answers_apart")) and bool(data.get("stack_writes_read")) and bool(data.get("builder_goals_named")) and bool(data.get("members_kept")) and bool(data.get("open_dones_held")) and bool(data.get("staging_cases_reread")) and bool(data.get("lines_kept")) and bool(data.get("change_builders_unwaited")) and bool(data.get("finished_replacers_undone")) and bool(data.get("stopped_handed_off")) and bool(data.get("finished_texts_dropped")) and bool(data.get("work_proofs_owned")) and bool(data.get("messages_kept_once")) and bool(data.get("proof_results_marked")) and bool(data.get("reader_prs_handed")) and bool(data.get("stale_queued_dropped")) and bool(data.get("staging_approves_restored")) and bool(data.get("proofs_rehomed")) and bool(data.get("unowed_fails_undone")) and bool(data.get("carried_proofs_delivered")) and bool(data.get("old_dones_kept")) and bool(data.get("change_waits_stacked")) and bool(data.get("cut_provers_marked"))
     for flag in ("may_settle_per_answer", "may_settle_skips_approvals", "may_settle_by_subject", "may_settle_by_jev", "delivered_by_prs", "delivered_restored", "proofs_posted", "proofs_proven", "tap_cards_kept"):
@@ -2702,6 +2693,8 @@ def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
         hold_done(job, held)
     if built := BUILT_LINE.match(line):
         job.update(branch=built["branch"], waits=view.stored_waits(data, [*job["waits"], *BUILT_CARD.findall(built["cards"]), *part_cards(data, job_id)]))
+    if re.match(r"WAITING\b", line):
+        job["waits"] = [wait for wait in job["waits"] if not STAGING_WAIT.fullmatch(wait)]
     if waits := result_waits(data, job_id, line):
         job["waits"] = list(dict.fromkeys([*job["waits"], *waits]))
     keep_waited(data, job_id, line)
@@ -2901,6 +2894,18 @@ def staging_testers(data: dict, job_id: str, report: str) -> list[str]:
     return added
 
 
+def dangerous_staged(data: dict, order_id: str) -> list[str]:
+    """Each open PR waiting on a staging test part of the order that the watch staged because its head changes a dangerous class of file, by its tester's DANGEROUS_GOAL, so closing the order, which frees that wait, would let it land untested."""
+    return [
+        key
+        for key, pr in data["prs"].items()
+        if pr["state"] in github.UNLANDED
+        for wait in pr["waits"]
+        if (part := part_wait(data, wait)) and part[0] == order_id and STAGING_PART.fullmatch(part[1])
+        and (tester := part_tester(data, *part)) and data["jobs"][tester]["goal"].startswith(DANGEROUS_GOAL.partition("{changes}")[0].format(key=key))
+    ]
+
+
 def stage_pr(data: dict, key: str, goal: str, session: str | None) -> str | None:
     """Put a Forge-AI/monorepo PR the drive tracks on its staging test, by wait_on_staging, and give the part a tester when no job tests it, by part_tester, a builder building nothing on this Mac in the session given, its goal the one given, as install.add_prover adds a prover; else hold that goal on that tester as a STAGING_CASE, unless it is that job's goal, which the watch's next pass posts to its running agent, by watch.case_lines, or sends a Sprite worker that takes messages, so the tester adds the case to the test it runs, and which else its next worker hears; or, when that job is a tester mark_dangerous gave it that finished before its builder named these cases, give the part a tester of these; the tester added, or None."""
     order_id, part = wait_on_staging(data, key)
@@ -3098,8 +3103,6 @@ def stack_on(data: dict, design_id: str, source_id: str) -> str:
         return f"{report}; stack on {source_id}'s branch {branch}" if branch else report
     pr = data["prs"][key]
     return f"{report}; stack on {source_id}'s PR {pr['url']}" + (f", branch {pr['branch']}" if pr["branch"] else "") + (f", head {pr['head']} as it returned" if pr["head"] else "")
-
-
 
 
 def wait_on_earlier(data: dict, order_id: str, changes: list[tuple[list[str], list[int]]]) -> None:
@@ -3788,10 +3791,10 @@ def deliver_posted(data: dict, job_id: str, link: str, moment: str) -> None:
 
 
 def answered(data: dict, order_id: str) -> bool:
-    """Whether an open answer order is left nothing owed, so it closes done: every part posted, every job finished, no promised line owed and every reporter told."""
+    """Whether an open answer order is left nothing owed, so it closes done: every part posted, every job finished and every reporter told."""
     order = data["orders"][order_id]
     finished = all(data["jobs"][other]["state"] in FINISHED_JOB_STATES for other in order["jobs"])
-    return order["kind"] == "answer" and order["state"] not in CLOSED_ORDER_STATES and finished and not owed(order) and not untold_reporters(data, order) and all(held["posted"] for held in order["parts"].values())
+    return order["kind"] == "answer" and order["state"] not in CLOSED_ORDER_STATES and finished and not untold_reporters(data, order) and all(held["posted"] for held in order["parts"].values())
 
 
 def merge_proven(order: dict) -> bool:
@@ -3886,12 +3889,6 @@ def died_before(job: dict, dispatch: str) -> dict | None:
     return next((death for death in reversed(job.get("deaths", [])) if death.get("cause") and death["dispatch"] != dispatch and not (since and parse_time(death["at"]) < since)), None)
 
 
-def died_twice(job: dict) -> bool:
-    """Whether the recorded death of the job's lane, with the cause a resume read off its Sprite, is its second since its last line, so it starts no next worker on a Sprite."""
-    death = lane_death(job)
-    return bool(death and death.get("cause") and died_before(job, death["dispatch"]))
-
-
 def why_died(why: str, cause: str | None) -> str:
     """Why a lane ended, with the cause line a resume read off its Sprite, when it read one."""
     return f"{why}; {cause}" if cause else why
@@ -3934,9 +3931,6 @@ def new_order(text: str, source: str, thread: tuple[str, str] | None, parts: dic
         "threads": [],
         "claims": {},
         "state": "open",
-        "promises": [],
-        **dict.fromkeys(OLDER_INSTALL_PROMISE),
-        "withdrawn": None,
         "jobs": [],
         "alerts": [],
         "recovered": None,
@@ -4071,6 +4065,7 @@ def new_job(order_id: str, kind: str, goal: str, parts: list[str], created: str)
         "worktree": None,
         "prs": [],
         "release_build": None,
+        "release_heard": None,
         "release_pass": None,
         "waits": [],
         "stacks_on": [],
@@ -4312,10 +4307,16 @@ def drop_ended_texts(data: dict, ended: dict[str, str]) -> list[str]:
 
 
 def down_mac_boxes(name: str, data: dict, finished: list[str]) -> None:
-    """Take down every Mac box each job a save just finished holds: `drive mac-boxes-down` on those jobs, a process of its own that outlives the save, its output appended to the drive's mac-boxes.log, so a box comes down with the job whose holder tag it carries while the save neither waits on the drive's checkout nor fails with it. None for a scratch drive, a proof's or a test's, or a coordinator checkout with no tools/ci, which hold no Mac box."""
-    if not finished or scratch() or not (Path(data["roles"]["coordinator"]["cwd"]) / "tools" / "ci").is_file():
+    """Take down every Mac box each job a save just finished holds: `drive mac-boxes-down` on those jobs, a process of its own that outlives the save, its output appended to the drive's mac-boxes.log, so a box comes down with the job it is named after while the save neither waits on the drive's checkout nor fails with it, unless box_wanted keeps it for a job still to take its turn there. None for a scratch drive, a proof's or a test's, or a repository whose .claude/long-running.toml names no [mac_box] down command, which holds no Mac box."""
+    if not finished or scratch() or not mac_box_command(data, "down") or not (freed := [job_id for job_id in finished if not box_wanted(data, job_id)]):
         return
-    detach(name, ["mac-boxes-down", *finished], MAC_BOXES_LOG)
+    detach(name, ["mac-boxes-down", *freed], MAC_BOXES_LOG)
+
+
+def box_wanted(data: dict, box: str) -> bool:
+    """Whether a job not yet finished names the Mac box anywhere on its row, its handoff and the texts it was given or holds included, as a job queued to take its next turn on a finished job's box does, so that box stays up for it."""
+    pattern = re.compile(rf"\b{re.escape(box)}\b")
+    return any(pattern.search(json.dumps(job)) for job in data["jobs"].values() if job["state"] not in FINISHED_JOB_STATES)
 
 
 def placed(before: dict[str, tuple[int, str | None]], order: list[str]) -> dict[str, int]:
@@ -4622,7 +4623,7 @@ def edit(name: str, rows: tuple[Row, ...] | None = None) -> Iterator[dict]:
                 data = load(name)
                 before = holding_lanes(data)
                 yield data
-                save(name, data | {CLOCKS: clocks(data)})
+                save(name, data)
                 tell_moved(name, data, before)
             return
         data, held = loaded_rows(name, rows)
@@ -4651,8 +4652,8 @@ def loaded_rows(name: str, rows: tuple[Row, ...]) -> tuple[dict, dict[Row, objec
         return data, held
 
 
-def rows_saved(name: str, held: dict[Row, object], base: dict, mine: dict, rows: tuple[Row, ...]) -> None:
-    """Save a write of rows alone in one short transaction of the drive's database, writing only the records the rows name: each as mine holds it, a row naming one field of a record that field alone on the record as the database holds it, while every record reads as held, the database's when the write loaded the drive as base; Raced at the first another write changed since, even to the value mine holds, since a write that read it may have counted on what it held. New records take places after the collection's last in the order mine holds them. A job the save moves into done or stopped drops the texts it holds, as rewrite drops them, and each it moves into done, failed or stopped takes down its Mac boxes; once saved, each open order the save moved to another lane, by its own record or by the drive's bindings, tells the lane losing it, by told_moved, and the drive's clocks are drawn again, by redrawn. The drive's lock is held for that transaction alone, while writes of no rows and older installs still save the whole drive under it."""
+def rows_saved(name: str, held: dict[Row, object], base: dict, mine: dict, rows: tuple[Row, ...], since: int | None = None, reads: frozenset[Row] = frozenset(), effects: list[Callable[[], list[str]]] | None = None) -> None:
+    """Save a write of rows alone in one short transaction of the drive's database, writing only the records the rows name: each as mine holds it, a row naming one field of a record that field alone on the record as the database holds it, while every record reads as held, the database's when the write loaded the drive as base; Raced at the first another write changed since, even to the value mine holds, since a write that read it may have counted on what it held; with since, the revision of the drive base was loaded at, Raced instead at the first row any write committed after it that is one of the records or one reads names, a record or every record of a collection by "*", or at any once the changed table no longer reaches back to it; each of effects, what the write left to do outside the drive by after_save, such as copying the file a record it saves names, runs once it commits, before another write's commit, so the files keep the order of the commits naming them. New records take places after the collection's last in the order mine holds them. A job the save moves into done or stopped drops the texts it holds, as rewrite drops them, and each it moves into done, failed or stopped takes down its Mac boxes; once saved, each open order the save moved to another lane, by its own record or by the drive's bindings, tells the lane losing it, by told_moved, and the drive's clocks are drawn again, by redrawn. The drive's lock is held for that transaction alone, while writes of no rows and older installs still save the whole drive under it."""
     jobs = mine.get("jobs", {})
     ended = {key: then["state"] for collection, key in held if collection == "jobs" and isinstance(then := held[(collection, key)], dict) and key in jobs and jobs[key]["state"] in FINISHED_JOB_STATES and then.get("state") != jobs[key]["state"]}
     dropped = set(drop_ended_texts(mine, ended))
@@ -4670,10 +4671,17 @@ def rows_saved(name: str, held: dict[Row, object], base: dict, mine: dict, rows:
         try:
             for statement in LISTED:
                 db.execute(statement)
+            if since is not None:
+                if db.execute("SELECT COALESCE(MIN(rev), 1) FROM changed").fetchone()[0] > since + 1:
+                    raise Raced(("drive",))
+                watched = {*records, *reads}
+                for theirs in db.execute("SELECT DISTINCT collection, key FROM changed WHERE rev > ?", (since,)):
+                    if theirs in watched or (theirs[0], "*") in watched:
+                        raise Raced(tuple(filter(None, theirs)))
             for collection, key in records:
                 found = db.execute("SELECT body FROM rows WHERE collection = ? AND key = ?", (collection, key)).fetchone()
                 now = ABSENT if found is None else {} if found[0] is None else json.loads(found[0])
-                if now != held[(collection, key)]:
+                if since is None and now != held[(collection, key)]:
                     raise Raced(tuple(filter(None, (collection, key))))
                 wrote = fields.get((collection, key))
                 value = row_of(mine, (collection, key)) if not wrote or now is ABSENT else fields_set(now, row_of(mine, (collection, key)), wrote)
@@ -4689,6 +4697,8 @@ def rows_saved(name: str, held: dict[Row, object], base: dict, mine: dict, rows:
             db.execute("ROLLBACK")
             raise
         db.execute("COMMIT")
+        for effect in effects or []:
+            effect()
         with suppress(sqlite3.OperationalError):
             db.execute("PRAGMA wal_checkpoint(PASSIVE)")
     down_mac_boxes(name, mine, [job_id for job_id, then in ended.items() if then not in FINISHED_JOB_STATES])
@@ -4699,7 +4709,6 @@ def rows_saved(name: str, held: dict[Row, object], base: dict, mine: dict, rows:
         else:
             moved = {key: (holding_lane(base, base["orders"][key]), holding_lane(base, mine["orders"][key])) for collection, key in held if collection == "orders" and key in open_orders(base) and key in mine["orders"]}
         told_moved(name, mine, {order_id: lanes for order_id, lanes in moved.items() if lanes[0] != lanes[1]})
-        redrawn(name)
 
 
 def told_moved(name: str, data: dict, moved: dict[str, tuple[str, str]]) -> None:
@@ -4711,8 +4720,14 @@ def told_moved(name: str, data: dict, moved: dict[str, tuple[str, str]]) -> None
         append_event(name, ORDERS_MOVED, lane=lane, orders=orders, to=sorted({moved[order_id][1] for order_id in orders}))
 
 
+def drive_rev(name: str) -> int:
+    """The drive's newest change, the rev every write of a row bumps."""
+    with closing(connect(database_path(name))) as db:
+        return db.execute("SELECT COALESCE(MAX(rev), 0) FROM changed").fetchone()[0]
+
+
 def redrawn(name: str) -> None:
-    """After a write of rows, save the drive's clocks as clocks draws them from the drive as it then stands, in one transaction that keeps them only while no other write committed since that read, reading again up to UPDATE_TRIES times, and leaving them to the next write that saves them once each try raced."""
+    """The one writer of the clocks row, run by the watch's relay once the drive changed since its last draw, by the Nov 16 decision that only the watch writes it, so no session's process on an older install draws it by older rules: save the drive's clocks as clocks draws them from the drive as it then stands, in one transaction that keeps them only while no other write committed since that read, reading again up to UPDATE_TRIES times, and leaving them to the next write that saves them once each try raced."""
     for _ in range(UPDATE_TRIES):
         data = load(name)
         rev = LOADED_REV.get()
@@ -4726,6 +4741,135 @@ def redrawn(name: str) -> None:
             db.execute("INSERT INTO rows VALUES ('', ?, (SELECT COALESCE(MAX(place), -1) + 1 FROM rows WHERE collection = ''), ?) ON CONFLICT (collection, key) DO UPDATE SET body = excluded.body", (CLOCKS, json.dumps(drawn)))
             db.execute("COMMIT")
             return
+
+
+class Reads(set[Row]):
+    pass
+
+
+class ReadCollection(dict):
+    """A collection of the drive that records in reads each record a write reads by its key, and every record, as "*", once it lists, counts or walks them."""
+
+    def __init__(self, collection: str, records: dict, reads: Reads) -> None:
+        super().__init__(records)
+        self.collection, self.reads = collection, reads
+
+    def __getitem__(self, key: str) -> object:
+        self.reads.add((self.collection, key))
+        return super().__getitem__(key)
+
+    def get(self, key: str, default: object = None) -> object:
+        self.reads.add((self.collection, key))
+        return super().get(key, default)
+
+    def __contains__(self, key: object) -> bool:
+        self.reads.add((self.collection, str(key)))
+        return super().__contains__(key)
+
+    def setdefault(self, key: str, default: object = None) -> object:
+        self.reads.add((self.collection, key))
+        return super().setdefault(key, default)
+
+    def pop(self, key: str, *default: object) -> object:
+        self.reads.add((self.collection, key))
+        return super().pop(key, *default)
+
+    def everything(self) -> None:
+        self.reads.add((self.collection, "*"))
+
+    def __iter__(self) -> Iterator[str]:
+        self.everything()
+        return super().__iter__()
+
+    def __len__(self) -> int:
+        self.everything()
+        return super().__len__()
+
+    def keys(self):  # type: ignore[override]
+        self.everything()
+        return super().keys()
+
+    def values(self):  # type: ignore[override]
+        self.everything()
+        return super().values()
+
+    def items(self):  # type: ignore[override]
+        self.everything()
+        return super().items()
+
+    def __eq__(self, other: object) -> bool:
+        self.everything()
+        return super().__eq__(other)
+
+    def __or__(self, other: dict) -> dict:  # type: ignore[override]
+        self.everything()
+        return dict(super().items()) | other
+
+    def copy(self) -> dict:
+        self.everything()
+        return dict(super().items())
+
+
+class ReadDrive(dict):
+    """The drive as a write of no named rows reads it, recording in reads each top-level field it reads and, through ReadCollection, each record, and every row once it walks the drive whole, so its save is refused only when another write committed a row it read or wrote."""
+
+    def __init__(self, data: dict, reads: Reads) -> None:
+        super().__init__({field: ReadCollection(field, value, reads) if field in COLLECTIONS else value for field, value in data.items()})
+        self.reads = reads
+
+    def __getitem__(self, field: str) -> object:
+        if field not in COLLECTIONS:
+            self.reads.add(("", field))
+        return super().__getitem__(field)
+
+    def get(self, field: str, default: object = None) -> object:
+        if field not in COLLECTIONS:
+            self.reads.add(("", field))
+        return super().get(field, default)
+
+    def __contains__(self, field: object) -> bool:
+        self.reads.add(("", str(field)))
+        return super().__contains__(field)
+
+    def setdefault(self, field: str, default: object = None) -> object:
+        self.reads.add(("", field))
+        return super().setdefault(field, default)
+
+    def pop(self, field: str, *default: object) -> object:
+        self.reads.add(("", field))
+        return super().pop(field, *default)
+
+    def everything(self) -> None:
+        self.reads.update({("", "*"), *((collection, "*") for collection in COLLECTIONS)})
+
+    def __iter__(self) -> Iterator[str]:
+        self.everything()
+        return super().__iter__()
+
+    def keys(self):  # type: ignore[override]
+        self.everything()
+        return super().keys()
+
+    def values(self):  # type: ignore[override]
+        self.everything()
+        return super().values()
+
+    def items(self):  # type: ignore[override]
+        self.everything()
+        return super().items()
+
+    def __or__(self, other: dict) -> dict:  # type: ignore[override]
+        self.everything()
+        return plain(self) | other
+
+    def copy(self) -> dict:
+        self.everything()
+        return plain(self)
+
+
+def plain(data: dict) -> dict:
+    """The drive a ReadDrive holds, as plain dicts, recording no reads."""
+    return {field: dict(dict.items(value)) if isinstance(value, ReadCollection) else value for field, value in dict.items(data)}
 
 
 def fields_set(record: dict, mine: object, fields: set[str]) -> dict:
@@ -4749,11 +4893,48 @@ def handled_lock(name: str) -> Iterator[None]:
             kept_write(name, got - asked, time.monotonic() - got, "rows")
 
 
+def read_updated[T](name: str, change: Callable[[dict], T]) -> T:
+    """Apply change to the drive as it loads, holding no lock while it runs, recording each row it reads, by ReadDrive, and every row once it loads the drive again itself, since those reads go untracked, and save each record it changed in one short transaction, refused when another write committed one of those rows or one it read since the load, by rows_saved's since, running each effect it left by after_save only once its save commits; else run it again on the drive as it then stands, up to UPDATE_TRIES runs, and once each raced, a last time under the drive's lock as a write naming no rows, which locks.log names."""
+    why = ""
+    for _ in range(UPDATE_TRIES):
+        with editing(name) as taken:
+            loaded = load(name)
+            since, base, reads = LOADED_REV.get(), marshal.dumps(loaded), Reads()
+            data = ReadDrive(loaded, reads)
+            effects: list[Callable[[], list[str]]] = []
+            tokens = DEFERRED.set(effects), READ_OPEN.set((name, reads))
+            try:
+                done = change(data)
+            finally:
+                DEFERRED.reset(tokens[0])
+                READ_OPEN.reset(tokens[1])
+            mine = plain(data)
+            was = marshal.loads(base)
+            written = tuple(sorted(written_rows(was, mine)))
+            try:
+                if written:
+                    rows_saved(name, {row: row_of(was, row) for row in written}, was, mine, written, since, frozenset(reads), effects)
+                else:
+                    for effect in effects:
+                        effect()
+            except Raced as raced:
+                why = f"another write changed {'.'.join(raced.args[0])} each time it ran"
+                released(taken)
+                continue
+        return done
+    with open(drive_dir(name) / "locks.log", "a") as log:
+        log.write(f"{stamp()} pid {os.getpid()} ran as a write of the whole drive, since {why}: drive {' '.join(sys.argv[1:])[:HOLDER_CHARS]}\n")
+    with edit(name) as data:
+        return change(data)
+
+
 def update[T](name: str, rows: tuple[Row, ...] | None, change: Callable[[dict], T]) -> T:
     """Apply change, a function of the drive that only reads and changes data, to the drive and return what it returns, as a write of rows that is never refused, or with rows None as a write naming no rows: on the drive as it loads, saved by rows_saved, and again on the drive as it then stands each time another write changed one of the rows meanwhile, up to UPDATE_TRIES runs; a change changing a row it did not name, or one raced past those runs, runs once more as a write naming no rows; locks.log names each such last run."""
-    if rows is None or name in BATCHED or WAITS_OUT_LOCK.get() or not database_path(name).exists():
+    if name in BATCHED or WAITS_OUT_LOCK.get() or not database_path(name).exists():
         with edit(name) as data:
             return change(data)
+    if rows is None:
+        return read_updated(name, change)
     for _ in range(UPDATE_TRIES):
         with editing(name) as taken:
             data, held = loaded_rows(name, rows)
@@ -4784,7 +4965,7 @@ def committed(name: str, base: bytes, mine: dict, version: int | None, before: d
             now = load(name)
             before = holding_lanes(now)
             saved = merged(marshal.loads(base), mine, now)
-        save(name, saved | {CLOCKS: clocks(saved)})
+        save(name, saved)
         tell_moved(name, saved, before)
 
 
@@ -4855,9 +5036,12 @@ def unrehearsed(name: str, run: Callable[[], str], stand_in: str) -> str:
 
 
 def after_save(name: str, effect: Callable[[], list[str]]) -> list[str]:
-    """Run what a write does outside the drive, such as withdrawing a card of his: now, or inside a batch once its save lands; the lines it prints now."""
+    """Run what a write does outside the drive, such as withdrawing a card of his: now, or inside a batch once its save lands, or inside a lock-free update once its commit lands, by read_updated; the lines it prints now."""
     if name in AFTER_SAVE:
         AFTER_SAVE[name].append(effect)
+        return []
+    if (deferred := DEFERRED.get()) is not None:
+        deferred.append(effect)
         return []
     return effect()
 
@@ -4869,7 +5053,7 @@ def edit_or_create(name: str, fresh: dict) -> Iterator[dict]:
         data = load(name) if exists(name) else fresh
         before = holding_lanes(data)
         yield data
-        save(name, data | {CLOCKS: clocks(data)})
+        save(name, data)
         tell_moved(name, data, before)
 
 
@@ -4958,8 +5142,31 @@ def bound_sessions(data: dict) -> dict[str, dict]:
 
 def repo_config(data: dict) -> dict:
     """The tables of the .claude/long-running.toml in the drive's checkout, which the drive moves to its default branch's head before each launch, through which the repository the drive works in customizes every drive working in it; none when the repository holds no such file."""
-    path = Path(next(iter(bound_sessions(data).values()))["cwd"], REPO_RULES)
+    path = drive_checkout(data["name"], next(iter(bound_sessions(data).values()))["cwd"]) / REPO_RULES
     return tomllib.loads(path.read_text()) if path.is_file() else {}
+
+
+DRIVE_CHECKOUTS: dict[tuple[str, str], Path] = {}
+
+
+def drive_checkout(name: str, clone: str) -> Path:
+    """The drive's own checkout, the worktree of clone's repository orca.checkout keeps at its default branch's head, found once a process, else the session's clone while no drive checkout exists yet or git cannot list its worktrees; a session's own clone can sit days behind, missing the repository's settings."""
+    from drive import github, orca
+
+    if (key := (name, clone)) not in DRIVE_CHECKOUTS:
+        try:
+            found = orca.worktree(clone, f"drive-{name}")
+        except github.GithubError:
+            found = None
+        if not found:
+            return Path(clone)
+        DRIVE_CHECKOUTS[key] = found
+    return DRIVE_CHECKOUTS[key]
+
+
+def mac_box_command(data: dict, verb: str) -> str | None:
+    """The shell command the [mac_box] table of the repository's .claude/long-running.toml names for verb: `down`, which takes down the box named `{box}`, a job's id, held by `{holder}`, `<drive>/<job>`, and `list`, which prints the name of each live box, one a line; None when it names none."""
+    return repo_config(data).get("mac_box", {}).get(verb)
 
 
 def repo_rules(data: dict) -> list[str]:
@@ -5285,6 +5492,11 @@ def starts_cut(job: dict) -> bool:
     return bool((job.get("brief_flags") or {}).get("release"))
 
 
+def follows_release(job: dict) -> bool:
+    """Whether a job follows the release it started: it starts a cut, by starts_cut, keeps the build its start named and is not finished."""
+    return starts_cut(job) and bool(job["release_build"]) and job["state"] not in FINISHED_JOB_STATES
+
+
 def readers_piloted(data: dict, order: dict) -> bool:
     """Whether a build order's builder, designer or codex lane starts with no reader, researching in its own session: drive tooling a session filed, by unasked_tooling and his option A of Nov 15, unless marked --complex, or an order filed under the project drive order pilot names and was added inside its window, and is neither marked --complex nor holds a design job, which keep their reader, as does a repro the coordinator adds a reader for by choice."""
     pilot = data["reader_pilot"]
@@ -5358,7 +5570,12 @@ def agent_address(job: dict) -> str:
 
 def own_session(job: dict) -> str | None:
     """The `claude --bg` session `drive job start` started a job's agent as, once that launch named it; None for an agent running beside its starter's session."""
-    return (job.get("bg") or {}).get("session") if (job.get("bg") or {}).get("agent") == job.get("agent") else None
+    return background_session(job) if (job.get("bg") or {}).get("agent") == job.get("agent") else None
+
+
+def background_session(job: dict) -> str | None:
+    """The background session retained by a job, including after its current agent binding is cleared."""
+    return (job.get("bg") or {}).get("session")
 
 
 def tooling(order: dict) -> bool:
@@ -5616,20 +5833,6 @@ def read_lines(path: Path, offset: int = 0) -> Iterator[tuple[dict, int]]:
                 yield json.loads(line), offset
 
 
-def new_catch_up(since: str) -> dict:
-    """The catch-up the drive owes him at his DM root until it posts: from since, when he was last heard before he went away, with the report of it the watch wrote, the handler last started to post it and the time he was heard that start answered."""
-    return {"since": since, "record": None, "handler": None, "tried": None}
-
-
-def let_go(data: dict, withdrawn: list[str]) -> None:
-    """Let go of reports held for his return that their writers withdrew, which no post carries, giving back the close of each open order one claimed."""
-    for seq in withdrawn:
-        del data["held"][seq]
-    for order in data["orders"].values():
-        if order["closed_on"] in withdrawn and order["state"] not in CLOSED_ORDER_STATES:
-            order["closed_on"] = None
-
-
 def owner_away(data: dict, moment: datetime) -> bool:
     """Whether he is away at moment, from the moment the owner row's away holds: when he said so, else an hour after he was last heard; a drive that never heard him counts him present."""
     away = (data.get("owner") or {}).get("away")
@@ -5657,9 +5860,8 @@ def present(data: dict, since: datetime, moment: datetime) -> timedelta:
 
 
 def timed(data: dict, job: dict, moment: datetime) -> bool:
-    """Whether a time is set to come for the job: its own clock from drive job set --due, or a time an order it serves promised him in one of its threads."""
-    dues = [job["due"], *(held["due"] for order_id in [job["order"], *job["carries"]] for held in data["orders"][order_id]["promises"])]
-    return any(due and parse_time(due) > moment for due in dues)
+    """Whether a time is set to come for the job: its own clock from drive job set --due."""
+    return bool(job["due"]) and parse_time(job["due"]) > moment
 
 
 def open_orders(data: dict) -> dict[str, dict]:
@@ -5667,7 +5869,7 @@ def open_orders(data: dict) -> dict[str, dict]:
 
 
 def clocks(data: dict) -> list[dict]:
-    """Each open order he waits on a line from, by its due: the time a line was promised him, else five quiet minutes after its thread's last line while a job of the order runs or it is top priority, else the minutes he asked a line every after it, by his words "And give me updates, every 15 mins, concise, on all 3 of these, in this thread, until all done" and "And for future when I say something is top priority it’s not acceptable that it's been an hour and there's no motion or updates on it" and his picks "Owe a line only on news: while a job works or something it names changed; silent while all waits." and "a line every five quiet minutes"; with when that thread last got a line, the session of the role holding it and of each handler holding a message in its thread, and the agent of each job of it running. A job runs only while `at_work` reads it so. The orders are those the watch's news_groups owes a line, an incident or one with a thread that no recovery, close report, close or proof finished, each on its own line, and a thread's last line the newest of its orders', else when the first was opened, as the watch's quiet_lines reads it, but never when the watch's own report reached a handler, which is no line to him. Each edit and batch saves it as one row, which hooks/role_rules.py reads alone with no lock, so a session's call learns how long he has waited from a read that stays one row however many orders and jobs the drive keeps."""
+    """Each open order he asked a line every so many minutes on, by his words "And give me updates, every 15 mins, concise, on all 3 of these, in this thread, until all done", due that many minutes after its thread's last line, with when that thread last got a line, the session of the role holding it and of each handler holding a message in its thread, and the agent of each job of it running, an incident or one with a thread that no recovery, close report, close or proof finished; a promised time and five quiet minutes owe no line, by his words "clearly these reports are useless / not valuable / spammy, so remove them entirely or rethink the whole model". Each edit and batch saves it as one row, which hooks/role_rules.py reads alone with no lock."""
     from drive import view
 
     waited = {
@@ -5688,7 +5890,7 @@ def clocks(data: dict) -> list[dict]:
     for order_id, order in waited.items():
         since = heard[keyed[order_id]]
         running = [job for job in orders_jobs(data, [order_id]).values() if at_work(job)]
-        if not (dues := [*([parse_time(owed_at(order))] if owed(order) else []), *([since + QUIET_THREAD] if running or order["priority"] else []), *([since + timedelta(minutes=order["every"])] if order["every"] else [])]):
+        if not order["every"]:
             continue
         where = own_thread(order)
         sessions = [holding_role(data, order)[1].get("session"), *(handled.get(where[1], []) if where else [])]
@@ -5697,7 +5899,7 @@ def clocks(data: dict) -> list[dict]:
                 "order": order_id,
                 "title": view.order_title(order),
                 "since": stamp(since),
-                "due": stamp(min(dues)),
+                "due": stamp(since + timedelta(minutes=order["every"])),
                 "incident": order["incident"],
                 "sessions": list(dict.fromkeys(session for session in sessions if session)),
             }
@@ -5831,8 +6033,8 @@ def unasked_tooling(order: dict) -> bool:
 
 
 def watch_posts_itself(order: dict) -> bool:
-    """Whether the drive's watch posts the live line of the close report an order keeps itself, through say, with no handler: a report drive job prove kept on an order with no reporter, which hears its own note, and no incident, whose line the incident rules shape; a drive tooling order a session opened closes on its proof with no line, by unasked_tooling."""
-    return order["close_report"]["id"].startswith(PROVED_REPORT) and not order["reporters"] and not order["incident"] and not unasked_tooling(order)
+    """Whether the drive's watch posts the live line of the close report an order keeps itself, through say, with no handler: a close report drive job prove or the watch's DONE at a merge kept on an order with no reporter, which hears its own note, an incident's included; a drive tooling order a session opened closes on its proof with no line, by unasked_tooling."""
+    return not order["reporters"] and not unasked_tooling(order)
 
 
 def watch_posting(data: dict) -> set[str]:
@@ -5930,70 +6132,6 @@ def incident_threads(data: dict, order_ids: list[str]) -> list[str]:
     return [where[1] for order_id in order_ids if (where := promise_thread(data["orders"][order_id]))]
 
 
-def promised_in(order: dict, thread: tuple[str, str] | list[str] | None) -> dict | None:
-    """The line an order owes him in one thread, kept or not, by the channel and thread its promise names; None in place of a thread names the drive's own time of an order with no thread."""
-    return next((held for held in order["promises"] if held["thread"] == (list(thread) if thread else None)), None)
-
-
-def owing(order: dict) -> list[dict]:
-    """The lines an order owes him for promised times, each in the thread whose line promised it: those no drive post in that thread has kept. An incident owes none, since the watch owes him its line five quiet minutes after its last once it has news, whatever that line promised."""
-    return [] if order["incident"] else [held for held in order["promises"] if not held["kept"]]
-
-
-def owed(order: dict) -> bool:
-    return bool(owing(order))
-
-
-def owed_at(order: dict) -> str:
-    """The earliest time an order owes him a line by, of every thread it owes one in."""
-    return min(map(due_at, owing(order)), key=parse_time)
-
-
-def due_at(held: dict) -> str:
-    return min((due for due in (held["due"], held["next_due"]) if due), key=parse_time)
-
-
-def owed_at_return(data: dict, held: dict, moment: datetime) -> bool:
-    """Whether the line promised him in a thread by a time already past is owed at his return: he reads away, so the watch writes no report owing it until the first pass after he is heard, by his words "Just do less realtime more summary / batching, with a catch up post once I'm back"; the drive's own time of an order with no thread keeps its time."""
-    return owner_away(data, moment) and not held["kept"] and parse_time(due_at(held)) <= moment and bool(held["thread"])
-
-
-def promise(order: dict, thread: tuple[str, str], due: str, moment: datetime) -> None:
-    """Promise a line by due in the thread, owed from the next line there, the one that tells him the time; a time already owed there holds until that line lands."""
-    held = promised_in(order, thread)
-    if not held or held["kept"]:
-        held = new_promise(order, thread, due, stamp(moment))
-    held.update(next_due=due, next_set=stamp(moment))
-
-
-def remind(order: dict, thread: tuple[str, str] | None, due: str, moment: datetime) -> None:
-    """Owe due in the thread from moment in place of any time owed or waiting there before: the time a drive post made at moment promised in its own thread, which the next drive post in that thread keeps, or, with no thread, the time an order with none wakes the drive at, which no post keeps, so it is said once."""
-    new_promise(order, thread, due, moment.isoformat())
-
-
-def new_promise(order: dict, thread: tuple[str, str] | list[str] | None, due: str, promised: str) -> dict:
-    held = {"thread": list(thread) if thread else None, "due": due, "promised": promised, "kept": None, "due_said": None, "next_due": None, "next_set": None}
-    order["promises"] = [*(other for other in order["promises"] if other["thread"] != held["thread"]), held]
-    return held
-
-
-def keep(held: dict, posts: list[datetime], announced: bool = True) -> None:
-    """Record the first drive post in a promise's thread after the promise as keeping it; a post that lands before the next time starts that time from it."""
-    kept = next((post for post in posts if post > parse_time(held["promised"])), None)
-    if kept is None:
-        return
-    upcoming, set_at = held["next_due"], held["next_set"]
-    held.update(kept=kept.isoformat(), next_due=None, next_set=None)
-    if not announced or not upcoming or kept >= parse_time(upcoming):
-        return
-    if set_at and kept < parse_time(set_at):
-        held.update(due=upcoming, promised=set_at, kept=None, due_said=None, next_due=upcoming)
-        keep(held, posts)
-        return
-    held.update(due=upcoming, promised=kept.isoformat(), kept=None, due_said=None)
-    keep(held, posts, announced=False)
-
-
 def closed_orders(report: dict) -> list[str]:
     """The orders a report's close attr names, separated by commas, spaces or both, as `o1,o2` or `o1 o2`."""
     return [order for order in ORDER_LIST.split(report.get("close") or "") if order]
@@ -6016,14 +6154,6 @@ def part_items(report: dict, order_id: str | None) -> list[tuple[str | None, str
     """The order and part each item of a report's part attr names: `<order>:<part>` items separated by `;`, as `o491:fix;o504:increase the search worker's RAM`, so one post in a thread two orders share delivers on both; an item with no order before it is a part of order_id, the order the post is recorded on."""
     items = [(named[1], named[2].strip()) if (named := ORDER_PART.fullmatch(item.strip())) else (order_id, item.strip()) for item in PART_ITEMS.split(report.get("part") or "")]
     return [(on, part) for on, part in items if part]
-
-
-def keep_closing(held: dict, posts: list[datetime], written: datetime) -> None:
-    """Record the line of a report that closes the order as keeping the time it owes in that line's thread: the first drive post there after the promise, or the post that told him the time when the report was written before it, since that post is also the order's last line."""
-    promised = parse_time(held["promised"])
-    kept = next((post for post in posts if post > promised or post == promised >= written), None)
-    if kept is not None:
-        held.update(kept=kept.isoformat(), next_due=None, next_set=None)
 
 
 def open_pr_keys(data: dict) -> list[str]:
@@ -6116,7 +6246,6 @@ def stacked_on(data: dict, job: dict) -> str:
     base = max(heads, key=lambda key: len(land.chain(under, key)))
     merged = ", ".join(f"{data['prs'][key]['branch']} ({key})" for key in heads if key not in land.chain(under, base))
     return f"on {data['prs'][base]['branch']} ({base})" + (f", with {merged} merged in" if merged else "")
-
 
 
 def job_news(job_state: str, waits: list[str], cards: list[str], said: str | None) -> list:
@@ -6610,15 +6739,15 @@ SLOT_GO_STEPS = (
 )
 
 
-def slot_claim(data: dict, env: str, job_id: str, minutes: int, prs: list[str], cases: str | None, moment: datetime) -> str:
-    """Give a staging env's slot to the job when no job holds it, its lease ending minutes past the staging-claim rule's CLAIM_WAIT, else queue the job, first in first out but for a job jumps_queue reads as serving a priority order or an open incident, which goes behind only the jobs that jump too, by his ruling that they jump the line as their builders jump the builder-slot line; the line saying which, refused for a job already holding or queued on it."""
+def slot_claim(data: dict, env: str, job_id: str, minutes: int, prs: list[str], cases: str | None, moment: datetime, paths: list[str] | None = None, stacks: list[str] | None = None, starts: bool = False, release: dict | None = None) -> str:
+    """Give a staging env's slot to the job when no job holds it, its lease ending minutes past the staging-claim rule's CLAIM_WAIT, else queue the job, first in first out but for a job jumps_queue reads as serving a priority order or an open incident, which goes behind only the jobs that jump too, by his ruling that they jump the line as their builders jump the builder-slot line; paths, the files its PRs change, and stacks, the components they reach, let slot_turns pack it into another pass's cut, while a start, the top coordinator's drive job add --release, whose release names its own branch, holds a cut of its own and is started by the watch's turn; the line saying which, refused for a job already holding, riding or queued on it."""
     slot = data["slots"].setdefault(env, {"holder": None, "queue": []})
-    if (slot["holder"] or {}).get("job") == job_id or any(each["job"] == job_id for each in slot["queue"]):
+    if job_id in slot_members(slot) or any(each["job"] == job_id for each in slot["queue"]):
         raise DriveError(f"{job_id}: refused, it already holds or waits for the {env} slot: drive slot queue {env} names its place")
-    asked = {"job": job_id, "prs": prs, "minutes": minutes, "cases": cases, "at": stamp(moment)}
+    asked = {"job": job_id, "prs": prs, "minutes": minutes, "cases": cases, "at": stamp(moment), "paths": paths, "stacks": stacks, "starts": starts}
     if slot["holder"] is None:
-        slot["holder"] = leased(asked, moment)
-        return f"GO {job_id} holds the {env} slot until {slot['holder']['until']}: {SLOT_GO_STEPS.format(env=env, job=job_id)}"
+        slot["holder"] = leased(asked, moment, [])
+        return f"GO {job_id} holds the {env} slot until {slot['holder']['until']}: {SLOT_GO_STEPS.format(env=env, job=job_id)}{holding(release, data, [job_id])}"
     place = sum(1 for each in slot["queue"] if jumps_queue(data, each["job"])) if jumps_queue(data, job_id) else len(slot["queue"])
     slot["queue"].insert(place, asked)
     return f"QUEUED {job_id} for the {env} slot, place {place + 1}, behind {slot['holder']['job']}, whose lease ends {slot['holder']['until']}"
@@ -6626,38 +6755,117 @@ def slot_claim(data: dict, env: str, job_id: str, minutes: int, prs: list[str], 
 
 def jumps_queue(data: dict, job_id: str) -> bool:
     job = data["jobs"][job_id]
-    return first_in_line(data, job) or bool(open_incidents(data, [job["order"], *job["carries"]]))
+    return bool(job.get("priority")) or first_in_line(data, job) or bool(open_incidents(data, [job["order"], *job["carries"]]))
 
 
-def leased(asked: dict, moment: datetime) -> dict:
-    return asked | {"since": stamp(moment), "until": stamp(moment + CLAIM_WAIT + timedelta(minutes=asked["minutes"])), "extended": False}
+SLOT_LIVE_END = ("done", "stopped")
+
+
+def slot_hand(data: dict, env: str, to: str, moment: datetime) -> tuple[dict, str]:
+    """Hand a staging env's slot to a job waiting in its queue now, its lease starting now, putting the cut that held it back at the head of the queue, by drive slot hand, so a priority cut ready now never waits behind a lease running nothing; the new holder's queue entry and the line saying so, refused for a job not in the queue."""
+    slot = data["slots"].get(env) or {"holder": None, "queue": []}
+    if not (entry := next((each for each in slot["queue"] if each["job"] == to), None)):
+        raise DriveError(f"{to}: refused, it waits in no {env} slot queue: drive slot queue {env} names who does")
+    slot["queue"].remove(entry)
+    if held := slot["holder"]:
+        back = [{key: member[key] for key in ("job", "prs", "minutes", "cases", "at", "paths", "stacks", "starts")} for member in [held, *held["riders"]] if data["jobs"][member["job"]]["state"] not in SLOT_LIVE_END]
+        slot["queue"][:0] = back
+    slot["holder"] = leased(entry, moment, [])
+    return entry, f"{to} holds the {env} slot until {slot['holder']['until']}{', ' + held['job'] + ' back at the head of its queue' if held else ''}"
+
+
+def leased(asked: dict, moment: datetime, riders: list[dict]) -> dict:
+    minutes = max(each["minutes"] for each in [asked, *riders])
+    return asked | {"minutes": minutes, "since": stamp(moment), "until": stamp(moment + CLAIM_WAIT + timedelta(minutes=minutes)), "extended": False, "riders": riders, "released": False}
+
+
+def slot_members(slot: dict) -> list[str]:
+    """The jobs a staging slot's cut holds: its starter and each pass packed into it."""
+    held = slot["holder"]
+    return [held["job"], *(rider["job"] for rider in held["riders"])] if held else []
+
+
+def packed(queue: list[dict]) -> tuple[dict, list[dict]]:
+    """Take the head of a slot's queue and up to PACKED_CUT - 1 later passes whose PRs change no file and reach no stack the cut's passes already do, by his rule that dangerous changes whose changed files never overlap share one staging cut, up to six, and changes that restart the same stack take turns; a pass whose files or stacks are unread, or a start whose release names its own branch, rides with none."""
+    head, riders = queue.pop(0), []
+    touched, restarted = set(head["paths"] or ()), set(head["stacks"] or ())
+    for each in list(queue) if packable(head) else []:
+        if len(riders) == PACKED_CUT - 1:
+            break
+        if packable(each) and not touched & set(each["paths"]) and not restarted & set(each["stacks"]):
+            riders.append(each)
+            queue.remove(each)
+            touched |= set(each["paths"])
+            restarted |= set(each["stacks"])
+    return head, riders
+
+
+def packable(asked: dict) -> bool:
+    return asked["paths"] is not None and asked["stacks"] is not None and not asked["starts"]
+
+
+PACKED_CUT = 6
 
 
 def slot_release(data: dict, env: str, job_id: str) -> str:
-    """Take the job off a staging env's slot, as its holder or from its queue; the line saying which, refused for a job that neither holds nor waits for it."""
+    """Take the job off a staging env's slot, as its cut's starter, a pass riding it or from its queue; the slot frees once no pass of its cut still runs, by slot_turns; the line saying which, refused for a job that neither holds nor waits for it."""
     slot = data["slots"].get(env) or {"holder": None, "queue": []}
-    if (slot["holder"] or {}).get("job") == job_id:
-        slot["holder"] = None
+    if (held := slot["holder"]) and held["job"] == job_id:
+        held["released"] = True
+        if not held["riders"]:
+            slot["holder"] = None
         return f"{job_id} gave back the {env} slot"
+    if held and any(rider["job"] == job_id for rider in held["riders"]):
+        held["riders"] = [rider for rider in held["riders"] if rider["job"] != job_id]
+        if held["released"] and not held["riders"]:
+            slot["holder"] = None
+        return f"{job_id} left the {env} slot's cut"
     if any(each["job"] == job_id for each in slot["queue"]):
         slot["queue"] = [each for each in slot["queue"] if each["job"] != job_id]
         return f"{job_id} left the {env} slot's queue"
     raise DriveError(f"{job_id}: refused, it neither holds nor waits for the {env} slot")
 
 
-def slot_turns(data: dict, moment: datetime) -> list[tuple[str, str, str, str]]:
-    """End each staging slot's lease whose job finished, stopped or failed, extend once by its minutes a lease whose end passed while its job still runs, by his ruling that an overrunning lease extends once, and end it at its second end, then give each free slot to the first job in its queue that still runs or waits, dropping finished ones, its lease starting now; each (env, job, kind, line) of a slot that changed, kind freed, extended or go, a go's line the GO its job is resumed with."""
+def holding(release: dict | None, data: dict, members: list[str], starter: str | None = None) -> str:
+    """What a staging pass adds to its GO or RIDE line so the repository's freeze names every job of its cut, by the `holder` and `join` commands the [release] table of its .claude/long-running.toml names, `{holder}` a job as <drive>/<job> and `{freeze}` the freeze's id: the starter runs its freeze and each staging command naming every job of the cut, and a pass riding it joins that freeze; nothing for a repository naming no `holder`."""
+    if not (flag := (release or {}).get("holder")):
+        return ""
+    named = " ".join(flag.format(holder=f"{data['name']}/{member}") for member in members)
+    if starter is None:
+        return f" Run your freeze and every staging command of this cut with `{named}`."
+    drive = data["name"]
+    own = flag.format(holder=f"{drive}/{members[0]}")
+    join = (release or {}).get("join")
+    joined = f" Join {starter}'s freeze with `{join.format(freeze='<its freeze id>', holder=f'{drive}/{members[0]}')}` unless it names you, and run" if join else " Run"
+    return f"{joined} each staging command with `{own}`."
+
+
+def slot_turns(data: dict, moment: datetime, release: dict | None = None) -> list[tuple[str, str, str, str]]:
+    """End each staging slot's lease once every pass of its cut is done, stopped or gave the slot back, a pass that failed or returned BLOCKED keeping the lease while the cut's coordinator holds its next step, extend once by its minutes a lease whose end passed while a pass still runs, by his ruling that an overrunning lease extends once, and end it at its second end, then give each free slot to the first job in its queue that still runs or waits, dropping finished ones, packed with the later passes whose files never overlap, by packed, under one lease: the head starts the cut and each packed pass rides it; each (env, job, kind, line) of a slot that changed, kind freed, extended, go, its line the GO its job is resumed with, or start, for a start whose release the watch now starts."""
     moved = []
     for env, slot in data["slots"].items():
-        if (held := slot["holder"]) and data["jobs"][held["job"]]["state"] not in FINISHED_JOB_STATES and parse_time(held["until"]) <= moment and not held["extended"]:
+        held = slot["holder"]
+        running = held and [job_id for job_id in slot_members(slot) if data["jobs"][job_id]["state"] not in SLOT_LIVE_END and not (job_id == held["job"] and held["released"])]
+        if held and running and parse_time(held["until"]) <= moment and not held["extended"]:
             held.update(until=stamp(parse_time(held["until"]) + timedelta(minutes=held["minutes"])), extended=True)
-            moved.append((env, held["job"], "extended", f"SLOT {env} lease of {held['job']} ran past its end, extended once to {held['until']}"))
-        elif held and (data["jobs"][held["job"]]["state"] in FINISHED_JOB_STATES or parse_time(held["until"]) <= moment):
+            moved.append((env, held["job"], "extended", f"SLOT {env} lease of {held['job']}'s cut ran past its end, extended once to {held['until']}"))
+        elif held and (not running or parse_time(held["until"]) <= moment):
             slot["holder"] = None
-            moved.append((env, held["job"], "freed", f"SLOT {env} freed by {held['job']}"))
-        slot["queue"] = [each for each in slot["queue"] if data["jobs"][each["job"]]["state"] not in FINISHED_JOB_STATES]
+            moved.append((env, held["job"], "freed", f"SLOT {env} freed by {held['job']}'s cut"))
+        slot["queue"] = sorted((each for each in slot["queue"] if data["jobs"][each["job"]]["state"] not in FINISHED_JOB_STATES), key=lambda each: not jumps_queue(data, each["job"]))
         if slot["holder"] is None and slot["queue"]:
-            head = slot["queue"].pop(0)
-            slot["holder"] = leased(head, moment)
-            moved.append((env, head["job"], "go", f"GO staging {env} until {slot['holder']['until']}: {SLOT_GO_STEPS.format(env=env, job=head['job'])}"))
+            head, riders = packed(slot["queue"])
+            slot["holder"] = leased(head, moment, riders)
+            until = slot["holder"]["until"]
+            carried = f" Your cut carries {', '.join(pr for rider in riders for pr in rider['prs'])} too, packed with yours since no two change one file: start it from a branch with each of their heads and yours cherry-picked onto what staging serves, under one freeze and one claim naming them all." if riders else ""
+            members = [head["job"], *(rider["job"] for rider in riders)]
+            moved.append((env, head["job"], "start", f"SLOT {env} to {head['job']} until {until}: the watch starts its release") if head["starts"] else (env, head["job"], "go", f"GO staging {env} until {until}: {SLOT_GO_STEPS.format(env=env, job=head['job'])}.{carried}{holding(release, data, members)}"))
+            moved += [(env, rider["job"], "go", RIDE_STEPS.format(env=env, until=until, starter=head["job"], prs=", ".join(rider["prs"]) or "your PR", job=rider["job"]) + "." + holding(release, data, [rider["job"]], head["job"])) for rider in riders]
     return moved
+
+
+RIDE_STEPS = (
+    "RIDE cut {starter} on {env} until {until}: {starter}'s START carries {prs}, packed into one cut with its own, so start no cut and post no claim yourself;"
+    " return `WAITING staging:<target>/{env}@<head>` for each target your paths reach, run your cases once staging serves your head, past the claim's 5 minutes,"
+    " and `drive slot release {env} --job {job}` once you finish"
+)

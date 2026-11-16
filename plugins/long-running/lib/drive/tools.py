@@ -8,7 +8,7 @@ import shlex
 import subprocess
 import sys
 
-from drive import brief, cli, limits, reads, render, settled, state, superseded, talk, view
+from drive import brief, cli, limits, reads, render, reports, settled, state, superseded, talk, view
 from drive.state import DriveError
 
 UNTYPED = {"help", "drive", "json", "dry_run"}
@@ -73,9 +73,7 @@ RECORD = {
             "description": (
                 "handoff asks the session holding the order its attrs.order names, or the coordinator session whose agent runs the job its attrs.job names, for a step only it takes, such as"
                 " starting a builder, with no re, since cci also delivers a record to the writer of the record its re names; the"
-                " communicator's side's handoff is kept on the order it serves, and five quiet minutes after it the watch owes that"
-                " order's thread a line naming it and each record re it until a job of that order is made, a job it, or a record re it, names works or the"
-                " communicator withdraws it with the cci close tool's how: withdraw; a"
+                " communicator's side's handoff is kept on the order it serves until the communicator withdraws it with the cci close tool's how: withdraw; a"
                 " report goes through the cci `post` tool instead, whose hook reads it, and no record draws his card on a PR"
             ),
         },
@@ -192,8 +190,9 @@ def verb_tools() -> list[dict]:
         {
             "name": "heard",
             "description": (
-                "Record that he wrote, each time he does. Returns heard, or away when away is set, and nothing to act on:"
-                " the drive's watch posts his catch-up through a handler it starts. last with why takes back what it heard after his last"
+                "Record that he wrote, each time he does, with now, away or repeats set. Returns heard, or away when away is set, and nothing to act on."
+                " With none of them it only reads, returning when he was last heard and writing nothing."
+                " last with why takes back what it heard after his last"
                 " word or tap that was not his, such as a job's test tap, returning unheard."
             ),
             "inputSchema": {"type": "object", "properties": {**schema(leaf("heard", root=root))["properties"], "drive": DRIVE, "dry_run": DRY_RUN}},
@@ -215,7 +214,7 @@ def verb_tools() -> list[dict]:
                 " his DM, its until attr naming no thread, such as a staging claim, holds no thread, and one whose post goes elsewhere"
                 " than the thread of the message of his its re chain reaches holds no message of his, so neither waits on the handler"
                 " of his messages; it refuses only a POST report to the communicator"
-                " a post, his catch-up's hold or a given-up handler's done record already carries, naming it, and starts no other report. records, the record tool's owner records of his words"
+                " a post already carries, naming it, and starts no other report. records, the record tool's owner records of his words"
                 " for an order or alert, go out first in the same call, so a card his words withdraw or change ends before the"
                 " handler starts, and the brief's Context: line names them, so the handler sends no second record of those words;"
                 " a ruling's record, whose cc-notes answer the handler adds first, stays the handler's. For his read-only question, answer"
@@ -609,6 +608,8 @@ def record(name: str, records: list[dict], dry_run: bool) -> str:
             posts.append(post(item, data, other, session))
         except DriveError as error:
             raise DriveError(f"{index}: {error}") from None
+        if refused := reports.chatter(posts[-1]):
+            raise DriveError(f"{index}: {refused}")
     for index, made in enumerate(posts, start=1):
         if made["kind"] != "answer" and not state.his_words(role, made["kind"]) and (refused := brief.claim_refusal(f"{made['text']}\n{made.get('body') or ''}", name, data)):
             raise DriveError(f"{index}: refused, nothing posted: {refused}")
@@ -662,9 +663,12 @@ def record(name: str, records: list[dict], dry_run: bool) -> str:
         raise DriveError("\n".join([*said, f"{error}; {UNSENT.format(drive=name)}"])) from None
     went = [f"{index} {item['kind']} {seq}" for index, (item, seq) in enumerate(zip(posts, seqs, strict=True), start=1)]
     print("\n".join(went), file=sys.stderr, flush=True)
-    with state.edit(name) as kept:
+    def record_write(kept: dict):
         kept["posted"] = dict([*kept["posted"].items(), (batch, {"seqs": seqs, "at": state.stamp()})][-POSTED_KEPT:])
         hearing = [state.hold_addressed(kept, made, lane, seq, role) for made, seq in zip(posts, seqs, strict=True)]
+        return hearing
+
+    hearing = state.update(name, None, record_write)
     said += went
     said += [f"{index} held on {', '.join(jobs)} for its running worker or codex run, as drive job resume holds a text" for index, jobs in enumerate(hearing, start=1) if jobs]
     ended = stamped(name, posts, seqs)
@@ -827,7 +831,7 @@ def superseded_by_answer(data: dict, made: dict, questions: list[tuple[str, dict
 
 def keep_closed(name: str, posts: list[dict], closes: list[list[tuple[str, dict]]], decided: list[list[tuple[str, dict, dict]]]) -> None:
     """End in one write, before any of these records goes out, each job question his words in them are on, answered by an answer, in place of his tap when they replace it by view.answerable, and withdrawn by other words, with his words, their link and the ruling it names, and each older question of its job his answer decides too, superseded, so a record cci refuses leaves none of them asking him; stamped names the record once it stores."""
-    with state.edit(name) as data:
+    def closed(data: dict):
         for made, questions, deciding in zip(posts, closes, decided, strict=True):
             closed = state.new_close("answered" if made["kind"] == "answer" else "withdrawn", made["text"], made.get("url"), ruling=(made.get("attr") or {}).get("ruling"))
             for job_id, question in questions:
@@ -836,6 +840,7 @@ def keep_closed(name: str, posts: list[dict], closes: list[list[tuple[str, dict]
             for job_id, older, question in deciding:
                 if (kept := state.question_in(data["jobs"][job_id], older))["closed"] is None:
                     superseded.end(data, job_id, kept, superseded.superseded_by(closed, question))
+    state.update(name, None, closed)
 
 
 def stamped(name: str, posts: list[dict], seqs: list[str]) -> list[tuple[int, str, dict]]:
@@ -857,11 +862,13 @@ def handed(name: str, lane: str, posts: list[dict], seqs: list[str]) -> None:
     answers = [(state.bare_seq(answered), made["kind"], made.get("attr") or {}) for made in posts for answered in made.get("re") or []]
     if not (handoffs or answers):
         return
-    with state.edit(name) as data:
+    def handed_write(data: dict):
         for made, seq in handoffs:
             if order_id := state.served_order(data, attrs := made.get("attr") or {}):
                 data["orders"][order_id]["handoffs"].append({"seq": seq, "text": made["text"], "at": state.stamp(), "jobs": list(filter(None, [state.named_job(data, attrs)]))})
         state.answer_handoffs(data, answers)
+
+    state.update(name, None, handed_write)
 
 
 def ended_by(closed: dict, made: dict, seq: str | None = None) -> bool:
@@ -874,7 +881,7 @@ def keep_undelivered(name: str, posts: list[dict], seqs: list[str], closes: list
     answers = [(made, seq, questions) for made, seq, questions in zip(posts, seqs, closes, strict=True) if made["kind"] == "answer"]
     if not answers:
         return
-    with state.edit(name) as data:
+    def keep_undelivered_write(data: dict):
         for made, seq, questions in answers:
             attrs = made.get("attr") or {}
             asking = list(dict.fromkeys(filter(None, [state.named_job(data, attrs), *(job_id for job_id, _ in questions)])))
@@ -885,6 +892,8 @@ def keep_undelivered(name: str, posts: list[dict], seqs: list[str], closes: list
                     superseded.unhold(data["jobs"][job_id], attrs["undone"])
                 else:
                     state.hold_text(data["jobs"][job_id], verbatim(made, questions, found), state.HIM, seq=seq)
+
+    state.update(name, None, keep_undelivered_write)
 
 
 def hearers(data: dict, asking: list[str], cards: set[str], since: str | None) -> list[str]:

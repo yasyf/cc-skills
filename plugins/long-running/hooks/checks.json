@@ -1,0 +1,22 @@
+{
+  "pre_tool": {
+    "no_file_tools.py": ["Read", "Write", "Edit", "Bash"],
+    "no_slack_reads.py": ["mcp__plugin_cc-slack_cc-slack__slack_thread", "mcp__plugin_cc-slack_cc-slack__slack_history"],
+    "no_terminal_questions.py": ["AskUserQuestion", "request_access", "request_full_control", "request_teach_access"],
+    "agent_brief.py": ["Agent"],
+    "scratch_folder.py": ["Agent"],
+    "record_lines.py": ["mcp__plugin_cc-inbox_cci__post", "mcp__plugin_cc-inbox_cci__close"],
+    "communicator_calls.py": null,
+    "message_limits.py": [
+      "mcp__plugin_cc-slack_cc-slack__slack_dm_status",
+      "mcp__plugin_cc-slack_cc-slack__slack_reply",
+      "mcp__plugin_cc-slack_cc-slack__slack_send",
+      "mcp__plugin_cc-slack_cc-slack__slack_edit",
+      "mcp__plugin_long-running_drive__say"
+    ],
+    "bash_guard.py": ["Bash", "Read", "Grep"],
+    "landing_guard.py": ["Bash"],
+    "role_rules.py": null
+  },
+  "host": "role_rules.py"
+}

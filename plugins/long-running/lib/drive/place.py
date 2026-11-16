@@ -116,19 +116,48 @@ def at_work_here(job_id: str, job: dict, data: dict, moment: datetime) -> str | 
 
 
 def waiting_builders(data: dict) -> list[str]:
-    """The builder jobs waiting their turn for a slot on this Mac, a priority order's first, by state.first_in_line, then earliest due: the earliest time promised him on an order each serves, then the oldest added; a job moving here from its Sprite waits in whatever state its lane there left it."""
+    """The builder jobs waiting their turn for a slot on this Mac, a priority order's first, by state.first_in_line, then by where its project and workstream stand, by ranked, then the oldest added; a job moving here from its Sprite waits in whatever state its lane there left it."""
     waiting = [
         job_id
         for job_id, job in data["jobs"].items()
         if state.SLOT_WAIT in job["waits"] and (job["state"] == "waiting" or on_sprite(job) and job["state"] not in state.FINISHED_JOB_STATES)
     ]
-    return sorted(waiting, key=lambda job_id: (not state.first_in_line(data, data["jobs"][job_id]), *due_first(data, data["jobs"][job_id])))
+    held = standings(data)
+    return sorted(waiting, key=lambda job_id: (not state.first_in_line(data, data["jobs"][job_id]), *ranked(data, data["jobs"][job_id], held), state.parse_time(data["jobs"][job_id]["created"])))
 
 
 def positions(data: dict) -> dict[str, str]:
-    """Each builder job waiting its turn for a slot on this Mac, with its place in line."""
+    """Each builder job waiting its turn for a slot on this Mac, with its place in line, and, for one whose workstream ranks below the first in line's, that its workstream is paused behind that one's until room returns."""
     line = waiting_builders(data)
-    return {job_id: f"{number} of {len(line)} in line" for number, job_id in enumerate(line, 1)}
+    return {job_id: f"{number} of {len(line)} in line{paused(data, job_id, line)}" for number, job_id in enumerate(line, 1)}
+
+
+def standings(data: dict) -> dict[tuple[str | None, str | None], float]:
+    """How each project, as (project, None), and each of its workstreams, as (project, workstream), stands for a turn when a cap is full, lower first: by his newest move on an open order filed there, so the workstream he is driving now holds its turns and the one he touched longest ago pauses first, by his words "if we are hitting limits, the lowest priority workstreams or even projects should just straight be paused"."""
+    held: dict[tuple[str | None, str | None], float] = {}
+    for order in state.open_orders(data).values():
+        stands = -state.parse_time(order["updated"]).timestamp()
+        for key in ((order["project"], None), (order["project"], order["workstream"])):
+            held[key] = min(held.get(key, stands), stands)
+    return held
+
+
+def ranked(data: dict, job: dict, held: dict[tuple[str | None, str | None], float]) -> tuple:
+    """Where the job's project and workstream stand for a turn, lower first: the project's place in the ranks list caps.json sets, highest first, an unlisted one after every listed one, then the project's standing, then its workstream's, so a full cap pauses the lowest workstream first and a whole project once its best workstream ranks lowest."""
+    order = data["orders"][job["order"]]
+    ranks = caps().get("ranks", [])
+    key = (order["project"], order["workstream"])
+    return (ranks.index(key[0]) if key[0] in ranks else len(ranks), held[(key[0], None)], held[key]) if key in held else (len(ranks),)
+
+
+def paused(data: dict, job_id: str, line: list[str]) -> str:
+    held = standings(data)
+    job, first = data["jobs"][job_id], data["jobs"][line[0]]
+    if preempts(data, job) or ranked(data, job, held) <= ranked(data, first, held):
+        return ""
+    order, ahead = data["orders"][job["order"]], data["orders"][first["order"]]
+    filed = " / ".join(filter(None, (order["project"], order["workstream"]))) or "its work"
+    return f", {filed} paused behind {' / '.join(filter(None, (ahead['project'], ahead['workstream']))) or 'higher-ranked work'} until a slot frees"
 
 
 def caps() -> dict[str, float]:
@@ -301,10 +330,11 @@ def admitted_room(where: str, moment: datetime) -> int:
 
 
 def sprite_line(data: dict) -> list[str]:
-    """The jobs waiting their turn for a Sprite lane under this Mac's cap, a priority order's first, by state.first_in_line, then earliest due, as waiting_builders orders builders, less each whose project spent its daily budget, by spend.over, which waits for the next day."""
+    """The jobs waiting their turn for a Sprite lane under this Mac's cap, a priority order's first, by state.first_in_line, then by ranked, then the oldest added, as waiting_builders orders builders, less each whose project spent its daily budget, by spend.over, which waits for the next day."""
     moment = state.now()
     waiting = [job_id for job_id, job in data["jobs"].items() if state.SPRITE_WAIT in job["waits"] and job["state"] == "waiting" and (preempts(data, job) or not spend.over(data, job, moment))]
-    return sorted(waiting, key=lambda job_id: (not state.first_in_line(data, data["jobs"][job_id]), *due_first(data, data["jobs"][job_id])))
+    held = standings(data)
+    return sorted(waiting, key=lambda job_id: (not state.first_in_line(data, data["jobs"][job_id]), *ranked(data, data["jobs"][job_id], held), state.parse_time(data["jobs"][job_id]["created"])))
 
 
 def sprite_turns(data: dict, moment: datetime) -> tuple[list[str], int]:
@@ -393,11 +423,3 @@ def turns(data: dict, moment: datetime) -> tuple[list[str], int]:
     return [*first, *line[len(first) :][: max(room - len(first), 0)]], held
 
 
-def promised(data: dict, job: dict) -> str | None:
-    """The earliest time promised him on an order the job serves, its own or one it carries."""
-    return min((held["due"] for order_id in [job["order"], *job["carries"]] for held in data["orders"][order_id]["promises"]), key=state.parse_time, default=None)
-
-
-def due_first(data: dict, job: dict) -> tuple[bool, datetime]:
-    due = promised(data, job)
-    return due is None, state.parse_time(due or job["created"])

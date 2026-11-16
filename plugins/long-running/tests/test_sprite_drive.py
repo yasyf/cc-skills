@@ -29,7 +29,7 @@ def drive(tmp_path: Path, answers: list[dict], *argv: str, stdin: str = "") -> t
     done = subprocess.run(
         [sys.executable, str(CLIENT), *argv],
         cwd=tmp_path,
-        env={**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}", "XDG_CACHE_HOME": str(tmp_path / "cache")},
+        env={**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}"},
         input=stdin,
         capture_output=True,
         text=True,
@@ -114,16 +114,3 @@ def test_an_answer_kept_on_this_sprite_that_does_not_hash_to_what_the_coordinato
     done, _ = drive(tmp_path, [{"answer": pointer}], "status")
     assert done.returncode == 1
     assert done.stderr.startswith(f"drive: the answer at {kept} is 19 bytes with SHA-256 ")
-
-
-@pytest.mark.parametrize("argv", [["--root"], ["manual", "landing"], ["job", "report", "--help"]], ids=["--root", "manual", "--help"])
-def test_a_static_verb_asks_the_mac_once_and_is_answered_on_the_sprite_after(argv: list[str], tmp_path: Path) -> None:
-    first, asked = drive(tmp_path, [{"answer": "drive exited 0\nthe page"}], *argv)
-    again, asked_again = drive(tmp_path, [{"answer": "drive exited 0\nthe page"}], *argv)
-    assert (first.returncode, first.stdout, again.returncode, again.stdout, len(asked), len(asked_again)) == (0, "the page\n", 0, "the page\n", 1, 1)
-
-
-def test_a_verb_that_reads_drive_state_always_asks_the_mac(tmp_path: Path) -> None:
-    drive(tmp_path, [{"answer": "drive exited 0\nj7 running"}], "status")
-    _, asked = drive(tmp_path, [{"answer": "drive exited 0\nj7 running"}, {"answer": "drive exited 0\nj7 running"}], "status")
-    assert len(asked) == 2

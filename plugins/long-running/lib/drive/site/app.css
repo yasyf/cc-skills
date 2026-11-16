@@ -146,8 +146,6 @@ button.al.warn::before { background: #c98a4b; }
 [data-key]::after { content: attr(data-key); margin-left: 6px; padding: 0 4px; border: 1px solid var(--line); border-radius: 3px; color: var(--muted); font: 9px var(--mono); letter-spacing: 0; text-transform: none; }
 @media (hover: none) { [data-key]::after { display: none; } }
 .focus-card { min-width: 0; background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
-.focus-card.late { border-color: #e2b9b1; }
-.focus-card.late .type-label { color: var(--bad); }
 .focus-card.done { display: grid; justify-items: center; gap: 10px; padding: 64px 40px; text-align: center; }
 .focus-card.done h2 { margin: 0; font-size: 28px; font-weight: 550; letter-spacing: -1px; }
 .focus-card.done a { color: var(--accent); }

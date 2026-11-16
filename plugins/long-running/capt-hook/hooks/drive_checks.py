@@ -50,19 +50,23 @@ SHELL = ("Bash",)
 SEARCHES = ("Bash", "Read", "Grep")
 AGENT = ("Agent",)
 RECORDS = (POST, CLOSE)
-PRE_TOOL_CHECKS: dict[str, tuple[str, ...] | None] = {
-    "no_file_tools.py": FILE_TOOLS,
-    "no_slack_reads.py": SLACK_READS,
-    "no_terminal_questions.py": QUESTIONS,
-    "agent_brief.py": AGENT,
-    "scratch_folder.py": AGENT,
-    "record_lines.py": RECORDS,
-    "communicator_calls.py": None,
-    "message_limits.py": POSTS,
-    "bash_guard.py": SEARCHES,
-    "landing_guard.py": SHELL,
-    "role_rules.py": None,
-}
+CHECKS_FILE = Path("hooks") / "checks.json"
+
+
+def listed_checks(plugin: Path) -> dict:
+    """The PreToolUse checks an install's checks.json lists, each with the tools it runs for, None for every tool, and the one check whose handler hosts the checks this pack has no handler of its own for."""
+    listed = json.loads((plugin / CHECKS_FILE).read_text())
+    return {"pre_tool": {check: tools and tuple(tools) for check, tools in listed["pre_tool"].items()}, "host": listed["host"]}
+
+
+LOADED_CHECKS = listed_checks(Path(__file__).resolve().parents[2])
+PRE_TOOL_CHECKS: dict[str, tuple[str, ...] | None] = LOADED_CHECKS["pre_tool"]
+
+
+def newest_checks() -> dict:
+    """The newest install's check list, so a session whose pack loaded at an older install runs each check the install now lists, a check added since included, by its host's handler; the list this pack loaded with when the newest install ships none."""
+    plugin = newest_install()
+    return listed_checks(plugin) if (plugin / CHECKS_FILE).is_file() else LOADED_CHECKS
 REMOTE_LANE = "LONG_RUNNING_REMOTE_LANE"
 QUOTING = re.compile(r"[\"'\\]")
 EXPANSION = re.compile(r"\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?")
@@ -227,7 +231,7 @@ def checks_due(evt: BaseHookEvent, script: str) -> tuple[str, ...]:
     payload = evt._raw
     tool = payload.get("tool_name")
     pending = evt.event_name == Event.PreToolUse and payload.get("tool_use_id")
-    matching = [check for check, tools in PRE_TOOL_CHECKS.items() if check == script or tools is None or tool_name_matches(tool, "|".join(tools))] if pending else [script]
+    matching = [check for check, tools in newest_checks()["pre_tool"].items() if check == script or tools is None or tool_name_matches(tool, "|".join(tools))] if pending else [script]
     if (payload.get("agent_type") or "").startswith(DRIVE_AGENTS):
         return tuple(matching)
     unbound = [check for check in matching if check in UNBOUND_CHECKS and UNBOUND_CHECKS[check](payload)]
@@ -321,12 +325,21 @@ def ran_alone(payload: dict, script: str) -> dict:
 
 
 def checked(evt: BaseHookEvent, script: str) -> HookResult | None:
-    """Run the drive's own check for this call from the newest installed long-running, since capt-hook keeps this pack loaded from the install it first found while an install leaves the pack's files unchanged, and let Jev weigh each refusal it makes by the rule the check names, else by its words, so a check that matched a call its rule never meant lets the call through, and every post the check hands with his words before it goes out; a merge, release or public-body guard, or a refusal decided by the call's shape alone, the check marks unjudged and it blocks outright, and a check that exits non-zero raises with its own stderr, so capt-hook's log names why it failed."""
+    """Run the drive's own check for this call from the newest installed long-running, since capt-hook keeps this pack loaded from the install it first found while an install leaves the pack's files unchanged, and let Jev weigh each refusal it makes by the rule the check names, else by its words, so a check that matched a call its rule never meant lets the call through, and every post the check hands with his words before it goes out; a merge, release or public-body guard, or a refusal decided by the call's shape alone, the check marks unjudged and it blocks outright, and a check that exits non-zero raises with its own stderr, so capt-hook's log names why it failed. The newest install's host check also runs, ahead of its own, each due check this pack has no handler for, so a check added after the pack loaded runs too."""
     payload = evt._raw
     due = checks_due(evt, script)
     if script not in due:
         return None
-    ran = batched(payload, script, due) if len(due) > 1 else ran_alone(payload, script)
+    hosted = [check for check in due if check not in PRE_TOOL_CHECKS] if script == newest_checks()["host"] else []
+    for each in [*hosted, script]:
+        if (result := outcome(evt, each, batched(payload, each, due) if len(due) > 1 else ran_alone(payload, each))) is not None:
+            return result
+    return None
+
+
+def outcome(evt: BaseHookEvent, script: str, ran: dict) -> HookResult | None:
+    """What one check's run makes of the call, by checked."""
+    payload = evt._raw
     if ran["code"]:
         raise RuntimeError(f"{script} exited {ran['code']}:\n{ran['stderr']}")
     if not (said := ran["stdout"].strip()):

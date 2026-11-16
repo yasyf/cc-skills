@@ -58,7 +58,7 @@ const QUEUE_FILTERS = [
   ['question', 'Decisions', (item) => item.kind === 'question'],
 ];
 const NONE_LEFT = { tap: 'No PR waits on your tap.', question: 'No decision waits on you.' };
-const LABEL = { question: 'Decision', tap: 'Pull request', late: 'Late' };
+const LABEL = { question: 'Decision', tap: 'Pull request' };
 const TAP_LABELS = ['Approve', 'Hold'];
 const PR_TABS = [['show', 'Show me'], ['change', 'The change'], ['context', 'Context']];
 const TALK_FOLLOW_MS = 15 * 60 * 1000;
@@ -181,6 +181,7 @@ const bare = (title) => named(String(title ?? '').replace(/^[\w./-]+:\s*\p{Exten
 const icon = (name) => `<svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[name]}</svg>`;
 function counted(n, one, many) { return sharedRenderers.counted(n, one, many); }
 const fileKey = (name) => name ?? NONE;
+const sameChannel = (key) => (key === 'The drive' ? 'Drive tooling' : key);
 const fileName = (key) => (key === NONE ? UNFILED : key);
 const byName = ([a], [b]) => (a === NONE) - (b === NONE) || a.localeCompare(b);
 const zoomHref = (screen, ...keys) => [`#/${screen}`, ...keys.map(encodeURIComponent)].join('/');
@@ -456,7 +457,7 @@ function filterOf(id) {
 
 function shownQueue(filter, project = route().query.get('project'), stream = route().query.get('stream')) {
   const [, , keep] = QUEUE_FILTERS.find(([id]) => id === filter);
-  const inScope = (item) => (project === null || fileKey(item.project) === project) && (stream === null || fileKey(item.workstream) === stream);
+  const inScope = (item) => (project === null || sameChannel(fileKey(item.project)) === sameChannel(project)) && (stream === null || fileKey(item.workstream) === stream);
   return model.queue.filter((item) => keep(item) && inScope(item) && !(answers.has(answerKey(item)) && !answers.get(answerKey(item)).error));
 }
 
@@ -538,7 +539,7 @@ function earlierWords(answer) {
 
 function priorityChips(item) {
   const { priority } = item;
-  return `<span class="priority-chips"><span class="rank-chip" aria-label="Global priority ${priority.rank}">#${priority.rank}</span>${priority.answering ? '<span class="reason-chip">Drive answering</span>' : ''}${priority.incident ? '<span class="reason-chip urgent">Incident</span>' : ''}${priority.overdue ? '<span class="reason-chip urgent">Past due</span>' : ''}${item.built?.length ? `<span class="reason-chip warm">${item.built.length} built</span>` : ''}${priority.weight ? `<span class="reason-chip">Unblocks ${priority.weight}</span>` : ''}${item.since ? `<span class="reason-chip age">${esc(ago(item.since))} waiting</span>` : ''}</span>`;
+  return `<span class="priority-chips"><span class="rank-chip" aria-label="Global priority ${priority.rank}">#${priority.rank}</span>${priority.answering ? '<span class="reason-chip">Drive answering</span>' : ''}${priority.incident ? '<span class="reason-chip urgent">Incident</span>' : ''}${item.built?.length ? `<span class="reason-chip warm">${item.built.length} built</span>` : ''}${priority.weight ? `<span class="reason-chip">Unblocks ${priority.weight}</span>` : ''}${item.since ? `<span class="reason-chip age">${esc(ago(item.since))} waiting</span>` : ''}</span>`;
 }
 
 function decisionRail(item) {
@@ -782,18 +783,6 @@ function prCard(item, at, total, embedded = false) {
   </div>`;
 }
 
-function lateCard(item, at, total) {
-  return `<article class="focus-card late" aria-labelledby="item-title">
-    <div class="card-content">
-      <div class="card-top"><span class="type-label">Late</span>${counter(at, total)}</div>
-      <h2 class="card-title" id="item-title">${esc(bare(item.title))}</h2>
-      <div class="facts">${fact(esc(`Promised ${clock(item.due)}`), `${ago(item.due)} late`, 'bad')}${item.since ? fact(esc(`Asked ${clock(item.since)}`)) : ''}</div>
-      ${item.detail ? `<p class="card-summary">${esc(item.detail)}</p>` : ''}
-    </div>
-    <div class="ask-box">${sayBox(`l:${noticeKey(item)}`, '', 'Ask where it is, or change it', `About "${item.title}"`)}</div>
-  </article>`;
-}
-
 function queueScreen(id) {
   const filter = filterOf(id);
   const list = shownQueue(filter);
@@ -807,7 +796,7 @@ function queueScreen(id) {
   const unread = model.cards === 'live' ? '' : `<p class="refused">Your questions are not listed here: cc-slack ${esc(model.cards)}</p>`;
   const rest = shownQueue('all').length;
   const done = `<div class="focus-card done"><span class="bigcheck" aria-hidden="true">✓</span><h2>${filter === 'all' ? 'Nothing waits on you.' : NONE_LEFT[filter]}</h2>${filter !== 'all' && rest ? `<p><a href="#/queue/all">${rest} other ${rest === 1 ? 'thing waits' : 'things wait'} in All ›</a></p>` : ''}</div>`;
-  const shown = item ? { question: decisionCard, tap: prCard, late: lateCard }[item.kind](opened(item), at, list.length) : done;
+  const shown = item ? { question: decisionCard, tap: prCard }[item.kind](opened(item), at, list.length) : done;
   return `<div class="page-head">
       <div><div class="eyebrow">Your attention</div><h1 class="h1">Priority queue <span class="total-chip">${list.length}</span></h1></div>
       <div class="queue-tools">${queueScope(filter)}<nav class="subtabs" aria-label="Show">${filters}</nav></div>
@@ -835,7 +824,7 @@ function heldPRs(item) {
 }
 
 function rowActions(item, filter) {
-  const options = item.kind === 'late' ? [] : item.card?.options ?? TAP_LABELS;
+  const options = item.card?.options ?? TAP_LABELS;
   const picks = options.map((option) => `<button class="mini${option === 'Approve' ? ' go' : ''}" data-card="${esc(answerKey(item))}" data-label="${esc(option)}" data-tip="${esc(option)}">${esc(option)}</button>`);
   const task = item.tasks.find(Boolean);
   return [
@@ -1040,8 +1029,8 @@ async function completePage(frame, page, request) {
 
 function waiting() {
   const kinds = Map.groupBy(model.queue, (item) => item.kind);
-  const since = model.queue.map((item) => (item.kind === 'late' ? item.due : item.since)).filter(Boolean).sort((a, b) => new Date(a) - new Date(b));
-  return { picks: kinds.get('question')?.length ?? 0, taps: kinds.get('tap')?.length ?? 0, late: kinds.get('late')?.length ?? 0, oldest: since[0] };
+  const since = model.queue.map((item) => item.since).filter(Boolean).sort((a, b) => new Date(a) - new Date(b));
+  return { picks: kinds.get('question')?.length ?? 0, taps: kinds.get('tap')?.length ?? 0, oldest: since[0] };
 }
 
 function gone(what, screen = 'now') {
@@ -2292,7 +2281,6 @@ function taskBody({ id }) {
   const facts = [
     entry.where && !lined.has(entry.where.job) ? ['Where it is', `${reportLine(entry.where.text, entry.where.state)}${entry.where.at ? ` <small class="meta">${entry.where.job ? `${esc(entry.where.job)} · ` : ''}${clock(entry.where.at)}</small>` : ''}`] : null,
     ['Asked', clock(entry.created)],
-    entry.due ? ['Promised', `${clock(entry.due)}${entry.late ? ' <b class="red">late</b>' : ''}`] : null,
     entry.proof ? ['Proof', inline(entry.proof)] : null,
     entry.note ? ['Note', esc(entry.note)] : null,
   ].filter(Boolean);
@@ -2597,17 +2585,17 @@ async function say(key, under, words, about, thread) {
 let heard = null;
 
 function noticeKey(item) {
-  return item.answer ?? `${item.kind}:${item.title}:${item.due ?? ''}`;
+  return item.answer ?? `${item.kind}:${item.title}`;
 }
 
 function notify() {
-  const fresh = model.queue.filter((item) => item.kind !== 'late' && heard && !heard.has(noticeKey(item)));
+  const fresh = model.queue.filter((item) => heard && !heard.has(noticeKey(item)));
   heard = new Set(model.queue.map(noticeKey));
   noticeButton();
   if (!fresh.length || !window.isSecureContext || !('Notification' in window) || Notification.permission !== 'granted') return;
   const [first] = fresh;
   const title = fresh.length === 1 ? `${LABEL[first.kind]}: ${first.title}` : `${fresh.length} new things wait on you`;
-  const notice = new Notification(title, { body: fresh.length === 1 ? first.detail : fresh.map((item) => item.title).join('\n'), tag: `drive-${model.drive}`, requireInteraction: fresh.some((item) => item.kind !== 'late') });
+  const notice = new Notification(title, { body: fresh.length === 1 ? first.detail : fresh.map((item) => item.title).join('\n'), tag: `drive-${model.drive}`, requireInteraction: true });
   notice.onclick = () => {
     window.focus();
     queueAt = noticeKey(first);

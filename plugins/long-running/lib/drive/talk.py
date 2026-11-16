@@ -15,7 +15,6 @@ from urllib.parse import urlencode
 from drive import agents, brief, cli, dashboard, limits, picture, reads, refs, render, slack, state, view
 from drive.state import DriveError
 
-CATCH_UP_TITLE = re.compile(r"\A\s*\**\s*catch-up since\b[^\n]*\n*", re.IGNORECASE)
 SPAN = re.compile(r"\bfor (?:about |~)?(?:(\d+(?:\.\d+)?)(?: ?(m|mins?|minutes?|h|hrs?|hours?))?|(an|half an) hour)\b", re.IGNORECASE)
 SPAN_SLACK = timedelta(minutes=5)
 CARDS_A_MESSAGE = 5
@@ -31,7 +30,7 @@ HOOKS = Path(__file__).resolve().parents[2] / "hooks"
 
 
 def say(name: str, post: dict) -> str:
-    """Post one message to his DM through cc-slack, or in a thread outside it named by channel_id, such as an alert's, or with no thread at the root of the channel channel_id names, such as a staging claim to its members, or in the group DM of a person, him and the bot when channel_id is that person's user id, or reword one it made in any of those, and keep the same item on the drive's dashboard, in the words it was given, a catch-up's title, the count of his open cards it closes with and the cards asked since he was last heard its only additions; a post is recorded on the one order cli.post_order decides, never one its caller names, wherever it goes, and a post in a thread is the last line of each open order whose lines go in that thread, whatever order it is recorded on or none, so the watch's clock and each session's overdue line read every line there, and posts nothing from a caller but the communicator and its handlers, the watch's own live line of a proved order going through proved_line, a handler known from its first step by the LONG_RUNNING_HANDLER its launch set, delivering the parts its report record names, making the clock time its words promise his next line by the order's due, and adding its thread to the order's threads; a post at another channel's root, or a line in its thread, whose report names an end as until keeps that end on its order, from which the watch owes that thread its closing line; a claim at another channel's root goes out only on a report naming an end still to come, which its words name, and a report naming none or a past one goes back to its writer. A question to a teammate naming the job it is for keeps that job waiting on their reply. A report's post names each correction cci holds re it, which the post may lack, a post of a report carrying reports held for his return, the line the watch owes their thread or his catch-up, lets each go, a handler's post of a report that another handler's post or a line carrying it at his return already carried posts nothing, naming that post, and a correction of a held report, or of one a post carried, posts nothing, naming where that report's copy is. A handler's result line is kept on its entry, for its done record to carry whole. What the drive's checks find in its words, the say hook hands Jev to judge against his words once this has posted them, before only a post a count or a mark refuses, such as one over its length or to him while he is away, a post saying a release may start while a freeze or his release hold it does not name stands, and a dry run. A report's line to him that `away` reads as waiting for his return posts nothing, from every caller, by `held_away`."""
+    """Post one message to his DM through cc-slack, or in a thread outside it named by channel_id, such as an alert's, or with no thread at the root of the channel channel_id names, such as a staging claim to its members, or in the group DM of a person, him and the bot when channel_id is that person's user id, or reword one it made in any of those, and keep the same item on the drive's dashboard, in the words it was given; a post is recorded on the one order cli.post_order decides, never one its caller names, wherever it goes, and a post in a thread is the last line of each open order whose lines go in that thread, whatever order it is recorded on or none, so the watch's clock and each session's overdue line read every line there, and posts nothing from a caller but the communicator and its handlers, the watch's own live line of a proved order going through proved_line, a handler known from its first step by the LONG_RUNNING_HANDLER its launch set, delivering the parts its report record names, making the clock time its words promise his next line by the order's due, and adding its thread to the order's threads; a post at another channel's root, or a line in its thread, whose report names an end as until keeps that end on its order, from which the watch owes that thread its closing line; a claim at another channel's root goes out only on a report naming an end still to come, which its words name, and a report naming none or a past one goes back to its writer. A question to a teammate naming the job it is for keeps that job waiting on their reply. A report's post names each correction cci holds re it, which the post may lack, and a correction of one a post carried posts nothing, naming where that report's copy is. A handler's result line is kept on its entry, for its done record to carry whole. What the drive's checks find in its words, the say hook hands Jev to judge against his words once this has posted them, before only a post a count or a mark refuses , such as one over its length, a post saying a release may start while a freeze or his release hold it does not name stands, and a dry run."""
     return spoken(name, post, caller(name))
 
 
@@ -39,7 +38,7 @@ def proved_line(name: str, post: dict) -> str:
     """Post the live line of the close report drive job prove kept on an order, which the drive's watch sent as post's record, the one post to him the watch makes through say itself, so no handler session starts to post words that report already holds: only while that order keeps the report as one the watch posts, by state.watch_posting, in his DM, since cc-slack's Slack permission hook judges a post in another channel's thread as the handler's say call, and once the say hook's own checks and Jev pass it as they pass a post of the communicator's own, by hook_refusal, then its order closed on that report once its record lands, as a handler's close is; a post that already carries it only closes its order, so a watch that ended between the post and the close posts no second line. A refusal posts nothing, and the report's POST record goes to a handler as every other does."""
     known = state.load(name)
     seq = post["record"]
-    if seq not in state.watch_posting(known) or seq in known["held"]:
+    if seq not in state.watch_posting(known):
         raise DriveError(f"nothing posted: report {seq} is no close report the watch posts itself, and only the communicator's handlers post to him")
     if channel := post.get("thread_ts") and outside(known, post["thread_ts"]):
         raise DriveError(f"nothing posted: report {seq}'s line goes in a thread of {channel}, which cc-slack's Slack permission hook judges for a handler's say call")
@@ -51,6 +50,16 @@ def proved_line(name: str, post: dict) -> str:
         line = spoken(name, post, state.load(name), recorded_first=True)
     order_id = state.report_order(known, cli.report_attrs(seq))
     return line + closed(name, order_id, seq, state.load(name)["carried"][seq], post["text"])
+
+
+def watch_line(name: str, post: dict) -> str:
+    """Post a milestone or incident line the drive's watch makes from its rows through say itself, citing the record post names, which holds its facts, once the say hook's checks and Jev pass it, so no handler session starts on it: in his DM alone, since cc-slack's Slack permission hook judges a say call outside it for a handler."""
+    known = state.load(name)
+    if (thread := post.get("thread_ts")) and (channel := outside(known, thread)):
+        raise DriveError(f"nothing posted: record {post['record']}'s line goes in a thread of {channel}, which cc-slack's Slack permission hook judges for a handler's say call")
+    if refused := hook_refusal(name, known, post):
+        raise DriveError(f"nothing posted: {refused}")
+    return spoken(name, post, state.load(name))
 
 
 def hook_refusal(name: str, data: dict, post: dict) -> str | None:
@@ -98,10 +107,11 @@ def spoken(name: str, post: dict, known: dict, recorded_first: bool = False) -> 
         post = post | {"asked": [*slack.messages(post.get("asked") or ""), *filter(None, [held.get("link")])]}
     elif order and cli.answers_order(known, order, post):
         close, post = True, {key: value for key, value in post.items() if key != "record"}
+    post = held_asked(known, post)
     if close:
         report = {"close": order, "writer": "communicator", "written": state.stamp()}
     seq = report.get("seq")
-    if refused := held_refusal(known, seq, report) or held_away(name, known, post, report, order) or (order and cli.report_refusal(known, order, report)) or (close and cli.unfiled_refusal(known, order)) or unplaced(known, post, report):
+    if refused := carried_refusal(known, seq, report) or (order and cli.report_refusal(known, order, report)) or (close and cli.unfiled_refusal(known, order)) or unplaced(known, post, report):
         raise DriveError(f"nothing posted: {refused}")
     if refused := unclaimed(known, post, report):
         raise DriveError(f"nothing posted: {refused}; {returned(name, post, report, refused)}")
@@ -109,21 +119,9 @@ def spoken(name: str, post: dict, known: dict, recorded_first: bool = False) -> 
         raise DriveError(f"nothing posted: {refused}")
     if refused := brief.claim_refusal(post.get("text") or "", name, known):
         raise DriveError(f"nothing posted: {refused}")
-    carrying = [each for each, mark in known["held"].items() if seq and mark["record"] == seq]
-    if report.get("catch_up"):
-        if known["catch_up"] is None:
-            raise DriveError(f"nothing posted: report {seq} is a catch-up, and the drive owes him none, since its last catch-up already posted")
-        text = post.get("text") or ""
-        drawn = waiting(name, known, text)
-        if not (CATCH_UP_TITLE.sub("", text, count=1).strip() or drawn or carrying or post.get("dry_run")):
-            with state.edit(name) as data:
-                data["catch_up"] = None
-            return f"SETTLED report {seq}: no card waits on him and nothing is held for his catch-up, so it posts nothing"
-        post = post | {"text": titled(known, text) + drawn}
     if post.get("dry_run"):
         return dry(name, post) + (f"; {cli.delivering(name, order, report)}" if order else "")
-    promise = promising(known, post["edit"]) if post.get("edit") else None
-    amended = agents.amendments(name, [seq, *carrying] if seq else [])
+    amended = agents.amendments(name, [seq] if seq else [])
     if close:
         report["seq"] = seq = close_report(name, order, post.get("text") or "")
     claimed = cli.claim_close(name, report)
@@ -157,53 +155,11 @@ def spoken(name: str, post: dict, known: dict, recorded_first: bool = False) -> 
         line += f" WARNING {warning}"
     if found := amended["correction"].get(seq):
         line += f"; cci holds corrections of report {seq}, {', '.join(found)}: unless this post carries each, reword it with say(edit={link}, text=…)"
-    if carrying or report.get("catch_up"):
-        line += released(name, link, seq, amended, bool(report.get("catch_up")))
     if order:
         line += "; " + record_line(order, *reply["recorder"], close or recorded_first)
     if close:
         line += closed(name, order, report["seq"], link, post.get("text") or "")
-    if promise:
-        line += repromised(name, promise, reply["sent"])
     return line
-
-
-def promising(data: dict, link: str) -> dict | None:
-    """The open order owing him a line by a time the post an edit at link rewords started, and the thread it is owed in, read before the edit goes out, since Slack then holds only its new words: the promise in that post's channel whose promised time is that post's own, found with no Slack call, and whether the post's words promise a time, read from Slack only once such a promise is found, since a post that kept one time and started the next the drive held waiting promises it with no time in its words."""
-    if not (message := state.slack_message(link)):
-        return None
-    at = slack.sent_at({"ts": message[1]})
-    owing = (
-        (order_id, held["thread"])
-        for order_id, order in data["orders"].items()
-        if order["state"] not in state.CLOSED_ORDER_STATES
-        for held in state.owing(order)
-        if held["thread"] and held["thread"][0] == message[0] and state.parse_time(held["promised"]) == at
-    )
-    if not (found := next(owing, None)):
-        return None
-    return {"order": found[0], "thread": found[1], "at": at.isoformat(), "timed": cli.promised_due(slack.message(link).get("text") or "", at) is not None}
-
-
-def repromised(name: str, promise: dict, text: str) -> str:
-    """Keep the time an order owes him in the edited post's thread in step with the post that promised it, under the drive's lock: the time its new words promise, owed from the post as its old words' time was, or, when its old words promised a time and its new words name none, no time owed there, the drive's own next time that waited on it promised in its place; nothing once a later post kept the time or replaced it while the edit went out. The part of the EDITED line saying so."""
-    at = state.parse_time(promise["at"])
-    due = cli.promised_due(text, at)
-    if not due and not promise["timed"]:
-        return ""
-    with state.edit(name) as data:
-        order = data["orders"][promise["order"]]
-        if not (held := state.promised_in(order, promise["thread"])) or held["kept"] or state.parse_time(held["promised"]) != at:
-            return ""
-        if due:
-            state.remind(order, promise["thread"], state.stamp(due), at)
-            return f"; its new words promise him {promise['order']}'s next line by {render.when(state.stamp(due))}, now owed"
-        dropped, waiting = held["due"], held["next_due"]
-        order["promises"].remove(held)
-        if waiting:
-            state.promise(order, promise["thread"], waiting, state.parse_time(held["next_set"]))
-    restarted = f", and the drive's own time {render.when(waiting)} is owed from its next line" if waiting else ""
-    return f"; its new words promise no time, so {promise['order']} no longer owes him a line by {render.when(dropped)}{restarted}"
 
 
 def caller(name: str) -> dict:
@@ -229,9 +185,11 @@ def request_key(name: str, known: dict, post: dict, report: dict) -> str | None:
 
 def awaiting(name: str, job_id: str, link: str) -> str:
     """Keep the job waiting on the reply to the question a post at link asked a teammate for it, which the watch reads each minute until the first message after it from anyone but the drive and a bot frees the job."""
-    with state.edit(name) as data:
+    def awaiting_write(data: dict):
         job = data["jobs"][job_id]
         job["waits"] = list(dict.fromkeys([*job["waits"], f"reply:{link}"]))
+
+    state.update(name, None, awaiting_write)
     return f"{job_id} waits on the reply to it"
 
 
@@ -317,36 +275,14 @@ def closed(name: str, order_id: str, seq: str, link: str, text: str) -> str:
     return line
 
 
-def away(data: dict, post: dict, report: dict, order_id: str | None, moment: datetime) -> str | None:
-    """Why a line to him waits for his return, by state.AWAY_HOLD, the one rule say and the say hook read: he is away, as the owner row's away reads, and the line goes in his DM as no card, PR card, edit, catch-up or answer passing asked, carries no WAITING-ON-HIM, is no incident's or customer outage's line and names no clock time still to come; None for a line that goes out."""
-    if not state.owner_away(data, moment) or any(post.get(key) for key in ("edit", "card", "tap_prs", "asked")) or report.get("catch_up") or place(post)[0] != slack.dm():
-        return None
-    text = post.get("text") or ""
-    if state.WAITS_ON_HIM in text or outage(data, post, report, order_id) or time_to_come(text, moment):
-        return None
-    return f"he is {render.owner_reading(data['owner'])}, and while he is away only cards, incident lines, lines naming a clock time still to come and answers to his messages go out"
-
-
-def held_away(name: str, data: dict, post: dict, report: dict, order_id: str | None) -> str | None:
-    """Why a report's line to him goes nowhere while `away` reads it waiting: a report owing a line promised by a time is owed at his return, which the watch writes again the first pass after he is heard, so it is never held; any other is marked held on the drive, once, on the order its post goes to, so `drive status` lists it until the watch's line in that order's thread, or his catch-up for one with no thread, carries it once he is back. The say hook refuses it before Jev reads or sizes it, and say itself refuses it from every caller, so a post the hook never checked, such as the communicator's own or a handler's the hook found unbound, is held too."""
-    if not (seq := report.get("seq")) or not (gone := away(data, post, report, order_id, state.now())):
-        return None
-    if due := report.get("due"):
-        return (
-            f"he is {render.owner_reading(data['owner'])}, and report {seq} owes the line promised him by {render.when(due)}, which is owed at his return:"
-            " the watch writes its report again the first pass after he is heard, so it is never held. Post nothing and return NOTHING owed at his return."
-        )
-    hold(name, seq, posted_order(data, post, order_id))
-    return (
-        f"{gone}. Post nothing: this news waits for his return, when the drive owes its thread a line. Report {seq} is marked held:"
-        " `drive status` lists it until the line carrying it posts once he is back. Return NOTHING held for his return."
-    )
-
-
-def time_to_come(text: str, at: datetime) -> bool:
-    """Whether a line names a clock time still to come, such as a freeze ending at 5:00 PM, by the drive's own reader of typed times, a promise of the next line aside, so it reaches him before that time rather than in his catch-up."""
-    promised = [found.span() for found in cli.PROMISED_TIME.finditer(text) if found["next"]]
-    return any(limits.typed_moment(text, found, at) > at for found in limits.CLOCK_TIME.finditer(text) if not any(start <= found.start() < end for start, end in promised))
+def carried_refusal(data: dict, seq: str | None, report: dict) -> str | None:
+    """Why a report's or a correction's post goes nowhere: the report went out in a post the posting handler did not make, another handler's, so a second handler started on it tells its thread nothing twice, or the report a correction corrects went out in a post, which the correction rewords."""
+    handler = state.handler_id(data, os.environ.get("CLAUDE_CODE_SESSION_ID"))
+    if report.get("kind") == "report" and handler and (post := data["carried"].get(seq)) and state.CARD_LINK.search(post) and not any((found := state.POSTED_LINE.match(line)) and found["link"] == post for line in data["handlers"][handler]["posted"]):
+        return f"report {seq} already went out in {post}, which another handler posted: return NOTHING already posted at {post}"
+    if (post := data["carried"].get(report.get("corrects"))) and state.CARD_LINK.search(post):
+        return f"record {seq} corrects report {report['corrects']}, which went out in {post}: reword that post with say(edit={post}, text=…)"
+    return None
 
 
 def outage(data: dict, post: dict, report: dict, order_id: str | None) -> bool:
@@ -360,94 +296,13 @@ def posted_order(data: dict, post: dict, order_id: str | None) -> str | None:
     return order_id or next((each for each, order in state.open_orders(data).items() if where[1] and where in (state.own_thread(order), state.promise_thread(order))), None)
 
 
-def hold(name: str, seq: str, order_id: str | None) -> None:
-    """Mark a report whose line waits for his return held on the drive, once, on the order its post goes to, by `held_away`, for the line the watch owes that order's thread or his catch-up to carry."""
-    with state.edit(name) as data:
-        data["held"].setdefault(seq, {"order": order_id, "at": state.stamp(), "record": None})
-
-
-def released(name: str, post: str, seq: str, amended: dict[str, dict[str, list[str]]], catch_up: bool) -> str:
-    """Let go of each report held for his return that report seq, which just posted at post, carries, keeping post as the copy each went out in but for one its writer withdrew, which went out in none, by state.let_go, settling the catch-up the drive owed him when seq is one, and name them, with each correction cci holds re one carried, which the post must carry, and each withdrawn, which it must leave out."""
-    withdrawn = amended["withdraw"]
-    with state.edit(name) as data:
-        held = [each for each, mark in data["held"].items() if mark["record"] == seq]
-        carried = [each for each in held if each not in withdrawn]
-        data["carried"] |= dict.fromkeys(carried, post)
-        for each in carried:
-            del data["held"][each]
-        state.let_go(data, [each for each in held if each in withdrawn])
-        if catch_up:
-            data["catch_up"] = None
-    fixes = [fix for seq in carried for fix in amended["correction"].get(seq, [])]
-    line = f"; it carries the reports held for it, no longer held: {', '.join(carried)}" if carried else ""
-    line += f"; cci holds corrections {', '.join(fixes)} of them: unless this post carries each, reword it with say(edit={post}, text=…)" if fixes else ""
-    if taken := [seq for seq in held if seq in withdrawn]:
-        line += f"; their writers withdrew reports {', '.join(taken)}, so no post carries them and no order closes on them: unless this post leaves each out, reword it with say(edit={post}, text=…)"
-    return line
-
-
-def unhandled(name: str, read: dict) -> str | None:
-    """Why the record a handler's brief holds needs no handler, settled here by say's own rules on the words its handler would post, so no session starts only to return NOTHING: a correction of a report held for his return is carried by the line carrying that report, as held_refusal refuses its post; a watch's quiet report, read whole with its body, that held_away holds while he is away is marked held by it, as the handler's post of it would be. A report whose post its handler shapes, its place, card or asked, or whose words name a clock time still to come or WAITING-ON-HIM, a due line and a catch-up all start their handler; None for each of those."""
-    report, attrs, seq = read["report"], read["attrs"], read["record"]
-    data = state.load(name)
-    if report["kind"] == "correction" and (corrected := str(report.get("re"))) in data["held"]:
-        with state.edit(name) as data:
-            data["carried"].setdefault(seq, f"held report {corrected}")
-        return f"it corrects report {corrected}, held for his return, whose line at his return carries it"
-    if report["lane"] != "watch" or attrs.get("quiet") != "true" or attrs.get("due") or attrs.get("catch_up") or read["message"] or not state.owner_away(data, state.now()):
-        return None
-    body = Path(path).read_text() if (path := (report.get("refs") or {}).get("path")) and Path(path).is_file() else ""
-    post = {"record": seq, "text": f"{report['text']}\n{body}", "thread_ts": attrs.get("thread")}
-    facts = attrs | {"seq": seq, "kind": report["kind"], "writer": report["lane"], "written": report["at"]}
-    return "its line is held for his return" if held_away(name, data, post, facts, state.report_order(data, attrs)) else None
-
-
-def held_refusal(data: dict, seq: str | None, report: dict) -> str | None:
-    """Why a report's or a correction's post goes nowhere: the report is held for his return, as the away check marks it whatever Jev then reads, or went out in a post the posting handler did not make, another handler's or a line carrying it at his return, so a second handler started on it tells its thread nothing twice, or the report a correction corrects is held, since the line carrying it at his return carries the correction with it, or went out in a post, its own or one carrying it, which the correction rewords; a report its handlers gave up, which only a done record carries, leaves its correction to post as its own line."""
-    if seq in data["held"]:
-        return f"report {seq} is held for his return, when the watch's line in its thread carries it: return NOTHING held for his return"
-    handler = state.handler_id(data, os.environ.get("CLAUDE_CODE_SESSION_ID"))
-    if report.get("kind") == "report" and handler and (post := data["carried"].get(seq)) and state.CARD_LINK.search(post) and not any((found := state.POSTED_LINE.match(line)) and found["link"] == post for line in data["handlers"][handler]["posted"]):
-        return f"report {seq} already went out in {post}, which another handler or a line carrying it at his return posted: return NOTHING already posted at {post}"
-    corrected = report.get("corrects")
-    if corrected in data["held"]:
-        return f"record {seq} corrects report {corrected}, held for his return, when the line carrying it carries this correction with it: return NOTHING held for his return"
-    if (post := data["carried"].get(corrected)) and state.CARD_LINK.search(post):
-        return f"record {seq} corrects report {corrected}, which went out in {post}: reword that post with say(edit={post}, text=…)"
-    return None
-
-
-def titled(data: dict, text: str) -> str:
-    """His catch-up, opening with the title the tool writes from the time he was last heard before the absence it covers, in place of any title the text came with."""
-    return f"*Catch-up since {render.when(data['catch_up']['since'])}*\n{CATCH_UP_TITLE.sub('', text, count=1)}"
-
-
-def waiting(name: str, data: dict, text: str) -> str:
-    """The lines his catch-up closes with: a count of every open card of his the status page queues as waiting on him, linking that queue on the dashboard, then each one asked since he was last heard that the text does not already name, in the queue's order, on its own line, with a blank line after each five, where cc-slack starts its next message since Slack draws five a message. A card asked before he went away stays behind the count, by his words on a catch-up that drew every card: "including all tehse cards each time ^^ is not helpful and is very obtrusive"."""
-    try:
-        found = view.cards(name)
-    except slack.SlackError as error:
-        raise DriveError(f"nothing posted: his catch-up counts every open card of his, which cc-slack could not list: {error}") from None
-    queued = [item for item in view.build(data, found, state.now())["queue"] if "card" in item]
-    if not queued:
-        return ""
-    count = f"\n\n*<{dashboard.link(name)}#/|Your open cards: {card_counts(queued)}>*"
-    named = {match[2] for match in refs.REF.finditer(text) if match[1] == "card"}
-    since = state.parse_time(data["catch_up"]["since"])
-    lines = [f"{{card:{item['card']['waits']}}}" for item in queued if state.parse_time(item["since"]) > since and item["card"]["waits"] not in named]
-    if not lines:
-        return count
-    messages = ["\n".join(lines[start : start + CARDS_A_MESSAGE]) for start in range(0, len(lines), CARDS_A_MESSAGE)]
-    return f"{count}, {len(lines)} new since you were last heard:\n" + "\n\n".join(messages)
-
-
 def waiting_posts(name: str, data: dict, found: dict, moment: datetime) -> dict[str, str]:
     """The words of the one post in his DM and in each channel of the drive that says what waits on him there, which the watch edits in place of asking any card again: a count of the open cards the status page queues whose project posts there, linking that queue on the dashboard, then the first five, which Slack draws under the post, those carrying out an order whose bug hurts someone now first, else in the queue's order; NO_CARDS where none waits. The drive's own channel's post opens with one line per project channel, linking it and that project's queue on the dashboard with how many cards wait there, by his words "the drive channel carries one line per project", so it reads as the drive's index."""
     queued = [item for item in view.build(data, found, moment)["queue"] if "card" in item]
     held = data["slack"]["channels"]
     here: dict[str, list[dict]] = {channel: [] for channel in sorted({slack.dm(), *(made["id"] for made in held.values())})}
     for item in sorted(queued, key=lambda item: not any(state.hurts_now(data, data["orders"][order_id]) for order_id in item["tasks"] if order_id in data["orders"])):
-        here[slack.project_channel(data, item["project"])].append(item)
+        here[slack.project_channel(data, project(data, {}, [], next((order_id for order_id in item["tasks"] if order_id in data["orders"]), None)) or item["project"])].append(item)
     board = dashboard.link(name)
     projects = {made["id"]: project for project, made in held.items() if project}
     words = {
@@ -534,8 +389,8 @@ def misplaced(data: dict, post: dict) -> str | None:
 
 
 def unplaced(data: dict, post: dict, report: dict) -> str | None:
-    """Why a report's post naming no place goes nowhere: its line goes in the thread its record names and never at his DM root instead, so a line cc-slack's Slack permission hook refuses in its thread goes nowhere else. His catch-up posts at his DM root and a card draws in his DM, so neither is held to it."""
-    if not (thread := report.get("thread")) or report.get("catch_up") or any(post.get(key) for key in ("channel_id", "thread_ts", "edit", "about", "card", "tap_prs")):
+    """Why a report's post naming no place goes nowhere: its line goes in the thread its record names and never at his DM root instead, so a line cc-slack's Slack permission hook refuses in its thread goes nowhere else."""
+    if not (thread := report.get("thread")) or any(post.get(key) for key in ("channel_id", "thread_ts", "edit", "about", "card", "tap_prs")):
         return None
     if channel := outside(data, thread):
         return (
@@ -651,7 +506,7 @@ def posted(name: str, post: dict, order: str | None = None, receipt: dict | None
     first, *rest = places(data, post, stack)
     if first == (dm, None) and not post.get("edit") and not (order and data["orders"][order]["incident"]):
         first = (channel_for(name, data, project(data, post, stack, order)), None)
-    operators = slack.operators()
+    operators = slack.operators() | {made["id"] for made in data["slack"]["channels"].values()}
     reply = slack.cc_slack(
         *(
             ["edit", "--url", post["edit"], "--text", sent, *ticketed(post)]
@@ -696,8 +551,10 @@ def posted(name: str, post: dict, order: str | None = None, receipt: dict | None
     for place in [place for place in rest if place[0] in operators]:
         linked(name, data, reply, place, stack, refs.slack(words, found, place[1]), label, kept, post.get("request_key"))
     if stack:
-        with state.edit(name) as data:
+        def posted_write(data: dict):
             state.join_pr_cards(data, stack, [reply.get("card_permalink")], state.stamp())
+
+        state.update(name, None, posted_write)
     for place in [place for place in rest if place[0] not in operators]:
         reply |= {"permalink": carried(name, reply, place, post, refs.slack(words, found, place[1]), label, kept, stack)}
     return reply
@@ -712,6 +569,18 @@ def asked_already(name: str, data: dict, stack: list[str]) -> str | None:
     return links.pop()
 
 
+def held_asked(known: dict, post: dict) -> dict:
+    """The post with the message of his its handler holds as asked, when it goes in that message's thread naming nothing it answers, so a line rewritten after a hold that dropped `asked` still records his message as answered."""
+    if post.get("asked") or post.get("edit") or post.get("record") or not (handler := state.handler_id(known, os.environ.get("CLAUDE_CODE_SESSION_ID"))):
+        return post
+    if not (link := (known["handlers"][handler]["holds"] or {}).get("link")):
+        return post
+    _, ts, thread = state.slack_message(link)
+    if (thread or ts) != post.get("thread_ts"):
+        return post
+    return post | {"asked": [link]}
+
+
 def answered_ts(data: dict, post: dict) -> list[str]:
     """The ts of each message of his a post answers, by its asked, which the watch's daily sweep times his answers by: a ts or a permalink names its own message, and words name the message the posting handler holds; an edit answers none."""
     asked = [] if post.get("edit") else slack.messages(post.get("asked") or "")
@@ -722,25 +591,27 @@ def answered_ts(data: dict, post: dict) -> list[str]:
 
 
 def keep_line(name: str, thread: str, link: str, sent: str) -> None:
-    """Keep a post in a thread as the line that thread holds about each card of his its words link, on each question drawn on that card, by the thread, an edit's words in its post's place: `drive job ask` names it in the report of the thread's next line on the card, by `cli.card_line`, and `drive job set --told` reads the line it names."""
-    with state.edit(name) as data:
+    """Keep a post in a thread as the line that thread holds about each card of his its words link, on each question drawn on that card, by the thread, an edit's words in its post's place: `drive job set --told` reads the line it names."""
+    def keep_line_write(data: dict):
         for _, question in view.drawn_on(data, *view.SLACK_TS.findall(sent)):
             question["told"][thread] = {"link": link, "words": sent}
+
+    state.update(name, None, keep_line_write)
 
 
 def channel_for(name: str, data: dict, project: str | None) -> str:
     """The channel a root post about the project goes in, by slack.project_channel, first making the project's own by cli.open_channel once the drive has its own channel and the project has none, by his words "sub-channels one for each project/communicator, private, created on demand"."""
-    if project and "" in data["slack"]["channels"] and project not in data["slack"]["channels"]:
-        made = cli.open_channel(name, project)
-        data["slack"]["channels"][project] = {"id": made["id"], "name": made["name"]}
+    if (filed := slack.channel_project(project)) and "" in data["slack"]["channels"] and filed not in data["slack"]["channels"]:
+        made = cli.open_channel(name, filed)
+        data["slack"]["channels"][filed] = {"id": made["id"], "name": made["name"]}
     return slack.project_channel(data, project)
 
 
 def project(data: dict, post: dict, stack: list[str], order: str | None) -> str | None:
-    """The project a post at the root is about: its order's, else that of the order of the job its card asks for, else that of the first order its PRs serve that names one, else for a card the drive's tooling project, so a card of no project asks in the drive's own operator channel."""
+    """The sub-coordinator seat a post at the root is about, by state.coordinator_seat, so a priority order's goes in its seat's own channel once that seat is bound, by his pick "1 but also 1 per sub communicator including priority ones and then one central one for the drive": its order's, else that of the order of the job its card asks for, else that of the first order its PRs serve that names one, else for a card the drive's tooling project, so a card of no project asks in the drive's own operator channel."""
     waits = (post.get("card") or {}).get("waits")
     orders = [order] if order else [data["jobs"][job]["order"]] if waits and (job := state.waits_job(data, waits)) in data["jobs"] else [each for key in stack for each in state.served_orders(data, data["prs"][key])]
-    return next((data["orders"][each]["project"] for each in orders if each in data["orders"] and data["orders"][each]["project"]), cli.TOOLING_FILING[0] if post.get("card") or stack else None)
+    return next((seat for each in orders if each in data["orders"] and (seat := state.coordinator_seat(data, data["orders"][each]))), cli.TOOLING_FILING[0] if post.get("card") or stack else None)
 
 
 def places(data: dict, post: dict, stack: list[str]) -> list[tuple[str, str | None]]:

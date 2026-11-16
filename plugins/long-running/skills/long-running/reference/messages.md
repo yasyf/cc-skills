@@ -2,12 +2,12 @@
 
 He reads only Slack, so a post is the whole of what he knows. The default: answer him
 directly, once, as soon as the answer is known, in plain words with links. No placeholder goes out
-first and no promise line stands in for the answer. If the work will take long, the first post says
-so once.
+first and no promise line stands in for the answer. While a read runs, the thread's status says
+what is being read.
 
-The communicator posts the ack. A handler writes every other post, from his message or from a
-`report` record the coordinator, the meta session or the watch sends. The drive draws the cards.
-You are trusted to judge what a post should say. The rules below are his style rulings and the
+The communicator writes every post to him, from his message or from a `report` record the
+coordinator, the meta session or the watch sends. No handler starts. The watch posts each milestone
+itself, and the drive draws the cards. You are trusted to judge what a post should say. The rules below are his style rulings and the
 facts about how `say` and the cards behave.
 
 ## Contents
@@ -27,7 +27,7 @@ facts about how `say` and the cards behave.
 He asked for short messages, so the tooling counts each post. It counts the words its writer
 typed. A link or a `{card:…}`, `{pr:…}`, `{order:…}`, `{record:…}`, `{answer:…}`, `{started:…}` or
 `{at:…}` reference counts as the words after its `|`, or as one word. What `say` adds itself, such
-as a catch-up's title and its open cards, counts for nothing.
+as a card it draws, counts for nothing.
 
 | What he reads | At most |
 |---|---|
@@ -59,17 +59,20 @@ as a catch-up's title and its open cards, counts for nothing.
 - Lead with what changed for him, in his words, not with how the machinery got there.
 - Write a bold line and at most two sentences. Use a table for three or more parallel items.
 - Keep a thread about that thread's work: its open orders, their jobs and the cards and PRs those
-  wait on, as a handler's `In his thread:` line lists them. Reach past it when his words there name
-  more, such as a project or the whole drive.
+  wait on. Reach past it when his words there name more, such as a project or the whole drive.
 - Drive tooling news goes in the thread his words ordering it came in, else at his DM root under
   its own words. It does not go in a feature's thread it only unblocks, where it makes no sense to
   him. A tooling order a session opened on its own, with nothing posted yet, closes on its proof and
   posts no fix-live line: the dashboard shows it live.
-- The coordinator sends one `report` per thread per turn, opening `POST` or `FYI`, because four
-  posts of 60 words are the same wall as one of 240. A turn runs from a wake to the end of that
-  response. The report's first sentence says what changed for him. What does not fit waits for the
-  next turn, with each item that waits on him kept first and its card named by permalink or `waits`
-  id. The handler writes the post from the report's facts.
+- His DM gets four things: the answer to a message of his, a card he must answer, a milestone he
+  acts on or wants to know (a fix he reported is live, a release started, finished or failed, a PR
+  of his landed) and an incident's line. Everything else is progress. It goes to the dashboard and
+  the records, not to Slack, and costs no model call.
+- The coordinator sends a `POST` report only for a line he gets, one per thread per turn, because
+  four posts of 60 words are the same wall as one of 240. A turn runs from a wake to the end of
+  that response. The report's first sentence says what changed for him, with each item that waits
+  on him first and its card named by permalink or `waits` id. The communicator writes the post from
+  the report's facts. A report opening `FYI` is context for the communicator and posts nothing.
 - Only cards have buttons, so anything that asks for his action or decision is a card. When a line
   names a card or says something waits on him, write `{card:<its waits id>}` in `say`'s text. `say`
   links it under words that name it, and Slack draws the card with its buttons under the line. In
@@ -86,16 +89,18 @@ as a catch-up's title and its open cards, counts for nothing.
   matters most for a row saying a PR waits on his tap.
 - A line that waits on him and links a PR draws that PR's tap card, as `tap_prs` does. A PR that is
   merged, or one the card command skips, draws no card, so name it in a line that waits on nothing.
-- A clock time you type after "by" or "before" is a promise the drive keeps: `say` and
-  `drive order posted` record it on the order, and the watch chases a line in that thread when the
-  time comes, or sends one `DUE` line for an order with no thread. Type one when he needs a time and
-  you mean it. No post needs one.
-- When his words ask for a line every so many minutes, `drive order add` reads "every 15 mins",
-  "every half hour" or "every hour" and sets that cadence on the order. The watch then starts a
-  handler for each line. You keep no clock.
-- A handler records its post on the order through the post itself, `say(record=<the report's seq>)`.
+- A post promises him no next line, and no time a post names becomes a line the order owes. A
+  thread owes no line for being quiet.
+- The one cadence is his own. When his words ask for a line every so many minutes, `drive order add`
+  reads "every 15 mins", "every half hour" or "every hour" and sets that cadence on the first open
+  order whose lines go in that thread, else on the order it adds. In that order's thread each line
+  and each edit of one names its next line within those minutes, as "Next line by 9:36 PM.", and
+  `say` refuses one that names it later or not at all, printing the latest time it may name. A card,
+  a PR card, a line closing the order and an incident's line name none.
+- The communicator records its post on the order through the post itself,
+  `say(record=<the report's seq>)`.
   That delivers each part the report's `part` attr names, or every part of an order its `close`
-  attr names. A progress report carries `progress=true`: it keeps the time and delivers no part.
+  attr names. A progress report carries `progress=true` and delivers no part.
   Built work is delivered by its proof passing under `drive job prove`, not by a post. A part
   `drive order set <o> --kind answer --part "<part>"` sorted as an answer is delivered by its post.
   `drive order posted <o> <link> --record <the report's seq>` records a post already made, and
@@ -105,11 +110,11 @@ as a catch-up's title and its open cards, counts for nothing.
 
 ## The shapes
 
-**An ack.** The communicator posts it first, alone, in the thread of his message, inside 5 to 10
-seconds, from what it already knows. It is one sentence: what he asked and what happens next.
-cc-slack already put the eyes on his message. It names no time.
+**An answer.** The communicator posts it in the thread of his message, with `asked` naming that
+message, as soon as its reads pin it. No ack goes out first: cc-slack already put the eyes on his
+message, and the thread's status, set with `slack_dm_status`, carries the progress.
 
-**A summary.** A handler writes it from a `POST` report and posts it with
+**A summary.** The communicator writes it from a `POST` report and posts it with
 `say(text=…, thread_ts=<his thread>)`: what changed for him since the last summary, grouped by
 feature. Each feature gets one bold line and at most two sentences under it, 120 words in all. A
 summary of one feature is a line of at most 60 words.
@@ -304,8 +309,8 @@ When it is answered, replaced or redone:
   builder's `READY` says in its `CHANGE:` line how his words are met.
 
 **A confirmation of a skill update** goes out twice for each message of his that leads to one. The
-ack says what is changing in the skill, in plain words. A summary then says it is merged and
-installed, listing each rule now in the skill.
+answer to his message says what is changing in the skill, in plain words. A summary then says it
+is merged and installed, listing each rule now in the skill.
 
 **A fix-live note in a bug report's thread.**
 
@@ -315,11 +320,10 @@ installed, listing each rule now in the skill.
   the same bug joins it with `drive order set --reporter`, and `drive status` says whether each
   thread heard. Orders on the same fix share one note per thread.
 - Proven live means the order's `--proof`, or a passing `drive job prove` on a PR a job of the order
-  opened. The handler of that report posts the note with `slack_reply` in the same step as his own
-  line, then records it with `drive order told`. The order closes once each note is recorded, and
-  the watch says `TELL` when a proof sits 10 minutes with no note.
-- When the bot cannot post in that thread, as in a person's 1:1 DM with him, the handler posts the
-  note in the group DM of that person, him and the bot: one `say` whose `channel_id` is the
+  opened. The communicator posts the note with `slack_reply` in the same step as his own line,
+  then records it with `drive order told`. The order closes once each note is recorded, and the
+  watch says `TELL` when a proof sits 10 minutes with no note.
+- When the bot cannot post in that thread, as in a person's 1:1 DM with him, the note goes in the group DM of that person, him and the bot: one `say` whose `channel_id` is the
   person's user id, no `thread_ts`, recorded with `drive order told --group-dm <that user id>`.
 - A question someone asked him that a `--kind answer` order answers gets its answer in that
   person's thread once the answer is posted to him. His share of the question orders it.
@@ -332,7 +336,7 @@ Fixed: the agent picks up again right after you answer its question, on today's 
 
 **The status page.** The watch redraws the drive's canvas, a tab in his DM with the app, within a
 minute of any change, and `drive view` prints the same page. A strip counts what waits on him and
-each state. Tables follow for his questions, his PR taps, promised times that passed, every
+each state. Tables follow for his questions, his PR taps, every
 project's count by state, each open state's features, and finished work. When a line says where
 things stand, link the page instead of restating it.
 
@@ -347,50 +351,36 @@ line does not name a card the digest lists.
 
 ## When it goes out
 
-- His question gets its answer as soon as the answer is known, in one post. A handler reads the
-  source that owns the fact through whatever access opens it and posts with one
-  `say(close=true)`. Do not post "looking into it" or a time for the next line first.
-- His message gets its ack inside 5 to 10 seconds, whatever else is running. While the communicator
-  compacts, cc-slack posts "Got it, back in a minute." itself, and the message arrives with
-  `acked`, so it gets no second ack.
-- The watch says each later step of an order in its thread, so no session writes progress lines of
-  its own. A step is a job returning its finding, a PR going up, its state or checks settling, a
-  card opening or closing, or a `handoff` five minutes old with no job made for it. Five minutes
-  after the thread's last line the watch sends one `report` carrying `quiet=true`, naming every
-  step that moved, and starts one handler. A handler whose thread already tells those steps returns
-  `NOTHING`. The communicator takes a `handoff` back with the cci close tool's `how: withdraw`. An
-  order with nothing moved gets no line unless it was filed with `--every` or marked
-  with `drive order set <o> --priority`.
+- His question gets its answer as soon as the answer is known, in one post. The communicator reads
+  the source that owns the fact through whatever access opens it and posts with one `say` naming
+  his message in `asked`. Do not post "looking into it" or a time for the next line first.
+- While the communicator compacts, cc-slack posts "Got it, back in a minute." under his message
+  itself, and the message arrives with `acked`.
+- A message of his that cc-slack has owed an answer for 10 minutes goes back to the communicator
+  as an `ANSWER THIS:` note from the watch, as does each `POST` report and each new message in a
+  thread his order watches.
+- A later step of an order goes to him only when it is a milestone: a fix he reported is live, a
+  release started, finished or failed, or a PR of his landed. The watch posts each one its rows
+  hold through `say`, with no model call but Jev's read. A release starting, ending or failing
+  that no follow tracks goes as a `POST` report with `--attr milestone=true`, which the communicator
+  posts. A job returning a finding, a PR going up, checks settling, a card opening or closing and a
+  job at work are progress: the dashboard shows them, the records keep them, and no line goes in
+  his thread.
 - When he asks to be kept updated on a `<ci>` build, the session holding the order runs
   `drive order set <o> --follow <build link> <his ask> [--part "<part>"]` once the build exists.
   The watch then keeps one status message in his thread current with the running step, and at the
-  build's end starts a handler on the end line, which delivers the part. It follows an ask in his
-  DM.
-- An incident keeps a clock: he hears each step as it happens, and a line five quiet minutes after
-  the last while a job works on it, by [incidents.md](incidents.md).
-- He is away from the moment the owner row's away holds: when he says he is going to sleep or
-  stepping out, else an hour after his last word or tap. While he is away a line to him in his DM
-  goes out only as a card, a PR card, the watch's reply under a card holding built work, an edit of
-  a post already out, his catch-up, an answer passing asked, a line carrying WAITING-ON-HIM, an
-  incident's line, a line marked customer_outage=true, or a line naming a clock time still to come,
-  which a promise of the next line is not. say holds every other report for his return, news that
-  work moved or that the drive failed him included; a report owing a line promised by a time is owed
-  at his return instead, and a handler's line carrying no report is refused, by his words "Just do
-  less realtime more summary / batching, with a catch up post once I'm back".
-- `drive heard --away` records his going, each tap records him heard as a message does, and
-  `drive status` prints the away and lists held reports under `Held for his return`. A correction
-  record `--re` a held report travels with it. A writer takes a wrong held report back with the cci
-  `post` tool, `kind: withdraw`, `re` the report's seq, `to: communicator@<drive>`.
-- On his next message or tap the watch sends each held report to its own order's thread, as one
-  `quiet=true` report per thread, and a handler there posts what still stands. It also starts the
-  handler for one catch-up at his DM root. That report carries `catch_up=true`, so `say` opens the
-  post with `*Catch-up since <the time he was last heard>*` and closes it with a count of open
-  cards and each card asked since he was last heard. The catch-up text carries the cards waiting on
-  him and any held report with no thread, not a tour of the drive. With nothing to carry, `say`
-  posts nothing.
+  build's end posts the end line itself, citing the record of the build's end, which delivers the
+  part. It follows an ask in his DM.
+- An incident's line goes to him the moment its step happens, by [incidents.md](incidents.md): the
+  session holding it sends the report and the communicator posts it. No clock owes an incident a
+  line after quiet minutes.
+- These four kinds of line go out whether he is here or away. He reads away when he says he is
+  going to sleep or stepping out, which `drive heard --away` records, else an hour after his last
+  word or tap. Each tap records him heard as a message does, and `drive status` prints the away.
+  What his absence holds is a dangerous merge or release, not a post.
 - Correct a post when it would mislead him on a fact. Reword it in place with
   `say(edit=<its permalink>, text=…)`. A report `re` the seq of a `POST` report your lane sent goes
-  out as a `correction`, and the watch starts the handler that rewords the post.
+  out as a `correction`, and the communicator rewords the post that report went out in.
 - When a job built on a card's recommended option starts waiting on that card, the watch replies
   once under it: the recommended answer is built and paused on his pick. No other post repeats it.
 
@@ -437,9 +427,10 @@ The references `say` expands:
 - `{started:<job>}` draws when a job started, labelled as the job's start, and `{at:<seq>}` when a
   record went out. `say` fills both from the drive's stamps. Use them for how long something has
   waited.
-- A handler may pass `claims`: each factual line beside the read behind it, as `record:<seq>` or
-  words copied from a call of its own, such as a path, command or query. Jev checks each claim
-  against that read. A bare `{pr:}`, `{card:}`, `{started:}` or `{at:}` is not a claim. A claim
+- A post may pass `claims`: each factual line beside the read behind it, as `record:<seq>` or
+  words copied from a call of its writer's, such as a path, command or query. Jev checks each claim
+  against that read, except on the communicator's own posts, which pass the mechanical checks
+  alone. A bare `{pr:}`, `{card:}`, `{started:}` or `{at:}` is not a claim. A claim
   about every member of a set stands on a read of what decides it, not of one member.
 
 Other facts:
@@ -459,7 +450,8 @@ Other facts:
 - Ask for a tap when one is owed. `drive status <pr>` says whether he tapped already or the PR
   merged or closed. Read a quiet job's transcript with `drive job replies <j>` before calling it
   stuck.
-- The coordinator writes its `report` records in this voice, since a handler writes from them.
+- The coordinator writes its `report` records in this voice, since the communicator writes from
+  them.
 
 ## What stays out
 
@@ -541,20 +533,22 @@ matters* and *A test for next time*. A routine line keeps its bold line and two 
 ## The rules Jev judges a post by
 
 Jev is the judge `say`'s hook asks about a post. It reads a post only when a check finds something
-in it or a handler's claims name reads, and judges each finding by its rule beside his words.
+in it or its claims name reads, and judges each finding by its rule beside his words. The
+communicator's own posts skip Jev: they pass the mechanical checks alone, such as a placeholder
+left in the text, so its answer goes out the moment it is written. The watch's posts keep every
+check.
 
 | Rule | Found by | Words in |
 | --- | --- | --- |
 | A post stands alone: it names nothing its reader never saw, such as another draft of itself, a drive id or his DM, and says no sorry | `cc-slack check-post` `apology` and `earlier-draft` findings | `ALONE_RULE`, `hooks/message_limits.py` |
 | Plain words for the person reading the thread: no internal shorthand, and each table, column, function, file, migration or flag glossed the first time it appears | every other `cc-slack check-post` finding | `PLAIN_WORDS_RULE`, `lib/drive/agents.py` |
 | Anything that says it waits on him carries the card with its buttons | `cc-slack check-post` `waits-without-card`; a `{pr:}` on a line asking his tap links his card | `CARD_RULE`, `hooks/message_limits.py` |
-| Each claim stands on the read it names, and a claim about a whole set reads every member | Jev's claim items on a handler's post | `settled.post_verdict` |
+| Each claim stands on the read it names, and a claim about a whole set reads every member | Jev's claim items on a post passing `claims` | `settled.post_verdict` |
 | An answer under a card explains each term of the card's first line his question turns on | Jev's card item | `settled.post_verdict` |
 | A post in a thread of his DM answers from that thread's work; one naming other work only warns | Jev's scope item and `cli.thread_strays` | `settled.post_verdict` |
 
 A check that cannot finish lets the post out unchecked with a warning, since a gate that cannot
-finish fails open. Only a count or a mark refuses outright: a post over its word count, or one to
-him while he is away.
+finish fails open. Only a count refuses outright: a post over its word count.
 
 ## Before it goes out
 
