@@ -2891,7 +2891,7 @@ def test_an_incidents_release_takes_the_env_from_a_running_cut_whose_items_wait_
     monkeypatch.setattr(work, "cut_shape", lambda data: work.CUT_SHAPE)
     moment = datetime(2026, 11, 16, 12, 0, tzinfo=UTC)
     env = "plat-usw2-staging"
-    data = train_drive("j1", "j2", "j3", "j4", "j9", j1={"state": "running"}, j2={"state": "running"}, j3={"priority": True}, j4={"order": "o2"})
+    data = train_drive("j1", "j2", "j3", "j4", "j9", j1={"state": "running"}, j2={"state": "running"}, j4={"order": "o2"})
     data["orders"]["o2"] = {"incident": True, "priority": None, "state": "open"}
     first, riders = state.packed([{"job": job_id, "prs": [], "minutes": 30, "cases": None, "at": state.stamp(moment), "paths": [job_id], "stacks": [job_id], "starts": False} for job_id in ("j1", "j2")], 6)
     data["slots"][env] = {"holder": state.leased(first, moment, riders) | {"work": "j9"}}
