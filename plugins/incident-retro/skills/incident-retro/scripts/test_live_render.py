@@ -281,6 +281,28 @@ class LivePollRebuildsThePage(unittest.TestCase):
             server.server_close()
             chrome.close()
 
+    def test_the_status_line_names_the_latest_told_moment_never_a_monitor(self):
+        chrome = B.Chrome(self.chrome_path)
+        server, base = B.serve(self.root)
+        try:
+            self.publish(record(timeline=TIMELINE[:1]))
+            session = self.open_page(chrome, base)
+            time.sleep(1.5)
+            final = record(timeline=[TIMELINE[0], dict(TIMELINE[1], ts="2026-09-18T19:56:00Z")])
+            final["meta"]["status"] = "draft"
+            final["live"].pop("source")
+            self.publish(final)
+            B.evaluate(chrome, session, "(window.irLiveTick(),1)")
+            time.sleep(1.5)
+            line = B.evaluate(chrome, session, "document.querySelector('#sbCap').textContent")
+            self.assertIn("Migration ran", line)
+            self.assertNotIn("Alert fired", line)
+        finally:
+            self.publish(record())
+            server.shutdown()
+            server.server_close()
+            chrome.close()
+
     def test_the_models_chapters_regroup_the_live_view_as_entries_land(self):
         chrome = B.Chrome(self.chrome_path)
         server, base = B.serve(self.root)
