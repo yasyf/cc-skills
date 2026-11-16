@@ -111,6 +111,7 @@ RELEASE_BUILDKITE = f"{github.BUILDKITE_ORG}/{RELEASE_PIPELINE}"
 RELEASE_START_ENV = "RELEASE_START"
 CLUSTER_JOB_ENV = "CLUSTER_JOB"
 CLUSTER_JOB_FLAGS = {"--cluster": "cluster", "--cronjob": "cronJob", "--reason": "reason"}
+API_FLAGS = {"-X": "method", "--X": "method", "-d": "body", "--d": "body"}
 HOLD_UNREAD = (
     "Refused on purpose: whether he holds every release could not be read, so `{command}` waits until it can: {error}."
     " Run it again once it answers"
@@ -537,7 +538,7 @@ def job_reason(words: list[str], shell: Shell) -> str | None:
 
 
 def cluster_job(words: list[str]) -> dict | None:
-    """The Job a command starts from a suspended CronJob, its cluster, CronJob and reason as a forge/release build's CLUSTER_JOB keeps them: the --cluster, --cronjob and --reason of a `ci cluster-job` start, never the `run` inside the build it starts, or the CLUSTER_JOB of the forge/release build a `ci bk rerun` or `ci bk api` write names; None when it names no --cluster, or the build no cluster."""
+    """The Job a command starts from a suspended CronJob, its cluster, CronJob and reason as a forge/release build's CLUSTER_JOB keeps them: the --cluster, --cronjob and --reason of a `ci cluster-job` start, never the `run` inside the build it starts, the CLUSTER_JOB of the forge/release build a `ci bk rerun` or `ci bk api` write names, or the one created_job() reads in the inline body of a `ci bk api` write creating that build; None when it names no --cluster, or the build no cluster."""
     if Path(words[0]).name not in brief.CI_BINARIES:
         return None
     if words[1:2] == ["cluster-job"]:
@@ -547,10 +548,23 @@ def cluster_job(words: list[str]) -> dict | None:
             if flag in CLUSTER_JOB_FLAGS:
                 flags[CLUSTER_JOB_FLAGS[flag]] = value if given else next(rest, "")
         return {"cronJob": "", "reason": ""} | flags if "cluster" in flags else None
-    if not (write := release_write(words)) or write[0] == "cancel" or not (write[1] or "").isdigit():
+    if not (write := release_write(words)) or write[0] == "cancel":
         return None
+    if not (write[1] or "").isdigit():
+        return created_job(words) if write[0] == "api" else None
     job = json.loads(github.build(RELEASE_BUILDKITE, write[1])["env"].get(CLUSTER_JOB_ENV) or "{}")
     return job if job.get("cluster") else None
+
+
+def created_job(words: list[str]) -> dict | None:
+    """The Job the forge/release build a `ci bk api` write creates starts, when the JSON its -d gives inline sets the env `ci cluster-job` sets, a CLUSTER_JOB alone naming a cluster, with its CronJob and reason as strings where it names them, as `ci cluster-job run` reads it, so that build runs no release and no side job beside the Job; None for any other body, or one the guard cannot read, such as one a file or a command substitution supplies."""
+    with suppress(json.JSONDecodeError):
+        match json.loads(api_flags(words)["body"]):
+            case {"env": {"CLUSTER_JOB": str(said)} as env} if len(env) == 1:
+                match json.loads(said):
+                    case {"cluster": str(cluster)} as job if cluster and all(isinstance(job.get(key, ""), str) for key in ("cronJob", "reason")):
+                        return {"cronJob": "", "reason": ""} | job
+    return None
 
 
 def release_of(words: list[str], briefed: str) -> str:
@@ -559,14 +573,14 @@ def release_of(words: list[str], briefed: str) -> str:
 
 
 def release_verb(words: list[str]) -> str | None:
-    """The release verb a command runs: a `ci release` verb, a `ci bk rerun` or `cancel` of a forge/release build that is a release cut, or `api` for a `ci bk api` call creating a forge/release build or writing to a cut, such as unblocking its approval step; a build is a cut only when its env holds RELEASE_START, the release tool's own test, so the gate of a cluster job or any other build go/ci starts on that pipeline is no release verb."""
+    """The release verb a command runs: a `ci release` verb, a `ci bk rerun` or `cancel` of a forge/release build that is a release cut, or `api` for a `ci bk api` call creating a forge/release build that starts no cluster Job or writing to a cut, such as unblocking its approval step; a build is a cut only when its env holds RELEASE_START, the release tool's own test, so the gate of a cluster job or any other build go/ci starts on that pipeline is no release verb, and creating a cluster job's build with its env inline is none either."""
     if Path(words[0]).name not in brief.CI_BINARIES:
         return None
     if words[1:2] == ["release"]:
         return next(iter(words[2:3]), None)
     if (write := release_write(words)) is None:
         return None
-    return write[0] if release_cut(write[1]) else None
+    return write[0] if release_cut(write, words) else None
 
 
 def release_write(words: list[str]) -> tuple[str, str | None] | None:
@@ -575,17 +589,25 @@ def release_write(words: list[str]) -> tuple[str, str | None] | None:
         return words[2], next(iter(words[4:5]), None)
     if words[1:3] != ["bk", "api"] or not (named := next(filter(None, map(RELEASE_BUILDS.search, words[3:])), None)):
         return None
-    method, rest = "GET", iter(words[3:])
+    return ("api", named[1]) if api_flags(words)["method"].upper() != "GET" else None
+
+
+def api_flags(words: list[str]) -> dict[str, str]:
+    """The method and body a `ci bk api` call sends, its last -X and -d as Go's flag package reads each, `-d <value>` or `-d=<value>` with one dash or two; GET and no body when it gives neither."""
+    flags, rest = {"method": "GET", "body": ""}, iter(words[3:])
     for word in rest:
         flag, given, value = word.partition("=")
-        if flag in ("-X", "--X"):
-            method = value if given else next(rest, "")
-    return ("api", named[1]) if method.upper() != "GET" else None
+        if flag in API_FLAGS:
+            flags[API_FLAGS[flag]] = value if given else next(rest, "")
+    return flags
 
 
-def release_cut(number: str | None) -> bool:
-    """Whether the forge/release build a release verb names is a release cut: its env holds RELEASE_START; a write naming no build, such as one creating a build, counts as one."""
-    return not (number and number.isdigit()) or bool(github.build(RELEASE_BUILDKITE, number)["env"].get(RELEASE_START_ENV))
+def release_cut(write: tuple[str, str | None], words: list[str]) -> bool:
+    """Whether the forge/release build a release verb names is a release cut: its env holds RELEASE_START; a `ci bk api` write creating a build is one unless created_job() reads the cluster Job it starts in its inline body, and any other write naming no build counts as one."""
+    verb, number = write
+    if number and number.isdigit():
+        return bool(github.build(RELEASE_BUILDKITE, number)["env"].get(RELEASE_START_ENV))
+    return verb != "api" or created_job(words) is None
 
 
 def lane_release_reason(release: str, verb: str) -> str | None:

@@ -1,6 +1,7 @@
 import io
 import json
 import os
+import shlex
 from collections.abc import Callable
 from datetime import timedelta
 from pathlib import Path
@@ -1833,6 +1834,78 @@ def test_a_cluster_job_build_is_no_release_cut_so_any_drive_session_opens_its_ga
     assert landing_guard.deny_reason(bash(unread) | top) == landing_guard.CUT_UNREAD.format(
         command=unread, error="could not read forge/release build 15700 from Buildkite: HTTP 404"
     )
+
+
+def test_a_forge_release_build_created_with_its_env_inline_is_judged_by_that_env_so_a_tester_starts_a_staging_cluster_job_at_a_prs_commit_while_he_holds_every_release(
+    drive_pr: str, no_calls: list[list[str]], recorded: Answers, jev: Jev, release_builds: None
+) -> None:
+    with state.edit("demo") as data:
+        data["answers"]["15c4de1"] = {"words": RELEASE_HOLD["body"], "link": HOLD_LINK, "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {}}
+    recorded.listed = [RELEASE_HOLD]
+    recorded.shown = {"15c4de1": RELEASE_HOLD}
+    top = {"session_id": "session-under-test"}
+    job = {"session_id": "session-under-test", "agent_id": "a4da3dca63d05a40d", "agent_type": "long-running:builder"}
+
+    def body(env: dict) -> str:
+        return json.dumps({"branch": "dev", "commit": "79955168ce1a75e2878561170a0828b0ab941d6f", "env": env, "ignore_pipeline_branch_filters": True})
+
+    def created(env: dict, flag: str = "-d ") -> str:
+        return f"tools/ci bk api -X POST {flag}{shlex.quote(body(env))} /pipelines/release/builds"
+
+    staging = {"CLUSTER_JOB": json.dumps(DRY_RUN_JOB | {"cluster": "plat-usw2-staging"})}
+    starts = (
+        *(created(staging, flag) for flag in ("-d ", "-d=", "--d ", "--d=")),
+        f'body={shlex.quote(body(staging))}; tools/ci bk api -X POST -d "$body" /pipelines/release/builds',
+    )
+    assert [landing_guard.deny_reason(bash(command) | who) for who in (top, job) for command in starts] == [None] * 10
+    production = created({"CLUSTER_JOB": json.dumps(DRY_RUN_JOB)})
+    started = f"tools/ci cluster-job --cluster plat-usw2-prod --cronjob journal-pass-dry-run --reason {shlex.quote(DRY_RUN_JOB['reason'])}"
+    refused = landing_guard.deny_reason(bash(started) | top)
+    assert "so the journal-pass-dry-run Job on plat-usw2-prod, a production cluster, starts only on an answer of his recorded since" in refused
+    assert landing_guard.deny_reason(bash(production) | top) == refused
+    cuts = (
+        created(staging | {"RELEASE_START": json.dumps({"mode": "release", "envs": []})}),
+        created(staging | {"RELEASE_CLEAN": "1"}),
+        created({"CLUSTER_JOB": json.dumps({"cronJob": "journal-pass-dry-run", "reason": "names no cluster"})}),
+        created({"CLUSTER_JOB": json.dumps(DRY_RUN_JOB | {"cluster": "plat-usw2-staging", "reason": 7})}),
+        'tools/ci bk api -X POST -d "$(cat /work/build.json)" /pipelines/release/builds',
+        "tools/ci bk api -X POST /pipelines/release/builds",
+    )
+    unordered = "it names no `--order`, and neither does a `Release:` line of its job's brief"
+    assert [landing_guard.deny_reason(bash(command) | top) for command in cuts] == [held(" ".join(shlex.split(command)), unordered) for command in cuts]
+
+
+def test_a_staging_cluster_job_waits_out_another_drives_staging_claim_so_a_tester_starts_no_dry_run_inside_a_window_that_drive_claimed_and_froze(
+    drive_pr: str, no_calls: list[list[str]], recorded: Answers, jev: Jev, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with state.edit("demo") as data:
+        data["answers"]["15c4de1"] = {"words": RELEASE_HOLD["body"], "link": HOLD_LINK, "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {}}
+    recorded.listed = [RELEASE_HOLD]
+    recorded.shown = {"15c4de1": RELEASE_HOLD}
+    ts, ends = "1794784882.120469", state.now() + timedelta(hours=2)
+    link = f"https://example.slack.com/archives/C0STAGING1/p{ts.replace('.', '')}"
+    claimant = state.new_drive("durable-agents", "coordinator", "session-of-durable-agents", "/durable-agents")
+    claimant["orders"]["o2046"] = state.new_order("test the agent runtime on staging", "terminal", None, {}, state.stamp()) | {
+        "claims": {ts: {"channel": "C0STAGING1", "link": link, "until": state.stamp(ends), "since": ts, "said": None, "replies_read": None}}
+    }
+    state.create(claimant)
+    staging = DRY_RUN_JOB | {"cluster": "plat-usw2-staging"}
+    builds = ("16992", "16994", "16997", "16998", "17001")
+    monkeypatch.setattr(github, "build", lambda pipeline, number: {"state": "passed", "env": {"CLUSTER_JOB": json.dumps(staging)}})
+    body = json.dumps({"branch": "dev", "commit": "79955168ce1a75e2878561170a0828b0ab941d6f", "env": {"CLUSTER_JOB": json.dumps(staging)}, "ignore_pipeline_branch_filters": True})
+    starts = (
+        f"tools/ci cluster-job --cluster plat-usw2-staging --cronjob journal-pass-dry-run --reason {shlex.quote(staging['reason'])}",
+        f"tools/ci bk api -X POST -d {shlex.quote(body)} /pipelines/release/builds",
+        *(f"tools/ci bk rerun release {number}" for number in builds),
+        f"tools/ci bk api -X PUT /pipelines/release/builds/{builds[0]}/jobs/01a1e0e3-6926-4d67-abb9-9ed1e56a7549/unblock",
+    )
+    top = {"session_id": "session-under-test"}
+    job = {"session_id": "session-under-test", "agent_id": "a4da3dca63d05a40d", "agent_type": "long-running:builder"}
+    claimed = brief.CLAIMED_JOB.format(drive="durable-agents", order="o2046", until=state.stamp(ends), link=link, cronjob="journal-pass-dry-run", cluster="plat-usw2-staging")
+    assert [landing_guard.deny_reason(bash(command) | who) for who in (top, job) for command in starts] == [claimed] * 16
+    assert landing_guard.deny_reason(bash(starts[0].replace("plat-usw2-staging", "plat-usw2-sandbox")) | job) is None
+    monkeypatch.setattr(state, "now", lambda: ends + timedelta(minutes=1))
+    assert [landing_guard.deny_reason(bash(command) | job) for command in starts] == [None] * 8
 
 
 def test_while_he_holds_every_release_build_16916s_gate_stays_shut_since_no_answer_of_his_since_orders_its_production_dry_run_at_that_moment(
