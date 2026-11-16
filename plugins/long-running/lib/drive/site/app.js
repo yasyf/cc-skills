@@ -631,8 +631,8 @@ function decisionChapters(item, key, story, state, cause) {
   const card = item.card;
   const links = [...(card.links ?? []), ...(card.refs ?? [])].filter((each) => !SLACK.test(each.url));
   const parts = [
-    ['happened', 'What happened', `<ol class="story-beats">${story.beats.map((beat) => `<li><div class="beat-head"><strong>${esc(beat.label)}</strong>${beat.when ? `<time>${esc(beat.when)}</time>` : ''}</div><p>${esc(beat.text)}</p>${beat.picture ? shown(beat.picture, beat.label) : ''}</li>`).join('')}</ol>${cause ? `<p class="story-cause"><b>Root cause:</b> ${esc(cause)}</p>` : ''}`],
-    ['today', 'If you wait', story.today || story.diagram || story.waits ? `${story.today ? `<p class="ch-lead">${esc(story.today)}</p>` : ''}${story.waits ? `<p><b>What waits on you:</b> ${esc(story.waits)}</p>` : ''}${story.diagram ? visual('mermaid', story.diagram, 'How the paths part') : ''}` : ''],
+    ['happened', 'What happened', `<ol class="story-beats">${story.beats.map((beat) => `<li><div class="beat-head"><strong>${esc(beat.label)}</strong>${beat.when ? `<time>${esc(beat.when)}</time>` : ''}</div><p>${inline(beat.text)}</p>${beat.picture ? shown(beat.picture, beat.label) : ''}</li>`).join('')}</ol>${cause ? `<p class="story-cause"><b>Root cause:</b> ${esc(cause)}</p>` : ''}`],
+    ['today', 'If you wait', story.today || story.diagram || story.waits ? `${story.today ? `<p class="ch-lead">${inline(story.today)}</p>` : ''}${story.waits ? `<p><b>What waits on you:</b> ${inline(story.waits)}</p>` : ''}${story.diagram ? visual('mermaid', story.diagram, 'How the paths part') : ''}` : ''],
     ['evidence', 'The evidence', card.body || card.pictures?.length || links.length ? `${prose(card.body)}${pictures(card.pictures)}${links.length ? `<ul class="rail-list">${links.map((each) => `<li>${link(each.label, each.url)}</li>`).join('')}</ul>` : ''}` : ''],
   ].filter(([, , body]) => body);
   const at = Math.min(state.chapter ?? 0, parts.length - 1);
@@ -653,7 +653,7 @@ function decisionCard(item, at, total, embedded = '') {
   const metrics = option.metrics.length ? `<dl class="story-metrics">${option.metrics.map((metric) => `<div><dd>${esc(metric.value)}</dd><dt>${esc(metric.label)}</dt></div>`).join('')}</dl>` : '';
   const pictured = item.option_pictures[showing].map((each) => (each.kind === 'image' ? shot(each.source, each.caption) : visual(each.kind, each.source, each.caption)));
   const media = pictured.length ? `<div class="story-outcome-media" data-option="${showing}"${pictured.length > 1 ? ` tabindex="0" aria-label="${pictured.length} pictures of this path"` : ''}>${pictured.join('')}</div>` : '';
-  const outcome = `<section class="story-outcome" aria-live="polite"><span class="eyebrow">${recommended ? 'Recommended outcome' : showing === state.selected ? 'Selected outcome' : 'Previewed outcome'}</span><h3>${esc(option.title)}</h3>${option.consequence ? `<p>${esc(option.consequence)}</p>` : ''}${option.after ? `<p class="story-after"><b>After you pick</b> ${esc(option.after)}</p>` : ''}${media}${metrics}${item.card.hints?.[option.label] ? (option.consequence ? `<details class="story-more"><summary>In the card's own words</summary><div class="story-hint">${prose(item.card.hints[option.label])}</div></details>` : `<div class="story-hint">${prose(item.card.hints[option.label])}</div>`) : ''}</section>`;
+  const outcome = `<section class="story-outcome" aria-live="polite"><span class="eyebrow">${recommended ? 'Recommended outcome' : showing === state.selected ? 'Selected outcome' : 'Previewed outcome'}</span><h3>${esc(option.title)}</h3>${option.consequence ? `<p>${inline(option.consequence)}</p>` : ''}${option.after ? `<p class="story-after"><b>After you pick</b> ${inline(option.after)}</p>` : ''}${media}${metrics}${item.card.hints?.[option.label] ? (option.consequence ? `<details class="story-more"><summary>In the card's own words</summary><div class="story-hint">${prose(item.card.hints[option.label])}</div></details>` : `<div class="story-hint">${prose(item.card.hints[option.label])}</div>`) : ''}</section>`;
   const options = `<div class="story-options" role="group" aria-label="Choose a path">${story.options.map((choice, i) => `<button class="story-option" data-story-pick="${i}" data-story-card="${esc(key)}" aria-pressed="${i === state.selected}"><kbd>${i + 1}</kbd><span><strong>${esc(choice.title)}</strong>${choice.label === item.card.recommended ? '<em>Recommended</em>' : ''}${story.format === 'lab' ? `<span class="option-metrics">${choice.metrics.map((metric) => `<span><b>${esc(metric.value)}</b>${esc(metric.label)}</span>`).join('')}</span>` : ''}</span><span aria-hidden="true">→</span></button>`).join('')}</div>`;
   const given = answers.get(key);
   const action = given?.done ? `<p class="answered">✓ ${esc(given.label)}</p>` : `<div class="story-action"><button class="btn" data-story-review="${esc(key)}"${given && !given.error ? ' disabled' : ''}>Review this choice <kbd>↵</kbd></button><small>Choose first. Review before sending.</small>${given?.error ? `<p role="alert">${esc(given.error)}</p>` : ''}</div>`;
@@ -661,15 +661,15 @@ function decisionCard(item, at, total, embedded = '') {
   const interview = `<div class="story-interview"><div class="story-steps" aria-label="Step ${state.step + 1} of 2"><span class="on">1 · Your priority</span><span class="${state.step ? 'on' : ''}">2 · Your path</span></div>${state.step ? `<button class="linkish" data-story-back="${esc(key)}">← Change my priority</button>${outcome}${action}` : `<h3>${esc(story.ask)}</h3><div class="story-options">${story.options.map((choice, i) => `<button class="story-option" data-story-priority="${i}" data-story-card="${esc(key)}"><kbd>${i + 1}</kbd><span><strong>${esc(choice.priority)}</strong><small>${esc(choice.title)}</small></span><span aria-hidden="true">→</span></button>`).join('')}</div>`}</div>`;
   const call = story.format === 'lab' ? lab : story.format === 'interview' ? interview : `<div class="story-cockpit">${options}<div>${outcome}${action}</div></div>`;
   if (story.lead) return `<div class="queue-layout story-layout told-first"><article class="focus-card decision-story ${story.format}" aria-labelledby="item-title" tabindex="-1" data-story="${esc(key)}" data-format="${story.format}"><div class="card-content"><div class="card-top"><span class="type-label">Decision</span>${cardTop(item.tasks, at, total, embedded)}</div><h2 class="card-title" id="item-title">${esc(story.headline)}</h2>${story.needs_him ? `<p class="card-glance"><b>${esc(NEEDS_LABEL.get(story.needs_him))}</b></p>` : ''}${toldSections(story.lead, [['What it does today', story.now.text, story.now.sketch]], story.matters)}${restored.has(key) ? '<p class="restored" role="status">Restored. This is being asked again.</p>' : ''}<h3 class="eyebrow ch-call">Your call</h3>${call}<details class="told-more"><summary>What happened, step by step, and the evidence</summary>${decisionChapters(item, key, story, state, cause)}</details><details class="told-more"><summary>Why it ranks here, ask a question first, or read the card as written</summary>${decisionRail(item)}</details></div></article></div>`;
-  return `<div class="queue-layout story-layout"><article class="focus-card decision-story ${story.format}" aria-labelledby="item-title" tabindex="-1" data-story="${esc(key)}" data-format="${story.format}"><div class="card-content"><div class="card-top"><span class="type-label">${{ cockpit: 'Decision', lab: 'Decision: compare the paths', interview: 'Decision: what matters most' }[story.format]}</span>${cardTop(item.tasks, at, total, embedded)}</div><h2 class="card-title" id="item-title">${esc(story.headline)}</h2>${story.needs_him || story.waits ? `<p class="card-glance">${story.needs_him ? `<b>${esc(NEEDS_LABEL.get(story.needs_him))}</b>` : ''}${story.needs_him && story.waits ? ' · ' : ''}${story.waits ? esc(story.waits) : ''}</p>` : ''}${decisionChapters(item, key, story, state, cause)}${restored.has(key) ? '<p class="restored" role="status">Restored. This is being asked again.</p>' : ''}<h3 class="eyebrow ch-call">Your call</h3>${story.format === 'lab' ? lab : story.format === 'interview' ? interview : `<div class="story-cockpit">${options}<div>${outcome}${action}</div></div>`}</div></article>${decisionRail(item)}</div>`;
+  return `<div class="queue-layout story-layout"><article class="focus-card decision-story ${story.format}" aria-labelledby="item-title" tabindex="-1" data-story="${esc(key)}" data-format="${story.format}"><div class="card-content"><div class="card-top"><span class="type-label">${{ cockpit: 'Decision', lab: 'Decision: compare the paths', interview: 'Decision: what matters most' }[story.format]}</span>${cardTop(item.tasks, at, total, embedded)}</div><h2 class="card-title" id="item-title">${esc(story.headline)}</h2>${story.needs_him || story.waits ? `<p class="card-glance">${story.needs_him ? `<b>${esc(NEEDS_LABEL.get(story.needs_him))}</b>` : ''}${story.needs_him && story.waits ? ' · ' : ''}${story.waits ? inline(story.waits) : ''}</p>` : ''}${decisionChapters(item, key, story, state, cause)}${restored.has(key) ? '<p class="restored" role="status">Restored. This is being asked again.</p>' : ''}<h3 class="eyebrow ch-call">Your call</h3>${story.format === 'lab' ? lab : story.format === 'interview' ? interview : `<div class="story-cockpit">${options}<div>${outcome}${action}</div></div>`}</div></article>${decisionRail(item)}</div>`;
 }
 
 function toldSections(lead, sections, matters, closing = []) {
   const sketch = (code) => (code ? `<pre class="told-sketch"><code>${esc(code)}</code></pre>` : '');
-  const parts = sections.filter(([, text]) => text).map(([label, text, code]) => `<p><b>${esc(label)}:</b> ${esc(text)}</p>${sketch(code)}`);
-  const why = matters?.mechanism ? `<p><b>Why it matters:</b> ${esc(matters.mechanism)}</p>${matters.consequences.length ? `<ul>${matters.consequences.map((each) => `<li>${esc(each)}</li>`).join('')}</ul>` : ''}` : '';
-  const last = closing[1] ? `<p><b>${esc(closing[0])}:</b> ${esc(closing[1])}</p>` : '';
-  return `<p class="card-lead">${esc(lead)}</p><section class="told">${parts.join('')}${why}${last}</section>`;
+  const parts = sections.filter(([, text]) => text).map(([label, text, code]) => `<p><b>${esc(label)}:</b> ${inline(text)}</p>${sketch(code)}`);
+  const why = matters?.mechanism ? `<p><b>Why it matters:</b> ${inline(matters.mechanism)}</p>${matters.consequences.length ? `<ul>${matters.consequences.map((each) => `<li>${inline(each)}</li>`).join('')}</ul>` : ''}` : '';
+  const last = closing[1] ? `<p><b>${esc(closing[0])}:</b> ${inline(closing[1])}</p>` : '';
+  return `<p class="card-lead">${inline(lead)}</p><section class="told">${parts.join('')}${why}${last}</section>`;
 }
 
 function reviewDecision(key) {
@@ -678,7 +678,7 @@ function reviewDecision(key) {
   const story = opened(item).told.story;
   const option = story.options[decisionStates.get(key).selected];
   const dialog = $('#decision-review');
-  dialog.innerHTML = `<span class="eyebrow">Review your decision</span><h2 id="decision-review-title">${esc(story.headline)}</h2><h3>${esc(option.title)}</h3><p>${esc(option.consequence)}</p>${option.after ? `<p class="story-after"><b>After you pick</b> ${esc(option.after)}</p>` : ''}<details><summary>The exact answer</summary><p>${esc(option.label)}</p></details><div class="story-action"><button class="btn" data-card="${esc(key)}" data-label="${esc(option.label)}">Send this answer</button><button class="btn ghost" data-story-close>Keep thinking</button></div>`;
+  dialog.innerHTML = `<span class="eyebrow">Review your decision</span><h2 id="decision-review-title">${esc(story.headline)}</h2><h3>${esc(option.title)}</h3><p>${inline(option.consequence)}</p>${option.after ? `<p class="story-after"><b>After you pick</b> ${inline(option.after)}</p>` : ''}<details><summary>The exact answer</summary><p>${esc(option.label)}</p></details><div class="story-action"><button class="btn" data-card="${esc(key)}" data-label="${esc(option.label)}">Send this answer</button><button class="btn ghost" data-story-close>Keep thinking</button></div>`;
   dialog.dataset.card = key;
   dialog.showModal();
   dialog.querySelector('[data-story-close]').focus();
@@ -818,21 +818,21 @@ function serves(entry) {
 function chapterBody(id, { item, key, row, pr, head, read, entry, lead, told, beats, pictured }) {
   const story = told?.story;
   if (id === 'problem') {
-    const text = story ? `<p class="ch-who"><span>Who feels it</span><b>${esc(story.problem.who)}</b></p><p class="ch-lead">${esc(story.problem.text)}</p>` : `<div class="pr-story">${beats}</div>`;
+    const text = story ? `<p class="ch-who"><span>Who feels it</span><b>${esc(story.problem.who)}</b></p><p class="ch-lead">${inline(story.problem.text)}</p>` : `<div class="pr-story">${beats}</div>`;
     return pictured ? `<div class="pr-lede"><div>${text}</div>${pictured}</div>` : text;
   }
   if (id === 'change') return `${story ? '' : '<p class="meta">The why of each part is still being written; the change itself is below.</p>'}${diffBlock(pr, head, story?.hunks ?? [])}`;
   if (id === 'runtime') {
     if (!story) return `<p>${lead?.what ? inline(unjobbed(lead.what), pr) : esc(row.summary ?? 'Its runtime story is still being written.')}</p>${lead?.downstream ? `<p><b>Downstream:</b> ${inline(unjobbed(lead.downstream), pr)}</p>` : ''}`;
-    return `<div class="ap-ba"><div><span>Before</span><p>${esc(story.runtime.before)}</p></div><i aria-hidden="true">→</i><div class="after"><span>After</span><p>${esc(story.runtime.after)}</p></div></div>${story.runtime.diagram ? visual('mermaid', story.runtime.diagram, 'What happens after the change') : ''}`;
+    return `<div class="ap-ba"><div><span>Before</span><p>${inline(story.runtime.before)}</p></div><i aria-hidden="true">→</i><div class="after"><span>After</span><p>${inline(story.runtime.after)}</p></div></div>${story.runtime.diagram ? visual('mermaid', story.runtime.diagram, 'What happens after the change') : ''}`;
   }
   if (id === 'evidence') {
     const status = prWord(entry, row);
     const staged = entry?.staging_plain;
     const tiles = `<div class="ch-tiles"><div class="ap-stage ${esc(status.tone)}"><span>Now</span><b>${esc(status.word)}</b></div>${staged ? `<div class="ap-stage ${esc(staged.tone)}"><span>Staging</span><b>${esc(staged.word)}</b></div>` : ''}<div class="ap-stage ${esc({ pass: 'good', fail: 'bad', pending: 'warn' }[entry?.checks ?? row.checks] ?? '')}"><span>Tests</span><b>${esc({ pass: 'Pass', fail: 'Failing', pending: 'Running' }[entry?.checks ?? row.checks] ?? 'None ran')}</b></div></div>`;
-    return `${tiles}${story?.tested ? `<p class="ch-lead">${esc(story.tested)}</p>` : entry?.staging ? `<p>${inline(unjobbed(entry.staging), pr)}</p>` : ''}${risks(entry, row, pr, read)}`;
+    return `${tiles}${story?.tested ? `<p class="ch-lead">${inline(story.tested)}</p>` : entry?.staging ? `<p>${inline(unjobbed(entry.staging), pr)}</p>` : ''}${risks(entry, row, pr, read)}`;
   }
-  const sides = story ? `<div class="ap-compare"><div class="ap-choice recommended"><b>If you approve</b><p>${esc(story.approve)}</p></div><div class="ap-choice"><b>If you hold</b><p>${esc(story.hold)}</p></div></div>` : '';
+  const sides = story ? `<div class="ap-compare"><div class="ap-choice recommended"><b>If you approve</b><p>${inline(story.approve)}</p></div><div class="ap-choice"><b>If you hold</b><p>${inline(story.hold)}</p></div></div>` : '';
   return `${item.untapped ? `<p class="approve-says">${esc(item.untapped)}</p>` : approvePath(entry, row)}${sides}`;
 }
 
@@ -1227,7 +1227,7 @@ const APPLET_BLOCKS = {
     const beat = block.beats[at];
     const dots = block.beats.map((each, i) => `<button class="${i === at ? 'on' : i < at ? 'seen' : ''}" data-ap-step="${esc(key)}" data-index="${i}" aria-current="${i === at}"><span class="n">${i + 1}</span>${esc(each.label)}</button>`).join('');
     const foot = `<div class="ch-foot">${at ? `<button class="btn ghost" data-ap-step="${esc(key)}" data-index="${at - 1}">‹ Back</button>` : '<span></span>'}${at < block.beats.length - 1 ? `<button class="btn" data-ap-step="${esc(key)}" data-index="${at + 1}">Next: ${esc(block.beats[at + 1].label)} ›</button>` : ''}</div>`;
-    return blockShell({ ...block, text: '' }, 'story', `<nav class="ch-nav ap-stepper">${dots}</nav><div class="ap-step-body"><p class="ch-lead">${esc(beat.text)}</p></div>${foot}`);
+    return blockShell({ ...block, text: '' }, 'story', `<nav class="ch-nav ap-stepper">${dots}</nav><div class="ap-step-body"><p class="ch-lead">${inline(beat.text)}</p></div>${foot}`);
   },
   waits(page, shown, block) {
     const keys = blockCards(shown, block);
@@ -1285,7 +1285,7 @@ const APPLET_BLOCKS = {
     return moments.length ? blockShell(block, 'timeline', `<ol class="ap-timeline">${moments.slice(0, 12).map((entry) => `<li><time>${clock(entry.at)}</time><p>${momentText(entry)}</p></li>`).join('')}</ol>`, false) : '';
   },
   compare(page, shown, block) {
-    return block.options.length ? blockShell(block, 'compare', `<div class="ap-compare">${block.options.map((option) => `<div class="ap-choice${option.recommended ? ' recommended' : ''}">${option.recommended ? '<em>Recommended</em>' : ''}<b>${esc(option.title)}</b><p>${esc(option.consequence)}</p></div>`).join('')}</div>`) : '';
+    return block.options.length ? blockShell(block, 'compare', `<div class="ap-compare">${block.options.map((option) => `<div class="ap-choice${option.recommended ? ' recommended' : ''}">${option.recommended ? '<em>Recommended</em>' : ''}<b>${esc(option.title)}</b><p>${inline(option.consequence)}</p></div>`).join('')}</div>`) : '';
   },
   diff(page, shown, block) {
     const entries = blockPRs(shown, block.prs).slice(0, 3);
