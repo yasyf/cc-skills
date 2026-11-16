@@ -7931,6 +7931,20 @@ def test_a_dequeue_takes_the_unit_out_of_trunks_queue_from_main_records_why_and_
     assert landers == [("--dequeue", KEY), (KEY,)]
 
 
+def test_a_lander_reservation_no_lander_adopted_leaves_its_head_to_land_again(home_repo: None, demo: str, tmp_path: Path, landers: list[tuple[str, ...]]) -> None:
+    on_main(tmp_path, demo, '#!/bin/sh\necho "#42 DEQUEUED aaaaaaa"\n')
+    queued(demo)
+    assert land.halt(demo, [KEY], NO_CARDS) == [KEY]
+    land.dequeue(demo, [KEY], f"{land.HELD}: {KEY}: nothing clears it now, since his Approve came off it")
+    approve(demo, KEY)
+    assert land.start(demo, [KEY], NO_CARDS) == [(KEY,)]
+    lander = state.load(demo)["prs"][KEY]["lander"]
+    state.cancel(demo, state.Reservation(lander["token"], tuple(map(tuple, lander["members"]))))
+    assert (land.unlaunched(state.load(demo)["prs"][KEY]["lander"]), stage.unlanded(state.load(demo), KEY, NO_CARDS)) == (True, None)
+    assert land.start(demo, [KEY], NO_CARDS) == [(KEY,)]
+    assert landers == [("--dequeue", KEY), (KEY,), (KEY,)]
+
+
 def test_a_dequeue_stack_enqueue_fails_on_its_own_keeps_the_pr_queued_says_so_as_the_landers_failure_and_the_next_pass_dequeues_again(
     home_repo: None,
     demo: str, tmp_path: Path, landers: list[tuple[str, ...]]

@@ -5442,17 +5442,12 @@ def proof_due(data: dict, job_id: str) -> bool:
     if not watch_proves(data, job_id) or proof_gap(data, job_id) or any(land.running(data["prs"][key]) for key in reported_prs(data, job_id)) or unproved(data, job_id):
         return False
     proof = job.get("proof")
-    if not proof or proof["said"] != job["said"] or unlaunched(proof):
+    if not proof or proof["said"] != job["said"] or land.unlaunched(proof):
         return not train.holds(merges_of(data, job_id))
     if proof.get("waits"):
         heard = data["owner"]["heard"]
         return not land.runs(proof) and bool(heard) and state.parse_time(heard) > state.parse_time(proof["at"]) and wait_moved(data, job_id, proof)
     return "result" not in proof and proof["version"] != state.VERSION and not land.runs(proof)
-
-
-def unlaunched(proof: dict) -> bool:
-    """Whether a proof the watch reserved never ran: cancelled, or reserved by a watch that died before its child adopted it, so the next pass reserves it again on the same line and install, a child started late finding its token gone."""
-    return proof.get("state") in ("reserved", "cancelled") and state.holder(proof) is None
 
 
 def wait_moved(data: dict, job_id: str, proof: dict) -> bool:

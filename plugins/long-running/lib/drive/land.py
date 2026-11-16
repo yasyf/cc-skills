@@ -194,6 +194,11 @@ def pid_of(record: dict) -> int | None:
     return record["pid"] if "state" not in record and "pid" in record else state.holder(record)
 
 
+def unlaunched(record: dict) -> bool:
+    """Whether a lander's or proof's reservation never ran: cancelled, as a launch that raised leaves it, or reserved with no live holder, its starter dead before a child adopted it or its launch lapsed with none adopting, so the next pass takes it again on the same head, line or install, a child started late finding its token gone."""
+    return record.get("state") in ("reserved", "cancelled") and state.holder(record) is None
+
+
 def runs(record: dict) -> bool:
     """Whether the process a lander's or proof's record names still runs: its reservation's holder, by state.holder, or the pid an install before reservations kept on it, so a lander or proof that install started still reads running after the install that ships reservations restarts the watch."""
     # TODO: delete the pid read once no drive keeps a lander or proof record an install before reservations wrote
