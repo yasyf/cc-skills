@@ -672,6 +672,8 @@ def posted(name: str, post: dict, order: str | None = None, receipt: dict | None
         state.write(name, posted_write, patient=True)
     for place in [place for place in rest if place[0] not in operators]:
         reply |= {"permalink": carried(name, reply, place, post, refs.slack(words, found, place[1]), label, kept, stack)}
+    if unlinked := [ref["warning"] for ref in found.values() if ref.get("warning")]:
+        reply |= {"warning": "; ".join(filter(None, [reply.get("warning"), *unlinked]))}
     return reply
 
 

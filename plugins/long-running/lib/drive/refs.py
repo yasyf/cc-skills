@@ -275,14 +275,14 @@ def order(name: str, data: dict, order_id: str) -> dict:
 
 
 def release(data: dict, key: str) -> dict:
-    """A release under its name, linked to the Slack post his repository's release provider names as its own, by its post method, never its build page, by his words "still using bk links instead of slack links for releases"; the post lands within seconds of a start, so a release with none yet is looked up again RELEASE_POST_TRIES times, RELEASE_POST_WAIT apart, before the post is refused."""
+    """A release under its name, linked to the Slack post his repository's release provider names as its own, by its post method, never its build page, and its words unlinked with a warning when none is up yet, since a gate blocks at most once, by his words "still using bk links instead of slack links for releases"; the post lands within seconds of a start, so a release with none yet is looked up again RELEASE_POST_TRIES times, RELEASE_POST_WAIT apart, before the post is refused."""
     provider = providers.of(data).release
     for attempt in range(RELEASE_POST_TRIES):
         if url := provider.post(key):
             return {"kind": "release", "title": key, "url": url, "board": url}
         if attempt + 1 < RELEASE_POST_TRIES:
             time.sleep(RELEASE_POST_WAIT)
-    raise DriveError(f"{{release:{key}}} names no release post the repository's release provider finds by that name or build number, after {RELEASE_POST_TRIES} looks {RELEASE_POST_WAIT}s apart; name the release once its post is in #releases")
+    return {"kind": "release", "title": key, "url": None, "board": None, "warning": f"{{release:{key}}} went out as its words, unlinked: the repository's release provider found no release post by that name or build number after {RELEASE_POST_TRIES} looks {RELEASE_POST_WAIT}s apart; edit the post to link it once its post is up"}
 
 
 def record(name: str, seq: str, label: str) -> dict:

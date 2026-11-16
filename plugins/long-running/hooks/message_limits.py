@@ -1186,26 +1186,6 @@ def findings_in(drive: dict, payload: dict, tool_input: dict) -> tuple[str, list
     return typed, refs.answer_ids(slack.post_findings(typed, bool(tool_input.get("card") or tool_input.get("tap_prs")), tool_input.get("asked") or ""), drive)
 
 
-TAP_ASKED = re.compile(r"\b(?:tap|press|hit|pick)\b[^.\n]{0,60}\b(?:card|approve|land|merge|button)\b", re.IGNORECASE)
-WORD_ASKED = re.compile(r"\b(?:reply|respond|answer|say|type|send)(?: me| here| with)?\s+[\"'“‘`*_]*(?:merge|go|land|ship|yes|approve)\b", re.IGNORECASE)
-
-
-def card_word_refusal(drive: dict, tool_input: dict) -> str | None:
-    """Why a post asking him to act on a card or to type a word goes nowhere, a count of what it links deciding it, so it refuses: a line telling him to tap a card while the post links no live card of his, as a {card:} or a {pr:} with an open card at its head, by his words "it says tap approve on this card but there is no card"; and any line asking him to reply a word such as merge or go, which the card carries, by his words "why are you telling me to reply merge instead of giving me a card"."""
-    shown = "\n".join(filter(None, [tool_input.get("text") or "", *block_words(tool_input.get("blocks") or [])]))
-    if asked := WORD_ASKED.search(shown):
-        return f"refused: \"{asked[0]}\" asks him to type a word a card can carry; give him the card instead, his PR's tap card by {{pr:<number>}} or a question card by {{card:<waits id>}}, and ask him to tap it"
-    if not TAP_ASKED.search(shown):
-        return None
-    try:
-        found = refs.resolved(drive["name"], refs.carded(drive["name"], shown))
-    except DriveError as error:
-        return f"refused: this post asks him to tap a card, and its card references do not resolve: {error}"
-    if any(ref["kind"] == "card" or ref["kind"] == "pr" and ref.get("card") for ref in found.values()):
-        return None
-    return "refused: this post asks him to tap a card, and links none: name it as {card:<waits id>}, or the PR as {pr:<number>} when its tap card is open, so the card draws with the post; with no card yet, have its job raise one first"
-
-
 STATUS_WORDS = ("title", "summary", "body", "text", "detail")
 
 
@@ -1229,8 +1209,6 @@ def mechanical(payload: dict) -> dict:
     if not text and not tool_input.get("blocks"):
         return {}
     drive = his_drive(payload["session_id"])
-    if drive and payload["tool_name"] == SAY and (refused := card_word_refusal(drive, tool_input)):
-        return denial(refused)
     try:
         typed, findings = findings_in(drive, payload, tool_input)
         if findings and (mended := fixes.mended(text, findings, datetime.now(UTC))) != text:

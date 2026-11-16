@@ -1283,23 +1283,6 @@ def test_the_communicators_own_post_gets_one_quick_jev_read_against_his_standard
     assert "gave no answer" in message_limits.hook_output(payload)["hookSpecificOutput"]["additionalContext"]
 
 
-def test_a_say_asking_his_tap_links_a_live_card_and_never_asks_him_to_type_a_word(talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    def posting(text: str) -> dict:
-        payload = call("slack_dm_status", transcript, channel_id="C0CHW1RLZUM", thread_ts="1794817827.631909", text=text)
-        del payload["agent_id"]
-        return message_limits.hook_output(payload | {"tool_name": message_limits.SAY})
-
-    def refused(text: str) -> str:
-        return (posting(text).get("hookSpecificOutput") or {}).get("permissionDecisionReason") or ""
-
-    assert "links none" in refused("Tap Approve on this card to land the runtime fix.")
-    assert "type a word a card can carry" in refused('Reply "merge" here and I land #55283.')
-    monkeypatch.setattr(refs, "resolved", lambda name, text: {"{pr:55283}": {"kind": "pr", "card": "https://acme.slack.com/archives/D1/p1794300000000200", "url": "https://github.com/acme/app/pull/55283"}})
-    monkeypatch.setattr(refs, "carded", lambda name, text: text)
-    drive = message_limits.his_drive(os.environ["CLAUDE_CODE_SESSION_ID"])
-    assert message_limits.card_word_refusal(drive, {"text": "Tap Approve on {pr:55283} to land the runtime fix."}) is None
-
-
 def test_a_repositorys_post_rule_is_one_more_line_of_the_one_jev_read(jev: Jev) -> None:
     rule = "Link a release's Slack release post, never its build page."
     jev.ruled = {"craft": ("repo0", 0.9)}

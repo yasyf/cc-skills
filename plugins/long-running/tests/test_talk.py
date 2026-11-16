@@ -610,8 +610,7 @@ def test_a_report_sent_back_to_its_writer_counts_as_handled_so_no_has_no_post_de
     assert [record["kind"] for records in sent for record in records] == ["refused"]
 
 
-def test_a_release_linked_by_its_build_page_goes_out_linking_its_slack_post_looked_up_again_until_it_exists(communicator: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
-    build = "https://buildkite.com/forge/release/builds/18219"
+def test_a_release_reference_links_its_slack_post_looked_up_again_until_it_exists_and_goes_out_unlinked_with_a_warning_when_it_never_does(communicator: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
     post = "https://acme.slack.com/archives/C9/p1794851300000100"
     looks: list[str] = []
 
@@ -619,15 +618,15 @@ def test_a_release_linked_by_its_build_page_goes_out_linking_its_slack_post_look
         looks.append(release)
         return post if len(looks) > 1 and release == "18219" else None
 
-    release = SimpleNamespace(post=posted_after_one_look, released=lambda link: link.rsplit("/", 1)[1] if link.startswith("https://buildkite.com/forge/release/builds/") else None)
-    monkeypatch.setattr(providers, "of", lambda data: SimpleNamespace(release=release))
+    monkeypatch.setattr(providers, "of", lambda data: SimpleNamespace(release=SimpleNamespace(post=posted_after_one_look), transformed=lambda text: text))
     monkeypatch.setattr(refs.time, "sleep", lambda seconds: None)
-    talk.say(communicator, {"text": f"Release 9 is on staging: <{build}|release 9>."})
+    talk.say(communicator, {"text": "Release 9 is on staging: {release:18219|release 9}."})
     assert posts[-1][-1] == f"Release 9 is on staging: <{post}|release 9>."
     assert looks == ["18219", "18219"]
     looks.clear()
-    with pytest.raises(DriveError, match="names no release post"):
-        refs.release(state.load(communicator), "18220")
+    said = talk.say(communicator, {"text": "Release 10 is building: {release:18220|release 10}."})
+    assert posts[-1][-1] == "Release 10 is building: release 10."
+    assert "WARNING {release:18220} went out as its words, unlinked" in said
     assert looks == ["18220"] * refs.RELEASE_POST_TRIES
 
 
@@ -1858,14 +1857,14 @@ def test_a_picture_already_shown_in_a_thread_or_its_root_is_dropped_from_a_post_
     assert talk.unshown(demo, ("C1", "9.9"), [str(copy)]) == ([str(copy)], [])
 
 
-def test_a_release_reference_links_the_post_its_release_provider_names_and_one_it_names_none_for_refuses(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_release_reference_links_the_post_its_release_provider_names_and_one_it_names_none_for_warns(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     announced = "https://acme.slack.com/archives/C0REL/p1794826033725399"
     monkeypatch.setattr(providers.ReleaseProvider, "post", lambda self, key: announced if key in ("wavy-mckay", "17672") else None)
     found = refs.resolved(demo, "{release:wavy-mckay} is live, as is {release:17672|the infra release}.")
     assert found["{release:wavy-mckay}"] == {"kind": "release", "title": "wavy-mckay", "url": announced, "board": announced}
     assert found["{release:17672|the infra release}"]["url"] == announced
-    with pytest.raises(DriveError, match=r"\{release:nope\} names no release post"):
-        refs.resolved(demo, "{release:nope} is live.")
+    monkeypatch.setattr(refs.time, "sleep", lambda seconds: None)
+    assert "unlinked" in refs.resolved(demo, "{release:nope} is live.")["{release:nope}"]["warning"]
 
 
 def test_a_start_time_drawn_right_after_a_typed_clock_time_is_dropped_so_the_post_gives_one_time() -> None:
