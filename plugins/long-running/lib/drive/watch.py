@@ -1242,10 +1242,12 @@ def close_report_lines(watcher: Watcher, moment: datetime) -> list[str]:
     data = state.load(watcher.name)
     closing = {order_id: order for order_id, order in heard_orders(watcher, data).items() if order["close_report"]}
     if unasked := [order_id for order_id, order in closing.items() if state.unasked_tooling(order)]:
-        with state.edit(watcher.name) as data:
+        def close_report_lines_write(data: dict) -> None:
             for order_id in unasked:
                 data["orders"][order_id].update(close_report=None, state="done", updated=state.stamp(moment))
                 state.close_order_jobs(data, order_id, f"stopped: the watch closed its order {order_id} on its close report")
+
+        state.update(watcher.name, None, close_report_lines_write)
     owed = {order_id: order["close_report"] for order_id, order in closing.items() if order_id not in unasked and "seq" not in order["close_report"]}
     if not owed:
         return proved_lines(watcher, moment)
