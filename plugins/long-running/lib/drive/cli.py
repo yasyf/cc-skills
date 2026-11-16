@@ -2068,6 +2068,8 @@ def job_set(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     known = state.load(name)
     found = find(known["jobs"], args.id, "job")
+    if args.reopen:
+        return emit(args, *reopen(name, args.id, args.agent, args.session))
     if args.heard:
         told = [kept for kept in found["undelivered"] if kept.get("told")]
 
@@ -3398,6 +3400,8 @@ def job_report(args: argparse.Namespace) -> int:
         whole = sys.stdin.read()
         if not whole.strip():
             raise DriveError(f"stdin held no report for {args.id}; pipe its whole return in: printf '%s\\n' '<line>' ... | drive job report {args.id} -")
+        if stray := stray_reporter(job, os.environ.get("CLAUDE_CODE_SESSION_ID")):
+            return emit(args, *stray_return(name, args.id, whole, stray))
         return emit(args, *take_report(name, args.id, whole, read_prs=not args.sprite_lane))
     text = state.report_text(name, args.id, args.all)
     if not text and job["said"] in (None, state.NOT_STARTED):
@@ -3420,6 +3424,64 @@ def job_check(args: argparse.Namespace) -> int:
     told = JUDGED_LATER.format(job=args.id, refused=refused)
     state.detach(name, ["job", "resume", args.id, told], watch.READS_LOG)
     return emit(args, f"{args.id}: {refused}", {"id": args.id, "refused": refused})
+
+
+STRAY_RETURNS_LOG = "stray-returns.log"
+
+
+def stray_reporter(job: dict, session: str | None) -> str | None:
+    """Why a return piped into `drive job report` is not the job's: it ran in a session other than the `claude --bg` session its recorded agent runs as, as a duplicate older agent of the job woken by mistake does, whose return never sets the job's state."""
+    worker = state.own_session(job)
+    if not session or not worker or session == worker:
+        return None
+    return f"session {session} is not session {worker}, which its recorded agent {job['agent']} runs as"
+
+
+def stray_return(name: str, job_id: str, whole: str, why: str) -> tuple[str, dict]:
+    """Log a return from an agent other than the job's recorded one to stray-returns.log, its body beside the job's history, and nothing more: the job's state, said line and history stay as they were."""
+    moment = state.stamp()
+    body = state.drive_dir(name) / "jobs" / f"{job_id}.stray-{moment.replace(':', '')}.md"
+    body.write_text(whole)
+    line = whole.strip().splitlines()[0].strip()
+    with open(state.drive_dir(name) / STRAY_RETURNS_LOG, "a") as log:
+        log.write(f"{moment} {job_id}: {why}: {render.cut(line, 200)} ({body})\n")
+    return (
+        f"{job_id}: not taken, its state unchanged: {why}, so this return is logged at {body} and sets nothing",
+        {"id": job_id, "report": None, "stray": str(body)},
+    )
+
+
+def reopen(name: str, job_id: str, agent: str | None, session: str | None) -> tuple[str, dict]:
+    """Put a job a return stopped wrongly back on its live worker: refused unless the job is stopped, and the agent and `claude --bg` session named are the ones its record holds and that session's process still runs. The newest kept return, the one that stopped it, leaves the job's history for stray-returns.log, and the return before it sets the job's state again, or running when none was kept."""
+    data = state.load(name)
+    job = find(data["jobs"], job_id, "job")
+    bg = job.get("bg") or {}
+    if job["state"] != "stopped":
+        raise DriveError(f"{job_id}: refused, nothing changed: --reopen puts a stopped job back on its worker, and {job_id} is {job['state']}")
+    if not agent or not session or bg.get("session") != session or bg.get("agent") != agent:
+        raise DriveError(f"{job_id}: refused, nothing changed: its worker is agent {bg.get('agent')} as session {bg.get('session')}, so --reopen names those with --agent and --session")
+    if not agents.alive(session, agents.session_records()):
+        raise DriveError(f"{job_id}: refused, nothing changed: no running process holds session {session}, so no live worker takes the job back: drive job start {job_id} starts one")
+    taken = state.returns(name, job_id)
+    stopping = next((reply for reply in taken if state.opening(reply["body"]) == job["said"]), None)
+    if stopping:
+        state.drop_reply(name, job_id, stopping["id"])
+        with open(state.drive_dir(name) / STRAY_RETURNS_LOG, "a") as log:
+            log.write(f"{state.stamp()} {job_id}: reopened on agent {agent}, session {session}; dropped the return that stopped it, {stopping['id']}: {render.cut(job['said'], 200)}\n")
+    earlier = taken[taken.index(stopping) + 1 :] if stopping else taken
+    before = earlier[0] if earlier else None
+
+    def reopened(data: dict):
+        fresh = data["jobs"][job_id]
+        fresh["agent"] = agent
+        if before:
+            state.take_result(data, job_id, state.opening(before["body"]), before["body"])
+        else:
+            fresh.update(state="running", said="running", updated=state.stamp())
+
+    state.write(name, reopened)
+    job = state.load(name)["jobs"][job_id]
+    return f"{job_id}: reopened on agent {agent}, session {session}: {job['state']}, {render.cut(job['said'], 200)}", {"id": job_id, "state": job["state"], "said": job["said"]}
 
 
 def take_report(name: str, job_id: str, whole: str, read_prs: bool = True, tell: bool = True) -> tuple[str, dict]:
@@ -8113,6 +8175,15 @@ def parser() -> argparse.ArgumentParser:
             " keeps its own question, so a job holds every card it asked on, each closed by his answer to it"
         ),
     )
+    verb.add_argument(
+        "--reopen",
+        action="store_true",
+        help=(
+            "put a job a wrong return stopped back on its live worker, named by --agent and --session: refused unless both are the ones its record"
+            " holds and that session's process runs; the return that stopped it leaves its history and the one before sets its state"
+        ),
+    )
+    verb.add_argument("--session", help="with --reopen, the `claude --bg` session its recorded agent runs as")
     verb.add_argument(
         "--heard",
         action="store_true",

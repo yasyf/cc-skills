@@ -763,6 +763,16 @@ def keep_reply(name: str, job_id: str, message: dict) -> None:
         fresh.replace(path)
 
 
+def drop_reply(name: str, job_id: str, reply_id: str) -> None:
+    """Remove one row from a job's history by its id, under that history's lock."""
+    path = replies_path(name, job_id)
+    with flocked(path.with_name(f".{path.name}.lock")):
+        lines = path.read_text().splitlines()
+        fresh = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+        fresh.write_text("".join(f"{line}\n" for line in lines if json.loads(line)["id"] != reply_id))
+        fresh.replace(path)
+
+
 def reply_place(rows: list[dict], row: dict) -> int:
     """Where row goes in a job's history, rows: after the last row taken at its second or before, by taken_at, the one key for the row and the rows alike, scanning back from the newest, so a history an older install appended out of order keeps its order and rows of one second keep theirs; it is this Mac's clock, so the order never rests on how Orca's clock and this Mac's agree, nor on the stamps a test gives its messages."""
     at, place = taken_at(row), len(rows)

@@ -12621,3 +12621,62 @@ def test_the_jobs_page_names_the_hand_over_the_repository_settings_give(monkeypa
     assert cli.hand_over_filled("run <mac box hand over> first", None) == "run `tools/ci mac-box up <box> --holder <drive>/<new job> --from <drive>/<old job>` first"
     provide(monkeypatch, Path())
     assert cli.hand_over_filled("run <mac box hand over> first", None) == "run the hand-over command of the repository's Mac box provider first"
+
+
+WORKER = {"agent": "e4af0c806f8c448db", "session": "1e594cff-21a8-45fb-8fb8-ac2df2bd0ab2", "started": "2026-11-16T04:33:25-08:00", "cwd": "/tmp", "pointed": []}
+WINDOW = "WAITING root's START line for cut 581999185046 on cci topic staging-slots"
+STRAY = "HANDOFF /scratch/j1/handoff-a4bfad8b.md\nSTOPPED on iris's word: session 1e594cff owns j1's window\n"
+
+
+def worked_by_bg_session(name: str) -> None:
+    with state.edit(name) as data:
+        data["jobs"]["j1"].update(agent=WORKER["agent"], bg=dict(WORKER), where="local", state="running")
+
+
+def test_a_return_from_a_session_other_than_the_jobs_bg_worker_is_logged_and_never_stops_the_job_as_j6233s_duplicate_agent_did(
+    run: Run, demo: str, state_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "stage it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "stage it")
+    worked_by_bg_session(demo)
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "a5d70429-f270-4a46-8a5c-82c513907248")
+    monkeypatch.setattr("sys.stdin", io.StringIO(STRAY))
+    code, out = run("job", "report", "j1", "-")
+    job = state.load(demo)["jobs"]["j1"]
+    assert (code, job["state"], state.returns(demo, "j1")) == (0, "running", [])
+    assert out.startswith("j1: not taken, its state unchanged: session a5d70429-f270-4a46-8a5c-82c513907248 is not session 1e594cff-21a8-45fb-8fb8-ac2df2bd0ab2, which its recorded agent e4af0c806f8c448db runs as")
+    [logged] = (state_root / demo / cli.STRAY_RETURNS_LOG).read_text().splitlines()
+    assert "j1: session a5d70429" in logged and "HANDOFF /scratch/j1/handoff-a4bfad8b.md" in logged
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", WORKER["session"])
+    monkeypatch.setattr("sys.stdin", io.StringIO(STRAY))
+    assert run("job", "report", "j1", "-")[0] == 0
+    assert state.load(demo)["jobs"]["j1"]["state"] == "stopped"
+
+
+def test_job_set_reopen_puts_a_wrongly_stopped_job_back_on_its_live_bg_worker_and_refuses_any_other_or_a_dead_one(
+    run: Run, demo: str, state_root: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "stage it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "stage it")
+    worked_by_bg_session(demo)
+    state.keep_report(demo, "j1", WINDOW, f"{WINDOW}\nAnswered root's two questions\n", state.now() - timedelta(minutes=5))
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", WORKER["session"])
+    monkeypatch.setattr("sys.stdin", io.StringIO(STRAY))
+    assert run("job", "report", "j1", "-")[0] == 0
+    assert state.load(demo)["jobs"]["j1"]["state"] == "stopped"
+    live = {WORKER["session"]}
+    monkeypatch.setattr(agents, "session_records", lambda: [])
+    monkeypatch.setattr(agents, "alive", lambda session, records: session in live)
+    assert cli.main(["job", "set", "j1", "--reopen", "--agent", "a4bfad8b8195a7e9f", "--session", "a5d70429"]) == 2
+    assert f"drive: j1: refused, nothing changed: its worker is agent {WORKER['agent']} as session {WORKER['session']}, so --reopen names those" in capsys.readouterr().err
+    live.clear()
+    assert cli.main(["job", "set", "j1", "--reopen", "--agent", WORKER["agent"], "--session", WORKER["session"]]) == 2
+    assert f"drive: j1: refused, nothing changed: no running process holds session {WORKER['session']}, so no live worker takes the job back" in capsys.readouterr().err
+    live.add(WORKER["session"])
+    code, out = run("job", "set", "j1", "--reopen", "--agent", WORKER["agent"], "--session", WORKER["session"])
+    job = state.load(demo)["jobs"]["j1"]
+    assert (code, job["state"], job["said"], job["agent"]) == (0, "waiting", WINDOW, WORKER["agent"])
+    assert [state.opening(reply["body"]) for reply in state.returns(demo, "j1")] == [WINDOW]
+    assert "dropped the return that stopped it" in (state_root / demo / cli.STRAY_RETURNS_LOG).read_text()
+    assert cli.main(["job", "set", "j1", "--reopen", "--agent", WORKER["agent"], "--session", WORKER["session"]]) == 2
+    assert "drive: j1: refused, nothing changed: --reopen puts a stopped job back on its worker, and j1 is waiting" in capsys.readouterr().err
