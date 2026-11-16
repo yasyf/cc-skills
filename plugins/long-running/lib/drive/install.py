@@ -979,7 +979,7 @@ def finish(name: str, data: dict, job_id: str, line: str, check: list[str], post
     whole = f"{line}\n{f'{own}\n' if own else ''}{f'PR: {urls}\n' if urls else ''}CHECK: {' '.join(check)}\n"
     if line.startswith("DONE"):
         state.deliver_proven(data, job_id, line.removeprefix("DONE "))
-    state.keep_report(name, job_id, line, whole)
+    state.after_save(name, lambda: state.keep_report(name, job_id, line, whole) or [])
     state.take_result(data, job_id, line, whole)
     return line.startswith("DONE") and closed(name, data, job_id, order_id, keys, check, post, facts)
 
@@ -1117,7 +1117,7 @@ def merged_done(name: str, data: dict, job_id: str) -> None:
     commits = " ".join(merge_commits(merges))
     line = f"DONE {urls} merged: {merged}"
     whole = f"{line}\nPR: {urls}\nCHECK: {commits}\n"
-    state.keep_report(name, job_id, line, whole)
+    state.after_save(name, lambda: state.keep_report(name, job_id, line, whole) or [])
     state.take_result(data, job_id, line, whole)
     job["waits"] = []
 
