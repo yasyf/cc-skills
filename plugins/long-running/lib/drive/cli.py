@@ -943,7 +943,8 @@ def change_parts(name: str, data: dict, order_id: str, added: list[str], dropped
             " which takes it off every job and PR too"
         )
     state.split_research(data, order_id, added, dropped)
-    parts |= {part: state.new_part() for part in added}
+    for part in added:
+        state.readd_part(data, order_id, part)
     told = [job_id for part in dropped for job_id in state.drop_part(data, order_id, part, f"drive order set {order_id} --drop-part took it off")[1]]
     return [f"{job_id} is left with no part: it heard why and runs on to its own return, since a drop stops no job" for job_id in told]
 

@@ -2323,8 +2323,10 @@ PART_DROPPED = 'The part you work on, "{part}", left {order}: {why}. No part of 
 
 
 def drop_part(data: dict, order_id: str, part: str, why: str) -> tuple[list[str], list[str]]:
-    """Take a part off its order, every job delivering it and every PR naming it, telling each live job it leaves with no part why, by PART_DROPPED, and stopping none, so a job such as a release whose part a drop took runs on to its own return, by his rethink step 5: the one way a part leaves an open order, whether his answer, drive order set --drop-part or its design's newest DESIGN drops it. The jobs it took the part off, and the live ones of them it told."""
-    del data["orders"][order_id]["parts"][part]
+    """Take a part off its order, every job delivering it and every PR naming it, telling each live job it leaves with no part why, by PART_DROPPED, and stopping none, so a job such as a release whose part a drop took runs on to its own return, by his rethink step 5, and keeping a part's run, its cases, proof and the job that ran them, on the order's dropped_parts, which readd_part puts back, so no test evidence is lost: the one way a part leaves an open order, whether his answer, drive order set --drop-part or its design's newest DESIGN drops it. The jobs it took the part off, and the live ones of them it told."""
+    held = data["orders"][order_id]["parts"].pop(part)
+    if held["posted_by"] or held["cases"]:
+        data["orders"][order_id]["dropped_parts"][part] = {"part": held, "ran": held["posted_by"]}
     data["orders"][order_id]["updated"] = stamp()
     trimmed, told = [], []
     for job_id, job in data["jobs"].items():
@@ -2339,6 +2341,18 @@ def drop_part(data: dict, order_id: str, part: str, why: str) -> tuple[list[str]
         if pr["order"] == order_id and part in pr["parts"]:
             pr["parts"].remove(part)
     return trimmed, told
+
+
+def readd_part(data: dict, order_id: str, part: str) -> None:
+    """Put a part on an order that lacks it: the one drop_part took off, with the run it held, its cases, proof and the job that ran them, that job holding the part again so its run reads as the part's, else a new part, so a re-added staging test shows the run it had."""
+    order = data["orders"][order_id]
+    kept = order["dropped_parts"].pop(part, None)
+    order["parts"][part] = kept["part"] if kept else new_part()
+    if kept and (job := data["jobs"].get(kept["ran"] or "")) and part not in job_parts(job, order_id):
+        if job["order"] == order_id:
+            job["parts"].append(part)
+        else:
+            job["carries"].setdefault(order_id, []).append(part)
 
 
 def take_part_off(job: dict, order_id: str, part: str) -> None:
@@ -3274,7 +3288,8 @@ def wait_on_staging(data: dict, key: str) -> tuple[str, str]:
         ((order_id, part) for order_id, part in [*waited, *held] if (named := STAGING_PARTS.fullmatch(part)) and number in re.findall(r"#\d+", named["numbers"]) and not delivered(data, order_id, part)),
         (pr["order"], STAGING_TEST.format(number=number[1:])),
     )
-    data["orders"][order_id]["parts"].setdefault(part, new_part())
+    if part not in data["orders"][order_id]["parts"]:
+        readd_part(data, order_id, part)
     if view.holds(data, wait := f"{order_id}:{part}", None):
         pr["waits"] = view.stored_waits(data, [*pr["waits"], wait])
     return order_id, part
@@ -4348,6 +4363,7 @@ def new_order(text: str, source: str, thread: tuple[str, str] | None, parts: dic
         "owed": [],
         "blocked": None,
         "asks": {},
+        "dropped_parts": {},
     }
 
 

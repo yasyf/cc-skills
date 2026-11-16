@@ -9265,6 +9265,23 @@ def test_an_urgent_part_starts_its_design_past_the_caps_and_a_design_waiting_30_
     assert watch.read_for(state.load(demo), design, state.load(demo)["jobs"][design], "o1", part, now) == reader
 
 
+def test_a_dropped_staging_part_keeps_its_run_and_a_re_add_puts_it_back_on_the_job_that_ran_it(run: Run, demo: str) -> None:
+    part = state.STAGING_TEST.format(number=42)
+    run("order", "add", "--title", "land it", "--project", "The drive", "--workstream", "Drive tooling", "land it")
+    assert run("order", "set", "o1", "--add-part", part)[0] == 0
+    assert run("job", "add", "builder", "--order", "o1", "--part", part, "--goal", "test #42 on staging")[0] == 0
+    cases = [["0-cut-served", "pass: read"], ["4-podkill", "fail: the run finished on its pod"]]
+    with edit(demo) as data:
+        data["orders"]["o1"]["parts"][part].update(posted_by="j1", cases=cases)
+        data["jobs"]["j1"]["state"] = "done"
+    assert run("order", "set", "o1", "--drop-part", part)[0] == 0
+    data = state.load(demo)
+    assert (part in data["orders"]["o1"]["parts"], data["orders"]["o1"]["dropped_parts"][part]["ran"], data["jobs"]["j1"]["parts"]) == (False, "j1", [])
+    assert run("order", "set", "o1", "--add-part", part)[0] == 0
+    data = state.load(demo)
+    assert (data["orders"]["o1"]["parts"][part]["cases"], data["orders"]["o1"]["parts"][part]["posted_by"], data["jobs"]["j1"]["parts"], data["orders"]["o1"]["dropped_parts"]) == (cases, "j1", [part], {})
+
+
 def test_status_of_an_order_sums_it_from_the_saved_rows_with_no_github_or_slack_read(run: Run, with_pr: str, monkeypatch: pytest.MonkeyPatch) -> None:
     def refused(*_: object, **__: object) -> str:
         raise AssertionError("drive status read GitHub or Slack")
