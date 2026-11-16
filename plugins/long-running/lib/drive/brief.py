@@ -320,7 +320,7 @@ def recorded_job(record: dict, data: dict) -> dict | None:
     cutting = [job for job in data["jobs"].values() if state.starts_cut(job)]
     if built := next((job for job in cutting if number and job["release_build"] and (kept := providers.of(data).build.match(job["release_build"])) and kept["number"] == number), None):
         return built
-    ordered = [job for job in cutting for flags in started(job["brief_flags"]["release"]) if record.get("order") in flags.get("order", ()) and any(record.get("commit", "").startswith(given) for given in flags.get("from", ()))]
+    ordered = [job for job in cutting for flags in started(job["brief_flags"]["release"], data) if record.get("order") in flags.get("order", ()) and any(record.get("commit", "").startswith(given) for given in flags.get("from", ()))]
     return max(ordered, key=lambda job: state.parse_time(job["created"]), default=None)
 
 

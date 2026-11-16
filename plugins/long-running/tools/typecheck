@@ -1,0 +1,49 @@
+#!/usr/bin/env -S python3 -I
+"""Check lib/drive, hooks and tests with ty for names, attributes and calls that no longer resolve, such as a removed state.edit, work.ENV or a call missing an argument, and exit 1 naming each diagnostic the baseline beside this file does not hold, counted per file and message so a line moving keeps its entry; --update records today's diagnostics as the baseline."""
+
+import re
+import subprocess
+import sys
+from collections import Counter
+from pathlib import Path
+
+TY = "ty@0.0.104"
+RULES = {
+    "unresolved-reference",
+    "possibly-unresolved-reference",
+    "unresolved-attribute",
+    "missing-attribute",
+    "unresolved-import",
+    "missing-argument",
+    "too-many-positional-arguments",
+    "unknown-argument",
+    "parameter-already-assigned",
+    "call-non-callable",
+}
+DIAGNOSTIC = re.compile(r"(?P<path>[^:\s]+):\d+:\d+: \w+\[(?P<rule>[a-z-]+)\] (?P<message>.*)")
+
+plugin = Path(__file__).resolve().parent.parent
+baseline = plugin / "tools" / "typecheck-baseline.txt"
+checked = subprocess.run(
+    ["uvx", "-q", TY, "check", "--python-version", "3.13", "--extra-search-path", "lib", "--extra-search-path", "hooks", "--extra-search-path", "tests", "--output-format", "concise", "lib/drive", "hooks", "tests"],
+    cwd=plugin,
+    capture_output=True,
+    text=True,
+    check=False,
+)
+found = [(line, f"{match['path']}: [{match['rule']}] {match['message']}") for line in checked.stdout.splitlines() if (match := DIAGNOSTIC.fullmatch(line.strip())) and match["rule"] in RULES]
+if not found and checked.returncode not in (0, 1):
+    raise SystemExit(f"typecheck: ty exited {checked.returncode}: {checked.stderr.strip()}")
+if sys.argv[1:] == ["--update"]:
+    baseline.write_text("".join(f"{key}\n" for key in sorted(key for _, key in found)))
+    raise SystemExit(f"typecheck: recorded {len(found)} diagnostics in {baseline.name}")
+allowed = Counter(baseline.read_text().splitlines())
+new = []
+for line, key in found:
+    if allowed[key]:
+        allowed[key] -= 1
+    else:
+        new.append(line)
+if new:
+    raise SystemExit("typecheck: names, attributes or calls that no longer resolve, none in the baseline:\n" + "\n".join(new))
+print(f"typecheck: {len(found)} diagnostics, all in the baseline")

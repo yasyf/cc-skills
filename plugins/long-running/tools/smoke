@@ -8,6 +8,8 @@ export LONG_RUNNING_STATE="$scratch/state" CLAUDE_CONFIG_DIR="$scratch/config"
 mkdir -p "$LONG_RUNNING_STATE" "$CLAUDE_CONFIG_DIR"
 python=(uv run --no-project --quiet --python 3.13 --with pytest --with pytest-timeout --with pytest-xdist --with "spawnllm>=0.17.7" python -I)
 
+"$plugin/tools/typecheck"
+
 "${python[@]}" - "$plugin" <<'EOF'
 import argparse
 import contextlib
