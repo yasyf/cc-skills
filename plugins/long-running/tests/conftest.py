@@ -1356,7 +1356,6 @@ class Jev:
     whole: float = 0.05
     looked: list[dict] = field(default_factory=list)
     cards: list[dict] = field(default_factory=list)
-    named: set[str] = field(default_factory=set)
     paged: float = 0.05
     read_for_pages: list[str] = field(default_factory=list)
     speaks: dict[str, float] = field(default_factory=dict)
@@ -1400,8 +1399,6 @@ class Jev:
             return self.supersedes.get(about, 0.05)
         if question.startswith(limits.PLAIN) and question.removeprefix(limits.PLAIN).isdigit():
             return self.unexplained.get(state["names"][f"n{question.removeprefix(limits.PLAIN)}"], 0.05)
-        if question == "names" and state["parts"][about.partition(".")[2]] in self.named:
-            return 0.9
         if question == "speaks":
             return self.speaks.get(state["note"]["title"], 0.05)
         if key == "preference":

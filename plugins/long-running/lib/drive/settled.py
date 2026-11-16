@@ -273,45 +273,10 @@ UNWORDED_RETURN = Noul(
     yes="It orders one plain line with no result word, or one opening with a phrase of its own.",
     no="Every return it orders opens with one of those words, or it orders no return and only describes or quotes such a line, as a fix refusing one does.",
 )
-NARROWS = Noul(
-    "Does `design` build less than `words.{slot}.said`, his words on `words.{slot}.asked`, name, or build part of it later, with no question in `forks` asking him about it?",
-    yes="It leaves out, defers to a later change or trigger, or narrows what they name, such as building one of several strategies he approved while the others wait, or decides such a cut on its own because it is cheap to reverse.",
-    no="It builds all they name, or a question in `forks` asks him about what it leaves out.",
-)
-CONTRADICTS = Noul(
-    "Does `design` keep, reuse or build on what `words.{slot}.said`, his words on `words.{slot}.asked`, set aside, or otherwise go against them, such as reusing the code that exists where his words order it built from scratch?",
-    no="It does what his words say or what they leave open; a sentence quoting or citing his words as what binds the design, or naming code that exists as evidence of what must keep working, goes against nothing.",
-)
-CONTRADICTED_AT = Pick(
-    "Which sentence of `design`, by its key, most keeps, reuses or builds on what `words.said` set aside, or otherwise goes against them where `newer`, his words given after them, leaves them standing?",
-    {"none": "No sentence does: each does what they say or leave open, follows `newer` where it narrows or replaces them, since his newer words win where two collide, or only quotes or cites them as what binds the design or names code that exists as evidence of what must keep working."},
-)
-NARROWED_AT = Pick(
-    "Which sentence of `design`, by its key, most builds less than `words.said` name, or builds part of it later, with no question in `forks` asking him about it and nothing in `newer`, his words given after them, narrowing them?",
-    {"none": "Every sentence builds all `words.said` name, a question in `forks` asks him about what it leaves out, or `newer` narrows what it leaves out, since his newer words win where two collide."},
-)
-STRATEGIES = Noul("Does `design`, or `words` where the request holds his words, name several strategies for one job, such as the partition strategies a table picks by its usage?")
-ABSTRACTION_FIRST = Noul(
-    "Is the first change of `design` the one abstraction every one of its strategies goes through, walked through each strategy on paper, with each strategy's change waiting on it?",
-    no="Its first change builds one strategy, or routes each strategy as its own case, before their shared abstraction.",
-)
-LEAVES = Noul(
-    "Does `line`, a line of a builder's return, leave a piece of the work `goal` names unbuilt for later, to a follow-up PR, another job or builder or a later change, as a piece its PR leaves out under Against the plan does?",
-    no="Each piece it names is built, ruled out or never asked for by his words, is left to this same job's next event, or is only a proof, check, review, merge, install or release still to run, or an idea beyond the plan.",
-)
 PUTS_OFF = Noul(
     "Does `section.text`, the section of a PR body his card draws under `section.heading`, say that a step it reports, one its writer runs before the PR opens, such as the FDE impact scan, has not run and that its result comes later, once a build, tool, fix or someone else gets to it?",
     yes='Such as "its report lands here once the first build of this head renders its contract" or "the scan runs once the tool is fixed".',
     no="It reports the step's result, says why the step does not apply, or names only what runs after the PR opens, such as CI, CI's screenshots, review, a merge, install, release or proof, or a piece of the plan a follow-up builds, which Against the plan lists.",
-)
-NAMES_PIECE = Noul(
-    "Does `parts.{part}`, work a job of its own builds, name the piece `line` leaves unbuilt, that piece itself in any wording?",
-    no="It names a larger piece of work holding that piece, or another piece.",
-)
-RESTATES = Noul(
-    "Does `lines.{slot}`, an UNBUILT: line of a builder's later return, name the same piece of work as `earlier.line`, a piece that same builder's earlier return left unbuilt and that `earlier.builds` now builds, restated in other words?",
-    yes="Building what that earlier piece's `builds` names builds what the line names.",
-    no="It names a different piece, or a piece beside or inside it that the earlier piece's `builds` leaves out.",
 )
 STEPS = Noul(
     "Does `story` list steps on `surface`, or name a part to walk, with no result he must then see?",

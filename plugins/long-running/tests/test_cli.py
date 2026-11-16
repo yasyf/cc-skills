@@ -18,7 +18,7 @@ from pathlib import Path
 import drive
 import pytest
 import spawnllm
-from conftest import ACME_CUT, CAP_RULING, CARD_BODY, card_reads, CUT_LINK, CUT_PICK, CUT_TAP, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SAND_NEXT_NOTE, SANDSQL_NOTE, SETTLED_LINE_ANSWERS, SETTLED_LISTED, SETTLED_MATCHED, SETTLED_NOTE, SETTLED_RECORDED, SHORT_ASK, REAL_SESSION_TERMINALS, WRITTEN_AT, answered_cut, cloned, drawn_card, git_in, kept_research, started, Answers, explained, Checked, Chrome, Draws, Drawing, Heard, Images, Jev, Judge, Redraws, SessionLaunches, Thread, WatchProcess, Withdrawals
+from conftest import ACME_CUT, CARD_BODY, card_reads, CUT_LINK, CUT_PICK, CUT_TAP, LEAD, LOCK_STALL, LOCK_STALL_AGAIN, POST_ASK, RESEARCH, SAND_NEXT_NOTE, SANDSQL_NOTE, SETTLED_LINE_ANSWERS, SETTLED_LISTED, SETTLED_MATCHED, SETTLED_NOTE, SETTLED_RECORDED, SHORT_ASK, REAL_SESSION_TERMINALS, WRITTEN_AT, answered_cut, cloned, drawn_card, git_in, kept_research, started, Answers, explained, Checked, Chrome, Draws, Drawing, Heard, Images, Jev, Judge, Redraws, SessionLaunches, Thread, WatchProcess, Withdrawals
 from drive import (
     agents,
     brief,
@@ -4214,49 +4214,6 @@ def test_list_lines_are_each_bullet_numbered_item_and_table_row_but_its_rule_wit
     ]
 
 
-def test_job_report_keeps_a_readers_line_jev_reads_as_putting_up_for_change_what_his_recorded_answer_orders_with_a_note_naming_that_answer(
-    run: Run, meta: str, recorded: Answers, jev: Jev, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: the cloud tree")
-    run("job", "add", "reader", "--order", "o1", "--goal", "research: the cloud tree")
-    capping = CAP_RULING | {"area": ["card:card-cloud-tree-cap", "drive-tooling"]}
-    recorded.lined = [capping]
-    undoing = "open: the cloud tree's own cap is up for removal"
-    returned = RESEARCH.replace("open: none", undoing)
-    jev.breaks(f"{settled.LINE_KEY}2", CAP_RULING["id"])
-    code, err = keep(monkeypatch, capsys, "j1", returned)
-    assert (code, f'drive job report: as Jev reads it, the line "{undoing}" says no ruling of his covers' in err) == (0, True)
-    assert f'his answer {CAP_RULING["id"]}, "{CAP_RULING["asked"]}", ruling on card:card-cloud-tree-cap, drive-tooling, orders or keeps: "{CAP_RULING["said"]}"' in err
-    assert f"When this change is meant, {settled.LIFTS}, or a card can ask him to lift it" in " ".join(err.split())
-    assert len(state.returns("demo", "j1")) == 1
-    [asked] = [request for request in jev.asked if any(key.startswith(settled.LINE_KEY) for key in request["questions"])]
-    lines = ["rulings: none on the copy path", undoing, "build: one store_copy_at call per stalled store"]
-    assert asked["state"] == {"against": settled.AGAINST, "lines": {f"l{number}": line for number, line in enumerate(lines, 1)}, "answers": {CAP_RULING["id"]: {key: capping[key] for key in ("asked", "said", "area")}}}
-    assert asked["questions"] == {f"{settled.LINE_KEY}{number}.{CAP_RULING['id']}": settled.asking(settled.LINE, line=f"l{number}", answer=CAP_RULING["id"]) for number in range(1, len(lines) + 1)}
-    jev.answer = None
-    code, err = keep(monkeypatch, capsys, "j1", returned)
-    assert (code, f"drive job report: {settled.UNREAD_LINES.format(failure='no jev decision within 20s')}" in err, len(state.returns("demo", "j1"))) == (0, True, 2)
-
-
-def test_job_report_reads_no_line_saying_only_none_against_his_answers_so_a_readers_bare_none_lines_keep_while_jev_reads_every_line_question_at_yes(
-    run: Run, meta: str, recorded: Answers, jev: Jev, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: the cloud tree")
-    run("job", "add", "reader", "--order", "o1", "--goal", "research: the cloud tree")
-    recorded.lined = [CAP_RULING]
-    for number in range(1, 5):
-        jev.breaks(f"{settled.LINE_KEY}{number}", CAP_RULING["id"])
-    code, err = keep(monkeypatch, capsys, "j1", RESEARCH)
-    assert (code, 'drive job report: as Jev reads it, the line "rulings: none on the copy path" says no ruling of his covers' in err) == (0, True)
-    [asked] = [request for request in jev.asked if any(key.startswith(settled.LINE_KEY) for key in request["questions"])]
-    assert asked["state"]["lines"] == {"l1": "rulings: none on the copy path", "l2": "build: one store_copy_at call per stalled store"}
-    jev.asked.clear()
-    bare = RESEARCH.replace("rulings: none on the copy path", "Rulings: None.").replace("one store_copy_at call per stalled store", "none") + "\nLeft open:\n- None.\n"
-    code, err = keep(monkeypatch, capsys, "j1", bare)
-    assert (code, len(state.returns("demo", "j1"))) == (0, 2)
-    assert [request for request in jev.asked if any(key.startswith(settled.LINE_KEY) for key in request["questions"])] == []
-
-
 def test_his_card_answers_no_recorded_answer_holds_are_recorded_once_and_one_cc_notes_holds_under_that_question_keeps_its_id(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, recorded: Answers
 ) -> None:
@@ -6088,85 +6045,6 @@ def test_a_design_saying_nothing_exists_is_refused_while_its_orders_reader_found
     assert keep(monkeypatch, capsys, "j3", owned) == (0, "")
 
 
-@pytest.mark.parametrize(
-    ("pick", "sentence", "said"),
-    [
-        ("o1", "s2", 'Jev reads this design\'s sentence "Design: one copy per store, in the order the stores list" as building less than his words "time, hash by key and spill" (his words the order quotes) name, or later, with no fork asking him'),
-        ("o1", "none", 'Jev reads this design as building less than his words "time, hash by key and spill" (his words the order quotes) but picks none of its sentences as doing so, so it is kept'),
-        ("strategies", "none", f"Jev reads this design as building a strategy before the one abstraction its strategies share; he prefers that abstraction designed first, as change 1, with each strategy a later Change: line waiting on it: {brief.ABSTRACTION_RULING}"),
-        ("none", "none", ""),
-    ],
-)
-def test_a_design_building_less_or_later_than_his_words_at_the_sentence_jev_picks_or_a_strategy_before_their_shared_abstraction_is_kept_with_a_note(
-    run: Run, meta: str, jev: Jev, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], pick: str, sentence: str, said: str
-) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", 'Drive tooling: partition each table by "time, hash by key and spill"')
-    run("job", "add", "design", "--order", "o1", "--goal", "cards: the partitions")
-    jev.picks(pick)
-    jev.picked["sentence"] = sentence
-    kept, err = keep(monkeypatch, capsys, "j1", DESIGNED)
-    assert kept == 0
-    assert (said in err) if said else err == ""
-    [read] = [asked for asked in jev.asked if "narrows.o1" in asked["questions"]]
-    assert (read["state"]["words"], read["state"]["design"]["s2"]) == (
-        {"w1": {"asked": "his words the order quotes", "said": '"time, hash by key and spill"'}},
-        "Design: one copy per store, in the order the stores list",
-    )
-
-
-@pytest.mark.parametrize(("sentence", "picked"), [("s3", True), ("none", False)])
-def test_a_design_jev_reads_going_against_his_words_is_kept_with_a_note_quoting_the_sentence_it_picks_and_never_reads_its_rulings_line(
-    run: Run, meta: str, jev: Jev, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], sentence: str, picked: bool
-) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", 'Drive tooling: design the store copy "from scratch, reusing none of the HA code"')
-    run("job", "add", "design", "--order", "o1", "--goal", "cards: the store copy")
-    reusing = DESIGNED.replace("Design: one copy per store, in the order the stores list", "Design: one copy per store, in list order. It goes through sandsql-ha's claim code.")
-    jev.breaks("against", "o1")
-    jev.picked["sentence"] = sentence
-    kept, err = keep(monkeypatch, capsys, "j1", reusing)
-    assert kept == 0
-    assert (
-        'Jev reads this design\'s sentence "It goes through sandsql-ha\'s claim code." as going against his words "from scratch, reusing none of the HA code" (his words the order quotes);'
-        " a fork with drive job ask can ask him to lift them"
-        if picked
-        else 'Jev reads this design as going against his words "from scratch, reusing none of the HA code" (his words the order quotes) but picks none of its sentences as doing so, so it is kept'
-    ) in err
-    assert not [said for asked in jev.asked for said in asked["state"]["design"].values() if said.startswith("rulings:")]
-
-
-@pytest.mark.parametrize(("sentence", "picked"), [("s3", True), ("none", False)])
-def test_a_design_jev_reads_going_against_his_older_words_is_judged_beside_his_newer_words_which_win_where_the_two_collide(
-    run: Run, meta: str, jev: Jev, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], sentence: str, picked: bool
-) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", 'Drive tooling: design the store copy "from scratch, reusing none of the HA code"')
-    run("job", "add", "design", "--order", "o1", "--goal", "cards: the store copy")
-    lease = "Reuse its claim code for the lease alone"
-    with state.edit("demo") as data:
-        data["jobs"]["j1"]["questions"] = [
-            state.new_question("asks/j1-lease.md", "Reuse sandsql-ha's claim code for the lease?", state.stamp(), closed=state.new_close("answered", lease, None, at=state.stamp(state.now() + timedelta(minutes=5))))
-        ]
-    leasing = DESIGNED.replace("Design: one copy per store, in the order the stores list", "Design: one copy per store, in list order. It takes its lease through sandsql-ha's claim code.")
-    jev.breaks("against", "o1")
-    jev.picked["sentence"] = sentence
-    kept, err = keep(monkeypatch, capsys, "j1", leasing)
-    assert kept == 0
-    [weighed] = [asked["state"] for asked in jev.asked if "against.q1" in asked["questions"]]
-    [picking] = [asked["state"] for asked in jev.asked if "sentence" in asked["questions"]]
-    assert (weighed["words"]["w1"]["said"], picking["words"]["said"], picking["newer"]) == (lease, '"from scratch, reusing none of the HA code"', {"n1": {"asked": "Reuse sandsql-ha's claim code for the lease?", "said": lease}})
-    assert ('Jev reads this design\'s sentence "It takes its lease through sandsql-ha\'s claim code." as going against' if picked else "but picks none of its sentences as doing so, so it is kept") in err
-
-
-def test_a_design_past_one_jev_request_is_kept_unread_with_a_warning(run: Run, meta: str, jev: Jev, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", 'Drive tooling: design the store copy "from scratch, reusing none of the HA code"')
-    run("job", "add", "design", "--order", "o1", "--goal", "cards: the store copy")
-    jev.picks("o1")
-    jev.picked["sentence"] = "s2"
-    long = DESIGNED.replace("Design: one copy per store, in the order the stores list", "Design: " + " ".join(f"Store {number} copies once, in list order." for number in range(1, 200)))
-    kept, err = keep(monkeypatch, capsys, "j1", long)
-    assert (kept, [asked for asked in jev.asked if "against.o1" in asked["questions"]]) == (0, [])
-    assert re.search(r"Jev read none of this design, since its \d+ sentences run past one Jev request of 5,000 characters, so it is kept unchecked", err)
-
-
 def test_a_design_of_several_changes_makes_each_a_part_of_its_order_with_a_builder_waiting_on_the_builder_of_each_earlier_change_its_line_names(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -6213,8 +6091,8 @@ def test_each_builder_a_design_adds_is_briefed_with_that_design_as_its_plan_by_a
     assert "\nPlan: the store copy section\n" in Path(state.load("demo")["jobs"]["j2"]["brief"]).read_text()
 
 
-def test_a_builders_done_leaving_a_piece_of_its_design_to_a_follow_up_is_kept_with_a_note_and_an_unbuilt_line_naming_it_becomes_a_part_under_that_design_with_its_own_builder(
-    run: Run, meta: str, jev: Jev, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+def test_a_builders_done_leaving_a_piece_of_its_design_to_a_follow_up_is_kept_and_an_unbuilt_line_naming_it_becomes_a_part_under_that_design_with_its_own_builder(
+    run: Run, meta: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build", "--parts", "copy one store")
     run("job", "add", "reader", "--order", "o1", "--part", "copy one store", "--goal", "research: the copy")
@@ -6224,27 +6102,13 @@ def test_a_builders_done_leaving_a_piece_of_its_design_to_a_follow_up_is_kept_wi
     assert keep(monkeypatch, capsys, "j3", owned) == (0, "")
     done = "DONE the moved-table interface is live\nCHECK: https://github.com/yasyf/cc-skills/actions/runs/12\n"
     left = "UNPROVEN: the moved-table index (design change 4) is left out of this PR for a follow-up"
-    jev.picks("leaves")
     kept_proof(tmp_path, "j4")
-    code, err = keep(monkeypatch, capsys, "j4", f"{done}{left}\n")
-    assert code == 0
-    assert f'drive job report: a DONE leaves a piece of its plan to a follow-up, as Jev reads "{left}": an UNBUILT: line naming it' in err
-    [read] = [asked for asked in jev.asked if "leaves.l1" in asked["questions"]]
-    [named] = [asked for asked in jev.asked if "names.l1.p1" in asked["questions"]]
-    assert ((read["state"], list(read["questions"])), (named["state"], list(named["questions"]))) == (
-        ({"line": left, "goal": "build j3's change: the moved-table interface"}, ["leaves.l1"]),
-        ({"line": left, "parts": {"p1": "copy one store", "p2": "the reads through it", "p3": "the writes through it"}}, ["names.l1.p1", "names.l1.p2", "names.l1.p3"]),
-    )
+    assert keep(monkeypatch, capsys, "j4", f"{done}{left}\n")[0] == 0
     code, err = keep(monkeypatch, capsys, "j4", f'{done}{left}\nUNBUILT: the "moved-table" index\n')
     assert (code, "its detail goes on its NEXT: or UNPROVEN: line" in err) == (2, True)
-    jev.named = {"the moved-table index"}
     monkeypatch.setattr("sys.stdin", io.StringIO(f"{done}{left}\nUNBUILT: the moved-table index\n"))
     assert cli.main(["job", "report", "j4", "-"]) == 0
     assert capsys.readouterr().out.splitlines()[-1] == f'j7 builder on "the moved-table index": the watch starts its agent on its brief {state.load("demo")["jobs"]["j7"]["brief"]}, so start no agent for it; drive job resume reaches it'
-    read = [asked for asked in jev.asked if "names.l1.p1" in asked["questions"] and len(asked["state"]["parts"]) == 4][-1]
-    assert list(read["state"]["parts"].values()) == ["the moved-table index", "copy one store", "the reads through it", "the writes through it"]
-    jev.named.clear()
-    jev.picks("none")
     data = state.load("demo")
     assert (data["orders"]["o1"]["parts"]["the moved-table index"]["design"], data["jobs"]["j7"]["parts"]) == ("j3", ["the moved-table index"])
     code, out = run("job", "brief", "j7", "--serves", "drive tooling", "--done-when", "merged", "--where", "yasyf/cc-skills main")
@@ -6252,8 +6116,8 @@ def test_a_builders_done_leaving_a_piece_of_its_design_to_a_follow_up_is_kept_wi
     assert (code, "\nResearched: j3\n" in written, '\nPlan: j3\'s design, change "the moved-table index": drive job report j3; j4 left it unbuilt: drive job report j4\n' in written) == (0, True, True)
 
 
-def test_a_sprite_lanes_done_is_kept_before_jev_reads_it_and_the_check_after_wakes_no_lane_for_what_jev_notes(
-    run: Run, meta: str, jev: Jev, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+def test_a_sprite_lanes_done_is_kept_at_once_and_the_check_after_wakes_no_lane(
+    run: Run, meta: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build", "--parts", "copy one store")
     run("job", "add", "reader", "--order", "o1", "--part", "copy one store", "--goal", "research: the copy")
@@ -6263,17 +6127,14 @@ def test_a_sprite_lanes_done_is_kept_before_jev_reads_it_and_the_check_after_wak
     assert keep(monkeypatch, capsys, "j3", owned) == (0, "")
     done = "DONE the moved-table interface is live\nCHECK: https://github.com/yasyf/cc-skills/actions/runs/12\n"
     left = "UNPROVEN: the moved-table index (design change 4) is left out of this PR for a follow-up"
-    jev.picks("leaves")
     kept_proof(tmp_path, "j4")
     detached: list[list[str]] = []
     monkeypatch.setattr(state, "detach", lambda name, args, log: detached.append(args) or 1)
-    asked_before = len(jev.asked)
-    cli.take_report("demo", "j4", f"{done}{left}\n", judged=False)
-    assert (len(jev.asked), detached[-1], state.load("demo")["jobs"]["j4"]["said"]) == (asked_before, ["job", "check", "j4"], done.splitlines()[0])
+    cli.take_report("demo", "j4", f"{done}{left}\n", read_prs=False)
+    assert (detached[-1], state.load("demo")["jobs"]["j4"]["said"]) == (["job", "check", "j4"], done.splitlines()[0])
     checked = len(detached)
     assert run("job", "check", "j4")[0] == 0
     assert detached[checked:] == []
-    assert f'as Jev reads "{left}"' in capsys.readouterr().err
 
 
 def test_a_follow_up_piece_a_builder_names_on_an_unbuilt_line_of_an_undesigned_order_is_read_by_its_parts_reader_so_its_builder_starts_on_that_research(
@@ -6375,8 +6236,8 @@ def test_a_builders_pushed_whose_unbuilt_line_adds_a_builder_writes_the_line_sta
     assert [event["line"] for event, _ in state.read_events("demo") if event["kind"] == state.RETURNED and event["job"] == "j2"] == [started]
 
 
-def test_a_builders_own_change_change_lines_and_unbuilt_lines_naming_no_piece_make_no_part_and_an_unbuilt_line_on_work_a_sibling_part_or_another_jobs_pr_holds_is_refused(
-    run: Run, meta: str, jev: Jev, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+def test_a_builders_own_change_change_lines_and_unbuilt_lines_naming_no_piece_make_no_part_and_an_unbuilt_line_linking_another_jobs_pr_is_refused(
+    run: Run, meta: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build", "--parts", "copy one store")
     run("job", "add", "reader", "--order", "o1", "--part", "copy one store", "--goal", "research: the copy")
@@ -6386,21 +6247,7 @@ def test_a_builders_own_change_change_lines_and_unbuilt_lines_naming_no_piece_ma
     assert keep(monkeypatch, capsys, "j3", owned) == (0, "")
     parts = list(state.load("demo")["orders"]["o1"]["parts"])
     done = "DONE the moved-table interface is live\nCHECK: https://github.com/yasyf/cc-skills/actions/runs/12\n"
-    jev.named = {"the reads through it"}
     kept_proof(tmp_path, "j4")
-    code, err = keep(monkeypatch, capsys, "j4", f"{done}UNBUILT: reads go through the moved table\n")
-    assert (code, err.strip().splitlines()[-1]) == (
-        2,
-        'drive: j4: refused, nothing kept: its UNBUILT: line "UNBUILT: reads go through the moved table" names work the drive already holds, as the'
-        ' part "the reads through it", which j5 builds, so a part of its own would build it a second time: an UNBUILT: line names only a piece of'
-        " its plan nothing on the drive builds yet, never its own change, which CHANGE: says, nor another job's, so drop that line",
-    )
-    [held] = [asked for asked in jev.asked if "names.l1.p1" in asked["questions"]]
-    assert (held["state"], list(held["questions"])) == (
-        {"line": "UNBUILT: reads go through the moved table", "parts": {"p1": "copy one store", "p2": "the reads through it", "p3": "the writes through it"}},
-        ["names.l1.p1", "names.l1.p2", "names.l1.p3"],
-    )
-    jev.named.clear()
     with state.edit("demo") as data:
         data["prs"]["yasyf/cc-skills#77"] = state.new_pr("https://github.com/yasyf/cc-skills/pull/77", "j6", "o1")
     code, err = keep(monkeypatch, capsys, "j4", f"{done}UNBUILT: the batched writes https://github.com/yasyf/cc-skills/pull/77 opens\n")
@@ -6409,45 +6256,6 @@ def test_a_builders_own_change_change_lines_and_unbuilt_lines_naming_no_piece_ma
     assert keep(monkeypatch, capsys, "j4", returned)[0] == 0
     data = state.load("demo")
     assert (list(data["orders"]["o1"]["parts"]), sorted(data["jobs"])) == (parts, ["j1", "j2", "j3", "j4", "j5", "j6"])
-
-
-def test_an_unbuilt_line_restating_in_new_words_a_piece_the_same_builders_earlier_return_left_unbuilt_is_refused_naming_its_part_builder_and_pr(
-    run: Run, meta: str, jev: Jev, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
-) -> None:
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build", "--parts", "the copy")
-    run("job", "add", "reader", "--order", "o1", "--part", "the copy", "--goal", "research: the copy")
-    keep(monkeypatch, capsys, "j1", RESEARCH)
-    kept_proof(tmp_path, "j2")
-    done = "DONE the copy runs\nCHECK: https://github.com/yasyf/cc-skills/actions/runs/12\n"
-    assert keep(monkeypatch, capsys, "j2", f"{done}UNBUILT: retry each stalled copy\n")[0] == 0
-    url = "https://github.com/yasyf/cc-skills/pull/77"
-    with state.edit("demo") as data:
-        data["prs"]["yasyf/cc-skills#77"] = state.new_pr(url, "j3", "o1") | {"title": "Fix: a stalled copy retries until it lands"}
-        data["jobs"]["j3"]["prs"].append(url)
-    jev.picks("restates")
-    code, err = keep(monkeypatch, capsys, "j2", f"{done}UNBUILT: run a stalled copy again until it finishes\n")
-    assert (code, err.strip().splitlines()[-1]) == (
-        2,
-        'drive: j2: refused, nothing kept: its UNBUILT: line "UNBUILT: run a stalled copy again until it finishes" names work the drive already holds, as the'
-        ' part "retry each stalled copy" an earlier return of j2 left unbuilt, which j3 builds in yasyf/cc-skills#77, so a part of its own would build it a'
-        " second time: an UNBUILT: line names only a piece of its plan nothing on the drive builds yet, never its own change, which CHANGE: says, nor another"
-        " job's, so drop that line",
-    )
-    [restated] = [asked for asked in jev.asked if "restates.l1.e1" in asked["questions"]]
-    assert (restated["state"], list(restated["questions"])) == (
-        {
-            "lines": {"l1": "UNBUILT: run a stalled copy again until it finishes"},
-            "earlier": {"line": "UNBUILT: retry each stalled copy", "builds": {"goals": ["build j2's change: retry each stalled copy"], "prs": ["Fix: a stalled copy retries until it lands"]}},
-        },
-        ["restates.l1.e1"],
-    )
-    jev.picks("none")
-    asked = len(jev.asked)
-    monkeypatch.setattr("sys.stdin", io.StringIO(f"{done}UNBUILT: retry each stalled copy\nUNBUILT: copy the blobs in batches\n"))
-    assert cli.main(["job", "report", "j2", "-"]) == 0
-    assert capsys.readouterr().out.splitlines()[-1] == f'j4 builder on "copy the blobs in batches": the watch starts its agent on its brief {state.load("demo")["jobs"]["j4"]["brief"]}, so start no agent for it; drive job resume reaches it'
-    assert not [key for request in jev.asked[asked:] for key in request["questions"] if key.startswith("restates.")]
-    assert sorted(state.load("demo")["jobs"]) == ["j1", "j2", "j3", "j4"]
 
 
 def test_a_designs_change_waits_on_the_builder_of_the_earlier_change_its_line_names_once_that_builders_pr_closed_unmerged(

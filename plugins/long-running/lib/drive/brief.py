@@ -174,7 +174,6 @@ CLAIMED_JOB = (
     " the drive holds behind that claim until it ends, then post your own claim as that rule says and start the Job once its thread"
     " stood 5 minutes with no objection"
 )
-PIECES_ASKED = 15
 RELEASE_NOTE_LABELS = ("release-order", "release")
 NOTE_REFS = re.compile(r"#(\d+)\b|\b((?=[0-9a-f]*[0-9])(?=[0-9a-f]*[a-f])[0-9a-f]{7,40})\b")
 NOTED = (
@@ -188,10 +187,6 @@ UNNOTED = (
 RELEASE_CLAIM = re.compile(r"\b(?:releases?|cut)\b[^.;\n]{0,60}?\bcan (?:start|go|run|ship)\b|\breleases? (?:start|go) (?:as usual|again)\b", re.IGNORECASE)
 PULL_WORDS = re.compile(r"(?:#?\d+,?)+")
 NAMES = re.compile(r"[,\s]+")
-ABSTRACTION_RULING = '"we should buiold the abstraction first, make sure it works by imaginign, then implement the strategies"'
-NEWER_WORDS = 5
-
-
 def brief_file(prompt: str) -> tuple[Path, str] | None:
     """The brief file an agent's prompt reads in, and its text: the first file a path on any of its lines names whose Drive line names the prompt's own job, or any job when the prompt names none, wherever it is kept, such as the one a `Read your brief first:` or `Brief:` line names or the Orca task brief a Sprite lane's first message names."""
     own = BRIEF_JOB.search(prompt)
@@ -978,8 +973,8 @@ def heavier(data: dict, job_id: str, brief: str, model: str | None) -> bool:
     return bool(order["complex"])
 
 
-def report_refusal(name: str, data: dict, job_id: str, text: str, judged: bool = True) -> str | None:
-    """Why a job's return may not be kept, with judged False leaving out the checks Jev reads, by judged_refusal, for a check that runs after the report is kept: a builder's or designer's opens with a result word, a design lane's is the design in its shape, a research reader's carries its Researched: block, a reader's DESIGN is a choice for him with its options, starting from the root cause and recommending the option that removes it, a builder's UNBUILT: lines naming their pieces as a design's Change: lines must and none naming work the drive already holds, by held_piece, a builder's or codex job's DONE on a staging test part carries a CASE line for each case, a design's DESIGN of several keeping the words of each change it listed before that a live builder carries, by state.renamed_change, a builder's DONE names its proof, and a picture, recording or live post when he sees the result, a DONE whose brief names user stories refused, since only drive job prove proves them from what its proof file prints, a repair keeping a proof file told to prove it with drive job prove instead, and a builder's READY or PUSHED names PRs whose tap card draws, saying how his words are met on each reworked to them. A limit its own words leave standing, a NEXT: or UNPROVEN: step a DONE, READY or PUSHED leaves for someone else, and a READY or PUSHED naming no REUSES: line beside research that found what already does part of it are said on stderr and refuse nothing."""
+def report_refusal(name: str, data: dict, job_id: str, text: str) -> str | None:
+    """Why a job's return may not be kept, by its shape alone, with no Jev or Opus read: a builder's or designer's opens with a result word, a design lane's is the design in its shape, a research reader's carries its Researched: block, a reader's DESIGN is a choice for him with its options, starting from the root cause and recommending the option that removes it, a builder's UNBUILT: lines naming their pieces as a design's Change: lines must and none linking another job's PR, by held_refusal, a builder's or codex job's DONE on a staging test part carries a CASE line for each case, a design's DESIGN of several keeping the words of each change it listed before that a live builder carries, by state.renamed_change, a builder's DONE names its proof, and a picture, recording or live post when he sees the result, a DONE whose brief names user stories refused, since only drive job prove proves them from what its proof file prints, a repair keeping a proof file told to prove it with drive job prove instead, and a builder's READY or PUSHED names PRs whose tap card draws, saying how his words are met on each reworked to them. A limit its own words leave standing, a NEXT: or UNPROVEN: step a DONE, READY or PUSHED leaves for someone else, and a READY or PUSHED naming no REUSES: line beside research that found what already does part of it are said on stderr and refuse nothing."""
     job = data["jobs"][job_id]
     order = data["orders"][job["order"]]
     lines = [line.strip() for line in text.strip().splitlines()]
@@ -1015,7 +1010,7 @@ def report_refusal(name: str, data: dict, job_id: str, text: str, judged: bool =
         )
     if job["kind"] == "design" and len(listed) > 1 and (renamed := state.renamed_change(name, data, job["order"], [state.whole_order(line["change"]) for line in listed], job_id)):
         return renamed
-    if judged and job["kind"] == "builder" and (held := held_refusal(name, data, job_id, listed)):
+    if job["kind"] == "builder" and (held := held_refusal(data, job_id, listed)):
         return held
     if job["kind"] == "reader" and (refused := reader_refusal(data, job_id, job, order, text, lines)):
         return refused
@@ -1053,65 +1048,16 @@ def report_refusal(name: str, data: dict, job_id: str, text: str, judged: bool =
     return None
 
 
-def held_refusal(name: str, data: dict, job_id: str, listed: list[re.Match]) -> str | None:
-    """Why a builder's return may not be kept for an UNBUILT: line naming work the drive already holds, by held_piece."""
-    if not (held := held_piece(name, data, job_id, listed)):
-        return None
-    return (
-        f'its UNBUILT: line "{cut(held[0], 120)}" names work the drive already holds, {held[1]}, so a part of its own would build it'
-        " a second time: an UNBUILT: line names only a piece of its plan nothing on the drive builds yet, never its own change, which"
-        " CHANGE: says, nor another job's, so drop that line"
-    )
-
-
-def piece_note(data: dict, job: dict, opening: str, text: str) -> str | None:
-    """What judged_notes says of a builder's DONE, READY or PUSHED leaving a piece of its plan to a follow-up that no UNBUILT: line names, by left_piece."""
-    if not (piece := left_piece(data, job, text)):
-        return None
-    return (
-        f'a {opening} leaves a piece of its plan to a follow-up, as Jev reads "{cut(piece, 120)}": an UNBUILT: line naming it, in at most {state.PART_CHARS}'
-        " characters with no backtick, double quote, $ or backslash, keeps it as a part of the order with a builder of its own"
-    )
-
-
-def judged_refusal(name: str, data: dict, job_id: str, text: str) -> str | None:
-    """Why a job's return may not stand for the checks Jev reads, which report_refusal with judged False leaves out: a builder's UNBUILT: line naming work the drive holds, by held_refusal; what else Jev reads in it is said on stderr, by judged_notes."""
-    job = data["jobs"][job_id]
-    if job["kind"] == "builder" and (held := held_refusal(name, data, job_id, state.change_lines(job["kind"], text))):
-        return held
-    judged_notes(name, data, job, text)
+def held_refusal(data: dict, job_id: str, listed: list[re.Match]) -> str | None:
+    """Why a builder's return may not be kept for an UNBUILT: line linking a PR of another job that did not close unmerged, since a part of its own would build that work a second time."""
+    for line in listed:
+        if other := next((key for key in state.named_prs(data, data["jobs"][job_id]["order"], line[0]) if data["prs"][key]["job"] != job_id and data["prs"][key]["state"] != "closed"), None):
+            return (
+                f'its UNBUILT: line "{cut(line[0].strip(), 120)}" names work the drive already holds, in {other}, a PR of {data["prs"][other]["job"]}, so a part of its own'
+                " would build it a second time: an UNBUILT: line names only a piece of its plan nothing on the drive builds yet, never its own change, which"
+                " CHANGE: says, nor another job's, so drop that line"
+            )
     return None
-
-
-def judged_notes(name: str, data: dict, job: dict, text: str) -> None:
-    """Say on stderr what Jev reads in a job's return that is kept anyway: a design lane's design building less than his words or against them, by narrowed_design, a builder's piece of its plan left to a follow-up, by piece_note, and a reader's or design's line going against a recorded answer of his, by overruled_note."""
-    opening = re.match(r"[A-Z]*", text.strip())[0]
-    for found in (
-        job["kind"] == "design" and opening == "DESIGN" and narrowed_design(name, data, job, text),
-        job["kind"] == "builder" and opening in ("DONE", *READY_OPENINGS) and piece_note(data, job, opening, text),
-        overruled_note(data, job, text),
-    ):
-        if found:
-            print(f"drive job report: {found}", file=sys.stderr)
-
-
-def overruled_note(data: dict, job: dict, text: str) -> str | None:
-    """What judged_notes says of a reader's or design's return, which is kept: a line of its Researched: block but exists:, a Change: line or a line of a list says no ruling of his covers, puts up for change or asks him again an item a recorded answer of his orders or keeps, as settled.overruled reads it, naming that answer's id and words, a line saying only none, as the reader's rules ask an empty block line to, going unread; kept with a warning on stderr when Jev gives no reading, and a reader's DESIGN is read as his card by drive job ask instead, whose finding refuses nothing, by his pick 320b7a7."""
-    if job["kind"] not in RESEARCH_KINDS or job["kind"] == "reader" and text.lstrip().startswith("DESIGN"):
-        return None
-    lines = [line for line in block_lines(text) if not line.removeprefix("- ").casefold().startswith("exists:")]
-    lines += [found[0].strip() for found in state.change_lines(job["kind"], text)] + settled.list_lines(text)
-    try:
-        picks = settled.overruled(list(dict.fromkeys(lines)), data)
-    except settled.Unheard as failure:
-        print(f"drive job report: {settled.UNREAD_LINES.format(failure=failure)}", file=sys.stderr)
-        return None
-    if not picks:
-        return None
-    return (
-        f"as Jev reads it, {settled.overruling(picks)}. When this change is meant, {settled.LIFTS}, or a card can ask him to lift it"
-    )
-
 
 def reader_refusal(data: dict, job_id: str, job: dict, order: dict, text: str, lines: list[str]) -> str | None:
     """Why a reader's return may not be kept: research for a build order carries its filled Researched: block, and a DESIGN is a choice for him of two to four options, one recommended, starting from the root cause its evidence finds and offering the option that removes it, and on a bug hurting someone now names the immediate fix shipping while he picks."""
@@ -1179,88 +1125,6 @@ def unlisted_waits(listed: list[re.Match]) -> str | None:
     return next((line[0] for number, line in enumerate(listed, start=1) if any(not 1 <= wait < number for wait in state.change_waits(line))), None)
 
 
-def narrowed_design(name: str, data: dict, job: dict, text: str) -> str | None:
-    """What judged_notes says of a design it keeps, as Jev reads it whole against his words on its order and each order its job carries, his spec on its feature, by spec, and his answer to each of its cards, all newest first, beside the forks it asks him, one request a word of his holding only the forks, the whole design by sentence and that word's `asked` and `said`, and one more holding only the design, for whether it names strategies and builds their abstraction first, its rulings: line never sent, since it quotes his words rather than builds anything: it leaves out, defers or narrows what one names with no fork asking him, or keeps, reuses or builds on what one set aside, at settled.YES or more, at the sentence flagged picks beside his words given after it; or, where Jev reads several strategies doing one job at settled.YES or more, its first change is not the abstraction they share, under settled.NO. A design past one Jev request of settled.REQUEST_CHARS // 2 characters is kept unread, and a reading in the band between, a pick of no sentence, or none, keeps it too, each said on stderr."""
-    words = sorted(
-        [
-            *(word for order_id in [job["order"], *job["carries"]] for word in settled.order_words(data, order_id)),
-            *judging(spec(name, data, job)),
-            *(
-                {"id": f"q{number}", "asked": question["title"], "said": closed["words"], "at": closed["at"]}
-                for number, question in enumerate(job["questions"], 1)
-                if (closed := question["closed"]) and closed["how"] == "answered" and closed["words"]
-            ),
-        ],
-        key=lambda word: state.parse_time(word["at"]),
-        reverse=True,
-    )
-    ruled = {line for line in block_lines(text) if line.removeprefix("- ").casefold().startswith("rulings:")}
-    sentences = {f"s{number}": sentence for number, sentence in enumerate((sentence for line in text.splitlines() if line.strip() not in ruled for sentence in limits.SENTENCE_BREAK.split(line) if sentence.strip()), 1)}
-    design = {"forks": [question["title"] for question in job["questions"] if not question["closed"]], "design": sentences}
-    if settled.size(design, {}) > settled.REQUEST_CHARS // 2:
-        print(f"drive job report: Jev read none of this design, since its {len(sentences)} sentences run past one Jev request of {settled.REQUEST_CHARS // 2:,} characters, so it is kept unchecked", file=sys.stderr)
-        return None
-    slots = {word["id"]: f"w{number}" for number, word in enumerate(words, 1)}
-    weighs = [
-        (
-            design | {"words": {slots[word["id"]]: {"asked": word["asked"], "said": word["said"]}}},
-            {f"{question}.{word['id']}": settled.asking(noul, slot=slots[word["id"]]) for question, noul in (("narrows", settled.NARROWS), ("against", settled.CONTRADICTS))} | {f"strategies.{slots[word['id']]}": settled.STRATEGIES},
-        )
-        for word in words
-    ]
-    items = {word["id"]: word for word in words}
-    try:
-        read = settled.jev_all([({"design": sentences}, {"strategies": settled.STRATEGIES, "first": settled.ABSTRACTION_FIRST}), *weighs])
-        flags = sorted(((question, word_id, sure) for key, sure in read.items() for question, _, word_id in [key.partition(".")] if question in ("narrows", "against") and sure >= settled.YES), key=lambda found: (found[0] != "narrows", -found[2]))
-        refused = next(filter(None, (flagged(design, question, items[word_id], words) for question, word_id, _ in flags)), None)
-    except settled.Unheard as failure:
-        print(f"drive job report: Jev did not read the design against his words, so it is kept unchecked: {failure}", file=sys.stderr)
-        return None
-    if refused:
-        return refused
-    for key, sure in read.items():
-        question, _, word_id = key.partition(".")
-        if question in ("narrows", "against") and settled.reading(sure) is None:
-            print(f'drive job report: Jev is unsure whether this design {"builds less than his words" if question == "narrows" else "goes against his words"} ({items[word_id]["asked"]}), so it is kept', file=sys.stderr)
-    strategies, first = settled.reading(max(sure for key, sure in read.items() if key.partition(".")[0] == "strategies")), settled.reading(read["first"])
-    if strategies and first is False:
-        return (
-            "Jev reads this design as building a strategy before the one abstraction its strategies share; he prefers that abstraction"
-            f" designed first, as change 1, with each strategy a later Change: line waiting on it: {ABSTRACTION_RULING}"
-        )
-    if strategies is not False and first is not True:
-        print("drive job report: Jev is unsure whether this design builds a strategy before the abstraction its strategies share, so it is kept", file=sys.stderr)
-    return None
-
-
-def flagged(design: dict, question: str, word: dict, words: list[dict]) -> str | None:
-    """The note on a design Jev reads as building less than his words name, or going against them, quoting the sentence of it Jev picks as doing so beside every word of his given after them, newest first, since the newer wins where two collide, and the fix; None when it picks none or his newer words run past one request beside it, said on stderr, since a note quoting no sentence leaves the designer nothing to act on."""
-    pick = settled.NARROWED_AT if question == "narrows" else settled.CONTRADICTED_AT
-    sentences = design["design"]
-    named = f", {word['id']}" if limits.ANSWER_ID.fullmatch(word["id"]) else ""
-    said = f'his words "{cut(word["said"].strip('"“”'), settled.QUOTED_CHARS)}" ({word["asked"]}{named})'
-    reads = f"Jev reads this design as {'building less than' if question == 'narrows' else 'going against'} {said}"
-    newer = sorted((other for other in words if state.parse_time(other["at"]) > state.parse_time(word["at"])), key=lambda other: other["at"], reverse=True)[:NEWER_WORDS]
-    request = design | {
-        "words": {"asked": word["asked"], "said": cut(word["said"], settled.QUOTED_CHARS)},
-        "newer": {f"n{number}": {"asked": other["asked"], "said": cut(other["said"], settled.QUOTED_CHARS)} for number, other in enumerate(newer, 1)},
-    }
-    asked = {"sentence": pick._replace(options=pick.options | dict.fromkeys(sentences))}
-    if not (sentence := sentences.get(settled.jev(request, asked)["sentence"])):
-        print(f"drive job report: {reads} but picks none of its sentences as doing so, so it is kept", file=sys.stderr)
-        return None
-    if question == "narrows":
-        return (
-            f'Jev reads this design\'s sentence "{cut(sentence, settled.QUOTED_CHARS)}" as building less than {said} name, or later, with no fork asking him;'
-            " build it in, or keep it as a fork with drive job ask, unless the narrower design is what you mean"
-        )
-    return (
-        f'Jev reads this design\'s sentence "{cut(sentence, settled.QUOTED_CHARS)}" as going against {said};'
-        " a fork with drive job ask can ask him to lift them, and a sentence that only quotes or cites his words reads as no design on the Researched: block's"
-        " rulings: line"
-    )
-
-
 def limit_finding(lines: list[str]) -> str | None:
     """The first statement, as written, naming a limit beside a number, in one clause, as a finding left standing: left as is, unchanged, hit or exceeded, a word ruling that out just before it, as "never hit" does, aside. Only the report's own words count, so a quote, code, file path, identifier, link or URL it cites as evidence reads as blank, as limits.py names no limit, except on an UNPROVEN: line, where a quoted refusal is the reason it gives for leaving the step unproven."""
     for line in lines:
@@ -1288,105 +1152,6 @@ def left_steps(text: str) -> str | None:
 def left_for(line: str) -> bool:
     """Whether the line leaves a step for another session to run, a step its clause rules out, as "no coordinator runs it" does, aside."""
     return any(not limits.NEGATION.search(limits.CLAUSE_END.split(line[: found.start()])[-1]) for found in LEFT_FOR.finditer(line))
-
-
-def left_piece(data: dict, job: dict, text: str) -> str | None:
-    """The NEXT: or UNPROVEN: line of a builder's return that Jev reads, beside its goal, as leaving a piece of its plan unbuilt for later, at settled.YES or more, while it reads each piece an UNBUILT: line of the return or an undelivered other part of its order names, each built by a job of its own, as not that piece itself, under settled.NO, never a larger part holding it, as a delivered design part holds a row it left out, one request a line by pieces; a reading in the band between, or none, lets it out, said on stderr."""
-    if not (lines := [line.strip() for line in LEFT.findall(text)]):
-        return None
-    order_id = job["order"]
-    kept = [line["change"] for line in state.change_lines(job["kind"], text)]
-    kept += [part for part in data["orders"][order_id]["parts"] if part not in job["parts"] and not state.delivered(data, order_id, part)]
-    try:
-        read = pieces(lines, kept, job["goal"])
-    except settled.Unheard as failure:
-        print(f"drive job report: Jev did not read the return for a piece of its plan left to a follow-up, so it is kept unchecked: {failure}", file=sys.stderr)
-        return None
-    for number, line in enumerate(lines, 1):
-        leaves = settled.reading(read.get(f"leaves.l{number}"))
-        named = [settled.reading(read.get(f"names.l{number}.p{part}")) for part in range(1, len(kept) + 1)]
-        if leaves is False or True in named:
-            continue
-        if leaves is None or None in named:
-            print(f'drive job report: Jev is unsure whether "{cut(line, 160)}" leaves a piece of the plan unbuilt that no UNBUILT: line or other part names, so it is kept', file=sys.stderr)
-            continue
-        return line
-    return None
-
-
-def held_piece(name: str, data: dict, job_id: str, listed: list[re.Match]) -> tuple[str, str] | None:
-    """The first UNBUILT: line of a builder's return naming work the drive already holds, beside what holds it, so a line on its own or a sibling's work makes no second part: a PR of another job the line names that did not close unmerged, or else a piece an earlier return of the same builder left unbuilt that the line restates in new words, by restated_piece, or else a part of its order still to build, but its own and those the lines name in their own words, that Jev reads at settled.YES or more as naming that piece itself, one request a line by pieces; a reading in the band between, or none, lets it out, said on stderr."""
-    job = data["jobs"][job_id]
-    order_id = job["order"]
-    for line in listed:
-        if other := next((key for key in state.named_prs(data, order_id, line[0]) if data["prs"][key]["job"] != job_id and data["prs"][key]["state"] != "closed"), None):
-            return line[0].strip(), f"in {other}, a PR of {data['prs'][other]['job']}"
-    if restated := restated_piece(name, data, job_id, listed):
-        return restated
-    pieces_held = {*job["parts"], *(state.whole_order(line["change"]) for line in listed)}
-    if not listed or not (building := [part for part in data["orders"][order_id]["parts"] if part not in pieces_held and not state.delivered(data, order_id, part)]):
-        return None
-    try:
-        read = pieces([line[0].strip() for line in listed], building, None)
-    except settled.Unheard as failure:
-        print(f"drive job report: Jev did not read whether a part of the order already holds each UNBUILT: line, so it is kept unchecked: {failure}", file=sys.stderr)
-        return None
-    for number, line in enumerate(listed, 1):
-        named = [(part, settled.reading(read.get(f"names.l{number}.p{index}"))) for index, part in enumerate(building, 1)]
-        if holder := next((part for part, found in named if found), None):
-            builders = state.part_builders(data, order_id, holder)
-            return line[0].strip(), f'as the part "{cut(holder, 80)}"' + (f", which {', '.join(builders)} builds" if builders else "")
-        if any(found is None for _, found in named):
-            print(f'drive job report: Jev is unsure whether a part of the order already holds "{cut(line[0].strip(), 160)}", so it is kept', file=sys.stderr)
-    return None
-
-
-def restated_piece(name: str, data: dict, job_id: str, listed: list[re.Match]) -> tuple[str, str] | None:
-    """The first UNBUILT: line of a builder's return that Jev reads at settled.YES or more as restating in new words a piece an UNBUILT: line of the same builder's earlier return left unbuilt, beside the part that piece became, its builders and their PRs: each such part a builder or codex job builds, by state.part_builders, one request a part holding only every UNBUILT: line of the return, that part's line and each of its builders' goal and PR titles, one RESTATES Noul a line; a reading in the band between, or none, lets it on to the order-wide read, said on stderr."""
-    order_id = data["jobs"][job_id]["order"]
-    words = {state.whole_order(line["change"]) for line in listed}
-    earlier = {
-        part: builders
-        for reply in state.returns(name, job_id)
-        for line in state.change_lines("builder", reply["body"])
-        if (part := state.whole_order(line["change"])) not in words and (builders := state.part_builders(data, order_id, part))
-    }
-    if not earlier:
-        return None
-    prs = {part: [key for builder in builders for key in map(state.pr_key, data["jobs"][builder]["prs"]) if key in data["prs"]] for part, builders in earlier.items()}
-    builds = {part: {"goals": [data["jobs"][builder]["goal"] for builder in builders], "prs": [title for key in prs[part] if (title := data["prs"][key]["title"])]} for part, builders in earlier.items()}
-    lines = [line[0].strip() for line in listed]
-    numbered = range(1, len(lines) + 1)
-    told = {f"l{number}": line for number, line in zip(numbered, lines)}
-    asked = [
-        ({"lines": told, "earlier": {"line": f"UNBUILT: {part}", "builds": builds[part]}}, {f"restates.l{number}.e{index}": settled.asking(settled.RESTATES, slot=f"l{number}") for number in numbered})
-        for index, part in enumerate(earlier, 1)
-    ]
-    try:
-        read = settled.jev_all(asked)
-    except settled.Unheard as failure:
-        print(f"drive job report: Jev did not read whether an UNBUILT: line restates a piece an earlier return left unbuilt, so it is kept unchecked: {failure}", file=sys.stderr)
-        return None
-    for number, line in enumerate(lines, 1):
-        found = [(part, settled.reading(read.get(f"restates.l{number}.e{index}"))) for index, part in enumerate(earlier, 1)]
-        if part := next((part for part, restates in found if restates), None):
-            held = f" in {', '.join(prs[part])}" if prs[part] else ""
-            return line, f'as the part "{cut(part, 80)}" an earlier return of {job_id} left unbuilt, which {", ".join(earlier[part])} builds{held}'
-        if any(restates is None for _, restates in found):
-            print(f'drive job report: Jev is unsure whether "{cut(line, 160)}" restates a piece an earlier return of {job_id} left unbuilt, so it is kept', file=sys.stderr)
-    return None
-
-
-def pieces(lines: list[str], parts: list[str], goal: str | None) -> dict[str, float]:
-    """Jev's reads of these lines of a builder's return: with the goal, one request a line holding only that line and the goal, whether the line leaves a piece of that work unbuilt for later, and one request a line and PIECES_ASKED parts holding only that line and those parts' names, whether each names the piece the line leaves unbuilt, so an order of a hundred parts never packs one request; settled.Unheard when Jev gave none."""
-    named = [(f"p{index}", part) for index, part in enumerate(parts, 1)]
-    leaves = [({"line": line, "goal": goal}, {f"leaves.l{number}": settled.LEAVES}) for number, line in enumerate(lines, 1)] if goal is not None else []
-    names = [
-        ({"line": line, "parts": dict(named[start : start + PIECES_ASKED])}, {f"names.l{number}.{slot}": settled.asking(settled.NAMES_PIECE, part=slot) for slot, _ in named[start : start + PIECES_ASKED]})
-        for number, line in enumerate(lines, 1)
-        for start in range(0, len(named), PIECES_ASKED)
-    ]
-    return settled.jev_all([*leaves, *names])
 
 
 def reported_surface(text: str) -> str | None:
