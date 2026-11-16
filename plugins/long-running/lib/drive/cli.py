@@ -2586,10 +2586,14 @@ def keep_ask(name: str, job_id: str, text: str, unsettled: str | None, redraws: 
         for each in data["jobs"].values():
             each["questions"] = [other for other in each["questions"] if not any(other is gone for gone in replaced)]
         job["questions"].append(question)
+        def written() -> list[str]:
+            kept.write_text(text)
+            return []
+
+        written() if name in state.BATCHED else state.after_save(name, written)
         return kept, question
 
     kept, question = state.update(name, None, ask_kept)
-    kept.write_text(text)
     if question["replaced"]:
         return kept, asked, question, str(kept)
     if steps := state.unscheduled_job(state.load(name), job_id):
