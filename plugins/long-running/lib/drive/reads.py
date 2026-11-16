@@ -318,8 +318,10 @@ def exited(answer: str) -> int:
 def report_taken_later(question: str) -> str | None:
     """The first line of the report a lane's `DRIVE job report <job> -` sends on stdin, which the reader answers as kept before the take runs, so the lane waits on no lock or judge the take holds; None for any other question, a `job report` reading the kept report included."""
     line, _, rest = question.partition("\n")
+    if not (asked := DRIVE.fullmatch(line)):
+        return None
     try:
-        argv = shlex.split(DRIVE.fullmatch(line)[1])
+        argv = shlex.split(asked[1])
         sent = json.loads(rest) if rest.strip() else {}
     except ValueError:
         return None
