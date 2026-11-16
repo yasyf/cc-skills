@@ -665,6 +665,18 @@ def test_an_update_changing_a_row_it_did_not_name_runs_again_as_a_write_naming_n
     assert (state.load("demo")["terminal"], state.load("demo")["binder"]) == ("term-1", "term-2")
 
 
+def test_migrate_saves_the_marks_shaping_set_that_the_saved_drive_lacks_so_their_passes_stop_running_on_every_load(state_root: Path) -> None:
+    make("demo")
+    with closing(state.connect(state.database_path("demo"))) as db:
+        db.execute("DELETE FROM rows WHERE collection = '' AND key IN ('incident_goes_given', 'staging_owed_on_prs')")
+    assert state.load("demo")["incident_goes_given"] is True
+    assert state.stored("demo", ("incident_goes_given", "staging_owed_on_prs")) == {}
+    state.write("demo", lambda data: data.update(terminal="term-1"))
+    assert state.stored("demo", ("incident_goes_given", "staging_owed_on_prs")) == {}
+    state.migrate("demo")
+    assert state.stored("demo", ("incident_goes_given", "staging_owed_on_prs", "terminal")) == {"incident_goes_given": True, "staging_owed_on_prs": True, "terminal": "term-1"}
+
+
 def test_migrate_gives_each_picture_drawn_before_pictures_kept_their_source_its_kept_question_or_pr_fence_once_and_load_never_does(state_root: Path) -> None:
     make("demo")
     drive = state_root / "demo"

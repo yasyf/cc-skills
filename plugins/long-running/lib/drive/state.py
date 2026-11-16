@@ -1006,6 +1006,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str) -> dict:
         "carried_proofs_delivered": True,
         "change_waits_stacked": True,
         "cut_provers_marked": True,
+        "staging_owed_on_prs": True,
         "reader_pilot": None,
         "tooling_backlog": False,
     }
@@ -2110,7 +2111,7 @@ def migrate(name: str) -> None:
     moved(name)
     with migrating(name):
         data = load(name)
-        if "driver" in stored(name, ("driver",)):
+        if "driver" in stored(name, ("driver",)) or unsaved_marks(name, data):
             folded_driver(name)
         if (pictures := drive_dir(name) / "pictures").is_dir() and not (pictures / picture.SOURCED).exists():
             picture.fill(pictures, [*map(Path.read_text, sorted((drive_dir(name) / "asks").glob("*.md"))), *pr_bodies(name)])
@@ -2128,8 +2129,15 @@ def migrate(name: str) -> None:
             read_handoff_jobs(name, data)
 
 
+def unsaved_marks(name: str, data: dict) -> bool:
+    """Whether shaping set a once-only mark a new drive starts with that the drive's saved row lacks: shaping runs on every load and an edit writes only what differs from the shaped copy, so such a mark is never saved by an edit, and its pass, such as incident_goes over every PR, ran again on every load of the drive."""
+    marks = tuple(field for field, value in new_drive(name, "coordinator", None, "").items() if value is True)
+    held = stored(name, marks)
+    return any(data.get(mark) and not held.get(mark) for mark in marks)
+
+
 def folded_driver(name: str) -> None:
-    """Save the drive whole as it loads, which folds an older install's driver row into its roles and drops that row, loaded inside the transaction that saves it, so no write committing between the load and the save is written over."""
+    """Save the drive whole as it loads, which folds an older install's driver row into its roles and drops that row, and saves each mark shaping set that its saved row lacks, by unsaved_marks, loaded inside the transaction that saves it, so no write committing between the load and the save is written over."""
     with closing(connect(database_path(name))) as db:
         db.execute("BEGIN IMMEDIATE")
         try:
