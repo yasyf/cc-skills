@@ -196,3 +196,17 @@ def test_a_cancelled_warm_call_is_killed_and_gets_no_reply(warm_drive: Callable[
     assert answered({"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": 7, "reason": "aborted"}}) == ""
     calling.join(10)
     assert (calling.is_alive(), run.code, out.getvalue()) == (False, -signal.SIGKILL, "")
+
+
+def test_a_warm_process_no_call_used_for_the_idle_bound_is_retired_and_the_next_call_starts_a_fresh_one(warm_drive: Callable[[str], None], monkeypatch: pytest.MonkeyPatch) -> None:
+    warm_drive('return "ok"')
+    assert json.loads(answered(tool_call(1, "status", {})))["result"]["isError"] is False
+    first = mcp.WARM[mcp.newest_drive()]
+    monkeypatch.setattr(mcp, "WARM_CHECK", 0.05)
+    monkeypatch.setattr(mcp, "WARM_IDLE", 0)
+    threading.Thread(target=mcp.retire_idle, daemon=True).start()
+    first.process.wait(10)
+    assert mcp.newest_drive() not in mcp.WARM
+    monkeypatch.setattr(mcp, "WARM_IDLE", 3600)
+    assert json.loads(answered(tool_call(2, "status", {})))["result"]["isError"] is False
+    assert mcp.WARM[mcp.newest_drive()] is not first

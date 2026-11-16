@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import traceback
 import uuid
 from pathlib import Path
@@ -27,6 +28,8 @@ CALLS: dict[int | str, "subprocess.Popen | WarmCall"] = {}
 WARM: dict[str, "Warm"] = {}
 WARMING = threading.Lock()
 KILL_SECONDS = 10
+WARM_IDLE = 600
+WARM_CHECK = 60
 LIST_CHANGED = {"jsonrpc": "2.0", "method": "notifications/tools/list_changed"}
 INSTRUCTIONS = (
     "Every message to him goes through say, each picture or screen recording he is sent included: one call posts it to his Slack DM and"
@@ -266,6 +269,7 @@ def tool_named(name: str) -> dict:
 def serve(stdin: TextIO, stdout: TextIO) -> int:
     """Answer MCP requests read from stdin, each in its own thread, so a slow post never holds the next call, each call running as its own process of the newest installed drive."""
     writing = threading.Lock()
+    threading.Thread(target=retire_idle, daemon=True).start()
     for line in stdin:
         if line.strip():
             threading.Thread(target=respond, args=(json.loads(line), stdout, writing)).start()
@@ -395,6 +399,7 @@ class Warm:
         self.guard = threading.Lock()
         self.writing = threading.Lock()
         self.running: dict[str, WarmCall] = {}
+        self.used = time.monotonic()
         threading.Thread(target=self.heard, daemon=True).start()
 
     def start(self, run: WarmCall) -> None:
@@ -450,8 +455,21 @@ def warmed(drive_path: str, run: WarmCall) -> "Warm":
             WARM.pop(older).retire()
         if (held := WARM.get(drive_path)) is None or held.process.poll() is not None:
             WARM[drive_path] = held = Warm(drive_path)
+        held.used = time.monotonic()
     held.start(run)
     return held
+
+
+def retire_idle() -> None:
+    """Retire each warm process no call used for WARM_IDLE that runs none, every WARM_CHECK, so an idle session's server holds no drive imported in a second process for hours, and its next call starts a fresh one on the newest install; under WARMING, which warmed holds while it picks a warm process and marks it used, so none is retired between its pick and its call."""
+    ticks = threading.Event()
+    while not ticks.wait(WARM_CHECK):
+        with WARMING:
+            for path, held in list(WARM.items()):
+                with held.guard:
+                    idle = not held.running and time.monotonic() - held.used >= WARM_IDLE
+                if idle:
+                    WARM.pop(path).retire()
 
 
 def kept(tool: str) -> str:
