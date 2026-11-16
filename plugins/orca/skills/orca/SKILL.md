@@ -553,8 +553,12 @@ cc-remote records under that workspace name holds that a fresh Sprite would not
 get, or nothing: each worktree with uncommitted changes and how many files, each
 branch or stash with commits on no remote, and an unpushed HEAD, all by name, or
 why the read failed. Each ssh it opens to a Sprite, here and in `--save`,
-`--destroy` and `--done`, gives up after a 30-second connect, so a Sprite whose
-sshd never sends its banner fails the read in 30 seconds. A branch whose first-parent history begins at a root commit
+`--destroy` and `--done`, gives up after a 30-second connect. A read the Sprite gives no answer to, a
+connect or banner that times out or an exit of 0 that prints nothing, revives it
+and reads once more: `sprite checkpoint create` (`WORKER_SPRITE`, else `sprite` on
+PATH), then `sprite restore` of that new checkpoint, which restarts a Sprite whose
+API reads `running` while its sshd and `sprite exec` hang, with its disk as it
+was. The revive goes to stderr, and a read that fails again keeps the Sprite. A branch whose first-parent history begins at a root commit
 GitHub's default branch shares no history with, such as the
 `cc-notes-source-live-v2` branch cc-notes pins its own records on, is no lane's
 work: `--held`, `--save`, `--destroy` and `--done` all pass over it. It reads through cc-remote alone, so a Sprite whose Dispatch

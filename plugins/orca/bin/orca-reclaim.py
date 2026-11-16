@@ -58,6 +58,9 @@ UNKNOWN_TO_GITHUB = re.compile(r"HTTP 4(04|22)")
 UNREADABLE = "unreadable"
 REPO_VALUES = json.loads(Path(".orca.json").read_text()) if Path(".orca.json").is_file() else {}
 CC_REMOTE = os.environ.get("WORKER_CC_REMOTE") or REPO_VALUES.get("ccRemote") or "cc-remote"
+SPRITE_CLI = os.environ.get("WORKER_SPRITE") or "sprite"
+SPRITE_ORG = re.compile(r"sprite proxy -o (\S+)")
+CHECKPOINTED = re.compile(r"Checkpoint (v\d+) created")
 if "ccRemoteConfig" in REPO_VALUES:
     os.environ.setdefault("CC_REMOTE_CONFIG", str(Path(REPO_VALUES["ccRemoteConfig"]).resolve()))
 STATE_HOME = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state")
@@ -77,6 +80,7 @@ PASS_ORCA_S = 180.0
 CALL_TIMEOUT_S = 60
 DESTROY_S = 120
 SSH_CONNECT_S = 30
+REVIVE_S = 180
 BACKOFF_FIRST_S = 15 * 60
 BACKOFF_MOST_S = 4 * 60 * 60
 MUTATIONS = {("terminal", "close"), ("worktree", "rm"), *(("orchestration", verb) for verb in ("worker-stop", "worker-abandon", "worker-release"))}
@@ -641,9 +645,14 @@ class CcRemote:
         git_c = f"git -C {shlex.quote(sprite.root)}"
         off_origin = f"{{ {git_c} for-each-ref --format='%(refname) %(refname:short) %(objectname)' refs/heads refs/stash | while read -r ref name tip; do [ -z \"$({git_c} rev-list -1 \"$ref\" --not HEAD --remotes=origin)\" ] || printf '%s:%s:%s ' \"$name\" \"$tip\" \"$({git_c} rev-list --first-parent --max-parents=0 \"$ref\" --not HEAD --remotes=origin)\"; done; echo; }}"
         changed = f"{{ {git_c} worktree list --porcelain | sed -n 's/^worktree //p' | while read -r tree; do [ ! -e \"$tree\" ] || {{ if listed=$(git -C \"$tree\" status --porcelain); then files=$(printf %s \"$listed\" | grep -c '^'); else files={UNREADABLE}; fi; [ \"$files\" = 0 ] || printf '%s %s\\t' \"$files\" \"$tree\"; }}; done; echo; }}"
-        done = self.ssh(sprite, f"{git_c} remote get-url origin && {off_origin} && {changed} && {git_c} status --porcelain=v2 --branch")
-        if done.returncode != 0:
-            return f"ssh to {sprite.host} could not read {sprite.root}: {(done.stderr.strip().splitlines() or [f'exit {done.returncode}'])[-1]}"
+        script = f"{git_c} remote get-url origin && {off_origin} && {changed} && {git_c} status --porcelain=v2 --branch"
+        done = self.ssh(sprite, script)
+        if mute(done):
+            if failed := self.revive(sprite):
+                return f"ssh to {sprite.host} could not read {sprite.root}: {unanswered(done)}, and reviving it failed: {failed}"
+            done = self.ssh(sprite, script)
+        if done.returncode != 0 or not done.stdout:
+            return f"ssh to {sprite.host} could not read {sprite.root}: {unanswered(done)}"
         origin, off_origin, changed, *lines = done.stdout.splitlines()
         hub = GITHUB_ORIGIN.search(origin)
         if hub is None:
@@ -679,9 +688,33 @@ class CcRemote:
             return f"cc-remote destroy {sprite.workspace} gave no answer in {DESTROY_S} s, so it was killed"
         return None if done.returncode == 0 else (done.stderr.strip().splitlines() or [f"cc-remote destroy exited {done.returncode}"])[-1]
 
+    def revive(self, sprite: Sprite) -> str | None:
+        org = SPRITE_ORG.search(Path(sprite.ssh_config).read_text())
+        named = (*(("-o", org[1]) if org else ()), "-s", sprite.workspace)
+        try:
+            made = subprocess.run([SPRITE_CLI, "checkpoint", "create", *named], capture_output=True, text=True, timeout=REVIVE_S)
+            if not (point := CHECKPOINTED.search(made.stdout)):
+                return f"sprite checkpoint create: {unanswered(made)}"
+            restored = subprocess.run([SPRITE_CLI, "restore", *named, point[1]], capture_output=True, text=True, timeout=REVIVE_S)
+        except subprocess.TimeoutExpired as late:
+            return f"sprite {late.cmd[1]} gave no answer in {REVIVE_S} s"
+        if restored.returncode != 0:
+            return f"sprite restore {point[1]}: {unanswered(restored)}"
+        print(f"revived Sprite {sprite.workspace}, whose ssh gave no answer, by restoring its new checkpoint {point[1]}", file=sys.stderr)
+        return None
+
     def wake(self, workspace: str) -> str | None:
         done = subprocess.run([CC_REMOTE, "orca", "reconnect", workspace], capture_output=True, text=True)
         return None if done.returncode == 0 else (done.stderr.strip().splitlines() or [f"cc-remote orca reconnect exited {done.returncode}"])[-1]
+
+
+def mute(done: subprocess.CompletedProcess[str]) -> bool:
+    """Whether an ssh read got no answer from its Sprite: a connect or banner that timed out, or an exit of 0 with nothing printed, which reads nothing, so neither counts as a read."""
+    return done.returncode == 255 and "timed out" in done.stderr or done.returncode == 0 and not done.stdout
+
+
+def unanswered(done: subprocess.CompletedProcess[str]) -> str:
+    return (done.stderr.strip().splitlines() or done.stdout.strip().splitlines() or [f"exit {done.returncode}" if done.returncode else "it printed nothing"])[-1]
 
 
 def current(worker: Worker, orca: Orca) -> str | Action | None:
@@ -1208,7 +1241,7 @@ def main() -> int:
         "has nothing left to reclaim, and is named gone with no terminal close or worktree read. "
         "A settled dispatch whose worktree and terminal a cc-remote Sprite task records, with the workspace still recorded, has its Sprite destroyed "
         "with cc-remote destroy, WORKER_CC_REMOTE, else ccRemote in the working directory's .orca.json, else cc-remote on PATH, under the CC_REMOTE_CONFIG it inherits, else ccRemoteConfig in that .orca.json, which refuses a machine without that workspace's label and removes its Orca environment, once no unsettled dispatch "
-        "shares the workspace, its terminal reads idle twice (skipped under --done), and its checkout, read over ssh, is clean in every worktree, holds no other branch or stash with commits on no remote, whose tip GitHub holds neither as a branch's head, an open or merged PR's head, whatever its base, nor in its default branch, and has its HEAD on origin "
+        "shares the workspace, its terminal reads idle twice (skipped under --done), and its checkout, read over ssh, after a read the Sprite gives no answer to revives it with sprite checkpoint create and a restore of that checkpoint, WORKER_SPRITE else sprite on PATH, and reads it once more, is clean in every worktree, holds no other branch or stash with commits on no remote, whose tip GitHub holds neither as a branch's head, an open or merged PR's head, whatever its base, nor in its default branch, and has its HEAD on origin "
         "or landed, which GitHub answers for the Sprite's own origin from any working directory; when GitHub cannot answer, such as under a rate limit, the Sprite is kept and named. A removal Orca answers with an error, such as runtime_unavailable when the runtime drops the connection, still counts as removed when "
         "the worktree's directory is gone afterwards, and the Orca error follows on its own error line. A worktree Orca answers selector_not_found for, because it "
         "no longer tracks it, is removed with git worktree remove after the same checks, and kept and named when git refuses. Cleanup is paused until $XDG_STATE_HOME/orca-gc/resumed, default ~/.local/state/orca-gc/resumed, "
