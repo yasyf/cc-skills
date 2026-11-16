@@ -1322,6 +1322,7 @@ def main() -> int:
     parser.add_argument("--destroy", nargs=2, metavar=("WORKSPACE", "LANE"), help="save what this cc-remote workspace's Sprite holds on no remote as --save does, then destroy it and its Orca environment, and print both")
     parser.add_argument("--unverified", action="store_true", help="with --destroy, destroy a Sprite whose checkout ssh cannot read even after a revive, unsaved, and say so: for a superseded attempt's Sprite, never a job's current worker")
     parser.add_argument("--wake", metavar="WORKSPACE", help="wake this cc-remote workspace's Sprite and reconnect Orca to the runtime it runs, starting no worker")
+    parser.add_argument("--revive", metavar="WORKSPACE", help="checkpoint this cc-remote workspace's Sprite and restore that checkpoint, which reboots it, as a read it gives no answer to does, then reconnect Orca to it")
     parser.add_argument("--new", action="store_true", help="the recurring pass: a bounded batch of settled dispatches, capped closes and removals, backing off when Orca is slow")
     parser.add_argument("--shells", action="store_true", help="with --new, also close empty Orca shells quiet for three days")
     parser.add_argument("--dry-run", action="store_true", help="print what gc would do and change nothing")
@@ -1330,8 +1331,8 @@ def main() -> int:
         parser.error("--new picks its own dispatches; drop --dispatch and --done")
     if args.shells and not args.new:
         parser.error("--shells runs only with --new")
-    if (args.held or args.save or args.destroy or args.wake) and (args.run or args.new or args.dispatch or args.done or args.dry_run or sum(map(bool, (args.held, args.save, args.destroy, args.wake))) > 1):
-        parser.error("--held, --save, --destroy and --wake each take one Sprite by its workspace name; use one, and drop --run, --new, --dispatch, --done and --dry-run")
+    if (args.held or args.save or args.destroy or args.wake or args.revive) and (args.run or args.new or args.dispatch or args.done or args.dry_run or sum(map(bool, (args.held, args.save, args.destroy, args.wake, args.revive))) > 1):
+        parser.error("--held, --save, --destroy, --wake and --revive each take one Sprite by its workspace name; use one, and drop --run, --new, --dispatch, --done and --dry-run")
     if args.held:
         print(held(args.held, CcRemote()) or "")
         return 0
@@ -1356,8 +1357,18 @@ def main() -> int:
             return 1
         print(f"woke {args.wake}")
         return 0
+    if args.revive:
+        cc_remote = CcRemote()
+        if (sprite := cc_remote.sprite(args.revive)) is None:
+            print(f"cc-remote records no Sprite {args.revive}", file=sys.stderr)
+            return 1
+        if refusal := cc_remote.revive(sprite) or cc_remote.wake(args.revive):
+            print(refusal, file=sys.stderr)
+            return 1
+        print(f"revived {args.revive}")
+        return 0
     if not args.new and not args.run:
-        parser.error("--run is required without --new, --held, --save, --destroy or --wake")
+        parser.error("--run is required without --new, --held, --save, --destroy, --wake or --revive")
     if args.new:
         tally = sweep(args.run, args.shells, args.dry_run, Orca(), Git(), CcRemote(), Pause(RESUMED, FILES_PAUSED))
     else:

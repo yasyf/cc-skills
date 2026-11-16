@@ -84,6 +84,8 @@ UNFIT = 76
 CC_REMOTE = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state") / "cc-remote"
 CC_REMOTE_WORKSPACES = CC_REMOTE / "workspaces"
 KEPT_SPRITES = CC_REMOTE.parent / "orca-gc" / "kept"
+NBD_ERRORS = "/sys/fs/ext4/nbd0/errors_count"
+NBD_STAT = "/sys/block/nbd0/stat"
 SPRITE_CLI = "sprite"
 SPRITES_FRESH = 600
 SPRITE_LIST_SECONDS = 60
@@ -811,6 +813,18 @@ def release(drive: str, job_id: str, job: dict, checkout: Path, unverified: bool
     """Destroy the Sprite at the job's workspace, with its Orca environment and forward, once the reclaimer's --destroy has saved what it holds on no remote to GitHub as save does, or, unverified, at once when ssh cannot read its checkout even after a revive, as for a superseded attempt's Sprite: what it saved and destroyed; OrcaError naming why its checkout could not be read, the save failed, what it still holds, or cc-remote's refusal, which keeps it, or that cc-remote records no such Sprite, so nothing was destroyed."""
     state.said(job_id, f"it destroys Sprite {job['workspace']} with {RECLAIMER} --destroy{' --unverified' if unverified else ''}, for at most {RECLAIM_SECONDS} s")
     return reclaimer(checkout, "--destroy", job["workspace"], lane_of(drive, job_id, job), *(("--unverified",) if unverified else ()), seconds=RECLAIM_SECONDS)
+
+
+def disk_read(root: Path, workspace: str) -> tuple[int, list[str]]:
+    """What the Sprite at workspace says of its nbd0 root disk through the Sprites file API, which answers while a wedged disk stalls every ssh exec: the errors ext4 counted on it, which an I/O error, an aborted journal or a read-only remount raises, and its block stat line, whose ninth field counts the requests in flight; OrcaError when the API cannot answer."""
+    errors = sprite_api(root, workspace, f"fs/read?{urllib.parse.urlencode({'path': NBD_ERRORS})}")
+    stat = sprite_api(root, workspace, f"fs/read?{urllib.parse.urlencode({'path': NBD_STAT})}")
+    return int(errors.strip() or 0), stat.split()
+
+
+def revive(root: Path, workspace: str) -> str:
+    """Checkpoint the Sprite at workspace and restore that checkpoint, rebooting it off a wedged disk, then reconnect Orca to it, by the reclaimer's --revive; OrcaError when either step fails."""
+    return reclaimer(root, "--revive", workspace, seconds=RECLAIM_SECONDS)
 
 
 def keep_sprite(workspace: str) -> None:

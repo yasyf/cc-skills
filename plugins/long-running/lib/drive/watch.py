@@ -75,6 +75,9 @@ LANE_WAIT = timedelta(seconds=reads.LANE_GIVES_UP)
 ANSWER_BY = timedelta(seconds=reads.ANSWER_BY)
 RELAUNCHES_LOG = "relaunches.log"
 TRANSCRIPTS_LOG = "transcripts.log"
+DISKS_LOG = "disks.log"
+DISKS_STARTED = "disks-check.started"
+DISKS_EVERY = timedelta(minutes=2)
 PROOF_TAIL = 20
 PASS_DONE = (
     "this pass's round is done: it returns DONE naming what the round did and where the next round starts, which the watch quotes to the next"
@@ -4250,6 +4253,17 @@ def stranded(job_id: str, data: dict, gap: str, unlisted: dict[str, dict]) -> st
     return "; ".join([gap, *tracked, *untracked])
 
 
+def check_disks(watcher: Watcher, moment: datetime) -> list[str]:
+    """Start drive disks-check as a process of its own, by state.detach, once DISKS_EVERY has passed since the last one started, its start kept as the mtime of the drive's DISKS_STARTED, so a Sprite lane's wedged nbd0 disk is checkpoint-restored within minutes; nothing under a scratch state root, whose proofs run no Sprites."""
+    stamp = state.drive_dir(watcher.name) / DISKS_STARTED
+    if watcher.project or state.scratch() or stamp.exists() and moment.timestamp() - stamp.stat().st_mtime < DISKS_EVERY.total_seconds():
+        return []
+    stamp.touch()
+    os.utime(stamp, (moment.timestamp(), moment.timestamp()))
+    state.detach(watcher.name, ["disks-check"], DISKS_LOG)
+    return []
+
+
 def release_lanes(watcher: Watcher, moment: datetime) -> list[str]:
     """Free what each job it hears is done with still holds, never what a running job holds, starting each drive verb that frees one as a process of its own, by state.detach, and keeping that process's pid and time on the drive, so a restarted watch reads what every earlier watch asked. First, by one rule, a remote job that is not running holds no Sprite once its worker's turn is over: the own lane of each job whose line set it done, failed or stopped, or set it waiting or built and whose worker then ended its turn or died, by unended, so a live lane waiting on its own question or on a read it asked keeps it, is ended by `drive job end`, which keeps its transcripts, saves what its Sprite holds on no remote and destroys it, every due job's in the pass that reads the event ending its turn, so lanes end as fast as they start, kept as the job's end, so no watch ends that lane again while that end is in_flight, and its Sprite left to that end alone while the end it records on the lane is, ahead of every reclaim, so no reclaim and no install delays an end. Then each Sprite cc-remote still records that an earlier or ended lane of any job left, such as the Sprite a relaunch moved off or one an end kept, destroyed with its Orca environment by --destroy once what it holds on no remote is saved to GitHub as saved/<the job's lane>/<branch>, or else kept by that reclaim, said once and never asked for again; and the dispatch of a done, failed or stopped lane on this Mac once its job has been quiet for QUIET_LANE, as lr's gc --done waited after a lane's last word, whose terminal --run --done closes and whose worktree it removes once clean and pushed, the reclaimer skipping whatever its pauses hold, its death recorded first. Each of those goes to `drive job reclaim`, whose orca.reclaimer kills the reclaimer with every process it started past RECLAIM_SECONDS, kept as the reclaim on the death of the lane that left it, and none asked again while its own is in_flight; what each run printed goes to the watch log."""
     if state.scratch():
@@ -5289,6 +5303,7 @@ def stages(watcher: Watcher, moment: datetime, until: Callable[[], object] = lam
                     noted_lines,
                     lane_lines,
                     release_lanes,
+                    check_disks,
                     agent_lines,
                     stall_lines,
                     budget_lines,

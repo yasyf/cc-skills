@@ -26,6 +26,7 @@ DRIVE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 ROLE_NAMES = {"coordinator": "top coordinator", "communicator": "communicator", "meta": "meta session"}
 FREEZE_FOR = timedelta(hours=12)
 KEPT_SPRITE_CAP = 60
+NBD_READS = "nbd-reads.json"
 RELEASE_WORD = re.compile(r"\breleas", re.IGNORECASE)
 INCIDENT_EXEMPTION = "incident fix"
 UNLANDABLE = (
@@ -4219,12 +4220,12 @@ def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEn
         return restart(args, name, dispatch, orca.LaneEnd(f"{end.why}, and {stale}", end.branch, None, unfit=True), text)
     death = state.lane_death(job, "dispatch") or {}
     left = death.get("unsaved") if answered else f"no save was tried, since {read}"
-    if end.ended and death.get("ended", {}).get("kept") and not here and "unresumed" not in death and orca.holds_sprite(job) and (session := orca.session_of(args.id, job["workspace"], dispatch)):
+    if (death.get("restored") or end.ended and death.get("ended", {}).get("kept")) and not here and "unresumed" not in death and orca.holds_sprite(job) and (session := orca.session_of(args.id, job["workspace"], dispatch)):
         yield_to_launch(name, args.id)
         try:
             return resume_session(args, name, dispatch, end, message, text, session, root, cause)
         except orca.Unstarted as error:
-            unresumed = end._replace(why=f"{end.why}, and its Claude session {session} did not resume on the Sprite that end kept: {error}")
+            unresumed = end._replace(why=f"{end.why}, and its Claude session {session} did not resume on the Sprite kept for it: {error}")
             return restart(args, name, dispatch, orca.died(name, args.id, dispatch, unresumed, unresumed=str(error)), text)
     if finished and not same and "unresumed" not in death and (session := orca.session_of(args.id, job["workspace"], dispatch)):
         yield_to_launch(name, args.id)
@@ -6233,6 +6234,47 @@ def transcripts_keep(args: argparse.Namespace) -> int:
     return emit(args, f"{args.id}: kept {kept}" if kept else f"{args.id}: no transcript kept from Sprite {job['workspace']}", {"id": args.id, "transcript": str(kept) if kept else None})
 
 
+def disks_check(args: argparse.Namespace) -> int:
+    """Read the nbd0 root disk of each Sprite a job's lane holds now through the Sprites file API, by orca.disk_read, and checkpoint-restore at once, by orca.revive under the job's own lock, each one whose ext4 counted an error or whose in-flight requests stood with its stat line unchanged since the last check, so a disk stalling under memory pressure is cured before it remounts read-only and its lane's death is recorded as restored, which restart resumes in place on that same Sprite; the last stat lines kept in the drive's NBD_READS."""
+    name = state.resolve(args.drive)
+    data = state.load(name)
+    root = orca.checkout(name, data["roles"]["coordinator"]["cwd"])
+    lanes = {job_id: job for job_id, job in data["jobs"].items() if job["state"] in ("running", "waiting") and job.get("dispatch") and orca.holds_sprite(job) and not state.lane_death(job, "dispatch")}
+    seen_path = state.drive_dir(name) / NBD_READS
+    seen = json.loads(seen_path.read_text()) if seen_path.exists() else {}
+
+    def read(job_id: str) -> tuple[str, tuple[int, list[str]] | None]:
+        try:
+            return job_id, orca.disk_read(root, lanes[job_id]["workspace"])
+        except (orca.OrcaError, ValueError):
+            return job_id, None
+
+    with ThreadPoolExecutor(8) as pool:
+        reads = {job_id: got for job_id, got in pool.map(read, lanes) if got}
+    seen_path.write_text(json.dumps({lanes[job_id]["workspace"]: stat for job_id, (_, stat) in reads.items()}))
+    wedged = {
+        job_id: f"ext4 counted {errors} errors on it" if errors else f"{stat[8]} requests stood in flight since the last check"
+        for job_id, (errors, stat) in reads.items()
+        if errors or int(stat[8]) and seen.get(lanes[job_id]["workspace"]) == stat
+    }
+    lines = []
+    for job_id, why in wedged.items():
+        workspace = lanes[job_id]["workspace"]
+        with state.job_locked(name, job_id, orca.LAUNCH_SECONDS):
+            job = state.load(name)["jobs"][job_id]
+            if job.get("workspace") != workspace or state.lane_death(job, "dispatch"):
+                continue
+            try:
+                orca.revive(root, workspace)
+            except orca.OrcaError as error:
+                lines.append(f"{job_id}: Sprite {workspace}'s nbd0 disk wedged ({why}), and its checkpoint-restore failed: {error}")
+                continue
+            end = orca.LaneEnd(f"its Sprite {workspace}'s nbd0 disk wedged ({why}), and the disk check checkpoint-restored it", job.get("branch"), None)
+            orca.died(name, job_id, job["dispatch"], end, restored=state.stamp())
+        lines.append(f"{job_id}: Sprite {workspace}'s nbd0 disk wedged ({why}); checkpoint-restored, so its next lane resumes its Claude session there")
+    return emit(args, "\n".join(lines) or f"no nbd0 disk of the {len(reads)} Sprites read of {len(lanes)} is wedged", {"read": len(reads), "lanes": len(lanes), "wedged": wedged})
+
+
 def card_record(args: argparse.Namespace) -> int:
     from drive import card
 
@@ -7890,6 +7932,8 @@ def parser() -> argparse.ArgumentParser:
     verb = verbs.add_parser("transcripts-keep", parents=both, help="copy the Claude Code transcripts the Sprite of a job's lane holds now to the drive's folder; the watch runs it detached at each turn end of a Sprite lane")
     verb.add_argument("id", help="the job")
     verb.set_defaults(run=transcripts_keep)
+    verb = verbs.add_parser("disks-check", parents=both, help="read the nbd0 disk of each Sprite lane through the Sprites file API and checkpoint-restore a wedged one at once; the watch runs it detached every two minutes")
+    verb.set_defaults(run=disks_check)
     verb = verbs.add_parser("mcp", help="serve say and the drive's verbs as MCP tools to a Claude Code session over stdio")
     verb.add_argument("--list", action="store_true", help="print the tools as JSON and serve nothing")
     verb.add_argument("--warm", action="store_true", help="fork one process per call the MCP server sends on stdin, from this one with the drive already imported")
