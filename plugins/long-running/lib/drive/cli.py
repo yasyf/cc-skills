@@ -3145,8 +3145,9 @@ def cards_withdraw(args: argparse.Namespace) -> int:
     unsaid = None if onto else settled.unsaid([args.words], [args.via], view.live_cards(name), state.load(name))
     if unsaid and (unhappened := settled.unhappened(args.via, args.card, name)):
         raise DriveError(f"{args.card}: refused, not withdrawn: {unsaid}; nor did an event at {args.via} overtake it: {unhappened}")
-    with state.edit(name) as data:
+    def cards_withdrawn(data: dict):
         drawn = [(job_id, question) for job_id, question in view.drawn_on(data, args.card) if question["closed"] is None]
+        live = None
         if onto and drawn:
             live = state.question_in(data["jobs"][onto[0]], onto[1])
             for _, question in drawn:
@@ -3155,6 +3156,9 @@ def cards_withdraw(args: argparse.Namespace) -> int:
         else:
             closed = state.new_close("withdrawn", args.words, args.via)
             ended = [each for job_id, question in drawn for each in superseded.end(data, job_id, question, closed)]
+        return data, drawn, ended, live
+
+    data, drawn, ended, live = state.update(name, None, cards_withdrawn)
     if not drawn:
         raise DriveError(f"{args.card}: no open question of this drive is drawn on that card, by its waits id or permalink; drive status <job> names the card each question is drawn on")
     if onto:
