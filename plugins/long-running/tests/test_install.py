@@ -1076,8 +1076,11 @@ def test_a_reload_whose_line_never_shows_while_its_session_sits_idle_is_left_uns
     assert capsys.readouterr().out.splitlines()[1:] == [f"demo communicator: {handed('demo', 'term_comm')}"]
 
 
-def test_a_session_whose_claude_code_process_exited_is_typed_nothing_and_left_unstamped(fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str], runs_in: dict[str, list[dict]]) -> None:
+def test_a_session_whose_claude_code_process_exited_is_typed_nothing_and_left_unstamped(
+    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str], runs_in: dict[str, list[dict]], live_sessions: dict[str, int | None]
+) -> None:
     start_drive(runs_in, "demo", communicator="term_comm")
+    live_sessions["demo-communicator"] = None
     git = fake(["unused"], set())
     assert install.main("long-running@skills", None, None, 900, None) == 0
     capsys.readouterr()
