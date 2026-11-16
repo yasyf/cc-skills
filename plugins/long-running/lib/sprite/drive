@@ -7,6 +7,8 @@ is `-`, and the text of each file a word names. The drive's watch runs it there 
 the file the coordinator wrote it to on this Sprite, which this reads in its place once its size and SHA-256 match. While no
 answer comes it says so on stderr every 30 s, naming the question, and at 4.5 minutes, inside the 5 minutes a prompt cache lives and the 600000 ms a Bash call
 waits at most, it gives up on it, exiting 1; the Mac answers any verb still running at 4 minutes as still running.
+`--root`, `manual` and `--help`, whose answers no drive state moves, are answered from this Sprite's copy of the last answer for an
+hour after the Mac first gives one, with no round trip.
 """
 
 import hashlib
@@ -16,6 +18,7 @@ import re
 import shlex
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 ANSWER = re.compile(r"drive exited (\d+)\n?")
@@ -23,9 +26,14 @@ KEPT = re.compile(r"drive answer kept on this Sprite: (\S+) \((\d+) bytes, SHA-2
 QUESTION_BYTES = 120_000
 WAIT_MS = 30_000
 STOP_MS = 270_000
+STATIC = (("--root",), ("manual",), ("--help",), ("-h",))
+STATIC_SECONDS = 3600
 
 
 def main(argv: list[str]) -> int:
+    if (kept := static_kept(argv)) is not None:
+        print(kept, end="")
+        return 0
     sent: dict = {"files": {word: {"text": Path(word).read_text(), "executable": os.access(word, os.X_OK)} for word in dict.fromkeys(argv) if os.path.isfile(word)}}
     if "-" in argv:
         sent["stdin"] = sys.stdin.read()
@@ -55,7 +63,31 @@ def main(argv: list[str]) -> int:
         status = ANSWER.match(answer)
     if printed := answer[status.end() :] if status else answer:
         print(printed)
+    if status and status[1] == "0" and static(argv):
+        keep_static(argv, f"{printed}\n" if printed else "")
     return int(status[1]) if status else 1
+
+
+def static(argv: list[str]) -> bool:
+    return any(tuple(argv[: len(verb)]) == verb or verb[0] in ("--help", "-h") and verb[0] in argv for verb in STATIC)
+
+
+def static_path(argv: list[str]) -> Path:
+    folder = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "long-running-drive"
+    return folder / f"{hashlib.sha256(json.dumps([hashlib.sha256(Path(__file__).read_bytes()).hexdigest(), argv]).encode()).hexdigest()}.txt"
+
+
+def static_kept(argv: list[str]) -> str | None:
+    path = static_path(argv)
+    if not static(argv) or not path.is_file() or time.time() - path.stat().st_mtime > STATIC_SECONDS:
+        return None
+    return path.read_text()
+
+
+def keep_static(argv: list[str], printed: str) -> None:
+    path = static_path(argv)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(printed)
 
 
 def kept_answer(path: str, size: str, digest: str) -> str:

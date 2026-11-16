@@ -6623,6 +6623,24 @@ def test_a_lanes_write_is_answered_as_kept_before_it_runs_and_a_refused_one_wake
     assert unsent(remote) == []
 
 
+def test_a_write_answered_kept_whose_reader_died_before_it_ran_is_run_once_by_the_reader_the_responder_starts_again(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    question = 'DRIVE job set j1 --repro /tmp/j1/prove.sh\n{"files": {}}'
+    state.keep_reply(remote, "j1", message("question", question, id="relay_kept"))
+    answers = state.drive_dir(remote) / watch.ANSWERS
+    answers.mkdir(exist_ok=True)
+    watch.answer_file(remote, "relay_kept").write_text(json.dumps({"job": "j1", "reader": None, "answer": "drive exited 0\nkept", "why": None}))
+    watch.answer_file(remote, "relay_kept").with_suffix(".pending").write_text(json.dumps({"job": "j1", "reader": 2**22 + 1, "started": 1}))
+    spawned, ran = [], []
+    monkeypatch.setattr(watch, "spawn_reader", lambda name, job_id, message_id: spawned.append((job_id, message_id)))
+    monkeypatch.setattr(reads, "answer", lambda asked, root, drive, job_id: ran.append(asked) or reads.lane_exit(0, "set"))
+    monkeypatch.setattr(orca, "call", lambda *args: {})
+    watch.retake_pending(watch.Watcher(remote, offset=state.events_end(remote)))
+    assert spawned == [("j1", "relay_kept")]
+    assert watch.answer_read(remote, "j1", "relay_kept", T0) == (reads.lane_exit(0, "set"), None)
+    assert watch.answer_read(remote, "j1", "relay_kept", T0) == (None, "another reader took j1's relay_kept")
+    assert (ran, list(answers.glob("*.pending"))) == ([question], [])
+
+
 def test_a_read_still_running_four_minutes_after_its_lane_asked_is_answered_as_running_and_its_output_reaches_the_lane_once_it_ends(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
     asked = state.stamp(T0)
     state.keep_reply(remote, "j1", message("question", 'DRIVE fde-scan -- --symbol memory::flag\n{"files": {}}', id="relay_slow", created_at=asked))
