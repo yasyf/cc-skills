@@ -371,7 +371,7 @@ def pulled(name: str, worker_id: str) -> str:
         word, items, said = kind.take(data, worker_id, moment)
         return shown(data, kind, word, items, said)
 
-    return state.update(name, None, pull_write)
+    return state.write(name, pull_write)
 
 
 def done(name: str, worker_id: str, job_id: str, whole: str) -> tuple[str, dict]:
@@ -388,7 +388,7 @@ def done(name: str, worker_id: str, job_id: str, whole: str) -> tuple[str, dict]
         data["jobs"][worker_id]["work_done"] = [*(data["jobs"][worker_id].get("work_done") or []), job_id]
         KIND[data["jobs"][worker_id].get("work_kind", STAGE_TEST)].done(data, job_id, whole.strip())
 
-    state.update(name, None, done_write)
+    state.write(name, done_write)
     return said, payload
 
 
@@ -429,7 +429,7 @@ def start(name: str, worker_id: str) -> str:
     def start_write(data: dict) -> None:
         data["jobs"][worker_id]["bg"] = {"agent": agent, "session": None, "started": state.stamp(), "cwd": str(cwd), "pointed": []}
 
-    state.update(name, None, start_write)
+    state.write(name, start_write)
     try:
         session = agents.start_job(name, worker_id, agent, call, held, cwd)
     except (reads.ReadError, state.DriveError) as error:
@@ -441,7 +441,7 @@ def start(name: str, worker_id: str) -> str:
         data["jobs"][worker_id].update(agent=agent, launching=None)
         state.start(data["jobs"][worker_id])
 
-    state.update(name, None, started_write)
+    state.write(name, started_write)
     return session
 
 
@@ -451,7 +451,7 @@ def failed(name: str, worker_id: str, why: str) -> None:
     def failed_write(data: dict) -> None:
         data["jobs"][worker_id].update(bg=None, state="failed", said=f"not started: {why}", updated=state.stamp())
 
-    state.update(name, None, failed_write)
+    state.write(name, failed_write)
 
 
 def unread(data: dict) -> list[str]:
