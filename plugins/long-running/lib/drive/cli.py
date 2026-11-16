@@ -6089,6 +6089,12 @@ def answer_message(args: argparse.Namespace) -> int:
     return emit(args, line, found)
 
 
+def report_post(args: argparse.Namespace) -> int:
+    from drive import talk
+
+    return emit(args, talk.report_post(state.resolve(args.drive), args.seq), {"seq": args.seq})
+
+
 def say_record(args: argparse.Namespace) -> int:
     from drive import talk
 
@@ -8135,6 +8141,9 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("arguments", nargs="+", help="after --, what tools/ci fde-scan takes, such as --symbol raw_sql --pr 42")
     verb.set_defaults(run=fde_scan)
+    verb = verbs.add_parser("report-post", parents=both, help="post a POST report to him from the drive's watch, written by one Sonnet call from the report's words, or hand it to the communicator with why not; the watch runs it detached")
+    verb.add_argument("seq", help="the report's cci seq")
+    verb.set_defaults(run=report_post)
     verb = verbs.add_parser("say-record", parents=both, help="record a post say made on its order from the receipt say kept; say runs it detached")
     verb.add_argument("receipt", help="the receipt file say kept under the drive's posts folder")
     verb.set_defaults(run=say_record)
