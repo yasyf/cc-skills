@@ -10848,7 +10848,7 @@ def test_o761s_incident_on_a_surface_he_uses_holds_its_live_line_with_one_prove_
     assert state.load(demo)["orders"]["o1"]["proof"] == f"{fixed}; {recording}"
 
 
-def test_an_incident_opened_while_he_is_away_carrying_a_record_of_real_users_failing_pages_his_datadog_user_once_and_one_he_heard_of_one_while_he_is_here_or_one_only_the_drive_hit_pages_nobody(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_an_incident_opened_while_he_is_away_carrying_a_record_of_real_users_failing_pages_his_datadog_user_once_with_its_first_line_and_one_he_heard_of_one_while_he_is_here_one_only_the_drive_hit_or_one_whose_line_did_not_post_pages_nobody(demo: str, monkeypatch: pytest.MonkeyPatch, ready_records: list[list[dict]]) -> None:
     calls = []
 
     class PagingRepo(providers.RepoProvider):
@@ -10868,11 +10868,16 @@ def test_an_incident_opened_while_he_is_away_carrying_a_record_of_real_users_fai
     watching = watcher(demo)
     assert watch.owner_page_lines(watching, T0 + timedelta(minutes=10)) == []
     away = T0 + timedelta(minutes=20)
-    assert watch.owner_page_lines(watching, away) == ["WATCH paged him for incident o1 while he is away: Paged Datadog user u-ym at high urgency: page p-1"]
-    assert watch.owner_page_lines(watching, away + timedelta(minutes=1)) == []
+    assert (watch.owner_page_lines(watching, away), calls, state.load(demo)["orders"]["o1"]["paged"]) == ([], [], None)
+    lined: list[str] = []
+    monkeypatch.setattr(talk, "report_line", lambda name, seq: lined.append(seq) or f"POSTED {POSTED}" if not calls else pytest.fail("paged before its line posted"))
+    assert watch.owner_page_lines(watching, away + timedelta(minutes=1)) == [f"WATCH paged him for incident o1 while he is away: POSTED {POSTED}; Paged Datadog user u-ym at high urgency: page p-1"]
+    assert watch.owner_page_lines(watching, away + timedelta(minutes=2)) == []
+    [line] = [record for records in ready_records for record in records if record.get("attr", {}).get("order") == "o1"]
+    assert (line["text"].startswith("POST Paging you: SandSQL writes down, failing for real users, by {record:732569|"), line["attr"]["progress"], lined) == (True, "true", ["9"])
     assert [argv[1:6] for argv in calls] == [["oncall", "page", "me", "--title", "o1 SandSQL writes down"]]
     assert calls[0][-1].split("\n")[1] == "real users failing: record 732569"
-    assert state.load(demo)["orders"]["o1"]["paged"] == state.stamp(away)
+    assert state.load(demo)["orders"]["o1"]["paged"] == state.stamp(away + timedelta(minutes=1))
 
 
 def test_an_incident_whose_drive_checkout_cannot_move_to_the_default_branch_head_closes_nothing_and_says_so_from_the_third_failed_read(home_repo: None, demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

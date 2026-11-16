@@ -318,8 +318,14 @@ the drive's own callers or proofs hit opens the incident and its jobs work on, b
 and news or a question never pages. Whether the record shows real users is the session's call
 against that rule. The coordinator puts that record on the incident with `--users <seq>` on
 `drive incident open` or `drive order set <o>`, and the watch then pages his Datadog On-Call user once for each incident opened since he
-was last heard whose order carries one. A job that reads real users failing where no incident holds
-it yet runs `drive page-owner "<why>" --users <seq> --order <its order>`.
+was last heard whose order carries one. Each page goes with the incident's first line to him, posted
+first in its thread: what broke, for whom, its link, and the fix and first-check jobs working on it,
+so he never wakes to a page with no line, by his words "Why is it that you paged me (good) but
+there's no message here about you working on the fix?". A line that does not post pages nobody.
+`drive incident open` and `drive order set --users` refuse an incident with no thread he reads:
+name the alert's Slack thread with `--thread`, or `--thread dm` to start one at his DM root. A job
+that reads real users failing where no incident holds it yet runs
+`drive page-owner "<why>" --users <seq> --order <its order>`.
 
 A report's `part` attr names only the first check or the cause, the answers a line delivers. The
 `fix` and every other part are work, which the proof file under `drive job prove` delivers, so

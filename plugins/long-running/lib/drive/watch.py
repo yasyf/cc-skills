@@ -1493,6 +1493,32 @@ def page_owner(name: str, data: dict, title: str, why: str) -> str:
     return state.unrehearsed(name, lambda: repo.run(f"{repo.page_owner} --title {{title}} --description {{description}}", title=cut(title, 80), description=f"{why}\n{dashboard.link(name)}").strip(), "<page>")
 
 
+def page_with_line(name: str, data: dict, key: str, users: int, why: str | None = None) -> str:
+    """Post an order's first line to him in the thread its lines go in, by state.thread_attr, what broke, for whom, its link and the jobs at work on it, then page him naming the same, so no page reaches him without a line saying who works on it, by his words "Why is it that you paged me (good) but there's no message here about you working on the fix?"; a line the drive does not post refuses and pages nobody. The page command's line, after the post's."""
+    from drive import talk, tools
+
+    order = data["orders"][key]
+    working = [f"{job_id}, a {job['kind']} on {', '.join(job['parts'])}" for job_id in order["jobs"] if (job := data["jobs"][job_id])["state"] not in state.FINISHED_JOB_STATES]
+    alerts = f" ({', '.join(order['alerts'])})" if order["alerts"] else ""
+    words = (
+        f"Paging you: {why or order['title'] or cut(order['text'], 80)}, failing for real users{alerts}, by {{record:{users}|the read of users failing}}."
+        f" {'Working on the fix: ' + '; '.join(working) if working else 'No job works on it yet; the coordinator starts its fix now'}."
+    )
+    record = {
+        "kind": "report",
+        "topic": f"incident-{key}",
+        "id": f"page-{key}-{users}",
+        "attr": {"order": key, "progress": "true"} | state.thread_attr(data, order),
+        "body": f"{render.order_line(data, key, order)}\nreal users failing: record {users}\n",
+    }
+    [seq] = tools.sent(name, LANE, [record | {"text": f"POST {words}"}])
+    try:
+        posted = talk.report_line(name, seq)
+    except talk.Skipped as skipped:
+        raise state.DriveError(f"its first line to him, report {seq}, was not posted: {skipped}") from None
+    return f"{posted}; {page_owner(name, data, f'{key} {order['title'] or order['text']}', f'{words}\nreal users failing: record {users}')}"
+
+
 def owner_page_lines(watcher: Watcher, moment: datetime) -> list[str]:
     """Page him once for each incident order the watch hears that opened since he was last heard, is open while he is not present, by state.absence, the presence the landing gate reads, and carries the cci record showing real users failing, by state.PAGE_RULE, so a failure only the drive's own callers or proofs hit pages nobody and one whose record lands later pages then; one that fails is said as a failed read is and tried again next pass."""
     data = state.load(watcher.name)
@@ -1506,9 +1532,8 @@ def owner_page_lines(watcher: Watcher, moment: datetime) -> list[str]:
     ]
     lines = []
     for key in owed:
-        order = data["orders"][key]
         try:
-            paged = page_owner(watcher.name, data, f"{key} {order['title'] or order['text']}", f"{render.order_line(data, key, order)}\nreal users failing: record {order['users']}")
+            paged = page_with_line(watcher.name, data, key, data["orders"][key]["users"])
         except (state.DriveError, reads.ReadError) as error:
             return lines + failed(watcher, "owner page", "page of his Datadog On-Call user", error, moment)
         watcher.failures.pop("owner page", None)

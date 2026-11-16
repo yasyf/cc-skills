@@ -61,6 +61,7 @@ FROM_HELP = (
 THREAD_HELP = (
     "the order's own thread, in his DM or a channel such as an alert's: its permalink, slack:<channel>/<ts>, or its ts"
     " in the channel of the --from message, his DM for an order from the terminal; its lines to him go in a channel's thread only for an incident"
+    "; dm starts its thread at his DM root with its first line, which an incident from outside Slack names when no alert thread holds it"
 )
 RULING = "ruling"
 ON_THE_DRIVE = {RULING, "header:post-feedback", "header:drive-tooling"}
@@ -129,6 +130,7 @@ USERS_HELP = (
     " for an incident opened while he is away only when its order carries one, and a failure only the drive's own callers or proofs"
     " hit carries none"
 )
+DM_ROOT = "dm"
 REWORK_HELP = (
     "a PR his words rework, by its url or key, and the permalink of those words, as <PR>=<his permalink>, named only once its"
     " stack's His words, step by step read against them leave them unmet: it withdraws in the same call each open card of his"
@@ -462,7 +464,10 @@ def added_order(args: argparse.Namespace, unfiled: bool = False) -> tuple[str, d
             f' --parts {state.INCIDENT_FIX} "first check", or pass --joins <o> when an open incident order covers the same failing service'
         )
     message = his_message(args.source)
-    thread = order_thread(state.load(name), args.source, message, args.thread)
+    at_root = args.thread == DM_ROOT
+    thread = None if at_root else order_thread(state.load(name), args.source, message, args.thread)
+    if args.needs_thread and (refused := unread_thread({"thread": thread, "threads": []}, DM_ROOT if at_root else None)):
+        raise DriveError(f"refused, no order added: {refused}")
     reported = [state.reporter(args.reporter)] if args.reporter else reporters(args, message, thread)
     watched = state.new_watch(args.watch, state.parse_time(created)) if args.watch else None
     if (args.incident or args.joins) and args.options_only:
@@ -782,6 +787,16 @@ def teammate_report(args: argparse.Namespace, message: tuple[str, str, str | Non
     return state.reporter(f"slack:{thread[0]}/{thread[1]}")
 
 
+def unread_thread(order: dict, flag: str | None) -> str | None:
+    """Why an incident order's lines and page would reach no thread he reads: it came from outside Slack and names no thread and keeps none, so its page would wake him to no line, by his words "Why is it that you paged me (good) but there's no message here about you working on the fix?"; None when --thread names one, his DM root included."""
+    if flag or order["thread"] or order["threads"]:
+        return None
+    return (
+        "its lines to him and its page go in a thread he reads, and it names none: pass --thread <the alert's Slack thread> when the alert"
+        f" posted in a channel, else --thread {DM_ROOT}, which starts its thread at his DM root with its first line"
+    )
+
+
 def check_thread(data: dict, flag: str, message: tuple[str, str, str | None] | None) -> tuple[str, str]:
     """The channel and thread --thread names, by permalink, slack:<channel>/<ts>, or a bare ts in the channel of the message the order came from, his DM for one from outside Slack; refused when Slack reads no thread at that ts there, naming the thread a reply is in. The thread of the message the order came from, which --from already names, needs no read."""
     if SLACK_TS.fullmatch(flag):
@@ -1054,7 +1069,9 @@ def order_set(args: argparse.Namespace) -> int:
             + ("" if args.proof else "; close it with --proof <that recording or link>")
         )
     message = his_message(args.source) if args.source else state.slack_message(order["from"])
-    thread = check_thread(data, args.thread, message) if args.thread else None
+    if args.users is not None and (refused := unread_thread(order, args.thread)):
+        raise DriveError(f"{args.id} --users: refused, nothing written: {refused}")
+    thread = check_thread(data, args.thread, message) if args.thread and args.thread != DM_ROOT else None
     dropping = args.state == "dropped" and order["state"] not in state.CLOSED_ORDER_STATES
     closing = state.order_open_prs(data, args.id) if dropping else []
     if landing := [key for key in closing if (data["prs"][key]["stage"] or {}).get("name") == "landing"]:
@@ -6717,23 +6734,23 @@ def heard(args: argparse.Namespace) -> int:
 def page_owner(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     data = state.load(name)
-    if args.order:
-        find(data["orders"], args.order, "order")
-    users = args.users or (data["orders"][args.order]["users"] if args.order else None)
+    order = find(data["orders"], args.order, "order")
+    users = args.users or order["users"]
     if not users:
         raise DriveError(
             f"refused, nobody paged: {state.PAGE_RULE}. Post the read showing real users failing as a cci record and pass its seq with"
             " --users <seq>; with none, the incident stays open and its jobs work on without paging him"
         )
+    if refused := unread_thread(order, None):
+        raise DriveError(f"{args.order}: refused, nobody paged: {refused}")
     try:
-        paged = watch.page_owner(name, data, args.why, f"{args.why}\nreal users failing: record {users}")
+        paged = watch.page_with_line(name, data, args.order, users, args.why)
     except reads.ReadError as error:
         raise DriveError(f"refused, nobody paged: {error}") from None
-    if args.order:
-        def page_owner_write(data: dict):
-            data["orders"][args.order].update(paged=state.stamp(), paged_by=state.session_lane(data, os.environ.get("CLAUDE_CODE_SESSION_ID")) or "a terminal", users=users)
+    def page_owner_write(data: dict):
+        data["orders"][args.order].update(paged=state.stamp(), paged_by=state.session_lane(data, os.environ.get("CLAUDE_CODE_SESSION_ID")) or "a terminal", users=users)
 
-        state.write(name, page_owner_write)
+    state.write(name, page_owner_write)
     return emit(args, paged, {"paged": paged, "order": args.order})
 
 
@@ -7866,7 +7883,7 @@ def parser() -> argparse.ArgumentParser:
         help=f'the workstream inside its project the Now screen files this order under, reusing one in use where it fits; needed on his order, and on a "{state.TOOLING}" order default {TOOLING_FILING[1]}',
     )
     verb.add_argument("--title", metavar="WORDS", required=True, help=f"the few words, at most {TITLE_CHARS} characters and no link, the dashboard names this order by, since his words stay whole in its task")
-    verb.set_defaults(run=order_add, users=None)
+    verb.set_defaults(run=order_add, users=None, needs_thread=False)
     verb = order.add_parser("set", parents=[*both, dry_opt])
     verb.add_argument("id", help="the order")
     verb.add_argument(
@@ -8098,7 +8115,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--workstream", metavar="NAME", required=True, help="the workstream inside its project the Now screen files it under")
     verb.add_argument("--title", metavar="WORDS", required=True, help=f"the few words, at most {TITLE_CHARS} characters and no link, the dashboard names it by and its evidence record is titled by")
     verb.add_argument("--users", type=int, metavar="SEQ", help=USERS_HELP)
-    verb.set_defaults(run=incident_open,incident=True, joins=None, kind=None, complex=False, options_only=False, once=False, every=0, owner=None, watch=None)
+    verb.set_defaults(run=incident_open, needs_thread=True, incident=True, joins=None, kind=None, complex=False, options_only=False, once=False, every=0, owner=None, watch=None)
     verb = incident.add_parser(
         "stop",
         parents=both,
@@ -9031,7 +9048,7 @@ def parser() -> argparse.ArgumentParser:
         ),
     )
     verb.add_argument("why", help="what broke, for whom, and its link")
-    verb.add_argument("--order", help="the order the page is for, so the watch does not page him for it again")
+    verb.add_argument("--order", required=True, help="the order the page is for: its first line to him goes in its thread with the page, and the watch does not page him for it again")
     verb.add_argument(
         "--users",
         type=int,
