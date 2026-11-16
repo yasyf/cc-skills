@@ -295,7 +295,8 @@ every process on it, the worker mid-tool-call included. Every Sprite lane, Claud
 what a lane runs without in `lane.json`, never in a launch command: the
 long-running drive reads that file too for each session it starts. Interactive
 sessions and `claude plugin update` still update the plugin cache. Set
-`CLAUDE_LANE_SETTINGS` to a JSON object to add local settings.
+`CLAUDE_LANE_SETTINGS` to a JSON object to add settings, on a Sprite through
+prepare's `--settings` as on this Mac.
 
 Every Claude lane starts through `orca-worker-launch.sh`. A hand-run
 `cc-remote orca prepare` for Claude, as in

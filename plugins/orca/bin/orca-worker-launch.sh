@@ -345,7 +345,7 @@ if [ "$route" = sprite ]; then
   prepare=(orca prepare "${opening[@]}" --provider sprites --profile agents --agent "$kind" --model "$model_id" --effort "$effort" --brief-file "$brief")
   if [ "$kind" = claude ]; then
     for pair in "${lane_pairs[@]}"; do prepare+=(--env "$pair"); done
-    prepare+=(--settings "$(jq -c '.settings + .spriteSettings + {permissions: {deny: .deniedTools}}' "$lane_spec")")
+    prepare+=(--settings "$(jq -c --argjson lane "${CLAUDE_LANE_SETTINGS:-{\}}" '.settings + .spriteSettings + $lane + {permissions: {deny: .deniedTools}}' "$lane_spec")")
   fi
   for pair in "${sprite_pairs[@]}"; do prepare+=(--env "$pair"); done
   [ -z "$ref" ] || prepare+=(--ref "$ref")

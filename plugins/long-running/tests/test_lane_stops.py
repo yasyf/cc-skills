@@ -121,3 +121,26 @@ def test_a_lane_session_the_drive_starts_on_this_mac_runs_with_no_advisor_at_hig
     assert (settings["claudeMdExcludes"], settings["env"]["CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD"]) == ([str(install.config_dir() / "CLAUDE.md")], "1")
     assert {key for key, on in settings["enabledPlugins"].items() if on} == {"long-running@skills", "captain-hook@captain-hook", "open-pr@skills"}
     assert (Path(agents.LANE_RULES_ARGS[1]) / "CLAUDE.md").is_file()
+
+
+def test_a_builder_lists_each_checkout_skill_it_never_uses_by_name_alone_and_a_watchdog_none(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
+    for skill in ("submit-pr", "break-glass"):
+        (tmp_path / ".claude" / "skills" / skill).mkdir(parents=True)
+        (tmp_path / ".claude" / "skills" / skill / "SKILL.md").write_text(f"---\nname: {skill}\ndescription: d\n---\n")
+    (tmp_path / ".claude" / "commands").mkdir()
+    (tmp_path / ".claude" / "commands" / "fde.md").write_text("tips")
+    builder = agents.light({"env": {}, "enabledPlugins": {}}, agents.BUILDER, tmp_path)
+    watchdog = agents.light({"env": {}, "enabledPlugins": {}}, agents.WATCHDOG, tmp_path)
+    assert (builder["skillOverrides"], builder["skillListingMaxDescChars"]) == ({"break-glass": "name-only", "fde": "name-only"}, agents.LISTED_CHARS)
+    assert watchdog["skillOverrides"] == {"break-glass": "off", "fde": "off", "submit-pr": "off"}
+
+
+def test_a_sprite_builder_starts_on_a_builders_plugins_and_skill_listing_with_none_of_this_macs_paths(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
+    (tmp_path / ".claude" / "commands").mkdir(parents=True)
+    (tmp_path / ".claude" / "commands" / "fde.md").write_text("tips")
+    builder = agents.light({"env": {}, "enabledPlugins": {}}, agents.BUILDER, tmp_path)
+    assert agents.sprite_lane(tmp_path) == {key: value for key, value in builder.items() if key not in ("env", "claudeMdExcludes")}
+    assert agents.sprite_lane(tmp_path)["skillOverrides"] == {"fde": "name-only"}
+

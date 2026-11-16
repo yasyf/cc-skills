@@ -264,9 +264,9 @@ class Launch:
     def cc_remote(self) -> set[tuple[str, str]]:
         return {(record["real"], record["env"]["CC_REMOTE_CONFIG"]) for record in self.records() if record["argv"][0] == "cc-remote"}
 
-    def prepare(self, *extra: str, model: str = "claude-opus-5-5", kind: str = "claude", effort: str = "xhigh", lane: str = LANE, continued: str | None = None) -> list[str]:
+    def prepare(self, *extra: str, model: str = "claude-opus-5-5", kind: str = "claude", effort: str = "xhigh", lane: str = LANE, continued: str | None = None, settings: str = SPRITE_SETTINGS) -> list[str]:
         opening = [continued, "--existing"] if continued else [lane, "--warm"]
-        lane_env = [*(word for pair in LANE_ENV.split() for word in ("--env", pair)), "--settings", SPRITE_SETTINGS] if kind == "claude" else []
+        lane_env = [*(word for pair in LANE_ENV.split() for word in ("--env", pair)), "--settings", settings] if kind == "claude" else []
         lane_env += [word for pair in SPRITE_ENV for word in ("--env", pair)]
         return ["cc-remote", "orca", "prepare", *opening, "--provider", "sprites", "--profile", "agents", "--agent", kind, "--model", model, "--effort", effort, "--brief-file", str(self.brief), *lane_env, *extra]
 
@@ -367,6 +367,14 @@ class PreAllocationTest(LaunchTest):
                 launch.sprite()
                 launch.reply("cc-remote orca prepare", {"rc": 1})
                 self.assert_failed(launch, launch.run(lane=lane), f"cc-remote orca prepare exited 1; {launch.attempt} keeps its output, nothing was attached, and launching this brief again prepares afresh", [VERSION, CURRENT, launch.prepare(lane=lane)])
+
+    def test_lane_settings_reach_a_sprites_prepare_over_the_lane_spec(self):
+        lane = {"enabledPlugins": {"wlm@write-like-me": False}, "skillOverrides": {"break-glass": "name-only"}, "skillListingMaxDescChars": 300}
+        settings = json.dumps({**json.loads(LANE_SETTINGS), **SPRITE_HOOKS, **lane, "permissions": {"deny": LANE_DENIED_TOOLS.split(",")}}, separators=(",", ":"))
+        self.launch.sprite()
+        self.launch.reply("cc-remote orca prepare", {"rc": 1})
+        failed = f"cc-remote orca prepare exited 1; {self.launch.attempt} keeps its output, nothing was attached, and launching this brief again prepares afresh"
+        self.assert_failed(self.launch, self.launch.run(CLAUDE_LANE_SETTINGS=json.dumps(lane)), failed, [VERSION, CURRENT, self.launch.prepare(settings=settings)])
 
     def test_a_local_repository_refuses_the_sprite_route(self):
         self.launch.sprite()

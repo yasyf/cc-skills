@@ -91,6 +91,8 @@ GUARD_PLUGINS = ("cc-guides@cc-guides", *DRIVE_PLUGINS)
 CODE_PLUGINS = (*GUARD_PLUGINS, "cc-context@cc-context", "open-pr@skills")
 ROLE_PLUGINS = {WATCHDOG: GUARD_PLUGINS}
 READ_ROLES = (WATCHDOG,)
+LISTED_CHARS = 300
+LANE_SKILLS = ("submit-pr", "release", "db-read", "test-mac", "backfill", "fde-scan", "tilt-product-smoke-test")
 STRICT_MCP = ("--strict-mcp-config",)
 ADVISOR_PROBE_SECONDS = 60
 DOUBLE_QUOTED = re.compile(r'[\\"$`]')
@@ -569,19 +571,30 @@ def beside(data: dict) -> tuple[str, dict]:
 
 
 def light(settings: dict, role: str, checkout: Path) -> dict:
-    """The settings of a leaf session the drive starts as role, a builder, reader, designer or watchdog, which runs headless: leaf's, with no auto-memory, LEAF_ENV's headless switches, every skill a user or claude.ai sync installed turned off in the listing, and only the plugins ROLE_PLUGINS names for the role, CODE_PLUGINS for a role it does not name, on, GUARD_PLUGINS holding this plugin and every plugin its manifest depends on, since Claude Code loads no plugin whose dependency is off, so a disabled plugin's skills and hooks stay out while the guards of GUARD_PLUGINS apply, by his Nov 15 words "make them as lightweight as possible"; a watchdog, which reads and answers and writes no code, also drops the checkout's own skills and its root CLAUDE.md and AGENTS.md, since its definition carries what it does."""
+    """The settings of a leaf session the drive starts as role, a builder, reader, designer or watchdog, which runs headless: leaf's, with no auto-memory, LEAF_ENV's headless switches, every skill a user or claude.ai sync installed turned off in the listing, each skill and command of the checkout outside LANE_SKILLS listed by name alone, so it stays one Skill call away while its description stays out of every start, each description still listed cut to LISTED_CHARS, its lead, since a plugin's skills answer to no override and a freed listing budget refills with them, and only the plugins ROLE_PLUGINS names for the role, CODE_PLUGINS for a role it does not name, on, GUARD_PLUGINS holding this plugin and every plugin its manifest depends on, since Claude Code loads no plugin whose dependency is off, so a disabled plugin's skills, agents and hooks stay out while the guards of GUARD_PLUGINS apply, by his Nov 15 words "make them as lightweight as possible"; a watchdog, which reads and answers and writes no code, also turns the checkout's own skills off and drops its root CLAUDE.md and AGENTS.md, since its definition carries what it does."""
     reads = role in READ_ROLES
-    roots = (install.config_dir() / "skills", *((checkout / ".claude" / "skills",) if reads else ()))
-    names = {found[1] if (found := SKILL_NAME.search(path.read_text())) else path.parent.name for root in roots for path in [*root.glob("*/SKILL.md"), *root.glob("synced/*/*/SKILL.md")]}
+    project = skill_names(checkout / ".claude" / "skills") | {path.stem for path in (checkout / ".claude" / "commands").glob("*.md")}
+    shown = {skill: "off" if reads else "name-only" for skill in project if reads or skill not in LANE_SKILLS}
     plugins = ROLE_PLUGINS.get(role, CODE_PLUGINS)
     leafed = leaf(settings)
     return leafed | {
         "autoMemoryEnabled": False,
         "claudeMdExcludes": [*leafed["claudeMdExcludes"], *((str(checkout / "CLAUDE.md"), str(checkout / "AGENTS.md")) if reads else ())],
-        "skillOverrides": {skill: "off" for skill in sorted(names)},
+        "skillOverrides": dict(sorted((shown | dict.fromkeys(skill_names(install.config_dir() / "skills"), "off")).items())),
+        "skillListingMaxDescChars": LISTED_CHARS,
         "enabledPlugins": leafed["enabledPlugins"] | {key: key in plugins for key in plugin_keys()},
         "env": leafed["env"] | LEAF_ENV,
     }
+
+
+def sprite_lane(checkout: Path) -> dict:
+    """The settings a builder on a Sprite starts with over lib/lane.json's, which orca-worker-launch.sh merges into its prepare's `--settings` from `CLAUDE_LANE_SETTINGS`: light's skill listing and plugins for a builder, so a Sprite builder starts as light as one on this Mac, without its env, which a Sprite gets as prepare `--env` flags, or its CLAUDE.md excludes, which name this Mac's paths."""
+    return {key: value for key, value in light({"env": {}, "enabledPlugins": {}} | json.loads(os.environ.get("CLAUDE_LANE_SETTINGS") or "{}"), BUILDER, checkout).items() if key not in ("env", "claudeMdExcludes")}
+
+
+def skill_names(root: Path) -> set[str]:
+    """Each skill under root, a skills folder or its claude.ai synced copies, by both its folder's name and its frontmatter name, since the listing can show either and skillOverrides matches the name it shows."""
+    return {name for path in [*root.glob("*/SKILL.md"), *root.glob("synced/*/*/SKILL.md")] for name in (path.parent.name, *SKILL_NAME.findall(path.read_text())[:1])}
 
 
 def plugin_keys() -> list[str]:
