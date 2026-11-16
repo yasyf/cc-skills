@@ -499,13 +499,13 @@ def test_the_judge_reads_each_prs_files_at_its_head_from_a_tree_kept_for_those_h
     monkeypatch.setattr(served, "fetched", lambda clone, key, head: fetched.append((clone, key, head)))
     monkeypatch.setattr(served.subprocess, "run", claude)
     changes = {key: {"title": "Fix", "body": "", "head": head, "diff": SMALL} for key, head in heads.items()}
-    assert JUDGE(demo, "his words", changes, []) == met
+    assert JUDGE(demo, "his words", changes) == met
     root = seen["root"]
     assert fetched == [(str(clone), key, head) for key, head in heads.items()]
     assert seen["dirs"] == [str(root)] and seen["tools"] == "Read,Grep,Glob" and root.parent == state.root() / "judge-trees"
     assert seen["files"] == {"Forge-AI-monorepo-42": "export function run() { return !staff(); }\n", "yasyf-cc-skills-7": "def run(): return True\n"}
     assert f'### {KEY} "Fix" at {heads[KEY]}, its tree {root}/Forge-AI-monorepo-42' in str(seen["prompt"])
-    assert JUDGE(demo, "his words", changes, []) == met
+    assert JUDGE(demo, "his words", changes) == met
     assert (seen["root"], len(fetched), [path.name for path in root.parent.iterdir()]) == (root, 2, [root.name])
 
 
@@ -752,7 +752,7 @@ REPLAYS = {
 def test_the_judge_refuses_dashed_uuidv7_ids_and_a_picked_option_built_as_whole_copies_and_passes_the_32_hex_fix_and_a_fix_his_words_need(key: str, demo: str) -> None:
     order, parts, answered, near, refused_in = REPLAYS[key]
     said = served.words({"orders": {"o1": order | {"parts": {part: {"posted": None} for part in parts}}}, "jobs": {"j1": {"order": "o1", "parts": parts, "carries": {}, "prs": []}}}, [{"job": "j1", "parts": []}], ["o1"], answered, near, [], [], [])
-    found = JUDGE(demo, said, {key: READ_CHANGE(key)}, [])["against"]
+    found = JUDGE(demo, said, {key: READ_CHANGE(key)})["against"]
     assert any(refused_in in item["change"] for item in found) if refused_in else found == [], found
 
 
@@ -875,7 +875,7 @@ FLAKE_FIXES = {
 def test_the_judge_passes_each_flake_fix_the_drive_turned_away_against_his_ruling_532cd3d_alone_and_refuses_a_retry_and_a_timeout_bump(case: str, demo: str) -> None:
     key, read = FLAKE_FIXES[case]
     said = served.words({"orders": {}, "jobs": {"j1": {"order": "o1", "parts": [], "carries": {}, "prs": []}}}, [{"job": "j1", "parts": []}], [], [FLAKE_RULING], [], [], [], [])
-    found = JUDGE(demo, said, {key: read or READ_CHANGE(key)}, [])["against"]
+    found = JUDGE(demo, said, {key: read or READ_CHANGE(key)})["against"]
     assert {item["file"] for item in found} == {"dashboard/e2e/irisServe.e2e.ts"} if read else found == [], found
 
 
