@@ -1095,7 +1095,7 @@ def narrowed_design(name: str, data: dict, job: dict, text: str) -> str | None:
         reverse=True,
     )
     ruled = {line for line in block_lines(text) if line.removeprefix("- ").casefold().startswith("rulings:")}
-    sentences = {f"s{number}": sentence for number, sentence in enumerate((sentence for line in text.splitlines() if line.strip() not in ruled for sentence in settled.SENTENCE.split(line) if sentence.strip()), 1)}
+    sentences = {f"s{number}": sentence for number, sentence in enumerate((sentence for line in text.splitlines() if line.strip() not in ruled for sentence in limits.SENTENCE_BREAK.split(line) if sentence.strip()), 1)}
     design = {"forks": [question["title"] for question in job["questions"] if not question["closed"]], "rulings": "\n".join(sorted(ruled)), "design": sentences}
     if settled.size(design, {}) > settled.REQUEST_CHARS // 2:
         print(f"drive job report: Jev read none of this design, since its {len(sentences)} sentences run past one Jev request of {settled.REQUEST_CHARS // 2:,} characters, so it is kept unchecked", file=sys.stderr)

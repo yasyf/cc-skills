@@ -27,7 +27,6 @@ STRAIGHT = str.maketrans("‘’“”", "''\"\"")
 PLACEHOLDER = re.compile(r"\$\([^()]*\)|\$\{[^{}]*\}|<(?![@#!]|\w+:)[^>|]*>")
 SAVED = re.compile(r"\A(?:<persisted-output>\n)?[^\n]*?(?:Output has been saved to|Full output saved to:) (/\S+?)\.?(?=\s|$)")
 ALERT_LINK = re.compile(r"^\d+:\d+ bare-url 'https://(?:[\w-]+\.slack\.com/archives/|(?:[\w-]+\.)?sentry\.io/|(?:[\w-]+\.)?datadoghq\.com/)")
-SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+|\n+")
 SWITCH = re.compile(r"orca terminal switch --terminal[= ]([^\s`'\"<>|]+)")
 CARD_ANSWER = re.compile(r"✓ ([^\n]+)")
 CARD_ANSWERED = "his answer on a card"
@@ -659,12 +658,12 @@ def found_in(payload: dict, drive: dict, said: str, found: dict[str, dict]) -> s
         messages = thread_messages(payload, dm)
         linked = linked_words(tool_input.get("asked"), dm)
     except slack.SlackError as error:
-        return f"refused: his thread could not be read, so this post cannot be checked as a reply to his messages there: {error}."
+        return agents.Unjudged(f"refused: his thread could not be read, so this post cannot be checked as a reply to his messages there: {error}.")
     heard_him(drive, messages, linked)
     long = over_length(payload, dm, thread_words(messages, drive["name"]), linked)
     return every(
         [
-            long and agents.Ruled(long, LENGTH_RULE, long, found=long.found),
+            long and agents.Ruled(long, LENGTH_RULE, found=long.found),
             long_ack(payload),
             unlinked(payload, drive, order_id),
             uncarded_known(payload, drive, found),
@@ -727,7 +726,7 @@ def members_findings(payload: dict, dm: str) -> str | None:
     )
     return every(
         [
-            long and agents.Ruled(long, MEMBERS_RULE, long, found=long.found),
+            long and agents.Ruled(long, MEMBERS_RULE, found=long.found),
             agents.Ruled(f"refused: {formatted}. {MEMBERS_REST}", MEMBERS_RULE, found=formatted) if formatted else None,
             *check_post_refusals(findings),
             agents.Ruled(
@@ -767,7 +766,7 @@ def unbacked_start(payload: dict, drive: dict, said: str, order_id: str | None) 
 
 def reported_down(drive: dict, said: str) -> str | None:
     """Why a post tells him a coordinator is down: a coordinator whose process exited is restarted that minute, resuming its session, and he hears that it was restarted, never only that it is down."""
-    if RESTARTED.search(said) or not any(COORDINATOR.search(part) and DOWN.search(part) for part in SENTENCE_BREAK.split(said)):
+    if RESTARTED.search(said) or not any(COORDINATOR.search(part) and DOWN.search(part) for part in limits.SENTENCE_BREAK.split(said)):
         return None
     held = drive["roles"]["coordinator"]
     return agents.Ruled(
@@ -806,7 +805,7 @@ def reporter_post(payload: dict, drive: dict) -> str | None:
         )
         then = "It goes once the coordinator records the proof and sends the report closing the order."
     refused = f"Refused on purpose: {found}. {then}"
-    return agents.Ruled(refused, REPORTER_RULE, refused, found=found)
+    return agents.Ruled(refused, REPORTER_RULE, found=found)
 
 
 def unsaid_post(payload: dict, drive: dict) -> str | None:
@@ -892,7 +891,7 @@ def held_while_away(payload: dict, drive: dict, report: dict, order_id: str | No
     if not payload.get("agent_id") or not (gone := talk.away(drive, tool_input, report, order_id, state.now())):
         return None
     away = f"Refused on purpose: {gone}. Post nothing: this news joins the catch-up the drive posts when he is back."
-    return agents.Ruled(away, AWAY_RULE, away, found=gone)
+    return agents.Ruled(away, AWAY_RULE, found=gone)
 
 
 def long_ack(payload: dict) -> str | None:
@@ -900,7 +899,7 @@ def long_ack(payload: dict) -> str | None:
     tool_input = payload["tool_input"]
     if payload.get("agent_id") or edited(payload) or tool_input.get("card") or tool_input.get("tap_prs"):
         return None
-    sentences = [part for part in SENTENCE_BREAK.split(limits.masked(tool_input.get("text") or "").strip()) if part.strip()]
+    sentences = [part for part in limits.SENTENCE_BREAK.split(limits.masked(tool_input.get("text") or "").strip()) if part.strip()]
     if len(sentences) < 2:
         return None
     return agents.Ruled(
@@ -954,7 +953,7 @@ def unswitched(tool_input: dict, drive: dict) -> str | None:
 
 
 def every(refusals: list[str | None]) -> str | None:
-    """One refusal holding each check's, so a single rewrite fixes them all, its counted findings numbered as its refusals are and each check's findings beside its own rule, so Jev weighs each finding by its own; a refusal no Jev judges comes back alone, and a warning only when nothing refuses."""
+    """One refusal holding each check's, so a single rewrite fixes them all, each check's findings beside its own rule, so Jev weighs each finding by its own; a refusal no Jev judges comes back alone, and a warning only when nothing refuses."""
     found = [refusal for refusal in refusals if refusal]
     refused = [refusal for refusal in found if not isinstance(refusal, Warned)]
     if unjudged := next((refusal for refusal in refused if isinstance(refusal, agents.Unjudged)), None):
@@ -963,9 +962,8 @@ def every(refusals: list[str | None]) -> str | None:
         return next(iter(refused or found), None)
     listed = "\n".join(f"{index}. {refusal.removeprefix('refused: ')}" for index, refusal in enumerate(refused, 1))
     rules = "\n".join(f"{index}. {refusal.rule}" for index, refusal in enumerate(refused, 1) if isinstance(refusal, agents.Ruled))
-    counted = "\n".join(f"{index}. {refusal.counted.removeprefix('refused: ')}" for index, refusal in enumerate(refused, 1) if isinstance(refusal, agents.Ruled) and refusal.counted)
     findings = [finding for refusal in refused for finding in (refusal.findings if isinstance(refusal, agents.Ruled) else [{"rule": refusal, "found": refusal.removeprefix("refused: ")}])]
-    return agents.Ruled(f"refused, {len(refused)} ways; fix each, then post the fixed words once:\n{listed}", rules, counted, findings=findings)
+    return agents.Ruled(f"refused, {len(refused)} ways; fix each, then post the fixed words once:\n{listed}", rules, findings=findings)
 
 
 def untapped(payload: dict) -> str | None:
@@ -1053,9 +1051,9 @@ def denial(reason: str) -> dict:
 
 
 def read_evidence(payload: dict, claims: list[dict]) -> list[dict]:
-    """What Jev weighs every handler's say post by beside his words, whatever the checks found: for each read its claims name, its newest call that read names, and for each record a claim names or its text cites, the report it carries among them, its newest call naming that record's seq, each with its whole result, so a report it carries reaches Jev only when a line of it names that report, each call once under the first item naming it, since a line on where code lives, what it does, or a number or state stands only on the read behind it, and a record stands on the handler's own read of it, so a handler that reads again narrower hands Jev only that read, by his pick "The handler names the read behind each claim; Jev checks each claim against that read, whole"; for each PR the drive tracks that a claim names by link, key, #N or `{pr:<ref>}`, the drive's own line for it as `drive status <PR>` prints it, beside the claims naming it, since the drive owns where a PR stands and who owes its fix and a handler's read, such as a job's report naming only its job, may not say whose builder that is; a record is never weighed larger than itself, so a call that holds more than the record, such as a cci read of several seqs, hands Jev the record alone as `cci show` prints it; none for any other post, such as the communicator's ack, or a card or PR card, which a record draws."""
+    """What Jev weighs every handler's say post by beside his words, whatever the checks found: for each read its claims name, its newest call that read names, and for each record a claim names or its text cites, the report it carries among them, its newest call naming that record's seq, each with its whole result, so a report it carries reaches Jev only when a line of it names that report, each call once under the first item naming it, since a line on where code lives, what it does, or a number or state stands only on the read behind it, and a record stands on the handler's own read of it, so a handler that reads again narrower hands Jev only that read, by his pick "The handler names the read behind each claim; Jev checks each claim against that read, whole"; for each PR the drive tracks that a claim names by link, key, #N or `{pr:<ref>}`, the drive's own line for it as `drive status <PR>` prints it, beside the claims naming it, since the drive owns where a PR stands and who owes its fix and a handler's read, such as a job's report naming only its job, may not say whose builder that is; a record is never weighed larger than itself, so a call that holds more than the record, such as a cci read of several seqs, hands Jev the record alone as `cci show` prints it; none for any other post, such as the communicator's ack, or a question card, which a record draws, while the line a PR tap card goes under is the handler's own words, weighed as any other line."""
     tool_input = payload["tool_input"]
-    if payload["tool_name"] != SAY or not payload.get("agent_id") or tool_input.get("card") or tool_input.get("tap_prs") or (drive := his_drive(payload.get("session_id") or "")) is None:
+    if payload["tool_name"] != SAY or not payload.get("agent_id") or tool_input.get("card") or (drive := his_drive(payload.get("session_id") or "")) is None:
         return []
     reads = list(dict.fromkeys(claim["read"].strip() for claim in claims))
     named = [read for read in reads if not RECORD_READ.fullmatch(read)]

@@ -1077,13 +1077,14 @@ line keeps its bold line and two sentences, as the status lines above show.
   comes back unposted, and the session that called `say` hears Jev's reason, fixes those words and
   calls `say` again. Jev gets 20 seconds on a post, or what is left of capt-hook's deadline
   when that is less, and 3 seconds on a drive check's refusal of a call.
-- A post with a finding a count or a mark decides, the post's word count, his reading as away or a
-  line out of turn in the thread a bug report or question came from goes out only when Jev lifts
-  that finding, and when Jev cannot finish, because it errs,
-  times out or declines a question, it still refuses, since no judgment lifts it. On any other post a Jev that cannot finish leaves each finding as a warning: the post
-  goes out as written, and the session that posted it hears every finding beside it and rewords the post
-  in place when one holds. His pick: "Refusals only warn when the judge cannot finish: no post ever
-  waits, but it goes out unchecked, as twice this morning". A session's account of its own act or
+- A post a check refused goes out only when Jev lifts each of its findings: when Jev cannot finish,
+  because it errs, times out or declines a question, the post still comes back unposted with every
+  finding, by his words "the say hook words a finding as refused and still posts it, so he may read a
+  post before it is reworded in place", which replace his older pick "Refusals only warn when the
+  judge cannot finish" for a refused post. A post no check refused still goes out unchecked when Jev
+  cannot finish, as that pick says, and a post that goes out names no finding as refused. A check
+  that cannot run, such as `cc-slack check-post` failing or his thread unreadable, refuses with no
+  judging. A session's account of its own act or
   mistake, such as the handler its turn starts, and his words or an alert or error he shared,
   restated, name no cause the cause rule asks a record for. An order or job id, such as o643 or j1700,
   comes back unposted with no judging unless a message of his the post passes as asked used it. His

@@ -222,26 +222,37 @@ def test_a_finding_holds_unless_jev_reads_its_rule_never_meant_it_or_his_words_l
     assert settled.post_verdict(output)["verdict"] == "hold"
 
 
-def test_a_post_jev_gives_no_verdict_on_holds_only_for_a_finding_a_count_decides(jev: Jev) -> None:
+def test_a_post_that_goes_out_names_no_finding_as_refused_and_a_finding_jev_had_no_room_for_holds(jev: Jev) -> None:
+    every = {"claim": "Every inbox reader queries Postgres straight.", "read": "read:1"}
+    reason = f"refused: {FINDING['found']}"
+    output = handled(every["claim"], claims=[every]) | {"findings": [FINDING], "hookSpecificOutput": {"permissionDecisionReason": reason}}
+    jev.picks("backed", 0.9)
+    jev.breaks("c1", "spans", 0.5)
+    assert settled.post_verdict(output) == {
+        "verdict": "warn",
+        "note": f'{settled.GOES_OUT} Jev is unsure of claim "{every["claim"]}" speaking for more of a set than its read reads: if one is wrong, reword the post in place.',
+    }
+    unweighed = {"rule": FINDING["rule"], "found": "the first PR " * 1000}
+    held = settled.post_verdict(output | {"findings": [unweighed]})
+    assert held["verdict"] == "hold"
+    assert f"which had no room in Jev's {settled.REQUEST_CHARS:,} characters beside his words, by its rule: {FINDING['rule']}" in held["note"]
+
+
+def test_a_post_jev_gives_no_verdict_on_holds_when_a_check_refused_it_and_otherwise_goes_out_unchecked(jev: Jev) -> None:
     jev.answer = None
-    counted = "refused: this post is 69 words, and a line in his thread is at most 60 words"
     reason = f"refused: {FINDING['found']}"
     finding = {"post": {"text": "Merged."}, "findings": [FINDING], "his_words": [], "hookSpecificOutput": {"permissionDecisionReason": reason}}
-    assert settled.post_verdict(finding | {"counted": counted})["verdict"] == "hold"
     assert settled.post_verdict(finding) == {
-        "verdict": "warn",
-        "note": f"{settled.GOES_OUT} Jev gave no verdict (no jev decision within 20s), so each finding only warns: if one holds, reword the post in place:\n1. {FINDING['found']}",
+        "verdict": "hold",
+        "note": f"message_limits: Jev gave no verdict (no jev decision within 20s), so the checks' refusal stands: fix each finding, then call say again.\n```\n{reason}\n```",
     }
     assert settled.post_verdict(handled(CLAIM["claim"]))["note"] == f"{settled.GOES_OUT} Jev gave no verdict (no jev decision within 20s) on whether each claim of it stands on the read it names."
 
 
-@pytest.mark.parametrize("heard", ["stands", "unheard"])
-def test_a_post_that_goes_out_says_so_first_and_names_each_finding_never_in_its_refusals_words(jev: Jev, heard: str) -> None:
+def test_a_post_that_goes_out_says_so_first_and_names_each_finding_never_in_its_refusals_words(jev: Jev) -> None:
     long = {"rule": "A line in his thread is at most 60 words.", "found": "this post is 69 words, and a line in his thread is at most 60 words"}
     reason = f"refused, 2 ways; fix each, then post the fixed words once:\n1. {long['found']}\n2. {FINDING['found']}"
     output = {"post": {"text": "Merged."}, "findings": [long, FINDING], "his_words": [{"id": "w1", "quote": "land the first PR"}], "hookSpecificOutput": {"permissionDecisionReason": reason}}
-    if heard == "unheard":
-        jev.answer = None
     verdict = settled.post_verdict(output)
     assert verdict["verdict"] == "warn"
     assert verdict["note"].startswith(settled.GOES_OUT)

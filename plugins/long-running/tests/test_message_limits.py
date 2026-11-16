@@ -509,7 +509,7 @@ def test_a_fix_live_note_before_the_proof_is_judged_by_the_reporter_rule_and_ref
     note = {"channel_id": "C0REPORTS01", "thread_ts": "1794400100.000200", "text": "Fixed: staging deploys go through again since 10:02 AM."}
     reason = message_limits.deny_reason(call("slack_reply", transcript, **note))
     [finding] = reason.findings
-    assert agents.ruled(reason) == {"rule": message_limits.REPORTER_RULE, "counted": reason, "findings": [{"rule": message_limits.REPORTER_RULE, "found": finding["found"]}]}
+    assert agents.ruled(reason) == {"rule": message_limits.REPORTER_RULE, "findings": [{"rule": message_limits.REPORTER_RULE, "found": finding["found"]}]}
     assert finding["found"].startswith("the fix for the bug reported in this thread keeps no proof that it is live")
     assert "It goes once" not in finding["found"]
 
@@ -1169,6 +1169,24 @@ def test_a_record_a_wider_read_held_reaches_jev_alone_at_its_own_size_never_that
     assert shows == [["cci", "show", "711800", "--drive", "demo"]]
 
 
+def test_the_line_his_pr_tap_card_goes_under_hands_jev_the_reads_its_claims_name(
+    talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    url = "https://github.com/Forge-AI/monorepo/pull/56153"
+    with state.edit("demo") as data:
+        data["prs"]["Forge-AI/monorepo#56153"] = state.new_pr(url, "j1", "o1")
+    quiet = "722806 report watch>communicator POST order o1 has news since the thread's last line\n- Forge-AI/monorepo#56153 open, checks pass, wants tap"
+    record = {"seq": "722806", "kind": "report", "lane": "watch", "at": state.stamp(), "text": quiet, "refs": {}, "fields": {"attrs": {}}}
+    monkeypatch.setattr(refs.reads, "run", lambda argv, checkout: json.dumps(record) if "--json" in argv else quiet)
+    status = ("Bash", {"command": "drive status o1"}, "Forge-AI/monorepo#56153 open, checks pass, wants his Approve")
+    tool(lane_of(transcript), CCI_READ, {"seqs": [722806]}, quiet)
+    tool(lane_of(transcript), *status)
+    claims = [{"claim": "Its checks pass", "read": "record:722806"}, {"claim": "it waits on your Approve", "read": "drive status o1"}]
+    text = "Its checks pass, and it waits on your Approve."
+    reads = evidence(transcript, monkeypatch, capsys, text=text, thread_ts="1.2", record="722806", claims=claims, tap_prs=[url])
+    assert [(read["id"], read["quote"]) for read in reads] == [("read:1", shown(*status)), ("record:722806", f"cci show 722806\n{quiet}")]
+
+
 def test_the_communicators_own_post_and_a_card_hand_jev_no_reads_and_claims_whose_text_is_not_json_are_refused_outright(
     talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -1328,6 +1346,19 @@ def test_a_sentence_saying_one_pr_shipped_and_another_waits_on_his_approve_is_ju
     with state.edit("demo") as data:
         data["prs"]["Forge-AI/monorepo#55639"]["head"] = "b85e1f0"
     assert f"Forge-AI/monorepo#55639: its tap card {link}, which the words link, no longer stands: it moved past the head the card shows" in say(transcript, text=text)
+
+
+def test_a_bold_lead_naming_a_merged_pr_ends_its_sentence_so_a_release_blocked_behind_its_approve_button_blames_no_pr(talker: str, transcript: Path) -> None:
+    url = "https://github.com/Forge-AI/monorepo/pull/56889"
+    with state.edit("demo") as data:
+        data["prs"]["Forge-AI/monorepo#56889"] = state.new_pr(url, "j1", "o1") | {"head": "4c1d2e9", "state": "merged"}
+    text = (
+        f"*Staging test of <{url}|the release-status fix>: three production releases left unapproved now read running forever, where the old code read partial.* "
+        "<https://buildkite.com/forge/release/builds/14886|releases/2026-11-12/4> and <https://buildkite.com/forge/release/builds/15400|releases/2026-11-13/3>:"
+        " the fix waits on their deploy jobs, which stay blocked behind the unpressed approve button."
+    )
+    assert say(transcript, text=text) is None
+    assert "Forge-AI/monorepo#56889: merged" in say(transcript, text=f"*<{url}|The release-status fix> waits on your Approve.*")
 
 
 def test_a_tap_card_say_just_drew_lets_the_next_say_link_it_as_what_the_pr_waits_on(
@@ -3014,10 +3045,9 @@ def test_an_incident_report_keeps_its_alert_links_bare_by_the_incident_its_order
 
 def test_a_107_word_line_judged_a_summary_by_its_handler_still_refuses_when_jev_cannot_finish(talker: str, transcript: Path) -> None:
     reason = say(transcript, text=f"Fixed the journal reader and the release. {said(100)}", thread_ts="1.2")
-    assert "this post is 107 words, and a line in his thread is at most 60 words" in reason.counted
+    assert "this post is 107 words, and a line in his thread is at most 60 words" in reason
     assert agents.ruled(reason) == {
         "rule": message_limits.LENGTH_RULE,
-        "counted": reason.counted,
         "findings": [{"rule": message_limits.LENGTH_RULE, "found": "this post is 107 words, and a line in his thread is at most 60 words"}],
     }
 
@@ -3232,7 +3262,6 @@ def test_a_say_post_to_a_channels_members_gets_a_readers_checks_in_place_of_a_li
     long = say(transcript, text=said(61), channel_id="C0STAGING1")
     assert "this post is 61 words, and a line to a channel's members is at most 60 words" in long
     assert long.rule == message_limits.MEMBERS_RULE
-    assert long.counted == long
     with state.edit("demo") as data:
         data["prs"]["yasyf/cc-skills#7"] = state.new_pr("https://github.com/yasyf/cc-skills/pull/7", "j1", "o1") | {"title": "New: \U0001f680 " + said(40)}
     assert say(transcript, text=said(59) + " {pr:7}", channel_id="C0STAGING1") is None

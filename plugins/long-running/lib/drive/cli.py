@@ -2014,7 +2014,7 @@ def checked_ask(name: str, job_id: str, text: str, unsettled: str | None, redraw
             f'his card adds the option "{limits.ALREADY_ANSWERED}" for his recorded answer {tapped[0]["answer"]}, which already answers it,'
             f" and a card draws at most {limits.OPTION_COUNT.stop - 1}: keep {limits.OPTION_COUNT.stop - 2} options of your own"
         )
-    recommending = [sentence for sentence in view.SENTENCE_BREAK.split("\n".join(asked.summary)) if re.search(r"\brecommend", sentence, re.IGNORECASE)]
+    recommending = [sentence for sentence in limits.SENTENCE_BREAK.split("\n".join(asked.summary)) if re.search(r"\brecommend", sentence, re.IGNORECASE)]
     if chosen := next((answer for sentence in recommending for answer in cited_answers(sentence, cited) if answer["answer"] not in (unsettled or "")), None):
         problems.append(
             f'its summary recommends "{asked.recommended}" by his recorded answer {chosen["answer"]}, "{render.cut(chosen["words"], settled.QUOTED_CHARS)}",'
