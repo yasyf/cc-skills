@@ -19,7 +19,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import NamedTuple, Self
 
-from drive import agents, brief, children, codex, dashboard, github, install, land, launchd, limits, orca, page, place, procs, reads, receiver, refs, render, served, settled, slack, stage, stall, state, superseded, view
+from drive import agents, brief, children, codex, dashboard, github, install, land, launchd, limits, orca, page, place, procs, reads, receiver, refs, render, served, settled, slack, stage, stall, state, superseded, superseded_procs, view
 from drive.install import PROOF_FAILED, add_prover, config_dir, done_before_proofs, done_unproven, merged_done, merged_ready, merged_said, product, proof_gap, proofless, proved_prs, prover_of, proves, released_prs, reported_prs, upgraded, watch_proves, widen
 from drive.render import cut, when
 
@@ -4530,7 +4530,7 @@ def stages(watcher: Watcher, moment: datetime, until: Callable[[], object] = lam
     later += [
         functools.partial(event_lines, watcher),
         *(owed_reads(watcher, moment) if lands else []),
-        *(functools.partial(stage, watcher, moment) for stage in (sweep_lines, claim_reply_lines, claim_lines, quiet_lines, clock_lines, undelivered_lines, close_answered, tell_lines, standing_lines, orphan_lines)),
+        *(functools.partial(stage, watcher, moment) for stage in (sweep_lines, claim_reply_lines, claim_lines, quiet_lines, clock_lines, undelivered_lines, close_answered, tell_lines, standing_lines, orphan_lines, superseded_lines)),
     ]
     names = [stage.func.__name__ for stage in later]
     resume, watcher.resume = watcher.resume, None
@@ -4540,6 +4540,14 @@ def stages(watcher: Watcher, moment: datetime, until: Callable[[], object] = lam
             return
         yield stage() or []
 
+
+def superseded_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """End, from the drive's own watch alone, each `drive job prove` and `drive reload --seat` an older install left with no parent, by superseded_procs.end, said in the watch's log, never to a session, since nothing waits on them."""
+    if watcher.project or state.scratch():
+        return []
+    for line in superseded_procs.end(watcher.name):
+        print(f"{state.stamp(moment)} {line}", flush=True)
+    return []
 
 def github_owed_lines(watcher: Watcher, moment: datetime) -> list[str]:
     """The GitHub reads the pass's stages and deliveries owe, unless its last GitHub read failed, which the next 60-second read retries."""
