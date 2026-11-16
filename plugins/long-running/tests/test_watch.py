@@ -5477,7 +5477,7 @@ def test_a_pr_he_approved_that_waits_on_a_staging_test_is_owed_by_him_while_its_
     kept = state.load(demo)["prs"][KEY]["stage"]
     assert (kept["name"], kept["owner"], woken, landers) == ("waiting", "j4", [], [])
     jobs = []
-    monkeypatch.setattr(stage, "wake", lambda name, key, text, job_id=None: jobs.append((key, job_id)))
+    monkeypatch.setattr(stage, "wake", lambda name, key, text, job_id=None, marks=(), at=None: jobs.append((key, job_id)))
     watch.run_pass(watching, T0 + timedelta(minutes=61))
     assert jobs == [(KEY, "j4")]
 
@@ -12502,3 +12502,16 @@ def test_a_sweep_waits_for_a_pass_that_read_his_cards_and_a_failed_owed_read_is_
     watching.cards = NO_CARDS
     assert [REAL_SWEEP(watching, T0) for _ in range(watch.FAILURES_BEFORE_SAYING)][-1] == ["WATCH daily Slack sweep failed 3 times in a row: cc-slack daemon not running"]
     assert state.load(demo)["slack"]["swept"] is None
+
+
+def test_a_wake_writes_the_marks_the_watch_asked_for_only_once_it_delivered_its_line(demo: str) -> None:
+    asked = state.stamp(T0)
+    with state.edit(demo) as data:
+        data["prs"][KEY]["stage"] = {"name": "red", "owner": stage.BUILDER, "why": "", "since": asked, "woke": None, "waking": asked}
+        data["prs"][KEY]["objecting"] = {"head": "aaaaaaa111", "at": asked}
+        data["mains"]["Forge-AI/monorepo"] = {"test_one": {"owner": KEY, "woke": None, "waking": asked, "run": "", "workflow": "", "since": asked}}
+    assert (stage.waking(asked, T0 + stage.WAKE_GRACE - timedelta(seconds=1)), stage.waking(asked, T0 + stage.WAKE_GRACE)) == (True, False)
+    stage.mark_woken(demo, [f"stage:{KEY}", f"objected:{KEY}@aaaaaaa111", "main:Forge-AI/monorepo@test_one"], asked)
+    pr = state.load(demo)["prs"][KEY]
+    assert ((pr["stage"]["woke"], pr["stage"]["waking"]), pr["objected"], pr["objecting"]) == ((asked, None), "aaaaaaa111", None)
+    assert (state.load(demo)["mains"]["Forge-AI/monorepo"]["test_one"]["woke"], state.load(demo)["mains"]["Forge-AI/monorepo"]["test_one"]["waking"]) == (asked, None)

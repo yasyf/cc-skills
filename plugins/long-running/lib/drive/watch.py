@@ -370,14 +370,14 @@ def main_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 data["mains"][repo].pop(test, None)
         for key, found in broke.items():
             data["prs"][key]["graded"] = True
-            data["mains"].setdefault(github.repo_of(key), {}).update({test: failure | {"owner": key, "woke": None} for test, failure in found.items()})
+            data["mains"].setdefault(github.repo_of(key), {}).update({test: failure | {"owner": key, "woke": None, "waking": None} for test, failure in found.items()})
         wakes = main_wakes(watcher, data, moment)
         for repo, owner, tests in wakes:
             for test in tests:
-                data["mains"][repo][test]["woke"] = state.stamp(moment)
-        texts = [(owner, main_fix(repo, owner, data["mains"][repo], tests)) for repo, owner, tests in wakes]
-    for owner, text in texts:
-        stage.wake(watcher.name, owner, text)
+                data["mains"][repo][test]["waking"] = state.stamp(moment)
+        texts = [(owner, main_fix(repo, owner, data["mains"][repo], tests), [f"main:{repo}@{test}" for test in tests]) for repo, owner, tests in wakes]
+    for owner, text, marks in texts:
+        stage.wake(watcher.name, owner, text, marks=marks, at=state.stamp(moment))
     return []
 
 
@@ -412,7 +412,8 @@ def main_wakes(watcher: Watcher, data: dict, moment: datetime) -> list[tuple[str
     return [
         (repo, owner, sorted(tests))
         for (repo, owner), tests in owners.items()
-        if hears(watcher, data, data["prs"][owner]["order"]) and any(not (woke := data["mains"][repo][test]["woke"]) or moment - state.parse_time(woke) >= stage.EVERY["red"] for test in tests)
+        if hears(watcher, data, data["prs"][owner]["order"])
+        and any((not (woke := data["mains"][repo][test]["woke"]) or moment - state.parse_time(woke) >= stage.EVERY["red"]) and not stage.waking(data["mains"][repo][test]["waking"], moment) for test in tests)
     ]
 
 
@@ -1087,19 +1088,22 @@ def checks(watcher: Watcher, moment: datetime) -> None:
 
 def objections(watcher: Watcher) -> None:
     """Send through drive pr wake each NOT READY the check against his words keeps at a head of a PR the watch hears and faults, once a head and once to each job the PRs it faults belong to, while neither his Approve nor an open card of his holds any PR of its stack, by his_hold, so the finding wakes only a builder that owes a step now and waits on his Approve or question, never on his Hold or the hold label, which stop only its landing; the head told is kept as the PR's objected, outside its checker, so a check run again at that head, or a newer install dropping its checker, tells it no second time."""
-    told: dict[tuple[str, str], tuple[str, str]] = {}
+    told: dict[tuple[str, str], tuple[str, str, list[str]]] = {}
+    moment = state.now()
     with state.edit(watcher.name) as data:
         stacks = land.landing_stacks(data)
         for key in state.open_pr_keys(data):
             pr = data["prs"][key]
             if pr["objected"] == pr["head"] or not state.against(pr) or key not in pr["checker"]["faulted"] or not hears(watcher, data, pr["order"]):
                 continue
+            if (objecting := pr["objecting"]) and objecting["head"] == pr["head"] and stage.waking(objecting["at"], moment):
+                continue
             if any(his_hold(data, data["prs"][member]) for member in stacks.get(key, (key,))):
                 continue
-            pr["objected"] = pr["head"]
-            told.setdefault((stage.owner_job(data, key) or pr["job"], pr["checker"]["outcome"]), (key, f"PR {key}: {pr['checker']['outcome']} {ids(pr)}"))
-    for key, line in told.values():
-        stage.wake(watcher.name, key, line)
+            pr["objecting"] = {"head": pr["head"], "at": state.stamp(moment)}
+            told.setdefault((stage.owner_job(data, key) or pr["job"], pr["checker"]["outcome"]), (key, f"PR {key}: {pr['checker']['outcome']} {ids(pr)}", []))[2].append(f"objected:{key}@{pr['head']}")
+    for key, line, marks in told.values():
+        stage.wake(watcher.name, key, line, marks=marks, at=state.stamp(moment))
 
 
 def his_hold(data: dict, pr: dict) -> bool:
@@ -4652,7 +4656,7 @@ def stage_lines(watcher: Watcher, moment: datetime) -> list[str]:
                     acts.append((key, now, True, stage.line(key, pr, now) + f" {ids(pr)}"))
             elif stage.overdue(pr, now, moment):
                 stage.kept(pr, now)
-                pr["stage"]["woke"] = state.stamp(moment)
+                pr["stage"]["waking"] = state.stamp(moment)
                 acts.append((key, now, False, stage.line(key, pr, now) + f" {ids(pr)}"))
             else:
                 stage.kept(pr, now)
@@ -4745,11 +4749,11 @@ def acted(watcher: Watcher, key: str, now: stage.Stage, entered: bool, line: str
         return said
     job_id = now.owner if now.owner in data["jobs"] else None
     if now.name in ("rework", "red") or not entered and (job_id or now.name == "author"):
-        stage.wake(watcher.name, key, line, job_id)
+        stage.wake(watcher.name, key, line, job_id, marks=[f"stage:{key}"], at=state.stamp(moment))
     elif now.name == "grading" and not entered:
         repo, number = key.split("#")
         if pr["review_asked"] == pr["head"]:
-            stage.wake(watcher.name, key, line)
+            stage.wake(watcher.name, key, line, marks=[f"stage:{key}"], at=state.stamp(moment))
         elif refused := land.ask_review(repo, number, pr["head"]):
             said.append(f"STAGE {refused} {ids(pr)}")
         else:
