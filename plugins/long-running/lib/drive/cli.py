@@ -4653,11 +4653,15 @@ def end_lane(name: str, job_id: str) -> tuple[str, dict]:
             f" without one its next event, and drive job set {job_id} --state stopped ends it unfinished"
         )
     root = orca.checkout(name, data["roles"]["coordinator"]["cwd"])
-    with state.edit(name) as data:
+    def ending(data: dict) -> tuple[dict, bool, bool | None]:
         ended = data["jobs"][job_id]
-        if not (already := state.lane_ended(ended)):
-            fresh = state.lane_died(ended, job["dispatch"], "ended by drive job end", state.now())
-            state.lane_death(ended, "dispatch")["ended"] = {"pid": os.getpid(), "at": state.stamp()}
+        if already := state.lane_ended(ended):
+            return ended, already, None
+        fresh = state.lane_died(ended, job["dispatch"], "ended by drive job end", state.now())
+        state.lane_death(ended, "dispatch")["ended"] = {"pid": os.getpid(), "at": state.stamp()}
+        return ended, already, fresh
+
+    ended, already, fresh = state.update(name, None, ending)
     if already:
         line = f"{job_id}'s lane was already ended by the drive job end of {state.lane_death(ended, "dispatch")['ended']['at']}, so nothing changed; {job_id} stays {ended['state']}"
         return line, {"id": job_id, "state": ended["state"], "already": True}
