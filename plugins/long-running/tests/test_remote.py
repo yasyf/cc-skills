@@ -4958,7 +4958,7 @@ def test_the_watch_hands_a_running_lane_orca_could_not_reach_to_a_detached_probe
         return
     assert (death["lane_end"]["unfit"], death["lane_end"]["why"].endswith(f"answered no command in {orca.EXEC_PROBE_SECONDS} s")) == (True, True)
     detached.clear()
-    said = [line for line in watch.run_pass(watching, T0 + timedelta(seconds=5)) if line.startswith("LANE j1 ")]
+    said = [line for line in watch.run_pass(watch.Watcher(remote, offset=state.events_end(remote)), T0 + watch.READ_EVERY) if line.startswith("LANE j1 ")]
     assert [line.startswith(f"LANE j1 o1 died on Sprite {workspace}: {orca.UNREACHED_DEATH}, and its Sprite {workspace} answered no command") for line in said] == [True]
     assert detached == [["job", "resume", "j1", state.CARRY_ON]]
 
