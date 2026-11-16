@@ -163,7 +163,7 @@ def verdict(name: str, key: str) -> str:
 
 
 def kept(name: str, key: str, result: dict) -> str:
-    """Keep a check's outcome on each PR it judged, with the head, orders and binding answers it checked, but on a PR another check started on after this one, whose outcome is the one kept there; a pass makes a check event on each PR, a refusal none, since the watch's pass reads it from the PR's checker; the outcome for key."""
+    """Keep a check's outcome on each PR it judged, with the head, orders and binding answers it checked, but on a PR another check started on after this one, whose outcome is the one kept there; a pass makes a check event on each PR, a refusal none, since the watch's pass reads it from the PR's checker; an objection takes back the Approve the drive took on an open PR from his standing approval, so his card asks him, by his "given my constraints"; the outcome for key."""
     outcome = result["outcomes"][key]
     with state.edit(name) as data:
         fresh = [
@@ -181,6 +181,8 @@ def kept(name: str, key: str, result: dict) -> str:
                 "head": result["heads"][member], "pid": result["pid"], "at": result["at"], "orders": result["orders"][member], "answers": result["answers"][member], "outcome": said, "against": result["against"],
                 "faulted": result.get("faulted", []),
             }
+            if result["against"] and pr["state"] == "open" and (pr["tap"] or {}).get("approval"):
+                pr["tap"] = None
             if not said.startswith(CHECKED):
                 continue
             repo, number = member.split("#")

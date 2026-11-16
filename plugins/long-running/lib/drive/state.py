@@ -1186,11 +1186,12 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         if (tap := pr["tap"]) and pr["state"] == "open" and tap.get("via"):
             pr["tap"] = None
         elif tap:
-            pr["tap"] = new_tap(tap["label"], tap["head"], tap["source"], tap.get("action_ts"), tap["at"], tap.get("picks"), tap.get("card"))
+            pr["tap"] = new_tap(tap["label"], tap["head"], tap["source"], tap.get("action_ts"), tap["at"], tap.get("picks"), tap.get("card"), tap.get("approval"))
     data.setdefault("answers", {})
     data.setdefault("stalls", {})
     for answer in data["answers"].values():
         answer.setdefault("jobs", {})
+        answer.setdefault("approves", None)
     data.setdefault("stand_ins", {})
     data.setdefault("held", {})
     data.setdefault("owed_replies", {})
@@ -5732,9 +5733,22 @@ def rework_reason(pr: dict) -> str:
     return f'Being reworked to your words "{pr["rework"]["words"]}". A fresh card asks your tap once its builder says how they are met'
 
 
-def new_tap(label: str, head: str, source: str, action_ts: str | None = None, at: str | None = None, picks: dict[str, dict] | None = None, card: list[str] | None = None) -> dict:
-    """His tap on a PR, the one shape every writer stores: what he pressed or said, when, on which head, its source, the card press's Slack action, on his Approve each card of his holding the PR whose recommended option it picks, by card.picks as he tapped, under its waits id with the seq of the answer land.start recorded for it, None until then, and the PRs the card his tap answered listed as he tapped, the PR alone for a tap that answered no card, his words or a dashboard press, which land.together lands it with, None until keep_tap_cards reads it for a tap an older install kept."""
-    return {"label": label, "at": at or stamp(), "head": head, "source": source, "action_ts": action_ts, "picks": picks or {}, "card": card}
+def new_tap(label: str, head: str, source: str, action_ts: str | None = None, at: str | None = None, picks: dict[str, dict] | None = None, card: list[str] | None = None, approval: str | None = None) -> dict:
+    """His tap on a PR, the one shape every writer stores: what he pressed or said, when, on which head, its source, the card press's Slack action, on his Approve each card of his holding the PR whose recommended option it picks, by card.picks as he tapped, under its waits id with the seq of the answer land.start recorded for it, None until then, and the PRs the card his tap answered listed as he tapped, the PR alone for a tap that answered no card, his words or a dashboard press, which land.together lands it with, None until keep_tap_cards reads it for a tap an older install kept; and the id of his standing approval an Approve the drive took on it comes from, which an objecting check against his words takes back, None for a tap of his own."""
+    return {"label": label, "at": at or stamp(), "head": head, "source": source, "action_ts": action_ts, "picks": picks or {}, "card": card, "approval": approval}
+
+
+def approval_covers(approves: dict, key: str, order_id: str | None) -> bool:
+    """Whether his approval, as `drive answer --approves` kept it, names a PR, card or part by its key or the order it is on."""
+    return key in approves["keys"] or order_id in approves["orders"]
+
+
+def end_approvals(data: dict, key: str, tap: dict | None) -> None:
+    """End each standing approval of his covering a PR he taps Hold on, by its key or order or the Approve the drive took on it from that approval, in the write the caller saves, so nothing of it goes ahead without him again; only a newer answer of his approves again."""
+    pr = data["prs"][key]
+    for answer_id, answer in data["answers"].items():
+        if (approves := answer["approves"]) and not approves["held"] and (approval_covers(approves, key, pr["order"]) or (tap or {}).get("approval") == answer_id):
+            approves["held"] = {"pr": key, "at": stamp()}
 
 
 def new_pr(url: str, job_id: str, order_id: str) -> dict:

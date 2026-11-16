@@ -201,6 +201,17 @@ REHEARSES = (
     ' leaves to the drive, so asking it keeps it decided on that option, "{option}", with no card'
 )
 RULED = {state.TOOLING_DETAILS_RULING: (DECIDED, DECIDED_LINE, DECIDES), state.REHEARSAL_RULING: (REHEARSED, REHEARSED_LINE, REHEARSES)}
+APPROVED = "{option}: decided without you under your approval {answer}"
+APPROVED_LINE = (
+    '{file} keeps {job}\'s question decided on its recommended option, "{option}", with no card: his standing approval {answer} covers it,'
+    " so build that option and open its PR as for work no card holds"
+)
+APPROVES = 'drive job ask: his standing approval {answer} covers this card, so asking it keeps it decided on its recommended option, "{option}", with no card'
+INSIDE = Noul(
+    "Is the work in `work` inside what `approvals.{slot}.said`, his answer to `approvals.{slot}.asked` with its Notes, approves going ahead without him?",
+    yes="Work of the kind his words approve, such as more of the tooling or fixes they name.",
+    no="Work his words do not reach, even in the same code.",
+)
 READ_MARK = re.compile(r"(?:Jev|Opus) reads .+ as breaking it\Z")
 UNSETTLED = (
     'drive job ask: kept the card unsettled as "{unsettled}", asking him to lift {id}, {asked}, so it holds its PR from landing'
@@ -920,6 +931,41 @@ def detail(case: str, words: list[dict]) -> bool:
 def ruled_close(option: str, link: str | None, ruling: str) -> dict:
     """How a job's question ends when a ruling of his decides it on its recommended option with no card: answered by that ruling, state.TOOLING_DETAILS_RULING for a detail of drive tooling, else state.REHEARSAL_RULING for a release on staging or sandbox alone."""
     return state.new_close("answered", RULED[ruling][0].format(option=option), link, ruling=ruling)
+
+
+def approved(option: str, answer_id: str, link: str) -> dict:
+    """How a question his standing approval covers ends: answered by that approval on its recommended option."""
+    return state.new_close("answered", APPROVED.format(option=option, answer=answer_id[:7]), link, answer=answer_id)
+
+
+def approvals(data: dict) -> dict[str, dict]:
+    """His standing approvals by answer id, as `drive answer --approves` kept them: each with an order it names, or an order of a card, part or PR it names, still open, no Hold of his on a PR it covers, and no newer answer of his superseding it in cc-notes, read in one list only when one is kept."""
+    kept = {
+        answer_id: approves
+        for answer_id, answer in data["answers"].items()
+        if (approves := answer["approves"]) and not approves["held"] and any(data["orders"][order_id]["state"] not in state.CLOSED_ORDER_STATES for order_id in approves["on"])
+    }
+    if not kept:
+        return {}
+    gone = replaced(data["roles"]["coordinator"]["cwd"])
+    return {answer_id: approves for answer_id, approves in kept.items() if answer_id not in gone}
+
+
+def approved_by(data: dict, key: str | None, order_id: str, work: dict) -> str | None:
+    """The id of his standing approval work on an order goes ahead under with no card: one naming its key or order, else the first whose words and Notes Opus reads at YES as holding the work, in one request, as ordered_by reads his words for a release, by his words 1edd6dd "make sure opus or fable is making proper decisions here"; None when none does, Opus unheard said on stderr."""
+    standing = approvals(data)
+    if named := next((answer_id for answer_id, approves in standing.items() if state.approval_covers(approves, key, order_id)), None):
+        return named
+    if not standing:
+        return None
+    slots = {answer_id: f"a{number}" for number, answer_id in enumerate(standing, 1)}
+    told = {"work": work, "approvals": {slots[answer_id]: {"asked": approves["asked"], "said": approves["said"]} for answer_id, approves in standing.items()}}
+    try:
+        read = opus(told, {f"inside.{slot}": asking(INSIDE, slot=slot) for slot in slots.values()})
+    except Unheard as failure:
+        print(f"drive: Opus did not read whether a standing approval of his covers {key or order_id}, so it asks him: {failure}", file=sys.stderr)
+        return None
+    return next((answer_id for answer_id, slot in slots.items() if reading(read[f"inside.{slot}"])), None)
 
 
 def decided(title: str, words: str, older: dict[str, dict]) -> set[str]:

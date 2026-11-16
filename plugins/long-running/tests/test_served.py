@@ -636,7 +636,7 @@ def test_a_moved_check_carries_beside_his_approve_in_each_shape_a_drive_stored_i
         data["prs"][KEY] |= moved | {"tap": tap}
     assert served.carry(demo, [KEY]) == [KEY]
     pr = state.load(demo)["prs"][KEY]
-    loaded = {"label": "Approve", "at": tap["at"], "head": "head0", "source": "pressed the button", "action_ts": tap.get("action_ts"), "picks": {}, "card": [KEY]}
+    loaded = {"label": "Approve", "at": tap["at"], "head": "head0", "source": "pressed the button", "action_ts": tap.get("action_ts"), "picks": {}, "card": [KEY], "approval": None}
     assert (pr["checked"]["head"], pr["tap"], served.unread(pr)) == ("head2", loaded, False)
 
 
@@ -652,7 +652,7 @@ def test_his_approve_recorded_by_pr_set_tapped_stays_on_its_head_through_a_push_
         data["prs"][KEY] |= moved
     assert served.carry(demo, [KEY]) == [KEY]
     pr = state.load(demo)["prs"][KEY]
-    assert (pr["checked"]["head"], pr["tap"] | {"at": ""}) == ("head2", {"label": "Approve", "at": "", "head": "head1", "source": link, "action_ts": None, "picks": {}, "card": [KEY]})
+    assert (pr["checked"]["head"], pr["tap"] | {"at": ""}) == ("head2", {"label": "Approve", "at": "", "head": "head1", "source": link, "action_ts": None, "picks": {}, "card": [KEY], "approval": None})
 
 
 GAPS = (
@@ -993,3 +993,15 @@ def test_a_cited_card_answer_reads_with_the_options_its_card_offered_and_apart_f
         ],
     }
     assert SEARCH_OPTIONS.count("Option ") == 3 and "Option 1 (recommended): Fetch before reading" in SEARCH_OPTIONS and "land the pages that range needs" in SEARCH_OPTIONS
+
+
+@pytest.mark.parametrize(("approval", "taken"), [("2164dcb", True), (None, False)])
+def test_a_check_that_objects_takes_back_the_approve_his_standing_approval_gave_and_never_his_own(
+    run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch, approval: str | None, taken: bool
+) -> None:
+    moved_check(run, demo, monkeypatch)
+    with state.edit(demo) as data:
+        data["prs"][KEY] |= {"head": "head2", "tap": state.new_tap("Approve", "head2", "terminal", card=[KEY], approval=approval)}
+    result = {"heads": {KEY: "head2"}, "at": state.stamp(), "orders": {KEY: ["o1"]}, "answers": {KEY: []}, "outcomes": {KEY: "NOT READY"}, "against": "his words o1", "checked": {}, "carried": None, "pid": os.getpid()}
+    served.kept(demo, KEY, result)
+    assert (state.load(demo)["prs"][KEY]["tap"] is None) == taken

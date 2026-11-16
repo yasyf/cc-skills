@@ -152,6 +152,7 @@ def record(data: dict, answer_id: str, words: str, link: str, asked: dict[str, d
             for job_id, job in data["jobs"].items()
             if job["state"] == "waiting" and touched & {job["order"], *job["carries"]} or job_id in drawn and job["kind"] == "builder" and job["state"] == "running" or job_id in tapped
         },
+        "approves": None,
     }
     if drive:
         tooling_only(data, kept, asked)
