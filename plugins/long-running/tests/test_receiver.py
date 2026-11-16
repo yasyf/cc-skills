@@ -11,14 +11,13 @@ import time
 import urllib.error
 import urllib.request
 from collections.abc import Iterator
-from http.server import ThreadingHTTPServer
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
 from drive import cli, dashboard, github, receiver, state
 
 REPO = "Forge-AI/monorepo"
-KEY, OTHER, MERGED = f"{REPO}#42", f"{REPO}#43", f"{REPO}#41"
 REAL_HOOK = receiver.hook
 REAL_UNHOOKED = receiver.unhooked
 OPEN = {42: {"head": "aaa", "base": "main", "branch": "fix-it"}, 43: {"head": "bbb", "base": "fix-it", "branch": "stacked"}}
@@ -27,21 +26,25 @@ BUILD = "https://buildkite.com/forge/release/builds/14769"
 
 
 @pytest.fixture
-def demo(state_root: Path) -> str:
-    data = state.new_drive("demo", "coordinator", "session-under-test", "/work")
-    for key, head, shown in ((KEY, "aaa", "open"), (OTHER, "bbb", "open"), (MERGED, "aaa", "merged")):
-        data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {"head": head, "state": shown}
-    state.create(data)
-    state.create(state.new_drive("quiet", "coordinator", "session-under-test", "/work"))
-    return "demo"
+def home(state_root: Path) -> None:
+    receiver.home().mkdir(parents=True)
 
 
-def delivered(name: str, offset: int = 0) -> list[dict]:
-    return [{field: event[field] for field in ("repo", "numbers", "event", "guid")} for event, _ in state.read_events(name, offset) if event["kind"] == receiver.DELIVERY]
+def delivered(offset: int = 0) -> list[dict]:
+    return [{field: value for field, value in line.items() if field not in ("kind", "at")} for line, _ in state.read_lines(receiver.deliveries_path(), offset) if line["kind"] == receiver.DELIVERY]
 
 
-def builds_delivered(name: str) -> list[tuple[str, list[str]]]:
-    return [(event["event"], event["builds"]) for event, _ in state.read_events(name, 0) if event["kind"] == receiver.BUILD_DELIVERY]
+def builds_delivered() -> list[tuple[str, list[str] | None]]:
+    return [(line["event"], line["builds"]) for line, _ in state.read_lines(receiver.deliveries_path()) if line["kind"] == receiver.BUILD_DELIVERY]
+
+
+@pytest.fixture
+def unread(monkeypatch: pytest.MonkeyPatch) -> None:
+    def read(*_: object) -> None:
+        raise AssertionError("the receiver read a drive")
+
+    for reader in ("names", "stored", "load"):
+        monkeypatch.setattr(state, reader, read)
 
 
 @pytest.mark.parametrize(
@@ -59,7 +62,7 @@ def builds_delivered(name: str) -> list[tuple[str, list[str]]]:
     ],
 )
 def test_a_delivery_names_the_open_prs_of_a_drive_it_changes(event: str, payload: dict | None, named: list[int]) -> None:
-    assert receiver.named(event, payload, OPEN) == named
+    assert receiver.named(receiver.facts(event, payload) | {"event": event}, OPEN) == named
 
 
 @pytest.mark.parametrize(
@@ -78,10 +81,15 @@ def test_a_delivery_moves_the_mark_of_each_kind_of_change_a_drive_waits_on_that_
     assert receiver.marked(event, payload) == marks
 
 
-def test_a_workflow_run_finishing_on_main_moves_its_repositorys_ci_mark_and_writes_no_drive_a_line(demo: str) -> None:
+def test_a_workflow_run_finishing_on_main_moves_its_repositorys_ci_mark_and_logs_no_fact_naming_a_pr(home: None) -> None:
     kept({REPO: {"id": 9, "last": "g1", "events": receiver.EVENTS, "ci": "g1", "release": "g1"}})
     receiver.took(REPO, 9, "g4", "workflow_run", {"action": "completed", "workflow_run": {"head_branch": "main"}, "repository": {"default_branch": "main"}})
-    assert (delivered(demo), receiver.heard(REPO, "ci"), receiver.heard(REPO, "release"), receiver.heard("yasyf/cc-skills", "ci")) == ([], "g4", "g1", None)
+    assert (delivered(), receiver.heard(REPO, "ci"), receiver.heard(REPO, "release"), receiver.heard("yasyf/cc-skills", "ci")) == (
+        [{"repo": REPO, "event": "workflow_run", "guid": "g4"}],
+        "g4",
+        "g1",
+        None,
+    )
 
 
 def test_a_hook_kept_from_before_it_sent_every_event_is_hooked_again(state_root: Path) -> None:
@@ -93,7 +101,7 @@ def test_a_newer_install_takes_the_receivers_socket_once_it_took_each_delivery_i
     state_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     newer = state_root / "cache" / "9.9.9" / "bin" / "drive"
-    entered, landed, noticed, done = threading.Event(), threading.Event(), threading.Event(), threading.Event()
+    landed, done = threading.Event(), threading.Event()
     seen: list[str] = []
     started: list[str] = []
     handed: list[list[str]] = []
@@ -111,14 +119,12 @@ def test_a_newer_install_takes_the_receivers_socket_once_it_took_each_delivery_i
         if done.is_set():
             raise Stopped
         if landed.is_set() and not handed:
-            noticed.set()
             return newer
         return None
 
     def took(repo: str, hook_id: int, guid: str, event: str, payload: dict | None) -> None:
         if guid == "g1":
-            entered.set()
-            noticed.wait(10)
+            landed.set()
         seen.append(guid)
         if guid == "g2":
             done.set()
@@ -149,11 +155,11 @@ def test_a_newer_install_takes_the_receivers_socket_once_it_took_each_delivery_i
         while not receiver.answering():
             time.sleep(0.05)
         delivered_from("g1")
-        entered.wait(10)
-        landed.set()
 
     with socket.create_server((dashboard.LOOPBACK, 0)) as probe:
         port = probe.getsockname()[1]
+    receiver.home().mkdir(parents=True)
+    state.append_line(receiver.deliveries_path(), receiver.DELIVERY, repo=REPO, event="ping", guid="g0")
     monkeypatch.setattr(receiver, "PORT", port)
     monkeypatch.setattr(receiver, "WAIT_SECONDS", 0.05)
     monkeypatch.setattr(receiver, "upgraded", upgraded)
@@ -175,39 +181,48 @@ def test_a_newer_install_takes_the_receivers_socket_once_it_took_each_delivery_i
     assert (seen, answered, started) == (["g1", "handed", "g2"], [200, 200], ["funnel", "caught up", "builds missed"])
 
 
-def test_a_delivery_is_written_only_to_each_drive_tracking_an_unmerged_pr_it_names_and_kept_as_its_hooks_last(demo: str, capsys: pytest.CaptureFixture[str]) -> None:
-    receiver.took(REPO, 9, "g1", "check_run", {"check_run": {"head_sha": "aaa", "pull_requests": []}})
-    receiver.took(REPO, 9, "g2", "ping", {"zen": "Keep it logically awesome."})
-    assert (delivered(demo), delivered("quiet"), receiver.hooks()) == (
-        [{"repo": REPO, "numbers": [42], "event": "check_run", "guid": "g1"}],
-        [],
-        {REPO: {"id": 9, "last": "g2"}},
+def test_a_receiver_handed_the_socket_by_an_install_that_kept_no_deliveries_log_asks_github_what_it_missed(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    started: list[str] = []
+
+    class Stopped(Exception):
+        pass
+
+    def upgraded() -> None:
+        raise Stopped
+
+    monkeypatch.setattr(receiver, "upgraded", upgraded)
+    monkeypatch.setattr(receiver, "funnel", lambda: started.append("funnel"))
+    monkeypatch.setattr(receiver, "caught_up", lambda: started.append("caught up"))
+    monkeypatch.setattr(receiver, "took_builds", lambda event, links: started.append(f"builds {event}"))
+    monkeypatch.setattr(receiver.launchd, "session_env", lambda: {})
+    monkeypatch.setattr(dashboard, "tailnet", lambda: dashboard.Tailnet("mac", "mac.tail.ts.net", ["100.64.0.1"], "me@example.com", True))
+    with socket.create_server((dashboard.LOOPBACK, 0)) as listening, pytest.raises(Stopped):
+        receiver.main(os.dup(listening.fileno()))
+    assert started == ["caught up", "builds missed"]
+
+
+def test_a_delivery_is_logged_once_as_its_own_facts_and_kept_as_its_hooks_last_reading_no_drive(home: None, unread: None, capsys: pytest.CaptureFixture[str]) -> None:
+    receiver.took(REPO, 9, "g1", "check_run", {"check_run": {"head_sha": "aaa", "pull_requests": [{"number": 42}]}})
+    receiver.took(REPO, 9, "g2", "status", {"sha": "bbb", "branches": [{"name": "stacked"}]})
+    receiver.took(REPO, 9, "g3", "push", {"ref": "refs/heads/fix-it"})
+    receiver.took(REPO, 9, "g4", "ping", {"zen": "Keep it logically awesome."})
+    assert (delivered(), receiver.hooks()) == (
+        [
+            {"repo": REPO, "event": "check_run", "guid": "g1", "numbers": [42], "head": "aaa"},
+            {"repo": REPO, "event": "status", "guid": "g2", "head": "bbb", "branches": ["stacked"]},
+            {"repo": REPO, "event": "push", "guid": "g3", "base": "fix-it"},
+            {"repo": REPO, "event": "ping", "guid": "g4"},
+        ],
+        {REPO: {"id": 9, "last": "g4"}},
     )
-    assert [line.split(" ", 1)[1] for line in capsys.readouterr().out.splitlines()] == [f"check_run g1 {REPO}: demo #42", f"ping g2 {REPO}: no unmerged PR a drive tracks"]
-
-
-
-def test_the_reopen_of_a_pr_a_drive_holds_closed_is_written_to_that_drive_while_a_merged_ones_delivery_is_written_nowhere(demo: str) -> None:
-    with state.edit(demo) as data:
-        data["prs"][KEY]["state"] = "closed"
-    receiver.took(REPO, 9, "g1", "pull_request", {"action": "reopened", "pull_request": {"number": 42}})
-    receiver.took(REPO, 9, "g2", "pull_request", {"action": "edited", "pull_request": {"number": 41}})
-    assert delivered(demo) == [{"repo": REPO, "numbers": [42], "event": "pull_request", "guid": "g1"}]
-
-
-def test_the_close_of_a_pr_the_drive_does_not_track_that_carries_a_stopped_builders_part_is_written_to_that_drive_while_its_check_run_is_not(demo: str) -> None:
-    with state.edit(demo) as data:
-        data["jobs"]["j2"] = state.new_job("o1", "builder", "port the fixes", [], state.stamp()) | {"state": "stopped", "prs": [state.pr_url(f"{REPO}#44")]}
-    receiver.took(REPO, 9, "g1", "check_run", {"check_run": {"head_sha": "ccc", "pull_requests": [{"number": 44}]}})
-    receiver.took(REPO, 9, "g2", "pull_request", {"action": "closed", "pull_request": {"number": 44}})
-    assert delivered(demo) == [{"repo": REPO, "numbers": [44], "event": "pull_request", "guid": "g2"}]
+    assert [line.split(" ", 1)[1] for line in capsys.readouterr().out.splitlines()] == [f"check_run g1 {REPO}", f"status g2 {REPO}", f"push g3 {REPO}", f"ping g4 {REPO}"]
 
 
 @pytest.fixture
 def listening(monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[str, list[tuple]]]:
     taken: list[tuple] = []
     monkeypatch.setattr(receiver, "took", lambda *delivery: taken.append(delivery))
-    server = ThreadingHTTPServer((dashboard.LOOPBACK, 0), receiver.handler(SECRET))
+    server = receiver.serving(socket.create_server((dashboard.LOOPBACK, 0)), SECRET)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     yield f"http://{dashboard.LOOPBACK}:{server.server_address[1]}/", taken
     server.shutdown()
@@ -234,6 +249,24 @@ def test_the_receiver_takes_only_deliveries_signed_with_the_webhook_secret(liste
     assert taken == [(REPO, 9, "g1", "pull_request", payload)]
 
 
+@pytest.mark.parametrize("burst", [1, 100])
+def test_a_burst_of_deliveries_is_taken_on_the_one_thread_that_accepts_them_and_each_answered(
+    listening: tuple[str, list[tuple]], monkeypatch: pytest.MonkeyPatch, burst: int
+) -> None:
+    address, _ = listening
+    threads: list[int] = []
+    monkeypatch.setattr(receiver, "took", lambda *delivery: threads.append(threading.get_ident()))
+    body = json.dumps({"repository": {"full_name": REPO}, "pull_request": {"number": 42}}).encode()
+    signed = "sha256=" + hmac.new(SECRET, body, hashlib.sha256).hexdigest()
+
+    def deliver(guid: int) -> int:
+        return post(address, body, {"X-GitHub-Event": "pull_request", "X-GitHub-Delivery": f"g{guid}", "X-GitHub-Hook-ID": "9", "X-Hub-Signature-256": signed})
+
+    with ThreadPoolExecutor(burst) as pool:
+        answered = list(pool.map(deliver, range(burst)))
+    assert (answered, len(threads), len(set(threads))) == ([200] * burst, burst, 1)
+
+
 def test_the_receiver_takes_only_buildkite_deliveries_signed_with_the_webhook_secret_over_their_timestamp_and_body(
     listening: tuple[str, list[tuple]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -248,24 +281,11 @@ def test_the_receiver_takes_only_buildkite_deliveries_signed_with_the_webhook_se
     assert taken == [("build.finished", [BUILD])]
 
 
-def test_a_buildkite_delivery_is_written_only_to_each_drive_waiting_on_a_build_it_names_and_a_missed_one_owes_each_drive_every_build_it_waits_on(
-    demo: str, capsys: pytest.CaptureFixture[str]
-) -> None:
-    other = "https://buildkite.com/forge/monorepo/builds/7"
-    with state.edit(demo) as data:
-        data["jobs"]["j2"] = state.new_job("o1", "builder", "release", [], state.stamp()) | {"state": "waiting", "waits": [BUILD]}
-        data["jobs"]["j3"] = state.new_job("o1", "builder", "release", [], state.stamp()) | {"state": "done", "waits": ["https://buildkite.com/forge/release/builds/1"]}
-        data["prs"][KEY]["waits"] = [other]
-        data["prs"][MERGED]["waits"] = ["https://buildkite.com/forge/release/builds/2"]
+def test_a_buildkite_delivery_is_logged_once_naming_its_builds_reading_no_drive_and_a_missed_one_names_every_build(home: None, unread: None, capsys: pytest.CaptureFixture[str]) -> None:
     receiver.took_builds("build.finished", [BUILD])
-    receiver.took_builds("build.finished", ["https://buildkite.com/forge/release/builds/1", "https://buildkite.com/forge/release/builds/2"])
     receiver.took_builds("missed", None)
-    assert (builds_delivered(demo), builds_delivered("quiet")) == ([("build.finished", [BUILD]), ("missed", sorted([BUILD, other]))], [])
-    assert [line.split(" ", 1)[1] for line in capsys.readouterr().out.splitlines()] == [
-        f"buildkite build.finished: demo {BUILD}",
-        "buildkite build.finished: no build a drive waits on",
-        f"buildkite missed: demo {' '.join(sorted([BUILD, other]))}",
-    ]
+    assert builds_delivered() == [("build.finished", [BUILD]), ("missed", None)]
+    assert [line.split(" ", 1)[1] for line in capsys.readouterr().out.splitlines()] == [f"buildkite build.finished: {BUILD}", "buildkite missed: every build a drive holds"]
 
 
 def answers(monkeypatch: pytest.MonkeyPatch, answered: dict[str, object]) -> list[list[str]]:
@@ -287,22 +307,32 @@ def kept(hooks: dict[str, dict]) -> None:
 
 
 def test_a_receiver_starting_takes_every_open_pr_of_a_repository_whose_hook_delivered_since_its_last_as_delivered(
-    demo: str, monkeypatch: pytest.MonkeyPatch
+    home: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     kept({REPO: {"id": 9, "last": "g1"}, "yasyf/cc-skills": {"id": 10, "last": "g7"}})
+    receiver.took_builds("missed", None)
     answers(monkeypatch, {f"repos/{REPO}/hooks/9/deliveries?per_page=1": [{"guid": "g3"}], "repos/yasyf/cc-skills/hooks/10/deliveries?per_page=1": [{"guid": "g7"}]})
     receiver.caught_up()
-    assert (delivered(demo), receiver.hooks()) == (
-        [{"repo": REPO, "numbers": [42, 43], "event": "missed", "guid": "g3"}],
+    assert (delivered(), receiver.hooks()) == (
+        [{"repo": REPO, "event": "missed", "guid": "g3"}],
         {REPO: {"id": 9, "last": "g3", "ci": "g3", "release": "g3"}, "yasyf/cc-skills": {"id": 10, "last": "g7"}},
     )
 
 
-def test_a_hook_whose_deliveries_github_does_not_list_is_forgotten_for_the_watch_to_make_again(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_receiver_starting_on_an_empty_deliveries_log_takes_every_hooks_open_prs_as_delivered_since_its_predecessor_logged_into_each_drive(
+    home: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    kept({REPO: {"id": 9, "last": "g3"}})
+    answers(monkeypatch, {f"repos/{REPO}/hooks/9/deliveries?per_page=1": [{"guid": "g3"}]})
+    receiver.caught_up()
+    assert delivered() == [{"repo": REPO, "event": "missed", "guid": "g3"}]
+
+
+def test_a_hook_whose_deliveries_github_does_not_list_is_forgotten_for_the_watch_to_make_again(home: None, monkeypatch: pytest.MonkeyPatch) -> None:
     kept({REPO: {"id": 9, "last": "g1"}})
     answers(monkeypatch, {f"repos/{REPO}/hooks/9/deliveries?per_page=1": github.GithubError("gh: Not Found (HTTP 404)")})
     receiver.caught_up()
-    assert (delivered(demo), receiver.hooks()) == ([], {})
+    assert (delivered(), receiver.hooks()) == ([], {})
 
 
 @pytest.mark.parametrize(("listed", "method", "path"), [([{"id": 9, "config": {"url": "https://mac.tail.ts.net:8443/github"}}], "PATCH", f"repos/{REPO}/hooks/9"), ([], "POST", f"repos/{REPO}/hooks")])

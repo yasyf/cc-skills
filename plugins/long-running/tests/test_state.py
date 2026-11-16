@@ -1426,9 +1426,7 @@ def test_a_waiting_naming_a_buildkite_build_waits_on_it_as_no_card_and_a_release
     assert [state.result_refusal(data, job_id, said, said) is None for job_id, said in (("j9", line), ("j10", "WAITING release"), ("j11", "WAITING release"))] == [True, True, False]
     state.take_result(data, "j9", line, line)
     state.take_result(data, "j10", "WAITING release", "WAITING release")
-    assert (data["jobs"]["j9"]["waits"], data["jobs"]["j10"]["waits"], state.card_wait(data, build), state.held_builds(data)) == ([build], [started], False, {build, started})
-    data["jobs"]["j9"]["state"] = "done"
-    assert state.held_builds(data) == {started}
+    assert (data["jobs"]["j9"]["waits"], data["jobs"]["j10"]["waits"], state.card_wait(data, build)) == ([build], [started], False)
 
 
 def test_a_waiting_report_naming_his_open_card_only_below_its_first_line_waits_on_no_card() -> None:

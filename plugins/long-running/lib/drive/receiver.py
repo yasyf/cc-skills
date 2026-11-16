@@ -15,7 +15,7 @@ import urllib.error
 import urllib.request
 from collections.abc import Iterator
 from datetime import datetime
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 
 from drive import dashboard, github, launchd, state
@@ -45,6 +45,15 @@ def home() -> Path:
 
 def log_path() -> Path:
     return home() / "receiver.log"
+
+
+def deliveries_path() -> Path:
+    """The receiver's log of every delivery it took, each line the delivery's own facts, which each drive's watch reads from where it last read to, matching them against the drive it loaded, so taking a delivery reads no drive."""
+    return home() / "deliveries.jsonl"
+
+
+def deliveries_end() -> int:
+    return state.lines_end(deliveries_path())
 
 
 def secret() -> str:
@@ -130,19 +139,32 @@ def answering() -> bool:
         return False
 
 
-def named(event: str, payload: dict | None, prs: dict[int, dict]) -> list[int]:
-    """The numbers of the PRs of one drive in a delivery's repository, prs, that the delivery names, its unmerged PRs and, for a delivery of CARRYING, the PRs it does not track that carry a stopped builder's parts: a PR's or its review's by number, a check run's by its PRs and its head, a commit status's by the head or branch it is on, and a push's by the base it moves, whose PRs GitHub merges again; a missed delivery names them all."""
+def facts(event: str, payload: dict | None) -> dict:
+    """What a delivery says that named matches a drive's PRs by: a PR's or its review's number, a check run's PRs and head, a commit status's head and the branches it is on, and the base a push moves."""
     match event:
         case "pull_request" | "pull_request_review":
-            found = {payload["pull_request"]["number"]}
+            return {"numbers": [payload["pull_request"]["number"]]}
         case "check_run":
-            run = payload["check_run"]
-            found = {pull["number"] for pull in run["pull_requests"]} | {number for number, pr in prs.items() if pr["head"] == run["head_sha"]}
+            return {"numbers": [pull["number"] for pull in payload["check_run"]["pull_requests"]], "head": payload["check_run"]["head_sha"]}
         case "status":
-            branches = {branch["name"] for branch in payload["branches"]}
-            found = {number for number, pr in prs.items() if pr["head"] == payload["sha"] or pr.get("branch") in branches}
+            return {"head": payload["sha"], "branches": [branch["name"] for branch in payload["branches"]]}
         case "push":
-            found = {number for number, pr in prs.items() if pr.get("base") == payload["ref"].removeprefix("refs/heads/")}
+            return {"base": payload["ref"].removeprefix("refs/heads/")}
+        case _:
+            return {}
+
+
+def named(delivery: dict, prs: dict[int, dict]) -> list[int]:
+    """The numbers of the PRs of one drive in a delivery's repository, prs, that the delivery's facts name, its unmerged PRs and, for a delivery of CARRYING, the PRs it does not track that carry a stopped builder's parts: a PR's or its review's by number, a check run's by its PRs and its head, a commit status's by the head or branch it is on, and a push's by the base it moves, whose PRs GitHub merges again; a missed delivery names them all."""
+    match delivery["event"]:
+        case "pull_request" | "pull_request_review":
+            found = set(delivery["numbers"])
+        case "check_run":
+            found = set(delivery["numbers"]) | {number for number, pr in prs.items() if pr["head"] == delivery["head"]}
+        case "status":
+            found = {number for number, pr in prs.items() if pr["head"] == delivery["head"] or pr.get("branch") in delivery["branches"]}
+        case "push":
+            found = {number for number, pr in prs.items() if pr.get("base") == delivery["base"]}
         case "missed":
             found = set(prs)
         case _:
@@ -182,31 +204,18 @@ def hear(repo: str, kind: str, since: str | None) -> None:
 
 
 def took(repo: str, hook_id: int, guid: str, event: str, payload: dict | None) -> None:
-    """Append one delivery line to each drive's events file naming the PRs of its that the delivery names, for its watch to read from GitHub, keep the delivery as the hook's last and as the mark of each kind it moves, and log it. Only a delivery of CARRYING, which a PR's merge, close or reopen is, reads the drive's jobs too, for the PRs it does not track that carry a stopped builder's parts or that a live job keeps or waits on, by state.carrier_keys."""
-    said = []
-    for name in state.names():
-        stored = state.stored(name, ("prs", "jobs") if event in CARRYING else ("prs",))
-        prs = {int(key.partition("#")[2]): pr for key, pr in stored.get("prs", {}).items() if key.partition("#")[0] == repo and pr["state"] != "merged"}
-        if event in CARRYING:
-            prs |= {int(key.partition("#")[2]): {} for key in state.carrier_keys(stored) if key.partition("#")[0] == repo}
-        if numbers := named(event, payload, prs):
-            state.append_event(name, DELIVERY, repo=repo, numbers=numbers, event=event, guid=guid)
-            said.append(f"{name} {' '.join(f'#{number}' for number in numbers)}")
+    """Append one delivery line of the delivery's own facts to the deliveries log, for each drive's watch to match against the PRs it tracks and read those from GitHub, keep the delivery as the hook's last and as the mark of each kind it moves, and log it. It reads no drive, so a delivery costs the same however many drives, PRs and jobs this Mac holds, and a burst of them leaves the receiver answering within GitHub's 10 seconds."""
+    state.append_line(deliveries_path(), DELIVERY, repo=repo, event=event, guid=guid, **facts(event, payload))
     marks = marked(event, payload)
     with hooks_kept() as kept:
         kept[repo] = (kept.get(repo) or {}) | {"id": hook_id, "last": guid} | dict.fromkeys(marks, guid)
-    print(f"{moment()} {event} {guid} {repo}: {'; '.join([*said, *(f'marks {kind}' for kind in marks)]) or 'no unmerged PR a drive tracks'}", flush=True)
+    print(f"{moment()} {event} {guid} {repo}{''.join(f'; marks {kind}' for kind in marks)}", flush=True)
 
 
 def took_builds(event: str, links: list[str] | None) -> None:
-    """Append one build delivery line to each drive with a live job or open PR waiting on, or an open order's part following, a Buildkite build a delivery of Buildkite's names, for its watch to read that build from Buildkite, and log it; a missed delivery, links None, names every build each drive waits on, since the receiver took none of what Buildkite sent while it was down."""
-    said = []
-    for name in state.names():
-        held = state.held_builds(state.stored(name, ("jobs", "prs", "orders")))
-        if builds := sorted(held if links is None else held & set(links)):
-            state.append_event(name, BUILD_DELIVERY, builds=builds, event=event)
-            said.append(f"{name} {' '.join(builds)}")
-    print(f"{moment()} buildkite {event}: {'; '.join(said) or 'no build a drive waits on'}", flush=True)
+    """Append one build delivery line naming the Buildkite builds a delivery of Buildkite's names to the deliveries log, for each drive's watch to read again those it holds, and log it; a missed delivery, links None, names every build each watch holds, since the receiver took none of what Buildkite sent while it was down."""
+    state.append_line(deliveries_path(), BUILD_DELIVERY, builds=links, event=event)
+    print(f"{moment()} buildkite {event}: {' '.join(links) if links is not None else 'every build a drive holds'}", flush=True)
 
 
 def buildkite_signed(key: bytes, header: str, body: bytes) -> bool:
@@ -217,7 +226,8 @@ def buildkite_signed(key: bytes, header: str, body: bytes) -> bool:
 
 
 def caught_up() -> None:
-    """Ask GitHub for each kept hook's newest delivery, and when it is newer than the last one taken, take every open PR the drives track in its repository as delivered, since the receiver took none of what GitHub sent meanwhile: one read of those PRs in place of one call per missed delivery. A hook whose deliveries GitHub does not list, one deleted or a network not up yet, is forgotten, so the watch makes it again and owes a read of each PR of its repository."""
+    """Ask GitHub for each kept hook's newest delivery, and when it is newer than the last one taken, or its deliveries log is still empty, as for the first receiver that keeps one, whose predecessor wrote its deliveries into each drive's events file where no watch reads them now, take every open PR the drives track in its repository as delivered, since the receiver took none of what GitHub sent meanwhile: one read of those PRs in place of one call per missed delivery. A hook whose deliveries GitHub does not list, one deleted or a network not up yet, is forgotten, so the watch makes it again and owes a read of each PR of its repository."""
+    unlogged = not deliveries_end()
     for repo, kept in hooks().items():
         try:
             newest = json.loads(asked(["gh", "api", f"repos/{repo}/hooks/{kept['id']}/deliveries?per_page=1"]))
@@ -226,7 +236,7 @@ def caught_up() -> None:
                 hooked.pop(repo, None)
             print(f"{moment()} forgot {repo}'s hook {kept['id']}, which the watch makes again, reading its PRs: GitHub listed none of its deliveries: {error}", flush=True)
             continue
-        if newest and newest[0]["guid"] != kept["last"]:
+        if newest and (unlogged or newest[0]["guid"] != kept["last"]):
             took(repo, kept["id"], newest[0]["guid"], "missed", None)
 
 
@@ -293,15 +303,22 @@ def handler(key: bytes) -> type[BaseHTTPRequestHandler]:
     return Delivery
 
 
+def serving(listening: socket.socket, key: bytes) -> dashboard.Server:
+    """The receiver's server on its listening socket, taking each delivery to its end on the one thread that accepts it, so a burst of deliveries starts no thread and waits in the socket's queue, each taken in the time one append takes."""
+    server = dashboard.Server(listening, handler(key), None)
+    server.process_request = server.process_request_thread
+    server.timeout = WAIT_SECONDS
+    return server
+
+
 def main(inherited: int | None) -> int:
-    """Take GitHub's and Buildkite's signed deliveries on loopback behind the Funnel paths, the process the receiver's launch agent runs. Started on its own, it listens before it opens the paths, asks GitHub what it missed and owes each drive a read of every Buildkite build it waits on, since Buildkite lists no deliveries, so a delivery landing meanwhile waits in the socket's queue. Once a newer long-running is installed it takes each delivery it accepted to its end and hands its listening socket to that install's drive, as the dashboard hands over its port, which serves on it at once and asks GitHub and Buildkite nothing, since the socket queued every delivery meanwhile, so the receiver runs each install's code and spends no GitHub read on it. It exits for launchd to start it again, which asks GitHub again, only once the clock jumps past SLEPT_SECONDS, as after this Mac slept."""
+    """Take GitHub's and Buildkite's signed deliveries on loopback behind the Funnel paths, the process the receiver's launch agent runs. Started on its own, it listens before it opens the paths, asks GitHub what it missed and owes each drive a read of every Buildkite build it waits on, since Buildkite lists no deliveries, so a delivery landing meanwhile waits in the socket's queue, as one handed the socket does while its deliveries log is still empty, since the install before it wrote its deliveries into each drive's events file. Once a newer long-running is installed it takes each delivery it accepted to its end and hands its listening socket to that install's drive, as the dashboard hands over its port, which serves on it at once and asks GitHub and Buildkite nothing, since the socket queued every delivery meanwhile, so the receiver runs each install's code and spends no GitHub read on it. It exits for launchd to start it again, which asks GitHub again, only once the clock jumps past SLEPT_SECONDS, as after this Mac slept."""
     os.environ.update(launchd.session_env())
     listening = socket.socket(fileno=inherited) if inherited is not None else socket.create_server((dashboard.LOOPBACK, PORT))
-    server = dashboard.Server(listening, handler(secret().encode()), None)
-    server.daemon_threads = False
-    server.timeout = WAIT_SECONDS
+    server = serving(listening, secret().encode())
     if inherited is None:
         funnel()
+    if inherited is None or not deliveries_end():
         caught_up()
         took_builds("missed", None)
     print(f"{moment()} receiving at {url()} and {url(BUILDKITE_PATH)} on long-running {state.VERSION}", flush=True)

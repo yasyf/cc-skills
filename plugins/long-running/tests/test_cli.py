@@ -10098,13 +10098,13 @@ def test_his_ask_in_his_dm_follows_a_build_and_no_post_delivers_its_part_until_t
     data = state.load("demo")
     held = data["orders"]["o1"]["parts"]["keep me updated on the staging release"]
     assert held["follow"] == {"build": build, "thread": "1794200000.000100", "message": None, "words": None, "ended": None, "record": None}
-    assert build in state.held_builds(data)
+    assert build in state.followed_builds(data["orders"])
     items = [("o1", "keep me updated on the staging release")]
     assert cli.reported_parts(data, "o1", data["orders"]["o1"], {"part": "o1:keep me updated on the staging release"}, items) == []
     assert run("order", "posted", "o1", ours, "--part", "keep me updated on the staging release")[0] == 2
     held["follow"]["ended"] = state.stamp()
     assert cli.reported_parts(data, "o1", data["orders"]["o1"], {"part": "o1:keep me updated on the staging release"}, items) == ["keep me updated on the staging release"]
-    assert build not in state.held_builds(data)
+    assert build not in state.followed_builds(data["orders"])
 
 
 def test_only_his_own_message_withdraws_a_promised_line(run: Run, demo: str, slack_thread: "Thread") -> None:

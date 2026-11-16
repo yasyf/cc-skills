@@ -1132,7 +1132,7 @@ def delivered_each_minute(monkeypatch: pytest.MonkeyPatch) -> None:
 def rests(monkeypatch: pytest.MonkeyPatch) -> None:
     """The watch's rest between passes as a sleep of POLL_SECONDS, since the kqueue that wakes it on an event exists on macOS alone."""
 
-    def slept(name: str) -> Iterator[None]:
+    def slept(*paths: Path) -> Iterator[None]:
         while True:
             yield
             watch.time.sleep(watch.POLL_SECONDS)

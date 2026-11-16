@@ -219,6 +219,15 @@ def watcher(name: str) -> watch.Watcher:
     return watch.Watcher(name, offset=state.events_end(name))
 
 
+def deliver(event: str, payload: dict, repo: str = "Forge-AI/monorepo") -> None:
+    receiver.home().mkdir(parents=True, exist_ok=True)
+    receiver.took(repo, 9, "g1", event, payload)
+
+
+def checked(number: int) -> dict:
+    return {"check_run": {"head_sha": "zzz", "pull_requests": [{"number": number}]}}
+
+
 @pytest.fixture(autouse=True)
 def ready_records(monkeypatch: pytest.MonkeyPatch) -> list[list[dict]]:
     from drive import tools
@@ -656,10 +665,10 @@ def test_github_is_read_for_every_pr_at_a_landing_loops_start_none_before_it_han
     watching = watcher(demo)
     watch.run_pass(watching, T0)
     watch.run_pass(watching, T0 + timedelta(seconds=60))
-    state.append_event(demo, receiver.DELIVERY, repo="Forge-AI/monorepo", numbers=[43], event="check_run", guid="g1")
+    deliver("check_run", checked(43))
     assert watch.run_pass(watching, T0 + timedelta(seconds=65)) == []
     watch.keep_unposted(watching)
-    state.append_event(demo, receiver.DELIVERY, repo="Forge-AI/monorepo", numbers=[42], event="pull_request", guid="g2")
+    deliver("pull_request", {"pull_request": {"number": 42}})
     run_landing_loop(demo, monkeypatch)
     run_landing_loop(demo, monkeypatch)
     state.take_held_reads(demo)
@@ -692,10 +701,35 @@ def test_a_push_to_their_base_reads_only_the_mergeability_of_the_prs_it_names_sa
     watching = watcher(demo)
     watch.run_pass(watching, T0)
     reads |= {KEY: read(mergeable="CONFLICTING"), OTHER: read(headRefOid="bbbbbbb222")}
-    state.append_event(demo, receiver.DELIVERY, repo="Forge-AI/monorepo", numbers=[42, 43], event="push", guid="g1")
+    deliver("push", {"ref": "refs/heads/main"})
     said = watch.run_pass(watching, T0 + timedelta(seconds=5))
     assert (said, calls, merges) == ([f"PR {OTHER}: new head bbbbbbb [o1 j1]", f"PR {KEY}: {watch.CONFLICTS} [o1 j1]"], [[KEY, OTHER], [OTHER]], [[KEY, OTHER]])
     assert (state.load(demo)["prs"][KEY]["conflict"], watching.merging) == (True, set())
+
+
+def test_a_logged_delivery_owes_a_read_of_a_pr_the_drive_holds_closed_and_a_carried_ones_close_but_none_of_a_merged_pr_nor_of_a_carried_ones_check_run(demo: str) -> None:
+    merged, carried = "Forge-AI/monorepo#41", "Forge-AI/monorepo#44"
+    with state.edit(demo) as data:
+        data["prs"][KEY]["state"] = "closed"
+        data["prs"][merged] = state.new_pr(state.pr_url(merged), "j1", "o1") | {"head": "aaaaaaa111", "state": "merged"}
+        data["jobs"]["j2"] = state.new_job("o1", "builder", "port the fixes", [], state.stamp()) | {"state": "stopped", "prs": [state.pr_url(carried)]}
+    watching = watch.Watcher(demo, offset=state.events_end(demo), owed=set())
+    deliver("pull_request", {"action": "reopened", "pull_request": {"number": 42}})
+    deliver("pull_request", {"action": "edited", "pull_request": {"number": 41}})
+    deliver("check_run", checked(44))
+    deliver("pull_request", {"action": "closed", "pull_request": {"number": 44}})
+    assert (watch.take_deliveries(watching), watching.owed, watch.take_deliveries(watching)) == ([KEY, carried], {KEY, carried}, None)
+
+
+def test_a_build_delivery_has_the_watch_read_again_each_build_it_holds_that_it_names_and_every_one_it_holds_for_a_missed_one(demo: str) -> None:
+    held, other = "https://buildkite.com/forge/release/builds/14769", "https://buildkite.com/forge/release/builds/15020"
+    watching = watch.Watcher(demo, offset=state.events_end(demo), builds={held: None, other: None})
+    receiver.home().mkdir(parents=True)
+    receiver.took_builds("build.finished", [held, "https://buildkite.com/forge/release/builds/1"])
+    assert (watch.take_deliveries(watching), watching.builds_heard) == ([], {held})
+    receiver.took_builds("missed", None)
+    watch.take_deliveries(watching)
+    assert watching.builds_heard == {held, other}
 
 
 PULLED = re.compile(r"p(\d+): pullRequest\(number: \d+\)")
@@ -754,11 +788,11 @@ def test_a_watch_handed_its_owed_reads_asks_github_one_query_a_repository_for_th
             data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {"head": "aaaaaaa111", "base": "dev", "wants_tap": False, "required": {"checks": "none", "failed": {}, "read": state.stamp(T0)}}
     asked = graphql_counted(monkeypatch, dict.fromkeys([*keys, YASYF], "aaaaaaa111"))
     watching = watch.Watcher(demo, offset=state.events_end(demo), owed=set())
-    state.append_event(demo, receiver.DELIVERY, repo="Forge-AI/monorepo", numbers=[42], event="check_run", guid="g1")
+    deliver("check_run", checked(42))
     watch.event_lines(watching)
     watch.github_lines(watching, T0)
-    state.append_event(demo, receiver.DELIVERY, repo="Forge-AI/monorepo", numbers=numbers, event="push", guid="g2")
-    state.append_event(demo, receiver.DELIVERY, repo="yasyf/cc-skills", numbers=[7], event="push", guid="g3")
+    deliver("push", {"ref": "refs/heads/dev"})
+    deliver("push", {"ref": "refs/heads/dev"}, repo="yasyf/cc-skills")
     watch.event_lines(watching)
     watch.github_lines(watching, T0 + timedelta(seconds=5))
     assert asked == [(1, 1, 0), (1, 0, tracked), (1, 0, 1)]
@@ -772,7 +806,7 @@ def test_a_delivery_of_a_failed_check_is_said_in_the_pass_it_wakes(demo: str, mo
     assert watch.run_pass(watching, T0) == []
     reads[KEY] = read(checks=RED)
     assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == []
-    state.append_event(demo, receiver.DELIVERY, repo="Forge-AI/monorepo", numbers=[42], event="check_run", guid="g1")
+    deliver("check_run", checked(42))
     assert watch.run_pass(watching, T0 + timedelta(seconds=10)) == [f"PR {KEY}: checks failed [o1 j1]"]
 
 
@@ -1013,7 +1047,7 @@ def test_the_landing_loop_holds_the_reads_it_owes_before_it_runs_on_a_newer_inst
     watching = watcher(demo)
     watch.run_pass(watching, T0)
     watch.keep_unposted(watching)
-    state.append_event(demo, receiver.DELIVERY, repo="Forge-AI/monorepo", numbers=[42], event="check_run", guid="g1")
+    deliver("check_run", checked(42))
     lines, given = os.pipe()
     newer = tmp_path / "cache" / "9.9.9" / "bin" / "drive"
     monkeypatch.setattr(watch, "upgraded", lambda: newer)
@@ -1933,7 +1967,7 @@ def test_a_build_his_ask_follows_keeps_one_status_message_current_from_the_watch
     follow = data["orders"]["o1"]["parts"][part]["follow"]
     assert (follow["ended"], follow["record"], follow["message"]) == (state.stamp(T0 + timedelta(minutes=21)), None, POSTED)
     assert watch.status_lines(watching, T0 + timedelta(minutes=22)) == []
-    assert (len(posts), len(calls), state.held_builds(data)) == (3, 2, set())
+    assert (len(posts), len(calls), state.followed_builds(data["orders"])) == (3, 2, set())
 
 
 def test_a_followed_build_is_read_once_as_first_held_and_one_buildkite_answers_none_for_posts_nothing_and_is_said_from_its_third_pass(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -4235,7 +4269,7 @@ def test_a_pr_the_drive_does_not_track_carries_the_part_of_the_stopped_builder_n
     assert (watch.run_pass(watching, T0), watch.run_pass(watching, T0 + timedelta(seconds=5)), calls) == ([], [], [[KEY, OTHER]])
     assert render.part_line(state.load(demo), "o2", port) == f'"{port}": builder j2 stopped with {state.pr_url(OTHER)} carrying it'
     calls = serve(monkeypatch, {OTHER: read(state=now)})
-    state.append_event(demo, receiver.DELIVERY, repo="Forge-AI/monorepo", numbers=[43], event="pull_request", guid="g1")
+    deliver("pull_request", {"pull_request": {"number": 43}})
     assert watch.run_pass(watching, T0 + timedelta(seconds=10)) == [f'ORPHAN o2 "{port}": {said}']
     assert (watch.run_pass(watching, T0 + timedelta(seconds=15)), calls) == ([], [[OTHER]])
 
@@ -4252,7 +4286,7 @@ def test_a_waiting_job_keeping_a_pr_the_drive_does_not_track_waits_on_it_while_g
     watching = watcher(demo)
     assert [line for line in watch.run_pass(watching, T0) if line.startswith(("FREE ", "ORPHAN "))] == []
     calls = serve(monkeypatch, {OTHER: read(state="MERGED")})
-    state.append_event(demo, receiver.DELIVERY, repo="Forge-AI/monorepo", numbers=[43], event="pull_request", guid="g1")
+    deliver("pull_request", {"pull_request": {"number": 43}})
     freed = [line for line in watch.run_pass(watching, T0 + watch.READ_EVERY) if line.startswith("FREE ")]
     assert (freed, state.load(demo)["jobs"]["j2"]["waits"], calls) == ([f"FREE j2 o1: {OTHER} merged, nothing else holds it"], [], [[OTHER]])
 
@@ -5929,6 +5963,7 @@ def test_a_buildkite_build_wait_is_read_once_as_first_held_then_only_on_a_delive
         "blocks": {"edges": [{"node": {"label": APPROVE_STEP}}]},
         "failed": {"edges": [{"node": {"label": ":pytest: Test", "retried": True}}, {"node": {"label": ":docker: Image", "retried": False}}]},
     }
+    receiver.home().mkdir(parents=True, exist_ok=True)
     receiver.took_builds("build.finished", [RELEASE_BUILD])
     assert watch.run_pass(watching, T0 + timedelta(minutes=3)) == [f'FREE j1 o1: {RELEASE_BUILD} reads BLOCKED at its approve step "{APPROVE_STEP}", its steps that did not pass ":docker: Image", nothing else holds it']
     assert watch.run_pass(watching, T0 + timedelta(minutes=4)) == []
