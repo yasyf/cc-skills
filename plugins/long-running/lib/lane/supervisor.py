@@ -3,6 +3,7 @@
 import json
 import os
 import plistlib
+import runpy
 import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -224,11 +225,25 @@ def code_stamp() -> float:
     return max(path.stat().st_mtime for path in Path(__file__).parent.iterdir() if path.suffix in (".py", ".md"))
 
 
+def newest_install() -> Path:
+    """The newest installed copy of this plugin, as its hooks resolve it, or this copy when it runs from a checkout."""
+    return Path(runpy.run_path(str(Path(__file__).resolve().parents[2] / "hooks" / "installed.py"))["root"]()).resolve()
+
+
 def supervise(drive: str) -> None:
-    """Pass after pass, each pass_seconds apart or sooner when a verb kicks it; it exits when its own code changes, and launchd starts it again on the new code, while every owner runs on."""
+    """Pass after pass, each pass_seconds apart or sooner when a verb kicks it. It exits when its own code changes or a newer install lands, pointing the drive's launcher at that install first, and launchd starts it again on the new code through the launcher, while every owner runs on."""
     kick = store.drive_dir(drive) / "kick"
+    here = Path(__file__).resolve().parents[2]
+    store.launcher(drive)
     loaded = code_stamp()
     while code_stamp() == loaded:
+        if (newest := newest_install()) != here:
+            link = store.drive_dir(drive) / "lane"
+            fresh = link.with_name(f".lane.{os.getpid()}")
+            fresh.unlink(missing_ok=True)
+            fresh.symlink_to(newest / "bin" / "lane")
+            fresh.replace(link)
+            return
         result = run_pass(drive)
         good, lines = check(drive)
         with (store.drive_dir(drive) / "checks.jsonl").open("a") as out:
@@ -246,7 +261,7 @@ def install(drive: str) -> str:
     log = store.drive_dir(drive) / "supervisor.log"
     log.parent.mkdir(parents=True, exist_ok=True)
     env = {key: os.environ[key] for key in ("PATH", "HOME", "LONG_RUNNING_STATE", "XDG_STATE_HOME", "CLAUDE_CONFIG_DIR") if key in os.environ}
-    plist.write_bytes(plistlib.dumps({"Label": label, "ProgramArguments": [str(owners.BIN), "--drive", drive, "supervise"], "KeepAlive": True, "RunAtLoad": True, "ThrottleInterval": 10, "EnvironmentVariables": env, "StandardOutPath": str(log), "StandardErrorPath": str(log), "ProcessType": "Background"}))
+    plist.write_bytes(plistlib.dumps({"Label": label, "ProgramArguments": [str(store.launcher(drive)), "--drive", drive, "supervise"], "KeepAlive": True, "RunAtLoad": True, "ThrottleInterval": 10, "EnvironmentVariables": env, "StandardOutPath": str(log), "StandardErrorPath": str(log), "ProcessType": "Background"}))
     domain = f"gui/{os.getuid()}"
     subprocess.run(["launchctl", "bootout", f"{domain}/{label}"], capture_output=True, check=False)
     subprocess.run(["launchctl", "bootstrap", domain, str(plist)], capture_output=True, check=True)

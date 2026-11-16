@@ -12,7 +12,6 @@ from lane import store
 
 BRIEF = Path(__file__).with_name("owner.md")
 SHADOW = Path(__file__).with_name("shadow.md")
-BIN = Path(__file__).resolve().parents[2] / "bin" / "lane"
 ENDED = ("stopped", "done", "failed")
 SHADOW_DENY = [
     "Bash(git push:*)",
@@ -119,10 +118,10 @@ def brief(drive: str, lane: dict, woke: str) -> str:
         log="\n".join(f"- {line}" for line in store.log_tail(drive, lane["id"], 8)) or "- nothing yet",
         promise=json.dumps(lane.get("promise")) if lane.get("promise") else "none",
         handover=lane.get("handover") or "none",
-        lane=shlex.quote(str(BIN)),
+        lane=shlex.quote(str(store.launcher(drive))),
     )
     if not store.live(drive):
-        text += "\n\n" + SHADOW.read_text().format(id=lane["id"], lane=shlex.quote(str(BIN)))
+        text += "\n\n" + SHADOW.read_text().format(id=lane["id"], lane=shlex.quote(str(store.launcher(drive))))
     return text
 
 
@@ -135,7 +134,7 @@ def settings(drive: str, lane_id: str, token: str) -> dict:
     shaped = {
         "env": env,
         "hooks": {
-            "Stop": [{"hooks": [{"type": "command", "command": f"{shlex.quote(str(BIN))} hook stop"}]}],
+            "Stop": [{"hooks": [{"type": "command", "command": f"{shlex.quote(str(store.launcher(drive)))} hook stop"}]}],
             "PreToolUse": [{"matcher": "Bash|Edit|Write|NotebookEdit", "hooks": [{"type": "command", "command": fence}]}],
         },
     }

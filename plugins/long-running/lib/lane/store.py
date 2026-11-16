@@ -298,6 +298,19 @@ def new_token() -> str:
     return secrets.token_hex(8)
 
 
+def launcher(drive: str) -> Path:
+    """The drive's stable path to the lane command, a symlink in its state folder kept pointing at this install's bin/lane, so launchd's plist and every owner's hooks outlive the versioned plugin folder they started from."""
+    path = drive_dir(drive) / "lane"
+    target = Path(__file__).resolve().parents[2] / "bin" / "lane"
+    if not path.is_symlink() or path.resolve() != target:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fresh = path.with_name(f".lane.{os.getpid()}")
+        fresh.unlink(missing_ok=True)
+        fresh.symlink_to(target)
+        fresh.replace(path)
+    return path
+
+
 def kick(drive: str) -> None:
     """Wake the supervisor's loop before its next pass is due."""
     path = drive_dir(drive) / "kick"
