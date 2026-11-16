@@ -4931,8 +4931,9 @@ def folded_lines(watcher: Watcher, moment: datetime) -> list[str]:
     """Fold each prover no agent or lane took whose PRs another prover proves, by folded_into, into that prover, which widen gives its open parts and, while no agent or lane took it either, the PRs it lacks, its handoff and its Mac: step, and by state.hand_off the texts it holds and the waits on it, and stop it, one line saying each fold, so the provers two passes, two orders or a coordinator added for one PR become one."""
     if not doubled(state.load(watcher.name)):
         return []
-    folds = []
-    with state.edit(watcher.name) as data:
+
+    def folded(data: dict) -> list[tuple[str, str]]:
+        folds = []
         for job_id in doubled(data):
             if not (first := folded_into(data, job_id)):
                 continue
@@ -4941,6 +4942,9 @@ def folded_lines(watcher: Watcher, moment: datetime) -> list[str]:
             state.hand_off(data, {job_id: first})
             job.update(state="stopped", said=f"folded into {first}", updated=state.stamp(moment))
             folds.append((first, job_id))
+        return folds
+
+    folds = state.update(watcher.name, None, folded)
     return [merged_said(watcher.name, first, f"took the parts of {job_id}, a duplicate now stopped") for first, job_id in folds]
 
 
