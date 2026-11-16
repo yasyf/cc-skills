@@ -206,7 +206,7 @@ def landing_why(pr: dict) -> str:
         return f"queued for merge at {lander['head'][:7]} since {lander['at']}{requeued}{taken}"
     if lander["outcome"]:
         return f"its lander's try at {lander['head'][:7]}, started {lander['at']}, {lander['outcome']}"
-    return f"lander pid {lander['pid']} lands {lander['head'][:7]}, started {lander['at']}"
+    return f"lander pid {state.holder(lander)} lands {lander['head'][:7]}, started {lander['at']}"
 
 
 def unlanded(data: dict, key: str, cards: dict | None) -> str | None:

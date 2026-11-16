@@ -184,8 +184,14 @@ def unexempt(data: dict, key: str) -> str | None:
 
 
 def running(pr: dict) -> bool:
+    """Whether a lander still holds the PR's try with no outcome: the watch or tap that reserved it, until a child adopts it, or the child that adopted it, by state.holder."""
     lander = pr["lander"]
-    return bool(lander) and lander["outcome"] is None and state.alive(lander["pid"])
+    return bool(lander) and lander["outcome"] is None and state.holder(lander) is not None
+
+
+def attempt(lander: dict) -> object:
+    """The one try a lander record belongs to, shared by every PR of its unit: its reservation's token, or for a try an older install recorded, its pid and start."""
+    return lander.get("token") or (lander["pid"], lander["at"])
 
 
 def reported(data: dict, key: str, pr: dict) -> bool:
@@ -356,14 +362,24 @@ def units(data: dict, keys: list[str], cards: dict) -> list[tuple[str, ...]]:
 
 
 def start(name: str, keys: list[str], cards: dict | None) -> list[tuple[str, ...]]:
-    """Answer each card his Approve on a PR among keys picks an option on, by answer_picks, then start a lander on each unit among keys that is ready, one his Approve or exempt classes clear or a yasyf/* PR its builder reported, marking its PRs under the drive's lock so no second lander starts on their heads; the units started. With his cards unread, none, since a card of his may hold one. A pick that failed to answer holds its PR as its open card does, and raises once the rest started, naming why."""
+    """Answer each card his Approve on a PR among keys picks an option on, by answer_picks, then start a lander on each unit among keys that is ready, one his Approve or exempt classes clear or a yasyf/* PR its builder reported, reserving its PRs under one token, by mark, in a write that runs again when another committed meanwhile, then starting its lander with that token, which it adopts before anything else, so no second lander starts on their heads, and cancelling the reservation of a start that raised; the units started. With his cards unread, none, since a card of his may hold one. A pick that failed to answer holds its PR as its open card does, and raises once the rest started, naming why."""
     failed = answer_picks(name, keys)
     started: list[tuple[str, ...]] = []
     if cards is not None and units(state.load(name), keys, cards):
-        with state.edit(name) as data:
-            started = units(data, keys, cards)
-            for members in started:
-                mark(data, members, spawn(name, members))
+        def reserved(data: dict) -> dict[tuple[str, ...], state.Reservation]:
+            return {members: held for members in units(data, keys, cards) if (held := mark(data, members))}
+
+        held = state.write(name, reserved)
+        unlaunched = dict(held)
+        try:
+            for members, reservation in held.items():
+                pid = spawn(name, members, reservation.token)
+                del unlaunched[members]
+                state.settle(name, reservation, pid)
+                started.append(members)
+        finally:
+            for reservation in unlaunched.values():
+                state.cancel(name, reservation)
     if failed:
         raise state.DriveError("; ".join(failed))
     return started
@@ -402,25 +418,25 @@ def answer_picks(name: str, keys: list[str]) -> list[str]:
 
 
 def halt(name: str, keys: list[str], cards: dict | None) -> list[str]:
-    """Stop each landing of a merge-queue unit with a PR among keys that stopping() stops, or that unattended() holds while he is not present, read before the write since it reads GitHub, so a unit queued before he went quiet leaves the queue: a lander still running on it by ending its process group, which dequeues what it queued, its stop taken on each PR of its unit before the signal and the hold recorded there once it went, so a halt that dies between them leaves the lander running for the next halt to stop, by halting(), and a unit the merge queue holds after its lander ended by unqueue(), a process of its own that takes it out of the queue and records it; each PR reads that hold until he answers, waiting until the wait ends or away until his next word, and lands then; the PRs stopped."""
+    """Stop each landing of a merge-queue unit with a PR among keys that stopping() stops, or that unattended() holds while he is not present, read before the write since it reads GitHub, so a unit queued before he went quiet leaves the queue: a lander still running on it by cancelling the reservation its unit's PRs hold, so a lander started on it that has not adopted it yet ends without working, and else by ending the process group of the child that adopted it, never its starter, which dequeues what it queued, its stop taken on each PR of its unit before the signal and the hold recorded there once it went, so a halt that dies between them leaves the lander running for the next halt to stop, by halting(), and a unit the merge queue holds after its lander ended by unqueue(), a process of its own that takes it out of the queue and records it; each PR reads that hold until he answers, waiting until the wait ends or away until his next word, and lands then; the PRs stopped."""
     data = state.load(name)
     away = {key: f"{AWAY}: {why}" for key in keys if landing(pr := data["prs"][key]) and not dequeuing(pr) and not halting(pr) and not stopping(data, key, cards) and (why := unattended(data, key, state.now()))}
     if not held_landings(data, keys, cards, away):
         return []
     claim = {"pid": os.getpid(), "at": state.stamp()}
 
-    def stop_landings(data: dict) -> tuple[dict[tuple[int, str], list[str]], dict[tuple[str, ...], tuple[int, str]], dict[tuple[str, ...], tuple[str, list]]]:
+    def stop_landings(data: dict) -> tuple[dict[object, list[str]], dict[tuple[str, ...], tuple[state.Reservation, str]], dict[tuple[str, ...], tuple[str, list]]]:
         stopped = held_landings(data, keys, cards, away)
         under = unders(data)
-        units = {tried: sorted((key for key, pr in data["prs"].items() if landing(pr) and (pr["lander"]["pid"], pr["lander"]["at"]) == tried), key=lambda key: len(chain(under, key))) for tried in stopped}
+        units = {tried: sorted((key for key, pr in data["prs"].items() if landing(pr) and attempt(pr["lander"]) == tried), key=lambda key: len(chain(under, key))) for tried in stopped}
         kills, dequeues = {}, {}
-        for (pid, at), unit in units.items():
-            if running(data["prs"][unit[0]]):
-                kills[tuple(unit)] = (pid, stopped[pid, at])
+        for tried, unit in units.items():
+            if running(lander := data["prs"][unit[0]]["lander"]):
+                kills[tuple(unit)] = (state.Reservation(lander["token"], tuple(map(tuple, lander["members"]))), stopped[tried])
                 for key in unit:
                     data["prs"][key]["lander"]["stop"] = dict(claim)
                 continue
-            dequeues[tuple(unit)] = (stopped[pid, at], [data["prs"][key]["lander"].get("dequeue") for key in unit])
+            dequeues[tuple(unit)] = (stopped[tried], [data["prs"][key]["lander"].get("dequeue") for key in unit])
             for key in unit:
                 data["prs"][key]["lander"]["dequeue"] = dict(claim)
         return units, kills, dequeues
@@ -449,23 +465,22 @@ def halt(name: str, keys: list[str], cards: dict | None) -> list[str]:
                     lander["dequeue"] = before
 
     try:
-        for unit, (pid, _) in kills.items():
-            os.killpg(pid, signal.SIGTERM)
+        for unit, (reservation, _) in kills.items():
+            if state.cancel(name, reservation) and (child := state.holder(state.load(name)["prs"][unit[0]]["lander"])) is not None:
+                os.killpg(child, signal.SIGTERM)
             signalled.add(unit)
         for unit, (why, _) in dequeues.items():
             spawned[unit] = unqueue(name, list(unit), why)
     finally:
-        if kills:
-            state.write(name, own)
-        elif dequeues:
-            state.write(name, own)
+        if kills or dequeues:
+            state.write(name, own, patient=True)
     return [key for unit in units.values() for key in unit]
 
 
-def held_landings(data: dict, keys: list[str], cards: dict | None, away: dict[str, str]) -> dict[tuple[int, str], str]:
-    """Each landing of a merge-queue unit with a PR among keys that stopping() stops, or that away holds by the outcome it names for that PR, a lander running on it or the merge queue holding what its lander queued, by that lander's pid and start, with the outcome saying why; none a dequeuer already takes out of the queue, nor one a halt still stops, by halting()."""
+def held_landings(data: dict, keys: list[str], cards: dict | None, away: dict[str, str]) -> dict[object, str]:
+    """Each landing of a merge-queue unit with a PR among keys that stopping() stops, or that away holds by the outcome it names for that PR, a lander running on it or the merge queue holding what its lander queued, by that lander's try, by attempt, with the outcome saying why; none a dequeuer already takes out of the queue, nor one a halt still stops, by halting()."""
     return {
-        (pr["lander"]["pid"], pr["lander"]["at"]): outcome
+        attempt(pr["lander"]): outcome
         for key in keys
         if landing(pr := data["prs"][key]) and not dequeuing(pr) and not halting(pr) and (outcome := stopping(data, key, cards) or away.get(key, ""))
     }
@@ -622,19 +637,22 @@ def base_failures(repo: str, run: str) -> list[str]:
     return sorted({test for check in main for test in github.failed_tests(github.job_log(repo, check["databaseId"]))})
 
 
-def mark(data: dict, keys: tuple[str, ...], pid: int) -> None:
-    """Mark the PRs a lander starts on at the head and base it tries, each keeping what the try before it on the same head came to, so record() says an outcome the same head already said only once, and none ejected, since an ejection is Trunk's label set after the try began."""
+def mark(data: dict, keys: tuple[str, ...]) -> state.Reservation | None:
+    """Reserve the PRs a lander starts on under one token, by state.reserve, for the lander that adopts them all, marked at the head and base it tries, each keeping what the try before it on the same head came to, so record() says an outcome the same head already said only once, and none ejected, since an ejection is Trunk's label set after the try began; the reservation, or None, marking nothing, while a lander still holds any of them."""
+    was = {key: before.get("outcome") if (before := data["prs"][key]["lander"] or {}).get("head") == data["prs"][key]["head"] else None for key in keys}
+    if not (held := state.reserve(data, tuple(("prs", key, "lander") for key in keys))):
+        return None
     at = state.stamp()
     for key in keys:
         pr = data["prs"][key]
-        before = pr["lander"] or {}
-        pr["lander"] = {"head": pr["head"], "base": pr["base"], "pid": pid, "at": at, "outcome": None, "was": before.get("outcome") if before.get("head") == pr["head"] else None}
+        pr["lander"] |= {"head": pr["head"], "base": pr["base"], "at": at, "outcome": None, "was": was[key]}
         pr["ejected"] = False
+    return held
 
 
-def spawn(name: str, keys: tuple[str, ...]) -> int:
-    """Run `drive pr land` on the keys as its own process, outliving the watch pass or card tap that started it, its output appended to the drive's landing log."""
-    return state.detach(name, ["pr", "land", *map(state.pr_url, keys)], LOG)
+def spawn(name: str, keys: tuple[str, ...], token: str) -> int:
+    """Run `drive pr land` on the keys as its own process, outliving the watch pass or card tap that started it, its output appended to the drive's landing log, with --reserved naming the token of the reservation mark made on them, which it adopts before anything else."""
+    return state.detach(name, ["pr", "land", *map(state.pr_url, keys), "--reserved", token], LOG)
 
 
 def run(name: str, keys: list[str], dry_run: bool = False) -> str:
@@ -722,11 +740,12 @@ def record(name: str, keys: list[str], outcome: str, below: list[str], asked: di
 
 def noted(name: str, data: dict, keys: list[str], outcome: str, below: list[str]) -> None:
     events = []
+    at = state.stamp()
     for key in keys:
         pr = data["prs"][key]
         if outcome == QUEUED and requeues(data, pr):
-            pr["flaky"]["requeued"] = state.stamp()
-        pr["lander"] = (pr["lander"] or {"head": pr["head"], "base": pr["base"], "pid": os.getpid(), "at": state.stamp()}) | {"outcome": outcome, "below": below, "entry": keys[-1]}
+            pr["flaky"]["requeued"] = at
+        pr["lander"] = (pr["lander"] or {"head": pr["head"], "base": pr["base"], "pid": os.getpid(), "at": at}) | {"outcome": outcome, "below": below, "entry": keys[-1]}
         pr["conflict"] |= conflicted(pr)
         was = pr["lander"].get("was")
         if was == outcome or outcome.startswith(OWN_FAILURE) and (was or "").partition(": ")[0] == outcome.partition(": ")[0] or outcome.startswith(UNREAD) and (was or "").startswith(UNREAD):

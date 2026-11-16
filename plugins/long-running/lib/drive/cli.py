@@ -6172,6 +6172,7 @@ def pr_land(args: argparse.Namespace) -> int:
     elif args.dequeue:
         outcome = land.dequeue(name, keys, args.dequeue)
     else:
+        state.adopt_reserved(name, ("prs", keys[0], "lander"), args.reserved)
         outcome = land.run(name, keys, args.dry_run)
     return emit(args, f"{', '.join(keys)}: {outcome}", {"keys": keys, "outcome": outcome})
 
@@ -8689,6 +8690,7 @@ def parser() -> argparse.ArgumentParser:
         metavar="WHY",
         help="land nothing: take the unit the merge queue holds out of it with the queue's dequeue from a fresh worktree of the default branch, and record WHY as its outcome, as the watch and his words under its card start it once a hold of his stops its landing",
     )
+    verb.add_argument("--reserved", metavar="TOKEN", help="the token of the reservation the watch or tap that started this lander made on its PRs, adopted for every PR it names before anything else; the lander ends doing nothing once that reservation is gone, cancelled or another lander's")
     verb.set_defaults(run=pr_land)
     verb = pr.add_parser(
         "check",

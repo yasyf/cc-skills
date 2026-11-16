@@ -580,7 +580,7 @@ def drawn(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 @pytest.fixture(autouse=True)
 def landers(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, ...]]:
     started: list[tuple[str, ...]] = []
-    monkeypatch.setattr(land, "spawn", lambda name, keys: started.append(keys) or os.getpid())
+    monkeypatch.setattr(land, "spawn", lambda name, keys, token: started.append(keys) or os.getpid())
     monkeypatch.setattr(land, "unqueue", lambda name, keys, why: started.append(("--dequeue", *keys)) or os.getpid())
     monkeypatch.setattr(github, "default_branch", lambda repo: "main")
     monkeypatch.setattr(github, "below", lambda key: [])

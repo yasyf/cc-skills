@@ -7761,7 +7761,8 @@ def test_the_watch_stops_a_lander_when_a_card_opens_on_the_work_of_a_job_holding
     asking(monkeypatch, demo)
     lander = subprocess.Popen(["sleep", "600"], start_new_session=True)
     with state.edit(demo) as data:
-        land.mark(data, (KEY,), lander.pid)
+        land.mark(data, (KEY,))
+        data["prs"][KEY]["lander"] |= {"child": state.born(lander.pid), "state": "adopted"}
     watching = watcher(demo)
     watching.cards = view.live_cards(demo)
     watch.landed(watching, T0)
@@ -9189,7 +9190,7 @@ def test_a_stage_line_asks_a_step_only_while_stage_of_still_names_its_stage_so_o
     assert line.startswith(f"STAGE {YASYF} unlanded, owed by the session holding its order: its lander's try at aaaaaaa")
     assert watch.wakes(line, data, NO_CARDS)
     with state.edit(demo) as data:
-        data["prs"][YASYF] |= {"head": "bbbbbbb222", "lander": {"head": "bbbbbbb222", "pid": os.getpid(), "at": state.stamp(T0), "outcome": None}}
+        data["prs"][YASYF] |= {"head": "bbbbbbb222", "lander": {"head": "bbbbbbb222", "child": state.born(os.getpid()), "state": "adopted", "at": state.stamp(T0), "outcome": None}}
     assert not watch.wakes(line, state.load(demo), NO_CARDS)
     with state.edit(demo) as data:
         data["prs"][YASYF]["state"] = "merged"
@@ -9262,7 +9263,7 @@ def test_a_merged_ready_job_waits_for_its_lander_before_its_proof_starts(demo: s
     serve(monkeypatch, {})
     merged_ready(demo, YASYF, proof_file(tmp_path))
     with state.edit(demo) as data:
-        data["prs"][YASYF]["lander"] = {"head": "aaaaaaa111", "pid": os.getpid(), "at": state.stamp(T0), "outcome": None}
+        data["prs"][YASYF]["lander"] = {"head": "aaaaaaa111", "child": state.born(os.getpid()), "state": "adopted", "at": state.stamp(T0), "outcome": None}
     assert (watch.run_pass(watcher(demo), T0), provers) == ([], [])
 
 
