@@ -83,8 +83,7 @@ STAGING_MAC = (
     "claim the staging slot for the PR each `staging test of #N before it lands` part of yours names, from this Mac or from a Sprite lane, whose drive runs it on the drive's Mac:"
     " `drive slot claim {env} --job <your job> --minutes <how long your cut and cases run> --pr <the PR> --cases \"<your cases>\"`, which prints GO and its steps"
     " when the slot is free, else QUEUED and your place, a priority or incident tester ahead of the rest; while queued, return `WAITING staging:<target>/{env}@<head>`,"
-    " one per target its paths reach by `the release provider's reach read <N>`, and the watch resumes you with GO and its steps once the slot is yours; "
-    + state.STAGE_ASK
+    " one per target its paths reach by `the release provider's reach read <N>`, and the watch resumes you with GO and its steps once the slot is yours"
 )
 STAGING_FIRST = (
     "a finding of your staging run that production shows too goes to his thread the moment you have it, before any other step: one `report`"
@@ -3726,7 +3725,7 @@ def rewrite_brief(name: str, job_id: str, flags: dict, over: dict | None) -> tup
         "Researched": found and found[0],
         "Answer": answers and answer_first(name, order, job["order"], job_id),
         "Staging": staged
-        and STAGING_MAC.format(env=providers.of(data).staging.env) + ". "
+        and STAGING_MAC.format(env=providers.of(data).staging.env) + "".join(f"; {asked}" for asked in [state.stage_ask(data, providers.of(data).staging.env)] if asked) + ". "
         + STAGING_FIRST.format(drive=name, attrs=json.dumps(state.thread_attr(data, order) | {"order": job["order"], "job": job_id, "progress": "true", "incident": "true"}))
         + boxed
         + staging_taps(data, job),
@@ -4924,6 +4923,15 @@ def slot_hold(args: argparse.Namespace) -> int:
     for job_id in args.take:
         state.detach(name, ["job", "resume", job_id, state.SLOT_TAKEN.format(env=args.env)], watch.RELAUNCHES_LOG)
     return emit(args, line + "".join(f"; {job_id} told NO-START" for job_id in args.take), {"env": args.env, "line": line, "taken": args.take})
+
+
+def slot_packer(args: argparse.Namespace) -> int:
+    """Name the lane that packs a staging env's cuts, from the top coordinator's session, so each QUEUED line and tester brief addresses a tester's cut ask there, never root."""
+    name = state.resolve(args.drive)
+    if not state.top_coordinator(state.load(name), os.environ.get("CLAUDE_CODE_SESSION_ID")):
+        raise DriveError(f"refused: only the top coordinator names the {args.env} packer")
+    line = state.update(name, None, lambda data: state.slot_packer(data, args.env, args.lane))
+    return emit(args, line, {"env": args.env, "lane": args.lane or None})
 
 
 def slot_release(args: argparse.Namespace) -> int:
@@ -7823,6 +7831,10 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("env", help="the staging env")
     verb.add_argument("--job", required=True, help="the job giving it back")
     verb.set_defaults(run=slot_release)
+    verb = slot.add_parser("packer", parents=both, help="name the lane that packs a staging env's cuts, from the top coordinator")
+    verb.add_argument("env", help="the staging env")
+    verb.add_argument("lane", help="the cci lane that packs its cuts, whose READY lines root hears; empty takes it out")
+    verb.set_defaults(run=slot_packer)
     verb = slot.add_parser("hold", parents=both, help="hold a staging env's slot for one job until a time, from the top coordinator")
     verb.add_argument("env", help="the staging env")
     verb.add_argument("--for", dest="held", help="the job the slot is held for, never an order")

@@ -1,6 +1,6 @@
 # Staging slots as a first-in, first-out lease
 
-Status: built. Testers and after-merge passes claim the slot themselves, and the `staging-slots` ask to root is retired: a cut a tester cannot start itself, as while a release freeze stands, goes as an `ask` on that topic to the lane that packs staging cuts, the lane of the newest `ready` record there, and root hears only that lane's READY. An overrunning lease extends once, and a priority or incident pass jumps the queue.
+Status: built. Testers and after-merge passes claim the slot themselves, and the `staging-slots` ask to root is retired: a cut a tester cannot start itself, as while a release freeze stands, goes as an `ask` on that topic to the lane `drive slot packer` names for the env, which the QUEUED line and the tester's brief name, and root hears only that lane's READY. An overrunning lease extends once, and a priority or incident pass jumps the queue.
 
 ## The problem
 

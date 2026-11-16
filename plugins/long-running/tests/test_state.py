@@ -2811,15 +2811,17 @@ def test_projection_partitions_design_builders_without_repeated_job_scans() -> N
     assert state.INDEX.get() is None
 
 
-def test_a_testers_go_queued_line_and_brief_address_a_cut_it_cannot_start_to_the_lane_that_packs_staging_cuts_never_root() -> None:
-    from drive import cli
-
+def test_a_queued_line_addresses_a_cut_ask_to_the_packer_lane_the_slot_names_and_names_none_while_no_lane_is_named() -> None:
     moment = datetime(2026, 11, 15, 22, 5, tzinfo=UTC)
-    data = {"slots": {}, "orders": {"o1": {"incident": False, "priority": None, "state": "open"}}, "jobs": {job_id: {"state": "waiting", "order": "o1", "carries": [], "goal": "", "waits": []} for job_id in ("j1", "j2")}}
-    asked = "addressed to the lane that packs staging cuts, the lane of the newest `ready` record on that topic"
-    lines = [state.slot_claim(data, "plat-usw2-staging", job_id, 30, [], None, moment) for job_id in ("j1", "j2")]
-    assert [line.split()[0] for line in lines] == ["GO", "QUEUED"]
-    assert all(asked in line and line.endswith("never to root, which hears only that lane's READY") for line in [*lines, cli.STAGING_MAC])
+    data = {"slots": {}, "orders": {"o1": {"incident": False, "priority": None, "state": "open"}}, "jobs": {job_id: {"state": "waiting", "order": "o1", "carries": [], "goal": "", "waits": []} for job_id in ("j1", "j2", "j3")}}
+    env = "plat-usw2-staging"
+    state.slot_claim(data, env, "j1", 30, [], None, moment)
+    assert state.slot_claim(data, env, "j2", 30, [], None, moment) == f"QUEUED j2 for the {env} slot, place 1, behind j1, whose lease ends {data['slots'][env]['holder']['until']}"
+    assert state.slot_packer(data, env, "platform") == f"{env}: testers ask lane platform for a cut they cannot start"
+    assert state.slot_claim(data, env, "j3", 30, [], None, moment).endswith(f"; {state.STAGE_ASK.format(packer='platform', env=env)}")
+    assert "addressed to lane platform, which packs the plat-usw2-staging cuts, never to root" in state.stage_ask(data, env)
+    state.slot_packer(data, env, "")
+    assert state.stage_ask(data, env) == ""
 
 
 def test_a_staging_slot_goes_to_its_first_claimer_and_then_to_each_queued_job_in_order_as_each_lease_ends() -> None:
