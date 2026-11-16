@@ -5251,6 +5251,8 @@ class NotStarted(str):
 
 def job_gap(watcher: Watcher, job_id: str, job: dict, data: dict, order_id: str, part: str, moment: datetime) -> str | None:
     """Why the job leaves the order's part with no one, None when it carries it or is a design its builder carries, or SETTLING while a change in the last two minutes is still being handed over; a builder that took DONE at its merge carries it only through the builder proving it live; a done tester leaves a staging test part whose PR it ran no full pass of waiting on a rerun; a DONE of a job's own carries work only while drive job prove's run of its proof file is to come; a job drive job add recorded not started that waits on nothing settles one minute, or while its launch takes, a drive job launch only while it holds the job's lock, read against state.now() since the pass may have started long before, or while this Mac's admission holds its Claude lane by place.admission, its cap, load gate or daily budget, since work that waits its turn is no orphan, then names the minutes since drive job add and the brief its agent reads first; a waiting job nothing can wake also names what its line names that ended or moved; a builder stopped before any agent took it carries the part by the PRs the drive does not track that it holds, by untracked_gap."""
+    if work.queued(data, job):
+        return work.stalled(data, job_id, state.now())
     if state.unstarted(job) and not job["waits"]:
         if (now := state.now()) - state.parse_time(job["updated"]) < UNSTARTED_FOR or launching(job, now) and (job["where"] != "remote" or state.launch_in_flight(watcher.name, job_id, job)):
             return SETTLING

@@ -1,7 +1,7 @@
 """The drive's work queue: items a worker pulls in compatible groups, reports one by one, and pulls again, holding its capacity only while it works; drive work enable turns a kind over to it, one kind at a time."""
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from drive import agents, orca, place, reads, state, view
@@ -14,6 +14,7 @@ GROUP = state.PACKED_CUT
 WORKER_ITEMS = 18
 READS_PER_PASS = 12
 CUT_MINUTES = 45
+STALL_AFTER = timedelta(minutes=10)
 WORKER_GOAL = "pull and run stage-test items on {env}, one cut a group"
 WORKER_BRIEF = """# Brief
 
@@ -281,6 +282,14 @@ def admitted(data: dict, moment: datetime) -> str | None:
     if head and state.jumps_queue(data, head[0]):
         return None
     return place.admission(data, None, "local", moment)
+
+
+def stalled(data: dict, job_id: str, moment: datetime) -> str | None:
+    """Why the queue leaves an item it holds with no one, None while a worker holds it, its waits hold it, or the env's slot or the old line keeps a new cut from starting: a ready item STALL_AFTER since its last change while no worker lives and a cut may start, which the spawner should have answered."""
+    job = data["jobs"][job_id]
+    if worker(job) or not ready(data, job_id) or live_worker(data) or why_not(data, moment) or admitted(data, moment) or moment - state.parse_time(job["updated"]) < STALL_AFTER:
+        return None
+    return f"{job_id} is ready in the work queue {int((moment - state.parse_time(job['updated'])).total_seconds() // 60)} minutes with no worker while a cut may start: drive work show says why none started"
 
 
 def drop_legacy(data: dict) -> list[str]:
