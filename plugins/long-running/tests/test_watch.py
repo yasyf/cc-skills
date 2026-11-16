@@ -274,11 +274,11 @@ def test_the_watch_reads_the_reach_once_and_takes_each_pr_an_older_reach_staged_
         del data["reaches_narrowed"]
         data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"head": "ccccccc333"}
         for key in (KEY, OTHER):
-            state.reach_staging(data, key)
+            state.reach_staging(data, key, [])
         data["jobs"]["j2"] = state.new_job("o1", "builder", "test #42 on staging", [lifted], state.stamp(T0)) | {"agent": "a2"}
         data["prs"][KEY]["tap"] = approve
     asked: list[list[str]] = []
-    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: asked.append(keys) or {KEY: {"touched": ["platy"], "releases": []}, OTHER: {"touched": ["api"], "releases": ["api"]}})
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: asked.append(keys) or {KEY: {"touched": ["platy"], "releases": [], "staged": []}, OTHER: {"touched": ["api"], "releases": ["api"], "staged": ["api"]}})
     [line] = watch.reach_lines(watcher(demo), T0)
     data = state.load(demo)
     assert line == f"PR {KEY}: changes only tools/ci and go/ci, code its caller runs from a checkout, so it waits on no staging test, and j2 stopped {watch.ids(data['prs'][KEY])}"
@@ -8388,7 +8388,7 @@ def test_a_lander_lands_no_approved_pr_whose_paths_at_its_head_reach_a_component
         data["prs"][KEY] |= {"checks": "pass", "review": "approved"}
     enqueue_exiting(tmp_path, demo, 0)
     asked = []
-    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: asked.append(keys) or {key: {"components": ["api"], "touched": ["api"], "releases": ["api"]} for key in keys})
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: asked.append(keys) or {key: {"components": ["api"], "touched": ["api"], "releases": ["api"], "staged": ["api"]} for key in keys})
     part = f"o1:{state.STAGING_TEST.format(number=42)}"
     held = f"{land.WAITED}: {KEY} waits on its staging test before it lands, since its paths at its head reach a component staging runs"
     assert land.run(demo, [KEY], dry_run=True) == held
@@ -8400,6 +8400,25 @@ def test_a_lander_lands_no_approved_pr_whose_paths_at_its_head_reach_a_component
     assert (now.name, now.owner, now.why) == ("red", stage.BUILDER, f"it waits on {part}, which no staging tester runs: return PUSHED with {state.STAGING_CASES}")
 
 
+def test_a_lander_puts_an_approved_pr_reaching_only_platy_on_a_tester_asking_his_exception_after_a_dry_run_from_this_mac_and_lands_it_once_the_test_is_dropped(
+    demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    approve(demo, KEY)
+    with state.edit(demo) as data:
+        data["prs"][KEY] |= {"checks": "pass", "review": "approved"}
+        data["orders"]["o1"]["parts"]["the watch"] = state.new_part()
+    enqueue_exiting(tmp_path, demo, 0)
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {key: {"components": ["api", "platy"], "touched": ["platy"], "dev": [], "releases": ["platy"], "staged": []} for key in keys})
+    part = state.STAGING_TEST.format(number=42)
+    assert land.run(demo, [KEY]) == f"{land.WAITED}: {KEY} waits on his exception before it lands, since its paths at its head reach platy, which staging has no copy of"
+    data = state.load(demo)
+    [(_, tester)] = state.part_testers(data, "o1", part)
+    assert (state.EXCEPTED.match(tester["goal"])["components"], cli.mac_lines(demo, tester, {"mac": None, "release": None})[0]) == ("platy", cli.EXCEPTION_MAC)
+    assert view.staging(data, KEY) == "Not on staging: staging has no copy of platy, so it lands on your exception once you read the release dry run's preview of each"
+    assert cli.main(["order", "set", "o1", "--drop-part", part, "--drive", demo]) == 0
+    assert land.run(demo, [KEY]) == land.QUEUED
+
+
 def test_a_pr_whose_staging_test_part_drive_order_set_drops_lands_on_his_approve_at_every_head_whatever_its_builders_staging_line_says(
     demo: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -8408,7 +8427,7 @@ def test_a_pr_whose_staging_test_part_drive_order_set_drops_lands_on_his_approve
         data["prs"][KEY] |= {"checks": "pass", "review": "approved"}
         data["orders"]["o1"]["parts"]["the watch"] = state.new_part()
     enqueue_exiting(tmp_path, demo, 0)
-    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {key: {"components": ["api"], "touched": ["api"], "dev": [], "releases": ["api"]} for key in keys})
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {key: {"components": ["api"], "touched": ["api"], "dev": [], "releases": ["api"], "staged": ["api"]} for key in keys})
     part = state.STAGING_TEST.format(number=42)
     held = f"{land.WAITED}: {KEY} waits on its staging test before it lands, since its paths at its head reach a component staging runs"
     assert land.run(demo, [KEY]) == held
@@ -9500,7 +9519,7 @@ def test_a_merged_ready_product_job_takes_done_at_its_merge_and_the_watch_adds_t
     serve(monkeypatch, {})
     asked = []
     live_reads(monkeypatch)
-    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: asked.append(keys) or {OTHER: {"components": ["api", "web"], "touched": ["api"], "dev": [], "releases": ["api"]}})
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: asked.append(keys) or {OTHER: {"components": ["api", "web"], "touched": ["api"], "dev": [], "releases": ["api"], "staged": ["api"]}})
     merged_ready(demo, OTHER, proof_file(tmp_path))
     watching = watcher(demo)
     merged = f"{OTHER} at ccc333ddd444"
@@ -9545,7 +9564,7 @@ def test_a_done_at_its_merge_delivers_no_part_so_the_part_is_owed_until_the_buil
 ) -> None:
     serve(monkeypatch, {})
     live_reads(monkeypatch)
-    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {OTHER: {"components": ["api"], "touched": ["api"], "dev": [], "releases": ["api"]}})
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {OTHER: {"components": ["api"], "touched": ["api"], "dev": [], "releases": ["api"], "staged": ["api"]}})
     merged_ready(demo, OTHER, None)
     watch.run_pass(watcher(demo), T0)
     data = state.load(demo)
@@ -9564,7 +9583,7 @@ def test_an_old_merge_never_proven_live_across_two_parts_gets_one_prover_startin
     serve(monkeypatch, {})
     live_reads(monkeypatch)
     asked = []
-    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: asked.append(keys) or {KEY: {"components": ["api", "web"], "touched": ["api"], "dev": [], "releases": ["api"]}})
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: asked.append(keys) or {KEY: {"components": ["api", "web"], "touched": ["api"], "dev": [], "releases": ["api"], "staged": ["api"]}})
     earlier, carried, merged = state.stamp(T0 - timedelta(days=2)), "ship the dashboard", f"{KEY} at ccc333ddd444"
     with state.edit(demo) as data:
         data["prs"][KEY] |= {"state": "merged", "merged_sha": "ccc333ddd444eee"}
@@ -9587,7 +9606,7 @@ def test_an_old_merge_never_proven_live_across_two_parts_gets_one_prover_startin
 def test_a_merged_product_job_over_several_prs_gets_one_prover_said_in_one_line_waiting_on_no_release(demo: str, monkeypatch: pytest.MonkeyPatch, provers: list[str]) -> None:
     serve(monkeypatch, {})
     live_reads(monkeypatch)
-    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {KEY: {"components": ["api"], "touched": ["api"], "dev": [], "releases": ["api"]}, OTHER: {"components": ["web"], "touched": ["web"], "dev": [], "releases": ["web"]}})
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {KEY: {"components": ["api"], "touched": ["api"], "dev": [], "releases": ["api"], "staged": ["api"]}, OTHER: {"components": ["web"], "touched": ["web"], "dev": [], "releases": ["web"], "staged": ["web"]}})
     merged_ready(demo, OTHER, None)
     with state.edit(demo) as data:
         data["prs"][KEY] |= {"merged_sha": "aaa111bbb222ccc"}
@@ -9605,7 +9624,7 @@ def test_a_merged_product_job_with_no_staging_test_reaching_a_target_staging_run
 ) -> None:
     serve(monkeypatch, {})
     calls = live_reads(monkeypatch, [{"target": "api", "env": "plat-usw2-staging", "commit": "bbb222"}, {"target": "web", "env": "plat-usw2-prod", "commit": "bbb222"}])
-    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {OTHER: {"components": ["api", "web"], "touched": ["api", "web"], "dev": [], "releases": ["api", "web"]}})
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {OTHER: {"components": ["api", "web"], "touched": ["api", "web"], "dev": [], "releases": ["api", "web"], "staged": ["api", "web"]}})
     merged_ready(demo, OTHER, proof_file(tmp_path))
     watching = watcher(demo)
     lines = watch.run_pass(watching, T0)
@@ -9782,7 +9801,7 @@ def test_an_old_merge_whose_unstarted_prover_holds_one_of_its_parts_widens_that_
 ) -> None:
     serve(monkeypatch, {})
     live_reads(monkeypatch, [{"target": "api", "env": "plat-usw2-prod", "commit": "0ld0000"}])
-    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {KEY: {"components": ["api"], "touched": ["api"], "dev": [], "releases": ["api"]}})
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {KEY: {"components": ["api"], "touched": ["api"], "dev": [], "releases": ["api"], "staged": ["api"]}})
     earlier, second = state.stamp(T0 - timedelta(days=2)), "ship the dashboard"
     handoff = f"{KEY} at ccc333ddd444 merged: install it by the INSTALL: line of j1's return, in reports/j1.md, write its PROVE: line as a proof file, keep it with drive job set <your job> --repro <file> and run drive job prove <your job>, which runs that file, and only its exit 0 delivers the part"
     with state.edit(demo) as data:
@@ -9806,7 +9825,7 @@ def test_a_merge_sharing_a_pr_with_an_unstarted_prover_widens_it_to_its_parts_an
 ) -> None:
     serve(monkeypatch, {})
     live_reads(monkeypatch, [{"target": "api", "env": "plat-usw2-prod", "commit": "0ld0000"}])
-    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {KEY: {"components": ["api", "sandsql"], "touched": ["api", "sandsql"], "dev": [], "releases": ["api", "sandsql"]}, OTHER: {"components": ["web"], "touched": ["web"], "dev": [], "releases": ["web"]}})
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {KEY: {"components": ["api", "sandsql"], "touched": ["api", "sandsql"], "dev": [], "releases": ["api", "sandsql"], "staged": ["api", "sandsql"]}, OTHER: {"components": ["web"], "touched": ["web"], "dev": [], "releases": ["web"], "staged": ["web"]}})
     earlier, carried = state.stamp(T0 - timedelta(days=2)), "ship the dashboard"
     first = f"{KEY} at ccc333ddd444 merged: install it by the INSTALL: line of j1's return, in reports/j1.md, write its PROVE: line as a proof file, keep it with drive job set <your job> --repro <file> and run drive job prove <your job>, which runs that file, and only its exit 0 delivers the part"
     with state.edit(demo) as data:
@@ -9877,7 +9896,7 @@ def test_a_merged_product_job_waiting_on_its_own_release_takes_done_at_its_merge
 ) -> None:
     serve(monkeypatch, {})
     live_reads(monkeypatch, [{"target": "api", "env": "plat-usw2-prod", "commit": "ccc333ddd444eee"}] if out else None, {"ccc333ddd444eee"})
-    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {OTHER: {"components": ["api", "web"], "touched": ["web"], "dev": [], "releases": ["web"]}})
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {OTHER: {"components": ["api", "web"], "touched": ["web"], "dev": [], "releases": ["web"], "staged": ["web"]}})
     merged_ready(demo, OTHER, None)
     wait = f"release:api:{OTHER}"
     with state.edit(demo) as data:
@@ -10724,7 +10743,7 @@ def incident_reads(monkeypatch: pytest.MonkeyPatch, statuses: dict[str, str], li
 
     monkeypatch.setattr(watch.reads, "run", run)
     monkeypatch.setattr(watch.orca, "checkout", lambda name, clone: checkout)
-    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {key: {"components": ["api"], "touched": ["api"], "dev": [], "releases": ["api"]} for key in keys})
+    monkeypatch.setattr(cli, "release_reach", lambda name, data, keys: {key: {"components": ["api"], "touched": ["api"], "dev": [], "releases": ["api"], "staged": ["api"]} for key in keys})
     monkeypatch.setattr(watch.github, "carrier", lambda clone: lambda build, merge, number: build == "c0ffee" and live[str(number)])
     return calls
 

@@ -203,6 +203,13 @@ DANGEROUS_GOAL = (
     "test {key} on staging before it lands, since its head changes {changes}, each a dangerous change by AGENTS.md as the repository's {rules} lists its paths:"
     " run the cases its builder's `STAGING: #{number}` line names, which reach you as it returns them, beside those its body and these files call for"
 )
+EXCEPTION_GOAL = (
+    "get his exception for {key} to land with no staging test, since staging runs no copy of {components}, by his answer 67caa93"
+    ' "His exception after reading the release dry-run\'s preview of each such stack": ask him with drive job ask once the dry run your Mac: line starts has its preview,'
+    " its Show me the creates, updates, deletes and replaces each stack plans, its Holds line naming {key}; his answer giving it is kept with"
+    ' drive answer --dropped "<your order>:{part}", which lets {key} land on his Approve'
+)
+EXCEPTED = re.compile(r"get his exception for (?P<key>\S+) to land with no staging test, since staging runs no copy of (?P<components>.+?), by his answer 67caa93")
 STAGING_CASES = "a line `STAGING: #N <the cases its staging test runs>` for each, the goal of the tester on this Mac its `staging test of #N before it lands` part gets"
 STAGING_RULE = (
     f"end your report with {STAGING_CASES}, or one line `STAGING: none: <why AGENTS.md's dangerous rule misses it>`, by his words"
@@ -2757,10 +2764,14 @@ def wait_on_staging(data: dict, key: str) -> tuple[str, str]:
     return order_id, part
 
 
-def reach_staging(data: dict, key: str) -> None:
-    """Put a PR whose paths reach a component staging runs, as cli.staging_reach finds, on its staging test, by wait_on_staging, marked reached, so no `STAGING: none` of its builder lifts it, by staging_refusal, since the lander would put it back."""
-    wait_on_staging(data, key)
+def reach_staging(data: dict, key: str, unstaged: list[str]) -> str | None:
+    """Put a PR whose paths reach a component a release deploys, as cli.staging_reach finds, on its staging test, by wait_on_staging, marked reached, so no `STAGING: none` of its builder lifts it, by staging_refusal, since the lander would put it back; when staging runs a copy of none of them, unstaged naming each, its part's tester asks his exception after reading the release dry run's preview of each, by his answer 67caa93, its goal EXCEPTION_GOAL, by stage_pr in the session of the PR's job, since a soak on staging cannot deploy what staging has no copy of; the tester added, or None."""
     data["prs"][key]["reached"] = True
+    if not unstaged:
+        wait_on_staging(data, key)
+        return None
+    goal = EXCEPTION_GOAL.format(key=key, components=", ".join(unstaged), part=STAGING_TEST.format(number=key.rpartition("#")[2]))
+    return stage_pr(data, key, goal, data["jobs"][data["prs"][key]["job"]].get("session"))
 
 
 def unreach(data: dict, key: str) -> list[str]:

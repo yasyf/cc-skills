@@ -194,7 +194,7 @@ def test_a_pr_call_saves_the_drive_once_runs_each_read_its_check_ran_once_and_pr
     saves: list[str] = []
     prior, save = subprocess.run, state.save
     monkeypatch.setattr(subprocess, "run", lambda argv, *rest, **given: ran.append(argv) or subprocess.CompletedProcess(argv, 0, "", "") if argv[:3] == ["gh", "pr", "view"] else prior(argv, *rest, **given))
-    monkeypatch.setattr(cli, "staging_reach", lambda name, data, keys: subprocess.run(["gh", "pr", "view", *keys], check=False) and [])
+    monkeypatch.setattr(cli, "staging_reach", lambda name, data, keys: subprocess.run(["gh", "pr", "view", *keys], check=False) and {})
     monkeypatch.setattr(state, "save", lambda name, data: saves.append(name) or save(name, data))
     capsys.readouterr()
     said = tools.run("pr", demo, {"ops": [{"set": {"url": pr, "no_waits": True}} for pr in prs]}).splitlines()

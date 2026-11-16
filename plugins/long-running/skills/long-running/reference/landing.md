@@ -612,7 +612,12 @@ PR checks that everyone hits".
   ensure this process would have caught it". Each stack's `tools/ci release plan` decides, by his pick
   bb9cf91, "The soak reads reach from each stack's release plan: a change that plans like dev passes
   untested". A stack staging has no copy of, such as Buildkite, core-gbl-identity or Datadog, goes on by
-  his pick 67caa93, "His exception after reading the release dry-run's preview of each such stack".
+  his pick 67caa93, "His exception after reading the release dry-run's preview of each such stack". So
+  when `tools/ci release select --pr` names none of a PR's releases as `staged`, each with an env marked
+  `stage: staging`, and none is sand-next or iris-desktop, which `tools/ci mac-box prove` signs in to
+  staging, its staging test part's tester starts the release dry run of each from this Mac and asks his
+  exception with the counts each stack's preview plans; his answer giving it drops the part, so the PR
+  lands on his Approve. A PR reaching one staged component keeps its soak.
 - **How it runs.** Short, aggressive and agent-led, never a hold on staging, then a 2-hour soak once
   merged, by 41eb335, "The point of using staging (pre-merge) is not to hold it there, it’s to quickly
   and aggressively test it in as realistic a way as possible. Then post-merge 2 hour soak is a good
