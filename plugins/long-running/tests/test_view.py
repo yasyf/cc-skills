@@ -536,7 +536,7 @@ def test_the_watch_draws_no_canvas_for_a_drive_keeping_no_channel_and_none_in_hi
     assert drawn == []
 
 
-def test_each_channel_gets_its_own_canvas_redrawn_only_when_its_words_change_across_restarts(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_each_channel_gets_its_brief_each_pass_and_its_own_canvas_redrawn_only_when_its_words_change_across_restarts(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(watch.github, "fetch", lambda keys, into=None: ({}, None))
     monkeypatch.setattr(watch.slack, "owed", lambda session: [])
     monkeypatch.setattr(slack, "workspace", lambda: "acme.slack.com")
@@ -561,6 +561,8 @@ def test_each_channel_gets_its_own_canvas_redrawn_only_when_its_words_change_acr
     ]
     assert [argv[:5] for argv, _ in calls] == [["canvas", "--channel", "C100", "--title", "demo: where it stands"], ["canvas", "--channel", "C200", "--title", "Iris: where it stands"]]
     own, iris = (words for _, words in calls)
+    assert state.brief_path(demo, "Iris").read_text() == iris + "\n## Releases at work\nNone.\n"
+    assert state.brief_path(demo, "").read_text() == own + "\n## Releases at work\nNone.\n"
     assert f"- [#him-drive-demo-iris](https://acme.slack.com/archives/C200) · 1 open · 0 waiting on you · [dashboard]({dashboard.link(demo)}#/queue/all?project=Iris)" in own
     assert "#/feature/o1)" in iris and "o1: " in iris and "#/feature/o1)" not in own
     assert {seat: (made["canvas"], made["canvas_digest"]) for seat, made in state.load(demo)["slack"]["channels"].items()} == {"": ("F100", page.digest(own)), "Iris": ("F200", page.digest(iris))}

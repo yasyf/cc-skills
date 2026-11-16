@@ -220,6 +220,25 @@ def canvases(name: str, data: dict, model: dict, dashboard: str) -> dict[str, tu
     return drawn
 
 
+def releases(data: dict, seat: str) -> list[str]:
+    """One line for each release job still at work on an order of the seat, the drive's own taking every one: its order's title, its state and the last line it said."""
+    channel = data["slack"]["channels"][seat]["id"]
+    return [
+        f"- {data['orders'][job['order']]['title'] or cut(data['orders'][job['order']]['text'], TITLE_CHARS)}: release {job['state']}" + (f", last said: {cut(job['said'], CELL_CHARS)}" if job["said"] else "")
+        for job in data["jobs"].values()
+        if state.starts_cut(job) and job["state"] not in state.FINISHED_JOB_STATES and (not seat or slack.project_channel(data, state.coordinator_seat(data, data["orders"][job["order"]])) == channel)
+    ]
+
+
+def write_briefs(name: str, data: dict, drawn: dict[str, tuple[str, str]]) -> None:
+    """Write each seat's brief: its canvas's words, then each release at work there, so the communicator reads where its project stands from one local file with no Slack or CI read."""
+    for seat, (_, markdown) in drawn.items():
+        path = state.brief_path(name, seat)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        shipping = releases(data, seat)
+        path.write_text(markdown + "\n## Releases at work\n" + ("\n".join(shipping) if shipping else "None.") + "\n")
+
+
 def draw(name: str, seat: str, title: str, markdown: str) -> Drawn:
     """Draw a channel's own canvas, the seat's in the drive's slack row, through `cc-slack canvas --channel`, which creates it the first time and redraws it after, and keep its id and the digest of its words on that channel's entry; returns its URL and whether it is new."""
     made = state.load(name)["slack"]["channels"][seat]

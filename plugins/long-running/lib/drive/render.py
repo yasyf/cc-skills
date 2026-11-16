@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 
 from drive import slack
-from drive.state import DRIVE_TOOLING, communicator_lane, FINISHED_JOB_STATES, FREED, NOT_STARTED, REPO_RULES, ROLES, SLOT_WAIT, TOOLING_DETAILS_RULING, VERSION, alias, carriers, delivered, exempted, following, holding_job_lane, kept_record, lane_death, launch_in_flight, may_tell, now, open_orders, orphan_stands, parse_time, part_jobs, pass_due, passes, pr_key, pr_url, project_lane, promise_thread, repo_rules, resumed, session_lane, standing_passes, title, unstarted, unstarted_builder, untracked_carriers, work
+from drive.state import DRIVE_TOOLING, brief_path, communicator_lane, FINISHED_JOB_STATES, FREED, NOT_STARTED, REPO_RULES, ROLES, SLOT_WAIT, TOOLING_DETAILS_RULING, VERSION, alias, carriers, delivered, exempted, following, holding_job_lane, kept_record, lane_death, launch_in_flight, may_tell, now, open_orders, orphan_stands, parse_time, part_jobs, pass_due, passes, pr_key, pr_url, project_lane, promise_thread, repo_rules, resumed, session_lane, standing_passes, title, unstarted, unstarted_builder, untracked_carriers, work
 
 SLACK_TOOLS = "mcp__plugin_cc-slack_cc-slack__"
 REWORKING = "no card while its builder reworks it to his words, until its READY says how they are met"
@@ -40,23 +40,26 @@ COMMUNICATOR_RULES = (
         " AskUserQuestion, so everything for him goes to Slack through say, and each turn ends on the one word Sent."
     ),
     (
-        "Every message of his gets slack_dm_status in its thread as your first call, then a real answer posted in the same"
-        " turn, within 60 seconds, from what you hold and a quick read: what it is, what you found, and what happens next and"
-        " who does it. A work request is no exception: the answer is the read plus the plan, never only \"sent\". A Stop hook"
-        " refuses to end a turn that left a message of his with no post in its thread. Read every new message against the"
-        ' whole thread first: a ruling there, such as "anything with the matia replica is fine", ends a trace at once. In a'
-        " priority project's channel, read the project's canvas first, which holds what each of its releases is and where it"
-        " stands."
+        "Every message of his gets a real answer posted in the same turn: a simple question in about 10 seconds, read then"
+        " say with no step between, and anything else within 60 seconds, from what you hold and a quick read: what it is,"
+        " what you found, and what happens next and who does it. A work request is no exception: the answer is the read plus"
+        " the plan, never only \"sent\". A Stop hook refuses to end a turn that left a message of his with no post in its"
+        ' thread. Read every new message against the whole thread first: a ruling there, such as "anything with the matia'
+        ' replica is fine", ends a trace at once.'
     ),
     (
-        "A read past those 60 seconds goes to a Sonnet subagent with the Agent tool in the background, briefed to make no"
-        " advisor call, to batch GitHub reads into one `gh api graphql` query and to read `drive status <order>`; post your"
-        " first answer before it returns, and its finding as a follow-up in the thread when it does, ahead of any progress"
-        " post. You own his thread until the work's result: the order's POST report comes back to you and you relay it to him."
+        "What you hold is what the drive already keeps: `drive status <o, j, PR or words>`, under a second, never a bare"
+        " `drive status`, which reads every open order for most of a minute; your channel's brief, the file named below,"
+        " which the watch rewrites each pass with its open orders, what waits on him and the releases at work, and in a"
+        " priority project's channel its canvas, which holds what each release is and where it stands; and the thread. You"
+        " never run bk, tools/ci or git, or read a transcript, yourself. When those do not hold what he asks, post what they"
+        " do hold as your answer now and start one Sonnet subagent with the Agent tool in the background, briefed to make no"
+        " advisor call, to batch GitHub reads into one `gh api graphql` query and to read `drive status <order>`; post its"
+        " finding as a follow-up in the thread when it returns. The watch posts the order's POST report in his thread itself."
     ),
     (
-        "Progress goes in the thread's status, slack_dm_status with his thread's ts, such as \"Reading the plan's RDS"
-        ' change", never a post: a post is the answer or a question, with no placeholder, no ack and no "next line by"'
+        "Progress on an answer that takes more than a few seconds goes in the thread's status, slack_dm_status with his"
+        ' thread\'s ts, such as "Reading the plan\'s RDS change", never a post, and an answer from what you hold needs no status at all. A post is the answer or a question, with no placeholder, no ack and no "next line by"'
         " promise. Chatter (\"ok\", \"thanks\") gets a +1 react."
     ),
     (
@@ -244,7 +247,7 @@ FIRST_CALL = {
     ),
 }
 READS = {
-    "communicator": "Everything else is on disk, read on demand: drive status <id>, drive view, drive job report <j>, and his thread with slack_thread.",
+    "communicator": "Everything else is on disk, read on demand: drive status <id or words>, your brief, drive job report <j>, and his thread with slack_thread.",
     "coordinator": (
         "Everything else is on disk, read on demand by id: drive status <order, job or PR>..., never a script over drive.json;"
         " drive job report <j>, drive view, cci digest, and the skill's pages, drive manual <page>. A Bash result over"
@@ -627,6 +630,7 @@ def context(drive: dict, role: str, project: str | None = None) -> str:
         *opening(drive, role, project),
         f"cci: run cci drive use {drive['name']}, and no cci subscribe: your cci alias {alias(drive['name'], role, project)} owns your subscription.",
         *rules(drive, role),
+        *([f"Your brief: {brief_path(drive['name'], project)}"] if role == "communicator" else []),
     ]
     lines += [
         (

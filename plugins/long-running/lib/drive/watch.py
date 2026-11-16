@@ -2529,7 +2529,7 @@ def waiting_post_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def page_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Redraw the own canvas of each channel the drive keeps, in the words page.canvases gives it, whenever they changed since its last drawing, by the digest kept on that channel's entry across watch restarts, and say the link of each canvas drawn the first time; a drive keeping no channel draws none. A draw that fails goes again on the next pass and is said from its third failure in a row."""
+    """Write each channel's brief, by page.write_briefs, and redraw the own canvas of each channel the drive keeps, in the words page.canvases gives it, whenever they changed since its last drawing, by the digest kept on that channel's entry across watch restarts, and say the link of each canvas drawn the first time; a drive keeping no channel draws none. A draw that fails goes again on the next pass and is said from its third failure in a row."""
     if watcher.project:
         return []
     data = state.load(watcher.name)
@@ -2538,7 +2538,9 @@ def page_lines(watcher: Watcher, moment: datetime) -> list[str]:
     link = dashboard.link(watcher.name)
     lines = named_lines(watcher, data, link, moment)
     data = state.load(watcher.name)
-    for seat, (title, markdown) in page.canvases(watcher.name, data, view.read(watcher.name, moment), link).items():
+    canvases = page.canvases(watcher.name, data, view.read(watcher.name, moment), link)
+    page.write_briefs(watcher.name, data, canvases)
+    for seat, (title, markdown) in canvases.items():
         if data["slack"]["channels"][seat].get("canvas_digest") == page.digest(markdown):
             continue
         try:

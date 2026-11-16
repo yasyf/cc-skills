@@ -5194,6 +5194,11 @@ def channel_seat(data: dict, channel: str) -> str | None:
     return next((seat for seat, made in data["slack"]["channels"].items() if seat and made["id"] == channel), None)
 
 
+def brief_path(name: str, seat: str | None) -> Path:
+    """The brief of a seat's channel, or of the drive's own for the drive's communicator, which the drive's watch rewrites each pass and the communicator answers him from."""
+    return drive_dir(name) / "briefs" / f"{project_lane(seat) if seat else 'drive'}.md"
+
+
 def communicator_lane(project: str) -> str:
     """The cci lane of a project's or priority seat's communicator."""
     return f"{project_lane(project)}-communicator"
