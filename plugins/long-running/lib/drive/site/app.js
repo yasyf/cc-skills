@@ -1310,7 +1310,7 @@ function pageCards(page) {
   if (seen?.model === model) return seen.keys;
   const shown = pageSlice(page);
   const composed = page.layout?.composed ?? defaultLayout(page, shown);
-  const keys = new Set(composed.blocks.filter((block) => block.kind === 'waits').flatMap((block) => [...blockCards(shown, { ...BLOCK_DEFAULTS, ...block })]));
+  const keys = new Set(composed.blocks.filter((block) => ['waits', 'approve'].includes(block.kind)).flatMap((block) => [...blockCards(shown, { ...BLOCK_DEFAULTS, ...block })]));
   pageCardsSeen.set(page.slug, { model, keys });
   return keys;
 }

@@ -231,14 +231,15 @@ await click('.pr-card .type-label a', 0, 'click', 0);
 await click('.pr-card .type-label a', 1, 'auxclick', 1);
 await click('[data-kit-open^="#/queue/"]', 1, 'click', 0);
 await until(() => document.querySelector('#main .qrow-main[aria-current="true"]'));
-done({ labels: seen.labels, opened, framed, hash: location.hash, focused: document.querySelector('#main .qrow-main[aria-current="true"] .qrow-title').textContent });
+done({ labels: seen.labels, opened, framed, hash: location.hash, focused: document.querySelector('#main .qrow-main[aria-current="true"] .qrow-title').textContent, chip: document.querySelector('#main .queue-from span').textContent });
 """, board(review=prs, queue=questions, pages=pages.shown(state.load(ordered), pages.listed(ordered))))
     assert seen == {
         "labels": ["shop#20 · change 20", "ledger#41 · change 41"],
         "opened": [["https://github.com/demo-org/shop/pull/20", "_blank", "noopener"], ["https://github.com/demo-org/ledger/pull/41", "_blank", "noopener"]],
         "framed": [False, False, True],
-        "hash": "#/queue/all/1794382453.859202",
+        "hash": "#/queue/all/1794382453.859202?page=run-lane",
         "focused": "Question 2",
+        "chip": "Showing 2 cards from Run page lane",
     }
 
 
