@@ -844,12 +844,19 @@ def test_contains_holds_a_pr_by_net_content_a_hotfix_copy_on_other_context_count
     git_in(tmp_path, "clone", "-q", "--single-branch", "-b", "main", str(origin), str(clone))
     fetched = github.fetched
     branches = []
+    fetch_commit = github.fetch_commit
+    commits = []
 
     def recorded(clone, branch):
         branches.append(branch)
         return fetched(clone, branch)
 
+    def recorded_commit(clone, sha):
+        commits.append(sha)
+        return fetch_commit(clone, sha)
+
     monkeypatch.setattr(github, "fetched", recorded)
+    monkeypatch.setattr(github, "fetch_commit", recorded_commit)
     holds = github.contains(str(clone))
     assert [holds(build, merge, head, "main") for build in (later, context, reverted, old)] == [True, True, False, False]
     assert holds(context, merge, head, None) is False
@@ -857,8 +864,10 @@ def test_contains_holds_a_pr_by_net_content_a_hotfix_copy_on_other_context_count
     assert holds(context, merge, head, "gone") is False
     assert holds(reverted, merge, head, "gone") is False
     assert branches == ["main", "gone"]
+    assert commits == [later, merge, context, head, reverted, old]
     assert github.contains(str(clone))(context, merge, head, "main") is True
     assert branches == ["main", "gone", "main"]
+    assert commits == [later, merge, context, head, reverted, old, context, merge, head]
 
 
 def test_uncarried_finds_each_file_a_pr_changes_since_its_fork_among_a_builds_own_changes_on_any_line_squashed_or_replayed_and_lets_an_unembedded_agent_doc_or_test_differ_as_cut_6ea037ed0480_needed(
