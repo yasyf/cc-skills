@@ -1384,6 +1384,16 @@ def test_an_order_an_older_install_saved_with_one_reporter_reads_as_a_list_of_th
     assert [(orders[order_id]["reporters"], "reporter" in orders[order_id]) for order_id in ("o1", "o2")] == [([told], False), ([], False)]
 
 
+
+@pytest.mark.parametrize("field", list(state.order_defaults()))
+def test_an_order_an_older_install_saved_without_a_field_new_orders_carry_reads_with_that_fields_default_wherever_it_is_read(state_root: Path, field: str) -> None:
+    make("demo")
+    data = state.load("demo")
+    data["orders"] = {"o1": {held: value for held, value in state.new_order("fix it", "terminal", None, {"fix it": state.new_part()}, state.stamp()).items() if held != field}}
+    state.create(data)
+    default = state.order_defaults()[field]
+    assert (state.load("demo")["orders"]["o1"][field], state.saved_row("demo", "orders", "o1")[field]) == (default, default)
+
 @pytest.mark.parametrize(("heard", "away", "moment"), [("2026-11-13T15:20:49-08:00", True, "2026-11-13T15:20:49-08:00"), ("2026-11-13T15:20:49-08:00", False, "2026-11-13T16:20:49-08:00"), (None, False, None)])
 def test_an_owner_row_an_older_install_saved_with_an_away_flag_reads_as_the_moment_he_reads_away_from(state_root: Path, heard: str | None, away: bool, moment: str | None) -> None:
     make("demo")
