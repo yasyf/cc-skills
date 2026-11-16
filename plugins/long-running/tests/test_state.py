@@ -3268,3 +3268,17 @@ def test_a_cut_carries_a_pr_head_in_its_history_or_as_the_commit_a_packed_cut_na
     git("merge", "-q", "--no-ff", "-m", "merge", "pr")
     merged = git("rev-parse", "HEAD")
     assert [github.carries(str(clone), cut, "42", head) for cut in (packed, other, merged)] == [True, False, True]
+
+
+@pytest.mark.parametrize("collection, key", [*(("orders", key) for key in state.new_order("", "", None, {}, "")), *(("jobs", key) for key in state.new_job("", state.JOB_KINDS[0], "", [], ""))])
+def test_a_row_saved_without_a_field_its_constructor_gives_renders_through_drive_status_with_that_fields_new_value(run: Callable[..., tuple[int, str]], demo: str, collection: str, key: str) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Tooling", "fix the clock")
+    run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
+    row_id = {"orders": "o1", "jobs": "j1"}[collection]
+    with edit(demo) as data:
+        del data[collection][row_id][key]
+
+    code, _ = run("status", "--drive", demo)
+
+    assert code == 0
+    assert key in state.load(demo)[collection][row_id]

@@ -1566,7 +1566,22 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
         deliver_carried_proofs(data)
     if not data.get("change_waits_stacked"):
         stack_change_waits(name, data)
+    fill_rows(data)
     return data, keep and not unkept and not unkinded and not uncarded(data)
+
+
+def fill_rows(data: dict) -> None:
+    """Give each saved order, part, job and PR every field new_order, new_part, new_job and new_pr give a new one, at the value they give it, so a reader indexing a field an install added after the row was saved, as fix_live was, reads that value rather than raising KeyError."""
+    blanks = {"orders": new_order("", "", None, {}, ""), "jobs": new_job("", JOB_KINDS[0], "", [], ""), "prs": new_pr("https://github.com/o/r/pull/1", "", "")}
+    part = new_part()
+    for collection, blank in blanks.items():
+        for row in data[collection].values():
+            for key in blank.keys() - row.keys():
+                row[key] = marshal.loads(marshal.dumps(blank[key]))
+    for order in data["orders"].values():
+        for held in order["parts"].values():
+            for key in part.keys() - held.keys():
+                held[key] = marshal.loads(marshal.dumps(part[key]))
 
 
 def briefed_handoff(path: str | None) -> str | None:
