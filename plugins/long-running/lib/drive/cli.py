@@ -18,7 +18,7 @@ from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from drive import agents, artifacts, brief, children, codex, github, install, land, limits, orca, page_check, pages, picture, place, reads, refs, render, served, settled, slack, state, superseded, watch
+from drive import agents, artifacts, brief, children, codex, github, install, land, limits, orca, page_check, pages, picture, place, reads, receiver, refs, render, served, settled, slack, state, superseded, watch
 from drive.shell import simple_commands
 from drive.state import DriveError
 
@@ -5709,6 +5709,19 @@ def with_cards(name: str, data: dict, within: dict | None = None) -> dict:
     return data
 
 
+def wait(args: argparse.Namespace) -> int:
+    """Block on the receiver's deliveries log until a delivery ends the wait on the PR or run named, by receiver.settles, a PR matched by its number and the head the drive tracks for it, so a lane hears its PR's checks, reviews and merge, or its run's end, from GitHub's own webhook within a second and reads GitHub once after, never in a loop; refused past WAIT_SECONDS_MOST, since a wait outliving the prompt cache re-reads the lane's whole context."""
+    if not 0 < args.timeout <= receiver.WAIT_SECONDS_MOST:
+        raise DriveError(f"--timeout {args.timeout}: wait 1 to {receiver.WAIT_SECONDS_MOST} seconds, so the prompt cache outlives the wait; wait again after a read for longer")
+    data = state.load(state.resolve(args.drive))
+    want = receiver.wanted(args.ref, {key: pr["head"] for key, pr in data["prs"].items()})
+    if (delivery := receiver.waited(want, args.timeout)) is None:
+        print(json.dumps({"ref": args.ref, "delivery": None}) if args.json else f"{args.ref}: no delivery in {args.timeout}s; read it once, then wait again only if it is still pending")
+        return 1
+    said = ", ".join(f"{field} {delivery[field]}" for field in ("numbers", "head", "action") if delivery.get(field))
+    return emit(args, f"{args.ref}: {delivery['event']} delivery at {delivery['at']}{f' ({said})' if said else ''}; read it now with one gh call", {"ref": args.ref, "delivery": delivery})
+
+
 def term(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     with state.edit(name) as data:
@@ -7462,6 +7475,17 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("stand_in", metavar="stand-in", help="the word he corrected, as a post used it")
     verb.add_argument("term", help="the proper term to use in its place, his word or the code's")
     verb.set_defaults(run=term)
+    verb = verbs.add_parser(
+        "wait", parents=both, help="block until GitHub's webhook delivers news of one PR or one Actions run to this Mac's receiver, in place of polling gh: exit 0 on the delivery, 1 when none came in time"
+    )
+    verb.add_argument("ref", help="a PR's link or owner/repo#N, which any delivery naming it ends, or a GitHub Actions run's link, which its completion ends")
+    verb.add_argument(
+        "--timeout",
+        type=int,
+        default=receiver.WAIT_SECONDS_DEFAULT,
+        help=f"seconds to wait, default {receiver.WAIT_SECONDS_DEFAULT}, inside Bash's default 120-second call; at most {receiver.WAIT_SECONDS_MOST}, with Bash timeout 280000, so the prompt cache outlives the wait",
+    )
+    verb.set_defaults(run=wait)
 
     verb = verbs.add_parser("status", parents=both, help="where each order, job and PR stands")
     verb.add_argument(

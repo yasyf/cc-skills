@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import secrets
 import select
 import shlex
@@ -37,6 +38,9 @@ WAIT_SECONDS = 5
 SLEPT_SECONDS = 60
 ANSWER_SECONDS = 10
 MOST_BYTES = 25 * 1024 * 1024
+RUN = re.compile(r"github\.com/(?P<repo>[^/\s]+/[^/\s]+)/actions/runs/(?P<run>\d+)")
+WAIT_SECONDS_DEFAULT = 110
+WAIT_SECONDS_MOST = 270
 
 
 def home() -> Path:
@@ -147,8 +151,10 @@ def answering() -> bool:
 
 
 def facts(event: str, payload: dict | None) -> dict:
-    """What a delivery says that named matches a drive's PRs by: a PR's or its review's number, a check run's PRs and head, a commit status's head and the branches it is on, and the base a push moves."""
+    """What a delivery says that named matches a drive's PRs by: a PR's or its review's number, a check run's PRs and head, a commit status's head and the branches it is on, and the base a push moves; and a workflow run's id, head and action, which drive wait matches a run by."""
     match event:
+        case "workflow_run":
+            return {"run": payload["workflow_run"]["id"], "head": payload["workflow_run"]["head_sha"], "action": payload["action"]}
         case "pull_request" | "pull_request_review":
             return {"numbers": [payload["pull_request"]["number"]]}
         case "check_run":
@@ -208,6 +214,47 @@ def hear(repo: str, kind: str, since: str | None) -> None:
                 queue.control(None, 1)
     finally:
         os.close(folder)
+
+
+def wanted(ref: str, heads: dict[str, str]) -> dict:
+    """What drive wait waits on: a GitHub Actions run by its link, as its repository and id, or a PR by its link or key, as its repository, number and the head heads holds for it, the one the drive tracks, else none."""
+    if found := RUN.search(ref):
+        return {"repo": found["repo"], "run": int(found["run"])}
+    key = state.pr_key(ref)
+    repo, number = key.split("#")
+    return {"repo": repo, "number": int(number), "head": heads.get(key)}
+
+
+def settles(want: dict, delivery: dict) -> bool:
+    """Whether a delivery ends drive wait on what it waits on: for a run, its workflow_run completing; for a PR, any delivery naming it by number, or by the head the drive tracks for it, as a commit status names one only by its head; and for either, a missed delivery on its repository, since the receiver took none of what GitHub sent meanwhile."""
+    if delivery["kind"] != DELIVERY or delivery["repo"] != want["repo"]:
+        return False
+    if delivery["event"] == "missed":
+        return True
+    if "run" in want:
+        return delivery["event"] == "workflow_run" and delivery.get("run") == want["run"] and delivery.get("action") == "completed"
+    return want["number"] in delivery.get("numbers", []) or bool(want["head"]) and delivery.get("head") == want["head"]
+
+
+def waited(want: dict, seconds: float) -> dict | None:
+    """Block until the receiver appends a delivery after now that settles what drive wait waits on, by settles, as kqueue reports each append to the deliveries log, so the wait reads GitHub never and wakes on the webhook; the delivery, or None once seconds pass with none."""
+    path = deliveries_path()
+    offset = state.lines_end(path)
+    deadline = time.monotonic() + seconds
+    log = os.open(path, os.O_RDONLY)
+    try:
+        with contextlib.closing(select.kqueue()) as queue:
+            queue.control([select.kevent(log, select.KQ_FILTER_VNODE, select.KQ_EV_ADD | select.KQ_EV_CLEAR, select.KQ_NOTE_WRITE | select.KQ_NOTE_EXTEND)], 0)
+            while True:
+                for delivery, end in state.read_lines(path, offset):
+                    offset = end
+                    if settles(want, delivery):
+                        return delivery
+                if (left := deadline - time.monotonic()) <= 0:
+                    return None
+                queue.control(None, 1, left)
+    finally:
+        os.close(log)
 
 
 def took(repo: str, hook_id: int, guid: str, event: str, payload: dict | None) -> None:

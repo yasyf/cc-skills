@@ -81,11 +81,11 @@ def test_a_delivery_moves_the_mark_of_each_kind_of_change_a_drive_waits_on_that_
     assert receiver.marked(event, payload) == marks
 
 
-def test_a_workflow_run_finishing_on_main_moves_its_repositorys_ci_mark_and_logs_no_fact_naming_a_pr(home: None) -> None:
+def test_a_workflow_run_finishing_on_main_moves_its_repositorys_ci_mark_and_logs_its_run_and_no_fact_naming_a_pr(home: None) -> None:
     kept({REPO: {"id": 9, "last": "g1", "events": receiver.EVENTS, "ci": "g1", "release": "g1"}})
-    receiver.took(REPO, 9, "g4", "workflow_run", {"action": "completed", "workflow_run": {"head_branch": "main"}, "repository": {"default_branch": "main"}})
+    receiver.took(REPO, 9, "g4", "workflow_run", {"action": "completed", "workflow_run": {"id": 77, "head_sha": "ccc", "head_branch": "main"}, "repository": {"default_branch": "main"}})
     assert (delivered(), receiver.heard(REPO, "ci"), receiver.heard(REPO, "release"), receiver.heard("yasyf/cc-skills", "ci")) == (
-        [{"repo": REPO, "event": "workflow_run", "guid": "g4"}],
+        [{"repo": REPO, "event": "workflow_run", "guid": "g4", "run": 77, "head": "ccc", "action": "completed"}],
         "g4",
         "g1",
         None,
@@ -378,3 +378,41 @@ def test_a_hook_github_refuses_names_the_gh_call_it_refused(state_root: Path, mo
     with pytest.raises(github.GithubError) as refused:
         REAL_HOOK(REPO)
     assert str(refused.value) == f"gh api 'repos/{REPO}/hooks?per_page=100': gh: Not Found (HTTP 404)"
+
+
+RUN_LINK = f"https://github.com/{REPO}/actions/runs/77"
+
+
+@pytest.mark.parametrize(
+    ("ref", "event", "payload", "settles"),
+    [
+        (f"{REPO}#42", "pull_request", {"pull_request": {"number": 42}}, True),
+        (f"{REPO}#42", "pull_request", {"pull_request": {"number": 43}}, False),
+        (f"https://github.com/{REPO}/pull/42", "check_run", {"check_run": {"head_sha": "zzz", "pull_requests": [{"number": 42}]}}, True),
+        (f"{REPO}#42", "status", {"sha": "aaa", "branches": []}, True),
+        (f"{REPO}#43", "status", {"sha": "aaa", "branches": []}, False),
+        (f"{REPO}#42", "missed", None, True),
+        (RUN_LINK, "workflow_run", {"action": "in_progress", "workflow_run": {"id": 77, "head_sha": "ccc", "head_branch": "fix-it"}, "repository": {"default_branch": "main"}}, False),
+        (RUN_LINK, "workflow_run", {"action": "completed", "workflow_run": {"id": 78, "head_sha": "ccc", "head_branch": "fix-it"}, "repository": {"default_branch": "main"}}, False),
+        (RUN_LINK, "workflow_run", {"action": "completed", "workflow_run": {"id": 77, "head_sha": "ccc", "head_branch": "fix-it"}, "repository": {"default_branch": "main"}}, True),
+    ],
+)
+def test_drive_wait_ends_on_a_delivery_naming_its_pr_by_number_or_tracked_head_or_its_run_completing(home: None, ref: str, event: str, payload: dict | None, settles: bool) -> None:
+    want = receiver.wanted(ref, {f"{REPO}#42": "aaa"})
+    receiver.took(REPO, 9, "g5", event, payload)
+    [delivery] = [line for line, _ in state.read_lines(receiver.deliveries_path()) if line["kind"] == receiver.DELIVERY]
+    assert receiver.settles(want, delivery) == settles
+
+
+def test_drive_wait_blocks_until_the_receiver_appends_the_delivery_it_waits_on_and_gives_up_after_its_timeout(home: None) -> None:
+    receiver.took(REPO, 9, "g0", "pull_request", {"pull_request": {"number": 42}})
+    want = receiver.wanted(f"{REPO}#42", {})
+    started = time.monotonic()
+    assert receiver.waited(want, 0.2) is None
+    assert time.monotonic() - started >= 0.2
+    later = threading.Timer(0.2, lambda: [receiver.took(REPO, 9, guid, "pull_request", {"pull_request": {"number": number}}) for guid, number in (("g1", 43), ("g2", 42))])
+    later.start()
+    try:
+        assert receiver.waited(want, 5)["guid"] == "g2"
+    finally:
+        later.join()
