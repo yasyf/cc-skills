@@ -2073,6 +2073,9 @@ def test_a_watch_hands_off_to_a_newer_install_only_once_it_ran_hand_off_every_or
     monkeypatch.setattr(watch, "HAND_OFF_EVERY", timedelta(minutes=10))
     watching = watcher(demo)
     assert (watch.handing_off(watching, 599.0), watch.handing_off(watching, 600.0)) == (False, True)
+    watching.resume = "release_lanes"
+    assert watch.handing_off(watching, 600.0) is False
+    watching.resume = None
     with state.edit(demo) as data:
         data["orders"]["o1"]["incident"] = True
     assert watch.handing_off(watching, 0.0) is True
