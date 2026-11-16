@@ -58,6 +58,9 @@ pytestmark = pytest.mark.usefixtures("ccx_worktrees")
 Run = Callable[..., tuple[int, str]]
 T0 = state.parse_time("2026-11-09T07:30:00-08:00")
 RUN = "run_drive0001"
+LIMIT_TEXT = "You've hit your weekly limit · resets Nov 17 at 11pm (America/Los_Angeles)"
+LIMITED = {"type": "assistant", "timestamp": "2026-11-12T20:44:30.000Z", "message": {"model": "<synthetic>", "stop_reason": "stop_sequence", "content": [{"type": "text", "text": LIMIT_TEXT}]}}
+LIMIT_STOP = f'it stopped on Claude\'s usage limit at {watch.when(LIMITED["timestamp"])}: "{render.cut(LIMIT_TEXT, 100)}"'
 FRESH_RUN = "run_relaunch1"
 DISPATCH = "ctx_lane0001"
 NO_RUNTIME = "Could not read Orca runtime metadata. Start the Orca app first."
@@ -1856,7 +1859,7 @@ def test_the_watch_types_the_resume_once_into_a_lane_on_this_mac_that_stopped_on
 ) -> None:
     sends = terminal_sends(monkeypatch)
     watching = quiet_lane_watched(remote, tmp_path, monkeypatch, [CALLED, CALL_RESULT, FORBIDDEN], [FORBIDDEN, LATER])
-    assert lane_lines(watching, T0) == [f"LANE j1 o1 stopped on this Mac: {FORBIDDEN_STOP}. The watch typed the resume prompt into its terminal term_lane"]
+    assert lane_lines(watching, T0) == [f"LANE j1 o1 stopped on this Mac: {FORBIDDEN_STOP}. The watch typed the resume prompt into its terminal term_lane, so resume it no second time"]
     assert lane_lines(watching, T0 + timedelta(seconds=5)) == []
     assert (sends, relaunches) == (typed_into(agents.RESUMED), [])
 
@@ -1868,6 +1871,34 @@ def test_the_watch_types_nothing_into_a_stopped_lane_on_this_mac_until_a_drive_s
     sends = terminal_sends(monkeypatch)
     watching = quiet_lane_watched(remote, tmp_path, monkeypatch, [CALLED, CALL_RESULT, FORBIDDEN], session)
     assert (lane_lines(watching, T0), sends) == ([], [])
+
+
+@pytest.mark.parametrize(
+    "last",
+    [LIMITED, {**LIMITED, "message": {**LIMITED["message"], "content": [{"type": "text", "text": "API Error: This request would exceed your account's rate limit. Please try again later."}]}}],
+    ids=["weekly-limit", "account-rate-limit"],
+)
+def test_the_watch_hands_a_job_whose_agent_on_this_mac_stopped_on_claudes_usage_limit_to_a_fresh_worker_at_once_with_no_session_answered_since(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, relaunches: list[str], last: dict
+) -> None:
+    watching = stopped_agent_watched(run, demo, tmp_path, monkeypatch, [EARLIER], last)
+    [line] = lane_lines(watching, T0)
+    assert line.startswith("LANE j1 o1 died as agent a1 on this Mac: it stopped on Claude's usage limit at ") and "The watch ran drive job resume j1" in line
+    assert relaunches == ["j1"]
+
+
+def test_the_watch_sends_escape_then_types_the_resume_into_a_lane_on_this_mac_that_stopped_on_claudes_usage_limit_with_no_session_answered_since(
+    remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, relaunches: list[str]
+) -> None:
+    sends = terminal_sends(monkeypatch)
+    dismissed: list[str | None] = []
+    monkeypatch.setattr(orca, "dismiss_limit_dialog", lambda handle=None: dismissed.append(handle) or True)
+    watching = quiet_lane_watched(remote, tmp_path, monkeypatch, [CALLED, CALL_RESULT, LIMITED], [EARLIER])
+    assert lane_lines(watching, T0) == [
+        f"LANE j1 o1 stopped on this Mac: {LIMIT_STOP}. The watch sent Escape to its usage-limit dialog and typed the resume prompt into its terminal term_lane, so resume it no second time"
+    ]
+    assert lane_lines(watching, T0 + timedelta(seconds=5)) == []
+    assert (dismissed, sends, relaunches) == (["term_lane"], typed_into(agents.RESUMED), [])
 
 
 def test_the_watch_stops_a_lane_on_this_mac_a_models_safeguards_stopped_at_once_and_types_nothing_into_it(
@@ -7121,6 +7152,21 @@ def test_a_lane_that_stops_without_a_report_quotes_its_whole_last_output_on_one_
     deliver(monkeypatch, [message("escalation", body, subject="Worker stopped without reporting")])
     watching = watch.Watcher(remote, offset=state.events_end(remote))
     assert watch.run_pass(watching, T0) == [f"JOB j1 o1 STOPPED without a report, last output: {refused.strip()} because j4303 has no lane"]
+
+
+@pytest.mark.parametrize("on_mac", [True, False], ids=["on-this-mac", "on-a-sprite"])
+def test_a_lane_that_stops_on_claudes_usage_limit_says_the_limit_and_what_restarts_it_never_stopped_without_a_report(remote: str, monkeypatch: pytest.MonkeyPatch, on_mac: bool) -> None:
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(ON_THIS_MAC | {"terminal": "term_lane"} if on_mac else {"workspace": SPRITE_LANE["workspace"]})
+    body = (
+        "Worker term_1 ended its turn without sending worker_done for task t1.\nThe Dispatch is still open.\n"
+        f"Last output:\n  {LIMIT_TEXT}\n  /rate-limit-options\nFull output: orchestration worker-read --dispatch {DISPATCH}"
+    )
+    deliver(monkeypatch, [message("escalation", body, subject="Worker stopped without reporting")])
+    job = state.load(remote)["jobs"]["j1"]
+    restart = "the watch sends Escape to its dialog and types the resume prompt into its terminal term_lane, so resume it no second time" if on_mac else "drive job resume j1 <the event> relaunches it"
+    line = f'JOB j1 o1 stopped on Claude\'s usage limit {orca.place(job)}, "{LIMIT_TEXT}", not on its work: {restart}'
+    assert line in watch.run_pass(watch.Watcher(remote, offset=state.events_end(remote)), T0)
 
 
 def test_a_lanes_report_holds_none_of_the_mail_its_live_worker_still_reads(

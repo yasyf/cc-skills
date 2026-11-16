@@ -23,8 +23,8 @@ Contents:
   the session's Orca terminal, and Escape again to a login screen, because picking the paid option
   or logging in forces a fresh login. It then resumes the turn as it resumes any API error. Each hit
   is counted on the job under `limit_hits` and logged as one line of `claude-usage-limits.jsonl`
-  under the state folder, which every drive on this Mac shares. A hit does not fail or relaunch the
-  job.
+  under the state folder, which every drive on this Mac shares. A hit does not fail the job. The
+  watch tells him of each hit once for the whole Mac, as a milestone, whichever drive reads it first.
 - **Caps.** `caps.json` under the drive's state root is read at each start, so a change holds at
   once. Its defaults are `{"local": 12, "sprite": 30, "handlers": 8, "load_per_core": 1,
   "free_memory": 15}`. At most `local` Claude lanes of any role work here at once and `sprite` lanes on Sprites;
@@ -394,9 +394,11 @@ with a blocking question.
   waiting job's dead lane is recorded with no line and its Sprite freed.
 - The watch relaunches a running job's dead lane in the same pass, with `drive job resume <j>` as a
   process of its own, and the `LANE … died` line says so. It does the same for an agent here whose
-  last response ended on an API error, once the session holding it has had a response since
+  last response ended on an API error, once the session holding it has had a response since, or at
+  once when Claude's usage limit stopped it, since a holder stopped on the same limit never answers
   (`LANE … died as agent`). A lane here whose transcript ends that way gets the StopFailure resume
-  prompt typed into its terminal, once per stop, four times at most
+  prompt typed into its terminal, after Escape on the usage-limit dialog for a limit stop, once per
+  stop, four times at most
   (`LANE … stopped on this Mac`).
 - A job whose agent or lane a model's safeguards stopped is set `stopped` at once, with nothing
   resumed. Claude Code's notice asks that it go to him and that nobody do the agent's work, so the

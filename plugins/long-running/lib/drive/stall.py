@@ -7,7 +7,7 @@ STILL_FOR = timedelta(minutes=60)
 SEARCH_FOR = timedelta(minutes=10)
 AT_ONCE = 2
 STARTS_AN_HOUR = 6
-ANSWER = re.compile(r"^(WHY|WHO|NEXT|UNREAD):.*$", re.MULTILINE)
+ANSWER = re.compile(r"^(WHY|WHO|NEXT|UNREAD):(.*(?:\n(?!(?:WHY|WHO|NEXT|UNREAD):).*)*)", re.MULTILINE)
 
 
 def chains(data: dict, cards: dict, on_hold: bool, moment: datetime) -> dict[str, list[tuple[str, str, bool]]]:
@@ -177,5 +177,5 @@ def cause(data: dict, thing: str, held: dict) -> dict[str, str] | None:
 
 
 def answer(text: str) -> dict[str, str]:
-    """The WHY, WHO, NEXT and UNREAD lines a watchdog agent answered, by label."""
-    return {found[1]: found[0].removeprefix(f"{found[1]}:").strip() for found in ANSWER.finditer(text)}
+    """The WHY, WHO, NEXT and UNREAD answers a watchdog agent wrote, by label, each the label's line and every line below it up to the next label, as one line."""
+    return {found[1]: " ".join(found[2].split()) for found in ANSWER.finditer(text)}
