@@ -7184,7 +7184,7 @@ def parser() -> argparse.ArgumentParser:
         action=argparse.BooleanOptionalAction,
         help=(
             "mark or unmark a builder whose whole work holds no checkout or compiler, such as a read, as a builder whose goal reads prove <PRs> live is marked or not: it holds"
-            " no slot of this Mac's builder cap, drops any turn it waits for one, and starts or takes a message here at once"
+            " no slot of this Mac's builder cap, drops any turn it waits for one, and starts or takes a message here at once, past the load gate"
         ),
     )
     brief_opt = argparse.ArgumentParser(add_help=False)
@@ -7621,7 +7621,7 @@ def parser() -> argparse.ArgumentParser:
         "--builds-nothing",
         action="store_true",
         default=None,
-        help="a builder whose whole work holds no checkout or compiler, such as a read, as a builder whose goal reads prove <PRs> live is marked or not: it holds no slot of this Mac's builder cap, starts here at once and starts beside any builder carrying its part, since it changes no code",
+        help="a builder whose whole work holds no checkout or compiler, such as a read, as a builder whose goal reads prove <PRs> live is marked or not: it holds no slot of this Mac's builder cap, starts here at once past the load gate and starts beside any builder carrying its part, since it changes no code",
     )
     verb.add_argument(
         "--priority",

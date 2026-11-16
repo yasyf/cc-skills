@@ -105,10 +105,10 @@ def waiting(data: dict, text: str) -> str | None:
 
 
 def overloaded(data: dict, text: str) -> str | None:
-    """Why a Forge-AI/monorepo builder starts on a Sprite, not here: this Mac is at or over its load gate's limit and its brief declares no step only this Mac runs, by place.mac_step, which starts here at any load, as a priority order's builder does, by state.first_in_line, so no launch delays it."""
+    """Why a builder of the drive's home repository, by state.home_repo, starts on a Sprite, not here: this Mac is at or over its load gate's limit and its brief declares no step only this Mac runs, by place.mac_step, which starts here at any load, as a priority order's builder does, by state.first_in_line, and one that builds nothing, by state.builds_nothing, so no launch delays it."""
     match = brief.BRIEF_JOB.search(text)
     job = data["jobs"].get(match[1]) if match else None
-    if job is None or not state.home_repo(data, job.get("repo") or "") or place.mac_step(text) or state.first_in_line(data, job):
+    if job is None or not state.home_repo(data, job.get("repo") or "") or place.mac_step(text) or state.first_in_line(data, job) or state.builds_nothing(job):
         return None
     where, why = place.verdict(place.busy(), place.limit(), {})
     if where == "local":

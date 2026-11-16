@@ -261,12 +261,14 @@ def preempts(data: dict, job: dict) -> bool:
 
 
 def admission(data: dict, job_id: str | None, where: str, moment: datetime) -> str | None:
-    """Why no new Claude lane starts now, where "local" for a lane on this Mac of any role and "sprite" for one on a Sprite, None when it may: one of a job preempts lets through starts at once; a job whose project spent its daily budget waits for the next day, by spend.over; a local one waits while strained reads this Mac loaded or short of memory, and either while the lanes every drive here runs fill its cap by caps, the job's own lane not counted. Its work waits its turn, never fails."""
+    """Why no new Claude lane starts now, where "local" for a lane on this Mac of any role and "sprite" for one on a Sprite, None when it may: one of a job preempts lets through starts at once; a job whose project spent its daily budget waits for the next day, by spend.over; a local builder that builds nothing, by state.builds_nothing, starts at once past the load gate and the local cap, since it compiles nothing here; any other local one waits while strained reads this Mac loaded or short of memory, and either while the lanes every drive here runs fill its cap by caps, the job's own lane not counted. Its work waits its turn, never fails."""
     job = data["jobs"].get(job_id) if job_id else None
     if job and preempts(data, job):
         return None
     if job and (why := spend.over(data, job, moment)):
         return why
+    if where == "local" and job and state.builds_nothing(job):
+        return None
     if where != "sprite" and (why := strained()):
         return why
     cap = caps()[where]
@@ -383,13 +385,13 @@ def moves_here(job: dict) -> bool:
 
 
 def turns(data: dict, moment: datetime) -> tuple[list[str], int]:
-    """The builder jobs whose turn comes now, and how many builders hold a slot on this Mac: each priority order's builder in line at once, as crowded starts one past the cap, then the earliest due, one for each slot no builder holds."""
+    """The builder jobs whose turn comes now, and how many builders hold a slot on this Mac: each priority order's builder in line at once, as crowded starts one past the cap, and each that builds nothing, by state.builds_nothing, at once past the load gate, holding no slot, then the earliest due, one for each slot no builder holds."""
     if not (line := waiting_builders(data)):
         return [], 0
     held = len(local_builders(data, moment))
     line = [job_id for job_id in line if preempts(data, data["jobs"][job_id]) or not spend.over(data, data["jobs"][job_id], moment)]
     first = [job_id for job_id in line if state.first_in_line(data, data["jobs"][job_id])]
+    free = [job_id for job_id in line[len(first) :] if state.builds_nothing(data["jobs"][job_id])]
+    rest = [job_id for job_id in line[len(first) :] if job_id not in free]
     room = min(LOCAL_BUILDERS - held, admitted_room("local", moment))
-    return [*first, *line[len(first) :][: max(room - len(first), 0)]], held
-
-
+    return [*first, *free, *rest[: max(room - len(first), 0)]], held

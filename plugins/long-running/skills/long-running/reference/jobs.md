@@ -70,9 +70,9 @@ Contents:
     it runs. A priority order's builder also starts past the load gate, and a drive verb or MCP call
     naming that order, its jobs or its PRs takes the drive's lock ahead of other writers. The mark
     also starts a coordinator session for that order alone, the sub-coordinator for `Priority <o>`.
-  - A builder that builds nothing holds no slot and starts at once: one added with
-    `drive job add builder --order <o> --goal "<goal>" --builds-nothing`, such as a read, or one
-    whose goal reads `prove <PRs> live`. `drive job set <j> --builds-nothing` marks one already
+  - A builder that builds nothing holds no slot and starts here at once past the load gate: one
+    added with `drive job add builder --order <o> --goal "<goal>" --builds-nothing`, such as a read,
+    or one whose goal reads `prove <PRs> live`. `drive job set <j> --builds-nothing` marks one already
     added, a waiting one included. `drive job prove` proves live only the PRs a `prove <PRs> live`
     goal names.
   - Every start here meets this one count, and Jev does not judge it: an Agent call through the
