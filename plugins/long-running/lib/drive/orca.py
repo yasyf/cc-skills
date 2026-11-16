@@ -32,7 +32,7 @@ NOT_LANE = re.compile(r"[^a-z0-9-]+")
 PLUGIN = Path(__file__).resolve().parents[2]
 AGENTS = PLUGIN / "agents"
 LANE_SECTIONS = ("## On a Sprite\n", "## Waits and reads\n")
-LANE_ENV = f"CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000 {state.REMOTE_LANE_ENV}=1"
+LANE_ENV = f"{state.REMOTE_LANE_ENV}=1"
 LAUNCH_SECONDS = 1800
 RECLAIM_SECONDS = 300
 MAIL_LIMIT = 100

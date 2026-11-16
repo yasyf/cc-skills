@@ -727,8 +727,9 @@ job's transcript under `Transcripts:`.
 A built job's `FREE` line is a PR event too: the fresh builder's `Handoff:` names the built branch,
 and `Decisions that bind` carries his answer to each card it waited on, verbatim. An incident's job
 is the one exception, resumed for every event by [incidents.md](incidents.md), because minutes to
-users matter more there than tokens. Each builder, a remote lane's included, compacts at 300,000
-tokens; neither session's own window changes.
+users matter more there than tokens. Every session and lane the drive starts, its roots, handlers,
+watchdogs, builders and remote lanes included, compacts at 350,000 tokens, by his Nov 15 words "make
+the context cap 350k": `CLAUDE_CODE_AUTO_COMPACT_WINDOW` in the orca plugin's `lib/lane.json` sets it.
 
 A reproduction leaves one file. A job that reproduces a bug, of any kind, saves one pick-up-and-run
 file before it returns: the steps in order, the exact prompt and code, the build and versions, and

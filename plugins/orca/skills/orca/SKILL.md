@@ -276,7 +276,9 @@ native `~/.claude` watcher, animation, telemetry or status line, and no tool
 that parks on a human. A Bash result over 6,000 characters comes back as its
 first 2 KB and the path of the whole, and the `default` output style overrides
 a repository's own, such as `Concise`, whose reminder rides along on about
-half of a lane's model calls. A Sprite Claude lane gets the same `env` as one of
+half of a lane's model calls. `CLAUDE_CODE_AUTO_COMPACT_WINDOW=350000`
+compacts a lane at 350,000 tokens, by the owner's Nov 15 words "make the context
+cap 350k". A Sprite Claude lane gets the same `env` as one of
 prepare's `--env` flags per variable, and the same `settings` with the
 `deniedTools` as `permissions.deny` in prepare's one `--settings`, which needs
 cc-remote 0.27.41 or later. That one `--settings` also carries
