@@ -8222,3 +8222,20 @@ def test_the_watch_says_a_dead_local_lane_died_on_this_mac(rooted: str, monkeypa
         'LANE j1 o1 died on this Mac: its worker exited, while it worked on "root-tooling: dispatch ctx_ab821100f80b". The watch '
         "ran drive job resume j1, which relaunches it in a fresh worktree on this Mac with a handoff, its output in the drive's relaunches.log"
     ]
+
+
+def test_a_pool_sprite_claimed_for_a_jobs_lane_that_neither_its_row_nor_its_deaths_name_is_adopted_into_its_deaths(remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    pool, workspaces = tmp_path / "cc-remote" / "pool", tmp_path / "cc-remote" / "workspaces"
+    pool.mkdir(parents=True)
+    workspaces.mkdir()
+    monkeypatch.setattr(orca, "CC_REMOTE", tmp_path / "cc-remote")
+    monkeypatch.setattr(orca, "CC_REMOTE_WORKSPACES", workspaces)
+    claimed = (T0 - watch.ADOPT_AFTER).isoformat()
+    for name, lane, at in (("pool-left", f"{remote}-j1-2", claimed), ("pool-own", f"{remote}-j1", claimed), ("pool-fresh", f"{remote}-j1-3", T0.isoformat()), ("pool-other", "elsewhere-j1", claimed)):
+        (pool / f"{name}.json").write_text(json.dumps({"name": name, "state": "prepared", "lane": lane, "updatedAt": at}))
+        (workspaces / f"{name}.json").write_text("{}")
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(state="done", workspace="pool-own")
+    watch.adopt_sprites(watch.Watcher(remote, offset=state.events_end(remote)), T0)
+    watch.adopt_sprites(watch.Watcher(remote, offset=state.events_end(remote)), T0)
+    assert [(death["workspace"], death["why"]) for death in state.load(remote)["jobs"]["j1"]["deaths"]] == [("pool-left", watch.ADOPTED)]
