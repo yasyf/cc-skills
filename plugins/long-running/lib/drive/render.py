@@ -609,7 +609,11 @@ def part_line(drive: dict, order_id: str, part: str) -> str:
 
 
 def standing_line(drive: dict, order_id: str, part: str) -> str:
-    """A standing part as drive status lists it: its goal, its live pass, else when the watch starts the next, and its last pass with the line it ended on."""
+    """A standing part as drive status lists it: its goal, then for a part kept on a check its command and its last run's exit code and closing line, else its live pass, else when the watch starts the next, and its last pass with the line it ended on."""
+    held = drive["orders"][order_id]["parts"][part]
+    if check := held["check"]:
+        ran = "never run yet" if check["ran"] is None else f"running since {when(check['ran'])}" if check["exit"] is None else f'last run {when(check["ran"])} exited {check["exit"]}: "{cut(check["said"], 80)}"'
+        return f'"{part}": standing on "{cut(held["standing"], 80)}", checked by `{cut(check["command"], 80)}`, {ran}'
     live, last = standing_passes(drive, order_id, part)
     due = pass_due(passes(part_jobs(drive, order_id, part)))
     starts = f"at {when(due.isoformat())}" if due and due > now() else "on its next read"

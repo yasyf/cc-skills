@@ -74,6 +74,7 @@ ANSWERS = "answers"
 LANE_WAIT = timedelta(seconds=reads.LANE_GIVES_UP)
 ANSWER_BY = timedelta(seconds=reads.ANSWER_BY)
 RELAUNCHES_LOG = "relaunches.log"
+STANDING_CHECKS_LOG = "standing-checks.log"
 TRANSCRIPTS_LOG = "transcripts.log"
 DISKS_LOG = "disks.log"
 DISKS_STARTED = "disks-check.started"
@@ -4900,7 +4901,7 @@ def part_gap(watcher: Watcher, data: dict, order_id: str, part: str, moment: dat
     if stuck := [gap for job_id, job in jobs if (gap := gaps[job_id]) and (job["state"] == "running" or job["state"] == "waiting" and job.get("ask"))]:
         return stuck[-1]
     if order["parts"][part]["standing"]:
-        return standing_gap(jobs, gaps, moment)
+        return standing_gap(jobs, gaps, order["parts"][part]["check"], moment)
     if state.following(order["parts"][part]):
         return None
     if fixer := no_fix_job(data, order_id, part, jobs):
@@ -4943,10 +4944,23 @@ class Restart(str):
         return made
 
 
-def standing_gap(jobs: list[tuple[str, dict]], gaps: dict[str, str | None], moment: datetime) -> str | None:
-    """Who holds a standing part: each unfinished job on it, read as any part's carriers are, else no one, its Restart after its last pass once state.pass_due lets its next pass start, and SETTLING until then."""
+class Recheck(Restart):
+    """A standing part's gap once its check is due by state.check_due, which standing_lines answers by running the check, never a codex pass."""
+
+    def __new__(cls) -> Self:
+        made = str.__new__(cls, "its check is due")
+        made.last = None
+        return made
+
+
+def standing_gap(jobs: list[tuple[str, dict]], gaps: dict[str, str | None], check: dict | None, moment: datetime) -> str | None:
+    """Who holds a standing part: each unfinished job on it, read as any part's carriers are, else no one; a part kept on a check is held by its last run while that run exits 0 and its Recheck is due by state.check_due, and a run that exited nonzero is its gap, so its ORPHAN line says why once; any other its Restart after its last pass once state.pass_due lets its next pass start, and SETTLING until then."""
     if held := [gaps[job_id] for job_id, job in jobs if job["state"] not in state.FINISHED_JOB_STATES]:
         return None if None in held else SETTLING if SETTLING in held else held[-1]
+    if check:
+        if state.check_due(check, moment):
+            return Recheck()
+        return f"its check `{cut(check['command'], 80)}` exited {check['exit']}: {check['said']}" if check["exit"] else None
     passes = state.passes(jobs)
     if (due := state.pass_due(passes)) and moment < due:
         return SETTLING
@@ -4954,12 +4968,18 @@ def standing_gap(jobs: list[tuple[str, dict]], gaps: dict[str, str | None], mome
 
 
 def standing_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Start the next pass of each standing part its Restart gap names, as finished adds provers: a codex job on this Mac on the part's standing goal, its brief the last pass's flags with a handoff quoting that pass's return and PASS_DONE as its Done when, holding the texts and owing the answers that pass held, by added_pass, launched by drive job launch as its own process, the one start of a pass, since launch and resume refuse a pass that ended, its output in the drive's relaunches log; one STANDING line each, naming why the last pass ended. A launch that refuses leaves the job not started, which its part's ORPHAN line says."""
+    """Start the next pass of each standing part its Restart gap names, as finished adds provers: a codex job on this Mac on the part's standing goal, its brief the last pass's flags with a handoff quoting that pass's return and PASS_DONE as its Done when, holding the texts and owing the answers that pass held, by added_pass, launched by drive job launch as its own process, the one start of a pass, since launch and resume refuse a pass that ended, its output in the drive's relaunches log; one STANDING line each, naming why the last pass ended. A launch that refuses leaves the job not started, which its part's ORPHAN line says. A part kept on a check its Recheck gap names runs that check instead, detached by drive order check, its output in the drive's standing-checks log, with no job, no model session and no line, since the check files what it finds and a run that fails is said by its ORPHAN line."""
     data = state.load(watcher.name)
     if not any(isinstance(gap, Restart) for gap in part_gaps(watcher, data, moment).values()):
         return []
     with state.edit(watcher.name) as data:
-        restarts = [(key, gap.last, added_pass(data, key, gap.last, moment)) for key, gap in part_gaps(watcher, data, moment).items() if isinstance(gap, Restart)]
+        gaps = part_gaps(watcher, data, moment)
+        checks = [key for key, gap in gaps.items() if isinstance(gap, Recheck)]
+        for order_id, part in checks:
+            data["orders"][order_id]["parts"][part]["check"].update(ran=state.stamp(moment), exit=None, said=None)
+        restarts = [(key, gap.last, added_pass(data, key, gap.last, moment)) for key, gap in gaps.items() if isinstance(gap, Restart) and not isinstance(gap, Recheck)]
+    for order_id, part in checks:
+        state.detach(watcher.name, ["order", "check", order_id, "--part", part], STANDING_CHECKS_LOG)
     return [launched_pass(watcher.name, *restart) for restart in restarts]
 
 

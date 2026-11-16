@@ -1173,6 +1173,7 @@ def shaped(name: str, saved: dict) -> tuple[dict, bool]:
             part.setdefault("answer", False)
             part.setdefault("orphan_gap", None)
             part.setdefault("standing", None)
+            part.setdefault("check", None)
             part.setdefault("posted_by", None)
             part.setdefault("passed_at", None)
             part.setdefault("cases", [])
@@ -3961,7 +3962,7 @@ def new_order(text: str, source: str, thread: tuple[str, str] | None, parts: dic
 
 def new_part() -> dict:
     """A part of an order, undelivered and not standing: a standing part holds the goal each pass of it runs on, which drive order set --standing keeps."""
-    return {"posted": None, "posted_by": None, "passed_at": None, "cases": [], "orphan_said": None, "orphan_gap": None, "design": None, "answer": False, "standing": None, "soak": None, "follow": None}
+    return {"posted": None, "posted_by": None, "passed_at": None, "cases": [], "orphan_said": None, "orphan_gap": None, "design": None, "answer": False, "standing": None, "check": None, "soak": None, "follow": None}
 
 
 def following(part: dict) -> bool:
@@ -3974,6 +3975,19 @@ def reporter(link: str) -> dict:
     if not (linked := link_thread(link)):
         raise DriveError(f"--reporter {link}: refused, name the message by its Slack permalink or as slack:<channel>/<its thread's ts>")
     return {"link": link, "channel": linked[0], "thread": linked[1], "told": None, "tell_said": None}
+
+
+def new_check(command: str) -> dict:
+    """A standing part's check, the shell command each of its passes runs in place of a codex job, with no model session: its last run's start, exit code and closing line, none before its first."""
+    return {"command": command.strip(), "ran": None, "exit": None, "said": None}
+
+
+def check_due(check: dict, moment: datetime) -> bool:
+    """Whether a standing part's check runs again: never run, STANDING_EVERY after its last run started once that run ended, or twice that while it never wrote its exit, since drive order check cuts a run off at STANDING_EVERY."""
+    if check["ran"] is None:
+        return True
+    since = moment - parse_time(check["ran"])
+    return since >= STANDING_EVERY * 2 or check["exit"] is not None and since >= STANDING_EVERY
 
 
 def new_watch(link: str, moment: datetime) -> dict:
