@@ -705,6 +705,11 @@ def test_a_report_folds_in_the_unposted_reports_sent_before_it_to_its_thread_and
     assert [(record["to"], record["re"]) for records in sent for record in records] == [([f"priority-o1339@{demo}"], ["735816"])]
 
 
+def test_a_reference_its_writer_wrapped_in_angle_brackets_draws_one_link_with_no_literal_brackets() -> None:
+    found = {"{pr:7|the monitor fix}": {"kind": "pr", "title": "the monitor fix", "url": "https://github.com/acme/app/pull/7"}}
+    assert refs.slack("You merged <{pr:7|the monitor fix}>, and &lt;<https://x.example/a|this>&gt; too.", found, None) == "You merged <https://github.com/acme/app/pull/7|the monitor fix>, and <https://x.example/a|this> too."
+
+
 def test_say_drops_the_exact_words_it_already_sent_to_the_same_place(communicator: str, posts: list[tuple[str, ...]]) -> None:
     first = talk.say(communicator, {"text": "The recommended answer to this question is built and paused."})
     count = len(posts)

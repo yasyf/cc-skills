@@ -357,7 +357,7 @@ def opening(text: str) -> str:
 
 
 def slack(text: str, found: dict[str, dict], thread: str | None) -> str:
-    """The text as Slack shows it in this thread of his DM, None for its root: each reference a link under the words that name it, which Slack draws a card under, or a record that links nothing as its words; a card named in its own thread reads as the words after its | or as "this card", with no link, since a link there draws the card again under the post; a PR waiting on his tap, on a line asking his tap or Approve, links his card on it, so the line carries the button it asks him to press and a line only naming the PR draws no card. His words: "why are you showing me a card in the thread of the same post that this is a thread of"."""
+    """The text as Slack shows it in this thread of his DM, None for its root, a link its writer wrapped in angle brackets again, such as <{pr:…}>, drawn once, since Slack showed the outer pair as a literal < and > around it on his card: each reference a link under the words that name it, which Slack draws a card under, or a record that links nothing as its words; a card named in its own thread reads as the words after its | or as "this card", with no link, since a link there draws the card again under the post; a PR waiting on his tap, on a line asking his tap or Approve, links his card on it, so the line carries the button it asks him to press and a line only naming the PR draws no card. His words: "why are you showing me a card in the thread of the same post that this is a thread of"."""
 
     def shown(match: re.Match[str]) -> str:
         ref = found[match[0]]
@@ -367,7 +367,10 @@ def slack(text: str, found: dict[str, dict], thread: str | None) -> str:
             return linked(ref, ref["card"], "<{url}|{words}>")
         return linked(ref, ref["url"], "<{url}|{words}>")
 
-    return REF.sub(shown, undoubled(text))
+    return WRAPPED_LINK.sub(r"\1", REF.sub(shown, undoubled(text)))
+
+
+WRAPPED_LINK = re.compile(r"(?:<|&lt;)(<[^<>\s][^<>]*>)(?:>|&gt;)")
 
 
 def undoubled(text: str) -> str:
