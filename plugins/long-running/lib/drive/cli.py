@@ -91,7 +91,7 @@ STAGING_FIRST = (
 )
 STAGING_APPROVED = ", which waits behind this test: a full pass keeps it, so it lands the PR once the test passes (e5e4f7b), while the lander holds a dangerous change until he is present, his word or tap within 15 minutes (27ea387)"
 RELEASES_LOG = "releases.log"
-MANUAL_STARTED = re.compile(rf"\S+ #\d+: (?P<build>{github.BUILD.pattern}) — follow it from anywhere: (?P<follow>.+)")
+MANUAL_STARTED = r"\S+ #\d+: (?P<build>{build}) — follow it from anywhere: (?P<follow>.+)"
 PROMISED_TIME = re.compile(
     r"\b(?:(?P<next>next (?:line|update|post|summary))(?:\s+(?:by|before|at))?|by|before)\s+(?:about\s+|around\s+)?(?P<hour>[01]?\d|2[0-3]):(?P<minute>[0-5]\d)(?![:\d])(?:\s*(?P<half>[AP])\.?M\b)?",
     re.IGNORECASE,
@@ -1247,9 +1247,9 @@ def answered_line(data: dict, order_id: str, part: str, taken: list[str]) -> str
 
 
 def follow_ask(data: dict, order_id: str, build: str, ask: str, named: list[str]) -> tuple[str, dict]:
-    """The part his ask to be kept updated on a Buildkite build wants followed, and the follow the watch keeps of it, refused for a link that is no build, a message that is not his, an ask outside his DM, where the watch rewrites its own status message with no ticket, more than one part, since one end line delivers one, and work he ordered, which no post delivers."""
-    if not github.BUILD.fullmatch(build):
-        raise DriveError(f"--follow {build}: refused, name the build by its Buildkite link, https://buildkite.com/<org>/<pipeline>/builds/<number>")
+    """The part his ask to be kept updated on a CI build wants followed, and the follow the watch keeps of it, refused for a link that is no build, a message that is not his, an ask outside his DM, where the watch rewrites its own status message with no ticket, more than one part, since one end line delivers one, and work he ordered, which no post delivers."""
+    if not providers.of(data).build.fullmatch(build):
+        raise DriveError(f"--follow {build}: refused, name the build by its link, as the repository's build provider names one")
     channel, thread = state.link_thread(his_words(ask, "ask to be kept updated on a build"))
     if channel != slack.dm():
         raise DriveError(f"--follow {ask}: refused, the watch keeps a build's status message current only in his DM, where rewriting its own post needs no ticket; name his ask there")
@@ -1894,6 +1894,7 @@ def release_start(name: str, words: list[str], manual: bool, session: str | None
     """Run a release start from the drive's checkout at the head of its default branch, `--json` added unless it starts `--manual`, which takes none, left running once `ci release` names the build it started, by release_answer: that answer, and None, or, for a start naming no build, what it refused or printed, else its exit status."""
     said: list[str] = []
     answer: dict = {}
+    build_url = providers.of(state.load(name)).build.build_url
     with subprocess.Popen(
         words if manual else [*words, "--json"],
         cwd=orca.checkout(name, state.load(name)["roles"]["coordinator"]["cwd"]),
@@ -1904,7 +1905,7 @@ def release_start(name: str, words: list[str], manual: bool, session: str | None
     ) as release:
         for line in release.stdout:
             said.append(line)
-            if answer := release_answer(said, manual):
+            if answer := release_answer(said, manual, build_url):
                 break
         release.terminate()
     if answer.get("build", {}).get("url"):
@@ -1968,10 +1969,10 @@ def shipped_release(command: str, data: dict) -> list[dict[str, tuple[str, ...]]
     return [{flag: values for flag, values in flags.items() if flag != "order"} for flags in brief.started(command, data)]
 
 
-def release_answer(said: list[str], manual: bool) -> dict:
+def release_answer(said: list[str], manual: bool, build_url: re.Pattern | None) -> dict:
     """The build a `ci release start` started and the command that follows it, as its JSON object's `build.url` and `follow`: a `--manual` start's line naming the deploy build its cut triggered, which it prints as text once that build exists, by MANUAL_STARTED; any other start's JSON object `--json` answers with, its first line once it stays with the build it started, else what it printed from its first line opening an object, as a refusal prints it; empty until that line or object is whole."""
     if manual:
-        found = MANUAL_STARTED.match(said[-1].strip())
+        found = build_url and re.match(MANUAL_STARTED.format(build=build_url.pattern), said[-1].strip())
         return {"build": {"url": found["build"]}, "follow": found["follow"]} if found else {}
     opened = next((at for at, line in enumerate(said) if line.startswith("{")), len(said))
     try:
@@ -5619,8 +5620,8 @@ def check_waits(name: str, waits: list[str]) -> dict | None:
                 " card or a PR card still waiting on his tap, whose waits id is merge:<n>[.<n>…]:<heads>, a PR of this drive as"
                 " <owner>/<repo>#<n>, held until it merges, release:<service>:<owner>/<repo>#<n>, or with @<env> for one env as the release provider's live read"
                 " names it, held until every cluster of that service, or that one env, serves a commit holding the PR's merge, either one moving to the change"
-                " of the job that opened the PR once it closes unmerged, a Buildkite build by its link,"
-                " https://buildkite.com/<org>/<pipeline>/builds/<n>, held until it finishes or stops at an approve step, or"
+                " of the job that opened the PR once it closes unmerged, a CI build by its link,"
+                " as the repository's build provider names one, held until it finishes or stops at an approve step, or"
                 " reply:<the permalink of a question the drive asked a teammate>, held until their reply, or reply:cci:<the seq of another drive's record>,"
                 " held until that drive's next record on its topic"
             )
@@ -6823,7 +6824,7 @@ def channels(args: argparse.Namespace) -> int:
 
 
 def env_alerts_kept(name: str, pairs: list[str]) -> list[str]:
-    """Name each staging env's alert channel, <env>=<channel>, as plat-usw2-staging=C0CAC1HT17W, whose each new alert from now on the watch hands to the jobs testing on that env, by watch.env_alert_lines; an empty channel stops it. Refused for an env the drive keeps no slot for."""
+    """Name each staging env's alert channel, <env>=<channel>, whose each new alert from now on the watch hands to the jobs testing on that env, by watch.env_alert_lines; an empty channel stops it. Refused for an env the drive keeps no slot for."""
     data = state.load(name)
     split = [pair.partition("=")[::2] for pair in pairs]
     if unknown := [env for env, _ in split if env not in data["slots"]]:
@@ -7328,7 +7329,7 @@ def parser() -> argparse.ArgumentParser:
             " a wake the job sets once it reads release live, never a gate, kept with a note naming the components they reach when the release provider's own map,"
             " the release provider's reach read, finds the PR's changed paths reach components and that service is none of them or is no component at all,"
             " a process on this Mac that still runs as pid:<n>, stored pinned to the second it started,"
-            " a Buildkite build by its link, https://buildkite.com/<org>/<pipeline>/builds/<n>,"
+            " a CI build by its link, as the repository's build provider names one,"
             " reply:<the permalink of a question the drive asked a teammate>, say's job field setting it,"
             " reply:cci:<the seq of another drive's cci record>, held until the watch's minute read finds that drive's next record on its topic, whose words it holds on the job,"
             " on drive pr set alone review:<a teammate's GitHub login>, their review of the PR's head, which holds his card from drawing and the PR from landing"
@@ -7337,9 +7338,9 @@ def parser() -> argparse.ArgumentParser:
             " repeat for each. The watch drops each as he answers or taps it, the PR merges, the job registers a PR, the FREE line naming its branch to stack on, or returns DONE, or, once it"
             " stops or fails, each part it carries is delivered, the process ends, crashed or finished, which starts a codex job's next codex-ask run carrying its last report,"
             " once the PR merged, every cluster the release live read finds running that service, production or not, or the one env the wait names, serves"
-            " a commit holding the merge, at once when release live cannot follow it, a PR outside Forge-AI/monorepo or a service or env no cluster runs,"
-            " the FREE line naming why, the watch's Buildkite read, made as the build is first held"
-            " and again on each delivery of Buildkite's to the receiver's /buildkite route naming it, finds the build passed, failed, canceled or stopped"
+            " a commit holding the merge, at once when release live cannot follow it, a PR outside the drive's home repository or a service or env no cluster runs,"
+            " the FREE line naming why, the watch's build read, made as the build is first held"
+            " and again on each delivery of the CI's to the receiver's build route naming it, finds the build passed, failed, canceled or stopped"
             " at an approve step, or the first message after the question from anyone but the drive and a bot"
             " comes, and says FREE once when the last is gone, which wakes the coordinator."
             " On a PR it never withdraws his open card: the card is redrawn in place, Approve and Hold kept, to say what it waits on"
@@ -7762,7 +7763,7 @@ def parser() -> argparse.ArgumentParser:
     verb.set_defaults(run=mac_box_handed)
     slot = verbs.add_parser("slot", help="staging slots, a first-in first-out lease on each staging env").add_subparsers(dest="action", required=True)
     verb = slot.add_parser("claim", parents=both, help="hold a staging env's slot now, or queue for it", description="Hold the env's slot now when no job holds it, its lease ending the minutes given past the staging-claim rule's five-minute wait, else queue last; the watch hands a queued job the slot with a GO once the holder gives it back, finishes or outlives its lease.")
-    verb.add_argument("env", help="the staging env, such as plat-usw2-staging")
+    verb.add_argument("env", help="the staging env, as the repository's staging provider names it")
     verb.add_argument("--job", required=True, help="the job claiming it")
     verb.add_argument("--minutes", type=int, required=True, help="how long its pass runs")
     verb.add_argument("--pr", action="append", default=[], help="a PR its cut carries")
@@ -8712,7 +8713,7 @@ def parser() -> argparse.ArgumentParser:
     verb = verbs.add_parser("channels", parents=both, help="list the drive's private channels, each #name, id and seat, and each the drive has not made yet; bare, it changes nothing")
     verb.add_argument("--make", action="store_true", help="make as him the drive's private channel <handle>-drive-<drive> and the private channel <handle>-drive-<drive>-<project> of each sub-coordinator's project and of the drive's tooling, which cc-slack reads as it reads his DM, keeping each id in the drive, one he has kept; say then makes each other project's channel the first time it posts about it")
     verb.add_argument("--hold", action="append", metavar="CHANNEL=SEAT", help="give a watched alert channel to a seat's sub-coordinator, as C0CAC1HT17W=Platform, which subscribes to it by its Hold line across restarts and compaction, in place of the top coordinator; an empty seat hands it back; repeatable")
-    verb.add_argument("--env-alerts", action="append", metavar="ENV=CHANNEL", help="name a staging env's alert channel, as plat-usw2-staging=C0CAC1HT17W: the watch hands each new alert there, its link and words, to each job holding that env's slot or its slot's hold, once per alert and job; an empty channel stops it; repeatable")
+    verb.add_argument("--env-alerts", action="append", metavar="ENV=CHANNEL", help="name a staging env's alert channel, as <env>=<channel id>: the watch hands each new alert there, its link and words, to each job holding that env's slot or its slot's hold, once per alert and job; an empty channel stops it; repeatable")
     verb.add_argument("--kinds", default="alerts", help="with --hold, the kinds of lines the seat subscribes to, of alerts, releases and posts, comma-separated; default alerts")
     verb.add_argument("--move-cards", action="store_true", help="move each open card of his DM whose project has a channel to that channel's root, a card of no project to the drive's tooling channel, its DM card edited to Moved to and a link")
     verb.set_defaults(run=channels)
