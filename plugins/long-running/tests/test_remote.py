@@ -3577,7 +3577,7 @@ def test_a_launch_of_a_lane_whose_worker_finished_prepares_its_sprite_again_with
     assert state.load(remote)["jobs"]["j1"]["dispatch"] == "dispatch-2"
 
 
-def test_a_launch_local_of_a_job_whose_sprite_worker_finished_moves_nothing_here_while_eight_builders_hold_this_macs_slots(
+def test_a_launch_local_of_a_job_whose_sprite_worker_finished_moves_nothing_here_and_waits_on_admission_while_this_macs_local_lanes_fill_its_cap(
     run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     cloned(tmp_path, remote)
@@ -3588,15 +3588,16 @@ def test_a_launch_local_of_a_job_whose_sprite_worker_finished_moves_nothing_here
     monkeypatch.setattr(orca, "worker", lambda dispatch: FINISHED_WORKER)
     monkeypatch.setattr(orca, "save", lambda *args: pytest.fail("a move refused at the cap saves nothing"))
     monkeypatch.setattr(orca, "launch", lambda *args: pytest.fail("a move refused at the cap launches nothing"))
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "build the parts", "--parts", *(f"part {number}" for number in range(1, 9)))
-    for number in range(1, 9):
-        run("job", "add", "builder", "--order", "o2", "--part", f"part {number}", "--goal", f"build part {number}", "--agent", f"b{number}")
+    cap = place.cap_of("local", False)
+    full = {"local": {f"other/x{number}": f"x{number} builder on o9, its lane at work here" for number in range(cap)}, "sprite": {}}
+    monkeypatch.setattr(place, "lanes", lambda moment: full)
+    monkeypatch.setattr(place, "strained", lambda: None)
     assert cli.main(["job", "launch", "j1", "--local"]) == 2
     err = capsys.readouterr().err
-    assert err.startswith("drive: j1: refused, no worker started: 8 builders already run on this Mac, its cap of 8 on builders that compile here, where a staging tester, a merged PR's prover or another builder marked --builds-nothing holds no slot (j2 on o2, its agent b1 last wrote at ")
-    assert err.endswith("so it starts on a Sprite at once: drive job launch j1, with no --local\n")
+    assert err.startswith(f"drive: j1: not launched yet: {cap} local Claude lanes work across this Mac's drives, at its cap of {cap} ")
+    assert err.endswith("so it waits on admission:local and the watch runs drive job resume j1 once this Mac admits it\n")
     job = state.load(remote)["jobs"]["j1"]
-    assert (job["dispatch"], job["route"], job.get("deaths", [])) == (DISPATCH, None, [])
+    assert (job["dispatch"], job["route"], job.get("deaths", []), job["waits"]) == (DISPATCH, None, [], ["admission:local"])
 
 
 def test_a_launch_local_of_a_job_whose_sprite_worker_finished_saves_that_sprite_and_starts_its_next_in_a_fresh_worktree_on_this_mac(

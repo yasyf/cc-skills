@@ -5710,7 +5710,7 @@ def wake_pr(args: argparse.Namespace) -> int:
         job_id = None
     pr = data["prs"][key]
     job = data["jobs"][target]
-    if job_id and (work.queued(data, data["jobs"][job_id]) and (turn := "waits in the work queue for its stage-test cut") or state.adopted_pr_job(data, job) and (turn := "is a build item of the work queue, whose next build worker takes it at its PR's branch")):
+    if job_id and (state.adopted_pr_job(data, job) and (turn := "is a build item of the work queue, whose next build worker takes it at its PR's branch") or work.queued(data, data["jobs"][job_id]) and (turn := "waits in the work queue for its stage-test cut")):
         def turned(held: dict) -> bool:
             heads = held["jobs"][job_id].setdefault("stage_heads", {})
             if heads.get(key) == held["prs"][key]["head"]:

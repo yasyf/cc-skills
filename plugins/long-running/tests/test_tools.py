@@ -708,7 +708,7 @@ def test_a_record_goes_to_the_other_session_and_a_tap_takes_its_job_and_waits_fr
         tools.run("record", demo, {"records": [{"kind": "handoff", "text": "start its builder", "waits": "other:j2-7"}]})
     with pytest.raises(DriveError, match="name records"):
         tools.run("record", demo, {"records": []})
-    with pytest.raises(DriveError, match="no question card's waits id"):
+    with pytest.raises(DriveError, match="is no card's waits id"):
         tools.run("record", demo, {"records": [{"kind": "answer", "text": "Approve", "waits": "merge:Forge-AI:monorepo:42"}]})
 
 
@@ -1985,6 +1985,8 @@ def test_his_words_approving_three_of_four_prs_on_a_pr_card_approve_those_and_wi
     urls = [f"https://github.com/Forge-AI/monorepo/pull/{number}" for number in numbers]
     for url in urls:
         run("pr", "add", url, "--job", "j1", *LEAD)
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
+    run("start", demo, "--role", "communicator")
     monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess([], 0, '{"seq": 71}\n', ""))
     open_cards(monkeypatch, prs=tuple(urls))
     withdrawals.cards += [PR_CARD, f"{PR_CARD[:-2]}01"]

@@ -998,6 +998,7 @@ def test_a_release_wait_on_a_service_the_prs_paths_never_reach_is_kept_with_a_no
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship")
     run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/7", "--job", "j1", *LEAD)
+    run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/8", "--job", "j1", *LEAD)
     clone, checkout = tmp_path / "clone", tmp_path / "drive-demo"
     for root in (clone, checkout):
         (root / "tools").mkdir(parents=True)
@@ -1019,9 +1020,9 @@ def test_a_release_wait_on_a_service_the_prs_paths_never_reach_is_kept_with_a_no
         f"note, kept: {executor}: executor's release never carries Forge-AI/monorepo#7, since {reach}; wait on the release of the one that runs the change"
     ) in capsys.readouterr().err
     assert (json.loads(request.read_text()), state.load("demo")["jobs"]["j1"]["waits"]) == ({"body": "", "paths": ["go/sand/next/cmd/main.go"]}, [executor])
-    assert cli.main(["pr", "set", "https://github.com/Forge-AI/monorepo/pull/7", "--waits", staged]) == 0
+    assert cli.main(["pr", "set", "https://github.com/Forge-AI/monorepo/pull/8", "--waits", staged]) == 0
     said = f"{staged}: runner-worker is no component the release provider releases, so no release ever carries Forge-AI/monorepo#7"
-    assert (f"note, kept: {said}; {reach}" in capsys.readouterr().err, state.load("demo")["prs"]["Forge-AI/monorepo#7"]["waits"]) == (True, [staged])
+    assert (f"note, kept: {said}; {reach}" in capsys.readouterr().err, state.load("demo")["prs"]["Forge-AI/monorepo#8"]["waits"]) == (True, [staged])
     code, err = keep(monkeypatch, capsys, "j1", f"WAITING {executor} rides the next executor release\n")
     assert (code, f"note, kept: {executor}: executor's release never carries" in err, executor in state.load("demo")["jobs"]["j1"]["waits"]) == (0, True, True)
     answer.write_text(json.dumps({"components": ["executor", "k8s"], "touched": [], "dev": [], "releases": [], "staged": []}))
@@ -4892,8 +4893,7 @@ def test_slot_queue_lists_the_work_queues_stage_test_items_marked_in_the_queue_s
     monkeypatch.setattr(type(kind), "queued", lambda self, data, job: job is not data["jobs"]["j3"])
     monkeypatch.setattr(type(kind), "ready", lambda self, data, job_id: job_id == "j2")
     monkeypatch.setattr(type(kind), "blocking", lambda self, data, job_id: ["j9"])
-    monkeypatch.setattr(state, "jumps_queue", lambda data, job_id: False)
-    monkeypatch.setattr(place, "preempts", lambda data, job: False)
+    monkeypatch.setattr(work, "rank", lambda data, job_id: state.parse_time(data["jobs"][job_id]["created"]))
     monkeypatch.setattr(work, "untimed", lambda data, job_id, moment: "waits on j9, no estimate")
     assert cli.queue_items(data, work.env(data)) == ["  q1. j2 in the queue, ready to pull, waits on j9, no estimate", "  q2. j1 in the queue, waiting on j9, waits on j9, no estimate"]
     assert cli.queue_items(data, "plat-usw2-sandbox") == []
@@ -5575,7 +5575,7 @@ def test_a_build_orders_designer_and_builder_are_added_waiting_on_its_reader_sti
     run("job", "add", "reader", "--order", "o1", "--part", "answer", "--part", "control freak", "--part", "design options", "--goal", "research: topologies")
     added = run("job", "add", "design", "--order", "o1", "--part", "design options", "--goal", "cards", "--waits", "j1")
     assert added == (0, "j3\nj3 waits on j1: start no agent for it until the watch's FREE line says its last wait ended")
-    assert run("job", "add", "builder", "--order", "o1", "--part", "control freak", "--goal", "build it", "--waits", "j1")[1].splitlines()[:2] == [
+    assert run("job", "add", "builder", "--order", "o1", "--part", "control freak", "--goal", "build it", "--waits", "j1", "--beside")[1].splitlines()[:2] == [
         "j4",
         'j2 carries "control freak", a part or branch having one change job, so j4 waits on it and the work queue starts j4 once j2 finishes',
     ]
@@ -5586,9 +5586,9 @@ def test_a_build_orders_designer_and_builder_are_added_waiting_on_its_reader_sti
     assert "--waits records a job whose agent starts on the watch's FREE line" in capsys.readouterr().err
     assert run("job", "add", "reader", "--order", "o1", "--part", "answer", "--goal", "audit it", "--waits", "j1")[1].splitlines()[0] == "j5"
     keep(monkeypatch, capsys, "j1", RESEARCH)
-    assert cli.main(["job", "add", "builder", "--order", "o1", "--part", "control freak", "--goal", "x", "--waits", "j1"]) == 2
+    assert cli.main(["job", "add", "builder", "--order", "o1", "--part", "control freak", "--goal", "x", "--waits", "j1", "--beside"]) == 2
     assert "--waits j1: j1 is done, so nothing of it is left to wait on" in capsys.readouterr().err
-    assert cli.main(["job", "add", "builder", "--order", "o1", "--part", "control freak", "--goal", "x", "--waits", "j5"]) == 2
+    assert cli.main(["job", "add", "builder", "--order", "o1", "--part", "control freak", "--goal", "x", "--waits", "j5", "--beside"]) == 2
     assert 'and j4 builder waiting carries "control freak": a part or branch has one change job' in capsys.readouterr().err
 
 
@@ -5605,11 +5605,11 @@ def test_a_readers_builder_builds_its_parts_and_each_later_readers_done_rebriefs
     assert keep(monkeypatch, capsys, "j3", RESEARCH.replace("per stalled store", "per stalled store, oldest first"))[0] == 0
     written = Path(state.load("demo")["jobs"]["j2"]["brief"]).read_text()
     assert ("\nGoal: build one store_copy_at call per stalled store, oldest first\n" in written, "\nResearched: j3\n" in written) == (True, True)
-    assert run("job", "add", "builder", "--order", "o1", "--part", "the copy", "--goal", "copy it", "--agent", "a1")[1].splitlines()[0] == "j2"
+    assert run("job", "set", "j2", "--agent", "a1")[0] == 0
     run("job", "add", "reader", "--order", "o1", "--part", "the copy", "--goal", "research: the copy once more")
     assert keep(monkeypatch, capsys, "j4", RESEARCH.replace("per stalled store", "per stalled store, newest first"))[0] == 0
     job = state.load("demo")["jobs"]["j2"]
-    assert (job["goal"], job["agent"], Path(job["brief"]).read_text() == written) == ("copy it", "a1", True)
+    assert (job["goal"], job["agent"], Path(job["brief"]).read_text() == written) == ("build one store_copy_at call per stalled store, oldest first", "a1", True)
 
 
 def test_a_builder_whose_goal_came_from_an_older_readers_build_line_names_that_reader_and_carries_his_words_on_its_part(
@@ -5754,10 +5754,10 @@ def test_a_builder_is_added_waiting_on_another_builders_change_and_keeps_that_wa
     assert (code, out.splitlines()[:2]) == (0, ["j3", "j3 waits on j2: start no agent for it until the watch's FREE line says its last wait ended"])
     assert run("pr", "add", state.pr_url(built), "--job", "j2", *LEAD)[0] == 0
     assert state.load("demo")["jobs"]["j3"]["waits"] == ["j2"]
-    assert run("job", "add", "builder", "--order", "o1", "--part", "the copy", "--goal", "copy the next store", "--waits", "j2")[1].splitlines()[0] == "j4"
+    assert run("job", "add", "builder", "--order", "o1", "--part", "the copy", "--goal", "copy the next store", "--waits", "j2", "--beside")[1].splitlines()[0] == "j4"
     assert state.load("demo")["jobs"]["j4"]["waits"] == ["j2"]
     assert run("job", "add", "reader", "--order", "o1", "--part", "the read", "--goal", "dropped")[0] == 0
-    assert cli.main(["job", "add", "builder", "--order", "o1", "--part", "the read", "--goal", "x", "--waits", "j1"]) == 2
+    assert cli.main(["job", "add", "builder", "--order", "o1", "--part", "the read", "--goal", "x", "--waits", "j1", "--beside"]) == 2
     assert capsys.readouterr().err.strip().endswith("refused, no job added: --waits j1: j1 is done, so nothing of it is left to wait on")
     assert run("job", "add", "design", "--order", "o1", "--part", "the read", "--goal", "x", "--waits", "j5")[1].splitlines()[0] == "j6"
     assert run("job", "add", "design", "--order", "o1", "--part", "the read", "--goal", "y", "--waits", "j2")[1].splitlines()[0] == "j7"
@@ -5785,7 +5785,7 @@ def test_a_proof_builder_starts_with_no_lands_after_a_readers_design_whatever_qu
     run("job", "add", "reader", "--order", "o1", "--part", design, "--part", built, "--part", proof, "--goal", "research: the copy")
     assert keep(monkeypatch, capsys, "j1", DESIGN_RESEARCH) == (0, "")
     assert run("job", "add", "design", "--order", "o1", "--part", design, "--part", built, "--goal", "cards: where the copy runs")[0] == 0
-    assert run("job", "add", "builder", "--order", "o1", "--part", built, "--goal", "copy each store")[0] == 0
+    assert run("job", "add", "builder", "--order", "o1", "--part", built, "--goal", "copy each store", "--beside")[0] == 0
     asked = str(state.drive_dir("demo") / "asks" / "j1-1377896a.md")
     kept = state.new_question(asked, DESIGN_TITLE, state.stamp())
     with edit("demo") as data:
@@ -6100,7 +6100,7 @@ def test_a_readers_design_report_keeps_its_ask_and_draws_his_card_on_it_in_the_s
     )
     assert Path(question["file"]).read_text().startswith(f"ASK {DESIGN_TITLE}\n")
     assert ([(drawn["job"], drawn["file"]) for drawn in cards_drawn], question["waits"], question["card"]) == ([("j1", question["file"])], "demo:j1-7", drawn_card(1))
-    assert run("job", "add", "builder", "--order", "o1", "--goal", "build the recommended option")[0] == 0
+    assert run("job", "add", "builder", "--order", "o1", "--goal", "build the recommended option", "--beside")[0] == 0
 
 
 def test_a_readers_design_report_after_its_own_ask_keeps_that_asks_unsettled_and_redraws_its_one_card(
@@ -7487,7 +7487,7 @@ def test_a_built_return_sets_its_job_built_on_its_branches_waiting_on_each_card_
     monkeypatch.setattr("sys.stdin", io.StringIO(f"BUILT {branch}, waits on demo:j2-3\nCHECK: build 12\n"))
     run("job", "report", "j2", "-")
     job = state.load("demo")["jobs"]["j2"]
-    assert (job["state"], job["waits"]) == ("built", ["demo:j2-3"])
+    assert (job["state"], job["waits"]) == ("built", ["j1", "demo:j2-3"])
 
 
 def test_a_drive_tooling_orders_part_or_unlanded_pr_is_refused_as_a_wait_of_his_product_pr_and_with_its_card_on_his_product_builders_waiting_or_built_line_but_a_merged_ones_release_is_taken(
@@ -7723,7 +7723,7 @@ def test_a_job_waits_on_another_drives_next_record_after_one_on_a_topic_and_neve
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "test on staging once durable-agents frees it")
     tester = run("job", "add", "builder", "--order", "o1", "--goal", "test on staging")[1].splitlines()[0]
-    rerun = run("job", "add", "builder", "--order", "o1", "--goal", "rerun the soak")[1].splitlines()[0]
+    rerun = run("job", "add", "builder", "--order", "o1", "--goal", "rerun the soak", "--beside")[1].splitlines()[0]
     held = {
         "722599": {"seq": 722599, "drive": "durable-agents", "lane": "root", "kind": "answer", "topic": "o78-staging-collision", "text": "Start no staging run before my FREE line on this topic"},
         "722600": {"seq": 722600, "drive": "demo", "lane": "meta", "kind": "ask", "topic": "o78-staging-collision", "text": "Is staging free?"},
@@ -7751,7 +7751,7 @@ def test_a_job_waits_on_another_drives_next_record_after_one_on_a_topic_and_neve
     assert cli.main(["job", "set", rerun, "--waits", "reply:cci:722600"]) == 2
     assert "722600 is a record of demo" in capsys.readouterr().err
     assert run("job", "set", rerun, "--waits", "reply:cci:722599")[0] == 0
-    assert state.load("demo")["jobs"][rerun]["waits"] == ["reply:cci:722599"]
+    assert state.load("demo")["jobs"][rerun]["waits"] == [tester, "reply:cci:722599"]
     assert shown == [["722600", "722601"], ["722602"], ["722599"], ["722600"], ["722599"]]
 
 
@@ -9901,12 +9901,13 @@ def test_a_change_job_added_on_a_part_another_unfinished_one_carries_waits_on_it
     run("job", "add", "builder", "--order", "o1", "--goal", "spike 1", "--part", "spike 1")
     assert run("job", "add", "codex", "--order", "o1", "--goal", "spikes 1-2: restore cost", "--part", "spike 1", "--part", "spike 2") == (
         0,
-        'j2\nj1 carries "spike 1", a part or branch having one change job, so j2 waits on it and the work queue starts j2 once j1 finishes',
+        'j2\nj1 carries "spike 1", a part or branch having one change job, so j2 waits on it and the work queue starts j2 once j1 finishes'
+        "\nj2 waits on j1: start no agent for it until the watch's FREE line says its last wait ended",
     )
     data = state.load("demo")
     assert (data["jobs"]["j1"]["goal"], data["jobs"]["j2"]["kind"], data["jobs"]["j2"]["parts"], data["jobs"]["j2"]["waits"]) == ("spike 1", "codex", ["spike 1", "spike 2"], ["j1"])
     run("job", "add", "builder", "--order", "o1", "--goal", "spike 3", "--part", "spike 3")
-    assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "spikes", "--part", "spike 3", "--part", "spike 2"]) == 2
+    assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "spikes", "--part", "spike 3", "--part", "spike 2", "--beside"]) == 2
     assert 'j2 codex waiting carries "spike 2" already, and j3 builder waiting carries "spike 3": a part or branch has one change job' in capsys.readouterr().err
     run("job", "set", "j2", "--agent", "a1")
     assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "spike 2 again", "--part", "spike 2"]) == 2
@@ -9918,7 +9919,8 @@ def test_a_change_job_added_on_a_part_another_unfinished_one_carries_waits_on_it
         data["jobs"]["j2"].update(state="waiting", prs=[url])
     assert run("job", "add", "builder", "--order", "o1", "--goal", "spike 2 again", "--part", "spike 2") == (
         0,
-        'j4\nj2 carries "spike 2", a part or branch having one change job, so j4 waits on it and the work queue starts j4 once j2 finishes',
+        'j4\nj2 carries "spike 2", a part or branch having one change job, so j4 waits on it and the work queue starts j4 once j2 finishes'
+        "\nj4 waits on j2: start no agent for it until the watch's FREE line says its last wait ended",
     )
     data = state.load("demo")
     assert (data["jobs"]["j4"]["parts"], data["jobs"]["j4"]["waits"], data["prs"][key]["job"], data["jobs"]["j2"]["state"]) == (["spike 2"], ["j2"], "j2", "waiting")
@@ -10008,28 +10010,6 @@ def test_a_change_job_added_on_a_part_a_job_between_runs_carries_is_a_new_job_wa
     assert (data["jobs"]["j2"]["kind"], data["jobs"]["j2"]["parts"], data["jobs"]["j2"]["waits"]) == ("builder", ["mac test pass"], ["j1"])
 
 
-def test_a_change_job_added_on_one_part_of_a_returned_job_takes_that_part_and_its_pr_and_stops_the_job_only_once_it_is_left_no_part(run: Run, demo: str) -> None:
-    url, key = "https://github.com/acme/app/pull/56", "acme/app#56"
-    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "watch the search worker", "--parts", "search watch", "search alerts")
-    run("job", "add", "builder", "--order", "o1", "--goal", "watch and alert on the search worker", "--part", "search watch", "--part", "search alerts")
-    run("job", "set", "j1", "--agent", "a1")
-    with edit("demo") as data:
-        data["prs"][key] = state.new_pr(url, "j1", "o1") | {"parts": ["search watch"]}
-        data["jobs"]["j1"].update(state="waiting", said="WAITING the alerts PR", prs=[url])
-    assert run("job", "add", "builder", "--order", "o1", "--goal", "rework the watch", "--part", "search watch") == (
-        0,
-        f'j2\nj2 takes "search watch" and {key} from j1, which returned, a part having one change job; j1 keeps "search alerts" and stays waiting',
-    )
-    data = state.load("demo")
-    assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["said"], data["jobs"]["j1"]["parts"], data["jobs"]["j1"]["prs"]) == ("waiting", "WAITING the alerts PR", ["search alerts"], [])
-    assert (data["jobs"]["j2"]["parts"], data["jobs"]["j2"]["prs"], data["prs"][key]["job"]) == (["search watch"], [url], "j2")
-    assert run("job", "add", "builder", "--order", "o1", "--goal", "rework the alerts", "--part", "search alerts") == (
-        0,
-        'j3\nj3 replaces j1, which carried "search alerts" and returned, a part or branch having one change job: it takes j1\'s parts and no PR, and j1 stopped, handed to j3',
-    )
-    assert state.load("demo")["jobs"]["j1"]["state"] == "stopped"
-
-
 def test_a_change_job_on_a_branch_another_unfinished_one_works_in_its_repo_on_any_order_waits_on_it_and_is_refused_while_it_runs(
     home_repo: None,
     run: Run, demo: str, capsys: pytest.CaptureFixture[str]
@@ -10040,7 +10020,8 @@ def test_a_change_job_on_a_branch_another_unfinished_one_works_in_its_repo_on_an
     run("job", "add", "builder", "--order", "o1", "--goal", "spike 1", "--part", "spike 1", "--repo", "acme/app", "--branch", "one-pusher")
     assert run("job", "add", "builder", "--order", "o2", "--goal", "next 1", "--part", "next 1", "--repo", "ACME/app", "--branch", "one-pusher") == (
         0,
-        "j2\nj1 carries branch one-pusher, a part or branch having one change job, so j2 waits on it and the work queue starts j2 once j1 finishes",
+        "j2\nj1 carries branch one-pusher, a part or branch having one change job, so j2 waits on it and the work queue starts j2 once j1 finishes"
+        "\nj2 waits on j1: start no agent for it until the watch's FREE line says its last wait ended",
     )
     assert state.load("demo")["jobs"]["j2"]["waits"] == ["j1"]
     assert run("job", "add", "builder", "--order", "o2", "--goal", "next 2", "--part", "next 2", "--repo", "acme/other", "--branch", "one-pusher")[1].splitlines() == ["j3"]
@@ -12220,7 +12201,7 @@ def test_his_answer_is_born_sent_to_a_lane_whose_brief_carried_his_words_once_he
 ) -> None:
     cards_asking(monkeypatch, PR)
     for goal, after in (("build the store", []), ("build the cache", ["--waits", "j3"])):
-        run("job", "add", "builder", "--order", "o1", "--goal", goal, "--remote", "--waits", designing, *after)
+        run("job", "add", "builder", "--order", "o1", "--goal", goal, "--remote", "--beside", "--waits", designing, *after)
     moment = state.now()
     with edit("demo") as data:
         for job_id, text, written in (("j3", f'His answers since:\n- "{WORDS}" ({PICK})\n', moment + timedelta(minutes=1)), ("j4", f"Recommended: {WORDS}\n", moment - timedelta(hours=1))):

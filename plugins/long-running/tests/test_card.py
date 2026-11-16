@@ -1567,7 +1567,7 @@ def test_a_stack_card_reads_github_once_per_25_prs_and_records_its_stack_in_a_pr
     assert len(receipts) == 1
 
 
-def test_a_pr_under_his_hold_alone_in_its_stack_draws_no_approve_card(native_stacks: dict[str, list[tuple[str, str]]]) -> None:
+def test_a_pr_under_his_hold_alone_in_its_stack_draws_no_approve_card(stacked: list[list[str]], native_stacks: dict[str, list[tuple[str, str]]]) -> None:
     key = "Forge-AI/monorepo#54428"
     with edit("demo") as data:
         data["prs"][key] = {**kept_entry(), "url": state.pr_url(key)}
