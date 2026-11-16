@@ -6788,7 +6788,7 @@ def test_a_builders_pushed_naming_a_monorepo_pr_with_its_staging_cases_gives_its
         ("staging test of #40 before it lands", "the PR under it", "o1"),
     ],
 )
-def test_a_staging_line_puts_its_pr_on_the_staging_test_another_order_holds_or_on_the_tester_it_or_a_pr_under_it_waits_on_adding_no_second_tester(
+def test_a_staging_line_puts_its_pr_on_the_staging_test_another_order_holds_and_never_on_a_tester_found_through_another_prs_wait(
     home_repo: None,
     run: Run, with_pr: str, held: str, tester_wait: str | None, home: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -6804,9 +6804,10 @@ def test_a_staging_line_puts_its_pr_on_the_staging_test_another_order_holds_or_o
     assert keep(monkeypatch, capsys, "j1", f"PUSHED {PR}\nSTAGING: #42 run the migration twice\n") == (0, "")
     data = state.load("demo")
     joined = f"o2:{held}" if home == "o2" else f"o1:{part}"
-    assert [job_id for job_id, job in data["jobs"].items() if state.builds_nothing(job)] == ["j2"]
+    assert [job_id for job_id, job in data["jobs"].items() if state.builds_nothing(job)] == (["j2"] if home == "o2" else ["j2", "j3"])
     assert data["prs"][with_pr]["waits"] == [*(["j2"] if tester_wait == "its own" else []), joined]
-    assert (part in data["orders"]["o1"]["parts"], data["jobs"]["j2"]["carries"]) == (home == "o1", {"o1": [part]} if home == "o1" else {})
+    assert (part in data["orders"]["o1"]["parts"], data["jobs"]["j2"]["carries"]) == (home == "o1", {})
+    assert home == "o2" or data["jobs"]["j3"]["parts"] == [part]
 
 
 def test_a_staging_line_reading_none_for_its_pr_adds_no_part_wait_or_tester(run: Run, with_pr: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
