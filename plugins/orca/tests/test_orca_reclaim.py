@@ -1797,7 +1797,7 @@ class OrcaArgvTest(unittest.TestCase):
             hanging = Path(state) / "cc-remote"
             hanging.write_text("#!/bin/sh\nexec sleep 30\n")
             hanging.chmod(0o755)
-            with mock.patch.object(orca_gc, "SSH_CONNECT_S", 1), mock.patch.object(orca_gc, "STEP_S", 1), mock.patch.object(orca_gc, "CC_REMOTE", str(hanging)), mock.patch.object(orca_gc, "SPRITE_CLI", "false"), self.assertRaisesRegex(orca_gc.Unsaved, r"^ssh to pool-mute could not read /home/sprite/repo: .*timed out, and reviving it failed: sprite checkpoint create: exit 1$"):
+            with mock.patch.object(orca_gc, "SSH_CONNECT_S", 1), mock.patch.object(orca_gc, "STEP_S", 1), mock.patch.object(orca_gc, "CC_REMOTE", str(hanging)), mock.patch.object(orca_gc, "SPRITE_CLI", "false"), self.assertRaisesRegex(orca_gc.Unsaved, r"^ssh to pool-mute could not read /home/sprite/repo: cc-remote step on pool-mute timed out after 1 s, and reviving it failed: sprite checkpoint create: exit 1$"):
                 orca_gc.save("pool-mute", "demo-j1", orca_gc.CcRemote(Path(state)))
 
     def test_a_sprite_whose_ssh_gives_no_answer_is_revived_from_a_fresh_checkpoint_and_read_again(self):
