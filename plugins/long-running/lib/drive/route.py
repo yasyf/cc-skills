@@ -22,15 +22,15 @@ WORDS_CHARS = 2000
 FOLLOW_WINDOW = timedelta(minutes=30)
 ON_IT = "On it, working on this now."
 CONTRACT = (
-    "The router's Jev input holds exactly: `message.words`, his words cut to WORDS_CHARS; `routes`, one line per open route naming what"
-    " it holds; and `thread`, the newest ROWS of the drive's rows for his thread, each cut to ROW_CHARS, by line number. The follow-up"
+    "The router's Jev input holds exactly: `message.words`, his words cut to WORDS_CHARS, and `thread`, the newest ROWS of the drive's rows"
+    " for his thread, each cut to ROW_CHARS, by line number, with the open routes as the Pick's options, one line each naming what it holds. The follow-up"
     " read holds exactly `message.words` and `earlier.words`, the two messages' words, each cut to WORDS_CHARS. Nothing else of the drive goes in."
 )
 KEPT = timedelta(days=7)
 LOG = "routes.log"
 ASK = (
-    "Which of the routes should take `message.words`, his message, as `thread`, the drive's rows for the thread he wrote it in, and"
-    " `routes`, what each route holds now, read them? Pick the one whose work his words are about."
+    "Which option should take `message.words`, his message, as `thread`, the drive's newest rows for the thread he wrote it in, reads them?"
+    " Pick the one whose work his words are about, by what each option says it holds."
 )
 AWAY = settled.Noul("Do `message.words` say he is going to sleep, going offline or stepping away?")
 FOLLOWS = settled.Noul(
@@ -90,11 +90,11 @@ def routes(data: dict) -> dict[str, str]:
     return found | handlers(data)
 
 
-def request(words: str, rows: str, options: dict[str, str]) -> dict:
-    """Jev's request for the route, by CONTRACT alone: his words, the routes, and the thread's newest ROWS rows."""
+def request(words: str, rows: str) -> dict:
+    """Jev's state for the route, by CONTRACT alone: his words and the thread's newest ROWS rows; the routes ride as the Pick's options."""
     lines = [line for line in rows.splitlines() if line.strip()]
     newest = list(enumerate(lines, 1))[-ROWS:]
-    return {"message": {"words": cut(words, WORDS_CHARS)}, "routes": options, "thread": {str(number): cut(line, ROW_CHARS) for number, line in newest}}
+    return {"message": {"words": cut(words, WORDS_CHARS)}, "thread": {str(number): cut(line, ROW_CHARS) for number, line in newest}}
 
 
 def picked(data: dict, words: str, rows: str) -> tuple[str, str, bool, float]:
@@ -102,7 +102,7 @@ def picked(data: dict, words: str, rows: str) -> tuple[str, str, bool, float]:
     options = routes(data)
     began = time.monotonic()
     try:
-        read = settled.jev(request(words, rows, options), {"route": settled.Pick(ASK, options), "away": AWAY})
+        read = settled.jev(request(words, rows), {"route": settled.Pick(ASK, options), "away": AWAY})
     except settled.Unheard as failure:
         return NEW, f"Jev gave no reading, so a fresh handler takes it: {failure}", False, time.monotonic() - began
     route = str(read["route"])

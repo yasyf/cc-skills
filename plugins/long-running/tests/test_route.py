@@ -33,5 +33,5 @@ def test_a_fresh_route_for_a_gone_handler_is_no_sticky_route() -> None:
 
 
 def test_the_router_reads_only_his_words_the_routes_and_the_newest_thread_rows() -> None:
-    asked = route.request("status?", "\n".join(f"row {number}" for number in range(1, 21)), {route.NEW: "x"})
-    assert set(asked) == {"message", "routes", "thread"} and list(asked["thread"]) == [str(number) for number in range(13, 21)]
+    asked = route.request("status?", "\n".join(f"row {number}" for number in range(1, 21)))
+    assert set(asked) == {"message", "thread"} and list(asked["thread"]) == [str(number) for number in range(13, 21)]
