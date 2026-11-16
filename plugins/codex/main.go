@@ -97,8 +97,6 @@ func main() {
 		fmt.Println(appVersion)
 		os.Exit(0)
 	case len(args) >= 1 && isConsumerSubcommand(args[0]):
-		// Additive cc-interact subcommands (daemon, agent-*, channel, direct) —
-		// plain words that never shadow the leading --flag cases above or askMode.
 		runConsumer(args)
 	default:
 		askMode(args)

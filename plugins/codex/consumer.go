@@ -12,8 +12,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/yasyf/cc-interact/agent"
-	"github.com/yasyf/cc-interact/channel"
-	"github.com/yasyf/cc-interact/channelsetup"
 	"github.com/yasyf/cc-interact/cmd"
 	"github.com/yasyf/cc-interact/daemon"
 	"github.com/yasyf/cc-interact/event"
@@ -31,8 +29,6 @@ var appVersion = "dev"
 // completed run; a var so a test can shrink the bound.
 var wakeTimeout = 30 * time.Second
 
-var channelPlugin = channelsetup.Plugin{Marketplace: "skills", Name: "codex"}
-
 const (
 	// binaryName is the cobra root name and the prefix agent-inject stamps on
 	// delivered directives.
@@ -45,9 +41,6 @@ const (
 	// statusOpen is the sole live subject status; ActiveStatuses treats it as
 	// resumable across session rotation.
 	statusOpen = "open"
-
-	// notifyMethod is the JSON-RPC method each subject event is pushed under.
-	notifyMethod = "notifications/codex-ask/channel"
 )
 
 func appPaths() paths.Paths { return paths.Paths{App: appDir} }
@@ -78,28 +71,18 @@ func agentGreeting(info agent.Info) string {
 	return fmt.Sprintf("You are agent %s on the codex-ask channel; a parent's wake naming pending directives is authorized.", info.AgentID)
 }
 
-// buildServer composes the headless codex-ask daemon: the core op registry (the
-// agent plane + resolve, registered by daemon.New), the channel presence
-// lifecycle, and the agent greeting. It registers no domain op — the dispatch
-// registry is the filesystem, not the daemon — and mounts no HTTP bridge.
 func buildServer() (*daemon.Server, error) {
-	c := channel.Connectivity{}
 	spec, err := appSpec()
 	if err != nil {
 		return nil, err
 	}
 	return daemon.New(daemon.Config{
-		AppName:           binaryName,
-		Paths:             appPaths(),
-		Daemon:            spec,
-		RuntimeBuild:      appVersion,
-		ActiveStatuses:    []string{statusOpen},
-		PresenceEventType: c.Type(),
-		OnPresenceChange:  c.OnPresenceChange,
-		BootReconcile:     c.BootReconcile,
-		AgentGreeting:     agentGreeting,
-		// ScopeResolve nil → identity; Gate/AgentGate nil → allow every edit and
-		// stop; zero StoreSchema → no domain tables.
+		AppName:        binaryName,
+		Paths:          appPaths(),
+		Daemon:         spec,
+		RuntimeBuild:   appVersion,
+		ActiveStatuses: []string{statusOpen},
+		AgentGreeting:  agentGreeting,
 	})
 }
 
@@ -111,23 +94,6 @@ func serve(ctx context.Context) error {
 	return s.Serve(ctx)
 }
 
-func channelInstructions() string {
-	source := channelPlugin.Source(cmd.ChannelServer)
-	return channel.Instructions(channel.InstructionsSpec{
-		Desc:    "the codex-ask steering channel",
-		Traffic: "Steering directives — a completed codex dispatch's result, or an operator instruction — reach you",
-		Source:  source,
-		Guide: "Directives land inside your tool results and as stop-time instructions when you finish; a codex " +
-			"dispatch's result is always on disk, read by running its AWAIT: line in the foreground. " +
-			"Act on each directive once, then continue or finish your task.",
-		SilentOutside: "a codex-ask steering session",
-	}) + "\n\n" + channel.RelayStep(source)
-}
-
-func channelTools(context.Context, string, string) ([]channel.Tool, string, string, error) {
-	return nil, notifyMethod, channelInstructions(), nil
-}
-
 // deps wires the substrate commands to codex-ask's launcher, control client, and
 // window identity, for a windowed (non-headless) consumer keyed on the Claude
 // window pid.
@@ -135,16 +101,12 @@ func deps() cmd.Deps {
 	return cmd.Deps{
 		Paths:                  appPaths(),
 		Version:                appVersion,
-		Plugin:                 channelPlugin,
 		NewClient:              newClient,
 		EnsureCurrent:          func(ctx context.Context) error { return launcher().EnsureCurrent(ctx, daemon.UpgradeTimeout) },
 		EnsureCurrentIfRunning: func(ctx context.Context) error { return launcher().EnsureCurrentIfRunning(ctx) },
 		Stop:                   func(ctx context.Context) error { return launcher().Stop(ctx, daemon.UpgradeTimeout) },
 		ClaudePID:              procs.ClaudePID,
-		WindowAlive:            procs.LiveClaude,
-		TerminalEvent:          func(string) bool { return false },
 		Serve:                  serve,
-		ChannelTools:           channelTools,
 	}
 }
 
@@ -246,8 +208,6 @@ func consumerRoot() *cobra.Command {
 		cmd.AgentInjectCmd(d),
 		cmd.AgentStopCmd(d),
 		cmd.AgentReportCmd(d),
-		cmd.ChannelCmd(d),
-		cmd.ChannelCheckCmd(d),
 		directCmd(d),
 	)
 	r.AddCommand(platformCmds()...)
@@ -258,15 +218,13 @@ func consumerRoot() *cobra.Command {
 // consumerRoot before falling through to askMode. Each is a plain word, so it
 // cannot collide with a leading --flag dispatch case.
 var consumerSubcommands = map[string]bool{
-	"daemon":        true,
-	"stop":          true,
-	"agent-start":   true,
-	"agent-inject":  true,
-	"agent-stop":    true,
-	"agent-report":  true,
-	"channel":       true,
-	"channel-check": true,
-	"direct":        true,
+	"daemon":       true,
+	"stop":         true,
+	"agent-start":  true,
+	"agent-inject": true,
+	"agent-stop":   true,
+	"agent-report": true,
+	"direct":       true,
 }
 
 func isConsumerSubcommand(name string) bool {
